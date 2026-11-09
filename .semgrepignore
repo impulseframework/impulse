@@ -1,0 +1,42 @@
+# Semgrep path exclusions for the repository's scan (semgrep ci runs from the repository
+# root, which is the module's root). This file replaces Semgrep's built-in ignore list, which
+# skips every *_test.go file, so the tests are scanned like everything else; what is listed
+# here is excluded for the reason beside it.
+#
+# impulse is a build tool: running go, git, and the agent's command line with arguments
+# read from the application under construction is its purpose, so the two places that
+# spawn processes are excluded from the dangerous-exec-command audit rather than marked
+# inline. Everything else in the command stays scanned.
+cmd/impulse/internal/check/check.go
+cmd/impulse/internal/handoff/agent.go
+# ci renders an application's CI workflow (YAML) from an embedded text template: the
+# text/template XSS audit is about HTML output and does not apply.
+ci/ci.go
+# Property-based tests, and the conditiontest generator they draw their cases from, use a
+# seeded math/rand, which is what a reproducible property test needs; the crypto-randomness
+# audit does not apply to them.
+accesstypes/condition/property_test.go
+accesstypes/condition/conditiontest/generator.go
+accesstypes/condition/conditiontest/generator_test.go
+accesstypes/condition/conditiontest/evaluate_test.go
+resource/lowering_property_test.go
+resource/differential_property_test.go
+resource/semantic_differential_test.go
+access/snapshot_property_test.go
+# The maintenance handler writes the maintenance page, embedded at compile time, to every
+# navigation; no request data reaches it, so the direct-write audit (an HTML page writing
+# user data) does not apply.
+resource/maintenance/maintenance.go
+# The test server standing in for the Cloud Run API in the jobs package's tests answers
+# JSON to the client under test; the direct-write audit (an HTML page writing user data)
+# does not apply.
+resource/jobs/jobs_test.go
+# The test servers standing in for the identity provider in the session package's tests
+# answer JSON to the client under test, as the Cloud Run one does; the direct-write audit
+# does not apply.
+session/deviceflow/fake_test.go
+session/internal/workos/client_test.go
+# The persona tests run a fake sign-in host and a fake state-cookie store: the cookies they
+# set and the redirect they follow never leave the test's own server, so the cookie-flag and
+# open-redirect audits (a production handler's concern) do not apply.
+persona/persona_test.go

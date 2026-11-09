@@ -1,0 +1,162 @@
+package generate
+
+import (
+	"context"
+
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/generation"
+)
+
+// NewGenerator declares the application's resource generator: the packages it reads,
+// the schema it reads them against, and the served router (GenerateRouter), where each
+// outlet says how it authenticates and which browser application it serves. The
+// generate program (./resourcegenerator) runs it, and the schema-warning test runs it
+// in-process, so the two never drift.
+//
+// Demonstrates: GenerateRouter, WebApp.several, typescript.types-package.
+func NewGenerator(ctx context.Context) (generation.Generator, error) {
+	generator, err := generation.NewResourceGenerator(
+		ctx,
+		"pkg/resources",
+		[]string{"file://schema/migrations"},
+		generation.GenerateHandlers("app"),
+		// The router is generated: the default outlet is the console, the crew auth's
+		// sessions under /console/api, opened with a password or through the fleet's
+		// Google directory, with the console's browser application at /console. No application is mounted at /: an installed browser application
+		// owns every URL under its start, so beside the portal the console sits under
+		// its own path, and the generated router answers the root alone with a redirect
+		// to it. Every session outlet's API sits under its application's mount path.
+		generation.GenerateRouter(),
+		generation.GenerateRoutes("pkg/router", "console/api",
+			// The crew auth's methods, in the order the login page offers them: the
+			// password, registered with open sign-up (a stranger creates a crew login with
+			// a password from a mailed link, as crew.go registers it, so the router mounts
+			// the sign-up routes and the login page is told of them), and the Google
+			// directory under the registration name the auth
+			// package gives it (crew.GoogleRegistration), which the router mounts at
+			// /console/api/user/google/login and tells the login page about. The
+			// crew's roles are the application's on every method (crew.go registers the
+			// directory with DisableRoleSync): a registration whose directory writes the
+			// roles stands alone on its auth, which the members auth below shows; the
+			// user-management surface the generator serves for the crew seats everyone
+			// by hand.
+			//
+			// The third method is the sign-up registration (crew.SignUpRegistration):
+			// any Google account under the open sign-up rule, declared OpenSignUp, which
+			// the Sector record's self-service creation shape needs, since a stranger
+			// signs in before charting a sector of their own; the router mounts it at
+			// /console/api/user/sign-up/login and the login page offers it under its label.
+			//
+			// Demonstrates: auth.multi-method, auth.user-management, auth.open-sign-up, auth.password-sign-up.
+			generation.Auth("github.com/impulseframework/impulse/lodestar/pkg/auth/crew", generation.PasswordMethod().OpenSignUp(), generation.GoogleMethod("google").Labeled("Lodestar"), generation.GoogleMethod("sign-up").OpenSignUp(), generation.PersonaMethod("persona").InvitedUsers()),
+			generation.WebApp("/console"),
+			// The console also manages the members: the members auth's users, seats and
+			// roles are served under /console/api beside the crew's, through the members
+			// auth's stores and checked against the crew role file, so headquarters
+			// administers both populations from one place.
+			//
+			// Demonstrates: auth.user-management.
+			generation.Manages("github.com/impulseframework/impulse/lodestar/pkg/auth/members"),
+			// The oldest release of the console the server still answers. A console build
+			// sends the release it was built from in X-Api-Version, and the generated router
+			// answers releases from this one up to the server's own (APP_VERSION through
+			// ServerVersion), refusing the rest with 412 before any handler runs; a build
+			// with no header, and a dev build or a dev server, is never refused. This is the
+			// first release, which is also what an outlet without the option answers from,
+			// written out so the place to raise it is on record: a developer removes a
+			// @formerly annotation or a field and raises this to the release that stopped
+			// sending the old name, and consoles built before it are told to reload.
+			//
+			// Demonstrates: api.version-refusal.
+			generation.OldestAnswered("0.1.0"),
+		),
+		// The droids outlet is the machine channel: structs annotated with @outlet
+		// naming droids are served under /droids, which the router composes behind
+		// the crew auth's bearer tokens instead of a browser session: the token check
+		// of the machine outlet the crew auth registers (the App's Droids), with the
+		// device flow's endpoints in front of it, where a command-line client obtains
+		// its tokens with a crew member's approval. The droid service account presents
+		// the configured key, seeded as its application token.
+		//
+		// Demonstrates: outlet.tokens.
+		generation.WithRouterOutlet("droids", "droids",
+			generation.Tokens("github.com/impulseframework/impulse/lodestar/pkg/auth/crew"),
+			// The droid's program ships with the release. ShipsProgram names the main
+			// package of a program the release carries to the droids that run it,
+			// cmd/droid, which sends one telemetry frame through this outlet's ingest
+			// method, and the platforms it is compiled for. The image build compiles it
+			// for each platform into the image, and this outlet serves the file with its
+			// checksum at GET /droids/programs/droid/<release>/linux/amd64, behind the
+			// token check above, to the copies installed on the droids. A person installs
+			// the first copy from the release's assets or with go install; from then on
+			// the copy follows the release the outlet's answers name (resource/shipped):
+			// it fetches a newer release with the token it already carries, verifies the
+			// checksum, swaps the file in beside itself and exits for its service manager
+			// to start the new release.
+			//
+			// Demonstrates: outlet.programs.
+			generation.ShipsProgram("cmd/droid", generation.Platforms("linux/amd64")),
+		),
+		// The portal outlet is the clients' browser app: structs annotated with @outlet
+		// naming portal are served under /portal/api behind the members auth, whose
+		// people sign in through their company's Google directory, with their own
+		// permission-digest and user-domains routes, and the portal's browser
+		// application at /portal.
+		generation.WithRouterOutlet("portal", "portal/api",
+			generation.Auth("github.com/impulseframework/impulse/lodestar/pkg/auth/members", generation.GoogleMethod("directory").Labeled("Company directory").SyncsRoles()),
+			generation.WebApp("/portal"),
+		),
+		// Sector-scoped resources and methods are served under /console/api/sectors/{sectorID}/,
+		// the segment and the parameter derived from the @tenant record (Sector, keyed by
+		// ID); a sector the caller holds no grant in answers like one that does not exist.
+		generation.WithConcealedDomains(),
+		// Every request body the generated router serves is bounded at 2 MiB, set
+		// here once (4 MiB when an application sets nothing): the resource, session,
+		// consolidated and plain JSON routes through the router, an RPC method through
+		// its handler unless it declares its own (IssueBulletin's @rpc(max: 64KB)),
+		// while uploads and live routes bound their own bodies beside it.
+		//
+		// Demonstrates: generation.body-limit.
+		generation.WithBodyLimit(2<<20),
+		// The beacon pulses, mounted by hand through hooks.Root under /beacons/
+		// (pkg/router/hooks.go), are asked all day by every droid, so the prefix is
+		// declared quiet here, once: every request under it writes its request log on
+		// event (a pulse answered 200 writes no entry; one answered 404 does) and records
+		// no span. The generated router hands the prefix to the request logger and the
+		// tracer, and the release file lists it for the stack's own log exclusion.
+		// Everything else keeps today's behavior: an entry for every request, spans
+		// following the front end, since nothing declares otherwise; IngestDroidReports
+		// declares its own word on @rpc.
+		//
+		// Demonstrates: generation.request-log, generation.traces.
+		generation.WithMountedRoutes("/beacons/", generation.LogOnEvent(), generation.TracesOff()),
+		generation.WithRPC("pkg/rpc"),
+		generation.WithVirtualResources("pkg/virtualresources"),
+		generation.WithComputedResources("pkg/computedresources"),
+		// The droid link's package declares the frame type a DroidReports column
+		// holds; naming it lets the generator write the type's JSON and Spanner
+		// methods beside it, so the type stays with the link it models.
+		generation.WithTypes("pkg/telemetry"),
+		generation.GenerateHandlerTests("test/authz"),
+		// Client (global) and Hangar (sector-scoped) keep standalone PATCH surfaces
+		// beside the consolidated handler.
+		generation.WithConsolidatedHandlers("resources", true, "Client", "Hangar"),
+		generation.WithSpannerEmulatorVersion("1.5.56"),
+		generation.GenerateTypescript("web/console/src/app/core/service",
+			generation.GenerateMetadata(),
+			generation.GeneratePermissions(),
+			generation.GenerateEnums(),
+		),
+		generation.GenerateTypescript("web/portal/src/app/core/service",
+			generation.ForOutlet("portal"),
+			generation.GenerateMetadata(),
+			generation.GeneratePermissions(),
+			generation.GenerateEnums(),
+		),
+	)
+	if err != nil {
+		return nil, errors.Wrap(err, "generation.NewResourceGenerator()")
+	}
+
+	return generator, nil
+}

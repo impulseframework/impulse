@@ -1,0 +1,263 @@
+// The stylesheet every application that renders @impulseframework/resource-angular forms and
+// lists carries once, from its global styles:
+//
+//     @use '@impulseframework/resource-angular/styles';
+//
+// The components request these classes by name: the twelve-column grid a field's
+// `cols` maps to, the read-only and edit-mode form treatments, the sticky list header,
+// and the CSS variables an application overrides to theme them. Rules that style a
+// component's own elements live in that component; only cross-cutting ones are here.
+// The fonts the components render in come with it (_fonts.scss): Roboto and the
+// Material Icons as files of this package, and the Material typography's fallback chain.
+@use 'fonts';
+
+// The defaults sit in a cascade layer of their own: a declaration outside any layer wins
+// over a layered one whatever its selector or its place in the output, so the theme
+// sheet, and an application's own override, win wherever they are included.
+@layer impulse-defaults {
+  :root {
+    --default-blue: rgb(8, 84, 111);
+    --light-mode-background-color: #ffffff; // Light mode - white background color
+
+    // The colors the components draw with, each a token an application may set, with the
+    // library's own color as the default. The theme sheet (@impulseframework/resource-angular/theme)
+    // sets every one of them from the Material system tokens; the README's Theming section
+    // is the contract. These defaults are the look the library has always had.
+    --impulse-accent: #003b49; // navigation links and headers, the active bar, the edit links
+    --impulse-surface: #ffffff; // the surface a section label and a list sit on
+    --impulse-outline: #8e8e8e; // a section's border
+    --impulse-divider: #ccc; // a section heading's rule, a dotted outline
+    --impulse-outline-variant: #e0e0e0; // a read-only field's focus underline and checkbox border
+    --impulse-hairline: rgba(0, 0, 0, 0.12); // a row separator in a dialog
+    --impulse-shaded: #e9e9e9; // a shaded block
+    --impulse-dirty: #00617f26; // a field changed and not yet saved
+    --impulse-muted: gray; // a field's prefix and suffix
+    --impulse-hover: rgba(0, 0, 0, 0.04); // a navigation item under the pointer, and the active one
+    --impulse-pressed: rgba(0, 0, 0, 0.1); // a navigation item pressed
+    --impulse-warn: #f44336; // the unsaved-changes word
+    --impulse-edit-shadow: 0 4px 12px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06); // a form in edit mode
+    --impulse-alert-bg: lightgray; // a notice of no kind
+    --impulse-alert-warn-border: red; // an error notice
+    --impulse-alert-warn-bg: #fff5f4;
+    --impulse-alert-accent-border: #dfb51d; // an information or idle notice
+    --impulse-alert-accent-bg: #fff8e0;
+    --impulse-alert-success-border: #4caf50; // a success notice
+    --impulse-alert-success-bg: #f0fff0;
+
+    // Visual updates variables
+    --underline-fields-on: block;
+    --underline-fields-off: none;
+
+    --sticky-headers-on: sticky;
+    --sticky-headers-off: static;
+
+    --layout-label-background-white: #ffffff;
+    --layout-label-background-off-white: #fafafa;
+    --layout-label-background-grey: #bdbdbd;
+    --layout-label-background-blue: var(--default-blue);
+
+    --form-edit-mode-bg-transparent: transparent;
+    --form-edit-mode-bg-visible: var(--mat-form-field-filled-container-color);
+
+    // Default assignments
+    --underline-fields: var(--underline-fields-on);
+    --sticky-headers: var(--sticky-headers-off);
+    --layout-label-background-color: var(--layout-label-background-white);
+    --form-edit-mode-bg: var(--form-edit-mode-bg-transparent);
+    --app-background-color: var(--light-mode-background-color);
+  }
+}
+
+// Resource config classes
+
+// Variables
+$columns: 12;
+$gutter: 16px;
+
+.resource {
+  display: flex;
+  flex-direction: row;
+}
+
+.field {
+  width: 100%;
+  margin-bottom: 5px;
+}
+
+.row {
+  flex-wrap: wrap;
+}
+
+$columns: 12;
+$gutter: 16px;
+$tablet-breakpoint: 768px;
+$mobile-breakpoint: 480px;
+
+@for $i from 1 through $columns {
+  .col-#{$i} {
+    flex: 0 0 calc(100% / #{$columns} * #{$i});
+    max-width: calc(100% / #{$columns} * #{$i});
+    padding-left: calc($gutter / 2);
+    padding-right: calc($gutter / 2);
+    box-sizing: border-box;
+
+    @media (max-width: $tablet-breakpoint) {
+      @if $i <= calc($columns / 2) {
+        flex: 0 0 50%;
+        max-width: 50%;
+      } @else {
+        flex: 0 0 100%;
+        max-width: 100%;
+      }
+    }
+
+    @media (max-width: $mobile-breakpoint) {
+      flex: 0 0 100%;
+      max-width: 100%;
+    }
+  }
+}
+
+@for $j from 1 through 20 {
+  .row-height-#{$j*4} {
+    height: $j * 4px;
+  }
+}
+
+.hidden-field {
+  display: none;
+}
+
+.readonly-field {
+  .mat-mdc-form-field {
+    .mat-mdc-text-field-wrapper {
+      background: transparent;
+
+      &::before,
+      &::after {
+        display: none;
+      }
+    }
+
+    .mat-mdc-input-element {
+      background: transparent;
+      border: none;
+
+      &:focus {
+        outline: none;
+        border-bottom-color: var(--impulse-outline-variant);
+        box-shadow: none;
+      }
+    }
+
+    .mdc-line-ripple {
+      display: var(--underline-display, block);
+    }
+    .mat-mdc-form-field-focus-overlay {
+      display: none;
+    }
+
+    .mat-mdc-floating-label {
+      opacity: 1 !important;
+    }
+  }
+
+  .mat-mdc-checkbox {
+    pointer-events: none;
+
+    .mdc-checkbox__ripple,
+    .mat-ripple,
+    .mat-mdc-checkbox-ripple {
+      display: var(--underline-fields);
+    }
+
+    .mdc-checkbox__background {
+      border-color: var(--impulse-outline-variant);
+    }
+  }
+}
+
+.resource-container {
+  margin-top: 8px;
+  background-color: transparent;
+  border: 2px solid transparent;
+  box-shadow: none;
+
+  transition:
+    background-color 0.3s ease-in-out,
+    border-color 0.3s ease-in-out,
+    box-shadow 0.3s ease-in-out;
+}
+
+.form-edit-mode {
+  border: 2px solid var(--default-blue) !important;
+  border-radius: 10px;
+
+  box-shadow: var(--impulse-edit-shadow);
+
+  .mat-mdc-form-field {
+    .mat-mdc-text-field-wrapper {
+      background: var(--form-edit-mode-bg);
+
+      &.mdc-text-field--filled {
+        &.mdc-text-field--focused::before {
+          display: block;
+          border-bottom-color: var(--default-blue);
+        }
+      }
+    }
+
+    .mat-mdc-form-field-focus-overlay {
+      display: block !important;
+    }
+  }
+}
+
+//#region sticky container headers
+.header-container {
+  position: var(--sticky-headers);
+}
+
+// Issue with Angular material accordion: https://github.com/angular/components/issues/21914
+// Prevents sticky scrolling for elements within expansion panels
+// This hack fixes the sticky issue, but causes the page to expand and have excess height/whitespace
+// at the bottom
+.sticky-headers-hack {
+  mat-expansion-panel {
+    overflow: visible !important;
+    .mat-expansion-panel-content {
+      overflow: visible !important;
+      &.ng-animating {
+        overflow: hidden !important;
+      }
+    }
+  }
+}
+//#endregion sticky container headers
+
+.cdk-overlay-pane.mat-mdc-dialog-panel {
+  max-width: none;
+}
+
+// The user-management page's side panels (edit access, manage account, new user) are
+// dialogs anchored to the right edge of the viewport; a sheet has square corners.
+.cdk-overlay-pane.impulse-users-panel {
+  --mat-dialog-container-shape: 0;
+}
+
+// An option of the user-management page's role picker stacks its title, where the role
+// reaches and its description as a column. The wrapper is Material's own, outside the
+// component's style scope, so the rule lives here.
+.mat-mdc-option.impulse-role-option {
+  --mat-option-label-text-line-height: 1.3;
+
+  .mdc-list-item__primary-text {
+    display: flex;
+    flex-direction: column;
+    padding: 0.25rem 0;
+  }
+}
+
+.mat-expansion-panel-body {
+  padding: 0 !important;
+}

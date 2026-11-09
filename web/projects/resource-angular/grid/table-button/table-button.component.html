@@ -1,0 +1,16 @@
+<span
+  [matTooltip]="disabled() ? config().disabledLabel : config().label"
+  [matTooltipPosition]="tooltipPosition()"
+  class="parent">
+  @if (config().actionType === 'link') {
+    <a [routerLink]="viewRoute()">
+      <button mat-icon-button [disabled]="disabled()" [color]="config().color">
+        <mat-icon>{{ config().icon }}</mat-icon>
+      </button>
+    </a>
+  } @else if (config().actionType === 'function') {
+    <button mat-icon-button (click)="callAction()" [disabled]="disabled()" [color]="color()">
+      <mat-icon>{{ config().icon }}</mat-icon>
+    </button>
+  }
+</span>

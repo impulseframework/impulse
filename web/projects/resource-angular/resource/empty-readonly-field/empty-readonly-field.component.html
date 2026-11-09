@@ -1,0 +1,12 @@
+<div class="readonly-field">
+  <mat-form-field class="field" [subscriptSizing]="'dynamic'">
+    <mat-label>{{ label() }}</mat-label>
+    <input
+      matInput
+      (keydown.enter)="$event.preventDefault()"
+      [readonly]="true"
+      type="text"
+      [value]="displayValue"
+      id="{{ label() }}-readonly-input-text" />
+  </mat-form-field>
+</div>

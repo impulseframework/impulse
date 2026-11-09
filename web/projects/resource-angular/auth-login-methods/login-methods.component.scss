@@ -1,0 +1,100 @@
+:host {
+  display: block;
+}
+
+.impulse-login-form {
+  display: flex;
+  flex-direction: column;
+}
+
+.impulse-login-field,
+.impulse-login-submit,
+.impulse-login-redirect,
+.impulse-login-resend,
+.impulse-login-cancel,
+.impulse-login-sign-up,
+.impulse-login-accept,
+.impulse-login-create-account,
+.impulse-login-continue,
+.impulse-login-sign-out,
+.impulse-login-retry {
+  width: 100%;
+}
+
+.impulse-login-redirect,
+.impulse-login-sign-up,
+.impulse-login-create-account {
+  margin-top: 12px;
+}
+
+.impulse-login-invitation {
+  margin-bottom: 16px;
+}
+
+// The invitation's heading: who is invited where, over the ways to accept it.
+.impulse-login-invitation-title {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 500;
+  line-height: 28px;
+}
+
+.impulse-login-password-note {
+  margin: 0 0 8px;
+  color: var(--mat-sys-on-surface-variant, #49454f);
+}
+
+// One small line for the card, at the lower right under the redirect buttons: the
+// "Use a different account" link, or the note that takes its place once it was pressed.
+.impulse-login-chooser {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 2px;
+  padding-right: 4px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.impulse-login-different-account {
+  --mdc-text-button-container-height: 24px;
+
+  min-width: 0;
+  padding: 0 8px;
+  font-size: 12px;
+}
+
+.impulse-login-chooser-note {
+  padding: 4px 8px;
+  color: var(--mat-sys-on-surface-variant, #49454f);
+}
+
+.impulse-login-accept,
+.impulse-login-sign-out {
+  margin-top: 8px;
+}
+
+.impulse-login-pending-note,
+.impulse-login-change-note,
+.impulse-login-account-note,
+.impulse-login-started-note,
+.impulse-login-starting-note,
+.impulse-login-landed-note,
+.impulse-login-signed-in-note,
+.impulse-login-invitation-note,
+.impulse-login-unreachable-note {
+  margin: 0 0 12px;
+}
+
+.impulse-login-cancel,
+.impulse-login-resend {
+  margin-top: 8px;
+}
+
+.impulse-login-remember {
+  margin-bottom: 12px;
+}
+
+.impulse-login-message {
+  margin: 12px 0 0;
+  color: var(--mat-sys-error, #b3261e);
+}

@@ -1,0 +1,356 @@
+package generate
+
+import (
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"testing"
+)
+
+// TestConsoleCarriesLibrarySurface pins the browser-library surface the console carries
+// beyond its generated pages, which no other application exercises since the
+// browser packages' showcase retired: the idle session provided from the build's environment through the
+// library's tokens, its warning the library's notice at the top of the viewport that any
+// activity ends, with no button of the console's (the retired confirmation flag is not
+// provided); the Squadrons page's componentConfig (the channel card) and arrayConfig (the
+// sector's other squadrons, filtered by the indexed key); and the leave-page
+// confirmation, which the library's resourceRoutes attaches to every config-driven list
+// and row route under the FRONTEND_LOGIN_PATH the console provides, so the console adds
+// no guard of its own. Lodestar has no browser specs and the walkthrough is curl, so the
+// committed sources are the proof the wiring is present; the dialogs are driven by hand
+// in the browser (README, "Running it"). Needs no emulator.
+//
+// Demonstrates: idle.configured, config.component, config.array, form.leave-page.
+func TestConsoleCarriesLibrarySurface(t *testing.T) {
+	t.Parallel()
+
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	console := filepath.Join(filepath.Dir(thisFile), "..", "..", "web", "console", "src")
+
+	tests := []struct {
+		name   string
+		file   string
+		want   []string
+		absent []string
+	}{
+		{
+			name: "the idle tokens are provided, the durations from the environment, and the retired confirmation flag is not",
+			file: "app/app.config.ts",
+			want: []string{
+				"{ provide: IDLE_SESSION_DURATION, useValue: environment.idle.sessionSeconds }",
+				"{ provide: IDLE_WARNING_DURATION, useValue: environment.idle.warningSeconds }",
+				"{ provide: IDLE_KEEPALIVE_DURATION, useValue: environment.idle.keepAliveSeconds }",
+				"provide: IDLE_LOGOUT_ACTION,",
+				"provide: LOGOUT_ACTION,",
+				"{ provide: FRONTEND_LOGIN_PATH, useValue: '/login' }",
+			},
+			absent: []string{"IDLE_TIMEOUT_REQUIRE_CONFIRMATION"},
+		},
+		{
+			name: "a development build shortens the idle session",
+			file: "environments/environment.ts",
+			want: []string{"idle: { sessionSeconds: 180, warningSeconds: 60, keepAliveSeconds: 30 }"},
+		},
+		{
+			name: "the served build's idle session matches the server's default session timeout",
+			file: "environments/environment.prod.ts",
+			want: []string{"idle: { sessionSeconds: 600, warningSeconds: 60, keepAliveSeconds: 30 }"},
+		},
+		{
+			name:   "the header offers no stay-signed-in button: the warning is the library's notice and any activity ends it",
+			file:   "app/components/shared/header/header.component.html",
+			want:   []string{`<span class="username">{{ auth.sessionInfo().username }}</span>`},
+			absent: []string{"stayLoggedIn", "idle."},
+		},
+		{
+			name:   "the notices stack at the top of the viewport, as the skeleton places them",
+			file:   "app/app.component.scss",
+			want:   []string{".alert-container {", "top: 12px;", "transform: translateX(-50%);"},
+			absent: []string{"bottom: 16px;"},
+		},
+		{
+			name: "the Squadrons page carries the channel card and the sector's other squadrons",
+			file: "app/configs/squadrons.config.ts",
+			want: []string{
+				"componentConfig({ primaryResource: Resources.Squadrons, component: SquadronChannelComponent })",
+				"arrayConfig({",
+				"title: 'Other squadrons in this sector'",
+				"`${Squadrons.fieldName.id}:ne:${squadron.id}`",
+			},
+		},
+		{
+			name: "the channel card is the application's component over the library's base class",
+			file: "app/components/sector/squadron-channel/squadron-channel.component.ts",
+			want: []string{"export class SquadronChannelComponent extends CustomConfigComponent"},
+		},
+		{
+			name:   "the config-driven routes come from resourceRoutes, which carries the leave-page guard, and the console adds none",
+			file:   "app/app.routes.ts",
+			want:   []string{"resourceRoutes(squadronsConfig, resourceMeta)", "resourceRoutes(missionsConfig, resourceMeta)"},
+			absent: []string{"canDeactivate: ["},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			data, err := os.ReadFile(filepath.Join(console, tt.file))
+			if err != nil {
+				t.Fatalf("reading %s: %v", tt.file, err)
+			}
+			source := string(data)
+			for _, want := range tt.want {
+				if !strings.Contains(source, want) {
+					t.Errorf("%s: missing %q", tt.file, want)
+				}
+			}
+			for _, absent := range tt.absent {
+				if strings.Contains(source, absent) {
+					t.Errorf("%s: carries %q, want absent", tt.file, absent)
+				}
+			}
+		})
+	}
+}
+
+// TestConsoleHandsTheClientItsHooks pins how both browser applications render the
+// client's judgment, where the library's HTTP interceptor used to judge responses one
+// layer below the client and toast every in-place refusal a second time: each
+// app.config.ts spreads the options provideResourceClient hands its factory (the
+// transport that counts activity, the error hook that returns the browser to the login
+// page on a 401) into the generated createApi and registers no interceptor, HttpClient
+// keeps the XSRF echo and the release header alone (apiVersionInterceptor, the library's
+// one functional interceptor, which judges nothing), no provider after it re-provides
+// ErrorHandler (the BrowserAnimationsModule import that did is the standalone
+// provideAnimationsAsync), each login page composes the library's login component, which
+// reads AuthService.redirectUrl once and clears it, names no path of its own and posts
+// nothing through HttpClient, and the flight deck reports its refusals in place (the
+// declared 409 answer, the 403 on an edit) so they reach no notice. The committed
+// sources are the proof the wiring is present; the redirect, the notice and the login
+// pages are driven in the browser (README, "Running it"). Needs no emulator.
+//
+// Demonstrates: client.login-redirect, client.uncaught-notice, client.login-component.
+func TestConsoleHandsTheClientItsHooks(t *testing.T) {
+	t.Parallel()
+
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	web := filepath.Join(filepath.Dir(thisFile), "..", "..", "web")
+
+	// No interceptor, and no importProvidersFrom(BrowserAnimationsModule): BrowserModule's providers
+	// carry Angular's default ErrorHandler, which would replace the adapter's and silence the notice.
+	noInterceptor := []string{"HTTP_INTERCEPTORS", "ui-interceptor", "withInterceptorsFromDi", "ApiInterceptor", "BrowserAnimationsModule", "importProvidersFrom"}
+
+	tests := []struct {
+		name   string
+		file   string
+		want   []string
+		absent []string
+	}{
+		{
+			name: "the console spreads the adapter's options into createApi and registers the release-header interceptor alone",
+			file: "console/src/app/app.config.ts",
+			want: []string{
+				"provideResourceClient((options) => createApi({ baseUrl: environment.apiUrl, ...options }))",
+				"provideHttpClient(withInterceptors([apiVersionInterceptor]), withXsrfConfiguration({ cookieName: 'crew-xsrf' }))",
+				"{ provide: API_VERSION, useValue: APP_VERSION }",
+				"provideAnimationsAsync(),",
+				"{ provide: FRONTEND_LOGIN_PATH, useValue: '/login' }",
+				"{ provide: BASE_URL, useValue: environment.baseUrl }",
+			},
+			absent: noInterceptor,
+		},
+		{
+			name: "the portal the same, over its own cookie",
+			file: "portal/src/app/app.config.ts",
+			want: []string{
+				"provideResourceClient((options) => createApi({ baseUrl: environment.apiUrl, ...options }))",
+				"provideHttpClient(withInterceptors([apiVersionInterceptor]), withXsrfConfiguration({ cookieName: 'members-xsrf' }))",
+				"{ provide: API_VERSION, useValue: APP_VERSION }",
+				"provideAnimationsAsync(),",
+			},
+			absent: noInterceptor,
+		},
+		{
+			name: "the console's login page composes the library's login component and names no path of its own",
+			file: "console/src/app/components/login/login.component.ts",
+			want: []string{
+				"import { LoginMethodsComponent } from '@impulseframework/resource-angular/auth-login-methods';",
+				"import { ReleaseComponent } from '@impulseframework/resource-angular/ui-release';",
+				"imports: [LoginMethodsComponent, MatCardModule, MatIconModule, ReleaseComponent],",
+				"this.idle.stop();",
+				"this.idle.start();",
+				"void this.router.navigateByUrl(page);",
+			},
+			absent: []string{"HttpClient", "/user/", "user/methods", "redirectUrl", "location.assign", "logout()"},
+		},
+		{
+			name: "the console's page hands the component where a sign-in lands and takes the page it emits",
+			file: "console/src/app/components/login/login.component.html",
+			want: []string{
+				`<impulse-login-methods #methods home="/dashboard" (signedIn)="go($event)" />`,
+				`[class.arriving]="methods.arriving()"`,
+				`<mat-card-footer class="release"><impulse-release /></mat-card-footer>`,
+			},
+			absent: []string{"<form", "ngSubmit", "/user/", "returnUrl"},
+		},
+		{
+			name: "the portal's login page the same, with its own words for the directory",
+			file: "portal/src/app/components/login/login.component.ts",
+			want: []string{
+				"import { LoginMethodsComponent } from '@impulseframework/resource-angular/auth-login-methods';",
+				"export const METHOD_LABELS: Readonly<Record<string, string>> = { directory: 'your company directory' };",
+				"this.idle.stop();",
+				"void this.router.navigateByUrl(page);",
+			},
+			absent: []string{"HttpClient", "/user/", "user/methods", "redirectUrl", "location.assign", "logout()"},
+		},
+		{
+			name: "the portal's page hands the component the tracker and its labels",
+			file: "portal/src/app/components/login/login.component.html",
+			want: []string{
+				`<impulse-login-methods #methods home="/tracker" [labels]="labels" (signedIn)="go($event)" />`,
+				`[class.arriving]="methods.arriving()"`,
+				`<mat-card-footer class="release"><impulse-release /></mat-card-footer>`,
+			},
+			absent: []string{"<form", "/user/", "returnUrl"},
+		},
+		{
+			name: "the console signs out through a route composing the library's sign-out page",
+			file: "console/src/app/app.routes.ts",
+			want: []string{
+				"path: 'logout',",
+				"import('@impulseframework/resource-angular/auth-sign-out').then((comp) => comp.SignOutComponent)",
+			},
+		},
+		{
+			name:   "the console's header links to the sign-out route and ends no session itself",
+			file:   "console/src/app/components/shared/header/header.component.html",
+			want:   []string{`<a mat-stroked-button routerLink="/logout">Logout</a>`},
+			absent: []string{"logout()"},
+		},
+		{
+			name: "the flight deck reports the declared answer and the edit refusal in place",
+			file: "console/src/app/components/sector/flight-deck/flight-deck.component.ts",
+			want: []string{
+				"if (answer.status === 409) {",
+				"this.refusal.set(",
+				"if (e instanceof ApiError && e.status === 403) {",
+				"this.editRefusal.set(e.message);",
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			data, err := os.ReadFile(filepath.Join(web, tt.file))
+			if err != nil {
+				t.Fatalf("reading %s: %v", tt.file, err)
+			}
+			source := string(data)
+			for _, want := range tt.want {
+				if !strings.Contains(source, want) {
+					t.Errorf("%s: missing %q", tt.file, want)
+				}
+			}
+			for _, absent := range tt.absent {
+				if strings.Contains(source, absent) {
+					t.Errorf("%s: carries %q, want absent", tt.file, absent)
+				}
+			}
+		})
+	}
+}
+
+// TestThemeChoiceSurface pins how the console and the portal offer the person's choice of
+// look: theme.scss hands its palettes to the library's palettes mixin under quoted ids,
+// app.config.ts names the same ids to provideTheme (the portal, with one palette, names
+// none), and the dashboard (the portal's tracker) composes the library's theme picker in
+// an Appearance card; nothing of the choice is stored on the server.
+//
+// Demonstrates: webapp.theme-choice.
+func TestThemeChoiceSurface(t *testing.T) {
+	t.Parallel()
+
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	web := filepath.Join(filepath.Dir(thisFile), "..", "..", "web")
+
+	tests := []struct {
+		name string
+		file string
+		want []string
+	}{
+		{
+			name: "the console's theme offers three palettes through the mixin",
+			file: "console/src/theme.scss",
+			want: []string{
+				"@use '@impulseframework/resource-angular/palettes';",
+				"@include theme.palettes(",
+				"'blue': (",
+				"primary: mat.$azure-palette,",
+				"'workspace': (",
+				"primary: palettes.$workspace-primary,",
+				"tertiary: palettes.$workspace-tertiary,",
+				"'violet': (",
+				"primary: mat.$violet-palette,",
+				"tertiary: mat.$magenta-palette,",
+			},
+		},
+		{
+			name: "the console names the same ids to provideTheme",
+			file: "console/src/app/app.config.ts",
+			want: []string{
+				"import { provideTheme } from '@impulseframework/resource-angular/ui-theme';",
+				"{ id: 'blue', label: 'Blue' },",
+				"{ id: 'workspace', label: 'Workspace' },",
+				"{ id: 'violet', label: 'Violet' },",
+			},
+		},
+		{
+			name: "the dashboard composes the picker in its Appearance card",
+			file: "console/src/app/components/ui/dashboard/dashboard.component.html",
+			want: []string{"<mat-card-title>Appearance</mat-card-title>", "<impulse-theme-picker />"},
+		},
+		{
+			name: "the portal offers one palette and names none to provideTheme",
+			file: "portal/src/theme.scss",
+			want: []string{"@include theme.palettes(", "'blue': (", "primary: mat.$azure-palette,", "tertiary: mat.$blue-palette,"},
+		},
+		{
+			name: "the portal starts the service with no palette",
+			file: "portal/src/app/app.config.ts",
+			want: []string{"import { provideTheme } from '@impulseframework/resource-angular/ui-theme';", "provideTheme(),"},
+		},
+		{
+			name: "the tracker composes the picker",
+			file: "portal/src/app/components/tracker/tracker.component.html",
+			want: []string{"<mat-card-title>Appearance</mat-card-title>", "<impulse-theme-picker />"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			data, err := os.ReadFile(filepath.Join(web, tt.file))
+			if err != nil {
+				t.Fatalf("reading %s: %v", tt.file, err)
+			}
+			source := string(data)
+			for _, want := range tt.want {
+				if !strings.Contains(source, want) {
+					t.Errorf("%s: missing %q", tt.file, want)
+				}
+			}
+		})
+	}
+}

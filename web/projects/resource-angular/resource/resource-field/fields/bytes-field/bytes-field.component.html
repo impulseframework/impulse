@@ -1,0 +1,24 @@
+@if (showField()) {
+  <div class="readonly-field">
+    <mat-form-field class="field {{ fieldClass() }}" [subscriptSizing]="'dynamic'">
+      <mat-label>{{ fieldConfig().label }}</mat-label>
+      <input matInput readonly type="text" [value]="sizeLabel()" (keydown.enter)="$event.preventDefault()" />
+      @if (downloadUrl(); as url) {
+        <a
+          matSuffix
+          mat-icon-button
+          class="download"
+          [href]="url"
+          [download]="fieldConfig().name"
+          [attr.aria-label]="'Download ' + fieldConfig().label"
+          tabindex="-1">
+          <mat-icon>download</mat-icon>
+        </a>
+      }
+    </mat-form-field>
+  </div>
+} @else {
+  <ng-container [formGroup]="form()">
+    <input type="hidden" [formControlName]="fieldConfig().name" />
+  </ng-container>
+}

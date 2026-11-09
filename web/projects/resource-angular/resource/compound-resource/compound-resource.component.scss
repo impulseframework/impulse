@@ -1,0 +1,86 @@
+.page-container {
+  position: relative;
+}
+
+.header-container {
+  display: flex;
+  flex-direction: row;
+  position: absolute;
+  top: 0;
+  z-index: 11;
+  background: transparent;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.title-without-back {
+  margin-left: 48px;
+  height: 48px;
+}
+
+.message {
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+.state-buttons {
+  display: flex;
+  flex-direction: row;
+  margin-bottom: auto;
+  justify-content: right;
+  flex-grow: 1;
+  gap: 20px;
+  margin-right: 32px;
+}
+
+.mode-text {
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+.resource {
+  margin: 10px;
+}
+
+.mat-input-element:disabled[readonly] {
+  color: currentColor;
+}
+
+.unsaved {
+  color: var(--impulse-warn);
+}
+
+.edit-button {
+  margin-top: auto;
+  margin-bottom: auto;
+  padding-left: 10px;
+}
+
+.button-text {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+
+  .edit {
+    color: var(--impulse-accent);
+  }
+
+  .mat-icon {
+    margin-right: 8px;
+  }
+}
+
+.empty-elements {
+  padding-top: 30px;
+}
+
+.rpc-buttons-container {
+  display: flex;
+  flex-direction: row;
+  justify-content: flex-end;
+  padding-bottom: 10px;
+}

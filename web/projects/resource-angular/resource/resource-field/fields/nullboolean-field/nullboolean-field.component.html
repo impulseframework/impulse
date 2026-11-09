@@ -1,0 +1,38 @@
+<ng-container [formGroup]="form()">
+  @if (showField()) {
+    @let options = availableEnumOptions();
+    @if (editMode() === 'edit') {
+      <mat-form-field class="field {{ fieldClass() }}" [subscriptSizing]="'dynamic'">
+        <mat-label>{{ fieldConfig().label }}</mat-label>
+        <mat-select
+          [formControlName]="fieldConfig().name"
+          (keydown.enter)="$event.preventDefault()"
+          [canSelectNullableOptions]="true"
+          [ariaReadOnly]="editMode() === 'view'">
+          @for (option of options; track option[0]) {
+            @if (option[0] === currentValue()) {
+              <mat-option [value]="option[0]" selected>{{ option[1] }}</mat-option>
+            } @else {
+              <mat-option [value]="option[0]">{{ option[1] }}</mat-option>
+            }
+          }
+        </mat-select>
+      </mat-form-field>
+    } @else {
+      <div class="readonly-field">
+        <mat-form-field class="field {{ fieldClass() }}" [subscriptSizing]="'dynamic'">
+          <mat-label>{{ fieldConfig().label }}</mat-label>
+          <input
+            matInput
+            (keydown.enter)="$event.preventDefault()"
+            [readonly]="true"
+            type="text"
+            [required]="hasRequiredValidator()"
+            [value]="currentDisplayText()" />
+        </mat-form-field>
+      </div>
+    }
+  } @else {
+    <input class="display-none" [formControlName]="fieldConfig().name" />
+  }
+</ng-container>

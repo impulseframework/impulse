@@ -1,0 +1,6 @@
+# The generator's on-disk cache, which the generation package's tests write when they run the
+# generator over the test fixtures and an application writes when it runs the generator here.
+.impulse-cache/
+# The command line built in place.
+/cmd/impulse/impulse
+/cmd/impulse/dist/

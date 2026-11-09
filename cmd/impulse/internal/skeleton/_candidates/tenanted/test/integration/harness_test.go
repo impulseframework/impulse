@@ -1,0 +1,408 @@
+package integration
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/cookiejar"
+	"net/http/httptest"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/go-playground/errors/v5"
+	"github.com/go-playground/validator/v10"
+	"github.com/impulseframework/impulse/access"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/app"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/auth/staff"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/router"
+	initiator "github.com/impulseframework/impulse/db"
+	"github.com/impulseframework/impulse/logger"
+	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/resource/live"
+	"github.com/impulseframework/impulse/resource/sessionusers"
+	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/mail"
+)
+
+const (
+	migrationsSource = "file://../../schema/migrations"
+	devSeedSource    = "file://../../schema/devseed"
+
+	// The development tenants, matching schema/devseed.
+	north = "north"
+	south = "south"
+
+	// The development logins the served suites sign in as: admin holds
+	// Administrator and TenantAdministrator in every tenant, member holds
+	// TenantAdministrator in north only.
+	adminUser     = "admin"
+	memberUser    = "member"
+	adminPassword = "password"
+)
+
+// servedConfigurer implements app.Configurer over the real dependencies: the test
+// database, the real permission engine, and a real session manager, so the suites
+// exercise the same served stack main composes.
+type servedConfigurer struct {
+	db      *initiator.SpannerDB
+	auth    *staff.Auth
+	live    *live.Fake
+	tenants *resource.TenantRoster
+}
+
+// TenantRoster is the tenant roster over the test database, read from the Tenants table
+// the development seed filled and kept current as production's data level keeps it: a
+// tenant written through the API reaches it after the commit, and the served stack
+// filters it by the engine's foothold answer.
+func (c *servedConfigurer) TenantRoster() *resource.TenantRoster {
+	return c.tenants
+}
+
+// TenantDeclarations is the roster's copy of what each tenant declares about who may
+// enter it, as production's data level answers: a declaration the suites write through
+// the API decides the next request.
+func (c *servedConfigurer) TenantDeclarations() resource.TenantDeclarations {
+	return c.tenants.Declarations
+}
+
+func (c *servedConfigurer) ResourceClient() resource.Client {
+	return resource.NewSpannerClient(c.db.Client)
+}
+
+// CursorKey seals the cursors the suites' paged lists issue; any key serves a test process.
+func (c *servedConfigurer) CursorKey() *resource.CursorKey {
+	key, err := resource.NewCursorKey(base64.StdEncoding.EncodeToString([]byte("skeleton-test-cursor-key-material!!")))
+	if err != nil {
+		panic(err)
+	}
+
+	return key
+}
+
+func (c *servedConfigurer) Access() access.Controller { return c.auth.Access() }
+
+func (c *servedConfigurer) Staff() *staff.Auth { return c.auth }
+
+// StaffUserStores are the real stores: the test staff auth's session accounts and its
+// engine's memberships, so the suites drive the user surface as the served application does.
+func (c *servedConfigurer) StaffUserStores() (resource.UserAccounts, resource.UserSeats) {
+	return sessionusers.Accounts(c.auth.Session().API()), c.auth.Access().UserManager()
+}
+
+func (c *servedConfigurer) Validator() *validator.Validate { return validator.New() }
+
+func (c *servedConfigurer) LogExporter() logger.Exporter { return logger.NewConsoleExporter() }
+
+// AppVersion is dev: the served stack's version check answers every release, so no
+// suite's request is refused for the release it carries.
+func (c *servedConfigurer) AppVersion() string {
+	return "dev"
+}
+
+func (c *servedConfigurer) ConsoleDist() string { return "" }
+
+// Live is the in-memory live service the auths' permission engines signal policy
+// changes through: the live service is required in every application.
+func (c *servedConfigurer) Live() live.Service {
+	return c.live
+}
+
+// LiveOrigins names no change feed origin: the suites serve no live pages.
+func (c *servedConfigurer) LiveOrigins() []string {
+	return nil
+}
+
+// served is one running instance of the application under test.
+type served struct {
+	server *httptest.Server
+	access *access.Client
+	// auth is the staff auth the instance binds to, for a suite that creates a login of
+	// its own beside the development ones.
+	auth *staff.Auth
+	// db is the test database, for a suite that reads what the stack recorded.
+	db *initiator.SpannerDB
+	// mail is the recorder the staff auth sends its mail to, where a suite reads the
+	// sign-in code a sign-in waits for.
+	mail *mail.Recorder
+	// codeMu lets one sign-in at a time run its second factor on the stack, so the code a
+	// browser reads from the recorder is its own, and trusted holds, per login, the token
+	// of the browser the login asked to be remembered at their first sign-in, which their
+	// later sign-ins carry (browser.signIn).
+	codeMu  sync.Mutex
+	trusted map[string]*http.Cookie
+}
+
+// newServed provisions the database the way the deployment does (the schema and the
+// development tenants, then the auth opened over it with its embedded role file validated
+// against the collection), creates the development logins, and serves the full router.
+func newServed(ctx context.Context, t *testing.T) *served {
+	t.Helper()
+
+	db, err := prepareDatabase(ctx, t, migrationsSource, devSeedSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The live service the engine signals policy changes through, the App follows its
+	// feature flags from, and the tenant roster reloads on: in-memory in the suites.
+	svc := live.NewFake()
+	// The tenant roster, started over the seeded tenants as production's data level
+	// starts it; a tenant the suites create through the API reaches it after the commit.
+	roster := app.NewTenantRoster(resource.NewSpannerClient(db.Client), resource.WithTenantSignals(svc))
+	if err := roster.Start(ctx); err != nil {
+		t.Fatalf("resource.TenantRoster.Start() error = %v", err)
+	}
+	// The server is made before the auth so the google registration's redirect URL can
+	// name its callback, the one setting of the registration the simulated directory
+	// reads (the suites build with the skipAuth tag); it starts once the router exists.
+	server := httptest.NewUnstartedServer(nil)
+	// The recorder the staff auth's mail goes to: the suites read the sign-in codes from it.
+	sent := &mail.Recorder{}
+	auth, err := staff.New(ctx, db.Client, &staff.Settings{
+		Collection:     router.Collection(),
+		Signals:        svc,
+		CookieKey:      testCookieKey,
+		SessionTimeout: time.Minute,
+		Mail:           sent,
+		MailLoginURL:   "http://tenanted.test/login",
+		LoginURL:       "/login",
+		Google:         staff.GoogleSettings{RedirectURL: "http://" + server.Listener.Addr().String() + "/api/user/google/callback"},
+		// The sign-in rule reads what each tenant declares in the sign-in's transaction,
+		// through the generated reader, as production does.
+		TenantDeclarations: app.NewTenantDeclarationReader(),
+		TenantDirectories:  app.NewTenantDirectoryReader(),
+	})
+	if err != nil {
+		t.Fatalf("staff.New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := auth.Close(); err != nil {
+			t.Errorf("staff.Auth.Close() error = %v", err)
+		}
+	})
+	accessClient := auth.Access()
+
+	passwordAuth := auth.Session()
+	password := adminPassword
+	for _, user := range []string{adminUser, memberUser} {
+		if _, err := passwordAuth.API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: user, Password: &password}); err != nil {
+			t.Fatalf("CreateSessionUser(%s) error = %v", user, err)
+		}
+	}
+	// The memberships as the bootstrap identities hold them: the administrator's domain
+	// role in every tenant domain, one membership, and the member's in north alone.
+	assignments := []struct {
+		user  accesstypes.User
+		scope accesstypes.PolicyScope
+		role  accesstypes.Role
+	}{
+		{adminUser, accesstypes.GlobalPolicyScope(), "Administrator"},
+		{adminUser, accesstypes.GlobalPolicyScope(), "FeatureAdministrator"},
+		{adminUser, accesstypes.EveryDomainPolicyScope(), "TenantAdministrator"},
+		{memberUser, accesstypes.DomainPolicyScope(north), "TenantAdministrator"},
+	}
+	for _, a := range assignments {
+		if err := accessClient.UserManager().AddUserRoles(ctx, a.scope, a.user, a.role); err != nil {
+			t.Fatalf("AddUserRoles(%s, %v) error = %v", a.user, a.scope, err)
+		}
+	}
+
+	// The snapshot swap is asynchronous: wait until the last-provisioned assignment is
+	// visible to the engine before serving.
+	waitForDomains(ctx, t, accessClient, memberUser, []accesstypes.Domain{north})
+
+	a := app.New(&servedConfigurer{db: db, auth: auth, live: svc, tenants: roster})
+	// The App reads its feature flags as it is built; Start reports a copy that could
+	// not be read and follows the table until the test ends.
+	if err := a.Start(ctx); err != nil {
+		t.Fatalf("app.Start() error = %v", err)
+	}
+	server.Config.Handler = router.New(a, router.Hooks{})
+	server.Start()
+	t.Cleanup(server.Close)
+
+	return &served{server: server, access: accessClient, auth: auth, db: db, mail: sent, trusted: map[string]*http.Cookie{}}
+}
+
+// waitForDomains blocks until the engine's snapshot reports the user's footholds in
+// exactly the expected tenants, asked the way the served stack asks (the development
+// roster filtered by UserHasGrants): the store writes signal a reload, but the swap is
+// asynchronous.
+func waitForDomains(ctx context.Context, t *testing.T, client *access.Client, user accesstypes.User, want []accesstypes.Domain) {
+	t.Helper()
+
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		domains, err := footholds(ctx, client, user)
+		if err == nil && slices.Equal(domains, want) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("policy snapshot never became visible; last domains for %s: %v (err %v)", user, domains, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// footholds lists the development tenants where the user holds at least one grant.
+func footholds(ctx context.Context, client *access.Client, user accesstypes.User) ([]accesstypes.Domain, error) {
+	var domains []accesstypes.Domain
+	for _, domain := range []accesstypes.Domain{north, south} {
+		has, err := client.UserHasGrants(ctx, user, accesstypes.DomainScope(domain))
+		if err != nil {
+			return nil, errors.Wrap(err, "access.Client.UserHasGrants()")
+		}
+		if has {
+			domains = append(domains, domain)
+		}
+	}
+
+	return domains, nil
+}
+
+// testCookieKey signs session cookies in the suites; any 32 bytes will do.
+const testCookieKey = "dGVzdC1jb29raWUta2V5LXRlc3QtY29va2llLWtleS0xMjM0NTY="
+
+// browser is one browser's view of the served application: a cookie jar and the XSRF
+// token the session middleware issued into it.
+type browser struct {
+	t      *testing.T
+	base   string
+	client *http.Client
+	// served is the stack the browser is on, whose recorder holds the code a sign-in
+	// waits for and whose trusted tokens a remembered browser carries.
+	served *served
+}
+
+func newBrowser(t *testing.T, s *served) *browser {
+	t.Helper()
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return &browser{t: t, base: s.server.URL, client: &http.Client{Jar: jar}, served: s}
+}
+
+// login posts the credentials to the login route and returns the status.
+func (b *browser) login(ctx context.Context, user, password string) (status int, body []byte) {
+	b.t.Helper()
+
+	credentials, err := json.Marshal(map[string]string{"username": user, "password": password})
+	if err != nil {
+		b.t.Fatal(err)
+	}
+
+	return b.do(ctx, http.MethodPost, "/api/user/password/login", credentials)
+}
+
+// do issues one request as this browser, carrying its cookies and XSRF token.
+func (b *browser) do(ctx context.Context, method, path string, body []byte) (status int, respBody []byte) {
+	b.t.Helper()
+
+	req, err := http.NewRequestWithContext(ctx, method, b.base+path, bytes.NewReader(body))
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token := b.xsrfToken(); token != "" {
+		req.Header.Set("X-XSRF-TOKEN", token)
+	}
+
+	resp, err := b.client.Do(req)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err = io.ReadAll(resp.Body)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+
+	return resp.StatusCode, respBody
+}
+
+// redirect issues one GET as this browser without following the redirect it answers
+// with, and returns the status and where it points: the way a directory sign-in is
+// followed one step at a time.
+func (b *browser) redirect(ctx context.Context, target string) (status int, location string) {
+	b.t.Helper()
+
+	if !strings.HasPrefix(target, "http") {
+		target = b.base + target
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, http.NoBody)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	client := &http.Client{Jar: b.client.Jar, CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	resp, err := client.Do(req)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
+		b.t.Fatal(err)
+	}
+
+	return resp.StatusCode, resp.Header.Get("Location")
+}
+
+// xsrfToken returns the XSRF cookie the session middleware issued, or empty before the
+// first response.
+func (b *browser) xsrfToken() string {
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, b.base+"/api/user/session", http.NoBody)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	for _, cookie := range b.client.Jar.Cookies(req.URL) {
+		if cookie.Name == staff.XSRFCookie {
+			return cookie.Value
+		}
+	}
+
+	return ""
+}
+
+// provesGrant names the conditional grant a test case proves. It parses the auth's role
+// file (<auth>.Roles(), the file embedded in the auth package) and fails unless a grant for
+// the role, permission, and resource carries exactly that condition text, so a case whose
+// grant is gone or reworded fails here even when nobody ran impulse check, whose
+// conditions-proven check reads these calls to find the conditional grants no case names.
+// Write the file as the auth package's Roles() call and the coordinates as literals: the
+// check reads them from the source.
+func provesGrant(t *testing.T, roles access.RoleFile, role accesstypes.Role, permission accesstypes.Permission, res accesstypes.Resource, condition string) {
+	t.Helper()
+
+	parsed, err := roles.Parse()
+	if err != nil {
+		t.Fatalf("parsing the role file: %v", err)
+	}
+	var conditions []string
+	for _, r := range slices.Concat(parsed.Roles.Global, parsed.Roles.Domain) {
+		if r.Name != role {
+			continue
+		}
+		for _, g := range r.Permissions[permission] {
+			if g.Resource != res {
+				continue
+			}
+			if g.Condition == condition {
+				return
+			}
+			conditions = append(conditions, g.Condition)
+		}
+	}
+	t.Fatalf("no %s grant of the %s role on %s carries the condition %q (the file's conditions there: %q); the case proves a grant the file no longer carries", permission, role, res, condition, conditions)
+}

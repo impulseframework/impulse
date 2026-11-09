@@ -1,0 +1,87 @@
+<div class="page-container">
+  <div class="header-container">
+    <div class="title" [class.title-without-back]="title()">
+      @if (title() !== '') {
+        <h1>{{ title() }}</h1>
+      }
+    </div>
+  </div>
+
+  @if (hasElements() || configs().length > 0) {
+    <div class="resource-container" [class.empty-elements]="!hasElements()">
+      @let primaryConfigRef = primaryConfig();
+      @if (primaryConfigRef.type === 'View' || primaryConfigRef.type === 'ListView') {
+        <!-- The page's own row: the view shares this page's store (it provides none), so the
+             key it is handed is the one the store reads by, and a save it makes is what every
+             child below reads. -->
+        <impulse-resource-view
+          [uuid]="primaryConfigParentId()"
+          [config]="primaryConfigRef"
+          [relatedData]="resolvedData()"
+          [showCreateForm]="missingRoot()"
+          [compoundResourceView]="true"
+          [navAfterDelete]="navAfterDeleteConsideringRoot()"
+          (createChange)="resourceCreate.emit()"
+          (deleted)="deleted.emit(true)">
+        </impulse-resource-view>
+      }
+
+      <!-- The row's children exist once the row is present, and stay through a reload of
+           it: nothing below asks for anything from a row that has not arrived. -->
+      @if (store.rowPresent()) {
+        @for (config of configs(); track config) {
+          @let hasrelatedConfigs = 'relatedConfigs' in config && config.relatedConfigs.length > 0;
+          @if (hasrelatedConfigs) {
+            <compound-resource [uuid]="primaryConfigParentId()" [parentData]="resolvedData()" [resourceConfig]="config">
+            </compound-resource>
+          } @else if (config.type === 'ListView') {
+            <impulse-resource-list-create
+              [resourceConfig]="config"
+              [parentData]="resolvedData()"
+              [isRootList]="false"
+              [parentId]="primaryConfigParentId()"
+              [compoundResourceComponent]="componentRef">
+            </impulse-resource-list-create>
+          } @else if (config.type === 'Array') {
+            <!-- A listFilter is written against the page's own row, never the inherited one. -->
+            <impulse-resource-array-view
+              [resourceConfig]="config"
+              [parentData]="store.viewData()"
+              [compoundResourceComponent]="componentRef">
+            </impulse-resource-array-view>
+          } @else if (config.type === 'View') {
+            @let relatedId = resolvedData()[config.parentRelation.parentKey] || primaryConfigParentId();
+            @if (relatedId) {
+              <!-- A different row, by the page row's parentKey: its own store. -->
+              <impulse-resource-view
+                impulseRowStore
+                [navAfterDelete]="navAfterDeleteConsideringRoot()"
+                [uuid]="relatedId + ''"
+                [config]="config"
+                [relatedData]="resolvedData()"></impulse-resource-view>
+            }
+          } @else if (config.type === 'Component') {
+            <impulse-resource-resolver
+              [parentData]="resolvedData()"
+              [resourceConfig]="config"
+              [compoundResourceComponent]="componentRef">
+            </impulse-resource-resolver>
+          }
+        }
+        @if (hasRpcConfigs()) {
+          <div class="rpc-buttons-container">
+            @for (rpc of rpcConfigs(); track rpc.config.label) {
+              <action-access-control-wrapper [actionContext]="rpc.context">
+                <impulse-rpc-button
+                  [rpcConfig]="rpc.config"
+                  [relatedData]="resolvedData()"
+                  [primaryResource]="primaryConfig().primaryResource">
+                </impulse-rpc-button>
+              </action-access-control-wrapper>
+            }
+          </div>
+        }
+      }
+    </div>
+  }
+</div>

@@ -1,0 +1,84 @@
+package resource
+
+import "cloud.google.com/go/spanner"
+
+// DBType represents the type of database, such as Spanner or PostgreSQL.
+type DBType string
+
+const (
+	// SpannerDBType represents the Google Cloud Spanner database.
+	SpannerDBType DBType = "spanner"
+
+	// PostgresDBType represents the PostgreSQL database.
+	PostgresDBType DBType = "postgres"
+
+	// MockDBType represents a database type for mocking
+	MockDBType DBType = "mock"
+)
+
+// dbTypes should return DBType constants for all supported databases
+func dbTypes() []DBType {
+	return []DBType{SpannerDBType, PostgresDBType}
+}
+
+// Statement is a generic container for a SQL statement and its parameters,
+// supporting both Spanner and PostgreSQL.
+type Statement struct {
+	// resolvedWhereClause is used to carry contextual information for error messages
+	// and is not used in the query.
+	resolvedWhereClause string
+
+	// capabilityPlan carries the statement's capability evaluation (§13): how
+	// each row's reserved capability property assembles from the scanned
+	// group booleans. Nil unless the request opted in.
+	capabilityPlan *capabilityPlan
+
+	// maskedNamesColumn names the reserved masked-cell-names output column when
+	// the statement renders cell masking; empty otherwise. The readers scan it
+	// into the Row envelope instead of the destination struct.
+	maskedNamesColumn string
+
+	// cursorColumns are the sort keys the statement selects a second time
+	// under reserved aliases for the cursor (see cursorColumnItems); empty
+	// otherwise. The readers scan them into the Row envelope.
+	cursorColumns []cursorColumn
+
+	// optimizerVersion is the query optimizer version the Spanner readers name in
+	// the statement's request options, "" to leave the database's own. A statement
+	// carrying a search predicate names searchOptimizerVersion (search.go).
+	optimizerVersion string
+
+	SQL    string
+	Params map[string]any
+}
+
+// SpannerStatement converts the generic Statement into a Spanner-specific Statement.
+func (s *Statement) SpannerStatement() spanner.Statement {
+	return spanner.Statement{
+		SQL:    s.SQL,
+		Params: s.Params,
+	}
+}
+
+// Columns is a string representing a comma-separated list of database column names.
+type Columns string
+
+// Config holds database-specific configuration for a resource.
+type Config struct {
+	ChangeTrackingTable string
+	TrackChanges        bool
+}
+
+// SetChangeTrackingTable returns a new Config with the change tracking table name set.
+func (c Config) SetChangeTrackingTable(changeTrackingTable string) Config {
+	c.ChangeTrackingTable = changeTrackingTable
+
+	return c
+}
+
+// SetTrackChanges returns a new Config with the change tracking flag set.
+func (c Config) SetTrackChanges(trackChanges bool) Config {
+	c.TrackChanges = trackChanges
+
+	return c
+}

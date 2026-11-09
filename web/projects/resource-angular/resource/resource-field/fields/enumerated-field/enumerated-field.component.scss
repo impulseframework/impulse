@@ -1,0 +1,43 @@
+.enumerated-field-container {
+  display: flex;
+  flex-direction: row;
+  gap: 10px;
+}
+
+.display-none {
+  display: none;
+}
+
+// The search box inside a paged picker's panel: a header that stays in view over the options.
+.picker-search {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 8px 4px;
+  background: var(--mat-sys-surface-container, #fff);
+}
+
+// The pager inside a paged picker's panel: a footer that stays in view under the options.
+.picker-pager {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 4px 0 16px;
+  border-top: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
+  background: var(--mat-sys-surface-container, #fff);
+  font-size: 13px;
+  color: var(--mat-sys-on-surface-variant, rgba(0, 0, 0, 0.6));
+  white-space: nowrap;
+}
+
+.pager-buttons {
+  display: inline-flex;
+  align-items: center;
+}
+
+.picker-refusal {
+  color: var(--mat-sys-error, #b3261e);
+}

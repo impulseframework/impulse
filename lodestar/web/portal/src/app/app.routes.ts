@@ -1,0 +1,19 @@
+import { Routes } from '@angular/router';
+import { LoginAuthenticationGuard } from '@impulseframework/resource-angular/auth-authentication-guard';
+
+export const routes: Routes = [
+  {
+    path: 'login',
+    loadComponent: () => import('./components/login/login.component').then((comp) => comp.LoginComponent),
+  },
+  {
+    path: 'logout',
+    loadComponent: () => import('@impulseframework/resource-angular/auth-sign-out').then((comp) => comp.SignOutComponent),
+  },
+  {
+    path: 'tracker',
+    canActivate: [LoginAuthenticationGuard],
+    loadComponent: () => import('./components/tracker/tracker.component').then((comp) => comp.TrackerComponent),
+  },
+  { path: '**', redirectTo: 'tracker' },
+];

@@ -1,0 +1,423 @@
+package resource
+
+import (
+	"encoding/json"
+	"errors"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+)
+
+// TestReadReleaseFile pins the reader over the shapes the generator writes (a release,
+// this release, no declaration, a machine outlet, the scheduled routes, the file routes
+// and the surfaces), a missing file, and the files it refuses: malformed JSON, no
+// outlets, entries that are neither a machine outlet nor a session outlet naming its
+// oldest answered release, a scheduled route outside the scheduled prefix or without its
+// schedule or zone, a file route of another shape, and a surface outside the vocabulary
+// or of a kind that is neither a prefix nor a route; a surface written before the kind
+// existed reads as a prefix.
+func TestReadReleaseFile(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		// content is the file written into the directory; "" writes no file.
+		content string
+		want    ReleaseFile
+		// wantErr is a fragment of the error, wantErrIs an error it must wrap.
+		wantErr   string
+		wantErrIs error
+	}{
+		{
+			name: "a release, this release, no declaration and a machine outlet",
+			content: `{
+  "outlets": {
+    "default": {"oldestAnswered": "1.5.0"},
+    "portal": {"oldestAnswered": "this"},
+    "kiosk": {"oldestAnswered": ""},
+    "api": {"kind": "api-key"}
+  }
+}
+`,
+			want: ReleaseFile{Outlets: map[string]ReleaseOutlet{
+				"default": {OldestAnswered: "1.5.0"},
+				"portal":  {OldestAnswered: ThisRelease},
+				"kiosk":   {},
+				"api":     {APIKey: true},
+			}},
+		},
+		{
+			name:    "a release with a leading v",
+			content: `{"outlets": {"default": {"oldestAnswered": "v2.0.0-rc1"}}}`,
+			want:    ReleaseFile{Outlets: map[string]ReleaseOutlet{"default": {OldestAnswered: "v2.0.0-rc1"}}},
+		},
+		{
+			name:    "a machine outlet shipping programs",
+			content: `{"outlets": {"api": {"kind": "api-key", "programs": [{"name": "corral", "dir": "cmd/corral", "platforms": ["linux/amd64", "linux/arm64"]}, {"name": "beacon", "dir": "tools/beacon", "platforms": ["linux/amd64"]}]}}}`,
+			want: ReleaseFile{Outlets: map[string]ReleaseOutlet{"api": {APIKey: true, Programs: []ReleaseProgram{
+				{Name: "corral", Dir: "cmd/corral", Platforms: []string{"linux/amd64", "linux/arm64"}},
+				{Name: "beacon", Dir: "tools/beacon", Platforms: []string{"linux/amd64"}},
+			}}}},
+		},
+		{
+			name:    "a machine outlet shipping nothing carries no programs",
+			content: `{"outlets": {"api": {"kind": "api-key", "programs": []}}}`,
+			want:    ReleaseFile{Outlets: map[string]ReleaseOutlet{"api": {APIKey: true}}},
+		},
+		{
+			name:    "a session outlet carrying programs",
+			content: `{"outlets": {"default": {"oldestAnswered": "", "programs": [{"name": "corral", "dir": "cmd/corral", "platforms": ["linux/amd64"]}]}}}`,
+			wantErr: "a session outlet ships no programs: cmd/corral is shipped by an api-key outlet",
+		},
+		{
+			name:    "a program named other than its directory's base",
+			content: `{"outlets": {"api": {"kind": "api-key", "programs": [{"name": "corral", "dir": "cmd/daemon", "platforms": ["linux/amd64"]}]}}}`,
+			wantErr: `the program "cmd/daemon" is named "corral"; a program is named after its directory's base`,
+		},
+		{
+			name:    "a program without a directory",
+			content: `{"outlets": {"api": {"kind": "api-key", "programs": [{"name": "corral", "platforms": ["linux/amd64"]}]}}}`,
+			wantErr: `the program "corral" names no directory`,
+		},
+		{
+			name:    "a program without a platform",
+			content: `{"outlets": {"api": {"kind": "api-key", "programs": [{"name": "corral", "dir": "cmd/corral"}]}}}`,
+			wantErr: "the program cmd/corral names no platform",
+		},
+		{
+			name:    "a platform that is not os/arch",
+			content: `{"outlets": {"api": {"kind": "api-key", "programs": [{"name": "corral", "dir": "cmd/corral", "platforms": ["linux"]}]}}}`,
+			wantErr: `the program cmd/corral names the platform "linux"; a platform is <os>/<arch> in lowercase letters and digits, such as linux/amd64`,
+		},
+		{
+			name:    "a platform in capitals",
+			content: `{"outlets": {"api": {"kind": "api-key", "programs": [{"name": "corral", "dir": "cmd/corral", "platforms": ["Linux/AMD64"]}]}}}`,
+			wantErr: `names the platform "Linux/AMD64"`,
+		},
+		{
+			name:    "a field the reader does not know is tolerated",
+			content: `{"outlets": {"default": {"oldestAnswered": "1.5.0", "note": "later"}}, "later": true}`,
+			want:    ReleaseFile{Outlets: map[string]ReleaseOutlet{"default": {OldestAnswered: "1.5.0"}}},
+		},
+		{
+			name:      "a missing file",
+			wantErr:   "reading the release file",
+			wantErrIs: fs.ErrNotExist,
+		},
+		{
+			name:    "malformed JSON",
+			content: `{"outlets": {`,
+			wantErr: "is not the shape the generator writes",
+		},
+		{
+			name:    "no outlets",
+			content: `{"outlets": {}}`,
+			wantErr: "names no outlet; a generated router has at least its default outlet",
+		},
+		{
+			name:    "outlets missing",
+			content: `{}`,
+			wantErr: "names no outlet",
+		},
+		{
+			name:    "a machine outlet carrying an oldest answered release",
+			content: `{"outlets": {"api": {"kind": "api-key", "oldestAnswered": "1.0.0"}}}`,
+			wantErr: "an api-key outlet carries no oldestAnswered: its clients carry no release",
+		},
+		{
+			name:    "a kind that is not api-key",
+			content: `{"outlets": {"default": {"kind": "session", "oldestAnswered": "1.0.0"}}}`,
+			wantErr: `kind "session" is not "api-key", the one kind an entry declares; a session outlet declares no kind`,
+		},
+		{
+			name:    "a session outlet without an oldest answered release",
+			content: `{"outlets": {"default": {}}}`,
+			wantErr: "a session outlet names its oldestAnswered",
+		},
+		{
+			name:    "an oldest answered release that is not a release",
+			content: `{"outlets": {"default": {"oldestAnswered": "dev"}}}`,
+			wantErr: `oldestAnswered "dev" is not a release`,
+		},
+		{
+			name:    "an oldest answered release that is not a string",
+			content: `{"outlets": {"default": {"oldestAnswered": 1}}}`,
+			wantErr: "is not the shape the generator writes",
+		},
+		{
+			name: "scheduled routes",
+			content: `{
+  "outlets": {"default": {"oldestAnswered": ""}},
+  "scheduled": [
+    {"path": "/_scheduled/prune-droid-reports", "schedule": "30 3 * * *", "timeZone": "America/Denver"},
+    {"path": "/_scheduled/send-digest", "schedule": "0 6 * * MON-FRI", "timeZone": "UTC"}
+  ]
+}
+`,
+			want: ReleaseFile{
+				Outlets: map[string]ReleaseOutlet{"default": {}},
+				Scheduled: []ScheduledRoute{
+					{Path: "/_scheduled/prune-droid-reports", Schedule: "30 3 * * *", TimeZone: "America/Denver"},
+					{Path: "/_scheduled/send-digest", Schedule: "0 6 * * MON-FRI", TimeZone: "UTC"},
+				},
+			},
+		},
+		{
+			name:    "a scheduled route outside the scheduled prefix",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "scheduled": [{"path": "/api/prune", "schedule": "0 3 * * *", "timeZone": "UTC"}]}`,
+			wantErr: `the scheduled route "/api/prune" is not a path under /_scheduled/`,
+		},
+		{
+			name:    "a scheduled route with no schedule",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "scheduled": [{"path": "/_scheduled/prune", "timeZone": "UTC"}]}`,
+			wantErr: "the scheduled route /_scheduled/prune names no schedule",
+		},
+		{
+			name:    "a scheduled route with no time zone",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "scheduled": [{"path": "/_scheduled/prune", "schedule": "0 3 * * *"}]}`,
+			wantErr: "the scheduled route /_scheduled/prune names no time zone",
+		},
+		{
+			name:    "file routes, an upload and a stored file",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "fileRoutes": [{"kind": "upload", "method": "POST", "path": "/api/attach-photo", "source": "AttachPhoto"}, {"kind": "file", "method": "GET", "path": "/api/photos/{id}/file", "source": "Photo.Key"}]}`,
+			want: ReleaseFile{
+				Outlets: map[string]ReleaseOutlet{"default": {}},
+				FileRoutes: []FileRoute{
+					{Kind: FileRouteUpload, Method: "POST", Path: "/api/attach-photo", Source: "AttachPhoto"},
+					{Kind: FileRouteStored, Method: "GET", Path: "/api/photos/{id}/file", Source: "Photo.Key"},
+				},
+			},
+		},
+		{
+			name:    "a file route of a third kind",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "fileRoutes": [{"kind": "stream", "method": "GET", "path": "/api/stream", "source": "Stream"}]}`,
+			wantErr: `the file route "/api/stream" has the kind "stream"; a file route is an upload or a file`,
+		},
+		{
+			name:    "an upload answering GET",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "fileRoutes": [{"kind": "upload", "method": "GET", "path": "/api/attach-photo", "source": "AttachPhoto"}]}`,
+			wantErr: `the file route "/api/attach-photo" (upload) answers GET; an upload answers POST and a file GET`,
+		},
+		{
+			name:    "a stored file answering POST",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "fileRoutes": [{"kind": "file", "method": "POST", "path": "/api/photos/{id}/file", "source": "Photo.Key"}]}`,
+			wantErr: `the file route "/api/photos/{id}/file" (file) answers POST`,
+		},
+		{
+			name:    "a file route not under the root",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "fileRoutes": [{"kind": "upload", "method": "POST", "path": "api/attach-photo", "source": "AttachPhoto"}]}`,
+			wantErr: `the file route "api/attach-photo" is not a path under the root`,
+		},
+		{
+			name:    "a file route naming no source",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "fileRoutes": [{"kind": "upload", "method": "POST", "path": "/api/attach-photo"}]}`,
+			wantErr: "the file route /api/attach-photo names no source",
+		},
+		{
+			name: "surfaces: the default, an outlet, a hand-mounted prefix and a route",
+			content: `{
+  "outlets": {"default": {"oldestAnswered": ""}},
+  "surfaces": [
+    {"prefix": "/", "kind": "prefix", "log": "onEvent"},
+    {"prefix": "/beacons/", "kind": "prefix", "log": "onEvent", "traces": "off"},
+    {"prefix": "/droids/", "kind": "prefix", "log": "sampled", "fraction": 0.01, "traces": "capped", "rate": 0.1},
+    {"prefix": "/api/ships/{shipID}/content", "kind": "route", "log": "never"},
+    {"prefix": "/portal/api/", "kind": "prefix", "traces": "followFrontEnd"}
+  ]
+}
+`,
+			want: ReleaseFile{
+				Outlets: map[string]ReleaseOutlet{"default": {}},
+				Surfaces: []Surface{
+					{Prefix: "/", Kind: SurfacePrefix, Log: RequestLogOnEvent},
+					{Prefix: "/beacons/", Kind: SurfacePrefix, Log: RequestLogOnEvent, Traces: TracesOff},
+					{Prefix: "/droids/", Kind: SurfacePrefix, Log: RequestLogSampled, Fraction: 0.01, Traces: TracesCapped, Rate: 0.1},
+					{Prefix: "/api/ships/{shipID}/content", Kind: SurfaceRoute, Log: RequestLogNever},
+					{Prefix: "/portal/api/", Kind: SurfacePrefix, Traces: TracesFollowFrontEnd},
+				},
+			},
+		},
+		{
+			name:    "surfaces written before the kind existed read as prefixes",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "surfaces": [{"prefix": "/beacons/", "log": "onEvent"}, {"prefix": "/api/ships/{shipID}/content", "kind": "", "log": "never"}]}`,
+			want: ReleaseFile{
+				Outlets: map[string]ReleaseOutlet{"default": {}},
+				Surfaces: []Surface{
+					{Prefix: "/beacons/", Kind: SurfacePrefix, Log: RequestLogOnEvent},
+					{Prefix: "/api/ships/{shipID}/content", Kind: SurfacePrefix, Log: RequestLogNever},
+				},
+			},
+		},
+		{
+			name:    "a surface of a third kind",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "surfaces": [{"prefix": "/beacons/", "kind": "subtree", "log": "onEvent"}]}`,
+			wantErr: `the surface /beacons/ has the kind "subtree"; a surface is a prefix or a route`,
+		},
+		{
+			name:    "a surface not under the root",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "surfaces": [{"prefix": "beacons/", "kind": "prefix", "log": "onEvent"}]}`,
+			wantErr: `the surface "beacons/" is not a path under the root`,
+		},
+		{
+			name:    "a surface declaring nothing",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "surfaces": [{"prefix": "/beacons/", "kind": "prefix"}]}`,
+			wantErr: "the surface /beacons/ declares neither a request log word nor a trace setting",
+		},
+		{
+			name:    "a request log word that is not one",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "surfaces": [{"prefix": "/beacons/", "kind": "prefix", "log": "sometimes"}]}`,
+			wantErr: `the surface /beacons/ has the request log word "sometimes"; the words are always, onEvent, sampled and never`,
+		},
+		{
+			name:    "a fraction without the sampled word",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "surfaces": [{"prefix": "/beacons/", "kind": "prefix", "log": "onEvent", "fraction": 0.5}]}`,
+			wantErr: "the surface /beacons/ carries a fraction without the sampled word",
+		},
+		{
+			name:    "a sampled surface with a fraction over one",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "surfaces": [{"prefix": "/beacons/", "kind": "prefix", "log": "sampled", "fraction": 2}]}`,
+			wantErr: "the surface /beacons/ is sampled at 2; the fraction is above 0 and at most 1",
+		},
+		{
+			name:    "a sampled surface without a fraction",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "surfaces": [{"prefix": "/beacons/", "kind": "prefix", "log": "sampled"}]}`,
+			wantErr: "the surface /beacons/ is sampled at 0",
+		},
+		{
+			name:    "a trace setting that is not one",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "surfaces": [{"prefix": "/beacons/", "kind": "prefix", "traces": "sometimes"}]}`,
+			wantErr: `the surface /beacons/ has the trace setting "sometimes"; the settings are followFrontEnd, capped and off`,
+		},
+		{
+			name:    "a rate without the capped setting",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "surfaces": [{"prefix": "/beacons/", "kind": "prefix", "traces": "off", "rate": 0.5}]}`,
+			wantErr: "the surface /beacons/ carries a rate without the capped setting",
+		},
+		{
+			name:    "a capped surface with a rate of zero",
+			content: `{"outlets": {"default": {"oldestAnswered": ""}}, "surfaces": [{"prefix": "/beacons/", "kind": "prefix", "traces": "capped"}]}`,
+			wantErr: "the surface /beacons/ is capped at 0; the rate is above 0 and at most 1",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			if tt.content != "" {
+				if err := os.WriteFile(filepath.Join(dir, ReleaseFileName), []byte(tt.content), 0o600); err != nil {
+					t.Fatalf("os.WriteFile() error = %v", err)
+				}
+			}
+
+			got, err := ReadReleaseFile(dir)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("ReadReleaseFile() error = %v, want it to contain %q", err, tt.wantErr)
+				}
+				if tt.wantErrIs != nil && !errors.Is(err, tt.wantErrIs) {
+					t.Fatalf("ReadReleaseFile() error = %v, want it to wrap %v", err, tt.wantErrIs)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("ReadReleaseFile() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("ReadReleaseFile() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestReleaseOutlet_MarshalJSON pins how an entry is spelled on disk, and that what is
+// written reads back as the same entry.
+func TestReleaseOutlet_MarshalJSON(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		outlet ReleaseOutlet
+		want   string
+	}{
+		{name: "a release", outlet: ReleaseOutlet{OldestAnswered: "1.5.0"}, want: `{"oldestAnswered":"1.5.0"}`},
+		{name: "this release", outlet: ReleaseOutlet{OldestAnswered: ThisRelease}, want: `{"oldestAnswered":"this"}`},
+		{name: "no declaration", outlet: ReleaseOutlet{}, want: `{"oldestAnswered":""}`},
+		{name: "a machine outlet", outlet: ReleaseOutlet{APIKey: true}, want: `{"kind":"api-key"}`},
+		{
+			name:   "a machine outlet shipping a program",
+			outlet: ReleaseOutlet{APIKey: true, Programs: []ReleaseProgram{{Name: "corral", Dir: "cmd/corral", Platforms: []string{"linux/amd64"}}}},
+			want:   `{"kind":"api-key","programs":[{"name":"corral","dir":"cmd/corral","platforms":["linux/amd64"]}]}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := json.Marshal(tt.outlet)
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			if string(got) != tt.want {
+				t.Errorf("json.Marshal() = %s, want %s", got, tt.want)
+			}
+
+			var back ReleaseOutlet
+			if err := json.Unmarshal(got, &back); err != nil {
+				t.Fatalf("json.Unmarshal() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.outlet, back); diff != "" {
+				t.Errorf("round trip mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestReleaseOutlet_MarshalJSON_refuses pins the entries the writer refuses, so the
+// generator never writes a file the reader would refuse: programs on a session outlet
+// and a program that is not the shape the file spells.
+func TestReleaseOutlet_MarshalJSON_refuses(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		outlet  ReleaseOutlet
+		wantErr string
+	}{
+		{
+			name:    "a session outlet shipping a program",
+			outlet:  ReleaseOutlet{OldestAnswered: "1.5.0", Programs: []ReleaseProgram{{Name: "corral", Dir: "cmd/corral", Platforms: []string{"linux/amd64"}}}},
+			wantErr: "a session outlet ships no programs: cmd/corral is shipped by a machine outlet",
+		},
+		{
+			name:    "a program named other than its directory's base",
+			outlet:  ReleaseOutlet{APIKey: true, Programs: []ReleaseProgram{{Name: "daemon", Dir: "cmd/corral", Platforms: []string{"linux/amd64"}}}},
+			wantErr: `the program "cmd/corral" is named "daemon"`,
+		},
+		{
+			name:    "a program without a platform",
+			outlet:  ReleaseOutlet{APIKey: true, Programs: []ReleaseProgram{{Name: "corral", Dir: "cmd/corral"}}},
+			wantErr: "the program cmd/corral names no platform",
+		},
+		{
+			name:    "a platform with two slashes",
+			outlet:  ReleaseOutlet{APIKey: true, Programs: []ReleaseProgram{{Name: "corral", Dir: "cmd/corral", Platforms: []string{"linux/amd64/v3"}}}},
+			wantErr: `the program cmd/corral names the platform "linux/amd64/v3"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := json.Marshal(tt.outlet)
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("json.Marshal() error = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}

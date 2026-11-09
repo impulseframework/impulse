@@ -1,0 +1,16 @@
+@if (showField()) {
+  <ng-container [formGroup]="form()">
+    <div [class.readonly-field]="editMode() === 'view'">
+      <mat-checkbox
+        class="field checkbox {{ fieldClass() }}"
+        [formControlName]="fieldConfig().name"
+        (keydown.enter)="$event.preventDefault()">
+        {{ fieldConfig().label }}
+      </mat-checkbox>
+    </div>
+  </ng-container>
+} @else {
+  <ng-container [formGroup]="form()">
+    <input type="hidden" [formControlName]="fieldConfig().name" />
+  </ng-container>
+}

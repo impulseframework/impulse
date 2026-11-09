@@ -1,0 +1,27 @@
+<div class="impulse-email">
+  @if (sent(); as address) {
+    <p class="impulse-email-note">
+      We sent a confirmation link to {{ address }}. Open it while signed in to finish; nothing changes until then.
+    </p>
+    <button mat-button type="button" class="impulse-email-done" (click)="done()">OK</button>
+  } @else if (editing()) {
+    <form class="impulse-email-form" (ngSubmit)="send()">
+      <mat-form-field appearance="outline" class="impulse-email-field">
+        <mat-label>Email address</mat-label>
+        <input matInput name="email" type="email" [(ngModel)]="email" autocomplete="email" required />
+      </mat-form-field>
+      <button mat-flat-button type="submit" class="impulse-email-send" [disabled]="busy()">Send a confirmation link</button>
+      <button mat-button type="button" class="impulse-email-cancel" [disabled]="busy()" (click)="done()">Cancel</button>
+    </form>
+  } @else {
+    <p class="impulse-email-current">{{ current() }}</p>
+    @if (offered()) {
+      <button mat-stroked-button type="button" class="impulse-email-edit" [disabled]="busy()" (click)="edit()">
+        {{ action() }}
+      </button>
+    }
+  }
+  @if (message(); as sentence) {
+    <p class="impulse-email-message" role="alert">{{ sentence }}</p>
+  }
+</div>

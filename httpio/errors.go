@@ -1,0 +1,1200 @@
+package httpio
+
+import (
+	stderrors "errors"
+	"fmt"
+	"net/http"
+	"strings"
+
+	"github.com/go-playground/errors/v5"
+)
+
+type msgType int
+
+const (
+	badRequest            msgType = http.StatusBadRequest
+	unauthorized          msgType = http.StatusUnauthorized
+	forbidden             msgType = http.StatusForbidden
+	notFound              msgType = http.StatusNotFound
+	methodNotAllowed      msgType = http.StatusMethodNotAllowed
+	notAcceptable         msgType = http.StatusNotAcceptable
+	requestTimeout        msgType = http.StatusRequestTimeout
+	conflict              msgType = http.StatusConflict
+	requestEntityTooLarge msgType = http.StatusRequestEntityTooLarge
+	unsupportedMediaType  msgType = http.StatusUnsupportedMediaType
+	unprocessableEntity   msgType = http.StatusUnprocessableEntity
+	tooManyRequests       msgType = http.StatusTooManyRequests
+	clientClosedRequest   msgType = 499
+	internalServerError   msgType = http.StatusInternalServerError
+	notImplemented        msgType = http.StatusNotImplemented
+	badGateway            msgType = http.StatusBadGateway
+	serviceUnavailable    msgType = http.StatusServiceUnavailable
+	gatewayTimeout        msgType = http.StatusGatewayTimeout
+)
+
+func init() {
+	errors.RegisterErrorFormatFn(errorFormatFn)
+}
+
+// errorFormatFn implements a custom format function for the errors package
+// to properly unwrap error chains contained inside a ClientMessage.
+func errorFormatFn(chain errors.Chain) string {
+	var errMsg strings.Builder
+
+	for i, link := range chain {
+		if i == 0 {
+			if chain, ok := stderrors.Unwrap(link.Err).(errors.Chain); ok {
+				errMsg.WriteString(errorFormatFn(chain))
+				errMsg.WriteString("\n")
+			}
+		}
+		if i > 0 {
+			errMsg.WriteString("\n")
+		}
+		errMsg.WriteString(link.Error())
+	}
+
+	return errMsg.String()
+}
+
+// Message returns the message from the wrapped ClientMessage or an empty string
+func Message(err error) string {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.Message()
+	}
+
+	return ""
+}
+
+// Messages returns a slice of messages from the ClientMessage's contained within the chain of errors
+func Messages(err error) []string {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		subMsgs := Messages(cerr.Unwrap())
+
+		msgs := make([]string, 0, len(subMsgs)+1)
+		msgs = append(msgs, cerr.Message())
+		msgs = append(msgs, subMsgs...)
+
+		return msgs
+	}
+
+	return nil
+}
+
+// CauseIsError returns true if the Cause of this error is an error vs a ClientMessage with nil error
+func CauseIsError(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return CauseIsError(cerr.Unwrap())
+	}
+
+	return err != nil
+}
+
+// ClientMessage is a custom message type that can be used to return client messages
+type ClientMessage struct {
+	msgType       msgType
+	clientMessage string
+	error         error
+}
+
+// Message returns the client message
+func (c *ClientMessage) Message() string {
+	return c.clientMessage
+}
+
+// Error returns the error message
+func (c *ClientMessage) Error() string {
+	if c.error == nil && c.clientMessage == "" {
+		return ""
+	}
+	if c.clientMessage == "" {
+		return c.error.Error()
+	}
+
+	msg := fmt.Sprintf("Client Message:%q", c.clientMessage)
+	if c.error == nil {
+		return msg
+	}
+
+	return fmt.Sprintf("%s: %s", msg, c.error.Error())
+}
+
+func (c *ClientMessage) Unwrap() error {
+	return c.error
+}
+
+func wrap(err error) errors.Chain {
+	return errors.WrapSkipFrames(err, "", 2)
+}
+
+// NewBadRequest creates a new empty client message with a BadRequest (400) return code
+func NewBadRequest() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: badRequest,
+	})
+}
+
+// NewUnauthorized creates a new empty client message with a Unauthorized (401) return code
+func NewUnauthorized() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: unauthorized,
+	})
+}
+
+// NewForbidden creates a new empty client message with a Forbidden (403) return code
+func NewForbidden() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: forbidden,
+	})
+}
+
+// NewNotFound creates a new empty client message with a NotFound (404) return code
+func NewNotFound() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: notFound,
+	})
+}
+
+// NewMethodNotAllowed creates a new empty client message with a MethodNotAllowed (405) return code
+func NewMethodNotAllowed() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: methodNotAllowed,
+	})
+}
+
+// NewNotAcceptable creates a new empty client message with a NotAcceptable (406) return code
+func NewNotAcceptable() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: notAcceptable,
+	})
+}
+
+// NewRequestTimeout creates a new empty client message with a RequestTimeout (408) return code
+func NewRequestTimeout() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: requestTimeout,
+	})
+}
+
+// NewConflict creates a new empty client message with a Conflict (409) return code
+func NewConflict() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: conflict,
+	})
+}
+
+// NewRequestEntityTooLarge creates a new empty client message with a RequestEntityTooLarge (413) return code
+func NewRequestEntityTooLarge() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: requestEntityTooLarge,
+	})
+}
+
+// NewUnsupportedMediaType creates a new empty client message with a UnsupportedMediaType (415) return code
+func NewUnsupportedMediaType() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: unsupportedMediaType,
+	})
+}
+
+// NewUnprocessableEntity creates a new empty client message with a UnprocessableEntity (422) return code
+func NewUnprocessableEntity() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: unprocessableEntity,
+	})
+}
+
+// NewTooManyRequests creates a new empty client message with a TooManyRequests (429) return code
+func NewTooManyRequests() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: tooManyRequests,
+	})
+}
+
+// NewClientClosedRequest creates a new empty client message with a ClientClosedRequest (499) return code
+func NewClientClosedRequest() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: clientClosedRequest,
+	})
+}
+
+// NewInternalServerError creates a new empty client message with a InternalServerError (500) return code
+func NewInternalServerError() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: internalServerError,
+	})
+}
+
+// NewNotImplemented creates a new empty client message with a NotImplemented (501) return code
+func NewNotImplemented() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: notImplemented,
+	})
+}
+
+// NewBadGateway creates a new empty client message with a BadGateway (502) return code
+func NewBadGateway() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: badGateway,
+	})
+}
+
+// NewServiceUnavailable creates a new empty client message with a ServiceUnavailable (503) return code
+func NewServiceUnavailable() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: serviceUnavailable,
+	})
+}
+
+// NewGatewayTimeout creates a new empty client message with a GatewayTimeout (504) return code
+func NewGatewayTimeout() errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: gatewayTimeout,
+	})
+}
+
+// NewBadRequestWithError wraps an existing error while creating a new empty client message and a BadRequest (400) return code
+func NewBadRequestWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: badRequest,
+		error:   err,
+	})
+}
+
+// NewUnauthorizedWithError wraps an existing error while creating a new empty client message and a Unauthorized (401) return code
+func NewUnauthorizedWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: unauthorized,
+		error:   err,
+	})
+}
+
+// NewForbiddenWithError wraps an existing error while creating a new empty client message and a Forbidden (403) return code
+func NewForbiddenWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: forbidden,
+		error:   err,
+	})
+}
+
+// NewNotFoundWithError wraps an existing error while creating a new empty client message and a NotFound (404) return code
+func NewNotFoundWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: notFound,
+		error:   err,
+	})
+}
+
+// NewMethodNotAllowedWithError wraps an existing error while creating a new empty client message and a MethodNotAllowed (405) return code
+func NewMethodNotAllowedWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: methodNotAllowed,
+		error:   err,
+	})
+}
+
+// NewNotAcceptableWithError wraps an existing error while creating a new empty client message and a NotAcceptable (406) return code
+func NewNotAcceptableWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: notAcceptable,
+		error:   err,
+	})
+}
+
+// NewRequestTimeoutWithError wraps an existing error while creating a new empty client message and a RequestTimeout (408) return code
+func NewRequestTimeoutWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: requestTimeout,
+		error:   err,
+	})
+}
+
+// NewConflictWithError wraps an existing error while creating a new empty client message and a Conflict (409) return code
+func NewConflictWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: conflict,
+		error:   err,
+	})
+}
+
+// NewRequestEntityTooLargeWithError wraps an existing error while creating a new empty client message and a RequestEntityTooLarge (413) return code
+func NewRequestEntityTooLargeWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: requestEntityTooLarge,
+		error:   err,
+	})
+}
+
+// NewUnsupportedMediaTypeWithError wraps an existing error while creating a new empty client message and a UnsupportedMediaType (415) return code
+func NewUnsupportedMediaTypeWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: unsupportedMediaType,
+		error:   err,
+	})
+}
+
+// NewUnprocessableEntityWithError wraps an existing error while creating a new empty client message and a UnprocessableEntity (422) return code
+func NewUnprocessableEntityWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: unprocessableEntity,
+		error:   err,
+	})
+}
+
+// NewTooManyRequestsWithError wraps an existing error while creating a new empty client message and a TooManyRequests (429) return code
+func NewTooManyRequestsWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: tooManyRequests,
+		error:   err,
+	})
+}
+
+// NewClientClosedRequestWithError wraps an existing error while creating a new empty client message and a ClientClosedRequest (499) return code
+func NewClientClosedRequestWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: clientClosedRequest,
+		error:   err,
+	})
+}
+
+// NewInternalServerErrorWithError wraps an existing error while creating a new empty client message and a InternalServerError (500) return code
+func NewInternalServerErrorWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: internalServerError,
+		error:   err,
+	})
+}
+
+// NewNotImplementedWithError wraps an existing error while creating a new empty client message and a NotImplemented (501) return code
+func NewNotImplementedWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: notImplemented,
+		error:   err,
+	})
+}
+
+// NewBadGatewayWithError wraps an existing error while creating a new empty client message and a BadGateway (502) return code
+func NewBadGatewayWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: badGateway,
+		error:   err,
+	})
+}
+
+// NewServiceUnavailableWithError wraps an existing error while creating a new empty client message and a ServiceUnavailable (503) return code
+func NewServiceUnavailableWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: serviceUnavailable,
+		error:   err,
+	})
+}
+
+// NewGatewayTimeoutWithError wraps an existing error while creating a new empty client message and a GatewayTimeout (504) return code
+func NewGatewayTimeoutWithError(err error) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType: gatewayTimeout,
+		error:   err,
+	})
+}
+
+// NewBadRequestMessage creates a new client message with a BadRequest (400) return code
+func NewBadRequestMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       badRequest,
+		clientMessage: message,
+	})
+}
+
+// NewUnauthorizedMessage creates a new client message with a Unauthorized (401) return code
+func NewUnauthorizedMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       unauthorized,
+		clientMessage: message,
+	})
+}
+
+// NewForbiddenMessage creates a new client message with a Forbidden (403) return code
+func NewForbiddenMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       forbidden,
+		clientMessage: message,
+	})
+}
+
+// NewNotFoundMessage creates a new client message with a NotFound (404) return code
+func NewNotFoundMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       notFound,
+		clientMessage: message,
+	})
+}
+
+// NewMethodNotAllowedMessage creates a new client message with a MethodNotAllowed (405) return code
+func NewMethodNotAllowedMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       methodNotAllowed,
+		clientMessage: message,
+	})
+}
+
+// NewNotAcceptableMessage creates a new client message with a NotAcceptable (406) return code
+func NewNotAcceptableMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       notAcceptable,
+		clientMessage: message,
+	})
+}
+
+// NewRequestTimeoutMessage creates a new client message with a RequestTimeout (408) return code
+func NewRequestTimeoutMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       requestTimeout,
+		clientMessage: message,
+	})
+}
+
+// NewConflictMessage creates a new client message with a Conflict (409) return code
+func NewConflictMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       conflict,
+		clientMessage: message,
+	})
+}
+
+// NewRequestEntityTooLargeMessage creates a new client message with a RequestEntityTooLarge (413) return code
+func NewRequestEntityTooLargeMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       requestEntityTooLarge,
+		clientMessage: message,
+	})
+}
+
+// NewUnsupportedMediaTypeMessage creates a new client message with a UnsupportedMediaType (415) return code
+func NewUnsupportedMediaTypeMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       unsupportedMediaType,
+		clientMessage: message,
+	})
+}
+
+// NewUnprocessableEntityMessage creates a new client message with a UnprocessableEntity (422) return code
+func NewUnprocessableEntityMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       unprocessableEntity,
+		clientMessage: message,
+	})
+}
+
+// NewTooManyRequestsMessage creates a new client message with a TooManyRequests (429) return code
+func NewTooManyRequestsMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       tooManyRequests,
+		clientMessage: message,
+	})
+}
+
+// NewClientClosedRequestMessage creates a new client message with a ClientClosedRequest (499) return code
+func NewClientClosedRequestMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       clientClosedRequest,
+		clientMessage: message,
+	})
+}
+
+// NewInternalServerErrorMessage creates a new client message with a InternalServerError (500) return code
+func NewInternalServerErrorMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       internalServerError,
+		clientMessage: message,
+	})
+}
+
+// NewNotImplementedMessage creates a new client message with a NotImplemented (501) return code
+func NewNotImplementedMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       notImplemented,
+		clientMessage: message,
+	})
+}
+
+// NewBadGatewayMessage creates a new client message with a BadGateway (502) return code
+func NewBadGatewayMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       badGateway,
+		clientMessage: message,
+	})
+}
+
+// NewServiceUnavailableMessage creates a new client message with a ServiceUnavailable (503) return code
+func NewServiceUnavailableMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       serviceUnavailable,
+		clientMessage: message,
+	})
+}
+
+// NewGatewayTimeoutMessage creates a new client message with a GatewayTimeout (504) return code
+func NewGatewayTimeoutMessage(message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       gatewayTimeout,
+		clientMessage: message,
+	})
+}
+
+// NewBadRequestMessagef creates a new client message with a BadRequest (400) return code
+func NewBadRequestMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       badRequest,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewUnauthorizedMessagef creates a new client message with a Unauthorized (401) return code
+func NewUnauthorizedMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       unauthorized,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewForbiddenMessagef creates a new client message with a Forbidden (403) return code
+func NewForbiddenMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       forbidden,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewNotFoundMessagef creates a new client message with a NotFound (404) return code
+func NewNotFoundMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       notFound,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewMethodNotAllowedMessagef creates a new client message with a MethodNotAllowed (405) return code
+func NewMethodNotAllowedMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       methodNotAllowed,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewNotAcceptableMessagef creates a new client message with a NotAcceptable (406) return code
+func NewNotAcceptableMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       notAcceptable,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewRequestTimeoutMessagef creates a new client message with a RequestTimeout (408) return code
+func NewRequestTimeoutMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       requestTimeout,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewConflictMessagef creates a new client message with a Conflict (409) return code
+func NewConflictMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       conflict,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewRequestEntityTooLargeMessagef creates a new client message with a RequestEntityTooLarge (413) return code
+func NewRequestEntityTooLargeMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       requestEntityTooLarge,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewUnsupportedMediaTypeMessagef creates a new client message with a UnsupportedMediaType (415) return code
+func NewUnsupportedMediaTypeMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       unsupportedMediaType,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewUnprocessableEntityMessagef creates a new client message with a UnprocessableEntity (422) return code
+func NewUnprocessableEntityMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       unprocessableEntity,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewTooManyRequestsMessagef creates a new client message with a TooManyRequests (429) return code
+func NewTooManyRequestsMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       tooManyRequests,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewClientClosedRequestMessagef creates a new client message with a ClientClosedRequest (499) return code
+func NewClientClosedRequestMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       clientClosedRequest,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewInternalServerErrorMessagef creates a new client message with a InternalServerError (500) return code
+func NewInternalServerErrorMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       internalServerError,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewNotImplementedMessagef creates a new client message with a NotImplemented (501) return code
+func NewNotImplementedMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       notImplemented,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewBadGatewayMessagef creates a new client message with a BadGateway (502) return code
+func NewBadGatewayMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       badGateway,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewServiceUnavailableMessagef creates a new client message with a ServiceUnavailable (503) return code
+func NewServiceUnavailableMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       serviceUnavailable,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewGatewayTimeoutMessagef creates a new client message with a GatewayTimeout (504) return code
+func NewGatewayTimeoutMessagef(format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       gatewayTimeout,
+		clientMessage: fmt.Sprintf(format, a...),
+	})
+}
+
+// NewBadRequestMessageWithError wraps an existing error while creating a new client message with a BadRequest (400) return code
+func NewBadRequestMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       badRequest,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewUnauthorizedMessageWithError wraps an existing error while creating a new client message with a Unauthorized (401) return code
+func NewUnauthorizedMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       unauthorized,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewForbiddenMessageWithError wraps an existing error while creating a new client message with a Forbidden (403) return code
+func NewForbiddenMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       forbidden,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewNotFoundMessageWithError wraps an existing error while creating a new client message with a NotFound (404) return code
+func NewNotFoundMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       notFound,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewMethodNotAllowedMessageWithError wraps an existing error while creating a new client message with a MethodNotAllowed (405) return code
+func NewMethodNotAllowedMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       methodNotAllowed,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewNotAcceptableMessageWithError wraps an existing error while creating a new client message with a NotAcceptable (406) return code
+func NewNotAcceptableMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       notAcceptable,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewRequestTimeoutMessageWithError wraps an existing error while creating a new client message with a RequestTimeout (408) return code
+func NewRequestTimeoutMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       requestTimeout,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewConflictMessageWithError wraps an existing error while creating a new client message with a Conflict (409) return code
+func NewConflictMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       conflict,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewRequestEntityTooLargeMessageWithError wraps an existing error while creating a new client message with a RequestEntityTooLarge (413) return code
+func NewRequestEntityTooLargeMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       requestEntityTooLarge,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewUnsupportedMediaTypeMessageWithError wraps an existing error while creating a new client message with a UnsupportedMediaType (415) return code
+func NewUnsupportedMediaTypeMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       unsupportedMediaType,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewUnprocessableEntityMessageWithError wraps an existing error while creating a new client message with a UnprocessableEntity (422) return code
+func NewUnprocessableEntityMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       unprocessableEntity,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewTooManyRequestsMessageWithError wraps an existing error while creating a new client message with a TooManyRequests (429) return code
+func NewTooManyRequestsMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       tooManyRequests,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewClientClosedRequestMessageWithError wraps an existing error while creating a new client message with a ClientClosedRequest (499) return code
+func NewClientClosedRequestMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       clientClosedRequest,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewInternalServerErrorMessageWithError wraps an existing error while creating a new client message with a InternalServerError (500) return code
+func NewInternalServerErrorMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       internalServerError,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewNotImplementedMessageWithError wraps an existing error while creating a new client message with a NotImplemented (501) return code
+func NewNotImplementedMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       notImplemented,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewBadGatewayMessageWithError wraps an existing error while creating a new client message with a BadGateway (502) return code
+func NewBadGatewayMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       badGateway,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewServiceUnavailableMessageWithError wraps an existing error while creating a new client message with a ServiceUnavailable (503) return code
+func NewServiceUnavailableMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       serviceUnavailable,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewGatewayTimeoutMessageWithError wraps an existing error while creating a new client message with a GatewayTimeout (504) return code
+func NewGatewayTimeoutMessageWithError(err error, message string) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       gatewayTimeout,
+		clientMessage: message,
+		error:         err,
+	})
+}
+
+// NewBadRequestMessageWithErrorf wraps an existing error while creating a new client message with a BadRequest (400) return code
+func NewBadRequestMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       badRequest,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// NewUnauthorizedMessageWithErrorf wraps an existing error while creating a new client message with a Unauthorized (401) return code
+func NewUnauthorizedMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       unauthorized,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// NewForbiddenMessageWithErrorf wraps an existing error while creating a new client message with a Forbidden (403) return code
+func NewForbiddenMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       forbidden,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// NewNotFoundMessageWithErrorf wraps an existing error while creating a new client message with a NotFound (404) return code
+func NewNotFoundMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       notFound,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// NewMethodNotAllowedMessageWithErrorf wraps an existing error while creating a new client message with a MethodNotAllowed (405) return code
+func NewMethodNotAllowedMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       methodNotAllowed,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// NewNotAcceptableMessageWithErrorf wraps an existing error while creating a new client message with a NotAcceptable (406) return code
+func NewNotAcceptableMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       notAcceptable,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// NewRequestTimeoutMessageWithErrorf wraps an existing error while creating a new client message with a RequestTimeout (408) return code
+func NewRequestTimeoutMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       requestTimeout,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// NewConflictMessageWithErrorf wraps an existing error while creating a new client message with a Conflict (409) return code
+func NewConflictMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       conflict,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// NewRequestEntityTooLargeMessageWithErrorf wraps an existing error while creating a new client message with a RequestEntityTooLarge (413) return code
+func NewRequestEntityTooLargeMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       requestEntityTooLarge,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// NewUnsupportedMediaTypeMessageWithErrorf wraps an existing error while creating a new client message with a UnsupportedMediaType (415) return code
+func NewUnsupportedMediaTypeMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       unsupportedMediaType,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// NewUnprocessableEntityMessageWithErrorf wraps an existing error while creating a new client message with a UnprocessableEntity (422) return code
+func NewUnprocessableEntityMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       unprocessableEntity,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// NewTooManyRequestsMessageWithErrorf wraps an existing error while creating a new client message with a TooManyRequests (429) return code
+func NewTooManyRequestsMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       tooManyRequests,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// NewClientClosedRequestMessageWithErrorf wraps an existing error while creating a new client message with a ClientClosedRequest (499) return code
+func NewClientClosedRequestMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       clientClosedRequest,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// NewInternalServerErrorMessageWithErrorf wraps an existing error while creating a new client message with a InternalServerError (500) return code
+func NewInternalServerErrorMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       internalServerError,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// NewNotImplementedMessageWithErrorf wraps an existing error while creating a new client message with a NotImplemented (501) return code
+func NewNotImplementedMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       notImplemented,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// NewBadGatewayMessageWithErrorf wraps an existing error while creating a new client message with a BadGateway (502) return code
+func NewBadGatewayMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       badGateway,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// NewServiceUnavailableMessageWithErrorf wraps an existing error while creating a new client message with a ServiceUnavailable (503) return code
+func NewServiceUnavailableMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       serviceUnavailable,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// NewGatewayTimeoutMessageWithErrorf wraps an existing error while creating a new client message with a GatewayTimeout (504) return code
+func NewGatewayTimeoutMessageWithErrorf(err error, format string, a ...any) errors.Chain {
+	return wrap(&ClientMessage{
+		msgType:       gatewayTimeout,
+		clientMessage: fmt.Sprintf(format, a...),
+		error:         err,
+	})
+}
+
+// HasBadRequest checks if the error contains a BadRequest (400) message
+func HasBadRequest(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == badRequest
+	}
+
+	return false
+}
+
+// HasUnauthorized checks if the error contains a Unauthorized (401) message
+func HasUnauthorized(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == unauthorized
+	}
+
+	return false
+}
+
+// HasForbidden checks if the error contains a Forbidden (403) message
+func HasForbidden(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == forbidden
+	}
+
+	return false
+}
+
+// HasNotFound checks if the error contains a NotFound (404) message
+func HasNotFound(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == notFound
+	}
+
+	return false
+}
+
+// HasMethodNotAllowed checks if the error contains a MethodNotAllowed (405) message
+func HasMethodNotAllowed(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == methodNotAllowed
+	}
+
+	return false
+}
+
+// HasNotAcceptable checks if the error contains a NotAcceptable (406) message
+func HasNotAcceptable(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == notAcceptable
+	}
+
+	return false
+}
+
+// HasRequestTimeout checks if the error contains a RequestTimeout (408) message
+func HasRequestTimeout(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == requestTimeout
+	}
+
+	return false
+}
+
+// HasConflict checks if the error contains a Conflict (409) message
+func HasConflict(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == conflict
+	}
+
+	return false
+}
+
+// HasRequestEntityTooLarge checks if the error contains a RequestEntityTooLarge (413) message
+func HasRequestEntityTooLarge(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == requestEntityTooLarge
+	}
+
+	return false
+}
+
+// HasUnsupportedMediaType checks if the error contains a UnsupportedMediaType (415) message
+func HasUnsupportedMediaType(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == unsupportedMediaType
+	}
+
+	return false
+}
+
+// HasUnprocessableEntity checks if the error contains a UnprocessableEntity (422) message
+func HasUnprocessableEntity(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == unprocessableEntity
+	}
+
+	return false
+}
+
+// HasTooManyRequests checks if the error contains a TooManyRequests (429) message
+func HasTooManyRequests(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == tooManyRequests
+	}
+
+	return false
+}
+
+// HasClientClosedRequest checks if the error contains a ClientClosedRequest (499) message
+func HasClientClosedRequest(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == clientClosedRequest
+	}
+
+	return false
+}
+
+// HasInternalServerError checks if the error contains a InternalServerError (500) message
+func HasInternalServerError(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == internalServerError
+	}
+
+	return false
+}
+
+// HasNotImplemented checks if the error contains a NotImplemented (501) message
+func HasNotImplemented(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == notImplemented
+	}
+
+	return false
+}
+
+// HasBadGateway checks if the error contains a BadGateway (502) message
+func HasBadGateway(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == badGateway
+	}
+
+	return false
+}
+
+// HasServiceUnavailable checks if the error contains a ServiceUnavailable (503) message
+func HasServiceUnavailable(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == serviceUnavailable
+	}
+
+	return false
+}
+
+// HasGatewayTimeout checks if the error contains a GatewayTimeout (504) message
+func HasGatewayTimeout(err error) bool {
+	cerr := &ClientMessage{}
+	if errors.As(err, &cerr) {
+		return cerr.msgType == gatewayTimeout
+	}
+
+	return false
+}
+
+// HasClientMessage checks if the error contains a client message
+func HasClientMessage(err error) bool {
+	cerr := &ClientMessage{}
+
+	return errors.As(err, &cerr)
+}

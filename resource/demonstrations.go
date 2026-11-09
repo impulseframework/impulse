@@ -1,0 +1,352 @@
+package resource
+
+import "sort"
+
+// Demonstration is one capability of the resource package a demonstration application
+// proves. The key is the vocabulary an application declares against: the annotation,
+// option, grammar function, or API name where one exists, a short coined slug where none
+// does. A demonstration application ends the doc comment of every struct, method, test,
+// component, and persona row that proves a key with a "Demonstrates: key, key." paragraph,
+// and a test in the application fails when a key here has no declaration in code or in a
+// test, when a declaration names a key not here, or when a README example link points at
+// a file that does not declare the key its row documents. The same test writes the
+// generated key-to-files table (lodestar/DEMONSTRATIONS.md).
+type Demonstration struct {
+	Key         string
+	Description string
+}
+
+// Demonstrations is the registry: every capability a demonstration application is
+// expected to prove, seeded from the Lodestar design plan's coverage matrix.
+var Demonstrations = []Demonstration{
+	// Tenancy.
+	{"tenancy.tenant-record", "The tenant record (@tenant): a table whose rows are the permission domains, read into a roster that keeps up without a restart; the route segment and parameter derive from the record and its key, and a tenant created at run time is served by every instance at once."},
+	{"tenancy.run-time-tenant", "A tenant created at run time: the tenant record's generated create path adds the tenant to the writing instance's roster after the commit and signals the tenants kind, so every instance serves the new tenant at its next request, a role held in every tenant domain reaches it with nothing written, and no restart, migration or new login is needed."},
+	{"tenancy.creator-seat", "The creator of a tenant is its first administrator, whatever the creation shape: the tenant record's create path seats the creator in each tenant the request created with the roles the application names (<Record>AdministratorRoles), through the auth's user-management surface after the commit, as the create-your-tenant route does; and the surface's refusal of a self-unseat is the last-owner rule (resource.WithAdministratorRoles): a person leaves an administrator seat once another holder remains in the partition, the last one is refused, so an operator creates a customer's tenant, seats its first administrator and leaves."},
+	{"tenancy.concealed", "WithConcealedDomains: a domain the caller holds no grant in answers exactly like one that does not exist."},
+	{"tenancy.user-domains", "The generated user-domains endpoint: the domains where the session holds at least one grant, on the same foothold predicate as concealed tenancy."},
+	{"tenancy.self-service", "The tenant record's creation shape (@tenant(creation: self-service) or both): a person who signs in holding no tenant creates one through the generated create-your-tenant route and becomes its administrator, seated with the roles the application names after the row commits, the roster learning the tenant after that; whoever holds a tenant is refused, an administrator of one never creates another there, and the generator refuses the shape without a registration admitting open sign-up."},
+	{"tenancy.declaration", "The tenant record's declaration of who may enter a tenant, kept as data of the application: the directories a tenant admits its people through (@tenantDirectory, one row per declaration with its sign-in method and connection: a Google Workspace by its domain, a Microsoft Entra tenant by its tenant id) and whether its people enter through them only (@directoryOnly); edited under the records' grants with the records' change events as the audit, read by the sign-in policy in its own transaction (New<Record>DeclarationReader) and by every instance's roster beside the keys (Declarations), which the records' write paths reload after their commit and signal."},
+	{"tenancy.directory-only", "A tenant whose people enter through its directories only: a password session is refused the tenant at reach time (the picker never offers it, a direct request answers as a tenant that does not exist), and a person whose every tenant is directory only is refused at sign-in (directory_only), while a session established through a declared directory enters."},
+	{"tenancy.default-seat", "A directory row's default seat (@directoryDefaultSeat): what a stranger the directory vouches for gets at their first sign-in, before the registration's account rule is reached. A row naming a role creates the person and seats them with it in that tenant (resource.SeatDeclared, once the sign-in's transaction has committed); rows naming none refuse them by invitation only (invitation_only), with no account created, unless they followed an invitation link; a person already seated passes, and a directory no tenant declares falls to the registration's rule. The tenant's administrator sets the seat on the Sign-in page, a picker over the tenant's roles, and the auth reads every tenant's declaration of a directory with its seat through New<Record>DirectoryReader (session.Auth.SetDirectoryAdmission)."},
+	{"tenancy.creator-directory", "A self-service tenant's first directory is the one its creator came through: the create-your-tenant route declares the creator's sign-in method and connection on the new tenant in the row's transaction, so a person who signed in through a directory enters the tenant they made; a creator who signed in by password declares none."},
+	{"star-chart", "A picker drawn from user-domains that sets no tenant itself: it opens the page it is on under the chosen tenant's URL, and a guard on the tenant segment settles the tenant from the URL, so a tenant the session cannot reach lands on a refusal page in the server's words."},
+	{"@domain", "The bare @domain column: the tenant key on the row itself, stamped from the request on create."},
+	{"@domain.join-path", "@domain(via: ...): tenancy resolved one or more hops away through foreign keys."},
+	{"fail-closed.bare-resource", "A resource carrying only the mandatory @domain: a resource-only grant exposes nothing beyond the primary key."},
+
+	// Attributes and subjects.
+	{"@attribute", "@attribute(name) on a column: the vocabulary a grant condition compares."},
+	{"@attribute.join-path", "@attribute(name, via: ...) reaching a column one hop away within the tenant."},
+	{"@attribute.join-path-global", "A join-path attribute from a tenant-scoped table into a global table."},
+	{"@attribute.bool", "A boolean attribute compared with = true."},
+	{"@attribute.date", "A date attribute compared against a date literal."},
+	{"@attribute.decimal", "A decimal attribute compared against numbers and subject values."},
+	{"@attribute.timestamp", "A timestamp attribute compared against now."},
+	{"@attribute.nullable-fk", "A nullable foreign-key attribute tested with IS NULL inside an OR."},
+	{"@attribute.nullable-bool", "A nullable BOOL attribute: IS NULL is the only test that admits the undecided row, and = true and = false each exclude it, so 'not refused' is written insured IS NULL OR insured = true; insured != false would drop the undecided outfits."},
+	{"@subjectSet.domain", "@subjectSet on a tenant-scoped anchor: the subject's set is partitioned per tenant."},
+	{"@subjectSet.global", "@subjectSet on a global anchor: earned once, valid in every tenant, deliberately unfiltered."},
+	{"@subjectSet.dotted-value", "@subjectSet(name, value: A.B): a set whose value continues through the anchor's foreign key."},
+	{"@subjectValue", "@subjectValue(name, value: Column): a scalar attribute of the requesting user."},
+	{"@subjectValue.two-per-anchor", "Two subject values bound on one unique-indexed user column."},
+	{"@subjectValue.second-anchor", "A second @subjectValue anchor, so a condition can compare a foreign key to the subject's company."},
+	{"bindings.dot", "The generated DOT graph of every binding in a package: bare attributes and subject vocabulary listed in their resource's box, join paths drawn hop by hop with a shared hop once, a bare binding on a foreign key pointing at its table."},
+	{"condition.subject-scalar", "subject as a scalar compared to a user column."},
+	{"condition.now", "now as an operand, on either side, folded at decision time; a row-free condition on an Execute grant."},
+	{"condition.time-of-day", "timeOfDay(now, zone) compared against 'HH:MM' literals, folded in the engine and never rendered to SQL."},
+	{"condition.day-of-week", "dayOfWeek(now, zone) compared against day names with =, !=, and [NOT] IN."},
+	{"condition.local-zone", "The bare word local as a zone, wired by the application through SetLocalZone."},
+	{"condition.old-vs-new", "new.attr <op> attr on an Update: the post-image against the same row's pre-image."},
+	{"condition.not-in", "NOT IN over a string list, on a state binding."},
+	{"condition.prefix-not", "Prefix NOT over a parenthesised OR."},
+	{"write-grouping", "Two conditional grants for one permission on one resource in one role: a PATCH touching both field sets is checked as AND across groups, and a denial names the failing group."},
+
+	// Workflows.
+	{"@state", "@state(default: ...) on the status column: the state is structurally unwritable from the wire."},
+	{"@stateRoot", "@stateRoot(Root) on a member's anchoring foreign key: the uniform state binding synthesized one hop down."},
+	{"@stateRoot.two-hop", "A member two hops from the root: the chain resolver composes the hops."},
+	{"@transition", "@transition(Root, from: ..., to: ...): the declared edge is the whole legality rule."},
+	{"@transition.multi-from", "A transition with several source states."},
+	{"@transition.loop", "A state entered and left again: the hold/resume loop, the failed-test loop."},
+	{"@transition.join-path-root", "A transition whose root's tenancy is a join path: tenancy verified by the gate's check-SELECT."},
+	{"@target", "@target(Root) alone: the plain located-row form of a method that moves no state."},
+	{"workflow.state-table", "A status table whose values are the workflow's states; mutation grants against it are structurally rejected."},
+	{"workflow.dot", "The generated DOT graph of each workflow: facts drawn, policy not."},
+	{"workflow.ts-constant", "The generated TypeScript Workflows constant the browser draws the graph from."},
+	{"execute-condition", "A row condition on an Execute grant, evaluated against the located row; the refusal names the method and row only."},
+	{"capability-envelope", "capabilities=Execute,Create,Update,Delete on a read: the per-row answers a page renders its affordances from."},
+	{"create-under-parent", "capabilities=Create on a parent lists the workflow members a row admits creating beneath it."},
+	{"touch", "output_only_update_fn's generated Touch: a row bumps its stamp with no field changed."},
+	{"transition-owned-timestamp", "A timestamp written explicitly by the transition that owns the event, not by an update function."},
+	{"test-suffixed-method", "A method whose snake-cased name ends in _test lives in a _rpc-marked file."},
+
+	// Fields.
+	{"cell-masking", "A field a conditional grant does not cover on a row arrives as an absent key."},
+	{"pii", "conditions:\"pii\": a field flagged in metadata and refused in URL filters."},
+	{"pii.filter-placement", "A PII filter is refused in the URL and accepted in the request body."},
+	{"input_only", "A field accepted on mutations and never serialized back: absent from the TypeScript row interface, writeOnly in its metadata entry, and carried by the Create and Patch shapes."},
+	{"output_only", "A field the wire can never write."},
+	{"default_create_fn", "A server-side default computed at create time."},
+	{"immutable", "A field that can be created but never updated."},
+	{"output_only_update_fn", "A mechanical stamp written on every update."},
+	{"@defaultsCreateType", "A defaults type run inside the create transaction."},
+	{"@validateCreateType", "A validator type run inside the create transaction."},
+	{"@defaultsUpdateType", "A defaults type run inside the update transaction."},
+	{"@validateUpdateType", "A validator type run inside the update transaction."},
+	{"allow_filter", "An unindexed column made filterable."},
+	{"nullboolean", "A nullable BOOL column: typed NullBoolean in the generated TypeScript, display type nullboolean in its metadata, rendered by the console as a three-way picker, and written back to NULL by a null in a PATCH body."},
+	{"index.tenant-second", "A column directly after the tenant column in an index key is indexed on a bare @domain resource: the list binds the tenant by equality, so a filter on the column alone seeks the index, and the column carries index:\"true\" and filterable: 'always'."},
+	{"index.trailing-key", "A trailing key column with nothing bound before it is not indexed: a filter on it alone would scan the index, so the column carries no index tag and no filterable metadata, and a filter naming it alone is refused."},
+	{"filter.typed-values", "A filter value typed by its column: a decimal binds as NUMERIC, a non-number is a 400."},
+	{"filter.validated-at-decode", "A filter validated with the rest of the request, before permission checks and before any body runs."},
+	{"decode.value-limit", "A value the column cannot hold answers 400 naming the field at decode, before anything is buffered and before any permission check: a string over its STRING(n) length by code point, a decimal beyond NUMERIC's 29 integer digits or 9 decimals; the generated sqltype tag carries the column type, and the TypeScript metadata carries maxLength so a form refuses first."},
+	{"decode.nullable-slice", "A nullable BYTES or ARRAY column typed by the plain slice: nullability follows the column, a null is accepted at decode where the column allows it and refused with cannot be null where it does not, and the metadata carries required accordingly."},
+	{"create-form-narrowing", "The digest's field-level Create entries decide which inputs a form renders."},
+
+	// Search.
+	{"search.box", "The search box: *:search:\"terms\" in a filter finds the rows where every term appears in some field the schema's search index covers, through that index; count and the cursor pages carry it like any filter."},
+	{"search.match", "startswith, endswith and contains on a text field whose column has a token column: SEARCH_SUBSTRING over the table's search index; a field whose tokens carry no anchors answers contains alone, and the others refuse at decode."},
+	{"search.prefix", "A stored LOWER(column) second in the tenant's index gives a field a case-folded startswith and nothing else; the table needs no search index, and the field joins no box."},
+	{"search.date", "A date in the box: its token column holds the day as YYYYMMDD, so a typed day meets it as a prefix; the field answers no explicit match."},
+	{"search.partitioned", "A search index partitioned by the bare @domain column: a sector's box reads its own partition."},
+	{"@searchAlso", "@searchAlso(Child.Field): the parent's box also searches a child table's text through the child's search index, joined on the foreign key; the child field's own permission governs the branch, and the child's box searches the field as well."},
+	{"search.pii-posts", "A box over a resource whose box searches a PII field sends the filter in the request body, and the URL form is refused; a caller whose grants deny every PII field the box would search keeps the box in the URL."},
+	{"search.denied-field", "A box field the caller may not read drops out of the box without a word; an explicit match on it is a 403."},
+	{"search.conditional-field", "A box field held under a condition matches only rows meeting the condition: the match is conjoined with the grant's condition."},
+	{"search.key-set", "A box spanning two search indexes: each term's keys are gathered per index and joined back on the resource's key, so the box must join the rest of the filter with AND alone, and a box inside an OR is refused."},
+	{"search.view", "A view's field names the table column it projects (search:\"Table.Column\") and the SQL projects that column's token column under its own name, so the view's box and matches ride the table's index."},
+	{"search.memory", "A computed resource's allow_filter text field answers the three matches in memory and joins the box, which the handler evaluates over the folded rows."},
+	{"search.quoted-value", "A quoted filter value, with backslash escapes, carries the grammar's separators: name:eq:\"Halvard Freight\"."},
+	{"search.beside-filters", "The box beside the column filters: the list page sends the page's filter, the complete column filters and the box as conjuncts of one AND, (page),(columns),*:search:\"…\"; the server narrows by the box's key set and the rest of the filter together, the count and the cursor carry the whole, the declared order stands, and the box is the indexed touch a companion-only column waits for."},
+	{"search.beside-filters.pii", "A filter carrying the box and column filters is placed as a whole: posted when the box or any column filter reaches a PII field for the caller, kept in the URL when the caller's grants deny every PII field it would reach; a field the caller may not read drops out of the box beside a filter as it does alone."},
+	{"metadata.search", "FieldMeta.search and ResourceMeta.searchFields: the browser learns which matches a column answers and which fields the box searches from the generated metadata, and draws the controls nowhere else."},
+
+	// Structure.
+	{"interleaved-table", "An interleaved child table."},
+	{"compound-key", "A compound primary key."},
+	{"client-supplied-key", "A create that supplies its own key."},
+	{"consolidation.exclusion", "A resource excluded from the consolidated handler keeps its standalone PATCH surface."},
+	{"consolidation.batch", "The consolidated endpoint: a cross-resource batch in one transaction with a closed operation vocabulary."},
+	{"commit.referential-refusal", "A commit Spanner refuses for a referential reason (a delete of a row other rows still reference, a write naming a referenced row that does not exist, a required column left empty) answers 409 with a message naming only the resources the transaction buffered, decided on the gRPC code alone; a child-and-parent delete in one transaction still succeeds in either order."},
+	{"commit.constraint-refusal", "A commit Spanner refuses for a duplicate key or unique-index value (409), a violated CHECK constraint (400), or an update of a row that does not exist (404) answers in the resource's name, decided on the gRPC code alone over the same record of buffered patches; the create validator's 400 for the same rule shows the two enforcement points side by side."},
+	{"change-tracking", "TrackChanges: mutations write DataChangeEvents rows in the same transaction."},
+	{"event-source", "The change event's source names the session, and the actor and role of an impersonated one."},
+	{"@enumerate", "The field-scope @enumerate(Resource): the field holds another resource's identifier, and the generator alone says which resource its picker lists."},
+	{"@enumerate.plain-column", "A field-scope @enumerate on a plain column with no foreign key: an identifier held from outside the schema names the resource its picker lists."},
+	{"@enumerate.key-view", "A field-scope @enumerate on a foreign key naming a view over its target, keyed like it, that carries display columns the target lacks; the constraint stays the guard."},
+	{"@enumerate.enum-table", "A field-scope @enumerate naming an enum table: the picker renders the generated values with no request and no List grant, as an inferred key into the table does."},
+	{"@enumerate.computed", "A field-scope @enumerate naming a computed resource: the picker lists rows served from Go."},
+	{"@enumerate.type", "The type-scope @enumerate(Table): generated constants for an enum table's values."},
+	{"picker.read-disabled", "A picker over a resource with no read handler: the picked value's display resolves from the option list, and an unmatched id shows as itself."},
+	{"picker.config-driven", "A config-driven page whose pickers list exactly the resources the generated metadata names, in the tenant the URL names; a persona without List on one sees the refusal."},
+	{"picker.paged", "A picker over a resource that declares a maximum page size (@page max) pages it one server page at a time: Previous and Next inside the panel by the server's cursors, the first page's total, the configured sorts, else the source's @order, else the display column, and the chosen row read by key and shown whichever page is open; the maximum is the switch, read from the generated descriptor, and nothing reads the source whole."},
+	{"picker.whole", "A picker over a resource with no maximum page size reads it whole in one request (limit=all) and resolves the chosen row from that list, so a source with no read route serves it; a fixed enumeration renders with no request at all."},
+	{"column.referenced-in", "A list column showing a referenced resource's display value resolves it on the referenced resource's read mode: a source with no maximum is read whole once and mapped for every page, a source with a maximum is asked for one filter=id:in:(...) list per page over the page's keys, batched under its maximum and served by the key's index, never read whole."},
+	{"column.icon", "A list column rendering its field as an icon with a tooltip from a declared map: icons per value, the words per value with the row's fields filled into the sentence, resolved by the list into the display row and rendered by the grid as an image named by the words; the column keeps its header, sort and filter on the field."},
+	{"@suppress", "@suppress(readHandler | patchHandler): a route not generated."},
+	{"@virtual", "A virtual resource over an embedded subquery."},
+	{"virtual.with-clause", "A virtual subquery with a WITH clause."},
+	{"virtual.named-param", "A virtual subquery with a named parameter."},
+	{"virtual.domain", "A tenant-scoped virtual resource over a view column."},
+	{"virtual.keyed-read", "A @virtual view that declares its @primarykey serves a keyed read route beside its list, as a table does, so a picker over a bounded view reads the chosen row by key; a view with no key lists only and its metadata says readDisabled."},
+	{"@rowsOf", "The struct-scope @rowsOf(Table) on a view: the view declares its backing table, a create goes into the table, and the new row shows up in the view on the next list because the view's SQL reads that table."},
+	{"@rowsOf.same-row", "A view keyed by its table's own key: a row opens the table's page, an edit patches the table, and a delete removes the row, while the view's other columns stay its own."},
+	{"@rowsOf.association", "Two views over one association table, keyed by the table's compound key under its column names: the key rides in every list request, a row is deleted from the list through the table, and a create associates through the table's form."},
+	{"list.keyless", "The library's list page over a key-less resource (a @computed or @virtual struct with no @primarykey, keys: [] in the descriptor) draws the whole list as one page, every row identified by its position: Previous and Next disabled with the count, no View column, no create, no delete, and no row route; a pageSize or enableRowExpansion on its config fails when the page is built naming the resource and the reason, and the grid identifies rows by rowKey, never by a field called id."},
+	{"list.row-route", "A list page's rowRoute names a field whose declared enumeration is the row's destination: the row opens that resource by the field's value, gated on Read of it; without one the row opens the write resource by its single key."},
+	{"@computed", "A computed resource: rows from application query logic behind generated routes."},
+	{"computed.domain", "A tenant-scoped computed resource."},
+	{"computed.compound-key", "A computed resource with a compound key."},
+	{"computed.conditional-grant", "A row-free conditional grant on a computed resource."},
+	{"computed.fold", "A computed List answered by the handler's in-memory fold (Collect)."},
+	{"computed.pushdown", "A computed List that takes filter, sort, and page into its own SQL."},
+	{"computed.take-filter", "Filter().Take on a computed resource's filterable columns."},
+	{"computed.take-sort", "TakeSort: the body yields rows in the total order."},
+	{"computed.take-page", "TakePage: the body pages itself from the cursor's boundary."},
+	{"computed.null-placement", "A computed list sorts and pages NULL where the application's database does: a pushdown body's plain ORDER BY, its own cursor predicate, and the handler's in-memory sort and boundary test agree across the NULL boundary, whether the body pages itself or the handler pages over its order."},
+	{"computed.user", "QuerySet.User(): the identity the check ran as, for a caller-scoped computed read."},
+	{"computed.scope", "QuerySet.Scope(): the partition the check ran in."},
+	{"computed.keyless", "A @computed struct with no @primarykey is a whole read-only list: one list route serves every row the filter admits in one response, sorted when a sort is asked or declared, with no read route, no page (a numeric limit or a cursor is refused naming @primarykey as the way to page), and no row identity; declaring a key brings all three back."},
+	{"@manualAddResource", "A permission registered by hand for a hand-written route."},
+	{"@manualAddResource.scope", "@manualAddResource(Perm, domain): the scope argument."},
+	{"@manualAddResource.execute", "@manualAddResource(Execute): a manual Execute registration reaching the TypeScript Methods constants."},
+	{"@manualAddResource.outlet", "A manual registration naming a non-default @outlet, filtered by ForOutlet."},
+	{"hand-written-route", "A route the application writes itself, checking the registered permission fail-closed."},
+
+	// Outlets and auth.
+	{"outlet.shared", "@outlet(default, other): a struct served on two outlets."},
+	{"outlet.exclusive", "@outlet(other) alone: no route on the default outlet."},
+	{"outlet.isolation", "The generated router tests and the served suites prove the outlets' URL spaces are disjoint."},
+	{"outlet.session", "WithRouterOutlet(..., Auth(...)) (ServesSessions() under a hand-written router): a second browser surface with its own permission routes."},
+	{"GenerateRouter", "The generated router: each outlet declares Auth or Tokens and its WebApp, the generator emits the router with its middleware chain documented and proven, and the application's own routes compose in through Hooks."},
+	{"WebApp.several", "Several browser applications on one router tree: none is mounted at / (a WebApp at / beside another is refused at generation, naming both outlets), each sits under its own mount path with its outlet's API beneath it (the console at /console with /console/api, the portal at /portal with /portal/api), and the generated router answers GET / alone with a temporary redirect to the default outlet's application."},
+	{"outlet.tokens", "A machine outlet carrying an auth's bearer tokens: the generated token check binds each request to the person or service account its token acts for, through the same permission checks; a person issues an application token on the console's Tokens page, a command-line client obtains one through the device flow with a person's approval on the console's device page (the auth's device verification path, which the generated descriptor's tokens block and the two pages from the client library configure themselves from), and a configured key is seeded as a service account's token."},
+	{"outlet.programs", "A machine outlet ships a program with the release: the image build compiles it, the outlet serves it behind the token check, and an installed copy upgrades itself from the outlet."},
+	{"machine-identity", "A service account holding roles with no login."},
+	{"typescript.second-target", "GenerateTypescript(..., ForOutlet(...)): a second client filtered to an outlet, generated in the same run."},
+	{"typescript.derived-object", "A plain struct on a JSON column: the generator derives its TypeScript interface from the struct's json tags into the resource's namespace, types the field object, and writes the Spanner methods that store it, so the application declares the shape once and no client library carries it."},
+	{"typescript.imported-type", "@typescript(Name, from: \"module\") on a type whose shape lives outside Go: every generated file that carries the type imports Name from the module, in both clients, and the column is typed Name with display type object."},
+	{"typescript.byte-slice", "A []byte column: one leaf to the generator, a string in both clients' interfaces (encoding/json carries it as base64) with display type bytes, never a number[]; the upload method records each document's SHA-256 in it."},
+	{"typescript.array-column", "An ARRAY<INT64> column typed []int64: number[] in the generated interface and in the metadata, one member of the display-type vocabulary the client's union lists, so the console builds against what the generator emits; the column takes no filter or index tag, a sort naming it answers 400, and a patch writes the array whole."},
+	{"typescript.raw-json", "A computed field typed json.RawMessage, carrying a payload from outside the schema the application does not model: unknown in both clients' interfaces with display type object, as spanner.NullJSON is, passed through verbatim; on a Spanner column the standard-library type is refused until the client stores it as JSON, naming spanner.NullJSON and a declared type over it as the spellings that work."},
+	{"typescript.generated-json-methods", "A type declared over json.RawMessage, or over any type with JSON methods, writes no methods of its own: the generator gives back MarshalJSON and UnmarshalJSON converting through the type it is declared over (zz_gen_json.go) beside the Spanner pair, so the type is its declaration and its @typescript annotation and nothing else."},
+	{"typescript.types-package", "WithTypes(dir): an application package the generator writes nothing else into, named so a type it declares and a column holds gets its generated JSON and Spanner methods beside it, instead of moving into the resources package or being wrapped."},
+	{"auth.password", "The password method on an Auth session (session.PasswordSignIn), for a population whose roles the application owns."},
+	{"auth.two-populations", "Two auth packages, each with its own tables, cookies, and permission store, each outlet bound to one."},
+	{"auth.multi-method", "Two ways into one population: a password and a Google directory registered on one Auth session, meeting in one users table, one session table and one cookie, the generator program declaring both (generation.Auth with PasswordMethod and GoogleMethod) and the generated router mounting each under its registration name; the directory's sign-in provisions a person the password manifest does not hold, under the verified email, and its groups' lowercase names resolve at the store to the role file's spelling; a directory identity whose verified email is a password persona's login waits for that persona's password before it is linked."},
+	{"auth.login-methods", "The outlet's methods route (session.Auth.Methods at /user/methods): what the login page is told, the methods the outlet offers in the order they were registered, each with its kind (password or redirect), its label and the path the router mounted it at, and the pending sign-in's routes, so the page renders from the server's list and names no path of its own."},
+	{"auth.directory-roles", "A Google registration whose role membership is the directory's (google.RoleSync), with no role writer in the application."},
+	{"auth.open-sign-up", "A registration admitting anyone the directory verifies (signin.OpenSignUp, declared OpenSignUp on the method): a person the auth has never seen becomes a login holding no role, the way in a self-service tenant record needs."},
+	{"auth.skipauth-directory", "The session library's skipAuth build simulating a directory from the environment: the person APP_<REGISTRATION>_USERNAME names in the groups APP_<REGISTRATION>_ROLES names, falling back to APP_USERNAME and APP_ROLES, so two registrations in one process sign in two people."},
+	{"auth.login-refusal-code", "A refused login returns to the login page with a code in ?code=, never text: the page holds the sentence for each code and shows nothing for one it does not know."},
+	{"auth.user-management", "The generated user-management surface per auth: the crew's and the members' users, seats and roles as resources in the collection (a global partition and a sector partition each), the targeted methods beside them, their handlers generated as delegations to the surface the configuration builds over each auth's session accounts and engine memberships; the console managing the members too (Manages); a role file scoping the surface with the ordinary grant grammar (SectorMarshal seats every role but its own); a directory-synced user's seats left to the directory (SyncsRoles); the console's Users page composing the library's user-management component over each surface's global partition, and the sector's crew page, under the sector's URL, over the crew's partition in the sector the URL names."},
+	{"auth.invitation", "An invitation as the way into the application or into one of its tenants: the user-management surface's invitations resource per partition (CrewInvitations, CrewSectorInvitations and the members'), where an actor with Create mails an address a link carrying the roles, the same request whether an account holds the address or not, judged by the role file's grant grammar role by role (SectorMarshal invites into every role but its own); whoever follows the link and signs in, by any method or by creating a password login, accepts it, and the Auth's acceptance hook (resource.SeatInvited) seats them with the roles it carries in the partition it names, before the sign-in rule decides; a standing invitation is listed and revoked; a tenant's administrator seats a person directly, with no invitation, only when the person entered through a directory the tenant declares (resource.WithTenantDirectories), and a seat removed that was the person's last anywhere deletes the account with its identity links."},
+	{"auth.email-address", "A person's email address held apart from their username, in two states: added by the person and verified by following the link the Auth mails (Email().Add() and Verify()), or entered by an operator unverified, which reserves it; a directory's verified address is taken at the sign-in; the session read reports the address and whether it is verified, and the user rows carry email and emailVerifiedAt."},
+	{"auth.password-sign-up", "Open sign-up on the password method (session.OpenSignUp, declared OpenSignUp on PasswordMethod): a stranger gives an address, follows the mailed link, chooses a username and a password, and holds a login with the address verified and no role, the way in a self-service tenant record needs beside the directory's; the generated router mounts the sign-up routes and tells the login page of them."},
+	{"auth.second-factor", "Every session carries a second factor, as the sign-in rule's last word (signin.RequireMFA(sessioninfo.MethodEmailCode) chained after the tenant policy with signin.Policy.Then): a directory that attests satisfies it, a remembered browser stands in for it, and otherwise the login page runs the sign-in code the Auth mails through the pending routes (Pending().SendCode(), VerifyCode(), EnrollEmail() for a person who holds no address), with the factor codes and trusted devices tables under the auth's prefix; an administrator resets a person's remembered browsers through the user-management surface's Reset<Auth>UserFactors method."},
+	{"auth.attested-directory", "A directory the application administers, declared attesting on its registration (google.Workspace(...).Attesting(), azure.Tenant(...).Attesting()), so a sign-in through it carries the directory's second factor as the session's attested-by-declaration event and is never asked for the code; a directory the application does not administer leaves the declaration off and its people enter the code."},
+	{"auth.persona", "The persona sign-in of the test environments: the Auth registers the session library's generic OpenID Connect method (oidc.SignIn) against the persona provider the deployment's placement names, only where the provider's issuer is configured (a pull-request environment and the first environment), the application a public client and the provider attesting; the generator declares it PersonaMethod(name).InvitedUsers(), and the generated router mounts its login and callback and the methods route offers it only where the Auth's handlers are non-nil, so the same build offers it nowhere else; the cast beside the auth (cast.json: login, name, address, roles) names the personas the pipeline registers with the provider (bedrock deploy persona register) and the application seeds as password-less logins seated in their roles (SeedCast), which the persona's identity is linked to at its first sign-in (invited users only)."},
+	{"auth.trusted-device", "A browser remembered after the sign-in code (rememberDevice on the verify): the Auth keeps a trusted-device row and the browser its token in the auth's trusted cookie, so the person's next sign-in from that browser carries a trusted-device event in the code's place until the period ends, the person forgets their own browser, or an administrator resets their second factor."},
+
+	// The browser library's application.
+	{"idle.configured", "The idle session configured by the application through the library's tokens: IDLE_SESSION_DURATION, IDLE_WARNING_DURATION, and IDLE_KEEPALIVE_DURATION read from the build's environment so a development build can shorten them, and IDLE_LOGOUT_ACTION and LOGOUT_ACTION as the application's hooks, where the tokens' factory defaults applied. The warning is the library's notice at the top of the viewport, which any activity ends, so the application offers no button for it and does not provide the retired IDLE_TIMEOUT_REQUIRE_CONFIRMATION."},
+	{"config.component", "A componentConfig among a config-driven page's related configs: the application's own component, extending CustomConfigComponent, rendered in the row's page with the row as its parentData, saying what no field renders."},
+	{"config.array", "An arrayConfig among a config-driven page's related configs: the rows of a resource its listFilter selects from the page's row, each drawn by the iteratedConfig, read on the listed resource's read mode (whole where it declares no maximum page size, one server page with Previous and Next where it declares one)."},
+	{"field.bytes", "A bytes field in the browser library: a grid cell shows the decoded size, never the base64, a view shows the size with a download of the bytes named after the field, and no form mode offers an input, since binary content is written through @upload and served through @file."},
+	{"field.array", "An array field in the browser library: a grid cell shows the elements each written by their element type and joined, a view shows them as chips, an empty list is the placeholder, and no form mode offers an input until the array editor lands, so a save of another field never carries the array."},
+	{"field.object", "An object field in the browser library, a derived struct, an imported type, spanner.NullJSON, and unknown alike: a grid cell shows the JSON on one line cut with an ellipsis, a view prints it indented, and no form mode offers an input."},
+	{"field.write-only", "A write-only field (FieldMeta.writeOnly) in the browser library: absent from a view and a grid cell, a blank input in create and in edit whose value travels only when typed, and a list column naming it fails when the page is built, since a list never returns it; the row's Update envelope names the field when the caller's grant covers it, since the server plans the envelope over every field the caller may write, projected or not, so the edit form draws the input under an envelope too."},
+	{"form.leave-page", "The leave-page confirmation: the library's resourceRoutes attaches its canDeactivateGuard to every config-driven list and row route, so leaving a page whose form FormStateService holds dirty opens LeavePageConfirmationModalComponent and a route to FRONTEND_LOGIN_PATH leaves without asking; the application provides the path and adds no guard of its own."},
+	{"client.login-redirect", "The client's error hook carries the login redirect: a 401 mid-session, the session gone, keeps the attempted URL (BASE_URL plus the current route) in AuthService.redirectUrl and returns the browser to FRONTEND_LOGIN_PATH, where the login page reads it once and returns there after the login; the application hands the hook to its generated createApi through provideResourceClient, which also counts each request as activity for the progress bar, and keeps no HTTP interceptor."},
+	{"client.uncaught-notice", "The notice is for the error nobody caught: an ApiError that reaches the ErrorHandler provideResourceClient installs raises one global notice in the server's words (the body's message, else HTTP <status>), a request that got no response raises one saying so, and a refusal a page reports in place (the flight deck's declared 409 answer and its 403 on an edit, the store's pageError and viewError) raises none, where the interceptor toasted every response beneath the client and doubled every in-place refusal."},
+	{"client.login-component", "The login page is the library's component (<impulse-login-methods> from @impulseframework/resource-angular) composed around what is the page's own: it reads the outlet's methods route through the application's client, renders the password form and a button per redirect method from the list, posts the password after reading the list again so the post carries a live XSRF token, sends the browser to a directory with the page to return to, shows the sentence held for a refusal code, and renders the confirmation step for a sign-in that waits; the page keeps its manifest, its words for a method (a label override keyed by the registration name) and where a sign-in lands, handed to it as the component's signedIn."},
+
+	// The installed browser apps.
+	{"webapp.cache-rule", "The served browser app's cache rule (BrowserApp): the application's asset and deep-link handlers delegate to one type in the resource package, one line each, which strips the mount prefix, rewrites an app route (its last segment without an extension, matrix parameters removed) to the entry document, answers a file whose name carries the build hash as public, max-age=31536000, immutable, and every other file (the entry document, ngsw.json, the worker script, the web manifest, the favicon, the icons) as no-cache with a strong ETag so an unchanged file answers 304, a .webmanifest as application/manifest+json, and a missing file, a path outside the mount or a directory 404, never a listing."},
+	{"webapp.installable", "A browser app installable as a progressive web app: @angular/service-worker at the workspace's Angular line, provideServiceWorker('ngsw-worker.js') off in dev mode and registering when the app is stable or thirty seconds after start, one ngsw-config.json at the workspace root named by every project's production configuration, whose index, file lists and navigation patterns the build joins with each project's base href so the same file serves every mount, with the API under the mount excluded from navigation (!/api/**) so the OIDC login, the callback and a stored-file link reach the server, no data groups, and a manifest per project (public/manifest.webmanifest: the display name, id the mount with a trailing slash, scope and start_url ./, display standalone, the app's primary and page-background colors, 192 and 512 icons for any and a 512 maskable) linked from index.html beside theme-color and the apple-touch-icon."},
+	{"webapp.theme-choice", "A person picks the application's look from a hard-coded list and the choice holds on that browser: light or dark, and one of the palettes the application offers; the theme file hands the palettes to the library's palettes mixin (theme.scss, every palette's tokens under html[data-palette]), app.config.ts names the same ids to provideTheme, which starts the library's ThemeService with the application so the remembered choice is applied before the first page renders (the login page included), and the dashboard's Appearance card composes the library's theme picker; the application's own stylesheets read the Material tokens (the page background, the header, the badge, the persona cards), so dark follows."},
+	{"webapp.update-notice", "The update notice: provideAppUpdate() from the library's ui-app-update entry point beside provideServiceWorker, and no component referencing it; when the worker has a new build ready the service raises one persistent notice, A new version of this application is ready., with a Reload action in the alert area the shell renders, reloads only when the person chooses, checks hourly while the tab is visible and once when it becomes visible again, and raises the same kind of notice when the worker reports an unrecoverable state."},
+
+	// The API across releases.
+	{"api.version-refusal", "The release check on a session outlet: the build stamps the release into the browser application (a define of APP_VERSION from the VERSION the image's browser stage carries, dev where none), the application provides it as API_VERSION so the client sends it in X-Api-Version on every request and apiVersionInterceptor adds it to the application's own same-origin HttpClient calls, the server answers releases from the outlet's oldest answered (generation.OldestAnswered in the generator program) up to its own (APP_VERSION through Handlers.ServerVersion) and refuses the rest with 412 carrying its release before any handler runs or a body is read, a request with no header is answered, a dev build sends no header and a dev server refuses nothing, the session routes and the stored-file routes are answered at any release, every checked response carries Vary: X-Api-Version, every answer of an outlet names the server's release in X-Api-Version (the methods list the login page reads first of all, so the page and every footer show the release through the library's release component), and a refused application reloads onto the current build through the update service."},
+	{"api.formerly", "A renamed field (@formerly): the Go field and the wire name move while the column stays, a request naming the former name in a body, in columns, sort or filter is read as the current field under the current field's permission checks, a body naming both is refused with 400, every row carries both keys, the role file and the application's own code name the current name alone and the permission digest mirrors the field's entry under the former name so an application built before the rename keeps its column, the TypeScript knows only the current name, and the former name leaves with the annotation once the outlet's oldest answered release passes the release that renamed it."},
+
+	// Live pages.
+	{"live.pages", "Live pages and the short browser cache: a list page or a record page on a table-backed resource is live by default (the generated metadata's live says the resource's changes are published; live: false opts a page out, and a page on a virtual or computed resource stays plain until its changes are published) and sends X-Subscribe with the tab's id and _v with the version it last saw; the generated handler registers the subscription (who, which tab, which resource, which row or which list in which tenant) before it runs the query and answers with Cache-Control: private, max-age=300; a commit publishes one change document per subscribed user into that user's Firestore change set, a row document for a watched row and a list document for a watched list, and nothing to a user watching another tenant or holding no grant; the browser's change feed hands each document to the page, which asks again by the document's timestamp, and a page left and reopened inside the window is served by the browser with no request; the Firestore emulator runs in the development stack beside the Spanner emulator, with the live package's rules."},
+
+	{"live.derived", "A page on a virtual or computed resource is live too, once the publish knows which tables change it: the generator reads the tables a virtual resource's query names off the embedded SQL behind its Subquery method with memefish's lexer (the names in table positions, after FROM, JOIN and the commas of a FROM list, a CTE named like a table shadowing it after its body and not inside it; a name that is neither a table nor a CTE, a recursive WITH or a text the lexer refuses stops generation and names the place), takes a computed resource's tables from its @changedBy declaration (which on a virtual resource replaces the reading, with a warning when the two differ, and is required for a query built at run time), refuses a set that leaves out the @rowsOf root, records the sets next to the resources as each package's generated LiveDerivations, every table as the Resource method of the type over it, assembles them in the handler package for every publish, and marks each such resource published in its metadata (live: true); at a commit, a write to the @rowsOf root reaches the resource's row and list subscribers under the same key exactly as the table's own do, and a write to any other table it reads reaches every subscriber of the resource with one resource document, in every tenant when the table is global, with no read in the publish path; a computed resource that declares nothing stays plain, and its page asking live is announced once in the browser."},
+
+	{"live.signals", "One channel between an application's instances: the live service keeps one signals document per application with a field per kind, every instance holds one listener on it, and a signal carries nothing but the kind of shared state that changed (features for a flag flip, tenants for the roster, policy for a role, grant or membership write); the instance that wrote signals its kind through the service, every other instance rereads that kind at once, and each reader's own periodic reread is the backstop should a signal be missed; the permission engines announce and watch the policy kind through access.ChangeSignalFunc over the service, so a membership written on one instance is served by every instance at its next request, with no restart and without waiting for the heartbeat."},
+
+	// Feature flags.
+	{"@feature", "A resource behind a feature flag: @feature(<Constant>) on the struct names a resource.Feature constant in the resources package whose doc comment is the flag's description; while the flag is off the resource's routes answer the router's own 404, its arm of the consolidated patch answers as an unknown resource, and the permission digest leaves it and its fields out, so the browser's navigation never shows it; the deploy's MigrateFeatures seeds the flag off, a dedicated global role (FeatureAdministrator: List and Read on FeatureFlags, Execute on SetFeature) turns it on through the generated SetFeature method, which writes the row and its change record and answers the flag as written, the instance that flipped answers at once, and every other instance follows at its next request through the features kind of the live service's signals document, or at the five-minute backstop should a signal be missed; the flags read back, with their descriptions and their last change, through the FeatureFlags resource and the features route."},
+	{"@feature.field", "A field behind a feature flag: @feature(<Constant>) on a field of a table, view or computed struct; while the flag is off the field is unknown to the decoders (a request naming it in columns, sort, filter or a patch body answers 400), left out of every response, and absent from the digest as Resource.field, and the grant that carries the field ships with the release, so turning the flag on needs no migration and no role change."},
+
+	// Paging.
+	{"@order", "@order(Field asc|desc): a list's declared total order."},
+	{"@page", "@page(default: N, max: M): a list's page sizes, carried into the descriptor."},
+	{"order.none", "A whole list (limit=all) with no @order and no request sort is not sorted: a table statement carries no ORDER BY and its rows arrive in the database's own order, and a computed list keeps the order its body yielded; the same resource paged without a sort is refused."},
+	{"order.required", "Every paged list request carries an order: with no @order on the struct and no sort on the request, a bare GET or a limit is refused with a 400 naming the resource and the two ways out (add a sort, or ask limit=all where no maximum is declared), so a page never hides that more rows exist without saying where they are."},
+	{"paging.cursor", "A keyset cursor: pages positioned by the row the last page ended on."},
+	{"paging.link-header", "The Link header's next and prev relations, followed exactly as issued."},
+	{"paging.total-count", "count=true on a first page answers Total-Count."},
+	{"paging.limit-all", "limit=all, legal only where no maximum is declared."},
+	{"paging.offset-refused", "The offset parameter is refused."},
+	{"paging.readability-rule", "A sort or filter on a field the caller is denied is refused naming the field."},
+	{"paging.masked-sort", "A sort or filter on a conditionally granted field runs over the visible projection: masked cells are NULL."},
+	{"paging.unselected-sort-key", "A sort key outside the columns projection, the primary key included, pages on the cursor's copy of the value: the statement selects it a second time under a reserved column, and the row data carries nothing extra."},
+	{"paging.named-variant-key", "A sort key of a named variant type (type HazardLevel int64), concealing and conditionally granted, left out of columns=: the cursor's copy decodes into the field's own type, and masked cells walk through the NULL region."},
+	{"masking.positional", "masking:\"positional\" on a field: its masked cells stay hidden, but the list orders, filters, and pages on the real column, so the page comes off the index and the field's rank is disclosed."},
+	{"warning.concealing-key", "The role file's validation (ValidateRoles, and access.New through WithDefaultRoles) warns where a role's conditional grant lands on a concealing field the resource orders by or admits as a sort or filter key, and the role's other grants leave the CASE in the query: that role's pages sort the partition; the deploy's role check prints the warning."},
+	{"warning.tenant-index", "Generation warns, naming the CREATE INDEX it wants, where a listed resource with a bare @domain and an @order has no index leading with the tenant column and then the order columns: every page would sort the tenant's partition."},
+	{"warning.join-path-list", "Generation warns where a listed resource resolves its tenant through @domain(via: ...): its lists scan the whole table, every tenant, and no index on it changes that."},
+	{"audit.cascade-release", "The audit pass names a @file table whose rows the database deletes by cascade: the release never runs for them and their objects are the orphaned-file cleanup's. Generator.Audit() reports it after a run, a normal generation never prints it, and the generate program prints it under -audit."},
+	{"paging.nullable-sort", "A nullable sort column walked across the NULL boundary in both directions."},
+	{"paging.survives-writes", "A walk that sees each row once across inserts and deletes before its position."},
+	{"paging.sealed-cursor", "The cursor is a sealed token carrying nothing readable."},
+	{"paging.descriptor-sizes", "The browser reads page sizes from the generated descriptor, never a literal."},
+	{"list.server-paged", "The library's config-driven list is a server-paged consumer: one page at the descriptor's size, First, Previous, and Next by the server's cursors, the first page's total kept while turning, sort and filter as request parameters, and a refused filter or page size shown in the server's words."},
+	{"filter.written-dates", "A filter value on a date or timestamp column is read as a person writes it: a day (2026-12-15, 12/15/2026, 20261215), a month (2026-12, 12/2026), a year, or a day with a time (2026-12-15T09:30); the value is the whole span it names, eq inside, ne outside, lt before its start, lte before its end, gt from its end, gte from its start, an in list ORed; a value with no zone is read in the person's zone from the request's Time-Zone header, else the column's declared zone, else UTC; what cannot be read is refused naming the forms."},
+	{"metadata.filterable", "FieldMeta.filterable: the browser learns which columns the server filters from the generated metadata — always for an indexed field and a computed resource's allow_filter field, withIndexed for a table or view allow_filter field, which the server accepts only beside an indexed one — and draws a filter control nowhere else."},
+	{"permission-digest", "The permission digest: advisory grant structure the browser gates every request on."},
+
+	// RPC.
+	{"rpc.client-form", "Execute(ctx, client resource.Client, rpcClient): a method that runs outside a transaction."},
+	{"rpc.typed-result", "Execute's typed second return value, mirrored into TypeScript."},
+	{"rpc.nested-shape", "A nested request or row shape mirrored into the handler and the TypeScript client."},
+	{"rpc.dry-run", "X-Dry-Run: the frame runs and rolls back; a client-form method refuses with 400."},
+	{"rpc.armed-write", "A body's patch armed with Enforce(caller): the caller's own grants decide."},
+	{"rpc.armed-read", "A body's query armed with Enforce(caller): the caller's own read grants and masking apply."},
+	{"rpc.decision-as-data", "caller.Check: a body branches on a decision without arming a write."},
+	{"rpc.as-role", "caller.As over RolePrincipalPermissions: a body acts through a role's checker, the actor's identity kept."},
+	{"rpc.trusted-body", "The default: a body's writes run trusted, since the frame's Execute check admitted the caller."},
+	{"rpc.row-free", "A method with no @target: its Execute grant stays row-free."},
+	{"@answers", "@answers(200, 409) with HTTPStatus(): a method chooses its status; a declared 4xx rolls back and answers the typed body."},
+	{"@answers.no-content", "@answers(204): a method that writes no body."},
+	{"@schedule", "@schedule(\"30 3 * * *\", zone: \"America/Denver\"): a method Cloud Scheduler calls on a cron schedule in a zone (UTC when none is named), taking no input; the generated router serves it at /_scheduled/<method in kebab case> behind SchedulerAuth alone, where a token Google signed for the route's URL with the invoker identity (APP_SCHEDULER_INVOKER) as its verified email runs it and any other call answers 401 with the reason logged, no outlet, permission or browser client names it, and the release file lists it with its schedule for the stack to create the job."},
+	{"@rpc.max", "@rpc(max): a method's own request body limit, applied by its generated handler in place of the application's; a body over it answers 413 naming the limit."},
+	{"generation.body-limit", "WithBodyLimit: the one request body limit the generated router applies, 4 MiB when the application sets none, on every resource, session, consolidated and plain JSON route and on every RPC method that declares no maximum; uploads, live routes and RPC methods bound their own bodies beside the bounded group, since a nested limit can only tighten the one outside it."},
+	{"@rpc.log", "@rpc(log: onEvent) and @rpc(trace: off), the same two on @file, and @schedule(log: onEvent): a route's own request log word and trace setting, the nearest declaration, which the generated routes file sets ahead of the handler with logger.WithPolicy and the surface table hands the tracer; a word where no route is generated, or a trace setting on a scheduled method, is refused at generation."},
+	{"generation.request-log", "WithRequestLog, OutletRequestLog and WithMountedRoutes: what a request writes to the log, declared per surface in the words always, on event, sampled at a fraction and never, each with an optional minimum severity; the application default on the root's request logger, an outlet's word on its group and its not-found handler, a prefix mounted by hand in the request logger's prefix table, the nearest declaration winning as a request descends, and the generated router's test proving each with the console exporter; a surface that declares nothing writes its entry always, as before."},
+	{"generation.traces", "OutletTraces, WithMountedRoutes and the trace: argument: how a surface's spans are sampled, declared per surface in the settings follow the front end, capped at a rate and off; the generated router hands the surfaces with a setting to the tracer's handler as a table the sampler reads as the span starts, longest pattern first, and the release file lists every declared surface with its word, fraction, setting and rate for the stack's own log exclusion."},
+	{"cloud.driver", "The core level opens the cloud driver (cloud/gcp), which builds where the process's logs and spans go from the settings the level embeds (cloud.Settings: the logging project and the trace sampling) and hands the App its LogExporter, so the generated router installs tracing and the request logger and nothing in the application names a logging client or a trace provider; without a logging project the logs go to the console and no span is exported; the driver is bound under the neutral import alias cloud, so another provider is another import line."},
+	{"@upload", "@upload(max): a multipart method whose Execute takes resource.Files."},
+	{"@upload.store", "@upload(max, store: S): a multipart method whose Execute takes resource.FilesIn[S], the files streamed to the named store S and their typed keys recorded in a column typed resource.Key[S], which a key of another store does not compile into."},
+	{"rpc.upload-store", "The file store: the frame streams files to the store the method names, wired on the resource client under its URL (APP_FILE_STORE), under minted keys, the transaction's commit claims them, and a failure before commit deletes them; an object no row claims is the orphaned-file cleanup's."},
+	{"filestore.named", "A named store: a type embedding resource.Store names a second store, opened from APP_FILE_STORE_<NAME> and wired with resource.WithNamedFileStore[S], so one application keeps kinds of files apart, and the generated router refuses to start while a store the generated code uses is not wired."},
+	{"jobs.start", "The service starts its job process: a scheduled method starts one execution of the Cloud Run job deployed with the revision through the job driver (resource/jobs/cloudrun), whose settings the site's configuration embeds and which names the job of this build from the template job the stack sets (APP_JOBS_TEMPLATE) and the version the image bakes in, so a schedule calls the service and never the job, and a rollback rolls the job back too."},
+	{"filestore.cleanup", "The orphaned-file cleanup: a job process lists a store, reads every live key through the generated FileHolders, and deletes the UUID-named objects no row holds that are older than the window, refusing a window under a day, a store with aged objects no row holds any key in, and an unclaimed share that says the live keys were not all read."},
+
+	// Files.
+	{"@file.stored", "@file on the column holding a stored file's key: the generator serves the file under the row's read route, gated by Read on the resource and a Read grant on the route's own field (content), typed and named from the row's columns, the key its validator, and the key column off the wire in both directions; NOT NULL, the key leaves the resource no Create."},
+	{"@file.typed", "@file on a column typed resource.Key[S]: the file lives in the named store S, the generated FileKeys carries the store beside the column, the release deletes from that store, and the patch setter takes the typed key."},
+	{"@file.rendered", "The struct-scope @file on a keyed @computed struct: the computed package's <Name><Segment> function renders the document at request time as a resource.Content the generated route serves under the same gate, a nil content 404, the content's tag its validator."},
+	{"@file.released", "Deleting a row that carries a @file key releases its object: the patch machinery records the key on the transaction and the executor deletes it from the client's FileStore (WithFileStore) once the commit lands; a transaction that does not commit releases nothing."},
+	{"@file.replaced", "Pointing a @file row at another object releases the old one: an @upload method's body sets the key column and the executor deletes the object the row held after the commit; a dry run streams nothing and releases nothing."},
+
+	// Impersonation.
+	{"impersonation.view-as", "A session minted as another user under a List, Read mask."},
+	{"impersonation.act-as-role", "A session minted as a role: the role's grants, the actor's identity."},
+	{"impersonation.mask", "MaskPermissions(fallback, perms...): the session's permission allowlist."},
+	{"impersonation.identity-proof", "Under an assumed role, subject binds to the actor: a grant over subject.set is judged against the actor's own attributes."},
+	{"impersonation.end", "EndImpersonation: the minted session ends and the actor's own session is restored."},
+	{"impersonation.active-list", "ActiveImpersonations: every live impersonated session listed for an operator."},
+	{"impersonation.revoke", "DestroyImpersonatedSession: a live impersonated session ended by an operator."},
+	{"impersonation.max-duration", "MaxDuration: a hard cap on a minted session's lifetime."},
+	{"impersonation.read-only-backstop", "EnforceReadOnlyMask: a write from a read-only session refused before any handler runs."},
+	{"impersonation.session-permissions", "SessionPermissions composing the user checker and the role checker from the session's principal."},
+
+	// The application as a whole.
+	{"login-manifest", "A login page listing every persona with what its view proves; two clicks to switch."},
+	{"walkthrough", "Every persona's proof by curl against a fresh stack."},
+	{"bootstrap.target", "The bootstrap picks the emulator or a real instance from the environment alone: the instance is created on the emulator only, the database wherever it is missing, the same steps after."},
+	{"bootstrap.reset", "A data-only reset: every table the schema migrations do not populate emptied, children before parents, and the world seeded again, no DDL."},
+	{"bootstrap.volume", "Synthetic volume over the seeded world, batched insert mutations in foreign-key order from deterministic identifiers, for reading real query plans."},
+	{"authz-matrix", "GenerateHandlerTests: the generated authorization matrix over a fake engine."},
+	{"regen-idempotent", "go generate reproduces the generated files byte for byte."},
+	{"ci-stub", "The resource module's test stub that runs the application's suite in CI."},
+	{"impulse.bootstrapped", "An application born from impulse new and impulse add auth, green under impulse check."},
+	{"demonstration-index", "This registry, the Demonstrates declarations, and the generated key-to-files table."},
+}
+
+// DemonstrationKeys returns the registry's keys, sorted.
+func DemonstrationKeys() []string {
+	keys := make([]string, 0, len(Demonstrations))
+	for _, d := range Demonstrations {
+		keys = append(keys, d.Key)
+	}
+	sort.Strings(keys)
+
+	return keys
+}
+
+// DemonstrationDescriptions returns the registry as a map from key to description.
+func DemonstrationDescriptions() map[string]string {
+	out := make(map[string]string, len(Demonstrations))
+	for _, d := range Demonstrations {
+		out[d.Key] = d.Description
+	}
+
+	return out
+}

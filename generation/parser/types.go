@@ -1,0 +1,490 @@
+package parser
+
+import (
+	"fmt"
+	"go/ast"
+	"go/token"
+	"go/types"
+	"reflect"
+	"slices"
+	"strings"
+)
+
+// Package holds a slice of each high level type used in resource generation.
+type Package struct {
+	Structs    []*Struct
+	NamedTypes []*NamedType
+	Constants  []*Constant
+}
+
+// Constant is a package-level typed constant declaration, carrying its doc and line
+// comments so godoc annotations on constants can be scanned.
+type Constant struct {
+	name     string
+	typeName string // fully qualified declared type, e.g. "github.com/impulseframework/impulse/accesstypes.Resource"
+	value    string
+	comments string
+}
+
+// Name returns the constant's identifier.
+func (c *Constant) Name() string {
+	return c.name
+}
+
+// TypeName returns the constant's fully qualified declared type.
+func (c *Constant) TypeName() string {
+	return c.typeName
+}
+
+// Value returns the constant's value: the string content for string constants, the exact
+// literal otherwise.
+func (c *Constant) Value() string {
+	return c.value
+}
+
+// Comments returns the constant's doc and line comments.
+func (c *Constant) Comments() string {
+	return c.comments
+}
+
+// TypeInfo provides convience methods over a go/types' Object.
+type TypeInfo struct {
+	obj types.Object
+}
+
+// Name is the type's local object name.
+func (t *TypeInfo) Name() string {
+	return t.obj.Name()
+}
+
+// Type is the qualified type name.
+// e.g. impulse.UUID, []impulse.UUID
+func (t *TypeInfo) Type() string {
+	return typeStringer(t.obj.Type())
+}
+
+// DerefType returns non-pointer qualified type.
+// e.g. *impulse.UUID -> impulse.UUID
+func (t *TypeInfo) DerefType() string {
+	return typeStringer(derefType(t.obj.Type()))
+}
+
+// UnqualifiedType is the type name without package prefix.
+// e.g. impulse.UUID -> UUID, []impulse.UUID -> []UUID
+func (t *TypeInfo) UnqualifiedType() string {
+	qualifier := func(*types.Package) string {
+		return ""
+	}
+
+	return types.TypeString(t.obj.Type(), qualifier)
+}
+
+// DerefUnqualifiedType is the non-pointer type name without package prefix.
+// e.g. *impulse.UUID -> UUID
+func (t *TypeInfo) DerefUnqualifiedType() string {
+	qualifier := func(*types.Package) string {
+		return ""
+	}
+
+	return types.TypeString(derefType(t.obj.Type()), qualifier)
+}
+
+// TypeName is the qualified type name without array/slice/pointer prefix.
+// e.g. *impulse.UUID -> impulse.UUID, []impulse.UUID -> impulse.UUID
+func (t *TypeInfo) TypeName() string {
+	return typeStringer(unwrapType(t.obj.Type()))
+}
+
+// UnderlyingType is the qualified name of the type's underlying type.
+// e.g. a named `type Code string` -> string; an unnamed type is its own underlying.
+func (t *TypeInfo) UnderlyingType() string {
+	return typeStringer(t.obj.Type().Underlying())
+}
+
+// UnqualifiedTypeName is the type name without array/slice/pointer or package prefix.
+// e.g. *impulse.UUID -> UUID, []impulse.UUID -> UUID
+func (t *TypeInfo) UnqualifiedTypeName() string {
+	qualifier := func(*types.Package) string {
+		return ""
+	}
+
+	return types.TypeString(unwrapType(t.obj.Type()), qualifier)
+}
+
+// Imports returns the packages referenced by this declaration's type, walking
+// through pointers, slices, arrays, maps, channels, and generic type arguments.
+// Universe (builtin) types contribute nothing. The declaration's own package is
+// included when the type is a named type, so callers must filter out the
+// destination package when computing imports for generated code.
+func (t *TypeInfo) Imports() []Import {
+	return TypeImports(t.obj.Type())
+}
+
+// TypeImports returns the packages a type references, walking through pointers,
+// slices, arrays, maps, channels, and generic type arguments; universe types
+// contribute nothing.
+func TypeImports(t types.Type) []Import {
+	seen := make(map[string]Import)
+	collectTypeImports(t, seen)
+
+	imports := make([]Import, 0, len(seen))
+	for _, imp := range seen {
+		imports = append(imports, imp)
+	}
+	slices.SortFunc(imports, func(a, b Import) int {
+		return strings.Compare(a.Path, b.Path)
+	})
+
+	return imports
+}
+
+// IsPointer returns true if the declaration is a pointer
+func (t *TypeInfo) IsPointer() bool {
+	switch t.obj.Type().(type) {
+	case *types.Pointer:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsIterable returns true if type is slice or array
+func (t *TypeInfo) IsIterable() bool {
+	switch t.obj.Type().(type) {
+	case *types.Slice, *types.Array:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsSlice reports whether the declaration's type is a slice: a []T, or a named type
+// whose underlying type is one. An array ([N]T) is not, and neither is a pointer to a
+// slice. A nil slice is what the Spanner client reads NULL into and what encoding/json
+// writes as null, so a slice-typed field takes its nullability from its column.
+func (t *TypeInfo) IsSlice() bool {
+	_, ok := types.Unalias(t.obj.Type()).Underlying().(*types.Slice)
+
+	return ok
+}
+
+// Struct is an abstraction combining types.Struct and ast.StructType for simpler parsing.
+type Struct struct {
+	*TypeInfo
+	astInfo  *ast.StructType
+	fields   []*Field
+	methods  map[string]*types.Func
+	comments string
+}
+
+func newStruct(obj types.Object) *Struct {
+	tt := obj.Type()
+
+	st, ok := decodeToType[*types.Struct](tt)
+	if !ok {
+		return &Struct{}
+	}
+
+	s := &Struct{
+		TypeInfo: &TypeInfo{obj},
+		methods:  make(map[string]*types.Func),
+	}
+
+	// The pointer method set holds both receiver forms, so a method declared on
+	// the value receiver is found alongside one declared on the pointer.
+	methodSet := types.NewMethodSet(types.NewPointer(tt))
+	for method := range methodSet.Methods() {
+		if method.Kind() != types.MethodVal {
+			continue
+		}
+
+		fn, ok := method.Obj().(*types.Func)
+		if !ok {
+			continue
+		}
+		s.methods[fn.Name()] = fn
+	}
+
+	for i := range st.NumFields() {
+		field := st.Field(i)
+
+		s.fields = append(s.fields, &Field{
+			TypeInfo:    TypeInfo{field},
+			tags:        reflect.StructTag(st.Tag(i)),
+			pkg:         obj.Pkg(),
+			isLocalType: isTypeLocalToPackage(field, obj.Pkg()),
+		})
+	}
+
+	return s
+}
+
+// Comments returns the godoc comment text on the struct's type declaration
+func (s *Struct) Comments() string {
+	return s.comments
+}
+
+// Pos returns the position of the struct keyword in its fileset.
+func (s *Struct) Pos() token.Pos {
+	return s.astInfo.Struct
+}
+
+func (s *Struct) String() string {
+	var (
+		maxNameLength int
+		maxTypeLength int
+	)
+
+	for _, field := range s.fields {
+		maxNameLength = max(len(field.Name()), maxNameLength)
+		maxTypeLength = max(len(field.Type()), maxTypeLength)
+	}
+
+	numNameTabs := maxNameLength/8 + 1
+	numTypeTabs := maxTypeLength/8 + 1
+
+	var fields strings.Builder
+	for _, field := range s.fields {
+		nameTabs := strings.Repeat("\t", numNameTabs-(len(field.Name())/8))
+		typeTabs := strings.Repeat("\t", numTypeTabs-(len(field.Type())/8))
+		fmt.Fprintf(&fields, "\t%s%s%s%s%s\n", field.Name(), nameTabs, field.Type(), typeTabs, field.tags)
+	}
+
+	return fmt.Sprintf("type %s struct {\n%s}", s.Name(), fields.String())
+}
+
+// PrintErrors pretty-prints the struct annotated with field errors
+// if any have been stored with AddFieldError.
+func (s *Struct) PrintErrors() string {
+	if !s.HasErrors() {
+		return ""
+	}
+
+	var (
+		maxNameLength int
+		maxTypeLength int
+	)
+
+	for _, field := range s.fields {
+		maxNameLength = max(len(field.Name()), maxNameLength)
+		maxTypeLength = max(len(field.Type()), maxTypeLength)
+	}
+
+	numNameTabs := maxNameLength/8 + 1
+	numTypeTabs := maxTypeLength/8 + 1
+
+	msg := strings.Builder{}
+	fmt.Fprintf(&msg, "type %s struct {\n", s.Name())
+	for _, field := range s.fields {
+		nameTabs := strings.Repeat("\t", numNameTabs-(len(field.Name())/8))
+		typeTabs := strings.Repeat("\t", numTypeTabs-(len(field.Type())/8))
+
+		if len(field.errs) == 0 {
+			msg.WriteString("\t")
+			msg.WriteString(field.Name())
+			msg.WriteString(nameTabs)
+			msg.WriteString(field.Type())
+			msg.WriteString(typeTabs)
+			msg.WriteString(string(field.tags))
+			msg.WriteString("\n")
+
+			continue
+		}
+
+		msg.WriteString("\033[91m\t")
+		msg.WriteString(field.Name())
+		msg.WriteString(nameTabs)
+		msg.WriteString(field.Type())
+		msg.WriteString(typeTabs)
+		msg.WriteString(string(field.tags))
+		msg.WriteString(" << ")
+		if len(field.errs) > 1 {
+			fmt.Fprintf(&msg, "[%d] ", len(field.errs))
+		}
+		msg.WriteString("[")
+		for j, fieldError := range field.errs {
+			if j > 0 {
+				msg.WriteString(", ")
+			}
+			msg.WriteString(fieldError)
+
+			if j == len(field.errs)-1 {
+				msg.WriteString("]\033[0m\n")
+			}
+		}
+	}
+	msg.WriteString("}")
+
+	return msg.String()
+}
+
+// HasErrors returns true if a field error has been stored by AddFieldError
+func (s *Struct) HasErrors() bool {
+	for _, field := range s.fields {
+		if len(field.errs) != 0 {
+			return true
+		}
+	}
+
+	return false
+}
+
+// NumFields is the number of fields in the struct's type declaration.
+func (s *Struct) NumFields() int {
+	return len(s.fields)
+}
+
+// Fields returns a slice of the fields belonging to the struct.
+func (s *Struct) Fields() []*Field {
+	return s.fields
+}
+
+// HasMethod returns true if the method name matches a name in the set of methods belonging to the struct.
+func (s *Struct) HasMethod(methodName string) bool {
+	_, ok := s.methods[methodName]
+
+	return ok
+}
+
+// Method returns the struct's method of that name, declared on either receiver
+// form, or nil when the struct has none. The returned object carries the
+// method's signature for callers that classify a struct by what it declares
+// rather than by the interfaces it happens to satisfy.
+func (s *Struct) Method(methodName string) *types.Func {
+	return s.methods[methodName]
+}
+
+// Field is an abstraction combining types.Var and ast.Field for simpler parsing.
+type Field struct {
+	TypeInfo
+	astInfo *ast.Field
+	tags    reflect.StructTag
+	// pkg is the package the struct was reached from: the package of the object
+	// newStruct was given, which for a nested struct is the outer field's. A type of
+	// that package spells unqualified in the field's resolved type.
+	pkg         *types.Package
+	comments    string
+	isLocalType bool
+	errs        []string
+}
+
+// AddError stores an error message to be printed in the parent struct's PrintErrors method
+func (f *Field) AddError(msg string) {
+	f.errs = append(f.errs, msg)
+}
+
+func (f *Field) String() string {
+	return fmt.Sprintf("%s\t\t%s\t\t%s", f.Name(), f.Type(), f.tags)
+}
+
+// LookupTag returns a struct tag's value and whether or not the struct tag exists on this field.
+func (f *Field) LookupTag(key string) (string, bool) {
+	return f.tags.Lookup(key)
+}
+
+// HasTag returns true if this field has a matching struct tag.
+func (f *Field) HasTag(key string) bool {
+	_, ok := f.tags.Lookup(key)
+
+	return ok
+}
+
+// AsStruct converts this Field to a Struct. Returns nil if the Field's type is not a struct type.
+func (f *Field) AsStruct() *Struct {
+	s := newStruct(f.obj)
+
+	if s.obj == nil {
+		return nil
+	}
+
+	return s
+}
+
+// IsLocalType returns true if this Field's type originates from the same package
+// its parent struct is defined in.
+func (f *Field) IsLocalType() bool {
+	return f.isLocalType
+}
+
+// localQualifier spells a package the way the package the struct was reached from
+// does: nothing for that package, its name for any other. A type of that package then
+// reads unqualified wherever it appears in the field's type, as a type argument
+// included: resource.Key[Documents] in the package declaring Documents.
+func (f *Field) localQualifier(p *types.Package) string {
+	if p == nil || (f.pkg != nil && p.Path() == f.pkg.Path()) {
+		return ""
+	}
+
+	return p.Name()
+}
+
+// ResolvedType returns this Field's type as its own package spells it: a type of that
+// package unqualified, every other package-qualified.
+func (f *Field) ResolvedType() string {
+	return types.TypeString(f.obj.Type(), f.localQualifier)
+}
+
+// DerefResolvedType returns this Field's pointer-dereferenced type as its own package
+// spells it (ResolvedType).
+func (f *Field) DerefResolvedType() string {
+	return types.TypeString(derefType(f.obj.Type()), f.localQualifier)
+}
+
+// Comments returns the godoc comment text on the field's declaration.
+func (f *Field) Comments() string {
+	return f.comments
+}
+
+// OriginType returns the origin type if this Field's type is a generic instantiation.
+// e.g. impulse.Foo[bool] returns impulse.Foo
+func (f *Field) OriginType() string {
+	indexExpr, ok := decodeToExpr[*ast.IndexExpr](f.astInfo.Type)
+	if !ok {
+		return f.Type()
+	}
+
+	typeIdent, ok := decodeToExpr[*ast.Ident](indexExpr.X)
+	if ok {
+		return typeIdent.String()
+	}
+
+	return f.Type()
+}
+
+// TypeArgs returns any type arguments if this field's type is a generic instantiation.
+// e.g. impulse.Foo[bool] -> bool, impulse.Foo[impulse.UUID] -> impulse.UUID
+func (f *Field) TypeArgs() string {
+	indexExpr, ok := decodeToExpr[*ast.IndexExpr](f.astInfo.Type)
+	if !ok {
+		return ""
+	}
+
+	typeArgIdent, ok := decodeToExpr[*ast.Ident](indexExpr.Index)
+	if ok {
+		return typeArgIdent.String()
+	}
+
+	return ""
+}
+
+// NamedType is any distinct named type
+// e.g. type MyNamedType string, type MyOtherNamedType impulse.UUID
+type NamedType struct {
+	TypeInfo
+	Comments string
+}
+
+// PackageName is the name of the package the declaration belongs to.
+func (t *TypeInfo) PackageName() string {
+	if t.obj.Pkg() == nil {
+		return ""
+	}
+
+	return t.obj.Pkg().Name()
+}
+
+// GoType returns the declaration's go/types type, for callers that walk a type's
+// structure rather than read its rendered name.
+func (t *TypeInfo) GoType() types.Type {
+	return t.obj.Type()
+}

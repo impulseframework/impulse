@@ -1,0 +1,481 @@
+@if (unserved(); as sentence) {
+  <p class="impulse-users-unserved">{{ sentence }}</p>
+} @else {
+  <div class="impulse-users-header">
+    <h2 class="impulse-users-heading">{{ heading() }}</h2>
+    @if (canCreate()) {
+      <button mat-flat-button type="button" class="impulse-users-new" [disabled]="busy()" (click)="openNew()">
+        New user
+      </button>
+    }
+  </div>
+  @if (notice(); as sentence) {
+    <p class="impulse-users-notice" role="alert">{{ sentence }}</p>
+  }
+  @if (error(); as sentence) {
+    <p class="impulse-users-error" role="alert">{{ sentence }}</p>
+  } @else if (loading()) {
+    <p class="impulse-users-note">Loading the users…</p>
+  } @else if (rows().length === 0) {
+    <p class="impulse-users-note">No users yet.</p>
+  } @else {
+    <table class="impulse-users">
+      <thead>
+        <tr>
+          <th>{{ usernameLabel() }}</th>
+          @if (!usernameIsEmail()) {
+            <th>Email</th>
+          }
+          <th>Status</th>
+          <th>Signs in with</th>
+          <th>Roles</th>
+          <th>Last sign-in</th>
+          <th><span class="impulse-users-visually-hidden">Actions</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of rows(); track row.id) {
+          <tr class="impulse-user" [class.impulse-user-open]="panel()?.user === row.id">
+            <td class="impulse-user-username">
+              {{ row.username }}
+              @if (usernameIsEmail() && row.emailVerifiedAt === null) {
+                <span class="impulse-user-mark">· unconfirmed</span>
+              }
+            </td>
+            @if (!usernameIsEmail()) {
+              <td class="impulse-user-email">{{ emailOf(row) }}</td>
+            }
+            <td class="impulse-user-status">
+              {{ row.disabled ? 'Disabled' : 'Active' }}
+              @if (row.passwordChangeRequired) {
+                <span class="impulse-user-mark">· password change pending</span>
+              }
+            </td>
+            <td class="impulse-user-means">{{ signsInWith(row) }}</td>
+            <td class="impulse-user-roles">
+              @if (row.roles.length === 0 && everywhereOf(row).length === 0) {
+                <span class="impulse-users-note">No roles</span>
+              }
+              @for (role of row.roles; track role) {
+                <div class="impulse-user-role">
+                  <span class="impulse-user-role-title">{{ role | roleTitle }}</span>
+                  @if (reachOf(role); as reach) {
+                    <span class="impulse-user-role-kind">{{ reach }}</span>
+                  }
+                </div>
+              }
+              @for (role of everywhereOf(row); track role) {
+                <div class="impulse-user-role impulse-user-role-everywhere">
+                  <span class="impulse-user-role-title">{{ role | roleTitle }}</span>
+                  <span class="impulse-user-role-kind">{{ reachOf(role, true) }}</span>
+                </div>
+              }
+              @if (row.rolesSynced) {
+                <div class="impulse-user-synced">From the directory</div>
+              }
+            </td>
+            <td class="impulse-user-last">{{ row.lastSignInAt ? (row.lastSignInAt | date: dateFormat) : 'Never' }}</td>
+            <td class="impulse-user-manage">
+              <button
+                mat-icon-button
+                type="button"
+                class="impulse-user-actions"
+                [disabled]="busy()"
+                [attr.aria-label]="'Actions for ' + row.username"
+                [cdkMenuTriggerFor]="actions"
+                [cdkMenuPosition]="menuPositions">
+                <mat-icon>more_vert</mat-icon>
+              </button>
+              <ng-template #actions>
+                <div cdkMenu class="impulse-menu impulse-user-actions-menu">
+                  <button
+                    cdkMenuItem
+                    type="button"
+                    class="impulse-menu-item impulse-user-edit-access"
+                    (click)="openAccess(row)">
+                    {{ accessWords(row) }}
+                  </button>
+                  @if (canRename(row)) {
+                    <button cdkMenuItem type="button" class="impulse-menu-item impulse-user-rename" (click)="rename(row)">
+                      Rename
+                    </button>
+                  }
+                  @if (canSetEmail(row)) {
+                    <button
+                      cdkMenuItem
+                      type="button"
+                      class="impulse-menu-item impulse-user-set-email"
+                      (click)="changeEmail(row)">
+                      Change email address
+                    </button>
+                  }
+                  @if (canSetPassword(row)) {
+                    <button
+                      cdkMenuItem
+                      type="button"
+                      class="impulse-menu-item impulse-user-set-password"
+                      (click)="setPassword(row)">
+                      Set a temporary password
+                    </button>
+                  }
+                  @if (canResetFactors(row)) {
+                    <button
+                      cdkMenuItem
+                      type="button"
+                      class="impulse-menu-item impulse-user-reset-factors"
+                      (click)="resetFactors(row)">
+                      Forget remembered browsers
+                    </button>
+                  }
+                  @if (canUnlink(row)) {
+                    @for (identity of row.identities; track identity.id) {
+                      <button
+                        cdkMenuItem
+                        type="button"
+                        class="impulse-menu-item impulse-user-unlink"
+                        (click)="unlink(row, identity)">
+                        Unlink {{ identityLabel(identity) }}
+                      </button>
+                    }
+                  }
+                  @if (canDisable(row) || canDelete(row)) {
+                    <mat-divider class="impulse-menu-divider" />
+                  }
+                  @if (canDisable(row)) {
+                    <button
+                      cdkMenuItem
+                      type="button"
+                      class="impulse-menu-item impulse-user-disable"
+                      (click)="setDisabled(row, !row.disabled)">
+                      {{ row.disabled ? 'Enable' : 'Disable' }}
+                    </button>
+                  }
+                  @if (canDelete(row)) {
+                    <button cdkMenuItem type="button" class="impulse-menu-item impulse-user-delete" (click)="remove(row)">
+                      Delete
+                    </button>
+                  }
+                </div>
+              </ng-template>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+    @if (page()?.prev || page()?.next) {
+      <div class="impulse-users-paging">
+        <button
+          mat-button
+          type="button"
+          class="impulse-users-prev"
+          [disabled]="busy() || !page()?.prev"
+          (click)="previous()">
+          Previous
+        </button>
+        <button mat-button type="button" class="impulse-users-next" [disabled]="busy() || !page()?.next" (click)="next()">
+          Next
+        </button>
+      </div>
+    }
+  }
+  @if (invitable()) {
+    <div class="impulse-invitations">
+      <div class="impulse-users-header">
+        <h3 class="impulse-invitations-heading">Invitations</h3>
+        @if (canInvite()) {
+          <button
+            mat-flat-button
+            type="button"
+            class="impulse-invitations-new"
+            [disabled]="busy()"
+            (click)="toggleInvite()">
+            {{ inviting() ? 'Close' : 'Invite' }}
+          </button>
+        }
+      </div>
+      @if (inviting()) {
+        <form class="impulse-invitations-create" (ngSubmit)="invite()">
+          <mat-form-field appearance="outline" class="impulse-users-field">
+            <mat-label>Email address</mat-label>
+            <input
+              matInput
+              name="inviteEmail"
+              type="email"
+              [(ngModel)]="newInvitation.email"
+              autocomplete="off"
+              required />
+          </mat-form-field>
+          <mat-form-field appearance="outline" class="impulse-users-field">
+            <mat-label>Roles</mat-label>
+            <mat-select name="inviteRoles" [(ngModel)]="newInvitation.roles" multiple required>
+              @for (role of roles(); track role.name) {
+                <mat-option [value]="role.name">{{ roleLabel(role) }}</mat-option>
+              }
+            </mat-select>
+            <mat-hint>Granted when the invited person signs in.</mat-hint>
+          </mat-form-field>
+          <button mat-flat-button type="submit" class="impulse-invitations-submit" [disabled]="busy()">
+            Send invitation
+          </button>
+        </form>
+      }
+      @if (invitations().length === 0) {
+        <p class="impulse-users-note">No invitations are waiting.</p>
+      } @else {
+        <table class="impulse-users impulse-invitations-table">
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Roles</th>
+              <th>Invited by</th>
+              <th>Sent</th>
+              <th>Expires</th>
+              <th><span class="impulse-users-visually-hidden">Revoke</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (invitation of invitations(); track invitation.id) {
+              <tr class="impulse-invitation">
+                <td class="impulse-invitation-email">{{ invitation.email }}</td>
+                <td class="impulse-invitation-roles">{{ titlesOf(invitation.roles) }}</td>
+                <td class="impulse-invitation-by">{{ invitedBy(invitation) }}</td>
+                <td class="impulse-invitation-sent">{{ invitation.createdAt | date: dateFormat }}</td>
+                <td class="impulse-invitation-expires">{{ invitation.expiresAt | date: dateFormat }}</td>
+                <td class="impulse-invitation-manage">
+                  @if (canRevoke(invitation)) {
+                    <button
+                      mat-button
+                      type="button"
+                      class="impulse-invitation-revoke"
+                      [disabled]="busy()"
+                      [attr.aria-label]="'Revoke the invitation to ' + invitation.email"
+                      (click)="revoke(invitation)">
+                      Revoke
+                    </button>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      }
+    </div>
+  }
+}
+
+<!-- The side panel: one template for the access and new-user panels, opened as a
+     dialog anchored to the right edge. Its content is this component's, so the fields and
+     the roles rows bind to the same state as the table. -->
+<ng-template #panelTemplate>
+  @if (panel(); as open) {
+    <div class="impulse-panel">
+      <div class="impulse-panel-header">
+        <h2 class="impulse-panel-heading">{{ panelHeading() }}</h2>
+        <button
+          mat-icon-button
+          type="button"
+          class="impulse-panel-dismiss"
+          aria-label="Close the panel"
+          (click)="closePanel()">
+          <mat-icon>close</mat-icon>
+        </button>
+      </div>
+      @if (notice(); as sentence) {
+        <p class="impulse-users-notice impulse-panel-notice" role="alert">{{ sentence }}</p>
+      }
+      @switch (open.kind) {
+        @case ('access') {
+          @if (panelUser(); as user) {
+            <div class="impulse-access">
+              <h3 class="impulse-panel-subheading">Assign roles</h3>
+              @if (accessRows().length === 0) {
+                <p class="impulse-users-note impulse-access-none">{{ user.username }} has no roles here.</p>
+              }
+              @for (row of accessRows(); track row.key) {
+                <div class="impulse-role-row" [class.impulse-role-row-locked]="row.locked !== undefined">
+                  <div class="impulse-role-row-field">
+                    <mat-form-field
+                      appearance="outline"
+                      class="impulse-users-field impulse-role-picker"
+                      subscriptSizing="dynamic">
+                      <mat-label>Role</mat-label>
+                      <input
+                        matInput
+                        type="text"
+                        [name]="'role-' + row.key"
+                        [ngModel]="row.value"
+                        (ngModelChange)="typed(row, $event, accessRows())"
+                        [matAutocomplete]="options"
+                        [disabled]="row.locked !== undefined || row.seated === true"
+                        autocomplete="off" />
+                      <mat-autocomplete
+                        #options="matAutocomplete"
+                        class="impulse-role-options"
+                        [displayWith]="titleOf"
+                        (optionSelected)="chooseRole(row, $event.option.value)">
+                        @for (role of optionsFor(row, accessRows()); track role.name) {
+                          <mat-option [value]="role.name" class="impulse-role-option">
+                            <span class="impulse-role-option-title">{{ role.name | roleTitle }}</span>
+                            @if (kindOf(role); as kind) {
+                              <span class="impulse-role-option-kind">{{ kind }}</span>
+                            }
+                            @if (role.description) {
+                              <span class="impulse-role-option-description">{{ role.description }}</span>
+                            }
+                          </mat-option>
+                        }
+                      </mat-autocomplete>
+                    </mat-form-field>
+                    @if (wordsFor(row); as words) {
+                      <p class="impulse-role-row-words">{{ words }}</p>
+                    }
+                  </div>
+                  @if (row.locked === undefined) {
+                    <button
+                      mat-icon-button
+                      type="button"
+                      class="impulse-role-remove"
+                      [disabled]="busy()"
+                      [attr.aria-label]="
+                        row.role === '' ? 'Remove this row' : 'Remove the ' + titleOf(row.role) + ' role'
+                      "
+                      (click)="dropRole(row)">
+                      <mat-icon>delete</mat-icon>
+                    </button>
+                  }
+                </div>
+              }
+              @if (canSeat(user)) {
+                <button
+                  mat-stroked-button
+                  type="button"
+                  class="impulse-role-add"
+                  [disabled]="busy()"
+                  (click)="addRole(accessRows)">
+                  {{ addRoleWords(accessRows()) }}
+                </button>
+              } @else if (holdsEveryRole(user)) {
+                <p class="impulse-users-note impulse-access-all">{{ everyRoleWords(user) }}</p>
+              }
+              <div class="impulse-panel-actions">
+                <button mat-button type="button" class="impulse-panel-done" [disabled]="busy()" (click)="closePanel()">
+                  Done
+                </button>
+              </div>
+            </div>
+          } @else {
+            <p class="impulse-users-note">This user is no longer on the list.</p>
+            <div class="impulse-panel-actions">
+              <button mat-button type="button" class="impulse-panel-cancel" (click)="closePanel()">Close</button>
+            </div>
+          }
+        }
+        @case ('new') {
+          <form class="impulse-users-create" (ngSubmit)="create()">
+            <mat-form-field appearance="outline" class="impulse-users-field">
+              <mat-label>{{ usernameLabel() }}</mat-label>
+              <input
+                matInput
+                name="username"
+                [type]="usernameIsEmail() ? 'email' : 'text'"
+                [(ngModel)]="newUser.username"
+                autocomplete="off"
+                required />
+            </mat-form-field>
+            @if (!usernameIsEmail()) {
+              <mat-form-field appearance="outline" class="impulse-users-field">
+                <mat-label>Email address</mat-label>
+                <input matInput name="email" type="email" [(ngModel)]="newUser.email" autocomplete="off" />
+                <mat-hint>Not confirmed until the person confirms it themselves.</mat-hint>
+              </mat-form-field>
+            }
+            @if (asksPassword()) {
+              <mat-form-field appearance="outline" class="impulse-users-field">
+                <mat-label>Temporary password</mat-label>
+                <input
+                  matInput
+                  name="password"
+                  type="password"
+                  [(ngModel)]="newUser.password"
+                  autocomplete="new-password" />
+                <mat-hint>The person changes it at their first sign-in.</mat-hint>
+              </mat-form-field>
+            }
+            <mat-checkbox name="disabled" class="impulse-users-field" [(ngModel)]="newUser.disabled">
+              The account starts disabled
+            </mat-checkbox>
+            @if (asksRoles()) {
+              <h3 class="impulse-panel-subheading">Assign roles</h3>
+              @for (row of newRoles(); track row.key; let first = $first) {
+                <div class="impulse-role-row">
+                  <div class="impulse-role-row-field">
+                    <mat-form-field
+                      appearance="outline"
+                      class="impulse-users-field impulse-role-picker"
+                      subscriptSizing="dynamic">
+                      <mat-label>Role</mat-label>
+                      <input
+                        matInput
+                        type="text"
+                        [name]="'new-role-' + row.key"
+                        [ngModel]="row.value"
+                        (ngModelChange)="typed(row, $event, newRoles())"
+                        [matAutocomplete]="newOptions"
+                        [required]="first && asksRole()"
+                        autocomplete="off" />
+                      <mat-autocomplete #newOptions="matAutocomplete" class="impulse-role-options" [displayWith]="titleOf">
+                        @for (role of optionsFor(row, newRoles()); track role.name) {
+                          <mat-option [value]="role.name" class="impulse-role-option">
+                            <span class="impulse-role-option-title">{{ role.name | roleTitle }}</span>
+                            @if (kindOf(role); as kind) {
+                              <span class="impulse-role-option-kind">{{ kind }}</span>
+                            }
+                            @if (role.description) {
+                              <span class="impulse-role-option-description">{{ role.description }}</span>
+                            }
+                          </mat-option>
+                        }
+                      </mat-autocomplete>
+                    </mat-form-field>
+                    @if (wordsFor(row); as words) {
+                      <p class="impulse-role-row-words">{{ words }}</p>
+                    }
+                  </div>
+                  @if (!(first && asksRole())) {
+                    <button
+                      mat-icon-button
+                      type="button"
+                      class="impulse-role-remove"
+                      [disabled]="busy()"
+                      [attr.aria-label]="
+                        row.role === '' ? 'Remove this row' : 'Remove the ' + titleOf(row.role) + ' role'
+                      "
+                      (click)="removeRole(newRoles, row)">
+                      <mat-icon>delete</mat-icon>
+                    </button>
+                  }
+                </div>
+              }
+              @if (canSeatMore()) {
+                <button
+                  mat-stroked-button
+                  type="button"
+                  class="impulse-role-add"
+                  [disabled]="busy()"
+                  (click)="addRole(newRoles)">
+                  {{ addRoleWords(newRoles()) }}
+                </button>
+              }
+            }
+            <div class="impulse-panel-actions">
+              <button mat-button type="button" class="impulse-panel-cancel" [disabled]="busy()" (click)="closePanel()">
+                Cancel
+              </button>
+              <button mat-flat-button type="submit" class="impulse-users-submit" [disabled]="busy()">Create</button>
+            </div>
+          </form>
+        }
+      }
+    </div>
+  }
+</ng-template>

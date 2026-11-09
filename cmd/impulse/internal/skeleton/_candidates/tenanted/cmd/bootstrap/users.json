@@ -1,0 +1,40 @@
+{
+  "users": [
+    {
+      "user": "admin",
+      "password": "password",
+      "roles": {
+        "global": [
+          "Administrator",
+          "FeatureAdministrator"
+        ],
+        "everyDomain": [
+          "TenantAdministrator"
+        ],
+        "domains": {}
+      }
+    },
+    {
+      "user": "member",
+      "password": "password",
+      "roles": {
+        "global": [],
+        "everyDomain": [],
+        "domains": {
+          "north": [
+            "TenantAdministrator"
+          ]
+        }
+      }
+    },
+    {
+      "user": "newcomer",
+      "password": "password",
+      "roles": {
+        "global": [],
+        "everyDomain": [],
+        "domains": {}
+      }
+    }
+  ]
+}

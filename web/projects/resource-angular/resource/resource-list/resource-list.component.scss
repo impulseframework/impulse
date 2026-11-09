@@ -1,0 +1,73 @@
+.page-container {
+  position: relative;
+  margin: 10px 0 0 0;
+}
+
+.header-container {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  top: 0;
+  z-index: 10;
+  width: 100%;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.create-button {
+  margin-top: auto;
+  margin-bottom: auto;
+  padding-left: 10px;
+}
+
+.edit-text {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+
+  .edit {
+    color: var(--impulse-accent);
+  }
+
+  .mat-icon {
+    margin-right: 8px;
+  }
+}
+
+.edit-button-text {
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+.exp-panel-add-element-btn {
+  margin-right: 10px;
+  transform: scale(1.2);
+}
+
+.hide {
+  display: none;
+}
+
+.show-background {
+  background-color: var(--impulse-surface);
+  padding-bottom: 20px;
+}
+
+.indent {
+  padding-left: 20px;
+}
+
+.search {
+  width: 100%;
+}
+
+// The search box over the table: the page's width, a little air before the grid.
+.search-container {
+  margin: 8px 0;
+  padding-right: 20px;
+}

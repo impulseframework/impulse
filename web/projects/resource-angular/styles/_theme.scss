@@ -1,0 +1,87 @@
+// The library's frame handed to the application's Material theme. An application that
+// defines its theme with Angular Material's `mat.theme` (the skeletons' `theme.scss`)
+// includes this sheet once, after the theme, from its global styles:
+//
+//     @use '@impulseframework/resource-angular/theme';
+//
+// It sets every color token the components draw with (declared with the library's own
+// defaults in `styles`) from the Material system tokens the theme emits, so the navigation,
+// the resource pages, the notices and the dialogs follow the theme's roles: primary for
+// what invites a click, error for what warns, the surface and outline roles for the frame.
+// A root without this sheet keeps the library's own colors: the defaults sit in the
+// `impulse-defaults` cascade layer, so this sheet wins wherever it is included. The README's
+// Theming section is the contract.
+//
+// The sheet also carries the `palettes` mixin, for an application that offers a choice of
+// looks (ThemeService and the theme picker, @impulseframework/resource-angular/ui-theme).
+@use 'sass:list';
+@use 'sass:map';
+@use '@angular/material' as mat;
+
+:root {
+  --default-blue: var(--mat-sys-primary);
+  --app-background-color: var(--mat-sys-surface);
+  --impulse-accent: var(--mat-sys-primary);
+  --impulse-surface: var(--mat-sys-surface);
+  --impulse-outline: var(--mat-sys-outline);
+  --impulse-divider: var(--mat-sys-outline-variant);
+  --impulse-outline-variant: var(--mat-sys-outline-variant);
+  --impulse-hairline: var(--mat-sys-outline-variant);
+  --impulse-shaded: var(--mat-sys-surface-container);
+  --impulse-dirty: color-mix(in srgb, var(--mat-sys-primary) 15%, transparent);
+  --impulse-muted: var(--mat-sys-on-surface-variant);
+  --impulse-hover: color-mix(in srgb, var(--mat-sys-on-surface) 8%, transparent);
+  --impulse-pressed: color-mix(in srgb, var(--mat-sys-on-surface) 12%, transparent);
+  --impulse-warn: var(--mat-sys-error);
+  --impulse-edit-shadow: var(--mat-sys-level2);
+  --impulse-alert-bg: var(--mat-sys-surface-container-high);
+  --impulse-alert-warn-border: var(--mat-sys-error);
+  --impulse-alert-warn-bg: var(--mat-sys-error-container);
+  --impulse-alert-accent-border: var(--mat-sys-tertiary);
+  --impulse-alert-accent-bg: var(--mat-sys-tertiary-container);
+  --impulse-alert-success-border: var(--mat-sys-primary);
+  --impulse-alert-success-bg: var(--mat-sys-primary-container);
+}
+
+/// Emits the application's theme for every palette it offers, so a person's choice of
+/// colors is one attribute on the root element. `$palettes` maps each palette's id, a quoted
+/// string (`'blue'`: a bare word that names a CSS color is a color to Sass), to the color
+/// configuration `mat.theme` takes, `(primary: ..., tertiary: ...)`; `$theme` is the rest of
+/// the theme configuration, the type face and the density. The first palette is the default:
+/// its theme, with `$theme`, is emitted on `html`, so a page where no choice was made looks as
+/// the application's theme always did. Then every palette's color tokens are emitted under
+/// `html[data-palette='<id>']`, the attribute ThemeService sets, and its primary color (tone
+/// 40 in light, tone 80 in dark) on `[data-impulse-swatch='<id>']`, the swatch the picker shows
+/// beside the palette's name. The ids are the ones the application hands `provideTheme`;
+/// keep the two lists in step. Light and dark need nothing here: `mat.theme` emits both
+/// values of every token, and the service sets `color-scheme` on the root element.
+///
+///     @include theme.palettes((
+///       'blue': (primary: mat.$azure-palette, tertiary: mat.$blue-palette),
+///       'workspace': (primary: palettes.$workspace-primary, tertiary: palettes.$workspace-tertiary),
+///     ));
+@mixin palettes($palettes, $theme: (typography: Roboto, density: 0)) {
+  $first: list.nth(map.keys($palettes), 1);
+  html {
+    @include mat.theme(
+      map.merge(
+        $theme,
+        (
+          color: map.get($palettes, $first),
+        )
+      )
+    );
+  }
+  @each $id, $colors in $palettes {
+    html[data-palette='#{$id}'] {
+      @include mat.theme(
+        (
+          color: $colors,
+        )
+      );
+    }
+    [data-impulse-swatch='#{$id}'] {
+      background-color: light-dark(map.get($colors, primary, 40), map.get($colors, primary, 80));
+    }
+  }
+}

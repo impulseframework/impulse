@@ -1,0 +1,31 @@
+<div class="page-container">
+  <div class="header-container">
+    <div class="title" [class.indent]="indentTitle()">
+      <h1>Create {{ config().title }}</h1>
+    </div>
+
+    <div class="state-buttons">
+      @if (!form().valid && submitted()) {
+        <div class="invalid message">Please complete or fix required fields.</div>
+      }
+      <button mat-raised-button color="primary" (click)="cancelForm()">Cancel</button>
+      <button mat-raised-button color="accent" (click)="saveForm()" [disabled]="form().pristine">Create</button>
+    </div>
+  </div>
+
+  <div class="resource-container">
+    <form [formGroup]="form()">
+      <div class="resource row">
+        @for (element of config().elements; track element) {
+          <impulse-resource-layout-template
+            [element]="element"
+            [meta]="store.resourceMeta()"
+            [fieldClass]="config().fieldClass"
+            [relatedData]="parentData()"
+            editMode="edit"
+            [form]="form()"></impulse-resource-layout-template>
+        }
+      </div>
+    </form>
+  </div>
+</div>

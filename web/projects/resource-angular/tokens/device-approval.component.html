@@ -1,0 +1,36 @@
+@if (!tokens) {
+  <p class="impulse-device-unserved">{{ noTokensSentence }}</p>
+} @else {
+  @if (decision()) {
+    <p class="impulse-device-decided" role="status">{{ decided() }}</p>
+  } @else if (request(); as waiting) {
+    <p class="impulse-device-request">
+      The program {{ waiting.clientId }} asks to act as you on {{ waiting.outlet }}. The request expires at
+      {{ waiting.expiresAt | date: 'medium' }}.
+    </p>
+    <div class="impulse-device-actions">
+      <button mat-flat-button type="button" class="impulse-device-approve" [disabled]="busy()" (click)="approve()">
+        Approve
+      </button>
+      <button mat-stroked-button type="button" class="impulse-device-deny" [disabled]="busy()" (click)="deny()">
+        Deny
+      </button>
+    </div>
+  } @else {
+    @if (refused()) {
+      <p class="impulse-device-refused" role="alert">{{ noRequestSentence() }}</p>
+    } @else if (busy()) {
+      <p class="impulse-device-note">Looking the request up…</p>
+    }
+    <form class="impulse-device-form" (ngSubmit)="lookUp()">
+      <mat-form-field appearance="outline" class="impulse-device-field">
+        <mat-label>The code the program printed</mat-label>
+        <input matInput name="code" [(ngModel)]="code" autocomplete="off" autocapitalize="characters" required />
+      </mat-form-field>
+      <button mat-flat-button type="submit" class="impulse-device-continue" [disabled]="busy()">Continue</button>
+    </form>
+  }
+  @if (notice(); as sentence) {
+    <p class="impulse-device-notice" role="alert">{{ sentence }}</p>
+  }
+}

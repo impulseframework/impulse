@@ -1,0 +1,21 @@
+/* To learn more about Typescript configuration file: https://www.typescriptlang.org/docs/handbook/tsconfig-json.html. */
+/* To learn more about Angular compiler options: https://angular.dev/reference/configs/angular-compiler-options. */
+{
+  "extends": "../../tsconfig.json",
+  "tsconfigRootDir": ".",
+  "compilerOptions": {
+    "paths": {
+      "@impulseframework/resource-angular/*": ["projects/resource-angular/*"],
+      "@impulseframework/resource-angular": ["projects/resource-angular/index.ts"],
+      "@impulseframework/resource": ["dist/resource"],
+      "@impulseframework/resource/testing": ["dist/resource/testing"]
+    },
+    "sourceMap": true,
+    "outDir": "../../out-tsc/lib",
+    "declaration": true,
+    "declarationMap": true,
+    "inlineSources": true,
+    "types": []
+  },
+  "exclude": ["**/*.spec.ts"]
+}

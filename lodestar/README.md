@@ -1,0 +1,910 @@
+# lodestar
+
+The full-capability demonstration application for `github.com/impulseframework/impulse/resource`: the
+operations console of a fictional frontier rescue and salvage service (distress calls and
+salvage jobs, the crews who fly them, the hangars that keep the ships airworthy, and the
+droids that report on both), and the client portal its customers use. Built from the
+Lodestar design plan so that every annotation, every handler shape, and the whole ABAC
+runtime is something a human can log into and watch working, and so that the state of a
+mission is something you can watch move. It is the generator's committed regression
+baseline and the product-shaped tour in one.
+
+Round 3 (2026-09-09) is a from-scratch rebuild born from `impulse`: the layout, the
+configuration levels, the two auth packages, the environment template, the bun workspace,
+and the deploy split come from the tool; the plan's domain sits on top. The core level
+opens the cloud driver (`cloud/gcp`) as the skeletons do, so where the process's logs and
+spans go is built from the settings the level embeds and nothing in the application names
+a logging client or a trace provider ([`cloud.driver`](pkg/config/config.go)). Every struct,
+method, test, component, and persona that proves a framework capability says so in a
+`Demonstrates:` paragraph, and [DEMONSTRATIONS.md](DEMONSTRATIONS.md) is the generated
+table of what proves what. Everything here is synthetic. The crew personas' plaintext
+passwords are committed deliberately: the application runs against a local Spanner
+emulator by default, or against a private test instance ([below](#running-against-a-real-spanner-instance)),
+and is never published.
+
+## Running it
+
+With [overmind](https://github.com/DarthSim/overmind), podman, and bun installed:
+
+```
+cp .envrc.template .envrc && direnv allow
+(cd ../web && bun install && bun run build)   # the framework's browser packages, which web/ links from ../web/dist
+(cd web && bun install)
+overmind start
+```
+
+That starts a fresh Spanner emulator and a fresh Firestore emulator (the live service: the
+live pages' subscription record and change sets, [below](#live-pages), and the signals
+document the instances notify each other through,
+[further below](#one-channel-between-instances); Firestore needs no schema, so the
+bootstrap leaves it alone), bootstraps the database (schema, the demo world, the
+personas, the droid account; the roles need no step, since each auth's role file rides in
+the binary and the bootstrap only checks the store against it; a database that already
+holds data is refused unless the bootstrap runs with `-reset`, which empties the data and
+seeds it again without touching the schema), serves the application on :8090, and runs
+`ng serve` for both browser apps:
+the crew console on :4300 (`/console/api` proxied) and the client portal on :4301
+(`/portal/api` proxied). Browse http://127.0.0.1:4300/console/ and sign in as any persona
+on the crew manifest, through "Sign in with Lodestar", the fleet's Google directory, as the navigator, or with
+"Sign in with Google", any Google account, as the pioneer, who holds nothing and charts her own sector, or with
+"Sign in with Persona", the persona provider of the test environments, as a member of the cast
+(`pkg/auth/crew/cast.json`: `hq`, `warden`, `rookie`; in development the simulated provider signs
+`APP_PERSONA_USERNAME` in); browse
+http://127.0.0.1:4301/portal/ and sign in through the simulated directory as `client`.
+Both Go processes build with the session library's `skipAuth` tag, which simulates every
+Google directory from `.envrc`: the portal's from `APP_USERNAME` and `APP_ROLES`, the
+console's from `APP_GOOGLE_USERNAME` (the registration's own setting; the crew's roles
+are the application's, so it names no groups), so no tenant is contacted and the persona
+quick-fill still works. `APP_DROIDS_API_KEY`
+opens the droid channel.
+
+The browser packages are this checkout's own: `web/package.json` links them from
+`../web/dist`, so the applications always run on the framework's current source, and
+`bun install` in `web/` needs that build first. After a change to a package, rebuild it,
+restart the dev server, and reload the page:
+
+    (cd ../web && bun run build)
+    overmind restart console portal
+
+The dev server does not watch `node_modules`, so the restart is what picks the new build up.
+The three packages are bundled with the application code rather than prebundled by Vite (the
+`prebundle` exclusion in `angular.json`), so a plain reload shows the new build in any
+browser profile: nothing is held behind an immutable URL, and no cache needs clearing.
+
+The served application also serves the built bundles (`bun run build` in `web/`): the
+console at `/console/` and the portal at `/portal/`, the bundles' directories overridable
+through `APP_CONSOLE_DIST` and `APP_PORTAL_DIST`. Neither application is mounted at `/`:
+an installed browser application owns every URL under its start, so two applications on
+one origin each sit under their own path, each with its API beneath it (`/console/api`,
+`/portal/api`), and the generated router answers the root alone with a temporary redirect
+to `/console/`; every other unmatched path is 404. Uploaded files land in two file
+stores, each opened from one URL by `resource/filestore`: the default store, `APP_FILE_STORE`
+(`file://uploads` in development, gitignored), holds the refit photos, and the Documents
+store, `APP_FILE_STORE_DOCUMENTS` (`file://uploads-documents`), holds the mission
+documents, declared by the `Documents` type in `pkg/resources` and wired on the resource
+client in `pkg/config/data.go`. The upload frame streams each file to the store its
+method names under a minted key, the transaction's commit claims it, a failure before
+commit deletes it, the generated file route reads it back, and a deleted or replaced row
+releases its object from the store its column names. The bootstrap empties both directory
+stores before it seeds (`cmd/bootstrap/files.go`; a fresh database or a `-reset` holds no
+row that names a file), and `go run -tags skipAuth ./cmd/jobs
+cleanup-files` is the orphaned-file cleanup: the job process lists a store, reads every
+key the rows hold through the generated `resources.FileHolders()`, and deletes the
+UUID-named objects older than the window (two days by default, a day at least) that no
+row holds, refusing a store with aged objects no row holds any key in; `--dry-run` lists
+what would go. The job process is a cobra command tree (`cmd/jobs/main.go` opens the data level once and
+registers each command's package, `cmd/jobs/cleanupfiles` the cleanup's), the shape
+`impulse add job` scaffolds. On
+Cloud Run both variables are buckets (`gs://<bucket>`), which bedrock builds and names.
+To run the stores against a fake Cloud Storage in development instead, add to the
+Procfile `gcs: podman run --rm -p 127.0.0.1:4443:4443 docker.io/fsouza/fake-gcs-server:1.52.2
+-scheme http -port 4443 -public-host 127.0.0.1:4443 -external-url http://127.0.0.1:4443`,
+export `STORAGE_EMULATOR_HOST=127.0.0.1:4443` beside `APP_FILE_STORE=gs://lodestar-files`
+and `APP_FILE_STORE_DOCUMENTS=gs://lodestar-files-documents`, and create each bucket once
+(`curl -X POST 'http://127.0.0.1:4443/storage/v1/b?project=lodestar' -d '{"name":"lodestar-files"}'`),
+since the fake starts empty and the store refuses to start on a missing bucket.
+
+## The installed apps
+
+Both browser apps install as progressive web apps. A production build of the console and
+of the portal carries a service worker (`ngsw-worker.js` and its manifest `ngsw.json`,
+built from the one worker configuration at `web/ngsw-config.json`) and a web app manifest
+(`web/console/public/manifest.webmanifest` and `web/portal/public/manifest.webmanifest`,
+with the icons beside each under `public/icons/`), so a browser offers to install either
+app as a window of its own: the console under `/console/` and the portal under `/portal/`,
+each worker's scope its own mount, on one origin. The console's manifest names it
+Lodestar and the portal's Lodestar Portal; each carries the app's header color as its
+theme color and its page background as its background color. The dev server registers no
+worker: the worker is on in a production build alone, and the component specs never load
+the app config.
+
+An open tab survives a release. The worker keeps the files of the build the tab loaded, so
+a lazy chunk the tab asks for after a deploy is still found although the server no longer
+has it, and the next page load is served from the newest build the worker holds, after
+which the worker checks the server for a newer one. The server's cache headers come from
+the resource package's `BrowserApp`, which `app/app.go`'s asset handlers delegate to: a
+file whose name carries the build hash is immutable for a year, and every other file (the
+entry document, `ngsw.json`, the worker script, the web manifest, the icons) is `no-cache`
+with a strong ETag, revalidated on each use, so no cache between the browser and the
+server can hand the worker a stale build.
+
+When a new build is ready, the app says so. `provideAppUpdate()` from
+`@impulseframework/resource-angular/ui-app-update`, provided in each app config beside
+`provideServiceWorker`, raises one persistent notice, "A new version of this application
+is ready.", with a Reload action in the alert area the shell renders; the app reloads only
+when the person chooses. It checks for a new build hourly while the tab is visible and
+once when the tab becomes visible again, and the worker itself checks after every page
+load.
+
+The worker's navigation patterns exclude `/api/**` relative to each mount, so a navigation
+to `/console/api/...` or `/portal/api/...` always reaches the server: the portal's directory
+login and its callback, and a stored-file link, are never answered with the cached entry
+document. The worker caches no API response and no third-party file.
+
+The kill switch: a build deployed without `ngsw.json` makes every installed worker
+unregister itself and drop its caches on its next check, after which the page is served by
+the network alone. Removing `"serviceWorker": "ngsw-config.json"` from a project's
+production configuration in `web/angular.json` is how a build is made without it.
+
+## The release each request carries
+
+Every request from a console or portal build names the release the build was made from,
+and the server refuses a release it no longer answers. The build stamps the release into
+the bundle: `web/angular.json` defines the global `APP_VERSION` as `dev`, and the
+workspace's `build` script redefines it from the `VERSION` environment variable
+(`ng build console --define "APP_VERSION='${VERSION:-dev}'"`), which the image's browser
+stage carries, so `VERSION=1.2.3 bun run build` names `1.2.3` and `bun run build` alone
+names `dev`. Each app config provides it as `API_VERSION`, the generated client sends it as
+`X-Api-Version` on every request, and `apiVersionInterceptor`, registered with
+`provideHttpClient(withInterceptors([apiVersionInterceptor]), ...)`, adds it to the app's own
+`HttpClient` calls, the login POST among them. A `dev` build sends no header.
+
+The server's release is the configuration's `APP_VERSION` (`dev` in `.envrc`), which
+`App.ServerVersion()` hands the generated router. The router checks every console and
+portal API route: a request whose release lies between the outlet's oldest answered
+release and the server's, inclusive, is answered; any other is refused with 412 and
+`X-Api-Version: <server release>` before any handler runs or a body is read. A request with
+no header is answered, a `dev` build or a `dev` server is never refused, and the session
+routes (login, callback, `/user/session`) and the stored-file routes (the mission
+document, the refit task photo, the expense manifest) are answered at any release, so a
+login always works and a file link never fails on a version. Every checked response
+carries `Vary: X-Api-Version`. A refused console reloads onto the current build by itself
+while it is still starting, and once a page is on screen it shows the update notice with
+Reload (the library's `AppUpdateService`, provided by `provideAppUpdate()` above). The
+development stack runs `dev` on both sides, so the walkthrough cannot show the refusal;
+`test/integration/apiversion_test.go` proves it over a served router built from a release.
+
+The console outlet's oldest answered release is declared in `cmd/generate/generator.go`,
+`generation.OldestAnswered("0.1.0")`: the first release, which is what an outlet without
+the option answers from, written out so the place to raise it is on record. The portal
+outlet declares none. A developer raises it when a release stops answering something an
+older console sent: the release that removed a field, or that dropped a `@formerly`
+annotation, becomes the oldest answered, and consoles built before it are told to
+reload. `generation.OldestAnswered(generation.ThisRelease)` is for a release that
+changes the API inside a maintenance window, when only the server's own release is
+answered.
+
+The renamed field is the purser's line note on a sortie expense: `SortieExpense.Memo`,
+formerly `Note` (`pkg/resources/sortie_expenses.go`, `@formerly(Note)`). The column is
+still `Note`; the wire name moved. A console built before the rename keeps sending and
+reading `note`: a body, `columns=`, `sort=` or `filter=` naming it is read as `memo`, a
+body naming both is refused with 400, and every row carries both `memo` and `note`. The
+role file names `memo` alone, and the permission digest carries the quartermaster's entry
+under `SortieExpenses.note` beside `SortieExpenses.memo`, so a console built before the
+rename keeps its column. The generated TypeScript knows only `memo`, so the flight deck and the
+expense manifest moved to it. The next release that raises oldest answered past this one drops the annotation,
+and `note` leaves the wire.
+
+## The program the release ships
+
+The droids run a program the release ships: `cmd/droid`, declared on the droids outlet
+in `cmd/generate/generator.go` with `generation.ShipsProgram("cmd/droid",
+generation.Platforms("linux/amd64"))` ([`outlet.programs`](cmd/droid/main.go)). The
+image build compiles it for each platform into the image, and the outlet serves the
+file with its checksum at `GET /droids/programs/droid/<release>/linux/amd64`, behind
+the token check, so a copy on a droid fetches its next release where it already sends
+its telemetry. A person installs the first copy from the release's assets or with `go
+install github.com/impulseframework/impulse/lodestar/cmd/droid@<release>`. Given the
+outlet's URL, the droid account's token (the key the server seeds as its application
+token, `APP_DROIDS_API_KEY`, or a token a crew member issued), the sector and the ship
+(`DROID_OUTLET`, `DROID_TOKEN`, `DROID_SECTOR`, `DROID_SHIP`; `DROID_FIRMWARE` names the
+firmware in the frame), `droid reactor 0.55` sends one reading through
+`IngestDroidReports`, the frame written as the firmware's own JSON, and then the copy
+reads the server's release from the answer (`X-Api-Version`): newer than its own, it
+fetches that release's file with the token it carries, verifies the checksum, swaps the
+file in beside itself (the old one kept as `droid.old`), says so and exits 0 for its
+service manager to start the new release (`resource/shipped`). A copy built from a
+checkout never upgrades, and the development stack runs `dev` on both sides, so the
+walkthrough cannot show the upgrade; the generated router test proves the route sits
+behind the token check, and `impulse check` (`shipped-programs`) builds the program for
+each platform it declares.
+
+## Live pages
+
+The console's Ships page is live. Sign in as `harbormaster` (Harbormaster Hollis), open
+Sector Ops, then Ships, and leave the fleet board on the screen. In a second browser
+profile sign in as `engineer` and clear a refit on the hangar deck, or hail a ship as
+`pilot`: the harbormaster's board changes without a reload, and so does a ship's own
+page when she has one open. Leave the board for the dashboard and come back inside five
+minutes: the page is drawn from the browser's own cache and the server sees no request.
+Nothing polls and the server holds no connection open. A page that asked to be live is
+told about a change through a change set of its user's own in Firestore, and asks for
+the page again itself, by the change's timestamp.
+
+To watch it in the emulator: the Firestore emulator answers Firestore's REST API on
+`FIRESTORE_EMULATOR_HOST`, and `Authorization: Bearer owner` reads everything. The
+database is the one the live driver opens under its own project id, `live-emulator`
+(`firestore.EmulatorProject`, since `GOOGLE_CLOUD_FIRESTORE_PROJECT` is unset), the id the
+token route hands the browser too. So with the stack running and `.envrc` loaded
+
+    curl -s -H 'Authorization: Bearer owner' \
+      "http://$FIRESTORE_EMULATOR_HOST/v1/projects/live-emulator/databases/(default)/documents/subscriptions"
+
+lists every live subscription (`principal`, `tab`, `resource`, `key` for a row or
+`domain` for a list, `expiry`), and `.../documents/users/crew%7Charbormaster/changes`
+lists the documents written into Hollis's set: a `row` document for the ship she had open
+and a `list` document for the fleet board in Anvil, each with its server timestamp `at`,
+which is the version (`_v`) her page asks again by. The set's uid is `crew|harbormaster`,
+the crew auth's name and her user name joined by `|` (written `%7C` in the URL), so a
+person of the same name signing in through the portal's members auth has a set of their
+own. The pilot watching Bastion's fleet gets no document for an Anvil refit, and a
+persona without List on Ships (the cadet) is never subscribed: the refused request
+answers 403 as it always did and writes no record. The walkthrough plays this scenario
+by curl (its "live pages" section), and
+[`live_test.go`](test/integration/live_test.go) pins it over an in-memory live service.
+
+How it is wired:
+
+- The stack. The Procfile starts the Firestore emulator beside the Spanner emulator, from
+  the Cloud SDK emulators image the resource package's own tests pin, with the live
+  package's security rules (`resource/live/firestore/firestore.rules`) mounted;
+  `.envrc.template` sets `FIRESTORE_EMULATOR_HOST`. A fresh emulator per start means an
+  empty record. In production `APP_FIRESTORE_DATABASE` names the database,
+  `GOOGLE_CLOUD_FIRESTORE_PROJECT` its project (required with the database: the data
+  level refuses to start naming both when it is empty, since the database is not assumed
+  to be in the Spanner project; against the emulator it may stay unset, and the driver
+  opens the emulator under its own project id, `live-emulator`) and
+  `APP_FIREBASE_API_KEY` the browser's key; the composite indexes and the time-to-live
+  policies the live package's README lists are the infrastructure's to apply.
+- The server. `pkg/config/data.go` reads the Firestore settings at the data level and
+  constructs the live service (`resource/live/firestore`) once; every application wires
+  one (the generated handlers, the feature flags and both permission engines ride it,
+  [below](#one-channel-between-instances)), so a configuration naming neither a database
+  nor the emulator does not start; `app.LiveService()` hands it to the generated handlers, which
+  register a subscribing request's interest before the query runs, publish a commit's
+  touched rows after the commit and before the answer, and send
+  `Cache-Control: private, max-age=300` on a list or read answer whose request carried
+  `_v`. Both session outlets serve the generated `live/renew`, `live/unsubscribe` and
+  `live/token` routes; the droids outlet refuses `X-Subscribe` with a 400 naming the
+  header. The content security policy's `connect-src` names the feed's origin beside the
+  application, the emulator in development and Firebase's hosts in production, because
+  the browser's feed connects there directly ([`live.pages`](app/app.go)).
+- The browser. Every list page and record page on a table-backed resource is live by
+  default: the generated metadata's `live` says the resource's changes are published, and
+  the library makes such a page live unless its config says `live: false`. A page on a
+  virtual or computed resource stays plain until that resource's changes are published,
+  and a config asking `live: true` of one is announced once in the browser console. So
+  [`ships.config.ts`](web/console/src/app/configs/ships.config.ts) says nothing about it
+  and the fleet board and its row page are live, while the pickers and the edit form on
+  them stay plain; [`app.config.ts`](web/console/src/app/app.config.ts) provides
+  `CHANGE_FEED` with the Firestore feed from `@impulseframework/resource-firestore`, and the
+  library's `AuthService`
+  starts the feed after login with the identity `live/token` answers and stops it at
+  logout, unsubscribing everything first. The environments carry nothing
+  Firestore-specific: the project, the database, the emulator host and the key arrive in
+  the token payload.
+- The checks. The walkthrough section above, the integration suite, and a headless check
+  driven in Chrome (playwright-core and the system browser from a scratch project outside
+  the repository, as the console's other browser proofs are run) that leaves the fleet
+  board and comes back with no request to the server, then sees a hail produce a refetch
+  carrying the change's timestamp as `_v`.
+- The derived resources. A page on a virtual or computed resource is live the same way
+  once the publish knows which tables change it. The generator reads each virtual
+  resource's tables off its embedded query with memefish's lexer, the names in table
+  positions: Mission Boards carries Missions' rows
+  (`@rowsOf`) and reads Clients and Squadrons; Squadron Rosters and Pilot Assignments
+  carry SquadronMemberships' rows and read Squadrons, Wings and, for the rosters, Pilots;
+  Client Rosters, Fee By Kinds and Open Missions By Squadrons carry no table's rows and
+  read Clients, ClientContacts, Missions, Sectors and Squadrons between them. The hazard
+  board is a computed resource, so it declares what its body folds,
+  `@changedBy(Ships, DroidReports)`; the other computed resources declare nothing and stay
+  plain, the expense manifests among them although their body reads Missions. The sets
+  are recorded next to the resources, read or declared as each entry says, in
+  [`pkg/virtualresources/zz_gen_live_derivations.go`](pkg/virtualresources/zz_gen_live_derivations.go)
+  and [`pkg/computedresources/zz_gen_live_derivations.go`](pkg/computedresources/zz_gen_live_derivations.go),
+  every table as the `Resource` method of the type over it, and
+  [`app/zz_gen_live_derivations.go`](app/zz_gen_live_derivations.go) assembles them for
+  every publish; each such resource's metadata says `live: true`, so its pages are live
+  by default. A
+  mission's write reaches the mission board's row and list subscribers under the
+  mission's own key, as Missions' own; a client's write, Clients being global, reaches
+  every board subscriber in every sector as one resource document; a ship's write
+  reaches the hazard board's subscribers in its sector. The integration suite plays all
+  three ([`live_test.go`](test/integration/live_test.go)).
+
+
+## Feature flags
+
+The commendations desk is behind a feature flag, and the flag is seeded off. Sign in as
+`adjutant` (Adjutant Alba): the server answers the desk's routes with the router's own 404,
+the permission digest carries no `Commendations` and no `PilotCards.commendations`, so the
+console shows no page and no card field for it, and a request naming the card's field is
+refused as an unknown field. Turn the flag on (the header's "Feature flags" link opens the
+library's dialog for anyone holding List on `FeatureFlags`; its toggles are live for a
+login holding Execute on `SetFeature`, read-only otherwise; the walkthrough does the same
+through `POST /console/api/set-feature` with `{"name":"commendations","enabled":true}`)
+and the desk exists: its routes answer, the digest carries it, the Commendations item
+appears in the console's navigation without a reload, and Pilot Pax's card reads
+"Cited: 2" from the field the flag gates. Every running
+instance of the application follows the flip within a moment, with no restart and no
+release; turn it off again and the desk is gone everywhere. The flag's value lives in the
+application's database, so it is per environment by construction, and every flip is
+recorded in `FeatureFlagChanges`.
+
+How it is wired:
+
+- The declaration. [`pkg/resources/features.go`](pkg/resources/features.go) declares
+  `Commendations resource.Feature = "commendations"`, its doc comment the description an
+  administrator reads. `@feature(Commendations)` on the `Commendation` struct
+  ([`@feature`](pkg/resources/commendations.go)) gates the desk whole; on
+  `PilotCard.Commendations` ([`@feature.field`](pkg/computedresources/pilot_cards.go)) it
+  gates the one field. The generator writes `Features()` and `FeatureGates()` into
+  `pkg/resources/zz_gen_features.go`, wraps the desk's routes in the application's
+  `FeatureGuard`, filters the digest, teaches the decoders the field, and writes
+  `test/authz/zz_gen_features_test.go`, every gated route and field driven in both states;
+  the TypeScript descriptor and metadata carry `feature: 'commendations'` and the client
+  file declares the `Feature` union and constants.
+- The table and the seed. Migration `000043` creates the desk's table, which ships whether
+  or not the flag is on, with three seeded citations; migration `000042` carries the
+  library's `FeatureFlags` and `FeatureFlagChanges` tables. The bootstrap and the deploy's
+  migrate step call `deploy.MigrateFeatures`, which writes the declared flag off where the
+  table has no row and keeps the state where it has one, so a fresh stack starts with the
+  desk dark and a release never flips anything.
+- The role and the persona. `FeatureAdministrator` (global: List and Read on
+  `FeatureFlags`, Execute on `SetFeature`) is the one role that flips flags, held by
+  `adjutant` beside `Adjutant`, the desk's own role (List, Read and Create on
+  `Commendations`); no other role gained a flag grant. The crew's `PilotCards` grant carries
+  the `commendations` field since the feature shipped: while the flag is off the digest
+  hides it, so turning the flag on needs no role change.
+- The instances. `app.New` loads the application's copy of the table and `App.Start`
+  follows it (`FeatureSet.Follow`): on every signal of the `features` kind on the live
+  service's signals document ([below](#one-channel-between-instances)), and every five
+  minutes regardless. `SetFeature` writes the row and its change record in one
+  transaction, signals the kind after the commit, reloads its own copy and answers the
+  flag as written. A second server process on another port sees the flip at its next
+  request; should a signal be missed, at the backstop.
+- The checks. The walkthrough's "feature flags" section drives the scenario by curl, a
+  second server process built from the tree included;
+  [`feature_flags_test.go`](test/integration/feature_flags_test.go) pins it over two
+  instances, the real engines and the in-memory live service; the generated authorization
+  matrix puts every declared flag on in its own test database before it drives a route,
+  since a flag that is off answers before the permission gate the matrix pins. In the
+  console, `resourceRoutes` reads `feature` from the generated metadata and guards the
+  desk's route with `featureMatch`, the header's "Cited" line sits under `*impulseFeature`, and
+  the header's "Feature flags" link opens the library's dialog; `header.component.spec.ts`
+  covers the link, the dialog and the card in both states, and the headless check in the
+  walkthrough's feature-flags section drives the flip through the dialog.
+
+## Finding and narrowing on one list
+
+A list page over a resource with search fields draws the box above the grid, and the
+grid's column filters beside it; both narrow one request. The page sends its own filter,
+the complete column filters and the box as conjuncts of one AND, the first two
+parenthesized and the box bare, `(statusId:eq:open),*:search:"survey"`. The server
+gathers the box's key set and applies the rest of the filter over the joined rows, the
+count and the cursor pages carry the whole, and the declared order stands. The box is the
+indexed touch a companion-only column waits for, so on the
+[Missions page](web/console/src/app/configs/missions.config.ts), the board over two
+tables' indexes with filters on status, squadron, kind, deadline and days left, a
+days-left filter rides beside the box alone and leaves when the last indexed touch, the
+box or a status filter, is cleared; the deadline's menu takes a date as a person writes
+it (below). The filter is placed as a whole: on the
+[Clients page](web/console/src/app/configs/clients.config.ts) headquarters, whose box
+reaches the contact fields, posts it with a name filter or a contact-name match beside
+the box, and a ClientBrowser persona, whose box searches the name alone, keeps the same
+shape in the URL and reads under the box which fields the role leaves out.
+
+The checks: the integration suite's `search_filters_test.go` sends both pages' requests
+in that wire form and pins the answers against the unfiltered lists, and a headless check
+driven in Chrome (playwright-core and the system browser from a scratch project outside
+the repository, as the console's other browser proofs are run) types in the box, commits
+filters from the column menus, clears the box, turns the page, and reads each request's
+method and filter beside the server's log, on the emulator and on a real instance.
+
+## Dates in a filter
+
+A filter value on a date or timestamp column is read as a person writes it. On the
+[Missions page](web/console/src/app/configs/missions.config.ts) the deadline's menu takes
+`2026-12-15` or `12/15/2026`, a month `2026-12` or a minute `2026-12-15T09:30`, and the
+server reads the whole span it names: `eq` inside it, `ne` outside, `lte` through its
+end, `gte` from its start, in the person's zone when the browser sends it as the
+`Time-Zone` header and in UTC otherwise. The hold's expiry date, a
+[date column](pkg/resources/consignments.go) filterable beside the indexed release
+date, reads a day as the day and a month or a year as its days, with no zone to read. A
+value that cannot be read is refused naming the forms, `deadline: 'yesterday' is not a
+date. Write it as 2026-11-03, 11/3/2026, or 2026-11-03T09:30 with the time.`, and a
+header naming no zone is refused in the header's name.
+
+The checks: the integration suite's `filter_dates_test.go` sends each form and operator
+on the board's deadline and on the consignments' expiry and release columns, with and
+without the header, and pins the rows against the unfiltered lists.
+
+## One channel between instances
+
+Every instance holds one listener on one document. The live service keeps a signals
+document per application (`application/signals` in Firestore, a field per kind), and a
+signal carries nothing but which kind of shared state changed: a feature flip signals
+`features`, a change of the tenant roster `tenants`, a role, grant or membership write
+`policy`. The instance that wrote signals its kind through the service, every other
+instance rereads that kind at once, and each reader's own periodic reread is the backstop
+should a signal be missed: five minutes for the flags, the permission engines' one-minute
+heartbeat for the policy. Nothing polls between instances and no instance connects to
+another.
+
+To see the policy kind: sign in as `marshal` and seat `cadet` as a harbormaster at Anvil
+(`POST /console/api/sectors/anvil/roles/Harbormaster/users` with `{"users":["cadet"]}`);
+a second server process built from the tree (the walkthrough starts one on
+`LODESTAR_SECOND_PORT` for the flags and keeps it for this) serves the cadet the fleet
+board at its next request, with no restart and without waiting for its heartbeat; unseat
+her (`DELETE` on the same route) and it refuses again.
+
+To see the tenants kind: sign in as `surveyor` and chart a sector (`PATCH
+/console/api/resources` with
+`[{"op":"add","path":"/sectors/dawn","value":{"name":"Dawn","region":"Outer frontier","established":"2226-10-02"}}]`).
+`Sectors` is the tenant record (`@tenant`): the data configuration builds the roster with
+the generated `NewSectorRoster` over the live service and starts it beside the engines
+(`pkg/config/data.go`), the generated create path adds Dawn to the writing instance's
+roster after the commit and signals the kind, and the second process serves
+`/console/api/sectors/dawn/...` at its next request, the roster's own five-minute reread
+left as the backstop. Nothing is written to the permission store: the surveyor's
+`SectorCrew`, the governor's `SectorMarshal`, the archivist's role and the client's
+directory role are each held in every sector, so Dawn lights on their charts with nothing
+written for it.
+
+How it is wired:
+
+- The adapter. [`pkg/auth/signal.go`](pkg/auth/signal.go) builds the engines' change
+  signal with `access.ChangeSignalFunc` over the live service's `Signal` and `Subscribe`
+  on `resource.KindPolicy`: announce signals the kind after a policy write (the engine
+  logs a failed announce and the write stands), watch subscribes and blocks until the
+  engine's context ends. `pkg/config/data.go` builds it once over the live service and
+  hands it to both auths (`crew.Settings.ChangeSignal` and `members.Settings.ChangeSignal`,
+  both required), so the crew store and the members store ride one listener.
+- The route. The console's seats route of the crew's sector partition
+  (`/console/api/sectors/{sector}/crew-sector-seats`: `GET` lists the sector's seats,
+  `PATCH` seats and unseats through an operations body, the seat's user and role in the
+  operation's path) is the generated user-management surface's, served by the library
+  over the crew session's accounts and the crew engine's memberships
+  ([`app/users.go`](app/users.go), `pkg/config/data.go`): Create and Delete on
+  `CrewSectorSeats` in the sector, held by `SectorMarshal` under the condition
+  `new.role != 'SectorMarshal'`, so a marshal seats crew in every role but its own. The
+  crew's seats are the application's whichever way a person signs in; the members' are
+  their directory's at every sign-in (the registration's `SyncsRoles`, standing alone on
+  its auth), so that surface refuses to seat or unseat anyone by hand.
+- The checks. The walkthrough's "one channel" section seats and unseats the cadet
+  against the second server process over the Firestore emulator;
+  [`policy_signal_test.go`](test/integration/policy_signal_test.go) pins it over two
+  instances, two crew engines with the heartbeat pinned to an hour, and the in-memory
+  live service, which fans a signal out to every subscription.
+
+## The nightly prune
+
+The telemetry link keeps ninety days of droid readings, and one method keeps it so.
+`PruneDroidReports` ([`@schedule`](pkg/rpc/prune_droid_reports.go)) is declared with
+`@schedule("30 3 * * *", zone: "America/Denver")`: Cloud Scheduler calls it every night at
+03:30 headquarters time, and it deletes the readings recorded before the window and answers
+how many went. No person calls it and no role names it. The generated router serves it at
+`POST /_scheduled/prune-droid-reports` behind `SchedulerAuth` alone, which admits a token
+Google signed for that URL whose verified email is the invoker identity, the service account
+the stack names in `APP_SCHEDULER_INVOKER`, and answers any other call 401, logging why. The
+App's `SchedulerAuth` (`app/app.go`) delegates to the guard `pkg/config/site.go` builds with
+`scheduled.FromEnvironment`; in development the variable is unset, so the scheduled routes are
+off, the server says so when it starts, and every call is refused. The release file,
+`pkg/router/zz_gen_release.json`, lists the route with its schedule and zone, which bedrock
+reads to create the Cloud Scheduler job and the invoker identity in each environment.
+[`test/integration/scheduled_test.go`](test/integration/scheduled_test.go) calls the route on
+the served stack with tokens from a fake of Google's keys: a call with no token, with another
+identity's token, or with a token for another route is refused and deletes nothing, and the
+scheduler's own call deletes the stale reading and keeps the fresh one.
+
+## The quiet surfaces
+
+Every request Lodestar serves writes one entry to the request log, as it always did, except
+on two surfaces that would flood it. The beacon pulse, `GET /beacons/{sectorID}`
+([`generation.request-log`](pkg/router/hooks.go), [`app/beacon.go`](app/beacon.go)), is
+asked all day by every droid in the sky, with no session and no key, outside every outlet:
+the generator program declares its prefix quiet once, with
+`generation.WithMountedRoutes("/beacons/", generation.LogOnEvent(), generation.TracesOff())`
+([`generation.traces`](cmd/generate/generator.go)), and the generated router hands the
+prefix to the request logger's prefix table and to the tracer's surface table, so a pulse
+answered 200 writes no entry and records no span, while a pulse answered 404, a droid
+asking after a sector that is not charted, is an event and writes its entry. The droid's
+own method, `IngestDroidReports`, is declared on event on its annotation,
+`@rpc(log: onEvent)` ([`@rpc.log`](pkg/rpc/ingest_droid_reports.go)): the generated routes
+file sets the word ahead of the handler with `logger.WithPolicy`, so a reading that lands
+writes no entry and a reading the method refuses writes the request's entry with every line
+the handler logged attached. The chain comment at the top of `pkg/router/zz_gen_router.go`
+names the word at each place, and the generated router test proves each decision against
+the logger's console exporter. The release file, `pkg/router/zz_gen_release.json`, lists the
+two surfaces under `surfaces` with their words, which bedrock reads to render the stack's own
+log exclusion from the same declarations.
+[`test/integration/request_log_test.go`](test/integration/request_log_test.go) drives both
+on the served stack and reads the console exporter's decisions: no entry for the pulse and
+the reading that land, an entry for the pulse and the reading that fail, and an entry for a
+droid's list, which declares nothing.
+
+## Running against a real Spanner instance
+
+The emulator answers every test, but it returns no query plans, does not promise the
+service's execution plans, and has behavior of its own (it refuses `NULLS FIRST` and
+`NULLS LAST`; its error texts differ). Once in a while Lodestar runs against a real,
+private Cloud Spanner instance to catch emulator-specific behavior and to read real plans.
+A real database here is a private test target, not a published application: the committed
+personas and their passwords are as valid there as on the emulator, and the login page's
+persona cards stay.
+
+The bootstrap picks its target from the environment alone, the way the Spanner client
+library does: with `SPANNER_EMULATOR_HOST` set it talks to the emulator, without it to the
+project the application credentials reach.
+
+1. Have an instance. The bootstrap creates the database when it is missing but never the
+   instance; the credentials need the Cloud Spanner Database Admin role on it.
+2. In a shell with `.envrc` loaded: unset `SPANNER_EMULATOR_HOST`, set
+   `GOOGLE_APPLICATION_CREDENTIALS` to the credentials file, and point
+   `GOOGLE_CLOUD_SPANNER_PROJECT`, `GOOGLE_CLOUD_SPANNER_INSTANCE_ID`, and
+   `GOOGLE_CLOUD_SPANNER_DATABASE_NAME` at the instance.
+3. `go run -tags skipAuth ./cmd/bootstrap` creates the database, applies the schema, seeds
+   the world, checks both auths' policy stores against their role files, and creates the
+   personas. Schema changes on a real instance are slow and counted against its limits,
+   which is why the schema is one migration (`000001_Baseline` applies in about two minutes
+   on an Enterprise instance, where the sixty files it folds took more than thirteen,
+   measured 2026-11-02), and this runs once per database; every later session starts with
+   `go run -tags skipAuth ./cmd/bootstrap -reset`, which empties the data and seeds it again
+   with no schema change, in about a minute.
+4. `go run -tags skipAuth .` serves the application on `PORT` against the real database,
+   and `overmind start -l console,portal` runs the browser apps against it.
+5. `./walkthrough.sh` runs every persona's proof; it moves workflow state, so reset before
+   running it again. Then use the console and the portal by hand.
+6. Reset with the server stopped, and start it again after. A running server's permission
+   engine re-reads its store every minute; a reload that lands while the reset has the
+   role tables empty answers every domain as unknown until the next reload after the
+   reseed, and the reset ends every session anyway.
+7. Anything that behaves differently from the emulator is a finding: record it as an
+   issue. When done, drop the database or keep it for next time; the instance is the
+   running cost.
+
+## The world
+
+Three **sectors** are the tenants: **Anvil** is home (nearly everyone holds a role there,
+and the hangars are there), **Bastion** is where a role stops at a border, and also the
+sector that admits its people through its directory only (a password does not reach it),
+and **Cinder** is the dark sector only headquarters, the archivist, and the hazard analyst
+can see.
+Clients post **missions** with a hazard class, a fee, and a deadline. **Squadrons**
+(grouped into **wings**) claim them and fly **sorties** with **expenses**. **Ships** in
+**hangars** go through **refits** bay by bay. **Droids** post telemetry over their own
+channel and release **consignments** held in bond. Every list pages at the size its
+`@page` annotation declares, and the seed is deep enough that every list of consequence
+has a second page.
+
+## Two populations, two auths
+
+Each auth is one `session.Auth` with its sign-in methods registered on it, and the
+generated router tells each outlet's login page what its auth offers at
+`/<prefix>/user/methods`: the methods in the order the generator program declared them,
+each with its kind (a password form, or a redirect to a directory), its label and the
+path the router mounted it at, and the pending sign-in's routes, so the page renders from
+the server's list and names no path of its own. Both pages compose the library's login
+component (`<impulse-login-methods>` from `@impulseframework/resource-angular`), which reads the list
+through the application's client, renders the form and the buttons, posts the password
+after reading the list again (the read refreshes the XSRF cookie the post needs), sends the
+browser to a directory with the page to return to, shows the sentence held for a refusal
+code, and renders the confirmation step for a sign-in that waits; each page keeps its
+manifest, its words for a method (the portal's "your company directory", a label override
+keyed by the registration's name) and where a sign-in lands.
+
+Every session carries a second factor, whichever way the person signed in: both auths'
+sign-in rule ends with `auth.RequireSecondFactor` (`signin.RequireMFA` with the sign-in
+code as the factor, chained after the tenant policy with `Then`), and the session
+library satisfies it before it holds the sign-in. The fleet's Google Workspace attests
+for its people where the deployment says the fleet administers it
+(`APP_CREW_OIDC_ADMINISTERED`, `APP_MEMBERS_OIDC_ADMINISTERED`; `auth.Directory.Administered`
+declares the Workspace `Attesting()` on the registration), so the navigator and the
+clients are never asked; a password persona, and the pioneer who signs up with any
+Google account (a directory nobody here administers), wait for the sign-in code the auth
+mails to the address they hold (a persona holds none until they give one at the step; in
+development the mail is the log), entered on the login page through the pending routes
+(`/console/api/user/pending/code`, `…/code/verify`, `…/email`); a browser a person asked
+to be remembered stands in for the code for thirty days (the `crew-trusted` and
+`members-trusted` cookies, the trusted devices table under each auth's prefix), and
+headquarters forgets a person's remembered browsers from the Users page
+(`ResetCrewUserFactors`, `ResetMembersUserFactors`, beside the password reset).
+Demonstrates: auth.second-factor, auth.attested-directory, auth.trusted-device.
+
+The crew sign in with passwords at `/console/api/user/password/login`, or through the
+fleet's Google directory at `/console/api/user/google/login`, two methods on one session:
+or sign up with any Google account at `/console/api/user/sign-up/login`, three methods
+on one session: whichever way a crew member signs in, the session is a crew session in
+the same table under the same cookie. A password persona's roles are the application's
+(`pkg/auth/crew/roles.json`, embedded in the binary and validated against the generated
+permission collection when the auth opens, so a release whose roles are wrong does not
+start; the store holds no row for them, and the bootstrap assigns the memberships from
+`cmd/bootstrap/users.json`, a role held in every sector as one membership). A person the
+directory admits is provisioned under the verified email at their first sign-in, a login
+on no manifest (a verified email that is a password persona's login links the identity to
+that persona once their password confirms it), and their roles are the directory's groups,
+reconciled at every sign-in;
+a Google group is an email address, so the names the groups carry are lowercase, and the
+sync resolves each at the store without regard to case and writes the role file's
+spelling (`crew-pilot@` names `Pilot`). The clients sign in through their company's
+Google directory at `/portal/api/user/directory/login`; their roles are the directory's
+groups (`google.RoleSync`), reconciled at every login and never assigned in the
+application, a global role held in the global partition and a domain role in every
+sector; `pkg/auth/members/roles.json` only says what a role may do, in the lowercase
+names Google groups carry. The deploy's migrate step and the bootstrap print what each store
+holds that the release cannot use. Each auth is a package (`pkg/auth/crew`,
+`pkg/auth/members`) with its own session tables, permission store, role file, and XSRF
+cookie (`crew-xsrf`, `members-xsrf`), and each outlet binds to one. The crew's memberships
+are also the application's to change at run time: the console's generated
+user-management surface (`crew-users`, `crew-seats`, `crew-roles` in the global
+partition and the `crew-sector-…` routes under a sector) lists, creates, seats and unseats
+crew ([one channel](#one-channel-between-instances)), and the console serves the members'
+surface beside it (`members-users`, …; the generator program's `Manages`), so headquarters
+administers both populations; a directory-signed member's seats are the directory's,
+reconciled at every login, and the surface refuses to write them by hand. The console's
+Users page (Headquarters menu) is the library's user-management component composed over
+the generated descriptor's global partitions, the crew's and the members', and the Sector
+Crew page (Sector Ops menu, under the sector's URL) over the crew's partition in the
+sector the URL names, with the route's sector as the component's domain; each is drawn
+where the digest grants its List, and nothing on either page names a user, a role or a
+route. A crew login an operator creates or resets carries the forced password change,
+which the login page serves before anything else.
+
+Who may enter a sector is the sector record's declaration, data of the application
+rather than deploy configuration: the directories the sector admits its people through
+(`SectorDirectory`, one row each under `/console/api/sectors/{sectorID}/sector-directories`:
+a sign-in method and the connection its identities carry, the fleet's Google Workspace by
+the name both registrations give it, `example`) and whether its people enter through
+them only (`Sector.DirectoryOnly`, which closes passwords). Both auths' sign-in rule is
+the library's tenant policy over it (`signin.TenantPolicy`, handed the generated
+`app.NewSectorDeclarationReader`, which reads the declaration in the sign-in's own
+transaction): a sign-in through a directory is admitted when one of the person's sectors
+declares that directory, a password unless every one of their sectors is directory only,
+the fleet's staff (a global role, or one held in every sector) and a sign-in whose
+directory names the roles on the library's checks, and a person holding no sector too,
+since the pioneer signs up first and charts after. Which sectors the session then
+reaches is decided again per sector where its chart is computed: the data level's roster
+keeps every sector's declaration beside its key (`resource.TenantRoster.Declarations`,
+handed to `resource.SessionPermissions`), the records' write paths reload it after their
+commit and signal the other instances, so a declaration decides the next request, and
+the records' change events are the audit of every edit. The seed declares the fleet's
+directory on every sector, so the navigator and the client reach the sectors they hold a
+role in, and makes Bastion directory only: the rigger charts Anvil alone and the bosun is
+refused at sign-in. A self-service sector's first directory is the one its creator came
+through, written by the create-sector route with the row, so Ember admits the pioneer at
+once. Each directory row carries a default seat (`SectorDirectory.DefaultSeat`,
+`@directoryDefaultSeat`): the role a stranger the directory vouches for is seated with in
+that sector at their first sign-in, before the registration's account rule is reached.
+Cinder's row names `SectorCrew`, so the navigator's first sign-in creates him seated
+there; Anvil's and Bastion's name none, so a stranger no row seats is refused by
+invitation only (`invitation_only`, the login page's sentence) and no account is created,
+unless they followed an invitation. The crew auth reads every sector's declaration of a
+directory with its seat through the generated `app.NewSectorDirectoryReader`
+(`SetDirectoryAdmission`, with `resource.SeatDeclared` writing the seat once the sign-in
+has committed); the members auth, whose directory names the roles, sets none. The
+console's Sign-in page (Sector Ops menu, under the sector's URL) carries the declaration:
+the sector's marshal declares and withdraws directories there and picks each one's
+default seat from the sector's roles, headquarters sets directory only. A sector's
+creator is its first marshal whatever the creation shape: the create path seats the
+surveyor as `SectorMarshal` in Dawn after the row commits, as the create-sector route
+seats the pioneer in Ember (`SectorAdministratorRoles`, from `crew.AdministratorRoles`),
+and the last holder of a partition's administrator role (`Headquarters` globally,
+`SectorMarshal` in a sector, `resource.WithAdministratorRoles`) is refused leaving it
+until another holds it, so an operator creates a customer's sector, seats its first
+administrator and leaves. Demonstrates: tenancy.declaration, tenancy.directory-only,
+tenancy.creator-directory, tenancy.default-seat, tenancy.creator-seat.
+
+## The personas
+
+All crew passwords are `lodestar`; the login is the job word. The login page is the crew
+manifest: pick a card, sign in, switch, never more than two clicks.
+
+| Login | Who | What their view proves |
+| --- | --- | --- |
+| `governor` | Governor Greer, headquarters | Every global role and Sector Marshal in all three sectors: the pruned pure-RBAC baseline. Runs the watch desk over every live impersonated session and can revoke one. Demonstrates: impersonation.active-list, impersonation.revoke, impersonation.act-as-role, computed.pushdown. |
+| `marshal` | Marshal Maren, Anvil | Full sector authority at Anvil, nothing at Bastion or Cinder (the fail-closed border); every transition including Scrap; the row-free `now` condition on IssueBulletin; the sector briefing with every fee; attaches mission documents through the `@upload` method and downloads them through the generated file route, whose gate is her Read grant on `content` (the client portal lists documents and holds no such grant). Demonstrates: tenancy.concealed, @transition.multi-from, condition.now, rpc.client-form, @upload, @file.stored, impersonation.view-as. |
+| `cadet` | Cadet Cass | `hazard IN (1, 2)`; the flight deck with only Claim lit; the two-input distress-call form (create-form narrowing). Demonstrates: execute-condition, create-form-narrowing, capability-envelope. |
+| `pilot` | Pilot Pax, clearance 3 | `hazard <= subject.clearance AND (requiredCert IS NULL OR requiredCert IN subject.certifications)`; `hangarZone != 'quarantine'` on ships and on HailShip, the touch that answers No Content. Demonstrates: @subjectValue, @subjectSet.global, @attribute.nullable-fk, @attribute.join-path, touch, @answers.no-content. |
+| `veteran` | Veteran Vela | `NOT (hazard IN (1, 2) OR fee < 5000)`. Demonstrates: condition.prefix-not. |
+| `lead` | Flight Lead Lior, Hammer | `assignedSquadron IN subject.squadrons OR bookedBy = subject`; launch, hold, resume, complete, fail; sorties only while underway. Holds Execute on HoldMission but no Update on the notes, so the armed hold refuses inside the transaction in the grant's words, and the dry run of every lit edge says so before anything is touched. CompleteMission posts the settlement through the Paymaster role's checker (`caller.As`) and chooses its status (`@answers(200, 409)`). Demonstrates: @subjectSet.domain, condition.subject-scalar, rpc.armed-write, rpc.dry-run, rpc.as-role, @answers, @transition.loop, create-under-parent. |
+| `dispatcher` | Dispatcher Dunn | `state NOT IN (...)`; two Update grants on one resource: `new.assignedSquadron IN subject.squadrons` and `new.deadline >= deadline`, the write-grouping demo; compiles the briefing without the hazard board. Demonstrates: condition.not-in, write-grouping, condition.old-vs-new, rpc.decision-as-data. |
+| `overseer` | Overseer Orla | `deadline < now` as a right-side operand; the reassign that unlocks by the clock (the seeded three-minute mission). Demonstrates: condition.now, @attribute.timestamp. |
+| `booking` | Booking Agent Bex | `new.fee <= subject.feeLimit` on create and inside an Update; `fee > 10000 OR bookedBy = subject`; delete by base decision; Stand Down from three sources. Demonstrates: @subjectValue.two-per-anchor, @attribute.decimal, @transition.multi-from. |
+| `wingco` | Wing Commander Wilde, Forge Wing | `wing IN subject.wings`, a subject set with a dotted value path; `hazard >= 4`. Demonstrates: @subjectSet.dotted-value. |
+| `engineer` | Engineer Ezra | The refit workflow with its failed-test loop on a join-path root; `inspectedAt IS NOT NULL`; interleaved compound-key tasks; the Hail touch. Demonstrates: @transition.join-path-root, @transition.loop, interleaved-table, compound-key, client-supplied-key, transition-owned-timestamp, @defaultsUpdateType, @validateUpdateType. |
+| `quartermaster` | Quartermaster Quill | `state = 'underway'` evaluated two hops deep on SortieExpenses. Demonstrates: @stateRoot.two-hop. |
+| `supercargo` | Supercargo Sol | `releasedAt IS NULL` on Update and on ReleaseConsignment (shared with the droid, which reads the manifest armed and answers a receipt); `expiresOn < '2026-09-01'`; `allow_filter` on Mass; the hold walked by release date across the NULL boundary. Demonstrates: @attribute.date, allow_filter, paging.nullable-sort, rpc.armed-read, rpc.typed-result, outlet.shared. |
+| `salvor` | Salvor Sable | `insured IS NULL OR insured = true` on Clients, the salvage desk's one grant: the seed leaves Halvard covered, Meridian and Bastion Relay undecided, and Vellum refused, so she lists the first three and never Vellum, disagreeing with the trusted view in both directions; `= true` alone, or `!= false`, would drop the undecided outfits (the semantic differential proves that half on the same shape). Demonstrates: @attribute.nullable-bool. |
+| `yeoman` | Yeoman Yael | The standing orders, a `@computed` struct with no `@primarykey`: a whole read-only list, served in the book's own order on a bare GET, sorted by section on request, never paged (a `limit` or a `cursor` is refused with a 400 naming the key as the way to page), with no read route and no row identity. Her first screen is the console's Standing Orders page, the library's list over that resource: the whole book as one page with virtual scroll, every line identified by its position, Previous and Next disabled with the count, no View column, no create, and no row route; a `pageSize` or `enableRowExpansion` on its config fails at startup naming the resource. Demonstrates: computed.keyless, list.keyless. |
+| `purser` | Purser Priya | The expense manifests, a keyed `@computed` struct whose struct-scope `@file` renders each mission's booked expenses as a `text/csv` sheet on request: `GET .../expense-manifests/{missionId}/content` under her Read grant on `content`, with the sheet's digest as its validator, so a kept copy asks again and hears 304 until an expense is booked; the marshal reads no manifest and the cadet none of it. Demonstrates: @file.rendered. |
+| `registrar` | Registrar Rhea | The document register at Anvil: Update on the documents' `title`, Delete on the documents, and Execute on `ReplaceMissionDocument`. A replaced file points the row at the new object and the old one leaves the Documents store once the transaction commits; a deleted document's object goes with the row; a dry run of the replacement, a refusal, and a retitle release nothing. No frame and no body does this: the patch machinery records the released keys with their store on the transaction, and the resource client, on which the Documents store is wired with `resource.WithNamedFileStore[resources.Documents]`, deletes them from it after each commit. Demonstrates: @file.released, @file.replaced. |
+| `photographer` | Photographer Petra | The hangar's camera at Anvil: Execute on `AttachRefitPhoto`, an `@upload` with no `store:`, and Read on the refit tasks with `photo`. Her photo streams to the default store (`APP_FILE_STORE`) and its key is a plain string in `RefitTask.PhotoKey`, where the marshal's briefs stream to the Documents store (`APP_FILE_STORE_DOCUMENTS`) under keys typed `resource.Key[Documents]`: one application, two stores, each key column typed for its own, so a key of one does not compile into a column of the other. The walkthrough shows the two directories holding what each row names, and `cmd/jobs cleanup-files` removing one planted orphan from each while the brief and the photo stay. Demonstrates: @upload, filestore.named, filestore.cleanup. |
+| `archivist` | Archivist Ada, all sectors | Terminal-state rows; fee and settlement redacted until completed (two read grants on one resource) and sorted over the visible projection, while the deadline, declared `masking:"positional"`, orders every page on the real column; a fee sort her grid does not display pages on the cursor's copy of the fee; the deploy warns that her fee filter sorts the partition; PII withheld; the domain-scoped ship's log; a briefing that counts her redactions. Demonstrates: cell-masking, paging.masked-sort, paging.unselected-sort-key, masking.positional, warning.concealing-key, pii, @manualAddResource.scope, rpc.armed-read. |
+| `assessor` | Assessor Asa | Prices cover before launch: one List grant on Missions, the title unconditionally and the hazard level under `state = 'open'`. Hazard is a named variant of INT64 (`type HazardLevel int64`), concealing and unindexed, so a grid that sorts by hazard without displaying it pages on the cursor's copy of the visible hazard, decoded into the field's own type where the Spanner client refuses a pointer to a pointer to it, and the missions no longer open walk through the NULL region in Spanner's placement. Demonstrates: paging.named-variant-key. |
+| `hazards` | Hazard Analyst Hale | A conditional (row-free `now`) grant on a computed resource, the whole board through `limit=all`. Demonstrates: computed.conditional-grant, paging.limit-all, computed.fold. |
+| `dock` / `watch` | Dockmaster Dara / Night Watch Nadia | `timeOfDay(now, local)` and the wrap-around `timeOfDay(now, 'America/Denver')` window; `dayOfWeek(now, local) NOT IN ('sat', 'sun')`. At any hour exactly one sees the hangar deck. Demonstrates: condition.time-of-day, condition.day-of-week, condition.local-zone. |
+| `harbormaster` | Harbormaster Hollis, Anvil | List and Read on Ships, nothing else of her own: the live fleet board. Her list and the ship she has open are subscribed when they are read, the engineer's refit (or a hail) lands on both without a reload, a board left and reopened inside five minutes is the browser's own, and the pilot watching Bastion's fleet and the cadet, who holds no List on Ships, receive nothing. Demonstrates: live.pages. |
+| `adjutant` | Adjutant Alba, headquarters | The commendations desk, the one resource behind a feature flag, and the key that turns it: `FeatureAdministrator` (List and Read on `FeatureFlags`, Execute on `SetFeature`, global) beside `Adjutant` (List, Read and Create on `Commendations`). Off, the desk's routes answer the router's own 404, the digest leaves the desk and the card's `commendations` field out, and the field named in a request is unknown; she turns the flag on through `SetFeature`, the desk answers, Pax's card counts his citations, and a second server process serves the desk at its next request with no restart; off again, both refuse. Demonstrates: @feature, @feature.field. |
+| `surveyor` | Surveyor Shen, headquarters | Charts new sectors: `Surveyor` (Create and Update on `Sectors`, global) beside `SectorCrew` held in every sector. `Sectors` is the tenant record (`@tenant`) and every instance holds a roster of it: when she charts Dawn through the consolidated patch, the instance that wrote adds Dawn to its roster after the commit and signals the tenants kind, so her star chart lights Dawn and Dawn's wings answer her at once, with no restart, no migrate job and no new login; the marshal's chart stays dark and Dawn answers her as a sector that does not exist; the client's portal, the governor and the archivist, all held in every sector, see Dawn with nothing written for them; and a second server process serves Dawn at its next request. Demonstrates: tenancy.run-time-tenant. |
+| `pioneer` | Pioneer Pia, on no manifest | Signs up with any Google account (the crew auth's `sign-up` registration: open sign-up, no roles, the application the authority), a crew login holding nothing, and charts her own sector through the generated `create-sector` route: `Sectors` declares who may chart one apart from who may enter one (`@tenant(creation: both)`), so the route writes Ember, seats her as its marshal (`SectorMarshal`, the roles `SectorAdministratorRoles` names) and hands it to the roster in one call, and her chart lights Ember at once; a second sector is refused her, as the route is refused the marshal and the governor, who hold sectors already. Sign in first, then name the sector. Demonstrates: tenancy.self-service, auth.open-sign-up. |
+| `rigger` | Rigger Rook, Anvil and Bastion, no global role | `SectorCrew` in Anvil and in Bastion, by password, and nothing global: Bastion admits its people through its directory only (`Sector.DirectoryOnly`), so her chart lights Anvil alone and Bastion answers her as a sector that does not exist, until headquarters opens Bastion to passwords and her chart lights it at once. Demonstrates: tenancy.directory-only. |
+| `bosun` | Bosun Bram, Bastion only | `SectorCrew` in Bastion alone, by password: every sector of his is directory only, so his sign-in is refused naming the rule (`directory_only`), and admitted once headquarters opens Bastion. Demonstrates: tenancy.directory-only. |
+| `client` | Client Cleo, portal only | Signs in through her company's directory, whose groups are her roles; the second browser app over the second TypeScript target; `client = subject.client` from the ClientContact anchor; a conditional Execute fired from a portal session; a PII field an external user writes; the portal-only client statement. Demonstrates: auth.directory-roles, auth.skipauth-directory, typescript.second-target, outlet.session, @subjectValue.second-anchor, @manualAddResource.outlet. |
+| `droid-r7` | R7, service account, no login | The droids outlet, behind the crew auth's bearer tokens (its configured key is seeded as its application token): telemetry with no human route, one reading per call, each carrying the firmware's raw frame, a type declared in the droid link's own package whose generated methods the generator writes there (`WithTypes`); releases through the shared method under its own read grant; the program the release ships to the droids (`cmd/droid`), which sends one frame and upgrades itself from the outlet. Demonstrates: outlet.tokens, outlet.exclusive, machine-identity, rpc.row-free, typescript.types-package, outlet.programs. |
+
+## Where things live
+
+- `pkg/resources`: every struct and annotation (design plan §5), each with `@page` and
+  all but the hull catalog with `@order` ([`order.none`](pkg/resources/ship_classes.go),
+  a catalog read whole and unsorted, whose pages need a requested sort,
+  [`order.required`](pkg/resources/ship_classes.go)); `pkg/rpc`: the thirteen transitions and the effect methods, including the
+  client-form [`rpc.client-form`](pkg/rpc/compile_briefing.go) and the nightly prune
+  Cloud Scheduler calls ([`@schedule`](pkg/rpc/prune_droid_reports.go)); `pkg/computedresources`
+  (the pushdown [`computed.pushdown`](pkg/computedresources/service_ledgers.go), the
+  fold, and the key-less standing orders
+  [`computed.keyless`](pkg/computedresources/standing_orders.go)) and `pkg/virtualresources`; `pkg/router`: the generated router over three outlets
+  (`/console/api`, `/portal/api`, `/droids`; each browser outlet's API under its
+  application's mount path) with its chain documented at the top of
+  `zz_gen_router.go`, and `hooks.go`, the console's and the portal's own routes composed
+  into it and the beacon pulse mounted outside every outlet under the prefix the
+  generator program declares quiet ([`generation.request-log`](cmd/generate/generator.go));
+  `app/`: wiring, middleware, the ship's log, the client statement, the
+  impersonation mint route, the watch desk, the user-management surfaces the generated
+  user handlers serve through (`users.go`) and the beacon pulse. The mission document download is
+  generated from `MissionDocument.StoreKey`'s `@file`
+  ([`@file.stored`](pkg/resources/mission_documents.go)), and the purser's expense
+  manifest is a computed resource whose struct-scope `@file` renders a CSV sheet on
+  request ([`@file.rendered`](pkg/computedresources/expense_manifests.go)). The
+  registrar's `ReplaceMissionDocument` points a document at a new file, and the
+  resource client, on which the two stores are wired in `pkg/config/data.go`
+  (`resource.WithFileStore` for the default store, `resource.WithNamedFileStore` for
+  the `Documents` store declared in `pkg/resources`), deletes the object a committed
+  transaction released from its store, the replaced file's and the deleted document's
+  alike; the photographer's `AttachRefitPhoto` streams to the default store, the
+  generated `resources.FileHolders()` names every key column with its store, and
+  `pkg/jobs` with `cmd/jobs` runs the orphaned-file cleanup over both
+  ([`filestore.cleanup`](pkg/jobs/cleanup.go))
+  ([`@file.released`](pkg/resources/mission_documents.go),
+  [`@file.replaced`](pkg/rpc/replace_mission_document.go)). A `@file` table whose rows
+  the database deletes by cascade releases nothing, since its rows never pass through
+  the patch machinery, and the generator's audit pass names such tables without saying
+  so on every run: `RefitTask.PhotoKey` stores a task photo on a table interleaved in
+  Refits `ON DELETE CASCADE`
+  ([`audit.cascade-release`](pkg/resources/refit_tasks.go)), so `go run
+  ./cmd/generate/resourcegenerator -audit` prints the one `Audit:` line naming it after
+  the nine `Warning:` lines, `go generate ./...` prints the nine alone, and
+  `cmd/generate/audit_test.go` pins the finding as a typed value.
+- `pkg/telemetry`: the droid link's own package, the one package the generator writes
+  into without reading a resource from it: `cmd/generate` names it with `WithTypes`, so
+  the frame type a `DroidReports` column holds gets its JSON and Spanner methods generated
+  beside it ([`typescript.types-package`](pkg/telemetry/telemetry.go)). The briefing
+  catalog's `Layout` is the one field typed `json.RawMessage` itself, a computed field
+  passed through unmodelled ([`typescript.raw-json`](pkg/computedresources/briefing_templates.go)),
+  and `DistressCall.Position` writes no JSON methods of its own any more
+  ([`typescript.generated-json-methods`](pkg/resources/distress_calls.go)).
+- `pkg/auth/crew` and `pkg/auth/members`: the two populations, each with its
+  `roles.json`, every grant in §7 per auth, embedded in the binary; `pkg/auth/signal.go`:
+  the policy signal both engines take, over the live service;
+  `cmd/bootstrap/users.json`: the personas and the droid.
+- `schema/migrations` and `schema/devseed`: the schema and the world the suites and the
+  demo share; one mission's deadline is written as bootstrap time plus three minutes so the
+  overseer's grant flips during a live walkthrough.
+- `web/`: one bun workspace, two Angular applications: `console/` (default outlet) and
+  `portal/` (portal outlet), each over its own generated TypeScript client; the workspace's
+  checks are `bun run build && bun run lint && bun run test`; the repository's CI runs all
+  three in its `lodestar-web` job against the framework's packages built from the same
+  commit, which `web/package.json` links from `../web/dist`; the specs run on Angular's unit-test builder with
+  Vitest under jsdom, no browser, the wiring the
+  Impulse skeleton carries (the console's dashboard, login, header, top bar, footer, and
+  shell, the portal's login and tracker, over a scripted client from
+  `@impulseframework/resource-angular/testing`). The console mirrors the API's shape: every
+  sector-scoped page lives under the sector segment, `/sectors/{sectorID}/...` (the
+  generated `DomainRoutePath`; the decks at `/sectors/anvil/flight-deck`, the config-driven
+  pages at `/sectors/anvil/missions`, the sector's crew at `/sectors/anvil/users`), so a
+  link to a deck can be shared and a bookmark lands where it points, and the global pages
+  keep their routes. The sector a deck works in is a consequence of its URL: the
+  [sector guard](web/console/src/app/components/sector/sector.guard.ts) on the segment
+  sets `SectorService.current` from the URL before the deck loads, checked against the
+  session's sector list (user-domains, the server's own foothold test), and nothing else
+  writes it; the [star chart](web/console/src/app/components/sector/star-chart/star-chart.component.ts)
+  sets no sector either, it opens the page it is on under the chosen sector's URL. A URL
+  naming a sector the session cannot reach — a dark star opened with "chart every sector"
+  on, or a pasted link — lands on the
+  [refusal page](web/console/src/app/components/sector/sector-refused/sector-refused.component.ts)
+  under that sector's URL (`/sectors/cinder/refused`), which asks the server what a deck
+  there would have asked and shows the answer in the server's words, the concealing 404,
+  and never switches to another sector. The guard rewrites no URL: the library's
+  config-driven pages build their row links and after-create navigation under the page's
+  sector (`/sectors/anvil/missions/…`), so a row link is the row's real URL and opens in a
+  new tab where it points. Two consumers page on the server: the
+  hand-written flight deck, and the library's config-driven list on the
+  [Missions page](web/console/src/app/configs/missions.config.ts)
+  ([`list.server-paged`](web/console/src/app/configs/missions.config.ts)), which asks for
+  one page of the mission board at the descriptor's size, turns it by the server's cursors,
+  and draws a filter control only on the columns the generated metadata marks filterable
+  ([`metadata.filterable`](pkg/resources/missions.go)). The
+  [Standing Orders page](web/console/src/app/configs/standingOrders.config.ts) is the same
+  list over a key-less resource ([`list.keyless`](web/console/src/app/configs/standingOrders.config.ts)):
+  the whole book as one page, rows identified by position, no row route, and a config
+  asking for a page size or a row expansion refused when the page is built. Four pages
+  carry the field shapes a form never types and the write-only field: the
+  [Documents page](web/console/src/app/configs/missionDocuments.config.ts) shows a
+  document's digest as a size in its cell and as a download on its row page
+  ([`field.bytes`](web/console/src/app/configs/missionDocuments.config.ts)) and its
+  provenance as JSON, the [Calls page](web/console/src/app/configs/distressCalls.config.ts)
+  shows a call's position as JSON ([`field.object`](web/console/src/app/configs/distressCalls.config.ts))
+  and draws nothing for its write-only transcript in view mode and a blank input in its
+  create form and in its edit form, whose value travels only when typed; the edit form has
+  the input because the row's Update envelope names every field the caller may write,
+  projected or not, so the marshal's covers the transcript no read returns
+  ([`field.write-only`](web/console/src/app/configs/distressCalls.config.ts)), and the
+  Ships page's cargo bays and the Squadrons page's callsigns are joined in a cell and chips
+  on the row page, read-only in edit mode ([`field.array`](web/console/src/app/configs/ships.config.ts)). The
+  [Ships page](web/console/src/app/configs/ships.config.ts) puts the two picker read
+  modes side by side, each decided by the maximum page size the generated descriptor
+  carries: [`picker.paged`](web/console/src/app/configs/ships.config.ts) over the
+  hangars, which declare one (one server page at a time, Previous and Next inside the
+  panel, the chosen hangar read by key), and
+  [`picker.whole`](web/console/src/app/configs/ships.config.ts) over the hull catalog,
+  which declares none (read whole with `limit=all`); its Hangar column resolves each
+  page's hangars with one `in` request over the page's keys
+  ([`column.referenced-in`](web/console/src/app/configs/ships.config.ts)) where its
+  Class column maps the catalog read whole once. Lodestar is also the browser library's
+  application: `@impulseframework/resource` and `@impulseframework/resource-angular` live in
+  this repository's `web/` workspace, hold no application of their own, and are proven
+  here, linked from their local build ("Running it"). The
+  console carries the library surface no generated page reaches: the idle session
+  configured from the build's environment, its warning the library's notice that any
+  activity ends ([`idle.configured`](web/console/src/app/app.config.ts)); the Squadrons page's channel
+  card and its "Other squadrons in this sector"
+  ([`config.component`](web/console/src/app/configs/squadrons.config.ts),
+  [`config.array`](web/console/src/app/configs/squadrons.config.ts)); the leave-page
+  confirmation every config-driven route carries
+  ([`form.leave-page`](web/console/src/app/app.routes.ts)); and the client's judgment
+  rendered by the adapter, with no HTTP interceptor of the console's own: a 401
+  mid-session returns the browser to the login page with the attempted URL kept
+  ([`client.login-redirect`](web/console/src/app/app.config.ts)), and an `ApiError` nobody
+  caught raises one global notice in the server's words while the flight deck's in-place
+  refusals raise none
+  ([`client.uncaught-notice`](web/console/src/app/components/sector/flight-deck/flight-deck.component.ts)).
+- `test/authz`: the generated authorization matrix, which pins the endpoint gate with
+  unconditional grants over the empty schema and so never meets a condition;
+  `test/integration`: the suites (§9), where every condition is proven over the seeded
+  world through the real engines (each conditional grant names its case through
+  `provesGrant`, so `impulse check`'s conditions-proven check finds a grant no suite
+  proves, and `grants_test.go` proves the deploy path serves every unconditional grant),
+  including [`paging.nullable-sort`](test/integration/paging_test.go),
+  [`rpc.armed-read`](test/integration/rpc_forms_test.go),
+  [`impersonation.revoke`](test/integration/impersonation_ops_test.go), and the parity
+  world provisioned from the shipped role files. The served suites need the simulated
+  directory: `go test -tags skipAuth ./...`, as the CI stub and the Procfile do.
+- `demonstrations_test.go` and `DEMONSTRATIONS.md`: the demonstration index, and
+  `walkthrough.sh`, the proof by hand. Demonstrates: demonstration-index, walkthrough.
+- `walkthrough.sh`: every persona's proof by curl against a freshly bootstrapped or reset stack, including the
+  droid channel, the portal through the simulated directory, the dry runs, the watch desk,
+  both impersonation moments, the feature flag's flip with a second server process built
+  from the tree on `LODESTAR_SECOND_PORT` (default 8091), and the three-minute wait for
+  the overdue flip (`LODESTAR_SKIP_FLIP=1` to skip). Export the `.envrc` variables before
+  running it.
+
+## Regen discipline
+
+`go generate ./...` from the module root is idempotent from a clean tree; the `zz_gen_*`
+output (Go, two TypeScript targets, two workflow DOT graphs, the bindings DOT graph) is the drift baseline, pinned
+by `cmd/generate/generate_test.go` as a content snapshot. After changing schema,
+annotations, or generator config: regenerate, `go test -tags skipAuth ./...`, and keep the
+diff. The generate program prints the schema warnings after every run, one `Warning:`
+line each; `go run ./cmd/generate/resourcegenerator -audit` runs the same generation and
+also prints the audit pass's findings, one `Audit:` line each, the advisory findings
+a plain `go generate` stays silent on. `impulse check` from the module root verifies the
+agreements between the parts the tool laid in.

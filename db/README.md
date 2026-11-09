@@ -1,0 +1,89 @@
+# DB Initiator
+
+A Go library for database testing and migrations. Spin up ephemeral containerized databases for integration tests or run migrations against existing databases.
+
+## Features
+
+- **Ephemeral test databases** – Start Docker containers for isolated integration testing
+- **Database migrations** – Run schema and data migrations with the library's own runner, which continues a failed Spanner file from its failed statement once the cause is fixed
+- **Backup and restore** - (Spanner only) - Supports backing up and restoring Spanner databases.  Supports setting backup age limit (in seconds) via `MaxBackupAge` property
+
+## Supported Databases
+
+| Database | Container | Migrations | Backup/Restore |
+|----------|-----------|------------|----------------|
+| PostgreSQL | ✓ | ✓ | ✗ |
+| Spanner | ✓ (emulator) | ✓ | ✓ |
+| Firestore | ✓ (emulator) | ✗ | ✗ |
+
+## Emulators in tests
+
+A test suite can start the Spanner emulator or the Firestore emulator, the local stand-ins Google ships for the two databases, with one call each, and needs no container code of its own. The containers start through the testcontainers library, so Docker and podman both serve. Start one emulator per package in `TestMain` and stop it after the run with `Terminate` and `Close`.
+
+### Spanner
+
+`NewSpannerContainer(ctx, "1.5.56")` starts the Spanner emulator image of that version and creates an instance on it. `CreateDatabase` then gives each test a database of its own.
+
+### Firestore
+
+`NewFirestoreContainer(ctx, "562.0.0")` starts the Firestore emulator from the Cloud SDK emulators image of that SDK version (`gcr.io/google.com/cloudsdktool/google-cloud-cli:562.0.0-emulators`) and waits until it answers. `Host()` returns the emulator's host and port, the value the `FIRESTORE_EMULATOR_HOST` variable takes: a Firestore client opened with the variable set talks to the emulator, with the emulator's owner credential, which security rules never apply to.
+
+`WithFirestoreRules(path)` copies a security rules file into the container and starts the emulator with it, so a request made without the owner credential, such as a browser's, is answered as the rules say. Without it the emulator has no rules file and allows every request.
+
+```go
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+	emulator, err := db.NewFirestoreContainer(ctx, "562.0.0", db.WithFirestoreRules("firestore.rules"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	if err := os.Setenv("FIRESTORE_EMULATOR_HOST", emulator.Host()); err != nil {
+		log.Fatal(err)
+	}
+
+	code := m.Run()
+
+	if err := emulator.Terminate(ctx); err != nil {
+		log.Print(err)
+	}
+	if err := emulator.Close(); err != nil {
+		log.Print(err)
+	}
+	os.Exit(code)
+}
+```
+
+## Migrations
+
+A migration source is a directory, given as `file://<path>`: relative to the working directory, or absolute as `file:///path`. It holds files named `<version>_<name>.up.sql` and, optionally, `<version>_<name>.down.sql`. The version is a number compared numerically, so leading zeros are fine. A `.sql` file whose name does not follow the convention is refused by name; files without the `.sql` suffix are ignored.
+
+`MigrateUpSchema` and `MigrateUpData` apply every file above the database's current version, ascending, and record the version in the `SchemaMigrations` and `DataMigrations` tables on Spanner, or `schema_migrations` and `data_migrations` on PostgreSQL; `WithSchemaMigrationsTable` and `WithDataMigrationsTable` name other tables. A database already at the last version is a normal result, not an error. `SchemaVersion`, `DataVersion`, `ForceSchema` and `ForceData` read and set the version tables; forcing `-1` leaves the database with no version.
+
+`MigrateDropSchema` drops everything the migrations created, the version tables included, so the migrations apply again from the start. On Spanner it drops the views, foreign keys, search indexes, indexes and tables. On PostgreSQL it drops the views, materialized views, tables, sequences, routines and types of every schema but PostgreSQL's own, in one transaction, skipping what an installed extension owns; the schemas themselves stay, so a migration that creates one should say `IF NOT EXISTS`.
+
+### Spanner
+
+A file is split into statements with the comments stripped, since Spanner's DDL API refuses them. `INSERT`, `UPDATE` and `DELETE` statements are DML and every other statement is DDL. Consecutive statements of one kind form a group: a DDL group goes to Spanner as one batch, a DML group runs in one read-write transaction.
+
+Spanner validates a DDL batch as a whole before applying anything, then applies its statements in order, and a statement that fails at apply time (a unique index over duplicate values, a foreign key over rows with no parent) leaves the earlier ones applied. The runner records how far the file got on the version row, in the `Applied`, `Checkpoint` and `Operation` columns, which it adds to a version table the earlier releases created, and returns a `DirtyError` naming the file, the statement and Spanner's message. Fix the cause and run again: the file continues from the failed statement. A DML group that fails rolls back whole, and nothing of it is applied.
+
+The run refuses, and says how to recover, when the file changed in its already-applied part (restore the file, or force a version) and when the database is dirty from a run that recorded no progress, as releases before 0.4 left it (force the version that matches the database's real state).
+
+### PostgreSQL
+
+Each file runs inside one transaction under an advisory lock, with the version row replaced in the same transaction: a file that fails rolls back whole and the version stays where it was, never dirty. Two runners started together on one database apply every file once between them. Statements that cannot run inside a transaction, such as `CREATE INDEX CONCURRENTLY`, are not supported.
+
+A test database made by `PostgresContainer.CreateDatabase` or `NewPostgresDatabase` is dropped with `DropDatabase`, which closes its connection pool and terminates the sessions still on the database; that needs PostgreSQL 13 or later.
+
+## Upgrading from 0.3
+
+Release 0.4 replaces the golang-migrate library with the runner above. Every live database carries over: the version tables keep their names and columns, and gain the three progress columns on the first run. In each module that uses db-initiator:
+
+- delete the `replace github.com/golang-migrate/migrate/v4 ... => github.com/jtwatson/migrate/v4 ...` line from `go.mod` and run `go mod tidy`;
+- delete the `errors.Is(err, migrate.ErrNoChange)` checks and the import: a database with nothing to apply is a nil result now.
+
+On PostgreSQL the data-migration methods, the table names and `MigrateDropSchema` work as on Spanner from 0.5 on; nothing to change for a module that did not call them.
+
+## License
+
+See [LICENSE](LICENSE) for details.

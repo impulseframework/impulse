@@ -1,0 +1,22 @@
+@if (showField()) {
+  <div [class.readonly-field]="editMode() === 'view'">
+    <mat-form-field class="field {{ fieldClass() }}" [formGroup]="form()" [subscriptSizing]="'dynamic'">
+      <mat-label>{{ fieldConfig().label }}</mat-label>
+      <input
+        matInput
+        [readonly]="editMode() === 'view'"
+        [matDatepicker]="picker"
+        type="text"
+        (keydown.enter)="$event.preventDefault()"
+        [formControlName]="fieldConfig().name" />
+      @if (editMode() === 'edit') {
+        <mat-datepicker-toggle matSuffix [for]="picker"></mat-datepicker-toggle>
+      }
+      <mat-datepicker #picker></mat-datepicker>
+    </mat-form-field>
+  </div>
+} @else {
+  <ng-container [formGroup]="form()">
+    <input type="hidden" [formControlName]="fieldConfig().name" />
+  </ng-container>
+}

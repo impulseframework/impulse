@@ -1,0 +1,434 @@
+{
+  "roles": {
+    "global": [
+      {
+        "name": "Administrator",
+        "description": "Manages the application's tenants and people: creates tenants, creates and invites users, seats and unseats roles, and resets passwords.",
+        "permissions": {
+          "Create": [
+            {
+              "resource": "Tenants",
+              "fields": [
+                "name"
+              ]
+            },
+            {
+              "resource": "StaffUsers",
+              "fields": [
+                "username",
+                "password",
+                "disabled",
+                "email"
+              ]
+            },
+            {
+              "resource": "StaffInvitations",
+              "fields": [
+                "email",
+                "roles"
+              ]
+            },
+            {
+              "resource": "StaffSeats",
+              "fields": [
+                "user",
+                "role"
+              ]
+            }
+          ],
+          "Delete": [
+            {
+              "resource": "Tenants"
+            },
+            {
+              "resource": "StaffUsers"
+            },
+            {
+              "resource": "StaffInvitations"
+            },
+            {
+              "resource": "StaffSeats"
+            }
+          ],
+          "Execute": [
+            {
+              "resource": "SetStaffUserPassword"
+            },
+            {
+              "resource": "ResetStaffUserFactors"
+            }
+          ],
+          "List": [
+            {
+              "resource": "Tenants",
+              "fields": [
+                "directoryOnly",
+                "name"
+              ]
+            },
+            {
+              "resource": "StaffUsers",
+              "fields": [
+                "username",
+                "disabled",
+                "hasPassword",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "organization",
+                "identities",
+                "roles",
+                "everywhereRoles",
+                "rolesSynced",
+                "email",
+                "emailVerifiedAt"
+              ]
+            },
+            {
+              "resource": "StaffInvitations",
+              "fields": [
+                "email",
+                "roles",
+                "invitedBy",
+                "createdAt",
+                "expiresAt"
+              ]
+            },
+            {
+              "resource": "StaffSeats",
+              "fields": [
+                "username",
+                "everyDomain"
+              ]
+            },
+            {
+              "resource": "StaffRoles",
+              "fields": [
+                "kind",
+                "description"
+              ]
+            }
+          ],
+          "Read": [
+            {
+              "resource": "Tenants",
+              "fields": [
+                "directoryOnly",
+                "name"
+              ]
+            },
+            {
+              "resource": "StaffUsers",
+              "fields": [
+                "username",
+                "disabled",
+                "hasPassword",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "organization",
+                "identities",
+                "roles",
+                "everywhereRoles",
+                "rolesSynced",
+                "email",
+                "emailVerifiedAt"
+              ]
+            },
+            {
+              "resource": "StaffInvitations",
+              "fields": [
+                "email",
+                "roles",
+                "invitedBy",
+                "createdAt",
+                "expiresAt"
+              ]
+            },
+            {
+              "resource": "StaffSeats",
+              "fields": [
+                "username",
+                "everyDomain"
+              ]
+            },
+            {
+              "resource": "StaffRoles",
+              "fields": [
+                "kind",
+                "description"
+              ]
+            }
+          ],
+          "Update": [
+            {
+              "resource": "Tenants",
+              "fields": [
+                "directoryOnly",
+                "name"
+              ]
+            },
+            {
+              "resource": "StaffUsers",
+              "fields": [
+                "username",
+                "disabled",
+                "email"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "FeatureAdministrator",
+        "description": "Turns feature flags on and off for an environment.",
+        "permissions": {
+          "Execute": [
+            {
+              "resource": "SetFeature"
+            }
+          ],
+          "List": [
+            {
+              "resource": "FeatureFlags",
+              "fields": [
+                "description",
+                "enabled",
+                "updatedAt",
+                "updatedBy"
+              ]
+            }
+          ],
+          "Read": [
+            {
+              "resource": "FeatureFlags",
+              "fields": [
+                "description",
+                "enabled",
+                "updatedAt",
+                "updatedBy"
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "domain": [
+      {
+        "name": "TenantAdministrator",
+        "description": "Runs one tenant: manages its people and their seats, declares the directories they sign in through, and posts its announcements.",
+        "permissions": {
+          "Create": [
+            {
+              "resource": "Announcements",
+              "fields": [
+                "body",
+                "title"
+              ]
+            },
+            {
+              "resource": "TenantDirectories",
+              "fields": [
+                "connection",
+                "defaultSeat",
+                "method"
+              ]
+            },
+            {
+              "resource": "StaffTenantUsers",
+              "fields": [
+                "username",
+                "password",
+                "disabled",
+                "role",
+                "email"
+              ]
+            },
+            {
+              "resource": "StaffTenantInvitations",
+              "fields": [
+                "email",
+                "roles"
+              ]
+            },
+            {
+              "resource": "StaffTenantSeats",
+              "fields": [
+                "user",
+                "role"
+              ]
+            }
+          ],
+          "Delete": [
+            {
+              "resource": "Announcements"
+            },
+            {
+              "resource": "TenantDirectories"
+            },
+            {
+              "resource": "StaffTenantUsers"
+            },
+            {
+              "resource": "StaffTenantInvitations"
+            },
+            {
+              "resource": "StaffTenantSeats"
+            }
+          ],
+          "Execute": [
+            {
+              "resource": "SetStaffTenantUserPassword"
+            },
+            {
+              "resource": "ResetStaffTenantUserFactors"
+            }
+          ],
+          "List": [
+            {
+              "resource": "Announcements",
+              "fields": [
+                "body",
+                "tenantId",
+                "title"
+              ]
+            },
+            {
+              "resource": "TenantDirectories",
+              "fields": [
+                "connection",
+                "defaultSeat",
+                "method",
+                "tenantId"
+              ]
+            },
+            {
+              "resource": "StaffTenantUsers",
+              "fields": [
+                "username",
+                "disabled",
+                "hasPassword",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "organization",
+                "identities",
+                "roles",
+                "everywhereRoles",
+                "rolesSynced",
+                "email",
+                "emailVerifiedAt"
+              ]
+            },
+            {
+              "resource": "StaffTenantInvitations",
+              "fields": [
+                "email",
+                "roles",
+                "invitedBy",
+                "createdAt",
+                "expiresAt"
+              ]
+            },
+            {
+              "resource": "StaffTenantSeats",
+              "fields": [
+                "username",
+                "everywhere"
+              ]
+            },
+            {
+              "resource": "StaffTenantRoles",
+              "fields": [
+                "description"
+              ]
+            }
+          ],
+          "Read": [
+            {
+              "resource": "Announcements",
+              "fields": [
+                "body",
+                "tenantId",
+                "title"
+              ]
+            },
+            {
+              "resource": "TenantDirectories",
+              "fields": [
+                "connection",
+                "defaultSeat",
+                "method",
+                "tenantId"
+              ]
+            },
+            {
+              "resource": "StaffTenantUsers",
+              "fields": [
+                "username",
+                "disabled",
+                "hasPassword",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "organization",
+                "identities",
+                "roles",
+                "everywhereRoles",
+                "rolesSynced",
+                "email",
+                "emailVerifiedAt"
+              ]
+            },
+            {
+              "resource": "StaffTenantInvitations",
+              "fields": [
+                "email",
+                "roles",
+                "invitedBy",
+                "createdAt",
+                "expiresAt"
+              ]
+            },
+            {
+              "resource": "StaffTenantSeats",
+              "fields": [
+                "username",
+                "everywhere"
+              ]
+            },
+            {
+              "resource": "StaffTenantRoles",
+              "fields": [
+                "description"
+              ]
+            }
+          ],
+          "Update": [
+            {
+              "resource": "Announcements",
+              "fields": [
+                "body",
+                "title"
+              ]
+            },
+            {
+              "resource": "StaffTenantUsers",
+              "fields": [
+                "username",
+                "disabled",
+                "email"
+              ]
+            },
+            {
+              "resource": "TenantDirectories",
+              "fields": [
+                "defaultSeat"
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,78 @@
+:host {
+  display: block;
+}
+
+.impulse-tokens-intro {
+  margin: 0 0 16px;
+  max-width: 65ch;
+}
+
+.impulse-tokens-issue,
+.impulse-tokens-issued-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.impulse-tokens-issue,
+.impulse-tokens-issued {
+  margin-bottom: 24px;
+}
+
+.impulse-tokens-issued-note {
+  margin: 0 0 0.5rem;
+}
+
+.impulse-tokens-field {
+  min-width: 14rem;
+}
+
+.impulse-tokens-issued-field {
+  flex: 1 1 24rem;
+}
+
+.impulse-tokens {
+  width: 100%;
+  border-collapse: collapse;
+
+  th,
+  td {
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--impulse-hairline);
+    vertical-align: middle;
+    white-space: nowrap;
+  }
+
+  th {
+    font-weight: 500;
+  }
+
+  // The name takes the room the other columns leave, and is the one that may wrap.
+  th:first-child,
+  td.impulse-token-name {
+    white-space: normal;
+    width: 100%;
+  }
+}
+
+.impulse-tokens-note,
+.impulse-tokens-unserved {
+  margin: 0;
+  opacity: 0.8;
+}
+
+.impulse-tokens-error,
+.impulse-tokens-notice {
+  color: var(--mat-sys-error, #b3261e);
+}
+
+.impulse-tokens-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}

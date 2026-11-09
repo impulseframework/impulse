@@ -1,0 +1,53 @@
+.login-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+// The card is held back while the login component's arrival reads are in flight
+// (methods.arriving()), so a load shows nothing and then the whole card, the way a page
+// loads; nothing stands in for it meanwhile.
+.login-card.arriving {
+  visibility: hidden;
+}
+
+.login-card {
+  width: 420px;
+  padding: 8px;
+}
+
+.manifest {
+  margin-top: 12px;
+}
+
+.persona {
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 8px;
+  background: var(--mat-sys-surface);
+  padding: 10px 12px;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font: inherit;
+
+  .login {
+    font-family: 'Roboto Mono', monospace;
+    font-weight: 500;
+  }
+
+  .proves {
+    font-size: 12px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+}
+
+.release {
+  padding: 12px 16px 12px;
+  font-size: 12px;
+  color: var(--mat-sys-on-surface-variant);
+  text-align: right;
+}

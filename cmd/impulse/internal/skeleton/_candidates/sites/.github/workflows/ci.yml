@@ -1,0 +1,643 @@
+# The application's CI on every pull request, rendered by impulse and owned by it: impulse
+# render rewrites this file from the code, and impulse check compares the committed file
+# with what it renders, so a hand edit fails the check. To change a check, change the code
+# the jobs read, or move the impulse pin (go get -tool github.com/impulseframework/impulse/cmd/impulse@<version>,
+# then go tool impulse render); never this file. Every action is pinned by commit with its
+# tag in a comment, and the pins move with impulse releases, so dependabot must not run over
+# this file. The jobs' ids are the check names a repository rule requires: title, go, web,
+# image, secrets and migrations. The go-<leg> jobs (build, the two test legs, the two lint
+# legs, vuln, semgrep, check) run at once and report beside them, and go, the gate, fails
+# when any of them did; one angular-<workspace> job per browser workspace reports beside
+# them too, and web fails when any of those did. The jobs go-test, go-test-skipauth and image run on
+# the larger runner the variable CI_LARGE_RUNNER names (a label or a runner group, set on
+# the repository or the organization) and on GitHub's standard runner while it is unset;
+# every other job runs on the standard runner. The application's //impulse:ci line
+# chooses the jobs on the larger runner (large-runner=<job>,<job> or none) and whether the
+# test legs reuse Go's cached test results (test-cache=on or off); without the line the
+# two test legs and the image build run on the larger runner and the test results are not
+# reused (go test -count=1).
+#
+# The caches. The build and test legs restore the Go module cache and build cache from the
+# nearest entry saved under their job's key (ci-cache.yml saves one after each push to the
+# default branch or a patch branch; a pull request run saves one of its own only when it
+# found none for its go.sum), and the lint legs, go-vuln and go-check restore go-build's
+# entry, whose compile theirs share, and save nothing. Neither cache serves a stale result:
+# a module is verified against go.sum when read and a build output is addressed by the
+# hash of its inputs, so an entry from an older commit is either what this one computes or
+# unused. The image build is not cached: its compile and bundles are built fresh by design,
+# and its download stages are a minute of the job. The pins fix the engines, not what they
+# know: govulncheck reads vuln.go.dev, Grype downloads its vulnerability database and
+# Semgrep fetches its registry rules when the job runs, so this file at an old pin still
+# finds a vulnerability published after it; TruffleHog's detectors, golangci-lint's linters
+# and the actions move with impulse releases. Between pull requests, security-scan.yml
+# (owned the same way) runs govulncheck and Grype over the default branch and the latest
+# release every day and reports to an issue of this repository.
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  # The pull request's title is a conventional commit line: the one the squash merge carries and release-please reads.
+  title:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            feature
+            fix
+            perf
+            revert
+            docs
+            deps
+            upgrade
+            infra
+            config
+            style
+            chore
+            refactor
+            cleanup
+            test
+            build
+            ci
+
+  # The Go legs: eight jobs that run at once, each reporting on its own, with go, the gate, after them. This one builds and vets the module, without tags and with skipAuth (the tag that simulates the directory an OIDC auth signs in through), restoring its own Go caches and saving them when its go.sum had none.
+  go-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Restore the Go caches
+        # The module cache (~/go/pkg/mod) and the build cache (~/.cache/go-build), from the
+        # nearest saved entry of this lineage: the same go.sum first, then any. Neither can
+        # serve a stale result: a module is verified against go.sum when read, and a build
+        # output is addressed by the hash of its inputs, so an older entry is either what
+        # this commit computes or unused.
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-build-${{ runner.os }}-
+      - name: go build
+        run: |
+          go build ./...
+          go build -tags skipAuth ./...
+      - name: go vet
+        run: |
+          go vet ./...
+          go vet -tags skipAuth ./...
+      - name: Trim the Go build cache
+        # The build cache keeps an object until Go's own trim finds it unused for five
+        # days, and a day of builds adds objects faster than that, so a saved entry only
+        # grows until the restored tree no longer fits the runner's disk. Go touches the
+        # objects a build reads and the restore keeps the times, so the ones untouched
+        # for a day are what no build of the last day read: they go before the save.
+        if: ${{ !cancelled() }}
+        run: find "$(go env GOCACHE)" -type f -mtime +1 -delete
+      - name: Save the Go caches
+        # Only when no entry for this go.sum was found (a dependency change, or a cold
+        # repository): the entries the branch's own run saves after a merge carry the rest,
+        # so the caches grow with merges, not with pushes. A failed test still saves what
+        # compiled; a cancelled run saves nothing.
+        if: ${{ !cancelled() && !startsWith(steps.go-cache.outputs.cache-matched-key, format('go-build-{0}-{1}-', runner.os, hashFiles('go.sum'))) }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+
+  # The tests under the race detector, without tags, restoring the leg's own Go caches (the race-instrumented build) and saving them when its go.sum had none.
+  go-test:
+    runs-on: ${{ vars.CI_LARGE_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      # The test harnesses start the emulators through testcontainers. Its reaper container
+      # (Ryuk) cleans up after a crashed test on a long-lived machine; a runner is discarded
+      # after the job, and the reaper's own start has timed out on GitHub's runners.
+      TESTCONTAINERS_RYUK_DISABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The generators run bedrock migration renumber, which reads origin's copy of the default branch.
+          fetch-depth: 0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Restore the Go caches
+        # The module cache (~/go/pkg/mod) and the build cache (~/.cache/go-build), from the
+        # nearest saved entry of this lineage: the same go.sum first, then any. Neither can
+        # serve a stale result: a module is verified against go.sum when read, and a build
+        # output is addressed by the hash of its inputs, so an older entry is either what
+        # this commit computes or unused.
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-test-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-test-${{ runner.os }}-
+      - name: go test
+        run: go test -race -count=1 -timeout 20m ./...
+      - name: Trim the Go build cache
+        # The build cache keeps an object until Go's own trim finds it unused for five
+        # days, and a day of builds adds objects faster than that, so a saved entry only
+        # grows until the restored tree no longer fits the runner's disk. Go touches the
+        # objects a build reads and the restore keeps the times, so the ones untouched
+        # for a day are what no build of the last day read: they go before the save.
+        if: ${{ !cancelled() }}
+        run: find "$(go env GOCACHE)" -type f -mtime +1 -delete
+      - name: Save the Go caches
+        # Only when no entry for this go.sum was found (a dependency change, or a cold
+        # repository): the entries the branch's own run saves after a merge carry the rest,
+        # so the caches grow with merges, not with pushes. A failed test still saves what
+        # compiled; a cancelled run saves nothing.
+        if: ${{ !cancelled() && !startsWith(steps.go-cache.outputs.cache-matched-key, format('go-test-{0}-{1}-', runner.os, hashFiles('go.sum'))) }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+
+  # The tests under the race detector with skipAuth, with the leg's own Go caches as go-test has.
+  go-test-skipauth:
+    runs-on: ${{ vars.CI_LARGE_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      # The test harnesses start the emulators through testcontainers. Its reaper container
+      # (Ryuk) cleans up after a crashed test on a long-lived machine; a runner is discarded
+      # after the job, and the reaper's own start has timed out on GitHub's runners.
+      TESTCONTAINERS_RYUK_DISABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The generators run bedrock migration renumber, which reads origin's copy of the default branch.
+          fetch-depth: 0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Restore the Go caches
+        # The module cache (~/go/pkg/mod) and the build cache (~/.cache/go-build), from the
+        # nearest saved entry of this lineage: the same go.sum first, then any. Neither can
+        # serve a stale result: a module is verified against go.sum when read, and a build
+        # output is addressed by the hash of its inputs, so an older entry is either what
+        # this commit computes or unused.
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-test-skipauth-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-test-skipauth-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-test-skipauth-${{ runner.os }}-
+      - name: go test (skipAuth)
+        run: go test -race -count=1 -timeout 20m -tags skipAuth ./...
+      - name: Trim the Go build cache
+        # The build cache keeps an object until Go's own trim finds it unused for five
+        # days, and a day of builds adds objects faster than that, so a saved entry only
+        # grows until the restored tree no longer fits the runner's disk. Go touches the
+        # objects a build reads and the restore keeps the times, so the ones untouched
+        # for a day are what no build of the last day read: they go before the save.
+        if: ${{ !cancelled() }}
+        run: find "$(go env GOCACHE)" -type f -mtime +1 -delete
+      - name: Save the Go caches
+        # Only when no entry for this go.sum was found (a dependency change, or a cold
+        # repository): the entries the branch's own run saves after a merge carry the rest,
+        # so the caches grow with merges, not with pushes. A failed test still saves what
+        # compiled; a cancelled run saves nothing.
+        if: ${{ !cancelled() && !startsWith(steps.go-cache.outputs.cache-matched-key, format('go-test-skipauth-{0}-{1}-', runner.os, hashFiles('go.sum'))) }}
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ steps.go-cache.outputs.cache-primary-key }}
+
+  # golangci-lint at the version the skeleton's .golangci.yml is written for, without tags. It restores go-build's Go caches, as go-vuln does, and saves nothing: golangci-lint loads every package through the compile the build leg saved, so after a dependency change it starts from the nearest entry instead of from nothing, which on a cold runner ran past its five minutes. The five minutes stay: with the caches restored they hold, and a timeout that fires only on a cold runner says the cache is gone. The action keeps golangci-lint's own cache beside them.
+  go-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Restore the Go caches
+        # The module cache (~/go/pkg/mod) and the build cache (~/.cache/go-build), from the
+        # nearest saved entry of this lineage: the same go.sum first, then any. Neither can
+        # serve a stale result: a module is verified against go.sum when read, and a build
+        # output is addressed by the hash of its inputs, so an older entry is either what
+        # this commit computes or unused.
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-build-${{ runner.os }}-
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.14.0
+          args: --timeout 5m
+
+  # golangci-lint with skipAuth, restoring go-build's Go caches as go-lint does (the build leg compiles with the tag too) and saving nothing.
+  go-lint-skipauth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Restore the Go caches
+        # The module cache (~/go/pkg/mod) and the build cache (~/.cache/go-build), from the
+        # nearest saved entry of this lineage: the same go.sum first, then any. Neither can
+        # serve a stale result: a module is verified against go.sum when read, and a build
+        # output is addressed by the hash of its inputs, so an older entry is either what
+        # this commit computes or unused.
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-build-${{ runner.os }}-
+      - name: golangci-lint (skipAuth)
+        uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.14.0
+          args: --timeout 5m --build-tags skipAuth
+
+  # govulncheck over the module, without tags and with skipAuth; it reads vuln.go.dev when the job runs. It restores go-build's Go caches, which hold what its compile shares with the build, and saves nothing.
+  go-vuln:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Restore the Go caches
+        # The module cache (~/go/pkg/mod) and the build cache (~/.cache/go-build), from the
+        # nearest saved entry of this lineage: the same go.sum first, then any. Neither can
+        # serve a stale result: a module is verified against go.sum when read, and a build
+        # output is addressed by the hash of its inputs, so an older entry is either what
+        # this commit computes or unused.
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-build-${{ runner.os }}-
+      - name: govulncheck
+        run: |
+          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+          go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 -tags skipAuth ./...
+
+  # Semgrep over the findings the pull request introduces: its baseline is the pull request's base, so a patch release-line pull request diffs against its own base.
+  go-semgrep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Semgrep, the findings this pull request introduces
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch origin "$BASE_REF"
+          docker run --rm -v "$PWD:/src" semgrep/semgrep@sha256:93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b \
+            semgrep ci --config auto --max-target-bytes 500000 --baseline-commit "$(git merge-base HEAD "origin/$BASE_REF")" # 1.179.0
+
+  # impulse check with its regeneration (the generators start the Spanner emulator in a container, which the runner has), failing on a tree the checks changed, since what they regenerated or rewrote is not committed. It restores go-build's Go caches, as go-vuln does, and saves nothing.
+  go-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      # The test harnesses start the emulators through testcontainers. Its reaper container
+      # (Ryuk) cleans up after a crashed test on a long-lived machine; a runner is discarded
+      # after the job, and the reaper's own start has timed out on GitHub's runners.
+      TESTCONTAINERS_RYUK_DISABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The generators run bedrock migration renumber, which reads origin's copy of the default branch.
+          fetch-depth: 0
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Restore the Go caches
+        # The module cache (~/go/pkg/mod) and the build cache (~/.cache/go-build), from the
+        # nearest saved entry of this lineage: the same go.sum first, then any. Neither can
+        # serve a stale result: a module is verified against go.sum when read, and a build
+        # output is addressed by the hash of its inputs, so an older entry is either what
+        # this commit computes or unused.
+        id: go-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}-${{ github.sha }}
+          restore-keys: |
+            go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}-
+            go-build-${{ runner.os }}-
+      - name: impulse check
+        run: go tool impulse check
+      - name: The tree is clean
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "The checks changed the tree: what follows was regenerated or rewritten and is not committed. Run go generate ./... and go tool impulse render, then commit the result."
+            git status --porcelain
+            git diff
+            exit 1
+          fi
+
+  # The Go gate, one fixed name over the go-<leg> jobs so a repository rule can require it: it fails when any of them did not succeed.
+  go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ always() }}
+    needs:
+      - go-build
+      - go-test
+      - go-test-skipauth
+      - go-lint
+      - go-lint-skipauth
+      - go-vuln
+      - go-semgrep
+      - go-check
+    steps:
+      - name: Every Go job succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
+        run: |
+          if [ "$FAILED" = "true" ]; then
+            echo "A Go job did not succeed:"
+            echo "$RESULTS"
+            exit 1
+          fi
+          echo "every Go job succeeded"
+
+  # The browser workspace at apps/console/web: bun installs from the lockfile exactly (bun ci), then the package scripts build, lint and test.
+  angular-console:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/console/web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+      - run: bun ci
+      - run: bun run build
+      - run: bun run lint
+      - run: bun run test
+
+  # The browser workspace at apps/portal/web: bun installs from the lockfile exactly (bun ci), then the package scripts build, lint and test.
+  angular-portal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/portal/web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+      - run: bun ci
+      - run: bun run build
+      - run: bun run lint
+      - run: bun run test
+
+  # The browser gate, one fixed name over the per-workspace jobs so a repository rule can require it: it fails when any of them did not succeed, and passes with nothing to check in an application without a browser workspace.
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: ${{ always() }}
+    needs:
+      - angular-console
+      - angular-portal
+    steps:
+      - name: Every browser workspace job succeeded
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
+        run: |
+          if [ "$FAILED" = "true" ]; then
+            echo "A browser workspace job did not succeed:"
+            echo "$RESULTS"
+            exit 1
+          fi
+          echo "every browser workspace job succeeded"
+
+  # The container image, once the application has a Dockerfile (bedrock seeds it): hadolint over the Dockerfile, the build with the inputs the Dockerfile declares (the shipped programs as PROGRAMS, so the image compiles them; ci for every other build argument without a default; a placeholder for every build secret), and Grype over the built image, failing on a high or critical vulnerability. Without a Dockerfile the job passes with nothing to build.
+  image:
+    runs-on: ${{ vars.CI_LARGE_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Is there a Dockerfile
+        id: dockerfile
+        run: echo "present=${{ hashFiles('Dockerfile') != '' }}" >> "$GITHUB_OUTPUT"
+      - name: hadolint
+        if: steps.dockerfile.outputs.present == 'true'
+        uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5 # v3.3.0
+        with:
+          dockerfile: Dockerfile
+          failure-threshold: info
+      - name: The build inputs the Dockerfile declares
+        # Every ARG line with no default takes the value ci (VERSION, COMMIT and PROGRAMS
+        # aside, which the build passes itself), and every BuildKit secret a RUN line
+        # mounts (--mount=type=secret,id=NAME) is served from a placeholder file holding
+        # ci, so a Dockerfile that requires a secret builds here without the real value.
+        # The image is built to be scanned, never to be deployed.
+        id: build-inputs
+        if: steps.dockerfile.outputs.present == 'true'
+        run: |
+          set -euo pipefail
+          flags=""
+          for name in $(grep -E '^ARG [A-Z_][A-Z0-9_]*$' Dockerfile | awk '{ print $2 }' | sort -u || true); do
+            case "$name" in VERSION|COMMIT|PROGRAMS) continue ;; esac
+            flags="$flags --build-arg $name=ci"
+          done
+          mkdir -p "$RUNNER_TEMP/secrets"
+          for name in $(grep -oE -- '--mount=type=secret,[^ ]*' Dockerfile | grep -oE '(^|,)id=[A-Za-z0-9_.-]+' | sed 's/.*id=//' | sort -u || true); do
+            printf 'ci' > "$RUNNER_TEMP/secrets/$name"
+            flags="$flags --secret id=$name,src=$RUNNER_TEMP/secrets/$name"
+          done
+          echo "flags=${flags# }" >> "$GITHUB_OUTPUT"
+          echo "build inputs:${flags:- none}"
+      - name: docker build
+        if: steps.dockerfile.outputs.present == 'true'
+        env:
+          # The flags the step above derived, split on spaces into the command.
+          BUILD_INPUTS: ${{ steps.build-inputs.outputs.flags }}
+        # PROGRAMS is the shipped programs the Dockerfile compiles into the image, one word
+        # per program as <dir>=<os>/<arch>[,<os>/<arch>...], empty when no outlet ships one;
+        # the value is composed from the generator programs' ShipsProgram declarations when
+        # impulse renders this file, so a change to them is followed by impulse render.
+        run: docker build --build-arg VERSION=ci --build-arg COMMIT="$GITHUB_SHA" --build-arg PROGRAMS= $BUILD_INPUTS -t application:ci .
+      - name: Grype
+        if: steps.dockerfile.outputs.present == 'true'
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
+        with:
+          image: application:ci
+          fail-build: true
+          severity-cutoff: high
+          output-format: table
+
+  # TruffleHog over the whole history reachable from the pull request's head: a secret confirmed live, or one whose check could not finish, fails.
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: trufflesecurity/trufflehog@f446421baf832d6356c42c1743d99abff52ff334 # v3.95.7
+        with:
+          version: 3.95.7
+          head: ${{ github.event.pull_request.head.sha }}
+          extra_args: --results=verified,unknown
+
+  # The migrations: once the repository has a release tag a committed migration is never modified or deleted, so
+  # against the pull request's base schema/migrations gains files only (before the first release a pull request may
+  # still rewrite the sequence); and the whole directory keeps the sequence rule the migrate command needs, read by
+  # the bedrock the placement pins, so a gap already on the default branch fails the next pull request.
+  migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: No committed migration is modified or deleted
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          git fetch origin "$BASE_REF"
+          # The checkout's fetch-depth 0 brings the tags; the freeze starts at the first release.
+          if [ -z "$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*')" ]; then
+            echo "schema/migrations: no release tag yet, so a committed migration may still change; the freeze starts at the first release"
+            exit 0
+          fi
+          base="$(git merge-base "origin/$BASE_REF" HEAD)"
+          changed="$(git diff --no-renames --diff-filter=MD --name-only "$base" HEAD -- schema/migrations/)"
+          if [ -z "$changed" ]; then
+            echo "schema/migrations: no committed migration is modified or deleted against $BASE_REF"
+            exit 0
+          fi
+          # A consolidation (bedrock migration consolidate) is the one change that removes committed
+          # migrations: every file the branch started from is gone, none is modified, and the directory
+          # holds exactly the folded file at the index where the sequence ended (and its down file). The
+          # fold is a concatenation and is trusted as such; a fold gone wrong fails the fresh database the
+          # go job builds from it, or a test.
+          committed="$(git ls-tree -r --name-only "$base" -- schema/migrations/ | sort)"
+          deleted="$(git diff --no-renames --diff-filter=D --name-only "$base" HEAD -- schema/migrations/ | sort)"
+          modified="$(git diff --no-renames --diff-filter=M --name-only "$base" HEAD -- schema/migrations/)"
+          highest="$(printf '%s\n' "$committed" | sed -n 's|^schema/migrations/\([0-9]\{6\}\)_.*\.up\.sql$|\1|p' | sort | tail -n 1)"
+          present="$(find schema/migrations -maxdepth 1 -name '*.sql' | sort)"
+          folded_up="schema/migrations/${highest}_Consolidated.up.sql"
+          folded_down="schema/migrations/${highest}_Consolidated.down.sql"
+          if [ -z "$modified" ] && [ -n "$highest" ] && [ "$deleted" = "$committed" ] && { [ "$present" = "$folded_up" ] || [ "$present" = "$(printf '%s\n%s' "$folded_down" "$folded_up")" ]; }; then
+            echo "schema/migrations: a consolidation; the committed sequence through $highest is folded into ${highest}_Consolidated, and the fold is trusted as the concatenation it is"
+            exit 0
+          fi
+          echo "A committed migration is never modified or deleted; write a new migration instead (a consolidation, bedrock migration consolidate, is the one exception: every committed file folded into one at the last index). Modified or deleted against $BASE_REF:"
+          echo "$changed"
+          exit 1
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+      - name: The whole sequence keeps the rule
+        run: |
+          set -euo pipefail
+          if [ ! -f infrastructure/placement.json ]; then
+            echo "infrastructure/placement.json: not yet; the sequence is read once the application is registered"
+            exit 0
+          fi
+          pin="$(jq -r '.bedrockVersion // empty' infrastructure/placement.json)"
+          if [ -z "$pin" ]; then
+            echo "infrastructure/placement.json pins no bedrock (bedrockVersion); bedrock org register writes the pin"
+            exit 1
+          fi
+          go run github.com/impulseframework/impulse/bedrock@"$pin" migration check

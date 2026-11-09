@@ -1,0 +1,63 @@
+@if (config().collapsible) {
+  <div class="page-container">
+    <mat-expansion-panel
+      #expPanel
+      [@.disabled]="true"
+      disabled="{{ !config().collapsible }}"
+      expanded="{{ !config().collapsible }}">
+      @if (config().collapsible || config().title) {
+        <mat-expansion-panel-header>
+          <mat-panel-title>
+            <h1 class="title">
+              {{ config().title }}
+            </h1>
+          </mat-panel-title>
+          @if (config().createTitle !== '') {
+            <button
+              mat-icon-button
+              class="exp-panel-add-element-btn"
+              color="accent"
+              (click)="createResource($event)"
+              matTooltip="{{ config().createButtonLabel }}"
+              matTooltipPosition="above">
+              <mat-icon color="accent">add_circle</mat-icon>
+            </button>
+          }
+        </mat-expansion-panel-header>
+      } @else {
+        <div class="no-title-exp-panel-padding"></div>
+      }
+
+      <ng-container *ngTemplateOutlet="resourceComponents"></ng-container>
+    </mat-expansion-panel>
+  </div>
+} @else {
+  <ng-container *ngTemplateOutlet="resourceComponents"></ng-container>
+}
+
+<ng-template #resourceComponents>
+  @if (create()) {
+    <impulse-resource-create
+      [resourceConfig]="createConfig()"
+      [parentData]="parentData() ?? {}"
+      [loadCreatedResource]="config().loadCreatedResource"
+      (complete)="makeCreatePatches()">
+    </impulse-resource-create>
+  }
+
+  @if (listReady()) {
+    <impulse-resource-list
+      #list
+      [viewRoute]="rootConfig().routeData.route"
+      [resourceConfig]="config()"
+      [filter]="filter()"
+      [hideCreateButton]="create()"
+      [relatedData]="parentData()"
+      [parentId]="parentId()"
+      [linkCreateType]="createLinkType()"
+      [isRootList]="isRootList()"
+      (createMode)="create.set($event)"
+      [compoundResourceComponent]="compoundResourceComponent()">
+    </impulse-resource-list>
+  }
+</ng-template>

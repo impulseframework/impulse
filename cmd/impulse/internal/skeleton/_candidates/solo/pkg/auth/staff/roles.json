@@ -1,0 +1,188 @@
+{
+  "roles": {
+    "global": [
+      {
+        "name": "Administrator",
+        "description": "Manages the application's people: creates users, invites them, seats and unseats roles, and resets passwords.",
+        "permissions": {
+          "Create": [
+            {
+              "resource": "StaffUsers",
+              "fields": [
+                "username",
+                "password",
+                "disabled",
+                "email"
+              ]
+            },
+            {
+              "resource": "StaffInvitations",
+              "fields": [
+                "email",
+                "roles"
+              ]
+            },
+            {
+              "resource": "StaffSeats",
+              "fields": [
+                "user",
+                "role"
+              ]
+            }
+          ],
+          "Delete": [
+            {
+              "resource": "StaffUsers"
+            },
+            {
+              "resource": "StaffInvitations"
+            },
+            {
+              "resource": "StaffSeats"
+            }
+          ],
+          "Execute": [
+            {
+              "resource": "SetStaffUserPassword"
+            },
+            {
+              "resource": "ResetStaffUserFactors"
+            }
+          ],
+          "List": [
+            {
+              "resource": "StaffUsers",
+              "fields": [
+                "username",
+                "disabled",
+                "hasPassword",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "organization",
+                "identities",
+                "roles",
+                "everywhereRoles",
+                "rolesSynced",
+                "email",
+                "emailVerifiedAt"
+              ]
+            },
+            {
+              "resource": "StaffInvitations",
+              "fields": [
+                "email",
+                "roles",
+                "invitedBy",
+                "createdAt",
+                "expiresAt"
+              ]
+            },
+            {
+              "resource": "StaffSeats",
+              "fields": [
+                "username",
+                "everyDomain"
+              ]
+            },
+            {
+              "resource": "StaffRoles",
+              "fields": [
+                "kind",
+                "description"
+              ]
+            }
+          ],
+          "Read": [
+            {
+              "resource": "StaffUsers",
+              "fields": [
+                "username",
+                "disabled",
+                "hasPassword",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "organization",
+                "identities",
+                "roles",
+                "everywhereRoles",
+                "rolesSynced",
+                "email",
+                "emailVerifiedAt"
+              ]
+            },
+            {
+              "resource": "StaffInvitations",
+              "fields": [
+                "email",
+                "roles",
+                "invitedBy",
+                "createdAt",
+                "expiresAt"
+              ]
+            },
+            {
+              "resource": "StaffSeats",
+              "fields": [
+                "username",
+                "everyDomain"
+              ]
+            },
+            {
+              "resource": "StaffRoles",
+              "fields": [
+                "kind",
+                "description"
+              ]
+            }
+          ],
+          "Update": [
+            {
+              "resource": "StaffUsers",
+              "fields": [
+                "username",
+                "disabled",
+                "email"
+              ]
+            }
+          ]
+        }
+      },
+      {
+        "name": "FeatureAdministrator",
+        "description": "Turns feature flags on and off for an environment.",
+        "permissions": {
+          "Execute": [
+            {
+              "resource": "SetFeature"
+            }
+          ],
+          "List": [
+            {
+              "resource": "FeatureFlags",
+              "fields": [
+                "description",
+                "enabled",
+                "updatedAt",
+                "updatedBy"
+              ]
+            }
+          ],
+          "Read": [
+            {
+              "resource": "FeatureFlags",
+              "fields": [
+                "description",
+                "enabled",
+                "updatedAt",
+                "updatedBy"
+              ]
+            }
+          ]
+        }
+      }
+    ],
+    "domain": []
+  }
+}

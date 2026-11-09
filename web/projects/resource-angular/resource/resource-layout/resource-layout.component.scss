@@ -1,0 +1,36 @@
+.section {
+  margin-top: 15px;
+}
+
+.section-elements {
+  display: flex;
+  flex-wrap: wrap;
+  padding-bottom: 4px;
+}
+
+// The section box the label is anchored to. It is this component's own element, so
+// its positioning lives here and never depends on the application's global styles.
+.resource-layout-container {
+  border: 1px solid var(--impulse-outline);
+  border-radius: 5px;
+  position: relative;
+  margin-bottom: 20px;
+  padding-top: 10px;
+}
+
+.label {
+  position: absolute;
+  top: -15px;
+  left: 20px;
+  height: 20px;
+  background-color: var(--layout-label-background-color);
+  border-radius: 8px;
+  margin: 0px 10px 0px 10px;
+  padding: 0px 10px 0px 10px;
+  text-align: center;
+  z-index: 10;
+  font-weight: 500;
+  font:
+    18px 'Roboto',
+    sans-serif;
+}

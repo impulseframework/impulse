@@ -1,0 +1,439 @@
+package db
+
+import (
+	"context"
+	"fmt"
+	"time"
+
+	"cloud.google.com/go/spanner"
+	spannerDB "cloud.google.com/go/spanner/admin/database/apiv1"
+	adminpb "cloud.google.com/go/spanner/admin/database/apiv1/databasepb"
+	"github.com/go-playground/errors/v5"
+	gax "github.com/googleapis/gax-go/v2"
+	"github.com/impulseframework/impulse/db/internal/runner"
+	ccclogger "github.com/impulseframework/impulse/logger"
+	"google.golang.org/api/iterator"
+	"google.golang.org/api/option"
+	"google.golang.org/grpc/codes"
+)
+
+// The version tables a [SpannerMigrator] uses unless told otherwise, and the one a
+// [SpannerDB] uses.
+const (
+	defaultSchemaMigrationsTable = "SchemaMigrations"
+	defaultDataMigrationsTable   = "DataMigrations"
+)
+
+// SpannerMigrator handles connecting to an existing spanner database and running migrations
+type SpannerMigrator struct {
+	connectionString      string
+	dataMigrationsTable   string
+	schemaMigrationsTable string
+	databaseName          string
+	admin                 *spannerDB.DatabaseAdminClient
+	client                *spanner.Client
+}
+
+var _ Migrator = (*SpannerMigrator)(nil)
+
+// NewSpannerMigrator connects to an existing spanner database and returns a [SpannerMigrator]
+//
+// Uses the following tables by default to store migration versions:
+//   - Data Migrations table: "DataMigrations"
+//   - Schema Migrations table: "SchemaMigrations"
+func NewSpannerMigrator(ctx context.Context, projectID, instanceID, dbName string, opts ...option.ClientOption) (*SpannerMigrator, error) {
+	dbStr := fmt.Sprintf("projects/%s/instances/%s/databases/%s", projectID, instanceID, dbName)
+	client, err := spanner.NewClient(ctx, dbStr, opts...)
+	if err != nil {
+		return nil, errors.Wrap(err, "spanner.NewClient()")
+	}
+
+	adminClient, err := spannerDB.NewDatabaseAdminClient(ctx, opts...)
+	if err != nil {
+		client.Close()
+
+		return nil, errors.Wrap(err, "database.NewDatabaseAdminClient()")
+	}
+
+	// A schema migration is a long-running operation that op.Wait polls via
+	// GetOperation. The generated defaults give each poll a 10s timeout and
+	// retry only Unavailable, so one slow poll aborts the wait with
+	// DeadlineExceeded while Spanner keeps applying the DDL server-side --
+	// leaving a half-built database behind a red build.
+	adminClient.LROClient.CallOptions.GetOperation = []gax.CallOption{
+		gax.WithTimeout(2 * time.Minute),
+		gax.WithRetry(func() gax.Retryer {
+			return gax.OnCodes([]codes.Code{codes.Unavailable, codes.DeadlineExceeded}, gax.Backoff{
+				Initial:    500 * time.Millisecond,
+				Max:        10 * time.Second,
+				Multiplier: 2.0,
+			})
+		}),
+	}
+
+	return &SpannerMigrator{
+		dataMigrationsTable:   defaultDataMigrationsTable,
+		schemaMigrationsTable: defaultSchemaMigrationsTable,
+		connectionString:      dbStr,
+		databaseName:          dbName,
+		admin:                 adminClient,
+		client:                client,
+	}, nil
+}
+
+// WithSchemaMigrationsTable allows setting the schema migration table to be used
+func (s *SpannerMigrator) WithSchemaMigrationsTable(table string) *SpannerMigrator {
+	s.schemaMigrationsTable = table
+
+	return s
+}
+
+// WithDataMigrationsTable allows setting the data migration table to be used
+func (s *SpannerMigrator) WithDataMigrationsTable(table string) *SpannerMigrator {
+	s.dataMigrationsTable = table
+
+	return s
+}
+
+// MigrateUpSchema applies every pending up migration from the sourceURL, recording the
+// versions in the schema migrations table. A database already at the last version is a
+// normal result, not an error. A file that fails part-way leaves the version dirty with its
+// progress recorded, reported as a [DirtyError]; the next run continues from the failed
+// statement once the cause is fixed.
+//
+// Use for DDL migrations
+func (s *SpannerMigrator) MigrateUpSchema(ctx context.Context, sourceURL string) error {
+	ccclogger.FromCtx(ctx).Infof("Applying schema migrations from %s", sourceURL)
+	if err := s.migrateUp(ctx, s.schemaMigrationsTable, sourceURL); err != nil {
+		return errors.Wrap(err, "SpannerMigrator.migrateUp()")
+	}
+
+	return nil
+}
+
+// MigrateUpData applies every pending up migration from the sourceURL, recording the
+// versions in the data migrations table. It behaves as [SpannerMigrator.MigrateUpSchema].
+//
+// Use for DML migrations
+func (s *SpannerMigrator) MigrateUpData(ctx context.Context, sourceURL string) error {
+	ccclogger.FromCtx(ctx).Infof("Applying data migrations from %s", sourceURL)
+	if err := s.migrateUp(ctx, s.dataMigrationsTable, sourceURL); err != nil {
+		return errors.Wrap(err, "SpannerMigrator.migrateUp()")
+	}
+
+	return nil
+}
+
+// SchemaVersion reads the schema migrations table.
+func (s *SpannerMigrator) SchemaVersion(ctx context.Context) (Version, error) {
+	v, err := s.runner(s.schemaMigrationsTable).Version(ctx)
+	if err != nil {
+		return Version{}, errors.Wrap(err, "runner.Spanner.Version()")
+	}
+
+	return v, nil
+}
+
+// DataVersion reads the data migrations table.
+func (s *SpannerMigrator) DataVersion(ctx context.Context) (Version, error) {
+	v, err := s.runner(s.dataMigrationsTable).Version(ctx)
+	if err != nil {
+		return Version{}, errors.Wrap(err, "runner.Spanner.Version()")
+	}
+
+	return v, nil
+}
+
+// ForceSchema sets the schema migrations table to a version, clean, with no progress
+// recorded; -1 leaves the database with no version. For when the runner cannot tell what
+// state the database is in.
+func (s *SpannerMigrator) ForceSchema(ctx context.Context, version int) error {
+	if err := s.runner(s.schemaMigrationsTable).Force(ctx, version); err != nil {
+		return errors.Wrap(err, "runner.Spanner.Force()")
+	}
+
+	return nil
+}
+
+// ForceData sets the data migrations table to a version, as [SpannerMigrator.ForceSchema]
+// does for the schema.
+func (s *SpannerMigrator) ForceData(ctx context.Context, version int) error {
+	if err := s.runner(s.dataMigrationsTable).Force(ctx, version); err != nil {
+		return errors.Wrap(err, "runner.Spanner.Force()")
+	}
+
+	return nil
+}
+
+// MigrateDropSchema drops all objects in the schema
+//
+// This happens in the following order:
+//  1. Drop views
+//  2. Drop FK constraints
+//  3. Drop Search Indexes
+//  4. Drop Indexes
+//  5. Drop tables
+func (s *SpannerMigrator) MigrateDropSchema(ctx context.Context) error {
+	stmts := make([]string, 0, 10)
+	viewDropStatements, err := s.viewDropStatements(ctx)
+	if err != nil {
+		return err
+	}
+	stmts = append(stmts, viewDropStatements...)
+
+	foreignKeyDropStatements, err := s.foreignKeyDropStatements(ctx)
+	if err != nil {
+		return err
+	}
+	stmts = append(stmts, foreignKeyDropStatements...)
+
+	searchIndexDropStatements, err := s.searchIndexDropStatements(ctx)
+	if err != nil {
+		return err
+	}
+	stmts = append(stmts, searchIndexDropStatements...)
+
+	indexDropStatements, err := s.indexDropStatements(ctx)
+	if err != nil {
+		return err
+	}
+	stmts = append(stmts, indexDropStatements...)
+
+	tableDropStatements, err := s.tableDropStatements(ctx)
+	if err != nil {
+		return err
+	}
+	stmts = append(stmts, tableDropStatements...)
+
+	if len(stmts) > 0 {
+		op, err := s.admin.UpdateDatabaseDdl(ctx, &adminpb.UpdateDatabaseDdlRequest{
+			Database:   s.connectionString,
+			Statements: stmts,
+		})
+		if err != nil {
+			return errors.Wrap(err, "SpannerMigrator.admin.UpdateDatabaseDdl()")
+		}
+		if err := op.Wait(ctx); err != nil {
+			return errors.Wrap(err, "SpannerMigrator.admin.UpdateDatabaseDdl().Wait()")
+		}
+	} else {
+		ccclogger.FromCtx(ctx).Info("No database objects found to drop")
+	}
+
+	return nil
+}
+
+// Close cleans up resources
+func (s *SpannerMigrator) Close() error {
+	s.client.Close()
+
+	if err := s.admin.Close(); err != nil {
+		return errors.Wrap(err, "database.DatabaseAdminClient.Close()")
+	}
+
+	return nil
+}
+
+func (s *SpannerMigrator) migrateUp(ctx context.Context, migrationsTable, sourceURL string) error {
+	src, err := runner.Open(sourceURL)
+	if err != nil {
+		return errors.Wrap(err, "runner.Open()")
+	}
+
+	if err := s.runner(migrationsTable).Up(ctx, src); err != nil {
+		return errors.Wrapf(err, "runner.Spanner.Up(): %s", sourceURL)
+	}
+
+	return nil
+}
+
+// runner returns the migration runner keeping its versions in migrationsTable.
+func (s *SpannerMigrator) runner(migrationsTable string) *runner.Spanner {
+	return runner.NewSpanner(s.admin, s.client, s.connectionString, migrationsTable)
+}
+
+func (s *SpannerMigrator) viewDropStatements(ctx context.Context) ([]string, error) {
+	query := `
+		SELECT CONCAT('DROP VIEW ` + "`" + `', TABLE_NAME, '` + "`" + `') AS ddl
+		FROM information_schema.tables
+		WHERE NOT TABLE_SCHEMA IN('INFORMATION_SCHEMA', 'SPANNER_SYS')
+		  AND TABLE_TYPE = 'VIEW'
+		ORDER BY TABLE_NAME`
+
+	iter := s.client.Single().Query(ctx, spanner.NewStatement(query))
+	defer iter.Stop()
+
+	var stmts []string
+	for {
+		row, err := iter.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return nil, errors.Wrap(err, "spanner.RowIterator.Next()")
+		}
+
+		var stmt string
+		if err := row.Columns(&stmt); err != nil {
+			return nil, errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		stmts = append(stmts, stmt)
+	}
+
+	return stmts, nil
+}
+
+func (s *SpannerMigrator) foreignKeyDropStatements(ctx context.Context) ([]string, error) {
+	query := `
+		SELECT CONCAT(
+			'ALTER TABLE ',
+			CASE
+				WHEN tc.table_schema = '' THEN CONCAT('` + "`" + `', tc.table_name, '` + "`" + `')
+				ELSE CONCAT('` + "`" + `', tc.table_schema, '` + "`.`" + `', tc.table_name, '` + "`" + `')
+			END,
+			' DROP CONSTRAINT ` + "`" + `', tc.constraint_name, '` + "`" + `'
+		) AS ddl
+		FROM information_schema.table_constraints tc
+		WHERE tc.constraint_type = 'FOREIGN KEY'
+			AND NOT CONSTRAINT_SCHEMA IN('INFORMATION_SCHEMA', 'SPANNER_SYS')
+		ORDER BY tc.table_schema, tc.table_name, tc.constraint_name`
+
+	iter := s.client.Single().Query(ctx, spanner.NewStatement(query))
+	defer iter.Stop()
+
+	var stmts []string
+	for {
+		row, err := iter.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return nil, errors.Wrap(err, "spanner.RowIterator.Next()")
+		}
+
+		var stmt string
+		if err := row.Columns(&stmt); err != nil {
+			return nil, errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		stmts = append(stmts, stmt)
+	}
+
+	return stmts, nil
+}
+
+// NOTE(zredinger): As of 1/26 spanner emulator sets the index_type to 'INDEX' vs using 'SEARCH'.
+func (s *SpannerMigrator) searchIndexDropStatements(ctx context.Context) ([]string, error) {
+	query := `
+		SELECT CONCAT('DROP SEARCH INDEX ` + "`" + `', idx.index_name, '` + "`" + `') AS ddl
+		FROM information_schema.indexes idx
+		WHERE idx.index_type = 'SEARCH'
+			AND NOT TABLE_SCHEMA IN('INFORMATION_SCHEMA', 'SPANNER_SYS')
+		ORDER BY idx.table_schema, idx.table_name, idx.index_name`
+
+	iter := s.client.Single().Query(ctx, spanner.NewStatement(query))
+	defer iter.Stop()
+
+	var stmts []string
+	for {
+		row, err := iter.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return nil, errors.Wrap(err, "spanner.RowIterator.Next()")
+		}
+
+		var stmt string
+		if err := row.Columns(&stmt); err != nil {
+			return nil, errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		stmts = append(stmts, stmt)
+	}
+
+	return stmts, nil
+}
+
+func (s *SpannerMigrator) indexDropStatements(ctx context.Context) ([]string, error) {
+	query := `
+		SELECT CONCAT('DROP INDEX IF EXISTS ` + "`" + `', idx.index_name, '` + "`" + `') AS ddl
+		FROM information_schema.indexes idx
+		WHERE idx.index_type = 'INDEX'
+			AND NOT TABLE_SCHEMA IN('INFORMATION_SCHEMA', 'SPANNER_SYS')
+		ORDER BY idx.table_schema, idx.table_name, idx.index_name`
+
+	iter := s.client.Single().Query(ctx, spanner.NewStatement(query))
+	defer iter.Stop()
+
+	var stmts []string
+	for {
+		row, err := iter.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return nil, errors.Wrap(err, "spanner.RowIterator.Next()")
+		}
+
+		var stmt string
+		if err := row.Columns(&stmt); err != nil {
+			return nil, errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		stmts = append(stmts, stmt)
+	}
+
+	return stmts, nil
+}
+
+func (s *SpannerMigrator) tableDropStatements(ctx context.Context) ([]string, error) {
+	query := `
+		WITH t AS (
+			SELECT table_name, parent_table_name
+			FROM information_schema.tables
+			WHERE NOT TABLE_SCHEMA IN('INFORMATION_SCHEMA', 'SPANNER_SYS')
+			  AND table_type = 'BASE TABLE'
+		),
+		d AS (
+			SELECT
+				c.table_name,
+				CAST(p1.table_name IS NOT NULL AS INT64) +
+				CAST(p2.table_name IS NOT NULL AS INT64) +
+				CAST(p3.table_name IS NOT NULL AS INT64) +
+				CAST(p4.table_name IS NOT NULL AS INT64) +
+				CAST(p5.table_name IS NOT NULL AS INT64) +
+				CAST(p6.table_name IS NOT NULL AS INT64) +
+				CAST(p7.table_name IS NOT NULL AS INT64) AS depth
+			FROM t c
+			LEFT JOIN t p1 ON c.parent_table_name = p1.table_name
+			LEFT JOIN t p2 ON p1.parent_table_name = p2.table_name
+			LEFT JOIN t p3 ON p2.parent_table_name = p3.table_name
+			LEFT JOIN t p4 ON p3.parent_table_name = p4.table_name
+			LEFT JOIN t p5 ON p4.parent_table_name = p5.table_name
+			LEFT JOIN t p6 ON p5.parent_table_name = p6.table_name
+			LEFT JOIN t p7 ON p6.parent_table_name = p7.table_name
+		)
+		SELECT CONCAT('DROP TABLE ` + "`" + `', table_name, '` + "`" + `') AS ddl
+		FROM d
+		ORDER BY depth DESC, table_name`
+
+	iter := s.client.Single().Query(ctx, spanner.NewStatement(query))
+	defer iter.Stop()
+
+	var stmts []string
+	for {
+		row, err := iter.Next()
+		if errors.Is(err, iterator.Done) {
+			break
+		}
+		if err != nil {
+			return nil, errors.Wrap(err, "spanner.RowIterator.Next()")
+		}
+
+		var stmt string
+		if err := row.Columns(&stmt); err != nil {
+			return nil, errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		stmts = append(stmts, stmt)
+	}
+
+	return stmts, nil
+}

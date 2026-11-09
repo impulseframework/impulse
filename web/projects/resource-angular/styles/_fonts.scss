@@ -1,0 +1,88 @@
+// The fonts the components render in, served by the application itself: Roboto in the
+// three weights the Material typography uses, and the filled Material Icons. They are
+// files of this package (fonts/, copied from Fontsource's Roboto and the material-icons
+// package when the library is built), referenced from here, so an application's build
+// carries them into its bundle as same-origin assets. The application's global styles
+// bring them in with the rest of the stylesheet, or alone:
+//
+//     @use '@impulseframework/resource-angular/styles';
+//     @use '@impulseframework/resource-angular/styles/fonts';
+//
+// Its index.html then carries no Google Fonts link and its content security policy no
+// font host. A progressive web app's service worker fetches what the page requests under
+// the policy delivered with the worker's own script, whose connect-src names no font
+// host, so a third-party font fails on every worker-controlled load; a same-origin font
+// is fetched under connect-src 'self', and the worker's asset group caches it, so the
+// application renders offline and during an outage. The Material typography tokens,
+// which the prebuilt themes set to Roboto alone, get a fallback chain at the end, so a
+// font that fails to load never leaves a component in the browser's serif default.
+
+// Roboto 300, 400 and 500 in the latin and latin-ext subsets, each face limited to its
+// subset's code points as Fontsource declares them, so a page in English fetches one
+// file per weight it uses.
+$roboto-subsets: (
+  'latin':
+    'U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD',
+  'latin-ext':
+    'U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF',
+);
+
+@each $subset, $range in $roboto-subsets {
+  @each $weight in 300, 400, 500 {
+    @font-face {
+      font-family: 'Roboto';
+      font-style: normal;
+      font-weight: $weight;
+      font-display: swap;
+      src: url('../fonts/roboto-#{$subset}-#{$weight}-normal.woff2') format('woff2');
+      unicode-range: #{$range};
+    }
+  }
+}
+
+// The filled Material Icons: the ligature font mat-icon renders by default (its font set
+// class is material-icons). Its display is block, so an icon shows nothing rather than
+// its ligature's letters while the font loads.
+@font-face {
+  font-family: 'Material Icons';
+  font-style: normal;
+  font-weight: 400;
+  font-display: block;
+  src: url('../fonts/material-icons.woff2') format('woff2');
+}
+
+.material-icons {
+  font-family: 'Material Icons';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: 'liga';
+}
+
+// The Material typography's font with a fallback chain. A prebuilt theme sets every
+// role's font token to Roboto alone and composes the role's shorthand from it; the
+// components read both, so both are set here: the font token to the chain, the
+// shorthand from the theme's own weight, size and line height and the font token.
+$font-stack: Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+:root {
+  @each $role in display, headline, title, body, label {
+    @each $size in large, medium, small {
+      --mat-sys-#{$role}-#{$size}-font: #{$font-stack};
+      --mat-sys-#{$role}-#{$size}: var(--mat-sys-#{$role}-#{$size}-weight)
+        var(--mat-sys-#{$role}-#{$size}-size) /
+        var(--mat-sys-#{$role}-#{$size}-line-height)
+        var(--mat-sys-#{$role}-#{$size}-font);
+    }
+  }
+}

@@ -1,0 +1,73 @@
+<div class="section {{ parentClass() }}" [class.hidden-field]="!showLayout()">
+  @let parentElement = element();
+  @if (children().length > 0) {
+    <div
+      class="section-elements dense-1 resource-layout-container"
+      [class]="layoutNestingDepth() % 2 === 0 ? 'resource-layout-container-even' : 'resource-layout-container-odd'">
+      @if (parentElement.type !== 'padding' && parentElement.label !== '') {
+        <div class="label">{{ parentElement.label }}</div>
+      }
+      @for (elementField of children(); track elementField) {
+        @let childElement = elementField;
+        @if (childElement.type === 'section') {
+          @if (layoutNestingDepth() < maxLayoutNestingDepth) {
+            <impulse-resource-layout-template
+              [layoutNestingDepth]="layoutNestingDepth() + 1"
+              [element]="childElement"
+              [meta]="meta()"
+              [fieldClass]="fieldClass()"
+              [editMode]="editMode()"
+              [form]="form()"
+              [formDataState]="formDataState()"
+              [pristineValue]="pristineValue()"
+              [relatedData]="relatedData()"
+              [parentClass]="parentClass()">
+            </impulse-resource-layout-template>
+          }
+        } @else if (childElement.type === 'field') {
+          <impulse-resource-field
+            [meta]="meta()"
+            [fieldClass]="fieldClass()"
+            [fieldConfig]="childElement"
+            [editMode]="editMode()"
+            [form]="form()"
+            [formDataState]="formDataState()"
+            [pristineValue]="pristineValue()"
+            [data]="relatedData()">
+          </impulse-resource-field>
+        } @else if (childElement.type === 'computedDisplayField') {
+          <impulse-computed-field
+            [fieldClass]="fieldClass()"
+            [fieldConfig]="childElement"
+            [formDataState]="formDataState()"></impulse-computed-field>
+        } @else if (childElement.type === 'padding') {
+          <impulse-padding-element [paddingElement]="childElement"></impulse-padding-element>
+        }
+      }
+    </div>
+  } @else {
+    @if (parentElement.type === 'field') {
+      <div
+        class="section-elements dense-1 resource-layout-container"
+        [class]="layoutNestingDepth() % 2 === 0 ? 'resource-layout-container-even' : 'resource-layout-container-odd'">
+        <impulse-resource-field
+          [meta]="meta()"
+          [fieldClass]="fieldClass()"
+          [fieldConfig]="parentElement"
+          [editMode]="editMode()"
+          [form]="form()"
+          [formDataState]="formDataState()"
+          [pristineValue]="pristineValue()"
+          [data]="relatedData()">
+        </impulse-resource-field>
+      </div>
+    } @else if (parentElement.type === 'computedDisplayField') {
+      <impulse-computed-field
+        [fieldClass]="fieldClass()"
+        [fieldConfig]="parentElement"
+        [formDataState]="formDataState()"></impulse-computed-field>
+    } @else if (parentElement.type === 'padding') {
+      <impulse-padding-element [paddingElement]="parentElement"></impulse-padding-element>
+    }
+  }
+</div>

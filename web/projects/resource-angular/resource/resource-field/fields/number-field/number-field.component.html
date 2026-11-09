@@ -1,0 +1,23 @@
+@if (showField()) {
+  <div [class.readonly-field]="editMode() === 'view'">
+    <mat-form-field
+      class="field {{ fieldClass() }}"
+      [formGroup]="form()"
+      [subscriptSizing]="'dynamic'"
+      [floatLabel]="floatLabel()">
+      <mat-label>{{ fieldConfig().label }}</mat-label>
+      <span matTextPrefix class="prefix">{{ prefixString() }}</span>
+      <span matTextSuffix class="suffix">{{ suffixString() }}</span>
+      <input
+        matInput
+        (keydown.enter)="$event.preventDefault()"
+        [readonly]="editMode() === 'view'"
+        type="number"
+        [formControlName]="fieldConfig().name" />
+    </mat-form-field>
+  </div>
+} @else {
+  <ng-container [formGroup]="form()">
+    <input type="hidden" [formControlName]="fieldConfig().name" />
+  </ng-container>
+}

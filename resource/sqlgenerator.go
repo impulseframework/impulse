@@ -1,0 +1,389 @@
+package resource
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/go-playground/errors/v5"
+)
+
+// SQLDialect defines the type of SQL dialect to generate.
+type SQLDialect int
+
+const (
+	// PostgreSQL dialect.
+	PostgreSQL SQLDialect = iota
+	// Spanner dialect.
+	Spanner
+)
+
+// QueryParam holds a single query parameter's name and value.
+type QueryParam struct {
+	Name  string
+	Value any
+}
+
+// ErrUnsupportedNodeType indicates an AST node type that the SQL generator cannot handle.
+var ErrUnsupportedNodeType = errors.New("unsupported AST node type for SQL generation")
+
+// ErrUnsupportedOperator indicates a condition operator that the SQL generator cannot handle.
+var ErrUnsupportedOperator = errors.New("unsupported operator for SQL generation")
+
+// sqlGenerator translates an ExpressionNode AST into a SQL query string and parameters.
+type sqlGenerator struct {
+	dialect    SQLDialect
+	paramCount int
+
+	// registry is the statement-scoped namespace lowered condition nodes
+	// allocate from; nil outside generateLowered, where such nodes are
+	// unreachable (the filter parser never produces them).
+	registry *paramRegistry
+
+	// columnExpressions replaces a condition's column, by name, with the
+	// expression the statement filters on: the visible projection of a
+	// conditionally granted column (read_rendering.go). Nil renders every
+	// column as its quoted identifier.
+	columnExpressions map[string]string
+
+	// searchGrants is what the caller's grants decided for the search fields a
+	// statement names, by column: a denied field drops out of the box, a
+	// conditionally granted one conjoins its condition inside its match
+	// (search_render.go). Nil renders every match bare.
+	searchGrants map[string]searchGrant
+	// branchGrants is the same for the resource's @searchAlso branches, by the
+	// branch's dotted name.
+	branchGrants map[string]searchGrant
+	// outer is the resource the statement reads, which a PostgreSQL branch
+	// correlates its child table with; "" renders the key bare.
+	outer string
+}
+
+// searchGrant is one search field's standing under the caller's grants.
+type searchGrant struct {
+	// dropped marks a denied field: it leaves the box silently.
+	dropped bool
+	// condition is the lowered condition of a conditional grant, conjoined inside
+	// the field's match so the index stays usable; "" for an unconditional grant
+	// and for a positional field, whose match renders bare.
+	condition string
+}
+
+// newSQLGenerator creates a new SQL generator for the specified dialect.
+func newSQLGenerator(dialect SQLDialect) *sqlGenerator {
+	return &sqlGenerator{
+		dialect: dialect,
+	}
+}
+
+// GenerateSQL converts an AST node into a SQL string and a list of parameters.
+// It resets the parameter counter for each top-level call.
+func (s *sqlGenerator) GenerateSQL(node ExpressionNode) (string, []QueryParam, error) {
+	s.paramCount = 0 // Reset for each new generation pass
+
+	return s.generateSQLRecursive(node)
+}
+
+// generateSQLRecursive is the internal recursive part of SQL generation.
+func (s *sqlGenerator) generateSQLRecursive(node ExpressionNode) (string, []QueryParam, error) {
+	switch n := node.(type) {
+	case *ConditionNode:
+		return s.generateConditionSQL(n)
+	case *LogicalOpNode:
+		return s.generateLogicalOpSQL(n)
+	case *GroupNode:
+		return s.generateGroupSQL(n)
+	case *loweredComparisonNode, *loweredInNode, *loweredNullTestNode, *notNode, *existsNode, *nullGuardNode, *truthNode:
+		return s.generateLoweredNodeSQL(node)
+	case nil:
+		return "", nil, nil
+	default:
+		return "", nil, errors.Wrapf(ErrUnsupportedNodeType, "type: %T", n)
+	}
+}
+
+// generateLoweredNodeSQL dispatches the condition-lowering node types, which
+// render only under a statement registry.
+func (s *sqlGenerator) generateLoweredNodeSQL(node ExpressionNode) (string, []QueryParam, error) {
+	if s.registry == nil {
+		return "", nil, errors.Wrapf(ErrUnsupportedNodeType, "lowered node %T outside a statement registry", node)
+	}
+
+	var (
+		sql string
+		err error
+	)
+	switch n := node.(type) {
+	case *loweredComparisonNode:
+		sql, err = s.generateLoweredComparisonSQL(n)
+	case *loweredInNode:
+		sql, err = s.generateLoweredInSQL(n)
+	case *loweredNullTestNode:
+		sql, err = s.generateLoweredNullTestSQL(n)
+	case *notNode:
+		sql, err = s.generateNotSQL(n)
+	case *existsNode:
+		sql, err = s.generateExistsSQL(n)
+	case *nullGuardNode:
+		sql, err = s.generateNullGuardSQL(n)
+	case *truthNode:
+		if n.value {
+			sql = "TRUE"
+		} else {
+			sql = sqlFalse
+		}
+	default:
+		return "", nil, errors.Wrapf(ErrUnsupportedNodeType, "type: %T", n)
+	}
+	if err != nil {
+		return "", nil, err
+	}
+
+	return sql, nil, nil
+}
+
+func (s *sqlGenerator) quoteIdentifier(identifier string) string {
+	// Spanner identifiers are case-sensitive and should be quoted with backticks if they contain non-alphanumeric chars or match keywords.
+	// PostgreSQL identifiers are folded to lower case unless quoted with double quotes.
+	if s.dialect == Spanner {
+		return "`" + strings.ReplaceAll(identifier, "`", "``") + "`"
+	}
+	// For PostgreSQL, double quotes preserve case and allow special characters.
+
+	return `"` + strings.ReplaceAll(identifier, `"`, `""`) + `"`
+}
+
+func (s *sqlGenerator) nextPlaceholder() string {
+	s.paramCount++
+
+	return fmt.Sprintf("@_p%d", s.paramCount)
+}
+
+// setColumnExpressions installs the column expression overrides the filter
+// consults at each condition.
+func (s *sqlGenerator) setColumnExpressions(expressions map[string]string) {
+	s.columnExpressions = expressions
+}
+
+// setSearchGrants installs what the caller's grants decided for the search fields
+// and branches the statement may name, and the resource a branch correlates with.
+func (s *sqlGenerator) setSearchGrants(outer string, fields, branches map[string]searchGrant) {
+	s.outer = outer
+	s.searchGrants = fields
+	s.branchGrants = branches
+}
+
+// conditionColumn renders the column a condition tests: its override when the
+// statement filters on the column's visible projection, else the quoted
+// identifier.
+func (s *sqlGenerator) conditionColumn(column string) string {
+	if expression, ok := s.columnExpressions[column]; ok {
+		return expression
+	}
+
+	return s.quoteIdentifier(column)
+}
+
+// generateConditionSQL renders one condition. Its values bind through paramValue, the
+// typing the lowered nodes use, so a decimal filter value meets a NUMERIC column as a
+// NUMERIC parameter rather than the STRING Spanner would otherwise type it as.
+func (s *sqlGenerator) generateConditionSQL(cn *ConditionNode) (string, []QueryParam, error) {
+	field := s.conditionColumn(cn.Condition.Field)
+	op := strings.ToLower(cn.Condition.Operator)
+	var params []QueryParam
+
+	switch op {
+	case eqStr, neStr, gtStr, ltStr, gteStr, lteStr:
+		placeholder := s.nextPlaceholder()
+		params = append(params, QueryParam{Name: strings.TrimPrefix(placeholder, "@"), Value: paramValue(cn.Condition.Value)})
+		sqlOp := ""
+		switch op {
+		case eqStr:
+			sqlOp = "="
+		case neStr:
+			sqlOp = "<>"
+		case gtStr:
+			sqlOp = ">"
+		case ltStr:
+			sqlOp = "<"
+		case gteStr:
+			sqlOp = sqlGreaterEq
+		case lteStr:
+			sqlOp = sqlLessEq
+		}
+
+		return fmt.Sprintf("%s %s %s", field, sqlOp, placeholder), params, nil
+	case inStr, notinStr:
+		placeholders := make([]string, len(cn.Condition.Values))
+		params = make([]QueryParam, 0, len(cn.Condition.Values))
+		for i, v := range cn.Condition.Values {
+			placeholder := s.nextPlaceholder()
+			placeholders[i] = placeholder
+			params = append(params, QueryParam{Name: strings.TrimPrefix(placeholder, "@"), Value: paramValue(v)})
+		}
+		sqlOp := "IN"
+		if op == notinStr {
+			sqlOp = "NOT IN"
+		}
+
+		return fmt.Sprintf("%s %s (%s)", field, sqlOp, strings.Join(placeholders, ", ")), params, nil
+	case isnullStr:
+		return fmt.Sprintf("%s IS NULL", field), nil, nil
+	case isnotnullStr:
+		return fmt.Sprintf("%s IS NOT NULL", field), nil, nil
+	case startswithStr, endswithStr, containsStr:
+		return s.generateMatchSQL(cn)
+	case searchStr:
+		return s.generateSearchSQL(cn)
+	default:
+		return "", nil, errors.Wrapf(ErrUnsupportedOperator, "operator: %s", op)
+	}
+}
+
+func (s *sqlGenerator) generateLogicalOpSQL(ln *LogicalOpNode) (string, []QueryParam, error) {
+	leftSQL, leftParams, err := s.generateSQLRecursive(ln.Left)
+	if err != nil {
+		return "", nil, errors.Wrap(err, "failed to generate left side of logical operation")
+	}
+
+	rightSQL, rightParams, err := s.generateSQLRecursive(ln.Right)
+	if err != nil {
+		return "", nil, errors.Wrap(err, "failed to generate right side of logical operation")
+	}
+
+	var sqlOperator string
+	switch ln.Operator {
+	case OperatorAnd:
+		sqlOperator = "AND"
+	case OperatorOr:
+		sqlOperator = "OR"
+	default:
+		return "", nil, errors.Wrapf(ErrUnsupportedOperator, "logical operator: %s", ln.Operator)
+	}
+
+	combinedSQL := fmt.Sprintf("%s %s %s", leftSQL, sqlOperator, rightSQL)
+	allParams := make([]QueryParam, 0, len(leftParams)+len(rightParams))
+	allParams = append(allParams, leftParams...)
+	allParams = append(allParams, rightParams...)
+
+	return combinedSQL, allParams, nil
+}
+
+func (s *sqlGenerator) generateGroupSQL(gn *GroupNode) (string, []QueryParam, error) {
+	exprSQL, exprParams, err := s.generateSQLRecursive(gn.Expression)
+	if err != nil {
+		return "", nil, errors.Wrap(err, "failed to generate grouped expression")
+	}
+
+	return fmt.Sprintf("(%s)", exprSQL), exprParams, nil
+}
+
+// PostgreSQLGenerator is a SQL generator for PostgreSQL.
+type PostgreSQLGenerator struct {
+	*sqlGenerator
+}
+
+// NewPostgreSQLGenerator creates a new PostgreSQLGenerator.
+func NewPostgreSQLGenerator() *PostgreSQLGenerator {
+	return &PostgreSQLGenerator{
+		sqlGenerator: newSQLGenerator(PostgreSQL),
+	}
+}
+
+// GenerateSQL generates SQL for the given node.
+func (g *PostgreSQLGenerator) GenerateSQL(node ExpressionNode) (sqlStr string, params map[string]any, err error) {
+	sqlStr, queryParams, err := g.sqlGenerator.GenerateSQL(node)
+	if err != nil {
+		return "", nil, err
+	}
+
+	namedParams := make(map[string]any)
+	for _, qp := range queryParams {
+		namedParams[qp.Name] = qp.Value
+	}
+
+	return sqlStr, namedParams, nil
+}
+
+// SpannerGenerator is a SQL generator for Spanner.
+type SpannerGenerator struct {
+	*sqlGenerator
+}
+
+// NewSpannerGenerator creates a new SpannerGenerator.
+func NewSpannerGenerator() *SpannerGenerator {
+	return &SpannerGenerator{
+		sqlGenerator: newSQLGenerator(Spanner),
+	}
+}
+
+// GenerateSQL generates SQL for the given node and returns named parameters.
+func (g *SpannerGenerator) GenerateSQL(node ExpressionNode) (sqlStr string, params map[string]any, err error) {
+	sqlStr, queryParams, err := g.sqlGenerator.GenerateSQL(node)
+	if err != nil {
+		return "", nil, err
+	}
+
+	namedParams := make(map[string]any)
+	for _, qp := range queryParams {
+		namedParams[qp.Name] = qp.Value
+	}
+
+	return sqlStr, namedParams, nil
+}
+
+// substituteSQLParams replaces placeholders in an SQL string with their actual values.
+// This function is intended for logging or debugging purposes and does NOT sanitize inputs,
+// so it should NOT be used for executing queries against a database to prevent SQL injection.
+func substituteSQLParams(sql string, params any) (string, error) {
+	if sql == "" {
+		return "", nil
+	}
+
+	spannerParams, ok := params.(map[string]any)
+	if !ok {
+		if params == nil { // Allow nil params if no substitution is needed
+			return sql, nil
+		}
+
+		return "", errors.New("SubstituteSQLParams: params must be map[string]any")
+	}
+	if len(spannerParams) == 0 {
+		return sql, nil
+	}
+
+	// Create a list of keys and sort by length in descending order
+	// to prevent shorter keys from replacing parts of longer keys (e.g., @p before @p1).
+	keys := make([]string, 0, len(spannerParams))
+	for k := range spannerParams {
+		keys = append(keys, k)
+	}
+	// Sort keys by length descending
+	// In case of equal length, sort alphabetically for stable output (optional)
+	sort.Slice(keys, func(i, j int) bool {
+		if len(keys[i]) == len(keys[j]) {
+			return keys[i] > keys[j] // Secondary sort: alphabetical descending for stability
+		}
+
+		return len(keys[i]) > len(keys[j])
+	})
+
+	for _, k := range keys {
+		v := spannerParams[k]
+		placeholder := "@" + k
+		// Using fmt.Sprintf for value substitution, similar to original behavior.
+		// String values ideally should be SQL-escaped and quoted for actual query execution.
+		var valStr string
+		if strVal, isStr := v.(string); isStr {
+			// Simple quoting for strings for debug output
+			valStr = "'" + strings.ReplaceAll(strVal, "'", "''") + "'"
+		} else {
+			valStr = fmt.Sprintf("%v", v)
+		}
+		// Regex might be safer, but strings.ReplaceAll should work for simple @key placeholders.
+		// Need to be careful if keys can appear in other contexts.
+		sql = strings.ReplaceAll(sql, placeholder, valStr)
+	}
+
+	return sql, nil
+}

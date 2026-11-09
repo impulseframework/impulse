@@ -1,0 +1,43 @@
+.resource-array-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 36px;
+  padding: 10px 0 0 0;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.exp-panel-add-element-btn {
+  margin-right: 10px;
+  transform: scale(1.2);
+}
+
+.no-title-exp-panel-padding {
+  padding: 10px;
+}
+
+// The pager under a paged array view: one server page at a time, Previous and Next.
+.array-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid var(--mat-sys-outline-variant, #e0e0e0);
+  padding: 4px 12px;
+}
+
+.pager-rows {
+  font-size: 13px;
+  color: var(--mat-sys-on-surface-variant, rgba(0, 0, 0, 0.6));
+  white-space: nowrap;
+}
+
+.pager-buttons {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}

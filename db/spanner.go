@@ -1,0 +1,138 @@
+// Implements tooling to setup a Spanner database configured for running integration tests against.
+package db
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"sync"
+
+	database "cloud.google.com/go/spanner/admin/database/apiv1"
+	"github.com/go-playground/errors/v5"
+
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
+	"google.golang.org/api/option"
+	"google.golang.org/api/option/internaloption"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+)
+
+const (
+	defaultSpannerPort       = "9010/tcp"
+	defaultSpannerProjectID  = "unit-testing"
+	defaultSpannerInstanceID = "test-instance"
+)
+
+// SpannerContainer represents a docker container running a spanner instance.
+// [SpannerContainer.Close] should be called to cleanup resources.
+type SpannerContainer struct {
+	testcontainers.Container
+	admin      *database.DatabaseAdminClient
+	opts       []option.ClientOption
+	port       string
+	projectID  string
+	instanceID string
+
+	mu      sync.Mutex
+	dbCount int
+}
+
+// NewSpannerContainer returns a initialized [SpannerContainer] ready to run to create databases for unit tests.
+// [SpannerContainer.Close] should be called to cleanup resources.
+func NewSpannerContainer(ctx context.Context, imageVersion string) (*SpannerContainer, error) {
+	req := testcontainers.ContainerRequest{
+		Image:        "gcr.io/cloud-spanner-emulator/emulator:" + imageVersion,
+		WaitingFor:   wait.ForLog("Cloud Spanner emulator running"),
+		ExposedPorts: []string{defaultSpannerPort},
+	}
+
+	spannerC, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
+		Started:          true,
+		ContainerRequest: req,
+	})
+	if err != nil {
+		return nil, errors.Wrap(err, "testcontainers.GenericContainer()")
+	}
+
+	host, err := spannerC.Host(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to get host for container")
+	}
+
+	externalPort, err := spannerC.MappedPort(ctx, defaultSpannerPort)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to get external port for exposed port %s", defaultSpannerPort)
+	}
+
+	endPoint := fmt.Sprintf("passthrough:///%s:%s", host, externalPort.Port())
+
+	opts := []option.ClientOption{
+		option.WithEndpoint(endPoint),
+		option.WithGRPCDialOption(grpc.WithTransportCredentials(insecure.NewCredentials())),
+		option.WithoutAuthentication(),
+		internaloption.SkipDialSettingsValidation(),
+	}
+
+	if err := NewSpannerInstance(ctx, defaultSpannerProjectID, defaultSpannerInstanceID, opts...); err != nil {
+		return nil, errors.Wrap(err, "failed to create spanner instance")
+	}
+
+	admin, err := database.NewDatabaseAdminClient(ctx, opts...)
+	if err != nil {
+		return nil, errors.Wrap(err, "database.NewDatabaseAdminClient()")
+	}
+
+	return &SpannerContainer{
+		Container:  spannerC,
+		admin:      admin,
+		opts:       opts,
+		port:       defaultSpannerPort,
+		projectID:  defaultSpannerProjectID,
+		instanceID: defaultSpannerInstanceID,
+	}, nil
+}
+
+// CreateDatabase creates a database with dbName. Each test should create their own database for testing
+func (sc *SpannerContainer) CreateDatabase(ctx context.Context, dbName string) (*SpannerDB, error) {
+	dbName = sc.validDatabaseName(dbName)
+
+	db, err := newSpannerDatabase(ctx, sc.admin, sc.projectID, sc.instanceID, dbName, sc.opts...)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create spanner database %s", dbName)
+	}
+
+	return db, nil
+}
+
+// Close cleans up open resources
+func (sc *SpannerContainer) Close() error {
+	if err := sc.admin.Close(); err != nil {
+		return errors.Wrap(err, "database.DatabaseAdminClient.Close()")
+	}
+
+	return nil
+}
+
+func (sc *SpannerContainer) validDatabaseName(dbName string) string {
+	b := []byte(dbName)
+	b = bytes.ToLower(b)
+
+	for i, v := range b {
+		if !bytes.ContainsAny([]byte{v}, "1234567890abcdefghijklmnopqrstuvwxyz-_") {
+			b[i] = '-'
+		}
+	}
+
+	b = bytes.Trim(b, "-_")
+	dbName = string(b)
+
+	if l := len(dbName); l > 30 {
+		sc.mu.Lock()
+		defer sc.mu.Unlock()
+		sc.dbCount++
+		dbName = fmt.Sprintf("db%d-%s", sc.dbCount, dbName[l-20:])
+	}
+
+	return dbName
+}

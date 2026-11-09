@@ -1,0 +1,170 @@
+{
+  "roles": {
+    "global": [],
+    "domain": [
+      {
+        "name": "TenantAdministrator",
+        "description": "Runs one tenant on the portal: manages its members and their seats, and posts its announcements.",
+        "permissions": {
+          "Create": [
+            {
+              "resource": "Announcements",
+              "fields": [
+                "body",
+                "title"
+              ]
+            },
+            {
+              "resource": "MembersTenantSeats",
+              "fields": [
+                "user",
+                "role"
+              ]
+            }
+          ],
+          "Delete": [
+            {
+              "resource": "Announcements"
+            },
+            {
+              "resource": "MembersTenantUsers"
+            },
+            {
+              "resource": "MembersTenantInvitations"
+            },
+            {
+              "resource": "MembersTenantSeats"
+            }
+          ],
+          "Execute": [
+            {
+              "resource": "UnlinkMembersTenantUserIdentity"
+            },
+            {
+              "resource": "ResetMembersTenantUserFactors"
+            }
+          ],
+          "List": [
+            {
+              "resource": "Announcements",
+              "fields": [
+                "body",
+                "tenantId",
+                "title"
+              ]
+            },
+            {
+              "resource": "MembersTenantUsers",
+              "fields": [
+                "username",
+                "disabled",
+                "hasPassword",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "organization",
+                "identities",
+                "roles",
+                "everywhereRoles",
+                "rolesSynced",
+                "email",
+                "emailVerifiedAt"
+              ]
+            },
+            {
+              "resource": "MembersTenantInvitations",
+              "fields": [
+                "email",
+                "roles",
+                "invitedBy",
+                "createdAt",
+                "expiresAt"
+              ]
+            },
+            {
+              "resource": "MembersTenantSeats",
+              "fields": [
+                "username",
+                "everywhere"
+              ]
+            },
+            {
+              "resource": "MembersTenantRoles",
+              "fields": [
+                "description"
+              ]
+            }
+          ],
+          "Read": [
+            {
+              "resource": "Announcements",
+              "fields": [
+                "body",
+                "tenantId",
+                "title"
+              ]
+            },
+            {
+              "resource": "MembersTenantUsers",
+              "fields": [
+                "username",
+                "disabled",
+                "hasPassword",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt",
+                "organization",
+                "identities",
+                "roles",
+                "everywhereRoles",
+                "rolesSynced",
+                "email",
+                "emailVerifiedAt"
+              ]
+            },
+            {
+              "resource": "MembersTenantInvitations",
+              "fields": [
+                "email",
+                "roles",
+                "invitedBy",
+                "createdAt",
+                "expiresAt"
+              ]
+            },
+            {
+              "resource": "MembersTenantSeats",
+              "fields": [
+                "username",
+                "everywhere"
+              ]
+            },
+            {
+              "resource": "MembersTenantRoles",
+              "fields": [
+                "description"
+              ]
+            }
+          ],
+          "Update": [
+            {
+              "resource": "Announcements",
+              "fields": [
+                "body",
+                "title"
+              ]
+            },
+            {
+              "resource": "MembersTenantUsers",
+              "fields": [
+                "username",
+                "disabled",
+                "email"
+              ]
+            }
+          ]
+        }
+      }
+    ]
+  }
+}
