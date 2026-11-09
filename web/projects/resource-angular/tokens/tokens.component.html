@@ -1,0 +1,93 @@
+@if (!tokens) {
+  <p class="impulse-tokens-unserved">{{ noTokensSentence }}</p>
+} @else {
+  @if (issued(); as token) {
+    <div class="impulse-tokens-issued">
+      <p class="impulse-tokens-issued-note">
+        The token {{ token.name }} for {{ token.outlet }} is ready. Copy it now; it is not shown again.
+      </p>
+      <div class="impulse-tokens-issued-row">
+        <mat-form-field appearance="outline" class="impulse-tokens-issued-field">
+          <mat-label>Token</mat-label>
+          <input matInput #secret name="token" [value]="token.token" readonly autocomplete="off" />
+        </mat-form-field>
+        <button mat-flat-button type="button" class="impulse-tokens-copy" (click)="copy(secret)">Copy</button>
+        @if (copied()) {
+          <span class="impulse-tokens-copied" role="status">Copied.</span>
+        }
+        <button mat-button type="button" class="impulse-tokens-issued-done" (click)="dismissIssued()">Done</button>
+      </div>
+    </div>
+  } @else if (canIssue()) {
+    <p class="impulse-tokens-intro">{{ intro }}</p>
+    <form class="impulse-tokens-issue" (ngSubmit)="issue()">
+      <mat-form-field appearance="outline" class="impulse-tokens-field" subscriptSizing="dynamic">
+        <mat-label>Name</mat-label>
+        <input matInput name="name" [(ngModel)]="name" [maxlength]="nameMaxLength" autocomplete="off" required />
+      </mat-form-field>
+      @if (severalOutlets()) {
+        <mat-form-field appearance="outline" class="impulse-tokens-field" subscriptSizing="dynamic">
+          <mat-label>Outlet</mat-label>
+          <mat-select name="outlet" [(ngModel)]="outlet" required>
+            @for (candidate of outlets; track candidate.name) {
+              <mat-option [value]="candidate.name">{{ candidate.name }}</mat-option>
+            }
+          </mat-select>
+        </mat-form-field>
+      }
+      <button mat-flat-button type="submit" class="impulse-tokens-submit" [disabled]="busy()">Issue a token</button>
+    </form>
+  }
+  @if (notice(); as sentence) {
+    <p class="impulse-tokens-notice" role="alert">{{ sentence }}</p>
+  }
+  @if (error(); as sentence) {
+    <p class="impulse-tokens-error" role="alert">{{ sentence }}</p>
+  } @else if (loading()) {
+    <p class="impulse-tokens-note">Loading your tokens…</p>
+  } @else if (rows().length === 0) {
+    <p class="impulse-tokens-note">You have no tokens.</p>
+  } @else {
+    <table class="impulse-tokens">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Kind</th>
+          @if (severalOutlets()) {
+            <th>Outlet</th>
+          }
+          <th>Created</th>
+          <th>Expires</th>
+          <th>Last used</th>
+          <th><span class="impulse-tokens-visually-hidden">Revoke</span></th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (row of rows(); track row.id) {
+          <tr class="impulse-token">
+            <td class="impulse-token-name">{{ labelOf(row) }}</td>
+            <td class="impulse-token-kind">{{ kindOf(row) }}</td>
+            @if (severalOutlets()) {
+              <td class="impulse-token-outlet">{{ row.outlet }}</td>
+            }
+            <td class="impulse-token-created">{{ row.createdAt | date: dateFormat }}</td>
+            <td class="impulse-token-expires">{{ row.expiresAt | date: dateFormat }}</td>
+            <td class="impulse-token-last">{{ row.lastUsedAt ? (row.lastUsedAt | date: dateFormat) : 'Never' }}</td>
+            <td class="impulse-token-manage">
+              <button
+                mat-icon-button
+                type="button"
+                class="impulse-token-revoke"
+                [disabled]="busy()"
+                [attr.aria-label]="'Revoke ' + labelOf(row)"
+                matTooltip="Revoke"
+                (click)="revoke(row)">
+                <mat-icon>delete</mat-icon>
+              </button>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  }
+}

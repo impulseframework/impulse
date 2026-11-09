@@ -1,0 +1,7 @@
+@if (showRPCButton()) {
+  <div class="button-container">
+    <button mat-raised-button color="accent" (click)="submitRPC()" [disabled]="formState.isDirty()">
+      {{ rpcConfig().label }}
+    </button>
+  </div>
+}

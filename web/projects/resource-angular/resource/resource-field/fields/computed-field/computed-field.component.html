@@ -1,0 +1,13 @@
+@if (showField()) {
+  <div class="readonly-field">
+    <mat-form-field class="field {{ fieldClass() }}" [subscriptSizing]="'dynamic'">
+      <mat-label>{{ fieldConfig().label }}</mat-label>
+      <input
+        matInput
+        (keydown.enter)="$event.preventDefault()"
+        [readonly]="true"
+        type="text"
+        [value]="computedValue()" />
+    </mat-form-field>
+  </div>
+}

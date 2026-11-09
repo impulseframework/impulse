@@ -1,0 +1,195 @@
+package resource
+
+import (
+	"context"
+	"net/http"
+	"strings"
+
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/tracer"
+)
+
+// The user surface's methods: the operator's actions on one account, Execute on the
+// method, its grant's condition judged over the target user's row.
+
+// SetUserPasswordRequest is the body of Set<Auth>UserPassword: the user and the temporary
+// password an operator chose, which the user changes at their next sign-in.
+type SetUserPasswordRequest struct {
+	User     impulse.UUID `json:"user"`
+	Password string       `json:"password"`
+}
+
+// UnlinkUserIdentityRequest is the body of Unlink<Auth>UserIdentity: the user and the
+// identity to unlink from them.
+type UnlinkUserIdentityRequest struct {
+	User     impulse.UUID `json:"user"`
+	Identity impulse.UUID `json:"identity"`
+}
+
+// ResetUserFactorsRequest is the body of Reset<Auth>UserFactors: the user whose
+// remembered browsers are forgotten.
+type ResetUserFactorsRequest struct {
+	User impulse.UUID `json:"user"`
+}
+
+// methodContext decodes a method's body and checks Execute on it, then locates the
+// target user in the partition and judges the grant's condition over their row.
+func (s *UserSurface[A]) methodTarget(ctx context.Context, r *http.Request, a UserApp, tenanted bool, method accesstypes.Resource, user impulse.UUID) (*writeContext, *composedUser, error) {
+	wc := s.writeContext(r, a, tenanted)
+	decisions, err := wc.perms.Check(ctx, RequestEnvironment(), wc.partition.scope, accesstypes.Execute, method)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "resource.UserPermissions.Check()")
+	}
+	if denied := decisions.DeniedResources(); len(denied) > 0 {
+		return nil, nil, httpio.NewForbiddenMessagef("user %s, scope %s, does not have %s on %s", wc.perms.User(), wc.partition.scope, accesstypes.Execute, denied)
+	}
+	if err := wc.ensure(ctx); err != nil {
+		return nil, nil, err
+	}
+	target, err := s.locateUser(ctx, wc, user)
+	if err != nil {
+		return nil, nil, err
+	}
+	ok, err := wc.judge.permits(ctx, decisions[method], target.image(), nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !ok {
+		return nil, nil, httpio.NewForbiddenMessagef("%s may not run against user %s", method, user)
+	}
+
+	return wc, target, nil
+}
+
+// setUserPassword is Set<Auth>UserPassword: a temporary password on the account, which
+// takes the forced-change mark and loses its sessions. One's own password is changed
+// through the password change, not reset here.
+func (s *UserSurface[A]) setUserPassword(a UserApp, tenanted bool) http.HandlerFunc {
+	decoder, err := newStructDecoder[SetUserPasswordRequest]()
+	if err != nil {
+		panic(err)
+	}
+	decoder = decoder.WithValidator(a.Validator())
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		req, err := decoder.Decode(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		method := s.partitionOf(r, tenanted).names.SetPassword
+		wc, target, err := s.methodTarget(ctx, r, a, tenanted, method, req.User)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if strings.TrimSpace(req.Password) == "" {
+			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("a password is required"))
+		}
+		if wc.judge.self(target.account.Username) {
+			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("change your own password through the password change, which asks for the current one"))
+		}
+		if err := s.accountLevel(ctx, wc, target, "the password reset"); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if wc.dryRun {
+			return httpio.NewEncoder(w).Ok(nil)
+		}
+		if err := s.accounts.ResetUserPassword(ctx, target.account.ID, req.Password); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.UserAccounts.ResetUserPassword()"))
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
+	})
+}
+
+// unlinkUserIdentity is Unlink<Auth>UserIdentity: an identity taken off the account. The
+// account's only way in is never unlinked.
+func (s *UserSurface[A]) unlinkUserIdentity(a UserApp, tenanted bool) http.HandlerFunc {
+	decoder, err := newStructDecoder[UnlinkUserIdentityRequest]()
+	if err != nil {
+		panic(err)
+	}
+	decoder = decoder.WithValidator(a.Validator())
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		req, err := decoder.Decode(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		method := s.partitionOf(r, tenanted).names.UnlinkIdentity
+		wc, target, err := s.methodTarget(ctx, r, a, tenanted, method, req.User)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		var linked *UserIdentity
+		for i := range target.facts.identities {
+			if target.facts.identities[i].ID == req.Identity {
+				linked = &target.facts.identities[i]
+			}
+		}
+		if linked == nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("identity %s is not linked to user %s", req.Identity, req.User))
+		}
+		if !target.account.HasPassword && len(target.facts.identities) == 1 {
+			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewConflictMessagef("the identity is the only way %q signs in; set a password or delete the account instead", target.account.Username))
+		}
+		if err := s.accountLevel(ctx, wc, target, "the unlinking"); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if wc.dryRun {
+			return httpio.NewEncoder(w).Ok(nil)
+		}
+		if err := s.accounts.UnlinkIdentity(ctx, linked.ID); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.UserAccounts.UnlinkIdentity()"))
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
+	})
+}
+
+// resetUserFactors is Reset<Auth>UserFactors: the person's second factor reset. Every
+// browser they asked to be remembered is forgotten, so their next sign-in from any of
+// them asks for the factor again; the sign-in code itself has nothing to reset, since
+// a new one is mailed at every sign-in. An operator who lost their own remembered
+// browsers may reset their own.
+func (s *UserSurface[A]) resetUserFactors(a UserApp, tenanted bool) http.HandlerFunc {
+	decoder, err := newStructDecoder[ResetUserFactorsRequest]()
+	if err != nil {
+		panic(err)
+	}
+	decoder = decoder.WithValidator(a.Validator())
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		req, err := decoder.Decode(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		method := s.partitionOf(r, tenanted).names.ResetFactors
+		wc, target, err := s.methodTarget(ctx, r, a, tenanted, method, req.User)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if err := s.accountLevel(ctx, wc, target, "the second-factor reset"); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if wc.dryRun {
+			return httpio.NewEncoder(w).Ok(nil)
+		}
+		if err := s.accounts.ResetUserFactors(ctx, target.account.ID); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "resource.UserAccounts.ResetUserFactors()"))
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
+	})
+}

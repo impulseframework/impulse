@@ -1,0 +1,333 @@
+// Package check holds the invariants `impulse check` verifies against an Impulse
+// application. Every check compares code with code: nothing here reads a record the tool
+// keeps for itself.
+package check
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"regexp"
+	"strings"
+
+	"github.com/go-playground/errors/v5"
+	"golang.org/x/mod/modfile"
+
+	"github.com/impulseframework/impulse/app"
+)
+
+// Status is the outcome of one check.
+type Status int
+
+// The check outcomes. Warn and Skip never fail the run.
+const (
+	Pass Status = iota
+	Fail
+	Warn
+	Skip
+)
+
+func (s Status) String() string {
+	switch s {
+	case Pass:
+		return "PASS"
+	case Fail:
+		return "FAIL"
+	case Warn:
+		return "WARN"
+	case Skip:
+		return "SKIP"
+	default:
+		return "????"
+	}
+}
+
+// Result is what one check reports.
+type Result struct {
+	Name    string
+	Status  Status
+	Summary string
+	Details []string
+}
+
+func pass(name, summary string) Result { return Result{Name: name, Status: Pass, Summary: summary} }
+func skip(name, reason string) Result  { return Result{Name: name, Status: Skip, Summary: reason} }
+
+func fail(name, summary string, details ...string) Result {
+	return Result{Name: name, Status: Fail, Summary: summary, Details: details}
+}
+
+func warn(name, summary string, details ...string) Result {
+	return Result{Name: name, Status: Warn, Summary: summary, Details: details}
+}
+
+// Check is one invariant.
+type Check interface {
+	// Name is the short identifier used on the report and by --only.
+	Name() string
+	// Describe says in one line what the check verifies.
+	Describe() string
+	// Run verifies the invariant against the application.
+	Run(ctx context.Context, env *Env) Result
+}
+
+// Explainer is a check that can say what its failure means in this framework, for the
+// handoff brief: the pattern the obligations under it are met by.
+type Explainer interface {
+	Meaning() string
+}
+
+// Meaning returns what a failing check means, for the brief, or empty for a check whose
+// lines say everything.
+func Meaning(name string) string {
+	for _, c := range All() {
+		if c.Name() != name {
+			continue
+		}
+		if e, ok := c.(Explainer); ok {
+			return e.Meaning()
+		}
+	}
+
+	return ""
+}
+
+// Env is what a check runs against.
+type Env struct {
+	App *app.App
+	// Exec runs external commands; tests substitute a fake.
+	Exec Execer
+	// SkipGenerate skips the checks that regenerate code (they need the Spanner emulator).
+	SkipGenerate bool
+	// Fix lets checks with a mechanical remedy apply it.
+	Fix bool
+	// Out receives progress notes such as "running go generate".
+	Out io.Writer
+	// Ledger answers where the application stands against the upgrade ledger; nil reads
+	// it as at the last step.
+	Ledger Ledger
+}
+
+// Ledger is what the checks ask of the upgrade ledger: whether an application's framework
+// pins reach its last step, and the browser packages' versions of the step they stand at. The
+// pins check's remedy turns on the first, since an application behind the ledger is moved
+// by impulse upgrade, step by step, and never by the tool pin alone, whose move ahead of
+// the walk drags the framework pins past the steps; the web-pins check holds every web
+// root to the second. The ledger package implements it; a check run without one reads
+// the application as at the last step and skips the web pins.
+type Ledger interface {
+	AtLastStep(mod *modfile.File) bool
+	// WebPins is the browser packages' versions by package of the step the application
+	// stands at, read from go.mod's framework and tool pins; nil when it stands before
+	// the first step or the step names none.
+	WebPins(mod *modfile.File) map[string]string
+}
+
+func (e *Env) notef(format string, args ...any) {
+	if e.Out == nil {
+		return
+	}
+	fmt.Fprintf(e.Out, format+"\n", args...)
+}
+
+// Execer runs an external command in a directory with extra environment entries and
+// returns its combined output.
+type Execer interface {
+	Run(ctx context.Context, dir string, extraEnv []string, name string, args ...string) ([]byte, error)
+}
+
+// OSExec runs commands with os/exec.
+type OSExec struct{}
+
+// Run implements Execer.
+func (OSExec) Run(ctx context.Context, dir string, extraEnv []string, name string, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), extraEnv...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return out, errors.Wrapf(err, "%s %s", name, strings.Join(args, " "))
+	}
+
+	return out, nil
+}
+
+// Streamer runs an external command with its combined output written to a writer as it
+// comes, for a command that runs long and talks while it runs (an agent): what Run would
+// hold until the command ends reaches the user as it is written, and is returned as well.
+type Streamer interface {
+	Stream(ctx context.Context, dir string, out io.Writer, name string, args ...string) ([]byte, error)
+}
+
+// Stream implements Streamer.
+func (OSExec) Stream(ctx context.Context, dir string, out io.Writer, name string, args ...string) ([]byte, error) {
+	var held bytes.Buffer
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Dir = dir
+	cmd.Stdout = io.MultiWriter(out, &held)
+	cmd.Stderr = cmd.Stdout
+	if err := cmd.Run(); err != nil {
+		return held.Bytes(), errors.Wrapf(err, "%s %s", name, strings.Join(args, " "))
+	}
+
+	return held.Bytes(), nil
+}
+
+// All returns every check in run order: the cheap static reads first, the compiler next,
+// and regeneration last because it rewrites the working tree.
+func All() []Check {
+	return []Check{
+		generatorProgram{},
+		options{},
+		tenancyWired{},
+		outletWired{},
+		outletShape{},
+		sitesWired{},
+		webWired{},
+		loginPages{},
+		loginHeld{},
+		maintenanceSwitch{},
+		sessionTables{},
+		migrationsReader{},
+		authsWired{},
+		rolesFileAccepted{},
+		personaCast{},
+		administratorRoles{},
+		directoryAdmission{},
+		secondFactor{},
+		changeSignal{},
+		conditionsProven{},
+		skipAuth{},
+		emulatorVersion{},
+		prettierIgnore{},
+		eslintIgnore{},
+		resourceStyles{},
+		packageManager{},
+		registryPins{},
+		webPins{},
+		testRunner{},
+		installable{},
+		ciWorkflow{},
+		paging{},
+		rpcExecute{},
+		featureFlags{},
+		sitesGenerators{},
+		envTemplate{},
+		envReads{},
+		fileStore{},
+		pins{},
+		gofmtCheck{},
+		goworkOff{},
+		shippedPrograms{},
+		regen{},
+	}
+}
+
+// Select returns the checks whose names are in only, in run order, or every check when
+// only is empty. Unknown names are an error.
+func Select(only []string) ([]Check, error) {
+	all := All()
+	if len(only) == 0 {
+		return all, nil
+	}
+
+	byName := make(map[string]Check, len(all))
+	for _, c := range all {
+		byName[c.Name()] = c
+	}
+	wanted := make(map[string]bool, len(only))
+	for _, n := range only {
+		if _, ok := byName[n]; !ok {
+			return nil, errors.Newf("unknown check %q", n)
+		}
+		wanted[n] = true
+	}
+
+	var selected []Check
+	for _, c := range all {
+		if wanted[c.Name()] {
+			selected = append(selected, c)
+		}
+	}
+
+	return selected, nil
+}
+
+// Run runs the checks in order and returns their results.
+func Run(ctx context.Context, env *Env, checks []Check) []Result {
+	results := make([]Result, 0, len(checks))
+	for _, c := range checks {
+		results = append(results, c.Run(ctx, env))
+	}
+
+	return results
+}
+
+// Failed reports whether any result failed.
+func Failed(results []Result) bool {
+	for _, r := range results {
+		if r.Status == Fail {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Report writes one line per result, with details indented beneath it.
+func Report(w io.Writer, results []Result) {
+	width := 0
+	for _, r := range results {
+		width = max(width, len(r.Name))
+	}
+	for _, r := range results {
+		fmt.Fprintf(w, "%s  %-*s  %s\n", r.Status, width, r.Name, r.Summary)
+		for _, d := range r.Details {
+			fmt.Fprintf(w, "      %s\n", d)
+		}
+	}
+}
+
+// reportLine matches a line Report writes for a result: the status, two spaces, the name,
+// its padding, and the summary.
+var reportLine = regexp.MustCompile(`^(PASS|FAIL|WARN|SKIP) {2}(\S+) *(.*)$`)
+
+// reportStatuses are the statuses by the word Report writes for them.
+var reportStatuses = map[string]Status{Pass.String(): Pass, Fail.String(): Fail, Warn.String(): Warn, Skip.String(): Skip}
+
+// ParseReport reads results back from what Report wrote, for a check run as a command (go
+// tool impulse check, by the impulse an application pins) whose report is all the caller
+// has: a result line opens a result, the indented lines under it are its details, and any
+// other line (a progress note the command wrote beside the report) is passed over.
+func ParseReport(out []byte) []Result {
+	var results []Result
+	for line := range strings.Lines(string(out)) {
+		line = strings.TrimRight(line, "\r\n")
+		if m := reportLine.FindStringSubmatch(line); m != nil {
+			results = append(results, Result{Name: m[2], Status: reportStatuses[m[1]], Summary: strings.TrimSpace(m[3])})
+
+			continue
+		}
+		if detail, ok := strings.CutPrefix(line, "      "); ok && len(results) > 0 {
+			results[len(results)-1].Details = append(results[len(results)-1].Details, detail)
+		}
+	}
+
+	return results
+}
+
+// outputLines trims command output into detail lines, keeping the tail when it is long.
+func outputLines(out []byte, keep int) []string {
+	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return nil
+	}
+	if len(lines) > keep {
+		lines = append([]string{fmt.Sprintf("... %d earlier lines omitted", len(lines)-keep)}, lines[len(lines)-keep:]...)
+	}
+
+	return lines
+}

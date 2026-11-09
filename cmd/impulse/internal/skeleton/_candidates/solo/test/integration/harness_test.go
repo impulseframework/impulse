@@ -1,0 +1,273 @@
+package integration
+
+import (
+	"bytes"
+	"context"
+	"encoding/base64"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/cookiejar"
+	"net/http/httptest"
+	"slices"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/go-playground/validator/v10"
+	"github.com/impulseframework/impulse/access"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/app"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/auth/staff"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/router"
+	initiator "github.com/impulseframework/impulse/db"
+	"github.com/impulseframework/impulse/logger"
+	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/resource/live"
+	"github.com/impulseframework/impulse/resource/sessionusers"
+	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/mail"
+)
+
+const (
+	migrationsSource = "file://../../schema/migrations"
+
+	// The development login the served suites sign in as.
+	adminUser     = "admin"
+	adminPassword = "password"
+)
+
+// servedConfigurer implements app.Configurer over the real dependencies: the test
+// database, the real permission engine, and a real session manager, so the suites
+// exercise the same served stack main composes.
+type servedConfigurer struct {
+	db   *initiator.SpannerDB
+	auth *staff.Auth
+	live *live.Fake
+}
+
+func (c *servedConfigurer) ResourceClient() resource.Client {
+	return resource.NewSpannerClient(c.db.Client)
+}
+
+// CursorKey seals the cursors the suites' paged lists issue; any key serves a test process.
+func (c *servedConfigurer) CursorKey() *resource.CursorKey {
+	key, err := resource.NewCursorKey(base64.StdEncoding.EncodeToString([]byte("skeleton-test-cursor-key-material!!")))
+	if err != nil {
+		panic(err)
+	}
+
+	return key
+}
+
+func (c *servedConfigurer) Access() access.Controller { return c.auth.Access() }
+
+func (c *servedConfigurer) Staff() *staff.Auth { return c.auth }
+
+// StaffUserStores are the real stores: the test staff auth's session accounts and its
+// engine's memberships, so the suites drive the user surface as the served application does.
+func (c *servedConfigurer) StaffUserStores() (resource.UserAccounts, resource.UserSeats) {
+	return sessionusers.Accounts(c.auth.Session().API()), c.auth.Access().UserManager()
+}
+
+func (c *servedConfigurer) Validator() *validator.Validate { return validator.New() }
+
+func (c *servedConfigurer) LogExporter() logger.Exporter { return logger.NewConsoleExporter() }
+
+// AppVersion is dev: the served stack's version check answers every release, so no
+// suite's request is refused for the release it carries.
+func (c *servedConfigurer) AppVersion() string {
+	return "dev"
+}
+
+func (c *servedConfigurer) ConsoleDist() string { return "" }
+
+// Live is the in-memory live service the auth's permission engine signals policy
+// changes through: the live service is required in every application.
+func (c *servedConfigurer) Live() live.Service {
+	return c.live
+}
+
+// LiveOrigins names no change feed origin: the suites serve no live pages.
+func (c *servedConfigurer) LiveOrigins() []string {
+	return nil
+}
+
+// served is one running instance of the application under test.
+type served struct {
+	server *httptest.Server
+	access *access.Client
+	// adminID is the development login's user id, for the users surface's methods.
+	adminID string
+	// mail is the recorder the staff auth sends its mail to, where a suite reads the
+	// sign-in code a sign-in waits for.
+	mail *mail.Recorder
+	// codeMu lets one sign-in at a time run its second factor on the stack, so the code a
+	// browser reads from the recorder is its own, and trusted holds, per login, the token
+	// of the browser the login asked to be remembered at their first sign-in, which their
+	// later sign-ins carry (browser.signIn).
+	codeMu  sync.Mutex
+	trusted map[string]*http.Cookie
+}
+
+// newServed provisions the database the way the deployment does (the schema, then the
+// auth opened over it with its embedded role file validated against the collection),
+// creates the development login, and serves the full router.
+func newServed(ctx context.Context, t *testing.T) *served {
+	t.Helper()
+
+	db, err := prepareDatabase(ctx, t, migrationsSource)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The live service the engine signals policy changes through and the App follows
+	// its feature flags from: in-memory in the suites.
+	svc := live.NewFake()
+	// The recorder the staff auth's mail goes to: the suites read the sign-in codes from it.
+	sent := &mail.Recorder{}
+	auth, err := staff.New(ctx, db.Client, &staff.Settings{Collection: router.Collection(), Signals: svc, CookieKey: testCookieKey, SessionTimeout: time.Minute, Mail: sent, MailLoginURL: "http://solo.test/login"})
+	if err != nil {
+		t.Fatalf("staff.New() error = %v", err)
+	}
+	t.Cleanup(func() {
+		if err := auth.Close(); err != nil {
+			t.Errorf("staff.Auth.Close() error = %v", err)
+		}
+	})
+	accessClient := auth.Access()
+
+	passwordAuth := auth.Session()
+	password := adminPassword
+	adminID, err := passwordAuth.API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: adminUser, Password: &password})
+	if err != nil {
+		t.Fatalf("CreateSessionUser() error = %v", err)
+	}
+	if err := accessClient.UserManager().AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), adminUser, "Administrator"); err != nil {
+		t.Fatalf("AddUserRoles() error = %v", err)
+	}
+
+	a := app.New(&servedConfigurer{db: db, auth: auth, live: svc})
+	// The App reads its feature flags as it is built; Start reports a copy that could
+	// not be read and follows the table until the test ends.
+	if err := a.Start(ctx); err != nil {
+		t.Fatalf("app.Start() error = %v", err)
+	}
+	handler := router.New(a, router.Hooks{})
+	server := httptest.NewServer(handler)
+	t.Cleanup(server.Close)
+
+	return &served{server: server, access: accessClient, adminID: adminID.String(), mail: sent, trusted: map[string]*http.Cookie{}}
+}
+
+// testCookieKey signs session cookies in the suites; any 32 bytes will do.
+const testCookieKey = "dGVzdC1jb29raWUta2V5LXRlc3QtY29va2llLWtleS0xMjM0NTY="
+
+// browser is one browser's view of the served application: a cookie jar and the XSRF
+// token the session middleware issued into it.
+type browser struct {
+	t      *testing.T
+	base   string
+	client *http.Client
+	// served is the stack the browser is on, whose recorder holds the code a sign-in
+	// waits for and whose trusted tokens a remembered browser carries.
+	served *served
+}
+
+func newBrowser(t *testing.T, s *served) *browser {
+	t.Helper()
+
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return &browser{t: t, base: s.server.URL, client: &http.Client{Jar: jar}, served: s}
+}
+
+// login posts the credentials to the login route and returns the status.
+func (b *browser) login(ctx context.Context, user, password string) (status int, body []byte) {
+	b.t.Helper()
+
+	credentials, err := json.Marshal(map[string]string{"username": user, "password": password})
+	if err != nil {
+		b.t.Fatal(err)
+	}
+
+	return b.do(ctx, http.MethodPost, "/api/user/password/login", credentials)
+}
+
+// do issues one request as this browser, carrying its cookies and XSRF token.
+func (b *browser) do(ctx context.Context, method, path string, body []byte) (status int, respBody []byte) {
+	b.t.Helper()
+
+	req, err := http.NewRequestWithContext(ctx, method, b.base+path, bytes.NewReader(body))
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token := b.xsrfToken(); token != "" {
+		req.Header.Set("X-XSRF-TOKEN", token)
+	}
+
+	resp, err := b.client.Do(req)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err = io.ReadAll(resp.Body)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+
+	return resp.StatusCode, respBody
+}
+
+// xsrfToken returns the XSRF cookie the session middleware issued, or empty before the
+// first response.
+func (b *browser) xsrfToken() string {
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, b.base+"/api/user/session", http.NoBody)
+	if err != nil {
+		b.t.Fatal(err)
+	}
+	for _, cookie := range b.client.Jar.Cookies(req.URL) {
+		if cookie.Name == staff.XSRFCookie {
+			return cookie.Value
+		}
+	}
+
+	return ""
+}
+
+// provesGrant names the conditional grant a test case proves. It parses the auth's role
+// file (<auth>.Roles(), the file embedded in the auth package) and fails unless a grant for
+// the role, permission, and resource carries exactly that condition text, so a case whose
+// grant is gone or reworded fails here even when nobody ran impulse check, whose
+// conditions-proven check reads these calls to find the conditional grants no case names.
+// Write the file as the auth package's Roles() call and the coordinates as literals: the
+// check reads them from the source.
+func provesGrant(t *testing.T, roles access.RoleFile, role accesstypes.Role, permission accesstypes.Permission, res accesstypes.Resource, condition string) {
+	t.Helper()
+
+	parsed, err := roles.Parse()
+	if err != nil {
+		t.Fatalf("parsing the role file: %v", err)
+	}
+	var conditions []string
+	for _, r := range slices.Concat(parsed.Roles.Global, parsed.Roles.Domain) {
+		if r.Name != role {
+			continue
+		}
+		for _, g := range r.Permissions[permission] {
+			if g.Resource != res {
+				continue
+			}
+			if g.Condition == condition {
+				return
+			}
+			conditions = append(conditions, g.Condition)
+		}
+	}
+	t.Fatalf("no %s grant of the %s role on %s carries the condition %q (the file's conditions there: %q); the case proves a grant the file no longer carries", permission, role, res, condition, conditions)
+}

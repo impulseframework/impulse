@@ -1,0 +1,125 @@
+@if (resourceConfig().title !== '') {
+  <div class="resource-array-view">
+    <mat-expansion-panel
+      #expPanel
+      [@.disabled]="true"
+      [disabled]="!resourceConfig().collapsible"
+      [expanded]="!resourceConfig().collapsible">
+      <mat-expansion-panel-header>
+        @if (resourceConfig().title) {
+          <mat-panel-title>
+            <h1 class="title">
+              {{ resourceConfig().title }}
+            </h1>
+          </mat-panel-title>
+        }
+        <action-access-control-wrapper [actionContext]="createActionConfig()">
+          <button
+            mat-icon-button
+            class="exp-panel-add-element-btn"
+            color="accent"
+            (click)="createResource($event)"
+            [matTooltip]="resourceConfig().createButtonLabel"
+            matTooltipPosition="above">
+            <mat-icon color="accent">add_circle</mat-icon>
+          </button>
+        </action-access-control-wrapper>
+      </mat-expansion-panel-header>
+
+      @if (!resourceConfig().collapsible && !resourceConfig().title) {
+        <div class="no-title-exp-panel-padding"></div>
+      }
+
+      @if (createMode()) {
+        <impulse-resource-create
+          [resourceConfig]="createConfig()"
+          [parentData]="parentData() ?? {}"
+          (complete)="onCreateCompleted()">
+        </impulse-resource-create>
+      }
+      @if (resolved()) {
+        @for (resource of rows(); track resource['id']; let i = $index) {
+          @let resourceId = (resource[resourceConfig().connectorField] || resource['id']) + '';
+
+          @if (parentData() && resourceConfig().iteratedConfig && resourceId && i + 1 <= resourceConfig().limit) {
+            <ng-container
+              *ngComponentOutlet="
+                compoundResourceComponent();
+                inputs: {
+                  uuid: resourceId,
+                  parentData: parentData(),
+                  isArrayChild: true,
+                  resourceConfig: resourceConfig().iteratedConfig,
+                }
+              ">
+            </ng-container>
+          }
+        }
+      } @else {
+        <div class="resource-container empty">
+          <div class="resource row"></div>
+        </div>
+      }
+
+      @if (rows().length === 0) {
+        <div>{{ emptyMessage() }}</div>
+      }
+      @if (paged()) {
+        <div class="array-pager">
+          <span class="pager-rows">{{ pagerLabel() }}</span>
+          <span class="pager-buttons">
+            <button type="button" mat-button [disabled]="!store.page().hasPrev" (click)="store.turnPage('prev')">
+              <mat-icon>chevron_left</mat-icon> Previous
+            </button>
+            <button type="button" mat-button [disabled]="!store.page().hasNext" (click)="store.turnPage('next')">
+              Next <mat-icon iconPositionEnd>chevron_right</mat-icon>
+            </button>
+          </span>
+        </div>
+      }
+    </mat-expansion-panel>
+  </div>
+} @else {
+  @if (createMode()) {
+    <impulse-resource-create [resourceConfig]="createConfig()" [parentData]="parentData() ?? {}" (complete)="onCreateCompleted()">
+    </impulse-resource-create>
+  }
+  @if (resolved()) {
+    @for (resource of rows(); track resource['id']; let i = $index) {
+      @if (parentData() && resourceConfig().iteratedConfig && resource['id'] && i + 1 <= resourceConfig().limit) {
+        <ng-container
+          *ngComponentOutlet="
+            compoundResourceComponent();
+            inputs: {
+              uuid: resource['id'] + '',
+              parentData: parentData(),
+              isArrayChild: true,
+              resourceConfig: resourceConfig().iteratedConfig,
+            }
+          ">
+        </ng-container>
+      }
+    }
+  } @else {
+    <div class="resource-container empty">
+      <div class="resource row"></div>
+    </div>
+  }
+
+  @if (rows().length === 0) {
+    <div>{{ emptyMessage() }}</div>
+  }
+  @if (paged()) {
+    <div class="array-pager">
+      <span class="pager-rows">{{ pagerLabel() }}</span>
+      <span class="pager-buttons">
+        <button type="button" mat-button [disabled]="!store.page().hasPrev" (click)="store.turnPage('prev')">
+          <mat-icon>chevron_left</mat-icon> Previous
+        </button>
+        <button type="button" mat-button [disabled]="!store.page().hasNext" (click)="store.turnPage('next')">
+          Next <mat-icon iconPositionEnd>chevron_right</mat-icon>
+        </button>
+      </span>
+    </div>
+  }
+}

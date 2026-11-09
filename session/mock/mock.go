@@ -1,0 +1,12 @@
+// Package mock is used to generate mock files for testing.
+package mock
+
+//go:generate mockgen -source ../azure/authenticator.go -destination mock_azure/mock_authenticator.go
+//go:generate mockgen -source ../google/authenticator.go -destination mock_google/mock_authenticator.go
+//go:generate mockgen -source ../oidc/authenticator.go -destination mock_oidc/mock_authenticator.go
+//go:generate mockgen -source ../signin/rolemanager.go -destination mock_signin/mock_rolemanager.go
+//go:generate mockgen -source ../session_iface.go -destination mock_session/mock_session_iface.go
+//go:generate mockgen -source ../internal/cookie/cookie_iface.go -destination mock_cookie/mock_cookie_iface.go
+//go:generate mockgen -source ../sessionstorage/sessionstorage_iface.go -destination ../sessionstorage/mock/mock_sessionstorage/mock_sessionstorage.go -exclude_interfaces db
+//go:generate mockgen -source ../sessionstorage/auth.go -destination ../sessionstorage/mock/mock_sessionstorage/mock_auth.go -package mock_sessionstorage -aux_files github.com/impulseframework/impulse/session/sessionstorage=../sessionstorage/sessionstorage_iface.go
+//go:generate mockgen -source ../sessionstorage/sessionstorage_iface.go -destination ../sessionstorage/db_mock_test.go -package sessionstorage -exclude_interfaces BaseStore,PreauthStore

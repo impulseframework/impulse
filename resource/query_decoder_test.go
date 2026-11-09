@@ -1,0 +1,886 @@
+package resource
+
+import (
+	"net/http"
+	"net/url"
+	"reflect"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
+)
+
+type TestResource struct {
+	ID                 string   `spanner:"id"`
+	Name               string   `spanner:"name_sql"`
+	Age                int      `spanner:"age_sql"`
+	Status             string   `spanner:"status_sql"`
+	Email              *string  `spanner:"email_sql"`
+	Salary             float64  `spanner:"salary_sql"`
+	IsActive           bool     `spanner:"active_sql"`
+	ItemIDs            []int    `spanner:"item_ids_sql"`
+	Tags               []string `spanner:"tags_sql"`
+	LegacyIndexedField string   `spanner:"legacy_indexed_field_sql"`
+	Ssn                string   `spanner:"ssn_sql"`
+}
+
+func (tr TestResource) Resource() accesstypes.Resource { return "testresources" }
+func (tr TestResource) DefaultConfig() Config {
+	return Config{
+		ChangeTrackingTable: "",
+		TrackChanges:        false,
+	}
+}
+
+type TestRequest struct {
+	ID                 string   `json:"id"                 perm:"-"`
+	Name               string   `json:"name"               index:"true"`
+	Age                int      `json:"age"                index:"true"`
+	Status             string   `json:"status"`
+	Email              *string  `json:"email"              index:"true"`
+	Salary             float64  `json:"salary"             index:"true"`
+	IsActive           bool     `json:"isActive"           index:"true"`
+	ItemIDs            []int    `json:"itemIDs"            index:"true"`
+	Tags               []string `json:"tags"               index:"true"`
+	LegacyIndexedField string   `json:"legacyIndexedField" index:"true"`
+	Ssn                string   `json:"ssn"                index:"true" pii:"true"`
+}
+
+func TestQueryDecoder_parseQuery(t *testing.T) {
+	t.Parallel()
+
+	test := []struct {
+		name                string
+		queryValues         url.Values
+		wantErr             bool
+		expectedResult      *parsedQueryParams
+		expectedASTString   string
+		expectedErrMsg      string
+		expectConflictError bool
+	}{
+		{
+			name:        "limit only",
+			queryValues: url.Values{"limit": []string{"10"}},
+			wantErr:     false,
+			expectedResult: &parsedQueryParams{
+				Page: pageRequest{size: 10},
+			},
+		},
+		{
+			name:           "offset is refused naming the cursor",
+			queryValues:    url.Values{"offset": []string{"10"}},
+			wantErr:        true,
+			expectedErrMsg: "offset is not supported: pages are positioned by the cursor",
+		},
+		{
+			name:        "default page",
+			queryValues: url.Values{},
+			wantErr:     false,
+			expectedResult: &parsedQueryParams{
+				Page: pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:        "limit=all asks for every row",
+			queryValues: url.Values{"limit": []string{"all"}},
+			wantErr:     false,
+			expectedResult: &parsedQueryParams{
+				Page: pageRequest{size: DefaultPageSize, all: true},
+			},
+		},
+		{
+			name:           "limit=0 is refused",
+			queryValues:    url.Values{"limit": []string{"0"}},
+			wantErr:        true,
+			expectedErrMsg: "limit must be at least 1",
+		},
+		{
+			name:        "cursor rides the page",
+			queryValues: url.Values{"cursor": []string{"v4.local.abc"}, "limit": []string{"4"}},
+			wantErr:     false,
+			expectedResult: &parsedQueryParams{
+				Page: pageRequest{size: 4, token: "v4.local.abc"},
+			},
+		},
+		{
+			name:           "cursor with limit=all is refused",
+			queryValues:    url.Values{"cursor": []string{"v4.local.abc"}, "limit": []string{"all"}},
+			wantErr:        true,
+			expectedErrMsg: "cannot be combined with limit=all",
+		},
+		{
+			name:        "count=true asks for the total",
+			queryValues: url.Values{"count": []string{"true"}},
+			wantErr:     false,
+			expectedResult: &parsedQueryParams{
+				Page: pageRequest{size: DefaultPageSize, count: true},
+			},
+		},
+		{
+			name:           "count with any other value is refused",
+			queryValues:    url.Values{"count": []string{"yes"}},
+			wantErr:        true,
+			expectedErrMsg: "invalid count value: yes",
+		},
+		{
+			name:           "count on a later page is refused",
+			queryValues:    url.Values{"count": []string{"true"}, "cursor": []string{"v4.local.abc"}},
+			wantErr:        true,
+			expectedErrMsg: "count is answered on the first page only",
+		},
+		{
+			name:           "invalid limit - negative",
+			queryValues:    url.Values{"limit": []string{"-1"}},
+			wantErr:        true,
+			expectedErrMsg: "invalid limit value: -1",
+		},
+		{
+			name:           "invalid limit - non-integer",
+			queryValues:    url.Values{"limit": []string{"abc"}},
+			wantErr:        true,
+			expectedErrMsg: "invalid limit value: abc",
+		},
+		// Columns processing first
+		{
+			name:        "columns only",
+			queryValues: url.Values{"columns": []string{"name,age"}},
+			wantErr:     false,
+			expectedResult: &parsedQueryParams{
+				ColumnFields: []accesstypes.Field{"Name", "Age"},
+				Page:         pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:        "columns with valid filter",
+			queryValues: url.Values{"columns": {"name"}, "filter": {"age:gt:30"}},
+			wantErr:     false,
+			expectedResult: &parsedQueryParams{
+				ColumnFields: []accesstypes.Field{"Name"},
+				Page:         pageRequest{size: DefaultPageSize},
+			},
+			expectedASTString: "age_sql:gt:30",
+		},
+		{
+			name:           "columns with legacy filter (now unsupported)",
+			queryValues:    url.Values{"columns": []string{"name"}, "legacyIndexedField": []string{"value"}},
+			wantErr:        true,
+			expectedErrMsg: "unknown query parameters",
+		},
+		{
+			name:           "invalid column name",
+			queryValues:    url.Values{"columns": []string{"name,nonexistent"}},
+			wantErr:        true,
+			expectedErrMsg: "unknown column: nonexistent",
+		},
+
+		// "filter" parameter processing
+		{
+			name:              "valid filter only - string",
+			queryValues:       url.Values{"filter": []string{"name:eq:John"}},
+			wantErr:           false,
+			expectedASTString: "name_sql:eq:John",
+			expectedResult: &parsedQueryParams{
+				Page: pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:           "invalid filter only",
+			queryValues:    url.Values{"filter": []string{"name:badop:John"}},
+			wantErr:        true,
+			expectedErrMsg: "unknown operator 'badop' in condition 'name:badop:John'",
+		},
+
+		// all togeather now
+		{
+			name:              "limit only",
+			queryValues:       url.Values{"columns": []string{"name,age"}, "filter": []string{"name:eq:John"}, "limit": []string{"10"}},
+			wantErr:           false,
+			expectedASTString: "name_sql:eq:John",
+			expectedResult: &parsedQueryParams{
+				ColumnFields: []accesstypes.Field{"Name", "Age"},
+				Page:         pageRequest{size: 10},
+			},
+		},
+
+		// Conflict Check (legacyIndexedField is now an unknown parameter)
+		{
+			name:           "filter with legacy field (now unknown param)",
+			queryValues:    url.Values{"filter": []string{"name:eq:John"}, "legacyIndexedField": []string{"value"}},
+			wantErr:        true,
+			expectedErrMsg: "unknown query parameters",
+		},
+
+		// Interaction and error propagation
+		{
+			name:           "invalid filter is refused before unknown parameters are reported",
+			queryValues:    url.Values{"filter": []string{"name:badop:John"}, "legacyIndexedField": []string{"value"}},
+			wantErr:        true,
+			expectedErrMsg: "unknown operator 'badop'",
+		},
+		{
+			name:           "valid filter with unknown parameter",
+			queryValues:    url.Values{"filter": []string{"name:eq:John"}, "unknown": []string{"value"}},
+			wantErr:        true,
+			expectedErrMsg: "unknown query parameters: map[unknown:[value]]",
+		},
+		{
+			name:           "legacy field (now unknown) with another unknown parameter",
+			queryValues:    url.Values{"legacyIndexedField": []string{"value"}, "unknown": []string{"value"}},
+			wantErr:        true,
+			expectedErrMsg: "unknown query parameters",
+		},
+		{
+			name:           "columns, valid filter, legacy field (now unsupported), and unknown param",
+			queryValues:    url.Values{"columns": []string{"age"}, "filter": []string{"name:eq:John"}, "legacyIndexedField": []string{"value"}, "unknown": []string{"value"}},
+			wantErr:        true,
+			expectedErrMsg: "unknown query parameters",
+		},
+		{
+			name:           "empty filter string with legacy field (now unsupported)",
+			queryValues:    url.Values{"filter": []string{""}, "legacyIndexedField": []string{"value"}},
+			wantErr:        true,
+			expectedErrMsg: "unknown query parameters",
+		},
+		// The live version parameter: accepted in its shape and skipped, never a filter
+		// and never an unknown parameter; anything else unknown beside it is still refused.
+		{
+			name:        "the version parameter alone is accepted and skipped",
+			queryValues: url.Values{VersionParam: []string{"1727900000123456"}},
+			wantErr:     false,
+			expectedResult: &parsedQueryParams{
+				Page: pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:              "the version parameter beside a filter changes nothing about the query",
+			queryValues:       url.Values{"filter": []string{"age:eq:42"}, VersionParam: []string{"seed_Ab-9.z:1"}},
+			wantErr:           false,
+			expectedASTString: "age_sql:eq:42",
+			expectedResult: &parsedQueryParams{
+				Page: pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:           "the version parameter beside an unknown parameter is still refused",
+			queryValues:    url.Values{VersionParam: []string{"1727900000123456"}, "unknown": []string{"value"}},
+			wantErr:        true,
+			expectedErrMsg: "unknown query parameters: map[unknown:[value]]",
+		},
+		{
+			name:           "an empty version value is refused naming the parameter",
+			queryValues:    url.Values{VersionParam: []string{""}},
+			wantErr:        true,
+			expectedErrMsg: "invalid _v value: 1 to 64 characters of [A-Za-z0-9_.:-]",
+		},
+		{
+			name:           "a version value outside the charset is refused naming the parameter",
+			queryValues:    url.Values{VersionParam: []string{"17279/0000"}},
+			wantErr:        true,
+			expectedErrMsg: "invalid _v value",
+		},
+		{
+			name:           "a version value over 64 characters is refused naming the parameter",
+			queryValues:    url.Values{VersionParam: []string{strings.Repeat("a", 65)}},
+			wantErr:        true,
+			expectedErrMsg: "invalid _v value",
+		},
+		{
+			name:              "integer equality",
+			queryValues:       url.Values{"filter": []string{"age:eq:42"}},
+			wantErr:           false,
+			expectedASTString: "age_sql:eq:42",
+			expectedResult: &parsedQueryParams{
+				Page: pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:              "boolean true equality",
+			queryValues:       url.Values{"filter": []string{"isActive:eq:true"}},
+			wantErr:           false,
+			expectedASTString: "active_sql:eq:true",
+			expectedResult: &parsedQueryParams{
+				Page: pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:              "boolean false equality",
+			queryValues:       url.Values{"filter": []string{"isActive:eq:false"}},
+			wantErr:           false,
+			expectedASTString: "active_sql:eq:false",
+			expectedResult: &parsedQueryParams{
+				Page: pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:              "float GTE",
+			queryValues:       url.Values{"filter": []string{"salary:gte:5000.75"}},
+			wantErr:           false,
+			expectedASTString: "salary_sql:gte:5000.75",
+			expectedResult: &parsedQueryParams{
+				Page: pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:              "IN list of integers",
+			queryValues:       url.Values{"filter": []string{"itemIDs:in:(1,2,3)"}},
+			wantErr:           false,
+			expectedASTString: "item_ids_sql:in:(1,2,3)",
+			expectedResult: &parsedQueryParams{
+				Page: pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:              "IN list of strings",
+			queryValues:       url.Values{"filter": []string{"tags:in:(Alice,Bob,Charlie)"}},
+			wantErr:           false,
+			expectedASTString: "tags_sql:in:(Alice,Bob,Charlie)",
+			expectedResult: &parsedQueryParams{
+				Page: pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:              "ISNULL operator",
+			queryValues:       url.Values{"filter": []string{"email:isnull"}},
+			wantErr:           false,
+			expectedASTString: "email_sql:isnull",
+			expectedResult: &parsedQueryParams{
+				Page: pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:              "ISNOTNULL operator",
+			queryValues:       url.Values{"filter": []string{"email:isnotnull"}},
+			wantErr:           false,
+			expectedASTString: "email_sql:isnotnull",
+			expectedResult: &parsedQueryParams{
+				Page: pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:           "index error - status is not indexed, cant filter on it",
+			queryValues:    url.Values{"filter": []string{"status:eq:active"}},
+			wantErr:        true,
+			expectedErrMsg: "'status' is not filterable but was included in condition 'status:eq:active'",
+		},
+		{
+			name:           "conversion error - int",
+			queryValues:    url.Values{"filter": []string{"age:eq:notanint"}},
+			wantErr:        true,
+			expectedErrMsg: "age: 'notanint' is not a whole number.",
+		},
+		{
+			name:           "conversion error - bool",
+			queryValues:    url.Values{"filter": []string{"isActive:eq:notabool"}},
+			wantErr:        true,
+			expectedErrMsg: "isActive: 'notabool' is not true or false.",
+		},
+		{
+			name:           "conversion error - float",
+			queryValues:    url.Values{"filter": []string{"salary:eq:notafloat"}},
+			wantErr:        true,
+			expectedErrMsg: "salary: 'notafloat' is not a number.",
+		},
+
+		// Sort parameter processing
+		{
+			name:        "sort single field default direction",
+			queryValues: url.Values{"sort": []string{"name"}},
+			wantErr:     false,
+			expectedResult: &parsedQueryParams{
+				SortFields: []SortField{{Field: "Name", Direction: SortAscending}},
+				Page:       pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:        "sort single field asc",
+			queryValues: url.Values{"sort": []string{"name:asc"}},
+			wantErr:     false,
+			expectedResult: &parsedQueryParams{
+				SortFields: []SortField{{Field: "Name", Direction: SortAscending}},
+				Page:       pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:        "sort single field desc",
+			queryValues: url.Values{"sort": []string{"age:desc"}},
+			wantErr:     false,
+			expectedResult: &parsedQueryParams{
+				SortFields: []SortField{{Field: "Age", Direction: SortDescending}},
+				Page:       pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:        "sort multi-field",
+			queryValues: url.Values{"sort": []string{"name:asc,age:desc"}},
+			wantErr:     false,
+			expectedResult: &parsedQueryParams{
+				SortFields: []SortField{{Field: "Name", Direction: SortAscending}, {Field: "Age", Direction: SortDescending}},
+				Page:       pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:        "sort multi-field with spaces",
+			queryValues: url.Values{"sort": []string{" name : asc , age : desc "}},
+			wantErr:     false,
+			expectedResult: &parsedQueryParams{
+				SortFields: []SortField{{Field: "Name", Direction: SortAscending}, {Field: "Age", Direction: SortDescending}},
+				Page:       pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:           "sort invalid field name",
+			queryValues:    url.Values{"sort": []string{"nonexistent:asc"}},
+			wantErr:        true,
+			expectedErrMsg: "unknown sort field: nonexistent",
+		},
+		{
+			name:        "sort legacyIndexedField (is sortable)",
+			queryValues: url.Values{"sort": []string{"legacyIndexedField:asc"}},
+			wantErr:     false,
+			expectedResult: &parsedQueryParams{
+				SortFields: []SortField{{Field: "LegacyIndexedField", Direction: SortAscending}},
+				Page:       pageRequest{size: DefaultPageSize},
+			},
+		},
+		{
+			name:           "sort invalid direction",
+			queryValues:    url.Values{"sort": []string{"name:invalid"}},
+			wantErr:        true,
+			expectedErrMsg: "invalid sort direction for field 'name': invalid. Must be 'asc' or 'desc'",
+		},
+		{
+			name:           "sort empty parameter",
+			queryValues:    url.Values{"sort": []string{""}},
+			wantErr:        true,
+			expectedErrMsg: "unknown query parameters: map[sort:[]]",
+		},
+		{
+			name:           "sort with empty parts",
+			queryValues:    url.Values{"sort": []string{"name,,age"}},
+			wantErr:        true,
+			expectedErrMsg: "invalid sort field, found empty part in sort parameter: name,,age",
+		},
+		{
+			name:           "sort with leading comma",
+			queryValues:    url.Values{"sort": []string{",name"}},
+			wantErr:        true,
+			expectedErrMsg: "invalid sort field, found empty part in sort parameter: ,name",
+		},
+		{
+			name:           "sort with only colon",
+			queryValues:    url.Values{"sort": []string{":"}},
+			wantErr:        true,
+			expectedErrMsg: "sort field name cannot be empty",
+		},
+		{
+			name:           "sort field name ends with colon",
+			queryValues:    url.Values{"sort": []string{"name:"}},
+			wantErr:        true,
+			expectedErrMsg: "invalid sort direction for field 'name': . Must be 'asc' or 'desc'",
+		},
+	}
+
+	for _, tt := range test {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			resSet, err := NewSet[TestResource, TestRequest](accesstypes.List)
+			if err != nil {
+				t.Fatalf("Failed to create ResourceSet for test case %s: %v", tt.name, err)
+			}
+			decoder, err := NewQueryDecoder[TestResource, TestRequest](resSet)
+			if err != nil {
+				t.Fatalf("NewQueryDecoder should not fail with default setup for test case %s: %v", tt.name, err)
+			}
+
+			parsedQuery, err := decoder.parseQuery(tt.queryValues, nil, "")
+			if err == nil && parsedQuery.FilterParser != nil {
+				_, err = parsedQuery.FilterParser(SpannerDBType)
+			}
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("Expected an error for test '%s', got nil", tt.name)
+				} else {
+					if tt.expectedErrMsg != "" && !strings.Contains(err.Error(), tt.expectedErrMsg) {
+						t.Errorf("Error message mismatch for test '%s':\nExpected to contain: %s\nActual error: %s", tt.name, tt.expectedErrMsg, err.Error())
+					}
+					if tt.expectConflictError && !strings.Contains(err.Error(), "cannot use 'filter' parameter alongside other legacy filterable field parameters") {
+						t.Errorf("Expected conflict error for test '%s', but got: %s", tt.name, err.Error())
+					}
+				}
+			} else { // !tt.wantErr
+				if err != nil {
+					t.Errorf("Did not expect an error for test '%s', got: %v", tt.name, err)
+				}
+			}
+
+			if tt.expectedResult != nil {
+				if parsedQuery.Page != tt.expectedResult.Page {
+					t.Errorf("Page mismatch for test '%s':\nExpected: %+v\nActual:   %+v", tt.name, tt.expectedResult.Page, parsedQuery.Page)
+				}
+
+				if !reflect.DeepEqual(tt.expectedResult.SortFields, parsedQuery.SortFields) {
+					isNilOrEmptySortField := func(s []SortField) bool { return len(s) == 0 }
+					if !(tt.wantErr && isNilOrEmptySortField(tt.expectedResult.SortFields) && isNilOrEmptySortField(parsedQuery.SortFields)) {
+						t.Errorf("SortFields mismatch for test '%s':\nExpected: %#v\nActual:   %#v", tt.name, tt.expectedResult.SortFields, parsedQuery.SortFields)
+					}
+				}
+
+				if !reflect.DeepEqual(tt.expectedResult.ColumnFields, parsedQuery.ColumnFields) {
+					isNilOrEmpty := func(s []accesstypes.Field) bool { return len(s) == 0 }
+					if !(tt.wantErr && isNilOrEmpty(tt.expectedResult.ColumnFields) && isNilOrEmpty(parsedQuery.ColumnFields)) {
+						t.Errorf("ColumnFields mismatch for test '%s':\nExpected: %#v\nActual:   %#v", tt.name, tt.expectedResult.ColumnFields, parsedQuery.ColumnFields)
+					}
+				}
+			}
+
+			// Check AST string representation
+			if tt.expectedASTString != "" {
+				if parsedQuery.FilterParser == nil {
+					if !tt.wantErr { // Only error if we didn't expect an error that might prevent AST parsing
+						t.Errorf("parsedAST is nil for test '%s', but expected AST string: %s", tt.name, tt.expectedASTString)
+					}
+				} else {
+					ast, err := parsedQuery.FilterParser(SpannerDBType)
+					if err != nil {
+						t.Fatalf("Failed to parse AST for test '%s': %v", tt.name, err)
+					}
+					if actualASTString := ast.String(); actualASTString != tt.expectedASTString {
+						t.Errorf("AST string representation mismatch for test '%s':\nExpected: %s\nActual:   %s", tt.name, tt.expectedASTString, actualASTString)
+					}
+				}
+			} else if parsedQuery != nil && parsedQuery.FilterParser != nil && !tt.wantErr { // If no AST string is expected and no error, AST should be nil
+				if !(tt.expectConflictError && err != nil && strings.Contains(err.Error(), "cannot use 'filter' parameter")) {
+					ast, err := parsedQuery.FilterParser(SpannerDBType)
+					if err != nil {
+						t.Fatalf("Failed to parse AST for test '%s': %v", tt.name, err)
+					}
+					t.Errorf("Expected nil parsedAST for test '%s' (no expected AST string and no error), got: %s", tt.name, ast.String())
+				}
+			}
+		})
+	}
+}
+
+func TestQueryDecoder_DecodeWithoutPermissions(t *testing.T) {
+	t.Parallel()
+	resSet, err := NewSet[TestResource, TestRequest](accesstypes.List)
+	if err != nil {
+		t.Fatalf("Failed to create ResourceSet: %v", err)
+	}
+	decoder, err := NewQueryDecoder[TestResource, TestRequest](resSet)
+	if err != nil {
+		t.Fatalf("NewQueryDecoder should not fail with default setup: %v", err)
+	}
+	// A paged list request needs an order (requireOrder); the declared one keeps
+	// these requests about the filter alone.
+	decoder.WithPaging(Paging{Order: []SortField{{Field: "Name", Direction: SortAscending}}})
+
+	testCases := []struct {
+		name              string
+		method            string
+		urlValues         string
+		body              string
+		expectedASTString string
+		expectedErrMsg    string
+		expectErr         bool
+	}{
+		{
+			name:              "GET with filter in query",
+			method:            http.MethodGet,
+			urlValues:         "filter=name:eq:John",
+			body:              "",
+			expectedASTString: "name_sql:eq:John",
+			expectErr:         false,
+		},
+		{
+			name:              "POST with filter in body",
+			method:            http.MethodPost,
+			urlValues:         "",
+			body:              `{"filter": "name:eq:John"}`,
+			expectedASTString: "name_sql:eq:John",
+			expectErr:         false,
+		},
+		{
+			name:              "POST with filter in URL",
+			method:            http.MethodPost,
+			urlValues:         "filter=name:eq:John",
+			body:              "{}",
+			expectedASTString: "name_sql:eq:John",
+			expectErr:         false,
+		},
+		{
+			name:              "POST with pii in body filter",
+			method:            http.MethodPost,
+			urlValues:         "",
+			body:              `{"filter": "ssn:eq:123456789"}`,
+			expectedASTString: "ssn_sql:eq:123456789",
+			expectErr:         false,
+		},
+		{
+			name:           "GET with pii in URL filter",
+			method:         http.MethodGet,
+			urlValues:      "filter=ssn:eq:123456789",
+			body:           "",
+			expectedErrMsg: "cannot filter on sensitive field in URL: ssn",
+			expectErr:      true,
+		},
+		{
+			name:           "POST with pii in URL filter",
+			method:         http.MethodPost,
+			urlValues:      "filter=ssn:eq:123456789",
+			body:           "",
+			expectedErrMsg: "cannot filter on sensitive field in URL: ssn",
+			expectErr:      true,
+		},
+		{
+			name:           "POST with filter in body and query",
+			method:         http.MethodPost,
+			urlValues:      "filter=age:gt:30",
+			body:           `{"filter": "name:eq:John"}`,
+			expectedErrMsg: "cannot have 'filter' parameter in both query and body",
+			expectErr:      true,
+		},
+		{
+			name:           "POST with invalid JSON body",
+			method:         http.MethodPost,
+			urlValues:      "",
+			body:           `{"filter": "name:eq:John"`,
+			expectedErrMsg: "failed to decode request body",
+			expectErr:      true,
+		},
+		{
+			name:      "POST with empty body",
+			method:    http.MethodPost,
+			urlValues: "",
+			body:      "",
+			expectErr: true,
+		},
+		{
+			name:              "POST invalid field in body",
+			method:            http.MethodPost,
+			urlValues:         "filter=name:eq:John",
+			body:              `{"a": "value"}`,
+			expectedASTString: "",
+			expectErr:         true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			req, err := http.NewRequestWithContext(t.Context(), tc.method, "http://test?"+tc.urlValues, strings.NewReader(tc.body))
+			if err != nil {
+				t.Fatalf("Failed to create request: %v", err)
+			}
+			if tc.body != "" {
+				req.Header.Set("Content-Type", "application/json")
+			}
+
+			qSet, err := decoder.DecodeWithoutPermissions(req)
+
+			if tc.expectErr {
+				if err == nil {
+					t.Errorf("Expected an error, got nil")
+				} else if !strings.Contains(err.Error(), tc.expectedErrMsg) {
+					t.Errorf("Expected error message to contain '%s', got '%s'", tc.expectedErrMsg, err.Error())
+				}
+			} else {
+				if err != nil {
+					t.Errorf("Did not expect an error, got: %v", err)
+				}
+				ast, err := qSet.filterParser(SpannerDBType)
+				if err != nil {
+					t.Fatalf("Failed to parse AST from qSet: %v", err)
+				}
+				if ast == nil {
+					t.Errorf("Expected AST to be parsed, but it was nil")
+				} else if ast.String() != tc.expectedASTString {
+					t.Errorf("Expected AST string '%s', got '%s'", tc.expectedASTString, ast.String())
+				}
+			}
+		})
+	}
+}
+
+// hiddenFieldResource / hiddenFieldRequest model a resource with a field that is
+// excluded from the request type via json:"-" (what the generator emits for
+// conditions:"input_only" fields in read/list request structs).
+type hiddenFieldResource struct {
+	ID     string `spanner:"id"`
+	Name   string `spanner:"name"`
+	Secret string `spanner:"secret"`
+}
+
+func (hiddenFieldResource) Resource() accesstypes.Resource { return "hiddenFieldResources" }
+
+func (hiddenFieldResource) DefaultConfig() Config { return Config{} }
+
+type hiddenFieldRequest struct {
+	ID     string `json:"id"   index:"true"`
+	Name   string `json:"name" index:"true"`
+	Secret string `json:"-"`
+}
+
+func TestQueryDecoder_UnrequestableFields(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		target         string
+		wantFields     []accesstypes.Field
+		expectedErrMsg string
+		expectErr      bool
+	}{
+		{
+			name:       "default field set excludes fields absent from the request type",
+			target:     "http://test?limit=all",
+			wantFields: []accesstypes.Field{"ID", "Name"},
+		},
+		{
+			name:           "field absent from the request type cannot be requested as a column",
+			target:         "http://test?columns=secret",
+			expectedErrMsg: "unknown column: secret",
+			expectErr:      true,
+		},
+		{
+			name:           "field absent from the request type cannot be used to sort",
+			target:         "http://test?sort=secret",
+			expectedErrMsg: "unknown sort field: secret",
+			expectErr:      true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			resSet, err := NewSet[hiddenFieldResource, hiddenFieldRequest](accesstypes.List)
+			if err != nil {
+				t.Fatalf("NewSet: %v", err)
+			}
+			decoder, err := NewQueryDecoder[hiddenFieldResource, hiddenFieldRequest](resSet)
+			if err != nil {
+				t.Fatalf("NewQueryDecoder: %v", err)
+			}
+
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, tt.target, http.NoBody)
+			if err != nil {
+				t.Fatalf("http.NewRequestWithContext: %v", err)
+			}
+
+			qSet, err := decoder.DecodeWithoutPermissions(req)
+			if tt.expectErr {
+				if err == nil {
+					t.Fatal("expected an error, got nil")
+				}
+				if !strings.Contains(err.Error(), tt.expectedErrMsg) {
+					t.Errorf("error = %q, want it to contain %q", err.Error(), tt.expectedErrMsg)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("DecodeWithoutPermissions: %v", err)
+			}
+
+			if err := qSet.addAccessibleFields(t.Context(), SpannerDBType); err != nil {
+				t.Fatalf("addAccessibleFields: %v", err)
+			}
+			if got := qSet.Fields(); !slices.Equal(got, tt.wantFields) {
+				t.Errorf("Fields() = %v, want %v", got, tt.wantFields)
+			}
+		})
+	}
+}
+
+// filterTimingRequest pairs an indexed field with one that is only allow_filter,
+// so a filter can be well formed without touching an index.
+type filterTimingRequest struct {
+	ID   string `json:"id"   index:"true"`
+	Name string `json:"name" allow_filter:"true"`
+}
+
+// TestQueryDecoder_parseQuery_filterValidationTiming pins where each filter
+// refusal fires: the request's shape at decode, the index rule at the database
+// parse that renders SQL.
+func TestQueryDecoder_parseQuery_filterValidationTiming(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		filter        string
+		wantDecodeErr string
+		wantDBErr     string
+	}{
+		{
+			name:   "indexed field parses at decode and renders for the database",
+			filter: "id:eq:a",
+		},
+		{
+			name:      "allow_filter field alone parses at decode; the index rule waits for the database parse",
+			filter:    "name:eq:a",
+			wantDBErr: "at least one column that is indexed",
+		},
+		{
+			name:          "unknown field is refused at decode",
+			filter:        "nope:eq:a",
+			wantDecodeErr: "'nope' is not filterable",
+		},
+		{
+			name:          "malformed condition is refused at decode",
+			filter:        "id",
+			wantDecodeErr: "must have at least field:operator",
+		},
+		{
+			name:          "unbalanced group is refused at decode",
+			filter:        "(id:eq:a",
+			wantDecodeErr: "expected",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			resSet, err := NewSet[hiddenFieldResource, filterTimingRequest](accesstypes.List)
+			if err != nil {
+				t.Fatalf("NewSet() error = %v", err)
+			}
+			decoder, err := NewQueryDecoder[hiddenFieldResource, filterTimingRequest](resSet)
+			if err != nil {
+				t.Fatalf("NewQueryDecoder() error = %v", err)
+			}
+
+			parsed, err := decoder.parseQuery(url.Values{"filter": []string{tt.filter}}, nil, "")
+			if tt.wantDecodeErr != "" {
+				if err == nil {
+					t.Fatal("parseQuery() expected an error, got nil")
+				}
+				if !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), tt.wantDecodeErr) {
+					t.Fatalf("parseQuery() error = %v, want Bad Request containing %q", err, tt.wantDecodeErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseQuery() error = %v", err)
+			}
+
+			_, err = parsed.FilterParser(SpannerDBType)
+			if tt.wantDBErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantDBErr) {
+					t.Fatalf("FilterParser(Spanner) error = %v, want error containing %q", err, tt.wantDBErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("FilterParser(Spanner) error = %v", err)
+			}
+		})
+	}
+}

@@ -1,0 +1,49 @@
+package rpc
+
+import (
+	"context"
+	"time"
+
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/lodestar/pkg/telemetry"
+	"github.com/impulseframework/impulse/resource"
+)
+
+type (
+	// IngestDroidReports is the machine-only RPC: @outlet(droids) replaces the default
+	// outlet, so the route exists only behind the token check. The payload is flat, one
+	// reading per call (a batch is the droid script calling it in a loop); tenancy
+	// resolves through the ship's hangar, so the payload never asserts its own sector. It
+	// has no target, so its Execute grant stays row-free. Frame is the reading's raw
+	// frame, a telemetry.Frame the request carries as the JSON the firmware wrote and
+	// the row stores as it came. A droid calls it once per reading, all day, so the
+	// method writes its request log on event (@rpc(log: onEvent)): a reading that lands
+	// writes no entry, and a reading the method refuses, or a line a handler logs on the
+	// way, is an event and writes the request's entry with every line attached.
+	//
+	// Demonstrates: outlet.exclusive, machine-identity, rpc.row-free, typescript.types-package, @rpc.log.
+	//
+	// @rpc(log: onEvent)
+	// @permissionScope(domain)
+	// @outlet(droids)
+	IngestDroidReports struct {
+		ShipID    impulse.UUID
+		Subsystem string
+		Reading   float64
+		// RecordedAt is when the droid took the reading; the ingest time when zero.
+		RecordedAt time.Time
+		// Frame is the raw frame behind the reading; absent from a droid on old
+		// firmware, and then the row's column is NULL.
+		Frame telemetry.Frame
+	}
+)
+
+// Execute runs inside the handler's transaction.
+func (m *IngestDroidReports) Execute(ctx context.Context, txn resource.ReadWriteTransaction, _ *Client) error {
+	if m.Subsystem == "" {
+		return httpio.NewBadRequestMessage("subsystem is required")
+	}
+
+	return ingestDroidReport(ctx, txn, m.ShipID, m.Subsystem, m.Reading, m.RecordedAt, m.Frame)
+}

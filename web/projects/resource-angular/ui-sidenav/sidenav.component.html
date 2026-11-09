@@ -1,0 +1,62 @@
+<div class="nav-container">
+  <nav>
+    @for (navItem of currentNav(); track navItem) {
+      <ng-container *ngTemplateOutlet="typeRendererTemplate; context: { navItem: navItem }"></ng-container>
+    }
+  </nav>
+</div>
+<ng-template #typeRendererTemplate let-navItem="navItem">
+  @switch (navItem.type) {
+    @case ('header') {
+      <ng-container [ngTemplateOutlet]="headerTemplate" [ngTemplateOutletContext]="{ navItem: navItem }"></ng-container>
+    }
+    @case ('link') {
+      <ng-container [ngTemplateOutlet]="linkTemplate" [ngTemplateOutletContext]="{ navItem: navItem }"></ng-container>
+    }
+    @case ('expandable') {
+      <ng-container
+        [ngTemplateOutlet]="expandableTemplate"
+        [ngTemplateOutletContext]="{ navItem: navItem }"></ng-container>
+    }
+  }
+</ng-template>
+<ng-template #headerTemplate let-navItem="navItem">
+  <div class="link-header">{{ navItem.label }}</div>
+</ng-template>
+<ng-template #linkTemplate let-navItem="navItem">
+  <ng-container *impulseFeature="navItem.feature">
+    <a [routerLink]="navItem.routerLink" *impulseHasPermission="navItem.permission">
+      <div class="nav-item" routerLinkActive="active-link">
+        <div class="link-button">
+          <div class="icon">
+            <mat-icon class="material-icons-outlined" [inline]="true">
+              {{ navItem.icon }}
+            </mat-icon>
+          </div>
+          <div class="text">
+            {{ navItem.label | titlecase }}
+          </div>
+        </div>
+      </div>
+    </a>
+  </ng-container>
+</ng-template>
+<ng-template #expandableTemplate let-navItem="navItem">
+  <div class="nav-item" aria-hidden="true" (click)="navItem.isExpanded = !navItem.isExpanded">
+    <div class="link-button">
+      <div class="icon">
+        <mat-icon class="material-icons-outlined" [inline]="true">
+          {{ navItem.isExpanded ? 'expand_less' : 'expand_more' }}
+        </mat-icon>
+      </div>
+      <div class="text">{{ navItem.label }}</div>
+    </div>
+  </div>
+  @if (navItem.isExpanded) {
+    <div class="expandable-links">
+      @for (navItemChild of navItem.children; track navItemChild) {
+        <ng-container *ngTemplateOutlet="typeRendererTemplate; context: { navItem: navItemChild }"> </ng-container>
+      }
+    </div>
+  }
+</ng-template>

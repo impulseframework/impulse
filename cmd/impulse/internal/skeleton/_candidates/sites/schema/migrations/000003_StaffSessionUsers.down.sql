@@ -1,0 +1,3 @@
+DROP INDEX StaffSessionUsersByNormalizedEmail;
+DROP INDEX StaffSessionUsersByNormalizedUsername;
+DROP TABLE StaffSessionUsers;

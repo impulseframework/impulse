@@ -1,0 +1,735 @@
+// Package authpkg renders an auth package: pkg/auth/<name>, the package that owns one
+// session Auth (its tables, its cookies, its permission store and its role file) and the
+// sign-in methods registered on it, one file per method. The skeleton candidates carry the
+// rendering for their auths, and the transitions that add an auth or a method to an
+// application render from the same source, so the two never drift: a test holds each
+// candidate's auth packages to what Render produces for them.
+//
+// A method's settings come from the environment under one convention, which bedrock reads
+// too: APP_<AUTH>_<REGISTRATION>_<FIELD>, the auth's name and the registration's name
+// upper-cased with every hyphen an underscore (APP_MEMBERS_DIRECTORY_CLIENT_ID). The
+// fields a method takes depend on its kind, its organization slot and its authority (see
+// Method.Fields). Every auth mails: the invitations its administrators send, the links
+// that verify an address a person adds, and the links a password sign-up starts from, so
+// its Settings take the application's mail sender and the login page the links open.
+package authpkg
+
+import (
+	"bytes"
+	"go/format"
+	"regexp"
+	"sort"
+	"strings"
+
+	// The templates render Go source files, never HTML, so text/template is the right package.
+	"text/template" // nosemgrep: go.lang.security.audit.xss.import-text-template.import-text-template
+
+	"github.com/go-playground/errors/v5"
+
+	"github.com/impulseframework/impulse/app"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/names"
+)
+
+// Spec describes the auth package to render.
+type Spec struct {
+	// AdministratorRoles are the roles the auth's first administrator holds, by where
+	// they are held, which the foothold file names (AdministratorRoles); empty renders a
+	// foothold whose roles are left to author with the role file.
+	AdministratorRoles AdministratorRoles
+	// Module is the application's module path, which the package's imports of the
+	// application's own packages start with.
+	Module string
+	// Application is the application's name as the mail the auth sends says it ("Harbor",
+	// the Application of session.MailSettings); empty takes the module path's last
+	// element in PascalCase.
+	Application string
+	// AuthDir is the directory the auth packages live under, root-relative (pkg/auth).
+	AuthDir string
+	// Name is the auth's name: the package, the cookie, the table prefix in PascalCase.
+	Name string
+	// Methods are the sign-in methods registered on the Auth, in order; the first is
+	// what the login page offers first.
+	Methods []Method
+	// Doc is a sentence for the package comment saying who the population is ("the
+	// people who sign in to the console"); empty for a generic one.
+	Doc string
+	// MachineOutlets are the machine outlets whose tokens the Auth issues, by the names the
+	// generator program declares them with (WithRouterOutlet with Tokens of this package),
+	// in order. New registers each on the Auth before the first request, as it registers
+	// the sign-in methods, and the Handlers hand each one's token check to the generated
+	// router through <Pascal>Tokens.
+	MachineOutlets []string
+	// TenantPolicy is the auth's sign-in rule in an application with a tenant record:
+	// the library's tenant policy over the record's declaration (signin.TenantPolicy),
+	// which the auth's Settings carry as the generated reader and New refuses to open
+	// without. Nil in an application without tenants.
+	TenantPolicy *TenantPolicy
+}
+
+// TenantPolicy is the sign-in rule over the tenant record's declaration: who may enter
+// a tenant, as the record declares it (the directories it admits its people through,
+// and whether they are the only way in).
+type TenantPolicy struct {
+	// Record is the tenant record's struct name (Tenant).
+	Record string
+	// Reader is the generated reader's constructor as the data level qualifies it
+	// (app.NewTenantDeclarationReader), which the package's comments name.
+	Reader string
+	// AdmitWithoutTenant admits a person who holds no tenant (signin.AdmitWithoutTenant):
+	// the record's creation shape lets a stranger sign in first and create their own
+	// (@tenant(creation: self-service) or both).
+	AdmitWithoutTenant bool
+}
+
+// DirectoryReader is the generated directory reader's constructor as the data level
+// qualifies it (app.NewTenantDirectoryReader), beside the declaration reader: the
+// reader of every tenant's declaration of one directory with its default seat, which
+// the auth's directory admission decides a stranger's first sign-in with.
+func (p *TenantPolicy) DirectoryReader() string {
+	return strings.TrimSuffix(p.Reader, "New"+p.Record+"DeclarationReader") + "New" + p.Record + "DirectoryReader"
+}
+
+// DirectoryAdmission reports whether the auth sets the library's directory admission
+// (session.Auth.SetDirectoryAdmission) over the tenant record's directory rows: an auth
+// serving a tenanted site whose roles the application assigns. An auth with a
+// registration whose directory writes the roles is the directory's authority for
+// everyone it holds, and sets none: its strangers are provisioned with the roles the
+// directory names.
+func (s *Spec) DirectoryAdmission() bool {
+	if s.TenantPolicy == nil {
+		return false
+	}
+	for i := range s.Methods {
+		if s.Methods[i].SyncsRoles() {
+			return false
+		}
+	}
+
+	return true
+}
+
+// AdministratorRoles are role names by where a membership is held: the global partition
+// and every tenant domain.
+type AdministratorRoles struct {
+	Global      []string
+	EveryDomain []string
+}
+
+// Method is one sign-in method of the auth.
+type Method struct {
+	// Kind is the method: app.MethodPassword, app.MethodAzure, app.MethodGoogle or
+	// app.MethodPersona.
+	Kind string
+	// Name is the registration name (user/<name>/login); password for the password
+	// method, which takes no other, and persona for the persona method when none is
+	// given.
+	Name string
+	// Authority is who owns role membership for a directory method: app.AuthorityDirectory
+	// (the registration synchronizes roles from the directory at every sign-in) or
+	// app.AuthorityApplication (roles are assigned in the application). Ignored for the
+	// password method.
+	Authority string
+	// Slot is the organization slot of a directory method: which organizations' accounts
+	// the registration admits. Azure: SlotOne (one tenant), SlotListed (named tenants),
+	// SlotAny (any tenant), SlotPersonal (Microsoft personal accounts alone),
+	// SlotOnePersonal (one tenant and personal accounts), SlotAnyPersonal (any tenant and
+	// personal accounts). Google: SlotOne (one Workspace), SlotListed (named Workspaces),
+	// SlotAnyWorkspace (any Workspace), SlotAny (any Google account), SlotMixed (one
+	// Workspace and any Google account). Empty is SlotOne.
+	Slot string
+	// Accounts is the standard account rule for a first sign-in: AccountsMembers (members
+	// of the directory, the default), AccountsInvited (invited users only) or
+	// AccountsOpen (open sign-up). Empty is AccountsMembers. The password method takes
+	// AccountsOpen alone (a stranger signs up from a link mailed to their address) or
+	// nothing (its users are created in the application, or invited). The persona method
+	// takes AccountsInvited alone, its default: the personas are the accounts the cast
+	// seeds, and the sign-in links to them.
+	Accounts string
+	// UsernameIsEmail marks a password method whose sign-in name is the person's email
+	// address (session.UsernameIsEmail): the users surface derives the address from the
+	// username, a verified change of address renames the user, and the seats held under
+	// the old name follow it. The password method alone takes it.
+	UsernameIsEmail bool
+}
+
+// The organization slots.
+const (
+	SlotOne          = "one"
+	SlotListed       = "listed"
+	SlotAny          = "any"
+	SlotPersonal     = "personal"
+	SlotOnePersonal  = "one-personal"
+	SlotAnyPersonal  = "any-personal"
+	SlotAnyWorkspace = "any-workspace"
+	SlotMixed        = "mixed"
+)
+
+// The standard account rules.
+const (
+	AccountsMembers = "members"
+	AccountsInvited = "invited"
+	AccountsOpen    = "open"
+)
+
+// Slots lists the slots a method kind takes, in the order the help shows them.
+func Slots(kind string) []string {
+	switch kind {
+	case app.MethodAzure:
+		return []string{SlotOne, SlotListed, SlotAny, SlotPersonal, SlotOnePersonal, SlotAnyPersonal}
+	case app.MethodGoogle:
+		return []string{SlotOne, SlotListed, SlotAnyWorkspace, SlotAny, SlotMixed}
+	default:
+		return nil
+	}
+}
+
+// Accounts lists the standard account rules.
+func Accounts() []string { return []string{AccountsMembers, AccountsInvited, AccountsOpen} }
+
+// Validate checks a method against the library's rules, as the session library enforces
+// them at registration: a slot the kind has, an account rule the slot allows (open sign-up
+// only with any organization or personal accounts; members of the directory not with
+// them), role synchronization only with one organization, for the password method open
+// sign-up or no rule, with the sign-in name as the address on it alone, and for the
+// persona method no slot, the application's authority and invited users only.
+func (m *Method) Validate() error {
+	if m.Kind == app.MethodPassword {
+		return m.validatePassword()
+	}
+	if m.Kind == app.MethodPersona {
+		return m.validatePersona()
+	}
+	if m.Kind != app.MethodAzure && m.Kind != app.MethodGoogle {
+		return errors.Newf("%q is not a sign-in method impulse composes: password, azure, google or persona", m.Kind)
+	}
+	if m.UsernameIsEmail {
+		return errors.New("username-is-email describes the password method's sign-in name; a directory method's people sign in as the directory names them")
+	}
+	if !registrationRE.MatchString(m.Name) {
+		return errors.Newf("registration %q: lowercase letters, digits and hyphens, starting with a letter (directory, entra-one)", m.Name)
+	}
+	if m.Name == app.PasswordRegistration {
+		return errors.Newf("%q is the password method's registration name", m.Name)
+	}
+	slot := m.slot()
+	known := false
+	for _, s := range Slots(m.Kind) {
+		if s == slot {
+			known = true
+		}
+	}
+	if !known {
+		return errors.Newf("slot %q: a %s method takes %s", m.Slot, m.Kind, strings.Join(Slots(m.Kind), ", "))
+	}
+	accounts := m.accounts()
+	if accounts != AccountsMembers && accounts != AccountsInvited && accounts != AccountsOpen {
+		return errors.Newf("accounts %q: members, invited or open", m.Accounts)
+	}
+	open := m.openSlot()
+	switch {
+	case accounts == AccountsOpen && !open:
+		return errors.Newf("open sign-up is for any organization or personal accounts; a registration naming its %s takes members or invited", m.organizations())
+	case accounts == AccountsMembers && open:
+		return errors.Newf("members of the directory with any organization or personal accounts would sign up the world; take invited or open")
+	}
+	switch m.Authority {
+	case app.AuthorityDirectory:
+		if slot != SlotOne {
+			return errors.Newf("role synchronization follows one %s's roles; a registration admitting several takes the application authority", m.organization())
+		}
+	case app.AuthorityApplication:
+	default:
+		return errors.Newf("authority %q: directory or application", m.Authority)
+	}
+
+	return nil
+}
+
+// validatePassword checks the password method: always registered as password, no slot or
+// authority, and open sign-up or no account rule.
+func (m *Method) validatePassword() error {
+	if m.Name != "" && m.Name != app.PasswordRegistration {
+		return errors.Newf("the password method is always registered as %q", app.PasswordRegistration)
+	}
+	if m.Slot != "" || m.Authority != "" {
+		return errors.New("the password method takes no slot or authority")
+	}
+	if m.Accounts != "" && m.Accounts != AccountsOpen {
+		return errors.Newf("accounts %q: the password method takes open (a stranger signs up from a link mailed to their address) or no rule (its users are created in the application, or invited)", m.Accounts)
+	}
+
+	return nil
+}
+
+// validatePersona checks the persona method: a registration name, no slot (the provider
+// is one issuer), the application's authority (the provider asserts who a persona is and
+// nothing about roles) and invited users only (the personas are seeded accounts).
+func (m *Method) validatePersona() error {
+	if m.UsernameIsEmail {
+		return errors.New("username-is-email describes the password method's sign-in name; a persona signs in as the login its cast names")
+	}
+	if !registrationRE.MatchString(m.Name) {
+		return errors.Newf("registration %q: lowercase letters, digits and hyphens, starting with a letter (persona)", m.Name)
+	}
+	if m.Name == app.PasswordRegistration {
+		return errors.Newf("%q is the password method's registration name", m.Name)
+	}
+	if m.Slot != "" {
+		return errors.New("the persona method takes no slot: the persona provider is one issuer, and which personas it offers is the deployment's cast")
+	}
+	if m.Authority != "" && m.Authority != app.AuthorityApplication {
+		return errors.Newf("authority %q: the persona method takes the application authority alone, since the persona provider asserts who a persona is and the cast seeds what it may do", m.Authority)
+	}
+	if m.Accounts != "" && m.Accounts != AccountsInvited {
+		return errors.Newf("accounts %q: the persona method admits invited users only, since the personas are the accounts the cast seeds and the sign-in links to them", m.Accounts)
+	}
+
+	return nil
+}
+
+// The variable suffixes every redirect method's registration shares.
+const (
+	suffixClientID    = "CLIENT_ID"
+	suffixRedirectURL = "REDIRECT_URL"
+)
+
+// registrationRE is the shape of a registration name, as the session library takes it.
+var registrationRE = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
+func (m *Method) slot() string {
+	if m.Slot == "" {
+		return SlotOne
+	}
+
+	return m.Slot
+}
+
+func (m *Method) accounts() string {
+	if m.Accounts == "" {
+		if m.Kind == app.MethodPersona {
+			return AccountsInvited
+		}
+
+		return AccountsMembers
+	}
+
+	return m.Accounts
+}
+
+// OpenSignUp reports a method admitting anyone: a directory method under the open
+// sign-up rule, or the password method whose strangers sign up from a mailed link.
+func (m *Method) OpenSignUp() bool {
+	return m.accounts() == AccountsOpen
+}
+
+// SyncsRoles reports a method whose registration writes the person's roles from the
+// directory at every sign-in: a directory method under the directory authority. Its
+// method file sets the registration's RoleSync (signin.RoleSync, the token's application
+// roles, for Microsoft Entra; google.RoleSync, the role groups, for Google), where every
+// other method file sets DisableRoleSync. The views that render the method file and the
+// declaration a generator program carries both read this one rule. The persona method
+// never does: the provider asserts identity alone.
+func (m *Method) SyncsRoles() bool {
+	return m.Directory() && m.Kind != app.MethodPersona && m.Authority == app.AuthorityDirectory
+}
+
+// Arg is the method as a generator program declares it on an Auth option: its kind and
+// registration name, with .InvitedUsers() chained under the invited-users rule, so the
+// users surface the generator emits creates the invitations the method file's
+// signin.InvitedUsersOnly admits, .SyncsRoles() under the directory authority, so that
+// surface shows the roles the method file's RoleSync writes as the directory's and never
+// writes them (a seat removed by hand would come back at the next sign-in),
+// .OpenSignUp() under the open sign-up rule (the registration a self-service tenant
+// record needs, the method file's signin.OpenSignUp; on the password method the sign-up
+// routes the router serves, the method file's session.OpenSignUp()), and
+// .UsernameIsEmail() on a password method whose sign-in name is the address. The
+// declaration and the method file read the same rule for each.
+func (m *Method) Arg() app.AuthMethodArg {
+	return app.AuthMethodArg{
+		Kind:            m.Kind,
+		Name:            m.Name,
+		InvitedUsers:    m.accounts() == AccountsInvited,
+		SyncsRoles:      m.SyncsRoles(),
+		OpenSignUp:      m.OpenSignUp(),
+		UsernameIsEmail: m.UsernameIsEmail,
+	}
+}
+
+// Declaration writes the method as a generator program carries it, package-qualified
+// (generation.GoogleMethod("workspace").InvitedUsers()).
+func (m *Method) Declaration() string {
+	arg := m.Arg()
+
+	return arg.Declaration()
+}
+
+// openSlot reports a slot that admits the world: any organization or personal accounts.
+func (m *Method) openSlot() bool {
+	switch m.slot() {
+	case SlotAny, SlotPersonal, SlotOnePersonal, SlotAnyPersonal, SlotAnyWorkspace, SlotMixed:
+		return true
+	default:
+		return false
+	}
+}
+
+// organization is the word for the method's organization: tenant or Workspace.
+func (m *Method) organization() string {
+	if m.Kind == app.MethodGoogle {
+		return "Workspace"
+	}
+
+	return "tenant"
+}
+
+func (m *Method) organizations() string { return m.organization() + "s" }
+
+// Pascal is the registration name in PascalCase: the handler and settings prefix
+// (DirectoryLogin, DirectorySettings; entra-one is EntraOne).
+func (m *Method) Pascal() string {
+	var b strings.Builder
+	for _, part := range strings.Split(m.Name, "-") {
+		b.WriteString(names.Pascal(part))
+	}
+
+	return b.String()
+}
+
+// Upper is the registration name as a variable segment: upper-cased, hyphens as
+// underscores (ENTRA_ONE).
+func (m *Method) Upper() string {
+	return strings.ToUpper(strings.ReplaceAll(m.Name, "-", "_"))
+}
+
+// Directory reports a method whose people are sent to a directory or identity provider:
+// every kind but the password method, the persona method among them, since its people
+// are sent to the persona provider and the development environment simulates it.
+func (m *Method) Directory() bool { return m.Kind != app.MethodPassword }
+
+// Persona reports the persona method: registered only where its provider is configured,
+// with a cast the deployment seeds and registers.
+func (m *Method) Persona() bool { return m.Kind == app.MethodPersona }
+
+// Fallible reports whether registering the method can fail before the session library
+// validates it: a method whose organization slot names its organizations builds the
+// slot from their settings and what the deployment administers (SlotFallible), and a
+// Google method under the directory authority parses its group lookup. Every other
+// registration hands the library its settings as they are, so its register function
+// returns the method alone.
+func (m *Method) Fallible() bool {
+	if !m.Directory() || m.Persona() {
+		return false
+	}
+	if m.SlotFallible() {
+		return true
+	}
+
+	return m.Kind == app.MethodGoogle && m.SyncsRoles()
+}
+
+// SlotFallible reports whether building the method's organization slot can fail: the
+// slot names its organizations (one tenant or Workspace, alone or beside the personal
+// accounts or any Google account, or the listed ones), so an administered organization
+// the slot does not admit is refused. An open slot admits whatever the deployment
+// declares administered beside its open entry.
+func (m *Method) SlotFallible() bool {
+	if !m.Directory() || m.Persona() {
+		return false
+	}
+	switch m.slot() {
+	case SlotOne, SlotListed, SlotOnePersonal, SlotMixed:
+		return true
+	default:
+		return false
+	}
+}
+
+// Administered reports whether the method declares the organizations the deployment
+// administers (AdministeredTenants, AdministeredWorkspaces), whose sign-ins carry the
+// directory's second factor: every directory method but one admitting Microsoft
+// personal accounts alone, which no deployment administers, and the persona method,
+// whose provider is no organization.
+func (m *Method) Administered() bool {
+	return m.Directory() && !m.Persona() && (m.Kind != app.MethodAzure || m.slot() != SlotPersonal)
+}
+
+// Field is one setting a method reads from the environment.
+type Field struct {
+	// Name is the field on the method's settings struct (ClientID).
+	Name string
+	// Suffix is the variable's last segment (CLIENT_ID).
+	Suffix string
+	// Secret marks a credential the environment keeps as a secret.
+	Secret bool
+	// Doc describes the field.
+	Doc string
+	// Dev is what the development environment template sets, empty for a commented
+	// placeholder a person fills in.
+	Dev string
+	// Simulated reports a field the simulated directory (skipAuth) reads too, so it is
+	// set in development.
+	Simulated bool
+}
+
+// The names of a method's settings fields, as the rendered settings struct spells them
+// and as the development template and the data level edits refer to them.
+const (
+	FieldTenantID     = "TenantID"
+	FieldTenants      = "Tenants"
+	FieldClientID     = "ClientID"
+	FieldClientSecret = "ClientSecret"
+	FieldRedirectURL  = "RedirectURL"
+	FieldHostedDomain = "HostedDomain"
+	FieldWorkspaces   = "Workspaces"
+	FieldGroupPrefix  = "GroupPrefix"
+	FieldGroupLookup  = "GroupLookup"
+	// The organizations the deployment administers among those the slot admits, whose
+	// sign-ins carry the directory's second factor: tenants by id, Workspaces by domain.
+	FieldAdministeredTenants    = "AdministeredTenants"
+	FieldAdministeredWorkspaces = "AdministeredWorkspaces"
+	// FieldIssuer is the persona provider's issuer URL: the one setting that decides
+	// whether the persona method is registered.
+	FieldIssuer = "Issuer"
+)
+
+// PersonaRegistration is the persona method's registration name when none is given.
+const PersonaRegistration = "persona"
+
+// Fields lists the settings a method reads, in order: what the method's settings struct
+// holds, what the data level reads from the environment and what bedrock supplies per
+// environment.
+func (m *Method) Fields() []Field {
+	if !m.Directory() {
+		return nil
+	}
+	var fields []Field
+	switch m.Kind {
+	case app.MethodAzure:
+		switch m.slot() {
+		case SlotOne, SlotOnePersonal:
+			fields = append(fields, Field{Name: FieldTenantID, Suffix: "TENANT_ID", Simulated: true, Doc: "the tenant whose accounts the registration admits, by its tenant id (the tid claim, a GUID); the slot is validated at registration, so the simulated directory needs a well-formed placeholder"})
+		case SlotListed:
+			fields = append(fields, Field{Name: FieldTenants, Suffix: "TENANTS", Simulated: true, Doc: "the tenants the registration admits, each named: <name>=<tenant id>, comma-separated (lab-a=<guid>,lab-b=<guid>); the name is the tenant key every link made through it carries, and the slot is validated at registration, so the simulated directory needs well-formed placeholders"})
+		}
+		if m.Administered() {
+			fields = append(fields, Field{Name: FieldAdministeredTenants, Suffix: "ADMINISTERED_TENANTS", Simulated: true, Doc: "the tenants the deployment administers, by tenant id, comma-separated, each one the registration admits: a sign-in from one carries the tenant's own second factor, which the deployment vouches for (a Conditional Access policy requiring multifactor authentication of everyone), and is not asked for the sign-in code; empty when the deployment administers none"})
+		}
+		fields = append(fields,
+			Field{Name: FieldClientID, Suffix: suffixClientID, Doc: "the app registration's application (client) id"},
+			Field{Name: FieldClientSecret, Suffix: "CLIENT_SECRET", Secret: true, Doc: "the app registration's client secret"},
+			Field{Name: FieldRedirectURL, Suffix: suffixRedirectURL, Simulated: true, Doc: "the browser-facing callback the directory returns the browser to: <base>/<outlet>/api/user/" + m.Name + "/callback"},
+		)
+	case app.MethodPersona:
+		fields = append(fields,
+			Field{Name: FieldIssuer, Suffix: "ISSUER", Simulated: true, Doc: "the persona provider's issuer URL, where the browser is sent to sign in as a persona; a placement value of the first environment and its pull requests, empty everywhere else, where the method is not registered"},
+			Field{Name: FieldClientID, Suffix: suffixClientID, Simulated: true, Doc: "the deployment's client ID at the provider: the application's client ID root with the environment or the pull request appended, which bedrock derives"},
+			Field{Name: FieldRedirectURL, Suffix: suffixRedirectURL, Simulated: true, Doc: "the browser-facing callback the provider returns the browser to: <base>/<outlet>/api/user/" + m.Name + "/callback"},
+		)
+	case app.MethodGoogle:
+		switch m.slot() {
+		case SlotOne, SlotMixed:
+			fields = append(fields, Field{Name: FieldHostedDomain, Suffix: "HOSTED_DOMAIN", Simulated: true, Doc: "the Workspace's domain, checked against the verified hd claim"})
+		case SlotListed:
+			fields = append(fields, Field{Name: FieldWorkspaces, Suffix: "WORKSPACES", Simulated: true, Doc: "the Workspaces the registration admits, each named with its domains: <name>=<domain>[+<domain>], comma-separated (lab=example.com,second=other.org); the name is the connection every link made through it carries"})
+		}
+		fields = append(fields,
+			Field{Name: FieldAdministeredWorkspaces, Suffix: "ADMINISTERED_WORKSPACES", Simulated: true, Doc: "the Workspaces the deployment administers, by domain, comma-separated, each one the registration admits: a sign-in from one carries the Workspace's own second factor, which the deployment vouches for (2-Step Verification enforced for everyone), and is not asked for the sign-in code; empty when the deployment administers none"},
+			Field{Name: FieldClientID, Suffix: suffixClientID, Doc: "the OAuth client's id"},
+			Field{Name: FieldClientSecret, Suffix: "CLIENT_SECRET", Secret: true, Doc: "the OAuth client's secret"},
+			Field{Name: FieldRedirectURL, Suffix: suffixRedirectURL, Simulated: true, Doc: "the browser-facing callback Google returns the browser to: <base>/<outlet>/api/user/" + m.Name + "/callback"},
+		)
+		if m.Authority == app.AuthorityDirectory {
+			fields = append(fields,
+				Field{Name: FieldGroupPrefix, Suffix: "GROUP_PREFIX", Simulated: true, Doc: "the local-part prefix of the Google Groups that carry roles: <prefix><role>@<domain> assigns <role>"},
+				Field{Name: FieldGroupLookup, Suffix: "GROUP_LOOKUP", Doc: "how far the groups lookup reaches: direct (the groups the person is a direct member of) or nested (the groups above those too, level by level); empty is direct"},
+			)
+		}
+	}
+
+	return fields
+}
+
+// Variable is the environment variable of a field under the convention:
+// APP_<AUTH>_<REGISTRATION>_<FIELD>.
+func (m *Method) Variable(auth string, f *Field) string {
+	return "APP_" + strings.ToUpper(auth) + "_" + m.Upper() + "_" + f.Suffix
+}
+
+// SettingsType is the name of the method's settings struct (DirectorySettings).
+func (m *Method) SettingsType() string { return m.Pascal() + "Settings" }
+
+// Registration is the exported constant naming the registration (DirectoryRegistration).
+func (m *Method) Registration() string { return m.Pascal() + "Registration" }
+
+// Provider names who the browser is sent to.
+func (m *Method) Provider() string {
+	switch m.Kind {
+	case app.MethodAzure:
+		return "Microsoft"
+	case app.MethodGoogle:
+		return "Google"
+	case app.MethodPersona:
+		return "the persona provider"
+	default:
+		return ""
+	}
+}
+
+// outletNameRE is the shape of an outlet's name: a lowerCamelCase identifier.
+var outletNameRE = regexp.MustCompile(`^[a-z][A-Za-z0-9]*$`)
+
+// Files renders the auth package: the file name (relative to the package directory)
+// and its content, formatted. One file for the Auth and one per method.
+func Files(spec *Spec) (map[string][]byte, error) {
+	if spec.Name == "" || spec.Module == "" || spec.AuthDir == "" {
+		return nil, errors.New("authpkg.Spec needs Module, AuthDir and Name")
+	}
+	if len(spec.Methods) == 0 {
+		return nil, errors.Newf("the %s auth needs at least one sign-in method", spec.Name)
+	}
+	seen := map[string]bool{}
+	for i := range spec.Methods {
+		m := &spec.Methods[i]
+		m.SettleName()
+		if err := m.Validate(); err != nil {
+			return nil, errors.Wrapf(err, "the %s auth's %s method", spec.Name, m.Name)
+		}
+		if seen[m.Name] {
+			return nil, errors.Newf("the %s auth registers %s twice", spec.Name, m.Name)
+		}
+		seen[m.Name] = true
+	}
+	for _, outlet := range spec.MachineOutlets {
+		if !outletNameRE.MatchString(outlet) {
+			return nil, errors.Newf("the %s auth's machine outlet %q: an outlet is named with a lowerCamelCase identifier, as WithRouterOutlet declares it", spec.Name, outlet)
+		}
+		if seen[outlet] {
+			return nil, errors.Newf("the %s auth names %s twice among its methods and machine outlets", spec.Name, outlet)
+		}
+		seen[outlet] = true
+	}
+	files := map[string][]byte{}
+	main, err := render("auth", authTemplate, newView(spec))
+	if err != nil {
+		return nil, err
+	}
+	files[spec.Name+".go"] = main
+	if Foothold(spec) != "" {
+		foothold, err := render(footholdFile, footholdTemplate, newView(spec))
+		if err != nil {
+			return nil, err
+		}
+		files[footholdFile] = foothold
+	}
+	for i := range spec.Methods {
+		m := &spec.Methods[i]
+		out, err := render(m.Name, methodTemplate(m), newMethodView(spec, m))
+		if err != nil {
+			return nil, err
+		}
+		files[m.Name+".go"] = out
+		if m.Persona() {
+			cast, err := render(CastGoFile, castTemplate, newMethodView(spec, m))
+			if err != nil {
+				return nil, err
+			}
+			files[CastGoFile] = cast
+		}
+	}
+
+	return files, nil
+}
+
+// CastGoFile is the file the persona method's cast is read and seeded through, beside the
+// cast file itself (persona.CastFile).
+const CastGoFile = "cast.go"
+
+// SettleName gives a method its fixed registration name where the kind has one: password
+// for the password method, persona for the persona method when none is given.
+func (m *Method) SettleName() {
+	switch {
+	case m.Kind == app.MethodPassword:
+		m.Name = app.PasswordRegistration
+	case m.Kind == app.MethodPersona && m.Name == "":
+		m.Name = PersonaRegistration
+	}
+}
+
+// methodTemplate is the template a method's file renders from.
+func methodTemplate(m *Method) string {
+	switch m.Kind {
+	case app.MethodPassword:
+		return loginFormTemplate
+	case app.MethodAzure:
+		return azureTemplate
+	case app.MethodGoogle:
+		return googleTemplate
+	case app.MethodPersona:
+		return personaTemplate
+	default:
+		return ""
+	}
+}
+
+// MethodFile renders one method's file of the auth package, for a method added to an
+// auth that exists: the method's registration constant, settings, handlers and
+// registration function.
+func MethodFile(spec *Spec, m *Method) ([]byte, error) {
+	m.SettleName()
+	if err := m.Validate(); err != nil {
+		return nil, errors.Wrapf(err, "the %s auth's %s method", spec.Name, m.Name)
+	}
+
+	return render(m.Name, methodTemplate(m), newMethodView(spec, m))
+}
+
+// CastFile renders the persona method's cast.go: the embedded cast file, read for the
+// deploy and seeded by the migrate command.
+func CastFile(spec *Spec, m *Method) ([]byte, error) {
+	m.SettleName()
+	if err := m.Validate(); err != nil {
+		return nil, errors.Wrapf(err, "the %s auth's %s method", spec.Name, m.Name)
+	}
+	if !m.Persona() {
+		return nil, errors.Newf("the %s method has no cast: the persona method alone does", m.Name)
+	}
+
+	return render(CastGoFile, castTemplate, newMethodView(spec, m))
+}
+
+// FileNames lists the files Files renders, sorted.
+func FileNames(spec *Spec) []string {
+	files := make([]string, 0, 2+len(spec.Methods))
+	files = append(files, spec.Name+".go")
+	if Foothold(spec) != "" {
+		files = append(files, footholdFile)
+	}
+	for i := range spec.Methods {
+		m := spec.Methods[i]
+		m.SettleName()
+		files = append(files, m.Name+".go")
+		if m.Persona() {
+			files = append(files, CastGoFile)
+		}
+	}
+	sort.Strings(files)
+
+	return files
+}
+
+func render(name, text string, data any) ([]byte, error) {
+	t, err := template.New(name).Funcs(template.FuncMap{"join": strings.Join}).Parse(text)
+	if err != nil {
+		return nil, errors.Wrapf(err, "template.Parse(): %s", name)
+	}
+	var b bytes.Buffer
+	if err := t.Execute(&b, data); err != nil {
+		return nil, errors.Wrapf(err, "template.Execute(): %s", name)
+	}
+	out, err := format.Source(b.Bytes())
+	if err != nil {
+		return nil, errors.Wrapf(err, "format.Source(): the rendered %s file", name)
+	}
+
+	return out, nil
+}

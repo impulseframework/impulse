@@ -1,0 +1,185 @@
+package sessionstorage
+
+import (
+	"context"
+	"reflect"
+
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/tracer"
+)
+
+// sessionStorage is what you use to create / update sessions inside of the handlers or as a standalone if you don't want the handlers
+type sessionStorage struct {
+	db db
+}
+
+// SetSessionTableName sets the name of the session table.
+func (s *sessionStorage) SetSessionTableName(name string) error {
+	if err := s.db.SetSessionTableName(name); err != nil {
+		return errors.Wrap(err, "db.SetSessionTableName()")
+	}
+
+	return nil
+}
+
+// SetUserTableName sets the name of the user table.
+func (s *sessionStorage) SetUserTableName(name string) error {
+	if err := s.db.SetUserTableName(name); err != nil {
+		return errors.Wrap(err, "db.SetUserTableName()")
+	}
+
+	return nil
+}
+
+// NewSession inserts SessionInfo into the database. customData is nil or *T for the
+// configured custom session data struct type; when non-nil it is written atomically
+// with the session insert (per-call data wins over any configured resolver) and
+// requires a custom session data configuration on the storage.
+func (s *sessionStorage) NewSession(ctx context.Context, username string, customData any) (impulse.UUID, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	session := &dbtype.InsertSession{
+		Username: username,
+	}
+
+	req := &sessioninfo.NewSessionRequest{
+		Reason:     sessioninfo.ReasonPreauth,
+		Username:   username,
+		CustomData: customData,
+	}
+
+	id, err := s.db.InsertSession(ctx, session, req)
+	if err != nil {
+		return impulse.NilUUID, errors.Wrap(err, "db.InsertSession()")
+	}
+
+	return id, nil
+}
+
+// Session returns the session information from the database for given sessionID
+func (s *sessionStorage) Session(ctx context.Context, sessionID impulse.UUID) (*sessioninfo.SessionData, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	si, err := s.db.Session(ctx, sessionID)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.Session()")
+	}
+
+	sessData := &sessioninfo.SessionData{
+		SessionInfo: (*sessioninfo.SessionInfo)(si.Session),
+		CustomData:  si.CustomData,
+		UserID:      si.UserID,
+		AuthEvents:  si.AuthEvents,
+	}
+	if si.AuthenticatedAt != nil {
+		sessData.AuthenticatedAt = *si.AuthenticatedAt
+	}
+	sessData.ProviderSessionID = si.ProviderSessionID
+	sessData.ProviderSessionIssuer = si.ProviderSessionIssuer
+	if si.Impersonation != nil {
+		sessData.Impersonation = si.Impersonation.ToSessionInfo()
+	}
+
+	return sessData, nil
+}
+
+// UpdateSessionActivity updates the database with the current time for the session activity
+func (s *sessionStorage) UpdateSessionActivity(ctx context.Context, sessionID impulse.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := s.db.UpdateSessionActivity(ctx, sessionID); err != nil {
+		return errors.Wrap(err, "db.UpdateSessionActivity()")
+	}
+
+	return nil
+}
+
+// DestroySession marks the session as expired
+func (s *sessionStorage) DestroySession(ctx context.Context, sessionID impulse.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := s.db.DestroySession(ctx, sessionID); err != nil {
+		return errors.Wrap(err, "db.DestroySession()")
+	}
+
+	return nil
+}
+
+// UpdateCustomSessionData updates the custom session data for an active session via a
+// transactional read-modify-write: mutate receives the current row as *T for the
+// configured struct type (zero-value when no row exists) and the full row is written
+// back; a mutate error aborts with nothing written. The session's existence and
+// non-expiry are verified inside the same transaction. It is intended for genuine
+// mid-session updates only — initial population belongs in the session-creation
+// transaction.
+func (s *sessionStorage) UpdateCustomSessionData(ctx context.Context, sessionID impulse.UUID, mutate func(data any) error) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := s.db.UpdateCustomSessionData(ctx, sessionID, mutate); err != nil {
+		return errors.Wrap(err, "db.UpdateCustomSessionData()")
+	}
+
+	return nil
+}
+
+// CustomDataType returns the struct type the attached custom session data
+// configuration was built for, or nil when no configuration is attached.
+func (s *sessionStorage) CustomDataType() reflect.Type {
+	return s.db.CustomDataType()
+}
+
+// CustomUserDataType returns the struct type the attached custom user data
+// configuration was built for, or nil when no configuration is attached.
+func (s *sessionStorage) CustomUserDataType() reflect.Type {
+	return s.db.CustomUserDataType()
+}
+
+// CustomUserData returns the custom user data row for the given user ID as *U for the
+// configured struct type. A user with no custom data row yields a zero-value *U.
+func (s *sessionStorage) CustomUserData(ctx context.Context, userID impulse.UUID) (any, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	data, err := s.db.CustomUserData(ctx, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "db.CustomUserData()")
+	}
+
+	return data, nil
+}
+
+// UpdateCustomUserData updates the custom user data for an existing user via a
+// transactional read-modify-write: mutate receives the current row as *U for the
+// configured struct type (zero-value when no row exists) and the full row is written
+// back; a mutate error aborts with nothing written. The user's existence is verified
+// inside the same transaction.
+func (s *sessionStorage) UpdateCustomUserData(ctx context.Context, userID impulse.UUID, mutate func(data any) error) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := s.db.UpdateCustomUserData(ctx, userID, mutate); err != nil {
+		return errors.Wrap(err, "db.UpdateCustomUserData()")
+	}
+
+	return nil
+}
+
+// DestroyAllUserSessions destroys all sessions for a given user
+func (s *sessionStorage) DestroyAllUserSessions(ctx context.Context, username string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := s.db.DestroyAllUserSessions(ctx, username); err != nil {
+		return errors.Wrap(err, "db.DestroyAllUserSessions()")
+	}
+
+	return nil
+}

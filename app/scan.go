@@ -1,0 +1,1036 @@
+package app
+
+import (
+	"bytes"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
+	"os"
+	"path"
+	"path/filepath"
+	"reflect"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/ettle/strcase"
+	"github.com/go-playground/errors/v5"
+
+	"github.com/impulseframework/impulse/cloud"
+)
+
+// skippedDirs are never descended into: they hold dependencies or build output, not the
+// application's own declarations.
+var skippedDirs = map[string]bool{
+	".git":         true,
+	"node_modules": true,
+	"vendor":       true,
+	"dist":         true,
+	".angular":     true,
+}
+
+var (
+	emulatorImageRE   = regexp.MustCompile(`cloud-spanner-emulator/emulator:(\d[A-Za-z0-9.\-]*)`)
+	emulatorHarnessRE = regexp.MustCompile(`NewSpannerContainer\(\s*[^,()]+,\s*"([^"]+)"`)
+	// firestoreImageRE matches the Cloud SDK emulators image tag the Firestore emulator
+	// runs from, in a process file's command or a test harness's image constant.
+	firestoreImageRE = regexp.MustCompile(`cloudsdktool/google-cloud-cli:(\d[A-Za-z0-9.]*)-emulators`)
+	// firestoreHarnessRE matches a test harness starting the Firestore emulator through
+	// db-initiator, which takes the Cloud SDK version and runs the same image.
+	firestoreHarnessRE = regexp.MustCompile(`NewFirestoreContainer\(\s*[^,()]+,\s*"([^"]+)"`)
+	processFileRE      = regexp.MustCompile(`^(Procfile.*|process-compose.*\.ya?ml)$`)
+)
+
+// scan walks the tree once and records every declaration the checks read.
+func (a *App) scan() error {
+	err := filepath.WalkDir(a.Root, func(abs string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return errors.Wrap(err, "filepath.WalkDir()")
+		}
+		if d.IsDir() {
+			if abs != a.Root && skippedDirs[d.Name()] {
+				return filepath.SkipDir
+			}
+
+			return nil
+		}
+
+		return a.scanFile(abs, d.Name())
+	})
+	if err != nil {
+		return errors.Wrap(err, "filepath.WalkDir()")
+	}
+
+	for _, g := range a.Generators {
+		g.ReadsWarnings = a.readsWarnings(g)
+	}
+
+	a.attachPackageMethods()
+
+	return a.authPackages()
+}
+
+func (a *App) scanFile(abs, name string) error {
+	rel := a.Rel(abs)
+	switch {
+	case name == "angular.json":
+		a.WebApps = append(a.WebApps, WebApp{Dir: filepath.ToSlash(filepath.Dir(rel))})
+	case processFileRE.MatchString(name):
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			return errors.Wrap(err, "os.ReadFile()")
+		}
+		a.EmulatorImages = append(a.EmulatorImages, findRefs(rel, data, emulatorImageRE)...)
+		a.FirestoreEmulatorImages = append(a.FirestoreEmulatorImages, findRefs(rel, data, firestoreImageRE)...)
+	case strings.HasSuffix(name, "_test.go"):
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			return errors.Wrap(err, "os.ReadFile()")
+		}
+		a.EmulatorHarnesses = append(a.EmulatorHarnesses, findRefs(rel, data, emulatorHarnessRE)...)
+		a.FirestoreEmulatorImages = append(a.FirestoreEmulatorImages, findRefs(rel, data, firestoreImageRE)...)
+		a.FirestoreEmulatorImages = append(a.FirestoreEmulatorImages, findRefs(rel, data, firestoreHarnessRE)...)
+		if bytes.Contains(data, []byte(validateRolesFunc+"(")) {
+			validations, err := parseRoleValidations(rel, data)
+			if err != nil {
+				return err
+			}
+			a.RoleValidations = append(a.RoleValidations, validations...)
+		}
+		if bytes.Contains(data, []byte(ProvesGrantFunc+"(")) {
+			proofs, err := parseGrantProofs(rel, data)
+			if err != nil {
+				return err
+			}
+			a.GrantProofs = append(a.GrantProofs, proofs...)
+		}
+	case strings.HasSuffix(name, ".go"):
+		return a.scanGoFile(abs, rel)
+	}
+
+	return nil
+}
+
+// scanGoFile reads one non-test Go file for a generator program and for env tags.
+func (a *App) scanGoFile(abs, rel string) error {
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return errors.Wrap(err, "os.ReadFile()")
+	}
+
+	if bytes.Contains(data, []byte("NewResourceGenerator")) {
+		g, err := parseGenerator(rel, data)
+		if err != nil {
+			return err
+		}
+		if g != nil {
+			a.Generators = append(a.Generators, g)
+		}
+	}
+
+	generated := strings.HasPrefix(filepath.Base(rel), "zz_gen_")
+	if !generated && declaresEnv(data) {
+		tags, err := parseEnvTags(rel, data)
+		if err != nil {
+			return err
+		}
+		a.EnvTags = append(a.EnvTags, tags...)
+	}
+
+	if !generated {
+		if err := a.scanAnnotations(rel, data); err != nil {
+			return err
+		}
+		if err := a.scanFeatures(rel, data); err != nil {
+			return err
+		}
+	}
+
+	if bytes.Contains(data, []byte("//go:generate")) {
+		a.GoGenerate = append(a.GoGenerate, findDirectives(rel, data)...)
+	}
+
+	if bytes.Contains(data, []byte(ciDirective)) && !generated {
+		ci, err := findCIDirective(rel, data)
+		if err != nil {
+			return err
+		}
+		if ci != nil {
+			if a.CI != nil {
+				return errors.Newf("%s:%d: a second %s line; the application has one, at %s:%d", rel, ci.Line, ciDirective, a.CI.File, a.CI.Line)
+			}
+			a.CI = ci
+		}
+	}
+
+	if bytes.HasPrefix(bytes.TrimSpace(stripLeadingComments(data)), []byte("package main")) {
+		dir := path.Dir(rel)
+		if len(a.MainPackages) == 0 || a.MainPackages[len(a.MainPackages)-1] != dir {
+			a.MainPackages = append(a.MainPackages, dir)
+		}
+	}
+
+	if bytes.Contains(data, []byte(sessionImportPath)) {
+		auths, unattached, err := parseAuths(rel, data)
+		if err != nil {
+			return err
+		}
+		a.Auths = append(a.Auths, auths...)
+		a.unattached = append(a.unattached, unattached...)
+	}
+
+	a.goFiles = append(a.goFiles, rel)
+
+	return a.scanAccess(rel, data)
+}
+
+// The permission engine's constructor and the option handing it a change signal.
+const (
+	engineNewFunc    = "New"
+	changeSignalFunc = "WithChangeSignal"
+)
+
+// parseEngines returns every access.New call in the file, each with whether an
+// access.WithChangeSignal option is among its arguments and whether it forwards options
+// it cannot see.
+func parseEngines(rel string, src []byte) ([]Engine, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, rel, src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, errors.Wrap(err, "parser.ParseFile()")
+	}
+	pkg := localImportName(f, accessImportPath)
+	if pkg == "" {
+		return nil, nil
+	}
+
+	var engines []Engine
+	ast.Inspect(f, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || !isQualified(call.Fun, pkg, engineNewFunc) {
+			return true
+		}
+		e := Engine{File: rel, Line: fset.Position(call.Pos()).Line, Package: path.Dir(rel), OptionsForwarded: call.Ellipsis.IsValid()}
+		for _, arg := range call.Args {
+			if option, ok := arg.(*ast.CallExpr); ok && isQualified(option.Fun, pkg, changeSignalFunc) {
+				e.ChangeSignal = true
+			}
+		}
+		engines = append(engines, e)
+
+		return true
+	})
+
+	return engines, nil
+}
+
+// scanAnnotations records the file's struct annotations (@permissionScope(domain),
+// @tenant, @tenantDirectory, @outlet) and its constructions of a tenant roster.
+func (a *App) scanAnnotations(rel string, data []byte) error {
+	if bytes.Contains(data, []byte("@"+permissionScopeKeyword)) || bytes.Contains(data, []byte("@"+outletKeyword)) || bytes.Contains(data, []byte("@"+tenantKeyword)) {
+		docs, err := parseStructDocs(rel, data)
+		if err != nil {
+			return err
+		}
+		for _, d := range docs {
+			if domainScopeRE.MatchString(d.Doc) {
+				a.DomainResources = append(a.DomainResources, DomainResource{File: rel, Line: d.Line, Name: d.Name})
+			}
+			if m := tenantRE.FindStringSubmatch(d.Doc); m != nil {
+				record := TenantRecord{File: rel, Line: d.Line, Name: d.Name}
+				if shape := tenantCreationRE.FindStringSubmatch(m[1]); shape != nil {
+					record.Creation = shape[1]
+				}
+				a.TenantRecords = append(a.TenantRecords, record)
+			}
+			if tenantDirectoryRE.MatchString(d.Doc) {
+				a.TenantDirectories = append(a.TenantDirectories, directoryRecord(rel, &d))
+			}
+			for _, m := range outletRE.FindAllStringSubmatch(d.Doc, -1) {
+				member := OutletMember{File: rel, Line: d.Line, Name: d.Name}
+				for _, name := range strings.Split(m[1], ",") {
+					if name = strings.TrimSpace(name); name != "" {
+						member.Outlets = append(member.Outlets, name)
+					}
+				}
+				a.OutletMembers = append(a.OutletMembers, member)
+			}
+		}
+	}
+
+	if bytes.Contains(data, []byte(rosterConstructorSuffix+"(")) {
+		rosters, err := parseRosterConstructions(rel, data)
+		if err != nil {
+			return err
+		}
+		a.RosterConstructions = append(a.RosterConstructions, rosters...)
+	}
+
+	return nil
+}
+
+// directoryRecord reads a struct annotated @tenantDirectory: the record, and the field
+// annotated @directoryDefaultSeat when it carries one.
+func directoryRecord(rel string, d *structDoc) DirectoryRecord {
+	record := DirectoryRecord{File: rel, Line: d.Line, Name: d.Name}
+	for i := range d.Fields {
+		if f := &d.Fields[i]; directoryDefaultSeatRE.MatchString(f.Doc) {
+			record.DefaultSeatField = f.Name
+			record.DefaultSeatName = wireName(f)
+
+			break
+		}
+	}
+
+	return record
+}
+
+// The generated tenant roster constructor's shape (New<Record>Roster) and the option
+// handing it the tenants signal.
+const (
+	rosterConstructorSuffix = "Roster"
+	tenantSignalsFunc       = "WithTenantSignals"
+)
+
+// rosterConstructorRE matches a generated tenant roster constructor's name.
+var rosterConstructorRE = regexp.MustCompile(`^New[A-Z][A-Za-z0-9]*` + rosterConstructorSuffix + `$`)
+
+// parseRosterConstructions returns every call in the file to a generated tenant roster
+// constructor, each with the name its result is bound to and whether a
+// resource.WithTenantSignals option is among its arguments.
+func parseRosterConstructions(rel string, src []byte) ([]RosterConstruction, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, rel, src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, errors.Wrap(err, "parser.ParseFile()")
+	}
+
+	holders := rosterHolders(f)
+	var rosters []RosterConstruction
+	ast.Inspect(f, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		name := calleeName(call.Fun)
+		if !rosterConstructorRE.MatchString(name) {
+			return true
+		}
+		r := RosterConstruction{File: rel, Line: fset.Position(call.Pos()).Line, Package: path.Dir(rel), Constructor: name, Holder: holders[call]}
+		for _, arg := range call.Args {
+			if option, ok := arg.(*ast.CallExpr); ok && calleeName(option.Fun) == tenantSignalsFunc {
+				r.Signals = true
+			}
+		}
+		rosters = append(rosters, r)
+
+		return true
+	})
+
+	return rosters, nil
+}
+
+// rosterHolders maps each call that is the right side of a definition or assignment, the
+// value of a declared variable, or the value of a composite literal element to the name
+// its result is bound to.
+func rosterHolders(f *ast.File) map[*ast.CallExpr]string {
+	holders := map[*ast.CallExpr]string{}
+	bind := func(target ast.Expr, value ast.Expr) {
+		call, ok := value.(*ast.CallExpr)
+		if !ok {
+			return
+		}
+		if name := calleeName(target); name != "" {
+			holders[call] = name
+		}
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.AssignStmt:
+			if len(n.Lhs) == len(n.Rhs) {
+				for i := range n.Lhs {
+					bind(n.Lhs[i], n.Rhs[i])
+				}
+			}
+		case *ast.ValueSpec:
+			if len(n.Names) == len(n.Values) {
+				for i := range n.Names {
+					bind(n.Names[i], n.Values[i])
+				}
+			}
+		case *ast.KeyValueExpr:
+			bind(n.Key, n.Value)
+		}
+
+		return true
+	})
+
+	return holders
+}
+
+// calleeName is the final name of an identifier or selector expression: the name a call
+// is made by, or the name a value is bound to (tenants for conf.tenants); empty for any
+// other expression.
+func calleeName(fun ast.Expr) string {
+	switch fun := fun.(type) {
+	case *ast.Ident:
+		return fun.Name
+	case *ast.SelectorExpr:
+		return fun.Sel.Name
+	default:
+		return ""
+	}
+}
+
+// scanFeatures records the file's feature flag declarations (resource.Feature constants)
+// and its @feature annotations.
+func (a *App) scanFeatures(rel string, data []byte) error {
+	if bytes.Contains(data, []byte(resourceImportPath)) && bytes.Contains(data, []byte(featureTypeName)) {
+		flags, err := parseFeatureFlags(rel, data, a.packagePath(path.Dir(rel)))
+		if err != nil {
+			return err
+		}
+		a.Features = append(a.Features, flags...)
+	}
+	if bytes.Contains(data, []byte("@"+featureKeyword)) {
+		gates, err := parseFeatureGates(rel, data)
+		if err != nil {
+			return err
+		}
+		a.FeatureGates = append(a.FeatureGates, gates...)
+	}
+
+	return nil
+}
+
+// scanAccess records what the file does with the permission engine: its constructions
+// (access.New), its access.WithDefaultRoles calls and its CheckPolicy calls.
+func (a *App) scanAccess(rel string, data []byte) error {
+	if bytes.Contains(data, []byte(accessImportPath)) {
+		engines, err := parseEngines(rel, data)
+		if err != nil {
+			return err
+		}
+		a.Engines = append(a.Engines, engines...)
+	}
+	if bytes.Contains(data, []byte(defaultRolesFunc+"(")) {
+		calls, err := parseDefaultRoles(rel, data, a.packagePath(path.Dir(rel)))
+		if err != nil {
+			return err
+		}
+		a.DefaultRoles = append(a.DefaultRoles, calls...)
+	}
+	if bytes.Contains(data, []byte(checkPolicyFunc+"(")) {
+		checks, err := parsePolicyChecks(rel, data)
+		if err != nil {
+			return err
+		}
+		a.PolicyChecks = append(a.PolicyChecks, checks...)
+	}
+
+	return nil
+}
+
+// The role-policy entry points the scan reads: the option handing a role file to the
+// engine, the deploy's policy check, the validation a test runs, and the function an auth
+// package exports its embedded role file through.
+const (
+	defaultRolesFunc  = "WithDefaultRoles"
+	checkPolicyFunc   = "CheckPolicy"
+	validateRolesFunc = "ValidateRoles"
+	rolesFunc         = "Roles"
+)
+
+// parseDefaultRoles returns every access.WithDefaultRoles call in the file, each carrying
+// the package whose Roles() it hands over. ownPkg is the file's package import path, which
+// an unqualified Roles() names.
+func parseDefaultRoles(rel string, src []byte, ownPkg string) ([]DefaultRoles, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, rel, src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, errors.Wrap(err, "parser.ParseFile()")
+	}
+	pkg := localImportName(f, accessImportPath)
+	if pkg == "" {
+		return nil, nil
+	}
+	imports := fileImports(f)
+
+	var calls []DefaultRoles
+	ast.Inspect(f, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || !isQualified(call.Fun, pkg, defaultRolesFunc) {
+			return true
+		}
+		d := DefaultRoles{File: rel, Line: fset.Position(call.Pos()).Line}
+		if len(call.Args) == 2 {
+			d.RolesPackage = rolesCallPackage(call.Args[1], imports, ownPkg)
+		}
+		calls = append(calls, d)
+
+		return true
+	})
+
+	return calls, nil
+}
+
+// rolesCallPackage reads a Roles() call: the import path of the package it is called on,
+// ownPkg for an unqualified call, or empty for anything else.
+func rolesCallPackage(expr ast.Expr, imports map[string]string, ownPkg string) string {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok || len(call.Args) != 0 {
+		return ""
+	}
+	switch fun := call.Fun.(type) {
+	case *ast.Ident:
+		if fun.Name == rolesFunc {
+			return ownPkg
+		}
+	case *ast.SelectorExpr:
+		if id, ok := fun.X.(*ast.Ident); ok && fun.Sel.Name == rolesFunc {
+			return imports[id.Name]
+		}
+	}
+
+	return ""
+}
+
+// parsePolicyChecks returns every CheckPolicy call in the file: the deploy's policy check
+// on the auth's engine, whatever the receiver is called.
+func parsePolicyChecks(rel string, src []byte) ([]PolicyCheck, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, rel, src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, errors.Wrap(err, "parser.ParseFile()")
+	}
+	var checks []PolicyCheck
+	ast.Inspect(f, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == checkPolicyFunc {
+			checks = append(checks, PolicyCheck{File: rel, Line: fset.Position(call.Pos()).Line})
+		}
+
+		return true
+	})
+
+	return checks, nil
+}
+
+// parseRoleValidations returns every access.ValidateRoles call in a test file, each
+// carrying the auth packages whose Roles() the file calls: a test that validates a role
+// file parses the file its auth package embeds, so the call names the file the validation
+// is over.
+func parseRoleValidations(rel string, src []byte) ([]RoleValidation, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, rel, src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, errors.Wrap(err, "parser.ParseFile()")
+	}
+	pkg := localImportName(f, accessImportPath)
+	if pkg == "" {
+		return nil, nil
+	}
+
+	imports := fileImports(f)
+	var rolesPackages []string
+	var calls []RoleValidation
+	ast.Inspect(f, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if isQualified(call.Fun, pkg, validateRolesFunc) {
+			calls = append(calls, RoleValidation{File: rel, Line: fset.Position(call.Pos()).Line})
+		}
+		if p := rolesCallPackage(call, imports, ""); p != "" && !slices.Contains(rolesPackages, p) {
+			rolesPackages = append(rolesPackages, p)
+		}
+
+		return true
+	})
+	slices.Sort(rolesPackages)
+	for i := range calls {
+		calls[i].RolesPackages = rolesPackages
+	}
+
+	return calls, nil
+}
+
+// fileImports maps the names a file imports packages under to their import paths.
+func fileImports(f *ast.File) map[string]string {
+	imports := map[string]string{}
+	for _, imp := range f.Imports {
+		p, err := strconv.Unquote(imp.Path.Value)
+		if err != nil {
+			continue
+		}
+		local := path.Base(p)
+		if imp.Name != nil {
+			local = imp.Name.Name
+		}
+		imports[local] = p
+	}
+
+	return imports
+}
+
+// packagePath is the import path of a root-relative directory, or empty without a module
+// directive.
+func (a *App) packagePath(dir string) string {
+	if a.GoMod == nil || a.GoMod.Module == nil {
+		return ""
+	}
+	if dir == "." {
+		return a.GoMod.Module.Mod.Path
+	}
+
+	return a.GoMod.Module.Mod.Path + "/" + dir
+}
+
+// findRefs returns one EmulatorRef per line of data matching re, whose first group is the
+// version.
+func findRefs(rel string, data []byte, re *regexp.Regexp) []EmulatorRef {
+	var refs []EmulatorRef
+	line := 0
+	for l := range bytes.Lines(data) {
+		line++
+		for _, m := range re.FindAllSubmatch(l, -1) {
+			refs = append(refs, EmulatorRef{File: rel, Line: line, Version: string(m[1])})
+		}
+	}
+
+	return refs
+}
+
+// goGenerateRE matches a //go:generate directive at the start of a line.
+var goGenerateRE = regexp.MustCompile(`^//go:generate\s+(.+?)\s*$`)
+
+// findDirectives returns the //go:generate directives in the file.
+func findDirectives(rel string, data []byte) []Directive {
+	var directives []Directive
+	line := 0
+	for l := range bytes.Lines(data) {
+		line++
+		if m := goGenerateRE.FindSubmatch(bytes.TrimRight(l, "\r\n")); m != nil {
+			directives = append(directives, Directive{File: rel, Line: line, Command: string(m[1])})
+		}
+	}
+
+	return directives
+}
+
+// ciDirective opens the //impulse:ci line.
+const ciDirective = "//impulse:ci"
+
+// ciDirectiveRE matches the line at the start of a line, with its settings after it.
+var ciDirectiveRE = regexp.MustCompile(`^//impulse:ci(?:\s+(.*?))?\s*$`)
+
+// The //impulse:ci settings.
+const (
+	ciLargeRunner   = "large-runner"
+	ciTestCache     = "test-cache"
+	ciDefaultBranch = "default-branch"
+)
+
+// branchNameRE is the shape of a branch name the line may declare: git's rules in
+// outline (no leading dot or dash, no spaces, no .., no trailing slash).
+var branchNameRE = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._/-]*[A-Za-z0-9_]$|^[A-Za-z0-9_]$`)
+
+// findCIDirective returns the file's //impulse:ci line, parsed, nil without one, and an
+// error for a second line in the file or a setting it cannot read.
+func findCIDirective(rel string, data []byte) (*CIDirective, error) {
+	var found *CIDirective
+	line := 0
+	for l := range bytes.Lines(data) {
+		line++
+		m := ciDirectiveRE.FindSubmatch(bytes.TrimRight(l, "\r\n"))
+		if m == nil {
+			continue
+		}
+		if found != nil {
+			return nil, errors.Newf("%s:%d: a second %s line; the application has one, at %s:%d", rel, line, ciDirective, found.File, found.Line)
+		}
+		d, err := parseCIDirective(string(m[1]))
+		if err != nil {
+			return nil, errors.Wrapf(err, "%s:%d: %s", rel, line, ciDirective)
+		}
+		d.File, d.Line = rel, line
+		found = d
+	}
+
+	return found, nil
+}
+
+// parseCIDirective reads the settings after //impulse:ci: whitespace-separated
+// name=value pairs, each name at most once.
+func parseCIDirective(settings string) (*CIDirective, error) {
+	d := &CIDirective{}
+	seen := map[string]bool{}
+	for _, field := range strings.Fields(settings) {
+		name, value, ok := strings.Cut(field, "=")
+		if !ok || value == "" {
+			return nil, errors.Newf("%q is not a name=value setting (the settings are %s=<job>,<job>,... or none, %s=on or off, and %s=<branch>)", field, ciLargeRunner, ciTestCache, ciDefaultBranch)
+		}
+		if seen[name] {
+			return nil, errors.Newf("%s is set twice", name)
+		}
+		seen[name] = true
+		switch name {
+		case ciLargeRunner:
+			d.LargeRunner = []string{}
+			if value != "none" {
+				d.LargeRunner = strings.Split(value, ",")
+			}
+		case ciTestCache:
+			switch value {
+			case "on", "off":
+				on := value == "on"
+				d.TestCache = &on
+			default:
+				return nil, errors.Newf("%s=%s: the value is on or off", name, value)
+			}
+		case ciDefaultBranch:
+			if !branchNameRE.MatchString(value) || strings.Contains(value, "..") {
+				return nil, errors.Newf("%s=%s: the value is a branch name", name, value)
+			}
+			d.DefaultBranch = value
+		default:
+			return nil, errors.Newf("%q is not a setting (the settings are %s, %s and %s)", name, ciLargeRunner, ciTestCache, ciDefaultBranch)
+		}
+	}
+
+	return d, nil
+}
+
+// stripLeadingComments drops the comment lines and blank lines before a file's package
+// clause, so the clause can be read without a full parse.
+func stripLeadingComments(data []byte) []byte {
+	for {
+		trimmed := bytes.TrimLeft(data, " \t\r\n")
+		switch {
+		case bytes.HasPrefix(trimmed, []byte("//")):
+			i := bytes.IndexByte(trimmed, '\n')
+			if i < 0 {
+				return nil
+			}
+			data = trimmed[i+1:]
+		case bytes.HasPrefix(trimmed, []byte("/*")):
+			i := bytes.Index(trimmed, []byte("*/"))
+			if i < 0 {
+				return nil
+			}
+			data = trimmed[i+2:]
+		default:
+			return trimmed
+		}
+	}
+}
+
+// The annotations and import the scan reads.
+const (
+	permissionScopeKeyword      = "permissionScope"
+	outletKeyword               = "outlet"
+	tenantKeyword               = "tenant"
+	tenantDirectoryKeyword      = "tenantDirectory"
+	directoryDefaultSeatKeyword = "directoryDefaultSeat"
+	accessImportPath            = "github.com/impulseframework/impulse/access"
+)
+
+// domainScopeRE matches the @permissionScope(domain) struct annotation; outletRE
+// captures the names an @outlet(...) annotation lists; tenantRE matches the @tenant
+// struct annotation, a line of its own in the doc comment, capturing its arguments;
+// tenantCreationRE captures the creation shape among them (creation: self-service);
+// tenantDirectoryRE matches the @tenantDirectory struct annotation, a line of its own,
+// and directoryDefaultSeatRE the @directoryDefaultSeat field annotation.
+var (
+	domainScopeRE          = regexp.MustCompile(`@` + permissionScopeKeyword + `\(\s*domain\s*\)`)
+	outletRE               = regexp.MustCompile(`@` + outletKeyword + `\(([^)]*)\)`)
+	tenantRE               = regexp.MustCompile(`(?m)^\s*@` + tenantKeyword + `\s*(?:\(([^)]*)\))?\s*$`)
+	tenantCreationRE       = regexp.MustCompile(`\b` + TenantCreationArg + `\s*:\s*([A-Za-z-]+)`)
+	tenantDirectoryRE      = regexp.MustCompile(`(?m)^\s*@` + tenantDirectoryKeyword + `\s*$`)
+	directoryDefaultSeatRE = regexp.MustCompile(`@` + directoryDefaultSeatKeyword + `\b`)
+)
+
+// structDoc is one struct type declaration with its doc comment and its fields' comments.
+type structDoc struct {
+	Name   string
+	Line   int
+	Doc    string
+	Fields []fieldDoc
+}
+
+// fieldDoc is one named field of a struct: its name, its doc comment and trailing
+// comment together, and its tag.
+type fieldDoc struct {
+	Name string
+	Doc  string
+	Tag  string
+}
+
+// parseStructDocs returns every struct type in the file that has a doc comment.
+func parseStructDocs(rel string, src []byte) ([]structDoc, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, rel, src, parser.ParseComments|parser.SkipObjectResolution)
+	if err != nil {
+		return nil, errors.Wrap(err, "parser.ParseFile()")
+	}
+
+	var docs []structDoc
+	for _, decl := range f.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			ts, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			st, isStruct := ts.Type.(*ast.StructType)
+			if !isStruct {
+				continue
+			}
+			doc := ts.Doc
+			if doc == nil && len(gen.Specs) == 1 {
+				doc = gen.Doc
+			}
+			if doc == nil {
+				continue
+			}
+			docs = append(docs, structDoc{Name: ts.Name.Name, Line: fset.Position(ts.Pos()).Line, Doc: doc.Text(), Fields: fieldDocs(st)})
+		}
+	}
+
+	return docs, nil
+}
+
+// fieldDocs reads a struct's named fields with their comments: the doc comment above a
+// field and the comment on its line, where an annotation may stand.
+func fieldDocs(st *ast.StructType) []fieldDoc {
+	var fields []fieldDoc
+	for _, f := range st.Fields.List {
+		doc := f.Doc.Text()
+		if f.Comment != nil {
+			doc += f.Comment.Text()
+		}
+		tag := ""
+		if f.Tag != nil {
+			if s, err := strconv.Unquote(f.Tag.Value); err == nil {
+				tag = s
+			}
+		}
+		for _, name := range f.Names {
+			fields = append(fields, fieldDoc{Name: name.Name, Doc: doc, Tag: tag})
+		}
+	}
+
+	return fields
+}
+
+// wireName is a field's name on the wire as the generator writes it: its json tag, or
+// its name in camel case.
+func wireName(f *fieldDoc) string {
+	if name, _, _ := strings.Cut(reflect.StructTag(f.Tag).Get("json"), ","); name != "" && name != "-" {
+		return name
+	}
+
+	return strcase.ToCamel(f.Name)
+}
+
+// localImportName returns the name the file imports the path under, or empty when the
+// file does not import it.
+func localImportName(f *ast.File, importPath string) string {
+	for _, imp := range f.Imports {
+		p, err := strconv.Unquote(imp.Path.Value)
+		if err != nil || p != importPath {
+			continue
+		}
+		if imp.Name != nil {
+			return imp.Name.Name
+		}
+
+		return path.Base(p)
+	}
+
+	return ""
+}
+
+// declaresEnv reports whether a file may declare environment variables: it writes an env
+// tag, or imports a package declaring a framework settings struct it may embed.
+func declaresEnv(data []byte) bool {
+	if bytes.Contains(data, []byte(`env:"`)) {
+		return true
+	}
+	for _, d := range frameworkSettings {
+		if bytes.Contains(data, []byte(strconv.Quote(d.Path))) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// parseEnvTags returns every env struct tag in the file, in source order, and the
+// variables a framework settings struct the file embeds declares, as if the application
+// declared them at the embedding. Tags without a name (such as the prefix-only tags on
+// embedded structs of the application) are skipped.
+func parseEnvTags(rel string, src []byte) ([]EnvTag, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, rel, src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, errors.Wrap(err, "parser.ParseFile()")
+	}
+
+	r := &envTagReader{rel: rel, fset: fset, file: f}
+	ast.Inspect(f, func(n ast.Node) bool {
+		if st, ok := n.(*ast.StructType); ok && r.bad == nil {
+			r.readStruct(st)
+		}
+
+		return true
+	})
+	if r.bad != nil {
+		return nil, errors.Newf("%s:%d: secret:%q on %s: the secret tag takes %q, %q or %q", rel, r.bad.Line, r.badValue, r.bad.Name, secretTrue, secretGenerated, secretFalse)
+	}
+
+	return r.tags, nil
+}
+
+// envTagReader collects the env tags of one file's struct types.
+type envTagReader struct {
+	rel  string
+	fset *token.FileSet
+	file *ast.File
+	tags []EnvTag
+	// bad is the first malformed secret tag: the field's variable, line and value.
+	bad      *EnvTag
+	badValue string
+}
+
+// readStruct reads a struct type's fields in order: a field's env tag, or the variables
+// the framework settings struct an embedded field names declares.
+func (r *envTagReader) readStruct(st *ast.StructType) {
+	for _, field := range st.Fields.List {
+		if r.bad != nil {
+			return
+		}
+		line := r.fset.Position(field.Pos()).Line
+		if len(field.Names) == 0 {
+			if d, ok := r.embedded(field.Type); ok {
+				r.tags = append(r.tags, declaredTags(d, r.rel, line)...)
+
+				continue
+			}
+		}
+		r.readField(field, line)
+	}
+}
+
+// readField reads a field's env tag, and the secret tag beside it.
+func (r *envTagReader) readField(field *ast.Field, line int) {
+	if field.Tag == nil {
+		return
+	}
+	raw := reflect.StructTag(strings.Trim(field.Tag.Value, "`"))
+	value, ok := raw.Lookup("env")
+	if !ok {
+		return
+	}
+	tag, ok := parseEnvTag(value)
+	if !ok {
+		return
+	}
+	tag.File = r.rel
+	tag.Line = line
+	if secret, present := raw.Lookup(secretTag); present {
+		switch secret {
+		case secretTrue:
+			tag.Secret = true
+		case secretGenerated:
+			tag.Secret, tag.Generated = true, true
+		case secretFalse:
+		default:
+			r.bad, r.badValue = &tag, secret
+		}
+	}
+	r.tags = append(r.tags, tag)
+}
+
+// embedded resolves an embedded field's type to the framework settings struct it names,
+// when it is one: a type of another package, which the file imports under the path the
+// struct's declaration gives, by its alias or its name. Any other embedded type, of the
+// application's own package or of a package the framework does not declare, is not
+// expanded: the scan does not load the application's packages.
+func (r *envTagReader) embedded(expr ast.Expr) (cloud.Declaration, bool) {
+	if star, ok := expr.(*ast.StarExpr); ok {
+		expr = star.X
+	}
+	sel, ok := expr.(*ast.SelectorExpr)
+	if !ok {
+		return cloud.Declaration{}, false
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return cloud.Declaration{}, false
+	}
+	for _, d := range frameworkSettings {
+		if d.Name == sel.Sel.Name && localImportName(r.file, d.Path) == pkg.Name {
+			return d, true
+		}
+	}
+
+	return cloud.Declaration{}, false
+}
+
+// declaredTags are the env tags a framework settings struct declares, as the application
+// declares them by embedding the struct at the line: each at the embedding, naming the
+// struct it came from.
+func declaredTags(d cloud.Declaration, rel string, line int) []EnvTag {
+	tags := make([]EnvTag, 0, len(d.Fields))
+	for _, f := range d.Fields {
+		tag, ok := parseEnvTag(f.Tag)
+		if !ok {
+			continue
+		}
+		tag.File, tag.Line, tag.Origin = rel, line, d.Path+"."+d.Name
+		tags = append(tags, tag)
+	}
+
+	return tags
+}
+
+// secretTag is the struct tag beside the env tag that declares a secret: secretTrue a
+// value someone puts in place, secretGenerated one the tooling makes, secretFalse a plain
+// value whose name sounds like a credential.
+const (
+	secretTag       = "secret"
+	secretTrue      = "true"
+	secretGenerated = "generated"
+	secretFalse     = "false"
+)
+
+// parseEnvTag interprets an envconfig tag value: NAME[,required][,default=VALUE][,...].
+func parseEnvTag(value string) (EnvTag, bool) {
+	parts := strings.Split(value, ",")
+	name := strings.TrimSpace(parts[0])
+	if name == "" {
+		return EnvTag{}, false
+	}
+	tag := EnvTag{Name: name}
+	for _, opt := range parts[1:] {
+		opt = strings.TrimSpace(opt)
+		switch {
+		case opt == "required":
+			tag.Required = true
+		case strings.HasPrefix(opt, "default="):
+			tag.HasDefault = true
+		}
+	}
+
+	return tag, true
+}

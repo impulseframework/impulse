@@ -1,0 +1,6 @@
+[install]
+linker = "hoisted"
+# A newly published package version is not installed until it has been public for seven
+# days, which keeps a compromised release from reaching the packages built here before it
+# is noticed and pulled.
+minimumReleaseAge = 604800

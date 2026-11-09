@@ -1,0 +1,55 @@
+{
+  "name": "@impulseframework/resource-angular",
+  "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/impulseframework/impulse.git",
+    "directory": "web/projects/resource-angular"
+  },
+  "peerDependencies": {
+    "@angular/common": "^21.0.0",
+    "@angular/core": "^21.0.0",
+    "@angular/service-worker": "^21.0.0",
+    "@impulseframework/resource": "0.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@angular/service-worker": {
+      "optional": true
+    }
+  },
+  "dependencies": {
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
+    "tslib": "^2.3.0"
+  },
+  "sideEffects": false,
+  "impulseframework": {
+    "signInSteps": [
+      "confirmation",
+      "mfa:email-code"
+    ]
+  },
+  "exports": {
+    "./styles": {
+      "sass": "./styles/_index.scss",
+      "style": "./styles/_index.scss",
+      "default": "./styles/_index.scss"
+    },
+    "./theme": {
+      "sass": "./styles/_theme.scss",
+      "style": "./styles/_theme.scss",
+      "default": "./styles/_theme.scss"
+    },
+    "./palettes": {
+      "sass": "./styles/_palettes.scss",
+      "style": "./styles/_palettes.scss",
+      "default": "./styles/_palettes.scss"
+    },
+    "./styles/fonts": {
+      "sass": "./styles/_fonts.scss",
+      "style": "./styles/_fonts.scss",
+      "default": "./styles/_fonts.scss"
+    }
+  }
+}

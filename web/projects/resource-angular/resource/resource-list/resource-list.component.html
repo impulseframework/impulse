@@ -1,0 +1,62 @@
+<div [class]="linkCreateType() ? 'page-container hide' : 'page-container'">
+  <div class="header-container" [class.show-background]="!config().collapsible" [class.indent]="indentTitle()">
+    <h1 class="title">{{ listTitle() }}</h1>
+    <action-access-control-wrapper [actionContext]="createButtonContext()">
+      <div class="create-button">
+        <button mat-raised-button color="accent" (click)="createResource($event)">
+          <div class="edit-text">
+            <mat-icon>create</mat-icon>
+            <span class="edit-button-text"> {{ createButtonLabel() }} </span>
+          </div>
+        </button>
+      </div>
+    </action-access-control-wrapper>
+  </div>
+  @if (showSearchBox()) {
+    <div class="search-container" [class.indent]="indentTitle()">
+      <impulse-search-box
+        [placeholder]="searchPlaceholder()"
+        [hint]="searchHint()"
+        [value]="store.searchText()"
+        [total]="store.page().total"
+        (textChange)="onSearchChange($event)" />
+    </div>
+  }
+  <div class="resource-container">
+    <impulse-grid
+      [rowData]="processedRowData()"
+      [columnDefs]="columns()"
+      [rowKey]="rowKey()"
+      [enableRowExpansion]="config().enableRowExpansion"
+      [enableVirtualScroll]="config().enableVirtualScroll"
+      [detailTemplate]="expandedRowTemplate"
+      [loading]="loadingRowData()"
+      [emptyMessage]="emptyMessage()"
+      [sorts]="store.sorts()"
+      [filters]="store.columnFilters()"
+      [filterability]="filterability()"
+      [externalFilterFields]="configFilterFields()"
+      [searches]="searches()"
+      [filterInputs]="filterInputs()"
+      [boxActive]="boxActive()"
+      [page]="store.page()"
+      (sortChange)="onSortChange($event)"
+      (filterChange)="onFilterChange($event)"
+      (pageTurn)="onPageTurn($event)">
+    </impulse-grid>
+  </div>
+</div>
+
+<ng-template #expandedRowTemplate let-rowData>
+  <ng-container
+    *ngComponentOutlet="
+      compoundResourceComponent();
+      inputs: {
+        uuid: rowData[expansionKey()!],
+        navAfterDelete: false,
+        deleted: store.reloadPage.bind(store),
+        resourceConfig: expansionConfig(),
+      }
+    ">
+  </ng-container>
+</ng-template>

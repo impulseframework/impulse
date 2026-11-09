@@ -1,0 +1,114 @@
+// Package router serves Lodestar: the generated router (zz_gen_router.go, whose package
+// comment is the middleware chain in front of every route) with the console's and the
+// portal's own routes composed in through AppHooks.
+package router
+
+import (
+	"net/http"
+
+	"github.com/go-chi/chi/v5"
+)
+
+// AppHandlers is the served application's full surface: the generated router's Handlers
+// (every outlet's generated handlers, the two auths' session handlers, the middleware, the
+// droids outlet's authentication, and the two browser applications) plus the console's
+// and the portal's own routes, which AppHooks mounts inside the outlets' guards.
+type AppHandlers interface {
+	Handlers
+
+	// The console's hand-written routes: the sector-scoped ship's log over the
+	// change-tracking table (registered through @manualAddResource(List, domain)), the
+	// impersonation mint route and the watch desk over the live impersonated sessions.
+	// EndImpersonation and EnforceReadOnlyMask are the session library's own, on the
+	// crew auth's session the App embeds; the generated router names the rest of that
+	// session (DefaultSession) and mounts neither of these, so the application names
+	// them here and mounts them inside the console's guards itself. The mission
+	// document download is generated: the @file on MissionDocument.StoreKey serves it
+	// under the read route.
+	EndImpersonation() http.HandlerFunc
+	EnforceReadOnlyMask(next http.Handler) http.Handler
+	ShipsLogEntries() http.HandlerFunc
+	Impersonate() http.HandlerFunc
+	ActiveImpersonations() http.HandlerFunc
+	RevokeImpersonation() http.HandlerFunc
+
+	// The portal's hand-written route: a company's statement over the change log
+	// (registered through @manualAddResource(List, domain) with @outlet(portal)).
+	ClientStatements() http.HandlerFunc
+
+	// The beacon pulse outside every outlet (app/beacon.go), mounted through hooks.Root
+	// under the prefix the generator program declares quiet.
+	SectorBeacon() http.HandlerFunc
+}
+
+// consoleAPI is the console outlet's API prefix. The generator program mounts the
+// console's browser application at /console, and the outlet's API sits under that mount
+// path, as the portal's sits under /portal.
+const consoleAPI = "/console/api"
+
+// ImpersonationRoute names one live impersonated session on the watch desk.
+const ImpersonationRoute = consoleAPI + "/impersonations/{impersonationID}"
+
+// ShipsLogEntriesRoute is the console's ship's log route under the sector segment.
+const ShipsLogEntriesRoute = consoleAPI + "/sectors/{sectorID}/ships-log-entries"
+
+// ClientStatementsRoute is the portal's statement route under the sector segment.
+const ClientStatementsRoute = "/portal/api/sectors/{sectorID}/client-statements"
+
+// BeaconsPrefix is the prefix the beacon pulses sit under, outside every outlet, and
+// what the generator program declares with WithMountedRoutes: every request under it
+// writes its request log on event and its spans are off. The router, the tracer and
+// the release file learn the prefix from that one declaration; this constant keeps the
+// route under it.
+//
+// Demonstrates: generation.request-log, generation.traces.
+const BeaconsPrefix = "/beacons/"
+
+// BeaconRoute is one sector's beacon pulse: a droid asks it, all day, whether the sector
+// is charted.
+const BeaconRoute = BeaconsPrefix + "{sectorID}"
+
+// AppHooks composes the application's own routes into the generated router (New), inside
+// the guards each outlet's group already carries: the console's routes behind the crew
+// auth's session validation and XSRF guard, the portal's behind the members auth's. The
+// generated router owns everything else: the every-request middleware, each outlet's
+// session or token-checked group, the not-found handlers, and the two browser applications.
+//
+// Demonstrates: GenerateRouter, auth.two-populations, auth.user-management, outlet.session, outlet.tokens, outlet.isolation, hand-written-route, impersonation.read-only-backstop, impersonation.end, consolidation.batch, generation.request-log.
+func AppHooks(h AppHandlers) Hooks {
+	return Hooks{
+		// The root: the beacon pulse outside every outlet, behind the every-request
+		// chain alone, under the prefix the generator program declares quiet. The
+		// request logger starts each request under it with the prefix's word, on event,
+		// so a pulse answered 200 writes no entry and one answered 404 does.
+		Root: func(r chi.Router) {
+			r.Get(BeaconRoute, h.SectorBeacon())
+		},
+		// The console: the read-only backstop mounted after session validation, so a
+		// view-as session that somehow issues a write is refused at the door before any
+		// handler runs; the generated routes register beneath it.
+		Default: func(r chi.Router, generated func(chi.Router)) {
+			// Ending a view stays reachable from a read-only session: it ends the session,
+			// it writes nothing the mask protects, so it is mounted before the backstop.
+			r.Post(consoleAPI+"/impersonate/end", h.EndImpersonation())
+
+			r.Group(func(r chi.Router) {
+				r.Use(h.EnforceReadOnlyMask)
+
+				r.Get(ShipsLogEntriesRoute, h.DomainGuard()(h.ShipsLogEntries()))
+				r.Post(consoleAPI+"/impersonate", h.Impersonate())
+				r.Get(consoleAPI+"/impersonations", h.ActiveImpersonations())
+				r.Delete(ImpersonationRoute, h.RevokeImpersonation())
+
+				generated(r)
+			})
+		},
+		// The portal: the client statement beside the portal outlet's generated routes,
+		// behind the members auth. A client's session opens nothing under /console/api.
+		Portal: func(r chi.Router, generated func(chi.Router)) {
+			r.Get(ClientStatementsRoute, h.DomainGuard()(h.ClientStatements()))
+
+			generated(r)
+		},
+	}
+}

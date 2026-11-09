@@ -1,0 +1,142 @@
+{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "newProjectRoot": "projects",
+  "projects": {
+    "resource": {
+      "projectType": "library",
+      "root": "projects/resource",
+      "sourceRoot": "projects/resource",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:ng-packagr",
+          "options": {
+            "project": "projects/resource/ng-package.json"
+          },
+          "configurations": {
+            "production": {
+              "tsConfig": "projects/resource/tsconfig.lib.prod.json"
+            },
+            "development": {
+              "tsConfig": "projects/resource/tsconfig.lib.json"
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "lint": {
+          "builder": "@angular-eslint/builder:lint",
+          "options": {
+            "lintFilePatterns": [
+              "projects/resource/**/*.ts"
+            ],
+            "eslintConfig": "projects/resource/eslint.config.js"
+          }
+        }
+      }
+    },
+    "resource-angular": {
+      "projectType": "library",
+      "root": "projects/resource-angular",
+      "sourceRoot": "projects/resource-angular",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:ng-packagr",
+          "options": {
+            "project": "projects/resource-angular/ng-package.json"
+          },
+          "configurations": {
+            "production": {
+              "tsConfig": "projects/resource-angular/tsconfig.lib.prod.json"
+            },
+            "development": {
+              "tsConfig": "projects/resource-angular/tsconfig.lib.json"
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "tsConfig": "projects/resource-angular/tsconfig.spec.json",
+            "exclude": [
+              "styles/theme-contract.test.ts"
+            ]
+          }
+        },
+        "lint": {
+          "builder": "@angular-eslint/builder:lint",
+          "options": {
+            "lintFilePatterns": [
+              "projects/resource-angular/**/*.ts",
+              "projects/resource-angular/**/*.html"
+            ],
+            "eslintConfig": "projects/resource-angular/eslint.config.js"
+          }
+        }
+      }
+    },
+    "resource-firestore": {
+      "projectType": "library",
+      "root": "projects/resource-firestore",
+      "sourceRoot": "projects/resource-firestore",
+      "architect": {
+        "build": {
+          "builder": "@angular/build:ng-packagr",
+          "options": {
+            "project": "projects/resource-firestore/ng-package.json"
+          },
+          "configurations": {
+            "production": {
+              "tsConfig": "projects/resource-firestore/tsconfig.lib.prod.json"
+            },
+            "development": {
+              "tsConfig": "projects/resource-firestore/tsconfig.lib.json"
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+        "lint": {
+          "builder": "@angular-eslint/builder:lint",
+          "options": {
+            "lintFilePatterns": [
+              "projects/resource-firestore/**/*.ts"
+            ],
+            "eslintConfig": "projects/resource-firestore/eslint.config.js"
+          }
+        }
+      }
+    }
+  },
+  "cli": {
+    "analytics": false,
+    "schematicCollections": [
+      "@angular-eslint/schematics"
+    ]
+  },
+  "schematics": {
+    "@schematics/angular:component": {
+      "type": "component"
+    },
+    "@schematics/angular:directive": {
+      "type": "directive"
+    },
+    "@schematics/angular:service": {
+      "type": "service"
+    },
+    "@schematics/angular:guard": {
+      "typeSeparator": "."
+    },
+    "@schematics/angular:interceptor": {
+      "typeSeparator": "."
+    },
+    "@schematics/angular:module": {
+      "typeSeparator": "."
+    },
+    "@schematics/angular:pipe": {
+      "typeSeparator": "."
+    },
+    "@schematics/angular:resolver": {
+      "typeSeparator": "."
+    }
+  }
+}

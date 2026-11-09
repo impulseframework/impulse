@@ -1,0 +1,129 @@
+// Package cookie provides cookie encryption using PASETO
+package cookie
+
+import (
+	"net/http"
+	"strings"
+	"time"
+
+	"aidanwoods.dev/go-paseto"
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/logger"
+)
+
+// Client implements reading and writing encrypted cookies
+type Client struct {
+	pasetoKey paseto.V4SymmetricKey
+}
+
+// New returns a new Client
+// keyBase64 must be a base64-encoded string of at least 32 random bytes,
+// used to derived the symmetric key.
+func New(keyBase64 string) (*Client, error) {
+	pasetoKey, err := createPasetoKey(keyBase64)
+	if err != nil {
+		return nil, errors.Wrap(err, "createPasetoKey()")
+	}
+
+	client := &Client{
+		pasetoKey: pasetoKey,
+	}
+
+	return client, nil
+}
+
+// Read reads the cookie from the request
+func (c *Client) Read(r *http.Request, cookieName string) (values *Values, found bool, err error) {
+	cookie, err := r.Cookie(cookieName)
+	if err != nil {
+		if errors.Is(err, http.ErrNoCookie) {
+			return nil, false, nil
+		}
+
+		return nil, false, errors.Wrap(err, "http.Request.Cookie()")
+	}
+
+	cval, err := c.Decrypt(cookieName, cookie.Value)
+	if err != nil {
+		if strings.Contains(err.Error(), "this token has expired") {
+			return cval, false, nil
+		}
+		logger.FromReq(r).Warnf("Invalid cookie or encryption key was rotated: %v", err)
+
+		return cval, false, nil
+	}
+
+	return cval, true, nil
+}
+
+// WriteSessionCookie writes a session cookie to the response
+func (c *Client) WriteSessionCookie(w http.ResponseWriter, cookieName, domain string, httpOnly bool, sameSite http.SameSite, values *Values) {
+	// Secure is SecureCookie(), true in every build except the insecurecookie development
+	// build. HttpOnly is the caller's choice: true for the session cookie, false for the
+	// XSRF cookie, which the browser reads and sends back as a header.
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-httponly.cookie-missing-httponly, go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
+	http.SetCookie(w, &http.Cookie{
+		Name:     cookieName,
+		Expires:  time.Time{},
+		Value:    c.Encrypt(cookieName, time.Now().AddDate(10, 0, 0), values),
+		Path:     "/",
+		Domain:   domain,
+		Secure:   SecureCookie(),
+		HttpOnly: httpOnly,
+		SameSite: sameSite,
+	})
+}
+
+// WritePersistentCookie writes a persistent cookie to the response
+func (c *Client) WritePersistentCookie(w http.ResponseWriter, cookieName, domain string, httpOnly bool, sameSite http.SameSite, expiration time.Duration, values *Values) {
+	expirationTime := time.Now().Add(expiration)
+	// Secure is SecureCookie(), true in every build except the insecurecookie development
+	// build. HttpOnly is the caller's choice; the OIDC sign-in cookie, the one persistent
+	// cookie the session package writes, sets it true.
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-httponly.cookie-missing-httponly, go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
+	http.SetCookie(w, &http.Cookie{
+		Name:     cookieName,
+		Expires:  expirationTime,
+		Value:    c.Encrypt(cookieName, expirationTime, values),
+		Path:     "/",
+		Domain:   domain,
+		Secure:   SecureCookie(),
+		HttpOnly: httpOnly,
+		SameSite: sameSite,
+	})
+}
+
+// Delete deletes a cookie from the response. domain must match the Domain
+// attribute the cookie was written with; browsers key cookies by
+// (name, domain, path), so a mismatched tombstone deletes nothing.
+func (c *Client) Delete(w http.ResponseWriter, cookieName, domain string) {
+	// Secure is SecureCookie(), true in every build except the insecurecookie development build.
+	// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure
+	http.SetCookie(w, &http.Cookie{
+		Name:     cookieName,
+		Expires:  time.Unix(0, 0),
+		Value:    "",
+		Path:     "/",
+		Domain:   domain,
+		Secure:   SecureCookie(),
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+	})
+}
+
+// Encrypt encrypts a cookie and returns the value
+func (c *Client) Encrypt(cookieName string, expiration time.Time, values *Values) string {
+	values.token.SetExpiration(expiration)
+
+	return values.token.V4Encrypt(c.pasetoKey, []byte(cookieName))
+}
+
+// Decrypt decrypts a cookie and returns the values
+func (c *Client) Decrypt(cookieName, cookieValue string) (*Values, error) {
+	token, err := paseto.NewParser().ParseV4Local(c.pasetoKey, cookieValue, []byte(cookieName))
+	if err != nil {
+		return nil, errors.Wrap(err, "paseto.ParseV4Local()")
+	}
+
+	return &Values{token: *token}, nil
+}

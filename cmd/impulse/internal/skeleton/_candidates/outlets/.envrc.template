@@ -1,0 +1,113 @@
+# Development environment for outlets. Copy to .envrc and run `direnv allow`.
+#
+# Variables are grouped by configuration level (pkg/config). A process reads the levels
+# it constructs and nothing above them: cmd/bootstrap and cmd/deployment/migrate read
+# core and data; the served site reads all three.
+
+# --- core: every process ---
+export APP_SERVICE_NAME=outlets
+export APP_VERSION=dev
+# GOOGLE_CLOUD_LOGGING_PROJECT ships request logs to Cloud Logging; unset logs to the console.
+# export GOOGLE_CLOUD_LOGGING_PROJECT=
+# APP_TRACE_SAMPLING exports every request's spans (all) or the ones the caller sampled (edge,
+# the default); the spans go to the logging project, so none leaves without one.
+# export APP_TRACE_SAMPLING=edge
+
+# --- data: every process that opens the database ---
+export GOOGLE_CLOUD_SPANNER_PROJECT=outlets-dev
+export GOOGLE_CLOUD_SPANNER_INSTANCE_ID=outlets
+export GOOGLE_CLOUD_SPANNER_DATABASE_NAME=outlets
+# APP_DEFAULT_SESSION_TIMEOUT is the idle timeout of a browser session (default 10m).
+# export APP_DEFAULT_SESSION_TIMEOUT=10m
+# APP_COOKIE_KEY signs session cookies: Base64 of 32+ random bytes. Unset, the process
+# generates an ephemeral key and sessions end when it restarts.
+# export APP_COOKIE_KEY=
+# APP_PUBLIC_URL is the application's address as a browser reaches it, scheme and host with
+# no path: every link the auths mail (an invitation, an address verification, a sign-up)
+# opens the login page under it. The dev proxy here; a deployment sets the served hostname.
+# The console's dev server; the portal's is :4303, so a link the members auth logs opens
+# there once its port is swapped in.
+export APP_PUBLIC_URL=http://127.0.0.1:4301
+# APP_MAIL_MAILBOX and APP_MAIL_APP_PASSWORD send the auths' mail through the Google Workspace
+# SMTP relay as the mailbox (a no-reply address of the organization's domain, with two-step
+# verification and an app password); APP_MAIL_FROM is the address the mail is from when it
+# is not the mailbox, an alias of its account. Unset here: the mail is written to the server's
+# log, link included, and nothing is sent; follow the link from the log.
+# export APP_MAIL_MAILBOX=no-reply@example.com
+# export APP_MAIL_FROM=
+# export APP_MAIL_APP_PASSWORD=
+# APP_STAFF_ADMINISTRATOR_PASSWORD is the password of the staff auth's first administrator
+# (pkg/auth/staff, Administrator), which the migrate command seeds while the auth's users
+# table holds no rows; a deployment generates it as a secret, and the bootstrap creates the
+# development logins instead, so it stays unset here.
+# export APP_STAFF_ADMINISTRATOR_PASSWORD=
+# The Firestore database the live service runs on, beside the Spanner database (the live
+# driver's settings, embedded in pkg/config): the subscriptions the server registers, the change sets the browser
+# listens to, and the signals document the application's instances tell each other through.
+# A deployment supplies APP_FIRESTORE_DATABASE (the database id), GOOGLE_CLOUD_FIRESTORE_PROJECT
+# (the project the database is in) and APP_FIREBASE_API_KEY (the web API key the browser
+# initializes the SDK with). A process given the database without its project refuses to
+# start, naming both variables: the database is not assumed to be in the Spanner project,
+# which is the shared instance's where environments share one. In development
+# the emulator below stands in, all three stay unset, and the live driver opens the emulator
+# under its own project id. The live service is required: with neither a database nor the emulator, the
+# process refuses to start.
+# export APP_FIRESTORE_DATABASE=
+# export APP_FIREBASE_API_KEY=
+# export GOOGLE_CLOUD_FIRESTORE_PROJECT=
+# The members auth (pkg/auth/members) signs the portal's people in through the directory
+# registration (OpenID Connect against Microsoft Entra, user/directory/login). The
+# Procfile builds with the session library's skipAuth tag, which simulates the directory:
+# every sign-in through it is APP_DIRECTORY_USERNAME, or APP_USERNAME when that is unset
+# (the roles in APP_ROLES are ignored, since the application assigns members their roles),
+# and only the tenant id, the administered tenants and the redirect URL are read: the
+# tenant below is a placeholder that is nobody's, since the method validates its
+# organization slot at registration whether or not the directory is simulated. Register
+# the application with a tenant, fill the registration's variables in
+# (APP_<AUTH>_<REGISTRATION>_*), and drop the tag to use it.
+export APP_USERNAME=client
+export APP_ROLES=
+export APP_MEMBERS_DIRECTORY_TENANT_ID=00000000-0000-0000-0000-000000000000
+# APP_MEMBERS_DIRECTORY_ADMINISTERED_TENANTS: the tenants the deployment administers, by
+# tenant id, comma-separated, each one the registration admits: a sign-in from one carries
+# the tenant's own second factor and is not asked for the sign-in code. Empty when the
+# deployment administers none, as here: every sign-in is asked for the code, which the mail
+# log prints in development. Read under the simulated directory too.
+export APP_MEMBERS_DIRECTORY_ADMINISTERED_TENANTS=
+# export APP_MEMBERS_DIRECTORY_CLIENT_ID=
+# export APP_MEMBERS_DIRECTORY_CLIENT_SECRET=
+export APP_MEMBERS_DIRECTORY_REDIRECT_URL=http://127.0.0.1:4303/portal/api/user/directory/callback
+# APP_MEMBERS_ADMINISTRATOR is the sign-in name of the members auth's first administrator,
+# which the migrate command seeds the administrator role memberships under while the auth
+# has no users; a deployment names it per environment, and the bootstrap seeds the
+# development members instead, so it stays unset here.
+# export APP_MEMBERS_ADMINISTRATOR=
+
+# --- site: the served site ---
+export PORT=8093
+# export APP_CONSOLE_DIST=web/dist/console
+# export APP_PORTAL_DIST=web/dist/portal
+
+# --- the sensor: the program the release ships to the devices (cmd/sensor) ---
+# A copy installed on a device reads these, not the application; they are here for a run
+# against the development stack (go run ./cmd/sensor list). SENSOR_OUTLET is the devices
+# outlet's URL as the router mounts it; SENSOR_TOKEN an application token a staff login
+# issued for the outlet on the console's Tokens page (/console/tokens); SENSOR_TENANT the
+# tenant the readings belong to; SENSOR_SOURCE the name the readings carry for the
+# device, the hostname when unset.
+# export SENSOR_OUTLET=http://127.0.0.1:8093/devices
+# export SENSOR_TOKEN=
+# export SENSOR_TENANT=north
+# export SENSOR_SOURCE=
+
+# --- local development only: the emulators the Procfile starts ---
+export SPANNER_EMULATOR_PORT=9016
+export SPANNER_EMULATOR_HOST=127.0.0.1:${SPANNER_EMULATOR_PORT}
+# The Firestore emulator is the live service in development: the server registers
+# subscriptions, publishes changes and signals its other instances there, and the token
+# route hands the browser its host.
+export FIRESTORE_EMULATOR_PORT=9026
+export FIRESTORE_EMULATOR_HOST=127.0.0.1:${FIRESTORE_EMULATOR_PORT}
+# overmind otherwise takes PORT as its base and hands every process its own (base, base+100,
+# ...), so the server would listen on PORT+100 and the console proxy would miss it.
+export OVERMIND_NO_PORT=1

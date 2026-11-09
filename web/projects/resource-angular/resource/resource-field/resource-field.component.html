@@ -1,0 +1,139 @@
+<div [class.hidden-field]="!showField()">
+  @if (!hasControl()) {
+    <!-- The form owner left this field out: nothing to render and no control to bind. -->
+  } @else if (showEmptyField()) {
+    <impulse-empty-readonly-field [label]="fieldConfig().label"></impulse-empty-readonly-field>
+  } @else {
+    @switch (renderer()) {
+      @case ('date') {
+        <impulse-date-field
+          [form]="form()"
+          [fieldConfig]="fieldConfig()"
+          [editMode]="mode()"
+          [fieldClass]="fieldClass()"
+          [meta]="meta()"
+          [pristineValue]="pristineValue()"
+          [relatedData]="data()"
+          [fieldMeta]="fieldMeta()"
+          [showField]="showField()">
+        </impulse-date-field>
+      }
+
+      @case ('number') {
+        <impulse-number-field
+          [form]="form()"
+          [fieldConfig]="fieldConfig()"
+          [editMode]="mode()"
+          [fieldClass]="fieldClass()"
+          [meta]="meta()"
+          [pristineValue]="pristineValue()"
+          [relatedData]="data()"
+          [fieldMeta]="fieldMeta()"
+          [showField]="showField()">
+        </impulse-number-field>
+      }
+
+      @case ('boolean') {
+        <ng-container *ngTemplateOutlet="booleanFragment"></ng-container>
+      }
+
+      @case ('enumerated') {
+        <impulse-enumerated-field
+          [form]="form()"
+          [fieldConfig]="fieldConfig()"
+          [editMode]="mode()"
+          [fieldClass]="fieldClass()"
+          [meta]="meta()"
+          [pristineValue]="pristineValue()"
+          [relatedData]="data()"
+          [fieldMeta]="fieldMeta()"
+          [showField]="showField()">
+        </impulse-enumerated-field>
+      }
+
+      @case ('bytes') {
+        <impulse-bytes-field
+          [form]="form()"
+          [fieldConfig]="fieldConfig()"
+          [editMode]="mode()"
+          [fieldClass]="fieldClass()"
+          [meta]="meta()"
+          [pristineValue]="pristineValue()"
+          [relatedData]="data()"
+          [fieldMeta]="fieldMeta()"
+          [showField]="showField()">
+        </impulse-bytes-field>
+      }
+
+      @case ('array') {
+        <impulse-array-field
+          [form]="form()"
+          [fieldConfig]="fieldConfig()"
+          [editMode]="mode()"
+          [fieldClass]="fieldClass()"
+          [meta]="meta()"
+          [pristineValue]="pristineValue()"
+          [relatedData]="data()"
+          [fieldMeta]="fieldMeta()"
+          [showField]="showField()">
+        </impulse-array-field>
+      }
+
+      @case ('object') {
+        <impulse-object-field
+          [form]="form()"
+          [fieldConfig]="fieldConfig()"
+          [editMode]="mode()"
+          [fieldClass]="fieldClass()"
+          [meta]="meta()"
+          [pristineValue]="pristineValue()"
+          [relatedData]="data()"
+          [fieldMeta]="fieldMeta()"
+          [showField]="showField()">
+        </impulse-object-field>
+      }
+
+      @default {
+        <impulse-text-field
+          [form]="form()"
+          [fieldConfig]="fieldConfig()"
+          [editMode]="mode()"
+          [fieldClass]="fieldClass()"
+          [meta]="meta()"
+          [pristineValue]="pristineValue()"
+          [relatedData]="data()"
+          [fieldMeta]="fieldMeta()"
+          [showField]="showField()">
+        </impulse-text-field>
+      }
+    }
+  }
+</div>
+
+<ng-template #booleanFragment>
+  @if (booleanEditDisplayType() === 'boolean') {
+    <impulse-boolean-field
+      [form]="form()"
+      [fieldConfig]="fieldConfig()"
+      [editMode]="mode()"
+      [fieldClass]="fieldClass()"
+      [meta]="meta()"
+      [pristineValue]="pristineValue()"
+      [relatedData]="data()"
+      [fieldMeta]="fieldMeta()"
+      [showField]="showField()">
+    </impulse-boolean-field>
+  } @else if (booleanEditDisplayType() === 'nullboolean') {
+    <impulse-nullboolean-field
+      [form]="form()"
+      [fieldConfig]="fieldConfig()"
+      [editMode]="mode()"
+      [fieldClass]="fieldClass()"
+      [meta]="meta()"
+      [pristineValue]="pristineValue()"
+      [relatedData]="data()"
+      [fieldMeta]="fieldMeta()"
+      [showField]="showField()">
+    </impulse-nullboolean-field>
+  }
+</ng-template>

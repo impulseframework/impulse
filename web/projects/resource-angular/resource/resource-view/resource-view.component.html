@@ -1,0 +1,164 @@
+@if (useExpansionPanel()) {
+  <div class="resource-view">
+    <mat-expansion-panel [@.disabled]="true" [disabled]="!config().collapsible" [expanded]="!config().collapsible">
+      @if (config().title) {
+        <mat-expansion-panel-header>
+          <mat-panel-title>
+            <h1 class="title">{{ showCreateForm() ? 'Create' : '' }}{{ config().title }}</h1>
+          </mat-panel-title>
+        </mat-expansion-panel-header>
+      } @else {
+        <div class="no-title-exp-panel-padding"></div>
+      }
+      <ng-container *ngTemplateOutlet="headerSlot"></ng-container>
+      @if (store.rowPresent()) {
+        <div class="resource-container" [class.form-edit-mode]="editMode() === 'edit'">
+          <form [formGroup]="form()">
+            <div class="resource row">
+              @if (showCreateForm()) {
+                <impulse-resource-create
+                  [resourceConfig]="createConfig()"
+                  [parentData]="relatedData()"
+                  (complete)="createResource()">
+                </impulse-resource-create>
+              } @else {
+                <ng-container *ngTemplateOutlet="formSlot"></ng-container>
+              }
+            </div>
+          </form>
+          <ng-container *ngTemplateOutlet="footerSlot"></ng-container>
+        </div>
+      } @else if (viewErrorMessage()) {
+        <div class="resource-container">
+          <div class="refusal message">{{ viewErrorMessage() }}</div>
+        </div>
+      } @else {
+        <div class="resource-container empty">
+          <div class="resource row"></div>
+        </div>
+      }
+    </mat-expansion-panel>
+  </div>
+} @else {
+  <div class="page-container">
+    @if (!showCreateForm()) {
+      <ng-container *ngTemplateOutlet="headerSlot"></ng-container>
+    }
+    @if (store.rowPresent()) {
+      <div class="resource-container base-container-bg" [class.form-edit-mode]="editMode() === 'edit'">
+        <form [formGroup]="form()">
+          <div class="resource row">
+            @if (showCreateForm()) {
+              <impulse-resource-create
+                [resourceConfig]="createConfig()"
+                [parentData]="relatedData()"
+                (complete)="createResource()">
+              </impulse-resource-create>
+            } @else {
+              <ng-container *ngTemplateOutlet="formSlot"></ng-container>
+            }
+          </div>
+        </form>
+      </div>
+    } @else if (viewErrorMessage()) {
+      <div class="resource-container base-container-bg">
+        <div class="refusal message">{{ viewErrorMessage() }}</div>
+      </div>
+    } @else {
+      <div class="resource-container">
+        <div class="resource row empty"></div>
+      </div>
+    }
+    <ng-container *ngTemplateOutlet="footerSlot"></ng-container>
+  </div>
+}
+
+<ng-template #formSlot>
+  @for (element of config().elements; track element) {
+    @if (element.type === 'section' || element.type === 'computedDisplayField' || element.type === 'padding') {
+      <impulse-resource-layout-template
+        [element]="element"
+        [meta]="store.resourceMeta()"
+        [fieldClass]="config().fieldClass"
+        [editMode]="editMode()"
+        [relatedData]="relatedData()"
+        [form]="form()">
+      </impulse-resource-layout-template>
+    } @else {
+      <impulse-resource-layout-template
+        [element]="element"
+        [meta]="store.resourceMeta()"
+        [fieldClass]="config().fieldClass"
+        [pristineValue]="pristineFormValues[element.name]"
+        [editMode]="editMode()"
+        [relatedData]="relatedData()"
+        [form]="form()">
+      </impulse-resource-layout-template>
+    }
+  }
+</ng-template>
+
+<ng-template #headerSlot>
+  <div class="header-container">
+    <div class="state-buttons">
+      @if (store.rowPresent()) {
+        @for (rpc of inlineRpcConfigs(); track rpc.context) {
+          <action-access-control-wrapper [actionContext]="rpc.context">
+            <impulse-rpc-button
+              [rpcConfig]="rpc.config"
+              [relatedData]="relatedData()"
+              [primaryResource]="config().primaryResource">
+            </impulse-rpc-button>
+          </action-access-control-wrapper>
+        }
+        @if (editMode() === 'view') {
+          <action-access-control-wrapper [actionContext]="editButtonContext()">
+            <div class="edit-button">
+              <button mat-raised-button color="accent" (click)="setEditMode('edit')">
+                <div class="button-text">
+                  <mat-icon>edit</mat-icon>
+                  <span class="mode-text"> Edit </span>
+                </div>
+              </button>
+            </div>
+          </action-access-control-wrapper>
+
+          <action-access-control-wrapper [actionContext]="deleteButtonContext()">
+            <button mat-raised-button color="primary" (click)="confirmDeleteResource()">Delete</button>
+          </action-access-control-wrapper>
+        }
+
+        @if (editMode() === 'edit') {
+          @if (form().dirty) {
+            <div class="unsaved message">You have unsaved changes!</div>
+          }
+          @if (displayFormInvalidMessage() && changedFieldsInvalid()) {
+            <div class="invalid message">Please complete or fix required fields.</div>
+          }
+          <button mat-raised-button color="primary" (click)="resetForm()">Cancel</button>
+          <button mat-raised-button color="accent" (click)="saveForm()" [disabled]="form().pristine">Save</button>
+        }
+
+        @if (showCloseButton()) {
+          <div class="close-button">
+            <button mat-icon-button color="warn" (click)="location.back()">
+              <mat-icon>close</mat-icon>
+            </button>
+          </div>
+        }
+      }
+    </div>
+  </div>
+</ng-template>
+
+<ng-template #footerSlot>
+  @for (rpc of endRpcConfigs(); track rpc) {
+    <action-access-control-wrapper [actionContext]="rpc.context">
+      <impulse-rpc-button
+        [rpcConfig]="rpc.config"
+        [relatedData]="relatedData()"
+        [primaryResource]="config().primaryResource">
+      </impulse-rpc-button>
+    </action-access-control-wrapper>
+  }
+</ng-template>

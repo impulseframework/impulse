@@ -1,0 +1,23 @@
+<div mat-dialog-title>{{ formData().label }}</div>
+<mat-dialog-content>
+  <div class="resource-container">
+    <form [formGroup]="form()">
+      <div class="resource row">
+        @for (element of formData().elements; track element) {
+          <impulse-resource-layout-template
+            [element]="element"
+            [meta]="meta()"
+            [pristineValue]="pristineForm[element.name]"
+            editMode="edit"
+            [form]="form()"></impulse-resource-layout-template>
+        }
+      </div>
+    </form>
+  </div>
+</mat-dialog-content>
+<mat-dialog-actions align="end">
+  <button mat-raised-button color="warn" [mat-dialog-close]="false">Cancel</button>
+  <button mat-raised-button color="accent" [mat-dialog-close]="form().getRawValue()" [disabled]="!form().valid">
+    Complete
+  </button>
+</mat-dialog-actions>

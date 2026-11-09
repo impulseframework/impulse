@@ -1,0 +1,10 @@
+@if (showField()) {
+  <div class="readonly-field object-field {{ fieldClass() }}">
+    <span class="object-label">{{ fieldConfig().label }}</span>
+    <pre class="object-json">{{ json() }}</pre>
+  </div>
+} @else {
+  <ng-container [formGroup]="form()">
+    <input type="hidden" [formControlName]="fieldConfig().name" />
+  </ng-container>
+}

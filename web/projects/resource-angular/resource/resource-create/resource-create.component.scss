@@ -1,0 +1,130 @@
+.container {
+  border: 1px solid var(--impulse-outline);
+  border-radius: 5px;
+  position: relative;
+  margin-bottom: 20px;
+  padding-top: 10px;
+}
+
+.label {
+  position: absolute;
+  top: -15px;
+  left: 20px;
+  height: 20px;
+  background-color: var(--impulse-surface);
+  margin: 0px 10px 0px 10px;
+  padding: 0px 10px 0px 10px;
+  text-align: center;
+  z-index: 10;
+  font-weight: 500;
+  font:
+    18px 'Roboto',
+    sans-serif;
+}
+
+.page-container {
+  position: relative;
+}
+
+.header-container {
+  margin: 20px 20px 0px 20px;
+  display: flex;
+  flex-direction: row;
+  top: 0;
+  z-index: 11;
+  background: transparent;
+}
+
+.title {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.indent {
+  padding-left: 20px;
+}
+
+.message {
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+.state-buttons {
+  display: flex;
+  flex-direction: row;
+  margin-top: auto;
+  margin-bottom: auto;
+  justify-content: right;
+  flex-grow: 1;
+  gap: 20px;
+}
+
+.mode-text {
+  margin-top: auto;
+  margin-bottom: auto;
+}
+
+.resource {
+  margin: 10px;
+}
+.section h2 {
+  font-size: 1.5em;
+  border-bottom: 2px solid var(--impulse-divider);
+  padding-bottom: 8px;
+
+  margin-bottom: 100px;
+}
+.section {
+  margin-top: 15px;
+}
+
+.divider {
+  margin: 16px 0;
+}
+
+.section-elements {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.mat-input-element:disabled[readonly] {
+  color: currentColor;
+}
+
+.unsaved {
+  color: var(--impulse-warn);
+}
+
+.edit-button {
+  margin-top: auto;
+  margin-bottom: auto;
+  padding-left: 10px;
+}
+
+.button-text {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+
+  .edit {
+    color: var(--impulse-accent);
+  }
+
+  .mat-icon {
+    margin-right: 8px;
+  }
+}
+
+.shaded {
+  background-color: var(--impulse-shaded);
+}
+
+.rounded {
+  border-radius: 8px;
+}
+
+.dotted-outline {
+  border: 1px dotted var(--impulse-divider);
+  padding: 8px;
+}

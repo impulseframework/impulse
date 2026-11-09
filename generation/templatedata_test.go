@@ -1,0 +1,188 @@
+package generation
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+)
+
+// Every payload whose template renders parsed types must scope import
+// resolution to what it renders; forgetting the interface degrades that
+// payload's files to goimports fallback warnings.
+var (
+	_ typeImporter = (*resourceInterfacesData)(nil)
+	_ typeImporter = (*resourceFileData)(nil)
+	_ typeImporter = (*handlersFileData)(nil)
+	_ typeImporter = (*consolidatedPatchData)(nil)
+	_ typeImporter = (*computedHandlerData)(nil)
+	_ typeImporter = (*rpcFileData)(nil)
+	_ typeImporter = (*rpcHandlerData)(nil)
+	_ typeImporter = (*rpcInterfacesData)(nil)
+)
+
+// scopedPayload is a minimal typeImporter for exercising payload-scoped import
+// resolution in tests.
+type scopedPayload struct {
+	imports []fixerImport
+}
+
+func (s scopedPayload) typeImports() []fixerImport {
+	return s.imports
+}
+
+// Test_typeImports_scopedToPayload pins the reason typeImports is per payload
+// rather than a union over all parsed resources: two resources may use
+// same-named packages from different import paths, and only a file rendering
+// both should see an ambiguity.
+func Test_typeImports_scopedToPayload(t *testing.T) {
+	t.Parallel()
+
+	src := `package resources
+
+type Widget struct {
+	Kind types.Kind
+}
+`
+
+	tests := []struct {
+		name        string
+		known       []fixerImport
+		wantImport  string
+		wantUnknown []string
+	}{
+		{
+			name:       "scoped to one resource the qualifier is unambiguous",
+			known:      []fixerImport{{name: "types", path: "example.com/foo/types"}},
+			wantImport: `"example.com/foo/types"`,
+		},
+		{
+			name: "union of both resources turns the same file ambiguous",
+			known: []fixerImport{
+				{name: "types", path: "example.com/foo/types"},
+				{name: "types", path: "example.com/bar/types"},
+			},
+			wantUnknown: []string{"types (ambiguous: example.com/foo/types, example.com/bar/types)"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fixed, unknown, err := newImportFixer(tt.known, nil).fix("a.go", []byte(src))
+			if err != nil {
+				t.Fatalf("importFixer.fix() error = %v", err)
+			}
+
+			if diff := cmp.Diff(tt.wantUnknown, unknown); diff != "" {
+				t.Fatalf("importFixer.fix() unknown mismatch (-want +got):\n%s", diff)
+			}
+
+			if tt.wantImport != "" && !strings.Contains(string(fixed), tt.wantImport) {
+				t.Errorf("importFixer.fix() should import %s; got:\n%s", tt.wantImport, fixed)
+			}
+		})
+	}
+}
+
+// Test_formatGoBytes_usesPayloadScope verifies formatGoBytes resolves imports
+// from the payload's typeImports: the import path below is not resolvable any
+// other way (not declared, not stdlib, not a derived package), so its presence in
+// the output proves the payload scope was used, and its absence from the scope is
+// the unresolved-qualifier error (the goimports fall-back is gone).
+func Test_formatGoBytes_usesPayloadScope(t *testing.T) {
+	t.Parallel()
+
+	src := `package resources
+
+type Widget struct {
+	Kind fakepkg.Kind
+}
+`
+
+	tests := []struct {
+		name       string
+		data       any
+		wantImport string
+		wantErr    string
+	}{
+		{
+			name:       "payload scope resolves the import",
+			data:       scopedPayload{imports: []fixerImport{{name: "fakepkg", path: "example.com/fake/v2"}}},
+			wantImport: `import fakepkg "example.com/fake/v2"`,
+		},
+		{
+			name:    "payload without the qualifier in scope is the unresolved-qualifier error",
+			data:    scopedPayload{},
+			wantErr: "import resolution for widget.go (template test) cannot resolve qualifier(s) [fakepkg]",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := &client{}
+			got, err := c.formatGoBytes("widget.go", "test", []byte(src), tt.data)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("formatGoBytes() error = nil, want one containing %q", tt.wantErr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("formatGoBytes() error = %v, want one containing %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("formatGoBytes() error = %v", err)
+			}
+
+			if !strings.Contains(string(got), tt.wantImport) {
+				t.Errorf("formatGoBytes() should add the payload-scoped import; got:\n%s", got)
+			}
+		})
+	}
+}
+
+// Test_rpcTypeImports_result pins that the RPC handler's type imports cover the
+// result's leaf packages: the response mirror declares them, and a result reaching
+// time.Time (or decimal.Decimal) fell back to goimports before this.
+func Test_rpcTypeImports_result(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadFixture(t, "wirefixture"))
+	result, err := walkFixture(t, structs, "Shared")
+	if err != nil {
+		t.Fatalf("walkFixture(Shared) error = %v", err)
+	}
+	request, err := walkFixture(t, structs, "Reading")
+	if err != nil {
+		t.Fatalf("walkFixture(Reading) error = %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		method   *rpcMethodInfo
+		wantPath string
+	}{
+		{name: "the result's packages are declared", method: &rpcMethodInfo{Struct: structs["Shared"], Result: result}, wantPath: "time"},
+		{name: "the request's packages are declared", method: &rpcMethodInfo{Struct: structs["Reading"], Request: request}, wantPath: "time"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var found bool
+			for _, imp := range rpcTypeImports(nil, tt.method) {
+				if imp.path == tt.wantPath {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("rpcTypeImports() = %v, want %q among them", rpcTypeImports(nil, tt.method), tt.wantPath)
+			}
+		})
+	}
+}

@@ -1,0 +1,14 @@
+@if (showField()) {
+  <div class="readonly-field array-field {{ fieldClass() }}">
+    <span class="array-label">{{ fieldConfig().label }}</span>
+    <mat-chip-set class="array-items" [attr.aria-label]="fieldConfig().label">
+      @for (item of items(); track $index) {
+        <mat-chip class="array-item">{{ item }}</mat-chip>
+      }
+    </mat-chip-set>
+  </div>
+} @else {
+  <ng-container [formGroup]="form()">
+    <input type="hidden" [formControlName]="fieldConfig().name" />
+  </ng-container>
+}

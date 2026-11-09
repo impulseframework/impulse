@@ -1,0 +1,50 @@
+<div class="login-page">
+  <mat-card class="login-card" [class.arriving]="methods.arriving()" appearance="outlined">
+    <mat-card-header>
+      <mat-card-title>✦ Lodestar</mat-card-title>
+      <mat-card-subtitle>Rescue and salvage operations console</mat-card-subtitle>
+    </mat-card-header>
+    <mat-card-content>
+      <impulse-login-methods #methods home="/dashboard" (signedIn)="go($event)" />
+    </mat-card-content>
+    <mat-card-footer class="release"><impulse-release /></mat-card-footer>
+  </mat-card>
+
+  <div class="manifest">
+    @for (deck of decks; track deck) {
+      <h3>{{ deck }}</h3>
+      <div class="cards">
+        @for (persona of personasOn(deck); track persona.login) {
+          <button
+            type="button"
+            class="persona"
+            [class.selected]="selected() === persona.login"
+            (click)="fillPersona(persona.login)">
+            <span class="login">{{ persona.login }}</span>
+            <span class="name">{{ persona.name }}</span>
+            <span class="proves">{{ persona.proves }}</span>
+          </button>
+        }
+      </div>
+    }
+    <h3>Fleet directory</h3>
+    <div class="cards">
+      <div class="persona directory">
+        <span class="login">{{ directoryPersona.login }}</span>
+        <span class="name">{{ directoryPersona.name }}</span>
+        <span class="proves">{{ directoryPersona.proves }}</span>
+      </div>
+    </div>
+    <p class="droid">
+      <mat-icon>badge</mat-icon>
+      Development: the server runs with the session library's <code>skipAuth</code> tag, which simulates the fleet's
+      directory, so the Google sign-in is <code>APP_GOOGLE_USERNAME</code> from <code>.envrc</code> (navigator) in the
+      groups <code>APP_GOOGLE_ROLES</code> names. No Google tenant is contacted.
+    </p>
+    <p class="droid">
+      <mat-icon>smart_toy</mat-icon>
+      R7, the droid service account, has no login: it posts telemetry through the API-keyed droid channel (see
+      walkthrough.sh).
+    </p>
+  </div>
+</div>

@@ -1,0 +1,2 @@
+DROP INDEX PersonaRegistrations_ExpiresAt_idx;
+DROP TABLE PersonaRegistrations;

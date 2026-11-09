@@ -1,0 +1,200 @@
+package handoff
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/google/go-cmp/cmp"
+	"golang.org/x/mod/modfile"
+
+	"github.com/impulseframework/impulse/app"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/check"
+)
+
+// beacon is a minimal application for the brief: a root and a module path.
+func beacon(t *testing.T) *app.App {
+	t.Helper()
+
+	mod, err := modfile.Parse("go.mod", []byte("module example.com/acme/beacon\n\ngo 1.26\n"), nil)
+	if err != nil {
+		t.Fatalf("modfile.Parse() error = %v", err)
+	}
+
+	return &app.App{Root: "/w/beacon", GoMod: mod}
+}
+
+const preamble = "# Impulse handoff: example.com/acme/beacon\n\n" +
+	"You are working in an Impulse application (Go services built on the Impulse Framework, with its resource package generating the handlers, routes, and browser clients from annotated resource structs; a listed resource declares its order with `@order` on the struct or every page of it names a `sort`, since a paged request with neither is refused). The application root is `/w/beacon`, and it is your working directory.\n\n"
+
+const rulesTail = "5. Do not stage or commit. Leave your work in the working tree; the pull request is the review.\n" +
+	"6. Anything the running release uses is retired in one release and removed in the next, never both at once: a schema object (a column, a table), an environment variable, a secret, a file store. A secret or a file store is retired by naming its variable in `retired` in `infrastructure/terraform.tfvars` while its declaration stays; the next release removes the declaration and the name together. A release that destroys an un-retired one is refused at its plan.\n" +
+	"7. Keep the tests table-driven and the suite passing: `go test ./...`.\n" +
+	"8. Stop when the check is clean. In your final message, say what you changed and what a reviewer should look at.\n"
+
+func TestBriefWrite(t *testing.T) {
+	t.Parallel()
+
+	optionsPass := check.Result{Name: "options", Status: check.Pass, Summary: "flat layout, 1 site(s); tenanted (record Tenant); no outlets", Details: []string{"beacon (cmd/generate/main.go): resources pkg/resources, handlers app"}}
+	tenancy := check.Result{Name: "tenancy-wired", Status: check.Fail, Summary: "2 tenancy wiring problem(s)", Details: []string{
+		"pkg/resources/tenants.go:8: no file outside tests calls NewTenantRoster, the generated constructor of the tenant roster over Tenant",
+		"cmd/generate/main.go: no struct in pkg/resources is annotated @permissionScope(domain): every resource is global, and the tenant segment serves nothing",
+	}}
+	guard := Snapshot{Programs: map[string][]string{"cmd/generate/main.go": nil}, Configs: map[string]string{GolangciConfig: "a", "web/eslint.config.js": "b"}}
+
+	tests := []struct {
+		name  string
+		brief Brief
+		want  string
+	}{
+		{
+			name:  "nothing changed by the tool, options in force",
+			brief: Brief{Results: []check.Result{optionsPass, tenancy, {Name: "pins", Status: check.Warn, Summary: "1 pin"}}, Guard: guard},
+			want: preamble +
+				"## What changed\n\nNothing was changed by the tool. `impulse check` found the obligations below in the tree as it is.\n\n" +
+				"## The option set in force\n\nflat layout, 1 site(s); tenanted (record Tenant); no outlets\n- beacon (cmd/generate/main.go): resources pkg/resources, handlers app\n\n" +
+				"This is read from the generator programs, never from a record. It must read the same when you are done.\n\n" +
+				"## The failing checks\n\nThis is the output of `impulse check`, failing checks only. Each line under a check is one obligation.\n\n```\n" +
+				"FAIL  tenancy-wired  2 tenancy wiring problem(s)\n" +
+				"      pkg/resources/tenants.go:8: no file outside tests calls NewTenantRoster, the generated constructor of the tenant roster over Tenant\n" +
+				"      cmd/generate/main.go: no struct in pkg/resources is annotated @permissionScope(domain): every resource is global, and the tenant segment serves nothing\n" +
+				"```\n\n" +
+				"## Rules\n\n" +
+				"1. Run `impulse check` from the application root until it reports no FAIL. The regen check runs go generate, which needs the Spanner emulator through podman or docker; if neither is available, run `impulse check --skip-generate` and say so in your final message.\n" +
+				"2. Do not edit generated files (`zz_gen_*`). Change the source they are generated from and run `go generate ./...`.\n" +
+				"3. Do not edit the generator program(s): `cmd/generate/main.go`. Do not add or remove generator options; the option set was recorded and is compared when you finish.\n" +
+				"4. Do not edit the lint configuration: `.golangci.yml`, `web/eslint.config.js`. Fix the findings in the code.\n" +
+				rulesTail +
+				"\n## Done when\n\n`impulse check` reports no FAIL, and its options line still reads:\n\n    flat layout, 1 site(s); tenanted (record Tenant); no outlets\n",
+		},
+		{
+			name: "a transition with meaning and a reference, options failing",
+			brief: Brief{
+				Change:    "impulse add tenancy annotated the Tenant record @tenant and added the Tenants migration.\n",
+				Meaning:   "Tenancy scopes resources to a tenant record.",
+				Reference: "/w/tenanted",
+				Results:   []check.Result{{Name: "options", Status: check.Fail, Summary: "1 option set problem(s)", Details: []string{"x"}}},
+				Guard:     Snapshot{},
+			},
+			want: preamble +
+				"## What changed\n\nimpulse add tenancy annotated the Tenant record @tenant and added the Tenants migration.\n\n" +
+				"## What it means\n\nTenancy scopes resources to a tenant record.\n\n" +
+				"## The failing checks\n\nThis is the output of `impulse check`, failing checks only. Each line under a check is one obligation.\n\n```\n" +
+				"FAIL  options  1 option set problem(s)\n      x\n```\n\n" +
+				"## Reference\n\nThe application at `/w/tenanted` has these options wired and its check clean. Read it for the shape of the wiring. Do not copy its resources, names, or data into this application.\n\n" +
+				"## Rules\n\n" +
+				"1. Run `impulse check` from the application root until it reports no FAIL. The regen check runs go generate, which needs the Spanner emulator through podman or docker; if neither is available, run `impulse check --skip-generate` and say so in your final message.\n" +
+				"2. Do not edit generated files (`zz_gen_*`). Change the source they are generated from and run `go generate ./...`.\n" +
+				"3. Do not stage or commit. Leave your work in the working tree; the pull request is the review.\n" +
+				"4. Anything the running release uses is retired in one release and removed in the next, never both at once: a schema object (a column, a table), an environment variable, a secret, a file store. A secret or a file store is retired by naming its variable in `retired` in `infrastructure/terraform.tfvars` while its declaration stays; the next release removes the declaration and the name together. A release that destroys an un-retired one is refused at its plan.\n" +
+				"5. Keep the tests table-driven and the suite passing: `go test ./...`.\n" +
+				"6. Stop when the check is clean. In your final message, say what you changed and what a reviewer should look at.\n" +
+				"\n## Done when\n\n`impulse check` reports no FAIL.\n",
+		},
+		{
+			name: "the staged change under review, with a recipe's change and meaning",
+			brief: Brief{
+				Change:  "`impulse upgrade (recipe marker, step 2)` made these changes and staged them:\n\n- moved the marker to its new form\n",
+				Meaning: "The marker names the form the step expects.",
+				Results: []check.Result{tenancy},
+				Staged:  []string{"go.mod", "go.sum", "pkg/marker.txt"},
+			},
+			want: preamble +
+				"## What changed\n\n`impulse upgrade (recipe marker, step 2)` made these changes and staged them:\n\n- moved the marker to its new form\n\n" +
+				"The change under review is staged in the index, 3 path(s):\n\n- go.mod\n- go.sum\n- pkg/marker.txt\n\n" +
+				"## What it means\n\nThe marker names the form the step expects.\n\n" +
+				"## The failing checks\n\nThis is the output of `impulse check`, failing checks only. Each line under a check is one obligation.\n\n```\n" +
+				"FAIL  tenancy-wired  2 tenancy wiring problem(s)\n" +
+				"      pkg/resources/tenants.go:8: no file outside tests calls NewTenantRoster, the generated constructor of the tenant roster over Tenant\n" +
+				"      cmd/generate/main.go: no struct in pkg/resources is annotated @permissionScope(domain): every resource is global, and the tenant segment serves nothing\n" +
+				"```\n\n" +
+				"## Rules\n\n" +
+				"1. Run `impulse check` from the application root until it reports no FAIL. The regen check runs go generate, which needs the Spanner emulator through podman or docker; if neither is available, run `impulse check --skip-generate` and say so in your final message.\n" +
+				"2. Do not edit generated files (`zz_gen_*`). Change the source they are generated from and run `go generate ./...`.\n" +
+				"3. Do not stage or commit. Leave your work in the working tree; the pull request is the review.\n" +
+				"4. Anything the running release uses is retired in one release and removed in the next, never both at once: a schema object (a column, a table), an environment variable, a secret, a file store. A secret or a file store is retired by naming its variable in `retired` in `infrastructure/terraform.tfvars` while its declaration stays; the next release removes the declaration and the name together. A release that destroys an un-retired one is refused at its plan.\n" +
+				"5. Keep the tests table-driven and the suite passing: `go test ./...`.\n" +
+				"6. Stop when the check is clean. In your final message, say what you changed and what a reviewer should look at.\n" +
+				"\n## Done when\n\n`impulse check` reports no FAIL.\n",
+		},
+		{
+			name:  "the staged change under review, a pin bump alone",
+			brief: Brief{Results: []check.Result{tenancy}, Staged: []string{"go.mod", "go.sum"}},
+			want: preamble +
+				"## What changed\n\nThe change under review is staged in the index, 2 path(s):\n\n- go.mod\n- go.sum\n\n" +
+				"## The failing checks\n\nThis is the output of `impulse check`, failing checks only. Each line under a check is one obligation.\n\n```\n" +
+				"FAIL  tenancy-wired  2 tenancy wiring problem(s)\n" +
+				"      pkg/resources/tenants.go:8: no file outside tests calls NewTenantRoster, the generated constructor of the tenant roster over Tenant\n" +
+				"      cmd/generate/main.go: no struct in pkg/resources is annotated @permissionScope(domain): every resource is global, and the tenant segment serves nothing\n" +
+				"```\n\n" +
+				"## Rules\n\n" +
+				"1. Run `impulse check` from the application root until it reports no FAIL. The regen check runs go generate, which needs the Spanner emulator through podman or docker; if neither is available, run `impulse check --skip-generate` and say so in your final message.\n" +
+				"2. Do not edit generated files (`zz_gen_*`). Change the source they are generated from and run `go generate ./...`.\n" +
+				"3. Do not stage or commit. Leave your work in the working tree; the pull request is the review.\n" +
+				"4. Anything the running release uses is retired in one release and removed in the next, never both at once: a schema object (a column, a table), an environment variable, a secret, a file store. A secret or a file store is retired by naming its variable in `retired` in `infrastructure/terraform.tfvars` while its declaration stays; the next release removes the declaration and the name together. A release that destroys an un-retired one is refused at its plan.\n" +
+				"5. Keep the tests table-driven and the suite passing: `go test ./...`.\n" +
+				"6. Stop when the check is clean. In your final message, say what you changed and what a reviewer should look at.\n" +
+				"\n## Done when\n\n`impulse check` reports no FAIL.\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.brief.App = beacon(t)
+			if diff := cmp.Diff(tt.want, tt.brief.String()); diff != "" {
+				t.Errorf("Brief.String() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestBriefMeanings pins where a failing check's own meaning lands: under "What it
+// means", after the transition's meaning when there is one, and only for a check that
+// carries one.
+func TestBriefMeanings(t *testing.T) {
+	t.Parallel()
+
+	conditions := check.Result{Name: "conditions-proven", Status: check.Fail, Summary: "1 conditional grant(s) proven by no test case", Details: []string{`pkg/auth/staff/roles.json: Cadet List Missions under "hazard IN (1, 2)" is proven by no test case`}}
+	tenancy := check.Result{Name: "tenancy-wired", Status: check.Fail, Summary: "1 tenancy wiring problem(s)", Details: []string{"x"}}
+	conditionsMeaning := check.Meaning("conditions-proven")
+	if conditionsMeaning == "" {
+		t.Fatal("conditions-proven carries no meaning")
+	}
+
+	tests := []struct {
+		name  string
+		brief Brief
+		want  string
+	}{
+		{
+			name:  "a failing check with a meaning",
+			brief: Brief{Results: []check.Result{conditions}},
+			want:  "## What it means\n\n" + conditionsMeaning + "\n\n## The failing checks",
+		},
+		{
+			name:  "after the transition's meaning",
+			brief: Brief{Meaning: "Tenancy scopes resources to a tenant record.", Results: []check.Result{tenancy, conditions}},
+			want:  "## What it means\n\nTenancy scopes resources to a tenant record.\n\n" + conditionsMeaning + "\n\n## The failing checks",
+		},
+		{
+			name:  "a failing check without one adds no section",
+			brief: Brief{Results: []check.Result{tenancy}},
+			want:  "## What changed\n\nNothing was changed by the tool. `impulse check` found the obligations below in the tree as it is.\n\n## The failing checks",
+		},
+		{
+			name:  "a passing check adds no section",
+			brief: Brief{Results: []check.Result{{Name: "conditions-proven", Status: check.Pass, Summary: "ok"}, tenancy}},
+			want:  "## What changed\n\nNothing was changed by the tool. `impulse check` found the obligations below in the tree as it is.\n\n## The failing checks",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			tt.brief.App = beacon(t)
+			if got := tt.brief.String(); !strings.Contains(got, tt.want) {
+				t.Errorf("Brief.String() lacks %q:\n%s", tt.want, got)
+			}
+		})
+	}
+}

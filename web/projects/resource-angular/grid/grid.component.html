@@ -1,0 +1,259 @@
+<div class="impulse-grid-host">
+  <div class="impulse-grid-scroll" #scrollContainer (scroll)="onScroll($event)">
+    <table class="impulse-grid-table">
+      <thead>
+        <tr class="impulse-grid-header-row">
+          @if (selectionType() !== 'none') {
+            <th class="select-col">
+              @if (selectionType() === 'multiple') {
+                <input
+                  type="checkbox"
+                  class="impulse-checkbox select-all-checkbox"
+                  [checked]="allSelected()"
+                  [indeterminate]="someSelected()"
+                  (change)="toggleSelectAll()"
+                  aria-label="Select all rows on this page" />
+              }
+            </th>
+          }
+          @if (enableRowExpansion() && detailTemplate()) {
+            <th class="expand-col"></th>
+          }
+          @for (col of columnDefs(); track col.id + col.header) {
+            <th class="data-col" [style.width.px]="widthFor(col)">
+              <div class="header-cell">
+                @if (!col.buttonConfig) {
+                  <button
+                    type="button"
+                    class="header-label"
+                    title="Click to sort, shift-click to add a secondary sort"
+                    (click)="toggleSort(col, $event)">
+                    @if (!col.hideHeader) {
+                      <span class="col-header">{{ col.header || col.id | camelCaseToTitle }}</span>
+                    }
+                    @if (sortInfo(col); as sort) {
+                      <mat-icon class="sort-icon">{{
+                        sort.direction === 'asc' ? 'arrow_upward' : 'arrow_downward'
+                      }}</mat-icon>
+                      @if (hasMultipleSorts()) {
+                        <span class="sort-priority">{{ sort.priority }}</span>
+                      }
+                    }
+                  </button>
+                  @switch (filterControl(col)) {
+                    @case ('enabled') {
+                      <button
+                        type="button"
+                        mat-icon-button
+                        class="filter-trigger"
+                        [class.active]="hasFilter(col)"
+                        [matMenuTriggerFor]="filterMenu"
+                        aria-label="Filter column">
+                        <mat-icon>filter_alt</mat-icon>
+                      </button>
+                    }
+                    @case ('needsIndexed') {
+                      <span class="filter-trigger-wrap" [matTooltip]="companionHint">
+                        <button type="button" mat-icon-button class="filter-trigger" disabled aria-label="Filter column">
+                          <mat-icon>filter_alt_off</mat-icon>
+                        </button>
+                      </span>
+                    }
+                  }
+                }
+              </div>
+              @if (col.resizable ?? true) {
+                <span class="resize-handle" (mousedown)="startResize($event, col)"></span>
+              }
+              <mat-menu #filterMenu="matMenu" class="impulse-grid-filter-menu" (closed)="onFilterMenuClosed(col)">
+                <div class="filter-menu-content">
+                  <select
+                    class="filter-operator"
+                    [value]="draftFor(col).operator"
+                    (change)="setFilterOperator(col, $event)"
+                    (click)="$event.stopPropagation()"
+                    (keydown)="keepTyping($event)"
+                    aria-label="Filter operator">
+                    @for (op of operatorsFor(col); track op.value) {
+                      <option [value]="op.value">{{ op.label }}</option>
+                    }
+                  </select>
+                  @if (operatorTakesValue(col)) {
+                    @switch (valueInput(col)) {
+                      @case ('date') {
+                        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="filter-date" (click)="$event.stopPropagation()">
+                          <input
+                            matInput
+                            type="date"
+                            aria-label="Date"
+                            [value]="dateOf(col)"
+                            (input)="setFilterDate(col, $event)"
+                            (change)="setFilterDate(col, $event)"
+                            (keydown.enter)="commitFilter(col)"
+                            (keydown)="keepTyping($event)" />
+                        </mat-form-field>
+                      }
+                      @case ('datetime') {
+                        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="filter-date" (click)="$event.stopPropagation()">
+                          <input
+                            matInput
+                            type="date"
+                            aria-label="Date"
+                            [value]="dateOf(col)"
+                            (input)="setFilterDate(col, $event)"
+                            (change)="setFilterDate(col, $event)"
+                            (keydown.enter)="commitFilter(col)"
+                            (keydown)="keepTyping($event)" />
+                        </mat-form-field>
+                        <mat-form-field appearance="outline" subscriptSizing="dynamic" class="filter-time" (click)="$event.stopPropagation()">
+                          <input
+                            matInput
+                            type="time"
+                            aria-label="Time of day"
+                            [value]="timeOf(col)"
+                            (input)="setFilterTime(col, $event)"
+                            (change)="setFilterTime(col, $event)"
+                            (keydown.enter)="commitFilter(col)"
+                            (keydown)="keepTyping($event)" />
+                        </mat-form-field>
+                      }
+                      @default {
+                        <mat-form-field appearance="outline" subscriptSizing="dynamic" (click)="$event.stopPropagation()">
+                          <input
+                            matInput
+                            [placeholder]="valuePlaceholder(col)"
+                            [value]="draftFor(col).value"
+                            (input)="setFilterValue(col, $event)"
+                            (keydown.enter)="commitFilter(col)"
+                            (keydown)="keepTyping($event)" />
+                        </mat-form-field>
+                      }
+                    }
+                  }
+                  <button type="button" mat-button (click)="commitFilter(col)">Apply</button>
+                  <button type="button" mat-button (click)="clearFilter(col)">Clear</button>
+                </div>
+              </mat-menu>
+            </th>
+          }
+        </tr>
+      </thead>
+      <tbody #tableBody>
+        @if (rowData().length === 0) {
+          <tr class="no-records-row">
+            <td [attr.colspan]="totalColumnCount()">{{ emptyMessage() }}</td>
+          </tr>
+        }
+        @if (enableVirtualScroll() && virtualTopPadding() > 0) {
+          <tr class="virtual-scroll-spacer" aria-hidden="true" [style.height.px]="virtualTopPadding()">
+            <td [attr.colspan]="totalColumnCount()"></td>
+          </tr>
+        }
+        @for (row of visibleRows(); track keyOf(row)) {
+          <tr class="impulse-row" [class.selected]="isSelected(row)">
+            @if (selectionType() !== 'none') {
+              <td class="select-col">
+                <input
+                  type="checkbox"
+                  class="impulse-checkbox row-checkbox"
+                  [checked]="isSelected(row)"
+                  (change)="toggleRow(row)" />
+              </td>
+            }
+            @if (enableRowExpansion() && detailTemplate()) {
+              <td class="expand-col expand-toggle-cell">
+                <button
+                  type="button"
+                  mat-icon-button
+                  class="expand-toggle"
+                  [disabled]="enableVirtualScroll()"
+                  [title]="enableVirtualScroll() ? 'Row expansion is not supported with virtual scroll' : ''"
+                  (click)="toggleExpand(row)"
+                  [attr.aria-label]="isExpanded(row) ? 'Collapse row' : 'Expand row'">
+                  <mat-icon>{{ isExpanded(row) ? 'remove' : 'add' }}</mat-icon>
+                </button>
+              </td>
+            }
+            @for (col of columnDefs(); track col.id + col.header) {
+              @if (col.buttonConfig) {
+                <td class="data-col action-col" [style.width.px]="widthFor(col)">
+                  @if (col.buttonConfig.actionType === 'link' && col.buttonConfig.viewRoute) {
+                    <a
+                      mat-icon-button
+                      [routerLink]="'/' + col.buttonConfig.viewRoute + '/' + row[col.buttonConfig.keyField ?? 'id']"
+                      [matTooltip]="col.buttonConfig.label || ''"
+                      [matTooltipPosition]="col.tooltipPosition || 'above'">
+                      <mat-icon>{{ col.buttonConfig.icon || 'arrow_forward' }}</mat-icon>
+                    </a>
+                  } @else {
+                    <impulse-table-button
+                      [config]="col.buttonConfig"
+                      [rowData]="row"
+                      [tooltipPosition]="col.tooltipPosition || 'above'"
+                      [viewRoute]="col.buttonConfig.viewRoute || ''"
+                      [id]="row[col.buttonConfig.keyField ?? 'id']">
+                    </impulse-table-button>
+                  }
+                </td>
+              } @else if (col.iconConfig) {
+                <td class="data-col icon-col" [style.width.px]="widthFor(col)">
+                  @if (row[iconKeyOf(col)]; as icon) {
+                    <mat-icon
+                      class="cell-icon"
+                      role="img"
+                      aria-hidden="false"
+                      tabindex="0"
+                      [attr.aria-label]="row[col.id] || icon"
+                      [matTooltip]="row[col.id] || ''"
+                      [matTooltipPosition]="col.tooltipPosition || 'above'"
+                      >{{ icon }}</mat-icon
+                    >
+                  } @else {
+                    {{ row[col.id] }}
+                  }
+                </td>
+              } @else {
+                <td class="data-col" [style.width.px]="widthFor(col)">{{ row[col.id] }}</td>
+              }
+            }
+          </tr>
+          @if (enableRowExpansion() && detailTemplate() && isExpanded(row)) {
+            <tr class="detail-row">
+              <td [attr.colspan]="totalColumnCount()">
+                <ng-container *ngTemplateOutlet="detailTemplate()!; context: { $implicit: row }"></ng-container>
+              </td>
+            </tr>
+          }
+        }
+        @if (enableVirtualScroll() && virtualBottomPadding() > 0) {
+          <tr class="virtual-scroll-spacer" aria-hidden="true" [style.height.px]="virtualBottomPadding()">
+            <td [attr.colspan]="totalColumnCount()"></td>
+          </tr>
+        }
+      </tbody>
+    </table>
+
+    @if (loading()) {
+      <div class="impulse-grid-loading-overlay">
+        <mat-progress-spinner mode="indeterminate" diameter="48"></mat-progress-spinner>
+      </div>
+    }
+  </div>
+
+  @if (page(); as position) {
+    <div class="impulse-grid-pager">
+      <span class="pager-rows">{{ pageLabel() }}</span>
+      <div class="pager-buttons">
+        <button type="button" mat-button [disabled]="!position.hasPrev" (click)="turn('first')">
+          <mat-icon>first_page</mat-icon> First
+        </button>
+        <button type="button" mat-button [disabled]="!position.hasPrev" (click)="turn('prev')">
+          <mat-icon>chevron_left</mat-icon> Previous
+        </button>
+        <button type="button" mat-button [disabled]="!position.hasNext" (click)="turn('next')">
+          Next <mat-icon iconPositionEnd>chevron_right</mat-icon>
+        </button>
+      </div>
+    </div>
+  }
+</div>

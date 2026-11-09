@@ -1,0 +1,466 @@
+package e2e
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/db"
+	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/sessionstorage"
+	"github.com/impulseframework/impulse/session/signin"
+	"github.com/jackc/pgx/v5"
+	"google.golang.org/grpc/codes"
+)
+
+// backend is one storage driver the Auth scenarios run on, generic over the driver's
+// transaction type as an application over that driver is. It prepares a database with
+// the shipped migrations and the application's own tables, builds the Auth store over
+// it, and reaches the application's rows the two ways an application does: inside a
+// sign-in's transaction from its hooks, and outside one.
+type backend[Tx any] struct {
+	name     string
+	newStore func(ctx context.Context, t *testing.T) (appDB, *sessionstorage.Auth[Tx])
+	rows     appRows[Tx]
+}
+
+// appDB is the scenarios' own handle on the database, for what they check or arrange
+// behind the library's back.
+type appDB interface {
+	// username reads a user's username.
+	username(ctx context.Context, t *testing.T, userID impulse.UUID) string
+	// attemptOutcome reads the outcome a resolver recorded for subject, "" when none.
+	attemptOutcome(ctx context.Context, t *testing.T, subject string) string
+	// disableUser disables a user.
+	disableUser(ctx context.Context, t *testing.T, userID impulse.UUID)
+	// hasUser reports whether a user exists under username, as stored.
+	hasUser(ctx context.Context, t *testing.T, username string) bool
+	// declareTenant writes tenant's declaration: the directories it admits its people
+	// through, and whether through those only.
+	declareTenant(ctx context.Context, t *testing.T, tenant string, directoryOnly bool, directories ...signin.Directory)
+	// seatDirectory gives one of tenant's declared directories a default seat.
+	seatDirectory(ctx context.Context, t *testing.T, tenant string, directory signin.Directory, seat accesstypes.Role)
+}
+
+// appRows reads and writes the application's own tables in a sign-in's transaction, the
+// way an application's hooks do.
+type appRows[Tx any] struct {
+	// addMember records userID as a member of partner.
+	addMember func(ctx context.Context, tx Tx, userID impulse.UUID, partner string) error
+	// partnerOf reads the partner userID is a member of.
+	partnerOf func(ctx context.Context, tx Tx, userID impulse.UUID) (partner string, found bool, err error)
+	// recordAttempt records the outcome of subject's sign-in attempt.
+	recordAttempt func(ctx context.Context, tx Tx, subject, outcome string) error
+	// tenantDeclaration reads tenant's declaration for the tenant policy, nil when the
+	// tenant declares nothing.
+	tenantDeclaration func(ctx context.Context, tx Tx, tenant accesstypes.Domain) (*signin.TenantDeclaration, error)
+	// directoryLookup reads every tenant's declaration of directory for a stranger's
+	// first sign-in, each with its default seat.
+	directoryLookup func(ctx context.Context, tx Tx, directory signin.Directory) ([]signin.DeclaredDirectory, error)
+}
+
+// renderDirectories renders directories as the TenantDeclarations row keeps them:
+// method:connection, comma-separated, a default seat as =role after the connection
+// (withSeat).
+func renderDirectories(directories []signin.Directory) string {
+	parts := make([]string, 0, len(directories))
+	for _, d := range directories {
+		parts = append(parts, string(d.Method)+":"+d.Connection)
+	}
+
+	return strings.Join(parts, ",")
+}
+
+// parseDirectories reads renderDirectories' form back.
+func parseDirectories(rendered string) []signin.Directory {
+	if rendered == "" {
+		return nil
+	}
+	var directories []signin.Directory
+	for part := range strings.SplitSeq(rendered, ",") {
+		method, rest, _ := strings.Cut(part, ":")
+		connection, _, _ := strings.Cut(rest, "=")
+		directories = append(directories, signin.Directory{Method: sessioninfo.AuthMethod(method), Connection: connection})
+	}
+
+	return directories
+}
+
+// withSeat returns rendered with directory's default seat set to seat.
+func withSeat(rendered string, directory signin.Directory, seat accesstypes.Role) string {
+	key := string(directory.Method) + ":" + directory.Connection
+	parts := strings.Split(rendered, ",")
+	for i, part := range parts {
+		if entry, _, _ := strings.Cut(part, "="); entry == key {
+			parts[i] = key + "=" + string(seat)
+		}
+	}
+
+	return strings.Join(parts, ",")
+}
+
+// declaredIn reads tenant's declaration of directory from renderDirectories' form: the
+// tenant with the directory's default seat when the tenant declares it, nothing
+// otherwise.
+func declaredIn(tenant, rendered string, directory signin.Directory) []signin.DeclaredDirectory {
+	key := string(directory.Method) + ":" + directory.Connection
+	for part := range strings.SplitSeq(rendered, ",") {
+		if entry, seat, _ := strings.Cut(part, "="); entry == key {
+			return []signin.DeclaredDirectory{{Tenant: accesstypes.Domain(tenant), DefaultSeat: accesstypes.Role(seat)}}
+		}
+	}
+
+	return nil
+}
+
+// storeTables are the auth events and impersonation tables every Auth store in these
+// scenarios has.
+func storeTables(t *testing.T) (*sessionstorage.AuthEventsTable, *sessionstorage.ImpersonationTable) {
+	t.Helper()
+
+	events, err := sessionstorage.NewAuthEventsTable("SessionAuthEvents")
+	if err != nil {
+		t.Fatalf("sessionstorage.NewAuthEventsTable() error = %v", err)
+	}
+	impersonation, err := sessionstorage.NewImpersonationTable("SessionImpersonations")
+	if err != nil {
+		t.Fatalf("sessionstorage.NewImpersonationTable() error = %v", err)
+	}
+
+	return events, impersonation
+}
+
+var postgresBackend = backend[pgx.Tx]{
+	name: "postgres",
+	newStore: func(ctx context.Context, t *testing.T) (appDB, *sessionstorage.Auth[pgx.Tx]) {
+		t.Helper()
+
+		db := preparePostgres(ctx, t, postgresSessions, postgresImpersonation, postgresAuth, postgresAppTables)
+		events, impersonation := storeTables(t)
+
+		return postgresDB{db}, sessionstorage.NewPostgresAuth(db.Pool, sessionstorage.WithAuthEvents(events), sessionstorage.WithImpersonation(impersonation))
+	},
+	rows: appRows[pgx.Tx]{
+		addMember: func(ctx context.Context, tx pgx.Tx, userID impulse.UUID, partner string) error {
+			if _, err := tx.Exec(ctx, `INSERT INTO "PartnerMembers" ("UserId", "Partner") VALUES ($1, $2)`, userID, partner); err != nil {
+				return errors.Wrap(err, "pgx.Tx.Exec()")
+			}
+
+			return nil
+		},
+		partnerOf: func(ctx context.Context, tx pgx.Tx, userID impulse.UUID) (string, bool, error) {
+			var partner string
+			err := tx.QueryRow(ctx, `SELECT "Partner" FROM "PartnerMembers" WHERE "UserId" = $1`, userID).Scan(&partner)
+			switch {
+			case errors.Is(err, pgx.ErrNoRows):
+				return "", false, nil
+			case err != nil:
+				return "", false, errors.Wrap(err, "pgx.Row.Scan()")
+			}
+
+			return partner, true, nil
+		},
+		recordAttempt: func(ctx context.Context, tx pgx.Tx, subject, outcome string) error {
+			if _, err := tx.Exec(ctx, `INSERT INTO "SignInAttempts" ("Subject", "Outcome") VALUES ($1, $2)`, subject, outcome); err != nil {
+				return errors.Wrap(err, "pgx.Tx.Exec()")
+			}
+
+			return nil
+		},
+		tenantDeclaration: func(ctx context.Context, tx pgx.Tx, tenant accesstypes.Domain) (*signin.TenantDeclaration, error) {
+			var (
+				directories   string
+				directoryOnly bool
+			)
+			err := tx.QueryRow(ctx, `SELECT "Directories", "DirectoryOnly" FROM "TenantDeclarations" WHERE "Tenant" = $1`, string(tenant)).Scan(&directories, &directoryOnly)
+			switch {
+			case errors.Is(err, pgx.ErrNoRows):
+				return nil, nil
+			case err != nil:
+				return nil, errors.Wrap(err, "pgx.Row.Scan()")
+			}
+
+			return &signin.TenantDeclaration{Directories: parseDirectories(directories), DirectoryOnly: directoryOnly}, nil
+		},
+		directoryLookup: func(ctx context.Context, tx pgx.Tx, directory signin.Directory) ([]signin.DeclaredDirectory, error) {
+			rows, err := tx.Query(ctx, `SELECT "Tenant", "Directories" FROM "TenantDeclarations" ORDER BY "Tenant"`)
+			if err != nil {
+				return nil, errors.Wrap(err, "pgx.Tx.Query()")
+			}
+			defer rows.Close()
+			var declared []signin.DeclaredDirectory
+			for rows.Next() {
+				var tenant, directories string
+				if err := rows.Scan(&tenant, &directories); err != nil {
+					return nil, errors.Wrap(err, "pgx.Rows.Scan()")
+				}
+				declared = append(declared, declaredIn(tenant, directories, directory)...)
+			}
+			if err := rows.Err(); err != nil {
+				return nil, errors.Wrap(err, "pgx.Rows.Err()")
+			}
+
+			return declared, nil
+		},
+	},
+}
+
+// postgresDB is appDB over PostgreSQL.
+type postgresDB struct {
+	*db.PostgresDatabase
+}
+
+func (d postgresDB) username(ctx context.Context, t *testing.T, userID impulse.UUID) string {
+	t.Helper()
+
+	var username string
+	if err := d.QueryRow(ctx, `SELECT "Username" FROM "SessionUsers" WHERE "Id" = $1`, userID).Scan(&username); err != nil {
+		t.Fatalf("read the user's username: %v", err)
+	}
+
+	return username
+}
+
+func (d postgresDB) attemptOutcome(ctx context.Context, t *testing.T, subject string) string {
+	t.Helper()
+
+	var outcome string
+	err := d.QueryRow(ctx, `SELECT "Outcome" FROM "SignInAttempts" WHERE "Subject" = $1`, subject).Scan(&outcome)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ""
+	}
+	if err != nil {
+		t.Fatalf("read the attempt's outcome: %v", err)
+	}
+
+	return outcome
+}
+
+func (d postgresDB) disableUser(ctx context.Context, t *testing.T, userID impulse.UUID) {
+	t.Helper()
+
+	if _, err := d.Exec(ctx, `UPDATE "SessionUsers" SET "Disabled" = TRUE WHERE "Id" = $1`, userID); err != nil {
+		t.Fatalf("disable the user: %v", err)
+	}
+}
+
+func (d postgresDB) hasUser(ctx context.Context, t *testing.T, username string) bool {
+	t.Helper()
+
+	var exists bool
+	if err := d.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM "SessionUsers" WHERE "Username" = $1)`, username).Scan(&exists); err != nil {
+		t.Fatalf("look the user up: %v", err)
+	}
+
+	return exists
+}
+
+func (d postgresDB) declareTenant(ctx context.Context, t *testing.T, tenant string, directoryOnly bool, directories ...signin.Directory) {
+	t.Helper()
+
+	if _, err := d.Exec(ctx, `INSERT INTO "TenantDeclarations" ("Tenant", "Directories", "DirectoryOnly") VALUES ($1, $2, $3)
+		ON CONFLICT ("Tenant") DO UPDATE SET "Directories" = EXCLUDED."Directories", "DirectoryOnly" = EXCLUDED."DirectoryOnly"`,
+		tenant, renderDirectories(directories), directoryOnly); err != nil {
+		t.Fatalf("declare the tenant: %v", err)
+	}
+}
+
+func (d postgresDB) seatDirectory(ctx context.Context, t *testing.T, tenant string, directory signin.Directory, seat accesstypes.Role) {
+	t.Helper()
+
+	var directories string
+	if err := d.QueryRow(ctx, `SELECT "Directories" FROM "TenantDeclarations" WHERE "Tenant" = $1`, tenant).Scan(&directories); err != nil {
+		t.Fatalf("read the tenant's directories: %v", err)
+	}
+	if _, err := d.Exec(ctx, `UPDATE "TenantDeclarations" SET "Directories" = $2 WHERE "Tenant" = $1`, tenant, withSeat(directories, directory, seat)); err != nil {
+		t.Fatalf("seat the directory: %v", err)
+	}
+}
+
+var spannerBackend = backend[*spanner.ReadWriteTransaction]{
+	name: "spanner",
+	newStore: func(ctx context.Context, t *testing.T) (appDB, *sessionstorage.Auth[*spanner.ReadWriteTransaction]) {
+		t.Helper()
+
+		db := prepareSpanner(ctx, t, spannerSessions, spannerImpersonation, spannerAuth, spannerAppTables)
+		events, impersonation := storeTables(t)
+
+		return spannerDB{db.Client}, sessionstorage.NewSpannerAuth(db.Client, sessionstorage.WithAuthEvents(events), sessionstorage.WithImpersonation(impersonation))
+	},
+	// The hooks write with DML, not mutations: a mutation is buffered until the commit,
+	// so a policy running in the same transaction could not read what a resolver wrote.
+	rows: appRows[*spanner.ReadWriteTransaction]{
+		addMember: func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, partner string) error {
+			stmt := spanner.Statement{
+				SQL:    `INSERT INTO PartnerMembers (UserId, Partner) VALUES (@userId, @partner)`,
+				Params: map[string]any{"userId": userID.String(), "partner": partner},
+			}
+			if _, err := tx.Update(ctx, stmt); err != nil {
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+			}
+
+			return nil
+		},
+		partnerOf: func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID) (string, bool, error) {
+			row, err := tx.ReadRow(ctx, "PartnerMembers", spanner.Key{userID.String()}, []string{"Partner"})
+			if spanner.ErrCode(err) == codes.NotFound {
+				return "", false, nil
+			}
+			if err != nil {
+				return "", false, errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+			}
+			var partner string
+			if err := row.Column(0, &partner); err != nil {
+				return "", false, errors.Wrap(err, "spanner.Row.Column()")
+			}
+
+			return partner, true, nil
+		},
+		recordAttempt: func(ctx context.Context, tx *spanner.ReadWriteTransaction, subject, outcome string) error {
+			stmt := spanner.Statement{
+				SQL:    `INSERT INTO SignInAttempts (Subject, Outcome) VALUES (@subject, @outcome)`,
+				Params: map[string]any{"subject": subject, "outcome": outcome},
+			}
+			if _, err := tx.Update(ctx, stmt); err != nil {
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+			}
+
+			return nil
+		},
+		tenantDeclaration: func(ctx context.Context, tx *spanner.ReadWriteTransaction, tenant accesstypes.Domain) (*signin.TenantDeclaration, error) {
+			row, err := tx.ReadRow(ctx, "TenantDeclarations", spanner.Key{string(tenant)}, []string{"Directories", "DirectoryOnly"})
+			if spanner.ErrCode(err) == codes.NotFound {
+				return nil, nil
+			}
+			if err != nil {
+				return nil, errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+			}
+			var (
+				directories   string
+				directoryOnly bool
+			)
+			if err := row.Columns(&directories, &directoryOnly); err != nil {
+				return nil, errors.Wrap(err, "spanner.Row.Columns()")
+			}
+
+			return &signin.TenantDeclaration{Directories: parseDirectories(directories), DirectoryOnly: directoryOnly}, nil
+		},
+		directoryLookup: func(ctx context.Context, tx *spanner.ReadWriteTransaction, directory signin.Directory) ([]signin.DeclaredDirectory, error) {
+			var declared []signin.DeclaredDirectory
+			err := tx.Read(ctx, "TenantDeclarations", spanner.AllKeys(), []string{"Tenant", "Directories"}).Do(func(row *spanner.Row) error {
+				var tenant, directories string
+				if err := row.Columns(&tenant, &directories); err != nil {
+					return errors.Wrap(err, "spanner.Row.Columns()")
+				}
+				declared = append(declared, declaredIn(tenant, directories, directory)...)
+
+				return nil
+			})
+			if err != nil {
+				return nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+			}
+
+			return declared, nil
+		},
+	},
+}
+
+// spannerDB is appDB over Spanner.
+type spannerDB struct {
+	*spanner.Client
+}
+
+func (d spannerDB) username(ctx context.Context, t *testing.T, userID impulse.UUID) string {
+	t.Helper()
+
+	row, err := d.Single().ReadRow(ctx, "SessionUsers", spanner.Key{userID.String()}, []string{"Username"})
+	if err != nil {
+		t.Fatalf("read the user's username: %v", err)
+	}
+	var username string
+	if err := row.Column(0, &username); err != nil {
+		t.Fatalf("read the user's username: %v", err)
+	}
+
+	return username
+}
+
+func (d spannerDB) attemptOutcome(ctx context.Context, t *testing.T, subject string) string {
+	t.Helper()
+
+	row, err := d.Single().ReadRow(ctx, "SignInAttempts", spanner.Key{subject}, []string{"Outcome"})
+	if spanner.ErrCode(err) == codes.NotFound {
+		return ""
+	}
+	if err != nil {
+		t.Fatalf("read the attempt's outcome: %v", err)
+	}
+	var outcome string
+	if err := row.Column(0, &outcome); err != nil {
+		t.Fatalf("read the attempt's outcome: %v", err)
+	}
+
+	return outcome
+}
+
+func (d spannerDB) disableUser(ctx context.Context, t *testing.T, userID impulse.UUID) {
+	t.Helper()
+
+	m := spanner.Update("SessionUsers", []string{"Id", "Disabled"}, []any{userID.String(), true})
+	if _, err := d.Apply(ctx, []*spanner.Mutation{m}); err != nil {
+		t.Fatalf("disable the user: %v", err)
+	}
+}
+
+func (d spannerDB) hasUser(ctx context.Context, t *testing.T, username string) bool {
+	t.Helper()
+
+	iter := d.Single().Query(ctx, spanner.Statement{
+		SQL:    `SELECT COUNT(1) FROM SessionUsers WHERE Username = @username`,
+		Params: map[string]any{"username": username},
+	})
+	defer iter.Stop()
+	row, err := iter.Next()
+	if err != nil {
+		t.Fatalf("look the user up: %v", err)
+	}
+	var n int64
+	if err := row.Column(0, &n); err != nil {
+		t.Fatalf("look the user up: %v", err)
+	}
+
+	return n > 0
+}
+
+func (d spannerDB) declareTenant(ctx context.Context, t *testing.T, tenant string, directoryOnly bool, directories ...signin.Directory) {
+	t.Helper()
+
+	m := spanner.InsertOrUpdate("TenantDeclarations", []string{"Tenant", "Directories", "DirectoryOnly"}, []any{tenant, renderDirectories(directories), directoryOnly})
+	if _, err := d.Apply(ctx, []*spanner.Mutation{m}); err != nil {
+		t.Fatalf("declare the tenant: %v", err)
+	}
+}
+
+func (d spannerDB) seatDirectory(ctx context.Context, t *testing.T, tenant string, directory signin.Directory, seat accesstypes.Role) {
+	t.Helper()
+
+	row, err := d.Single().ReadRow(ctx, "TenantDeclarations", spanner.Key{tenant}, []string{"Directories", "DirectoryOnly"})
+	if err != nil {
+		t.Fatalf("read the tenant's directories: %v", err)
+	}
+	var (
+		directories   string
+		directoryOnly bool
+	)
+	if err := row.Columns(&directories, &directoryOnly); err != nil {
+		t.Fatalf("read the tenant's directories: %v", err)
+	}
+	m := spanner.InsertOrUpdate("TenantDeclarations", []string{"Tenant", "Directories", "DirectoryOnly"}, []any{tenant, withSeat(directories, directory, seat), directoryOnly})
+	if _, err := d.Apply(ctx, []*spanner.Mutation{m}); err != nil {
+		t.Fatalf("seat the directory: %v", err)
+	}
+}

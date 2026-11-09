@@ -1,0 +1,19 @@
+{
+  "name": "@impulseframework/resource-firestore",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "The Firestore change feed for live pages over @impulseframework/resource",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/impulseframework/impulse.git",
+    "directory": "web/projects/resource-firestore"
+  },
+  "peerDependencies": {
+    "@impulseframework/resource": "0.1.0",
+    "firebase": "^12.19.0"
+  },
+  "dependencies": {
+    "tslib": "^2.3.0"
+  },
+  "sideEffects": false
+}

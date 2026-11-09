@@ -1,0 +1,498 @@
+// Package parser is a simplified abstraction over go/parser, tailored for the go:generate resource/generation tool.
+package parser
+
+import (
+	"go/ast"
+	"go/constant"
+	"go/token"
+	"go/types"
+	"log"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"github.com/go-playground/errors/v5"
+	"golang.org/x/tools/go/packages"
+)
+
+// LoadPackages loads and type checks a list of packages. Returns package names mapped to a *packages.Package.
+// Package data contains package name, file names, ast, and types' info. Returns an error if
+// a package pattern does not match any packages, no files are loaded in a matched package, or parsing & typechecking
+// yield any errors.
+// Useful for static type analysis with the [types] package instead of
+// manually parsing the AST. A good explainer lives here: https://github.com/golang/example/tree/master/gotypes
+func LoadPackages(packagePatterns ...string) (map[string]*packages.Package, error) {
+	packMap, _, err := load(false, packagePatterns...)
+
+	return packMap, err
+}
+
+// LoadPackagesResilient loads packages like [LoadPackages], but tolerates type errors
+// positioned inside the loaded packages themselves. Those are presumed to be stale
+// generator output that the caller is about to overwrite, so refusing to load would
+// deadlock generation against its own previous run. Parse errors, list errors, and
+// type errors positioned outside the loaded packages still fail.
+//
+// The second result reports whether any errors were tolerated. When it is true the
+// caller must re-run a strict [LoadPackages] after regenerating, so genuinely broken
+// code (hand-written call sites, bad struct definitions) can never exit clean.
+func LoadPackagesResilient(packagePatterns ...string) (pkgMap map[string]*packages.Package, toleratedStaleOutput bool, err error) {
+	return load(true, packagePatterns...)
+}
+
+func load(tolerateStaleOutput bool, packagePatterns ...string) (pkgMap map[string]*packages.Package, tolerated bool, err error) {
+	log.Printf("Loading packages %v...\n", packagePatterns)
+
+	files := []string{}
+	directories := []string{}
+
+	for _, pattern := range packagePatterns {
+		if strings.HasSuffix(pattern, ".go") {
+			files = append(files, filepath.Clean(pattern))
+		} else {
+			directories = append(directories, "./"+filepath.Clean(pattern))
+		}
+	}
+
+	packMap := make(map[string]*packages.Package, len(packagePatterns))
+
+	if len(files) > 0 {
+		pkgs, skipped, err := loadPackages(tolerateStaleOutput, files...)
+		if err != nil {
+			return nil, false, err
+		}
+		tolerated = tolerated || skipped
+
+		for _, pkg := range pkgs {
+			packMap[pkg.Name] = pkg
+		}
+	}
+
+	if len(directories) > 0 {
+		pkgs, skipped, err := loadPackages(tolerateStaleOutput, directories...)
+		if err != nil {
+			return nil, false, err
+		}
+		tolerated = tolerated || skipped
+
+		for _, pkg := range pkgs {
+			packMap[pkg.Name] = pkg
+		}
+	}
+
+	return packMap, tolerated, nil
+}
+
+// LoadPackage loads and type checks a single package.
+// Package data contains package name, file names, ast, and types' info. Returns an error if
+// a package pattern does not match any packages, no files are loaded in a matched package,
+// or parsing & typechecking yield any errors.
+// Useful for static type analysis with the [types] package instead of
+// manually parsing the AST. A good explainer lives here: https://github.com/golang/example/tree/master/gotypes
+func LoadPackage(packagePattern string) (*packages.Package, error) {
+	pkgs, _, err := loadPackages(false, packagePattern)
+	if err != nil {
+		return nil, err
+	}
+
+	return pkgs[0], nil
+}
+
+func loadPackages(tolerateStaleOutput bool, packagePatterns ...string) ([]*packages.Package, bool, error) {
+	cfg := &packages.Config{Mode: packages.NeedName | packages.NeedTypes | packages.NeedCompiledGoFiles | packages.NeedSyntax | packages.NeedTypesInfo | packages.NeedModule}
+	pkgs, err := packages.Load(cfg, packagePatterns...)
+	if err != nil {
+		return nil, false, errors.Wrap(err, "packages.Load()")
+	}
+
+	if len(pkgs) == 0 {
+		return nil, false, errors.Newf("no packages loaded for pattern %v", packagePatterns)
+	}
+
+	tolerated := 0
+	for _, pkg := range pkgs {
+		if len(pkg.Errors) > 0 || len(pkg.TypeErrors) > 0 {
+			errs := []error{}
+			for _, e := range pkg.Errors {
+				if tolerateStaleOutput && errorIsTolerable(e, pkg.Dir) {
+					tolerated++
+
+					continue
+				}
+				errs = append(errs, e)
+			}
+
+			for _, e := range pkg.TypeErrors {
+				if tolerateStaleOutput && typeErrorWithinDir(e, pkg.Dir) {
+					continue // already counted via pkg.Errors, which includes type errors
+				}
+				errs = append(errs, e)
+			}
+
+			if len(errs) > 0 {
+				return nil, false, errors.Wrap(errors.Join(errs...), "packages.Load() package error(s)")
+			}
+		}
+
+		if len(pkg.CompiledGoFiles) == 0 || pkg.CompiledGoFiles[0] == "" {
+			return nil, false, errors.Newf("no files were loaded for package %q", pkg.Name)
+		}
+	}
+
+	if tolerated > 0 {
+		log.Printf("Tolerating %d in-package type error(s) as stale generated code; a strict re-check must follow generation\n", tolerated)
+	}
+
+	return pkgs, tolerated > 0, nil
+}
+
+// errorIsTolerable reports whether a load error may be presumed to be stale generated
+// output. Type errors qualify when positioned in a file directly inside the loaded
+// package. List errors qualify unconditionally: go list reports compile failures at
+// package level with no usable position, so they cannot be attributed to a file — and
+// tolerating too much here is safe, because the strict post-generation load keeps any
+// error that regeneration did not fix fatal. Parse errors never qualify: a file whose
+// AST is broken cannot be parsed around.
+func errorIsTolerable(e packages.Error, dir string) bool {
+	switch e.Kind {
+	case packages.ListError:
+		return true
+	case packages.TypeError:
+		return errorWithinDir(e.Pos, dir)
+	default:
+		return false
+	}
+}
+
+// errorWithinDir reports whether a packages.Error is positioned in a file directly
+// inside dir. Pos is a "file:line:col" string; everything before the first colon is
+// the file path (no Windows drive letters to worry about — generation runs on the
+// platforms the toolchain runs go:generate on, and package dirs come from go list).
+func errorWithinDir(pos, dir string) bool {
+	if dir == "" || pos == "" || pos == "-" {
+		return false
+	}
+	file, _, ok := strings.Cut(pos, ":")
+	if !ok {
+		file = pos
+	}
+
+	return filepath.Dir(file) == filepath.Clean(dir)
+}
+
+func typeErrorWithinDir(e types.Error, dir string) bool {
+	if dir == "" || e.Fset == nil {
+		return false
+	}
+
+	return filepath.Dir(e.Fset.Position(e.Pos).Filename) == filepath.Clean(dir)
+}
+
+// ParsePackage parses a package's ast and type info and returns data about structs and named types
+// necessary for resource generation. We can iterate over the declarations at the package level
+// a single time to extract all the data necessary for generation. Any new data that needs to be
+// added to the Struct type can be extracted here.
+func ParsePackage(pkg *packages.Package) *Package {
+	log.Printf("Parsing structs from package %q...", pkg.Types.Name())
+
+	typeSpecs := packageTypeSpecs(pkg.Syntax)
+	parsedStructs := make([]*Struct, 0, 128)
+	namedTypes := make([]*NamedType, 0, 16)
+	for _, typeSpec := range typeSpecs {
+		switch astNode := typeSpec.Type.(type) {
+		case *ast.Ident:
+			namedType := &NamedType{}
+			obj := pkg.TypesInfo.ObjectOf(typeSpec.Name) // NamedType's name
+
+			namedType.TypeInfo = TypeInfo{obj}
+
+			if typeSpec.Doc != nil {
+				namedType.Comments = typeSpec.Doc.Text()
+			}
+			if typeSpec.Comment != nil {
+				namedType.Comments += typeSpec.Comment.Text()
+			}
+
+			namedTypes = append(namedTypes, namedType)
+		case *ast.StructType:
+			obj := pkg.TypesInfo.ObjectOf(typeSpec.Name)
+			pStruct := newStruct(obj)
+			if pStruct.obj == nil { // nil pStruct is anonymous struct
+				continue
+			}
+
+			pStruct.astInfo = astNode
+
+			if typeSpec.Doc != nil {
+				pStruct.comments = typeSpec.Doc.Text()
+			}
+			if typeSpec.Comment != nil {
+				pStruct.comments += typeSpec.Comment.Text()
+			}
+
+			for j, field := range pStruct.fields {
+				field.astInfo = astNode.Fields.List[j]
+
+				if field.astInfo.Doc != nil {
+					field.comments = field.astInfo.Doc.Text()
+				}
+				if field.astInfo.Comment != nil {
+					field.comments += field.astInfo.Comment.Text()
+				}
+			}
+
+			parsedStructs = append(parsedStructs, pStruct)
+		}
+	}
+
+	compareFn := func(a, b *Struct) int {
+		return strings.Compare(a.Name(), b.Name())
+	}
+
+	slices.SortFunc(parsedStructs, compareFn)
+
+	return &Package{Structs: slices.Clip(parsedStructs), NamedTypes: slices.Clip(namedTypes), Constants: packageConstants(pkg)}
+}
+
+// TypeDocs returns the doc and line comments of every type declaration in the package,
+// by type name, whatever the declaration's right-hand side: a struct, a named basic type,
+// or a named type over another package's type (`type Position json.RawMessage`), which
+// ParsePackage records as neither a Struct nor a NamedType. An annotation that belongs
+// on a type's declaration (@typescript) is read through this, wherever the type is.
+func TypeDocs(pkg *packages.Package) map[string]string {
+	docs := make(map[string]string)
+	for _, typeSpec := range packageTypeSpecs(pkg.Syntax) {
+		var doc string
+		if typeSpec.Doc != nil {
+			doc = typeSpec.Doc.Text()
+		}
+		if typeSpec.Comment != nil {
+			doc += typeSpec.Comment.Text()
+		}
+		docs[typeSpec.Name.Name] = doc
+	}
+
+	return docs
+}
+
+// TypeSpecOf returns the package's declaration of the named type, nil when the package
+// declares none. A declaration's right-hand side (`type Position json.RawMessage`) is
+// read off it: go/types keeps a defined type's underlying type alone, and the type it
+// was declared over is what the JSON methods the generator writes convert through.
+func TypeSpecOf(pkg *packages.Package, name string) *ast.TypeSpec {
+	for _, typeSpec := range packageTypeSpecs(pkg.Syntax) {
+		if typeSpec.Name.Name == name {
+			return typeSpec
+		}
+	}
+
+	return nil
+}
+
+// packageConstants returns every package-level constant with its comments, so godoc
+// annotations on constants (e.g. @manualAddResource) can be scanned.
+func packageConstants(pkg *packages.Package) []*Constant {
+	constants := make([]*Constant, 0, 64)
+	for _, file := range pkg.Syntax {
+		for _, decl := range file.Decls {
+			genDecl, ok := decl.(*ast.GenDecl)
+			if !ok || genDecl.Tok != token.CONST {
+				continue
+			}
+
+			for _, spec := range genDecl.Specs {
+				valueSpec, ok := spec.(*ast.ValueSpec)
+				if !ok {
+					continue
+				}
+
+				var comments string
+				switch {
+				case valueSpec.Doc != nil:
+					comments = valueSpec.Doc.Text()
+				case len(genDecl.Specs) == 1 && genDecl.Doc != nil:
+					// A single-spec const declaration attaches its doc comment to the
+					// GenDecl instead of the ValueSpec.
+					comments = genDecl.Doc.Text()
+				}
+				if valueSpec.Comment != nil {
+					comments += valueSpec.Comment.Text()
+				}
+
+				for _, name := range valueSpec.Names {
+					obj, ok := pkg.TypesInfo.ObjectOf(name).(*types.Const)
+					if !ok {
+						continue
+					}
+
+					value := obj.Val().ExactString()
+					if obj.Val().Kind() == constant.String {
+						value = constant.StringVal(obj.Val())
+					}
+
+					constants = append(constants, &Constant{
+						name:     name.Name,
+						typeName: obj.Type().String(),
+						value:    value,
+						comments: comments,
+					})
+				}
+			}
+		}
+	}
+
+	return slices.Clip(constants)
+}
+
+// packageTypeSpecs returns all type definitions from a package's generic (top-level) declarations
+func packageTypeSpecs(syntax []*ast.File) []*ast.TypeSpec {
+	typeSpecs := make([]*ast.TypeSpec, 0, 256)
+	for _, file := range syntax {
+		for _, decl := range file.Decls {
+			if genDecl, ok := decl.(*ast.GenDecl); ok {
+				for _, spec := range genDecl.Specs {
+					if typeSpec, ok := spec.(*ast.TypeSpec); ok {
+						if typeSpec.Doc == nil && len(genDecl.Specs) == 1 {
+							// A type declared on its own (`type X struct`) attaches its
+							// doc comment to the GenDecl, a grouped one (`type ( X struct )`)
+							// to the TypeSpec. The annotations live in either, so the
+							// declaration's doc is read from wherever go/ast put it, as
+							// go/doc does.
+							typeSpec.Doc = genDecl.Doc
+						}
+						typeSpecs = append(typeSpecs, typeSpec)
+					}
+				}
+			}
+		}
+	}
+
+	return typeSpecs
+}
+
+// The [types.Type] interface can be one of 14 concrete types:
+// https://github.com/golang/example/tree/master/gotypes#types
+// Types can be safely and deterministically decoded from this interface,
+// and support can easily be expanded to other types in our [resources] package
+func decodeToType[T types.Type](v types.Type) (T, bool) {
+	switch t := v.(type) {
+	case *types.Slice:
+		return decodeToType[T](t.Elem())
+	case *types.Pointer:
+		return decodeToType[T](t.Elem())
+	case *types.Named:
+		return decodeToType[T](t.Underlying())
+	case *types.Alias:
+		return decodeToType[T](t.Rhs())
+
+	case T:
+		return t, true
+	default:
+		var zero T
+
+		return zero, false
+	}
+}
+
+func decodeToExpr[T ast.Expr](v ast.Expr) (T, bool) {
+	if v == nil {
+		panic("nil ast.Expr cannot be decoded")
+	}
+
+	switch t := v.(type) {
+	case *ast.StarExpr: // unwraps pointer types e.g. *impulse.UUID -> impulse.UUID
+		return decodeToExpr[T](t.X)
+	case *ast.SelectorExpr: // captures the expression immediately following the dot e.g. impulse.UUID -> UUID
+		return decodeToExpr[T](t.Sel)
+	case T:
+		return t, true
+	default:
+		var zero T
+
+		return zero, false
+	}
+}
+
+// Necessary for qualifying type names with the package they're imported from
+// e.g. `impulse.UUID`
+func typeStringer(t types.Type) string {
+	qualifier := func(p *types.Package) string {
+		if p == nil {
+			return ""
+		}
+
+		return p.Name()
+	}
+
+	return types.TypeString(t, qualifier)
+}
+
+func isTypeLocalToPackage(t *types.Var, pkg *types.Package) bool {
+	typeName := strings.TrimPrefix(typeStringer(t.Type()), "[]")
+	typeName = strings.TrimPrefix(typeName, "*")
+
+	return strings.HasPrefix(typeName, pkg.Name())
+}
+
+// Returns a list of types from this struct's package that the struct depends on
+func localTypesFromStruct(obj types.Object, typeMap map[string]struct{}) []TypeInfo {
+	var dependencies []TypeInfo
+	pkg := obj.Pkg()
+	tt := obj.Type()
+
+	typeMap[typeStringer(tt)] = struct{}{}
+
+	s, ok := decodeToType[*types.Struct](tt)
+	if !ok {
+		return dependencies
+	}
+
+	for field := range s.Fields() {
+		ft := field.Type()
+		if _, ok := typeMap[typeStringer(unwrapType(ft))]; ok {
+			continue
+		}
+
+		if isTypeLocalToPackage(field, pkg) {
+			if _, ok := decodeToType[*types.Struct](ft); ok {
+				dependencies = append(dependencies, localTypesFromStruct(field, typeMap)...)
+			} else {
+				typeMap[typeStringer(unwrapType(ft))] = struct{}{}
+			}
+
+			dependencies = append(dependencies, TypeInfo{field})
+		}
+	}
+
+	return dependencies
+}
+
+// Returns the underlying element type for slices and pointer,
+// or the named type if its underlying type is a struct
+func unwrapType(tt types.Type) types.Type {
+	switch t := tt.(type) {
+	case *types.Slice:
+		return unwrapType(t.Elem())
+	case *types.Pointer:
+		return unwrapType(t.Elem())
+	case *types.Named:
+		switch u := t.Underlying().(type) {
+		case *types.Struct:
+			return t
+		default:
+			return unwrapType(u)
+		}
+	default:
+		return t
+	}
+}
+
+// Returns the underlying element type for pointer types
+func derefType(tt types.Type) types.Type {
+	switch t := tt.(type) {
+	case *types.Pointer:
+		return derefType(t.Elem())
+	default:
+		return t
+	}
+}

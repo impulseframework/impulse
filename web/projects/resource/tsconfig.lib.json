@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.json",
+  "tsconfigRootDir": ".",
+  "compilerOptions": {
+    "sourceMap": true,
+    "outDir": "../../out-tsc/resource",
+    "declaration": true,
+    "declarationMap": true,
+    "inlineSources": true,
+    "types": []
+  },
+  "exclude": ["**/*.spec.ts", "bun-test.d.ts"]
+}

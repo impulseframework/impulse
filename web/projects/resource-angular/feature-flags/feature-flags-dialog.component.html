@@ -1,0 +1,35 @@
+<h2 mat-dialog-title>Feature flags</h2>
+<mat-dialog-content>
+  @if (error(); as message) {
+    <p class="feature-flags-error" role="alert">{{ message }}</p>
+  }
+  @if (loading()) {
+    <p class="feature-flags-note">Loading the flags…</p>
+  } @else if (flags().length === 0 && !error()) {
+    <p class="feature-flags-note">This application declares no feature flags.</p>
+  }
+  <ul class="feature-flags">
+    @for (flag of flags(); track flag.name) {
+      <li class="feature-flag">
+        <div class="feature-flag-text">
+          <div class="feature-flag-name">{{ flag.name }}</div>
+          <div class="feature-flag-description">{{ flag.description }}</div>
+          @if (flag.enabled) {
+            <div class="feature-flag-since">{{ onFor(flag) }}</div>
+          }
+        </div>
+        <mat-slide-toggle
+          [checked]="flag.enabled"
+          [disabled]="!canSet() || pending() !== undefined"
+          [attr.aria-label]="'Turn ' + flag.name + (flag.enabled ? ' off' : ' on')"
+          (change)="toggle(flag, $event.checked)" />
+      </li>
+    }
+  </ul>
+  @if (!loading() && !canSet() && flags().length > 0) {
+    <p class="feature-flags-note">You can see the flags but not change them.</p>
+  }
+</mat-dialog-content>
+<mat-dialog-actions align="end">
+  <button mat-button mat-dialog-close>Close</button>
+</mat-dialog-actions>

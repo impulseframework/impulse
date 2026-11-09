@@ -1,0 +1,857 @@
+package resource
+
+import (
+	"fmt"
+	"net/http"
+	"net/url"
+	"reflect"
+	"regexp"
+	"slices"
+	"strconv"
+	"strings"
+
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
+)
+
+type parsedQueryParams struct {
+	ColumnFields []accesstypes.Field
+	SortFields   []SortField
+	FilterParser func(DBType) (ExpressionNode, error)
+	// FilterFields names the resource fields the filter expression touches, so
+	// the read checks can require an unconditional grant on each of them.
+	FilterFields []accesstypes.Field
+	// SearchBox says the filter carries the search box, and SearchFields names the
+	// resource's own fields it searches, in declaration order; a field the caller
+	// cannot read drops out at the read checks instead of refusing the request.
+	SearchBox    bool
+	SearchFields []accesstypes.Field
+	Page         pageRequest
+	Capabilities []accesstypes.Permission
+}
+
+type filterBody struct {
+	Filter string `json:"filter"`
+}
+
+// The shape of a live version parameter's value: a change document's timestamp as
+// unix microseconds in decimal, or the seed a client minted at login, both within
+// this charset and length. A request whose value is outside it is refused naming
+// the parameter.
+const (
+	versionValueCharset   = "[A-Za-z0-9_.:-]"
+	versionValueMaxLength = 64
+)
+
+var versionValuePattern = regexp.MustCompile("^" + versionValueCharset + "{1," + strconv.Itoa(versionValueMaxLength) + "}$")
+
+// QueryDecoder is a struct that returns columns that a given user has access to view
+type QueryDecoder[Resource Resourcer, Request any] struct {
+	requestFieldMapper *RequestFieldMapper
+	resourceSet        *Set[Resource]
+	filterParserFields map[jsonFieldName]FilterFieldInfo
+	bodyDecoder        *structDecoder[filterBody]
+
+	// collection resolves condition rendering for the QuerySets this decoder
+	// builds; nil leaves conditions unrenderable (an error if one ever
+	// arrives).
+	collection *GeneratedCollection
+
+	// requestType is the request struct, consulted for the type behind a sort
+	// field: a nested object or a list cannot be ordered by.
+	requestType reflect.Type
+	// keyFields are the request type's primary-key fields (the perm:"-"
+	// markers), appended to every decoded order as the tiebreak. A list decoder
+	// with none serves a key-less resource, whose list is only ever whole
+	// (wholeListOnly).
+	keyFields []accesstypes.Field
+	// paging is the resource's declared paging contract (WithPaging); the zero
+	// value is the generator-wide default.
+	paging Paging
+	// cursorKey seals and opens the cursors of the pages this decoder builds
+	// (WithCursorKey); nil refuses paging past the first page.
+	cursorKey *CursorKey
+	// features is the application's FeatureSet (WithFeatures): a request struct field
+	// behind a flag that is off is unknown to the decoder, so a request naming it is
+	// refused as any unknown field is and the default projection leaves it out. Nil
+	// hides every gated field.
+	features *FeatureSet
+	// boxFields are the request fields the search box searches, in declaration
+	// order, and boxPIIFields those among them that are PII; boxPII says one of
+	// them, or a @searchAlso branch, is PII, so a filter carrying the box posts
+	// unless the caller's grants deny every PII field it would search (Decode);
+	// searchKeys is the resource's single-column key per parse target, which a
+	// box's key set joins on, nil when the request type marks no key or several.
+	boxFields    []accesstypes.Field
+	boxPIIFields []accesstypes.Field
+	boxPII       bool
+	searchKeys   map[DBType]string
+}
+
+// WithFeatures installs the FeatureSet the decoder reads the gated fields' flags
+// from; the generated wiring passes the application's. Without it every gated field
+// stays hidden.
+func (d *QueryDecoder[Resource, Request]) WithFeatures(features *FeatureSet) *QueryDecoder[Resource, Request] {
+	d.features = features
+
+	return d
+}
+
+// hiddenFields returns the request fields behind a flag that is off, nil when none.
+func (d *QueryDecoder[Resource, Request]) hiddenFields() map[accesstypes.Field]struct{} {
+	return d.resourceSet.hiddenFields(d.features)
+}
+
+// visibleFields returns the request type's fields less the hidden ones.
+func (d *QueryDecoder[Resource, Request]) visibleFields() []accesstypes.Field {
+	hidden := d.hiddenFields()
+	if len(hidden) == 0 {
+		return d.requestFieldMapper.Fields()
+	}
+
+	return slices.DeleteFunc(d.requestFieldMapper.Fields(), func(field accesstypes.Field) bool {
+		_, isHidden := hidden[field]
+
+		return isHidden
+	})
+}
+
+// visibleFilterFields returns the filterable fields less the hidden ones.
+func (d *QueryDecoder[Resource, Request]) visibleFilterFields(hidden map[accesstypes.Field]struct{}) map[jsonFieldName]FilterFieldInfo {
+	if len(hidden) == 0 {
+		return d.filterParserFields
+	}
+	visible := make(map[jsonFieldName]FilterFieldInfo, len(d.filterParserFields))
+	for name, info := range d.filterParserFields {
+		if _, isHidden := hidden[accesstypes.Field(info.GOFieldName)]; !isHidden {
+			visible[name] = info
+		}
+	}
+
+	return visible
+}
+
+// structFieldName resolves a wire name to a request field, a hidden field answered as
+// unknown.
+func (d *QueryDecoder[Resource, Request]) structFieldName(jsonName string, hidden map[accesstypes.Field]struct{}) (accesstypes.Field, bool) {
+	field, found := d.requestFieldMapper.StructFieldName(jsonName)
+	if !found {
+		return "", false
+	}
+	if _, isHidden := hidden[field]; isHidden {
+		return "", false
+	}
+
+	return field, true
+}
+
+// NewQueryDecoder creates a new QueryDecoder for a given Resource and Request type.
+func NewQueryDecoder[Resource Resourcer, Request any](resSet *Set[Resource]) (*QueryDecoder[Resource, Request], error) {
+	var req Request
+
+	mapper, err := NewRequestFieldMapper(req)
+	if err != nil {
+		return nil, errors.Wrap(err, "NewFieldMapper()")
+	}
+
+	filterParserFields, err := newFilterParserFields(reflect.TypeOf(req), resSet.ResourceMetadata())
+	if err != nil {
+		return nil, err
+	}
+
+	bodyDecoder, err := newStructDecoder[filterBody]()
+	if err != nil {
+		return nil, errors.Wrap(err, "newStructDecoder[filterBody]()")
+	}
+
+	keyFields := primaryKeyFields(reflect.TypeOf(req))
+	boxFields, boxPIIFields := searchBoxFields(filterParserFields)
+	boxPII := len(boxPIIFields) > 0
+	for i := range resSet.ResourceMetadata().searchBranches {
+		branch := &resSet.ResourceMetadata().searchBranches[i]
+		boxPII = boxPII || branch.PII
+	}
+
+	return &QueryDecoder[Resource, Request]{
+		requestFieldMapper: mapper,
+		resourceSet:        resSet,
+		filterParserFields: filterParserFields,
+		bodyDecoder:        bodyDecoder,
+		requestType:        reflect.TypeOf(req),
+		keyFields:          keyFields,
+		boxFields:          boxFields,
+		boxPIIFields:       boxPIIFields,
+		boxPII:             boxPII,
+		searchKeys:         searchKeyColumns(keyFields, resSet.ResourceMetadata()),
+	}, nil
+}
+
+// searchBoxFields lists the request fields that join the search box, in declaration
+// order, and the PII fields among them.
+func searchBoxFields(fields map[jsonFieldName]FilterFieldInfo) (boxFields, piiFields []accesstypes.Field) {
+	infos := make([]FilterFieldInfo, 0, len(fields))
+	seen := make(map[string]struct{}, len(fields))
+	for _, info := range fields {
+		if !info.Search.JoinsBox() {
+			continue
+		}
+		if _, dup := seen[info.GOFieldName]; dup {
+			continue
+		}
+		seen[info.GOFieldName] = struct{}{}
+		infos = append(infos, info)
+	}
+	slices.SortFunc(infos, func(a, b FilterFieldInfo) int { return a.order - b.order })
+
+	boxFields = make([]accesstypes.Field, 0, len(infos))
+	for _, info := range infos {
+		field := accesstypes.Field(info.GOFieldName)
+		boxFields = append(boxFields, field)
+		if info.PII {
+			piiFields = append(piiFields, field)
+		}
+	}
+
+	return boxFields, piiFields
+}
+
+// searchKeyColumns names the resource's single-column key per parse target (the Go
+// field under the in-memory target), which a search box's key set joins on; nil when
+// the request type marks no key or several.
+func searchKeyColumns[Resource Resourcer](keyFields []accesstypes.Field, meta *Metadata[Resource]) map[DBType]string {
+	if len(keyFields) != 1 {
+		return nil
+	}
+	key := keyFields[0]
+	keys := map[DBType]string{goFieldNames: string(key)}
+	for _, dbType := range dbTypes() {
+		if entry, ok := meta.dbFieldMap(dbType)[key]; ok {
+			keys[dbType] = entry.ColumnName
+		}
+	}
+
+	return keys
+}
+
+// primaryKeyFields returns the request type's primary-key fields, the ones the
+// generator marks perm:"-", in declaration order.
+func primaryKeyFields(reqType reflect.Type) []accesstypes.Field {
+	var keys []accesstypes.Field
+	for field := range reqType.Fields() {
+		if field.Tag.Get(permTagKey) == permTagExempt && field.Tag.Get(jsonTagKey) != "-" {
+			keys = append(keys, accesstypes.Field(field.Name))
+		}
+	}
+
+	return keys
+}
+
+// WithCursorKey installs the key that seals the cursors of the pages this
+// decoder builds and opens the ones requests carry. The generated wiring passes
+// the application's one key (resource.NewCursorKey over the cookie key) to
+// every decoder; without it a list serves first pages only.
+func (d *QueryDecoder[Resource, Request]) WithCursorKey(key *CursorKey) *QueryDecoder[Resource, Request] {
+	d.cursorKey = key
+
+	return d
+}
+
+// WithPaging installs the resource's declared paging contract: the default order
+// a sort-less request takes and the page sizes. The generator emits the call from
+// the @order and @page annotations. An order field the request type does not
+// carry is a programming error and panics at construction, like every other
+// generated-code mismatch, and so is a page size on a key-less list, which the
+// generator refuses at @page and which does not page (wholeListOnly).
+func (d *QueryDecoder[Resource, Request]) WithPaging(paging Paging) *QueryDecoder[Resource, Request] {
+	if d.wholeListOnly() && (paging.DefaultLimit != 0 || paging.MaxLimit != 0) {
+		panic(fmt.Sprintf("resource.QueryDecoder.WithPaging: %s declares no primary key and does not page; a page size needs a key", d.resourceSet.BaseResource()))
+	}
+	for _, sf := range paging.Order {
+		field, ok := structField(d.requestType, sf.Field)
+		if !ok || !slices.Contains(d.requestFieldMapper.Fields(), accesstypes.Field(sf.Field)) {
+			panic(fmt.Sprintf("resource.QueryDecoder.WithPaging: order field %q is not a field of the request type", sf.Field))
+		}
+		if !sortableType(field.Type) {
+			panic(fmt.Sprintf("resource.QueryDecoder.WithPaging: order field %q has type %s, which cannot be ordered by", sf.Field, field.Type))
+		}
+	}
+	d.paging = paging
+
+	return d
+}
+
+// MustNewQueryDecoder builds a query decoder for a resource and request pair,
+// wired to the application's generated collection so conditional grants can
+// render. It panics on construction errors: they are programming errors (a
+// request struct out of sync with its resource), surfaced at application
+// startup where generated handlers construct their decoders.
+func MustNewQueryDecoder[Resource Resourcer, Request any](collection *GeneratedCollection, permissions ...accesstypes.Permission) *QueryDecoder[Resource, Request] {
+	rSet, err := NewSet[Resource, Request](permissions...)
+	if err != nil {
+		panic(err)
+	}
+
+	decoder, err := NewQueryDecoder[Resource, Request](rSet)
+	if err != nil {
+		panic(err)
+	}
+	decoder.collection = collection
+
+	return decoder
+}
+
+// DecodeWithoutPermissions decodes an http.Request into a QuerySet without enforcing user permissions.
+func (d *QueryDecoder[Resource, Request]) DecodeWithoutPermissions(request *http.Request) (*QuerySet[Resource], error) {
+	// With no caller to ask, a box in the URL over a resource whose box searches a
+	// PII field is refused outright; Decode asks the caller's grants instead.
+	return d.decode(request, d.boxPII)
+}
+
+// decode builds the QuerySet from the request. boxPII says a search box in the URL
+// is refused because it would search a PII field; a filter naming a PII field in
+// the URL is refused regardless.
+func (d *QueryDecoder[Resource, Request]) decode(request *http.Request, boxPII bool) (*QuerySet[Resource], error) {
+	queryParams := request.URL.Query()
+
+	if filterStr := queryParams.Get(filterParam); filterStr != "" {
+		if err := d.checkForPII(filterStr, boxPII); err != nil {
+			return nil, err
+		}
+	}
+
+	if request.Method == http.MethodPost {
+		body, err := d.bodyDecoder.Decode(request)
+		if err != nil {
+			return nil, err
+		}
+
+		if body.Filter != "" {
+			if queryParams.Get(filterParam) != "" {
+				return nil, httpio.NewBadRequestMessagef("cannot have 'filter' parameter in both query and body")
+			}
+			queryParams.Add(filterParam, body.Filter)
+		}
+	}
+
+	// parseQuery consumes the parameters it recognizes, so the filter's text is
+	// kept first: every cursor the page issues is fingerprinted with it.
+	filterString := queryParams.Get(filterParam)
+
+	hidden := d.hiddenFields()
+	parsedQuery, err := d.parseQuery(queryParams, hidden, request.Header.Get(TimeZoneHeader))
+	if err != nil {
+		return nil, err
+	}
+
+	qSet := NewQuerySet(d.resourceSet.ResourceMetadata())
+	qSet.env = RequestEnvironment()
+	qSet.requestableFields = d.visibleFields()
+	qSet.collection = d.collection
+	qSet.jsonNames = d.requestFieldMapper.JSONNames()
+	qSet.SetFilterParser(parsedQuery.FilterParser)
+	qSet.filterFields = parsedQuery.FilterFields
+	qSet.searchBox = parsedQuery.SearchBox
+	qSet.searchFields = parsedQuery.SearchFields
+	qSet.keyFields = d.keyFields
+	qSet.defaultOrder = d.paging.Order
+	qSet.cursorKey = d.cursorKey
+	qSet.filterString = filterString
+	qSet.SetSortFields(parsedQuery.SortFields)
+	qSet.page = &parsedQuery.Page
+	if err := d.requireOrder(qSet); err != nil {
+		return nil, err
+	}
+	qSet.RequestCapabilities(parsedQuery.Capabilities...)
+	if len(parsedQuery.ColumnFields) == 0 {
+		qSet.ReturnAccessibleFields(true)
+	} else {
+		for _, field := range parsedQuery.ColumnFields {
+			qSet.AddField(field)
+		}
+	}
+
+	return qSet, nil
+}
+
+// requireOrder refuses a paged list request that carries no order: no sort on the
+// request and no @order on the struct. A keyset cursor walks a total order, so a
+// page with no order could only say that more rows exist without saying where
+// they are, and the refusal names what is missing instead. limit=all, the whole
+// list in one response, needs no order and is the only order-free list; it stays
+// refused where a maximum is declared (parsePage). A key-less list is only ever
+// whole (wholeListOnly), so it is never refused here. A read decoder decodes one
+// row and is not a list, and a hand-built QuerySet is not a decoded request and
+// keeps exactly the sort its caller set.
+func (d *QueryDecoder[Resource, Request]) requireOrder(qSet *QuerySet[Resource]) error {
+	if !slices.Contains(d.resourceSet.Permissions(), accesstypes.List) {
+		return nil
+	}
+	if qSet.page.all || len(qSet.sortFields) > 0 || len(qSet.defaultOrder) > 0 {
+		return nil
+	}
+	if d.paging.MaxLimit != 0 {
+		return httpio.NewBadRequestMessagef("%s serves at most %d rows per page and declares no order; add a sort", qSet.Resource(), d.paging.MaxLimit)
+	}
+
+	return httpio.NewBadRequestMessagef("%s declares no order; add a sort, or ask limit=all", qSet.Resource())
+}
+
+// Decode decodes an http.Request into a QuerySet and enables user permission enforcement
+// in the given domain partition. A search box in the URL is admitted when the PII fields
+// it would search are all denied to the caller; one the caller may search sends the
+// filter to the body (DecodeWithoutPermissions, with no caller to ask, refuses it outright).
+func (d *QueryDecoder[Resource, Request]) Decode(request *http.Request, userPermissions UserPermissions, scope accesstypes.Scope) (*QuerySet[Resource], error) {
+	qSet, err := d.decode(request, false)
+	if err != nil {
+		return nil, err
+	}
+
+	perms := d.resourceSet.Permissions()
+	if len(perms) != 1 {
+		panic(fmt.Sprintf("expected one non-mutating permission, found: %d, (%s)", len(perms), perms))
+	}
+
+	qSet.EnableUserPermissionEnforcement(d.resourceSet, userPermissions, scope, perms[0])
+
+	// A box in the URL stays there when the PII fields it would search are all
+	// denied to this caller, since a denied field drops out of the box; one the
+	// caller may search, granted or conditional, sends the filter to the body.
+	if d.boxPII && qSet.searchBox && request.URL.Query().Get(filterParam) != "" {
+		reaches, err := qSet.searchBoxReachesPII(request.Context(), d.boxPIIFields)
+		if err != nil {
+			return nil, err
+		}
+		if reaches {
+			return nil, errSearchBoxInURL()
+		}
+	}
+
+	// The cursor is bound here and not in DecodeWithoutPermissions because its
+	// fingerprint covers the scope: a cursor from one tenant's walk is refused
+	// in another's.
+	if err := qSet.bindCursor(scope); err != nil {
+		return nil, err
+	}
+
+	return qSet, nil
+}
+
+// parseQuery reads the request's query parameters; zoneName is the person's time zone
+// as the request's Time-Zone header carries it, empty where it sent none, which the
+// filter's written dates are read in.
+func (d *QueryDecoder[Resource, Request]) parseQuery(query url.Values, hidden map[accesstypes.Field]struct{}, zoneName string) (*parsedQueryParams, error) {
+	var columnFields []accesstypes.Field
+	var sortFields []SortField
+	var filterParser func(DBType) (ExpressionNode, error)
+	var filterFields []accesstypes.Field
+	var searchBox bool
+	var searchFields []accesstypes.Field
+	var err error
+
+	if sortParamValue := query.Get(sortParam); sortParamValue != "" {
+		sortFields, err = d.parseSortParam(sortParamValue, hidden)
+		if err != nil {
+			return nil, err
+		}
+
+		delete(query, sortParam)
+	}
+
+	page, err := d.parsePage(query)
+	if err != nil {
+		return nil, err
+	}
+
+	if cols := query.Get(columnsParam); cols != "" {
+		// column names received in the query parameters are a comma separated list of json field names (ie: json tags on the request struct)
+		// we need to convert these to struct field names
+		for column := range strings.SplitSeq(cols, ",") {
+			if field, found := d.structFieldName(column, hidden); found {
+				columnFields = append(columnFields, field)
+			} else {
+				return nil, httpio.NewBadRequestMessagef("unknown column: %s", column)
+			}
+		}
+
+		delete(query, columnsParam)
+	}
+
+	if filterStr := query.Get(filterParam); filterStr != "" {
+		filterParser, err = d.filterExpressionParser(filterStr, hidden, zoneName)
+		if err != nil {
+			return nil, err
+		}
+		// The filter is part of the request's shape, so it is validated here with
+		// the rest of it: syntax, field names, whether each field is filterable,
+		// and whether each value fits its field. The parse names conditions by Go
+		// field, which every resource has, so it decides nothing about the
+		// database; the per-database parse that renders SQL and applies the index
+		// rule still runs when the query does, and a computed resource's handler
+		// evaluates this same tree against its rows.
+		if _, err := filterParser(goFieldNames); err != nil {
+			return nil, err
+		}
+		filterFields = d.filterFields(filterStr)
+		if d.hasSearchBox(filterStr) {
+			searchBox = true
+			searchFields = d.visibleBoxFields(hidden)
+		}
+
+		delete(query, filterParam)
+	}
+
+	var capabilities []accesstypes.Permission
+	if capStr := query.Get(capabilitiesParam); capStr != "" {
+		// The capability envelope (README §5): a comma-separated list of the
+		// write permissions to evaluate per row.
+		for name := range strings.SplitSeq(capStr, ",") {
+			perm, err := capabilityPermission(strings.TrimSpace(name))
+			if err != nil {
+				return nil, err
+			}
+			if !slices.Contains(capabilities, perm) {
+				capabilities = append(capabilities, perm)
+			}
+		}
+
+		delete(query, capabilitiesParam)
+	}
+
+	if query.Has(VersionParam) {
+		// The live version parameter is the browser cache's key, never the query's:
+		// its value is accepted in the shape the client library mints (a change
+		// timestamp or a login seed) and skipped.
+		if !versionValuePattern.MatchString(query.Get(VersionParam)) {
+			return nil, httpio.NewBadRequestMessagef("invalid %s value: 1 to %d characters of %s", VersionParam, versionValueMaxLength, versionValueCharset)
+		}
+
+		delete(query, VersionParam)
+	}
+
+	if len(query) > 0 {
+		return nil, httpio.NewBadRequestMessagef("unknown query parameters: %v", query)
+	}
+
+	return &parsedQueryParams{
+		ColumnFields: columnFields,
+		SortFields:   sortFields,
+		FilterParser: filterParser,
+		FilterFields: filterFields,
+		SearchBox:    searchBox,
+		SearchFields: searchFields,
+		Page:         page,
+		Capabilities: capabilities,
+	}, nil
+}
+
+// visibleBoxFields returns the search box's fields less the hidden ones.
+func (d *QueryDecoder[Resource, Request]) visibleBoxFields(hidden map[accesstypes.Field]struct{}) []accesstypes.Field {
+	if len(hidden) == 0 {
+		return d.boxFields
+	}
+
+	return slices.DeleteFunc(slices.Clone(d.boxFields), func(field accesstypes.Field) bool {
+		_, isHidden := hidden[field]
+
+		return isHidden
+	})
+}
+
+// hasSearchBox reports whether a filter's text carries the search box, a condition on
+// the pseudo-field *. The walk reads tokens only; the parse decides whether the box is
+// well formed.
+func (d *QueryDecoder[Resource, Request]) hasSearchBox(filterStr string) bool {
+	lexer := NewFilterLexer(filterStr)
+	for {
+		token, err := lexer.NextToken()
+		if err != nil || token.Type == TokenEOF {
+			return false
+		}
+		if token.Type == TokenCondition {
+			if field, _, _ := strings.Cut(token.Value, ":"); strings.TrimSpace(field) == searchBoxField {
+				return true
+			}
+		}
+	}
+}
+
+// wholeListOnly reports whether this decoder lists a key-less resource: a list
+// decoder whose request type marks no primary key (a @computed or @virtual struct
+// with no @primarykey). Such a list has no row identity, so a keyset cursor has
+// nothing to anchor on and no page can be positioned: the list is served whole,
+// as limit=all serves a keyed list, and a numeric limit or a cursor is refused
+// naming @primarykey as the way to page (parsePage). A read decoder decodes one
+// row and is out of it.
+func (d *QueryDecoder[Resource, Request]) wholeListOnly() bool {
+	return len(d.keyFields) == 0 && slices.Contains(d.resourceSet.Permissions(), accesstypes.List)
+}
+
+// parsePage reads the paging parameters against the resource's declared
+// contract. A request without limit takes the declared default page (the
+// generator-wide DefaultPageSize when none is declared); limit=all is admitted
+// only on a resource with no declared maximum; a limit over the maximum is
+// refused naming it, never clamped; limit=0 is refused; offset is refused
+// naming the cursor as its replacement; count is admitted on a first page only.
+// A key-less list (wholeListOnly) is whole with or without limit=all, and a
+// numeric limit or a cursor on it is refused naming the resource, that it
+// declares no key, and that @primarykey is how a list pages.
+func (d *QueryDecoder[Resource, Request]) parsePage(query url.Values) (pageRequest, error) {
+	page := pageRequest{size: d.paging.DefaultLimit}
+	if page.size == 0 {
+		page.size = DefaultPageSize
+	}
+	keyless := d.wholeListOnly()
+	if keyless {
+		page.all = true
+	}
+
+	if limitStr := query.Get(limitParam); limitStr != "" {
+		switch limitStr {
+		case allLimit:
+			if d.paging.MaxLimit != 0 {
+				return pageRequest{}, httpio.NewBadRequestMessagef("limit=all is not permitted: this resource serves at most %d rows per page; follow the Link header", d.paging.MaxLimit)
+			}
+			page.all = true
+		default:
+			size, err := strconv.ParseUint(limitStr, 10, 64)
+			if err != nil {
+				return pageRequest{}, httpio.NewBadRequestMessagef("invalid limit value: %s", limitStr)
+			}
+			if keyless {
+				return pageRequest{}, httpio.NewBadRequestMessagef("%s declares no primary key, so its list is served whole and does not page; drop the limit, or declare @primarykey to page", d.resourceSet.BaseResource())
+			}
+			if size == 0 {
+				return pageRequest{}, httpio.NewBadRequestMessage("limit must be at least 1; omit it for the default page, or ask for limit=all where the resource permits it")
+			}
+			if d.paging.MaxLimit != 0 && size > d.paging.MaxLimit {
+				return pageRequest{}, httpio.NewBadRequestMessagef("limit %d exceeds this resource's maximum page size of %d", size, d.paging.MaxLimit)
+			}
+			page.size = size
+		}
+		delete(query, limitParam)
+	}
+
+	if query.Has(offsetParam) {
+		return pageRequest{}, httpio.NewBadRequestMessage("offset is not supported: pages are positioned by the cursor the Link header carries")
+	}
+
+	if token := query.Get(cursorParam); token != "" {
+		if keyless {
+			return pageRequest{}, httpio.NewBadRequestMessagef("%s declares no primary key, so its list is served whole and does not page; drop the cursor, or declare @primarykey to page", d.resourceSet.BaseResource())
+		}
+		if page.all {
+			return pageRequest{}, httpio.NewBadRequestMessage("a cursor cannot be combined with limit=all")
+		}
+		page.token = token
+		delete(query, cursorParam)
+	}
+
+	if countStr := query.Get(countParam); countStr != "" {
+		if countStr != trueStr {
+			return pageRequest{}, httpio.NewBadRequestMessagef("invalid count value: %s (only true is accepted)", countStr)
+		}
+		if page.token != "" {
+			return pageRequest{}, httpio.NewBadRequestMessage("count is answered on the first page only; it cannot be combined with a cursor")
+		}
+		page.count = true
+		delete(query, countParam)
+	}
+
+	return page, nil
+}
+
+func (d *QueryDecoder[Resource, Request]) parseSortParam(sortParamValue string, hidden map[accesstypes.Field]struct{}) ([]SortField, error) {
+	var sortFields []SortField
+	sortParts := strings.Split(sortParamValue, ",")
+	if len(sortParts) > 0 {
+		sortFields = make([]SortField, 0, len(sortParts))
+		for _, part := range sortParts {
+			trimmedPart := strings.TrimSpace(part)
+			if trimmedPart == "" {
+				return nil, httpio.NewBadRequestMessagef("invalid sort field, found empty part in sort parameter: %s", sortParamValue)
+			}
+			fieldAndDir := strings.SplitN(trimmedPart, ":", 2)
+			jsonFieldName := strings.TrimSpace(fieldAndDir[0])
+
+			if jsonFieldName == "" {
+				return nil, httpio.NewBadRequestMessagef("sort field name cannot be empty")
+			}
+
+			goFieldName, found := d.structFieldName(jsonFieldName, hidden)
+			if !found {
+				return nil, httpio.NewBadRequestMessagef("unknown sort field: %s", jsonFieldName)
+			}
+			if field, ok := structField(d.requestType, string(goFieldName)); ok && !sortableType(field.Type) {
+				return nil, httpio.NewBadRequestMessagef("field %s cannot be sorted by: only text, number, boolean, time, date, decimal, and UUID fields order", jsonFieldName)
+			}
+
+			direction := SortAscending // Default direction
+			if len(fieldAndDir) == 2 {
+				dirStr := strings.ToLower(strings.TrimSpace(fieldAndDir[1]))
+				switch dirStr {
+				case "asc":
+					direction = SortAscending
+				case "desc":
+					direction = SortDescending
+				default:
+					return nil, httpio.NewBadRequestMessagef("invalid sort direction for field '%s': %s. Must be 'asc' or 'desc'", jsonFieldName, fieldAndDir[1])
+				}
+			}
+			sortFields = append(sortFields, SortField{Field: string(goFieldName), Direction: direction})
+		}
+	}
+
+	return sortFields, nil
+}
+
+// filterExpressionParser returns a filter parser. zoneName, the person's time zone as
+// the request's Time-Zone header carries it, is the zone a written date in the filter is
+// read in; a name that is no zone is refused in the header's name.
+func (d *QueryDecoder[Resource, Request]) filterExpressionParser(filterStr string, hidden map[accesstypes.Field]struct{}, zoneName string) (func(DBType) (ExpressionNode, error), error) {
+	parser, err := NewFilterParser(NewFilterLexer(filterStr), d.visibleFilterFields(hidden))
+	if err != nil {
+		return nil, errors.Wrap(err, "failed to create filter expression parser")
+	}
+	parser.WithSearch(d.resourceSet.ResourceMetadata().searchBranches, d.searchKeys)
+	if zoneName = strings.TrimSpace(zoneName); zoneName != "" {
+		zone, err := loadZone(zoneName)
+		if err != nil {
+			return nil, httpio.NewBadRequestMessagef("%s: '%s' is not a time zone name. Write it as America/New_York.", TimeZoneHeader, zoneName)
+		}
+		parser.WithZone(zone)
+	}
+
+	return parser.Parse, nil
+}
+
+// checkForPII refuses a filter in the URL that names a sensitive field, or, when
+// boxPII says so, one that carries the search box: such a filter travels in the body.
+func (d *QueryDecoder[Resource, Request]) checkForPII(filterStr string, boxPII bool) error {
+	for _, fieldInfo := range d.filterConditionFields(filterStr) {
+		if fieldInfo.PII {
+			return httpio.NewBadRequestMessagef("cannot filter on sensitive field in URL: %s", fieldInfo.JSONFieldName)
+		}
+	}
+	if boxPII && d.hasSearchBox(filterStr) {
+		return errSearchBoxInURL()
+	}
+
+	return nil
+}
+
+// errSearchBoxInURL is the refusal of a search box in the URL that would search a
+// sensitive field: the filter belongs in the request body.
+func errSearchBoxInURL() error {
+	return httpio.NewBadRequestMessagef("cannot filter on sensitive field in URL: the search box searches a sensitive field; send the filter in the request body")
+}
+
+// filterFields names the resource fields a filter expression touches, in first
+// appearance order without repeats. parseQuery has parsed the expression before
+// asking, so every condition names a filterable field and none is skipped.
+func (d *QueryDecoder[Resource, Request]) filterFields(filterStr string) []accesstypes.Field {
+	var fields []accesstypes.Field
+	for _, fieldInfo := range d.filterConditionFields(filterStr) {
+		field := accesstypes.Field(fieldInfo.GOFieldName)
+		if !slices.Contains(fields, field) {
+			fields = append(fields, field)
+		}
+	}
+
+	return fields
+}
+
+// filterConditionFields walks the filter's tokens and returns the filterable
+// field behind each condition. Conditions on fields the parser would refuse are
+// skipped: the PII check walks the text before the parse runs, and the parser's
+// own refusal is the one the caller then sees.
+func (d *QueryDecoder[Resource, Request]) filterConditionFields(filterStr string) []FilterFieldInfo {
+	var infos []FilterFieldInfo
+	lexer := NewFilterLexer(filterStr)
+	for {
+		token, err := lexer.NextToken()
+		if err != nil || token.Type == TokenEOF {
+			return infos
+		}
+
+		if token.Type == TokenCondition {
+			jsonFieldNameStr, _, _ := strings.Cut(token.Value, ":")
+			if fieldInfo, found := d.filterParserFields[jsonFieldName(jsonFieldNameStr)]; found {
+				infos = append(infos, fieldInfo)
+			}
+		}
+	}
+}
+
+func newFilterParserFields[Resource Resourcer](reqType reflect.Type, resourceMetadata *Metadata[Resource]) (map[jsonFieldName]FilterFieldInfo, error) {
+	fields := make(map[jsonFieldName]FilterFieldInfo)
+
+	for structField := range reqType.Fields() {
+		// A field is filterable when an index serves it, the source allows a filter
+		// on it, or the schema gives it a search vocabulary (the search tag): the
+		// matches and the box the tag names are filters through the search index.
+		searchTag := structField.Tag.Get(searchTagKey)
+		if structField.Tag.Get(indexTagKey) != trueStr && structField.Tag.Get(allowFilterTagKey) != trueStr && searchTag == "" {
+			continue
+		}
+
+		goStructFieldName := structField.Name
+		jsonTag := structField.Tag.Get(jsonTagKey)
+		jsonFieldNameStr, _, _ := strings.Cut(jsonTag, ",")
+		if jsonFieldNameStr == "" || jsonFieldNameStr == "-" {
+			return nil, errors.Newf("indexed field %s must have a json tag", goStructFieldName)
+		}
+
+		dbColumnNames := make(map[DBType]string)
+		for _, dbType := range dbTypes() {
+			cacheEntry, found := resourceMetadata.dbFieldMap(dbType)[accesstypes.Field(goStructFieldName)]
+			if !found {
+				continue
+			}
+
+			dbColumnNames[dbType] = cacheEntry.ColumnName
+		}
+
+		fieldType := structField.Type
+		fieldKind := fieldType.Kind()
+		if fieldKind == reflect.Pointer {
+			fieldType = fieldType.Elem()
+			fieldKind = fieldType.Kind()
+		}
+
+		var search *SearchSpec
+		if searchTag != "" {
+			// A tag the runtime cannot read, or one on a field that is not text, is
+			// generated code out of step with the package: regenerate.
+			spec, err := parseSearchSpec(searchTag)
+			if err != nil {
+				return nil, errors.Wrapf(err, "field %s", goStructFieldName)
+			}
+			if fieldKind != reflect.String && fieldType != nullStringType && spec.Role != SearchRoleDate {
+				return nil, errors.Newf("field %s carries a search tag but is not a text field", goStructFieldName)
+			}
+			search = spec
+		}
+
+		info := FilterFieldInfo{
+			JSONFieldName: jsonFieldNameStr,
+			GOFieldName:   goStructFieldName,
+			dbColumnNames: dbColumnNames,
+			Kind:          fieldKind,
+			FieldType:     fieldType,
+			Indexed:       structField.Tag.Get(indexTagKey) == trueStr,
+			PII:           structField.Tag.Get(piiTagKey) == trueStr,
+			Positional:    structField.Tag.Get(maskingTagKey) == maskingPositional,
+			Search:        search,
+			order:         structField.Index[0],
+		}
+		fields[jsonFieldName(jsonFieldNameStr)] = info
+		// A filter naming the field's former wire name is the same condition on the
+		// same column.
+		if former := structField.Tag.Get(formerlyTagKey); former != "" {
+			fields[jsonFieldName(former)] = info
+		}
+	}
+
+	return fields, nil
+}

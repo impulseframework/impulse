@@ -1,0 +1,59 @@
+{
+  "name": "impulse-web",
+  "workspaces": [
+    "projects/*"
+  ],
+  "peerDependencies": {
+    "@angular/animations": "^21.2.4",
+    "@angular/cdk": "^21.2.2",
+    "@angular/common": "^21.2.4",
+    "@angular/compiler": "^21.2.4",
+    "@angular/core": "^21.2.4",
+    "@angular/forms": "^21.2.4",
+    "@angular/material": "^21.2.2",
+    "@angular/platform-browser": "^21.2.4",
+    "@angular/platform-browser-dynamic": "^21.2.4",
+    "@angular/router": "^21.2.4",
+    "date-fns": "^4.1.0",
+    "date-fns-tz": "^3.2.0",
+    "rxjs": "~7.8.0",
+    "zone.js": "~0.15.0"
+  },
+  "dependencies": {
+    "tslib": "^2.3.0"
+  },
+  "devDependencies": {
+    "@angular/build": "^21.2.2",
+    "@angular/cli": "^21.2.2",
+    "@angular/compiler-cli": "^21.2.4",
+    "@angular/service-worker": "^21.2.4",
+    "@fontsource/roboto": "5.3.0",
+    "@types/node": "^24.10.1",
+    "angular-eslint": "^21.3.0",
+    "eslint": "^9.28.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-boundaries": "^5.0.1",
+    "eslint-plugin-import": "^2.31.0",
+    "firebase": "^12.19.0",
+    "jsdom": "^27.1.0",
+    "madge": "^8.0.0",
+    "material-icons": "1.13.14",
+    "ng-packagr": "^21.0.0",
+    "prettier": "3.4.2",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.33.1",
+    "vitest": "^4.0.8"
+  },
+  "scripts": {
+    "lint": "ng lint",
+    "typecheck:resource": "tsc --noEmit -p projects/resource/tsconfig.spec.json",
+    "typecheck:firestore": "tsc --noEmit -p projects/resource-firestore/tsconfig.spec.json",
+    "fonts": "bun scripts/copy-fonts.mjs",
+    "build": "ng build resource && ng build resource-firestore && bun run fonts && ng build resource-angular",
+    "test": "bun run test:resource && bun run test:firestore && bun run test:theme && bun run test:angular",
+    "test:resource": "bun test projects/resource/ && bun run typecheck:resource",
+    "test:firestore": "bun test projects/resource-firestore/ && bun run typecheck:firestore",
+    "test:theme": "bun test projects/resource-angular/styles/",
+    "test:angular": "ng test resource-angular --watch=false"
+  }
+}

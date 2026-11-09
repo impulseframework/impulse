@@ -1,0 +1,58 @@
+.permissions-card {
+  margin-top: 16px;
+}
+
+.card-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+
+  th,
+  td {
+    padding: 4px 8px;
+    text-align: center;
+    border-bottom: 1px solid var(--mat-sys-outline-variant);
+  }
+
+  th:first-child,
+  td:first-child {
+    text-align: left;
+  }
+
+  .state {
+    font-size: 15px;
+  }
+
+  .granted {
+    color: var(--mat-sys-primary);
+  }
+
+  .conditional {
+    color: var(--mat-sys-tertiary);
+  }
+
+  .absent {
+    color: var(--mat-sys-outline);
+  }
+
+  .empty {
+    color: var(--mat-sys-on-surface-variant);
+    text-align: left;
+  }
+}
+
+.legend {
+  font-size: 12px;
+  color: var(--mat-sys-on-surface-variant);
+  margin: 8px 0 0;
+}
+
+.card-table .scope {
+  font-size: 11px;
+  color: var(--mat-sys-on-surface-variant);
+  margin-left: 4px;
+}
+
+.appearance-card {
+  margin-top: 16px;
+}

@@ -1,0 +1,35 @@
+:host {
+  display: block;
+}
+
+.impulse-device-form,
+.impulse-device-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.impulse-device-field {
+  min-width: 18rem;
+}
+
+.impulse-device-request,
+.impulse-device-decided,
+.impulse-device-refused,
+.impulse-device-note {
+  margin: 0 0 12px;
+}
+
+.impulse-device-note {
+  opacity: 0.8;
+}
+
+.impulse-device-refused,
+.impulse-device-notice {
+  color: var(--mat-sys-error, #b3261e);
+}
+
+.impulse-device-notice {
+  margin: 12px 0 0;
+}

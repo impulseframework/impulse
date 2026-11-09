@@ -1,0 +1,26 @@
+<div class="impulse-theme-picker">
+  <div class="group">
+    <span class="label">Light or dark</span>
+    <mat-button-toggle-group
+      aria-label="Light or dark"
+      class="scheme"
+      hideSingleSelectionIndicator
+      [value]="theme.scheme()"
+      (change)="chooseScheme($event)">
+      <mat-button-toggle value="light">Light</mat-button-toggle>
+      <mat-button-toggle value="dark">Dark</mat-button-toggle>
+    </mat-button-toggle-group>
+  </div>
+  @if (theme.palettes.length > 1) {
+    <div class="group">
+      <span class="label">Colors</span>
+      <mat-radio-group aria-label="Colors" class="palettes" [value]="theme.palette()" (change)="choosePalette($event)">
+        @for (palette of theme.palettes; track palette.id) {
+          <mat-radio-button [value]="palette.id">
+            <span class="swatch" [attr.data-impulse-swatch]="palette.id"></span>{{ palette.label }}
+          </mat-radio-button>
+        }
+      </mat-radio-group>
+    </div>
+  }
+</div>

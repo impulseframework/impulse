@@ -1,0 +1,922 @@
+package transition
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path"
+	"regexp"
+	"slices"
+	"strings"
+
+	"github.com/go-playground/errors/v5"
+
+	"github.com/impulseframework/impulse/app"
+	"github.com/impulseframework/impulse/cast"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/authpkg"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/check"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/names"
+)
+
+// Method adds a sign-in method to an auth the application has: a registration on its
+// Auth session, in a file of its own in the auth's package, with its settings read from
+// the environment under the registration's variables, declared on every outlet bound to
+// the auth so the generated router mounts its routes, and simulated in development
+// (skipAuth) when it is a directory method. The login page renders from the methods
+// route, so a method declared is a button offered; nothing else about the surface
+// changes. The persona method, the sign-in of the test environments, also gets its cast
+// (cast.json, the personas the deployment seeds and registers with the persona provider)
+// and the file that reads and seeds it (cast.go).
+type Method struct {
+	// Auth is the name of the auth the method is added to.
+	Auth string
+	// Spec is the method: its kind, registration name, authority, slot and account rule.
+	Spec authpkg.Method
+}
+
+// Command is the impulse command line for the transition.
+func (m *Method) Command() string {
+	cmd := fmt.Sprintf("impulse add method %s %s", m.Auth, m.Spec.Kind)
+	if m.Spec.Kind != app.MethodPassword && (m.Spec.Kind != app.MethodPersona || (m.Spec.Name != "" && m.Spec.Name != authpkg.PersonaRegistration)) {
+		cmd += " " + m.Spec.Name
+	}
+	if m.Spec.Authority != "" && m.Spec.Kind != app.MethodPersona {
+		cmd += " --authority " + m.Spec.Authority
+	}
+	if m.Spec.Slot != "" {
+		cmd += " --slot " + m.Spec.Slot
+	}
+	if m.Spec.Accounts != "" {
+		cmd += " --accounts " + m.Spec.Accounts
+	}
+	if m.Spec.UsernameIsEmail {
+		cmd += " --username-is-email"
+	}
+
+	return cmd
+}
+
+// spec returns the method with its fixed names settled: the password method's, the
+// persona method's default name and the application's authority, the one it takes.
+func (m *Method) spec() *authpkg.Method {
+	s := m.Spec
+	s.SettleName()
+	if s.Kind == app.MethodPersona {
+		if s.Authority == "" {
+			s.Authority = app.AuthorityApplication
+		}
+		if s.Accounts == "" {
+			s.Accounts = authpkg.AccountsInvited
+		}
+	}
+
+	return &s
+}
+
+// Validate checks the transition against the application before anything is changed:
+// the auth exists and constructs an Auth the scan reads, the method is well formed, and
+// no method of that registration name is registered yet.
+func (m *Method) Validate(a *app.App) error {
+	pkg, auth, err := m.target(a)
+	if err != nil {
+		return err
+	}
+	spec := m.spec()
+	if spec.Directory() && spec.Authority == "" {
+		return errors.Newf("the %s method needs --authority: directory (the directory's roles are synchronized at every sign-in and roles it does not name are removed) or application (roles are assigned in the application)", spec.Name)
+	}
+	if err := spec.Validate(); err != nil {
+		return err
+	}
+	for i := range auth.Methods {
+		if auth.Methods[i].Name == spec.Name {
+			return errors.Newf("%s: the %s auth registers %s already (%s:%d)", pkg.Dir, m.Auth, spec.Name, auth.Methods[i].File, auth.Methods[i].Line)
+		}
+	}
+	// A registration whose directory writes the roles stands alone on its auth: the
+	// directory is then the authority for everyone the auth holds, and a second way in
+	// would be a second authority over the same people.
+	for i := range auth.Methods {
+		if r := &auth.Methods[i]; r.Authority == app.AuthorityDirectory {
+			return errors.Newf("%s:%d: the %s auth's %s method %s writes the roles from its directory and stands alone on its auth: a second method would be a second authority over the same people. Add the %s method on an auth of its own (impulse add auth), or register %s with DisableRoleSync and declare it without .SyncsRoles() so the application assigns the roles", r.File, r.Line, m.Auth, r.Kind, r.Name, spec.Name, r.Name)
+		}
+	}
+	if spec.SyncsRoles() && len(auth.Methods) > 0 {
+		return errors.Newf("%s: the %s auth registers %d method(s) already, and a registration whose directory writes the roles stands alone on its auth: the directory would be the authority for everyone the auth holds. Add the %s method on an auth of its own (impulse add auth %s-%s --method %s:%s --authority directory), or take --authority application so the application assigns the roles", pkg.Dir, m.Auth, len(auth.Methods), spec.Name, m.Auth, spec.Name, spec.Kind, spec.Name)
+	}
+	if _, err := os.Stat(a.Abs(path.Join(pkg.Dir, spec.Name+".go"))); err == nil {
+		return errors.Newf("%s/%s.go already exists", pkg.Dir, spec.Name)
+	}
+
+	return nil
+}
+
+// target finds the auth package and the Auth construction the method goes on.
+func (m *Method) target(a *app.App) (*app.AuthPackage, *app.Auth, error) {
+	for i := range a.AuthPackages {
+		p := &a.AuthPackages[i]
+		if p.Name != m.Auth {
+			continue
+		}
+		for j := range a.Auths {
+			if path.Dir(a.Auths[j].File) == p.Dir {
+				return p, &a.Auths[j], nil
+			}
+		}
+
+		return nil, nil, errors.Newf("%s: the %s auth constructs no session.NewAuth the scan reads, so a method cannot be registered on it", p.Dir, m.Auth)
+	}
+
+	return nil, nil, errors.Newf("no auth package pkg/auth/%s; the auths are %s (impulse add auth adds one)", m.Auth, authNames(a))
+}
+
+// Apply makes the deterministic half: the method's file, the Auth file's field,
+// registration and settings, the data level's variables, the outlets' declarations, and
+// the development environment for a directory method.
+func (m *Method) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Change, error) {
+	if err := m.Validate(a); err != nil {
+		return nil, err
+	}
+	pkg, auth, err := m.target(a)
+	if err != nil {
+		return nil, err
+	}
+	spec := m.spec()
+	ch := &Change{Command: m.Command()}
+	pkgSpec := &authpkg.Spec{Module: modulePath(a), AuthDir: path.Dir(pkg.Dir), Name: m.Auth, Methods: []authpkg.Method{*spec}}
+	if err := m.writeFile(a, pkg, pkgSpec, ch); err != nil {
+		return nil, err
+	}
+	if spec.Persona() {
+		if err := m.writeCast(a, pkg, pkgSpec, ch); err != nil {
+			return nil, err
+		}
+	}
+	if err := m.editAuth(a, auth, spec, ch); err != nil {
+		return nil, err
+	}
+	if spec.Directory() {
+		if err := m.editConfig(a, spec, ch); err != nil {
+			return nil, err
+		}
+	}
+	if err := m.declare(a, pkg, spec, ch); err != nil {
+		return nil, err
+	}
+	if spec.Directory() {
+		if err := tagProcfile(a, m.Auth, ch); err != nil {
+			return nil, err
+		}
+		if err := writeMethodEnv(a, m.Auth, spec, m.callback(a, pkg, spec), ch); err != nil {
+			return nil, err
+		}
+		slotHandoff(ch, m.Auth, spec)
+	}
+	if err := generate(ctx, a, exec, ch, "go generate ./... failed; fix the cause and run it:", "ran go generate ./..., so the router mounts the method's routes and the login page offers it"); err != nil {
+		return nil, err
+	}
+
+	return ch, nil
+}
+
+// writeFile renders the method's file into the auth package.
+func (m *Method) writeFile(a *app.App, pkg *app.AuthPackage, pkgSpec *authpkg.Spec, ch *Change) error {
+	data, err := authpkg.MethodFile(pkgSpec, &pkgSpec.Methods[0])
+	if err != nil {
+		return err
+	}
+	rel := path.Join(pkg.Dir, pkgSpec.Methods[0].Name+".go")
+	if err := writeNew(a, rel, string(data)); err != nil {
+		return err
+	}
+	spec := &pkgSpec.Methods[0]
+	shape := ""
+	if spec.Directory() {
+		shape = fmt.Sprintf(" (%s, %s, %s, role membership the %s's)", spec.Kind, slotSentence(spec), accountsSentence(spec), spec.Authority)
+	} else if s := passwordShape(spec); s != "" {
+		shape = " (" + s + ")"
+	}
+	ch.didf("%s: the %s method%s: its registration constant, its settings, its handlers (%sLogin and the rest), and register%s, which registers it on the Auth", rel, spec.Name, shape, spec.Pascal(), spec.Pascal())
+
+	return nil
+}
+
+// writeCast writes the persona method's cast: cast.json, empty until the agent fills it,
+// since a cast is the application's own and nothing stands in for it, and cast.go, which
+// embeds it, reads it and seeds it.
+func (m *Method) writeCast(a *app.App, pkg *app.AuthPackage, pkgSpec *authpkg.Spec, ch *Change) error {
+	castGo, err := authpkg.CastFile(pkgSpec, &pkgSpec.Methods[0])
+	if err != nil {
+		return err
+	}
+	if err := writeNew(a, path.Join(pkg.Dir, authpkg.CastGoFile), string(castGo)); err != nil {
+		return err
+	}
+	if err := writeNew(a, path.Join(pkg.Dir, cast.CastFile), emptyCast); err != nil {
+		return err
+	}
+	ch.didf("%s/%s and %s/%s: the cast of the persona sign-in, empty, and the file that embeds it, reads it (Cast) and seeds its accounts (SeedCast)", pkg.Dir, cast.CastFile, pkg.Dir, authpkg.CastGoFile)
+	ch.skipf("%s/%s: name the personas (login, name, email, roles from roles.json); impulse check and bedrock check refuse an empty cast (persona-cast), since a persona sign-in with nobody to sign in as deploys nothing useful", pkg.Dir, cast.CastFile)
+	ch.skipf("cmd/deployment/migrate: seed the cast where the seed runs (-seed), after SeedAdministrators: data.%s().SeedCast(ctx), so the environments that take the seed hold the personas' accounts for the sign-in to link", names.Pascal(m.Auth))
+	ch.skipf("placement.json: name the persona provider under persona ({\"issuer\": the provider's URL, \"clientId\": the application's client ID root, both from Redgrade's registration of the application}), so bedrock sets %s in the first environment and its pull requests, derives %s and %s, and registers each deployment with the provider after traffic; without it the method is registered nowhere", methodVariables(m.Auth, &pkgSpec.Methods[0])[0], methodVariables(m.Auth, &pkgSpec.Methods[0])[1], methodVariables(m.Auth, &pkgSpec.Methods[0])[2])
+
+	return nil
+}
+
+// emptyCast is the cast file as written: no persona yet.
+const emptyCast = "{\n  \"personas\": []\n}\n"
+
+// passwordShape names what the password method takes beyond the default for a report:
+// open sign-up, the username as the address, or nothing.
+func passwordShape(m *authpkg.Method) string {
+	var parts []string
+	if m.OpenSignUp() {
+		parts = append(parts, "open sign-up from a mailed link")
+	}
+	if m.UsernameIsEmail {
+		parts = append(parts, "the sign-in name is the address")
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+// slotSentence names a method's organization slot for a report.
+func slotSentence(m *authpkg.Method) string {
+	if m.Persona() {
+		return "the persona provider"
+	}
+	switch m.Slot {
+	case "", authpkg.SlotOne:
+		if m.Kind == app.MethodGoogle {
+			return "one Workspace"
+		}
+
+		return "one tenant"
+	case authpkg.SlotListed:
+		if m.Kind == app.MethodGoogle {
+			return "named Workspaces"
+		}
+
+		return "named tenants"
+	case authpkg.SlotAny:
+		if m.Kind == app.MethodGoogle {
+			return "any Google account"
+		}
+
+		return "any tenant"
+	case authpkg.SlotPersonal:
+		return "Microsoft personal accounts"
+	case authpkg.SlotOnePersonal:
+		return "one tenant and personal accounts"
+	case authpkg.SlotAnyPersonal:
+		return "any tenant and personal accounts"
+	case authpkg.SlotAnyWorkspace:
+		return "any Workspace"
+	case authpkg.SlotMixed:
+		return "one Workspace and any Google account"
+	default:
+		return m.Slot
+	}
+}
+
+// accountsSentence names a method's account rule for a report.
+func accountsSentence(m *authpkg.Method) string {
+	switch m.Accounts {
+	case authpkg.AccountsInvited:
+		return "invited users only"
+	case authpkg.AccountsOpen:
+		return "open sign-up"
+	default:
+		return "members of the directory"
+	}
+}
+
+// editAuth adds the method to the Auth file: the Handlers field, the registration in New,
+// the settings field, the login page for the first directory method, and the imports.
+func (m *Method) editAuth(a *app.App, auth *app.Auth, spec *authpkg.Method, ch *Change) error {
+	rel := auth.File
+	src, mode, err := readFile(a, rel)
+	if err != nil {
+		return err
+	}
+	field := lowerFirst(spec.Pascal())
+	typ := methodType(spec.Kind)
+	edited, err := app.AddStructField(rel, src, "Handlers", field+" "+typ)
+	if err != nil {
+		return err
+	}
+	if spec.Directory() {
+		edited, err = app.AddStructField(rel, edited, "Settings", fmt.Sprintf("// %s is the %s registration's settings: how the application is known to\n// %s, read from the environment (%s).\n%s %s", spec.Pascal(), spec.Name, spec.Provider(), strings.Join(methodVariables(m.Auth, spec), ", "), spec.Pascal(), spec.SettingsType()))
+		if err != nil {
+			return err
+		}
+		edited, err = app.AddStructField(rel, edited, "Settings", "// LoginURL is the browser page a refused or waiting sign-in returns to, with the\n// reason as a code in the query (?code=, never text, or ?pending= for a sign-in that\n// waits): the login page of the surface that binds to this auth.\nLoginURL string")
+		if err != nil {
+			return err
+		}
+		edited, err = app.AddImport(rel, edited, methodImport(spec.Kind))
+		if err != nil {
+			return err
+		}
+	}
+	registration := fmt.Sprintf("\thandlers.%s = register%s(authSession)\n", field, spec.Pascal())
+	switch {
+	case spec.Fallible():
+		registration = fmt.Sprintf("\thandlers.%s, err = register%s(authSession, accessClient, settings)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", field, spec.Pascal())
+	case spec.Directory():
+		registration = fmt.Sprintf("\thandlers.%s = register%s(authSession, accessClient, settings)\n", field, spec.Pascal())
+	case spec.UsernameIsEmail:
+		registration += "\t// The sign-in name is the address, so a verified change of address renames the user,\n\t// and the seats held under the old name follow it.\n\tauthSession.SetUserRenamed(resource.SeatsFollowRename(accessClient.UserManager()))\n"
+	}
+	listed := ""
+	if here := hereRE.FindSubmatchIndex(edited); here != nil {
+		edited = append(edited[:here[3]:here[3]], append([]byte(", "+spec.Name), edited[here[3]:]...)...)
+		listed = ", and the package doc lists it"
+	}
+	loc := returnAuthRE.FindIndex(edited)
+	if loc == nil {
+		ch.skipf("%s: New does not end in `return &Auth{db: db, access: accessClient, handlers: handlers}, nil` as the skeleton's does (db: db where the auth carries a foothold), so the %s method is not registered; call register%s in New and set handlers.%s", rel, spec.Name, spec.Pascal(), field)
+	} else {
+		edited = append(edited[:loc[0]:loc[0]], append([]byte(registration), edited[loc[0]:]...)...)
+	}
+	if err := os.WriteFile(a.Abs(rel), edited, mode); err != nil {
+		return errors.Wrap(err, "os.WriteFile()")
+	}
+	renamed := ""
+	if spec.UsernameIsEmail && loc != nil {
+		renamed = ", and a verified change of address renames the user with its seats (SetUserRenamed over resource.SeatsFollowRename)"
+	}
+	ch.didf("%s: Handlers holds the %s method (%s %s), New registers it (register%s)%s%s%s", rel, spec.Name, field, typ, spec.Pascal(), settingsNote(spec), listed, renamed)
+
+	return nil
+}
+
+// returnAuthRE matches the Auth file's final statement, before which a method's
+// registration goes.
+var returnAuthRE = regexp.MustCompile(`(?m)^\n?\treturn &Auth\{(?:db: db, )?access: accessClient, handlers: handlers\}, nil`)
+
+// hereRE matches the package doc's list of the methods registered on the Auth, which a
+// method added joins.
+var hereRE = regexp.MustCompile(`methods registered on it \(here ([^)]*)\)`)
+
+func settingsNote(spec *authpkg.Method) string {
+	if !spec.Directory() {
+		return ""
+	}
+
+	return ", and Settings carries its " + spec.SettingsType() + " and the LoginURL"
+}
+
+// methodType is the Go type of a method's handle.
+func methodType(kind string) string {
+	switch kind {
+	case app.MethodAzure:
+		return "*azure.Method"
+	case app.MethodGoogle:
+		return "*google.Method"
+	case app.MethodPersona:
+		return "*oidc.Method"
+	default:
+		return "*session.PasswordMethod"
+	}
+}
+
+// methodImport is the session package a method comes from.
+func methodImport(kind string) string {
+	switch kind {
+	case app.MethodAzure:
+		return "github.com/impulseframework/impulse/session/azure"
+	case app.MethodGoogle:
+		return "github.com/impulseframework/impulse/session/google"
+	case app.MethodPersona:
+		return "github.com/impulseframework/impulse/session/oidc"
+	default:
+		return "github.com/impulseframework/impulse/session"
+	}
+}
+
+func lowerFirst(s string) string {
+	if s == "" {
+		return ""
+	}
+
+	return strings.ToLower(s[:1]) + s[1:]
+}
+
+// editConfig reads the method's settings from the environment on the data level: the
+// environment struct gains the registration's variables, and the auth's Settings
+// literal gains the method's settings and, when it has none yet, the login page. The
+// literal is in the auth's settings function on the environment struct
+// (<auth>Settings, the skeleton's shape), or inline in NewDataConfiguration in an
+// application composed before the function; the did line says which.
+func (m *Method) editConfig(a *app.App, spec *authpkg.Method, ch *Change) error {
+	rel, data, mode, err := findDeclaringFile(a, "DataConfiguration")
+	if err != nil {
+		return err
+	}
+	if rel == "" {
+		ch.skipf("no file declares a DataConfiguration struct, so the %s method's settings (%s) are not read from the environment; read them where the %s auth is constructed and pass them in %s.Settings.%s", spec.Name, strings.Join(methodVariables(m.Auth, spec), ", "), m.Auth, m.Auth, spec.Pascal())
+
+		return nil
+	}
+	env := envVarRE.FindSubmatch(data)
+	if env == nil {
+		ch.skipf("%s: no environment struct (env := &T{}) to add the %s method's variables to; read %s and pass them in %s.Settings.%s", rel, spec.Name, strings.Join(methodVariables(m.Auth, spec), ", "), m.Auth, spec.Pascal())
+
+		return nil
+	}
+	structName := string(env[1])
+	literal, edited, err := addMethodEnv(rel, data, structName, m.Auth, spec)
+	if err != nil {
+		return err
+	}
+	place := settingsPlace(rel, edited, structName, m.Auth)
+	passed, err := place.add(edited, `LoginURL: "/login"`)
+	reads := fmt.Sprintf("%s: %s reads the %s auth's %s registration from %s", rel, structName, m.Auth, spec.Name, strings.Join(methodVariables(m.Auth, spec), ", "))
+	switch {
+	case errors.Is(err, app.ErrNoAnchor):
+		ch.didf("%s", reads)
+		ch.skipf("%s: %s has no %sSettings method and NewDataConfiguration builds no %s.Settings{...} literal, so the %s method's settings are read into %s but not passed; set %s.Settings.%s from them", rel, structName, m.Auth, m.Auth, spec.Name, structName, m.Auth, spec.Pascal())
+	case err != nil:
+		return err
+	default:
+		edited, err = place.add(passed, spec.Pascal()+": "+m.Auth+"."+literal)
+		if err != nil {
+			return err
+		}
+		ch.didf("%s, and %s passes them", reads, place.name)
+		ch.skipf("%s: LoginURL is set to /login when the construction had none; make it the login page of the surface bound to the %s auth", rel, m.Auth)
+	}
+	if err := os.WriteFile(a.Abs(rel), edited, mode); err != nil {
+		return errors.Wrap(err, "os.WriteFile()")
+	}
+
+	return nil
+}
+
+// addMethodEnv adds the method's variables to the environment struct, each a field
+// named <Auth><Method><Field> under the registration's variable, and returns the
+// method's settings literal reading them (<Pascal>Settings{Field: env.<...>, ...}) and
+// the edited source.
+func addMethodEnv(rel string, src []byte, structName, auth string, spec *authpkg.Method) (literal string, edited []byte, err error) {
+	edited = src
+	authPascal := names.Pascal(auth)
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s{\n", spec.SettingsType())
+	fields := spec.Fields()
+	// The fields' tags align: the application's lint (tagalign) wants a second tag at one
+	// column across the block, so the secret marker is padded past the longest env tag.
+	longest := 0
+	for i := range fields {
+		longest = max(longest, len(fmt.Sprintf("env:%q", spec.Variable(auth, &fields[i]))))
+	}
+	for i := range fields {
+		f := &fields[i]
+		envTag := fmt.Sprintf("env:%q", spec.Variable(auth, f))
+		field := fmt.Sprintf("%s%s%s string `%s%s`", authPascal, spec.Pascal(), f.Name, envTag, secretTag(f, longest-len(envTag)))
+		if i == 0 {
+			field = fmt.Sprintf("// The %s auth's %s registration (pkg/auth/%s/%s.go): %s, under the registration's\n// variables (APP_<AUTH>_<REGISTRATION>_*). Under the session library's skipAuth build tag\n// the directory is simulated and only what the simulated sign-in presents is read.\n", auth, spec.Name, auth, spec.Name, fieldsSentence(spec)) + field
+		}
+		edited, err = app.AddStructField(rel, edited, structName, field)
+		if err != nil {
+			return "", nil, err
+		}
+		fmt.Fprintf(&b, "\t%s: env.%s%s%s,\n", f.Name, authPascal, spec.Pascal(), f.Name)
+	}
+	b.WriteString("}")
+
+	return b.String(), edited, nil
+}
+
+// secretTag is the secret marker a credential field carries, set pad spaces further
+// from its env tag than the one space between tags, so it aligns with the block's.
+func secretTag(f *authpkg.Field, pad int) string {
+	if f.Secret {
+		return strings.Repeat(" ", pad+1) + `secret:"true"`
+	}
+
+	return ""
+}
+
+// fieldsSentence lists a method's settings for a comment.
+func fieldsSentence(spec *authpkg.Method) string {
+	fields := spec.Fields()
+	parts := make([]string, 0, len(fields))
+	for i := range fields {
+		parts = append(parts, fields[i].Doc)
+	}
+
+	return strings.Join(parts, "; ")
+}
+
+// methodVariables lists a method's environment variables.
+func methodVariables(auth string, spec *authpkg.Method) []string {
+	fields := spec.Fields()
+	vars := make([]string, 0, len(fields))
+	for i := range fields {
+		vars = append(vars, spec.Variable(auth, &fields[i]))
+	}
+
+	return vars
+}
+
+// declare adds the method's declaration to every outlet bound to the auth in the
+// generator programs, so the generated router mounts its routes and the methods route
+// offers it.
+func (m *Method) declare(a *app.App, pkg *app.AuthPackage, spec *authpkg.Method, ch *Change) error {
+	declaration := spec.Declaration()
+	edited := 0
+	var files []string
+	for _, g := range a.SiteGenerators() {
+		src, mode, err := readFile(a, g.File)
+		if err != nil {
+			return err
+		}
+		out, n, err := app.AddAuthMethod(g.File, src, pkg.Path, spec.Name, declaration)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			continue
+		}
+		if err := os.WriteFile(a.Abs(g.File), out, mode); err != nil {
+			return errors.Wrap(err, "os.WriteFile()")
+		}
+		edited += n
+		files = append(files, g.File)
+	}
+	if edited == 0 {
+		ch.skipf("no outlet declares Auth(%q, ...), so the %s method's routes are mounted nowhere; add %s to the Auth option of the outlet that serves the %s auth, or bind one with impulse add outlet", pkg.Path, spec.Name, declaration, m.Auth)
+
+		return nil
+	}
+	ch.didf("%s: %s declared on %d outlet Auth option(s) bound to the %s auth, so the generated router mounts user/%s/login%s and the methods route offers it%s", strings.Join(files, ", "), declaration, edited, m.Auth, spec.Name, callbackNote(spec), configuredNote(spec))
+
+	return nil
+}
+
+func callbackNote(spec *authpkg.Method) string {
+	switch spec.Kind {
+	case app.MethodAzure:
+		return ", the callback and the front-channel logout"
+	case app.MethodGoogle:
+		return " and the callback"
+	case app.MethodPersona:
+		return " and the callback"
+	default:
+		return ""
+	}
+}
+
+// configuredNote qualifies a persona method's routes: the generated router mounts and
+// offers them only where the provider is configured (the issuer set), nowhere else.
+func configuredNote(spec *authpkg.Method) string {
+	if spec.Kind == app.MethodPersona {
+		return ", where the provider is configured"
+	}
+
+	return ""
+}
+
+// Meaning explains the method and names the wiring left to do.
+func (m *Method) Meaning() string {
+	spec := m.spec()
+	var b strings.Builder
+	fmt.Fprintf(&b, "A sign-in method is a registration on an auth's Auth session: the %[1]s auth now offers %[2]s beside its other methods, in `pkg/auth/%[1]s/%[3]s.go`, which holds the registration's constant, its settings, its handlers and the `register%[4]s` call New makes before the first request. ", m.Auth, methodSentence(spec), spec.Name, spec.Pascal())
+	switch {
+	case spec.Persona():
+		b.WriteString("It is the sign-in of the test environments: the method is registered only where the persona provider is configured (an empty issuer leaves it unregistered, so a later environment never offers it and nothing in the build differs between environments), the application is a public client of the provider with PKCE and no secret, a person who signed in to the provider picks a persona of this deployment's cast and comes back as that persona, and the account rule is invited users only, linking the persona's identity to the account the migrate command seeded under its login. Role membership stays the application's: the provider says which persona signed in and the cast says what it may do. ")
+		fmt.Fprintf(&b, "The data level reads its settings from the environment under the registration's variables (%s), which bedrock sets in the first environment and its pull requests from the placement's persona block and leaves empty beyond them, and the Procfile builds with the session library's `skipAuth` tag, which simulates the provider in development: a sign-in through this registration is `APP_%s_USERNAME`, or `APP_USERNAME` when that is unset. ", strings.Join(methodVariables(m.Auth, spec), ", "), strings.ToUpper(strings.ReplaceAll(spec.Name, "-", "_")))
+	case spec.Directory():
+		fmt.Fprintf(&b, "Its organization slot is %s and its account rule %s. ", slotSentence(spec), accountsSentence(spec))
+		if spec.Authority == AuthorityDirectory {
+			b.WriteString("Role membership is the directory's: every sign-in reconciles the person's roles to what the directory asserts and removes any it does not name, so nothing in the application assigns roles in this store for people who sign in this way. ")
+		} else {
+			b.WriteString("Role membership stays the application's: the directory proves who someone is and the application decides what they may do. ")
+		}
+		fmt.Fprintf(&b, "The data level reads its settings from the environment under the registration's variables (%s), the convention bedrock supplies them under per environment, and the Procfile builds with the session library's `skipAuth` tag, which simulates the directory in development: a sign-in through this registration is `APP_%s_USERNAME`, or `APP_USERNAME` when that is unset. ", strings.Join(methodVariables(m.Auth, spec), ", "), strings.ToUpper(strings.ReplaceAll(spec.Name, "-", "_")))
+	}
+	b.WriteString("Every outlet bound to the auth declares the method on its `Auth` option, so the generated router mounts its routes and the methods route the login page renders from offers it; a person is one user whichever way they sign in, linked to the identity the directory verifies.\n\nLeft to wire:\n\n")
+	items := []string{
+		fmt.Sprintf("Look at the login page. The surface bound to the %s auth renders its sign-in methods from `GET <prefix>/user/methods`; a page on the library's login component (the skeleton's) offers %s by itself, and a page that lists the methods itself gains the %s button (`<prefix>/user/%s/login?returnUrl=<page>`)%s.", m.Auth, spec.Name, spec.Name, spec.Name, passwordFormNote(spec)),
+	}
+	switch {
+	case spec.Persona():
+		items = append(items,
+			fmt.Sprintf("Name the cast in `pkg/auth/%s/cast.json`: each persona's login, name, email and roles (roles the role file defines; a global role is held in the global partition, a domain role in every tenant domain). The deploy registers the cast with the provider, the picker shows it, and the migrate command seeds its accounts.", m.Auth),
+			fmt.Sprintf("Seed the cast where the seed runs: in `cmd/deployment/migrate`, after `SeedAdministrators`, call `data.%s().SeedCast(ctx)` under `-seed`, so the environments that take the seed hold the personas' accounts for the sign-in to link.", names.Pascal(m.Auth)),
+			"Name the provider in `placement.json`: a `persona` block with `issuer` (the provider's URL) and `clientId` (the application's client ID root), both from Redgrade's registration of the application. bedrock sets the issuer in the first environment and its pull requests and derives the deployment's client ID and the callback; the method is registered nowhere without the block, and `bedrock check` says so.",
+			fmt.Sprintf("Prove it under `-tags skipAuth` as the reference's `test/integration/portal_login_skipauth_test.go` does, setting `APP_%s_USERNAME` to a persona's login and following `user/%s/login` to the callback; in a pull-request environment, open the login page, sign in through the provider as a persona, and read the persona's roles on the user page.", strings.ToUpper(strings.ReplaceAll(spec.Name, "-", "_")), spec.Name),
+		)
+	case spec.Directory():
+		items = append(items,
+			fmt.Sprintf("Register it with %s and fill in %s in the environment template, with the redirect URL the browser-facing callback of the surface (`<base>/<outlet>/api/user/%s/callback`); drop the `skipAuth` tag to sign in through the directory for real.", spec.Provider(), strings.Join(methodVariables(m.Auth, spec), ", "), spec.Name),
+			fmt.Sprintf("Prove it under `-tags skipAuth` as the reference's `test/integration/portal_login_skipauth_test.go` does, setting `APP_%s_USERNAME` for the registration and following `user/%s/login` to the callback.", strings.ToUpper(strings.ReplaceAll(spec.Name, "-", "_")), spec.Name),
+		)
+		if spec.Authority == AuthorityDirectory {
+			items = append(items, "Seed no roles for people who sign in this way; define the roles in the role file and assign them in the directory. The declaration chains `.SyncsRoles()` (the method file's `RoleSync`), so the generated users surface shows these people's roles as the directory's and never writes them.")
+		}
+		if spec.Accounts == authpkg.AccountsInvited {
+			items = append(items, invitationsItem(m.Auth, []string{spec.Name}))
+		}
+		if spec.Accounts == authpkg.AccountsOpen {
+			items = append(items, openSignUpItem([]string{spec.Name}))
+		}
+	default:
+		items = append(items, fmt.Sprintf("Give the %s auth its development logins with passwords in the bootstrap identities, and the test harness a login that posts to `user/password/login`.", m.Auth))
+		if spec.OpenSignUp() {
+			items = append(items, passwordSignUpItem(m.Auth))
+		}
+		if spec.UsernameIsEmail {
+			items = append(items, fmt.Sprintf("Mind the sign-in name. The %s auth's password method takes the person's email address as the username (`session.UsernameIsEmail()`, and `.UsernameIsEmail()` on the declaration), so the generated users surface derives the address from the username, refuses a rename through the users resource, and renames the user when a verified change of address completes (`SetUserRenamed` over `resource.SeatsFollowRename`, which New now sets); the development logins and the first administrator are addresses.", m.Auth))
+		}
+	}
+	for i, item := range items {
+		fmt.Fprintf(&b, "%d. %s\n", i+1, item)
+	}
+	b.WriteString("\nData consequence: none. An existing person who signs in through the new method is linked to their user when the standard account rule finds them under the name the directory presents (or confirms the link with their password), and a newcomer is provisioned or refused as the account rule says.\n")
+
+	return b.String()
+}
+
+// invitationsItem is the brief's item for registrations admitting invited users only:
+// the users surface the generator emits for the declaration's .InvitedUsers() creates the
+// invitations, behind Create on the auth's users resource.
+func invitationsItem(auth string, registrations []string) string {
+	return fmt.Sprintf("Invite its people. The %s registration(s) admit invited users only (`signin.InvitedUsersOnly`, and `.InvitedUsers()` on the declaration), so a person signs in once a user exists under the name the directory presents: the generated users surface of the %s auth creates them, so grant Create on `%sUsers` to the role that invites in the role file.", strings.Join(registrations, ", "), auth, names.Pascal(auth))
+}
+
+// mailItem is the brief's item for the mail an auth sends: the sender it shares with the
+// other auths and the login page its links open.
+func mailItem(auth, outlet string) string {
+	return fmt.Sprintf("Mail. The %[1]s auth mails its invitations and address verifications through the application's sender, which the data level hands every auth (`Settings.Mail`: the log in development, where nothing is sent and a developer follows the link from the log, and the Google Workspace relay where the deployment names a mailbox, `APP_MAIL_MAILBOX`, its app password `APP_MAIL_APP_PASSWORD` and, where the mail is from an alias of that account rather than the account itself, `APP_MAIL_FROM`), and every link opens the login page `Settings.MailLoginURL` names: set it to the %[2]s outlet's login page, the application's public address (`APP_PUBLIC_URL`) and the outlet's login path, and grant the roles that invite Create on `%[3]sInvitations` in the role file (List, Read and Delete to see and revoke what stands).", auth, outlet, names.Pascal(auth))
+}
+
+// passwordSignUpItem is the brief's item for a password method whose strangers sign up
+// from a mailed link.
+func passwordSignUpItem(auth string) string {
+	return fmt.Sprintf("Decide what a sign-up gets. The %s auth's password method admits anyone (`session.OpenSignUp()`, and `.OpenSignUp()` on the declaration): a stranger gives their address on the login page, follows the link mailed to it and chooses a password, and the router serves the sign-up routes (`user/sign-up`, `/open`, `/complete`). The new user holds no role and no tenant; in a tenanted application the tenant record's creation shape says whether they may create one (`@tenant(creation: self-service)` or `both`), and elsewhere an administrator seats them or an invitation does.", auth)
+}
+
+// openSignUpItem is the brief's item for registrations admitting anyone the directory
+// verifies: a stranger signs in and holds nothing, and the tenant record's creation shape
+// is what lets that person create a tenant.
+func openSignUpItem(registrations []string) string {
+	return fmt.Sprintf("Decide who may create a tenant. The %s registration(s) admit anyone the directory verifies (`signin.OpenSignUp`, and `.OpenSignUp()` on the declaration), so a stranger signs in and holds no role and no tenant. In a tenanted application the tenant record declares who creates one: `@tenant` alone keeps it to an administrator holding Create on the record, `@tenant(creation: self-service)` lets a signed-in person holding no tenant create one through the generated create-your-tenant route and become its administrator, and `@tenant(creation: both)` keeps both ways; a self-service shape has the App name the administrator roles (`<Record>AdministratorRoles()`) and the console offer the page to a session without a tenant. Without a self-service shape, a stranger signs in to nothing.", strings.Join(registrations, ", "))
+}
+
+func passwordFormNote(spec *authpkg.Method) string {
+	if spec.Kind == app.MethodPassword {
+		return " (a form posting the username and password to `<prefix>/user/password/login`)"
+	}
+
+	return ""
+}
+
+// tagProcfile builds the development processes with the session library's skipAuth tag,
+// which simulates the directory an auth's directory methods sign in through, so the
+// application can be signed in to before it is registered with one.
+func tagProcfile(a *app.App, auth string, ch *Change) error {
+	data, mode, err := readFile(a, "Procfile")
+	switch {
+	case err != nil:
+		ch.skipf("Procfile: not read (%v); build the development server with -tags skipAuth so the %s auth's directory is simulated", err, auth)
+	case strings.Contains(string(data), "skipAuth"):
+		ch.didf("Procfile: already builds with -tags skipAuth, so the %s auth's directory is simulated in development", auth)
+	default:
+		n := 0
+		text := goRunRE.ReplaceAllStringFunc(string(data), func(string) string {
+			n++
+
+			return "go run -tags skipAuth "
+		})
+		if n == 0 {
+			ch.skipf("Procfile: no `go run` to tag; build the development server with -tags skipAuth so the %s auth's directory is simulated", auth)
+
+			return nil
+		}
+		if err := os.WriteFile(a.Abs("Procfile"), []byte(text), mode); err != nil {
+			return errors.Wrap(err, "os.WriteFile()")
+		}
+		ch.didf("Procfile: %d go run command(s) build with -tags skipAuth, so the %s auth's directory is simulated in development", n, auth)
+	}
+
+	return nil
+}
+
+var goRunRE = regexp.MustCompile(`\bgo run `)
+
+// devCallback is the development address of a directory method's callback: the dev
+// server of the browser project that serves the outlet bound to the auth, which proxies
+// the outlet's prefix to the server, so the directory (simulated or real) returns the
+// browser to a page the project serves.
+type devCallback struct {
+	// URL is the callback as the browser reaches it in development:
+	// http://127.0.0.1:<development port>/<outlet prefix>/user/<method>/callback.
+	URL string
+	// Project is the browser project whose dev server answers it, as angular.json names
+	// it (console).
+	Project string
+}
+
+// outletCallback is the development callback of a method registered on the auth the
+// outlet binds to: the outlet's browser project (the GenerateTypescript target the
+// outlet declares, the default outlet's being the one without ForOutlet) and the port of
+// its development serve configuration in angular.json, with the callback under the
+// outlet's prefix, which the project's dev server proxies to the server. nil when the
+// outlet has no browser project with a development port.
+func outletCallback(a *app.App, site *app.Site, outlet *app.Outlet, method string) *devCallback {
+	for _, t := range site.Generator.TypescriptTargets() {
+		target := t.Outlet
+		if target == "" {
+			target = app.DefaultOutletName
+		}
+		if target != outlet.Name {
+			continue
+		}
+		w, ok := a.WebAppFor(t.Dir)
+		if !ok {
+			continue
+		}
+		projects, err := a.ReadAngular(w.Dir)
+		if err != nil {
+			continue
+		}
+		rel := strings.TrimPrefix(strings.TrimPrefix(t.Dir, w.Dir), "/")
+		p, ok := app.ProjectFor(projects, rel)
+		if !ok || p.DevPort == 0 {
+			continue
+		}
+
+		return &devCallback{URL: fmt.Sprintf("http://127.0.0.1:%d%s", p.DevPort, path.Join("/", outlet.Prefix, "user", method, "callback")), Project: p.Name}
+	}
+
+	return nil
+}
+
+// callback is the method's development callback on the first outlet bound to the auth
+// with a browser project in development, the default outlet first, or nil when none has
+// one.
+func (m *Method) callback(a *app.App, pkg *app.AuthPackage, spec *authpkg.Method) *devCallback {
+	sites := a.Profile().Sites
+	for i := range sites {
+		outlets := sites[i].AllOutlets()
+		for j := range outlets {
+			if outlets[j].Auth == nil || outlets[j].Auth.ImportPath != pkg.Path {
+				continue
+			}
+			if cb := outletCallback(a, &sites[i], &outlets[j], spec.Name); cb != nil {
+				return cb
+			}
+		}
+	}
+
+	return nil
+}
+
+// writeMethodEnv adds a directory method's variables to the development environment
+// template, with the simulated directory's shared pair when the template has none. The
+// callback variable is set to the development callback when the surface bound to the
+// auth has one, and left to fill in otherwise.
+func writeMethodEnv(a *app.App, auth string, spec *authpkg.Method, callback *devCallback, ch *Change) error {
+	if a.EnvTemplate == "" {
+		ch.skipf("no environment template (.envrc.template, .env.template, .env.example) to add the %s method's variables to (%s)", spec.Name, strings.Join(methodVariables(auth, spec), ", "))
+
+		return nil
+	}
+	data, mode, err := readFile(a, a.EnvTemplate)
+	if err != nil {
+		return err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n# --- %s auth, %s method: %s over OpenID Connect (pkg/auth/%s/%s.go) ---\n", auth, spec.Name, spec.Provider(), auth, spec.Name)
+	fmt.Fprintf(&b, "# The Procfile builds with the session library's skipAuth tag, which simulates %s:\n# every sign-in through this registration is APP_%s_USERNAME, or APP_USERNAME when that\n# is unset (the roles in APP_%s_ROLES or APP_ROLES stand in for the directory's), and only\n# the settings marked below are read. Register the application with %s, fill the rest\n# in, and drop the tag to use it.\n", spec.Provider(), strings.ToUpper(strings.ReplaceAll(spec.Name, "-", "_")), strings.ToUpper(strings.ReplaceAll(spec.Name, "-", "_")), spec.Provider())
+	if !strings.Contains(string(data), "APP_USERNAME=") {
+		fmt.Fprintf(&b, "export APP_USERNAME=%s-dev\nexport APP_ROLES=\n", auth)
+	}
+	callbackNote := ""
+	fields := spec.Fields()
+	for i := range fields {
+		f := &fields[i]
+		variable := spec.Variable(auth, f)
+		switch {
+		case f.Name == authpkg.FieldRedirectURL && callback != nil:
+			fmt.Fprintf(&b, "# %s is the browser-facing callback of the surface that binds to the %s auth: in\n# development the %s project's dev server (its development port in angular.json), which\n# proxies the callback's path to the server; a deployment sets the served address. Read\n# under the simulated directory too, since it is where the simulated sign-in returns.\nexport %s=%s\n", variable, auth, callback.Project, variable, callback.URL)
+			callbackNote = fmt.Sprintf("; %s is set to the %s project's development callback, %s", variable, callback.Project, callback.URL)
+		case f.Name == authpkg.FieldRedirectURL:
+			fmt.Fprintf(&b, "# %s is the browser-facing callback of the surface that binds to the %s auth, such as\n# http://127.0.0.1:4300/api/user/%s/callback through the dev proxy; read under the\n# simulated directory too, since it is where the simulated sign-in returns.\nexport %s=\n", variable, auth, spec.Name, variable)
+		case f.Simulated:
+			fmt.Fprintf(&b, "# %s: %s. Read under the simulated directory too.\nexport %s=%s\n", variable, f.Doc, variable, devValue(f, auth))
+		default:
+			fmt.Fprintf(&b, "# %s: %s.\n# export %s=\n", variable, f.Doc, variable)
+		}
+	}
+	text := strings.TrimRight(string(data), "\n") + "\n" + b.String()
+	if err := os.WriteFile(a.Abs(a.EnvTemplate), []byte(text), mode); err != nil {
+		return errors.Wrap(err, "os.WriteFile()")
+	}
+	ch.didf("%s: the %s method's variables (%s), to fill in%s", a.EnvTemplate, spec.Name, strings.Join(methodVariables(auth, spec), ", "), callbackNote)
+
+	return nil
+}
+
+// placeholderTenant is a well-formed tenant id for the simulated directory: the Entra
+// method validates its organization slot at registration whether or not the directory
+// is simulated, so the development template names a tenant that is nobody's.
+const placeholderTenant = "00000000-0000-0000-0000-000000000000"
+
+// slotHandoff names the test wiring a method with an organization slot needs: the session
+// library validates the slot at registration whether or not the directory is simulated,
+// so every test that constructs the auth hands the registration a well-formed placeholder
+// that is nobody's, as the development template does. A Google method under the
+// directory's authority validates its role groups' prefix the same way
+// (google.RoleSync refuses an empty prefix, the only filter separating role groups from
+// the rest of the directory), so the obligation names the prefix beside the slot; the
+// group lookup needs no naming, since an empty setting is the direct lookup. The Entra
+// method's role synchronization validates nothing the harness does not already pass
+// (signin.RoleSync takes the user manager alone).
+func slotHandoff(ch *Change, auth string, spec *authpkg.Method) {
+	fields := spec.Fields()
+	var slot, prefix *authpkg.Field
+	for i := range fields {
+		f := &fields[i]
+		switch f.Name {
+		case authpkg.FieldTenantID, authpkg.FieldTenants, authpkg.FieldHostedDomain, authpkg.FieldWorkspaces:
+			slot = f
+		case authpkg.FieldGroupPrefix:
+			prefix = f
+		}
+	}
+	if slot == nil {
+		return
+	}
+	validated := "its organization slot"
+	literal := fmt.Sprintf("%s: %q, RedirectURL: <the served callback>", slot.Name, devValue(slot, auth))
+	variables := fmt.Sprintf("%s=%s", spec.Variable(auth, slot), devValue(slot, auth))
+	if prefix != nil {
+		validated = "its organization slot and its role groups' prefix"
+		literal += fmt.Sprintf(", %s: %q", prefix.Name, devValue(prefix, auth))
+		variables += fmt.Sprintf(" and %s=%s", spec.Variable(auth, prefix), devValue(prefix, auth))
+	}
+	ch.skipf("test/integration/harness_test.go and cmd/deployment/migrate/main_test.go: the %s registration validates %s at registration whether or not the directory is simulated, so give the %s auth's construction in the harness %s: %s.%s{%s} and set %s where the migrate run's environment is", spec.Name, validated, auth, spec.Pascal(), auth, spec.SettingsType(), literal, variables)
+}
+
+// devValue is what the development template sets for a field the simulated directory
+// reads: a placeholder that lets the simulation run.
+func devValue(f *authpkg.Field, auth string) string {
+	switch f.Name {
+	case authpkg.FieldTenantID:
+		return placeholderTenant
+	case authpkg.FieldTenants:
+		return "lab-a=" + placeholderTenant
+	case authpkg.FieldHostedDomain:
+		return "example.com"
+	case authpkg.FieldWorkspaces:
+		return "lab=example.com"
+	case authpkg.FieldGroupPrefix:
+		return auth + "-"
+	case authpkg.FieldIssuer:
+		return placeholderIssuer
+	case authpkg.FieldClientID:
+		return auth + "-dev"
+	default:
+		return ""
+	}
+}
+
+// placeholderIssuer is the persona provider's issuer for the simulated provider: the
+// method registers with an absolute URL whether or not the provider is simulated, so the
+// development template names one nobody serves, and the simulated sign-in never calls it.
+const placeholderIssuer = "https://persona.example.com"
+
+// literalPlace is where an auth's Settings literal is built on the data level: add
+// appends an element to it, and name is how a did line names it.
+type literalPlace struct {
+	name string
+	add  func(src []byte, element string) ([]byte, error)
+}
+
+// settingsPlace finds where the auth's Settings literal is built: the auth's settings
+// function on the environment struct (<auth>Settings, the shape the skeleton carries) when
+// the struct has one, the literal inline in NewDataConfiguration otherwise (an
+// application composed before the function). A level with neither has add fail with
+// app.ErrNoAnchor.
+func settingsPlace(rel string, src []byte, structName, auth string) literalPlace {
+	settingsType := auth + ".Settings"
+	method := auth + "Settings"
+	if methods, err := app.MethodNames(rel, src, structName); err == nil && slices.Contains(methods, method) {
+		return literalPlace{
+			name: fmt.Sprintf("%s.%s", structName, method),
+			add: func(src []byte, element string) ([]byte, error) {
+				return app.AddMethodLiteralElement(rel, src, structName, method, settingsType, element)
+			},
+		}
+	}
+
+	return literalPlace{
+		name: "the " + settingsType + " literal in NewDataConfiguration (an application composed before the " + method + " method)",
+		add: func(src []byte, element string) ([]byte, error) {
+			return app.AddLiteralElement(rel, src, "NewDataConfiguration", settingsType, element)
+		},
+	}
+}
