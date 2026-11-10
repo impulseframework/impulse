@@ -29,8 +29,9 @@ jobs:
       golangci-lint-version: 'v2.14.0'
       # The test and lint jobs, the long ones, run on the larger runner the repository
       # variable CI_LARGE_RUNNER names (a GitHub-hosted runner's name, billed per minute)
-      # and on the standard runner while the variable is unset; every other job stays on
-      # the standard runner, which is free for a public repository.
+      # and on the standard runner while the variable is unset; lodestar-go does the same,
+      # and every other job stays on the standard runner, which is free for a public
+      # repository.
       runs-on-heavy: ${{ vars.CI_LARGE_RUNNER }}
   release-ledger:
     # A release never leaves the upgrade ledger's last step behind. On release-please's branch
@@ -201,7 +202,10 @@ jobs:
     name: lodestar go
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.lodestar-go == 'true') }}
-    runs-on: ubuntu-latest
+    # The suite runs under the race detector against the Spanner emulator, minutes on the
+    # standard runner: it runs on the larger runner CI_LARGE_RUNNER names, as golang-ci's
+    # test and lint jobs do, and on the standard runner while the variable is unset.
+    runs-on: ${{ vars.CI_LARGE_RUNNER || 'ubuntu-latest' }}
     env:
       # testcontainers' reaper (Ryuk) is not needed on a runner discarded after the job, and its start has timed out here.
       TESTCONTAINERS_RYUK_DISABLED: "true"

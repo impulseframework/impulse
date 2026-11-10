@@ -42,8 +42,9 @@ updates:
           - '*'
   # The browser packages (web/) and Lodestar's console and portal (lodestar/web), which link
   # the packages' builds: one PR moves both, so the application is proven against the Angular
-  # the library moves to.
-  - package-ecosystem: 'npm'
+  # the library moves to. Both are managed by bun (bun.lock), which Dependabot updates under
+  # its bun ecosystem alone.
+  - package-ecosystem: 'bun'
     directories:
       - '/web'
       - '/lodestar/web'
