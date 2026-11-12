@@ -41,9 +41,15 @@ updates:
         patterns:
           - '*'
   # The browser packages (web/) and Lodestar's console and portal (lodestar/web), which link
-  # the packages' builds: one PR moves both, so the application is proven against the Angular
-  # the library moves to. Both are managed by bun (bun.lock), which Dependabot updates under
-  # its bun ecosystem alone.
+  # the packages' builds. Both are managed by bun (bun.lock), which Dependabot updates under
+  # its bun ecosystem alone. The skeletons' web roots have no entry here and cannot: their
+  # library pins are placeholders the render fills, and they carry no lock file.
+  # All of these workspaces move together, so that the library is tested on the versions
+  # Lodestar installs and a new application starts from:
+  # TestWebWorkspacesPinTheSameVersions (cmd/impulse/internal/skeleton) fails a pull request
+  # that leaves one of them at another version of a package they share. A pull request
+  # opened here that moves fewer than all of them fails that test until the rest follow in
+  # the same pull request.
   - package-ecosystem: 'bun'
     directories:
       - '/web'

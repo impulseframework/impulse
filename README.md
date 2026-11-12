@@ -113,6 +113,14 @@ tool renders are validated by rendering each one and building, testing, linting 
 checking the result, which CI does for every skeleton against the framework at the commit
 (`impulse render <candidate> <dir> --module <path> --dev-root <checkout>`).
 
+The web workspaces move together. `web`, `lodestar/web` and every skeleton's web root pin
+the same version of each third-party package they share, so the library is tested on the
+versions Lodestar installs and a new application starts from; a Go test,
+`TestWebWorkspacesPinTheSameVersions` in `cmd/impulse/internal/skeleton`, fails when one is
+left behind. A version is changed in every workspace's `package.json` in the same pull
+request, followed by `bun install` in `web` and in `lodestar/web`, whose lock files are
+committed.
+
 A release is cut by release-please from the conventional commit titles of the merged pull
 requests, as one component with the tag `vX.Y.Z`. A release that needs something of an
 application beyond moving its pin records a step in the upgrade ledger
