@@ -3,7 +3,7 @@ import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { RouterOutlet } from '@angular/router';
 import { AlertComponent } from '@impulseframework/resource-angular/ui-alert';
 import { UiCoreService } from '@impulseframework/resource-angular/ui-core-service';
-import { IdleService } from '@impulseframework/resource-angular/ui-idle-service';
+import { IdleService } from '@impulseframework/resource-angular/auth-idle-service';
 import { NotificationService } from '@impulseframework/resource-angular/ui-notification-service';
 
 @Component({

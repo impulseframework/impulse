@@ -1,6 +1,9 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
+    // The specs read @impulseframework/resource from its sources (the workspace's paths),
+    // which are beside this project, so the root of what is checked is the workspace.
+    "rootDir": "../..",
     "outDir": "../../out-tsc/resource-firestore-spec",
     "noEmit": true,
     "types": []

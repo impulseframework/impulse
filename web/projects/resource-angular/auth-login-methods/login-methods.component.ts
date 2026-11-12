@@ -1,5 +1,15 @@
 import { DOCUMENT } from '@angular/common';
-import { Component, computed, inject, input, OnInit, output, PendingTasks, signal } from '@angular/core';
+import {
+  ChangeDetectorRef,
+  Component,
+  computed,
+  inject,
+  input,
+  OnInit,
+  output,
+  PendingTasks,
+  signal,
+} from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
@@ -192,6 +202,7 @@ export class LoginMethodsComponent implements OnInit {
   private signOutPath = inject(FRONTEND_SIGN_OUT_PATH);
   /** Every request is registered as pending work, so the application is stable only once it has answered. */
   private pendingTasks = inject(PendingTasks);
+  private changes = inject(ChangeDetectorRef);
 
   /** The application's own words for a method, by registration name; the server's label otherwise. */
   labels = input<Readonly<Record<string, string>>>({});
@@ -381,6 +392,18 @@ export class LoginMethodsComponent implements OnInit {
 
   ngOnInit(): void {
     void this.tracked(() => this.arrive());
+  }
+
+  /**
+   * Fills the password form for the person, who still presses Sign in: a page that offers
+   * its people as cards calls this with the one picked. The form's fields are bound to its
+   * inputs, and the component is drawn again when something of its own changes, so a field
+   * set from outside would not reach its input. This sets both and has the form drawn.
+   */
+  prefill(username: string, password: string): void {
+    this.username = username;
+    this.password = password;
+    this.changes.markForCheck();
   }
 
   /** Try again: runs the arrival again, the card held back meanwhile as on a first load. */

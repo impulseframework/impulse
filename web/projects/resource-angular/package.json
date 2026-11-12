@@ -8,9 +8,9 @@
     "directory": "web/projects/resource-angular"
   },
   "peerDependencies": {
-    "@angular/common": "^21.0.0",
-    "@angular/core": "^21.0.0",
-    "@angular/service-worker": "^21.0.0",
+    "@angular/common": "^22.0.0",
+    "@angular/core": "^22.0.0",
+    "@angular/service-worker": "^22.0.0",
     "@impulseframework/resource": "0.1.0"
   },
   "peerDependenciesMeta": {

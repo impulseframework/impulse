@@ -3,7 +3,7 @@
   "tsconfigRootDir": ".",
   "compilerOptions": {
     "paths": {
-      "@impulseframework/resource": ["dist/resource"]
+      "@impulseframework/resource": ["../../dist/resource"]
     },
     "sourceMap": true,
     "outDir": "../../out-tsc/resource-firestore",

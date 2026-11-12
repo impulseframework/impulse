@@ -2,7 +2,7 @@ import { Component, inject, OnInit, PendingTasks } from '@angular/core';
 import { Router } from '@angular/router';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { FRONTEND_LOGIN_PATH } from '@impulseframework/resource-angular/types';
-import { IdleService } from '@impulseframework/resource-angular/ui-idle-service';
+import { IdleService } from '@impulseframework/resource-angular/auth-idle-service';
 import { firstValueFrom } from 'rxjs';
 
 /**

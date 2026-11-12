@@ -3,7 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { createApi } from '@app/service/zz_gen_api';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
-import { IdleService } from '@impulseframework/resource-angular/ui-idle-service';
+import { IdleService } from '@impulseframework/resource-angular/auth-idle-service';
 import { LoginMethods, TransportRequest } from '@impulseframework/resource';
 import { ScriptedTransport, scriptedTransport } from '@impulseframework/resource/testing';
 import { environment } from '@env';

@@ -1,6 +1,7 @@
 import { HttpClient, provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { ApplicationRef, signal } from '@angular/core';
+import { ApplicationRef, ResourceParamsStatus, signal } from '@angular/core';
+import { rxResource } from '@angular/core/rxjs-interop';
 import { TestBed } from '@angular/core/testing';
 import { of, Subject, throwError } from 'rxjs';
 import {
@@ -501,6 +502,62 @@ describe('safe-resource', () => {
       expect(safeRef.safeValue()).toBe('user-47-details');
       expect(swr.get('test-key')).toBeUndefined();
       expect(swr.get('test-key' + JSON.stringify({ userId: 47 }))).toBe('user-47-details');
+    });
+
+    it('makes the key from params that chain another resource, and holds none until that resource has a value', async () => {
+      const source = new Subject<string>();
+      const safeRef = TestBed.runInInjectionContext(() => {
+        const first = rxResource({ stream: () => source });
+        return swrRxResource<string, { input: string }>(
+          'test-key',
+          {
+            params: ({ chain }) => ({ input: chain(first) as string }),
+            stream: ({ params }) => of(`${params.input} details`),
+          },
+          'initial default',
+        );
+      });
+      const swr = TestBed.inject(SwrCacheService);
+      swr.set('test-key', 'kept under the key alone');
+
+      // The other resource is loading, so nothing settles yet: one pass starts its stream.
+      TestBed.tick();
+      expect(safeRef.safeValue()).toBe('initial default');
+
+      source.next('first');
+      await settle();
+      expect(safeRef.safeValue()).toBe('first details');
+      expect(swr.get('test-key')).toBe('kept under the key alone');
+      expect(swr.get('test-key' + JSON.stringify({ input: 'first' }))).toBe('first details');
+    });
+
+    it('reads nothing from the cache while the params say the resource is idle', async () => {
+      const ready = signal(false);
+      const swr = TestBed.inject(SwrCacheService);
+      swr.set('test-key', 'kept under the key alone');
+      const safeRef = TestBed.runInInjectionContext(() =>
+        swrRxResource<string, { input: string }>(
+          'test-key',
+          {
+            params: () => {
+              if (!ready()) {
+                throw ResourceParamsStatus.IDLE;
+              }
+              return { input: 'ready' };
+            },
+            stream: ({ params }) => of(params.input),
+          },
+          'initial default',
+        ),
+      );
+
+      await settle();
+      expect(safeRef.safeValue()).toBe('initial default');
+
+      ready.set(true);
+      await settle();
+      expect(safeRef.safeValue()).toBe('ready');
+      expect(swr.get('test-key' + JSON.stringify({ input: 'ready' }))).toBe('ready');
     });
   });
 });

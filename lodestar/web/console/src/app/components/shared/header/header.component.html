@@ -16,7 +16,7 @@
       <span class="card" [title]="'Certified: ' + (card.certifications?.join(', ') || 'none')">
         {{ card.displayName }} · clearance {{ card.clearance }}
         @if (card.squadrons?.length) {
-          · {{ card.squadrons?.join(', ') }}
+          · {{ card.squadrons.join(', ') }}
         }
         <!--
           The card's one gated field (@feature.field): how many citations the commendations

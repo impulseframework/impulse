@@ -1,5 +1,5 @@
 import { TestBed } from '@angular/core/testing';
-import { CanMatchFn, Route } from '@angular/router';
+import { CanMatchFn, PartialMatchRouteSnapshot, Route } from '@angular/router';
 import { createClient } from '@impulseframework/resource';
 import { scriptedTransport } from '@impulseframework/resource/testing';
 import { AuthorizationGuard } from '@impulseframework/resource-angular/auth-authorization-guard';
@@ -249,7 +249,8 @@ describe('resourceRoutes', () => {
         ],
       });
       const answer = async (): Promise<unknown> => {
-        const result = TestBed.runInInjectionContext(() => guard(route, []));
+        // The guard reads the feature alone, so the snapshot of the match so far is empty.
+        const result = TestBed.runInInjectionContext(() => guard(route, [], {} as PartialMatchRouteSnapshot));
         return isObservable(result) ? firstValueFrom(result) : result;
       };
       expect(await answer()).toBe(false);

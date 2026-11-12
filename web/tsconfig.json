@@ -3,13 +3,12 @@
 {
   "compileOnSave": false,
   "compilerOptions": {
-    "baseUrl": "./",
     "paths": {
-      "@impulseframework/resource-angular/*": ["projects/resource-angular/*"],
-      "@impulseframework/resource": ["projects/resource/index.ts"],
-      "@impulseframework/resource/testing": ["projects/resource/testing/index.ts"],
-      "@impulseframework/resource-firestore": ["projects/resource-firestore/index.ts"],
-      "@impulseframework/resource-angular": ["projects/resource-angular/index.ts"]
+      "@impulseframework/resource-angular/*": ["./projects/resource-angular/*"],
+      "@impulseframework/resource": ["./projects/resource/index.ts"],
+      "@impulseframework/resource/testing": ["./projects/resource/testing/index.ts"],
+      "@impulseframework/resource-firestore": ["./projects/resource-firestore/index.ts"],
+      "@impulseframework/resource-angular": ["./projects/resource-angular/index.ts"]
     },
     "outDir": "./dist/out-tsc",
     "strict": true,
