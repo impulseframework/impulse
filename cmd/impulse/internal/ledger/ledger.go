@@ -14,9 +14,9 @@
 // A step is appended when a release needs something of an application beyond the pin
 // move: a recipe, or a change made by hand that the note describes. A breaking change in
 // the framework is not done until the step that carries it records a recipe for it here,
-// or says none is needed. The ledger's test holds the last step's release to the
-// repository's release manifest, so a step never names a release that the release being
-// cut leaves behind; the repository's CI holds the same on release-please's branch.
+// or says none is needed. The repository's CI holds the last step's release to the
+// release being cut, on release-please's branch where the release manifest carries it, so
+// a step never names a release that the release being cut leaves behind.
 //
 // At a step, every web root of the application (each directory holding an angular.json
 // whose package.json names the browser packages) has its pins rewritten to the release's
