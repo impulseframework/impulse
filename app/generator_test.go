@@ -110,17 +110,17 @@ func TestParseGeneratorProblems(t *testing.T) {
 		{
 			name:         "a sign-in method that is not one of the generation package's",
 			options:      `generation.GenerateRoutes("pkg/router", "api", generation.Auth("example.com/acme/pkg/auth/staff", generation.LDAP)),`,
-			wantProblems: []string{"Auth argument generation.LDAP should be a sign-in method declaration (generation.PasswordMethod(), GoogleMethod(name), AzureMethod(name), or WorkOSMethod(name), with .Labeled(label), .InvitedUsers(), .SyncsRoles(), .OpenSignUp() or .UsernameIsEmail() when chained)"},
+			wantProblems: []string{"Auth argument generation.LDAP should be a sign-in method declaration (generation.PasswordMethod(), GoogleMethod(name), AzureMethod(name), WorkOSMethod(name), OIDCMethod(name), or PersonaMethod(name), with .Labeled(label), .InvitedUsers(), .SyncsRoles(), .OpenSignUp() or .UsernameIsEmail() when chained)"},
 		},
 		{
 			name:         "a sign-in method written as a string",
 			options:      `generation.GenerateRoutes("pkg/router", "api", generation.Auth("example.com/acme/pkg/auth/staff", "password")),`,
-			wantProblems: []string{`Auth argument "password" should be a sign-in method declaration (generation.PasswordMethod(), GoogleMethod(name), AzureMethod(name), or WorkOSMethod(name), with .Labeled(label), .InvitedUsers(), .SyncsRoles(), .OpenSignUp() or .UsernameIsEmail() when chained)`},
+			wantProblems: []string{`Auth argument "password" should be a sign-in method declaration (generation.PasswordMethod(), GoogleMethod(name), AzureMethod(name), WorkOSMethod(name), OIDCMethod(name), or PersonaMethod(name), with .Labeled(label), .InvitedUsers(), .SyncsRoles(), .OpenSignUp() or .UsernameIsEmail() when chained)`},
 		},
 		{
 			name:         "a registration flag chained with an argument is not a declaration",
 			options:      `generation.GenerateRoutes("pkg/router", "api", generation.Auth("example.com/acme/pkg/auth/staff", generation.GoogleMethod("directory").SyncsRoles("x"))),`,
-			wantProblems: []string{"Auth argument generation.GoogleMethod(...).SyncsRoles(...) should be a sign-in method declaration (generation.PasswordMethod(), GoogleMethod(name), AzureMethod(name), or WorkOSMethod(name), with .Labeled(label), .InvitedUsers(), .SyncsRoles(), .OpenSignUp() or .UsernameIsEmail() when chained)"},
+			wantProblems: []string{"Auth argument generation.GoogleMethod(...).SyncsRoles(...) should be a sign-in method declaration (generation.PasswordMethod(), GoogleMethod(name), AzureMethod(name), WorkOSMethod(name), OIDCMethod(name), or PersonaMethod(name), with .Labeled(label), .InvitedUsers(), .SyncsRoles(), .OpenSignUp() or .UsernameIsEmail() when chained)"},
 		},
 		{
 			name:    "a method's label and flags chained in any order, and the outlet managing another auth",
@@ -651,6 +651,7 @@ func TestAuthMethodArgDeclaration(t *testing.T) {
 		{name: "a label", method: AuthMethodArg{Kind: MethodAzure, Name: "directory", Label: "Company directory"}, want: `generation.AzureMethod("directory").Labeled("Company directory")`},
 		{name: "the flags after the label", method: AuthMethodArg{Kind: MethodGoogle, Name: "google", Label: "Workspace", InvitedUsers: true, SyncsRoles: true}, want: `generation.GoogleMethod("google").Labeled("Workspace").InvitedUsers().SyncsRoles()`},
 		{name: "a flag alone", method: AuthMethodArg{Kind: MethodWorkOS, Name: "sso", SyncsRoles: true}, want: `generation.WorkOSMethod("sso").SyncsRoles()`},
+		{name: "an organization's identity provider", method: AuthMethodArg{Kind: MethodOIDC, Name: "okta", InvitedUsers: true}, want: `generation.OIDCMethod("okta").InvitedUsers()`},
 		{name: "open sign-up after the others", method: AuthMethodArg{Kind: MethodGoogle, Name: "sign-up", SyncsRoles: true, OpenSignUp: true}, want: `generation.GoogleMethod("sign-up").SyncsRoles().OpenSignUp()`},
 		{name: "a method the router does not compose", method: AuthMethodArg{Kind: "ldap", Name: "ldap"}, want: ""},
 	}

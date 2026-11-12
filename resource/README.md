@@ -546,9 +546,16 @@ The auth behind a session outlet, `generation.Auth(importPath, methods...)`: the
 package (the package exporting `Name`) and the sign-in methods its `session.Auth`
 registers, in the order the login page offers them: `PasswordMethod()`, and each
 external method under its registration name, `GoogleMethod("google")`,
-`AzureMethod("lakeside-entra")`, `WorkOSMethod("sso")`, `PersonaMethod("persona")`, with
+`AzureMethod("lakeside-entra")`, `WorkOSMethod("sso")`, `OIDCMethod("okta")`,
+`PersonaMethod("persona")`, with
 `.Labeled(text)` for the label the page shows (the method's own name otherwise: Password,
-Google, Microsoft, Single sign-on, Persona). A persona method is optional at run time:
+Google, Microsoft, Single sign-on, Persona; for an `OIDCMethod`, the registration name
+with each word capitalized, Okta). `OIDCMethod` is one organization's identity provider,
+registered with the session library's generic OpenID Connect method (`oidc.SignIn`), a
+provider known by its issuer alone such as Okta or Keycloak: it takes `.InvitedUsers()`
+and `.SyncsRoles()` (the registration reconciles roles to the ID token's `roles` claim) and
+refuses `.OpenSignUp()`, since everyone the provider signs in is a member of its
+organization. A persona method is optional at run time:
 the router mounts its login and callback and the methods route offers it only where the
 auth's handlers are non-nil (the method is registered where the persona provider is
 configured, the test environments), so the same build offers it nowhere else; it takes

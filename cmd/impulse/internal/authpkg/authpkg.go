@@ -117,20 +117,22 @@ type AdministratorRoles struct {
 
 // Method is one sign-in method of the auth.
 type Method struct {
-	// Kind is the method: app.MethodPassword, app.MethodAzure, app.MethodGoogle or
-	// app.MethodPersona.
+	// Kind is the method: app.MethodPassword, app.MethodAzure, app.MethodGoogle,
+	// app.MethodOIDC or app.MethodPersona.
 	Kind string
 	// Name is the registration name (user/<name>/login); password for the password
 	// method, which takes no other, and persona for the persona method when none is
-	// given.
+	// given. An organization's identity provider (app.MethodOIDC) has no name of its own
+	// to fall back on: the name is the application's word for the provider (okta), and the
+	// connection every link made through it carries.
 	Name string
 	// Authority is who owns role membership for a directory method: app.AuthorityDirectory
 	// (the registration synchronizes roles from the directory at every sign-in) or
 	// app.AuthorityApplication (roles are assigned in the application). Ignored for the
 	// password method.
 	Authority string
-	// Slot is the organization slot of a directory method: which organizations' accounts
-	// the registration admits. Azure: SlotOne (one tenant), SlotListed (named tenants),
+	// Slot is the organization slot of a Microsoft or Google method: which organizations'
+	// accounts the registration admits. Azure: SlotOne (one tenant), SlotListed (named tenants),
 	// SlotAny (any tenant), SlotPersonal (Microsoft personal accounts alone),
 	// SlotOnePersonal (one tenant and personal accounts), SlotAnyPersonal (any tenant and
 	// personal accounts). Google: SlotOne (one Workspace), SlotListed (named Workspaces),
@@ -143,7 +145,9 @@ type Method struct {
 	// AccountsOpen alone (a stranger signs up from a link mailed to their address) or
 	// nothing (its users are created in the application, or invited). The persona method
 	// takes AccountsInvited alone, its default: the personas are the accounts the cast
-	// seeds, and the sign-in links to them.
+	// seeds, and the sign-in links to them. An organization's identity provider takes
+	// AccountsMembers or AccountsInvited: everyone it signs in is a member of its
+	// organization, so there is nobody for AccountsOpen to add.
 	Accounts string
 	// UsernameIsEmail marks a password method whose sign-in name is the person's email
 	// address (session.UsernameIsEmail): the users surface derives the address from the
@@ -190,8 +194,9 @@ func Accounts() []string { return []string{AccountsMembers, AccountsInvited, Acc
 // them at registration: a slot the kind has, an account rule the slot allows (open sign-up
 // only with any organization or personal accounts; members of the directory not with
 // them), role synchronization only with one organization, for the password method open
-// sign-up or no rule, with the sign-in name as the address on it alone, and for the
-// persona method no slot, the application's authority and invited users only.
+// sign-up or no rule, with the sign-in name as the address on it alone, for the persona
+// method no slot, the application's authority and invited users only, and for an
+// organization's identity provider no slot and members or invited users.
 func (m *Method) Validate() error {
 	if m.Kind == app.MethodPassword {
 		return m.validatePassword()
@@ -199,8 +204,11 @@ func (m *Method) Validate() error {
 	if m.Kind == app.MethodPersona {
 		return m.validatePersona()
 	}
+	if m.Kind == app.MethodOIDC {
+		return m.validateOIDC()
+	}
 	if m.Kind != app.MethodAzure && m.Kind != app.MethodGoogle {
-		return errors.Newf("%q is not a sign-in method impulse composes: password, azure, google or persona", m.Kind)
+		return errors.Newf("%q is not a sign-in method impulse composes: password, azure, google, oidc or persona", m.Kind)
 	}
 	if m.UsernameIsEmail {
 		return errors.New("username-is-email describes the password method's sign-in name; a directory method's people sign in as the directory names them")
@@ -287,10 +295,46 @@ func (m *Method) validatePersona() error {
 	return nil
 }
 
+// validateOIDC checks an organization's identity provider: a registration name of the
+// application's choosing, no slot (the provider is one organization's, named by its
+// issuer), an authority, and members of the directory or invited users only.
+func (m *Method) validateOIDC() error {
+	if m.UsernameIsEmail {
+		return errors.New("username-is-email describes the password method's sign-in name; a provider's people sign in as the provider names them")
+	}
+	if m.Name == "" {
+		return errors.New("an identity provider's registration needs a name: the application's word for the provider (okta, company-sso), which is the segment of its routes and the connection every link made through it carries")
+	}
+	if !registrationRE.MatchString(m.Name) {
+		return errors.Newf("registration %q: lowercase letters, digits and hyphens, starting with a letter (okta, company-sso)", m.Name)
+	}
+	if m.Name == app.PasswordRegistration {
+		return errors.Newf("%q is the password method's registration name", m.Name)
+	}
+	if m.Slot != "" {
+		return errors.New("an identity provider's registration takes no slot: the provider is one organization's, named by its issuer")
+	}
+	switch m.Authority {
+	case app.AuthorityDirectory, app.AuthorityApplication:
+	default:
+		return errors.Newf("authority %q: directory or application", m.Authority)
+	}
+	switch m.accounts() {
+	case AccountsMembers, AccountsInvited:
+	case AccountsOpen:
+		return errors.New("open sign-up is for a method anyone can use; an identity provider is one organization's, and everyone it signs in is a member the method admits under members, so take members or invited")
+	default:
+		return errors.Newf("accounts %q: members or invited", m.Accounts)
+	}
+
+	return nil
+}
+
 // The variable suffixes every redirect method's registration shares.
 const (
-	suffixClientID    = "CLIENT_ID"
-	suffixRedirectURL = "REDIRECT_URL"
+	suffixClientID     = "CLIENT_ID"
+	suffixClientSecret = "CLIENT_SECRET"
+	suffixRedirectURL  = "REDIRECT_URL"
 )
 
 // registrationRE is the shape of a registration name, as the session library takes it.
@@ -316,6 +360,13 @@ func (m *Method) accounts() string {
 	return m.Accounts
 }
 
+// slotted reports a method whose registration names the organizations it admits in an
+// organization slot: a Microsoft or a Google method. The persona method and an
+// organization's identity provider have none: each is one issuer.
+func (m *Method) slotted() bool {
+	return m.Kind == app.MethodAzure || m.Kind == app.MethodGoogle
+}
+
 // OpenSignUp reports a method admitting anyone: a directory method under the open
 // sign-up rule, or the password method whose strangers sign up from a mailed link.
 func (m *Method) OpenSignUp() bool {
@@ -325,8 +376,9 @@ func (m *Method) OpenSignUp() bool {
 // SyncsRoles reports a method whose registration writes the person's roles from the
 // directory at every sign-in: a directory method under the directory authority. Its
 // method file sets the registration's RoleSync (signin.RoleSync, the token's application
-// roles, for Microsoft Entra; google.RoleSync, the role groups, for Google), where every
-// other method file sets DisableRoleSync. The views that render the method file and the
+// roles, for Microsoft Entra, and the token's roles claim for an organization's identity
+// provider; google.RoleSync, the role groups, for Google), where every other method file
+// sets DisableRoleSync. The views that render the method file and the
 // declaration a generator program carries both read this one rule. The persona method
 // never does: the provider asserts identity alone.
 func (m *Method) SyncsRoles() bool {
@@ -417,7 +469,7 @@ func (m *Method) Persona() bool { return m.Kind == app.MethodPersona }
 // registration hands the library its settings as they are, so its register function
 // returns the method alone.
 func (m *Method) Fallible() bool {
-	if !m.Directory() || m.Persona() {
+	if !m.slotted() {
 		return false
 	}
 	if m.SlotFallible() {
@@ -433,7 +485,7 @@ func (m *Method) Fallible() bool {
 // the slot does not admit is refused. An open slot admits whatever the deployment
 // declares administered beside its open entry.
 func (m *Method) SlotFallible() bool {
-	if !m.Directory() || m.Persona() {
+	if !m.slotted() {
 		return false
 	}
 	switch m.slot() {
@@ -446,11 +498,12 @@ func (m *Method) SlotFallible() bool {
 
 // Administered reports whether the method declares the organizations the deployment
 // administers (AdministeredTenants, AdministeredWorkspaces), whose sign-ins carry the
-// directory's second factor: every directory method but one admitting Microsoft
-// personal accounts alone, which no deployment administers, and the persona method,
-// whose provider is no organization.
+// directory's second factor: every Microsoft or Google method but one admitting
+// Microsoft personal accounts alone, which no deployment administers. The persona
+// method's provider is no organization, and an identity provider's token says for
+// itself whether a second factor was used.
 func (m *Method) Administered() bool {
-	return m.Directory() && !m.Persona() && (m.Kind != app.MethodAzure || m.slot() != SlotPersonal)
+	return m.slotted() && (m.Kind != app.MethodAzure || m.slot() != SlotPersonal)
 }
 
 // Field is one setting a method reads from the environment.
@@ -487,8 +540,9 @@ const (
 	// sign-ins carry the directory's second factor: tenants by id, Workspaces by domain.
 	FieldAdministeredTenants    = "AdministeredTenants"
 	FieldAdministeredWorkspaces = "AdministeredWorkspaces"
-	// FieldIssuer is the persona provider's issuer URL: the one setting that decides
-	// whether the persona method is registered.
+	// FieldIssuer is the issuer URL of a provider the generic method signs in through:
+	// for the persona provider the one setting that decides whether the persona method is
+	// registered, for an organization's identity provider the provider itself.
 	FieldIssuer = "Issuer"
 )
 
@@ -516,13 +570,20 @@ func (m *Method) Fields() []Field {
 		}
 		fields = append(fields,
 			Field{Name: FieldClientID, Suffix: suffixClientID, Doc: "the app registration's application (client) id"},
-			Field{Name: FieldClientSecret, Suffix: "CLIENT_SECRET", Secret: true, Doc: "the app registration's client secret"},
+			Field{Name: FieldClientSecret, Suffix: suffixClientSecret, Secret: true, Doc: "the app registration's client secret"},
 			Field{Name: FieldRedirectURL, Suffix: suffixRedirectURL, Simulated: true, Doc: "the browser-facing callback the directory returns the browser to: <base>/<outlet>/api/user/" + m.Name + "/callback"},
 		)
 	case app.MethodPersona:
 		fields = append(fields,
 			Field{Name: FieldIssuer, Suffix: "ISSUER", Simulated: true, Doc: "the persona provider's issuer URL, where the browser is sent to sign in as a persona; a placement value of the first environment and its pull requests, empty everywhere else, where the method is not registered"},
 			Field{Name: FieldClientID, Suffix: suffixClientID, Simulated: true, Doc: "the deployment's client ID at the provider: the application's client ID root with the environment or the pull request appended, which bedrock derives"},
+			Field{Name: FieldRedirectURL, Suffix: suffixRedirectURL, Simulated: true, Doc: "the browser-facing callback the provider returns the browser to: <base>/<outlet>/api/user/" + m.Name + "/callback"},
+		)
+	case app.MethodOIDC:
+		fields = append(fields,
+			Field{Name: FieldIssuer, Suffix: "ISSUER", Simulated: true, Doc: "the provider's issuer URL: its configuration is read at <issuer>/.well-known/openid-configuration and every sign-in's token must carry it; the registration checks its shape whether or not the provider is simulated, so the simulated provider needs a well-formed placeholder"},
+			Field{Name: FieldClientID, Suffix: suffixClientID, Doc: "the application's client id at the provider"},
+			Field{Name: FieldClientSecret, Suffix: suffixClientSecret, Secret: true, Doc: "the client's secret at the provider"},
 			Field{Name: FieldRedirectURL, Suffix: suffixRedirectURL, Simulated: true, Doc: "the browser-facing callback the provider returns the browser to: <base>/<outlet>/api/user/" + m.Name + "/callback"},
 		)
 	case app.MethodGoogle:
@@ -535,7 +596,7 @@ func (m *Method) Fields() []Field {
 		fields = append(fields,
 			Field{Name: FieldAdministeredWorkspaces, Suffix: "ADMINISTERED_WORKSPACES", Simulated: true, Doc: "the Workspaces the deployment administers, by domain, comma-separated, each one the registration admits: a sign-in from one carries the Workspace's own second factor, which the deployment vouches for (2-Step Verification enforced for everyone), and is not asked for the sign-in code; empty when the deployment administers none"},
 			Field{Name: FieldClientID, Suffix: suffixClientID, Doc: "the OAuth client's id"},
-			Field{Name: FieldClientSecret, Suffix: "CLIENT_SECRET", Secret: true, Doc: "the OAuth client's secret"},
+			Field{Name: FieldClientSecret, Suffix: suffixClientSecret, Secret: true, Doc: "the OAuth client's secret"},
 			Field{Name: FieldRedirectURL, Suffix: suffixRedirectURL, Simulated: true, Doc: "the browser-facing callback Google returns the browser to: <base>/<outlet>/api/user/" + m.Name + "/callback"},
 		)
 		if m.Authority == app.AuthorityDirectory {
@@ -568,6 +629,8 @@ func (m *Method) Provider() string {
 		return "Microsoft"
 	case app.MethodGoogle:
 		return "Google"
+	case app.MethodOIDC:
+		return "the identity provider"
 	case app.MethodPersona:
 		return "the persona provider"
 	default:
@@ -664,6 +727,8 @@ func methodTemplate(m *Method) string {
 		return azureTemplate
 	case app.MethodGoogle:
 		return googleTemplate
+	case app.MethodOIDC:
+		return oidcTemplate
 	case app.MethodPersona:
 		return personaTemplate
 	default:

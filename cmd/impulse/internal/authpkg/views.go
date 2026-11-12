@@ -129,8 +129,8 @@ func newView(spec *Spec) *view {
 			imp = "github.com/impulseframework/impulse/session/azure"
 		case app.MethodGoogle:
 			imp = "github.com/impulseframework/impulse/session/google"
-		case app.MethodPersona:
-			imp = "github.com/impulseframework/impulse/session/oidc"
+		case app.MethodOIDC, app.MethodPersona:
+			imp = oidcImport
 		}
 		if imp != "" && !seen[imp] {
 			seen[imp] = true
@@ -236,6 +236,8 @@ func newMethodView(spec *Spec, m *Method) *methodView {
 		azureView(mv, m)
 	case app.MethodGoogle:
 		googleView(mv, m, settings)
+	case app.MethodOIDC:
+		oidcView(mv, m)
 	case app.MethodPersona:
 		personaView(mv)
 	}
@@ -271,6 +273,14 @@ const (
 	netHTTP      = "net/http"
 	accessImport = "github.com/impulseframework/impulse/access"
 	signinImport = "github.com/impulseframework/impulse/session/signin"
+	oidcImport   = "github.com/impulseframework/impulse/session/oidc"
+)
+
+// The role-synchronization expressions a method file registers with: the token's roles
+// reconciled through the auth's user manager, or the application the authority.
+const (
+	roleSyncExpr        = "signin.RoleSync(accessClient.UserManager())"
+	disableRoleSyncExpr = "signin.DisableRoleSync()"
 )
 
 // azureView fills the view of a Microsoft Entra method: its role-synchronization
@@ -278,9 +288,9 @@ const (
 func azureView(mv *methodView, m *Method) {
 	mv.Type = "*azure.Method"
 	if m.SyncsRoles() {
-		mv.RoleSyncExpr = "signin.RoleSync(accessClient.UserManager())"
+		mv.RoleSyncExpr = roleSyncExpr
 	} else {
-		mv.RoleSyncExpr = "signin.DisableRoleSync()"
+		mv.RoleSyncExpr = disableRoleSyncExpr
 	}
 	mv.Imports = []string{netHTTP, accessImport, "github.com/impulseframework/impulse/session/azure", signinImport}
 	if m.Administered() {
@@ -298,9 +308,25 @@ func azureView(mv *methodView, m *Method) {
 // Connect method against the persona provider, with the application's authority for roles
 // and the cast's accounts to link to.
 func personaView(mv *methodView) {
-	mv.Type = "*oidc.Method"
-	mv.RoleSyncExpr = "signin.DisableRoleSync()"
-	mv.Imports = []string{netHTTP, accessImport, "github.com/impulseframework/impulse/session/oidc", signinImport}
+	mv.Type = oidcMethodType
+	mv.RoleSyncExpr = disableRoleSyncExpr
+	mv.Imports = []string{netHTTP, accessImport, oidcImport, signinImport}
+}
+
+// oidcMethodType is the Go type of a registration of the generic OpenID Connect method.
+const oidcMethodType = "*oidc.Method"
+
+// oidcView fills the view of an organization's identity provider: the session library's
+// generic OpenID Connect method, with the token's roles claim as the authority for roles
+// when the registration synchronizes them.
+func oidcView(mv *methodView, m *Method) {
+	mv.Type = oidcMethodType
+	if m.SyncsRoles() {
+		mv.RoleSyncExpr = roleSyncExpr
+	} else {
+		mv.RoleSyncExpr = disableRoleSyncExpr
+	}
+	mv.Imports = []string{netHTTP, accessImport, oidcImport, signinImport}
 }
 
 // slotWords is a method's organization slot in words, for the slot function's comment.

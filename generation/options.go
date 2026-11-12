@@ -326,6 +326,10 @@ const (
 	methodAzure authMethodKind = "azure"
 	// methodWorkOS is WorkOS single sign-on (workos.SignIn): Google's routes.
 	methodWorkOS authMethodKind = "workos"
+	// methodOIDC is sign-in through an organization's own identity provider, such as
+	// Okta or Keycloak (oidc.SignIn, the session library's generic OpenID Connect
+	// method): Google's routes.
+	methodOIDC authMethodKind = "oidc"
 	// methodPersona is the persona sign-in of the test environments (oidc.SignIn, the
 	// session library's generic OpenID Connect method, against the persona provider):
 	// Google's routes. The Auth registers it only where its provider is configured, so
@@ -341,7 +345,8 @@ const passwordMethodName = "password"
 // AuthMethod is one sign-in method registered on a session outlet's Auth, as the
 // generated router mounts it: the method, the name it is registered under, and the
 // label the login page shows for it. Build one with PasswordMethod, GoogleMethod,
-// AzureMethod, WorkOSMethod or PersonaMethod, and reword its label with Labeled.
+// AzureMethod, WorkOSMethod, OIDCMethod or PersonaMethod, and reword its label with
+// Labeled.
 type AuthMethod struct {
 	kind  authMethodKind
 	name  string
@@ -384,6 +389,35 @@ func AzureMethod(name string) AuthMethod {
 // label "Single sign-on".
 func WorkOSMethod(name string) AuthMethod {
 	return AuthMethod{kind: methodWorkOS, name: name, label: "Single sign-on"}
+}
+
+// OIDCMethod is sign-in through an organization's own identity provider, registered
+// under name: the session library's generic OpenID Connect method (oidc.SignIn), for a
+// provider known by its issuer alone, such as Okta or Keycloak. The provider is one
+// organization's and is set in the auth package's code, so it serves the whole
+// application and changes with a release. The name is the application's own word for
+// the provider (okta, company-sso): the segment of the method's routes and the
+// connection every identity link made through it carries, so it is chosen once. The
+// label is the name with its words capitalized ("Okta", "Company Sso"); Labeled gives
+// other words. The registration takes InvitedUsers, or SyncsRoles when the provider's
+// ID token names the person's roles (its roles claim), and never OpenSignUp: everyone
+// the provider signs in is a member of its organization, whom the method admits
+// without it.
+func OIDCMethod(name string) AuthMethod {
+	return AuthMethod{kind: methodOIDC, name: name, label: registrationLabel(name)}
+}
+
+// registrationLabel is a registration name as words: its hyphens spaces and each word
+// capitalized (company-sso is "Company Sso").
+func registrationLabel(name string) string {
+	words := strings.Split(name, "-")
+	for i, word := range words {
+		if word != "" {
+			words[i] = strings.ToUpper(word[:1]) + word[1:]
+		}
+	}
+
+	return strings.Join(words, " ")
 }
 
 // PersonaMethod is the persona sign-in of the test environments registered under name,
@@ -482,8 +516,8 @@ func (m AuthMethod) String() string {
 		}
 
 		return spelled
-	case methodGoogle, methodAzure, methodWorkOS, methodPersona:
-		spelled := fmt.Sprintf("%sMethod(%q)", caser.ToPascal(string(m.kind)), m.name)
+	case methodGoogle, methodAzure, methodWorkOS, methodOIDC, methodPersona:
+		spelled := fmt.Sprintf("%s(%q)", methodConstructor[m.kind], m.name)
 		if m.invited {
 			spelled += ".InvitedUsers()"
 		}
@@ -498,6 +532,16 @@ func (m AuthMethod) String() string {
 	default:
 		return string(m.kind)
 	}
+}
+
+// methodConstructor names the constructor of each method registered under a name, as a
+// generator program writes it.
+var methodConstructor = map[authMethodKind]string{
+	methodGoogle:  "GoogleMethod",
+	methodAzure:   "AzureMethod",
+	methodWorkOS:  "WorkOSMethod",
+	methodOIDC:    "OIDCMethod",
+	methodPersona: "PersonaMethod",
 }
 
 // accessor is the Pascal-cased registration name the generated Handlers interface
@@ -521,7 +565,7 @@ func validateAuthMethods(importPath string, methods []AuthMethod) error {
 	for _, m := range methods {
 		switch {
 		case m.kind == "":
-			return errors.Newf("Auth(%q) is given a zero AuthMethod: build each with PasswordMethod, GoogleMethod, AzureMethod, WorkOSMethod or PersonaMethod", importPath)
+			return errors.Newf("Auth(%q) is given a zero AuthMethod: build each with PasswordMethod, GoogleMethod, AzureMethod, WorkOSMethod, OIDCMethod or PersonaMethod", importPath)
 		case !registrationName.MatchString(m.name):
 			return errors.Newf("Auth(%q, %s) names the registration %q; a registration name is lowercase letters, digits and hyphens, starting with a letter", importPath, m, m.name)
 		case m.kind != methodPassword && m.name == passwordMethodName:
@@ -536,6 +580,8 @@ func validateAuthMethods(importPath string, methods []AuthMethod) error {
 			return errors.Newf("Auth(%q, %s) declares UsernameIsEmail on a registration: it describes the password method's username", importPath, m)
 		case m.invited && m.openSignUp:
 			return errors.Newf("Auth(%q, %s) declares both InvitedUsers and OpenSignUp: a registration admits invited users only or anyone, not both", importPath, m)
+		case m.kind == methodOIDC && m.openSignUp:
+			return errors.Newf("Auth(%q, %s) declares OpenSignUp on an organization's identity provider: everyone the provider signs in is a member of its organization, whom the method admits without it, and open sign-up is for a method anyone can use", importPath, m)
 		case m.kind == methodPersona && (m.syncsRoles || m.openSignUp):
 			return errors.Newf("Auth(%q, %s) declares SyncsRoles or OpenSignUp on the persona method: the persona provider asserts who a persona is and nothing about roles, and the personas are seeded accounts, so the method admits invited users only", importPath, m)
 		}

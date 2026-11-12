@@ -21,6 +21,7 @@ func TestMethodCommand(t *testing.T) {
 	}{
 		{name: "password", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodPassword}}, want: "impulse add method staff password"},
 		{name: "a directory method with its shape", method: Method{Auth: "members", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication, Slot: authpkg.SlotListed, Accounts: authpkg.AccountsInvited}}, want: "impulse add method members google workspace --authority application --slot listed --accounts invited"},
+		{name: "an organization's identity provider under its name", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityApplication, Accounts: authpkg.AccountsInvited}}, want: "impulse add method staff oidc okta --authority application --accounts invited"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -47,6 +48,10 @@ func TestMethodValidate(t *testing.T) {
 		{name: "a slot the kind lacks", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodAzure, Name: "directory", Authority: AuthorityApplication, Slot: "galaxy"}}, wantErr: "galaxy"},
 		{name: "the directory authority with any organization", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodAzure, Name: "directory", Authority: AuthorityDirectory, Slot: authpkg.SlotAny}}, wantErr: "directory"},
 		{name: "the directory authority beside the password method", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityDirectory}}, wantErr: "a registration whose directory writes the roles stands alone on its auth"},
+		{name: "an identity provider on the staff auth", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityApplication}}},
+		{name: "an identity provider without an authority", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta"}}, wantErr: "the okta method needs --authority"},
+		{name: "an identity provider admitting open sign-up", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityApplication, Accounts: authpkg.AccountsOpen}}, wantErr: "open sign-up is for a method anyone can use"},
+		{name: "an identity provider whose token names the roles, beside the password method", method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityDirectory}}, wantErr: "a registration whose directory writes the roles stands alone on its auth"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -226,6 +231,71 @@ func TestMethodApply(t *testing.T) {
 					if !strings.Contains(data, want) {
 						t.Errorf("data.go lacks %q:\n%s", want, data)
 					}
+				}
+			},
+		},
+		{
+			name:   "an organization's identity provider where the tenants declare their directories: the declaration has to admit it",
+			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityApplication}},
+			extra: map[string]string{
+				"pkg/config/data.go":                  authConfigSettings,
+				"pkg/resources/tenant_directories.go": "package resources\n\ntype (\n\t// @resource\n\t// @permissionScope(domain)\n\t// @tenantDirectory\n\tTenantDirectory struct {\n\t\t// @domain\n\t\tTenantID string `spanner:\"TenantId\"`\n\t\t// @directoryMethod\n\t\tMethod string `spanner:\"Method\"`\n\t\t// @directoryConnection\n\t\tConnection string `spanner:\"Connection\"`\n\t}\n)\n",
+			},
+			wantSkipped: []string{
+				`pkg/resources/tenant_directories.go: the tenants declare the directories their people enter through (TenantDirectory), and a sign-in through okta is a directory's to the sign-in policy, method oidc under the connection "okta": a person who holds a role in the global partition is admitted and reaches every tenant; anyone else enters a tenant only where the tenant declares that directory, and a person who holds roles in particular tenants, none of which declares it, is refused (connection_not_in_tenant). The record's method column admits google, azure and workos as it was composed, so for a tenant to declare this provider add a migration that admits oidc in the column's check, and offer the method on the console's page that declares a tenant's directories`,
+			},
+		},
+		{
+			name:   "an organization's identity provider, registered in every environment, with a secret and an issuer to give the harness",
+			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityApplication, Accounts: authpkg.AccountsInvited}},
+			extra:  map[string]string{"pkg/config/data.go": authConfigSettings},
+			wantDid: []string{
+				"pkg/auth/staff/okta.go: the okta method (oidc, one organization's identity provider, invited users only, role membership the application's): its registration constant, its settings, its handlers (OktaLogin and the rest), and registerOkta, which registers it on the Auth",
+				"pkg/auth/staff/staff.go: Handlers holds the okta method (okta *oidc.Method), New registers it (registerOkta), and Settings carries its OktaSettings and the LoginURL, and the package doc lists it",
+				"pkg/config/data.go: dataConfig reads the staff auth's okta registration from APP_STAFF_OKTA_ISSUER, APP_STAFF_OKTA_CLIENT_ID, APP_STAFF_OKTA_CLIENT_SECRET, APP_STAFF_OKTA_REDIRECT_URL, and dataConfig.staffSettings passes them",
+				`cmd/generate/resourcegenerator/main.go: generation.OIDCMethod("okta").InvitedUsers() declared on 1 outlet Auth option(s) bound to the staff auth, so the generated router mounts user/okta/login and the callback and the methods route offers it`,
+				"Procfile: 2 go run command(s) build with -tags skipAuth, so the staff auth's directory is simulated in development",
+				"ran go generate ./..., so the router mounts the method's routes and the login page offers it",
+			},
+			wantSkipped: []string{
+				"pkg/config/data.go: LoginURL is set to /login when the construction had none; make it the login page of the surface bound to the staff auth",
+				`test/integration/harness_test.go and cmd/deployment/migrate/main_test.go: the okta registration validates its issuer at registration whether or not the directory is simulated, so give the staff auth's construction in the harness Okta: staff.OktaSettings{Issuer: "https://provider.example.com", RedirectURL: <the served callback>} and set APP_STAFF_OKTA_ISSUER=https://provider.example.com where the migrate run's environment is`,
+			},
+			// Registered everywhere: no cast, no placement block, nothing said of where the
+			// provider is configured, and no organization slot; and no tenant declares
+			// directories here, so nothing is said of a declaration.
+			wantNotSkipped: []string{"cast.json", "placement.json", "ADMINISTERED", "organization slot", "connection_not_in_tenant"},
+			check: func(t *testing.T, a *app.App) {
+				t.Helper()
+				file := read(t, a, "pkg/auth/staff/okta.go")
+				for _, want := range []string{"package staff", `const OktaRegistration = "okta"`, "type OktaSettings struct", "func (h *Handlers) OktaLogin() http.HandlerFunc {\n\treturn h.okta.Login()\n}", "func (h *Handlers) OktaCallback() http.HandlerFunc", "func registerOkta(authSession *Session, accessClient *access.Client, settings *Settings) *oidc.Method", "oidc.SignIn(authSession, OktaRegistration", "\t\tIssuer:       settings.Okta.Issuer,\n", "\t\tClientSecret: settings.Okta.ClientSecret,\n", "\t\tConnection:   OktaRegistration,\n", "\t\tRoleSync:     signin.DisableRoleSync(),\n", "\t\tAccounts:     signin.InvitedUsersOnly,\n"} {
+					if !strings.Contains(file, want) {
+						t.Errorf("okta.go lacks %q:\n%s", want, file)
+					}
+				}
+				for _, unwanted := range []string{"Attesting", "return nil"} {
+					if strings.Contains(file, unwanted) {
+						t.Errorf("okta.go carries %q, the persona method's:\n%s", unwanted, file)
+					}
+				}
+				main := read(t, a, "pkg/auth/staff/staff.go")
+				for _, want := range []string{"\tpassword *session.PasswordMethod\n\tokta     *oidc.Method\n", "\thandlers.okta = registerOkta(authSession, accessClient, settings)\n", "\tOkta OktaSettings\n", "\tLoginURL string\n", "\t\"github.com/impulseframework/impulse/session/oidc\"\n"} {
+					if !strings.Contains(main, want) {
+						t.Errorf("staff.go lacks %q:\n%s", want, main)
+					}
+				}
+				data := read(t, a, "pkg/config/data.go")
+				for _, want := range []string{
+					"\tStaffOktaIssuer       string `env:\"APP_STAFF_OKTA_ISSUER\"`\n",
+					"\tStaffOktaClientSecret string `env:\"APP_STAFF_OKTA_CLIENT_SECRET\" secret:\"true\"`\n",
+					"\t\tOkta: staff.OktaSettings{\n\t\t\tIssuer:       env.StaffOktaIssuer,\n\t\t\tClientID:     env.StaffOktaClientID,\n\t\t\tClientSecret: env.StaffOktaClientSecret,\n\t\t\tRedirectURL:  env.StaffOktaRedirectURL,\n\t\t},\n",
+				} {
+					if !strings.Contains(data, want) {
+						t.Errorf("data.go lacks %q:\n%s", want, data)
+					}
+				}
+				if program := read(t, a, "cmd/generate/resourcegenerator/main.go"); !strings.Contains(program, `generation.Auth("example.com/acme/beacon/pkg/auth/staff", generation.PasswordMethod(), generation.OIDCMethod("okta").InvitedUsers())`) {
+					t.Errorf("program = %s", program)
 				}
 			},
 		},
@@ -432,4 +502,61 @@ func containsLine(lines []string, want string) bool {
 	}
 
 	return false
+}
+
+// TestMethodMeaningIdentityProvider holds the brief of an organization's identity provider
+// to what the method is: one provider named in the registration's settings, registered in
+// every environment, and, where its token names the roles, the claim the provider has to
+// send.
+func TestMethodMeaningIdentityProvider(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		spec     authpkg.Method
+		want     []string
+		unwanted []string
+	}{
+		{
+			name: "the application gives the roles",
+			spec: authpkg.Method{Kind: app.MethodOIDC, Name: "okta", Authority: AuthorityApplication, Accounts: authpkg.AccountsInvited},
+			want: []string{
+				"the staff auth now offers `okta`, an organization's identity provider over OpenID Connect (`oidc.SignIn`",
+				"It signs in through one organization's identity provider, a provider known by its issuer alone, such as Okta or Keycloak",
+				"Its account rule is invited users only.",
+				"Role membership stays the application's",
+				"APP_STAFF_OKTA_ISSUER, APP_STAFF_OKTA_CLIENT_ID, APP_STAFF_OKTA_CLIENT_SECRET, APP_STAFF_OKTA_REDIRECT_URL",
+				"Register it with the identity provider",
+				"Invite its people.",
+			},
+			unwanted: []string{"organization slot", "cast", "placement.json", "Have the provider send the roles"},
+		},
+		{
+			name: "the provider's token names the roles",
+			spec: authpkg.Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: AuthorityDirectory},
+			want: []string{
+				"Its account rule is members of the directory.",
+				"Role membership is the directory's",
+				"Have the provider send the roles. The method reads a person's roles from the ID token's `roles` claim",
+			},
+			unwanted: []string{"organization slot", "Invite its people."},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			meaning := (&Method{Auth: "staff", Spec: tt.spec}).Meaning()
+			for _, want := range tt.want {
+				if !strings.Contains(meaning, want) {
+					t.Errorf("Meaning() lacks %q:\n%s", want, meaning)
+				}
+			}
+			for _, unwanted := range tt.unwanted {
+				if strings.Contains(meaning, unwanted) {
+					t.Errorf("Meaning() carries %q:\n%s", unwanted, meaning)
+				}
+			}
+		})
+	}
 }

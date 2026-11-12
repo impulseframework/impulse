@@ -878,6 +878,41 @@ func Test_servedRouterData(t *testing.T) {
 			},
 		},
 		{
+			name: "an organization's identity provider is mounted as a directory is: its login and its callback, always",
+			outlets: []*routerOutlet{
+				{name: "default", prefix: "api", servesSessions: true, auth: &outletAuth{importPath: "example.com/acme/beacon/pkg/auth/crew", methods: []AuthMethod{PasswordMethod(), OIDCMethod("company-sso").InvitedUsers()}}},
+			},
+			check: func(t *testing.T, data *servedRouterData) {
+				t.Helper()
+				o := data.Outlets[0]
+				if len(o.Methods) != 2 {
+					t.Fatalf("methods = %+v, want the password method and the provider", o.Methods)
+				}
+				provider := o.Methods[1]
+				if provider.Kind != "oidc" || provider.Label != "Company Sso" || provider.Accessor != "CompanySso" || provider.LoginPath != "/api/user/company-sso/login" || strings.Join(provider.Handlers, ",") != "CompanySsoLogin,CompanySsoCallback" {
+					t.Errorf("provider method = %+v", provider)
+				}
+				if provider.Optional || len(provider.Routes) != 0 {
+					t.Errorf("provider method optional = %v with %d routes of its own, want a method the Auth always registers", provider.Optional, len(provider.Routes))
+				}
+				if want := "The company-sso registration's login and callback (oidc.Method)"; provider.Description != want {
+					t.Errorf("provider description = %q, want %q", provider.Description, want)
+				}
+				var open []string
+				for _, route := range o.OpenRoutes {
+					if strings.HasPrefix(route.Handler, "CompanySso") {
+						open = append(open, route.Method+" "+route.Path+" "+route.Handler+" optional="+strconv.FormatBool(route.Optional))
+					}
+				}
+				if got := strings.Join(open, ","); got != "GET /api/user/company-sso/login CompanySsoLogin optional=false,GET /api/user/company-sso/callback CompanySsoCallback optional=false" {
+					t.Errorf("provider routes = %s", got)
+				}
+				if listed := o.ListedMethods(); len(listed) != 2 || listed[1].Name != "company-sso" {
+					t.Errorf("listed = %+v, want both methods told to the login page", listed)
+				}
+			},
+		},
+		{
 			name: "a persona method is optional: its routes are open routes the router mounts from the method's own list",
 			outlets: []*routerOutlet{
 				{name: "default", prefix: "api", servesSessions: true, auth: &outletAuth{importPath: "example.com/acme/beacon/pkg/auth/crew", methods: []AuthMethod{PasswordMethod(), PersonaMethod("persona").InvitedUsers()}}},

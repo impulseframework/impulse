@@ -263,3 +263,54 @@ func TestPersonaRegistration(t *testing.T) {
 		t.Errorf("method = %s %q under %q; want persona reviewers under the application authority", m.Kind, m.Name, m.Authority)
 	}
 }
+
+// TestOIDCRegistration reads an organization's identity provider from the same
+// constructor (oidc.SignIn): a configuration that sets the client's secret is the generic
+// method's, whatever the secret's value, under the registration name the call gives it
+// and the authority its RoleSync names.
+func TestOIDCRegistration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		statement     string
+		wantKind      string
+		wantAuthority string
+	}{
+		{
+			name:          "a configuration with a client secret, the roles the application's",
+			statement:     `	_ = oidc.SignIn(authSession, "okta", nil, &oidc.Config{Issuer: settings.Okta.Issuer, ClientID: settings.Okta.ClientID, ClientSecret: settings.Okta.ClientSecret, RedirectURL: settings.Okta.RedirectURL, Connection: "okta", RoleSync: signin.DisableRoleSync(), Accounts: signin.InvitedUsersOnly, LoginURL: settings.LoginURL})`,
+			wantKind:      MethodOIDC,
+			wantAuthority: AuthorityApplication,
+		},
+		{
+			name:          "a configuration with a client secret, the roles the provider's",
+			statement:     `	_ = oidc.SignIn(authSession, "okta", nil, &oidc.Config{Issuer: settings.Okta.Issuer, ClientSecret: settings.Okta.ClientSecret, RoleSync: signin.RoleSync(nil)})`,
+			wantKind:      MethodOIDC,
+			wantAuthority: AuthorityDirectory,
+		},
+		{
+			name:          "a configuration without one is the persona method's",
+			statement:     `	_ = oidc.SignIn(authSession, "okta", nil, &oidc.Config{Issuer: settings.Okta.Issuer, ClientID: settings.Okta.ClientID, RoleSync: signin.DisableRoleSync()})`,
+			wantKind:      MethodPersona,
+			wantAuthority: AuthorityApplication,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			auths, unattached, err := parseAuths("pkg/auth/members/members.go", []byte(registrationFile(tt.statement)))
+			if err != nil {
+				t.Fatalf("parseAuths() error = %v", err)
+			}
+			if len(auths) != 1 || len(auths[0].Methods) != 1 || len(unattached) != 0 {
+				t.Fatalf("parseAuths() = %d auths, %d unattached; want one auth with one method", len(auths), len(unattached))
+			}
+			m := auths[0].Methods[0]
+			if m.Kind != tt.wantKind || m.Name != "okta" || m.Authority != tt.wantAuthority {
+				t.Errorf("method = %s %q under %q; want %s okta under %q", m.Kind, m.Name, m.Authority, tt.wantKind, tt.wantAuthority)
+			}
+		})
+	}
+}

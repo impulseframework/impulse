@@ -547,6 +547,27 @@ func TestAuthsWired(t *testing.T) {
 			},
 		},
 		{
+			name: "an identity provider declared and registered with its client secret",
+			files: with(with(without(), "pkg/auth/staff/okta.go", staffIdentityProvider("ClientID: settings.Okta.ClientID, ClientSecret: settings.Okta.ClientSecret")), "cmd/generate/main.go", program("pkg/resources",
+				`generation.GenerateHandlers("app"),`,
+				`generation.GenerateRouter(),`,
+				`generation.GenerateRoutes("pkg/router", "api", generation.Auth("example.com/harbor/pkg/auth/staff", generation.PasswordMethod(), generation.OIDCMethod("okta"))),`,
+			)),
+			wantStatus: Pass, wantSummary: "1 auth(s) constructed, roles handed to the engine, and bound: staff",
+		},
+		{
+			name: "an identity provider declared, registered without a client secret, which is the persona method's shape",
+			files: with(with(without(), "pkg/auth/staff/okta.go", staffIdentityProvider("ClientID: settings.Okta.ClientID")), "cmd/generate/main.go", program("pkg/resources",
+				`generation.GenerateHandlers("app"),`,
+				`generation.GenerateRouter(),`,
+				`generation.GenerateRoutes("pkg/router", "api", generation.Auth("example.com/harbor/pkg/auth/staff", generation.PasswordMethod(), generation.OIDCMethod("okta"))),`,
+			)),
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{
+				"cmd/generate/main.go:15: outlet default declares okta as a oidc method on the staff auth, but pkg/auth/staff registers it as persona; the generated router would mount the wrong routes (both register with oidc.SignIn: a configuration that sets ClientSecret is an organization's identity provider, generation.OIDCMethod, and one that sets none is the persona method, generation.PersonaMethod)",
+			},
+		},
+		{
 			name: "the program declares open sign-up the package does not register",
 			files: with(without(), "cmd/generate/main.go", program("pkg/resources",
 				`generation.GenerateHandlers("app"),`,
@@ -741,4 +762,21 @@ func TestCookieCollisions(t *testing.T) {
 			}
 		})
 	}
+}
+
+// staffIdentityProvider is a method file of the staff auth registering the generic OpenID
+// Connect method under okta, its configuration naming the issuer and the client fields
+// given.
+func staffIdentityProvider(client string) string {
+	return `package staff
+
+import (
+	"github.com/impulseframework/impulse/session/oidc"
+	"github.com/impulseframework/impulse/session/signin"
+)
+
+func registerOkta(authSession *Session, settings *Settings) *oidc.Method {
+	return oidc.SignIn(authSession, "okta", nil, &oidc.Config{Issuer: settings.Okta.Issuer, ` + client + `, RoleSync: signin.DisableRoleSync()})
+}
+`
 }

@@ -27,14 +27,17 @@ const (
 
 // The sign-in methods, as the session library names them: the password method of the
 // root package, the redirect methods of the azure, google and workos packages, and the
-// persona sign-in of the test environments, which is the library's generic OpenID
-// Connect method (the oidc package) against the persona provider: impulse composes that
-// method as the persona method and nothing else.
+// two registrations of the library's generic OpenID Connect method (the oidc package):
+// against an organization's own identity provider, such as Okta or Keycloak
+// (MethodOIDC), and against the persona provider of the test environments
+// (MethodPersona). Both call oidc.SignIn, and the scan tells them apart by the
+// registration's configuration (oidcKind).
 const (
 	MethodPassword = "password"
 	MethodAzure    = "azure"
 	MethodGoogle   = "google"
 	MethodWorkOS   = "workos"
+	MethodOIDC     = "oidc"
 	MethodPersona  = "persona"
 )
 
@@ -92,7 +95,9 @@ const authConstructor = "NewAuth"
 
 // methodConstructors maps each sign-in method's registration function, by the package
 // that exports it, to the method it registers. The password method is registered by the
-// session package itself; each redirect method by its own package.
+// session package itself; each redirect method by its own package. The oidc package
+// registers two methods, and the entry here is the one a configuration without a client
+// secret names (oidcKind settles it).
 var methodConstructors = map[string]map[string]string{
 	sessionImportPath:       {"PasswordSignIn": MethodPassword},
 	sessionAzureImportPath:  {signInConstructor: MethodAzure},
@@ -215,9 +220,26 @@ func readMethodCall(call *ast.CallExpr, kind, local, rel string, fset *token.Fil
 		if kind == MethodAzure {
 			m.Tenants, m.PersonalAccounts = readTenants(configField(cfg, "Tenants"), body, local, f)
 		}
+		if kind == MethodPersona {
+			m.Kind = oidcKind(cfg)
+		}
 	}
 
 	return m
+}
+
+// oidcKind tells the two registrations of oidc.SignIn apart by the configuration each is
+// written with: an organization's identity provider knows the application as a client
+// with a secret, so its configuration sets ClientSecret (MethodOIDC), as impulse add
+// method writes it, and the persona provider knows it as a public client, so the persona
+// method's sets none (MethodPersona). A configuration the scan cannot read is the persona
+// method's, as every oidc.SignIn was before the generic method was composed.
+func oidcKind(cfg *ast.CompositeLit) string {
+	if configField(cfg, "ClientSecret") != nil {
+		return MethodOIDC
+	}
+
+	return MethodPersona
 }
 
 // attachMethods gives each method to the Auth its first argument names, and to the only
