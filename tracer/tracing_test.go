@@ -10,9 +10,13 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// TestStartTrace is not run in parallel. Each case sets its own provider as the process's
+// global one and Start reads the global one, and NewProvider sets the global one as well
+// (TestExportOverOTLP). Run beside that test, a case's span went now and then to the other
+// test's provider, and the case found none in its own. A serial test ends before the
+// parallel ones of the package start, so nothing else sets the global provider while this
+// one runs.
 func TestStartTrace(t *testing.T) {
-	t.Parallel()
-
 	testCases := []struct {
 		name       string
 		callingFn  func(context.Context) (context.Context, trace.Span)
