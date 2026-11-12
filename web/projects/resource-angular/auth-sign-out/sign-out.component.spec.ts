@@ -6,7 +6,7 @@ import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import { FRONTEND_LOGIN_PATH } from '@impulseframework/resource-angular/types';
-import { IdleService } from '@impulseframework/resource-angular/ui-idle-service';
+import { IdleService } from '@impulseframework/resource-angular/auth-idle-service';
 
 import { SignOutComponent } from './sign-out.component';
 

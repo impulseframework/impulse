@@ -4,6 +4,10 @@ import {
   effect,
   inject,
   linkedSignal,
+  Resource,
+  ResourceDependencyError,
+  ResourceParamsContext,
+  ResourceParamsStatus,
   ResourceRef,
   ResourceSnapshot,
   Signal,
@@ -16,6 +20,28 @@ export interface SafeResourceRef<T> {
   safeValue: Signal<T | undefined>;
   resource: ResourceRef<T | undefined>;
 }
+
+/**
+ * The context a params function is called with when a cache key is made from what it
+ * returns. Its chain follows the rule of Angular's own: the other resource's value when
+ * it has one (resolved or local), and otherwise a throw that says which state the other
+ * resource is in.
+ */
+const keyParamsContext: ResourceParamsContext = {
+  chain: <V>(other: Resource<V>): V => {
+    switch (other.status()) {
+      case 'idle':
+        throw ResourceParamsStatus.IDLE;
+      case 'error':
+        throw new ResourceDependencyError(other);
+      case 'loading':
+      case 'reloading':
+        throw ResourceParamsStatus.LOADING;
+    }
+
+    return other.value();
+  },
+};
 
 /**
  * Creates a {@link SafeResourceRef} that wraps an HTTP resource.
@@ -194,19 +220,32 @@ export function swrRxResource<T, A = unknown>(
 ): SafeResourceRef<T> {
   const cache = inject(SwrCacheService);
   const resource = rxResource<T, A>(options);
+  // The key is the cache key and the params, and undefined while the params cannot be
+  // told: a params function may wait on another resource (chain), or throw to say the
+  // resource is idle or loading. The resource has no value then, and nothing is cached
+  // or read from the cache for it.
   const fullCacheKey = computed(() => {
-    if (options.params) {
-      const params = options.params();
-      return params !== undefined ? cacheKey + JSON.stringify(params) : cacheKey;
+    if (!options.params) {
+      return cacheKey;
     }
-    return cacheKey;
+
+    let params: A;
+    try {
+      params = options.params(keyParamsContext);
+    } catch {
+      return undefined;
+    }
+
+    return params !== undefined ? cacheKey + JSON.stringify(params) : cacheKey;
   });
 
   effect(() => {
     if (resource.hasValue()) {
       const key = fullCacheKey();
       const value = resource.value();
-      untracked(() => cache.set(key, value));
+      if (key !== undefined) {
+        untracked(() => cache.set(key, value));
+      }
     }
   });
 
@@ -215,7 +254,8 @@ export function swrRxResource<T, A = unknown>(
       return resource.value();
     }
 
-    const cached = cache.get(fullCacheKey()) as T | undefined;
+    const key = fullCacheKey();
+    const cached = key === undefined ? undefined : (cache.get(key) as T | undefined);
     if (cached !== undefined) {
       return cached;
     }

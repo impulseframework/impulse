@@ -472,6 +472,21 @@ describe('LoginMethodsComponent signs in with the password', () => {
     await page.settle();
   }
 
+  it('prefill puts the username and the password in the boxes the person sees, and sends nothing', async () => {
+    const page = await pageOver(server());
+    await page.settle();
+    const before = sent(page.transport).length;
+    // The page that calls prefill draws itself after its click, not this component, so the
+    // fixture is not asked to detect changes here: the component has to ask for itself.
+    page.component.prefill('overseer', 'lodestar');
+    await TestBed.inject(ApplicationRef).whenStable();
+    await TestBed.inject(ApplicationRef).whenStable();
+    const box = (name: string): string =>
+      page.element.querySelector<HTMLInputElement>(`input[name="${name}"]`)?.value ?? '';
+    expect([box('username'), box('password')]).toEqual(['overseer', 'lodestar']);
+    expect(sent(page.transport)).toHaveLength(before);
+  });
+
   it('reads the list again, posts the credentials to the path the list names, checks the session and emits the page the guard recorded', async () => {
     const page = await pageOver(server());
     TestBed.inject(AuthService).redirectUrl.set('/missions/m-7');

@@ -55,6 +55,24 @@ updates:
       include: "scope"
     cooldown:
       default-days: 7
+    # A new Angular major is taken with `ng update`, not here. `ng update` moves the whole
+    # family at once (the framework, the CLI and its builder, Material and the CDK,
+    # angular-eslint, ng-packagr) with the TypeScript that major supports, and runs the
+    # migrations the major ships. Dependabot moves versions alone, and of the family only
+    # the tools: the library's Angular packages are peers it leaves where they are. So the
+    # family's majors are kept out of its pull requests, and TypeScript moves only by a
+    # patch, since an Angular release names the TypeScript range it compiles with and
+    # `ng update` moves TypeScript into it. A patch or a minor of the family inside its
+    # major still arrives here.
+    ignore:
+      - dependency-name: '@angular/*'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'angular-eslint'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'ng-packagr'
+        update-types: ['version-update:semver-major']
+      - dependency-name: 'typescript'
+        update-types: ['version-update:semver-major', 'version-update:semver-minor']
     groups:
       npm-dependencies:
         patterns:

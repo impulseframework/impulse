@@ -5,10 +5,10 @@
   "tsconfigRootDir": ".",
   "compilerOptions": {
     "paths": {
-      "@impulseframework/resource-angular/*": ["projects/resource-angular/*"],
-      "@impulseframework/resource-angular": ["projects/resource-angular/index.ts"],
-      "@impulseframework/resource": ["dist/resource"],
-      "@impulseframework/resource/testing": ["dist/resource/testing"]
+      "@impulseframework/resource-angular/*": ["./*"],
+      "@impulseframework/resource-angular": ["./index.ts"],
+      "@impulseframework/resource": ["../../dist/resource"],
+      "@impulseframework/resource/testing": ["../../dist/resource/testing"]
     },
     "sourceMap": true,
     "outDir": "../../out-tsc/lib",

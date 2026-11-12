@@ -2,7 +2,7 @@ import { Component, inject } from '@angular/core';
 import { MatCardModule } from '@angular/material/card';
 import { Router } from '@angular/router';
 import { LoginMethodsComponent } from '@impulseframework/resource-angular/auth-login-methods';
-import { IdleService } from '@impulseframework/resource-angular/ui-idle-service';
+import { IdleService } from '@impulseframework/resource-angular/auth-idle-service';
 import { ReleaseComponent } from '@impulseframework/resource-angular/ui-release';
 
 /** The portal's own words for the directory method, keyed by its registration name; the server's label is the default. */

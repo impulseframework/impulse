@@ -4,7 +4,7 @@ import { ActivatedRoute, Router, convertToParamMap } from '@angular/router';
 import { createApi } from '@app/service/zz_gen_api';
 import { LoginMethodsComponent } from '@impulseframework/resource-angular/auth-login-methods';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
-import { IdleService } from '@impulseframework/resource-angular/ui-idle-service';
+import { IdleService } from '@impulseframework/resource-angular/auth-idle-service';
 import { LoginMethods, TransportRequest } from '@impulseframework/resource';
 import { ScriptedTransport, scriptedTransport } from '@impulseframework/resource/testing';
 import { environment } from '@env';
@@ -91,17 +91,22 @@ describe('LoginComponent', () => {
     expect(element.querySelector('.impulse-login-message')).toBeNull();
   });
 
-  it("prefills the component's form from the crew manifest, signing in staying an explicit click", () => {
+  it("prefills the component's form from the crew manifest, signing in staying an explicit click", async () => {
     const component = fixture.componentInstance;
     expect(component.decks.length).toBeGreaterThan(1);
     expect(component.decks.flatMap((deck) => component.personasOn(deck))).toHaveLength(CREW_MANIFEST.length);
 
     component.fillPersona('overseer');
     fixture.detectChanges();
+    await fixture.whenStable();
     const methods = fixture.debugElement.query((node) => node.componentInstance instanceof LoginMethodsComponent)
       .componentInstance as LoginMethodsComponent;
     expect(methods.username).toBe('overseer');
     expect(methods.password).toBe(DEMO_PASSWORD);
+    // The boxes the person sees hold the persona too, not the component's fields alone.
+    const box = (name: string): string =>
+      (fixture.nativeElement as HTMLElement).querySelector<HTMLInputElement>(`input[name="${name}"]`)?.value ?? '';
+    expect([box('username'), box('password')]).toEqual(['overseer', DEMO_PASSWORD]);
     expect(component.selected()).toBe('overseer');
     expect(fixture.nativeElement.querySelector('button.persona.selected .login')?.textContent?.trim()).toBe('overseer');
     expect(transport.requests.filter((request) => request.method === 'POST')).toHaveLength(0);

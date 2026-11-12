@@ -38,14 +38,14 @@ describe('the boundary rule between entry points', () => {
   );
 
   it(
-    'refuses the auth service in every UI entry point but the idle service',
+    'refuses the auth service in every UI entry point, in a spec as in a source file',
     async () => {
       const names = entryPoints('ui-');
-      expect(names).toContain('ui-idle-service');
+      expect(names).toContain('ui-alert');
       expect(names.length).toBeGreaterThanOrEqual(2);
       for (const name of names) {
-        const want = name === 'ui-idle-service' ? 0 : 1;
-        expect([name, await refusals(`${name}/probe.ts`, `${scope}/auth-service`)]).toEqual([name, want]);
+        expect([name, await refusals(`${name}/probe.ts`, `${scope}/auth-service`)]).toEqual([name, 1]);
+        expect([name, await refusals(`${name}/probe.spec.ts`, `${scope}/auth-service`)]).toEqual([name, 1]);
       }
     },
     limit,
@@ -84,16 +84,13 @@ describe('the boundary rule between entry points', () => {
   );
 
   it(
-    'allows the crossings named in the rule and no other from the same entry points',
+    'counts the idle service and the sidenav among the auth entry points, which a UI entry point may not import',
     async () => {
-      expect(await refusals('ui-idle-service/probe.ts', `${scope}/auth-service`)).toBe(0);
-      expect(await refusals('ui-idle-service/probe.ts', `${scope}/auth-feature`)).toBe(1);
-      expect(await refusals('ui-sidenav/probe.ts', `${scope}/auth-feature`)).toBe(0);
-      expect(await refusals('ui-sidenav/probe.ts', `${scope}/auth-has-permission`)).toBe(0);
-      expect(await refusals('ui-sidenav/probe.ts', `${scope}/auth-forms`)).toBe(1);
-      expect(await refusals('ui-sidenav/probe.ts', `${scope}/auth-service`)).toBe(1);
-      expect(await refusals('ui-sidenav/probe.spec.ts', `${scope}/auth-service`)).toBe(0);
-      expect(await refusals('ui-sidenav/probe.spec.ts', `${scope}/auth-forms`)).toBe(1);
+      expect(entryPoints('auth-')).toEqual(expect.arrayContaining(['auth-idle-service', 'auth-sidenav']));
+      expect(await refusals('auth-idle-service/probe.ts', `${scope}/auth-service`)).toBe(0);
+      expect(await refusals('auth-sidenav/probe.ts', `${scope}/auth-has-permission`)).toBe(0);
+      expect(await refusals('ui-alert/probe.ts', `${scope}/auth-idle-service`)).toBe(1);
+      expect(await refusals('ui-core-service/probe.ts', `${scope}/auth-sidenav`)).toBe(1);
     },
     limit,
   );

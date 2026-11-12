@@ -4,7 +4,7 @@ import { MatCardModule } from '@angular/material/card';
 import { MatIconModule } from '@angular/material/icon';
 import { Router } from '@angular/router';
 import { LoginMethodsComponent } from '@impulseframework/resource-angular/auth-login-methods';
-import { IdleService } from '@impulseframework/resource-angular/ui-idle-service';
+import { IdleService } from '@impulseframework/resource-angular/auth-idle-service';
 import { ReleaseComponent } from '@impulseframework/resource-angular/ui-release';
 
 /** One card on the crew manifest: the login is the job word, the name alliterates. */
@@ -231,9 +231,7 @@ export class LoginComponent {
 
   /** Prefills the component's form with the persona; signing in stays an explicit click. */
   fillPersona(login: string): void {
-    const methods = this.methods();
-    methods.username = login;
-    methods.password = DEMO_PASSWORD;
+    this.methods().prefill(login, DEMO_PASSWORD);
   }
 
   /** The login the form holds, for the manifest's selected card. */
