@@ -754,12 +754,13 @@ test runs over the recorded steps, holds every step to its shape: at least one s
 naming the release that added it as a canonical version (no pre-release or build part) and
 a note, no release behind the step before's, a step at the same release as the step before
 naming a recipe (the pin moves nowhere, so the recipe is the step), and no recipe named
-twice in one step. The ledger's test also holds the last step's release to the
-repository's release manifest (`.release-please-manifest.json`): a step names the release
-its pull request will take, or an earlier one, never one the release being cut leaves
-behind, since the walk would then take an application to a step no release carries; the
-repository's CI runs the same comparison on release-please's branch, where the manifest
-carries the version the release takes (`release ledger`, `.github/scripts/release-ledger.sh`).
+twice in one step. The repository's CI holds the last step's release to the release being
+cut (`release ledger`, `.github/scripts/release-ledger.sh`): on release-please's branch,
+where the release manifest (`.release-please-manifest.json`) carries the version the
+release takes, a step names that release or an earlier one, never one the release being
+cut leaves behind, since the walk would then take an application to a step no release
+carries. A release that asks nothing of an application adds no step, so the last step may
+stand behind the last release.
 A breaking change in the framework is not done until the step that carries it records its
 recipe, or says that no code change is needed. Applications that predate the first release
 are adopted once by hand, not upgraded.

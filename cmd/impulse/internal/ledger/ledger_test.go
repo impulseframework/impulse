@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"io/fs"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -415,29 +413,5 @@ func TestCurrent(t *testing.T) {
 				t.Errorf("WebPins() mismatch (-want +got):\n%s", diff)
 			}
 		})
-	}
-}
-
-// TestLastStepAgainstManifest holds the ledger's last step to the repository's release
-// manifest: a step names the release its pull request takes, so the last step is at or
-// ahead of the version released last, never behind it. The repository's CI holds the same
-// on release-please's branch (.github/scripts/release-ledger.sh), where the manifest moves.
-func TestLastStepAgainstManifest(t *testing.T) {
-	t.Parallel()
-
-	data, err := os.ReadFile(filepath.Join("..", "..", "..", "..", ".release-please-manifest.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var manifest map[string]string
-	if err := json.Unmarshal(data, &manifest); err != nil {
-		t.Fatal(err)
-	}
-	released := "v" + manifest["."]
-	if !semver.IsValid(released) {
-		t.Fatalf("the release manifest names %q for the module, not a version", manifest["."])
-	}
-	if last := Latest(); semver.Compare(last, released) < 0 {
-		t.Errorf("the ledger's last step names %s and the manifest says %s was released: a step names the release its pull request takes, never one behind the last release", last, released)
 	}
 }
