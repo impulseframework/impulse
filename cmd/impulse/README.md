@@ -65,7 +65,9 @@ templates, this README, and the tool's source.
 - **Method**: one way an auth's people sign in, registered on the Auth under a
   registration name that is the segment of its routes (`user/<registration>/login`):
   `password` (always registered as `password`), `azure` (Microsoft Entra over OpenID
-  Connect) or `google` (Google Workspace over OpenID Connect). An auth may register
+  Connect), `google` (Google Workspace over OpenID Connect) or `oidc` (one
+  organization's identity provider over OpenID Connect, known by its issuer alone, such
+  as Okta or Keycloak). An auth may register
   several, each in a file of its own in the package; the login page composes the
   library's login component, which renders from the methods route, so a method
   registered and declared is a button offered. The console's Users page composes
@@ -497,7 +499,7 @@ impulse check --list
 | `second-factor` | Every auth package's `New` ends its sign-in rule with the second factor: its one `SetSignInPolicy` call on the Auth it constructs (the session library panics at a second) is given `requireSecondFactor`, a function of the package returning `signin.RequireMFA`, alone or chained last with `.Then` after the tenant policy. Every session carries a second factor, and the rule is the whole of it: the sign-in codes and trusted devices tables (`session-tables`) and the pending sign-in's code handlers (the router compiles against them) ask nobody for the code by themselves, so an auth that sets no rule, or a rule that ends elsewhere, admits a session on the password alone. `--fix` writes the rule as `impulse upgrade`'s `second-factor` recipe writes it: `.Then(requireSecondFactor)` chained on the call's policy, or the call set after the construction's error check when the package makes none, and the function at the end of the file with its imports when the package has none returning `signin.RequireMFA`; it then names what the rule leaves to the author, which no check sees: the application's tests that sign in with a password now meet the code step, and complete it as the skeleton's integration tests do. |
 | `change-signal` | Every permission engine constructed outside tests (`access.New`) is handed a change signal: an `access.WithChangeSignal` option among the call's arguments, the skeletons' being `access.ChangeSignalFunc(announcePolicy(signals), watchPolicy(signals))` over the live service's `policy` kind. Without it a role, grant or membership written on one instance reaches the others at the engine's next heartbeat alone. A package constructing an engine without the option fails on its own line, naming each construction by file and line; a call forwarding its options (`opts...`) fails too, since the signal cannot be read there. Skipped when the application constructs no engine. |
 | `conditions-proven` | Every conditional grant in a role file the release hands to the permission engine (`pkg/auth/<auth>/roles.json`, the `<auth>.Roles()` an `access.WithDefaultRoles` call takes) is named by a test case calling the harness helper `provesGrant(t, <auth>.Roles(), role, permission, resource, condition)` with literal coordinates. The generated authorization matrix runs a fake engine with unconditional grants and the deploy-time validation reads the grammar, so whether a condition does what its author meant on real rows is proven only by a case over seeded rows: a row the condition admits answers, a row it refuses is refused. The check reads the call; the helper, in `test/integration/harness_test.go`, parses the role file when the test runs and fails when the grant is gone or its condition reads differently, so the case and the file hold each other from both sides. A grant no case names fails the check on its own line; a call naming a grant the file does not carry, or one the check cannot read, is a finding too; a file with no conditional grant reads "0 conditional grants". Unconditional grants need no case: the generic test `test/integration/grants_test.go` parses the auths' role files and proves the engine serves every one of them. When the check fails under `impulse handoff`, the brief carries the pattern a case follows. |
-| `skipauth` | When an auth registers a directory method (azure, google), the simulated directory stays in development and tests: no application code reads `APP_USERNAME`, `APP_ROLES` or a registration's `APP_<REGISTRATION>_USERNAME` and `_ROLES` (only the session library's `skipAuth` build does), and no build description (Dockerfile, cloudbuild, Makefile) carries the tag, which would let a deployed build accept any name as a login. |
+| `skipauth` | When an auth registers a directory method (azure, google, oidc), the simulated directory stays in development and tests: no application code reads `APP_USERNAME`, `APP_ROLES` or a registration's `APP_<REGISTRATION>_USERNAME` and `_ROLES` (only the session library's `skipAuth` build does), and no build description (Dockerfile, cloudbuild, Makefile) carries the tag, which would let a deployed build accept any name as a login. |
 | `emulator-version` | The generator option, the process files' image tags, and the test harnesses name one Spanner emulator version; the process files and test harnesses that start the Firestore emulator (the Cloud SDK emulators image, `google-cloud-cli:<version>-emulators`, or the `db` package's `NewFirestoreContainer`, which takes the same version) name one version of it. The summary states both; an application whose process files and test harnesses name no Firestore emulator fails, since development cannot start without it: the data level refuses to start with neither `APP_FIRESTORE_DATABASE` nor `FIRESTORE_EMULATOR_HOST` set. |
 | `prettier-ignore` | Each browser app's `.prettierignore` excludes the generated TypeScript. Prettier reflowing generated files breaks generate idempotence. `--fix` adds the entry. |
 | `eslint-ignore` | Each browser app receiving generated TypeScript ignores it in its eslint flat config (`ignores: ['**/zz_gen_*.ts']`) or `.eslintignore`. Generated shapes trip stylistic rules, and the output is not the developer's to change. |
@@ -955,8 +957,10 @@ consumed it has committed (`SetInvitationAccepted` over `resource.SeatInvited`),
 the sign-in's transaction, so the permission engine's own transaction never waits on it.
 
 `--method` names the methods the Auth starts with, repeatable: `password` (the default
-when none is given), `azure:<registration>`, `google:<registration>` or `persona` (the
-persona sign-in of the test environments, section add method), the registration
+when none is given), `azure:<registration>`, `google:<registration>`,
+`oidc:<registration>` (one organization's identity provider, section add method; its
+registration name has no default) or `persona` (the persona sign-in of the test
+environments, section add method), the registration
 being the segment of the method's routes (`user/<registration>/login`). A directory method
 added here takes one organization, and `--accounts` its account rule for a first sign-in as
 `add method` takes it (`members`, the default, or `invited`; `open` is refused with one
@@ -1008,13 +1012,15 @@ impulse add auth members --method azure:directory --authority application --outl
 impulse add auth members --method google:workspace --authority directory --outlet portal
 impulse add auth members --method google:google --authority application --accounts invited --outlet portal
 impulse add auth clients --method password --accounts open --username-is-email --outlet portal
+impulse add auth employees --method oidc:company-sso --authority directory --outlet portal
 ```
 
 `add method` adds a sign-in method to an auth the application has: `password`, `azure`
-(Microsoft Entra over OpenID Connect), `google` (Google Workspace over OpenID Connect) or
+(Microsoft Entra over OpenID Connect), `google` (Google Workspace over OpenID Connect),
+`oidc` (one organization's identity provider over OpenID Connect, below) or
 `persona` (the persona sign-in of the test environments, below), under the registration
-name given (the kind's name when none is given; the password method is always
-`password`). The method is a file of its own in the auth's package,
+name given (the kind's name when none is given; an identity provider always gives one,
+and the password method is always `password`). The method is a file of its own in the auth's package,
 `pkg/auth/<auth>/<registration>.go`, holding its registration constant, its settings, its
 handlers and the `register<Registration>` call New makes before the first request; the
 Auth file's `Handlers` and `Settings` gain it; the data level reads a directory method's
@@ -1024,7 +1030,8 @@ settings from the environment under the registration's variables,
 slot declares no `_TENANT_ID`, and personal accounts alone no `_ADMINISTERED_TENANTS`
 either), `_CLIENT_ID`, `_CLIENT_SECRET`, `_REDIRECT_URL`, `_HOSTED_DOMAIN` and
 `_ADMINISTERED_WORKSPACES` for google (`_WORKSPACES` for the listed slot, `_GROUP_PREFIX`
-and `_GROUP_LOOKUP` under the directory authority); the administered setting names the
+and `_GROUP_LOOKUP` under the directory authority), `_ISSUER`, `_CLIENT_ID`,
+`_CLIENT_SECRET` and `_REDIRECT_URL` for oidc; the administered setting names the
 organizations the deployment administers among those the slot admits, by tenant id or
 domain, whose sign-ins carry the directory's second factor and are not asked for the
 sign-in code (empty where it administers none); the secret's field
@@ -1077,6 +1084,48 @@ only on an auth that registers no other method, as no method is added beside a
 registration that writes the roles: the command names the two ways out, an auth of its
 own or the application authority.
 
+`oidc` is one organization's identity provider: a provider with nothing vendor-specific
+about it, which the session library knows by its issuer alone (Okta, Keycloak, an identity
+gateway). The method is the session library's generic OpenID Connect method
+(`oidc.SignIn`), the application a client the provider gave a secret. The provider is named
+in the registration's settings (`APP_<AUTH>_<REGISTRATION>_ISSUER`, `_CLIENT_ID`,
+`_CLIENT_SECRET`, `_REDIRECT_URL`) and registered in the method file, so it is the same
+provider for everyone the auth holds and it changes with a release. The registration name
+is required: it is the application's word for the provider (`okta`, `company-sso`), the
+segment of the method's routes, the connection every identity link carries and, with each
+word capitalized, the label of its button on the login page (`.Labeled(text)` on the
+declaration says another). The method takes no `--slot`, since the issuer names the one
+organization. `--accounts` is `members` (the default: whoever the provider signs in
+becomes a user under the name it presents, the token's `preferred_username` or else its
+`email`) or `invited`; `open` is refused, since everyone the provider signs in is a member
+of its organization, whom the method admits without it. `--authority` is as for a
+directory: under `directory` every sign-in reconciles the person's roles to the ID
+token's `roles` claim, a list of role names at the top level of the token, and removes any
+role the claim does not name, and a sign-in whose claim names no role the role file
+defines is refused. The claim's name is fixed, so the provider is set up to send it for
+this client (a custom claim on Okta, a mapper on Keycloak, whose own `realm_access.roles`
+is nested and is not read). Under `application` the claim is not read. In a tenanted
+application whose tenants declare the directories their people enter through, a sign-in
+through the provider is a directory's to the sign-in policy, method `oidc` under the
+registration's name as the connection: a person who holds a role in the global partition
+is admitted and reaches every tenant, anyone else enters a tenant only where the tenant
+declares that directory, and a person who holds roles in particular tenants, none of
+which declares it, is refused (`connection_not_in_tenant`). The directories record
+`add tenancy` composes admits `google`, `azure` and `workos` in its method column, so
+the command leaves two things to wire there: a migration that admits `oidc` in the
+column's check, and the method on the console's page that declares a tenant's
+directories. A sign-in whose
+token names `mfa` in its `amr` claim carries the second factor; any other is asked for the
+sign-in code the Auth mails, where the sign-in policy requires a second factor. The
+declaration is `generation.OIDCMethod("<registration>")`, with `.InvitedUsers()` or
+`.SyncsRoles()` chained as the method file says. `check` tells this method from the
+persona method, which registers with the same call, by the configuration: one that sets
+`ClientSecret` is an identity provider, one that sets none is the persona method. Under
+`skipAuth` the provider is simulated like a directory; the registration validates its
+issuer in every build, so the environment template sets a well-formed placeholder
+(`https://provider.example.com`) and the command names the same value for the test
+harness.
+
 `persona` is the sign-in of the test environments: a reviewer, a tester or an agent opens
 the application in a pull-request environment or the first environment, clicks one button
 on its login page, picks a persona from the deployment's cast at the persona provider
@@ -1122,6 +1171,7 @@ impulse add method members azure directory --authority application --agent
 impulse add method members google workspace --slot listed --accounts invited --authority application
 impulse add method partners password
 impulse add method clients password --accounts open --username-is-email
+impulse add method staff oidc okta --authority application --accounts invited
 impulse add method staff persona
 ```
 

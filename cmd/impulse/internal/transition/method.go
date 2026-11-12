@@ -26,7 +26,9 @@ import (
 // route, so a method declared is a button offered; nothing else about the surface
 // changes. The persona method, the sign-in of the test environments, also gets its cast
 // (cast.json, the personas the deployment seeds and registers with the persona provider)
-// and the file that reads and seeds it (cast.go).
+// and the file that reads and seeds it (cast.go). An organization's identity provider
+// (oidc) is the same library method registered in every environment, under the name the
+// application gives the provider.
 type Method struct {
 	// Auth is the name of the auth the method is added to.
 	Auth string
@@ -171,6 +173,7 @@ func (m *Method) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Cha
 			return nil, err
 		}
 		slotHandoff(ch, m.Auth, spec)
+		declarationHandoff(ch, a, spec)
 	}
 	if err := generate(ctx, a, exec, ch, "go generate ./... failed; fix the cause and run it:", "ran go generate ./..., so the router mounts the method's routes and the login page offers it"); err != nil {
 		return nil, err
@@ -244,6 +247,9 @@ func passwordShape(m *authpkg.Method) string {
 func slotSentence(m *authpkg.Method) string {
 	if m.Persona() {
 		return "the persona provider"
+	}
+	if m.Kind == app.MethodOIDC {
+		return "one organization's identity provider"
 	}
 	switch m.Slot {
 	case "", authpkg.SlotOne:
@@ -374,7 +380,7 @@ func methodType(kind string) string {
 		return "*azure.Method"
 	case app.MethodGoogle:
 		return "*google.Method"
-	case app.MethodPersona:
+	case app.MethodOIDC, app.MethodPersona:
 		return "*oidc.Method"
 	default:
 		return "*session.PasswordMethod"
@@ -388,7 +394,7 @@ func methodImport(kind string) string {
 		return "github.com/impulseframework/impulse/session/azure"
 	case app.MethodGoogle:
 		return "github.com/impulseframework/impulse/session/google"
-	case app.MethodPersona:
+	case app.MethodOIDC, app.MethodPersona:
 		return "github.com/impulseframework/impulse/session/oidc"
 	default:
 		return "github.com/impulseframework/impulse/session"
@@ -559,9 +565,7 @@ func callbackNote(spec *authpkg.Method) string {
 	switch spec.Kind {
 	case app.MethodAzure:
 		return ", the callback and the front-channel logout"
-	case app.MethodGoogle:
-		return " and the callback"
-	case app.MethodPersona:
+	case app.MethodGoogle, app.MethodOIDC, app.MethodPersona:
 		return " and the callback"
 	default:
 		return ""
@@ -588,7 +592,11 @@ func (m *Method) Meaning() string {
 		b.WriteString("It is the sign-in of the test environments: the method is registered only where the persona provider is configured (an empty issuer leaves it unregistered, so a later environment never offers it and nothing in the build differs between environments), the application is a public client of the provider with PKCE and no secret, a person who signed in to the provider picks a persona of this deployment's cast and comes back as that persona, and the account rule is invited users only, linking the persona's identity to the account the migrate command seeded under its login. Role membership stays the application's: the provider says which persona signed in and the cast says what it may do. ")
 		fmt.Fprintf(&b, "The data level reads its settings from the environment under the registration's variables (%s), which bedrock sets in the first environment and its pull requests from the placement's persona block and leaves empty beyond them, and the Procfile builds with the session library's `skipAuth` tag, which simulates the provider in development: a sign-in through this registration is `APP_%s_USERNAME`, or `APP_USERNAME` when that is unset. ", strings.Join(methodVariables(m.Auth, spec), ", "), strings.ToUpper(strings.ReplaceAll(spec.Name, "-", "_")))
 	case spec.Directory():
-		fmt.Fprintf(&b, "Its organization slot is %s and its account rule %s. ", slotSentence(spec), accountsSentence(spec))
+		if spec.Kind == app.MethodOIDC {
+			fmt.Fprintf(&b, "It signs in through %s, a provider known by its issuer alone, such as Okta or Keycloak: the provider is named in the registration's settings and its registration in the method file, so it serves the whole application and changes with a release. Its account rule is %s. A sign-in whose token says a second factor was used (its `amr` claim names `mfa`) carries that proof, and any other is asked for the sign-in code the Auth mails. ", slotSentence(spec), accountsSentence(spec))
+		} else {
+			fmt.Fprintf(&b, "Its organization slot is %s and its account rule %s. ", slotSentence(spec), accountsSentence(spec))
+		}
 		if spec.Authority == AuthorityDirectory {
 			b.WriteString("Role membership is the directory's: every sign-in reconciles the person's roles to what the directory asserts and removes any it does not name, so nothing in the application assigns roles in this store for people who sign in this way. ")
 		} else {
@@ -615,6 +623,9 @@ func (m *Method) Meaning() string {
 		)
 		if spec.Authority == AuthorityDirectory {
 			items = append(items, "Seed no roles for people who sign in this way; define the roles in the role file and assign them in the directory. The declaration chains `.SyncsRoles()` (the method file's `RoleSync`), so the generated users surface shows these people's roles as the directory's and never writes them.")
+		}
+		if spec.Kind == app.MethodOIDC && spec.Authority == AuthorityDirectory {
+			items = append(items, "Have the provider send the roles. The method reads a person's roles from the ID token's `roles` claim, a list of role names at the top level of the token, and nowhere else: set the provider up to add that claim for this client (a custom claim on Okta, a mapper on Keycloak), with the names the role file defines. A sign-in whose token names no role the file defines is refused.")
 		}
 		if spec.Accounts == authpkg.AccountsInvited {
 			items = append(items, invitationsItem(m.Auth, []string{spec.Name}))
@@ -806,7 +817,7 @@ func writeMethodEnv(a *app.App, auth string, spec *authpkg.Method, callback *dev
 		case f.Name == authpkg.FieldRedirectURL:
 			fmt.Fprintf(&b, "# %s is the browser-facing callback of the surface that binds to the %s auth, such as\n# http://127.0.0.1:4300/api/user/%s/callback through the dev proxy; read under the\n# simulated directory too, since it is where the simulated sign-in returns.\nexport %s=\n", variable, auth, spec.Name, variable)
 		case f.Simulated:
-			fmt.Fprintf(&b, "# %s: %s. Read under the simulated directory too.\nexport %s=%s\n", variable, f.Doc, variable, devValue(f, auth))
+			fmt.Fprintf(&b, "# %s: %s. Read under the simulated directory too.\nexport %s=%s\n", variable, f.Doc, variable, devValue(spec, f, auth))
 		default:
 			fmt.Fprintf(&b, "# %s: %s.\n# export %s=\n", variable, f.Doc, variable)
 		}
@@ -828,7 +839,9 @@ const placeholderTenant = "00000000-0000-0000-0000-000000000000"
 // slotHandoff names the test wiring a method with an organization slot needs: the session
 // library validates the slot at registration whether or not the directory is simulated,
 // so every test that constructs the auth hands the registration a well-formed placeholder
-// that is nobody's, as the development template does. A Google method under the
+// that is nobody's, as the development template does. An organization's identity provider
+// has no slot, and its issuer is validated the same way, so the obligation names the
+// issuer. A Google method under the
 // directory's authority validates its role groups' prefix the same way
 // (google.RoleSync refuses an empty prefix, the only filter separating role groups from
 // the rest of the directory), so the obligation names the prefix beside the slot; the
@@ -843,6 +856,10 @@ func slotHandoff(ch *Change, auth string, spec *authpkg.Method) {
 		switch f.Name {
 		case authpkg.FieldTenantID, authpkg.FieldTenants, authpkg.FieldHostedDomain, authpkg.FieldWorkspaces:
 			slot = f
+		case authpkg.FieldIssuer:
+			if spec.Kind == app.MethodOIDC {
+				slot = f
+			}
 		case authpkg.FieldGroupPrefix:
 			prefix = f
 		}
@@ -851,19 +868,43 @@ func slotHandoff(ch *Change, auth string, spec *authpkg.Method) {
 		return
 	}
 	validated := "its organization slot"
-	literal := fmt.Sprintf("%s: %q, RedirectURL: <the served callback>", slot.Name, devValue(slot, auth))
-	variables := fmt.Sprintf("%s=%s", spec.Variable(auth, slot), devValue(slot, auth))
+	if spec.Kind == app.MethodOIDC {
+		validated = "its issuer"
+	}
+	literal := fmt.Sprintf("%s: %q, RedirectURL: <the served callback>", slot.Name, devValue(spec, slot, auth))
+	variables := fmt.Sprintf("%s=%s", spec.Variable(auth, slot), devValue(spec, slot, auth))
 	if prefix != nil {
 		validated = "its organization slot and its role groups' prefix"
-		literal += fmt.Sprintf(", %s: %q", prefix.Name, devValue(prefix, auth))
-		variables += fmt.Sprintf(" and %s=%s", spec.Variable(auth, prefix), devValue(prefix, auth))
+		literal += fmt.Sprintf(", %s: %q", prefix.Name, devValue(spec, prefix, auth))
+		variables += fmt.Sprintf(" and %s=%s", spec.Variable(auth, prefix), devValue(spec, prefix, auth))
 	}
 	ch.skipf("test/integration/harness_test.go and cmd/deployment/migrate/main_test.go: the %s registration validates %s at registration whether or not the directory is simulated, so give the %s auth's construction in the harness %s: %s.%s{%s} and set %s where the migrate run's environment is", spec.Name, validated, auth, spec.Pascal(), auth, spec.SettingsType(), literal, variables)
 }
 
-// devValue is what the development template sets for a field the simulated directory
-// reads: a placeholder that lets the simulation run.
-func devValue(f *authpkg.Field, auth string) string {
+// declarationHandoff names what a tenanted application's tenants need before they can
+// admit their people through an organization's identity provider. The session library's
+// tenant policy (signin.TenantPolicy) reads a sign-in through the generic OpenID Connect
+// method as a directory's, method oidc under the registration's connection, and a
+// session reaches a tenant whose declaration admits the way it was established
+// (resource.UserPermissions.Reaches): a person who holds a role in the global partition
+// is admitted and reaches every tenant, anyone else enters a tenant only where the tenant
+// declares that directory, and a person who holds roles in particular tenants, none of
+// which declares it, is refused. The directories record impulse composes admits google,
+// azure and workos in its method column, so the obligation names the column's check and
+// the console page that lists the methods.
+func declarationHandoff(ch *Change, a *app.App, spec *authpkg.Method) {
+	if spec.Kind != app.MethodOIDC {
+		return
+	}
+	for i := range a.TenantDirectories {
+		record := &a.TenantDirectories[i]
+		ch.skipf("%s: the tenants declare the directories their people enter through (%s), and a sign-in through %s is a directory's to the sign-in policy, method oidc under the connection %q: a person who holds a role in the global partition is admitted and reaches every tenant; anyone else enters a tenant only where the tenant declares that directory, and a person who holds roles in particular tenants, none of which declares it, is refused (connection_not_in_tenant). The record's method column admits google, azure and workos as it was composed, so for a tenant to declare this provider add a migration that admits oidc in the column's check, and offer the method on the console's page that declares a tenant's directories", record.File, record.Name, spec.Name, spec.Name)
+	}
+}
+
+// devValue is what the development template sets for a field of the method the simulated
+// directory reads: a placeholder that lets the simulation run.
+func devValue(spec *authpkg.Method, f *authpkg.Field, auth string) string {
 	switch f.Name {
 	case authpkg.FieldTenantID:
 		return placeholderTenant
@@ -876,6 +917,10 @@ func devValue(f *authpkg.Field, auth string) string {
 	case authpkg.FieldGroupPrefix:
 		return auth + "-"
 	case authpkg.FieldIssuer:
+		if spec.Kind == app.MethodOIDC {
+			return placeholderProviderIssuer
+		}
+
 		return placeholderIssuer
 	case authpkg.FieldClientID:
 		return auth + "-dev"
@@ -888,6 +933,10 @@ func devValue(f *authpkg.Field, auth string) string {
 // method registers with an absolute URL whether or not the provider is simulated, so the
 // development template names one nobody serves, and the simulated sign-in never calls it.
 const placeholderIssuer = "https://persona.example.com"
+
+// placeholderProviderIssuer is the same placeholder for an organization's identity
+// provider, whose registration checks its issuer's shape in every build.
+const placeholderProviderIssuer = "https://provider.example.com"
 
 // literalPlace is where an auth's Settings literal is built on the data level: add
 // appends an element to it, and name is how a did line names it.

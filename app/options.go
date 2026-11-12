@@ -87,7 +87,7 @@ func (k paramKind) String() string {
 	case paramOutletOption:
 		return "OutletOption"
 	case paramAuthMethod:
-		return "sign-in method declaration (generation.PasswordMethod(), GoogleMethod(name), AzureMethod(name), or WorkOSMethod(name), with .Labeled(label), .InvitedUsers(), .SyncsRoles(), .OpenSignUp() or .UsernameIsEmail() when chained)"
+		return "sign-in method declaration (generation.PasswordMethod(), GoogleMethod(name), AzureMethod(name), WorkOSMethod(name), OIDCMethod(name), or PersonaMethod(name), with .Labeled(label), .InvitedUsers(), .SyncsRoles(), .OpenSignUp() or .UsernameIsEmail() when chained)"
 	case paramRelease:
 		return "release string literal (\"1.5.0\") or generation." + ThisReleaseIdent
 	case paramInt:
@@ -181,6 +181,7 @@ var authMethodConstructors = map[string]string{
 	"GoogleMethod":   MethodGoogle,
 	"AzureMethod":    MethodAzure,
 	"WorkOSMethod":   MethodWorkOS,
+	"OIDCMethod":     MethodOIDC,
 	"PersonaMethod":  MethodPersona,
 }
 

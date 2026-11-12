@@ -70,7 +70,8 @@ const (
 // the login page is told of it.
 type servedMethod struct {
 	// Name is the registration's name on the Auth, Label what the login page shows,
-	// Kind the method behind the registration (password, google, azure, workos, persona).
+	// Kind the method behind the registration (password, google, azure, workos, oidc,
+	// persona).
 	Name  string
 	Label string
 	Kind  string
@@ -1126,7 +1127,7 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 				route(http.MethodPost, base+"/change", sm.Accessor+"Change", true),
 			)
 			so.ChangePassword = prefix + base + "/change"
-		case methodGoogle, methodWorkOS, methodAzure:
+		case methodGoogle, methodWorkOS, methodAzure, methodOIDC:
 			sm.LoginPath = prefix + base + "/login"
 			sm.Handlers = []string{sm.Accessor + "Login", sm.Accessor + "Callback"}
 			sm.Description = fmt.Sprintf("The %s registration's login and callback (%s.Method)", m.name, m.kind)

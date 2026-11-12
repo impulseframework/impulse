@@ -373,66 +373,8 @@ func newAddAuth() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "auth <name>",
 		Short: "Add an auth: a population that holds roles in its own store and signs in through the methods on its Auth",
-		Long: `auth adds an auth package, pkg/auth/<name>, rendered from the same source as the skeleton's
-auths, so the new population owns its own session, user, identity, auth event and pending
-sign-in tables, cookie, store prefix, and role file from the start, with one file per
-sign-in method. Its session tables are written as migrations under the new prefix and its
-access tables copied from an auth the application has; an empty role file is written in
-the package (the file its Roles() embeds and hands to the permission engine), and the data
-level constructs it beside that auth. The package carries a foothold (foothold.go): the
-first administrator the migrate command seeds while the auth's users table holds no rows,
-a user named administrator with the password the stack generates for a password auth, or
-the administrator role memberships under a sign-in name the placement names for an auth
-whose roles the application assigns; its roles, its setting in the data level and its
-seeding from pkg/deploy are handed to the agent.
-
---method names the sign-in methods the Auth starts with, repeatable: password (the default
-when none is given), azure:<registration> (Microsoft Entra over OpenID Connect) or
-google:<registration> (Google Workspace over OpenID Connect), the registration being the
-segment of the method's routes (user/<registration>/login). A directory method added here
-takes one organization, and --accounts its standard account rule for a first sign-in, one
-rule for every method given: members (members of the directory, the default: the person
-becomes a user under the name the directory presents), invited (invited users only: a user
-created beforehand is linked, anyone else refused) or open (open sign-up, which the session
-library allows with any organization or personal accounts alone, so it is refused with the
-one organization taken here); impulse add method composes the other slots. The rule is
-written to the method file (Accounts) and, for invited, as .InvitedUsers() on the method's
-declaration, so the generated users surface creates the invitations. The password method
-takes open alone: a stranger gives their address on the login page, follows the link
-mailed to it and chooses a password (session.OpenSignUp(), and .OpenSignUp() on the
-declaration, so the router serves the sign-up routes); members and invited describe a
-directory and are refused with the password method alone. --username-is-email makes the
-password method's sign-in name the person's email address (session.UsernameIsEmail(), and
-.UsernameIsEmail() on the declaration): the users surface derives the address from the
-username, and a verified change of address renames the user with its seats. Every auth
-mails, through the application's one sender (Settings.Mail) and to the login page of the
-surface bound to it (Settings.MailLoginURL): an administrator invites a person by address
-with the roles the invitation seats, and a signed-in person adds and verifies an address.
-A directory method's settings are read from the environment under the registration's
-variables (APP_<NAME>_<REGISTRATION>_*), the Procfile builds with the session library's
-skipAuth tag (the directory simulated until the application is registered with one), and
-the role-membership authority is set by --authority, which is asked when it is not given:
-"directory" makes the directory's roles the authority (every sign-in reconciles the
-person's roles to them and removes what they do not name), "application" keeps role
-assignment in the application. There is no default, because the wrong answer deletes
-hand-assigned roles at the next sign-in.
-
---outlet names the outlet the new auth serves, asked when it is not given: default for the
-one GenerateRoutes declares (the console's), or a WithRouterOutlet name such as portal; in
-the sites layout the site's name for its default outlet. The outlet must exist (impulse
-add outlet adds one, bound to an auth the application has), and an API-key outlet is
-refused, since a machine surface has no sign-in. The outlet's declaration in the generator
-program is pointed at the new auth with its methods, in place of the auth it declared, so
-the regenerated router mounts the auth's session group under the outlet's prefix: its
-login routes, the methods route its login page renders from, and the pending sign-in
-routes. There is no default, because an auth is reachable only through the outlet bound
-to it. Under a hand-written router the program declares no Auth to point, and the brief
-says to mount the group in the router.
-
-Checking the auth's roles in the deploy, the App's handlers the generated router now
-requires for the outlet, its development identities, and the tests that prove its people
-are strangers to the other auths are handed to the agent.`,
-		Args: cobra.ExactArgs(1),
+		Long:  addAuthLong,
+		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			specs, err := authMethods(cmd, methods, authority, accounts, usernameIsEmail)
 			if err != nil {
@@ -450,7 +392,7 @@ are strangers to the other auths are handed to the agent.`,
 		},
 	}
 	f.bind(cmd)
-	cmd.Flags().StringArrayVar(&methods, "method", nil, "a sign-in method the auth starts with (repeatable): password, azure:<registration>, or google:<registration>; password when none is given")
+	cmd.Flags().StringArrayVar(&methods, "method", nil, "a sign-in method the auth starts with (repeatable): password, azure:<registration>, google:<registration>, or oidc:<registration>; password when none is given")
 	cmd.Flags().StringVar(&authority, "authority", "", "who owns role membership for the directory methods: directory (roles synchronized at every sign-in) or application (roles assigned in the application); asked when not given")
 	cmd.Flags().StringVar(&accounts, "accounts", "", "the standard account rule for a first sign-in: members (default), invited, or open; the password method takes open alone")
 	cmd.Flags().BoolVar(&usernameIsEmail, "username-is-email", false, "the password method's sign-in name is the person's email address")
@@ -487,10 +429,10 @@ func authMethods(cmd *cobra.Command, methods []string, authority, accounts strin
 		authority = answer
 	}
 	if !directory && authority != "" {
-		return nil, errors.New("--authority goes with a directory method (azure or google); the password method's role membership is the application's")
+		return nil, errors.New("--authority goes with a directory method (azure, google or oidc); the password method's role membership is the application's")
 	}
 	if !directory && accounts != "" && accounts != authpkg.AccountsOpen {
-		return nil, errors.Newf("--accounts %s goes with a directory method (azure or google); the password method takes open (a stranger signs up from a link mailed to their address) or no rule (its users are created in the application, or invited)", accounts)
+		return nil, errors.Newf("--accounts %s goes with a directory method (azure, google or oidc); the password method takes open (a stranger signs up from a link mailed to their address) or no rule (its users are created in the application, or invited)", accounts)
 	}
 	if !password && usernameIsEmail {
 		return nil, errors.New("--username-is-email goes with the password method, whose sign-in name it makes the person's email address; a directory method's people sign in as the directory names them")
@@ -580,7 +522,9 @@ func outletDescription(c *transition_.OutletChoice) string {
 	}
 }
 
-// parseMethods reads --method flags: password, or <kind>:<registration>.
+// parseMethods reads --method flags: password, or <kind>:<registration>. The registration
+// is the kind's name when a Microsoft, Google or persona method gives none; an identity
+// provider's is the application's word for the provider and has no default.
 func parseMethods(flags []string) ([]authpkg.Method, error) {
 	if len(flags) == 0 {
 		return []authpkg.Method{{Kind: app.MethodPassword}}, nil
@@ -599,8 +543,13 @@ func parseMethods(flags []string) ([]authpkg.Method, error) {
 				name = kind
 			}
 			specs = append(specs, authpkg.Method{Kind: kind, Name: name})
+		case app.MethodOIDC:
+			if name == "" {
+				return nil, errors.Newf("--method %s: an identity provider's registration needs a name, oidc:<registration>: the application's word for the provider (okta, company-sso), which is the segment of its routes and the connection every link made through it carries", flag)
+			}
+			specs = append(specs, authpkg.Method{Kind: kind, Name: name})
 		default:
-			return nil, errors.Newf("--method %s: password, azure:<registration>, google:<registration>, or persona", flag)
+			return nil, errors.Newf("--method %s: password, azure:<registration>, google:<registration>, oidc:<registration>, or persona", flag)
 		}
 	}
 
@@ -619,58 +568,16 @@ func newAddMethod() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "method <auth> <kind> [<registration>]",
 		Short: "Add a sign-in method to an auth: a registration on its Auth, in a file of its own",
-		Long: `method adds a sign-in method to an auth the application has: password, azure (Microsoft
-Entra over OpenID Connect), google (Google Workspace over OpenID Connect) or persona (the
-persona sign-in of the test environments, over OpenID Connect against the persona
-provider), under the registration name given (the segment of its routes,
-user/<registration>/login; the kind's name when none is given; the password method is
-always registered as password). The method gets a file of its own in the auth's package
-with its registration constant, its settings, its handlers and the registration New makes;
-the Auth file's Handlers and Settings gain it; the data level reads its settings from the
-environment under the registration's variables (APP_<AUTH>_<REGISTRATION>_*); every outlet
-bound to the auth declares it, so the generated router mounts its routes and the login page,
-which renders from the methods route, offers it; and for a directory method the Procfile
-builds with the session library's skipAuth tag, which simulates the directory until the
-application is registered with it.
-
-The persona method is registered only where the persona provider is configured: the
-placement's persona block names the provider's issuer and the application's client ID root,
-bedrock sets them in the first environment and its pull requests, and a later environment,
-where they are empty, never offers the method. It takes no slot, the application authority
-and invited users only: the personas are the accounts of the auth's cast (pkg/auth/<auth>/cast.json,
-written empty here and named by hand), which the migrate command seeds and the deploy
-registers with the provider, and a sign-in links the persona's identity to its account.
-
---slot is the organization slot of a directory method, which organizations' accounts it
-admits. For azure: one (one tenant, the default), listed (named tenants), any (any tenant),
-personal (Microsoft personal accounts alone), one-personal (one tenant and personal
-accounts), any-personal (any tenant and personal accounts). For google: one (one
-Workspace, the default), listed (named Workspaces), any-workspace (any Workspace), any
-(any Google account), mixed (one Workspace and any Google account).
-
---accounts is the standard account rule for a first sign-in: members (members of the
-directory, the default: the person becomes a user under the name the directory presents),
-invited (invited users only: a user created beforehand is linked, anyone else refused) or
-open (open sign-up). The session library allows open only with any organization or
-personal accounts, and refuses members there, since every organization in the world is
-"the directory". The password method takes open alone: a stranger gives their address on
-the login page, follows the link mailed to it and chooses a password (session.OpenSignUp(),
-and .OpenSignUp() on the declaration, so the router serves the sign-up routes).
-
---username-is-email makes the password method's sign-in name the person's email address
-(session.UsernameIsEmail(), and .UsernameIsEmail() on the declaration): the users surface
-derives the address from the username, and a verified change of address renames the user
-with its seats.
-
---authority is who owns role membership for a directory method, asked when not given:
-directory (the directory's roles are synchronized at every sign-in, allowed with one
-organization only) or application (roles are assigned in the application).`,
-		Args: cobra.RangeArgs(2, 3),
+		Long:  addMethodLong,
+		Args:  cobra.RangeArgs(2, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			spec := authpkg.Method{Kind: args[1], Slot: slot, Accounts: accounts, Authority: authority, UsernameIsEmail: usernameIsEmail}
-			if len(args) == 3 {
+			switch {
+			case len(args) == 3:
 				spec.Name = args[2]
-			} else if spec.Kind != app.MethodPassword {
+			case spec.Kind == app.MethodOIDC:
+				return errors.New("the oidc method needs a registration name: impulse add method <auth> oidc <registration>, the application's word for the provider (okta, company-sso), which is the segment of its routes and the connection every link made through it carries")
+			case spec.Kind != app.MethodPassword:
 				spec.Name = spec.Kind
 			}
 			if spec.Kind == app.MethodPassword && (slot != "" || authority != "") {
@@ -697,8 +604,8 @@ organization only) or application (roles are assigned in the application).`,
 	}
 	f.bind(cmd)
 	cmd.Flags().StringVar(&authority, "authority", "", "who owns role membership for a directory method: directory (roles synchronized at every sign-in, one organization only) or application (roles assigned in the application); asked when not given, and application for the persona method")
-	cmd.Flags().StringVar(&slot, "slot", "", "the organization slot of a directory method: azure one|listed|any|personal|one-personal|any-personal, google one|listed|any-workspace|any|mixed (default: one)")
-	cmd.Flags().StringVar(&accounts, "accounts", "", "the standard account rule for a first sign-in: members (default), invited, or open; the password method takes open alone")
+	cmd.Flags().StringVar(&slot, "slot", "", "the organization slot of a Microsoft or Google method: azure one|listed|any|personal|one-personal|any-personal, google one|listed|any-workspace|any|mixed (default: one); oidc and persona take none")
+	cmd.Flags().StringVar(&accounts, "accounts", "", "the standard account rule for a first sign-in: members (default), invited, or open; the password method takes open alone, and oidc members or invited")
 	cmd.Flags().BoolVar(&usernameIsEmail, "username-is-email", false, "the password method's sign-in name is the person's email address")
 
 	return cmd
@@ -869,3 +776,129 @@ func renderReference(candidate string) (string, error) {
 
 	return dir, nil
 }
+
+// addAuthLong is the help of add auth.
+const addAuthLong = `auth adds an auth package, pkg/auth/<name>, rendered from the same source as the skeleton's
+auths, so the new population owns its own session, user, identity, auth event and pending
+sign-in tables, cookie, store prefix, and role file from the start, with one file per
+sign-in method. Its session tables are written as migrations under the new prefix and its
+access tables copied from an auth the application has; an empty role file is written in
+the package (the file its Roles() embeds and hands to the permission engine), and the data
+level constructs it beside that auth. The package carries a foothold (foothold.go): the
+first administrator the migrate command seeds while the auth's users table holds no rows,
+a user named administrator with the password the stack generates for a password auth, or
+the administrator role memberships under a sign-in name the placement names for an auth
+whose roles the application assigns; its roles, its setting in the data level and its
+seeding from pkg/deploy are handed to the agent.
+
+--method names the sign-in methods the Auth starts with, repeatable: password (the default
+when none is given), azure:<registration> (Microsoft Entra over OpenID Connect),
+google:<registration> (Google Workspace over OpenID Connect) or oidc:<registration> (an
+organization's own identity provider over OpenID Connect, one known by its issuer alone,
+such as Okta or Keycloak), the registration being the segment of the method's routes
+(user/<registration>/login). An identity provider's registration is the application's word
+for the provider (okta), which every link made through it carries, so it has no default. A
+directory method added here takes one organization, and --accounts its standard account
+rule for a first sign-in, one rule for every method given: members (members of the
+directory, the default: the person becomes a user under the name the directory presents),
+invited (invited users only: a user created beforehand is linked, anyone else refused) or
+open (open sign-up, which the session library allows with any organization or personal
+accounts alone, so it is refused with the one organization taken here, and an identity
+provider never takes it, since everyone it signs in is a member of its organization);
+impulse add method composes the other slots. The rule is
+written to the method file (Accounts) and, for invited, as .InvitedUsers() on the method's
+declaration, so the generated users surface creates the invitations. The password method
+takes open alone: a stranger gives their address on the login page, follows the link
+mailed to it and chooses a password (session.OpenSignUp(), and .OpenSignUp() on the
+declaration, so the router serves the sign-up routes); members and invited describe a
+directory and are refused with the password method alone. --username-is-email makes the
+password method's sign-in name the person's email address (session.UsernameIsEmail(), and
+.UsernameIsEmail() on the declaration): the users surface derives the address from the
+username, and a verified change of address renames the user with its seats. Every auth
+mails, through the application's one sender (Settings.Mail) and to the login page of the
+surface bound to it (Settings.MailLoginURL): an administrator invites a person by address
+with the roles the invitation seats, and a signed-in person adds and verifies an address.
+A directory method's settings are read from the environment under the registration's
+variables (APP_<NAME>_<REGISTRATION>_*), the Procfile builds with the session library's
+skipAuth tag (the directory simulated until the application is registered with one), and
+the role-membership authority is set by --authority, which is asked when it is not given:
+"directory" makes the directory's roles the authority (every sign-in reconciles the
+person's roles to them and removes what they do not name), "application" keeps role
+assignment in the application. There is no default, because the wrong answer deletes
+hand-assigned roles at the next sign-in.
+
+--outlet names the outlet the new auth serves, asked when it is not given: default for the
+one GenerateRoutes declares (the console's), or a WithRouterOutlet name such as portal; in
+the sites layout the site's name for its default outlet. The outlet must exist (impulse
+add outlet adds one, bound to an auth the application has), and an API-key outlet is
+refused, since a machine surface has no sign-in. The outlet's declaration in the generator
+program is pointed at the new auth with its methods, in place of the auth it declared, so
+the regenerated router mounts the auth's session group under the outlet's prefix: its
+login routes, the methods route its login page renders from, and the pending sign-in
+routes. There is no default, because an auth is reachable only through the outlet bound
+to it. Under a hand-written router the program declares no Auth to point, and the brief
+says to mount the group in the router.
+
+Checking the auth's roles in the deploy, the App's handlers the generated router now
+requires for the outlet, its development identities, and the tests that prove its people
+are strangers to the other auths are handed to the agent.`
+
+// addMethodLong is the help of add method.
+const addMethodLong = `method adds a sign-in method to an auth the application has: password, azure (Microsoft
+Entra over OpenID Connect), google (Google Workspace over OpenID Connect), oidc (an
+organization's own identity provider over OpenID Connect) or persona (the persona sign-in
+of the test environments, over OpenID Connect against the persona provider), under the
+registration name given (the segment of its routes, user/<registration>/login; the kind's
+name when none is given, except for oidc, which has no default; the password method is
+always registered as password). The method gets a file of its own in the auth's package
+with its registration constant, its settings, its handlers and the registration New makes;
+the Auth file's Handlers and Settings gain it; the data level reads its settings from the
+environment under the registration's variables (APP_<AUTH>_<REGISTRATION>_*); every outlet
+bound to the auth declares it, so the generated router mounts its routes and the login page,
+which renders from the methods route, offers it; and for a directory method the Procfile
+builds with the session library's skipAuth tag, which simulates the directory until the
+application is registered with it.
+
+The oidc method is the session library's generic OpenID Connect method, for a provider
+known by its issuer alone, such as Okta or Keycloak. The provider is one organization's and
+is named in code: its issuer, client id, client secret and callback are the registration's
+settings, read from the environment, so it serves the whole application and changes with a
+release. The registration name is required: it is the application's word for the provider
+(okta, company-sso), and the connection every link made through it carries, so it is chosen
+once. It takes no slot, and members or invited for --accounts: everyone the provider signs
+in is a member of its organization, so open has nobody to add. With --authority directory
+every sign-in reconciles the person's roles to the role names the provider's ID token
+carries in its roles claim, which the provider has to be set up to send.
+
+The persona method is registered only where the persona provider is configured: the
+placement's persona block names the provider's issuer and the application's client ID root,
+bedrock sets them in the first environment and its pull requests, and a later environment,
+where they are empty, never offers the method. It takes no slot, the application authority
+and invited users only: the personas are the accounts of the auth's cast (pkg/auth/<auth>/cast.json,
+written empty here and named by hand), which the migrate command seeds and the deploy
+registers with the provider, and a sign-in links the persona's identity to its account.
+
+--slot is the organization slot of a directory method, which organizations' accounts it
+admits. For azure: one (one tenant, the default), listed (named tenants), any (any tenant),
+personal (Microsoft personal accounts alone), one-personal (one tenant and personal
+accounts), any-personal (any tenant and personal accounts). For google: one (one
+Workspace, the default), listed (named Workspaces), any-workspace (any Workspace), any
+(any Google account), mixed (one Workspace and any Google account).
+
+--accounts is the standard account rule for a first sign-in: members (members of the
+directory, the default: the person becomes a user under the name the directory presents),
+invited (invited users only: a user created beforehand is linked, anyone else refused) or
+open (open sign-up). The session library allows open only with any organization or
+personal accounts, and refuses members there, since every organization in the world is
+"the directory". The password method takes open alone: a stranger gives their address on
+the login page, follows the link mailed to it and chooses a password (session.OpenSignUp(),
+and .OpenSignUp() on the declaration, so the router serves the sign-up routes).
+
+--username-is-email makes the password method's sign-in name the person's email address
+(session.UsernameIsEmail(), and .UsernameIsEmail() on the declaration): the users surface
+derives the address from the username, and a verified change of address renames the user
+with its seats.
+
+--authority is who owns role membership for a directory method, asked when not given:
+directory (the directory's roles are synchronized at every sign-in, allowed with one
+organization only) or application (roles are assigned in the application).`

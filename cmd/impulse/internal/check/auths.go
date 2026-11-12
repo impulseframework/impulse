@@ -316,6 +316,18 @@ func authOf(a *app.App, p *app.AuthPackage) *app.Auth {
 	return nil
 }
 
+// genericMethodNote says how the two registrations of the generic OpenID Connect method
+// are told apart, for a finding that takes one for the other: both call oidc.SignIn, and
+// the scan reads the configuration (app.MethodOIDC, app.MethodPersona).
+func genericMethodNote(declared, registered string) string {
+	generic := func(kind string) bool { return kind == app.MethodOIDC || kind == app.MethodPersona }
+	if !generic(declared) || !generic(registered) {
+		return ""
+	}
+
+	return " (both register with oidc.SignIn: a configuration that sets ClientSecret is an organization's identity provider, generation.OIDCMethod, and one that sets none is the persona method, generation.PersonaMethod)"
+}
+
 // methodMismatches compares an outlet's declared methods with the methods the package
 // registers: a declaration the package does not register would mount routes to handlers
 // the App cannot supply, and a registration the outlet does not declare has routes
@@ -342,7 +354,7 @@ func methodMismatches(o *app.Outlet, p *app.AuthPackage, auth *app.Auth) []strin
 		case !ok:
 			details = append(details, fmt.Sprintf("%s: outlet %s declares the %s method %s on the %s auth, but %s registers no such method; the generated router would mount routes to handlers the App cannot supply (register it, or drop the declaration)", o.Pos, o.Name, m.Kind, m.Name, p.Name, p.Dir))
 		case reg.Kind != m.Kind:
-			details = append(details, fmt.Sprintf("%s: outlet %s declares %s as a %s method on the %s auth, but %s registers it as %s; the generated router would mount the wrong routes", o.Pos, o.Name, m.Name, m.Kind, p.Name, p.Dir, reg.Kind))
+			details = append(details, fmt.Sprintf("%s: outlet %s declares %s as a %s method on the %s auth, but %s registers it as %s; the generated router would mount the wrong routes%s", o.Pos, o.Name, m.Name, m.Kind, p.Name, p.Dir, reg.Kind, genericMethodNote(m.Kind, reg.Kind)))
 		case m.Kind == app.MethodPassword:
 			details = append(details, passwordMismatches(o, p, m, reg)...)
 		default:

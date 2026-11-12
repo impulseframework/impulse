@@ -42,6 +42,15 @@ func smokeSpecs() []*Spec {
 			{Kind: app.MethodPassword},
 			{Kind: app.MethodPersona},
 		}},
+		{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "partners", Doc: "the people of a partner organization, who sign in through its identity provider beside the invited", Methods: []Method{
+			{Kind: app.MethodPassword},
+			{Kind: app.MethodOIDC, Name: "okta", Accounts: AccountsInvited, Authority: app.AuthorityApplication},
+			{Kind: app.MethodOIDC, Name: "keycloak", Authority: app.AuthorityApplication},
+			{Kind: app.MethodPersona},
+		}},
+		{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "employees", Doc: "the people the organization's identity provider gives a role", Methods: []Method{
+			{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory},
+		}},
 	}
 }
 
@@ -109,6 +118,16 @@ func TestValidate(t *testing.T) {
 		{name: "persona named password", method: Method{Kind: app.MethodPersona, Name: "password"}, wantErr: "is the password method's registration name"},
 		{name: "persona with nothing but its name", method: Method{Kind: app.MethodPersona, Name: "persona"}},
 		{name: "persona under the application authority, invited", method: Method{Kind: app.MethodPersona, Name: "reviewers", Authority: app.AuthorityApplication, Accounts: AccountsInvited}},
+		{name: "an identity provider without a name", method: Method{Kind: app.MethodOIDC, Authority: app.AuthorityApplication}, wantErr: "an identity provider's registration needs a name"},
+		{name: "an identity provider takes no slot", method: Method{Kind: app.MethodOIDC, Name: "okta", Slot: SlotOne, Authority: app.AuthorityApplication}, wantErr: "takes no slot: the provider is one organization's"},
+		{name: "an identity provider without an authority", method: Method{Kind: app.MethodOIDC, Name: "okta"}, wantErr: "authority"},
+		{name: "an identity provider admitting open sign-up", method: Method{Kind: app.MethodOIDC, Name: "okta", Accounts: AccountsOpen, Authority: app.AuthorityApplication}, wantErr: "open sign-up is for a method anyone can use"},
+		{name: "an identity provider with username-is-email", method: Method{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityApplication, UsernameIsEmail: true}, wantErr: "a provider's people sign in as the provider names them"},
+		{name: "an identity provider named password", method: Method{Kind: app.MethodOIDC, Name: "password", Authority: app.AuthorityApplication}, wantErr: "is the password method's registration name"},
+		{name: "an identity provider whose name is not a route segment", method: Method{Kind: app.MethodOIDC, Name: "Okta", Authority: app.AuthorityApplication}, wantErr: "registration"},
+		{name: "an identity provider under the application authority, invited", method: Method{Kind: app.MethodOIDC, Name: "okta", Accounts: AccountsInvited, Authority: app.AuthorityApplication}},
+		{name: "an identity provider whose token names the roles", method: Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory}},
+		{name: "a method impulse does not compose", method: Method{Kind: "ldap", Name: "ldap"}, wantErr: "password, azure, google, oidc or persona"},
 		{name: "fine", method: Method{Kind: app.MethodGoogle, Name: "directory", Authority: app.AuthorityDirectory}},
 	}
 	for _, tt := range tests {
@@ -149,6 +168,9 @@ func TestDeclaration(t *testing.T) {
 		{name: "the password method signing strangers up by their address", method: Method{Kind: app.MethodPassword, Name: app.PasswordRegistration, Accounts: AccountsOpen, UsernameIsEmail: true}, want: `generation.PasswordMethod().OpenSignUp().UsernameIsEmail()`},
 		{name: "the persona method, whose personas are the invited users", method: Method{Kind: app.MethodPersona, Name: "persona"}, want: `generation.PersonaMethod("persona").InvitedUsers()`},
 		{name: "the persona method under another registration name", method: Method{Kind: app.MethodPersona, Name: "reviewers", Authority: app.AuthorityApplication, Accounts: AccountsInvited}, want: `generation.PersonaMethod("reviewers").InvitedUsers()`},
+		{name: "an identity provider whose members the application gives roles", method: Method{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityApplication}, want: `generation.OIDCMethod("okta")`},
+		{name: "an identity provider admitting invited users", method: Method{Kind: app.MethodOIDC, Name: "okta", Accounts: AccountsInvited, Authority: app.AuthorityApplication}, want: `generation.OIDCMethod("okta").InvitedUsers()`},
+		{name: "an identity provider whose token names the roles", method: Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory}, want: `generation.OIDCMethod("company-sso").SyncsRoles()`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

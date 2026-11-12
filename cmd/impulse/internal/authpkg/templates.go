@@ -1163,6 +1163,96 @@ func SecondFactorRule() string {
 	return secondFactorRule
 }
 
+// oidcTemplate renders the file of a method that signs in through an organization's own
+// identity provider: the session library's generic OpenID Connect method, registered in
+// every environment.
+const oidcTemplate = `package {{.Auth}}
+
+import (
+{{- range .StdImports}}
+	"{{.}}"
+{{- end}}
+{{ range .Imports}}
+	"{{.}}"
+{{- end}}
+)
+
+// {{.Registration}} is the name the {{.Name}} registration goes under on the Auth: the
+// segment of its login and callback routes (user/{{.Name}}/login), and the connection every
+// link made through the provider carries, so it is never changed once people have signed
+// in. In development the simulated provider signs it in as {{.SimulatedUsername}}, or the
+// shared APP_USERNAME when that is unset, with the roles {{.SimulatedRoles}} or APP_ROLES
+// name.
+const {{.Registration}} = "{{.Name}}"
+
+// {{.SettingsType}} is how the application is known to the identity provider for the
+// {{.Name}} registration, read from the environment. The provider is one organization's,
+// an Okta or a Keycloak for instance, known by its issuer alone. Under the session
+// library's skipAuth build tag the provider is simulated and only the fields the simulated
+// sign-in presents are read.
+type {{.SettingsType}} struct {
+{{- range .Fields}}
+	// {{.Name}} is {{.Doc}}.
+	{{.Name}} string
+{{- end}}
+}
+
+// {{.Pascal}}Login sends the browser to the identity provider to sign in.
+func (h *Handlers) {{.Pascal}}Login() http.HandlerFunc {
+	return h.{{.Field}}.Login()
+}
+
+// {{.Pascal}}Callback receives the browser back from the provider, resolves the identity,
+// applies the account rule and starts the session. The method has no logout the provider
+// starts, so there is no front-channel route: the session's own logout route ends it.
+func (h *Handlers) {{.Pascal}}Callback() http.HandlerFunc {
+	return h.{{.Field}}.Callback()
+}
+
+// register{{.Pascal}} registers the {{.Name}} registration on the Auth, before the first
+// request. The provider is a standard OpenID Connect issuer: its configuration is read at
+// <Issuer>/.well-known/openid-configuration, and every sign-in's token must carry the
+// issuer. The configuration names the client's secret, which is also how impulse reads
+// this registration as an identity provider's and not the persona method's, a public
+// client of the same library method.
+{{- if eq .Authority "directory"}}
+// The provider is the authority for role membership (signin.RoleSync): every sign-in
+// reconciles the person's roles to the role names the ID token carries in its roles
+// claim, removing any role the claim does not name; a sign-in naming no role the role
+// file defines is refused. The provider has to be set up to send that claim. Hand-assigned
+// roles do not survive it, so nothing in the application assigns roles in this store, and
+// the registration's declaration on every outlet chains .SyncsRoles(), so the generated
+// users surface shows these people's roles as the provider's and never writes them.
+{{- else}}
+// The application is the authority for role membership (signin.DisableRoleSync): the
+// provider proves who someone is and the application decides what they may do, so a
+// sign-in neither reads nor changes the person's roles.
+{{- end}}
+// The account rule for an identity the provider verifies for the first time is the
+// library's standard one{{if eq .AccountsExpr "signin.MembersOfDirectory"}}, members of the directory: everyone the provider signs in is a
+// member of its organization and becomes a user under the name the provider presents (the
+// preferred username, or the email when it sends none), with no password, linked by the
+// provider's subject so a renamed account stays the same person{{else}}, invited users only: a user created beforehand under the
+// name the provider presents (the preferred username, or the email when it sends none) is
+// linked and signed in, anyone else is refused (not_invited){{end}}.
+// A sign-in whose token says a second factor was used (its amr claim names mfa) carries
+// that proof; any other is asked for the sign-in code the Auth mails.
+func register{{.Pascal}}(authSession *Session, accessClient *access.Client, settings *Settings) *oidc.Method {
+	_ = accessClient
+
+	return oidc.SignIn(authSession, {{.Registration}}, nil, &oidc.Config{
+		Issuer:       settings.{{.Pascal}}.Issuer,
+		ClientID:     settings.{{.Pascal}}.ClientID,
+		ClientSecret: settings.{{.Pascal}}.ClientSecret,
+		RedirectURL:  settings.{{.Pascal}}.RedirectURL,
+		Connection:   {{.Registration}},
+		RoleSync:     {{.RoleSyncExpr}},
+		Accounts:     {{.AccountsExpr}},
+		LoginURL:     settings.LoginURL,
+	})
+}
+`
+
 // personaTemplate renders the persona method's file: the session library's generic OpenID
 // Connect method against the persona provider, registered only where the provider is
 // configured.

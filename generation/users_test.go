@@ -963,6 +963,10 @@ func Test_AuthMethod_directoryDeclarations(t *testing.T) {
 		{name: "SyncsRoles on the persona method", methods: []AuthMethod{PersonaMethod("persona").SyncsRoles()}, wantErr: "declares SyncsRoles or OpenSignUp on the persona method: the persona provider asserts who a persona is and nothing about roles"},
 		{name: "OpenSignUp on the persona method", methods: []AuthMethod{PersonaMethod("persona").OpenSignUp()}, wantErr: "declares SyncsRoles or OpenSignUp on the persona method"},
 		{name: "the persona method beside the password method", methods: []AuthMethod{PersonaMethod("persona").InvitedUsers(), PasswordMethod()}, wantString: `PersonaMethod("persona").InvitedUsers()`},
+		{name: "an organization's identity provider admitting invited users", methods: []AuthMethod{OIDCMethod("okta").InvitedUsers(), PasswordMethod()}, wantString: `OIDCMethod("okta").InvitedUsers()`},
+		{name: "an organization's identity provider whose token names the roles", methods: []AuthMethod{OIDCMethod("company-sso").SyncsRoles()}, wantString: `OIDCMethod("company-sso").SyncsRoles()`},
+		{name: "OpenSignUp on an organization's identity provider", methods: []AuthMethod{OIDCMethod("okta").OpenSignUp()}, wantErr: "declares OpenSignUp on an organization's identity provider: everyone the provider signs in is a member of its organization"},
+		{name: "a WorkOS registration spelled as its constructor", methods: []AuthMethod{WorkOSMethod("sso")}, wantString: `WorkOSMethod("sso")`},
 		{name: "two registrations declaring SyncsRoles", methods: []AuthMethod{AzureMethod("directory").SyncsRoles(), GoogleMethod("google").SyncsRoles()}, wantErr: "stands alone on its Auth"},
 		{name: "SyncsRoles alone", methods: []AuthMethod{AzureMethod("directory").SyncsRoles()}, wantString: `AzureMethod("directory").SyncsRoles()`},
 	}

@@ -711,6 +711,31 @@ func TestAuthApply(t *testing.T) {
 			},
 		},
 		{
+			name: "an identity provider's auth whose token names the roles, where the tenants declare their directories",
+			auth: Auth{Name: "employees", Methods: []authpkg.Method{{Kind: app.MethodOIDC, Name: "company-sso", Authority: AuthorityDirectory}}, Outlet: "portal"},
+			extra: map[string]string{
+				programFile:                           authRouterProgram,
+				"pkg/resources/tenant_directories.go": "package resources\n\ntype (\n\t// @resource\n\t// @permissionScope(domain)\n\t// @tenantDirectory\n\tTenantDirectory struct {\n\t\t// @domain\n\t\tTenantID string `spanner:\"TenantId\"`\n\t\t// @directoryMethod\n\t\tMethod string `spanner:\"Method\"`\n\t\t// @directoryConnection\n\t\tConnection string `spanner:\"Connection\"`\n\t}\n)\n",
+			},
+			wantSkipped: []string{
+				`test/integration/harness_test.go and cmd/deployment/migrate/main_test.go: the company-sso registration validates its issuer at registration whether or not the directory is simulated, so give the employees auth's construction in the harness CompanySso: employees.CompanySsoSettings{Issuer: "https://provider.example.com", RedirectURL: <the served callback>} and set APP_EMPLOYEES_COMPANY_SSO_ISSUER=https://provider.example.com where the migrate run's environment is`,
+				`pkg/resources/tenant_directories.go: the tenants declare the directories their people enter through (TenantDirectory), and a sign-in through company-sso is a directory's to the sign-in policy, method oidc under the connection "company-sso": a person who holds a role in the global partition is admitted and reaches every tenant; anyone else enters a tenant only where the tenant declares that directory, and a person who holds roles in particular tenants, none of which declares it, is refused (connection_not_in_tenant). The record's method column admits google, azure and workos as it was composed, so for a tenant to declare this provider add a migration that admits oidc in the column's check, and offer the method on the console's page that declares a tenant's directories`,
+			},
+			check: func(t *testing.T, a *app.App) {
+				t.Helper()
+				pkg := read(t, a, "pkg/auth/employees/company-sso.go")
+				for _, want := range []string{`const CompanySsoRegistration = "company-sso"`, "ClientSecret: settings.CompanySso.ClientSecret,", "RoleSync:     signin.RoleSync(accessClient.UserManager()),", "Accounts:     signin.MembersOfDirectory,"} {
+					if !strings.Contains(pkg, want) {
+						t.Errorf("company-sso.go lacks %q:\n%s", want, pkg)
+					}
+				}
+				program := read(t, a, programFile)
+				if want := `generation.Auth("example.com/acme/beacon/pkg/auth/employees", generation.OIDCMethod("company-sso").SyncsRoles())`; !strings.Contains(program, want) {
+					t.Errorf("program lacks %q:\n%s", want, program)
+				}
+			},
+		},
+		{
 			name:  "a password auth served by the default outlet under the generated router",
 			auth:  Auth{Name: "partners", Outlet: "default"},
 			extra: routed,
