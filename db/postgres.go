@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	shopspring "github.com/jackc/pgx-shopspring-decimal"
@@ -112,15 +113,19 @@ func initPostgresContainer(ctx context.Context, imageVersion string) (*PostgresC
 	}, nil
 }
 
+// sessionEndLimit is how long CreateDatabase waits for the server to end the superuser's
+// session on a new database once its client has closed it.
+const sessionEndLimit = 10 * time.Second
+
 // CreateDatabase creates a new database with the given name and returns a connection to it.
 func (pc *PostgresContainer) CreateDatabase(ctx context.Context, dbName string) (*PostgresDatabase, error) {
 	dbName = pc.validDatabaseName(dbName)
-	db, err := pc.superUserConnection(ctx, pc.defaultDatabase)
+	admin, err := pc.superUserConnection(ctx, pc.defaultDatabase)
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = db.Exec(ctx, fmt.Sprintf(`
+	_, err = admin.Exec(ctx, fmt.Sprintf(`
 		CREATE DATABASE %q WITH
 			OWNER = %q
 			ENCODING = 'UTF8'
@@ -133,19 +138,16 @@ func (pc *PostgresContainer) CreateDatabase(ctx context.Context, dbName string) 
 		return nil, errors.Wrapf(err, "failed to create database=%q", dbName)
 	}
 
-	// create extension in the newly created table
-	db, err = openDB(ctx, PostgresConnStr(pc.superUsername, pc.password, pc.host, pc.port.Port(), dbName, SSLModeDisable))
-	if err != nil {
+	if err := pc.createExtensions(ctx, dbName); err != nil {
 		return nil, err
 	}
-	defer db.Close()
-	_, err = db.Exec(ctx, `
-		CREATE EXTENSION IF NOT EXISTS btree_gist
-			SCHEMA public
-			VERSION "1.5";
-	`)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create extension btree_gist in database=%q", dbName)
+	// The database is handed over with none of the superuser's sessions on it. Its owner
+	// drops it WITH (FORCE) (PostgresDatabase.DropDatabase), which terminates the sessions
+	// left on it, and an owner may not terminate a superuser's: PostgreSQL refuses that
+	// drop with "permission denied to terminate process". The server ends a session a
+	// moment after its client closes it, so the close alone does not say it is gone.
+	if err := waitForNoSession(ctx, admin, dbName, pc.superUsername, sessionEndLimit); err != nil {
+		return nil, err
 	}
 
 	u, err := openDB(ctx, PostgresConnStr(pc.unprivilegedUsername, pc.password, pc.host, pc.port.Port(), dbName, SSLModeDisable))
@@ -166,6 +168,52 @@ func (pc *PostgresContainer) CreateDatabase(ctx context.Context, dbName string) 
 		connStr:      PostgresConnStr(pc.unprivilegedUsername, pc.password, pc.host, pc.port.Port(), dbName, SSLModeDisable),
 		adminConnStr: PostgresConnStr(pc.unprivilegedUsername, pc.password, pc.host, pc.port.Port(), pc.defaultDatabase, SSLModeDisable),
 	}, nil
+}
+
+// createExtensions creates the extensions a new database starts with, as the superuser,
+// on a connection of its own to that database, which it closes.
+func (pc *PostgresContainer) createExtensions(ctx context.Context, dbName string) error {
+	db, err := openDB(ctx, PostgresConnStr(pc.superUsername, pc.password, pc.host, pc.port.Port(), dbName, SSLModeDisable))
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	_, err = db.Exec(ctx, `
+		CREATE EXTENSION IF NOT EXISTS btree_gist
+			SCHEMA public
+			VERSION "1.5";
+	`)
+	if err != nil {
+		return errors.Wrapf(err, "failed to create extension btree_gist in database=%q", dbName)
+	}
+
+	return nil
+}
+
+// waitForNoSession waits until the server lists no session of user on database, asking
+// through pool, and refuses when one is still listed once limit has passed.
+func waitForNoSession(ctx context.Context, pool *pgxpool.Pool, database, user string, limit time.Duration) error {
+	const pause = 5 * time.Millisecond
+
+	deadline := time.Now().Add(limit)
+	for {
+		var sessions int
+		if err := pool.QueryRow(ctx, "SELECT count(*) FROM pg_stat_activity WHERE datname = $1 AND usename = $2", database, user).Scan(&sessions); err != nil {
+			return errors.Wrapf(err, "counting the sessions of %s on database=%q", user, database)
+		}
+		if sessions == 0 {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return errors.Newf("%d session(s) of %s still on database=%q, %s after the last one was closed", sessions, user, database, limit)
+		}
+		select {
+		case <-ctx.Done():
+			return errors.Wrapf(ctx.Err(), "waiting for the sessions of %s on database=%q to end", user, database)
+		case <-time.After(pause):
+		}
+	}
 }
 
 // Close closes all connections to the postgres instance

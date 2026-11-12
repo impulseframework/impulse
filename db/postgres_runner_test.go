@@ -5,6 +5,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/jackc/pgx/v5"
@@ -461,6 +462,76 @@ func TestPostgresDatabase_DropDatabase(t *testing.T) {
 			}
 			if err := db.DropDatabase(ctx); err == nil {
 				t.Error("second DropDatabase() error = nil, want one: the database is gone")
+			}
+		})
+	}
+}
+
+// TestWaitForNoSession holds the wait CreateDatabase makes before it hands a database
+// over: it returns once the server lists none of the user's sessions on the database,
+// not before the last one has ended, and refuses when one is still there after the limit.
+func TestWaitForNoSession(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	container, err := NewPostgresContainer(ctx, "16")
+	if err != nil {
+		t.Fatalf("NewPostgresContainer() error = %v", err)
+	}
+	t.Cleanup(func() { _ = container.Terminate(ctx) })
+	admin, err := container.superUserConnection(ctx, container.defaultDatabase)
+	if err != nil {
+		t.Fatalf("PostgresContainer.superUserConnection() error = %v", err)
+	}
+
+	tests := []struct {
+		name string
+		// held is how long a session of the superuser stays on the database; none when 0.
+		held    time.Duration
+		limit   time.Duration
+		wantErr string
+	}{
+		{name: "no session", limit: time.Second},
+		{name: "a session that ends within the limit", held: 400 * time.Millisecond, limit: 20 * time.Second},
+		{name: "a session that outlasts the limit", held: 5 * time.Second, limit: 200 * time.Millisecond, wantErr: "1 session(s) of postgres still on database="},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db, err := container.CreateDatabase(ctx, tt.name)
+			if err != nil {
+				t.Fatalf("CreateDatabase() error = %v", err)
+			}
+			defer db.Close()
+			if tt.held > 0 {
+				held, err := openDB(ctx, PostgresConnStr(container.superUsername, container.password, container.host, container.port.Port(), db.dbName, SSLModeDisable))
+				if err != nil {
+					t.Fatalf("openDB() error = %v", err)
+				}
+				defer held.Close()
+				if _, err := held.Exec(ctx, "SELECT 1"); err != nil {
+					t.Fatalf("the held session's first statement error = %v", err)
+				}
+				timer := time.AfterFunc(tt.held, held.Close)
+				defer timer.Stop()
+			}
+
+			start := time.Now()
+			err = waitForNoSession(ctx, admin, db.dbName, container.superUsername, tt.limit)
+			waited := time.Since(start)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("waitForNoSession() error = %v, want one holding %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("waitForNoSession() error = %v", err)
+			}
+			if waited < tt.held {
+				t.Errorf("waitForNoSession() returned after %s, before the session held for %s had ended", waited, tt.held)
 			}
 		})
 	}
