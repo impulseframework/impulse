@@ -59,7 +59,8 @@
           "options": {
             "tsConfig": "projects/resource-angular/tsconfig.spec.json",
             "exclude": [
-              "styles/theme-contract.test.ts"
+              "styles/theme-contract.test.ts",
+              "boundaries.test.ts"
             ]
           }
         },
