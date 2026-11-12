@@ -1,22 +1,21 @@
 // @ts-check
 const eslint = require('@eslint/js');
-const importPlugin = require('eslint-plugin-import');
+const cycles = require('../../eslint.cycles.js');
 const tseslint = require('typescript-eslint');
 
 // The client is framework-neutral: no Angular presets, no Angular imports.
 module.exports = tseslint.config({
   files: ['**/*.ts'],
-  plugins: {
-    import: importPlugin,
-  },
+  plugins: cycles.plugins,
   extends: [eslint.configs.recommended, ...tseslint.configs.recommended, ...tseslint.configs.stylistic],
   languageOptions: {
     parserOptions: {
       tsconfigRootDir: __dirname,
     },
   },
+  settings: cycles.settings,
   rules: {
-    'import/no-cycle': ['error', { maxDepth: 1 }],
+    ...cycles.rules,
     '@typescript-eslint/no-namespace': 'off',
     'no-restricted-imports': [
       'error',

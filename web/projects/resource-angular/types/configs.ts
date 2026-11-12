@@ -624,7 +624,6 @@ export interface RPCConfigOptions {
   elements?: ConfigElement[];
   placement?: RPCPlacement;
   method: Method;
-  customComponent?: ComponentConfig;
   refreshResources?: Resource[];
   defaultModalWidth?: string;
   shouldRender?: () => boolean;
@@ -641,7 +640,6 @@ export interface RPCConfig {
   successMessage: string;
   elements: ConfigElement[];
   placement: RPCPlacement;
-  customComponent: ComponentConfig;
   refreshResources: Resource[];
   defaultModalWidth: string;
   shouldRender: () => boolean;
@@ -664,7 +662,6 @@ export const rpcConfigDefaults = {
   elements: [] as ConfigElement[],
   placement: 'end' as RPCPlacement,
   method: '' as Method,
-  customComponent: {} as ComponentConfig,
   refreshResources: [] as Resource[],
   defaultModalWidth: '',
   shouldRender: (): boolean => true,

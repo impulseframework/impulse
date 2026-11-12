@@ -27,10 +27,9 @@
     "@contentful/rich-text-types": "^17.2.5",
     "date-fns": "^4.1.0",
     "date-fns-tz": "^3.2.0",
-    "firebase": "^12.19.0",
+    "firebase": "^13.2.0",
     "rxjs": "~7.8.2",
-    "tslib": "^2.8.1",
-    "zone.js": "~0.16.0"
+    "tslib": "^2.8.1"
   },
   "overrides": {
     "@impulseframework/resource": "link:../../web/dist/resource"
@@ -39,15 +38,16 @@
     "@angular/build": "^22.2.6",
     "@angular/cli": "^22.2.6",
     "@angular/compiler-cli": "^22.2.4",
+    "@eslint/js": "^10.0.1",
     "@types/geojson": "^7946.0.16",
     "@types/node": "^25.0.10",
     "angular-eslint": "^22.6.0",
-    "eslint": "^9.39.2",
+    "eslint": "^10.14.0",
     "eslint-config-prettier": "^10.1.8",
-    "jsdom": "^27.1.0",
+    "jsdom": "^31.0.0",
     "prettier": "3.8.1",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.0.0",
-    "vitest": "^4.0.8"
+    "typescript-eslint": "^8.56.0",
+    "vitest": "^5.1.0"
   }
 }

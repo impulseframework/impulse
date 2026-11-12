@@ -18,6 +18,8 @@ npm install @impulseframework/resource @impulseframework/resource-angular
 
 `@impulseframework/resource` is a peer dependency: the application installs it once and both the generated client and this library resolve the same copy.
 
+An application built on the library runs without zone.js, Angular's default since version 21, as the skeletons' applications and Lodestar do. The page is drawn again when a signal a template reads changes, when an input changes, or when the template handles an event, and not because a timer or a request finished. A component that changes a plain field from a timer, from a subscription or after an `await` therefore holds the value in a signal, or calls `ChangeDetectorRef.markForCheck()`.
+
 Then import the library's stylesheet once, from the application's global styles (`src/styles.scss`):
 
 ```scss

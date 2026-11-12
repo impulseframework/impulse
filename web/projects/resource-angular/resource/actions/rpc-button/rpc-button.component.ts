@@ -1,6 +1,6 @@
 import { Component, computed, inject, input, ResourceRef } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
-import { MatDialog, MatDialogRef } from '@angular/material/dialog';
+import { MatDialog } from '@angular/material/dialog';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormStateService } from '@impulseframework/resource-angular/resource-services';
 import {
@@ -12,7 +12,6 @@ import {
   Resource,
   RootConfig,
   RPCConfig,
-  rpcConfigDefaults,
   RPCFieldMeta,
   RpcMethod,
   RPCRecordData,
@@ -86,33 +85,19 @@ export class RpcButtonComponent {
     }
 
     const submitBody: RPCRecordData = {};
-    let dialogRef: MatDialogRef<BaseRPCModalComponent> | undefined;
-
-    if (rpcConfig.customComponent !== rpcConfigDefaults.customComponent) {
-      let componentToOpen;
-      if (!componentToOpen) {
-        console.error('Custom RPC component ' + rpcConfig.customComponent.component + ' not found.');
-        return;
-      }
-
-      if (!dialogRef) {
-        console.error('Dialog reference is undefined.');
-        return;
-      }
-    } else if (rpcConfig.elements.length > 0) {
-      dialogRef = this.dialog.open(BaseRPCModalComponent, {
-        data: {
-          label: rpcConfig.label,
-          elements: rpcConfig.elements,
-          method: rpcConfig.method,
-          width: rpcConfig.defaultModalWidth,
-        },
-      });
-    } else {
+    if (rpcConfig.elements.length === 0) {
       this.buildRpcBody(rpcConfig, submitBody);
       return;
     }
 
+    const dialogRef = this.dialog.open(BaseRPCModalComponent, {
+      data: {
+        label: rpcConfig.label,
+        elements: rpcConfig.elements,
+        method: rpcConfig.method,
+        width: rpcConfig.defaultModalWidth,
+      },
+    });
     const meta = this.methodMeta(rpcConfig.method);
     dialogRef
       .afterClosed()

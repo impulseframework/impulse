@@ -652,6 +652,7 @@ export class UserManagementComponent {
         } catch (error) {
           throw new Error(
             `${form.username} was created, but the ${roleTitle(role)} role could not be assigned: ${messageOf(error)}`,
+            { cause: error },
           );
         }
       }
@@ -678,7 +679,9 @@ export class UserManagementComponent {
       try {
         await partition.seats.create({ user: id, role });
       } catch (error) {
-        throw new Error(`Could not add the ${roleTitle(role)} role to ${username}: ${messageOf(error)}`);
+        throw new Error(`Could not add the ${roleTitle(role)} role to ${username}: ${messageOf(error)}`, {
+          cause: error,
+        });
       }
     }).then(() => this.rebuildAccessRows());
   }
@@ -711,7 +714,9 @@ export class UserManagementComponent {
       try {
         await partition.seats.remove([id, role]);
       } catch (error) {
-        throw new Error(`Could not remove the ${roleTitle(role)} role from ${username}: ${messageOf(error)}`);
+        throw new Error(`Could not remove the ${roleTitle(role)} role from ${username}: ${messageOf(error)}`, {
+          cause: error,
+        });
       }
     });
     this.rebuildAccessRows();
