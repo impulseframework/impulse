@@ -4,4 +4,4 @@
 // sense and contains no Go code.
 module github.com/impulseframework/impulse/lodestar/web
 
-go 1.27.3
+go 1.27.4
