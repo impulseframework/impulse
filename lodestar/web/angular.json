@@ -24,9 +24,6 @@
             },
             "index": "console/src/index.html",
             "browser": "console/src/main.ts",
-            "polyfills": [
-              "zone.js"
-            ],
             "tsConfig": "console/tsconfig.app.json",
             "inlineStyleLanguage": "scss",
             "assets": [
@@ -146,9 +143,6 @@
             },
             "index": "portal/src/index.html",
             "browser": "portal/src/main.ts",
-            "polyfills": [
-              "zone.js"
-            ],
             "tsConfig": "portal/tsconfig.app.json",
             "inlineStyleLanguage": "scss",
             "assets": [

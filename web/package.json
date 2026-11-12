@@ -26,22 +26,23 @@
     "@angular/cli": "^22.2.6",
     "@angular/compiler-cli": "^22.2.4",
     "@angular/service-worker": "^22.2.4",
+    "@eslint/js": "^10.0.1",
     "@fontsource/roboto": "5.3.0",
     "@types/node": "^26.6.6",
     "angular-eslint": "^22.6.0",
-    "eslint": "^9.28.0",
+    "eslint": "^10.14.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-boundaries": "^7.4.2",
-    "eslint-plugin-import": "^2.31.0",
-    "firebase": "^12.19.0",
-    "jsdom": "^27.1.0",
+    "eslint-plugin-import-x": "^4.17.1",
+    "firebase": "^13.2.0",
+    "jsdom": "^31.0.0",
     "material-icons": "1.13.14",
     "ng-packagr": "^22.2.6",
     "prettier": "3.9.10",
     "typescript": "~6.0.3",
-    "typescript-eslint": "^8.33.1",
-    "vitest": "^4.0.8"
+    "typescript-eslint": "^8.56.0",
+    "vitest": "^5.1.0"
   },
   "scripts": {
     "lint": "ng lint",
@@ -49,11 +50,11 @@
     "typecheck:firestore": "tsc --noEmit -p projects/resource-firestore/tsconfig.spec.json",
     "fonts": "bun scripts/copy-fonts.mjs",
     "build": "ng build resource && ng build resource-firestore && bun run fonts && ng build resource-angular",
-    "test": "bun run test:resource && bun run test:firestore && bun run test:theme && bun run test:boundaries && bun run test:angular",
+    "test": "bun run test:resource && bun run test:firestore && bun run test:theme && bun run test:lint-rules && bun run test:angular",
     "test:resource": "bun test projects/resource/ && bun run typecheck:resource",
     "test:firestore": "bun test projects/resource-firestore/ && bun run typecheck:firestore",
     "test:theme": "bun test projects/resource-angular/styles/",
-    "test:boundaries": "bun test projects/resource-angular/boundaries.test.ts",
+    "test:lint-rules": "bun test projects/resource-angular/boundaries.test.ts projects/resource-angular/cycles.test.ts",
     "test:angular": "ng test resource-angular --watch=false"
   }
 }

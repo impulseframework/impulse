@@ -10,7 +10,7 @@
   },
   "peerDependencies": {
     "@impulseframework/resource": "0.1.0",
-    "firebase": "^12.19.0"
+    "firebase": "^13.0.0"
   },
   "dependencies": {
     "tslib": "^2.3.0"

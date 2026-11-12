@@ -1,16 +1,16 @@
 // @ts-check
 const path = require('node:path');
 const eslint = require('@eslint/js');
-const importPlugin = require('eslint-plugin-import');
 const tseslint = require('typescript-eslint');
 const angular = require('angular-eslint');
 const boundaries = require('eslint-plugin-boundaries');
+const cycles = require('./eslint.cycles.js');
 
 module.exports = tseslint.config(
   {
     files: ['**/*.ts'],
     plugins: {
-      import: importPlugin,
+      ...cycles.plugins,
       boundaries,
     },
     extends: [
@@ -26,7 +26,7 @@ module.exports = tseslint.config(
       },
     },
     rules: {
-      'import/no-cycle': ['error', { maxDepth: 1 }],
+      ...cycles.rules,
       // Which entry points of the Angular package may import which. The auth entry points
       // (auth-*) build on the UI entry points (ui-*), and both read the shared types. A UI
       // entry point imports no auth entry point, and the types import neither, so an entry
@@ -51,6 +51,7 @@ module.exports = tseslint.config(
       ],
     },
     settings: {
+      ...cycles.settings,
       // An entry point imports another by its package path
       // (@impulseframework/resource-angular/auth-service), which tsconfig.json maps to the
       // directory. The lint resolves an import through the same map, so the rule above
