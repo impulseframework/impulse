@@ -7,6 +7,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"reflect"
+	"runtime/debug"
 	"strings"
 
 	"github.com/go-playground/errors/v5"
@@ -22,6 +24,12 @@ const (
 	// without them under the same schema hash.
 	tableMapCache  string = "tablemap-v5" + genCacheSuffix
 	enumValueCache string = "enumvalues" + genCacheSuffix
+
+	// latestEmulatorVersion is the emulator's moving tag, the generators' default when
+	// none is named (resolveOptions).
+	latestEmulatorVersion string = "latest"
+	// develVersion stands for a generator whose build records no version of its module.
+	develVersion string = "devel"
 )
 
 // Calculate the sha256 checksum of a file
@@ -197,7 +205,9 @@ func (c *client) loadAllCachedData() (bool, error) {
 	return true, nil
 }
 
-func (c *client) spannerCachePath() (string, error) {
+// spannerSchemaCachePath holds every schema saved for one set of migration sources, one
+// entry per pair of emulator and generator versions that read it (spannerCachePath).
+func (c *client) spannerSchemaCachePath() (string, error) {
 	var concatenatedPaths strings.Builder
 	for _, migrationSource := range c.migrationSourceURLs {
 		concatenatedPaths.WriteString(migrationSource)
@@ -209,6 +219,94 @@ func (c *client) spannerCachePath() (string, error) {
 	}
 
 	return filepath.Join("spanner", fmt.Sprintf("%x", hashedPaths)), nil
+}
+
+// spannerCachePath is where the schema read from the migration sources is saved, keyed on
+// the emulator and generator versions as well as the sources: either version can change
+// what the generator reads from an unchanged schema, and a schema saved under another
+// would hide that change.
+func (c *client) spannerCachePath() (string, error) {
+	schemaPath, err := c.spannerSchemaCachePath()
+	if err != nil {
+		return "", err
+	}
+
+	hashedFingerprint, err := hashString(c.cacheFingerprint())
+	if err != nil {
+		return "", err
+	}
+
+	return filepath.Join(schemaPath, fmt.Sprintf("%x", hashedFingerprint)), nil
+}
+
+// cacheFingerprint names the versions a saved schema was read by.
+func (c *client) cacheFingerprint() string {
+	return fmt.Sprintf("emulator=%s;generator=%s", c.resolvedEmulatorVersion(), c.generatorVersion)
+}
+
+// resolvedEmulatorVersion is the emulator version the generator names, the moving tag
+// when it names none: the client reads the schema before the generator's defaults are
+// filled in and saves it after, and both must find the same entry.
+func (c *client) resolvedEmulatorVersion() string {
+	if c.spannerEmulatorVersion == "" {
+		return latestEmulatorVersion
+	}
+
+	return c.spannerEmulatorVersion
+}
+
+// generatorPackagePath is this package's import path, by which the running binary's
+// build information is searched for the module that holds the generator.
+func generatorPackagePath() string {
+	return reflect.TypeFor[client]().PkgPath()
+}
+
+// runningGeneratorVersion is the version of the generator in the running binary.
+func runningGeneratorVersion() string {
+	info, _ := debug.ReadBuildInfo()
+
+	return generatorVersion(info)
+}
+
+// generatorVersion is the version of the generator in a build: its module's version with
+// the module's checksum, or devel when the build records none, as in the module's own
+// tests and tools, in a workspace, or under a replace by a directory.
+func generatorVersion(info *debug.BuildInfo) string {
+	if info == nil {
+		return develVersion
+	}
+	module := moduleOf(info, generatorPackagePath())
+	if module == nil {
+		return develVersion
+	}
+	if module.Replace != nil {
+		module = module.Replace
+	}
+	if module.Version == "" || module.Version == "(devel)" {
+		return develVersion
+	}
+
+	return module.Version + module.Sum
+}
+
+// moduleOf is the module of a build that holds the package: the one whose path is the
+// package's or leads it up to a path separator, and the longest of them when one module
+// lies inside another. Nil when the build names none.
+func moduleOf(info *debug.BuildInfo, packagePath string) *debug.Module {
+	var holder *debug.Module
+	for _, module := range append([]*debug.Module{&info.Main}, info.Deps...) {
+		if module == nil || module.Path == "" {
+			continue
+		}
+		if packagePath != module.Path && !strings.HasPrefix(packagePath, module.Path+"/") {
+			continue
+		}
+		if holder == nil || len(module.Path) > len(holder.Path) {
+			holder = module
+		}
+	}
+
+	return holder
 }
 
 func (c *client) populateCache() error {

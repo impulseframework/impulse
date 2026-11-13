@@ -89,6 +89,9 @@ type client struct {
 	genComputedResources   bool
 	genVirtualResources    bool
 	spannerEmulatorVersion string
+	// generatorVersion is the version of the generator in the running binary
+	// (generatorVersion), which the saved schema is keyed on beside the emulator's.
+	generatorVersion string
 	FileWriter
 	// output records the directories the run writes generated files into and the files
 	// it wrote, for the atomic writes and the stale sweep at the end of the run.
@@ -129,6 +132,14 @@ func newClient(ctx context.Context, resourcePackageDir string, migrationSourceUR
 	c.loadPackages = append(c.loadPackages, resourcePackageDir)
 	c.resource = packageDir(resourcePackageDir)
 	c.migrationSourceURLs = migrationSourceURL
+	// A test names the generator's version to stand for another build of it.
+	if c.generatorVersion == "" {
+		c.generatorVersion = runningGeneratorVersion()
+	}
+
+	if c.resolvedEmulatorVersion() == latestEmulatorVersion {
+		log.Printf("\x1b[33mThe Spanner emulator version is %q, so the schema cache cannot tell when the image behind it changes. Pin a version with WithSpannerEmulatorVersion() so every run reads the schema with the same emulator.\x1b[39m\n", latestEmulatorVersion)
+	}
 
 	isSchemaClean, err := c.isSchemaClean()
 	if err != nil {
@@ -155,6 +166,17 @@ func newClient(ctx context.Context, resourcePackageDir string, migrationSourceUR
 			if err := c.genCache.DeleteSubpath(migrationCachePath); err != nil {
 				return nil, errors.Wrap(err, "cache.Cache.DeleteSubpath()")
 			}
+		}
+
+		// The schemas saved for these migrations go with them, those read by other
+		// emulator and generator versions included, so the entry this run saves is the
+		// only one left.
+		schemaCachePath, err := c.spannerSchemaCachePath()
+		if err != nil {
+			return nil, err
+		}
+		if err := c.genCache.DeleteSubpath(schemaCachePath); err != nil {
+			return nil, errors.Wrap(err, "cache.Cache.DeleteSubpath()")
 		}
 
 		if err := c.runSpanner(ctx, c.spannerEmulatorVersion, migrationSourceURL); err != nil {
