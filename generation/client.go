@@ -128,6 +128,12 @@ func newClient(ctx context.Context, resourcePackageDir string, migrationSourceUR
 	if err := resolveOptions(c, opts); err != nil {
 		return nil, err
 	}
+	// The emulator's image is named by this version, and there is no default: an image
+	// with no tag is refused by the container runtime, and the moving tag would read
+	// the schema with whatever emulator a machine last pulled.
+	if c.spannerEmulatorVersion == "" {
+		return nil, errors.New("no Spanner emulator version is set: the generator reads the schema through the emulator, so set the version to run with WithSpannerEmulatorVersion()")
+	}
 
 	c.loadPackages = append(c.loadPackages, resourcePackageDir)
 	c.resource = packageDir(resourcePackageDir)
@@ -137,7 +143,7 @@ func newClient(ctx context.Context, resourcePackageDir string, migrationSourceUR
 		c.generatorVersion = runningGeneratorVersion()
 	}
 
-	if c.resolvedEmulatorVersion() == latestEmulatorVersion {
+	if c.spannerEmulatorVersion == latestEmulatorVersion {
 		log.Printf("\x1b[33mThe Spanner emulator version is %q, so the schema cache cannot tell when the image behind it changes. Pin a version with WithSpannerEmulatorVersion() so every run reads the schema with the same emulator.\x1b[39m\n", latestEmulatorVersion)
 	}
 
