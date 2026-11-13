@@ -25,8 +25,8 @@ const (
 	tableMapCache  string = "tablemap-v5" + genCacheSuffix
 	enumValueCache string = "enumvalues" + genCacheSuffix
 
-	// latestEmulatorVersion is the emulator's moving tag, the generators' default when
-	// none is named (resolveOptions).
+	// latestEmulatorVersion is the emulator's moving tag: a generator may name it, and
+	// is told what the schema cache cannot know about it (newClient).
 	latestEmulatorVersion string = "latest"
 	// develVersion stands for a generator whose build records no version of its module.
 	develVersion string = "devel"
@@ -241,18 +241,7 @@ func (c *client) spannerCachePath() (string, error) {
 
 // cacheFingerprint names the versions a saved schema was read by.
 func (c *client) cacheFingerprint() string {
-	return fmt.Sprintf("emulator=%s;generator=%s", c.resolvedEmulatorVersion(), c.generatorVersion)
-}
-
-// resolvedEmulatorVersion is the emulator version the generator names, the moving tag
-// when it names none: the client reads the schema before the generator's defaults are
-// filled in and saves it after, and both must find the same entry.
-func (c *client) resolvedEmulatorVersion() string {
-	if c.spannerEmulatorVersion == "" {
-		return latestEmulatorVersion
-	}
-
-	return c.spannerEmulatorVersion
+	return fmt.Sprintf("emulator=%s;generator=%s", c.spannerEmulatorVersion, c.generatorVersion)
 }
 
 // generatorPackagePath is this package's import path, by which the running binary's
