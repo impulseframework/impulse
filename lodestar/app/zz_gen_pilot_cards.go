@@ -45,18 +45,22 @@ func (a *App) PilotCards() http.HandlerFunc {
 		// the query is not missed; a refused request registers nothing.
 		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), ""))
 
-		// The handler applies whatever part of the query the List function did not
-		// take — the filter, the sort, the cursor, the page — over the rows it yields.
+		// The handler judges the rows the List function yields by the caller's
+		// grants, where one carries a condition that reads the row, and applies
+		// whatever part of the query the function did not take — the filter, the
+		// sort, the cursor, the page — over the rows that are left.
 		page, err := querySet.Collect(computedresources.ListPilotCard(ctx, querySet, a.ResourceClient(), a.ComputedClient()))
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
 		resp := response{}
-		for _, row := range page.Rows() {
+		for i, row := range page.Rows() {
 			rec := (*pilotCard)(row)
 			rmap := make(map[string]any)
-			for _, field := range querySet.Fields() {
+			// The row's own fields: the request's, without one granted under a
+			// condition this row does not meet.
+			for _, field := range page.RowFields(i) {
 				switch string(field) {
 				case "UserID":
 					rmap["userId"] = rec.UserID

@@ -5,7 +5,7 @@
       <div class="enumerated-field-container">
         <mat-form-field class="field {{ fieldClass() }}" [subscriptSizing]="'dynamic'">
           <mat-label>{{ fieldConfig().label }}</mat-label>
-          @if (fieldConfig().enumeratedConfig.searchable && !paged()) {
+          @if (fieldConfig().enumeratedConfig.searchable && !paged() && !multiple()) {
             <input
               #input
               type="text"
@@ -25,6 +25,7 @@
           } @else {
             <mat-select
               [formControlName]="fieldConfig().name"
+              [multiple]="multiple()"
               (keydown.enter)="$event.preventDefault()"
               (selectionChange)="select($event.value)"
               (openedChange)="panelOpened($event)"
@@ -42,7 +43,7 @@
                 </div>
               }
               @for (option of options; track option.id) {
-                @if (option?.id === form().get(this.fieldConfig().name)?.value) {
+                @if (!multiple() && option?.id === form().get(this.fieldConfig().name)?.value) {
                   <mat-option [value]="option?.id" selected>{{ option?.display }}</mat-option>
                 } @else {
                   <mat-option [value]="option?.id">{{ option?.display }}</mat-option>

@@ -13,8 +13,6 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/go-playground/validator/v10"
 	"github.com/impulseframework/impulse/access"
-	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/portal/pkg/router"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/pkg/auth/staff"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
@@ -77,11 +75,6 @@ type Configurer interface {
 	// Staff returns the auth this surface binds to: the staff auth, whose session manager
 	// the App composes its login and session handlers from.
 	Staff() *staff.Auth
-	// StaffUserStores are the stores the staff auth's user-management surface serves over:
-	// the staff session's accounts and the staff engine's seats. New builds the surface
-	// with the generated constructor (router.NewStaffUserSurface); the generated handlers
-	// of the staff users, seats and roles delegate to it.
-	StaffUserStores() (resource.UserAccounts, resource.UserSeats)
 	// Live is the live service the generated handlers subscribe through and publish to
 	// (LiveService) and the feature flags follow (Start): the Firestore service over the
 	// database or the emulator the data level opened, required in every application. The
@@ -106,7 +99,6 @@ type Configurer interface {
 type App struct {
 	access access.Controller
 	*staff.Handlers
-	staffUsers     *resource.UserSurface[router.StaffAuth]
 	resourceClient resource.Client
 	cursorKey      *resource.CursorKey
 	tenants        *resource.TenantRoster
@@ -129,15 +121,9 @@ type App struct {
 
 // New constructs an App from its dependencies.
 func New(cfg Configurer) *App {
-	// The user-management surfaces over the auths' stores: each knows its auth's
-	// administrator roles (resource.WithAdministratorRoles), so a self-unseat is judged
-	// by the last-owner rule, and what each tenant declares (resource.WithTenantDirectories),
-	// so a tenant's administrator seats a person its own directory vouched for.
-	staffAccounts, staffSeats := cfg.StaffUserStores()
 	a := &App{
 		access:         cfg.Access(),
 		resourceClient: cfg.ResourceClient(),
-		staffUsers:     router.NewStaffUserSurface(staffAccounts, staffSeats, resource.WithTenantDirectories(cfg.TenantDeclarations()), resource.WithAdministratorRoles(staff.AdministratorRoles())),
 		cursorKey:      cfg.CursorKey(),
 		tenants:        cfg.TenantRoster(),
 		declarations:   cfg.TenantDeclarations(),
@@ -240,17 +226,6 @@ func (a *App) UserPermissions(r *http.Request) resource.UserPermissions {
 // generated write paths (the console's) add and remove tenants in it after their commit.
 func (a *App) TenantRoster() *resource.TenantRoster {
 	return a.tenants
-}
-
-// TenantAdministratorRoles names the domain roles the person who creates a tenant holds
-// in it from then on, seated by the Tenant record's create path once the row commits:
-// the staff auth's administrator role in a tenant, the one the development administrator
-// holds in every tenant (pkg/auth/staff, AdministratorRoles), so the first person in a
-// tenant can do there what an administrator can, invite its people included.
-func (a *App) TenantAdministratorRoles() []accesstypes.Role {
-	_, everyDomain := staff.AdministratorRoles()
-
-	return everyDomain
 }
 
 // Validator returns the request validator the generated decoder constructors draw on.

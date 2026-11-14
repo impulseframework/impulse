@@ -3,7 +3,6 @@ package spanner
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -98,12 +97,12 @@ func (s *SessionStorageDriver) Transact(ctx context.Context, fn func(ctx context
 }
 
 // SignInConflict classifies an AlreadyExists a sign-in's transaction ended with: the
-// user table's username index, or else the identities table's key.
+// user table's username indexes, or else the identities table's key.
 func (s *SessionStorageDriver) SignInConflict(err error) dbtype.SignInConflict {
 	if spanner.ErrCode(err) != codes.AlreadyExists {
 		return dbtype.NoSignInConflict
 	}
-	if strings.Contains(err.Error(), s.usernameIndex()) {
+	if s.usernameConflict(err) {
 		return dbtype.UsernameConflict
 	}
 

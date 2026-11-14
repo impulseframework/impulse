@@ -3,147 +3,254 @@
     "global": [
       {
         "name": "Administrator",
-        "description": "Manages the application's people: creates users, invites them, seats and unseats roles, and resets passwords.",
+        "description": "Manages the application's people: creates accounts, invites people, gives and takes roles, and sets temporary passwords.",
         "permissions": {
-          "Create": [
-            {
-              "resource": "StaffUsers",
-              "fields": [
-                "username",
-                "password",
-                "disabled",
-                "email"
-              ]
-            },
-            {
-              "resource": "StaffInvitations",
-              "fields": [
-                "email",
-                "roles"
-              ]
-            },
-            {
-              "resource": "StaffSeats",
-              "fields": [
-                "user",
-                "role"
-              ]
-            }
-          ],
-          "Delete": [
-            {
-              "resource": "StaffUsers"
-            },
-            {
-              "resource": "StaffInvitations"
-            },
-            {
-              "resource": "StaffSeats"
-            }
-          ],
           "Execute": [
             {
-              "resource": "SetStaffUserPassword"
+              "resource": "CreateStaffUser"
             },
             {
-              "resource": "ResetStaffUserFactors"
+              "resource": "DisableStaffUser"
+            },
+            {
+              "resource": "EnableStaffUser"
+            },
+            {
+              "resource": "AssignStaffRole"
+            },
+            {
+              "resource": "RemoveStaffRole"
+            },
+            {
+              "resource": "EndStaffSession"
+            },
+            {
+              "resource": "EndStaffUserSessions"
+            },
+            {
+              "resource": "RequireStaffPasswordChange"
+            },
+            {
+              "resource": "UnlinkStaffSessionIdentity"
+            },
+            {
+              "resource": "RevokeStaffSessionToken"
+            },
+            {
+              "resource": "DeleteStaffUser"
+            },
+            {
+              "resource": "RenameStaffUser"
+            },
+            {
+              "resource": "SetStaffTemporaryPassword"
+            },
+            {
+              "resource": "RevokeStaffUserTrustedDevices"
+            },
+            {
+              "resource": "UnlockStaffSignIn"
+            },
+            {
+              "resource": "InviteStaffUser"
+            },
+            {
+              "resource": "WithdrawStaffInvitation"
+            },
+            {
+              "resource": "SetStaffUserEmail"
             }
           ],
           "List": [
             {
-              "resource": "StaffUsers",
+              "resource": "StaffSessionUsers",
               "fields": [
                 "username",
+                "email",
+                "emailVerifiedAt",
                 "disabled",
-                "hasPassword",
                 "passwordChangeRequired",
                 "createdAt",
-                "lastSignInAt",
-                "organization",
-                "identities",
-                "roles",
-                "everywhereRoles",
-                "rolesSynced",
-                "email",
-                "emailVerifiedAt"
+                "lastSignInAt"
               ]
             },
             {
-              "resource": "StaffInvitations",
+              "resource": "StaffSessions",
               "fields": [
-                "email",
-                "roles",
-                "invitedBy",
-                "createdAt",
-                "expiresAt"
-              ]
-            },
-            {
-              "resource": "StaffSeats",
-              "fields": [
+                "userId",
                 "username",
-                "everyDomain"
+                "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffUserRoles",
+              "fields": [
+                "createdAt"
+              ]
+            },
+            {
+              "resource": "StaffSessionIdentities",
+              "fields": [
+                "connection",
+                "createdAt",
+                "emailAtLink",
+                "lastUsedAt",
+                "method",
+                "subject",
+                "tenant",
+                "userId"
+              ]
+            },
+            {
+              "resource": "StaffSessionTokens",
+              "fields": [
+                "clientId",
+                "createdAt",
+                "expiresAt",
+                "family",
+                "kind",
+                "lastUsedAt",
+                "name",
+                "outlet",
+                "revokedAt",
+                "revokedReason",
+                "userId"
+              ]
+            },
+            {
+              "resource": "StaffSessionMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "expiresAt",
+                "invitedBy",
+                "kind",
+                "roleNames",
+                "tenant",
+                "userId"
+              ]
+            },
+            {
+              "resource": "StaffSessionSignInAttempts",
+              "fields": [
+                "failures",
+                "lockedUntil",
+                "updatedAt",
+                "windowEndsAt"
+              ]
+            },
+            {
+              "resource": "StaffSessionAuthEvents",
+              "fields": [
+                "connection",
+                "idpAmr",
+                "method",
+                "occurredAt"
               ]
             },
             {
               "resource": "StaffRoles",
               "fields": [
-                "kind",
-                "description"
+                "description",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffRoleGrants",
+              "fields": [
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffSessionTrustedDevices",
+              "fields": [
+                "createdAt",
+                "expiresAt",
+                "lastUsedAt",
+                "revokedAt",
+                "userId"
               ]
             }
           ],
           "Read": [
             {
-              "resource": "StaffUsers",
+              "resource": "StaffSessionUsers",
               "fields": [
                 "username",
+                "email",
+                "emailVerifiedAt",
                 "disabled",
-                "hasPassword",
                 "passwordChangeRequired",
                 "createdAt",
-                "lastSignInAt",
-                "organization",
-                "identities",
-                "roles",
-                "everywhereRoles",
-                "rolesSynced",
-                "email",
-                "emailVerifiedAt"
+                "lastSignInAt"
               ]
             },
             {
-              "resource": "StaffInvitations",
+              "resource": "StaffSessions",
               "fields": [
-                "email",
-                "roles",
-                "invitedBy",
+                "userId",
+                "username",
+                "expired",
+                "authenticatedAt",
                 "createdAt",
-                "expiresAt"
+                "updatedAt"
               ]
             },
             {
-              "resource": "StaffSeats",
+              "resource": "StaffSessionIdentities",
               "fields": [
-                "username",
-                "everyDomain"
+                "connection",
+                "createdAt",
+                "emailAtLink",
+                "lastUsedAt",
+                "method",
+                "subject",
+                "tenant",
+                "userId"
               ]
             },
             {
-              "resource": "StaffRoles",
+              "resource": "StaffSessionTokens",
               "fields": [
+                "clientId",
+                "createdAt",
+                "expiresAt",
+                "family",
                 "kind",
-                "description"
+                "lastUsedAt",
+                "name",
+                "outlet",
+                "revokedAt",
+                "revokedReason",
+                "userId"
               ]
-            }
-          ],
-          "Update": [
+            },
             {
-              "resource": "StaffUsers",
+              "resource": "StaffSessionMailLinks",
               "fields": [
-                "username",
-                "disabled",
-                "email"
+                "consumedAt",
+                "createdAt",
+                "email",
+                "expiresAt",
+                "invitedBy",
+                "kind",
+                "roleNames",
+                "tenant",
+                "userId"
+              ]
+            },
+            {
+              "resource": "StaffSessionTrustedDevices",
+              "fields": [
+                "createdAt",
+                "expiresAt",
+                "lastUsedAt",
+                "revokedAt",
+                "userId"
               ]
             }
           ]

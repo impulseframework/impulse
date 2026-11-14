@@ -17,6 +17,20 @@ func newGenerator(ctx context.Context) (generation.Generator, error) {
 		"apps/console/pkg/resources",
 		[]string{"file://schema/migrations"},
 		generation.GenerateHandlers("apps/console/app"),
+		// The management of the staff auth's people is generated into this site's
+		// pkg/identity, a tree the generator owns: resources over the staff auth's own
+		// tables (its accounts, their sessions and sign-in identities, the mailed links, the
+		// role memberships) and the methods that change them (create a user, give and take
+		// a role, invite an address, set a temporary password), served on this site behind
+		// the role file's grants, and callable in a transaction of the application's own.
+		// The application has a tenant record, so the auth also gets the lists a tenant
+		// keeps of its people, served under the tenant's address (the tenant's people, the
+		// roles held there, its invitations and its people's sign-in identities), the
+		// methods a tenant changes them through, each naming a row of one of the lists, and
+		// the roles a tenant gives. Both sites sign the same auth in, and one generator
+		// program owns a tree: the console is the site the application manages its people
+		// on, so the option is set here and not on the portal's generator.
+		generation.GenerateIdentity("apps/console/pkg/identity"),
 		// The router is generated from the outlet declarations: the console is the default
 		// outlet, the staff auth's password sessions under /api with its browser application
 		// at /.

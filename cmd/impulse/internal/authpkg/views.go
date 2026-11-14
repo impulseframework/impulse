@@ -26,9 +26,18 @@ type view struct {
 	Application string
 	// OpenSignUp reports a password method whose strangers sign up from a mailed link,
 	// and UsernameIsEmail one whose sign-in name is the address, so a verified change
-	// of address renames the user and the seats follow.
+	// of address renames the user and the roles follow.
 	OpenSignUp      bool
 	UsernameIsEmail bool
+	// RolesSynced reports an auth with a registration whose directory writes the roles
+	// at every sign-in: the directory is the authority for everyone the auth holds, so
+	// the application gives nobody a role at a sign-in and the auth sets no hook for it
+	// (the generated identity client of such an auth answers none).
+	RolesSynced bool
+	// IdentityPackage is the import path of the auth's generated identity package
+	// (<module>/<IdentityDir>/<name>identity); empty where the application generates no
+	// management of its auths.
+	IdentityPackage string
 	// Methods are the methods with their rendering helpers.
 	Methods []*methodView
 	// Outlets are the machine outlets whose tokens the auth issues, with their rendering
@@ -106,6 +115,7 @@ func newView(spec *Spec) *view {
 	for i := range spec.Methods {
 		mv := newMethodView(spec, &spec.Methods[i])
 		v.Methods = append(v.Methods, mv)
+		v.RolesSynced = v.RolesSynced || spec.Methods[i].SyncsRoles()
 		if mv.Directory() {
 			v.Directory = true
 		} else {
@@ -140,6 +150,15 @@ func newView(spec *Spec) *view {
 	// The sign-in rule every auth sets (requireSecondFactor) names the library's decision
 	// and the factor's method.
 	v.Imports = append(v.Imports, "github.com/impulseframework/impulse/session/sessioninfo", signinImport)
+	// The auth's identity client, its option naming the administrator roles, and the hook
+	// a rename by the session library is reported to (identity.RolesFollowRename).
+	if spec.IdentityDir != "" {
+		v.IdentityPackage = path.Join(spec.Module, spec.IdentityDir, spec.Name+"identity")
+		v.Imports = append(v.Imports, v.IdentityPackage)
+	}
+	if v.UsernameIsEmail || (v.IdentityPackage != "" && v.Foothold != "") {
+		v.Imports = append(v.Imports, "github.com/impulseframework/impulse/identity")
+	}
 
 	return v
 }

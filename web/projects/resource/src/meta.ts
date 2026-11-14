@@ -8,9 +8,10 @@ import { Resource } from './brands';
  * 'uuid', so a computed UUID field and a UUID column carry the same name), a nested
  * struct, an imported type, and a value with no fixed shape are 'object', a byte slice is
  * 'bytes', a nullable BOOL column is 'nullboolean', and a picker is 'enumerated'. A slice
- * of a leaf adds [], for every leaf but the two that describe one value alone:
- * 'nullboolean' is the tri-state rule for one nullable BOOL column, and a picker stores
- * one key. The list is the generator's own (resource/generation/displaytype.go) and its
+ * of a leaf adds [], for every leaf but 'nullboolean', the tri-state rule for one
+ * nullable BOOL column. 'enumerated[]' is a method's request field that holds several
+ * picked keys; a column stores one key, so no resource field carries it. The list is the
+ * generator's own (resource/generation/displaytype.go) and its
  * README's table (section 12), spelled the same, and the generator refuses to emit
  * anything outside it, so the union says exactly what a generated file can carry.
  */
@@ -28,6 +29,8 @@ export type ValidDisplayTypes =
   | 'uuid'
   /** A picker: the field holds a key into the resource or enumeration the metadata names beside it. */
   | 'enumerated'
+  /** Several picked keys, on a method's request field alone: each a key into the resource or enumeration the metadata names beside it. */
+  | 'enumerated[]'
   /** A nested struct the generator mirrored or derived, an imported type, or a value with no fixed shape: one opaque object, granted, masked, and selected whole. */
   | 'object'
   /**
@@ -65,15 +68,59 @@ export interface RPCFieldMeta {
   enumeratedResource?: Resource;
   /** The fixed values of an enumeration table the field names; the picker renders them without a request. */
   enumeration?: EnumerationOption[];
+  /** Set when the method refuses a request that leaves the field empty; a form holds the input to it. */
+  required?: true;
+  /** Set when a request may leave the field out; a form sends nothing for an input left empty. */
+  optional?: true;
+  /**
+   * The name a grant's condition reads the field by (new.<name>), set on a field that
+   * declares it (@attribute). A role file may hold the method to a value of this field,
+   * and no value never passes such a condition, so a form that rehearses the call waits
+   * for the field and, on a refusal as not permitted, marks it.
+   */
+  attribute?: string;
+}
+
+/** A declared workflow transition: the resource the method moves, the states it runs from, and the state it stamps. */
+export interface MethodTransition {
+  target: Resource;
+  from: string[];
+  to: string;
+}
+
+/**
+ * The row a method runs against (@target): the resource whose row it is, and the request
+ * fields that carry the row's key, each with the row's field it carries (one entry for a
+ * single-column key, one for each column of a compound one). A page that lists the
+ * resource draws the method's button on each row the caller may run it on, and fills
+ * the fields from the row.
+ */
+export interface MethodTarget {
+  resource: Resource;
+  key: Record<string, string>;
 }
 
 export interface MethodMeta {
   route: string;
   /** Set when the method answers with a result body; absent methods resolve with nothing. */
   answers?: true;
+  /** The statuses the method declares with @answers; a listed 4xx is the method's own answer, not a refusal by the frame. */
+  statuses?: number[];
+  /** Set on an @upload method: the request is multipart, and the whole body is bounded by maxBytes. */
+  upload?: { maxBytes: number };
+  /**
+   * Set on a method that runs in a transaction: a dry run (X-Dry-Run) runs the whole
+   * call and rolls it back, so a refusal can be read before anything is changed. Absent
+   * on a method that runs outside one, which refuses the header.
+   */
+  dryRun?: true;
   fields: RPCFieldMeta[];
   /** The feature flag that gates the method, by name; absent on an ungated method. See MethodDescriptor.feature. */
   feature?: string;
+  /** The workflow transition the method performs; absent on a method that performs none. */
+  transition?: MethodTransition;
+  /** The row the method runs against; absent on a method with no target row. */
+  target?: MethodTarget;
 }
 
 /** When the server accepts a filter on a field: on its own, or only beside an indexed field. */

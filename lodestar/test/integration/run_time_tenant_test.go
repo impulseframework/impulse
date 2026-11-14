@@ -7,9 +7,10 @@ package integration
 // fans a signal out to every subscription) and a started roster per instance, the shape a
 // deployment has. The surveyor, who holds Create and Update on Sectors and SectorCrew in
 // every sector, charts sector Dawn through the first instance's consolidated patch: the
-// instance that wrote adds Dawn to its roster after the commit, seats her as Dawn's
-// marshal (SectorMarshal, the role SectorAdministratorRoles names: the creator of a
-// sector is its first administrator) and signals the tenants kind, her star chart lights
+// instance that wrote makes her Dawn's marshal in the transaction that writes the sector
+// (SectorMarshal, the role SectorAdministratorRoles names: the creator of a sector is
+// its first administrator), adds Dawn to its roster after the commit and signals the
+// tenants kind, her star chart lights
 // Dawn and Dawn's wings answer her; the marshal's chart does not light it and Dawn's
 // routes answer her 404, a sector that does not exist for her; the portal's client, whose
 // directory role is held in every sector, opens Dawn's portal at once, as the governor
@@ -31,7 +32,6 @@ import (
 	"github.com/impulseframework/impulse/lodestar/app"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
-	"github.com/impulseframework/impulse/lodestar/pkg/router"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 )
@@ -62,25 +62,22 @@ const (
 
 // startTenantInstance builds an App over the database, the real engines, the shared live
 // service, a roster of its own started over that service, as a served instance's data
-// configuration starts it, and the crew's user surface over the shared account store and
-// the instance's engine, through which the create path seats a sector's creator, and
-// starts the App.
-func startTenantInstance(t *testing.T, name string, db *initiator.SpannerDB, crewEngine *access.Client, membersEngine access.Controller, svc live.Service, accounts *resource.MemUserStore) *flagInstance {
+// configuration starts it, and starts the App. The crew's identity client stands over
+// the instance's engine: the create path gives a sector's creator the marshal's role
+// through it, in the transaction that writes the sector.
+func startTenantInstance(t *testing.T, name string, db *initiator.SpannerDB, crewEngine *access.Client, membersEngine access.Controller, svc live.Service) *flagInstance {
 	t.Helper()
 
 	roster := app.NewSectorRoster(resource.NewSpannerClient(db.Client), resource.WithTenantSignals(svc))
 	if err := roster.Start(t.Context()); err != nil {
 		t.Fatalf("resource.TenantRoster.Start() error = %v", err)
 	}
-	memberStore := resource.NewMemUserStore()
 	a := app.New(&testConfigurer{
 		db:            db,
 		access:        crewEngine,
 		membersAccess: membersEngine,
 		live:          svc,
 		tenants:       roster,
-		crewUsers:     router.NewCrewUserSurface(accounts, crewEngine.UserManager(), resource.WithTenantDirectories(roster.Declarations), resource.WithAdministratorRoles(crew.AdministratorRoles())),
-		membersUsers:  router.NewMembersUserSurface(memberStore, memberStore),
 	})
 	if err := a.Start(t.Context()); err != nil {
 		t.Fatalf("app.Start() error = %v", err)
@@ -102,27 +99,6 @@ func assertDomains(want ...accesstypes.Domain) func(t *testing.T, step string, b
 		if !slices.Equal(got, want) {
 			t.Errorf("%s: domains = %v, want %v", step, got, want)
 		}
-	}
-}
-
-// assertSeatedAs pins a crew list carrying the user in the role: the create path seated
-// the sector's creator as its marshal.
-func assertSeatedAs(user accesstypes.User, role accesstypes.Role) func(t *testing.T, step string, body []byte) {
-	return func(t *testing.T, step string, body []byte) {
-		t.Helper()
-
-		for _, row := range decodeRows(t, body) {
-			if cell[string](t, row, "username") != string(user) {
-				continue
-			}
-			roles, _ := row["roles"].([]any)
-			if !slices.Contains(roles, any(string(role))) {
-				t.Errorf("%s: %s holds %v, want %s among them", step, user, roles, role)
-			}
-
-			return
-		}
-		t.Errorf("%s: %s is not on the crew: %s", step, user, body)
 	}
 }
 
@@ -178,18 +154,23 @@ func TestRunTimeTenant_chartedSectorReachesSecondInstance(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// The personas' accounts, which the crew surface's rows read beside the engine's
-	// seats; one live service, two instances, each with a roster started over it: Start
-	// loads the seeded sectors and subscribes to the tenants kind.
-	accounts := resource.NewMemUserStore()
-	for _, user := range demoUsers(t) {
-		accounts.AddUser(string(user.User), true)
-	}
+	// The personas' accounts, rows of the one database: the list of the roles held in a
+	// sector shows the people who have one. One live service, two instances, each with a
+	// roster started over it: Start loads the seeded sectors and subscribes to the tenants
+	// kind.
+	seedCrewAccounts(ctx, t, db)
 	fake := live.NewFake()
-	first := startTenantInstance(t, "the first instance", db, crewEngine, membersEngine, fake, accounts)
-	second := startTenantInstance(t, "the second instance", db, crewEngine, membersEngine, fake, accounts)
+	first := startTenantInstance(t, "the first instance", db, crewEngine, membersEngine, fake)
+	second := startTenantInstance(t, "the second instance", db, crewEngine, membersEngine, fake)
 	if got := fake.Subscribers(live.KindTenants); got != 2 {
 		t.Fatalf("rosters subscribed to the %s kind = %d, want 2: Start follows the signals", live.KindTenants, got)
+	}
+
+	// Dawn's list of the roles held, and what it carries for its creator.
+	dawnRolesHeld := sectorPath(dawn, sectorRolesPath+"?limit=200")
+	heldAsMarshal := func(t *testing.T, step string, body []byte) {
+		t.Helper()
+		assertRolesHeld(t, step, body, tenantSurveyor, string(marshalRole), "SectorCrew")
 	}
 
 	seeded := []accesstypes.Domain{anvil, bastion, cinder}
@@ -212,8 +193,8 @@ func TestRunTimeTenant_chartedSectorReachesSecondInstance(t *testing.T) {
 		{name: "charted: her star chart lights Dawn with no restart, no migrate job and no new login", on: first, user: tenantSurveyor, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(charted...)},
 		{name: "charted: Dawn's wings answer her on the instance that wrote, an empty list", on: first, user: tenantSurveyor, method: http.MethodGet, target: sectorPath(dawn, "wings"), wantStatus: http.StatusOK, check: assertNoRows},
 		{name: "charted: the surveyor corrects Dawn's region, Update on Sectors", on: first, user: tenantSurveyor, method: http.MethodPatch, target: resourcesRoute, body: surveyDawn, wantStatus: http.StatusOK},
-		{name: "charted: the create path seated the surveyor as Dawn's marshal, so Dawn's crew answers her and lists her as SectorMarshal", on: first, user: tenantSurveyor, method: http.MethodGet, target: crewSectorUsers(dawn), wantStatus: http.StatusOK, check: assertSeatedAs(tenantSurveyor, marshalRole)},
-		{name: "charted: the second instance's engine knows the seat too, one store under both", on: second, user: tenantSurveyor, method: http.MethodGet, target: crewSectorUsers(dawn), wantStatus: http.StatusOK, settle: true, check: assertSeatedAs(tenantSurveyor, marshalRole)},
+		{name: "charted: the create made the surveyor Dawn's marshal in its own transaction, so Dawn's list of the roles held answers her and carries her as SectorMarshal", on: first, user: tenantSurveyor, method: http.MethodGet, target: dawnRolesHeld, wantStatus: http.StatusOK, check: heldAsMarshal},
+		{name: "charted: the second instance's engine knows the membership too, one store under both", on: second, user: tenantSurveyor, method: http.MethodGet, target: dawnRolesHeld, wantStatus: http.StatusOK, settle: true, check: heldAsMarshal},
 		{name: "the marshal's chart does not light Dawn", on: first, user: tenantMarshal, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(anvil)},
 		{name: "Dawn's routes answer the marshal 404: a sector that does not exist for her", on: first, user: tenantMarshal, method: http.MethodGet, target: sectorPath(dawn, "wings"), wantStatus: http.StatusNotFound},
 		{name: "the governor, marshal in every sector, sees Dawn", on: first, user: tenantGovernor, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(charted...)},

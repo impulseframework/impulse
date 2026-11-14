@@ -27,8 +27,8 @@
 // browser is one the person asked to be remembered after a code (the staff-trusted
 // cookie); a sign-in through a directory the deployment administers, or whose token says
 // a second factor was passed, carries the directory's and is asked for nothing. An
-// administrator resets the browsers a person asked to be remembered from the users
-// surface, so their next sign-in asks again.
+// administrator makes the server forget the browsers a person asked to be remembered,
+// from the person's account page, so their next sign-in asks again.
 package staff
 
 import (
@@ -41,6 +41,8 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/access/spannerstore"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/staffidentity"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/mail"
@@ -187,6 +189,9 @@ type Auth struct {
 	db       *cloudspanner.Client
 	access   *access.Client
 	handlers *Handlers
+	// identity is the auth's identity client: the generated management of its people
+	// (pkg/identity), built over the engine and the session manager above.
+	identity *staffidentity.Client
 }
 
 // Handlers is the auth's served surface, the shape the generated router names for the
@@ -406,26 +411,39 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// the rule admits then carries a second factor (requireSecondFactor).
 	authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(requireSecondFactor))
 
+	// The auth's identity client (pkg/identity, generated): the rules that manage the
+	// auth's people, over the engine that reads its memberships and the API of the session
+	// manager that signs them in, whose hasher makes the hash of a temporary password one
+	// of its methods sets. The client knows the auth's administrator roles
+	// (identity.WithAdministratorRoles), so a person who removes a role from themselves
+	// is judged by the rule on the last administrator.
+	identityClient, err := staffidentity.NewClient(accessClient, authSession.API(), identity.WithAdministratorRoles(AdministratorRoles()))
+	if err != nil {
+		return nil, errors.Wrap(err, "staffidentity.NewClient()")
+	}
+
 	// The directory admission: what a stranger gets at their first sign-in through a
 	// directory a tenant declares, before the registration's account rule is reached.
 	// The directory rows the tenants declare for the identity's connection decide: a
-	// row with a default seat creates the person and seats them with it (written
-	// through the engine once the sign-in's transaction has committed, resource.SeatDeclared,
-	// before the sign-in rule decides, so the rule finds the membership); rows with
-	// none refuse them (invitation_only) and no account is created, unless they
-	// followed an invitation link, which is the way in; a person already seated
-	// somewhere is the tenant's own and passes. A directory no tenant declares falls to
-	// the registration's rule. The auth's roles are the application's, so the admission
-	// is set here; an auth whose directory writes the roles sets none.
-	authSession.SetDirectoryAdmission(settings.TenantDirectories, resource.SignInRoles(accessClient.UserManager()), resource.SeatDeclared(accessClient.UserManager()))
+	// row with a default seat creates the person and gives them that role in the tenant
+	// in one transaction (the identity client's DirectorySeated, which the session
+	// library runs inside the transaction that creates the person), and the sign-in rule
+	// then finds the membership; rows with none refuse them (invitation_only) and no
+	// account is created, unless they followed an invitation link, which is the way in;
+	// a person who already holds a role somewhere is the tenant's own and passes. A
+	// directory no tenant declares falls to the registration's rule. The auth's roles
+	// are the application's, so the admission is set here; an auth whose directory
+	// writes the roles sets none.
+	authSession.SetDirectoryAdmission(settings.TenantDirectories, resource.SignInRoles(accessClient.UserManager()), identityClient.DirectorySeated())
 
-	// An invitation accepted seats its roles: once the transaction that consumed the
-	// invitation has committed, the hook writes the invitee's memberships through the
-	// permission engine, outside the sign-in's transaction (the engine's own read-write
-	// transaction would wait on it), and the sign-in rule that follows finds them.
-	authSession.SetInvitationAccepted(resource.SeatInvited(accessClient.UserManager()))
+	// An accepted invitation gives its roles, in the tenant it names or for the whole
+	// application, in the transaction that consumes the invitation (the identity
+	// client's InvitationAccepted, which the session library runs inside it): the
+	// invitation is spent and its roles given together or neither is, and the sign-in
+	// rule that follows finds the memberships.
+	authSession.SetInvitationAccepted(identityClient.InvitationAccepted())
 
-	return &Auth{db: db, access: accessClient, handlers: handlers}, nil
+	return &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil
 }
 
 // Access returns the auth's permission engine: the handlers check against it, and its
@@ -442,6 +460,14 @@ func (a *Auth) Session() *Session {
 // Handlers returns the auth's served surface.
 func (a *Auth) Handlers() *Handlers {
 	return a.handlers
+}
+
+// Identity returns the auth's identity client: what the generated methods that manage
+// the auth's people run over (pkg/identity/staffidentity), on their routes and
+// in a transaction the application opens itself. The roles a sign-in gives are written
+// through the same client, by the hooks New sets.
+func (a *Auth) Identity() *staffidentity.Client {
+	return a.identity
 }
 
 // Close releases the permission engine, which ends its subscription to the policy kind.

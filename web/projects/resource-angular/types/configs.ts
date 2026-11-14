@@ -44,7 +44,64 @@ export type RpcMethod = Record<string, DataType>;
 export type ParentResourceConfig = ListViewConfig | ViewConfig | ArrayConfig;
 export type ChildResourceConfig = ListViewConfig | ViewConfig | ComponentConfig | ArrayConfig;
 
-export type ActionType = 'function' | 'link';
+export type ActionType = 'function' | 'link' | 'menu';
+
+/** One entry of a row's actions menu: its words, an optional icon, and what a click does. */
+export interface RowAction {
+  id: string;
+  label: string;
+  icon?: string;
+  run: () => void;
+}
+
+/**
+ * The display-row key a row's actions ride under: the list writes the entries the row
+ * offers while it builds the display row and the grid's menu column reads them. A
+ * generated field name never carries a colon, so the key collides with none.
+ */
+export const rowActionsKey = 'actions:menu';
+
+/**
+ * How a page presents one method it offers, where the generated metadata's own words
+ * are not the ones the page wants. Every part is optional but the method's name: a
+ * method the page does not name is offered with its name in words.
+ */
+export interface MethodPresentation {
+  method: Method;
+  /** The words of the menu entry or the button, and the dialog's title. */
+  label?: string;
+  /** The icon beside the words. */
+  icon?: string;
+  /** Leaves the method off the page. */
+  hidden?: boolean;
+  /**
+   * Whether a row offers the method, beyond the server's answer for the row: for a
+   * method that only makes sense in one state of the row (Enable on a disabled
+   * account). The server's answer still decides whether the caller may run it.
+   */
+  when?: (row: RecordData) => boolean;
+  /** The question the dialog asks before a method that takes nothing but the row. */
+  confirm?: string | ((row: RecordData) => string);
+  /** What the notice says once the method has run. */
+  successMessage?: string;
+  /**
+   * The words above a request field's input, by the field's name, where the name in
+   * words is not what the page wants (`domain` as the application's own word for its
+   * tenant). A field the page does not name is labeled with its name in words.
+   */
+  labels?: Record<string, string>;
+  /**
+   * What the page fills in the method's request from a row: the row the method is
+   * offered on, or, for a method above a list, the row the list sits under (a child
+   * list's parent). A filled field is not asked, and a value left undefined fills
+   * nothing. It is how a method that names no target row and takes what a row holds
+   * is run from that row: a role given to a person by the person's name, above the
+   * list of the roles the person holds. Named among `rowMethods`, a method with no
+   * target row and a `fill` is offered on every row while the digest grants the
+   * caller Execute on it; the server gives no answer for a row it does not name.
+   */
+  fill?: (row: RecordData) => Record<string, unknown>;
+}
 
 export type ListConcatFn =
   | 'space-concat'
@@ -857,6 +914,23 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
    */
   disableCacheForFilterPii?: boolean;
   rpcConfigs?: RPCConfig[];
+  /**
+   * The methods that run against a row of the list: the generated methods whose target
+   * row (`@target`) is a row of the listed resource. Unset, every row offers, in a menu
+   * at its end, each of them the server says the caller may run on that row (the list
+   * asks for the row's Execute answer), under the method's name in words; a method
+   * that takes more than the row opens a dialog drawn from its request fields, and one
+   * that takes nothing more asks before it runs. A list of presentations says how the
+   * methods it names are shown (words, icon, a row predicate, hidden) and leaves the
+   * rest as they are. `false` offers none and asks the server nothing.
+   */
+  rowMethods?: false | MethodPresentation[];
+  /**
+   * The methods offered above the list: methods that name no row (a create, an
+   * invitation), each a button drawn when the digest grants the caller Execute on it,
+   * opening the same dialog. The list is read again once one has run.
+   */
+  listMethods?: MethodPresentation[];
   /** The sorts the list is requested in until a header is clicked; none, and the resource's declared order applies. */
   sorts?: FieldSort[];
   shouldRenderActions?: Record<'edit' | 'delete' | 'create', (data: any) => boolean>;
@@ -912,6 +986,10 @@ export interface ListViewConfig extends BaseConfig {
   filter: (parentResource: any) => string;
   disableCacheForFilterPii: boolean;
   rpcConfigs?: RPCConfig[];
+  /** The methods a row offers; see ListViewConfigOptions.rowMethods. */
+  rowMethods?: false | MethodPresentation[];
+  /** The methods offered above the list; see ListViewConfigOptions.listMethods. */
+  listMethods?: MethodPresentation[];
   sorts: FieldSort[];
   shouldRenderActions: Record<'edit' | 'delete' | 'create', (data: any) => boolean>;
   showRowCount: boolean;
@@ -979,6 +1057,11 @@ export interface ViewConfigOptions extends BaseConfigOptions {
   rpcConfigs?: RPCConfig[];
   shouldRenderActions?: Record<'edit' | 'delete' | 'create', (data: any) => boolean>;
   /**
+   * The methods the row page offers on its row; see ListViewConfigOptions.rowMethods,
+   * which a page with a list shares with its row page.
+   */
+  rowMethods?: false | MethodPresentation[];
+  /**
    * Whether the record page stays current without polling: the read subscribes the tab
    * to changes of the row, and the page refetches when the change feed reports one. The
    * browser caches a live answer for five minutes, so a page left and reopened inside
@@ -1009,6 +1092,8 @@ export interface ViewConfig extends BaseConfig {
    * precedence and is based on a user's attributes
    */
   shouldRenderActions: Record<'edit' | 'delete' | 'create', (data: any) => boolean>;
+  /** The methods the row page offers on its row; see ListViewConfigOptions.rowMethods. */
+  rowMethods?: false | MethodPresentation[];
   /**
    * The page's own word on being live, as the options gave it; unset when they said
    * nothing, so the resource's metadata decides. See ViewConfigOptions.live.

@@ -1,5 +1,5 @@
 import { provideHttpClient, withInterceptors, withXsrfConfiguration } from '@angular/common/http';
-import { ApplicationConfig, isDevMode } from '@angular/core';
+import { ApplicationConfig, computed, inject, Injector, isDevMode, Signal } from '@angular/core';
 import { provideNativeDateAdapter } from '@angular/material/core';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideRouter, withComponentInputBinding, withRouterConfig } from '@angular/router';
@@ -7,6 +7,8 @@ import { provideServiceWorker } from '@angular/service-worker';
 import { createApi } from '@app/service/zz_gen_api';
 import { methodMeta } from '@app/service/zz_gen_methods';
 import { resourceMeta } from '@app/service/zz_gen_resources';
+import { TenantService } from '@app/tenant/tenant.service';
+import { Domain } from '@impulseframework/resource';
 import { apiVersionInterceptor, provideResourceClient } from '@impulseframework/resource-angular/resource-client';
 import {
   API_URL,
@@ -15,6 +17,7 @@ import {
   CHANGE_FEED,
   FRONTEND_LOGIN_PATH,
   METHOD_META,
+  RESOURCE_DOMAIN,
   RESOURCE_META,
   SESSION_PATH,
 } from '@impulseframework/resource-angular/types';
@@ -30,6 +33,18 @@ export const appConfig: ApplicationConfig = {
     { provide: SESSION_PATH, useValue: 'user/session' },
     { provide: RESOURCE_META, useValue: resourceMeta },
     { provide: METHOD_META, useValue: methodMeta },
+    // The open tenant, the one the URL names, is the tenant the library's own pages work
+    // in: a tenant's people and invitations ask that tenant's digest and bind their
+    // requests to it. The tenant guard writes it before the library's guard asks. The
+    // service is resolved when the signal is first read, not when the token is built: the
+    // library's AuthService injects the token, and TenantService injects AuthService.
+    {
+      provide: RESOURCE_DOMAIN,
+      useFactory: (): Signal<Domain | undefined> => {
+        const injector = inject(Injector);
+        return computed(() => (injector.get(TenantService).current() || undefined) as Domain | undefined);
+      },
+    },
     { provide: BASE_URL, useValue: environment.baseUrl },
     { provide: API_URL, useValue: environment.apiUrl },
     // The release this build was made from, which the build defines (APP_VERSION: dev

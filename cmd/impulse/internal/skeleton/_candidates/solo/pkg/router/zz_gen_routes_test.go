@@ -138,11 +138,12 @@ type generatedRouterTest struct {
 func generatedRouteParameters() []string {
 	keys := []string{
 		"featureFlagName",
-		"staffUserID",
-		"staffSeatUser",
-		"staffSeatRole",
-		"staffRoleName",
-		"staffInvitationID",
+		"staffSessionID",
+		"staffSessionIdentityID",
+		"staffSessionMailLinkID",
+		"staffSessionTokenID",
+		"staffSessionTrustedDeviceID",
+		"staffSessionUserID",
 	}
 
 	return keys
@@ -174,6 +175,176 @@ func generatedRouterTests() []*generatedRouterTest {
 			selfBounded: true,
 		},
 		{
+			url: "/api/staff-roles", method: http.MethodGet,
+			handlerFunc: "StaffRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-roles", method: http.MethodPost,
+			handlerFunc: "StaffRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-role-grants", method: http.MethodGet,
+			handlerFunc: "StaffRoleGrants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-role-grants", method: http.MethodPost,
+			handlerFunc: "StaffRoleGrants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sessions", method: http.MethodGet,
+			handlerFunc: "StaffSessions",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sessions", method: http.MethodPost,
+			handlerFunc: "StaffSessions",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sessions/testStaffSessionID", method: http.MethodGet,
+			handlerFunc: "StaffSession",
+			parameters:  map[string]string{"staffSessionID": "testStaffSessionID"},
+		},
+		{
+			url: "/api/staff-sessions/testStaffSessionID", method: http.MethodPost,
+			handlerFunc: "StaffSession",
+			parameters:  map[string]string{"staffSessionID": "testStaffSessionID"},
+		},
+		{
+			url: "/api/staff-session-auth-events", method: http.MethodGet,
+			handlerFunc: "StaffSessionAuthEvents",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-session-auth-events", method: http.MethodPost,
+			handlerFunc: "StaffSessionAuthEvents",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-session-identities", method: http.MethodGet,
+			handlerFunc: "StaffSessionIdentities",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-session-identities", method: http.MethodPost,
+			handlerFunc: "StaffSessionIdentities",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-session-identities/testStaffSessionIdentityID", method: http.MethodGet,
+			handlerFunc: "StaffSessionIdentity",
+			parameters:  map[string]string{"staffSessionIdentityID": "testStaffSessionIdentityID"},
+		},
+		{
+			url: "/api/staff-session-identities/testStaffSessionIdentityID", method: http.MethodPost,
+			handlerFunc: "StaffSessionIdentity",
+			parameters:  map[string]string{"staffSessionIdentityID": "testStaffSessionIdentityID"},
+		},
+		{
+			url: "/api/staff-session-mail-links", method: http.MethodGet,
+			handlerFunc: "StaffSessionMailLinks",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-session-mail-links", method: http.MethodPost,
+			handlerFunc: "StaffSessionMailLinks",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-session-mail-links/testStaffSessionMailLinkID", method: http.MethodGet,
+			handlerFunc: "StaffSessionMailLink",
+			parameters:  map[string]string{"staffSessionMailLinkID": "testStaffSessionMailLinkID"},
+		},
+		{
+			url: "/api/staff-session-mail-links/testStaffSessionMailLinkID", method: http.MethodPost,
+			handlerFunc: "StaffSessionMailLink",
+			parameters:  map[string]string{"staffSessionMailLinkID": "testStaffSessionMailLinkID"},
+		},
+		{
+			url: "/api/staff-session-sign-in-attempts", method: http.MethodGet,
+			handlerFunc: "StaffSessionSignInAttempts",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-session-sign-in-attempts", method: http.MethodPost,
+			handlerFunc: "StaffSessionSignInAttempts",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-session-tokens", method: http.MethodGet,
+			handlerFunc: "StaffSessionTokens",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-session-tokens", method: http.MethodPost,
+			handlerFunc: "StaffSessionTokens",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-session-tokens/testStaffSessionTokenID", method: http.MethodGet,
+			handlerFunc: "StaffSessionToken",
+			parameters:  map[string]string{"staffSessionTokenID": "testStaffSessionTokenID"},
+		},
+		{
+			url: "/api/staff-session-tokens/testStaffSessionTokenID", method: http.MethodPost,
+			handlerFunc: "StaffSessionToken",
+			parameters:  map[string]string{"staffSessionTokenID": "testStaffSessionTokenID"},
+		},
+		{
+			url: "/api/staff-session-trusted-devices", method: http.MethodGet,
+			handlerFunc: "StaffSessionTrustedDevices",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-session-trusted-devices", method: http.MethodPost,
+			handlerFunc: "StaffSessionTrustedDevices",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-session-trusted-devices/testStaffSessionTrustedDeviceID", method: http.MethodGet,
+			handlerFunc: "StaffSessionTrustedDevice",
+			parameters:  map[string]string{"staffSessionTrustedDeviceID": "testStaffSessionTrustedDeviceID"},
+		},
+		{
+			url: "/api/staff-session-trusted-devices/testStaffSessionTrustedDeviceID", method: http.MethodPost,
+			handlerFunc: "StaffSessionTrustedDevice",
+			parameters:  map[string]string{"staffSessionTrustedDeviceID": "testStaffSessionTrustedDeviceID"},
+		},
+		{
+			url: "/api/staff-session-users", method: http.MethodGet,
+			handlerFunc: "StaffSessionUsers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-session-users", method: http.MethodPost,
+			handlerFunc: "StaffSessionUsers",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-session-users/testStaffSessionUserID", method: http.MethodGet,
+			handlerFunc: "StaffSessionUser",
+			parameters:  map[string]string{"staffSessionUserID": "testStaffSessionUserID"},
+		},
+		{
+			url: "/api/staff-session-users/testStaffSessionUserID", method: http.MethodPost,
+			handlerFunc: "StaffSessionUser",
+			parameters:  map[string]string{"staffSessionUserID": "testStaffSessionUserID"},
+		},
+		{
+			url: "/api/staff-user-roles", method: http.MethodGet,
+			handlerFunc: "StaffUserRoles",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-user-roles", method: http.MethodPost,
+			handlerFunc: "StaffUserRoles",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/api/features", method: http.MethodGet,
 			handlerFunc: "Features",
 			parameters:  map[string]string{},
@@ -201,111 +372,6 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/api/set-feature", method: http.MethodPost,
 			handlerFunc: "SetFeature",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/api/staff-users", method: http.MethodGet,
-			handlerFunc: "StaffUsers",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/api/staff-users", method: http.MethodPost,
-			handlerFunc: "StaffUsers",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/api/staff-users/testStaffUserID", method: http.MethodGet,
-			handlerFunc: "StaffUser",
-			parameters:  map[string]string{"staffUserID": "testStaffUserID"},
-		},
-		{
-			url: "/api/staff-users/testStaffUserID", method: http.MethodPost,
-			handlerFunc: "StaffUser",
-			parameters:  map[string]string{"staffUserID": "testStaffUserID"},
-		},
-		{
-			url: "/api/staff-users", method: http.MethodPatch,
-			handlerFunc: "PatchStaffUsers",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/api/staff-seats", method: http.MethodGet,
-			handlerFunc: "StaffSeats",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/api/staff-seats", method: http.MethodPost,
-			handlerFunc: "StaffSeats",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/api/staff-seats/testStaffSeatUser/testStaffSeatRole", method: http.MethodGet,
-			handlerFunc: "StaffSeat",
-			parameters:  map[string]string{"staffSeatUser": "testStaffSeatUser", "staffSeatRole": "testStaffSeatRole"},
-		},
-		{
-			url: "/api/staff-seats/testStaffSeatUser/testStaffSeatRole", method: http.MethodPost,
-			handlerFunc: "StaffSeat",
-			parameters:  map[string]string{"staffSeatUser": "testStaffSeatUser", "staffSeatRole": "testStaffSeatRole"},
-		},
-		{
-			url: "/api/staff-seats", method: http.MethodPatch,
-			handlerFunc: "PatchStaffSeats",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/api/staff-roles", method: http.MethodGet,
-			handlerFunc: "StaffRoles",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/api/staff-roles", method: http.MethodPost,
-			handlerFunc: "StaffRoles",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/api/staff-roles/testStaffRoleName", method: http.MethodGet,
-			handlerFunc: "StaffRole",
-			parameters:  map[string]string{"staffRoleName": "testStaffRoleName"},
-		},
-		{
-			url: "/api/staff-roles/testStaffRoleName", method: http.MethodPost,
-			handlerFunc: "StaffRole",
-			parameters:  map[string]string{"staffRoleName": "testStaffRoleName"},
-		},
-		{
-			url: "/api/staff-invitations", method: http.MethodGet,
-			handlerFunc: "StaffInvitations",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/api/staff-invitations", method: http.MethodPost,
-			handlerFunc: "StaffInvitations",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/api/staff-invitations/testStaffInvitationID", method: http.MethodGet,
-			handlerFunc: "StaffInvitation",
-			parameters:  map[string]string{"staffInvitationID": "testStaffInvitationID"},
-		},
-		{
-			url: "/api/staff-invitations/testStaffInvitationID", method: http.MethodPost,
-			handlerFunc: "StaffInvitation",
-			parameters:  map[string]string{"staffInvitationID": "testStaffInvitationID"},
-		},
-		{
-			url: "/api/staff-invitations", method: http.MethodPatch,
-			handlerFunc: "PatchStaffInvitations",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/api/set-staff-user-password", method: http.MethodPost,
-			handlerFunc: "SetStaffUserPassword",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/api/reset-staff-user-factors", method: http.MethodPost,
-			handlerFunc: "ResetStaffUserFactors",
 			parameters:  map[string]string{},
 		},
 	}
@@ -344,6 +410,34 @@ func (s *generatedHandlersStub) LiveToken() http.HandlerFunc {
 	return s.record("LiveToken")
 }
 
+func (s *generatedHandlersStub) AssignStaffRole() http.HandlerFunc {
+	return s.record("AssignStaffRole")
+}
+
+func (s *generatedHandlersStub) CreateStaffUser() http.HandlerFunc {
+	return s.record("CreateStaffUser")
+}
+
+func (s *generatedHandlersStub) DeleteStaffUser() http.HandlerFunc {
+	return s.record("DeleteStaffUser")
+}
+
+func (s *generatedHandlersStub) DisableStaffUser() http.HandlerFunc {
+	return s.record("DisableStaffUser")
+}
+
+func (s *generatedHandlersStub) EnableStaffUser() http.HandlerFunc {
+	return s.record("EnableStaffUser")
+}
+
+func (s *generatedHandlersStub) EndStaffSession() http.HandlerFunc {
+	return s.record("EndStaffSession")
+}
+
+func (s *generatedHandlersStub) EndStaffUserSessions() http.HandlerFunc {
+	return s.record("EndStaffUserSessions")
+}
+
 func (s *generatedHandlersStub) FeatureFlags() http.HandlerFunc {
 	return s.record("FeatureFlags")
 }
@@ -356,58 +450,118 @@ func (s *generatedHandlersStub) Features() http.HandlerFunc {
 	return s.record("Features")
 }
 
-func (s *generatedHandlersStub) ResetStaffUserFactors() http.HandlerFunc {
-	return s.record("ResetStaffUserFactors")
+func (s *generatedHandlersStub) InviteStaffUser() http.HandlerFunc {
+	return s.record("InviteStaffUser")
+}
+
+func (s *generatedHandlersStub) RemoveStaffRole() http.HandlerFunc {
+	return s.record("RemoveStaffRole")
+}
+
+func (s *generatedHandlersStub) RenameStaffUser() http.HandlerFunc {
+	return s.record("RenameStaffUser")
+}
+
+func (s *generatedHandlersStub) RequireStaffPasswordChange() http.HandlerFunc {
+	return s.record("RequireStaffPasswordChange")
+}
+
+func (s *generatedHandlersStub) RevokeStaffSessionToken() http.HandlerFunc {
+	return s.record("RevokeStaffSessionToken")
+}
+
+func (s *generatedHandlersStub) RevokeStaffUserTrustedDevices() http.HandlerFunc {
+	return s.record("RevokeStaffUserTrustedDevices")
 }
 
 func (s *generatedHandlersStub) SetFeature() http.HandlerFunc {
 	return s.record("SetFeature")
 }
 
-func (s *generatedHandlersStub) SetStaffUserPassword() http.HandlerFunc {
-	return s.record("SetStaffUserPassword")
+func (s *generatedHandlersStub) SetStaffTemporaryPassword() http.HandlerFunc {
+	return s.record("SetStaffTemporaryPassword")
 }
 
-func (s *generatedHandlersStub) StaffInvitations() http.HandlerFunc {
-	return s.record("StaffInvitations")
-}
-
-func (s *generatedHandlersStub) StaffInvitation() http.HandlerFunc {
-	return s.record("StaffInvitation")
-}
-
-func (s *generatedHandlersStub) PatchStaffInvitations() http.HandlerFunc {
-	return s.record("PatchStaffInvitations")
+func (s *generatedHandlersStub) SetStaffUserEmail() http.HandlerFunc {
+	return s.record("SetStaffUserEmail")
 }
 
 func (s *generatedHandlersStub) StaffRoles() http.HandlerFunc {
 	return s.record("StaffRoles")
 }
 
-func (s *generatedHandlersStub) StaffRole() http.HandlerFunc {
-	return s.record("StaffRole")
+func (s *generatedHandlersStub) StaffRoleGrants() http.HandlerFunc {
+	return s.record("StaffRoleGrants")
 }
 
-func (s *generatedHandlersStub) StaffSeats() http.HandlerFunc {
-	return s.record("StaffSeats")
+func (s *generatedHandlersStub) StaffSessions() http.HandlerFunc {
+	return s.record("StaffSessions")
 }
 
-func (s *generatedHandlersStub) StaffSeat() http.HandlerFunc {
-	return s.record("StaffSeat")
+func (s *generatedHandlersStub) StaffSession() http.HandlerFunc {
+	return s.record("StaffSession")
 }
 
-func (s *generatedHandlersStub) PatchStaffSeats() http.HandlerFunc {
-	return s.record("PatchStaffSeats")
+func (s *generatedHandlersStub) StaffSessionAuthEvents() http.HandlerFunc {
+	return s.record("StaffSessionAuthEvents")
 }
 
-func (s *generatedHandlersStub) StaffUsers() http.HandlerFunc {
-	return s.record("StaffUsers")
+func (s *generatedHandlersStub) StaffSessionIdentities() http.HandlerFunc {
+	return s.record("StaffSessionIdentities")
 }
 
-func (s *generatedHandlersStub) StaffUser() http.HandlerFunc {
-	return s.record("StaffUser")
+func (s *generatedHandlersStub) StaffSessionIdentity() http.HandlerFunc {
+	return s.record("StaffSessionIdentity")
 }
 
-func (s *generatedHandlersStub) PatchStaffUsers() http.HandlerFunc {
-	return s.record("PatchStaffUsers")
+func (s *generatedHandlersStub) StaffSessionMailLinks() http.HandlerFunc {
+	return s.record("StaffSessionMailLinks")
+}
+
+func (s *generatedHandlersStub) StaffSessionMailLink() http.HandlerFunc {
+	return s.record("StaffSessionMailLink")
+}
+
+func (s *generatedHandlersStub) StaffSessionSignInAttempts() http.HandlerFunc {
+	return s.record("StaffSessionSignInAttempts")
+}
+
+func (s *generatedHandlersStub) StaffSessionTokens() http.HandlerFunc {
+	return s.record("StaffSessionTokens")
+}
+
+func (s *generatedHandlersStub) StaffSessionToken() http.HandlerFunc {
+	return s.record("StaffSessionToken")
+}
+
+func (s *generatedHandlersStub) StaffSessionTrustedDevices() http.HandlerFunc {
+	return s.record("StaffSessionTrustedDevices")
+}
+
+func (s *generatedHandlersStub) StaffSessionTrustedDevice() http.HandlerFunc {
+	return s.record("StaffSessionTrustedDevice")
+}
+
+func (s *generatedHandlersStub) StaffSessionUsers() http.HandlerFunc {
+	return s.record("StaffSessionUsers")
+}
+
+func (s *generatedHandlersStub) StaffSessionUser() http.HandlerFunc {
+	return s.record("StaffSessionUser")
+}
+
+func (s *generatedHandlersStub) StaffUserRoles() http.HandlerFunc {
+	return s.record("StaffUserRoles")
+}
+
+func (s *generatedHandlersStub) UnlinkStaffSessionIdentity() http.HandlerFunc {
+	return s.record("UnlinkStaffSessionIdentity")
+}
+
+func (s *generatedHandlersStub) UnlockStaffSignIn() http.HandlerFunc {
+	return s.record("UnlockStaffSignIn")
+}
+
+func (s *generatedHandlersStub) WithdrawStaffInvitation() http.HandlerFunc {
+	return s.record("WithdrawStaffInvitation")
 }

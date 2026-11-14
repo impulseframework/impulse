@@ -59,6 +59,14 @@ type Spec struct {
 	// the sign-in methods, and the Handlers hand each one's token check to the generated
 	// router through <Pascal>Tokens.
 	MachineOutlets []string
+	// IdentityDir is the tree the application's generator program writes the management
+	// of its auths' people into (generation.GenerateIdentity), root-relative: pkg/identity,
+	// or a site's (apps/console/pkg/identity) in the sites layout. The auth builds its
+	// identity client from the tree's package for it (<IdentityDir>/<Name>identity) when
+	// it opens, and sets the hooks a sign-in gives roles through from the client, so no
+	// Auth exists without them. Empty where the program generates no management: the
+	// auth then builds no client and no sign-in gives a role.
+	IdentityDir string
 	// TenantPolicy is the auth's sign-in rule in an application with a tenant record:
 	// the library's tenant policy over the record's declaration (signin.TenantPolicy),
 	// which the auth's Settings carry as the generated reader and New refuses to open
@@ -150,9 +158,9 @@ type Method struct {
 	// organization, so there is nobody for AccountsOpen to add.
 	Accounts string
 	// UsernameIsEmail marks a password method whose sign-in name is the person's email
-	// address (session.UsernameIsEmail): the users surface derives the address from the
-	// username, a verified change of address renames the user, and the seats held under
-	// the old name follow it. The password method alone takes it.
+	// address (session.UsernameIsEmail): the generated management derives the address from
+	// the username, a verified change of address renames the user, and the roles held
+	// under the old name follow it. The password method alone takes it.
 	UsernameIsEmail bool
 }
 
@@ -387,10 +395,10 @@ func (m *Method) SyncsRoles() bool {
 
 // Arg is the method as a generator program declares it on an Auth option: its kind and
 // registration name, with .InvitedUsers() chained under the invited-users rule, so the
-// users surface the generator emits creates the invitations the method file's
+// management the generator emits creates the invitations the method file's
 // signin.InvitedUsersOnly admits, .SyncsRoles() under the directory authority, so that
-// surface shows the roles the method file's RoleSync writes as the directory's and never
-// writes them (a seat removed by hand would come back at the next sign-in),
+// management shows the roles the method file's RoleSync writes as the directory's and
+// never writes them (a role removed by hand would come back at the next sign-in),
 // .OpenSignUp() under the open sign-up rule (the registration a self-service tenant
 // record needs, the method file's signin.OpenSignUp; on the password method the sign-up
 // routes the router serves, the method file's session.OpenSignUp()), and

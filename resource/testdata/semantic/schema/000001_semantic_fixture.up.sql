@@ -39,6 +39,7 @@ CREATE TABLE Parcels (
   DueDate DATE,
   CarrierId STRING(36),
   RouteId STRING(36),
+  Stamps ARRAY<STRING(MAX)>,
   CONSTRAINT FK_Parcels_Carrier FOREIGN KEY (CarrierId) REFERENCES Carriers (Id),
   CONSTRAINT FK_Parcels_Route FOREIGN KEY (RouteId) REFERENCES Routes (Id),
 ) PRIMARY KEY (Id);

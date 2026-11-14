@@ -3,6 +3,7 @@ package transition
 import (
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -45,6 +46,51 @@ func TestRemoveOutletValidate(t *testing.T) {
 				t.Errorf("Validate() error = %v", err)
 			case tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)):
 				t.Errorf("Validate() error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestRemoveOutletRetiresIdentity pins what removing an outlet says where the program
+// generates each auth's management: an outlet that was the one declaration of its auth
+// leaves that auth's generated packages for the regeneration to remove, and the code
+// naming them is named as the agent's; an outlet whose auth another outlet declares
+// leaves the management standing and says nothing.
+func TestRemoveOutletRetiresIdentity(t *testing.T) {
+	t.Parallel()
+
+	withIdentity := strings.Replace(authRouterProgram, "\t\tgeneration.GenerateRouter(),\n", "\t\tgeneration.GenerateRouter(),\n\t\tgeneration.GenerateIdentity(\"pkg/identity\"),\n", 1)
+	const line = "no outlet declares the members auth any longer, so the regeneration removes its generated management under pkg/identity (membersidentity, membershandlers and internal/membersresources); remove what names it, which no longer compiles: the client the auth's package builds in New with the hooks it sets from it and its Identity method (or the package, where nothing signs in through the auth any longer), and MembersIdentity() on the Configurer, on the App and on every test configurer"
+	tests := []struct {
+		name    string
+		program string
+		want    bool
+	}{
+		{
+			name:    "the outlet was the one declaration of its auth",
+			program: strings.Replace(withIdentity, "generation.WithRouterOutlet(\"portal\", \"portal/api\",\n\t\t\tgeneration.Auth(\"example.com/acme/beacon/pkg/auth/staff\"", "generation.WithRouterOutlet(\"portal\", \"portal/api\",\n\t\t\tgeneration.Auth(\"example.com/acme/beacon/pkg/auth/members\"", 1),
+			want:    true,
+		},
+		{name: "the default outlet declares the same auth", program: withIdentity},
+		{
+			name:    "the program generates no management",
+			program: strings.Replace(authRouterProgram, "generation.WithRouterOutlet(\"portal\", \"portal/api\",\n\t\t\tgeneration.Auth(\"example.com/acme/beacon/pkg/auth/staff\"", "generation.WithRouterOutlet(\"portal\", \"portal/api\",\n\t\t\tgeneration.Auth(\"example.com/acme/beacon/pkg/auth/members\"", 1),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			files := authFiles(t)
+			files[programFile] = tt.program
+			a := beacon(t, files)
+			ch, err := RemoveOutlet{Name: "portal"}.Apply(t.Context(), a, &fakeExec{})
+			if err != nil {
+				t.Fatalf("Apply() error = %v", err)
+			}
+			got := slices.Contains(ch.Skipped, programFile+": "+line)
+			if got != tt.want {
+				t.Errorf("Skipped names the retired management = %v, want %v; got:\n%s", got, tt.want, strings.Join(ch.Skipped, "\n"))
 			}
 		})
 	}

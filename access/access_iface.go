@@ -80,6 +80,13 @@ type Controller interface {
 	// UserManager returns the UserManager for managing users, roles, and permissions.
 	UserManager() UserManager
 
+	// PolicyChanged tells the engine that policy rows were committed outside
+	// its own write path: an application wrote a membership inside a
+	// transaction of its own (see UserManager.Membership) and committed it.
+	// The next check reloads the policy before it answers (see
+	// Client.PolicyChanged).
+	PolicyChanged()
+
 	// Handlers returns HTTP handlers for access management with validation and logging.
 	Handlers(handler LogHandler) Handlers
 }
@@ -124,6 +131,16 @@ type UserManager interface {
 
 	// DeleteUserRoles removes user's memberships of roles held in scope.
 	DeleteUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error
+
+	// Membership answers the key of the row that says user holds role in
+	// scope, for a caller that writes it inside a transaction of its own
+	// instead of through AddUserRoles. Errors as AddUserRoles does: role
+	// doesn't exist in scope, or user is empty. A custom role is read through
+	// held, the caller's reader of the roles table over that transaction; a
+	// default role needs no read. The caller commits the row and then calls
+	// Controller.PolicyChanged. A row to remove needs no check and is spelled
+	// by NewMembershipKey.
+	Membership(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, held RoleReader) (MembershipKey, error)
 
 	// UserRoles returns user's memberships as stored, keyed by where each is
 	// held: a membership held in every domain is one entry under

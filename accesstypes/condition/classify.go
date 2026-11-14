@@ -9,9 +9,11 @@ import (
 // literals. The classification is purely lexical: subject, subject.*, and
 // now are reserved, and every other identifier is a binding name.
 //
-// Row-free is the class permitted on surfaces where no row exists (scope-wide,
-// RPC, and computed-resource grants); row-referencing conditions there are
-// rejected at load and by MigrateRoles.
+// Row-free is the class permitted on surfaces where no row exists: scope-wide
+// and target-less RPC grants. Row-referencing conditions there are rejected at
+// load and by MigrateRoles. (A computed resource is not one of them: its rows
+// come from the application's Go function, and the resource layer judges each
+// one against a grant's condition with Evaluate.)
 func RowFree(e Expr) bool {
 	rowFree := true
 	walk(e, func(node Expr) {
@@ -79,6 +81,21 @@ func ComparesAttributes(e Expr) bool {
 	})
 
 	return found
+}
+
+// RightSideBindings returns the distinct attribute names on a comparison's
+// right side: the pre-image half of the old-vs-new form. Sorted.
+func RightSideBindings(e Expr) []string {
+	set := map[string]struct{}{}
+	walk(e, func(node Expr) {
+		if n, ok := node.(Comparison); ok {
+			if right, ok := n.Right.(Ref); ok {
+				set[right.Name] = struct{}{}
+			}
+		}
+	})
+
+	return sortedKeys(set)
 }
 
 // SubjectSets returns the distinct @subjectSet names the expression

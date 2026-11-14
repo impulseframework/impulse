@@ -50,11 +50,18 @@ const (
 // resource's own table — the attribute itself when Path is empty, or the
 // foreign key the join path leaves through. Type is the attribute's
 // comparison type, derived by generation from the bound column's Go type.
+//
+// List marks an attribute over a list column (an ARRAY): Type is then the
+// type of one item, and a condition that reads the attribute is judged once
+// for each item of the row's list and holds only when it holds for every one
+// (lowerRowCondition). On a method's request field it marks a list field,
+// which the decoder judges the same way.
 type AttributeData struct {
 	Name   string
 	Column string
 	Type   AttributeType
 	Path   []BindingHop
+	List   bool
 }
 
 // DomainBindingData is the structural tenancy binding: how every row of a
@@ -167,6 +174,14 @@ func (g *GeneratedCollection) AttributeIsColumn(scope accesstypes.PermissionScop
 	attr, ok := g.attributeData(scope, res, name)
 
 	return ok && len(attr.Path) == 0
+}
+
+// AttributeIsList reports whether an attribute reads a list column, which a
+// condition judges item by item.
+func (g *GeneratedCollection) AttributeIsList(scope accesstypes.PermissionScope, res accesstypes.Resource, name string) bool {
+	attr, ok := g.attributeData(scope, res, name)
+
+	return ok && attr.List
 }
 
 // SubjectSetComparisonType resolves the comparison type of the column a

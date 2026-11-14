@@ -50,14 +50,15 @@ func (c *client) resolveEnumerate(arg genlang.Arg) (enumerationSource, error) {
 
 // declareRPCEnumeration resolves the field-scope @enumerate a request field carries,
 // if any, and marks the field enumerated. A refusal is recorded on the field, where the
-// struct's error print names it; a list field is refused before the argument is read,
-// since a picker stores one key.
+// struct's error print names it. A request field may be a list of picked keys (the
+// roles a new user is given): a list of plain values is taken, and a list of nested
+// values is refused before the argument is read, since it holds no key.
 func (c *client) declareRPCEnumeration(field *rpcField, annotations genlang.ArgMap) {
 	if !annotations.Has(enumerateKeyword) {
 		return
 	}
-	if isListColumn(field.GoType()) {
-		field.AddError(listFieldEnumerateRefusal)
+	if field.wire != nil && field.wire.Slice && !field.wire.IsLeaf() {
+		field.AddError(nestedListEnumerateRefusal)
 
 		return
 	}

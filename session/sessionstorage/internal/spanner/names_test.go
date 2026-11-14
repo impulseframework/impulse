@@ -1,6 +1,12 @@
 package spanner
 
-import "testing"
+import (
+	"testing"
+
+	"cloud.google.com/go/spanner"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
 
 func TestUsernameIndexFollowsUserTable(t *testing.T) {
 	t.Parallel()
@@ -22,6 +28,40 @@ func TestUsernameIndexFollowsUserTable(t *testing.T) {
 			}
 			if got := s.usernameIndex(); got != tt.want {
 				t.Errorf("usernameIndex() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestUsernameConflict holds a username conflict to both of the user table's unique
+// indexes on the name: a name that repeats as written repeats normalized too, and the
+// database names either index in its refusal.
+func TestUsernameConflict(t *testing.T) {
+	t.Parallel()
+
+	refusal := func(code codes.Code, text string) error {
+		return spanner.ToSpannerError(status.Error(code, text))
+	}
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "the normalized name's index", err: refusal(codes.AlreadyExists, "Unique index violation on index PartnerSessionUsersByNormalizedUsername at index key [ada]"), want: true},
+		{name: "the exact name's index", err: refusal(codes.AlreadyExists, "Unique index violation on index PartnerSessionUsersByUsername at index key [ada]"), want: true},
+		{name: "the address index is no username conflict", err: refusal(codes.AlreadyExists, "Unique index violation on index PartnerSessionUsersByNormalizedEmail at index key [a@example.com]"), want: false},
+		{name: "another table's index of the same suffix", err: refusal(codes.AlreadyExists, "Unique index violation on index StaffSessionUsersByUsername at index key [ada]"), want: false},
+		{name: "another code naming the index", err: refusal(codes.FailedPrecondition, "PartnerSessionUsersByUsername"), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			s := &SessionStorageDriver{}
+			if err := s.SetUserTableName("PartnerSessionUsers"); err != nil {
+				t.Fatalf("SetUserTableName() error = %v", err)
+			}
+			if got := s.usernameConflict(tt.err); got != tt.want {
+				t.Errorf("usernameConflict() = %v, want %v", got, tt.want)
 			}
 		})
 	}

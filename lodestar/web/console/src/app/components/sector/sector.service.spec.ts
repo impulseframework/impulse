@@ -193,21 +193,21 @@ describe('SectorService.open', () => {
   const cases: { name: string; from: string; sector: string; want: string }[] = [
     {
       name: 'a page under a sector keeps its path under the new sector',
-      from: '/sectors/anvil/users',
+      from: '/sectors/anvil/pilots',
       sector: 'bastion',
-      want: '/sectors/bastion/users',
+      want: '/sectors/bastion/pilots',
     },
     {
       name: 'the query travels along',
-      from: '/sectors/anvil/users?q=1',
+      from: '/sectors/anvil/pilots?q=1',
       sector: 'bastion',
-      want: '/sectors/bastion/users?q=1',
+      want: '/sectors/bastion/pilots?q=1',
     },
     {
       name: 'a page outside a sector enters the sector on that path',
-      from: '/users',
+      from: '/pilots',
       sector: 'anvil',
-      want: '/sectors/anvil/users',
+      want: '/sectors/anvil/pilots',
     },
     {
       name: "the dashboard outside a sector opens the sector's dashboard",

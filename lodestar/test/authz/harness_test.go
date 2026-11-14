@@ -4,6 +4,7 @@ package authz
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"testing"
 
@@ -14,6 +15,8 @@ import (
 	"github.com/impulseframework/impulse/lodestar/app"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewidentity"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/membersidentity"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
 	"github.com/impulseframework/impulse/logger"
@@ -22,6 +25,7 @@ import (
 	"github.com/impulseframework/impulse/resource/jobs"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/resource/scheduled"
+	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -47,6 +51,23 @@ func (f *fakeAccess) ForUser(user accesstypes.User) *access.UserChecker {
 
 func (f *fakeAccess) ForRole(role accesstypes.Role) *access.RoleChecker {
 	return access.NewRoleChecker(f, role)
+}
+
+// UserManager answers the one question a generated handler asks the engine's user
+// manager: the roles that exist in a sector, which the crew's generated management
+// lists for a role picker (CrewSectorRoles). Every other method panics through
+// the embedded nil interface, as the Controller's do.
+func (f *fakeAccess) UserManager() access.UserManager {
+	return fakeUserManager{}
+}
+
+// fakeUserManager scripts the roles of a scope: one, whatever the scope.
+type fakeUserManager struct {
+	access.UserManager
+}
+
+func (fakeUserManager) Roles(context.Context, accesstypes.PolicyScope) ([]access.RoleInfo, error) {
+	return []access.RoleInfo{{Name: "Cadet", Description: "A scripted role."}}, nil
 }
 
 // UserHasGrants answers the concealed-domain foothold question the generated DomainGuard
@@ -159,20 +180,37 @@ func (c *testConfigurer) Live() live.Service {
 // LiveOrigins names no change feed origin: the matrix serves no live pages.
 func (c *testConfigurer) LiveOrigins() []string { return nil }
 
-// CrewUserSurface and MembersUserSurface are the two auths' user-management surfaces
-// over empty in-memory stores: the generated matrix drives their routes as it drives
-// every other, a denied case answered before any store is read and a granted list or
-// read answered from the empty store.
-func (c *testConfigurer) CrewUserSurface() *resource.UserSurface[router.CrewAuth] {
-	store := resource.NewMemUserStore()
+// noSessionAPI stands where the matrix serves no session manager: a denied case is
+// answered before any method runs, so nothing here is ever hashed.
+type noSessionAPI struct{}
 
-	return router.NewCrewUserSurface(store, store)
+func (noSessionAPI) HashPassword(string) (string, error) {
+	return "", fmt.Errorf("the authorization matrix serves no session manager")
 }
 
-func (c *testConfigurer) MembersUserSurface() *resource.UserSurface[router.MembersAuth] {
-	store := resource.NewMemUserStore()
+func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationRequest) (session.PreparedInvitation, error) {
+	return nil, fmt.Errorf("the authorization matrix serves no session manager")
+}
 
-	return router.NewMembersUserSurface(store, store)
+// CrewIdentity and MembersIdentity are the two auths' identity clients over the scripted
+// engine: the matrix drives the generated methods' routes as it drives every other, and
+// a denied case is answered before any of them runs.
+func (c *testConfigurer) CrewIdentity() *crewidentity.Client {
+	client, err := crewidentity.NewClient(c.Access(), noSessionAPI{})
+	if err != nil {
+		panic(err)
+	}
+
+	return client
+}
+
+func (c *testConfigurer) MembersIdentity() *membersidentity.Client {
+	client, err := membersidentity.NewClient(c.Access(), noSessionAPI{})
+	if err != nil {
+		panic(err)
+	}
+
+	return client
 }
 
 // TenantRoster is the matrix's roster: the generated constructor over the test client,

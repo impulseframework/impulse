@@ -25,7 +25,7 @@ func (options) Describe() string {
 // singleOptions may be passed once per program; a repeat means the later call silently
 // overrides the earlier.
 var singleOptions = []string{
-	"GenerateHandlers", "GenerateRoutes", "GenerateRouter", "GenerateHandlerTests", "WithConcealedDomains",
+	"GenerateHandlers", "GenerateRoutes", "GenerateRouter", "GenerateHandlerTests", "GenerateIdentity", "WithConcealedDomains",
 	"WithRPC", "ApplicationName", "WithSpannerEmulatorVersion", "WithConsolidatedHandlers", "WithBodyLimit",
 }
 
@@ -45,6 +45,7 @@ func (c options) Run(_ context.Context, env *Env) Result {
 	for _, g := range a.Generators {
 		details = append(details, c.programFindings(a, g)...)
 	}
+	details = append(details, c.identityTreeFindings(a)...)
 	for i := range p.Sites {
 		details = append(details, c.siteFindings(a, &p.Sites[i])...)
 	}
@@ -56,6 +57,29 @@ func (c options) Run(_ context.Context, env *Env) Result {
 	}
 
 	return passWithDetails(c.Name(), profileSummary(p), profileDetails(p)...)
+}
+
+// identityTreeFindings holds each GenerateIdentity tree to one program. The tree is its
+// program's alone: a run removes from it the packages it does not write (an auth the
+// program no longer declares leaves nothing to clear), so two programs over one tree
+// would each remove the other's.
+func (options) identityTreeFindings(a *app.App) []string {
+	owner := make(map[string]string)
+	var details []string
+	for _, g := range a.Generators {
+		tree := g.IdentityDir()
+		if tree == "" {
+			continue
+		}
+		if first, taken := owner[tree]; taken {
+			details = append(details, fmt.Sprintf("%s: GenerateIdentity names %s, the tree %s writes; a program removes from its tree the packages it does not write, so two programs over one tree remove each other's: give each program a tree of its own", g.File, tree, first))
+
+			continue
+		}
+		owner[tree] = g.File
+	}
+
+	return details
 }
 
 // programFindings checks one program against itself and the tree: repeated
@@ -368,6 +392,9 @@ func profileDetails(p app.Profile) []string {
 		}
 		if rpc := g.RPCDir(); rpc != "" {
 			parts = append(parts, "rpc "+rpc)
+		}
+		if identity := g.IdentityDir(); identity != "" {
+			parts = append(parts, "identity "+identity)
 		}
 		parts = append(parts, typescriptSummary(g)...)
 		parts = append(parts, requestLogSummary(s)...)

@@ -13,8 +13,10 @@ import (
 // civil.Date civildate, a impulse.UUID uuid), a nested struct, an imported type, and
 // spanner.NullJSON are object, a byte slice is bytes, a nullable BOOL column is
 // nullboolean, and a declared or inferred picker is enumerated. A slice of a leaf adds
-// [], for every leaf but the two that describe one value alone: nullboolean is the
-// tri-state rule for one nullable BOOL column, and a picker stores one key.
+// [], for every leaf but nullboolean, the tri-state rule for one nullable BOOL column.
+// enumerated[] is a method's request field that holds several picked keys (the roles a
+// new user is given); a column stores one key, so no table, view or computed field
+// carries it.
 //
 // The list here is the README's table (section 12) and the client's union
 // (ValidDisplayTypes in @impulseframework/resource), spelled the same in all three places. The
@@ -61,12 +63,12 @@ var scalarDisplayTypes = []displayType{
 	displayTypeBytes,
 }
 
-// arrayDisplayTypes lists the array members: every scalar but nullboolean and
-// enumerated, with the [] suffix.
+// arrayDisplayTypes lists the array members: every scalar but nullboolean, with the []
+// suffix.
 var arrayDisplayTypes = func() []displayType {
 	arrays := make([]displayType, 0, len(scalarDisplayTypes))
 	for _, scalar := range scalarDisplayTypes {
-		if scalar == displayTypeNullBoolean || scalar == displayTypeEnumerated {
+		if scalar == displayTypeNullBoolean {
 			continue
 		}
 		arrays = append(arrays, scalar+displayType(sliceSuffix))

@@ -5,21 +5,24 @@
   resource is gated); impulseFeature hides it while the flag is off, as the library's own
   sidenav does. For a resource behind a flag the digest alone would hide the item, since
   the server leaves a gated-off resource out of it; the flag gate is what hides a
-  hand-written item with no resource behind it.
+  hand-written item with no resource behind it. A group is drawn while one of its items
+  is (shown), so a persona who can open none of a group's pages sees no such group.
 -->
 <nav class="menu">
   @for (item of menuData; track item.label) {
     @if (item.children && item.children.length) {
-      <button mat-button [matMenuTriggerFor]="groupMenu">{{ item.label }} ▾</button>
-      <mat-menu #groupMenu="matMenu">
-        @for (child of item.children; track child.label) {
-          @if (linkFor(child); as link) {
-            <ng-container *impulseFeature="child.feature">
-              <a mat-menu-item *impulseHasPermission="scopeFor(child)" [routerLink]="link">{{ child.label }}</a>
-            </ng-container>
+      @if (shown(item)) {
+        <button mat-button [matMenuTriggerFor]="groupMenu">{{ item.label }} ▾</button>
+        <mat-menu #groupMenu="matMenu">
+          @for (child of item.children; track child.label) {
+            @if (linkFor(child); as link) {
+              <ng-container *impulseFeature="child.feature">
+                <a mat-menu-item *impulseHasPermission="scopeFor(child)" [routerLink]="link">{{ child.label }}</a>
+              </ng-container>
+            }
           }
-        }
-      </mat-menu>
+        </mat-menu>
+      }
     } @else if (linkFor(item); as link) {
       <ng-container *impulseFeature="item.feature">
         <a mat-button *impulseHasPermission="scopeFor(item)" [routerLink]="link">{{ item.label }}</a>

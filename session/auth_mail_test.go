@@ -480,6 +480,92 @@ func authInviteCase4(t *testing.T) {
 	}
 }
 
+// TestAuth_PrepareInvitation pins the invitation a caller stores itself: the checks
+// Invite makes, the row to store with the hash of the token the message carries, and
+// nothing stored or mailed until the caller does the one and asks for the other; a
+// message that cannot be sent withdraws the row the caller stored.
+func TestAuth_PrepareInvitation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("the row is the caller's to store, and Send mails the link whose token it hashes", func(t *testing.T) {
+		t.Parallel()
+		f, recorder, links := newMailFixture(t, gomock.NewController(t))
+		inviter := impulse.Must(impulse.NewUUID())
+
+		prepared, err := f.auth.API().PrepareInvitation(context.Background(), &InvitationRequest{Email: "Pat Lee <pat@lakeside.edu>", Tenant: "lakeside", RoleNames: []string{"Teacher"}, InvitedBy: impulse.NullUUIDFromUUID(inviter)})
+		if err != nil {
+			t.Fatalf("PrepareInvitation() error = %v", err)
+		}
+		if len(links.rows) != 0 || len(recorder.Messages()) != 0 {
+			t.Fatalf("rows = %d, messages = %d after the preparation; want nothing stored or mailed", len(links.rows), len(recorder.Messages()))
+		}
+		row := prepared.Row()
+		if row.ID.IsNil() || row.Email != "pat@lakeside.edu" || row.Tenant != "lakeside" || len(row.RoleNames) != 1 || row.RoleNames[0] != "Teacher" || row.InvitedBy.UUID != inviter || !row.ExpiresAt.After(time.Now().Add(6*24*time.Hour)) {
+			t.Errorf("Row() = %+v, want the invitation as requested, the address bare, standing seven days", row)
+		}
+		// The caller stores the row; the fixture's table stands for its transaction.
+		links.insert(&sessionstorage.MailLink{ID: row.ID, TokenHash: row.TokenHash, Kind: sessionstorage.MailLinkInvitation, Email: row.Email, Tenant: row.Tenant, RoleNames: row.RoleNames, InvitedBy: row.InvitedBy, ExpiresAt: row.ExpiresAt})
+		if err := prepared.Send(context.Background()); err != nil {
+			t.Fatalf("Send() error = %v", err)
+		}
+		msgs := recorder.Messages()
+		if len(msgs) != 1 || msgs[0].To != "pat@lakeside.edu" || msgs[0].Subject != "You are invited to Harbor" {
+			t.Fatalf("messages = %+v, want one invitation to pat", msgs)
+		}
+		if hash, ok := linkTokenHash(tokenIn(t, msgs[0].Text, "invitation")); !ok || !bytes.Equal(hash, row.TokenHash) {
+			t.Error("the mailed token does not hash to the row's token hash")
+		}
+		if live, err := f.auth.API().Invitations(context.Background()); err != nil || len(live) != 1 || live[0].ID != row.ID {
+			t.Errorf("Invitations() = %v, %v; want the one the caller stored", live, err)
+		}
+		// The row answered is a copy: changing it does not change the invitation.
+		row.RoleNames[0] = "Principal"
+		if again := prepared.Row(); again.RoleNames[0] != "Teacher" {
+			t.Errorf("Row() after the caller changed its copy = %+v, want the invitation unchanged", again)
+		}
+	})
+
+	t.Run("a message that cannot be sent withdraws the row the caller stored", func(t *testing.T) {
+		t.Parallel()
+		f, recorder, links := newMailFixture(t, gomock.NewController(t))
+		prepared, err := f.auth.API().PrepareInvitation(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", RoleNames: []string{"Teacher"}})
+		if err != nil {
+			t.Fatalf("PrepareInvitation() error = %v", err)
+		}
+		row := prepared.Row()
+		links.insert(&sessionstorage.MailLink{ID: row.ID, TokenHash: row.TokenHash, Kind: sessionstorage.MailLinkInvitation, Email: row.Email, RoleNames: row.RoleNames, ExpiresAt: row.ExpiresAt})
+		recorder.Fail(errors.New("relay down"))
+
+		if err := prepared.Send(context.Background()); err == nil || !strings.Contains(err.Error(), "could not be sent") {
+			t.Fatalf("Send() error = %v, want the message not sent", err)
+		}
+		if stored := links.last(t); stored.ConsumedAt == nil {
+			t.Error("the invitation stands after the send failed, want it withdrawn")
+		}
+	})
+
+	t.Run("an address that is not one, one no method could admit, and an Auth without mail are refused", func(t *testing.T) {
+		t.Parallel()
+		f, recorder, _ := newMailFixture(t, gomock.NewController(t))
+		if _, err := f.auth.API().PrepareInvitation(context.Background(), &InvitationRequest{Email: "pat at lakeside"}); !httpio.HasBadRequest(err) {
+			t.Errorf("PrepareInvitation() of a bad address error = %v, want BadRequest", err)
+		}
+		plain := newAuthFixture(t, gomock.NewController(t))
+		if _, err := plain.auth.API().PrepareInvitation(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu"}); err == nil || !strings.Contains(err.Error(), "WithMail") {
+			t.Errorf("PrepareInvitation() without mail error = %v, want the wiring named", err)
+		}
+		google.SignIn(f.auth, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lakeside", "lakeside.edu")})
+		f.auth.Methods(&MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "Google", Path: "/api/user/google/login"}}})
+		_, err := f.auth.API().PrepareInvitation(context.Background(), &InvitationRequest{Email: "pat@elsewhere.example"})
+		if want := "No sign-in method of this application accepts an address at elsewhere.example."; !httpio.HasBadRequest(err) || httpio.Message(err) != want {
+			t.Errorf("PrepareInvitation() error = %v, want BadRequest %q", err, want)
+		}
+		if len(recorder.Messages()) != 0 {
+			t.Errorf("messages = %d after the refusals, want none", len(recorder.Messages()))
+		}
+	})
+}
+
 // invitationCookies opens the invitation link.last for the browser and returns the
 // cookies it set.
 func invitationCookies(t *testing.T, f *authFixture, links *mailLinks, token string) []*http.Cookie {
@@ -515,10 +601,10 @@ func TestAuth_InvitationKeptOnRefusedSignIn(t *testing.T) {
 	// The directory writes the roles, so its registration stands alone on the Auth.
 	f, recorder, links := newMailFixtureWithoutPassword(t, ctrl)
 	hookCalls := 0
-	f.auth.SetInvitationAccepted(func(context.Context, impulse.UUID, string, *sessioninfo.Invitation) error {
+	f.auth.SetInvitationAccepted(func(context.Context, mockTx, impulse.UUID, string, *sessioninfo.Invitation) (func(context.Context), error) {
 		hookCalls++
 
-		return nil
+		return nil, nil
 	})
 	// The directory asserts a role the application does not know: the sign-in is
 	// refused with no_roles. The mocked store expects no SignIn: nothing is written.
@@ -660,26 +746,26 @@ func authInvitationCase2(t *testing.T) {
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
 	f.expectSession(sessionID, &sessionstorage.SessionUser{ID: userID, Username: "pat"})
 	hookCalls := 0
-	f.auth.SetInvitationAccepted(func(_ context.Context, _ impulse.UUID, username string, _ *sessioninfo.Invitation) error {
+	f.auth.SetInvitationAccepted(func(_ context.Context, _ mockTx, _ impulse.UUID, username string, _ *sessioninfo.Invitation) (func(context.Context), error) {
 		if username != "pat" {
 			t.Errorf("hook given username %q, want pat", username)
 		}
 		hookCalls++
 
-		return nil
+		return nil, nil
 	})
 	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", RoleNames: []string{"Admin"}}); err != nil {
 		t.Fatal(err)
 	}
 	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
 	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", "", gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, id impulse.UUID, username, _ string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor) error {
+		func(ctx context.Context, id impulse.UUID, username, _ string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor[mockTx]) error {
 			if inv.ID != links.rows[0].ID || inv.RoleNames[0] != "Admin" {
 				t.Errorf("AcceptInvitation() given %+v, want the opened invitation", inv)
 			}
 			if accept == nil {
 				t.Error("AcceptInvitation() given no hook, want the Auth's")
-			} else if err := accept(ctx, id, username, inv); err != nil {
+			} else if _, err := accept(ctx, mockTx{}, id, username, inv); err != nil {
 				t.Errorf("hook error = %v", err)
 			}
 			inv.Accepted = true
@@ -708,6 +794,30 @@ func authInvitationCase2(t *testing.T) {
 	}
 	if c := cookieNamed(rr, defaultInvitationCookieName); c != nil && c.Value == "" {
 		t.Error("Accept() for another address deleted the invitation cookie, want it kept")
+	}
+
+	// The hook failed in the store's transaction, with an error of its own that is a
+	// NotFound (a role that no longer exists): the invitation stands, so the browser
+	// keeps carrying it, and the answer is the hook's.
+	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", "", gomock.Any(), gomock.Any()).Return(
+		errors.Wrap(httpio.NewNotFoundMessage("role \"Admin\" is not a valid role"), "InvitationAcceptor()"))
+	rr = f.asUser(f.auth.Invitation().Accept(), sessionID, nil, cookies)
+	if rr.Code != http.StatusNotFound || decoded(t, rr)["message"] != "role \"Admin\" is not a valid role" {
+		t.Errorf("Accept() with a failing hook = %d %s, want the hook's own answer", rr.Code, rr.Body.String())
+	}
+	if c := cookieNamed(rr, defaultInvitationCookieName); c != nil && c.Value == "" {
+		t.Error("Accept() with a failing hook deleted the invitation cookie, want it kept: the invitation stands")
+	}
+
+	// The invitation died meanwhile: 404, and the cookie goes.
+	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", "", gomock.Any(), gomock.Any()).Return(
+		httpio.NewNotFoundMessageWithError(signin.ErrInvitationExpired, "the invitation has expired or was already used"))
+	rr = f.asUser(f.auth.Invitation().Accept(), sessionID, nil, cookies)
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Accept() of an invitation that died = %d, want 404", rr.Code)
+	}
+	if c := cookieNamed(rr, defaultInvitationCookieName); c == nil || c.Value != "" {
+		t.Error("Accept() of an invitation that died left the invitation cookie, want it deleted")
 	}
 }
 

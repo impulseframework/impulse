@@ -18,9 +18,11 @@ sets the tenant service's `current` from the URL before the page loads, checked 
 the session's tenant list, and nothing else writes it; the header's picker opens the same
 page under the chosen tenant, and a URL naming a tenant the session cannot reach lands on
 the refusal page (`/tenants/{tenantID}/refused`), which shows the server's answer. The
-dashboard lives outside a tenant and under it; the console's Users page is split the same
-way, the staff surface's global partition at `/users` and the tenant's partition at
-`/tenants/{tenantID}/users` with the route's tenant as the component's domain.
+dashboard lives outside a tenant and under it; the console manages the staff auth's
+people in both places the same way, the whole application's accounts at `/staff-accounts`
+and a tenant's people at `/tenants/{tenantID}/staff-people`. The library draws both from
+the API description (`identityRoutes` in the console's `app.routes.ts`), and a tenant's
+pages read the tenant from the URL (`RESOURCE_DOMAIN` in `app.config.ts`).
 
 Who may enter a tenant is the record's declaration, data of the application rather than
 deploy configuration: the directories the tenant admits its people through
@@ -53,6 +55,29 @@ withdraws directories there, the application's administrator sets directory only
   process that opens the database), site (one served site: `PORT` and `APP_DIST`). The
   site level is declared once; each site's process supplies its own values, so the Procfile
   and each site's deployment carry them while `.envrc.template` carries the shared levels.
+- `apps/console/pkg/identity` holds the staff auth's management of its people, written
+  by the console's generator (`GenerateIdentity`) as code of this application; the
+  generator owns the tree whole. Both sites sign the same auth in, and one generator
+  program owns a tree, so one site carries the management: the console, where the
+  application manages its people. The portal's generator does not set the option and the
+  portal serves none of it. The tree has two sides. The whole application's: the lists
+  (`StaffSessionUsers`, `StaffUserRoles`, `StaffSessionMailLinks`, `StaffSessions` and the
+  rest) and the methods (`CreateStaffUser`, `InviteStaffUser`, `AssignStaffRole`,
+  `SetStaffTemporaryPassword` and the rest). A tenant's, under the tenant segment and
+  named with the tenant record: the lists of its people, the roles held in it, its
+  invitations, its people's sign-in identities and the roles it gives (`StaffTenantUsers`,
+  `StaffTenantUserRoles`, `StaffTenantInvitations`, `StaffTenantIdentities`,
+  `StaffTenantRoles`), and the methods (`CreateStaffTenantUser`, `InviteStaffTenantUser`,
+  `AssignStaffTenantRole` and the rest). All of it is served like every other resource
+  and method and granted in the role file. The shared auth builds the client
+  the console's handlers act through when it opens (`staff.New`, answered by
+  `staff.Auth.Identity`) with the roles that count as an administrator's
+  (`staff.AdministratorRoles`), so neither the application nor a tenant is left with
+  nobody to give the next role, and sets the client's two hooks on its session manager
+  in every process that signs people in, the portal's included: through them a sign-in
+  gives a role in the transaction of the step that causes it, an accepted invitation's
+  roles and the default role of a directory a tenant declares. No auth is open without
+  them.
 - `pkg/sharedresources` is what every site's browser application needs in the same shape
   (the enumerations). The shared generator emits its TypeScript into each site's web
   application and generates nothing else.
@@ -63,7 +88,7 @@ withdraws directories there, the application's administrator sets directory only
   administrator while its users table holds no rows, the foothold a deployed environment
   starts from: the staff auth's `administrator`, with the password the stack generates
   (`APP_STAFF_ADMINISTRATOR_PASSWORD`, a generated secret), holding the development
-  administrator's roles. A user that exists stops the seed; the administration surface
+  administrator's roles. A user that exists stops the seed; the auth's management
   creates every user after the first, and the bootstrap creates the development logins
   instead. The staff auth's role file validates against the union
   of the sites' generated collections (`config.Collection`) when its engine opens: one
@@ -88,11 +113,22 @@ withdraws directories there, the application's administrator sets directory only
 - `schema/migrations` is the one schema; `pkg/auth/staff/roles.json` the staff auth's
   role file, the default roles the release ships, embedded in the binary. A role is named
   for its job in PascalCase (`Administrator`, `TenantAdministrator`), never for where it
-  is held: the file's structure says that, and the Users page shows it as the role's
-  kind. Every role carries a description, one or two plain sentences saying what it is
-  for, which the Users page shows beside the name; a role without one is refused. A
+  is held: the file's structure says that. Every role carries a description, one or two
+  plain sentences saying what it is for, which the lists of the roles (`StaffRoles`, and
+  a tenant's `StaffTenantRoles`) answer beside the name; a role without one is refused. A
   domain role is
-  held in every tenant domain, so nothing provisions the file per tenant. Every grant in
+  held in every tenant domain, so nothing provisions the file per tenant. An account is
+  one row for the whole application, whichever tenants its person holds a role in, so
+  the methods a tenant changes an account through (a temporary password, a new name, a
+  delete and the rest) are granted to `TenantAdministrator` under a condition: the
+  tenant holds the person alone (`heldElsewhere = false AND heldGlobally = false`).
+  Without it one tenant's administrator could set a password on an account that also
+  manages another tenant or the application. The address and the directory's subject of
+  a person another tenant holds too are left out of the tenant's lists the same way
+  (`heldElsewhere = false`), a role held in every tenant is not one tenant's to take
+  (`everyDomain = false`), and an invitation is withdrawn while it stands
+  (`pending = true`); `test/integration/tenant_people_test.go` proves each of them on the
+  console. Every grant in
   it is proven live by `test/integration/grants_test.go`, which opens the auth the way
   the deployment does and asks the engine about each unconditional grant; a conditional
   grant is proven by a test case that names it through `provesGrant`, and
@@ -169,7 +205,7 @@ The first run compiles and bootstraps before it listens; wait for "Starting Serv
 the console pane, then the portal pane.
 
 The auths mail: an administrator invites a person by address with the roles the invitation
-seats, a signed-in person adds and verifies an address, and every sign-in that carries no
+gives, a signed-in person adds and verifies an address, and every sign-in that carries no
 second factor of its own (a password, or a directory the deployment does not administer)
 is mailed a sign-in code, which the login page asks for; a browser the person asks to be
 remembered is not asked again. In development the mail is written to the server's log,

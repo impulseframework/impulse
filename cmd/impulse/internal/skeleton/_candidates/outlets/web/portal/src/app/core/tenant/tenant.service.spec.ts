@@ -20,21 +20,21 @@ describe('TenantService.open', () => {
   const cases: { name: string; from: string; tenant: string; want: string }[] = [
     {
       name: 'a page under a tenant keeps its path under the new tenant',
-      from: '/tenants/acme/users',
+      from: '/tenants/acme/members-people',
       tenant: 'beta',
-      want: '/tenants/beta/users',
+      want: '/tenants/beta/members-people',
     },
     {
       name: 'the query travels along',
-      from: '/tenants/acme/users?q=1',
+      from: '/tenants/acme/members-people?q=1',
       tenant: 'beta',
-      want: '/tenants/beta/users?q=1',
+      want: '/tenants/beta/members-people?q=1',
     },
     {
       name: 'a page outside a tenant enters the tenant on that path',
-      from: '/users',
+      from: '/members-accounts',
       tenant: 'acme',
-      want: '/tenants/acme/users',
+      want: '/tenants/acme/members-accounts',
     },
     {
       name: "the dashboard outside a tenant opens the tenant's dashboard",

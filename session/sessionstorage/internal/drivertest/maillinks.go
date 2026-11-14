@@ -2,6 +2,8 @@ package drivertest
 
 import (
 	"context"
+	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -20,8 +22,9 @@ import (
 // A user's email address is held in two states, unverified and verified, and is unique
 // among every address held; the mail links table holds the single-use links the
 // library mails. These cases pin both on every backend, and the sign-in flow's
-// acceptance of an invitation: consumed in the resolution's transaction, granted once
-// it has committed.
+// acceptance of an invitation: consumed and granted in one transaction, the
+// resolution's for an external identity, so the invitation is spent and what it names
+// given together or neither is.
 
 // mailLinkOpts compares mail links, nil and empty slices alike, leaving out the two
 // times the database writes.
@@ -56,9 +59,11 @@ func invitationOf(link *dbtype.MailLink) *sessioninfo.Invitation {
 	return &sessioninfo.Invitation{ID: link.ID, Email: link.Email, Tenant: link.Tenant, RoleNames: link.RoleNames, InvitedBy: link.InvitedBy, ExpiresAt: link.ExpiresAt}
 }
 
-// acceptances records what the invitation acceptor was handed, in memory: the acceptor
-// runs outside any transaction, once the consumption has committed, the way an
-// application writes its membership store through that store's own client.
+// acceptances records what the invitation acceptor was handed, the way an application
+// gives a role: the acceptor runs inside the transaction that consumes the invitation
+// and writes through it, so its row is committed with the consumption or not at all,
+// and what it knows in memory (an application's permission engine) it is told once the
+// transaction has committed.
 type acceptances struct {
 	mu  sync.Mutex
 	got map[string]string
@@ -68,13 +73,20 @@ func newAcceptances() *acceptances {
 	return &acceptances{got: map[string]string{}}
 }
 
-// hook is the acceptor: it records who accepted what under accepted:<address>.
-func (a *acceptances) hook(_ context.Context, userID impulse.UUID, username string, inv *sessioninfo.Invitation) error {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	a.got["accepted:"+inv.Email] = userID.String() + " " + username + " " + inv.Tenant + " " + strings.Join(inv.RoleNames, ",")
+// hook is the acceptor: it writes who accepted what to HookRecords under
+// accepted:<address>, through the transaction it is handed, and asks to have the same
+// recorded in memory once that transaction has committed.
+func (a *acceptances) hook(ctx context.Context, tx HookTx, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (func(ctx context.Context), error) {
+	key, value := "accepted:"+inv.Email, userID.String()+" "+username+" "+inv.Tenant+" "+strings.Join(inv.RoleNames, ",")
+	if err := tx.Record(ctx, key, value); err != nil {
+		return nil, errors.Wrap(err, "HookTx.Record()")
+	}
 
-	return nil
+	return func(context.Context) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		a.got[key] = value
+	}, nil
 }
 
 // recorded answers what the acceptor was handed under key.
@@ -484,7 +496,8 @@ func testInvitationSignIn(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: signin.InvitedUsersOnly, Accept: rec.hook})
 
 	// A stranger with an invitation is provisioned under the invited-users-only rule,
-	// with the invitation's address verified, and the hook's grant follows the commit.
+	// with the invitation's address verified, and the hook's grant is committed with the
+	// user and the consumption.
 	const name = "pat.lee@lakeside.edu"
 	link := insertInvitation(ctx, t, in.Driver, name, "lakeside", []string{"Teacher"}, tokenHash(1))
 	identity := entra("oid-pat", name)
@@ -497,6 +510,7 @@ func testInvitationSignIn(ctx context.Context, t *testing.T, h *AuthHarness) {
 	pat := mustUser(ctx, t, in.Driver, req.UserID)
 	assertEmail(t, "the provisioned user", pat, strPtr(name), true)
 	assertAccepted(t, rec, "accepted:"+name, pat.ID.String()+" "+name+" lakeside Teacher")
+	assertRecorded(ctx, t, h, in.Raw, "accepted:"+name, pat.ID.String()+" "+name+" lakeside Teacher")
 	if consumedAt := h.MailLinkConsumedAt(ctx, t, in.Raw, link.TokenHash); consumedAt == nil {
 		t.Error("the invitation's ConsumedAt = nil after the sign-in, want consumed")
 	}
@@ -665,37 +679,259 @@ func testInvitationKeptOnRefusal(ctx context.Context, t *testing.T, h *AuthHarne
 	assertNoLink(ctx, t, other.Driver, kim)
 }
 
-func testInvitationHookFails(ctx context.Context, t *testing.T, h *AuthHarness) {
-	const name = "pat.lee@lakeside.edu"
-	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
-		Auth: true, Accounts: signin.InvitedUsersOnly,
-		Accept: func(context.Context, impulse.UUID, string, *sessioninfo.Invitation) error {
-			return errors.New("the seat could not be granted")
-		},
-	})
-	link := insertInvitation(ctx, t, in.Driver, name, "lakeside", []string{"Teacher"}, tokenHash(1))
-	identity := entra("oid-pat", name)
-	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity, Invitation: invitationOf(link)}
+// failingAcceptor is an acceptor that writes through the transaction it is handed
+// (granted:<address>) and then fails with fail's error while fail holds one, answering
+// a committed function all the same, which the flow must never run for a hook that
+// failed. committed counts the committed function's runs.
+type failingAcceptor struct {
+	mu        sync.Mutex
+	fail      error
+	committed int
+}
 
-	// The hook runs once the resolution has committed: the sign-in ends with its
-	// error and writes no session, the user it provisioned and the consumed
-	// invitation stay, so the link is dead and the person is invited again.
-	err := signInRequest(ctx, in, req)
-	if err == nil {
-		t.Fatal("sign-in error = nil, want the hook's failure")
+func (f *failingAcceptor) hook(ctx context.Context, tx HookTx, _ impulse.UUID, _ string, inv *sessioninfo.Invitation) (func(ctx context.Context), error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if err := tx.Record(ctx, "granted:"+inv.Email, strings.Join(inv.RoleNames, ",")); err != nil {
+		return nil, errors.Wrap(err, "HookTx.Record()")
+	}
+
+	return func(context.Context) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.committed++
+	}, f.fail
+}
+
+// set makes the acceptor fail with err, or work when err is nil.
+func (f *failingAcceptor) set(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.fail = err
+}
+
+// committedRuns answers how often the acceptor's committed function ran.
+func (f *failingAcceptor) committedRuns() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.committed
+}
+
+// assertNothingGiven fails unless the acceptance the failing acceptor refused left
+// everything as it was: the acceptor's error is the sign-in's (not a refusal, and not
+// taken for a dead invitation), the invitation stands unconsumed, the acceptor's own
+// write through the transaction is not committed, and its committed function never ran.
+func assertNothingGiven(ctx context.Context, t *testing.T, h *AuthHarness, in *AuthInstance, f *failingAcceptor, err, want error, link *dbtype.MailLink, inv *sessioninfo.Invitation) {
+	t.Helper()
+
+	if !errors.Is(err, want) {
+		t.Fatalf("error = %v, want the acceptor's failure %v", err, want)
 	}
 	var refusal *sessioninfo.LoginRefusal
 	if errors.As(err, &refusal) {
-		t.Errorf("sign-in error = %v, want the hook's error, not a refusal", err)
+		t.Errorf("error = %v, want the acceptor's error, not a refusal", err)
 	}
-	if req.Invitation.Accepted {
-		t.Error("Invitation.Accepted = true after the hook failed, want false")
+	if errors.Is(err, signin.ErrInvitationExpired) {
+		t.Errorf("error = %v, want the acceptor's error, not a dead invitation's", err)
 	}
-	if _, err := in.Driver.UserByUserName(ctx, name); err != nil {
-		t.Errorf("UserByUserName(%q) after the hook failed error = %v, want the provisioned user: the resolution committed", name, err)
+	if inv.Accepted {
+		t.Error("Invitation.Accepted = true after the acceptor failed, want false")
 	}
-	if _, err := in.Driver.MailLinkByToken(ctx, link.TokenHash, time.Now()); !httpio.HasNotFound(err) {
-		t.Errorf("MailLinkByToken() after the hook failed error = %v, want NotFound: the invitation was consumed", err)
+	if _, err := in.Driver.MailLinkByToken(ctx, link.TokenHash, time.Now()); err != nil {
+		t.Errorf("MailLinkByToken() after the acceptor failed error = %v, want the invitation still live", err)
+	}
+	if consumedAt := h.MailLinkConsumedAt(ctx, t, in.Raw, link.TokenHash); consumedAt != nil {
+		t.Errorf("the invitation's ConsumedAt = %v after the acceptor failed, want nil: the consumption was not committed", consumedAt)
+	}
+	if value, found := h.Recorded(ctx, t, in.Raw, "granted:"+link.Email); found {
+		t.Errorf("HookRecords[granted:%s] = %q after the acceptor failed, want nothing committed", link.Email, value)
+	}
+	if committed := f.committedRuns(); committed != 0 {
+		t.Errorf("the committed function ran %d time(s) for a transaction that did not commit, want 0", committed)
+	}
+}
+
+func testInvitationHookFails(ctx context.Context, t *testing.T, h *AuthHarness) {
+	const name = "pat.lee@lakeside.edu"
+	// The acceptor's error is a NotFound, as a role that no longer exists is: it must
+	// not be taken for the invitation's own NotFound, a link that died.
+	failure := httpio.NewNotFoundMessage("the role the invitation names no longer exists")
+	acceptor := &failingAcceptor{fail: failure}
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: signin.InvitedUsersOnly, Accept: acceptor.hook})
+
+	// A stranger the invitation alone admits. The acceptor runs inside the
+	// resolution's transaction and fails it: the sign-in ends with its error, and
+	// nothing was committed, not the user, not the link, not the consumption and not
+	// the acceptor's own write.
+	link := insertInvitation(ctx, t, in.Driver, name, "lakeside", []string{"Teacher"}, tokenHash(1))
+	identity := entra("oid-pat", name)
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity, Invitation: invitationOf(link)}
+	err := signInRequest(ctx, in, req)
+	assertNothingGiven(ctx, t, h, in, acceptor, err, failure, link, req.Invitation)
+	assertNoUser(ctx, t, in.Driver, name)
+	assertNoLink(ctx, t, in.Driver, identity)
+
+	// A user whose identity is linked already: the invitation stands, and the address
+	// the acceptance would have set on them is not set.
+	alex := createUser(ctx, t, in.Driver, "alex@lakeside.edu")
+	alexIdentity := entra("oid-alex", "alex@lakeside.edu")
+	mustLink(ctx, t, in.Driver, alex.ID, alexIdentity)
+	alexLink := insertInvitation(ctx, t, in.Driver, "alex@lakeside.edu", "", []string{"Admin"}, tokenHash(2))
+	alexReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Identity: alexIdentity, Invitation: invitationOf(alexLink)}
+	err = signInRequest(ctx, in, alexReq)
+	assertNothingGiven(ctx, t, h, in, acceptor, err, failure, alexLink, alexReq.Invitation)
+	assertEmail(t, "the linked user after the acceptor failed", mustUser(ctx, t, in.Driver, alex.ID), nil, false)
+
+	// A password sign-in, whose acceptance has a transaction of its own: the sign-in
+	// ends with the acceptor's error instead of going on as it does past a dead
+	// invitation, and the same by hand, for a person already signed in.
+	sam := passwordUser(ctx, t, in.Driver, "sam")
+	samLink := insertInvitation(ctx, t, in.Driver, "sam@lakeside.edu", "lakeside", []string{"Coach"}, tokenHash(3))
+	samReq := &sessioninfo.NewSessionRequest{
+		Reason: sessioninfo.ReasonLogin, Username: sam.Username, UserID: sam.ID,
+		Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: sam.ID.String()}, Invitation: invitationOf(samLink),
+	}
+	err = signInRequest(ctx, in, samReq)
+	assertNothingGiven(ctx, t, h, in, acceptor, err, failure, samLink, samReq.Invitation)
+	assertEmail(t, "the password user after the acceptor failed", mustUser(ctx, t, in.Driver, sam.ID), nil, false)
+	byHand := invitationOf(samLink)
+	err = in.Accept(ctx, sam.ID, sam.Username, "", byHand)
+	assertNothingGiven(ctx, t, h, in, acceptor, err, failure, samLink, byHand)
+	assertEmail(t, "the user who accepted by hand after the acceptor failed", mustUser(ctx, t, in.Driver, sam.ID), nil, false)
+
+	// The invitation stood through all of it: once the acceptor works, the stranger's
+	// next attempt at the same link is provisioned, the invitation consumed, the
+	// acceptor's write committed and its committed function run, once.
+	acceptor.set(nil)
+	before := acceptor.committedRuns()
+	retry := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity, Invitation: invitationOf(link)}
+	err = signInRequest(ctx, in, retry)
+	assertProvisioned(ctx, t, in.Driver, err, retry, identity, "tenant-1")
+	if !retry.Invitation.Accepted {
+		t.Error("Invitation.Accepted = false once the acceptor works, want accepted")
+	}
+	assertRecorded(ctx, t, h, in.Raw, "granted:"+name, "Teacher")
+	if consumedAt := h.MailLinkConsumedAt(ctx, t, in.Raw, link.TokenHash); consumedAt == nil {
+		t.Error("the invitation's ConsumedAt = nil once the acceptor works, want consumed")
+	}
+	if committed := acceptor.committedRuns(); committed-before != 1 {
+		t.Errorf("the committed function ran %d time(s) for the acceptance that committed, want 1", committed-before)
+	}
+}
+
+// commitOrder notes the steps of a sign-in as the hooks and the policy see them.
+type commitOrder struct {
+	mu    sync.Mutex
+	steps []string
+}
+
+func (o *commitOrder) note(step string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.steps = append(o.steps, step)
+}
+
+// count answers how many of the noted steps start with prefix.
+func (o *commitOrder) count(prefix string) int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	n := 0
+	for _, step := range o.steps {
+		if strings.HasPrefix(step, prefix) {
+			n++
+		}
+	}
+
+	return n
+}
+
+// tail answers the last n steps noted.
+func (o *commitOrder) tail(n int) []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	return slices.Clone(o.steps[max(len(o.steps)-n, 0):])
+}
+
+func testInvitationHookCommitted(ctx context.Context, t *testing.T, h *AuthHarness) {
+	const name = "pat.lee@lakeside.edu"
+	var (
+		order = &commitOrder{}
+		in    *AuthInstance
+		link  *dbtype.MailLink
+	)
+	in = h.New(ctx, t, AuthWithAppTables, AuthConfig{
+		Auth: true, Accounts: signin.InvitedUsersOnly,
+		Accept: func(ctx context.Context, tx HookTx, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (func(ctx context.Context), error) {
+			order.note("hook")
+			if err := tx.Record(ctx, "granted:"+username, strings.Join(inv.RoleNames, ",")); err != nil {
+				return nil, errors.Wrap(err, "HookTx.Record()")
+			}
+
+			return func(ctx context.Context) {
+				// The transaction has committed: a read outside it finds the hook's
+				// write, the user it provisioned and the invitation consumed.
+				value, _ := h.Recorded(ctx, t, in.Raw, "granted:"+username)
+				_, userErr := in.Driver.UserByUserName(ctx, username)
+				consumed := h.MailLinkConsumedAt(ctx, t, in.Raw, link.TokenHash) != nil
+				order.note(fmt.Sprintf("committed: granted=%q user=%t consumed=%t", value, userErr == nil, consumed))
+			}, nil
+		},
+		Policy: func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
+			value, _, err := tx.Recorded(ctx, "granted:"+req.Username)
+			if err != nil {
+				return nil, errors.Wrap(err, "HookTx.Recorded()")
+			}
+			order.note(fmt.Sprintf("policy: granted=%q after %d committed", value, order.count("committed")))
+
+			return signin.Allow(), nil
+		},
+	})
+	link = insertInvitation(ctx, t, in.Driver, name, "lakeside", []string{"Teacher"}, tokenHash(1))
+	identity := entra("oid-pat", name)
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity, Invitation: invitationOf(link)}
+
+	err := signInRequest(ctx, in, req)
+	assertProvisioned(ctx, t, in.Driver, err, req, identity, "tenant-1")
+
+	// The acceptor ran in the transaction, its committed function once the transaction
+	// had committed and before the policy decided, and exactly once.
+	want := []string{"hook", `committed: granted="Teacher" user=true consumed=true`, `policy: granted="Teacher" after 1 committed`}
+	if diff := cmp.Diff(want, order.tail(3)); diff != "" {
+		t.Errorf("the last steps of the sign-in (-want +got):\n%s", diff)
+	}
+	if n := order.count("committed"); n != 1 {
+		t.Errorf("the committed function ran %d time(s), want exactly 1", n)
+	}
+
+	// A password sign-in's acceptance, in its own transaction, and one by hand: the
+	// same, once each.
+	sam := passwordUser(ctx, t, in.Driver, "sam")
+	link = insertInvitation(ctx, t, in.Driver, "sam@lakeside.edu", "lakeside", []string{"Coach"}, tokenHash(2))
+	samReq := &sessioninfo.NewSessionRequest{
+		Reason: sessioninfo.ReasonLogin, Username: sam.Username, UserID: sam.ID,
+		Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: sam.ID.String()}, Invitation: invitationOf(link),
+	}
+	if err := signInRequest(ctx, in, samReq); err != nil {
+		t.Fatalf("password sign-in with an invitation error = %v", err)
+	}
+	want = []string{"hook", `committed: granted="Coach" user=true consumed=true`, `policy: granted="Coach" after 2 committed`}
+	if diff := cmp.Diff(want, order.tail(3)); diff != "" {
+		t.Errorf("the last steps of the password sign-in (-want +got):\n%s", diff)
+	}
+	link = insertInvitation(ctx, t, in.Driver, "sam@lakeside.edu", "", []string{"Admin"}, tokenHash(3))
+	if err := in.Accept(ctx, sam.ID, sam.Username, "sam@lakeside.edu", invitationOf(link)); err != nil {
+		t.Fatalf("Accept() error = %v", err)
+	}
+	want = []string{"hook", `committed: granted="Admin" user=true consumed=true`}
+	if diff := cmp.Diff(want, order.tail(2)); diff != "" {
+		t.Errorf("the last steps of the acceptance by hand (-want +got):\n%s", diff)
+	}
+	if n := order.count("committed"); n != 3 {
+		t.Errorf("the committed function ran %d time(s) over three acceptances, want 3", n)
 	}
 }
 

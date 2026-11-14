@@ -22,12 +22,26 @@ func tenantCreationFixtureGenerator(t *testing.T, record string, mutate func(r *
 		t.Fatalf("structsToResources() error = %v", err)
 	}
 	c.resources = resources
+	// The program generates the management of both auths the fixtures bind outlets to:
+	// a creator's roles are given through an auth's generated identity client.
+	c.identity = generatedIdentityOf("example.com/app/pkg/auth/staff", "example.com/app/pkg/auth/members")
 	r := &resourceGenerator{client: c, routePrefix: "api", applicationName: "App", receiverName: "a"}
 	if mutate != nil {
 		mutate(r)
 	}
 
 	return r
+}
+
+// generatedIdentityOf is the run's generated management of the auths at the import
+// paths, as GenerateIdentity derives one instance for each declared Auth.
+func generatedIdentityOf(importPaths ...string) []*identityInstance {
+	instances := make([]*identityInstance, 0, len(importPaths))
+	for _, importPath := range importPaths {
+		instances = append(instances, &identityInstance{importPath: importPath, auth: caser.ToPascal(importPath[strings.LastIndex(importPath, "/")+1:])})
+	}
+
+	return instances
 }
 
 // openAuth is an outlet auth with a registration admitting open sign-up.
@@ -132,6 +146,15 @@ func Test_validateTenantCreation(t *testing.T) {
 			wantErr: "struct Station: @tenant(creation: self-service) needs a registration with the open sign-up rule on the staff auth, since a stranger signs in before creating a station and only open sign-up admits one; declare it on the outlet's Auth (GoogleMethod(name).OpenSignUp() or AzureMethod(name).OpenSignUp(), the registration's Accounts being signin.OpenSignUp), or keep the administrator shape",
 		},
 		{
+			name:   "a self-service record whose auth's management the program does not generate is refused",
+			record: "Station",
+			mutate: func(r *resourceGenerator) {
+				r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff")
+				r.identity = nil
+			},
+			wantErr: `struct Station: the person who creates a station is made its first administrator through the generated management of Auth("example.com/app/pkg/auth/staff"), which this program does not generate; add GenerateIdentity to the generator program`,
+		},
+		{
 			name:   "a method named as the handler is refused",
 			record: "Station",
 			mutate: func(r *resourceGenerator) {
@@ -167,8 +190,9 @@ func Test_validateTenantCreation(t *testing.T) {
 // and no server-owned column.
 // Test_tenantSeatData pins what the record's create path seats its creator with: the
 // accessors over the auth of the session outlets serving the record; nothing for a
-// record created through its route alone or served by no session auth; a refusal
-// where the record's outlets bind to different auths.
+// record created through its route alone, one whose handlers are suppressed, or one
+// served by no session auth; a refusal where the record's outlets bind to different
+// auths.
 func Test_tenantSeatData(t *testing.T) {
 	t.Parallel()
 
@@ -182,18 +206,26 @@ func Test_tenantSeatData(t *testing.T) {
 		{
 			name:   "the default outlet's auth seats the creator",
 			mutate: func(r *resourceGenerator) { r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff") },
-			want:   &tenantSeatData{Record: "Station", RecordLower: "station", KeyType: "string", Auth: "Staff", AuthType: "StaffAuth", SurfaceAccessor: "StaffUserSurface", RolesAccessor: "StationAdministratorRoles"},
+			want:   &tenantSeatData{Record: "Station", RecordLower: "station", KeyType: "string", Auth: "Staff", IdentityAccessor: "StaffIdentity", RolesAccessor: "StationAdministratorRoles"},
 		},
 		{
 			name:     "the both shape seats the creator of an administrator's create too",
 			creation: tenantCreationBoth,
 			mutate:   func(r *resourceGenerator) { r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff") },
-			want:     &tenantSeatData{Record: "Station", RecordLower: "station", KeyType: "string", Auth: "Staff", AuthType: "StaffAuth", SurfaceAccessor: "StaffUserSurface", RolesAccessor: "StationAdministratorRoles"},
+			want:     &tenantSeatData{Record: "Station", RecordLower: "station", KeyType: "string", Auth: "Staff", IdentityAccessor: "StaffIdentity", RolesAccessor: "StationAdministratorRoles"},
 		},
 		{
 			name:     "a self-service record has no create path to seat through",
 			creation: tenantCreationSelfService,
 			mutate:   func(r *resourceGenerator) { r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff") },
+		},
+		{
+			name: "a record whose handlers are suppressed has no create path here, and the program is asked for no management",
+			mutate: func(r *resourceGenerator) {
+				r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff")
+				r.resources[0].SuppressedHandlers = []HandlerType{ListHandler, ReadHandler, PatchHandler}
+				r.identity = nil
+			},
 		},
 		{
 			name: "no session auth, no seat",
@@ -205,7 +237,7 @@ func Test_tenantSeatData(t *testing.T) {
 				r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff")
 				r.extraOutlets = []routerOutlet{{name: "members", prefix: "members", servesSessions: true, auth: openAuth("example.com/app/pkg/auth/members")}}
 			},
-			wantErr: `struct Station: the record is served by outlets bound to different auths ("example.com/app/pkg/auth/staff" and "example.com/app/pkg/auth/members"); its create seats the creator as the station's first administrator through one auth's user-management surface, so serve the record on the outlets of one auth (@outlet)`,
+			wantErr: `struct Station: the record is served by outlets bound to different auths ("example.com/app/pkg/auth/staff" and "example.com/app/pkg/auth/members"); its create makes the creator the station's first administrator through one auth's generated identity client, so serve the record on the outlets of one auth (@outlet)`,
 		},
 	}
 
@@ -279,8 +311,8 @@ func Test_tenantCreationData_typeImports(t *testing.T) {
 	if !slices.Contains(paths, "cloud.google.com/go/civil") {
 		t.Errorf("typeImports() = %v, want cloud.google.com/go/civil among them", paths)
 	}
-	if data.RoutePath != "/api/create-station" || data.Auth != "Staff" || data.SurfaceAccessor != "StaffUserSurface" || data.RolesAccessor != "StationAdministratorRoles" {
-		t.Errorf("tenantCreationData() = route %q, auth %q, surface %q, roles %q", data.RoutePath, data.Auth, data.SurfaceAccessor, data.RolesAccessor)
+	if data.RoutePath != "/api/create-station" || data.Auth != "Staff" || data.IdentityAccessor != "StaffIdentity" || data.RolesAccessor != "StationAdministratorRoles" {
+		t.Errorf("tenantCreationData() = route %q, auth %q, identity %q, roles %q", data.RoutePath, data.Auth, data.IdentityAccessor, data.RolesAccessor)
 	}
 }
 
@@ -307,8 +339,7 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		HandlerFunc:         "CreateStation",
 		RoutePath:           "/api/create-station",
 		Auth:                "Staff",
-		AuthType:            "StaffAuth",
-		SurfaceAccessor:     "StaffUserSurface",
+		IdentityAccessor:    "StaffIdentity",
 		RolesAccessor:       "StationAdministratorRoles",
 		Key:                 key,
 		Fields:              fields,
@@ -324,7 +355,7 @@ func Test_tenantCreationTemplate(t *testing.T) {
 
 	assertContains(t, "tenantCreationTemplate", string(out), []string{
 		"StationAdministratorRoles() []accesstypes.Role",
-		"StaffUserSurface() *resource.UserSurface[router.StaffAuth]",
+		"through the Staff auth's generated identity client (StaffIdentity).",
 		"} = (*App)(nil)",
 		"func (a *App) CreateStation() http.HandlerFunc {",
 		"ID string `json:\"id\" validate:\"required\"`",
@@ -334,32 +365,39 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"ID string `json:\"id\"`",
 		"decoder := resource.MustNewBodyDecoder[request](a.Validator())",
 		"roles := a.StationAdministratorRoles()",
-		"seats := a.StaffUserSurface().SeatStore()",
+		"identity := a.StaffIdentity()",
 		"held, err := userPermissions.Domains(ctx)",
 		`httpio.NewForbiddenMessage("the session already holds a station; a person creates one station and becomes its administrator")`,
 		"patch := resources.NewStationCreatePatch(req.ID)",
 		"patch.SetName(req.Name)",
 		"patch.SetMotto(req.Motto)",
 		"patch.SetOpened(req.Opened)",
-		"resource.SeatFirstAdministrator(ctx, seats, userPermissions, domain, roles)",
-		"if err := resources.NewStationDeletePatch(req.ID).Buffer(ctx, txn, eventSource); err != nil {",
+		"if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), string(userPermissions.User()), role); err != nil {",
+		"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, domain); err != nil {",
 		"if err := a.TenantRoster().Reload(ctx); err != nil {",
 		"a.LiveService().Signal(ctx, resource.KindTenants)",
 		"return httpio.NewEncoder(w).Ok(response{ID: req.ID})",
-	}, []string{"Derived", "SetID", "SetDerived", "sessioninfo", "EstablishedBy"})
+	}, []string{
+		"Derived", "SetID", "SetDerived", "sessioninfo", "EstablishedBy",
+		// Nothing is removed after the commit: the row and the administrator's
+		// membership are one transaction.
+		"DeletePatch", "SeatFirstAdministrator", "UserSurface",
+	})
 
-	// The gate before the body, the commit before the roster, the roster before the
-	// seat, the seat before the signal, the signal before the answer.
+	// The gate before the body, the membership before the commit, the commit before
+	// the roster, the roster before the wait, the wait before the signal, the signal
+	// before the answer.
 	s := string(out)
 	gate := strings.Index(s, "if len(held) > 0 {")
 	decode := strings.Index(s, "req, err := decoder.Decode(r)")
 	commit := strings.Index(s, "}); err != nil {")
 	roster := strings.Index(s, "a.TenantRoster().Reload(ctx)")
-	seat := strings.Index(s, "resource.SeatFirstAdministrator(")
+	given := strings.Index(s, "identity.AssignRole(ctx, txn,")
+	seat := strings.Index(s, "resource.AwaitFirstAdministrator(")
 	signal := strings.Index(s, "Signal(ctx, resource.KindTenants)")
 	answer := strings.Index(s, "return httpio.NewEncoder(w).Ok(")
-	if gate >= decode || decode >= commit || commit >= roster || roster >= seat || seat >= signal || signal >= answer {
-		t.Errorf("order: gate %d, decode %d, commit %d, roster %d, seat %d, signal %d, answer %d; want ascending:\n%s", gate, decode, commit, roster, seat, signal, answer, out)
+	if gate >= decode || decode >= given || given >= commit || commit >= roster || roster >= seat || seat >= signal || signal >= answer {
+		t.Errorf("order: gate %d, decode %d, membership %d, commit %d, roster %d, wait %d, signal %d, answer %d; want ascending:\n%s", gate, decode, given, commit, roster, seat, signal, answer, out)
 	}
 }
 

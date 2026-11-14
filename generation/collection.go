@@ -213,10 +213,6 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 		return resource.CollectionData{}, err
 	}
 
-	if err := r.collectUserRegistrations(b); err != nil {
-		return resource.CollectionData{}, err
-	}
-
 	r.collectBindingRegistrations(b)
 	r.collectWorkflowMemberRegistrations(b)
 
@@ -370,7 +366,7 @@ func (r *resourceGenerator) collectConsolidatedRegistrations(b *resource.Collect
 
 func (r *resourceGenerator) collectComputedRegistrations(b *resource.CollectionBuilder) error {
 	// Computed handlers only register when the generated routes invoke them.
-	if !r.genComputedResources || !r.genRoutes {
+	if !r.genRoutes {
 		return nil
 	}
 
@@ -407,8 +403,12 @@ func (r *resourceGenerator) collectComputedRegistrations(b *resource.CollectionB
 
 		// The kind marker rides only registered resources: a computed resource with
 		// every handler suppressed grants nothing, so there is nothing to validate.
+		// The fields a grant's condition may read ride with it.
 		if registered {
 			b.SetResourceComputed(scopeOrGlobal(res.PermissionScope), accesstypes.Resource(r.pluralize(res.Name())))
+			if len(res.Attributes) != 0 {
+				b.SetResourceBindings(scopeOrGlobal(res.PermissionScope), accesstypes.Resource(r.pluralize(res.Name())), &resource.Bindings{Attributes: res.Attributes})
+			}
 		}
 	}
 
@@ -417,7 +417,7 @@ func (r *resourceGenerator) collectComputedRegistrations(b *resource.CollectionB
 
 func (r *resourceGenerator) collectRPCRegistrations(b *resource.CollectionBuilder) error {
 	// RPC handlers only register when the generated routes invoke them.
-	if !r.genRPCMethods || !r.genRoutes {
+	if !r.hasRPC() || !r.genRoutes {
 		return nil
 	}
 
@@ -442,6 +442,10 @@ func (r *resourceGenerator) collectRPCRegistrations(b *resource.CollectionBuilde
 		}
 		if t := method.Target; t != nil {
 			b.SetMethodTarget(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()), accesstypes.Resource(t.RootResource))
+		}
+		// The method's request fields a grant's condition may read (new.<name>).
+		if len(method.RequestAttributes) != 0 {
+			b.SetResourceBindings(scopeOrGlobal(method.PermissionScope), accesstypes.Resource(method.Name()), &resource.Bindings{Attributes: method.RequestAttributes})
 		}
 	}
 

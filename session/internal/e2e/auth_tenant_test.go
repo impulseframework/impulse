@@ -53,10 +53,19 @@ type tenantRoles struct {
 	seated map[string][]signin.DirectorySeat
 }
 
-// seat is the directory seat hook: it grants each seat as a membership in its tenant,
-// as the application's hook does over its membership store, and records what was
-// granted.
-func (r *tenantRoles) seat(_ context.Context, _ impulse.UUID, username string, seats []signin.DirectorySeat) error {
+// seatIn is the directory seat hook over a backend's transaction. The memberships
+// here are held in memory, as an application's permission engine holds its policy, so
+// the hook writes nothing through the transaction it is handed and has the store told
+// once that transaction has committed (seat), which is when an application's engine is
+// told that the rows the hook wrote have landed.
+func seatIn[Tx any](r *tenantRoles) session.DirectorySeatedHook[Tx] {
+	return func(_ context.Context, _ Tx, _ impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
+		return func(context.Context) { r.seat(username, seats) }, nil
+	}
+}
+
+// seat grants each seat as a membership in its tenant and records what was granted.
+func (r *tenantRoles) seat(username string, seats []signin.DirectorySeat) {
 	for _, s := range seats {
 		r.grant(username, accesstypes.DomainPolicyScope(s.Tenant), s.Role)
 	}
@@ -67,8 +76,6 @@ func (r *tenantRoles) seat(_ context.Context, _ impulse.UUID, username string, s
 		r.seated = make(map[string][]signin.DirectorySeat)
 	}
 	r.seated[username] = append(r.seated[username], seats...)
-
-	return nil
 }
 
 // seatsOf reads the seats the hook granted username, nil for none.
@@ -141,7 +148,7 @@ func newTenantApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opt
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
 	auth.SetSignInPolicy(signin.TenantPolicy(roles, be.rows.tenantDeclaration, opts...).Then(h.signInPolicy))
-	auth.SetDirectoryAdmission(be.rows.directoryLookup, roles, roles.seat)
+	auth.SetDirectoryAdmission(be.rows.directoryLookup, roles, seatIn[Tx](roles))
 
 	password := session.PasswordSignIn(auth)
 	entra := azure.SignIn(auth, "entra", nil, &azure.Config{

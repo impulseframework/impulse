@@ -390,6 +390,80 @@ func TestSiteApplyPromotes(t *testing.T) {
 	}
 }
 
+// TestSiteApplyPromotesIdentityTree pins what the promotion does with the tree the
+// generator writes each auth's management into: it moves under the first site with the
+// site's other packages, every import of its packages follows, and the first site's
+// program names it there. The new site takes none of it: an auth's package builds its
+// identity client from one tree, so one program generates an auth's management, and the
+// copy is laid in without the option, without the code that names the tree, and without
+// the pages.
+func TestSiteApplyPromotesIdentityTree(t *testing.T) {
+	t.Parallel()
+
+	files := flatSiteFiles(t)
+	files[programFile] = strings.Replace(beaconProgram, "\t\tgeneration.GenerateHandlers(\"app\"),\n", "\t\tgeneration.GenerateHandlers(\"app\"),\n\t\t// The management of the auth's people.\n\t\tgeneration.GenerateIdentity(\"pkg/identity\"),\n", 1)
+	if !strings.Contains(files[programFile], "GenerateIdentity") {
+		t.Fatal("the fixture program took no GenerateIdentity option: its GenerateHandlers line is not where the test looks")
+	}
+	files["pkg/identity/internal/staffresources/resources.go"] = "package staffresources\n"
+	files["pkg/identity/staffidentity/client.go"] = "package staffidentity\n\nimport _ \"example.com/acme/beacon/pkg/identity/internal/staffresources\"\n\n// Client is the staff auth's management.\ntype Client struct{}\n"
+	files["pkg/identity/staffhandlers/handlers.go"] = "package staffhandlers\n\nimport _ \"example.com/acme/beacon/pkg/identity/staffidentity\"\n"
+	files["app/identity.go"] = "package app\n\nimport \"example.com/acme/beacon/pkg/identity/staffidentity\"\n\n// StaffIdentity hands the generated handlers the staff auth's management.\nfunc (a *App) StaffIdentity() *staffidentity.Client {\n\treturn nil\n}\n"
+	const routes = "web/console/src/app/app.routes.ts"
+	files[routes] = "import { identityRoutes } from '@impulseframework/resource-angular/identity-pages';\n\nexport const routes = [\n  // The staff's accounts.\n  ...identityRoutes(api, meta, { auth: 'Staff', scope: 'global' }),\n  { path: '**', redirectTo: 'dashboard' },\n];\n"
+	a := beacon(t, files)
+	ch, err := Site{Name: "portal", Existing: "console"}.Apply(t.Context(), a, &fakeExec{})
+	if err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+
+	for _, rel := range []string{"apps/console/pkg/identity/internal/staffresources/resources.go", "apps/console/pkg/identity/staffidentity/client.go", "apps/console/pkg/identity/staffhandlers/handlers.go"} {
+		if _, err := os.Stat(a.Abs(rel)); err != nil {
+			t.Errorf("%s: missing after the promotion", rel)
+		}
+	}
+	if _, err := os.Stat(a.Abs("pkg/identity")); err == nil {
+		t.Error("pkg/identity: still at the root after the promotion")
+	}
+	for rel, want := range map[string]string{
+		"apps/console/pkg/identity/staffidentity/client.go":   `"example.com/acme/beacon/apps/console/pkg/identity/internal/staffresources"`,
+		"apps/console/pkg/identity/staffhandlers/handlers.go": `"example.com/acme/beacon/apps/console/pkg/identity/staffidentity"`,
+		"apps/console/app/identity.go":                        `"example.com/acme/beacon/apps/console/pkg/identity/staffidentity"`,
+		"cmd/generate/consolegenerator/main.go":               `generation.GenerateIdentity("apps/console/pkg/identity")`,
+		"apps/console/web/console/src/app/app.routes.ts":      "...identityRoutes(api, meta, { auth: 'Staff', scope: 'global' }),",
+	} {
+		if got := read(t, a, rel); !strings.Contains(got, want) {
+			t.Errorf("%s lacks %s:\n%s", rel, want, got)
+		}
+	}
+
+	// The new site: no tree, no option, nothing that names the first site's tree, no pages.
+	for _, rel := range []string{"apps/portal/pkg/identity", "apps/portal/app/identity.go"} {
+		if _, err := os.Stat(a.Abs(rel)); err == nil {
+			t.Errorf("%s: laid into the new site, which serves none of the management", rel)
+		}
+	}
+	program := read(t, a, "cmd/generate/portalgenerator/main.go")
+	if strings.Contains(program, "GenerateIdentity") || strings.Contains(program, "The management of the auth's people.") {
+		t.Errorf("the portal site's program still generates the management, or keeps the option's comment:\n%s", program)
+	}
+	if !strings.Contains(program, `generation.GenerateHandlers("apps/portal/app"),`) {
+		t.Errorf("the portal site's program lost an option beside the one removed:\n%s", program)
+	}
+	if got, want := read(t, a, "apps/portal/web/portal/src/app/app.routes.ts"), "export const routes = [\n  { path: '**', redirectTo: 'dashboard' },\n];\n"; got != want {
+		t.Errorf("the portal site's routes =\n%s\nwant\n%s", got, want)
+	}
+	did := strings.Join(ch.Did, "\n")
+	for _, want := range []string{
+		"apps/portal: the portal site serves none of the management of the auths' people: the console site's program generates it into apps/console/pkg/identity, an auth's package builds its identity client from that one tree, and the copy leaves out what names it (StaffIdentity)",
+		"apps/portal/web/portal/src/app/app.routes.ts: without the pages of the auths' generated management",
+	} {
+		if !strings.Contains(did, want) {
+			t.Errorf("Did lacks %q:\n%s", want, did)
+		}
+	}
+}
+
 // assertFormatted fails when gofmt would change the file.
 func assertFormatted(t *testing.T, a *app.App, rel string) {
 	t.Helper()

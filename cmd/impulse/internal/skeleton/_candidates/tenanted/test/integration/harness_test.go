@@ -21,12 +21,12 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/auth/staff"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/identity/staffidentity"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/router"
 	initiator "github.com/impulseframework/impulse/db"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
-	"github.com/impulseframework/impulse/resource/sessionusers"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/mail"
 )
@@ -90,11 +90,10 @@ func (c *servedConfigurer) Access() access.Controller { return c.auth.Access() }
 
 func (c *servedConfigurer) Staff() *staff.Auth { return c.auth }
 
-// StaffUserStores are the real stores: the test staff auth's session accounts and its
-// engine's memberships, so the suites drive the user surface as the served application does.
-func (c *servedConfigurer) StaffUserStores() (resource.UserAccounts, resource.UserSeats) {
-	return sessionusers.Accounts(c.auth.Session().API()), c.auth.Access().UserManager()
-}
+// StaffIdentity is the staff auth's identity client, which the test auth built when it
+// opened as the served application's does, so the suites drive the generated management
+// as the served application does.
+func (c *servedConfigurer) StaffIdentity() *staffidentity.Client { return c.auth.Identity() }
 
 func (c *servedConfigurer) Validator() *validator.Validate { return validator.New() }
 
@@ -382,6 +381,8 @@ func (b *browser) xsrfToken() string {
 // conditions-proven check reads these calls to find the conditional grants no case names.
 // Write the file as the auth package's Roles() call and the coordinates as literals: the
 // check reads them from the source.
+//
+//nolint:unparam // The role file's conditional grants are all one role's today; the next role's case names its own.
 func provesGrant(t *testing.T, roles access.RoleFile, role accesstypes.Role, permission accesstypes.Permission, res accesstypes.Resource, condition string) {
 	t.Helper()
 

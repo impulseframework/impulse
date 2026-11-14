@@ -16,6 +16,7 @@ import {
   EnumeratedConfig,
   EnumerationOption,
   FieldElement,
+  keyFields,
   Resource,
   RootConfig,
 } from '@impulseframework/resource-angular/types';
@@ -38,6 +39,7 @@ import {
   matchOptions,
   narrowedFilter,
   optionColumns,
+  optionDisplay,
   PickerOption,
   pickerNarrowing,
   pickerRefusal,
@@ -214,8 +216,15 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
    */
   private columns = computed(() => {
     const config = this.fieldConfig().enumeratedConfig;
-    return optionColumns(config, config.searchable && !this.paged() ? this.ownSearchFields() : []);
+    return optionColumns(config, config.searchable && !this.paged() ? this.ownSearchFields() : [], this.keyField());
   });
+
+  /**
+   * The field of the source a picked row is stored by: the source's own key field, by
+   * its metadata (a picker source is keyed by one column), `id` where the metadata
+   * names none (a resource registered by hand).
+   */
+  private keyField = computed((): string => keyFields(this.sourceMeta())[0]?.fieldName ?? 'id');
 
   /** The display column shown first: the sort a paged source with no @order pages by. */
   private displayColumn = computed((): string | undefined => {
@@ -249,7 +258,23 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   private readonly chosenValue = computed((): string => {
     this.reloadSignal();
     const value: unknown = this.form().get(this.fieldConfig().name)?.value;
-    return value === null || value === undefined ? '' : String(value);
+    // Several picked keys name no one row to read: their source is read whole.
+    return value === null || value === undefined || Array.isArray(value) ? '' : String(value);
+  });
+
+  /**
+   * Several keys are picked: the metadata's display type is `enumerated[]`, a method's
+   * request field that holds a list (the roles a new user is given). The control then
+   * holds a list of keys, the panel ticks each one, and no empty choice is offered: an
+   * empty list is the empty value.
+   */
+  multiple = computed((): boolean => this.fieldMeta()?.displayType === 'enumerated[]');
+
+  /** The picked keys of a field that takes several, in the order they were picked. */
+  private readonly chosenKeys = computed((): string[] => {
+    this.reloadSignal();
+    const value: unknown = this.form().get(this.fieldConfig().name)?.value;
+    return Array.isArray(value) ? value.map((key) => String(key)) : [];
   });
 
   /**
@@ -338,6 +363,10 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     if (form === undefined || fieldConfig === undefined) {
       return defaultEmptyFieldValue;
     }
+    if (this.multiple()) {
+      const picked = this.chosenOptions();
+      return picked.length > 0 ? picked.map((option) => option.display).join(', ') : defaultEmptyFieldValue;
+    }
     const value = form.get(fieldConfig.name)?.value as string | null | undefined;
     const fixed = this.enumeration();
     if (fixed) {
@@ -378,8 +407,26 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     return control.hasValidator(Validators.required);
   });
 
+  /**
+   * The options behind the picked keys of a field that takes several: a fixed value's
+   * own display, a whole source's row, and a key the source does not hold as itself.
+   */
+  private readonly chosenOptions = computed((): PickerOption[] => {
+    const keys = this.chosenKeys();
+    const fixed = this.enumeration();
+    if (fixed) {
+      return keys.map((key) => {
+        const option = fixed.find((candidate) => candidate.id === key);
+        return option ? toOption(option) : { id: key, display: key };
+      });
+    }
+    const options = this.allEnumOptions();
+    return keys.map((key) => displayFromOptions(options, key));
+  });
+
   singleEnumValue = computed((): PickerOption[] | undefined => {
     if (this.showField() === false) return undefined;
+    if (this.multiple()) return this.chosenOptions();
     const currentValue = this.form().get(this.fieldConfig().name)?.value;
     const fixed = this.enumeration();
     if (fixed) {
@@ -420,7 +467,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     const meta = this.fieldMeta();
     const metaRequired = 'required' in meta && meta.required;
 
-    if (editMode && !this.hasRequiredValidator() && options && options.length > 0 && !metaRequired) {
+    if (editMode && !this.multiple() && !this.hasRequiredValidator() && options && options.length > 0 && !metaRequired) {
       return [{ id: null, display: defaultEmptyFieldValue }, ...options];
     }
 
@@ -458,9 +505,10 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
 
     const concatFunction = concatFunctions[concat] || hyphenConcat;
 
+    const key = resource[this.keyField()] ?? '';
     const option: PickerOption = {
-      id: resource['id'] ?? '',
-      display: concatFunction(resource, ...displayFields),
+      id: key,
+      display: optionDisplay(resource, key, displayFields, concatFunction),
     };
     if (enumeratedConfig.searchable && !this.paged()) {
       option.text = this.ownSearchFields().map((field) => String(resource[field] ?? ''));
@@ -512,7 +560,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     }
   }
 
-  select(value: string): void {
+  select(value: string | string[]): void {
     this.form().patchValue({ [this.fieldConfig().name]: value });
     this.form().markAsDirty();
     this.form().markAsTouched();

@@ -169,7 +169,7 @@ func TestLimiter_NameLock(t *testing.T) {
 			},
 		},
 		{
-			name: "a lock in the store is learned by the first check and then refused from memory",
+			name: "a lock in the store is learned by the first check, refused from memory within the read window, and read again past it",
 			run: func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore, c *clock) {
 				lockedUntil := c.now().Add(4 * time.Minute)
 				store.records[Normalize("pat")] = &dbtype.SignInAttempts{Name: "pat", Failures: 3, WindowEndsAt: c.now().Add(time.Hour), LockedUntil: &lockedUntil}
@@ -177,12 +177,48 @@ func TestLimiter_NameLock(t *testing.T) {
 					t.Fatalf("Check() = %v, %v; want the store's wait of 4m", wait, err)
 				}
 				reads := store.reads
-				c.advance(time.Minute)
-				if wait, err := l.Check(ctx, "pat", Client{}); err != nil || wait != 3*time.Minute {
-					t.Errorf("Check() a minute later = %v, %v; want 3m", wait, err)
+				c.advance(readTTL - time.Second)
+				if wait, err := l.Check(ctx, "pat", Client{}); err != nil || wait != 4*time.Minute-readTTL+time.Second {
+					t.Errorf("Check() within the read window = %v, %v; want the rest of the lock", wait, err)
 				}
 				if store.reads != reads {
-					t.Errorf("store reads = %d, want %d: the lock answers from memory", store.reads, reads)
+					t.Errorf("store reads = %d, want %d: within the read window the lock answers from memory", store.reads, reads)
+				}
+				c.advance(time.Minute)
+				if wait, err := l.Check(ctx, "pat", Client{}); err != nil || wait != 3*time.Minute-readTTL+time.Second {
+					t.Errorf("Check() a minute later = %v, %v; want the rest of the lock", wait, err)
+				}
+				if store.reads != reads+1 {
+					t.Errorf("store reads = %d, want %d: past the read window the lock is read again", store.reads, reads+1)
+				}
+			},
+		},
+		{
+			name: "a lock cleared in the store is gone from memory once the read window has passed",
+			run: func(ctx context.Context, t *testing.T, l *Limiter, store *fakeStore, c *clock) {
+				for range testLimit.Failures {
+					fail(ctx, t, l, "pat", Client{})
+				}
+				if wait, err := l.Check(ctx, "pat", Client{}); err != nil || wait != testLimit.Lock {
+					t.Fatalf("Check() after the limit = %v, %v; want the lock period", wait, err)
+				}
+				// An administrator deletes the row, as another instance or the
+				// application's own transaction does: this limiter is not told.
+				delete(store.records, Normalize("pat"))
+				c.advance(readTTL - time.Second)
+				if wait, err := l.Check(ctx, "pat", Client{}); err != nil || wait == 0 {
+					t.Errorf("Check() within the read window = %v, %v; want the remembered lock still", wait, err)
+				}
+				c.advance(time.Second)
+				if wait, err := l.Check(ctx, "pat", Client{}); err != nil || wait != 0 {
+					t.Errorf("Check() once the read window has passed = %v, %v; want to go on", wait, err)
+				}
+				// The name starts again from nothing: one failure does not lock it.
+				if lock, err := l.Failed(ctx, "pat", Client{}); err != nil || lock != 0 {
+					t.Errorf("Failed() after the clear = %v, %v; want no lock", lock, err)
+				}
+				if got := store.record(Normalize("pat")); got == nil || got.Failures != 1 {
+					t.Errorf("the name's record after the clear and one failure = %+v, want one failure", got)
 				}
 			},
 		},

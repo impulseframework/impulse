@@ -15,3 +15,9 @@ ALTER TABLE SessionUsers ADD COLUMN Email STRING(MAX);
 ALTER TABLE SessionUsers ADD COLUMN NormalizedEmail STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Email)) STORED;
 ALTER TABLE SessionUsers ADD COLUMN EmailVerifiedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true);
 CREATE UNIQUE NULL_FILTERED INDEX SessionUsersByNormalizedEmail ON SessionUsers(NormalizedEmail);
+
+-- The index a list of people reads the account through when it starts from who holds a
+-- role: by the exact username a role membership names its person by, carrying the
+-- columns such a list shows, so a page reads one index entry for each person and no row
+-- of the table.
+CREATE UNIQUE INDEX SessionUsersByUsername ON SessionUsers(Username) STORING (Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);

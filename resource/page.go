@@ -43,13 +43,23 @@ type Page[Resource Resourcer] struct {
 	total *int64
 	// rows holds the page's rows when the QuerySet collected them itself
 	// (Collect, for a computed resource); a table handler encodes as it adds.
-	rows []*Resource
+	// rowFields holds, beside each, the projected fields that row shows.
+	rows      []*Resource
+	rowFields [][]accesstypes.Field
 }
 
 // Rows returns the page's rows in read order when the QuerySet collected them
 // (Collect); the handler reverses them when Reversed reports a backward walk.
 func (p *Page[Resource]) Rows() []*Resource {
 	return p.rows
+}
+
+// RowFields returns the projected fields the i-th of Rows shows: the query set's
+// fields, without those granted under a condition the row does not meet. The
+// handler encodes these and no other, so a cell the caller's grants refuse on
+// this row never reaches the response.
+func (p *Page[Resource]) RowFields(i int) []accesstypes.Field {
+	return p.rowFields[i]
 }
 
 // Page returns the collector for the page this QuerySet was decoded to read.

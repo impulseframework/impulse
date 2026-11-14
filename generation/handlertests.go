@@ -128,11 +128,6 @@ func (r *resourceGenerator) authzMatrixCases() ([]authzCase, error) {
 	cases = append(cases, r.rpcAuthzCases()...)
 	cases = append(cases, r.featureAuthzCases()...)
 	cases = append(cases, r.tenantCreationAuthzCases()...)
-	userCases, err := r.userAuthzCases()
-	if err != nil {
-		return nil, err
-	}
-	cases = append(cases, userCases...)
 
 	if r.concealedDomains {
 		// Concealed domains answer a caller with no grants as if the domain
@@ -304,10 +299,6 @@ func (r *resourceGenerator) resourceAuthzCases() (cases []authzCase, err error) 
 }
 
 func (r *resourceGenerator) computedAuthzCases() (cases []authzCase, err error) {
-	if !r.genComputedResources {
-		return nil, nil
-	}
-
 	for _, res := range r.computedResources {
 		var pkTypes []pkParamType
 		for _, f := range res.PrimaryKeys() {
@@ -397,7 +388,7 @@ func uploadAuthzHeader() authzHeader {
 // evaluates against) and before executing anything; an empty object reaches that check
 // because RPC request structs carry no parse-time validation.
 func (r *resourceGenerator) rpcAuthzCases() (cases []authzCase) {
-	if !r.genRPCMethods {
+	if !r.hasRPC() {
 		return nil
 	}
 
@@ -575,7 +566,7 @@ func authzJSONValue(t pkParamType) (string, bool) {
 		return jsonTrueLiteral, true
 	case declared == civilDateGoType:
 		return `"2000-01-01"`, true
-	case declared == "time.Time":
+	case declared == timeGoType:
 		return `"2000-01-01T00:00:00Z"`, true
 	case declared == "decimal.Decimal" || declared == "decimal.NullDecimal":
 		return "1", true

@@ -10,11 +10,14 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/app"
 )
 
-// regen re-runs code generation and fails when any generated file changes. The zz_gen
+// regen re-runs code generation and fails when any generated file changes. The generated
 // files on disk are the golden output of the generators, so the comparison is content
 // against content — it holds whether the tree is committed, dirty, or not yet tracked.
+// A generated file is one named zz_gen, or any file under a directory a generator owns
+// whole (generatedTrees).
 type regen struct{}
 
 func (regen) Name() string { return "regen" }
@@ -33,7 +36,8 @@ func (c regen) Run(ctx context.Context, env *Env) Result {
 		return skip(c.Name(), "--skip-generate")
 	}
 
-	before, err := hashGenerated(env.App.Root)
+	trees := generatedTrees(env.App)
+	before, err := hashGenerated(env.App.Root, trees)
 	if err != nil {
 		return fail(c.Name(), errors.Wrap(err, "hashGenerated()").Error())
 	}
@@ -44,7 +48,7 @@ func (c regen) Run(ctx context.Context, env *Env) Result {
 		return GenerateFailed(out)
 	}
 
-	after, err := hashGenerated(env.App.Root)
+	after, err := hashGenerated(env.App.Root, trees)
 	if err != nil {
 		return fail(c.Name(), errors.Wrap(err, "hashGenerated()").Error())
 	}
@@ -91,10 +95,26 @@ func warningLines(out []byte) []string {
 // skippedDirs are trees that never hold generated sources and are expensive to walk.
 var skippedDirs = map[string]bool{".git": true, "node_modules": true, ".angular": true, "dist": true, "vendor": true}
 
-// hashGenerated maps every zz_gen file under dir, by slash-separated path relative to
-// dir, to its content hash. The walk stays inside dir (os.Root), so a symlink cannot
-// lead it out of the application.
-func hashGenerated(dir string) (map[string][sha256.Size]byte, error) {
+// generatedTrees lists the directories a generator owns whole, slash-separated and
+// relative to the application's root: every file under one is generated, whatever its
+// name. The GenerateIdentity tree is one: the declarations and the methods the generator
+// writes there carry plain names, since the same run reads them as its sources.
+func generatedTrees(a *app.App) []string {
+	var trees []string
+	for _, g := range a.Generators {
+		if dir := g.IdentityDir(); dir != "" && !slices.Contains(trees, dir) {
+			trees = append(trees, dir)
+		}
+	}
+
+	return trees
+}
+
+// hashGenerated maps every generated file under dir, by slash-separated path relative to
+// dir, to its content hash: every zz_gen file, and every file under one of the trees.
+// The walk stays inside dir (os.Root), so a symlink cannot lead it out of the
+// application.
+func hashGenerated(dir string, trees []string) (map[string][sha256.Size]byte, error) {
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, errors.Wrap(err, "os.OpenRoot()")
@@ -114,7 +134,8 @@ func hashGenerated(dir string) (map[string][sha256.Size]byte, error) {
 
 			return nil
 		}
-		if !strings.Contains(d.Name(), "zz_gen") {
+		owned := slices.ContainsFunc(trees, func(tree string) bool { return strings.HasPrefix(path, tree+"/") })
+		if !owned && !strings.Contains(d.Name(), "zz_gen") {
 			return nil
 		}
 		raw, err := fs.ReadFile(fsys, path)

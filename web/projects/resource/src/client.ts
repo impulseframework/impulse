@@ -953,6 +953,29 @@ async function pageOf<Row>(
   };
 }
 
+/**
+ * The handle of a generated method, by the method's name: what a page that learns its
+ * methods at run time (from the method metadata) calls one through, where code that
+ * knows the method at build time reads the typed handle off the client. A
+ * domain-scoped method is bound to the tenant given and is refused without one; a
+ * global method takes none. A name the API does not describe is refused naming it.
+ */
+export function methodHandle<Body = Record<string, unknown>, Result = unknown>(
+  client: ClientBase,
+  method: Method | string,
+  domain?: Domain | string,
+): MethodHandle<Body, Result> {
+  const descriptor = client.descriptor.methods[method as Method];
+  if (!descriptor) {
+    throw new Error(`${method} is no method of this API`);
+  }
+  return createMethodHandle<Body, Result>(
+    client,
+    descriptor,
+    descriptor.scope === 'domain' ? (domain as Domain | undefined) : undefined,
+  );
+}
+
 function createMethodHandle<Body, Result = void>(
   client: ClientBase,
   descriptor: MethodDescriptor,

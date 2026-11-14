@@ -3,6 +3,8 @@ package generation
 import (
 	"strings"
 	"testing"
+
+	"github.com/impulseframework/impulse/resource"
 )
 
 // Test_typescriptResourcesTemplate_optionalFields pins the cell-masking wire contract:
@@ -457,6 +459,174 @@ func Test_typescriptMethodsTemplate_arrays(t *testing.T) {
 			}
 			if !strings.Contains(string(out), tt.wantMeta) {
 				t.Errorf("typescriptMethodsTemplate output missing %q:\n%s", tt.wantMeta, out)
+			}
+		})
+	}
+}
+
+// Test_typescriptMethodsTemplate_target pins the row a method runs against in its
+// metadata: the target's resource and the request field that carries the row's key, for
+// a plain @target and for a transition alike, with the resource names imported for
+// either; a method with no target row names none, and a file of such methods imports no
+// resource name.
+func Test_typescriptMethodsTemplate_target(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadCollectionFixture(t))
+	render := func(t *testing.T, method *rpcMethodInfo) string {
+		t.Helper()
+
+		c := &client{rpcMethods: []*rpcMethodInfo{method}}
+		out, err := c.generateTemplateOutput("typescriptMethodsTemplate", typescriptMethodsTemplate, tsMethodsData{
+			File:       &typescriptGenerator{client: c},
+			RPCMethods: c.rpcMethods,
+			GenPrefix:  "zz_gen",
+		})
+		if err != nil {
+			t.Fatalf("generateTemplateOutput() error = %v", err)
+		}
+
+		return string(out)
+	}
+	field := func() *rpcField {
+		return &rpcField{Field: structs["DoSomething"].Fields()[0], typescriptType: uuidTSType}
+	}
+	target := &rpcTarget{RootStruct: "Widget", RootResource: "Widgets", Keys: []rpcTargetKey{{TargetField: "Input", RootPKField: "ID"}}}
+	compound := &rpcTarget{RootStruct: "Widget", RootResource: "Widgets", Keys: []rpcTargetKey{
+		{TargetField: "UserID", RootPKField: "UserID"},
+		{TargetField: "HeldRole", RootPKField: "Role"},
+	}}
+
+	tests := []struct {
+		name    string
+		method  *rpcMethodInfo
+		want    []string
+		wantNot []string
+	}{
+		{
+			name:   "a plain target",
+			method: &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, Target: target},
+			want:   []string{"target: { resource: Resources.Widgets, key: { input: 'id' } },", "import { Methods, Resources } from './zz_gen_constants';"},
+			wantNot: []string{
+				"transition: {",
+			},
+		},
+		{
+			name:   "a target keyed by two columns names each request field with the row's field it carries",
+			method: &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, Target: compound},
+			want:   []string{"target: { resource: Resources.Widgets, key: { userId: 'userId', heldRole: 'role' } },"},
+		},
+		{
+			name: "a transition names its target too",
+			method: &rpcMethodInfo{
+				Struct: structs["DoSomething"], Fields: []*rpcField{field()}, Target: target,
+				Transition: &rpcTransition{rpcTarget: *target, From: []string{"open"}, To: "closed"},
+			},
+			want: []string{
+				"transition: { target: Resources.Widgets, from: ['open'], to: 'closed' },",
+				"target: { resource: Resources.Widgets, key: { input: 'id' } },",
+			},
+		},
+		{
+			name:    "no target row",
+			method:  &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}},
+			want:    []string{"import { Methods } from './zz_gen_constants';"},
+			wantNot: []string{"target: { resource:", "Resources."},
+		},
+		{
+			name: "a request field a grant's condition may read is named as the condition reads it",
+			method: &rpcMethodInfo{
+				Struct: structs["DoSomething"], Fields: []*rpcField{field()},
+				RequestAttributes: []resource.AttributeData{{Name: "amount", Column: "Input"}},
+			},
+			want: []string{"{ fieldName: 'input', displayType: 'uuid', attribute: 'amount' },"},
+		},
+		{
+			name:    "a request field no condition may read names no attribute",
+			method:  &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}},
+			want:    []string{"{ fieldName: 'input', displayType: 'uuid' },"},
+			wantNot: []string{"attribute: '"},
+		},
+		{
+			name:   "a method that runs in a transaction says a dry run previews it",
+			method: &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, Form: rpcFormTxn},
+			want:   []string{"    dryRun: true,\n    fields: ["},
+		},
+		{
+			name:    "a method that runs outside a transaction says nothing of a dry run, which it refuses",
+			method:  &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field()}, Form: rpcFormClient},
+			wantNot: []string{"dryRun: true"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			out := render(t, tt.method)
+			for _, want := range tt.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("typescriptMethodsTemplate output missing %q:\n%s", want, out)
+				}
+			}
+			for _, not := range tt.wantNot {
+				if strings.Contains(out, not) {
+					t.Errorf("typescriptMethodsTemplate output holds %q:\n%s", not, out)
+				}
+			}
+		})
+	}
+}
+
+// Test_rpcField_optional holds the fact a form reads off a request field's type: a
+// pointer field may be left out, and a list or a value field may not.
+func Test_rpcField_optional(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		field *rpcField
+		want  bool
+	}{
+		{name: "a value field", field: &rpcField{wire: &wireField{}}},
+		{name: "a pointer field may be left out", field: &rpcField{wire: &wireField{Pointer: true}}, want: true},
+		{name: "a list is not optional", field: &rpcField{wire: &wireField{Slice: true}}},
+		{name: "a list of pointers is not optional", field: &rpcField{wire: &wireField{Slice: true, ElemPointer: true}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.field.Optional(); got != tt.want {
+				t.Errorf("Optional() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// Test_validateRequires holds what makes a request field required in its metadata: the
+// rule required standing on its own in the validate tag, and no rule that only begins
+// with the word.
+func Test_validateRequires(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		tag  string
+		want bool
+	}{
+		{tag: "required", want: true},
+		{tag: "required,max=64", want: true},
+		{tag: "omitempty,required", want: true},
+		{tag: "max=64"},
+		{tag: ""},
+		{tag: "required_if=Kind invitation"},
+		{tag: "required_without=Email"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.tag, func(t *testing.T) {
+			t.Parallel()
+
+			if got := validateRequires(tt.tag); got != tt.want {
+				t.Errorf("validateRequires(%q) = %v, want %v", tt.tag, got, tt.want)
 			}
 		})
 	}

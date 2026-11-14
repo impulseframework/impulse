@@ -20,10 +20,11 @@ import (
 
 func (a *App) ExpenseManifests() http.HandlerFunc {
 	type expenseManifest struct {
-		MissionID impulse.UUID    `json:"missionId" perm:"-"`
-		Title     string          `json:"title"`
-		Sorties   int64           `json:"sorties"`
-		Expenses  decimal.Decimal `json:"expenses"`
+		MissionID          impulse.UUID    `json:"missionId"          perm:"-"`
+		Title              string          `json:"title"`
+		Sorties            int64           `json:"sorties"`
+		Expenses           decimal.Decimal `json:"expenses"`
+		AssignedSquadronID *impulse.UUID   `json:"assignedSquadronId"`
 	}
 
 	type response []map[string]any
@@ -45,18 +46,22 @@ func (a *App) ExpenseManifests() http.HandlerFunc {
 		// the query is not missed; a refused request registers nothing.
 		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
-		// The handler applies whatever part of the query the List function did not
-		// take — the filter, the sort, the cursor, the page — over the rows it yields.
+		// The handler judges the rows the List function yields by the caller's
+		// grants, where one carries a condition that reads the row, and applies
+		// whatever part of the query the function did not take — the filter, the
+		// sort, the cursor, the page — over the rows that are left.
 		page, err := querySet.Collect(computedresources.ListExpenseManifest(ctx, querySet, a.ResourceClient(), a.ComputedClient()))
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
 		resp := response{}
-		for _, row := range page.Rows() {
+		for i, row := range page.Rows() {
 			rec := (*expenseManifest)(row)
 			rmap := make(map[string]any)
-			for _, field := range querySet.Fields() {
+			// The row's own fields: the request's, without one granted under a
+			// condition this row does not meet.
+			for _, field := range page.RowFields(i) {
 				switch string(field) {
 				case "MissionID":
 					rmap["missionId"] = rec.MissionID
@@ -66,6 +71,8 @@ func (a *App) ExpenseManifests() http.HandlerFunc {
 					rmap["sorties"] = rec.Sorties
 				case "Expenses":
 					rmap["expenses"] = rec.Expenses
+				case "AssignedSquadronID":
+					rmap["assignedSquadronId"] = rec.AssignedSquadronID
 				}
 			}
 			resp = append(resp, rmap)
@@ -85,10 +92,11 @@ func (a *App) ExpenseManifests() http.HandlerFunc {
 }
 func (a *App) ExpenseManifest() http.HandlerFunc {
 	type response struct {
-		MissionID impulse.UUID    `json:"missionId" perm:"-"`
-		Title     string          `json:"title"`
-		Sorties   int64           `json:"sorties"`
-		Expenses  decimal.Decimal `json:"expenses"`
+		MissionID          impulse.UUID    `json:"missionId"          perm:"-"`
+		Title              string          `json:"title"`
+		Sorties            int64           `json:"sorties"`
+		Expenses           decimal.Decimal `json:"expenses"`
+		AssignedSquadronID *impulse.UUID   `json:"assignedSquadronId"`
 	}
 
 	decoder := NewComputedQueryDecoder[computedresources.ExpenseManifest, response](a, accesstypes.Read)
@@ -113,12 +121,20 @@ func (a *App) ExpenseManifest() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		if row == nil {
+		// The row is admitted by the caller's grants, where one carries a condition
+		// that reads the row: one they do not admit is answered as a row that is
+		// not there, and a field granted under a condition the row does not meet is
+		// left out.
+		fields, shown, err := querySet.Admit(row)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if !shown {
 			return httpio.NewEncoder(w).Ok(nil)
 		}
 		rec := (*response)(row)
 		rmap := make(map[string]any)
-		for _, field := range querySet.Fields() {
+		for _, field := range fields {
 			switch string(field) {
 			case "MissionID":
 				rmap["missionId"] = rec.MissionID
@@ -128,6 +144,8 @@ func (a *App) ExpenseManifest() http.HandlerFunc {
 				rmap["sorties"] = rec.Sorties
 			case "Expenses":
 				rmap["expenses"] = rec.Expenses
+			case "AssignedSquadronID":
+				rmap["assignedSquadronId"] = rec.AssignedSquadronID
 			}
 		}
 		live.SetCacheControl(w, r)
@@ -156,6 +174,23 @@ func (a *App) ExpenseManifestContent() http.HandlerFunc {
 		querySet, err := decoder.Decode(r, a.UserPermissions(r), accesstypes.DomainScope(domain))
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		// A Read grant under a condition that reads the row is judged over the row
+		// the resource's own read function answers, before the file is rendered: a
+		// row the grant does not admit is 404, as an absent one is.
+		if querySet.JudgesRows() {
+			source, err := computedresources.ReadExpenseManifest(ctx, missionID, querySet, a.ResourceClient(), a.ComputedClient())
+			if err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
+			_, shown, err := querySet.Admit(source)
+			if err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
+			if !shown {
+				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessagef("ExpenseManifest %v does not exist", missionID))
+			}
 		}
 
 		// The content function is the read path: nil is 404, as an absent row is on the

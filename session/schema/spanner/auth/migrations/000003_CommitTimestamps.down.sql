@@ -1,5 +1,7 @@
 -- The columns keep their values; only the option goes. A driver that writes commit
 -- timestamps fails against them until the up migration is applied again.
+DROP INDEX SessionIdentitiesByUserId;
+CREATE INDEX SessionIdentitiesByUserId ON SessionIdentities(UserId);
 ALTER TABLE SessionPendingSignIns ALTER COLUMN ConsumedAt SET OPTIONS (allow_commit_timestamp = null);
 ALTER TABLE SessionPendingSignIns ALTER COLUMN CreatedAt SET OPTIONS (allow_commit_timestamp = null);
 ALTER TABLE SessionAuthEvents ALTER COLUMN OccurredAt SET OPTIONS (allow_commit_timestamp = null);

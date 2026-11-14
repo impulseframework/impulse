@@ -83,7 +83,7 @@ func (a *App) ClaimMission() http.HandlerFunc {
 
 			// A row-referencing condition on the caller's Execute grant
 			// evaluates against the located row, in this transaction.
-			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "Missions", Label: "Mission", PKColumn: "Id"}, p.MissionID); err != nil {
+			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "Missions", Label: "Mission", PKColumns: []string{"Id"}}, p.MissionID); err != nil {
 				return err
 			}
 			if err := p.Execute(ctx, txn, a.RPCClient()); err != nil {

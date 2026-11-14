@@ -47,7 +47,7 @@ func (m *MockAuthStore[Tx]) EXPECT() *MockAuthStoreMockRecorder[Tx] {
 }
 
 // AcceptInvitation mocks base method.
-func (m *MockAuthStore[Tx]) AcceptInvitation(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor) error {
+func (m *MockAuthStore[Tx]) AcceptInvitation(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor[Tx]) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "AcceptInvitation", ctx, userID, username, email, inv, accept)
 	ret0, _ := ret[0].(error)

@@ -93,7 +93,7 @@ func (s *sqlGenerator) generateSQLRecursive(node ExpressionNode) (string, []Quer
 		return s.generateLogicalOpSQL(n)
 	case *GroupNode:
 		return s.generateGroupSQL(n)
-	case *loweredComparisonNode, *loweredInNode, *loweredNullTestNode, *notNode, *existsNode, *nullGuardNode, *truthNode:
+	case *loweredComparisonNode, *loweredInNode, *loweredNullTestNode, *notNode, *existsNode, *nullGuardNode, *truthNode, *everyItemNode:
 		return s.generateLoweredNodeSQL(node)
 	case nil:
 		return "", nil, nil
@@ -126,9 +126,11 @@ func (s *sqlGenerator) generateLoweredNodeSQL(node ExpressionNode) (string, []Qu
 		sql, err = s.generateExistsSQL(n)
 	case *nullGuardNode:
 		sql, err = s.generateNullGuardSQL(n)
+	case *everyItemNode:
+		sql, err = s.generateEveryItemSQL(n)
 	case *truthNode:
 		if n.value {
-			sql = "TRUE"
+			sql = sqlTrue
 		} else {
 			sql = sqlFalse
 		}

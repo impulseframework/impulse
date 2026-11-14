@@ -15,6 +15,7 @@ type (
 	// Scanner provides methods for parsing godoc annotations on various types from the generation/parser package.
 	Scanner interface {
 		ScanStruct(*parser.Struct) (StructAnnotations, error)
+		ScanStructComment(comment string) (ArgMap, error)
 		ScanNamedType(*parser.NamedType) (NamedTypeAnnotations, error)
 		ScanConstant(*parser.Constant) (ConstantAnnotations, error)
 	}
@@ -93,6 +94,21 @@ func (s *scanner) ScanStruct(pStruct *parser.Struct) (StructAnnotations, error) 
 	}
 
 	return StructAnnotations{structResults, fieldResults}, nil
+}
+
+// ScanStructComment scans the struct-scope annotations of a struct's godoc comment given
+// as text, for a caller that has read a declaration's syntax and not its types: it reads
+// what ScanStruct reads off the struct's own comment, and nothing of the fields.
+func (s *scanner) ScanStructComment(comment string) (ArgMap, error) {
+	s.src = []byte(comment)
+	s.mode = ScanStruct
+	s.pos = 0
+	s.keywordArguments = make(map[string]Arg)
+	if err := s.scan(); err != nil {
+		return ArgMap{}, err
+	}
+
+	return ArgMap{s.result()}, nil
 }
 
 // ScanNamedType scans the godoc annotations of a parser.NamedType using the keywords & flags provided to the scanner.

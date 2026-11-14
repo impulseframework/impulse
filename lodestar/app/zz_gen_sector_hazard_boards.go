@@ -78,18 +78,22 @@ func (a *App) SectorHazardBoards() http.HandlerFunc {
 		// the query is not missed; a refused request registers nothing.
 		live.Subscribe(ctx, r, a.LiveService(), querySet, live.ListSubscription(querySet.Resource(), domain))
 
-		// The handler applies whatever part of the query the List function did not
-		// take — the filter, the sort, the cursor, the page — over the rows it yields.
+		// The handler judges the rows the List function yields by the caller's
+		// grants, where one carries a condition that reads the row, and applies
+		// whatever part of the query the function did not take — the filter, the
+		// sort, the cursor, the page — over the rows that are left.
 		page, err := querySet.Collect(computedresources.ListSectorHazardBoard(ctx, querySet, a.ResourceClient(), a.ComputedClient()))
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
 		resp := response{}
-		for _, row := range page.Rows() {
+		for i, row := range page.Rows() {
 			rec := mirrorSectorHazardBoard(*row)
 			rmap := make(map[string]any)
-			for _, field := range querySet.Fields() {
+			// The row's own fields: the request's, without one granted under a
+			// condition this row does not meet.
+			for _, field := range page.RowFields(i) {
 				switch string(field) {
 				case "ShipID":
 					rmap["shipId"] = rec.ShipID
@@ -186,12 +190,20 @@ func (a *App) SectorHazardBoard() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		if row == nil {
+		// The row is admitted by the caller's grants, where one carries a condition
+		// that reads the row: one they do not admit is answered as a row that is
+		// not there, and a field granted under a condition the row does not meet is
+		// left out.
+		fields, shown, err := querySet.Admit(row)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if !shown {
 			return httpio.NewEncoder(w).Ok(nil)
 		}
 		rec := mirrorResponse(*row)
 		rmap := make(map[string]any)
-		for _, field := range querySet.Fields() {
+		for _, field := range fields {
 			switch string(field) {
 			case "ShipID":
 				rmap["shipId"] = rec.ShipID

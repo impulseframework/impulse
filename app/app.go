@@ -229,7 +229,7 @@ type Method struct {
 	OpenSignUp bool
 	// UsernameIsEmail reports a password method registered with
 	// session.UsernameIsEmail(): the sign-in name is the person's email address, and the
-	// outlet's declaration chains .UsernameIsEmail() so the users surface says so.
+	// outlet's declaration chains .UsernameIsEmail() so the generated management says so.
 	UsernameIsEmail bool
 }
 

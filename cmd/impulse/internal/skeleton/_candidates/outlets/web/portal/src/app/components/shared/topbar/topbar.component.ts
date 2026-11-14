@@ -6,6 +6,7 @@ import { PermissionScopes } from '@app/service/zz_gen_constants';
 import { DomainRouteParam, ResourceScopes } from '@app/service/zz_gen_resources';
 import { TenantService } from '@app/tenant/tenant.service';
 import { HasPermissionDirective } from '@impulseframework/resource-angular/auth-has-permission';
+import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { generatedNavItems } from '@impulseframework/resource-angular/resource-nav';
 import { Domain, MenuItem, PermissionScope, Resource } from '@impulseframework/resource-angular/types';
 
@@ -15,7 +16,8 @@ import { Domain, MenuItem, PermissionScope, Resource } from '@impulseframework/r
  * user sees only the menus they can open. An item under the tenant segment names the
  * segment's route parameter, which the open tenant fills, so its link lands under the
  * tenant the page is in; outside a tenant such items are not drawn, and the picker is the
- * way in.
+ * way in. A group is drawn while one of its items is, so nobody is shown a menu that opens
+ * on nothing.
  */
 @Component({
   selector: 'app-topbar',
@@ -25,6 +27,7 @@ import { Domain, MenuItem, PermissionScope, Resource } from '@impulseframework/r
 })
 export class TopbarComponent {
   private tenants = inject(TenantService);
+  private auth = inject(AuthService);
 
   menuData = generatedNavItems;
 
@@ -50,5 +53,16 @@ export class TopbarComponent {
     }
     const tenant = this.tenants.current();
     return tenant ? route.map((part) => part.replace(parameter, tenant)) : undefined;
+  }
+
+  // shown answers whether an item has anything to draw: a link, and a permission the user
+  // holds, which is what the template asks of the item itself. A group is drawn while one
+  // of its items is: a group of a tenant's pages is not drawn outside a tenant, nor a group
+  // of pages the user may not open.
+  shown(item: MenuItem): boolean {
+    if (item.children?.length) {
+      return item.children.some((child) => this.shown(child));
+    }
+    return this.linkFor(item) !== undefined && this.auth.authenticated() && this.auth.hasPermission(this.scopeFor(item));
   }
 }

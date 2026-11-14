@@ -306,6 +306,30 @@ func TestOptionsCoherence(t *testing.T) {
 			},
 		},
 		{
+			// A GenerateIdentity tree is one program's: each run removes from it what it
+			// does not write, so a second program over the same tree is refused here.
+			name: "two programs naming one identity tree",
+			files: map[string]string{
+				"cmd/generate/console/main.go": program("apps/console/pkg/resources",
+					`generation.GenerateHandlers("apps/console/app"),`,
+					`generation.GenerateRoutes("apps/console/pkg/router", "api"),`,
+					`generation.GenerateIdentity("pkg/identity"),`,
+				),
+				"cmd/generate/portal/main.go": program("apps/portal/pkg/resources",
+					`generation.GenerateHandlers("apps/portal/app"),`,
+					`generation.GenerateRoutes("apps/portal/pkg/router", "api"),`,
+					`generation.GenerateIdentity("pkg/identity"),`,
+				),
+				"apps/console/pkg/resources": "", "apps/console/app": "", "apps/console/pkg/router": "",
+				"apps/portal/pkg/resources": "", "apps/portal/app": "", "apps/portal/pkg/router": "",
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 option set problem(s)",
+			wantDetails: []string{
+				"cmd/generate/portal/main.go: GenerateIdentity names pkg/identity, the tree cmd/generate/console/main.go writes; a program removes from its tree the packages it does not write, so two programs over one tree remove each other's: give each program a tree of its own",
+			},
+		},
+		{
 			name: "sites layout agreeing",
 			files: map[string]string{
 				"cmd/generate/console/main.go": program("apps/console/pkg/resources",

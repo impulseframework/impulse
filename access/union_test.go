@@ -22,6 +22,7 @@ type stubCollection struct {
 	keys          map[accesstypes.Resource][]accesstypes.Tag
 	attributes    map[string]accesstypes.AttributeType
 	columns       []string
+	lists         []string
 	subjectSets   map[string]accesstypes.AttributeType
 	subjectValues map[string]accesstypes.AttributeType
 }
@@ -64,6 +65,10 @@ func (s *stubCollection) AttributeComparisonType(_ accesstypes.PermissionScope, 
 
 func (s *stubCollection) AttributeIsColumn(_ accesstypes.PermissionScope, res accesstypes.Resource, name string) bool {
 	return slices.Contains(s.columns, string(res)+"."+name)
+}
+
+func (s *stubCollection) AttributeIsList(_ accesstypes.PermissionScope, res accesstypes.Resource, name string) bool {
+	return slices.Contains(s.lists, string(res)+"."+name)
 }
 
 func (s *stubCollection) SubjectSetComparisonType(name string) (accesstypes.AttributeType, bool) {
@@ -254,6 +259,7 @@ func Test_unionCollection_answers(t *testing.T) {
 		targets:       map[accesstypes.Resource]accesstypes.Resource{"LaunchWidget": "Widgets"},
 		attributes:    map[string]accesstypes.AttributeType{"Widgets.owner": "string"},
 		columns:       []string{"Widgets.owner"},
+		lists:         []string{"Widgets.tags"},
 		subjectSets:   map[string]accesstypes.AttributeType{"crew": "string"},
 		subjectValues: map[string]accesstypes.AttributeType{"login": "string"},
 	}
@@ -285,6 +291,8 @@ func Test_unionCollection_answers(t *testing.T) {
 		{name: "attribute type from the owner", got: attributeType(union, "Gadgets", "size"), want: "int"},
 		{name: "attribute unknown outside the owner", got: attributeType(union, "Widgets", "size"), want: ""},
 		{name: "attribute column from the owner", got: union.AttributeIsColumn(accesstypes.DomainPermissionScope, "Widgets", "owner"), want: true},
+		{name: "list attribute from the owner", got: union.AttributeIsList(accesstypes.DomainPermissionScope, "Widgets", "tags"), want: true},
+		{name: "no list attribute where the owner declares none", got: union.AttributeIsList(accesstypes.GlobalPermissionScope, "Gadgets", "size"), want: false},
 		{name: "subject set type from whichever collection declares it", got: subjectSetType(union, "clients") + "," + subjectSetType(union, "crew"), want: "number,string"},
 		{name: "subject set none declares", got: subjectSetType(union, "visitors"), want: ""},
 		{name: "subject value type from whichever collection declares it", got: subjectValueType(union, "tenant") + "," + subjectValueType(union, "login"), want: "timestamp,string"},

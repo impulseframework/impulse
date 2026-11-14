@@ -1,6 +1,7 @@
 package access
 
 import (
+	"strings"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -42,27 +43,37 @@ func validateGrantCondition(store PermissionCollection, role accesstypes.Role, p
 	// the generated handler locates and evaluates against (design plan §12).
 	vocabScope, vocabResource := scope, grant.Resource
 
+	requestFields := false
 	if perm == accesstypes.Execute {
+		var err error
+		requestFields, err = validateExecuteCondition(store, scope, grant.Resource, expr)
+		if err != nil {
+			return fail(err)
+		}
 		if target, targeted := store.MethodTarget(scope, grant.Resource); targeted {
 			vocabScope, vocabResource = store.Scope(target), target
-		} else if !condition.RowFree(expr) || len(condition.SubjectValues(expr)) > 0 {
-			// A method without a @target row checks at decode time, where no
-			// row exists: only a row-free condition — one that folds against
-			// the environment facts alone — can ever settle there (design
-			// plan §12, revised 2026-08-31; targeted methods carved out
-			// 2026-09-03).
-			return fail(errors.New("execute permissions on a method without a @target row check at decode time, where no row exists: only row-free conditions (environment facts) are permitted"))
 		}
 	}
 
-	// Computed resources check permissions at decode time too — the same
-	// no-row surface as a target-less Execute, whatever the permission.
-	if store.IsComputedResource(scope, grant.Resource) && (!condition.RowFree(expr) || len(condition.SubjectValues(expr)) > 0) {
-		return fail(errors.New("computed resources check permissions at decode time, where no row exists: only row-free conditions (environment facts) are permitted"))
-	}
+	// A computed resource's rows come from the application's Go function, so
+	// the database judges nothing there: the library judges each row the
+	// function yields, in Go, against the fields the resource declares
+	// (@attribute on the field), the caller, the decision instant, and the
+	// facts about the caller held in tables, which it reads once for the
+	// request. So a computed resource's condition validates as a table's does,
+	// against its own vocabulary; what it cannot name is a join path, which a
+	// computed resource never declares.
 
-	for _, name := range condition.Bindings(expr) {
+	rowBindings := condition.Bindings(expr)
+	if perm == accesstypes.Execute {
+		rowBindings = condition.PreImageBindings(expr)
+	}
+	for _, name := range rowBindings {
 		if _, ok := store.AttributeComparisonType(vocabScope, vocabResource, name); !ok {
+			if store.IsComputedResource(vocabScope, vocabResource) {
+				return fail(errors.Newf("condition references %q, which is not an attribute of %s; a computed resource declares the fields a condition may read with @attribute(%s) on the field", name, vocabResource, name))
+			}
+
 			return fail(errors.Newf("condition references %q, which is not an attribute of %s", name, vocabResource))
 		}
 	}
@@ -77,8 +88,12 @@ func validateGrantCondition(store PermissionCollection, role accesstypes.Role, p
 		}
 	}
 
+	if err := validateListReads(store, vocabScope, vocabResource, perm, expr); err != nil {
+		return fail(err)
+	}
+
 	if condition.UsesPostImage(expr) {
-		if perm != accesstypes.Create && perm != accesstypes.Update {
+		if perm != accesstypes.Create && perm != accesstypes.Update && perm != accesstypes.Execute {
 			return fail(errors.Newf("condition reads the post-image (new.), which only create and update mutations propose"))
 		}
 	}
@@ -90,37 +105,131 @@ func validateGrantCondition(store PermissionCollection, role accesstypes.Role, p
 		return fail(errors.Newf("condition compares the post-image against the row's own attributes (old-vs-new), which only update mutations can evaluate — both images exist only there"))
 	}
 
-	if err := validateConditionTypes(store, vocabScope, vocabResource, expr); err != nil {
+	if err := validateConditionTypes(&conditionVocabulary{store: store, scope: vocabScope, res: vocabResource, requestScope: scope, requestRes: grant.Resource, request: requestFields}, expr); err != nil {
 		return fail(err)
 	}
 
 	return nil
 }
 
+// validateListReads holds a condition to the way a list attribute is read. A
+// condition that reads a list column is judged once for each item of the
+// row's list and holds only when it holds for every item, so it reads one
+// list, on the left of a comparison, as the row holds it: a second list
+// would need every pair of items judged, and the list a create or an update
+// proposes is not judged. (A method's request field that is a list is the
+// decoder's to judge and the generator's to hold to one per method.)
+func validateListReads(store PermissionCollection, scope accesstypes.PermissionScope, res accesstypes.Resource, perm accesstypes.Permission, expr condition.Expr) error {
+	isList := func(name string) bool {
+		return store.AttributeIsList(scope, res, name)
+	}
+
+	for _, name := range condition.RightSideBindings(expr) {
+		if isList(name) {
+			return errors.Newf("%s is a list attribute and stands on the right side of a comparison; a list is read on the left side alone, where each of its items is compared", name)
+		}
+	}
+	var lists []string
+	for _, name := range condition.PreImageBindings(expr) {
+		if isList(name) {
+			lists = append(lists, name)
+		}
+	}
+	if len(lists) > 1 {
+		return errors.Newf("condition reads %d list attributes (%s); a condition is judged once for each item of one list, so it reads one", len(lists), strings.Join(lists, ", "))
+	}
+	if perm == accesstypes.Execute {
+		// new. on an Execute grant reads the method's request, not the row.
+		return nil
+	}
+	if perm == accesstypes.Create && len(lists) > 0 {
+		return errors.Newf("%s is a list attribute, and a Create grant's condition reads the row a create proposes: a proposed list is not judged, so a condition reads a list on a row that exists", lists[0])
+	}
+	for _, name := range condition.PostImageBindings(expr) {
+		if isList(name) {
+			return errors.Newf("new.%s reads the list an update proposes, which is not judged; a condition reads a list as the row holds it (%s)", name, name)
+		}
+	}
+
+	return nil
+}
+
+// validateExecuteCondition holds an Execute grant's condition to what a method can
+// settle, and reports whether it reads a request field.
+//
+// new.<name> reads a request field the method declares (@attribute on the field), which
+// the decoder settles the moment the request is decoded: the name validates against the
+// method's own vocabulary, and the field compares against literals alone, since nothing
+// else is known at decode. What reads the row is the target's to validate; a method
+// with no @target row has no row to read at all.
+func validateExecuteCondition(store PermissionCollection, scope accesstypes.PermissionScope, method accesstypes.Resource, expr condition.Expr) (readsRequest bool, err error) {
+	requestFields := condition.PostImageBindings(expr)
+	for _, name := range requestFields {
+		if _, ok := store.AttributeComparisonType(scope, method, name); !ok {
+			return false, errors.Newf("condition reads new.%s, which %s does not declare as a request field; declare @attribute(%s) on the method's field", name, method, name)
+		}
+	}
+	if len(requestFields) > 0 && !condition.PostImageAgainstLiteralsOnly(expr) {
+		return false, errors.New("a request field (new.) compares against literals: a comparison against subject, a subject value, a subject set, now or an attribute is not settled at decode")
+	}
+
+	if _, targeted := store.MethodTarget(scope, method); !targeted {
+		if len(condition.PreImageBindings(expr)) > 0 || len(condition.SubjectSets(expr)) > 0 || len(condition.SubjectValues(expr)) > 0 {
+			// A method without a @target row checks at decode time, where no
+			// row exists: only a condition that reads no row — the environment
+			// facts and the method's own request fields — can settle there.
+			return false, errors.New("execute permissions on a method without a @target row check at decode time, where no row exists: only row-free conditions (environment facts) and the method's own request fields (new.) are permitted")
+		}
+	}
+
+	return len(requestFields) > 0, nil
+}
+
+// conditionVocabulary is where a condition's references resolve: the row
+// attributes on (scope, res), and on an Execute grant the request fields (new.) on
+// the method itself.
+type conditionVocabulary struct {
+	store        PermissionCollection
+	scope        accesstypes.PermissionScope
+	res          accesstypes.Resource
+	requestScope accesstypes.PermissionScope
+	requestRes   accesstypes.Resource
+	request      bool
+}
+
+// of answers the scope and resource a reference resolves on.
+func (v *conditionVocabulary) of(ref condition.Ref) (accesstypes.PermissionScope, accesstypes.Resource) {
+	if v.request && ref.PostImage {
+		return v.requestScope, v.requestRes
+	}
+
+	return v.scope, v.res
+}
+
 // validateConditionTypes walks the expression's leaves and validates each
 // against the referenced attribute's comparison type. The database stays the
 // one comparison engine — this rejects only conditions that could never hold
 // or would compare across types.
-func validateConditionTypes(store PermissionCollection, scope accesstypes.PermissionScope, res accesstypes.Resource, expr condition.Expr) error {
+func validateConditionTypes(v *conditionVocabulary, expr condition.Expr) error {
 	switch n := expr.(type) {
 	case condition.And:
 		for _, operand := range n.Operands {
-			if err := validateConditionTypes(store, scope, res, operand); err != nil {
+			if err := validateConditionTypes(v, operand); err != nil {
 				return err
 			}
 		}
 	case condition.Or:
 		for _, operand := range n.Operands {
-			if err := validateConditionTypes(store, scope, res, operand); err != nil {
+			if err := validateConditionTypes(v, operand); err != nil {
 				return err
 			}
 		}
 	case condition.Not:
-		return validateConditionTypes(store, scope, res, n.Operand)
+		return validateConditionTypes(v, n.Operand)
 	case condition.Comparison:
-		return validateComparisonTypes(store, scope, res, &n)
+		return validateComparisonTypes(v, &n)
 	case condition.In:
-		return validateInTypes(store, scope, res, &n)
+		return validateInTypes(v, &n)
 	case condition.NullTest, condition.Truth:
 		// Nothing to type: IS NULL tests presence, and Truth is a folded fact.
 	}
@@ -128,7 +237,9 @@ func validateConditionTypes(store PermissionCollection, scope accesstypes.Permis
 	return nil
 }
 
-func validateComparisonTypes(store PermissionCollection, scope accesstypes.PermissionScope, res accesstypes.Resource, cmp *condition.Comparison) error {
+func validateComparisonTypes(v *conditionVocabulary, cmp *condition.Comparison) error {
+	store := v.store
+	scope, res := v.of(cmp.Left)
 	if cmp.Left.IsTemporal() {
 		return validateTemporalComparison(cmp)
 	}
@@ -241,7 +352,9 @@ func validateTemporalZone(ref condition.Ref) error {
 	return nil
 }
 
-func validateInTypes(store PermissionCollection, scope accesstypes.PermissionScope, res accesstypes.Resource, in *condition.In) error {
+func validateInTypes(v *conditionVocabulary, in *condition.In) error {
+	store := v.store
+	scope, res := v.of(in.Left)
 	if in.Left.IsTemporal() {
 		// The parser admits only dayOfWeek over a literal list here.
 		if err := validateTemporalZone(in.Left); err != nil {

@@ -232,7 +232,7 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 			data: &tenantsData{
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "HarborDirectory", DefaultSeat: "DefaultSeat",
 				Declaration:     &tenantDeclarationColumns{DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DefaultSeatColumn: "DefaultSeat"},
-				Seat:            &tenantSeatData{Record: "Harbor", RecordLower: "harbor", KeyType: "string", Auth: "Staff", AuthType: "StaffAuth", SurfaceAccessor: "StaffUserSurface", RolesAccessor: "HarborAdministratorRoles"},
+				Seat:            &tenantSeatData{Record: "Harbor", RecordLower: "harbor", KeyType: "string", Auth: "Staff", IdentityAccessor: "StaffIdentity", RolesAccessor: "HarborAdministratorRoles"},
 				RouterPackage:   "router",
 				ApplicationName: "App",
 			},
@@ -241,9 +241,12 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				"with the default seat the row carries (HarborDirectory.DefaultSeat:",
 				`"github.com/impulseframework/impulse/accesstypes"`,
 				"HarborAdministratorRoles() []accesstypes.Role",
-				"StaffUserSurface() *resource.UserSurface[router.StaffAuth]",
+				"through the Staff auth's generated identity\n// client (StaffIdentity,",
 				"} = (*App)(nil)",
 			},
+			// The roles are given through the identity client, and nothing else is asked
+			// of the application for them.
+			wantNotContains: []string{"UserSurface"},
 		},
 		{
 			name:            "a record declaring none carries neither",
@@ -307,8 +310,7 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 		HandlerFunc:         "CreateHarbor",
 		RoutePath:           "/api/create-harbor",
 		Auth:                "Staff",
-		AuthType:            "StaffAuth",
-		SurfaceAccessor:     "StaffUserSurface",
+		IdentityAccessor:    "StaffIdentity",
 		RolesAccessor:       "HarborAdministratorRoles",
 		Key:                 key,
 		Fields:              fields,
@@ -325,30 +327,32 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 	}
 	assertContains(t, "tenantCreationTemplate", string(out), []string{
 		`"github.com/impulseframework/impulse/session/sessioninfo"`,
-		"var directory *resources.HarborDirectoryCreatePatch",
 		"if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok && established.Method.ThroughDirectory() {",
-		"created, err := resources.NewHarborDirectoryCreatePatch()",
-		"created.SetHarborID(req.ID).SetMethod(string(established.Method)).SetConnection(established.Connection)",
+		"directory, err := resources.NewHarborDirectoryCreatePatch()",
+		"directory.SetHarborID(req.ID).SetMethod(string(established.Method)).SetConnection(established.Connection)",
 		`return errors.Wrap(err, "resources.HarborDirectoryCreatePatch.Buffer()")`,
-		"directory = created",
+		"if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), string(userPermissions.User()), role); err != nil {",
 		"if err := a.TenantRoster().Reload(ctx); err != nil {",
-		"if err := resources.NewHarborDirectoryDeletePatch(directory.ID()).Buffer(ctx, txn, eventSource); err != nil {",
-		"if err := resources.NewHarborDeletePatch(req.ID).Buffer(ctx, txn, eventSource); err != nil {",
-	}, []string{"DirectoryOnly", "SetDirectoryOnly"})
+		"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, domain); err != nil {",
+	}, []string{
+		"DirectoryOnly", "SetDirectoryOnly",
+		// Nothing is removed after the commit: the row, the directory and the
+		// administrator's membership are one transaction.
+		"DeletePatch", "SeatFirstAdministrator", "UserSurface",
+	})
 
-	// The directory is written in the row's transaction: after the row, before the
-	// commit; the roster reloads before the seat, and the undo removes the directory
-	// before the row.
+	// The directory and the administrator's membership are written in the row's
+	// transaction: after the row, before the commit; the roster reloads before the
+	// answer waits on the membership.
 	s := string(out)
 	row := strings.Index(s, "patch.Buffer(ctx, txn, eventSource)")
-	written := strings.Index(s, "created.Buffer(ctx, txn, eventSource)")
+	written := strings.Index(s, "directory.Buffer(ctx, txn, eventSource)")
+	given := strings.Index(s, "identity.AssignRole(ctx, txn,")
 	commit := strings.Index(s, "}); err != nil {")
 	roster := strings.Index(s, "a.TenantRoster().Reload(ctx)")
-	seat := strings.Index(s, "resource.SeatFirstAdministrator(")
-	undoDirectory := strings.Index(s, "resources.NewHarborDirectoryDeletePatch(directory.ID())")
-	undoRow := strings.Index(s, "resources.NewHarborDeletePatch(req.ID)")
-	if row >= written || written >= commit || commit >= roster || roster >= seat || seat >= undoDirectory || undoDirectory >= undoRow {
-		t.Errorf("order: row %d, directory %d, commit %d, roster %d, seat %d, undo directory %d, undo row %d; want ascending:\n%s", row, written, commit, roster, seat, undoDirectory, undoRow, out)
+	wait := strings.Index(s, "resource.AwaitFirstAdministrator(")
+	if row < 0 || row >= written || written >= given || given >= commit || commit >= roster || roster >= wait {
+		t.Errorf("order: row %d, directory %d, membership %d, commit %d, roster %d, wait %d; want ascending:\n%s", row, written, given, commit, roster, wait, out)
 	}
 }
 

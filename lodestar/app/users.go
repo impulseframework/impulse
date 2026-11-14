@@ -1,34 +1,34 @@
 package app
 
 import (
-	"github.com/impulseframework/impulse/lodestar/pkg/router"
-	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewidentity"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/membersidentity"
 )
 
-// The user-management surfaces. The generator serves each auth's users, seats and roles
-// as resources (CrewUsers, CrewSectorUsers, MembersUsers and their seats and roles) and
-// the targeted methods beside them, their handlers generated into zz_gen_users.go as
-// delegations to the surface the configuration builds for each auth: the crew's over
-// the crew session's accounts and the crew engine's memberships, the members' over the
-// members'. The console serves both (the generator program's Manages), so headquarters
+// The management of the two auths' people is generated (pkg/identity, the generator
+// program's GenerateIdentity): each auth's lists and methods are served by generated
+// handlers that reach the auth's identity client through the accessors below. The
+// console serves both auths' (the generator program's Manages), so headquarters
 // administers both populations from one place; the portal serves the members' alone.
-// What a role may do is the crew role file's to say, in the same grammar as every other
-// resource: SectorMarshal seats and unseats crew in its sector in every role but its own
-// (new.role != 'SectorMarshal'), Headquarters holds both populations in the global
-// partition. The crew's seats are all the application's, whichever way a person signs
-// in; the members' are their directory's at every sign-in (members.go's RoleSync, the
-// registration declared SyncsRoles, standing alone on its auth), so that surface refuses
-// to seat or unseat anyone by hand and says so on every row (rolesSynced).
+// What a role may do is the role file's to say, in the same grammar as every other
+// resource and method: SectorMarshal gives and takes the roles of its sector's people,
+// every role but its own (new.role != 'SectorMarshal'), and Headquarters holds both
+// populations across the application. The crew's roles are all the application's,
+// whichever way a person signs in; the members' are their directory's at every sign-in
+// (members.go's RoleSync, the registration declared SyncsRoles), so the members'
+// management has no method that gives or takes a role.
 //
-// Demonstrates: auth.user-management.
+// Demonstrates: auth.generated-identity.
 
-// CrewUserSurface is the crew auth's surface, which the generated crew handlers call.
-func (a *App) CrewUserSurface() *resource.UserSurface[router.CrewAuth] {
-	return a.crewUsers
+// CrewIdentity is the crew auth's identity client: what the generated methods that manage
+// the crew's people run over (pkg/identity/crewidentity), on their routes and in a
+// transaction the application opens itself.
+func (a *App) CrewIdentity() *crewidentity.Client {
+	return a.crewIdentity
 }
 
-// MembersUserSurface is the members auth's surface, which the generated members handlers
-// call on the console and the portal alike.
-func (a *App) MembersUserSurface() *resource.UserSurface[router.MembersAuth] {
-	return a.membersUsers
+// MembersIdentity is the members auth's identity client, the members' counterpart of
+// CrewIdentity.
+func (a *App) MembersIdentity() *membersidentity.Client {
+	return a.membersIdentity
 }

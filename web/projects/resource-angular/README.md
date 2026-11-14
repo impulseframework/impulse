@@ -152,13 +152,28 @@ Every field renders by its generated display type, in a grid cell, a view, and a
 
 A column can render its field as an icon with a tooltip instead of text. An `iconConfig` on the column declares the map: `icons` keys a Material icon by the value's text (`true` and `false` for a boolean, the key for an enumerated field), `tooltips` gives the words per value, and `empty` the icon and words for a null. A sentence may name the row's fields in braces, `'Grandfathered: {name} has {activeLearners} active learners. The partner limit is {partnerLimit}.'`, and the list requests those fields beside its columns and fills them by their display types; a value with no sentence uses the cell's formatted text as its words, and a value with no icon keeps the text, so declaring icons for some values and not others degrades to text. The list resolves the cell while it builds the display row, as it applies every other column's formatter, and the grid renders the icon as an image with the words as its accessible name and tooltip, focusable so the tooltip opens from the keyboard; nothing runs at render time. The column stays a field column: its header, sort and filter work on the field. A column is a field column, a button column or an icon column, and a config naming both a button and an icon does not compile. An icon that depends on more than one field is a computed field first; the map then renders it.
 
-A cell with no configured `formatType` is written by its field's display type, and a null is the column's `emptyDataValue`. A create or edit form never offers a free-text control over bytes, an array, or an object, so no page can send the server a value it refuses: their controls stay in view mode whatever the form's mode, start null in a create form, and a null control leaves the add operation, so a `NOT NULL` bytes, array, or object column cannot be created from the generated form until its editor lands. An empty array shows the empty placeholder, as a null does.
+A cell with no configured `formatType` is written by its field's display type, and a null is the column's `emptyDataValue`. A create or edit form never offers a free-text control over bytes, an array, or an object, so no page can send the server a value it refuses: their controls stay in view mode whatever the form's mode, start null in a create form, and a null control leaves the add operation, so a `NOT NULL` bytes, array, or object column cannot be created from the generated form until its editor lands. An empty array shows the empty placeholder, as a null does. A column that declares a `valueGetter` has its cell read off the row by it (the words for a stored code, a value put together from two fields), then written like any other; the column's `id` still names a field of the resource, which the request asks for and the grant on which decides whether the column is listed.
+
+A list offers the methods that run against its rows, with nothing configured. A generated method that declares a target row (`@target` on the Go struct) runs against one row of a resource, and the generated method metadata names that resource and, for each request field that carries part of the row's key, the row's field it carries (`target: { resource, key }`). A list of the resource finds those methods in the metadata, asks the server for each row's Execute answer (`capabilities=Execute`, which costs no query where the grant carries no condition), and draws one Actions menu at the end of each row holding the methods the answer lists for that row: a row offers what the caller may run on it and nothing else, and a row that offers nothing draws no button. An entry runs the method through `MethodDialogComponent`, drawn from the metadata alone: the request fields that carry the row's key are filled from the row, every other field is an input by its display type (a picker where the field declares one, a picker of several for `enumerated[]`), required where the method requires it, and a method that takes nothing more than the row is a question with a button. A method that takes files (`@upload`) has a file input beside its fields: nothing is sent until a file is chosen, the request and the files travel together as the method's handle sends them (`upload(body, files)`), the input says the method's declared maximum, and how many files the method takes is the method's to refuse, in the dialog like any refusal. Where the caller's grant on the method carries a condition that may read the request, the dialog rehearses the call as the person fills it. The digest says the grant is `conditional` and cannot say for which values; the generated metadata names the request fields a condition may read (`attribute`, from `@attribute` on the Go field) and says which methods a dry run previews (`dryRun: true`, a method that runs in a transaction). Once those inputs and the required ones are filled, and again after each change once the inputs have rested, the dialog sends a dry run, which the server runs whole and rolls back; a dry run refused as not permitted (403) turns the inputs a condition may read red (the one changed last where it is one of several), says so in the dialog's own words (the server's name the method and the row and, by design, not the condition), and holds the button until a marked input is changed, and any other answer of a dry run leaves the form for the call itself to judge. The values a picker offers are not each tried: the picked one is. A method no condition can judge by its request (its grant's condition reads the row, which the row's own Execute answer already judged), one that runs outside a transaction, and one that takes files are not rehearsed. The dialog calls the method itself in the selected tenant, shows a refusal in the server's words and stays open, and once the method has run the page says so and reads its rows again. A method is shown under its name in words (`DisableCrewSectorUser` is "Disable crew sector user"); `rowMethods` on the `listViewConfig` gives the methods it names the page's own words, an icon, a question, a row predicate (`when`, for a method that only makes sense in one state of the row, such as Enable on a disabled account) or hides one, and leaves the rest as they are; `rowMethods: false` offers none and asks the server nothing. A method that names no row (a create, an invitation) is a button above the list where the page names it in `listMethods` and the digest grants the caller Execute on it, and opens the same dialog. A method that names no target row can still be run for a row: a presentation in `rowMethods` with a `fill` (`fill: (row) => ({ username: row['username'] })`) puts the method in every row's menu while the digest grants the caller Execute on it, fills those request fields from the row, and asks for the rest; in `listMethods` the `fill` reads the row the list sits under, so a button above a child list runs for its parent. The server gives no answer by row for such a method, so the call itself is what judges it. A presentation's `labels` gives a request field's input the page's own words, by the field's name, where the name in words is not what the page wants (`labels: { domain: 'Sector' }`). The row page offers its row's methods the same way: where a method runs against a row of the page's resource, the read of the row asks for the Execute answer beside Update and Delete, and the page draws one Actions menu holding the methods the answer lists, presented by the same `rowMethods` (a page with a list shares it with its row page; `rowMethods: false` asks nothing and draws none). Once a method has run, from the row page or from a row of one of its child lists, the page reads the row again and every child list with it, since a method may change anything under the row (a role taken away in a child list is one fewer role the person holds); and when that read answers that the row is no longer there, the page goes back to where it was opened from, as it does after its own Delete. A hand-written component runs a method the same way: `ResourceStore.methodHandle(method)` is the method's handle bound to the selected tenant, and `openMethodDialog(dialog, method, row)` opens the same dialog.
+
+The pages over an Auth's people are built by the library. Where the server's management of an Auth is generated (`GenerateIdentity`), the generated API description names its lists and methods by what each is (the `identity` block), and `identityRoutes` from `@impulseframework/resource-angular/identity-pages` turns that into routes of the library's own list and row pages:
+
+```ts
+import { identityRoutes } from '@impulseframework/resource-angular/identity-pages';
+
+// The whole application's side: every person of the Auth.
+...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Crew', scope: 'global' }),
+// A tenant's side: the people who hold a role in the open tenant.
+...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Crew', scope: 'domain' }),
+```
+
+Each side is a people page (the list, a menu on each row holding the methods the server lists for that row, buttons above it for the create and the invitation the digest grants, and a row page with the person's fields read-only, the same methods, and under it the roles held, with the methods that give one and take one away, and the sign-in identities, with the method that unlinks one) and an invitations page; the whole application's side has the person's sessions under the row page too, and a page each for the sessions and the failed sign-ins. Nothing is drawn for what the description does not name: an Auth with no password method has no password entries, one whose roles a directory writes has no role methods, and a list the schema has no table for has no page. What reads differently from one application to the next comes from the description: the Auth's label and the tenant record's name word the navigation group ("Crew accounts", "Sector crew"), the columns ("Also in another sector"), the questions and the tenant input of the whole application's methods. The pages are guarded and listed in the navigation as any `resourceRoutes` page is, by the List grant on each page's resource, and a navigation group whose pages the caller may not open is not drawn. By default a page's route is the Auth's name and what the page lists (`crew-accounts`, `crew-mailed-links`, `crew-sessions`, `crew-failed-sign-ins`; under the API's tenant segment `sectors/:sectorID/crew-people` and `…/crew-invitations`); `routes` renames one and `group` names the navigation group. `identityPages` returns the same pages as configurations, for an application that routes them itself. Both refuse, naming what is missing, an Auth the description does not carry, a side it does not carry, and a tenant's side on an API with no tenant segment. The one piece of knowledge the pages hold that the server does not give is that Enable belongs on a disabled account and Disable on an enabled one.
 
 A config-driven page can work in a tenant. Provide `RESOURCE_DOMAIN` with a signal of the selected tenant (your tenant picker's selection): the store binds every request for a domain-scoped resource to it, and asks again when it changes; a global resource's request never carries it, and a page over one asks nothing when the tenant changes. A permission question about a domain-scoped target whose scope names no domain is asked in that tenant's digest. A domain-scoped resource's metadata route carries the tenant parameter in braces, so such a page sets `routeData.route` to the path it lives at. That route may carry the tenant parameter as the router names it (`sectors/:sectorID/missions`: the API's domain route segment, the descriptor's `domainRoute.param` after a colon, then the page), mirroring the API's URL, and the links the page builds from it follow the page's tenant: the View column, the table button, the after-create navigation, and the page another list's rows open on put the tenant in the parameter's place, read from the route's parameter when the page is under it and from `RESOURCE_DOMAIN` otherwise, so a row link is the row's real URL and opens in a new tab. A route naming no parameter is used as written. The resolver is `pageRouteResolver()` from `@impulseframework/resource-angular/resource-nav`, for an application's own links from a registered route; it refuses a route naming the parameter when no tenant is known, naming the route.
 
 A list page or a record page can be live: it stays current without polling and without refetching while nothing changed, and a page left and opened again inside five minutes is served by the browser with no request. A page is live by default when the generated metadata says its resource's changes are published (`ResourceMeta.live`, true on every table-backed resource); `live: false` on its `listViewConfig` or `viewConfig` opts it out, `live: true` on a resource whose metadata says its changes are not published (a view or a computed resource) is announced once and asks plainly, and metadata from a generator that predates the field makes no page live by itself (the list page's row page follows the list's config). Provide the change feed once in the application's providers: `{ provide: CHANGE_FEED, useFactory: () => firestoreChangeFeed() }` from [`@impulseframework/resource-firestore`](../resource-firestore/README.md). `AuthService` starts the client's live session with the feed when the session first authenticates, fetching the feed's identity from the API, and stops it at logout, before the session is logged out, so every subscription of the user is deleted and the feed's identity revoked first. From then on the store's list page carries the client's live option (the tab subscribes to the resource in the selected tenant, and a change the feed reports requests the page again by its own cursor, with the change's version) and the row page carries it for its row (a change reads the row again, the form and the children staying on screen while the read is in flight); a resync reads both again by a fresh seed, and a tenant change moves the list's subscription. The page's other readers (pickers, referenced-resource lookups, array views, create forms) never ask to be live. Without a provided feed, or on an outlet that serves no live subscriptions, a page configured live asks as a plain one: nothing is cached, nothing is subscribed. What the option opts into, what it costs, and what it never does are in the client's README under "Live pages".
 
-A feature can ship dark and be turned on per environment, and the pages follow the switch. For a feature with a resource behind it there is nothing to add: while its flag is off the server leaves the resource out of the permission digest, so the menu item, the buttons, and the row page are hidden by the digest alone, and `resourceRoutes` adds a match guard from the metadata's `feature`, so a dark URL falls to the application's wildcard route as any unknown URL does. For a feature with no resource behind it the library offers three gates, each taking a member of the generated `Feature` union so a misspelled flag fails to compile: `*impulseFeature="Feature.Debriefs"` on an element, beside `*impulseHasPermission`, renders it while the flag is on; `featureMatch(Feature.Debriefs)` in a route's `canMatch` matches the route only while the flag is on; and `feature` on a `MenuItem` (and on the sidenav's `NavItem`) beside `permission` hides the item while it is off. `AuthService` loads the enabled set once when the session first authenticates, beside the digest and the domains, and forgets it at logout; `featureEnabled(name)` answers from it, signal-backed, and `ensureFeature(name)` loads it first for a guard that may run before the session's first check. On an API that serves no feature flags (a descriptor without the `features` route, from a generator that predates them) `AuthService` skips the load and every gate answers off: `*impulseFeature` renders nothing, a `featureMatch` route falls to the wildcard, and the dialog says the API serves no feature flags; the first ask of each flag is announced once through the client's `warn` option (the console by default), naming the regeneration that would serve it. Nothing polls and nothing is pushed: a flip by someone else is seen at the next sign-in, by design. The library ships the flags dialog, `FeatureFlagsDialogComponent`, opened with `openFeatureFlagsDialog(dialog)` from wherever the application puts the link: it lists every declared flag with its description and a toggle, says how long an enabled one has been on in this environment, and flips a flag through the generated `SetFeature` method, after which the client reloads the enabled set and the digest so the person flipping sees their own pages follow at once. The digest decides what the dialog may do: without Execute on the method the toggles are disabled and the list is read-only, and a refusal is shown in the dialog in the server's words.
+A feature can ship dark and be turned on per environment, and the pages follow the switch. For a feature with a resource behind it there is nothing to add: while its flag is off the server leaves the resource out of the permission digest, so the menu item, the buttons, and the row page are hidden by the digest alone, and `resourceRoutes` adds a match guard from the metadata's `feature`, so a dark URL falls to the application's wildcard route as any unknown URL does. For a feature with no resource behind it the library offers three gates, each taking a member of the generated `Feature` union so a misspelled flag fails to compile: `*impulseFeature="Feature.Debriefs"` on an element, beside `*impulseHasPermission`, renders it while the flag is on; `featureMatch(Feature.Debriefs)` in a route's `canMatch` matches the route only while the flag is on; and `feature` on a `MenuItem` (and on the sidenav's `NavItem`) beside `permission` hides the item while it is off. A group of the sidenav that expands is drawn while one of its links is: a group whose every link is hidden, by a flag or by the caller's permissions, is left out, so nobody is shown a heading that opens on nothing (`SidenavComponent.shown` answers it for one item). `AuthService` loads the enabled set once when the session first authenticates, beside the digest and the domains, and forgets it at logout; `featureEnabled(name)` answers from it, signal-backed, and `ensureFeature(name)` loads it first for a guard that may run before the session's first check. On an API that serves no feature flags (a descriptor without the `features` route, from a generator that predates them) `AuthService` skips the load and every gate answers off: `*impulseFeature` renders nothing, a `featureMatch` route falls to the wildcard, and the dialog says the API serves no feature flags; the first ask of each flag is announced once through the client's `warn` option (the console by default), naming the regeneration that would serve it. Nothing polls and nothing is pushed: a flip by someone else is seen at the next sign-in, by design. The library ships the flags dialog, `FeatureFlagsDialogComponent`, opened with `openFeatureFlagsDialog(dialog)` from wherever the application puts the link: it lists every declared flag with its description and a toggle, says how long an enabled one has been on in this environment, and flips a flag through the generated `SetFeature` method, after which the client reloads the enabled set and the digest so the person flipping sees their own pages follow at once. The digest decides what the dialog may do: without Execute on the method the toggles are disabled and the list is read-only, and a refusal is shown in the dialog in the server's words.
 
 An application installed as a progressive web app can tell the person when a new build is ready and reload only when they choose. A progressive web app is one the browser can install, with a service worker: a script the browser runs apart from the page, which keeps the application's files and downloads a new build when one is deployed. The library provides this through a secondary entry point, `@impulseframework/resource-angular/ui-app-update` (an import path of its own beside the main package), which exports `provideAppUpdate()`. The application adds `provideAppUpdate()` to its providers beside Angular's `provideServiceWorker(...)` and nothing more: no component references the service, and the notices it raises render in the alert area every application already has, the `impulse-alert` list over `NotificationService.notifications()`. `provideAppUpdate()` starts `AppUpdateService`, which listens to `SwUpdate`, Angular's service for the worker's events, from `@angular/service-worker`; that package is an optional peer dependency of this library: an application installs it when it uses this entry point. The service is inert when no service worker is provided or the worker is disabled, as it is in dev mode and in component specs: no timer starts and nothing is raised. When the worker reports that a new version is ready (`VERSION_READY`), the service raises one persistent notice, "A new version of this application is ready.", with a Reload action; it never reloads on its own, and the person chooses when. When the worker reports a state it cannot recover from (`SwUpdate.unrecoverable`), the service raises the same kind of notice, "This application needs to be reloaded to keep working.", with Reload. Checks for a new version run hourly while the browser tab is visible and once whenever the tab becomes visible again, and none run while the tab is hidden, so a hidden tab never wakes a server instance for nothing; the worker itself also checks after every page load. The hourly timer runs outside Angular's zone, the layer that tracks pending timers and requests and reports the application stable, or settled, once none is left, so it never keeps the application from settling. Every reload goes through one injectable class, `AppReloader`, whose `reload()` calls `location.reload()`, and a spec provides its own in its place to observe a reload. The service also exposes four members other parts of the library use: `ready`, a signal that is true once a new version is ready; `checkNow()`, which asks the worker to check and resolves true when a new version is ready; `reload()`; and `reloadWhenReady()`, which reloads onto the new version with no notice as soon as the worker has one ready, at once when one already is. To carry the Reload action, `CreateNotificationMessage` and `NotificationMessage` (in `@impulseframework/resource-angular/types`) gained two optional fields: `action`, a `NotificationAction` with a `label` and a `run` callback, which `AlertComponent` renders as a button beside its close; and `persistent`, which makes the alert skip its auto-dismiss timer so the notice stays until it is closed or dismissed by its id. A notice that sets neither renders and expires exactly as before. A related fix in `IdleService` (`@impulseframework/resource-angular/auth-idle-service`) moved its keep-alive, the periodic session check, so it now starts in `start()` and ends in `stop()`, as the idle ticker (the timer that watches for inactivity) already did, where before it started in the constructor and never stopped. A signed-out application therefore has no timer due and can settle, which is what lets the service worker register as soon as the application is stable. No request behavior changes: the keep-alive already sent nothing without a session.
 
@@ -291,7 +306,7 @@ and the wait, the send button then standing in the form's place, disabled until 
 passed; a code that is used resets the count, so a person who signs in with each code sent never
 meets the limit. Send me a link on the sign-up form is held the same way. With the box checked, the server remembers the
 browser, and this person's next sign-ins from it skip the code until the server forgets it, or an
-operator does from the user-management page. A step this page does not render, a reason it does
+operator does from the person's account page. A step this page does not render, a reason it does
 not know or a second-factor step without the mailed code, shows a note saying the page is older
 than the server, asking the person to reload and try again, with the cancel.
 
@@ -303,7 +318,7 @@ page that cannot render what the server asks; a new step is added to the compone
 the declaration together.
 
 A session the sign-in establishes may carry `passwordChangeRequired`: an operator set the password
-(the seed's first administrator, a user created or reset through the user-management surface), and
+(the seed's first administrator, an account created with a password or given a temporary one), and
 the server serves nothing but the password change, the session read and the logout until the person
 sets a password of their own, refusing everything else with a 403 and the code
 `password_change_required`. The component renders the change form in the list's place, with the
@@ -411,111 +426,20 @@ beside it where it wants one.
 
 ## User management
 
-`<impulse-user-management>` (`@impulseframework/resource-angular/impulse-user-management`) is the page that
-administers the users of one Auth, written once for every application. It configures itself from
-the `userSurfaces` block of the generated descriptor (see the user-management section of
-@impulseframework/resource): `auth` names the surface, the descriptor's first when omitted, and `domain`
-binds the tenant partition, the global partition when omitted. An application with route-parameter
-tenancy passes the route's tenant; one bound through `RESOURCE_DOMAIN` passes that signal's value.
-Nothing about the application is named in the page, so a console that manages its staff and, by the
-generator program's declaration, its members composes the component twice:
+The pages that administer the people of an Auth are not a component an application composes:
+they are routes the library builds from the generated description, the library's own list and
+row pages over the lists and methods the server generates for the Auth (`identityRoutes` of
+`@impulseframework/resource-angular/identity-pages`, under Core Concepts above). A console that
+manages its staff and, by the generator program's declaration, its members asks for each Auth's
+routes, the whole application's side at the root and a tenant's side where its tenant pages go:
 
-```html
-<impulse-user-management />
-<impulse-user-management auth="Members" />
-<impulse-user-management [domain]="tenant()" />
+```ts
+...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Crew', scope: 'global' }),
+...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' }),
 ```
 
-The page follows the pattern of a cloud console's IAM page. The table has one row per user: the
-username, the email address and whether the person confirmed it, the status, how they sign in (the
-password, and each linked identity by its provider and the organization the link carries, "Google
-(fleet.example)"), the roles and the last sign-in. The roles column lists the user's roles one per line, each by its title
-with where it reaches beside it. A role's title is its name split at the capitals, so
-`FeatureAdministrator` reads "Feature Administrator" (`roleTitle` and the `roleTitle` pipe, exported
-from the same entry, for a page that shows a role elsewhere); where it reaches comes from the roles
-resource's `kind` and from the partition: in an application with tenants, "Everywhere" for a global
-role, "Every tenant" for a seat held in every tenant, and the tenant's name under its own partition;
-an application without tenants says nothing, since every role then reaches the whole of it. A row
-whose seats a directory writes (`rolesSynced`) says "From the directory". Each row ends in a menu
-button ("Actions for hollis") that names every action the caller may take on that user: Edit
-access (View access where the caller may change nothing), Rename, Change email address, Set a
-temporary password, Forget remembered browsers, Unlink for each linked sign-in method, then, after
-a divider, Disable or Enable and Delete. An action the caller may not take is not listed. The menu
-opens below its button with the right edges aligned, above it when below has no room, and beside it
-to its left when neither has, top edges aligned, bottom edges aligned when that does not fit, or
-shifted along the button to stay in the window when neither does; it is never over the button that
-opened it or another row's, and the button keeps a tint while its menu is open, so the row the menu
-belongs to is plain whichever side it took. The panel is the CDK's menu (the menu
-and menuitem roles, the arrow keys, typeahead, Escape, focus back on the button), drawn on
-Material's system tokens so it reads as Material's own menu does; `rowMenuPositions`, exported from
-the same entry, is the list of places.
-
-Edit access opens a side panel on the right edge of the page, "Edit access for hollis", listing the
-user's roles under "Assign roles": one row per role, the role's title with, under it, where the role
-reaches and the description the role file gives it, and a trash can; "Add another role" ("Add a
-role" while there are none) appends a row whose searchable picker lists the roles the partition's
-roles resource serves, each option showing the title, where it reaches and the description, narrowed
-as the person types over the title, the name and the description; a role the user holds already, or
-another row names, is not offered again. Each row acts at once: choosing a role seats it through the
-seats resource in one call, and the trash can asks in a dialog ("Remove the Harbormaster role from
-nova?") and unseats in one call; the page is read again after each, so the table and the rows say
-what the server lists, and a refusal is shown in the panel in the server's words ("Could not add the
-Harbormaster role to nova: Harbormaster required"). Done closes the panel. On the global page a seat
-held in every tenant is a row like the others, since the global seats resource seated it and unseats
-it; in the tenant partition it is shown locked. A role the caller may not change is shown with the
-reason under it and cannot be removed: "Assigned by the directory." where the directory writes the
-seats (and no role can be added), "You cannot change this role." where the digest withholds the
-unseat, and in the tenant partition "Assigned for every tenant. You cannot change it here." under a
-seat held in every tenant; the button that adds a role is there only where the digest grants the
-seat, and where it does but the user holds every role there is, the panel says so in its place
-("hollis holds every role this application has.").
-
-Every other action is one step with one call, asked in a dialog. Rename, Change email address (an
-operator's entry is unconfirmed and reserves the address until the person confirms it themselves,
-through `<impulse-email-address>` and the login page's confirmation link) and Set a temporary password
-(where the Auth has a password method; the person changes it at their next sign-in, through the
-login component's change form) each open a dialog with its one field and its one button. Forget
-remembered browsers (where the caller may run the reset method: it forgets the browsers the person
-asked to be remembered at the sign-in code step, so their next sign-in asks for the code again; a
-descriptor from a generator that predates the second factor names no such method, and the action is
-not listed), Unlink (the server keeps the last way in), Disable or Enable and Delete ask once in a
-dialog that names the person and says what happens, and then make their call. Nothing can
-half-succeed. Where the password method declares the username as the address (`usernameIsEmail`),
-the username column is the address, the new-user panel asks for it as the username, and neither is
-edited by hand: a verified new address renames the person.
-
-"New user" opens a panel of the same shape: the username (or the address), the email address, a
-temporary password where the Auth has a password method, "The account starts disabled", then the roles rows and
-Create. In the tenant partition the first role is required and rides the create, which seats the new
-user in the tenant; every further role, and in the global partition every role, is seated by a call
-per role once the server has said the new user's id. A seat the server refuses leaves the user
-created and says so: "quill was created, but the Harbormaster role could not be assigned: …".
-
-Below the users stand the partition's invitations, where the descriptor names the resource: an
-address invited to hold roles, listed with the roles by title, the inviter when the page lists them,
-when it was sent and when it expires, until whoever follows the mailed link signs in (by any method,
-or by creating an account with a password) and is seated with the roles, or the invitation is
-revoked or expires. The invite form takes the address and the roles; an invitation is the same
-request whether an account holds the address or not, and the page does not learn which. The block
-is shown when the caller may list or send invitations, and a partition whose descriptor names none
-has no block.
-
-Every control follows a capability. The digest decides whether users are created, seats written and
-invitations sent; the row's capability envelope, asked for on every read, decides the rename, the
-address, the disable, the delete, the methods and the revoke per row, so one's own row loses its
-disable and its delete, and a user seated outside the tenant loses the account-level actions,
-without the page knowing why. A row with no account action for the caller keeps its menu, with the
-access alone, which then shows the roles read-only with the reasons. A role file scopes
-all of it with the same conditions as the application's own resources: a role granted `Create` on
-the seats resource under `new.role != 'Administrator'` seats people into every other role, and the
-refusal of the one it may not is shown in place in the server's words. The lists are read again
-after every write, so the rows say what the server says; a list that pages offers the turns the
-server names.
-
-The action dialogs are `askInDialog` of `@impulseframework/resource-angular/impulse-dialogs`, one component for a
-question with at most one field, which any page may use the same way. The side panels are Material
-dialogs anchored to the right edge (`panelClass: 'impulse-users-panel'`);
-the library's stylesheet (`@use '@impulseframework/resource-angular/styles'`) squares their corners.
+A page that asks one question of its own, with at most one field, can use the dialog the tokens
+page uses: `askInDialog` of `@impulseframework/resource-angular/dialogs`.
 
 ## Tokens
 
@@ -562,7 +486,7 @@ page, code and all, once signed in.
 ## Modules Overview
 
 - **`impulse-resource`**: The core module of the library. It contains the components and services related to dynamic page generation and data management.
-- **`impulse-user-management`**: The user-management page over an Auth's surface, configured from the generated descriptor.
+- **`identity-pages`**: The pages over an Auth's people (the accounts, the roles held, the invitations, the sessions), built from the generated descriptor's identity block.
 - **`impulse-tokens`**: The signed-in person's token page and the device approval page, configured from the generated descriptor's tokens block.
 - **`auth`**: This module provides authentication and authorization, including the login methods component, the email address component, route guards, and permission directives.
 - **`ui`**: This module contains UI components and services, such as alerts, notifications, the sidenav, the update and maintenance notices, and the theme picker with its service.
