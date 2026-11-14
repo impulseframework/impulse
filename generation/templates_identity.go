@@ -1077,13 +1077,17 @@ func (store) RoleHolders(ctx context.Context, txn resource.ReadWriteTransaction,
 	return users, nil
 }
 
-func (store) InsertMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey) error {
-	patch := {{ .ResourcesPackage }}.New{{ .Membership }}CreatePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User))
-	if err := patch.SetCreatedAt(spanner.CommitTimestamp).Buffer(ctx, txn); err != nil {
-		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Membership }}CreatePatch.Buffer()")
+// InsertMembership is a create-unless-there: a membership that is there, committed or
+// written earlier in this transaction, keeps the time it was given.
+func (store) InsertMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey) (bool, error) {
+	patch := {{ .ResourcesPackage }}.New{{ .Membership }}CreatePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User)).
+		SetCreatedAt(spanner.CommitTimestamp).
+		OrSkip()
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return false, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Membership }}CreatePatch.Buffer()")
 	}
 
-	return nil
+	return !patch.RowSkipped(), nil
 }
 
 func (store) DeleteMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey) error {
@@ -1118,8 +1122,8 @@ func (store) RoleHolders(context.Context, resource.ReadWriteTransaction, *access
 	return nil, nil
 }
 
-func (store) InsertMembership(context.Context, resource.ReadWriteTransaction, *access.MembershipKey) error {
-	return errNoMemberships
+func (store) InsertMembership(context.Context, resource.ReadWriteTransaction, *access.MembershipKey) (bool, error) {
+	return false, errNoMemberships
 }
 
 func (store) DeleteMembership(context.Context, resource.ReadWriteTransaction, *access.MembershipKey) error {
@@ -1302,6 +1306,12 @@ type (
 		//
 		// @attribute(role)
 		Roles       []string
+		{{- if .TenantPicker }}
+		// Domain is the one {{ .TenantName }} the roles are given in, picked from the
+		// {{ .TenantName }} records the caller may list.
+		//
+		// @enumerate({{ .TenantPicker }})
+		{{- end }}
 		Domain      *string
 		EveryDomain bool
 	}
@@ -1666,6 +1676,12 @@ type Assign{{ .Auth }}Role struct {
 	//
 	// @attribute(role)
 	Role        string ` + "`validate:\"required\"`" + `
+	{{- if .TenantPicker }}
+	// Domain is the one {{ .TenantName }} the role is given in, picked from the
+	// {{ .TenantName }} records the caller may list.
+	//
+	// @enumerate({{ .TenantPicker }})
+	{{- end }}
 	Domain      *string
 	EveryDomain bool
 }
@@ -1884,6 +1900,12 @@ type (
 		//
 		// @attribute(role)
 		Roles  []string
+		{{- if .TenantPicker }}
+		// Domain is the one {{ .TenantName }} the roles are given in, picked from the
+		// {{ .TenantName }} records the caller may list.
+		//
+		// @enumerate({{ .TenantPicker }})
+		{{- end }}
 		Domain *string
 	}
 	// Invite{{ .Auth }}UserResult answers the invitation's id and whether its message

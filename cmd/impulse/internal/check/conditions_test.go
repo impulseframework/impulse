@@ -45,6 +45,39 @@ func TestConditions(t *testing.T) {
 	provesGrant(t, staff.Roles(), "Cadet", "List", "Missions", cadetRule)
 }
 `
+	// pinsPlain names both conditional grants and pins the one unconditional grant with an
+	// empty condition, as a suite that depends on it does.
+	pinsPlain = `package integration
+
+import (
+	"testing"
+
+	"example.com/harbor/pkg/auth/staff"
+)
+
+func TestConditions(t *testing.T) {
+	provesGrant(t, staff.Roles(), "Auditor", "List", "Clients", "trusted = true")
+	provesGrant(t, staff.Roles(), "Cadet", "List", "Missions", "hazard IN (1, 2)")
+	provesGrant(t, staff.Roles(), "Cadet", "Read", "Wings", "")
+}
+`
+	// pinsPlainWrongly names both conditional grants and pins, with an empty condition, a
+	// grant the file carries under a condition and one it does not carry at all.
+	pinsPlainWrongly = `package integration
+
+import (
+	"testing"
+
+	"example.com/harbor/pkg/auth/staff"
+)
+
+func TestConditions(t *testing.T) {
+	provesGrant(t, staff.Roles(), "Auditor", "List", "Clients", "trusted = true")
+	provesGrant(t, staff.Roles(), "Cadet", "List", "Missions", "hazard IN (1, 2)")
+	provesGrant(t, staff.Roles(), "Cadet", "List", "Missions", "")
+	provesGrant(t, staff.Roles(), "Cadet", "Read", "Hangars", "")
+}
+`
 	// oneProven names the global grant alone.
 	oneProven = `package integration
 
@@ -188,6 +221,19 @@ func TestConditionsProven(t *testing.T) {
 			wantDetails: []string{
 				unprovenCadet,
 				`test/integration/conditions_test.go:11: provesGrant names a grant pkg/auth/staff/roles.json does not carry (Cadet List Missions under "hazard IN (1, 2, 3)"); the case fails at test time until the call matches the file`,
+			},
+		},
+		{
+			name: "a case pins a grant that carries no condition", files: with(map[string]string{"test/integration/conditions_test.go": pinsPlain}),
+			wantStatus: Pass, wantSummary: "2 conditional grant(s) across 1 role file(s), each proven by a test case",
+			wantDetails: []string{"pkg/auth/staff/roles.json: 2 conditional grant(s) proven"},
+		},
+		{
+			name: "a case pins with no condition a grant the file carries under one, and one it does not carry", files: with(map[string]string{"test/integration/conditions_test.go": pinsPlainWrongly}),
+			wantStatus: Fail, wantSummary: "0 conditional grant(s) proven by no test case; 2 provesGrant call(s) or role file(s) the check cannot read",
+			wantDetails: []string{
+				`test/integration/conditions_test.go:12: provesGrant names a grant pkg/auth/staff/roles.json does not carry (Cadet List Missions with no condition); the case fails at test time until the call matches the file`,
+				`test/integration/conditions_test.go:13: provesGrant names a grant pkg/auth/staff/roles.json does not carry (Cadet Read Hangars with no condition); the case fails at test time until the call matches the file`,
 			},
 		},
 		{

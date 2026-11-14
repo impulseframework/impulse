@@ -5,7 +5,7 @@ import { Method, Resource, ScopeKind } from './brands';
  * ride the consolidated endpoint and can therefore be combined with other resources'
  * operations in one transaction.
  */
-export type ResourceOperation = 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch';
+export type ResourceOperation = 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch' | 'patchOrAdd' | 'addOrSkip';
 
 /**
  * A resource's page sizes: the page a request without `limit` receives, and the

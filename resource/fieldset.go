@@ -1,6 +1,10 @@
 package resource
 
-import "github.com/impulseframework/impulse/accesstypes"
+import (
+	"slices"
+
+	"github.com/impulseframework/impulse/accesstypes"
+)
 
 type fieldSet struct {
 	data   map[accesstypes.Field]any
@@ -18,6 +22,17 @@ func (p *fieldSet) Set(field accesstypes.Field, value any) {
 		p.fields = append(p.fields, field)
 	}
 	p.data[field] = value
+}
+
+// unset removes a field, so the set reads as if the field had never been set.
+func (p *fieldSet) unset(field accesstypes.Field) {
+	if _, found := p.data[field]; !found {
+		return
+	}
+	delete(p.data, field)
+	p.fields = slices.DeleteFunc(p.fields, func(f accesstypes.Field) bool {
+		return f == field
+	})
 }
 
 func (p *fieldSet) Get(field accesstypes.Field) any {

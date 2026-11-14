@@ -30,6 +30,13 @@ await station.scheduleWorkOrder.execute({ workOrderId: orders[0].id, assignedTea
 // Several operations, one transaction.
 await api.batch([station.requisitions.ops.add(values), station.requisitionLines.ops.add(line)]);
 
+// Where the client names the row, two operations decide from whether it is there:
+// update it or create it, and create it unless it is there.
+await api.batch([
+  station.workOrderTasks.ops.patchOrAdd({ workOrderId, taskNumber: 4, instructions: 'Seal the aft lock', done: false }),
+  station.workOrderTasks.ops.addOrSkip({ workOrderId, taskNumber: 5, instructions: 'Test the seal' }),
+]);
+
 // A resource kept off the consolidated handler (consolidated: false) has its own PATCH
 // route; its operations remember it, so the same call reaches the right endpoint.
 // Operations for two different endpoints cannot commit together and are refused.
@@ -50,6 +57,13 @@ await methodHandle(api, 'ScheduleWorkOrder', 'ws-alpha').execute(body);
 - `Patch` shapes additionally exclude immutable fields and keys.
 - Keys are named tuples in route order, so a compound key is never a hand-joined
   string.
+- `ops.patchOrAdd` and `ops.addOrSkip` exist only on a resource whose key the client
+  supplies: a server-made id names no row that may or may not be there. The value of
+  `patchOrAdd` is written whether the server finds the row or not, so it holds what a
+  create must have and what a patch may change, and a field only a create takes does
+  not compile in it. A resource whose create must carry such a field has `addOrSkip`
+  and no `patchOrAdd`. Offer an action built on `patchOrAdd` where the caller holds
+  both Create and Update (`handle.can`).
 - Filters and sorts are typed against the row's fields. The server's filter grammar
   is available directly as a string when needed.
 

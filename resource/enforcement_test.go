@@ -771,6 +771,8 @@ func TestPatchSet_Buffer_permissionEnforcement(t *testing.T) {
 				patchSet.SetPatchType(UpdatePatchType)
 			case OperationDelete:
 				patchSet.SetPatchType(DeletePatchType)
+			default:
+				t.Fatalf("the case's operation %q is none of add, patch and remove", tt.operation)
 			}
 			patchSet.SetKey("ID", id)
 

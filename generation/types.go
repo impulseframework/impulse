@@ -1425,6 +1425,23 @@ func (r *resourceInfo) CreateRefusal() string {
 	return fmt.Sprintf("a %s row is added by the @upload method that stores its file; a create cannot supply the file's key", r.Name())
 }
 
+// PatchOrAddRefusal is the sentence the patch handlers answer a patch-or-add with on a
+// resource that takes none; it is empty where the resource takes the operation. A
+// patch-or-add carries one value, written whether it turns out to be the patch or the
+// add. Where a create must carry a field no patch may carry (an immutable field with no
+// default that is no key), no value serves both: the add needs the field and the patch
+// refuses it. The browser client offers no patchOrAdd for such a resource, and it still
+// takes add-or-skip.
+func (r *resourceInfo) PatchOrAddRefusal() string {
+	for _, field := range r.Fields {
+		if !field.IsPrimaryKey && !field.IsOutputOnly() && field.IsImmutable() && field.IsRequired() {
+			return fmt.Sprintf("a %s takes no patch-or-add: a create must carry %s, and a patch may not (the field is immutable)", r.Name(), strcase.ToCamel(field.Name()))
+		}
+	}
+
+	return ""
+}
+
 // PatchPermissions are the permissions the patch handler registers and its decoder
 // checks: Create, Update, and Delete, Create left out where CreateDisabled.
 func (r *resourceInfo) PatchPermissions() []accesstypes.Permission {

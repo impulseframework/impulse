@@ -365,6 +365,29 @@ func (a *App) PatchResources() http.HandlerFunc {
 						}
 					}
 				case "pilot-certifications":
+					// The two operations that decide from whether their row is there run
+					// as the add or the patch they turn out to be: an add-or-skip is the
+					// add it is, with the create patch told to leave a row that is there
+					// alone, and a patch-or-add is a patch when its row is there and an
+					// add when it is not.
+					orSkip := false
+					switch op.Type {
+					case resource.OperationCreateOrSkip:
+						op, orSkip = op.AsCreate(), true
+					case resource.OperationUpdateOrCreate:
+						keyReq, err := op.ReqWithPattern("/{resource}/{id1}/{id2}", resource.RequireCreatePath())
+						if err != nil {
+							return errors.Wrap(err, "op.ReqWithPattern()")
+						}
+						key := resource.KeySet{}
+						key = key.Add("UserID", httpio.Param[string](keyReq, "id1"))
+						key = key.Add("CertificationID", httpio.Param[string](keyReq, "id2"))
+						decided, err := pilotCertificationDecoder.DecideOperation(ctx, txn, op, userPermissions, accesstypes.GlobalScope(), key)
+						if err != nil {
+							return errors.Wrap(err, "pilotCertificationDecoder.DecideOperation()")
+						}
+						op = decided
+					}
 					patchSet, err := pilotCertificationDecoder.DecodeOperation(op, userPermissions, accesstypes.GlobalScope())
 					if err != nil {
 						return errors.Wrap(err, "pilotCertificationDecoder.DecodeOperation()")
@@ -379,7 +402,11 @@ func (a *App) PatchResources() http.HandlerFunc {
 					case resource.OperationCreate:
 						id1 := httpio.Param[string](req, "id1")
 						id2 := httpio.Param[string](req, "id2")
-						if err := resources.NewPilotCertificationCreatePatchFromPatchSet(id1, id2, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+						patch := resources.NewPilotCertificationCreatePatchFromPatchSet(id1, id2, patchSet)
+						if orSkip {
+							patch.OrSkip()
+						}
+						if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 							return errors.Wrap(err, "resources.PilotCertificationCreatePatch.Buffer()")
 						}
 					case resource.OperationUpdate:
@@ -429,6 +456,28 @@ func (a *App) PatchResources() http.HandlerFunc {
 					}
 				case "sectors":
 					if op.PathDepth() <= 2 {
+						// The two operations that decide from whether their row is there run
+						// as the add or the patch they turn out to be: an add-or-skip is the
+						// add it is, with the create patch told to leave a row that is there
+						// alone, and a patch-or-add is a patch when its row is there and an
+						// add when it is not.
+						orSkip := false
+						switch op.Type {
+						case resource.OperationCreateOrSkip:
+							op, orSkip = op.AsCreate(), true
+						case resource.OperationUpdateOrCreate:
+							keyReq, err := op.ReqWithPattern("/{resource}/{id}", resource.RequireCreatePath())
+							if err != nil {
+								return errors.Wrap(err, "op.ReqWithPattern()")
+							}
+							key := resource.KeySet{}
+							key = key.Add("ID", httpio.Param[string](keyReq, "id"))
+							decided, err := sectorDecoder.DecideOperation(ctx, txn, op, userPermissions, accesstypes.GlobalScope(), key)
+							if err != nil {
+								return errors.Wrap(err, "sectorDecoder.DecideOperation()")
+							}
+							op = decided
+						}
 						patchSet, err := sectorDecoder.DecodeOperation(op, userPermissions, accesstypes.GlobalScope())
 						if err != nil {
 							return errors.Wrap(err, "sectorDecoder.DecodeOperation()")
@@ -443,8 +492,16 @@ func (a *App) PatchResources() http.HandlerFunc {
 						switch op.Type {
 						case resource.OperationCreate:
 							id := httpio.Param[string](req, "id")
-							if err := resources.NewSectorCreatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewSectorCreatePatchFromPatchSet(id, patchSet)
+							if orSkip {
+								patch.OrSkip()
+							}
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.SectorCreatePatch.Buffer()")
+							}
+							if patch.RowSkipped() {
+								// The row was there: nothing was created, so nobody is its creator.
+								continue
 							}
 							for _, role := range roles {
 								if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id)), string(userPermissions.User()), role); err != nil {
@@ -654,6 +711,29 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						}
 					case "refit-tasks":
+						// The two operations that decide from whether their row is there run
+						// as the add or the patch they turn out to be: an add-or-skip is the
+						// add it is, with the create patch told to leave a row that is there
+						// alone, and a patch-or-add is a patch when its row is there and an
+						// add when it is not.
+						orSkip := false
+						switch op.Type {
+						case resource.OperationCreateOrSkip:
+							op, orSkip = op.AsCreate(), true
+						case resource.OperationUpdateOrCreate:
+							keyReq, err := op.ReqWithPattern("/sectors/{sectorID}/{resource}/{id1}/{id2}", resource.RequireCreatePath())
+							if err != nil {
+								return errors.Wrap(err, "op.ReqWithPattern()")
+							}
+							key := resource.KeySet{}
+							key = key.Add("RefitID", httpio.Param[impulse.UUID](keyReq, "id1"))
+							key = key.Add("TaskNumber", httpio.Param[int64](keyReq, "id2"))
+							decided, err := refitTaskDecoder.DecideOperation(ctx, txn, op, userPermissions, accesstypes.DomainScope(domain), key)
+							if err != nil {
+								return errors.Wrap(err, "refitTaskDecoder.DecideOperation()")
+							}
+							op = decided
+						}
 						patchSet, err := refitTaskDecoder.DecodeOperation(op, userPermissions, accesstypes.DomainScope(domain))
 						if err != nil {
 							return errors.Wrap(err, "refitTaskDecoder.DecodeOperation()")
@@ -668,7 +748,11 @@ func (a *App) PatchResources() http.HandlerFunc {
 						case resource.OperationCreate:
 							id1 := httpio.Param[impulse.UUID](req, "id1")
 							id2 := httpio.Param[int64](req, "id2")
-							if err := resources.NewRefitTaskCreatePatchFromPatchSet(id1, id2, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewRefitTaskCreatePatchFromPatchSet(id1, id2, patchSet)
+							if orSkip {
+								patch.OrSkip()
+							}
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.RefitTaskCreatePatch.Buffer()")
 							}
 						case resource.OperationUpdate:
@@ -846,6 +930,29 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						}
 					case "squadron-memberships":
+						// The two operations that decide from whether their row is there run
+						// as the add or the patch they turn out to be: an add-or-skip is the
+						// add it is, with the create patch told to leave a row that is there
+						// alone, and a patch-or-add is a patch when its row is there and an
+						// add when it is not.
+						orSkip := false
+						switch op.Type {
+						case resource.OperationCreateOrSkip:
+							op, orSkip = op.AsCreate(), true
+						case resource.OperationUpdateOrCreate:
+							keyReq, err := op.ReqWithPattern("/sectors/{sectorID}/{resource}/{id1}/{id2}", resource.RequireCreatePath())
+							if err != nil {
+								return errors.Wrap(err, "op.ReqWithPattern()")
+							}
+							key := resource.KeySet{}
+							key = key.Add("SquadronID", httpio.Param[impulse.UUID](keyReq, "id1"))
+							key = key.Add("UserID", httpio.Param[string](keyReq, "id2"))
+							decided, err := squadronMembershipDecoder.DecideOperation(ctx, txn, op, userPermissions, accesstypes.DomainScope(domain), key)
+							if err != nil {
+								return errors.Wrap(err, "squadronMembershipDecoder.DecideOperation()")
+							}
+							op = decided
+						}
 						patchSet, err := squadronMembershipDecoder.DecodeOperation(op, userPermissions, accesstypes.DomainScope(domain))
 						if err != nil {
 							return errors.Wrap(err, "squadronMembershipDecoder.DecodeOperation()")
@@ -860,7 +967,11 @@ func (a *App) PatchResources() http.HandlerFunc {
 						case resource.OperationCreate:
 							id1 := httpio.Param[impulse.UUID](req, "id1")
 							id2 := httpio.Param[string](req, "id2")
-							if err := resources.NewSquadronMembershipCreatePatchFromPatchSet(id1, id2, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewSquadronMembershipCreatePatchFromPatchSet(id1, id2, patchSet)
+							if orSkip {
+								patch.OrSkip()
+							}
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.SquadronMembershipCreatePatch.Buffer()")
 							}
 						case resource.OperationUpdate:

@@ -165,6 +165,12 @@ func (c *MockReadWriteTransaction) touched() []touchedRow {
 	return c.touchedRows.list()
 }
 
+// touchedRow reports whether a patch of this transaction wrote the given patch's row,
+// and whether the last such write deleted it, as SpannerReadWriteTransaction.touchedRow does.
+func (c *MockReadWriteTransaction) touchedRow(patch PatchSetMetadata) (written, deleted bool) {
+	return c.touchedRows.find(patch)
+}
+
 // DataChangeEventIndex provides a sequence number for data change events on the same Resource inside the same transaction.
 func (c *MockReadWriteTransaction) DataChangeEventIndex(res accesstypes.Resource, rowID string) int {
 	return c.txnMock.DataChangeEventIndex(res, rowID)

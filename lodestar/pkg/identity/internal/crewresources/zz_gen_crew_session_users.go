@@ -620,6 +620,30 @@ func (p *CrewSessionUserUpdatePatch) Enforce(caller *resource.Caller) *CrewSessi
 	return p
 }
 
+// OrCreate turns the update into update-or-create. Apply and Buffer look for the
+// row by its key inside the transaction: when it is there the update runs as it
+// is, and when it is not the patch creates the row with the fields it carries,
+// through everything a CrewSessionUserCreatePatch runs (its defaults, its
+// validation, the Create grant of an armed patch, its change record). A row an
+// earlier patch of the same transaction wrote counts as there. An armed patch is
+// asked for Update on the resource before the row is looked for. The fields set
+// here are written in both cases: where the two must write different things,
+// read the row and build the create patch or the update patch. RowCreated says
+// afterwards which it was.
+func (p *CrewSessionUserUpdatePatch) OrCreate() *CrewSessionUserUpdatePatch {
+	(&CrewSessionUserCreatePatch{patchSet: p.patchSet}).registerDefaultFuncs()
+	p.patchSet.OrCreate(crewSessionUserWriteSets.For(accesstypes.Create))
+
+	return p
+}
+
+// RowCreated reports whether the last Apply or Buffer of an OrCreate patch found
+// no row and created it. It is false when the patch updated the row, on a patch
+// that is not an OrCreate, and before the patch has run.
+func (p *CrewSessionUserUpdatePatch) RowCreated() bool {
+	return p.patchSet.Outcome() == resource.OutcomeCreated
+}
+
 func (p *CrewSessionUserUpdatePatch) registerDefaultFuncs() {
 }
 

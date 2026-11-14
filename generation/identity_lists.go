@@ -52,6 +52,9 @@ type identityTenant struct {
 	// name is the record's struct (Sector), table its table (Sectors) and key the
 	// table's one key column (Id), a string: the domain in every tenant-scoped URL.
 	name, table, key string
+	// outlets are the outlets the record is served on: what its @outlet names, the
+	// default outlet when it names none.
+	outlets []string
 }
 
 // identityList is one of a tenant's lists as the generated management declares it: the
@@ -178,6 +181,24 @@ func (d *identitySourceData) TenantName() string {
 	return d.tenant.name
 }
 
+// TenantPicker is the tenant record's resource where a method of the instance can offer
+// a picker of it, for the field that says which tenant a role is given in: the record is
+// served on every outlet the instance's methods are on, since a picker lists a resource
+// of the method's own outlet. It is empty otherwise, and in an application with no
+// tenant record, and the field is then typed.
+func (d *identitySourceData) TenantPicker() string {
+	if d.tenant == nil {
+		return ""
+	}
+	for _, outlet := range d.outlets {
+		if !slices.Contains(d.tenant.outlets, outlet) {
+			return ""
+		}
+	}
+
+	return d.tenant.table
+}
+
 // TenantTable is the tenant record's table.
 func (d *identitySourceData) TenantTable() string {
 	return d.tenant.table
@@ -232,7 +253,7 @@ func sqlStringLiteral(value string) string {
 // whose key is not one string column, is refused here in the words the extraction would
 // use after the load, since the lists cannot be written over it.
 func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
-	name, err := tenantRecordNameIn(r.resource.Dir())
+	name, outlets, err := tenantRecordIn(r.resource.Dir())
 	if err != nil {
 		return nil, errors.Wrapf(err, "GenerateIdentity(%q): reading the tenant record (@%s) from the sources of %s", r.identityTree.Dir(), tenantKeyword, r.resource.Dir())
 	}
@@ -259,7 +280,7 @@ func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
 		return nil, errors.Newf("GenerateIdentity(%q): struct %s is the tenant record (@%s) and its key %s.%s is %s; the tenant record's key is a string, the domain in every tenant-scoped URL", r.identityTree.Dir(), name, tenantKeyword, table, keys[0], spannerType)
 	}
 
-	return &identityTenant{name: name, table: table, key: keys[0]}, nil
+	return &identityTenant{name: name, table: table, key: keys[0], outlets: outlets}, nil
 }
 
 // holdIdentityTenant holds the tenant record the sources were written for to the one the
@@ -291,38 +312,39 @@ func (r *resourceGenerator) holdIdentityTenant() error {
 	return errors.Newf("GenerateIdentity(%q): the sources of the generated management were written for %s, read off the sources of %s before the packages loaded, and the loaded package declares %s; the two readings must agree, so this is a fault of the generator", r.identityTree.Dir(), spell(written), r.resource.Dir(), spell(loaded))
 }
 
-// tenantRecordNameIn reads the name of the struct a package's sources declare the tenant
+// tenantRecordIn reads the name of the struct a package's sources declare the tenant
 // record, "" when none does or the directory holds no package. Only the syntax is read:
 // the files the default build takes, each struct's comment scanned as the extraction
 // scans it. A comment the scanner refuses is passed over here; the extraction refuses it
 // with the struct's place once the packages are loaded.
-func tenantRecordNameIn(dir string) (string, error) {
+func tenantRecordIn(dir string) (name string, outlets []string, err error) {
 	if dir == "" {
-		return "", nil
+		return "", nil, nil
 	}
 	if _, err := os.Stat(dir); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return "", nil
+			return "", nil, nil
 		}
 
-		return "", errors.Wrap(err, "os.Stat()")
+		return "", nil, errors.Wrap(err, "os.Stat()")
 	}
 	pkg, err := build.ImportDir(dir, 0)
 	if err != nil {
 		var noGo *build.NoGoError
 		if errors.As(err, &noGo) {
-			return "", nil
+			return "", nil, nil
 		}
 
-		return "", errors.Wrap(err, "build.ImportDir()")
+		return "", nil, errors.Wrap(err, "build.ImportDir()")
 	}
 
 	var records []string
+	served := map[string][]string{}
 	fset := token.NewFileSet()
 	for _, name := range pkg.GoFiles {
 		file, err := goparser.ParseFile(fset, filepath.Join(dir, name), nil, goparser.ParseComments|goparser.SkipObjectResolution)
 		if err != nil {
-			return "", errors.Wrap(err, "parser.ParseFile()")
+			return "", nil, errors.Wrap(err, "parser.ParseFile()")
 		}
 		for _, decl := range file.Decls {
 			gen, ok := decl.(*ast.GenDecl)
@@ -339,20 +361,51 @@ func tenantRecordNameIn(dir string) (string, error) {
 				}
 				if structCommentHas(gen, typeSpec, tenantKeyword) {
 					records = append(records, typeSpec.Name.Name)
+					served[typeSpec.Name.Name] = structCommentOutlets(gen, typeSpec)
 				}
 			}
 		}
 	}
 	switch len(records) {
 	case 0:
-		return "", nil
+		return "", nil, nil
 	case 1:
-		return records[0], nil
+		return records[0], served[records[0]], nil
 	default:
 		slices.Sort(records)
 
-		return "", errors.Newf("structs %s each carry @%s; an application has one tenant record", strings.Join(records, " and "), tenantKeyword)
+		return "", nil, errors.Newf("structs %s each carry @%s; an application has one tenant record", strings.Join(records, " and "), tenantKeyword)
 	}
+}
+
+// tenantRecordNameIn is tenantRecordIn's name alone.
+func tenantRecordNameIn(dir string) (string, error) {
+	name, _, err := tenantRecordIn(dir)
+
+	return name, err
+}
+
+// structCommentOutlets reads the outlets a struct's comment names (@outlet), the default
+// outlet when it names none, as the extraction reads them for a loaded struct.
+func structCommentOutlets(gen *ast.GenDecl, typeSpec *ast.TypeSpec) []string {
+	doc := typeSpec.Doc
+	if doc == nil && len(gen.Specs) == 1 {
+		doc = gen.Doc
+	}
+	annotations, err := genlang.NewScanner(resourceKeywords()).ScanStructComment(doc.Text() + typeSpec.Comment.Text())
+	if err != nil || !annotations.Has(outletKeyword) {
+		return []string{defaultOutletName}
+	}
+	var outlets []string
+	for arg := range annotations.Get(outletKeyword).Seq() {
+		for part := range strings.SplitSeq(arg, ",") {
+			if name := strings.TrimSpace(part); name != "" {
+				outlets = append(outlets, name)
+			}
+		}
+	}
+
+	return outlets
 }
 
 // structCommentHas reports whether a struct's comment carries the keyword at the

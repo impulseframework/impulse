@@ -179,3 +179,15 @@ export APP_PUBLIC_URL=http://127.0.0.1:4300
 # export APP_MAIL_MAILBOX=no-reply@example.com
 # export APP_MAIL_FROM=
 # export APP_MAIL_APP_PASSWORD=
+
+# --- cmd/droid: the droids' program ---
+# The droid reads its own environment on the machine it runs on, not the server's. These
+# values aim a copy run from this checkout (go run ./cmd/droid reactor 0.55) at the local
+# server: the droids outlet as the router mounts it, the droid account's key from above
+# as its token, and the Lantern, a seeded ship of the anvil sector.
+export DROID_OUTLET=http://127.0.0.1:8090/droids
+export DROID_TOKEN=dev-droids-key
+export DROID_SECTOR=anvil
+export DROID_SHIP=70000000-0000-4000-8000-000000000003
+# DROID_FIRMWARE names the firmware in the frame the droid sends; 7.2 when unset.
+# export DROID_FIRMWARE=7.2

@@ -107,8 +107,10 @@ type Store interface {
 	Memberships(ctx context.Context, txn resource.ReadWriteTransaction, username string) ([]access.MembershipKey, error)
 	// RoleHolders lists who holds the role where the key says it is held.
 	RoleHolders(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RoleKey) ([]accesstypes.User, error)
-	// InsertMembership buffers a membership row.
-	InsertMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey) error
+	// InsertMembership buffers a membership row unless the membership is there already,
+	// committed or written earlier in this transaction, and reports whether it did. A
+	// membership that is there is left exactly as it is, the time it was given included.
+	InsertMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey) (inserted bool, err error)
 	// DeleteMembership buffers the removal of a membership row.
 	DeleteMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey) error
 

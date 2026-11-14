@@ -18,11 +18,14 @@ import (
 // earlier in the same transaction is not readable until the commit, and the caller holds
 // the username. A membership the person holds already is left as it is.
 //
-// "Holds already" is what the database has committed: a read in a transaction does not
-// see what the transaction itself buffered, so a second call for one membership in one
-// transaction buffers the row again and the commit is refused. One transaction gives a
-// membership once. The session library keeps to this for the two hooks of a sign-in (a
-// default role the accepted invitation names too is left to the invitation).
+// "Holds already" is what the database has committed and what this transaction's own
+// patches have written: the store writes the row as a create-unless-there (the generated
+// patch's OrSkip), which asks the transaction's record of the rows it wrote before it
+// reads the stored row, since no read sees a buffered write. So a second call for one
+// membership in one transaction is left as it is too. That record belongs to the library
+// transaction the call is handed. The two hooks of a sign-in each wrap the session's
+// transaction on their own and share none, which is why the session library keeps a
+// default role the accepted invitation names too out of the directory hook's hands.
 //
 // The rule is the permission engine's (access.UserManager.Membership): the role exists
 // in the scope under exactly this spelling, and the username is not empty. A role of the
@@ -44,15 +47,12 @@ func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransact
 	if err != nil {
 		return errors.Wrap(err, "access.UserManager.Membership()")
 	}
-	held, err := m.store.HasMembership(ctx, txn, &key)
+	inserted, err := m.store.InsertMembership(ctx, txn, &key)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.HasMembership()")
-	}
-	if held {
-		return nil
-	}
-	if err := m.store.InsertMembership(ctx, txn, &key); err != nil {
 		return errors.Wrap(err, "identity.Store.InsertMembership()")
+	}
+	if !inserted {
+		return nil
 	}
 
 	return m.policyChangesAtCommit(txn)

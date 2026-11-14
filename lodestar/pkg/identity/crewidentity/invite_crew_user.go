@@ -34,7 +34,11 @@ type (
 		// new.role, so a role file can limit which roles the grant's holder hands out.
 		//
 		// @attribute(role)
-		Roles  []string
+		Roles []string
+		// Domain is the one Sector the roles are given in, picked from the
+		// Sector records the caller may list.
+		//
+		// @enumerate(Sectors)
 		Domain *string
 	}
 	// InviteCrewUserResult answers the invitation's id and whether its message

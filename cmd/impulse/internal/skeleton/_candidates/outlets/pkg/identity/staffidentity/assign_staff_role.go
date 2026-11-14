@@ -27,7 +27,11 @@ type AssignStaffRole struct {
 	// role file can limit which roles the grant's holder hands out.
 	//
 	// @attribute(role)
-	Role        string `validate:"required"`
+	Role string `validate:"required"`
+	// Domain is the one Tenant the role is given in, picked from the
+	// Tenant records the caller may list.
+	//
+	// @enumerate(Tenants)
 	Domain      *string
 	EveryDomain bool
 }

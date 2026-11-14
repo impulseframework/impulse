@@ -357,13 +357,17 @@ func (store) RoleHolders(ctx context.Context, txn resource.ReadWriteTransaction,
 	return users, nil
 }
 
-func (store) InsertMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey) error {
-	patch := membersresources.NewMembersUserRoleCreatePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User))
-	if err := patch.SetCreatedAt(spanner.CommitTimestamp).Buffer(ctx, txn); err != nil {
-		return errors.Wrap(err, "membersresources.MembersUserRoleCreatePatch.Buffer()")
+// InsertMembership is a create-unless-there: a membership that is there, committed or
+// written earlier in this transaction, keeps the time it was given.
+func (store) InsertMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey) (bool, error) {
+	patch := membersresources.NewMembersUserRoleCreatePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User)).
+		SetCreatedAt(spanner.CommitTimestamp).
+		OrSkip()
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return false, errors.Wrap(err, "membersresources.MembersUserRoleCreatePatch.Buffer()")
 	}
 
-	return nil
+	return !patch.RowSkipped(), nil
 }
 
 func (store) DeleteMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey) error {

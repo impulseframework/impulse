@@ -167,25 +167,16 @@ func (m *Manager) moveMemberships(ctx context.Context, txn resource.ReadWriteTra
 	if err != nil {
 		return false, errors.Wrap(err, "identity.Store.Memberships()")
 	}
-	// Every read comes before the first write: which of them the new name holds.
-	insert := make([]access.MembershipKey, 0, len(held))
-	for _, key := range held {
-		key.User = accesstypes.User(to)
-		exists, err := m.store.HasMembership(ctx, txn, &key)
-		if err != nil {
-			return false, errors.Wrap(err, "identity.Store.HasMembership()")
-		}
-		if !exists {
-			insert = append(insert, key)
-		}
-	}
 	for _, key := range held {
 		if err := m.store.DeleteMembership(ctx, txn, &key); err != nil {
 			return false, errors.Wrap(err, "identity.Store.DeleteMembership()")
 		}
 	}
-	for _, key := range insert {
-		if err := m.store.InsertMembership(ctx, txn, &key); err != nil {
+	// A membership the new name holds already is left as it is: the store's write is a
+	// create-unless-there.
+	for _, key := range held {
+		key.User = accesstypes.User(to)
+		if _, err := m.store.InsertMembership(ctx, txn, &key); err != nil {
 			return false, errors.Wrap(err, "identity.Store.InsertMembership()")
 		}
 	}

@@ -3,9 +3,12 @@ package check
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/go-playground/errors/v5"
 
 	"github.com/impulseframework/impulse/ci"
 )
@@ -24,6 +27,11 @@ import (
 // the //impulse:ci line's default-branch), so the check also asks origin which branch
 // that is: a default branch the workflow does not name never fills the caches, and no
 // error says so; without a remote, or offline, the check says it could not ask.
+//
+// An application that is a directory of a larger repository is skipped: GitHub runs the
+// workflows at a repository's root and nowhere else, so a workflow rendered into the
+// application's own directory would never run, and the root's workflows are the larger
+// repository's to write.
 type ciWorkflow struct{}
 
 func (ciWorkflow) Name() string { return "ci-workflow" }
@@ -36,6 +44,9 @@ func (ciWorkflow) Describe() string {
 const renderAdvice = "run impulse render (go tool impulse render) to rewrite it; the file is impulse's: change the code or impulse, not the file"
 
 func (c ciWorkflow) Run(ctx context.Context, env *Env) Result {
+	if dir, nested := directoryOfRepository(ctx, env); nested {
+		return skip(c.Name(), fmt.Sprintf("the application is the directory %s of a larger repository: GitHub runs the workflows at a repository's root alone, so the application holds none of its own", dir))
+	}
 	d, err := ci.Compare(env.App)
 	if err != nil {
 		return fail(c.Name(), fmt.Sprintf("%s: %v", ci.List(ci.Files), err))
@@ -83,6 +94,51 @@ func (c ciWorkflow) defaultBranch(ctx context.Context, env *Env) Result {
 }
 
 // symrefRE reads the branch out of git ls-remote --symref's first line: ref: refs/heads/<name>\tHEAD.
+// directoryOfRepository reports where the application sits in its repository when it is
+// not the repository's root (git rev-parse --show-toplevel): the directory, relative to
+// the root. Without an Execer, outside a repository, or at the root, nested is false.
+func directoryOfRepository(ctx context.Context, env *Env) (dir string, nested bool) {
+	if env.Exec == nil {
+		return "", false
+	}
+	out, err := env.Exec.Run(ctx, env.App.Root, nil, "git", "rev-parse", "--show-toplevel")
+	if err != nil {
+		return "", false
+	}
+	top, err := resolvedPath(strings.TrimSpace(string(out)))
+	if err != nil {
+		return "", false
+	}
+	root, err := resolvedPath(env.App.Root)
+	if err != nil {
+		return "", false
+	}
+	rel, err := filepath.Rel(top, root)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+
+	return filepath.ToSlash(rel), true
+}
+
+// resolvedPath is a path made absolute with its symbolic links followed, so two spellings
+// of one directory compare equal.
+func resolvedPath(p string) (string, error) {
+	if p == "" {
+		return "", errors.New("no path")
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return "", errors.Wrap(err, "filepath.Abs()")
+	}
+	resolved, err := filepath.EvalSymlinks(abs)
+	if err != nil {
+		return "", errors.Wrap(err, "filepath.EvalSymlinks()")
+	}
+
+	return resolved, nil
+}
+
 var symrefRE = regexp.MustCompile(`^ref: refs/heads/(\S+)\s+HEAD`)
 
 // originDefaultBranch asks origin for its default branch; ok is false when there is no

@@ -1410,7 +1410,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'refitId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.Refits },
       { fieldName: 'taskNumber', primaryKey: { ordinalPosition: 1 }, displayType: 'number', required: true, isIndex: false },
       { fieldName: 'instructions', displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'done', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'done', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'notes', displayType: 'string', required: false, isIndex: false },
     ],
   },

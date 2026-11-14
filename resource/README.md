@@ -186,6 +186,17 @@ meaning (`LastServicedAt`) is an ordinary **explicit** update performed by the o
 of application code that owns the business event — `output_only` keeps clients out, and
 the writing code sets the field like any other.
 
+A second contract sits beside it: **an update that changes nothing is no error.** Where
+every field an update sets already holds that value, the update succeeds, and on a
+resource that keeps change records it writes no record, since nothing changed. A request
+repeated after a timeout, a task a queue delivers twice and a sync that runs again find
+the row as they asked, and a REST `PATCH` that restates the row answers 200. Only the
+low-level insert-or-update (`resource.CreateOrUpdatePatchType`) keeps its refusal.
+
+Two more things a patch can be told from application code, each decided from whether its
+row is there: an update that creates the row when it is not (`OrCreate`), and a create
+that leaves the row alone when it is (`OrSkip`). Section 22 has both.
+
 ## 3. Struct tags the generator writes (zz_gen request structs)
 
 Read back at runtime by the `resource` package; listed here for reading generated code.
@@ -2889,3 +2900,136 @@ resource derived from the Auth's tables, a sector's open list among them, and it
 console's `identity-pages.spec.ts` holds the pages the library builds for the two Auths
 to the generated metadata: every resource, column, field and method a page names is one
 the description carries.
+
+## 22. Update-or-create and create-unless-there
+
+Application code sometimes writes a row without knowing whether it is there: a task a
+queue delivers twice, a sync that runs again, a membership given to a person who may hold
+it already. The generated patches say both intents, and neither is a third kind of write:
+
+```go
+// Update the row; create it when it is not there.
+patch := resources.NewTenantSettingUpdatePatch(tenantID).SetTheme(theme).OrCreate()
+if err := patch.Buffer(ctx, txn); err != nil {
+	return err
+}
+created := patch.RowCreated()
+
+// Create the row; leave it exactly as it is when it is there.
+patch := resources.NewUserRoleCreatePatch(kind, axis, domain, role, user).SetCreatedAt(now).OrSkip()
+if err := patch.Buffer(ctx, txn); err != nil {
+	return err
+}
+skipped := patch.RowSkipped()
+```
+
+**What runs.** `Apply` and `Buffer` read the row's key inside the transaction and then run
+the create or the update exactly as a plain `CreatePatch` or `UpdatePatch` runs it. So the
+two cases differ in everything the resource declares for them, with nothing said at the
+call: a `default_create_fn` and the `@state` default fill only a row that is created, an
+`output_only_update_fn` stamps only a row that is updated, the create's or the update's
+validation runs, an armed patch (`Enforce`) is held to the Create grant or the Update grant
+with its condition, and the change record is the create's or the update's. The mutation is
+a plain insert or a plain update; Spanner's insert-or-update is not used, and
+`resource.CreateOrUpdatePatchType` is left as it was.
+
+| | The row is there | The row is not there |
+| --- | --- | --- |
+| `UpdatePatch.OrCreate()` | the update, whole; `RowCreated()` is false | the create, whole, with the fields the patch carries; `RowCreated()` is true |
+| `CreatePatch.OrSkip()` | nothing: no default, no validation, no write, no change record; `RowSkipped()` is true | the create, whole; `RowSkipped()` is false |
+
+**Which patches.** Every update patch offers `OrCreate`, since an update names its row. A
+create patch offers `OrSkip` only where the caller names the key (a composite key, an
+interleaved table's key, a key that is a foreign key, a key that is not a UUID): a create
+patch that makes its own id
+never names a row that is there, so the method is not generated and a call does not
+compile.
+
+**The same fields in both cases.** An `OrCreate` patch writes the fields it carries
+whether it updates or creates. Where the two must write different things (a value given
+only at creation, a counter raised from the stored value), read the row and build the
+create patch or the update patch; `OrCreate` is the short form for the case where both
+write the same.
+
+**The read.** It asks for the key alone. In a tenant request it is held to the tenant, so
+a row another tenant holds under the same key reads as not there, and the create that
+follows is refused at commit as any create of a taken key is (section 10). It is made
+inside the read-write transaction, so of several writers racing to update-or-create one
+row exactly one creates it and the others update it; none is refused.
+
+**The grant.** A patch armed against a caller (`Enforce`) is asked for the grant of what
+it is before the row is looked for, so a caller who does not hold it gets the same
+refusal whether or not the row is there, and learns nothing from the answer. An `OrSkip`
+is a create: it is checked for Create with the fields it carries, and a Create grant's
+row condition is judged only when the row is created. An `OrCreate` is an update: it is
+asked for Update on the resource, and the fields it carries are then held to the Update
+grant when the row is there and to the Create grant when it is not, each with its
+condition. A caller who holds Update and not Create is refused when the row is not
+there, which says no more than the 404 a plain update gives the same caller.
+
+**Rows of the same transaction.** A read does not see what its own transaction buffered,
+which is why two plain creates of one row in one transaction are refused at commit. An
+`OrCreate` or `OrSkip` patch asks the transaction's record of the rows its patches wrote
+before it reads: a row an earlier patch of the transaction wrote is there, and one it
+deleted is not. So a second `OrSkip` of one row skips, and a second `OrCreate` updates.
+One limit is the update path's own: on a resource that keeps change records, under a
+grant with a row condition, and in a tenant request, an update reads the stored row, so
+an `OrCreate` of a row the same transaction created is answered not found, exactly as a
+plain update of that row is. An `OrSkip` of such a row skips.
+
+**A transaction that runs again.** A transaction Spanner aborts runs its function again,
+and the row may be there on the second attempt where it was not on the first. The patch
+decides again on every attempt, and what the earlier attempt's path put on it (a create's
+default, a value a hook rewrote) is taken back first, so a patch built once outside the
+function is safe to buffer inside it.
+
+**In a batch.** The consolidated endpoint and a resource's own PATCH route take both as
+operations, beside `add`, `patch` and `remove`:
+
+```json
+[
+  {"op": "patch-or-add", "path": "/work-order-tasks/7f3c9a52-0c1e-4d6b-9a57-2f1d6f0b8e11/4", "value": {"instructions": "Seal the aft lock", "done": false}},
+  {"op": "add-or-skip", "path": "/work-order-tasks/7f3c9a52-0c1e-4d6b-9a57-2f1d6f0b8e11/5", "value": {"instructions": "Test the seal"}}
+]
+```
+
+Each names its row in the path, as a `patch` does. A `patch-or-add` is decided inside the
+batch's transaction (`Decoder.DecideOperation`: the caller's Update grant on the
+resource, then the read of the key) and is then decoded and run as the `patch` or the
+`add` it turned out to be. An `add-or-skip` runs as the `add` it is, with its create
+patch marked `OrSkip`. So the fields a body may carry, the grant with its condition, the
+validation and the change record are a patch's or an add's, with nothing of their own,
+and an earlier operation of the same batch counts: two `add-or-skip` of one row land,
+where two `add` of it are refused at commit.
+
+Only a resource whose key the client supplies takes them. One whose id the server makes
+answers 400 (`Missions takes add, patch and remove, not "patch-or-add"`): no request
+names a row of it that may or may not be there. A `patch-or-add` carries one value,
+written in both cases, and over the wire a patch may not carry every field a create may.
+So a resource whose create must carry a field no patch may carry (an `immutable` field
+with no default) takes `add-or-skip` alone, and answers a `patch-or-add` with a 400 that
+names the field.
+
+**In the browser.** The generated client builds both for `client.batch`
+(`web/projects/resource`): `handle.ops.patchOrAdd(value)` and
+`handle.ops.addOrSkip(value)`, where the value's key fields become the path. Each builder
+exists only on the handle of a resource that takes the operation, so a call the server
+would refuse does not compile. The value of `patchOrAdd` holds what a create must have
+and what a patch may change; a field only a create takes does not compile in it. A page
+offers an action built on `patchOrAdd` where the caller holds both Create and Update,
+since it cannot know which of the two the server will ask for.
+
+**In the library.** The generated identity store writes a membership as a
+create-unless-there (`InsertMembership`), so a role a person holds already keeps the time
+it was given and giving it twice in one transaction is no error.
+
+**Tests.** `resource/patch_fork_test.go` holds the decision, the rows of the same
+transaction, the attempts and the armed cases against the mock transaction, with the
+refusal that comes before the read; `resource/patch_fork_spanner_test.go` holds the same
+over the emulator, with the racing writers, the change records and the commit that
+refuses two plain creates; `resource/operations_fork_test.go` holds the two batch
+operations and the decoder's decision; `generation/patchfork_test.go` holds which
+generated patch offers which method, and which handler and which client takes which
+operation. Lodestar serves both operations over a refit's tasks
+(`lodestar/test/integration/batch_decided_test.go`), and the browser client's specs are
+`web/projects/resource/src/batch.spec.ts` and `patch-or-add.types.spec.ts`.

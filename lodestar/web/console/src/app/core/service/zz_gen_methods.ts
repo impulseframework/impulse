@@ -868,7 +868,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'username', displayType: 'string', required: true },
       { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
-      { fieldName: 'domain', displayType: 'string', optional: true },
+      { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Sectors, optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
     ],
   },
@@ -961,7 +961,7 @@ const methodMap: MethodMap = {
       { fieldName: 'email', displayType: 'string', optional: true },
       { fieldName: 'password', displayType: 'string', optional: true },
       { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
-      { fieldName: 'domain', displayType: 'string', optional: true },
+      { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Sectors, optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
     ],
   },
@@ -1200,7 +1200,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'email', displayType: 'string', required: true },
       { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
-      { fieldName: 'domain', displayType: 'string', optional: true },
+      { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Sectors, optional: true },
     ],
   },
   [Methods.IssueBulletin]: {

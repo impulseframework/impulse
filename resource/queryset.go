@@ -268,6 +268,29 @@ func (q *QuerySet[Resource]) checkPermissions(ctx context.Context, dbType DBType
 	return q.checkCapabilityPermissions(ctx)
 }
 
+// checkResourcePermission asks one thing of an armed set: whether the caller holds the
+// permission it is armed for on the resource at all, with a condition or without. It
+// says nothing of fields or rows. It is the gate an update-or-create passes before its
+// row is looked for (patch_fork.go), so the answer a caller with no such grant gets is
+// the same whether or not the row is there. A set that is not armed passes.
+func (q *QuerySet[Resource]) checkResourcePermission(ctx context.Context) error {
+	if q.armError != nil {
+		return q.armError
+	}
+	if q.resourceSet == nil {
+		return nil
+	}
+	decisions, err := q.userPermissions.Check(ctx, q.env, q.scope, q.requiredPermission, q.resourceSet.BaseResource())
+	if err != nil {
+		return errors.Wrap(err, "resource.UserPermissions.Check()")
+	}
+	if denied := decisions.DeniedResources(); len(denied) > 0 {
+		return httpio.NewForbiddenMessagef("scope (%s), user (%s) does not have (%s) on %s", q.scope, q.userPermissions.User(), q.requiredPermission, denied)
+	}
+
+	return nil
+}
+
 func (q *QuerySet[Resource]) checkReadPermissions(ctx context.Context, dbType DBType) error {
 	if q.resourceSet != nil {
 		decisions, err := q.userPermissions.Check(ctx, q.env, q.scope, q.requiredPermission, q.resourceSet.BaseResource())

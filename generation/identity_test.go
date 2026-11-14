@@ -820,6 +820,28 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 			}
 		}
 	}
+	// The whole application's methods name the tenant a role is given in, and the field
+	// lists the tenant record where the record is served on every outlet the methods are
+	// on: the crew's are on the default outlet, the record's own. (Where a method is also
+	// on an outlet the record is not on, the field stays typed:
+	// Test_identitySourceData_TenantPicker.)
+	for file, picks := range map[string]bool{
+		"crewidentity/assign_crew_role.go": true,
+		"crewidentity/create_crew_user.go": true,
+		"crewidentity/invite_crew_user.go": true,
+	} {
+		content, err := os.ReadFile(filepath.Join("pkg", "identity", file))
+		if err != nil {
+			t.Fatalf("os.ReadFile(%s) error = %v", file, err)
+		}
+		if got := strings.Contains(string(content), "// @enumerate(Ships)"); got != picks {
+			t.Errorf("%s declares a picker of the tenant record = %v, want %v:\n%s", file, got, picks, content)
+		}
+		if !strings.Contains(string(content), "Domain ") {
+			t.Errorf("%s holds no Domain field: the case no longer tests what it names", file)
+		}
+	}
+
 	// A tenant's request names no tenant: the methods that create and invite carry no
 	// field for one, and no method of a tenant's reads where a role is held from its
 	// request.

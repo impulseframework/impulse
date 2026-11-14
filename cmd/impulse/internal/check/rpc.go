@@ -19,7 +19,8 @@ import (
 // handlers generated for them. Every @rpc struct declares Execute in one of the three
 // forms the generator classifies by signature: the transaction form takes
 // resource.ReadWriteTransaction second, the client form resource.Client, and the
-// upload form resource.ReadWriteTransaction second and resource.Files third. Every
+// upload form resource.ReadWriteTransaction second and resource.Files third
+// (resource.FilesIn[S] where the method names its store). Every
 // generated RPC handler calls Execute: a generator that could not type-check a
 // method once emitted a decode-only handler that answers requests without running
 // it, a fail-open bug that compiles cleanly. And no TxnRunner or DBRunner interface
@@ -214,7 +215,7 @@ func (p *rpcPackage) findings() []string {
 			continue
 		}
 		if !exec.recognized() {
-			out = append(out, fmt.Sprintf("%s: %s.Execute(%s) (%s) is none of the three forms the generator classifies: Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error, Execute(ctx context.Context, client resource.Client, rpcClient *Client) error, or Execute(ctx context.Context, txn resource.ReadWriteTransaction, files resource.Files, client *Client) error", exec.pos, m.name, strings.Join(exec.params, ", "), strings.Join(exec.results, ", ")))
+			out = append(out, fmt.Sprintf("%s: %s.Execute(%s) (%s) is none of the three forms the generator classifies: Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error, Execute(ctx context.Context, client resource.Client, rpcClient *Client) error, or Execute(ctx context.Context, txn resource.ReadWriteTransaction, files resource.Files, client *Client) error (resource.FilesIn[S] where the method names its store)", exec.pos, m.name, strings.Join(exec.params, ", "), strings.Join(exec.results, ", ")))
 		}
 	}
 
@@ -223,8 +224,8 @@ func (p *rpcPackage) findings() []string {
 
 // recognized reports whether the declaration has the shape of one of the three forms:
 // context first and a transaction or the resource.Client interface second; a pointer
-// third, or, in the upload form, resource.Files third over a transaction and a pointer
-// fourth; and error as the only or last result.
+// third, or, in the upload form, resource.Files or resource.FilesIn[S] third over a
+// transaction and a pointer fourth; and error as the only or last result.
 func (e executeDecl) recognized() bool {
 	if (len(e.params) != 3 && len(e.params) != 4) || e.params[0] != "context.Context" {
 		return false
@@ -236,7 +237,7 @@ func (e executeDecl) recognized() bool {
 	if len(e.params) == 4 {
 		// The upload form: the files come third and the client fourth, inside the
 		// transaction that claims the files.
-		if e.params[1] != "resource.ReadWriteTransaction" || e.params[2] != "resource.Files" {
+		if e.params[1] != "resource.ReadWriteTransaction" || !filesParam(e.params[2]) {
 			return false
 		}
 		client = e.params[3]
@@ -246,6 +247,17 @@ func (e executeDecl) recognized() bool {
 	}
 
 	return (len(e.results) == 1 || len(e.results) == 2) && e.results[len(e.results)-1] == "error"
+}
+
+// filesParam reports whether a parameter's type is an upload's files: resource.Files,
+// the default store's, or resource.FilesIn[S], the files of the store the method names.
+func filesParam(param string) bool {
+	if param == "resource.Files" {
+		return true
+	}
+	store, ok := strings.CutPrefix(param, "resource.FilesIn[")
+
+	return ok && strings.HasSuffix(store, "]") && store != "]"
 }
 
 // fieldTypes renders a parameter or result list's types in declaration order,
@@ -278,6 +290,8 @@ func exprText(e ast.Expr) string {
 		return "..." + exprText(x.Elt)
 	case *ast.ArrayType:
 		return "[]" + exprText(x.Elt)
+	case *ast.IndexExpr:
+		return exprText(x.X) + "[" + exprText(x.Index) + "]"
 	default:
 		return fmt.Sprintf("%T", e)
 	}

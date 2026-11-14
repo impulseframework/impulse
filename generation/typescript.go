@@ -804,6 +804,10 @@ const (
 	opCreate = "create"
 	opPatch  = "patch"
 	opRemove = "remove"
+	// opPatchOrAdd and opAddOrSkip name the builders of the batch's patch-or-add and
+	// add-or-skip operations in the client file.
+	opPatchOrAdd = "patchOrAdd"
+	opAddOrSkip  = "addOrSkip"
 
 	sortAsc  = "asc"
 	sortDesc = "desc"
@@ -952,6 +956,16 @@ func (t *typescriptGenerator) apiResource(res *resourceInfo) *tsAPIResource {
 	}
 	if res.IsConsolidated && (out.HasCreate || out.HasPatch || !res.DeleteHandlerDisabled()) {
 		out.Operations = append(out.Operations, "batch")
+		// The two operations that decide from whether the row is there exist where the
+		// client names the row: a server-made id names none that may or may not be
+		// there. Update-or-create needs both a create and an update to turn into, and
+		// one value that serves both (PatchOrAddRefusal).
+		if !res.PrimaryKeyIsGeneratedUUID() && out.HasCreate {
+			if out.HasPatch && res.PatchOrAddRefusal() == "" {
+				out.Operations = append(out.Operations, opPatchOrAdd)
+			}
+			out.Operations = append(out.Operations, opAddOrSkip)
+		}
 	}
 
 	return out

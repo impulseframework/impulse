@@ -15,6 +15,14 @@ type (
 	//
 	// A create that supplies a task number the refit already holds reaches the commit,
 	// where Spanner refuses the duplicate key; the library answers 409 naming RefitTasks.
+	// Because the client names the row, the batch's two operations that decide from
+	// whether the row is there apply to a task: patch-or-add updates the task its path
+	// names and creates it when the refit holds none under that number, and add-or-skip
+	// creates it and leaves a task that is there exactly as it is
+	// (test/integration/batch_decided_test.go).
+	//
+	// Done has a column default (FALSE): a new task is not done, and the Engineer's Create
+	// grant carries the instructions alone, so the column must accept the narrowed create.
 	//
 	// PhotoKey's @file(photo) stores a photograph of the finished work under the task's
 	// read route (.../refit-tasks/{id}/{taskNumber}/photo). Its key is a plain *string,
@@ -31,7 +39,7 @@ type (
 	// `go run ./cmd/generate/resourcegenerator -audit` prints the one finding that
 	// names this table and its parent, and cmd/generate/audit_test.go pins it.
 	//
-	// Demonstrates: interleaved-table, compound-key, client-supplied-key, @stateRoot, @domain.join-path, create-under-parent, index.trailing-key, commit.constraint-refusal, audit.cascade-release, filestore.named.
+	// Demonstrates: interleaved-table, compound-key, client-supplied-key, @stateRoot, @domain.join-path, create-under-parent, index.trailing-key, commit.constraint-refusal, audit.cascade-release, filestore.named, batch.patch-or-add, batch.add-or-skip.
 	//
 	// @resource
 	// @permissionScope(domain)

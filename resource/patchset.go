@@ -49,6 +49,9 @@ type PatchSet[Resource Resourcer] struct {
 	defaultsUpdateFunc    DefaultsFunc
 	validateCreateFunc    ValidateFunc
 	validateUpdateFunc    ValidateFunc
+	// fork is set on an update-or-create (OrCreate) and on a create-unless-there
+	// (OrSkip) patch, and nil on every other (patch_fork.go).
+	fork *patchFork[Resource]
 }
 
 // NewPatchSet creates a new, empty PatchSet for a given resource metadata.
@@ -301,7 +304,13 @@ func (p *PatchSet[Resource]) Resource() accesstypes.Resource {
 // mutation, no change event. To run the update pipeline with the content
 // supplied entirely by the registered output-only update functions, mark the
 // patch with AsTouch.
+//
+// An OrCreate or OrSkip patch decides its case first, from whether its row is
+// there (patch_fork.go), and then runs as the create or the update it decided on.
 func (p *PatchSet[Resource]) Apply(ctx context.Context, client Client, eventSource ...string) error {
+	if p.fork != nil {
+		return p.applyFork(ctx, client, eventSource...)
+	}
 	if err := p.validateTouch(); err != nil {
 		return err
 	}
@@ -335,7 +344,13 @@ func (p *PatchSet[Resource]) Apply(ctx context.Context, client Client, eventSour
 // mutation, no change event. To run the update pipeline with the content
 // supplied entirely by the registered output-only update functions, mark the
 // patch with AsTouch.
+//
+// An OrCreate or OrSkip patch decides its case first, from whether its row is
+// there (patch_fork.go), and then runs as the create or the update it decided on.
 func (p *PatchSet[Resource]) Buffer(ctx context.Context, txn ReadWriteTransaction, eventSource ...string) error {
+	if p.fork != nil {
+		return p.bufferFork(ctx, txn, eventSource...)
+	}
 	if err := p.validateTouch(); err != nil {
 		return err
 	}
@@ -643,7 +658,7 @@ func (p *PatchSet[Resource]) bufferInsertWithDataChangeEvent(txn ReadWriteTransa
 }
 
 func (p *PatchSet[Resource]) bufferInsertOrUpdateWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource string) error {
-	changeSet, err := p.updateChangeSet(ctx, txn)
+	changeSet, where, err := p.updateChangeSet(ctx, txn)
 	if err != nil {
 		if !errors.Is(err, spxapi.ErrNotFound) {
 			return err
@@ -652,6 +667,10 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdateWithDataChangeEvent(ctx context
 		if err != nil {
 			return err
 		}
+	} else if len(changeSet) == 0 {
+		// The insert-or-update keeps the refusal an update has let go of
+		// (bufferUpdateWithDataChangeEvent).
+		return httpio.NewBadRequestMessagef("No changes to apply for %s (%s)", p.Resource(), where)
 	}
 
 	rowID := p.PrimaryKey().RowID()
@@ -674,10 +693,18 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdateWithDataChangeEvent(ctx context
 	return nil
 }
 
+// bufferUpdateWithDataChangeEvent buffers the record of what an update changed. An update
+// that changes nothing, because every field it sets holds that value already, is no
+// error and writes no record: a request repeated after a timeout, a task a queue delivers
+// twice and a sync that runs again find the row as they asked, on a resource that keeps
+// change records exactly as on one that does not.
 func (p *PatchSet[Resource]) bufferUpdateWithDataChangeEvent(ctx context.Context, txn ReadWriteTransaction, eventSource string) error {
-	changeSet, err := p.updateChangeSet(ctx, txn)
+	changeSet, _, err := p.updateChangeSet(ctx, txn)
 	if err != nil {
 		return err
+	}
+	if len(changeSet) == 0 {
+		return nil
 	}
 
 	rowID := p.PrimaryKey().RowID()
@@ -736,27 +763,26 @@ func (p *PatchSet[Resource]) insertChangeSet() (map[accesstypes.Field]DiffElem, 
 	return changeSet, nil
 }
 
-func (p *PatchSet[Resource]) updateChangeSet(ctx context.Context, txn ReadWriteTransaction) (map[accesstypes.Field]DiffElem, error) {
+// updateChangeSet reads the stored row and answers what the patch changes on it: the
+// fields whose stored value differs from the one the patch sets, and none when every
+// field holds its value already. where is the row's WHERE clause, for a message.
+func (p *PatchSet[Resource]) updateChangeSet(ctx context.Context, txn ReadWriteTransaction) (changeSet map[accesstypes.Field]DiffElem, where string, err error) {
 	stmt, err := p.querySet.stmt(txn.DBType())
 	if err != nil {
-		return nil, errors.Wrap(err, "QuerySet.SpannerStmt()")
+		return nil, "", errors.Wrap(err, "QuerySet.SpannerStmt()")
 	}
 
 	oldValues, err := newReader[Resource](txn).Read(ctx, stmt)
 	if err != nil {
-		return nil, errors.Wrap(err, "Reader[Resource].Read()")
+		return nil, "", errors.Wrap(err, "Reader[Resource].Read()")
 	}
 
-	changeSet, err := p.Diff(&oldValues.Data)
+	changeSet, err = p.Diff(&oldValues.Data)
 	if err != nil {
-		return nil, errors.Wrap(err, "Diff()")
+		return nil, "", errors.Wrap(err, "Diff()")
 	}
 
-	if len(changeSet) == 0 {
-		return nil, httpio.NewBadRequestMessagef("No changes to apply for %s (%s)", p.Resource(), stmt.resolvedWhereClause)
-	}
-
-	return changeSet, nil
+	return changeSet, stmt.resolvedWhereClause, nil
 }
 
 func (p *PatchSet[Resource]) jsonDeleteSet(ctx context.Context, txn ReadWriteTransaction) (map[accesstypes.Field]DiffElem, error) {

@@ -501,6 +501,13 @@ func nullifyNilPointers(patch map[string]any) {
 	}
 }
 
+// touchedRow reports whether a patch of this transaction wrote the given patch's row,
+// and whether the last such write deleted it (an OrCreate or OrSkip patch asks, since no
+// read sees a buffered write).
+func (c *SpannerReadWriteTransaction) touchedRow(patch PatchSetMetadata) (written, deleted bool) {
+	return c.touchedRows.find(patch)
+}
+
 // DataChangeEventIndex provides a sequence number for data change events on the same Resource inside the same transaction.
 func (c *SpannerReadWriteTransaction) DataChangeEventIndex(res accesstypes.Resource, rowID string) int {
 	indexID := fmt.Sprintf("%s_%s", res, rowID)

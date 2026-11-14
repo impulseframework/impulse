@@ -1,6 +1,7 @@
 package resource
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -131,8 +132,60 @@ func (d *Decoder[Resource, Request]) Decode(request *http.Request, userPermissio
 	return p, nil
 }
 
+// refuseUndecided answers a patch-or-add or an add-or-skip that reaches a decode as it
+// came. The fields a body may carry, and the permission it is checked for, are a
+// create's or an update's, so a handler that takes the two operations decodes each as the
+// one it runs as (AsCreate, AsUpdate). One that does not take them, as the generated
+// handlers of a resource whose rows get their id from the server do not (no request names
+// a row of theirs that may or may not be there), answers here.
+func (d *Decoder[Resource, Request]) refuseUndecided(oper *Operation) error {
+	if oper.Type == OperationUpdateOrCreate || oper.Type == OperationCreateOrSkip {
+		return httpio.NewBadRequestMessagef("%s takes add, patch and remove, not %q", d.resourceSet.BaseResource(), oper.Type)
+	}
+
+	return nil
+}
+
+// DecideOperation answers the operation a patch-or-add runs as: the patch when the row
+// its path names is there, the add when it is not. The handler then decodes and runs
+// that operation as it does any patch or add.
+//
+// A patch-or-add is an update first: the caller's Update grant on the resource is asked
+// for before the row is looked for, so a caller who may not update is refused the same
+// way whether or not the row is there, and learns nothing from the answer. Which fields
+// the caller may write, and on which rows, is the decoded operation's own check.
+//
+// The read is the one an OrCreate patch makes (patch_fork.go): the key alone, inside the
+// transaction, held to the tenant in a tenant's scope, after the transaction's own record
+// of the rows it wrote, so an earlier operation of the same batch counts.
+func (d *Decoder[Resource, Request]) DecideOperation(ctx context.Context, txn ReadWriteTransaction, oper *Operation, userPermissions UserPermissions, scope accesstypes.Scope, key KeySet) (*Operation, error) {
+	p := NewPatchSet(d.resourceSet.ResourceMetadata())
+	for _, part := range key.Parts() {
+		p.SetKey(part.Key, part.Value)
+	}
+	p.querySet.env = RequestEnvironment()
+	p.querySet.collection = d.collection
+	p.EnableUserPermissionEnforcement(d.resourceSet, userPermissions, scope, accesstypes.Update)
+	if err := p.querySet.checkResourcePermission(ctx); err != nil {
+		return nil, err
+	}
+
+	exists, err := p.rowExists(ctx, txn)
+	if err != nil {
+		return nil, err
+	}
+	if exists {
+		return oper.AsUpdate(), nil
+	}
+
+	return oper.AsCreate(), nil
+}
+
 // DecodeOperationWithoutPermissions decodes an Operation into a PatchSet without enforcing user permissions.
 func (d *Decoder[Resource, Request]) DecodeOperationWithoutPermissions(oper *Operation) (*PatchSet[Resource], error) {
+	if err := d.refuseUndecided(oper); err != nil {
+		return nil, err
+	}
 	if oper.Type == OperationDelete {
 		return NewPatchSet(d.resourceSet.ResourceMetadata()), nil
 	}
@@ -148,6 +201,9 @@ func (d *Decoder[Resource, Request]) DecodeOperationWithoutPermissions(oper *Ope
 // DecodeOperation decodes an Operation into a PatchSet and enables user permission
 // enforcement in the given domain partition.
 func (d *Decoder[Resource, Request]) DecodeOperation(oper *Operation, userPermissions UserPermissions, scope accesstypes.Scope) (*PatchSet[Resource], error) {
+	if err := d.refuseUndecided(oper); err != nil {
+		return nil, err
+	}
 	if oper.Type == OperationDelete {
 		patchSet := NewPatchSet(d.resourceSet.ResourceMetadata())
 		patchSet.querySet.env = RequestEnvironment()

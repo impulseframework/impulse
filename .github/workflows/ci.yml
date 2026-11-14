@@ -196,7 +196,7 @@ jobs:
   lodestar-go:
     # Lodestar (lodestar/) is its own Go module, replacing the framework module with this
     # checkout, so it is the application that proves the framework at this commit: it is
-    # built, vetted and tested here. golang-ci does not reach it, since the reusable
+    # built, vetted, tested and read by impulse check here. golang-ci does not reach it, since the reusable
     # workflow's modules are the packages of release-please-config.json and Lodestar is not
     # released.
     name: lodestar go
@@ -233,6 +233,17 @@ jobs:
       - name: Build, vet and test (the harnesses start the Spanner emulator in a container)
         working-directory: lodestar
         run: go build ./... && go vet ./... && go test -race ./...
+      - name: impulse check (built from this commit, on Lodestar)
+        # The checks an application runs, held against the application that proves the
+        # framework: a finding here is a defect in Lodestar or in the check, and either one
+        # fails the pull request. The check regenerates Lodestar (the Spanner emulator, in
+        # a container) and fails when the committed generated code is not what this commit
+        # generates. ci-workflow reads as skipped: Lodestar is a directory of this
+        # repository, whose workflows are this file's.
+        run: |
+          go build -o "$RUNNER_TEMP/impulse" ./cmd/impulse
+          cd lodestar
+          "$RUNNER_TEMP/impulse" check
       - name: Save the Go caches
         # Always on master; on a pull request only when no entry for this go.sum was found.
         # A failed test still saves what compiled; a canceled run saves nothing.
