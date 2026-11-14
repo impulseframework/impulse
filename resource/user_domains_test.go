@@ -42,23 +42,39 @@ func (s *domainsStubPermissions) Reaches(context.Context, accesstypes.Domain) (b
 
 func (s *domainsStubPermissions) User() accesstypes.User { return "dana" }
 
+// stubNames names the domains it holds and no other.
+type stubNames map[accesstypes.Domain]string
+
+func (n stubNames) Name(domain accesstypes.Domain) string {
+	return n[domain]
+}
+
 // TestUserDomainsHandler pins the user-domains wire contract: the checker's
-// sorted list verbatim, an empty membership as [] (never null, so a picker
-// iterates without a null guard), and a checker error as an error response.
+// sorted list verbatim, each domain with its name (the namer's, the domain itself
+// where it holds none or no namer is given), an empty membership as [] (never null,
+// so a picker iterates without a null guard), and a checker error as an error response.
 func TestUserDomainsHandler(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
 		name       string
 		stub       *domainsStubPermissions
+		names      DomainNamer
 		wantStatus int
 		wantBody   string
 	}{
 		{
-			name:       "membership lists verbatim",
+			name:       "membership lists verbatim, each domain its own name without a namer",
 			stub:       &domainsStubPermissions{domains: []accesstypes.Domain{"tenant1", "tenant2"}},
 			wantStatus: http.StatusOK,
-			wantBody:   `["tenant1","tenant2"]`,
+			wantBody:   `[{"domain":"tenant1","name":"tenant1"},{"domain":"tenant2","name":"tenant2"}]`,
+		},
+		{
+			name:       "the namer names each domain, the domain standing in where it holds no name",
+			stub:       &domainsStubPermissions{domains: []accesstypes.Domain{"tenant1", "tenant2"}},
+			names:      stubNames{"tenant1": "Ridgeline County"},
+			wantStatus: http.StatusOK,
+			wantBody:   `[{"domain":"tenant1","name":"Ridgeline County"},{"domain":"tenant2","name":"tenant2"}]`,
 		},
 		{
 			name:       "no membership is an empty array, never null",
@@ -76,7 +92,7 @@ func TestUserDomainsHandler(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			handler := UserDomainsHandler(func(*http.Request) UserPermissions { return tt.stub })
+			handler := UserDomainsHandler(func(*http.Request) UserPermissions { return tt.stub }, WithDomainNames(tt.names))
 
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/api/user-domains", http.NoBody)
 			rr := httptest.NewRecorder()
@@ -121,12 +137,12 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 		{
 			name:     "a password session lists the tenant that admits passwords alone",
 			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}),
-			wantBody: `["bastion"]`,
+			wantBody: `[{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
 			name:     "a session through the declared directory lists both",
 			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodGoogle, Connection: "acme"}),
-			wantBody: `["anvil","bastion"]`,
+			wantBody: `[{"domain":"anvil","name":"anvil"},{"domain":"bastion","name":"bastion"}]`,
 		},
 		{
 			name:     "a session through another directory lists neither, as an array",
@@ -137,7 +153,7 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 			name:     "the application's staff list every tenant they hold a grant in",
 			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}),
 			global:   true,
-			wantBody: `["anvil","bastion"]`,
+			wantBody: `[{"domain":"anvil","name":"anvil"},{"domain":"bastion","name":"bastion"}]`,
 		},
 	}
 	for _, tt := range tests {

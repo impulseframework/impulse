@@ -45,7 +45,7 @@ func TestUserDomains(t *testing.T) {
 			assertStatus(t, status, http.StatusOK, body)
 
 			var got []accesstypes.Domain
-			if err := json.Unmarshal(body, &got); err != nil {
+			if err := unmarshalDomains(body, &got); err != nil {
 				t.Fatalf("unmarshaling domains %s: %v", body, err)
 			}
 			if !slices.Equal(got, tt.want) {
@@ -56,4 +56,22 @@ func TestUserDomains(t *testing.T) {
 			}
 		})
 	}
+}
+
+// unmarshalDomains reads the user-domains answer, each tenant listed with its domain and
+// its name, into the tenants' domains alone, in the order listed.
+func unmarshalDomains[T ~string](body []byte, domains *[]T) error {
+	var listed []struct {
+		Domain string `json:"domain"`
+	}
+	if err := json.Unmarshal(body, &listed); err != nil {
+		return err
+	}
+	out := make([]T, 0, len(listed))
+	for _, entry := range listed {
+		out = append(out, T(entry.Domain))
+	}
+	*domains = out
+
+	return nil
 }

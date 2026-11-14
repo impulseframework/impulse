@@ -119,7 +119,7 @@ func (b *browser) domains(ctx context.Context) []string {
 		b.t.Fatalf("GET %s/user-domains: status %d: %s", b.prefix, status, body)
 	}
 	var domains []string
-	if err := json.Unmarshal(body, &domains); err != nil {
+	if err := unmarshalDomains(body, &domains); err != nil {
 		b.t.Fatalf("user-domains is not a list: %v: %s", err, body)
 	}
 

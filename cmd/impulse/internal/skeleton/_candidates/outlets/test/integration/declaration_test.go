@@ -146,7 +146,7 @@ func chart(ctx context.Context, t *testing.T, b *browser, prefix string) []strin
 		t.Fatalf("GET %s/user-domains: status %d: %s", prefix, status, body)
 	}
 	var domains []string
-	if err := json.Unmarshal(body, &domains); err != nil {
+	if err := unmarshalDomains(body, &domains); err != nil {
 		t.Fatalf("user-domains is not a list: %v: %s", err, body)
 	}
 

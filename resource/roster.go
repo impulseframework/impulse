@@ -44,6 +44,10 @@ var errTenantRosterUnsupportedDatabase = errors.New("resource: the tenant roster
 // written in place.
 type tenantSet map[accesstypes.Domain]*signin.TenantDeclaration
 
+// tenantNames is the roster's copy of each tenant's name, read beside the keys when the
+// roster reads names (WithTenantNames); replaced whole with the set, never written in place.
+type tenantNames map[accesstypes.Domain]string
+
 // TenantDeclarationColumns names where the tenant record keeps its declaration of who
 // may enter it (signin.TenantDeclaration), so the roster reads the declaration beside
 // the keys and the sign-in policy reads it in its own transaction
@@ -105,13 +109,16 @@ type TenantRoster struct {
 	table        string
 	keyColumn    string
 	declarations *TenantDeclarationColumns
+	nameColumn   string
 	backstop     time.Duration
 	signals      TenantSignals
 
 	// writes serializes the writers (Add, Remove, reload), each of which replaces the
-	// set whole; readers load the pointer and never take it.
+	// set whole; readers load the pointer and never take it. names is replaced with
+	// the set on a reload, read beside it.
 	writes sync.Mutex
 	set    atomic.Pointer[tenantSet]
+	names  atomic.Pointer[tenantNames]
 }
 
 // TenantRosterOption configures a TenantRoster at construction.
@@ -149,6 +156,17 @@ func WithTenantDeclarations(columns *TenantDeclarationColumns) TenantRosterOptio
 // column into the set. The generated New<Record>Roster constructor supplies the table
 // and the column from the @tenant declaration; an application calls that one. Nothing
 // is read until Start.
+// WithTenantNames has the roster read each tenant's name from the record's name column
+// (the field the tenant record marks @tenantName) in the snapshot of its keys, so Name
+// answers from the copy and the session's tenant list names each tenant
+// (WithDomainNames) with no read of its own. The generated New<Record>Roster passes it
+// when the record marks a name; an empty column reads none.
+func WithTenantNames(column string) TenantRosterOption {
+	return func(r *TenantRoster) {
+		r.nameColumn = column
+	}
+}
+
 func NewTenantRoster(client Client, table, keyColumn string, opts ...TenantRosterOption) *TenantRoster {
 	r := &TenantRoster{client: client, table: table, keyColumn: keyColumn, backstop: TenantBackstop}
 	for _, opt := range opts {
@@ -217,7 +235,7 @@ func (r *TenantRoster) Reload(ctx context.Context) error {
 	if r == nil {
 		return errors.New("resource: no tenant roster is wired")
 	}
-	set, err := r.read(ctx)
+	set, names, err := r.read(ctx)
 	if err != nil {
 		return err
 	}
@@ -225,26 +243,66 @@ func (r *TenantRoster) Reload(ctx context.Context) error {
 	r.writes.Lock()
 	defer r.writes.Unlock()
 	r.set.Store(&set)
+	r.names.Store(&names)
 
 	return nil
 }
 
 // read runs the roster's statements outside any request transaction, in one read-only
-// snapshot, and returns the tenants as a set.
-func (r *TenantRoster) read(ctx context.Context) (tenantSet, error) {
+// snapshot, and returns the tenants as a set, with their names when the roster reads
+// names (nil otherwise).
+func (r *TenantRoster) read(ctx context.Context) (tenantSet, tenantNames, error) {
 	dbType := r.client.DBType()
 	statements, err := tenantRosterStatements(dbType, r.table, r.keyColumn, r.declarations, false)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if dbType != SpannerDBType {
-		return nil, errTenantRosterUnsupportedDatabase
+		return nil, nil, errTenantRosterUnsupportedDatabase
 	}
 
 	txn := r.client.ReadOnlyTransaction()
 	defer txn.Close()
 
-	return readTenantSet(ctx, txn.SpannerReadOnlyTransaction(), statements, nil)
+	set, err := readTenantSet(ctx, txn.SpannerReadOnlyTransaction(), statements, nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	if r.nameColumn == "" {
+		return set, nil, nil
+	}
+	names, err := readTenantNames(ctx, txn.SpannerReadOnlyTransaction(), tenantNamesStatement(r.table, r.keyColumn, r.nameColumn))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return set, names, nil
+}
+
+// tenantNamesStatement renders the roster's read of the names on Spanner: each key as
+// text under the name the scan reads, with its name, "" where the column is NULL.
+func tenantNamesStatement(table, keyColumn, nameColumn string) string {
+	g := newSQLGenerator(Spanner)
+
+	return fmt.Sprintf("SELECT CAST(%s AS %s) AS Domain, COALESCE(CAST(%s AS %s), '') AS Name FROM %s",
+		g.quoteIdentifier(keyColumn), columnTypeString, g.quoteIdentifier(nameColumn), columnTypeString, g.quoteIdentifier(table))
+}
+
+// readTenantNames runs the names statement through the roster's snapshot.
+func readTenantNames(ctx context.Context, txn spxapi.Querier, statement string) (tenantNames, error) {
+	var rows []struct {
+		Domain string `spanner:"Domain"`
+		Name   string `spanner:"Name"`
+	}
+	if err := spxscan.Select(ctx, txn, &rows, spanner.Statement{SQL: statement}); err != nil {
+		return nil, errors.Wrap(err, "spxscan.Select()")
+	}
+	names := make(tenantNames, len(rows))
+	for _, row := range rows {
+		names[accesstypes.Domain(row.Domain)] = row.Name
+	}
+
+	return names, nil
 }
 
 // rosterStatements are the roster's statements: the keys, each with its directory-only
@@ -430,6 +488,22 @@ func (r *TenantRoster) Domains(context.Context) ([]accesstypes.Domain, error) {
 	slices.Sort(domains)
 
 	return domains, nil
+}
+
+// Name answers the tenant's name as the record's name column held it at the last read
+// (WithTenantNames), from the copy: no read, no wait. It is "" for a tenant the copy
+// names nothing for, for every tenant of a roster that reads no names, and on a nil
+// roster. The roster is the DomainNamer the session's tenant list names tenants with.
+func (r *TenantRoster) Name(domain accesstypes.Domain) string {
+	if r == nil {
+		return ""
+	}
+	names := r.names.Load()
+	if names == nil {
+		return ""
+	}
+
+	return (*names)[domain]
 }
 
 // Has reports whether the domain is a tenant the roster holds. It loads the set and

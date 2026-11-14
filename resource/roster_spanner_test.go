@@ -628,6 +628,74 @@ func TestTenantRoster_declarations(t *testing.T) {
 	}
 }
 
+// TestTenantRoster_names pins the name half of the copy over the emulator: a roster built
+// with WithTenantNames reads each station's name in the snapshot of its keys and answers
+// Name from the copy, a station the table does not hold answering ""; a roster built
+// without the option names nothing; a rename reaches the copy at the next Reload.
+func TestTenantRoster_names(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		named  bool
+		rename map[accesstypes.Domain]string
+		want   map[accesstypes.Domain]string
+	}{
+		{
+			name:  "each station's name from its row",
+			named: true,
+			want:  map[accesstypes.Domain]string{"alpha": "Station alpha", "beta": "Station beta", "delta": ""},
+		},
+		{
+			name:  "a roster built without the option names nothing",
+			named: false,
+			want:  map[accesstypes.Domain]string{"alpha": "", "beta": ""},
+		},
+		{
+			name:   "Reload after a rename brings the copy current",
+			named:  true,
+			rename: map[accesstypes.Domain]string{"alpha": "Ridgeline County"},
+			want:   map[accesstypes.Domain]string{"alpha": "Ridgeline County", "beta": "Station beta"},
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			db, client := tenantDatabase(t, "roster-names-"+strconv.Itoa(i), "alpha", "beta")
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+
+			var opts []TenantRosterOption
+			if tt.named {
+				opts = append(opts, WithTenantNames("Name"))
+			}
+			r := NewTenantRoster(client, stationsTable, stationsKey, opts...)
+			if err := r.Start(ctx); err != nil {
+				t.Fatalf("Start() error = %v", err)
+			}
+			if tt.rename != nil {
+				mutations := make([]*spanner.Mutation, 0, len(tt.rename))
+				for id, name := range tt.rename {
+					mutations = append(mutations, spanner.Update(stationsTable, []string{stationsKey, "Name"}, []any{string(id), name}))
+				}
+				if _, err := db.Apply(ctx, mutations); err != nil {
+					t.Fatalf("spanner.Client.Apply() error = %v", err)
+				}
+				if err := r.Reload(ctx); err != nil {
+					t.Fatalf("Reload() error = %v", err)
+				}
+			}
+			for domain, want := range tt.want {
+				if got := r.Name(domain); got != want {
+					t.Errorf("Name(%q) = %q, want %q", domain, got, want)
+				}
+			}
+		})
+	}
+}
+
 // TestNewTenantDeclarationReader pins the sign-in policy's reader over the emulator: it
 // reads one station's declaration through the read-write transaction it is handed, the
 // sign-in's own, answering the flag and the directories as the roster's copy does, an

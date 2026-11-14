@@ -507,3 +507,21 @@ func provesGrant(t *testing.T, roles access.RoleFile, role accesstypes.Role, per
 	}
 	t.Fatalf("no %s grant of the %s role on %s carries the condition %q (the file's conditions there: %q); the case proves a grant the file no longer carries", permission, role, res, condition, conditions)
 }
+
+// unmarshalDomains reads the user-domains answer, each tenant listed with its domain and
+// its name, into the tenants' domains alone, in the order listed.
+func unmarshalDomains[T ~string](body []byte, domains *[]T) error {
+	var listed []struct {
+		Domain string `json:"domain"`
+	}
+	if err := json.Unmarshal(body, &listed); err != nil {
+		return err
+	}
+	out := make([]T, 0, len(listed))
+	for _, entry := range listed {
+		out = append(out, T(entry.Domain))
+	}
+	*domains = out
+
+	return nil
+}

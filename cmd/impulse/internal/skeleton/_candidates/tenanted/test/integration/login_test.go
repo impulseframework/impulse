@@ -65,7 +65,7 @@ func TestLogin(t *testing.T) {
 				t.Fatalf("GET /api/user-domains: status %d: %s", status, body)
 			}
 			var domains []string
-			if err := json.Unmarshal(body, &domains); err != nil {
+			if err := unmarshalDomains(body, &domains); err != nil {
 				t.Fatalf("user-domains is not a list: %v: %s", err, body)
 			}
 			if !slices.Equal(domains, tt.wantDomains) {

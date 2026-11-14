@@ -21,7 +21,6 @@ package integration
 // server process.
 
 import (
-	"encoding/json"
 	"net/http"
 	"slices"
 	"testing"
@@ -93,7 +92,7 @@ func assertDomains(want ...accesstypes.Domain) func(t *testing.T, step string, b
 		t.Helper()
 
 		var got []accesstypes.Domain
-		if err := json.Unmarshal(body, &got); err != nil {
+		if err := unmarshalDomains(body, &got); err != nil {
 			t.Fatalf("%s: decoding the domains: %v: %s", step, err, body)
 		}
 		if !slices.Equal(got, want) {
