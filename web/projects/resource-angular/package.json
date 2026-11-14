@@ -1,6 +1,6 @@
 {
   "name": "@impulseframework/resource-angular",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -11,7 +11,7 @@
     "@angular/common": "^22.0.0",
     "@angular/core": "^22.0.0",
     "@angular/service-worker": "^22.0.0",
-    "@impulseframework/resource": "0.2.0"
+    "@impulseframework/resource": "0.2.1"
   },
   "peerDependenciesMeta": {
     "@angular/service-worker": {
