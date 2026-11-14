@@ -188,6 +188,33 @@ An application that signs people out when they stop using it starts `IdleService
 
 A login page shows text it holds, never text from the URL. A refused OIDC login returns the browser to the login page as `<login page>?code=<code>`, and the code is all the session package sends; its "Login refusal codes" table is the finite list. `LOGIN_MESSAGES` holds one sentence for each of those codes (`DEFAULT_LOGIN_MESSAGES`), `UiCoreService.loginMessage(code)` answers the sentence or an empty string for a code the application does not know, and `publishLoginError(code)` raises it as a global error notification and says whether the code was known. The page reads the `code` query parameter and renders the lookup, so a crafted URL renders nothing. A refusal the server answers on a step of the sign-in itself (a password POST, a confirmation) carries its code in the body, whatever its status, and the page reads it from there: a 401 or 403 for the policy's refusals, and a 429 for the session library's attempt limiter, which refuses a name whose failed password attempts reached the limit with the code `too_many_attempts` and the wait before the next attempt, `retryAfter` in seconds (and the `Retry-After` header), and for its mail limit, which refuses a code or link to an address sent as many as it allows, none used, with `too_many_emails` and the same wait. A component that asks for mail keeps its button disabled for that wait with `MailHold` (from `@impulseframework/resource-angular/ui-core-service`). `loginMessage(code, retryAfter)` and `publishLoginError(code, retryAfter)` take that wait and follow the sentence with it, "Too many attempts. Try again in 14 minutes.": in minutes from a minute up, rounded up, and in seconds below it ("Try again in 45 seconds."); without a wait the sentence stands alone ("Too many attempts."). An application whose session data resolver refuses with a code of its own, or that wants a default reworded, adds `provideLoginMessages({ not_provisioned: 'Your account has not been set up yet.' })` to its providers: the library's sentences come first and the application's after, and a reworded `too_many_attempts` is followed by the wait the same way.
 
+## Permission questions in reactive code
+
+The client's permission answers (`api.can()`, a handle's `can()` and `grantedFields()`,
+a method's `can()`), its feature flags and its session read plain stores, and
+`provideResourceClient` makes every such read an Angular dependency (`trackStoreReads`).
+A question asked inside `computed()`, `effect()` or a template is therefore asked again
+when its store changes: a digest loading, a tenant's digest arriving after a page opened
+by its address, the permissions cleared at sign-out. Nothing mirrors a store first;
+`storeSignal(store)` remains for a signal to pass along.
+
+A `resource()` loader is not reactive code: Angular runs it untracked, so a permission
+answer read inside a loader is read once and never reloads the resource. Put the answer
+in the resource's params, where it is tracked, and branch on it in the loader:
+
+```ts
+private canList = computed(() => this.api.domain(this.tenantID()).tenantDirectories.can(Permissions.List));
+
+directories = resource({
+  params: () => ({ tenant: this.tenantID(), listed: this.canList() }),
+  loader: ({ params }) => (params.listed ? this.api.domain(params.tenant).tenantDirectories.list() : Promise.resolve([])),
+  defaultValue: [],
+});
+```
+
+`provideResourceTesting` tracks store reads the same way, so a spec that loads a digest
+sees a computed answer follow it.
+
 ## The login page
 
 `<impulse-login-methods>` (`@impulseframework/resource-angular/auth-login-methods`) renders the sign-in methods

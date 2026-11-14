@@ -198,6 +198,12 @@ or one per domain), loaded on demand and cached for the session.
   Key fields never appear: they are structural, not grant-bearing.
 - `api.permissions.loadDigest(domain?)` loads a scope; `loadDomains()` fetches the
   domains where the user holds any grant; `subscribe` notifies a UI framework.
+- Every answer here reads a `Store`, and a UI framework can make each read a
+  dependency of its reactive code by setting the store read hook once
+  (`setStoreReadHook`). The Angular client does (`provideResourceClient`), so a
+  question asked inside `computed()`, `effect()` or a template is asked again when a
+  digest loads: a page opened by its address, before its tenant's digest arrived,
+  does not keep its first "no".
 
 Never poll a check endpoint per field. Enforcement stays server-side; everything here
 is advisory material for what to render.
