@@ -23,7 +23,9 @@ export interface FrameConfig {
   readonly outside?: { readonly label: string; readonly icon: IconName };
   /**
    * The application's menu file: the menus across the top, in order. A function is handed
-   * the frame's actions, for an entry that opens the feature flags dialog.
+   * the frame's actions, for an entry that opens the feature flags dialog, and is called
+   * once, in an injection context, so an action of the application's own may use a
+   * service it injects (`inject(MatDialog)` for an entry that opens a dialog).
    */
   readonly menus: readonly Menu[] | ((actions: FrameActions) => readonly Menu[]);
   /** The application's own entries in the Help menu, above About. */

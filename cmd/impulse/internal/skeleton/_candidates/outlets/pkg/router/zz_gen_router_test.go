@@ -94,6 +94,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/console/api/user/pending/code", suffix: "/user/pending/code", method: http.MethodPost, handler: "PendingSendCode", xsrf: true},
 		{url: "/console/api/user/pending/code/verify", suffix: "/user/pending/code/verify", method: http.MethodPost, handler: "PendingVerifyCode", xsrf: true},
 		{url: "/console/api/user/pending/email", suffix: "/user/pending/email", method: http.MethodPost, handler: "PendingEnrollEmail", xsrf: true},
+		{url: "/console/api/user/browser/forget", suffix: "/user/browser/forget", method: http.MethodPost, handler: "ForgetBrowser", xsrf: true},
 		{url: "/console/api/user/invitation", suffix: "/user/invitation", method: http.MethodPost, handler: "InvitationOpen", xsrf: true},
 		{url: "/console/api/user/invitation/sign-up", suffix: "/user/invitation/sign-up", method: http.MethodPost, handler: "InvitationSignUp", xsrf: true},
 		{url: "/console/api/user/invitation/accept", suffix: "/user/invitation/accept", method: http.MethodPost, handler: "InvitationAccept", xsrf: true, validated: true},
@@ -117,6 +118,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/portal/api/user/pending/code", suffix: "/user/pending/code", method: http.MethodPost, handler: "PortalPendingSendCode", xsrf: true},
 		{url: "/portal/api/user/pending/code/verify", suffix: "/user/pending/code/verify", method: http.MethodPost, handler: "PortalPendingVerifyCode", xsrf: true},
 		{url: "/portal/api/user/pending/email", suffix: "/user/pending/email", method: http.MethodPost, handler: "PortalPendingEnrollEmail", xsrf: true},
+		{url: "/portal/api/user/browser/forget", suffix: "/user/browser/forget", method: http.MethodPost, handler: "PortalForgetBrowser", xsrf: true},
 		{url: "/portal/api/user/invitation", suffix: "/user/invitation", method: http.MethodPost, handler: "PortalInvitationOpen", xsrf: true},
 		{url: "/portal/api/user/invitation/accept", suffix: "/user/invitation/accept", method: http.MethodPost, handler: "PortalInvitationAccept", xsrf: true, validated: true},
 		{url: "/portal/api/user/email", suffix: "/user/email", method: http.MethodPost, handler: "PortalEmailAdd", xsrf: true, validated: true},
@@ -1255,6 +1257,10 @@ func (s *routerDefaultSessionStub) PendingEnrollEmail() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PendingEnrollEmail")
 }
 
+func (s *routerDefaultSessionStub) ForgetBrowser() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "ForgetBrowser")
+}
+
 func (s *routerDefaultSessionStub) InvitationOpen() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "InvitationOpen")
 }
@@ -1376,6 +1382,10 @@ func (s *routerPortalSessionStub) PendingVerifyCode() http.HandlerFunc {
 
 func (s *routerPortalSessionStub) PendingEnrollEmail() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PendingEnrollEmail")
+}
+
+func (s *routerPortalSessionStub) ForgetBrowser() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "ForgetBrowser")
 }
 
 func (s *routerPortalSessionStub) InvitationOpen() http.HandlerFunc {

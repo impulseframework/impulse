@@ -5,7 +5,8 @@ site. One hostname, three outlets — the console on `/console/api` with its bro
 application at `/console`, a second browser application (the portal) on `/portal/api`
 behind the same session handling with its application at `/portal`, and a machine REST
 API on `/devices` behind bearer tokens the staff auth issues: a staff login issues an
-application token for the outlet on the console's Tokens page (`/console/tokens`), or
+application token for the outlet on the console's API keys page (Your API keys in the
+person's menu, `/console/api-keys`), or
 approves a command-line client's device authorization on its device page
 (`/console/device`, the page the staff auth names as its `DevicePage`), and the token
 acts as them, with their roles, through the same permission checks as the browser. Every browser outlet's API sits under its application's mount path, and no
@@ -22,18 +23,26 @@ application ships one. `Reading` is devices-only. The console and the portal eac
 the API's shape: every tenant-scoped page lives under the tenant segment,
 `/tenants/{tenantID}/...` (the generated `DomainRoutePath`), so a link to a tenant's page
 can be shared and a bookmark lands where it points, and the global pages keep their routes.
-The tenant a page works in is a consequence of its URL: the tenant guard on the segment
-(`core/tenant/tenant.guard.ts`) sets the tenant service's `current` from the URL before
-the page loads, checked against the session's tenant list, and nothing else writes it; the
-header's picker opens the same page under the chosen tenant, and a URL naming a tenant the
-session cannot reach lands on the refusal page (`/tenants/{tenantID}/refused`), which shows
-the server's answer. The dashboard lives outside a tenant and under it, and each
-application manages its auth's people in both places the same way: the whole
-application's accounts (`/staff-accounts` on the console, `/members-accounts` on the
-portal), a tenant's people under the tenant (`/tenants/{tenantID}/staff-people`,
-`/tenants/{tenantID}/members-people`). The library draws them from the API description
-(`identityRoutes` in each application's `app.routes.ts`), and a tenant's pages read the
-tenant from the URL (`RESOURCE_DOMAIN` in `app.config.ts`).
+Each sits in the library's frame (`provideFrame` in `app.config.ts`). The tenant a page
+works in is a consequence of its URL: the library's tenant guard on the segment opens the
+tenant the URL names before the page loads, checked against the session's tenant list,
+and nothing else writes it; the place switcher beside the application's name opens the
+same page under the chosen tenant, and a URL naming a tenant the session cannot reach
+lands on the refusal page (`/tenants/{tenantID}/refused`), which shows the server's
+answer. The dashboard is every place's first page, and each application manages its
+auth's people in both places the same way: the whole application's accounts
+(`/staff-accounts` on the console, `/members-accounts` on the portal), a tenant's people
+under the tenant (`/tenants/{tenantID}/staff-people`, `/tenants/{tenantID}/members-people`).
+The library draws them from the API description (`identityRoutes` in each application's
+`app.routes.ts`, placed by `identityMenuPages` in its menu file), and a tenant's pages read
+the tenant from the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file
+(`app.menus.ts`) shows Tenants (All tenants and New tenant…) and System (the staff's
+accounts and Feature flags…) in Configuration, and People and Tenant (Sign-in settings)
+inside a tenant; the portal's shows System (the members' accounts) and People. The
+person's own menu holds Your account (the console's: the email address, Change your
+password, Forget this browser), Your API keys on the console, Appearance and Sign out; a
+portal member signs in through their company's directory and has nothing of their sign-in
+to change there. Help ends with About, which carries the release.
 
 Who may enter a tenant is the record's declaration, data of the application rather than
 deploy configuration: the directories the tenant admits its people through
@@ -65,7 +74,7 @@ its checksum at `GET /devices/programs/sensor/<release>/linux/amd64`, behind the
 check, so a copy installed on a device fetches its next release where it already posts
 its readings. A person installs the first copy from the release's assets or with `go
 install <module>/cmd/sensor@<release>`. Given the outlet's URL, an application token a
-staff login issued for the outlet on the console's Tokens page, and the tenant
+staff login issued for the outlet on the console's API keys page, and the tenant
 (`SENSOR_OUTLET`, `SENSOR_TOKEN`, `SENSOR_TENANT`; `SENSOR_SOURCE` names the device in
 its readings, the hostname when unset), `sensor post 21.5` posts one reading and `sensor
 list` lists the latest, and after either the copy reads the server's release from the
@@ -97,7 +106,7 @@ generated router test proves the route sits behind the token check.
   callback, front-channel logout), the devices outlet's group behind the staff auth's
   token check, with the device flow's two endpoints under its prefix and the token routes
   (`/console/api/user/tokens`, `/console/api/user/device`) on the console, which the
-  console's Tokens page and device page (the client library's `impulse-tokens` entry) read
+  console's API keys page (the frame's) and device page (the client library's `impulse-tokens` entry) read
   and write through, one Angular application per browser outlet under its mount path,
   and the root redirect to the console's.
 - `pkg/resources` holds the resource structs the generator reads: `Tenant` (the tenant
@@ -220,9 +229,8 @@ flip is recorded in `FeatureFlagChanges`. The App reads the table when it is bui
 digest and features route answer from one copy. Every outlet serves `features` under its prefix (`/console/api`, `/portal/api`, `/devices`), and the two session outlets serve `feature-flags` and `set-feature`. Flipping is the generated
 `SetFeature` method, held by the `FeatureAdministrator` role in the staff role file
 (Execute on `SetFeature`, List and Read on `FeatureFlags`), which the development `admin`
-login holds, so a member of the portal sees the flags' effect and flips nothing; the library's `FeatureFlagsDialog` calls it, opened from the Feature flags
-link in the header of the console and of the portal, shown to anyone holding List on
-`FeatureFlags`. A flag's
+login holds, so a member of the portal sees the flags' effect and flips nothing; the library's `FeatureFlagsDialog` calls it, opened from Feature flags… in
+the console's System menu, shown to anyone holding List on `FeatureFlags`. A flag's
 development state is its row in `schema/devseed/<n>_dev_feature_flags.up.sql`, which
 `impulse add feature` writes off (set it to TRUE to start development and the test
 environments with the feature on) and `impulse remove feature` deletes with the constant
@@ -326,8 +334,9 @@ then the portal's once, the form the Checks section and CI use; `bun ng test con
 pattern for the application's own: each dashboard renders a permission digest over a
 scripted client from `@impulseframework/resource-angular/testing` (`provideResourceTesting` puts the
 generated client on a transport that records every request and answers from the test),
-and the login pages, headers, top bars, footers, and shells have creation specs with the
-same providers; the portal's login spec is the directory sign-in's.
+each menu file's spec holds every page the routes carry to a place in the menus
+(`unplacedPages`), and the portal's login spec is the directory sign-in's; the frame
+itself is the library's, tested there.
 
 ## Live pages
 

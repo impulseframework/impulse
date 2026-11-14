@@ -257,7 +257,7 @@ func TestTenancyApply(t *testing.T) {
 				"pkg/resources/tenant_directories.go: the TenantDirectory resource struct, the tenant's declared directories, tenant-scoped under /tenants/{tenantID}/tenant-directories",
 				"pkg/config/tenancy.go: the tenant roster (startTenants builds it with app.NewTenantRoster and starts it), TenantRoster() and TenantDeclarations() on DataConfiguration; pkg/config/data.go gained the field and the start",
 				"app/tenancy.go: TenancyConfigurer (embedded in Configurer, asking TenantRoster() and TenantDeclarations()) and App.TenantRoster(); app/app.go gained the fields and their assignments",
-				"web/console/src/app/core/tenant/tenant.service.ts, tenant.guard.ts, components/ui/tenant-refused/ and components/ui/sign-in/: the tenant service (the tenant the URL names, the session's tenant list, and the digest scoped to it), the tenant guard on the tenant segment, the refusal page and the tenant's sign-in page (who may enter the tenant: its declared directories and whether they are the only way in, with its route and navigation item in sign-in.routes.ts) from the reference; the tenant segment in the routes, the header's tenant picker, and the pages under the segment, the sign-in page's route among them, are yours",
+				"web/console/src/app/components/ui/sign-in/, components/ui/new-tenant/ and configs/tenants.config.ts: the tenant's sign-in page (who may enter the tenant: its declared directories and whether they are the only way in, with its route and its page for the menu file in sign-in.routes.ts), the New tenant dialog (an administrator holding Create on the record creates one) and the configuration of All tenants, the library's list page over the record, from the reference; the library's frame carries the tenant the URL names, the guard on the tenant segment, the refusal page and the place switcher; the tenant segment in the routes and the menus in the menu file are yours",
 				"ran go generate ./..., which emitted the Tenant and TenantDirectory resources, the tenant segment pair under /tenants/{tenantID}, the roster constructor NewTenantRoster and the declaration reader NewTenantDeclarationReader",
 			},
 			wantSkipped: []string{noSignals, noAuth, noSeatAuth, noPermissions},
@@ -270,18 +270,17 @@ func TestTenancyApply(t *testing.T) {
 					t.Errorf("app.go mismatch (-want +got):\n%s", diff)
 				}
 				for rel, want := range map[string]string{
-					"schema/migrations/000003_Tenants.up.sql":                                      "CREATE TABLE TenantDirectories (",
-					"schema/migrations/000003_Tenants.down.sql":                                    "DROP INDEX TenantDirectoriesByTenantIdMethodConnection;\nDROP TABLE TenantDirectories;\nDROP INDEX TenantsByName;\nDROP TABLE Tenants;",
-					"schema/devseed/000001_dev_tenants.up.sql":                                     "INSERT INTO Tenants (Id, Name) VALUES ('north', 'North');",
-					"pkg/resources/tenants.go":                                                     "package resources\n\nimport \"github.com/impulseframework/impulse/resource\"\n\ntype (\n\t// Tenant is the tenant record (@tenant)",
-					"pkg/resources/tenant_directories.go":                                          "\t// @resource\n\t// @permissionScope(domain)\n\t// @tenantDirectory\n\t// @order(Method asc, Connection asc)\n\tTenantDirectory struct {\n\t\tID impulse.UUID `spanner:\"Id\"`\n\t\t// @domain\n\t\tTenantID string `spanner:\"TenantId\"`\n\t\t// @directoryMethod\n\t\tMethod string `spanner:\"Method\"`\n\t\t// @directoryConnection\n\t\tConnection string `spanner:\"Connection\"`\n\t\t// @directoryDefaultSeat\n\t\tDefaultSeat *string `spanner:\"DefaultSeat\"`\n\t}",
-					"web/console/src/app/components/ui/sign-in/tenant-sign-in.component.ts":        "export class TenantSignInComponent",
-					"web/console/src/app/components/ui/sign-in/sign-in.routes.ts":                  "export const tenantSignInRoute",
-					"pkg/config/tenancy.go":                                                        "package config\n",
-					"app/tenancy.go":                                                               "package app\n",
-					"web/console/src/app/core/tenant/tenant.service.ts":                            "export class TenantService",
-					"web/console/src/app/core/tenant/tenant.guard.ts":                              "export const tenantGuard: CanActivateFn",
-					"web/console/src/app/components/ui/tenant-refused/tenant-refused.component.ts": "export class TenantRefusedComponent",
+					"schema/migrations/000003_Tenants.up.sql":                                     "CREATE TABLE TenantDirectories (",
+					"schema/migrations/000003_Tenants.down.sql":                                   "DROP INDEX TenantDirectoriesByTenantIdMethodConnection;\nDROP TABLE TenantDirectories;\nDROP INDEX TenantsByName;\nDROP TABLE Tenants;",
+					"schema/devseed/000001_dev_tenants.up.sql":                                    "INSERT INTO Tenants (Id, Name) VALUES ('north', 'North');",
+					"pkg/resources/tenants.go":                                                    "package resources\n\nimport \"github.com/impulseframework/impulse/resource\"\n\ntype (\n\t// Tenant is the tenant record (@tenant)",
+					"pkg/resources/tenant_directories.go":                                         "\t// @resource\n\t// @permissionScope(domain)\n\t// @tenantDirectory\n\t// @order(Method asc, Connection asc)\n\tTenantDirectory struct {\n\t\tID impulse.UUID `spanner:\"Id\"`\n\t\t// @domain\n\t\tTenantID string `spanner:\"TenantId\"`\n\t\t// @directoryMethod\n\t\tMethod string `spanner:\"Method\"`\n\t\t// @directoryConnection\n\t\tConnection string `spanner:\"Connection\"`\n\t\t// @directoryDefaultSeat\n\t\tDefaultSeat *string `spanner:\"DefaultSeat\"`\n\t}",
+					"web/console/src/app/components/ui/sign-in/tenant-sign-in.component.ts":       "export class TenantSignInComponent",
+					"web/console/src/app/components/ui/sign-in/sign-in.routes.ts":                 "export const tenantSignInRoute",
+					"pkg/config/tenancy.go":                                                       "package config\n",
+					"app/tenancy.go":                                                              "package app\n",
+					"web/console/src/app/components/ui/new-tenant/new-tenant-dialog.component.ts": "export function openNewTenantDialog(dialog: MatDialog)",
+					"web/console/src/app/configs/tenants.config.ts":                               "export const tenantsConfig = rootConfig({",
 				} {
 					if got := read(t, a, rel); !strings.Contains(got, want) {
 						t.Errorf("%s lacks %q:\n%s", rel, want, got)
@@ -325,7 +324,7 @@ func TestTenancyApply(t *testing.T) {
 				"pkg/config/tenancy.go: the tenant roster (startTenants builds it with app.NewTenantRoster and starts it), TenantRoster() and TenantDeclarations() on DataConfiguration; pkg/config/data.go gained the field and the start",
 				"app/tenancy.go: TenancyConfigurer (embedded in Configurer, asking TenantRoster() and TenantDeclarations()) and App.TenantRoster(); app/app.go gained the fields and their assignments",
 				"app/app.go: UserPermissions passes the roster's Domains and the declarations to resource.SessionPermissions",
-				"web/console/src/app/core/tenant/tenant.service.ts, tenant.guard.ts, components/ui/tenant-refused/ and components/ui/sign-in/: the tenant service (the tenant the URL names, the session's tenant list, and the digest scoped to it), the tenant guard on the tenant segment, the refusal page and the tenant's sign-in page (who may enter the tenant: its declared directories and whether they are the only way in, with its route and navigation item in sign-in.routes.ts) from the reference; the tenant segment in the routes, the header's tenant picker, and the pages under the segment, the sign-in page's route among them, are yours",
+				"web/console/src/app/components/ui/sign-in/, components/ui/new-tenant/ and configs/tenants.config.ts: the tenant's sign-in page (who may enter the tenant: its declared directories and whether they are the only way in, with its route and its page for the menu file in sign-in.routes.ts), the New tenant dialog (an administrator holding Create on the record creates one) and the configuration of All tenants, the library's list page over the record, from the reference; the library's frame carries the tenant the URL names, the guard on the tenant segment, the refusal page and the place switcher; the tenant segment in the routes and the menus in the menu file are yours",
 				"ran go generate ./..., which emitted the Tenant and TenantDirectory resources, the tenant segment pair under /tenants/{tenantID}, the roster constructor NewTenantRoster and the declaration reader NewTenantDeclarationReader",
 			},
 			wantSkipped: []string{noAuth, noSeatAuth},
@@ -368,7 +367,7 @@ func TestTenancyApply(t *testing.T) {
 				"no file declares a DataConfiguration struct, so the tenant roster was not added to the data level; build it where the database is opened with app.NewTenantRoster(client, resource.WithTenantSignals(<the live service>)), start it (Start) and fail the start on its error, and expose it as TenantRoster()",
 				noAuth,
 				"no file declares a Configurer interface, so the tenant roster was not exposed on the app; the generated code needs TenantRoster() *resource.TenantRoster on the handlers, answering the roster the data level built",
-				"web/angular.json has no project rooted over console/src/app/core/service, so the tenant service was not copied in; a browser app needs the tenant the URL names to scope its requests and digest by",
+				"web/angular.json has no project rooted over console/src/app/core/service, so the tenant pages were not copied in: the tenant's sign-in page, the All tenants page's configuration and the New tenant dialog",
 			},
 			check: func(t *testing.T, a *app.App) {
 				t.Helper()

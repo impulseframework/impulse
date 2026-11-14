@@ -6,14 +6,14 @@
       <mat-card-subtitle>Create yours and you become its administrator.</mat-card-subtitle>
     </mat-card-header>
     <mat-card-actions>
-      <a mat-flat-button routerLink="/create-tenant">Create your tenant</a>
+      <button mat-flat-button type="button" (click)="createYourTenant()">Create your tenant</button>
     </mat-card-actions>
   </mat-card>
 }
 <p>
   Every page consults the permission digest before asking the server, and the server checks every request. The card
   below is that digest: tenant-scoped resources in <strong>{{ tenants.current() || 'no tenant' }}</strong
-  >, global resources as is. Pick a tenant in the header to open this page under it and see what you hold there.
+  >, global resources as is. Open a tenant from the switcher beside the name to see what you hold there.
 </p>
 
 <mat-card appearance="outlined" class="permissions-card">
@@ -61,30 +61,5 @@
       </tbody>
     </table>
     <p class="legend">● granted &nbsp; ◐ conditional — terms apply, the server narrows per row &nbsp; · absent</p>
-  </mat-card-content>
-</mat-card>
-
-<mat-card appearance="outlined" class="email-card">
-  <mat-card-header>
-    <mat-card-title>Your email address</mat-card-title>
-    <mat-card-subtitle
-      >The address the application uses to email you. It is confirmed once you open the link we send to
-      it.</mat-card-subtitle
-    >
-  </mat-card-header>
-  <mat-card-content>
-    <impulse-email-address />
-  </mat-card-content>
-</mat-card>
-
-<mat-card appearance="outlined" class="appearance-card">
-  <mat-card-header>
-    <mat-card-title>Appearance</mat-card-title>
-    <mat-card-subtitle
-      >Choose light or dark, and the colors you like. We remember the choice on this browser.</mat-card-subtitle
-    >
-  </mat-card-header>
-  <mat-card-content>
-    <impulse-theme-picker />
   </mat-card-content>
 </mat-card>

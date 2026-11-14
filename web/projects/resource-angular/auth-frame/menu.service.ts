@@ -56,6 +56,7 @@ export class MenuService {
     return shownGroups(groups, this.context);
   }
 
+  /** The menu file; a function is called here, in the service's injection context. */
   private applicationMenus(): readonly Menu[] {
     const menus = this.frame.config.menus;
     return typeof menus === 'function' ? menus(this.actions) : menus;

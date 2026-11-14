@@ -1,7 +1,6 @@
 package names
 
 import (
-	"fmt"
 	"path"
 	"regexp"
 	"strings"
@@ -82,14 +81,15 @@ func authSource(rel string) bool {
 var envTemplates = map[string]bool{".envrc.template": true, ".env.template": true, ".env.example": true}
 
 // browserSource reports a file of a browser application's source tree that may show
-// the application's name as a title: the page, and the components.
+// the application's name as a title: the page, the components, and the application
+// configuration, where the frame is given the name it draws (provideFrame).
 func browserSource(rel string) bool {
 	base := path.Base(rel)
 	if !strings.Contains(rel, "/src/") {
 		return false
 	}
 
-	return base == "index.html" || strings.HasSuffix(base, ".component.ts") || strings.HasSuffix(base, ".component.html")
+	return base == "index.html" || base == "app.config.ts" || strings.HasSuffix(base, ".component.ts") || strings.HasSuffix(base, ".component.html")
 }
 
 // Display is the application name as a title: each hyphenated word capitalized, the
@@ -180,11 +180,13 @@ func RenameApp(rel, text, from, to string) string {
 		return text
 	case browserSource(rel):
 		// The browser application shows the application's name as a title: the page
-		// title, the component's title field, the login card's heading. The candidate's
-		// name stands there in display form (Solo), as a whole HTML text or string.
+		// title, the component's title field, the login card's heading, the name the
+		// frame draws. The candidate's name stands there in display form (Solo), as a
+		// whole HTML text or string, alone or with the project's suffix (Solo Portal).
 		fromTitle, toTitle := Display(from), Display(to)
-		for _, q := range []string{">%s<", "'%s'", `"%s"`} {
-			text = strings.ReplaceAll(text, fmt.Sprintf(q, fromTitle), fmt.Sprintf(q, toTitle))
+		for _, q := range [][2]string{{">", "<"}, {"'", "'"}, {`"`, `"`}} {
+			text = strings.ReplaceAll(text, q[0]+fromTitle+q[1], q[0]+toTitle+q[1])
+			text = strings.ReplaceAll(text, q[0]+fromTitle+" Portal"+q[1], q[0]+toTitle+" Portal"+q[1])
 		}
 
 		return text

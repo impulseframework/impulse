@@ -1,3 +1,4 @@
+import { inject } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatDialog } from '@angular/material/dialog';
 import { ListPermission, PermissionDigest, Resource } from '@impulseframework/resource';
@@ -98,6 +99,21 @@ describe('FrameBarComponent', () => {
     await signIn(nobody);
     expect(menu('System')).toBeUndefined();
     expect(menu('Help')).toBeDefined();
+  });
+
+  it('calls the menu file in an injection context, so its own action may use a service', async () => {
+    const menusWithDialog: FrameConfig['menus'] = () => {
+      const dialog = inject(MatDialog);
+      return [
+        { label: 'Records', groups: [{ entries: [{ label: 'Close every dialog', run: () => dialog.closeAll() }] }] },
+      ];
+    };
+    await signIn(nobody, { menus: menusWithDialog });
+    const entry = menu('Records')?.groups[0]?.entries[0];
+    expect(entry?.label).toBe('Close every dialog');
+    const closed = vi.spyOn(TestBed.inject(MatDialog), 'closeAll');
+    entry?.run?.();
+    expect(closed).toHaveBeenCalled();
   });
 
   it("puts Help last, ending with About and the name, under the application's own help", async () => {

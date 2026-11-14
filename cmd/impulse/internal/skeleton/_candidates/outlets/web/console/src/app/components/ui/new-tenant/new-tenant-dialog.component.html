@@ -1,0 +1,25 @@
+<h2 mat-dialog-title>New tenant</h2>
+<form [formGroup]="form" (ngSubmit)="create()">
+  <mat-dialog-content>
+    <p>The tenant is served the moment it exists. Nobody is in it until someone gives them a role there.</p>
+    <mat-form-field appearance="outline" class="field">
+      <mat-label>Identifier</mat-label>
+      <input matInput formControlName="id" name="id" autocomplete="off" placeholder="west" />
+      <mat-hint>Lowercase letters, digits and hyphens: the segment of every URL in the tenant.</mat-hint>
+      @if (form.controls.id.hasError('pattern')) {
+        <mat-error>Lowercase letters, digits and single hyphens only.</mat-error>
+      }
+    </mat-form-field>
+    <mat-form-field appearance="outline" class="field">
+      <mat-label>Name</mat-label>
+      <input matInput formControlName="name" name="name" autocomplete="organization" placeholder="West" />
+    </mat-form-field>
+    @if (error()) {
+      <p class="refusal" role="alert">{{ error() }}</p>
+    }
+  </mat-dialog-content>
+  <mat-dialog-actions align="end">
+    <button mat-button type="button" mat-dialog-close>Cancel</button>
+    <button mat-flat-button type="submit" [disabled]="form.invalid || busy()">Create tenant</button>
+  </mat-dialog-actions>
+</form>

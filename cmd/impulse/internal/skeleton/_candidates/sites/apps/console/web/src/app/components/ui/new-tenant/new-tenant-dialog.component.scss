@@ -1,0 +1,14 @@
+mat-dialog-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.field {
+  width: 100%;
+}
+
+.refusal {
+  margin: 0;
+  color: var(--mat-sys-error);
+}

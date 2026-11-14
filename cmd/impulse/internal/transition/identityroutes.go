@@ -8,9 +8,26 @@ import (
 // appRoutesFile is a browser project's routes, relative to its source root.
 const appRoutesFile = "app/app.routes.ts"
 
-// identityRoutesCall is how a browser application's routes take the pages the library
-// builds for an auth's generated management: a spread of the call among the routes.
-const identityRoutesCall = "...identityRoutes("
+// appMenusFile is a browser project's menu file, relative to its source root: the menus
+// the library's frame draws, which place the pages the routes carry.
+const appMenusFile = "app/app.menus.ts"
+
+// The library's calls a browser application takes the pages of an auth's generated
+// management through: identityRoutes among the routes, identityMenuPages among a menu
+// group's entries in the menu file.
+const (
+	identityRoutesCall    = "identityRoutes"
+	identityMenuPagesCall = "identityMenuPages"
+)
+
+// pagesFile is a file of a browser project that asks for the pages of an auth's
+// management, by its path under the project's source root, and the call it spreads.
+type pagesFile struct {
+	file, call string
+}
+
+// pagesFiles are the routes and the menu file.
+var pagesFiles = []pagesFile{{appRoutesFile, identityRoutesCall}, {appMenusFile, identityMenuPagesCall}}
 
 // tsWordRE finds the identifiers of a run of TypeScript.
 var tsWordRE = regexp.MustCompile(`[A-Za-z_$][A-Za-z0-9_$]*`)
@@ -18,26 +35,30 @@ var tsWordRE = regexp.MustCompile(`[A-Za-z_$][A-Za-z0-9_$]*`)
 // tsImportRE finds a named import, on one line or over several.
 var tsImportRE = regexp.MustCompile(`(?m)^import\s*\{([^}]*)\}\s*from\s*'[^']*';\n`)
 
-// dropIdentityRoutes returns a routes file without the pages of an auth's generated
-// management: every spread of identityRoutes among the routes with the comment over it,
-// then what the spreads alone used, the names of an import (the import when they were
-// its only names) and a constant declared at the top of the file. A browser application
-// whose site's program generates no management is described no such pages, and names
-// nothing of them.
+// dropIdentityRoutes returns a routes file or a menu file without the pages of an auth's
+// generated management: every spread of identityRoutes among the routes, or of
+// identityMenuPages among a menu group's entries, with the comment over it, then what the
+// spreads alone used, the names of an import (the import when they were its only names)
+// and a constant declared at the top of the file. A browser application whose site's
+// program generates no management is described no such pages, and names nothing of them.
+// A menu group left with no entries stays: the frame draws no empty group or menu.
 func dropIdentityRoutes(text string) (edited string, found bool) {
 	var removed []string
-	for {
-		at := strings.Index(text, identityRoutesCall)
-		if at < 0 {
-			break
+	for _, f := range pagesFiles {
+		call := "..." + f.call + "("
+		for {
+			at := strings.Index(text, call)
+			if at < 0 {
+				break
+			}
+			start, end, ok := tsStatement(text, at, at+len(call)-1)
+			if !ok {
+				break
+			}
+			removed = append(removed, text[start:end])
+			text = text[:start] + text[end:]
+			found = true
 		}
-		start, end, ok := tsStatement(text, at, at+len(identityRoutesCall)-1)
-		if !ok {
-			break
-		}
-		removed = append(removed, text[start:end])
-		text = text[:start] + text[end:]
-		found = true
 	}
 	if !found {
 		return text, false

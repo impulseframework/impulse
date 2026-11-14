@@ -1,18 +1,18 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { createApi } from '@app/service/zz_gen_api';
 import { ClientBase, Domain, PermissionDigest, TransportRequest, TransportResponse } from '@impulseframework/resource';
+import { provideFrame, TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import { ScriptedTransport, scriptedTransport } from '@impulseframework/resource/testing';
 import { environment } from '@env';
 import { firstValueFrom } from 'rxjs';
-import { TenantService } from '@app/tenant/tenant.service';
 import { DashboardComponent } from './dashboard.component';
 
 /** What the server answers for one session: its tenants, the global digest, and each tenant's digest. */
 interface Grants {
-  domains: string[];
+  domains: { domain: string; name: string }[];
   global: PermissionDigest;
   tenants: Record<string, PermissionDigest>;
 }
@@ -22,7 +22,7 @@ interface Grants {
  * under a condition; Tenants, a global resource, may be listed and read.
  */
 const member: Grants = {
-  domains: ['north'],
+  domains: [{ domain: 'north', name: 'North' }],
   global: { Tenants: { List: 'granted', Read: 'granted' } },
   tenants: { north: { Announcements: { List: 'granted', Read: 'granted', Update: 'conditional' } } },
 };
@@ -32,8 +32,8 @@ const stranger: Grants = { domains: [], global: {}, tenants: {} };
 
 /**
  * The server as the spec plays it: the session, the digest of the tenant asked for (the
- * global one when none is), the user's domains, the enabled feature flags (none here), and the
- * methods list the address card reads for the email routes. Anything else is a 404 the request log would show.
+ * global one when none is), the user's domains and the enabled feature flags (none here).
+ * Anything else is a 404 the request log would show.
  */
 function server(grants: Grants): (request: TransportRequest) => TransportResponse {
   return (request) => {
@@ -52,11 +52,6 @@ function server(grants: Grants): (request: TransportRequest) => TransportRespons
         return { status: 200, body: grants.domains };
       case `${environment.apiUrl}/features`:
         return { status: 200, body: { enabled: [] } };
-      case `${environment.apiUrl}/user/methods`:
-        return {
-          status: 200,
-          body: { methods: [], email: { add: '/api/user/email', verify: '/api/user/email/verify' } },
-        };
       default:
         return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
     }
@@ -81,13 +76,14 @@ describe('DashboardComponent', () => {
       imports: [DashboardComponent],
       providers: [
         provideResourceTesting({ transport, client: (t) => createApi({ baseUrl: environment.apiUrl, transport: t }) }),
+        provideFrame({ home: 'dashboard', menus: [] }),
       ],
     }).compileComponents();
     await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
-    for (const domain of grants.domains) {
+    for (const { domain } of grants.domains) {
       await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest(domain as Domain);
     }
-    const tenant = grants.domains[0];
+    const tenant = grants.domains[0]?.domain;
     if (tenant) {
       TestBed.inject(TenantService).enter(tenant);
     }
@@ -106,15 +102,11 @@ describe('DashboardComponent', () => {
   it('renders who is signed in and the digest per resource, tenant-scoped ones in the open tenant', async () => {
     const fixture = await render(member);
     const element: HTMLElement = fixture.nativeElement;
-    // The address card reads the methods list for the email routes; the offer renders once it has answered.
-    await fixture.whenStable();
-    fixture.detectChanges();
 
     expect(element.querySelector('h1')?.textContent).toContain('Signed in as member');
-    expect(element.querySelector('.email-card .impulse-email-current')?.textContent).toContain(
-      'member@skeleton.test is your email address',
-    );
-    expect(element.querySelector('.email-card .impulse-email-edit')?.textContent).toContain('Change the address');
+    // The address and the look are the person's: the account page and the person's menu.
+    expect(element.querySelector('impulse-email-address')).toBeNull();
+    expect(element.querySelector('impulse-theme-picker')).toBeNull();
     expect(element.querySelector('p strong')?.textContent).toBe('north');
     const rows = Array.from(element.querySelectorAll('tbody tr'));
     const labels = rows.map((row) => row.querySelector('td')?.textContent?.replace(/\s+/g, ' ').trim());

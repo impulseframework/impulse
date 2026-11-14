@@ -452,11 +452,15 @@ domain digests to `{}`, so the endpoint never confirms tenant existence under
 `PermissionDigestState` types (and `RowCapabilities` for the capability envelope).
 
 **User domains.** The payload is the sorted list of domains where the user holds at
-least one grant and that the session reaches — the tenant picker's question, answered by
-the library so no application hand-writes it. The predicate is concealed tenancy's own
+least one grant and that the session reaches, each with the tenant's name
+(`[{"domain": "north", "name": "North"}]`) — the place switcher's question, answered by
+the library so no application hand-writes it. The name is the tenant roster's copy of the
+record's name column (`WithTenantNames` on the roster, `WithDomainNames(roster)` on
+`UserDomainsHandler`), so a tenant's own people read its name without holding Read on the
+record; the domain stands in where no name is held. The predicate is concealed tenancy's own
 foothold test (`access.Client.UserHasGrants`) over the session's admission
 (`UserPermissions.Reaches`), so a domain listed here is exactly a domain whose routes
-answer the user with ordinary 403s rather than a concealing 404: the picker and the
+answer the user with ordinary 403s rather than a concealing 404: the switcher and the
 domain guard can never disagree. A tenant is offered only when the session may enter it,
 and the application's tenant declaration decides (section 6). The global scope is never
 a domain. The answer reports grants, not tenants — a domain the application has since
@@ -741,8 +745,9 @@ user/tokens/revoke`, `GET user/device`, `POST user/device/approve` and `POST
 user/device/deny`: a signed-in person issues, lists and revokes their own application
 tokens (the secret is in the answer once) and approves or denies a command-line client's
 device authorization by the code it shows. The console carries those two pages from the
-client library: a token page at `<mount>/tokens`, where the person issues, lists and
-revokes their tokens, and a device page at `<mount>/device`, where the link a program
+client library: the token page, where the person issues, lists and revokes their tokens,
+which the library's frame serves in every place (Your API keys in the person's menu,
+`<mount>/api-keys`), and a device page at `<mount>/device`, where the link a program
 prints (`/console/device?userCode=XXXX-XXXX`) lands for approval; the issuing auth
 names the device page as its device verification path
 (`session.WithDeviceVerificationURL("/console/device")`), which the device authorization

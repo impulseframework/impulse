@@ -7,6 +7,7 @@ import { provideServiceWorker } from '@angular/service-worker';
 import { createApi } from '@app/service/zz_gen_api';
 import { methodMeta } from '@app/service/zz_gen_methods';
 import { resourceMeta } from '@app/service/zz_gen_resources';
+import { provideFrame } from '@impulseframework/resource-angular/auth-frame';
 import { apiVersionInterceptor, provideResourceClient } from '@impulseframework/resource-angular/resource-client';
 import {
   API_URL,
@@ -22,6 +23,7 @@ import { provideAppUpdate } from '@impulseframework/resource-angular/ui-app-upda
 import { provideTheme } from '@impulseframework/resource-angular/ui-theme';
 import { firestoreChangeFeed } from '@impulseframework/resource-firestore';
 import { environment } from '@env';
+import { appMenus } from './app.menus';
 import { routes } from './app.routes';
 
 export const appConfig: ApplicationConfig = {
@@ -49,6 +51,10 @@ export const appConfig: ApplicationConfig = {
     // refusal a page reports in place raises none. The one HTTP interceptor, registered
     // below, adds the release header to the application's own HttpClient calls.
     provideResourceClient((options) => createApi({ baseUrl: environment.apiUrl, ...options })),
+    // The frame every signed-in page sits in, drawn by the library: the application's name,
+    // the menus of the menu file (app.menus.ts), Help, and the person's own menu. The
+    // application has no tenants, so there is one place and no switcher.
+    provideFrame({ name: 'Solo', home: 'dashboard', menus: appMenus }),
     // The change feed the live pages listen through: the Firestore feed from its own
     // package, so the client stays free of the SDK. AuthService starts the client's live
     // session with it once the session is authenticated, fetching the tab's identity from
@@ -84,8 +90,8 @@ export const appConfig: ApplicationConfig = {
     provideAppUpdate(),
     // The look the person chose, light or dark and one of the palettes named here, the
     // ids of theme.scss's palette map in the same order, applied before the first page
-    // renders and remembered in the browser; the dashboard's Appearance card is where
-    // they choose.
+    // renders and remembered in the browser; Appearance in the person's menu is where they
+    // choose.
     provideTheme({
       palettes: [
         { id: 'blue', label: 'Blue' },

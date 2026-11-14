@@ -1,14 +1,13 @@
 import { Component, computed, inject } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
-import { RouterModule } from '@angular/router';
+import { MatDialog } from '@angular/material/dialog';
 import { Resources } from '@app/service/zz_gen_constants';
 import { ResourceScopes } from '@app/service/zz_gen_resources';
-import { TenantService } from '@app/tenant/tenant.service';
-import { EmailAddressComponent } from '@impulseframework/resource-angular/auth-email-address';
+import { TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
-import { ThemePickerComponent } from '@impulseframework/resource-angular/ui-theme';
 import { Permission, PermissionDigestState, Resource } from '@impulseframework/resource';
+import { openNewTenantDialog } from '../new-tenant/new-tenant-dialog.component';
 
 /** One row of the permissions card: a resource and the digest state of each permission on it. */
 interface PermissionRow {
@@ -18,26 +17,25 @@ interface PermissionRow {
 }
 
 /**
- * The dashboard shows who is signed in and what the session holds, the person's email
- * address included (added, changed and confirmed through a mailed link, below the digest): per generated
- * resource, the digest state of each permission — in the tenant the page is open in for
- * tenant-scoped resources, globally for global ones. It lives outside the tenant segment
- * and under it: the landing for a session that has picked no tenant, and the tenant's.
- * A session holding no tenant is offered the create-your-tenant page instead: the Tenant
- * record's creation shape (`@tenant(creation: both)`) lets a signed-in person create
- * their own.
- * The Appearance card at the foot composes the library's theme picker: light or dark, and
- * the palettes theme.scss offers, remembered on this browser.
+ * The dashboard is every place's first page: who is signed in and what the session holds
+ * there, per generated resource, the digest state of each permission — in the tenant the
+ * page is open in for tenant-scoped resources, globally for global ones. It lives outside
+ * the tenant segment and under it: Configuration's first page, and the tenant's. A session
+ * holding no tenant is offered its own: the Tenant record's creation shape
+ * (`@tenant(creation: both)`) lets a signed-in person create one, through the new-tenant
+ * dialog. The person's email address and the look of the application are theirs, not a
+ * place's: the account page and Appearance in the person's menu, which the frame draws.
  */
 @Component({
   selector: 'app-dashboard',
-  imports: [EmailAddressComponent, MatButtonModule, MatCardModule, RouterModule, ThemePickerComponent],
+  imports: [MatButtonModule, MatCardModule],
   templateUrl: './dashboard.component.html',
   styleUrl: './dashboard.component.scss',
 })
 export class DashboardComponent {
   auth = inject(AuthService);
   tenants = inject(TenantService);
+  private dialog = inject(MatDialog);
 
   readonly permissionNames = ['List', 'Read', 'Create', 'Update', 'Delete', 'Execute'] as Permission[];
 
@@ -57,6 +55,11 @@ export class DashboardComponent {
     }
     return rows;
   });
+
+  /** Opens the new-tenant dialog on its self-service path: the person becomes the tenant's administrator. */
+  createYourTenant(): void {
+    openNewTenantDialog(this.dialog, { selfService: true });
+  }
 
   private scopeOf(resource: Resource): string {
     return ResourceScopes[resource] === 'domain' ? this.tenants.current() : 'global';

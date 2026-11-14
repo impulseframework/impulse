@@ -9,20 +9,27 @@ portal's declaration has its handlers and routes suppressed), tenant-scoped rout
 under `/api/tenants/{tenantID}/`, the shared data level's tenant roster keeps the tenants
 current on every instance of both sites (a tenant created through the console's API is
 usable at once, without a restart), and tenant existence is concealed from logins that
-hold nothing there. Each site's browser application mirrors the API's shape: every
-tenant-scoped page lives under the tenant segment, `/tenants/{tenantID}/...` (the
-generated `DomainRoutePath`), so a link to a tenant's page can be shared and a bookmark
-lands where it points, and the global pages keep their routes. The tenant a page works in
-is a consequence of its URL: the tenant guard on the segment (`core/tenant/tenant.guard.ts`)
-sets the tenant service's `current` from the URL before the page loads, checked against
-the session's tenant list, and nothing else writes it; the header's picker opens the same
-page under the chosen tenant, and a URL naming a tenant the session cannot reach lands on
-the refusal page (`/tenants/{tenantID}/refused`), which shows the server's answer. The
-dashboard lives outside a tenant and under it; the console manages the staff auth's
-people in both places the same way, the whole application's accounts at `/staff-accounts`
-and a tenant's people at `/tenants/{tenantID}/staff-people`. The library draws both from
-the API description (`identityRoutes` in the console's `app.routes.ts`), and a tenant's
-pages read the tenant from the URL (`RESOURCE_DOMAIN` in `app.config.ts`).
+hold nothing there. Each site's browser application sits in the library's frame
+(`provideFrame` in `app.config.ts`) and mirrors the API's shape: every tenant-scoped page
+lives under the tenant segment, `/tenants/{tenantID}/...` (the generated
+`DomainRoutePath`), so a link to a tenant's page can be shared and a bookmark lands where
+it points, and the pages of Configuration, the place outside every tenant, keep their
+routes. The tenant a page works in is a consequence of its URL: the library's tenant guard
+on the segment opens the tenant the URL names before the page loads, checked against the
+session's tenant list, and nothing else writes it; the place switcher beside the
+application's name opens the same page under the chosen tenant, and a URL naming a tenant
+the session cannot reach lands on the refusal page (`/tenants/{tenantID}/refused`), which
+shows the server's answer. The dashboard is every place's first page; the console manages
+the staff auth's people in both places the same way, the whole application's accounts at
+`/staff-accounts` and a tenant's people at `/tenants/{tenantID}/staff-people`. The library
+draws both from the API description (`identityRoutes` in the console's `app.routes.ts`,
+placed by `identityMenuPages` in its menu file), and a tenant's pages read the tenant from
+the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file (`app.menus.ts`)
+shows Tenants (All tenants and New tenant…) and System (the staff's accounts and Feature
+flags…) in Configuration, and People and Tenant (Sign-in settings) inside a tenant; the
+portal has no pages of its own yet, so its bar holds Help alone. In both, the person's own
+menu holds Your account, Appearance and Sign out, and Help ends with About, which carries
+the release.
 
 Who may enter a tenant is the record's declaration, data of the application rather than
 deploy configuration: the directories the tenant admits its people through
@@ -166,8 +173,8 @@ flip is recorded in `FeatureFlagChanges`. The App reads the table when it is bui
 digest and features route answer from one copy. Each site serves `features` under its `/api`. Flipping is the generated
 `SetFeature` method, held by the `FeatureAdministrator` role in the staff role file
 (Execute on `SetFeature`, List and Read on `FeatureFlags`), which the development `admin`
-login holds; the library's `FeatureFlagsDialog` calls it, opened from the Feature flags
-link in the header, shown to anyone holding List on `FeatureFlags`. A flag's
+login holds; the library's `FeatureFlagsDialog` calls it, opened from Feature flags… in
+the console's System menu, shown to anyone holding List on `FeatureFlags`. A flag's
 development state is its row in `schema/devseed/<n>_dev_feature_flags.up.sql`, which
 `impulse add feature` writes off (set it to TRUE to start development and the test
 environments with the feature on) and `impulse remove feature` deletes with the constant
@@ -264,8 +271,9 @@ its specs once, the form the Checks section and CI use; `bun ng test console` (o
 watches. The specs beside the skeleton's components are the pattern for the application's
 own: each dashboard renders a permission digest over a scripted client from
 `@impulseframework/resource-angular/testing` (`provideResourceTesting` puts the generated client on
-a transport that records every request and answers from the test), and the login page,
-header, top bar, footer, and shell have creation specs with the same providers.
+a transport that records every request and answers from the test), and each menu file's
+spec holds every page the routes carry to a place in the menus (`unplacedPages`); the
+frame itself is the library's, tested there.
 
 ## Live pages
 

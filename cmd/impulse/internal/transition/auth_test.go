@@ -919,11 +919,13 @@ func run(ctx context.Context) error {
 }
 
 // The browser files bound to an auth, by their path under a project's source root: the
-// application configuration, which names the auth's XSRF cookie, and the routes, which
-// ask the library for the pages of the auth's generated management.
+// application configuration, which names the auth's XSRF cookie, the routes, which ask
+// the library for the pages of the auth's generated management, and the menu file, which
+// places them.
 var boundWebFiles = []string{
 	"app/app.config.ts",
 	"app/app.routes.ts",
+	"app/app.menus.ts",
 }
 
 // skeletonWeb reads one file of the base skeleton's console project by its path under
@@ -973,11 +975,13 @@ func sitesApp(t *testing.T, edits map[string]func(text string) string) *app.App 
 		}
 		if site == "portal" {
 			// As impulse add site lays the copy in: without the pages of the management.
-			routes, found := dropIdentityRoutes(files[source+appRoutesFile])
-			if !found {
-				t.Fatal("the base skeleton's routes ask for no pages of the auth's management: the fixture is not the copy add site makes")
+			for _, rel := range []string{appRoutesFile, appMenusFile} {
+				edited, found := dropIdentityRoutes(files[source+rel])
+				if !found {
+					t.Fatalf("the base skeleton's %s asks for no pages of the auth's management: the fixture is not the copy add site makes", rel)
+				}
+				files[source+rel] = edited
 			}
-			files[source+appRoutesFile] = routes
 		}
 	}
 	for rel, edit := range edits {
@@ -1007,18 +1011,21 @@ func TestAuthApplyRebindsSiteWeb(t *testing.T) {
 	const (
 		portalSource  = "apps/portal/web/portal/src/"
 		portalRoutes  = portalSource + "app/app.routes.ts"
+		portalMenus   = portalSource + "app/app.menus.ts"
 		portalConfig  = portalSource + "app/app.config.ts"
 		portalProgram = "cmd/generate/portalgenerator/main.go"
 		consoleSource = "apps/console/web/console/src/"
 		consoleRoutes = consoleSource + "app/app.routes.ts"
+		consoleMenus  = consoleSource + "app/app.menus.ts"
 		consoleConfig = consoleSource + "app/app.config.ts"
 	)
 	members := Auth{Name: "members", Methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "google", Authority: AuthorityApplication, Accounts: authpkg.AccountsInvited}}, Outlet: "portal"}
 	partners := Auth{Name: "partners", Outlet: "console"}
 	const (
-		renderedConfig = portalConfig + ": rendered again from the skeleton's: its HttpClient names the members auth's XSRF cookie (members-xsrf) in place of the staff auth's"
+		renderedConfig = portalConfig + ": its HttpClient names the members auth's XSRF cookie (members-xsrf) in place of the staff auth's; the rest of the file is as it was"
 		ownTreeDid     = portalProgram + `: generation.GenerateIdentity("apps/portal/pkg/identity") added: the program generated no management, and the members auth is the only auth it declares, so the management of the auth's people is generated into apps/portal/pkg/identity and the auth's package builds its identity client from it`
 		noPages        = portalRoutes + ": asks the library for no pages of the staff auth's management, so nothing was rewritten and the members auth's people have no page; spread identityRoutes(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' }) among the routes behind the login guard, as the base skeleton's routes do: the library builds the accounts, the invitations, the sessions and the failed sign-ins from the API description"
+		noMenuPages    = portalMenus + ": asks the library for no pages of the staff auth's management, so nothing was rewritten and the members auth's people have no page; spread identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' }) among a menu's entries, as the base skeleton's menu file does: the library builds the accounts, the invitations, the sessions and the failed sign-ins from the API description"
 		staffPages     = "      ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'global' }),\n"
 	)
 	// A provider of the site's own in its application configuration, and a page of the
@@ -1038,6 +1045,9 @@ func TestAuthApplyRebindsSiteWeb(t *testing.T) {
 	keptPages := func(string) string {
 		return skeletonWeb(t, appRoutesFile)
 	}
+	keptMenus := func(string) string {
+		return skeletonWeb(t, appMenusFile)
+	}
 
 	tests := []struct {
 		name        string
@@ -1054,7 +1064,7 @@ func TestAuthApplyRebindsSiteWeb(t *testing.T) {
 			name:        "the portal, a copy of the console that serves no management, takes a tree of its own and the auth's cookie",
 			auth:        members,
 			wantDid:     []string{ownTreeDid, renderedConfig},
-			wantSkipped: []string{noPages},
+			wantSkipped: []string{noPages, noMenuPages},
 			wantText: map[string][]string{
 				portalProgram:                 {"\t\tgeneration.GenerateHandlers(\"apps/portal/app\"),\n\t\t// The management of the members auth's people is generated into apps/portal/pkg/identity, a tree this\n", "\t\tgeneration.GenerateIdentity(\"apps/portal/pkg/identity\"),\n"},
 				portalConfig:                  {"withXsrfConfiguration({ cookieName: 'members-xsrf' })", "the members auth's (pkg/auth/members, XSRFCookie)"},
@@ -1065,13 +1075,14 @@ func TestAuthApplyRebindsSiteWeb(t *testing.T) {
 			neverText: map[string][]string{
 				portalConfig: {"staff"},
 				portalRoutes: {"identityRoutes"},
+				portalMenus:  {"identityMenuPages"},
 			},
 		},
 		{
 			name:    "an application configuration with providers of its own keeps them and names the auth's cookie",
 			auth:    members,
 			edits:   map[string]func(string) string{portalConfig: provider},
-			wantDid: []string{portalConfig + ": its HttpClient names the members auth's XSRF cookie (members-xsrf) in place of the staff auth's; the rest of the file, edited since the skeleton rendered it, is as it was"},
+			wantDid: []string{portalConfig + ": its HttpClient names the members auth's XSRF cookie (members-xsrf) in place of the staff auth's; the rest of the file is as it was"},
 			wantText: map[string][]string{
 				portalConfig: {"    providePortalTheme(),\n", "withXsrfConfiguration({ cookieName: 'members-xsrf' })", "the members auth's (pkg/auth/members, XSRFCookie)"},
 			},
@@ -1086,15 +1097,17 @@ func TestAuthApplyRebindsSiteWeb(t *testing.T) {
 		{
 			name:  "a program that declares another auth gains no tree, and the pages of the auth it no longer serves are taken out",
 			auth:  members,
-			edits: map[string]func(string) string{portalProgram: secondOutlet, portalRoutes: keptPages},
+			edits: map[string]func(string) string{portalProgram: secondOutlet, portalRoutes: keptPages, portalMenus: keptMenus},
 			wantDid: []string{
 				portalRoutes + ": without the pages of the staff auth's management (the identityRoutes spreads and what they alone used): the outlet's program generates no management of the members auth, so its API description names no such page, and the library refuses a request for one when the application loads",
+				portalMenus + ": without the pages of the staff auth's management (the identityMenuPages spreads and what they alone used): the outlet's program generates no management of the members auth, so its API description names no such page, and the library refuses a request for one when the application loads",
 				renderedConfig,
 			},
 			wantSkipped: []string{portalProgram + ": the program generates no management of its auths' people (no generation.GenerateIdentity) and declares another auth beside the members auth, so the tool adds none: the members auth is rendered without an identity client, and nothing creates its people, gives them a role or invites an address until the application does. To have it generated, add generation.GenerateIdentity with a tree of the program's own: it generates the management of every auth the program declares, and each auth's package builds its client from that tree in New, as an auth the tool renders for such a program does"},
 			neverText: map[string][]string{
 				portalProgram:                 {"GenerateIdentity"},
 				portalRoutes:                  {"identityRoutes", "apiDescriptor", "resourceMeta"},
+				portalMenus:                   {"identityMenuPages", "apiDescriptor", "resourceMeta"},
 				"pkg/auth/members/members.go": {"identityClient", "membersidentity"},
 			},
 		},
@@ -1103,15 +1116,17 @@ func TestAuthApplyRebindsSiteWeb(t *testing.T) {
 			auth: partners,
 			wantDid: []string{
 				consoleRoutes + ": rendered again from the skeleton's for the partners auth: it asks the library for the pages of the partners auth's management (identityRoutes(apiDescriptor, resourceMeta, { auth: 'Partners', scope: 'global' })) in place of the staff auth's",
-				consoleConfig + ": rendered again from the skeleton's: its HttpClient names the partners auth's XSRF cookie (partners-xsrf) in place of the staff auth's",
+				consoleMenus + ": rendered again from the skeleton's for the partners auth: it asks the library for the pages of the partners auth's management (identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Partners', scope: 'global' })) in place of the staff auth's",
+				consoleConfig + ": its HttpClient names the partners auth's XSRF cookie (partners-xsrf) in place of the staff auth's; the rest of the file is as it was",
 			},
 			wantText: map[string][]string{
 				consoleRoutes:                   {"      ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Partners', scope: 'global' }),\n", "// The partners's accounts"},
+				consoleMenus:                    {"            ...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Partners', scope: 'global' }),\n", "// The partners's accounts"},
 				consoleConfig:                   {"cookieName: 'partners-xsrf'"},
 				portalConfig:                    {"cookieName: 'staff-xsrf'"},
 				"pkg/auth/partners/partners.go": {`"example.com/acme/beacon/apps/console/pkg/identity/partnersidentity"`},
 			},
-			neverText: map[string][]string{consoleRoutes: {"Staff", "staff"}},
+			neverText: map[string][]string{consoleRoutes: {"Staff", "staff"}, consoleMenus: {"Staff", "staff"}},
 		},
 		{
 			name:    "routes edited since the skeleton rendered them are rewritten in place",

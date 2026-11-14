@@ -55,7 +55,7 @@ function serverFor(digests: { global: PermissionDigest; acme: PermissionDigest }
       case `${environment.apiUrl}/permission-digest`:
         return { status: 200, body: url.searchParams.get('domain') === 'acme' ? digests.acme : digests.global };
       case `${environment.apiUrl}/user-domains`:
-        return { status: 200, body: ['acme'] };
+        return { status: 200, body: [{ domain: 'acme', name: 'Acme' }] };
       case `${environment.apiUrl}/features`:
         return { status: 200, body: { enabled: [] } };
       case `${environment.apiUrl}/tenants/acme`:
