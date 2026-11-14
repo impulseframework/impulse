@@ -7,7 +7,7 @@
 }
 .sheet {
   font-family: 'IBM Plex Mono', ui-monospace, monospace;
-  border: 1px dashed rgba(0, 0, 0, 0.3);
+  border: 1px dashed var(--mat-sys-outline-variant);
   padding: 1rem 1.25rem;
   max-width: 48rem;
 }
