@@ -20,6 +20,7 @@ type stubCollection struct {
 	computed      []accesstypes.Resource
 	targets       map[accesstypes.Resource]accesstypes.Resource
 	keys          map[accesstypes.Resource][]accesstypes.Tag
+	required      map[accesstypes.Resource][]accesstypes.Tag
 	attributes    map[string]accesstypes.AttributeType
 	columns       []string
 	lists         []string
@@ -224,6 +225,13 @@ func Test_UnionCollection(t *testing.T) {
 			wantErr: `resource "Widgets" and disagree on its concealing keys: []/[] vs []/[name]`,
 		},
 		{
+			name: "different fields a create must carry",
+			collections: []PermissionCollection{console, withDifferent(func(c *stubCollection) {
+				c.required = map[accesstypes.Resource][]accesstypes.Tag{"Widgets": {"name"}}
+			})},
+			wantErr: `resource "Widgets" and disagree on its fields a create must carry: [] vs [name]`,
+		},
+		{
 			name:        "the disagreeing collections are named by position, not by adjacency",
 			collections: []PermissionCollection{portal, console, withDifferent(func(c *stubCollection) { c.immutable = nil })},
 			wantErr:     `collections 2 and 3 (in argument order) both register resource "Widgets.id"`,
@@ -362,4 +370,8 @@ func Test_unionCollection_ListIsACopy(t *testing.T) {
 	if got := union.List(); !reflect.DeepEqual(got, registry("Read", "Widgets")) {
 		t.Errorf("List() after mutation = %v, want the original registry", got)
 	}
+}
+
+func (s *stubCollection) RequiredOnCreate(_ accesstypes.PermissionScope, res accesstypes.Resource) []accesstypes.Tag {
+	return s.required[res]
 }

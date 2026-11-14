@@ -416,6 +416,7 @@ func (r *resourceGenerator) Generate() error {
 	}
 
 	log.Printf("Finished Resource generation in %s\n", time.Since(begin))
+	r.output.reportRemovedGo()
 
 	return nil
 }

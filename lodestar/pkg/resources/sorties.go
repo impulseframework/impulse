@@ -16,7 +16,14 @@ type (
 	// Sortie has its own UUID key and an ordinary foreign key rather than being
 	// interleaved, so the second hop (SortieExpense) is a single-column foreign key.
 	//
-	// Demonstrates: @stateRoot, @domain.join-path, create-under-parent.
+	// LaunchedAt takes no NULL and nothing fills it, so a sortie's create must be given
+	// it: the generated collection names it, with the mission, the ship and the pilot,
+	// among the fields a create must carry (RequiredTags), and the role file's validation
+	// warns for a role that may create a sortie and may not set one of them. The flight
+	// lead's grant names all four (pkg/deploy pins that no role raises the warning, and
+	// test/integration/required_on_create_test.go runs the lead's create).
+	//
+	// Demonstrates: @stateRoot, @domain.join-path, create-under-parent, warning.required-field.
 	//
 	// @resource
 	// @permissionScope(domain)

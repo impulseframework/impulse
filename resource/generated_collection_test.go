@@ -344,6 +344,38 @@ func TestNewGeneratedCollection_validation(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "a field a create must carry is one of the resource's tags that carry Create",
+			data: CollectionData{Resources: []CollectionResource{{
+				Name:         "Widgets",
+				Scope:        scope,
+				Permissions:  []accesstypes.Permission{accesstypes.Create},
+				Tags:         []TagData{{Name: "id"}, {Name: "name", Permissions: []accesstypes.Permission{accesstypes.Create}}},
+				RequiredTags: []accesstypes.Tag{"name"},
+			}}},
+		},
+		{
+			name: "a required field naming a tag the resource lacks",
+			data: CollectionData{Resources: []CollectionResource{{
+				Name:         "Widgets",
+				Scope:        scope,
+				Permissions:  []accesstypes.Permission{accesstypes.Create},
+				Tags:         []TagData{{Name: "name", Permissions: []accesstypes.Permission{accesstypes.Create}}},
+				RequiredTags: []accesstypes.Tag{"weight"},
+			}}},
+			wantErr: true,
+		},
+		{
+			name: "a required field naming a tag no grant names for Create",
+			data: CollectionData{Resources: []CollectionResource{{
+				Name:         "Widgets",
+				Scope:        scope,
+				Permissions:  []accesstypes.Permission{accesstypes.Create, accesstypes.Read},
+				Tags:         []TagData{{Name: "name", Permissions: []accesstypes.Permission{accesstypes.Create}}, {Name: "photo", Permissions: []accesstypes.Permission{accesstypes.Read}}},
+				RequiredTags: []accesstypes.Tag{"photo"},
+			}}},
+			wantErr: true,
+		},
+		{
 			name:    "empty resource name",
 			data:    CollectionData{Resources: []CollectionResource{{Scope: scope}}},
 			wantErr: true,
@@ -833,5 +865,62 @@ func TestNewGeneratedCollection_targetMismatch(t *testing.T) {
 	}}})
 	if err == nil || !strings.Contains(err.Error(), "its transition targets") {
 		t.Errorf("NewGeneratedCollection() error = %v, want the target-mismatch rejection", err)
+	}
+}
+
+// TestCollectionBuilder_requiredOnCreate pins the fact deploy-time role validation reads
+// for the required-field warning: the builder keeps, of the fields it is told a create
+// must be given, the ones a grant names for Create, sorted; the data carries them and
+// reads back the same; and a resource told nothing answers none.
+func TestCollectionBuilder_requiredOnCreate(t *testing.T) {
+	t.Parallel()
+
+	const scope = accesstypes.DomainPermissionScope
+
+	b := NewCollectionBuilder()
+	created, err := NewSetData([]FieldTags{
+		{Field: "ID", JSON: "id", Perm: "-"},
+		{Field: "Instructions", JSON: "instructions"},
+		{Field: "Done", JSON: "done"},
+		{Field: "Notes", JSON: "notes"},
+	}, accesstypes.Create)
+	if err != nil {
+		t.Fatalf("NewSetData() error = %v", err)
+	}
+	if err := b.AddResourceSet(scope, "Tasks", created); err != nil {
+		t.Fatalf("AddResourceSet() error = %v", err)
+	}
+	read, err := NewSetData([]FieldTags{{Field: "ID", JSON: "id", Perm: "-"}, {Field: "Photo", JSON: "photo"}}, accesstypes.Read)
+	if err != nil {
+		t.Fatalf("NewSetData() error = %v", err)
+	}
+	if err := b.AddResourceSet(scope, "Tasks", read); err != nil {
+		t.Fatalf("AddResourceSet() error = %v", err)
+	}
+	// Told in no order, with a field no Create grant can name (photo) and one twice.
+	b.SetResourceRequiredTags(scope, "Tasks", []accesstypes.Tag{"instructions", "photo", "done", "instructions"})
+
+	data := b.Data()
+	tasks := data.Resources[slices.IndexFunc(data.Resources, func(r CollectionResource) bool { return r.Name == "Tasks" })]
+	want := []accesstypes.Tag{"done", "instructions"}
+	if diff := cmp.Diff(want, tasks.RequiredTags); diff != "" {
+		t.Errorf("Tasks RequiredTags mismatch (-want +got):\n%s", diff)
+	}
+
+	g, err := NewGeneratedCollection(data)
+	if err != nil {
+		t.Fatalf("NewGeneratedCollection() error = %v", err)
+	}
+	if diff := cmp.Diff(data, g.Data()); diff != "" {
+		t.Errorf("GeneratedCollection.Data() round trip mismatch (-want +got):\n%s", diff)
+	}
+	if diff := cmp.Diff(want, g.RequiredOnCreate(scope, "Tasks")); diff != "" {
+		t.Errorf("RequiredOnCreate(Tasks) mismatch (-want +got):\n%s", diff)
+	}
+	if got := g.RequiredOnCreate(scope, "Tasks.done"); got != nil {
+		t.Errorf("RequiredOnCreate(Tasks.done) = %v, want none for a field resource", got)
+	}
+	if got := g.RequiredOnCreate(accesstypes.GlobalPermissionScope, "Tasks"); got != nil {
+		t.Errorf("RequiredOnCreate(Tasks) in another scope = %v, want none", got)
 	}
 }

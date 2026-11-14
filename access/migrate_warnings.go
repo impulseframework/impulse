@@ -41,10 +41,19 @@ import (
 // the field's rank is disclosed. The warning fires exactly where the renderer
 // keeps the CASE on a field the resource orders by or admits as a sort or
 // filter key; it is informational, never a refusal.
+//
+// The create that cannot be completed (RequiredFieldWarning). A create writes
+// the fields the caller's Create grants name and no others, and the commit
+// refuses a row whose NOT NULL column nothing filled. So a role that may
+// create a resource, and whose Create grants on it name no grant for a field
+// every create must be given, creates no row by itself: the page draws the
+// form from the grant, the person fills in everything they may, and the commit
+// answers 409. Two roles the same person holds can cover the field between
+// them, which is why this is a warning and never a refusal.
 
 // Warning is one thing a deploy should hear about before the release takes
 // traffic: a shape the role file carries as written but flags (GrantWarning,
-// ConcealingKeyWarning), or something the policy store holds that this
+// RequiredFieldWarning, ConcealingKeyWarning), or something the policy store holds that this
 // release cannot use as written (SkippedGrant, ShadowedRole,
 // OrphanedMembership). A consumer that ranges and prints sees one line each,
 // and one that switches on the kind reads its fields.
@@ -129,6 +138,63 @@ func grantWarnings(store PermissionCollection, role *Role, scope accesstypes.Per
 					Condition:  condition,
 				})
 			}
+		}
+	}
+
+	return warnings
+}
+
+// RequiredFieldWarning is one resource a role may create and, by itself,
+// cannot: the role holds Create on the resource, and none of its Create grants
+// there covers a field every create must be given by the client
+// (PermissionCollection.RequiredOnCreate). A create under this role alone
+// leaves the column unset and is refused at commit.
+type RequiredFieldWarning struct {
+	// Role holds the grant; Scope is the scope the role is declared at.
+	Role  accesstypes.Role
+	Scope accesstypes.PermissionScope
+
+	// Resource is the resource the role holds Create on.
+	Resource accesstypes.Resource
+
+	// Fields are the required fields none of the role's Create grants on the
+	// resource covers, as wire tags, sorted.
+	Fields []accesstypes.Tag
+}
+
+func (RequiredFieldWarning) warning() {}
+
+// String renders the warning as one line: what is granted, what it leaves out,
+// what that does to a create, and the ways out.
+func (w RequiredFieldWarning) String() string {
+	fields := make([]string, 0, len(w.Fields))
+	for _, field := range w.Fields {
+		fields = append(fields, string(field))
+	}
+
+	return fmt.Sprintf("role %s: Create on %s is granted without %s, which every create of %s must be given (the column takes no NULL and nothing fills it for the client): a create under this role alone is refused at commit, whatever the person submits. Grant Create on the field, give the column a default, or accept this warning where the same people hold another role that grants it.",
+		w.Role, w.Resource, strings.Join(fields, ", "), w.Resource)
+}
+
+// requiredFieldWarnings flags each resource the role holds Create on whose
+// required fields the role's Create grants do not all cover, in resource
+// order. It reads the expanded grant set, so the fields of every Create grant
+// the role holds on the resource count, whatever condition each is under: the
+// warning says no create can succeed, not that some cannot.
+func requiredFieldWarnings(store PermissionCollection, role *Role, scope accesstypes.PermissionScope, set grantSet) []Warning {
+	var warnings []Warning
+	for _, res := range sortedResources(set[accesstypes.Create]) {
+		if strings.ContainsRune(string(res), '.') {
+			continue
+		}
+		var missing []accesstypes.Tag
+		for _, tag := range store.RequiredOnCreate(scope, res) {
+			if _, granted := set[accesstypes.Create][res.ResourceWithTag(tag)]; !granted {
+				missing = append(missing, tag)
+			}
+		}
+		if len(missing) > 0 {
+			warnings = append(warnings, RequiredFieldWarning{Role: role.Name, Scope: scope, Resource: res, Fields: missing})
 		}
 	}
 

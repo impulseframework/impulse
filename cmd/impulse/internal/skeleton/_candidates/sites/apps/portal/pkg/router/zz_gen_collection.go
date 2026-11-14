@@ -25,9 +25,10 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "tenantId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "title", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 				},
-				Domain:    &resource.DomainBindingData{Column: "TenantId"},
-				Order:     []accesstypes.Tag{"title"},
-				QueryKeys: []accesstypes.Tag{"tenantId", "kindId", "title"},
+				Domain:       &resource.DomainBindingData{Column: "TenantId"},
+				Order:        []accesstypes.Tag{"title"},
+				QueryKeys:    []accesstypes.Tag{"tenantId", "kindId", "title"},
+				RequiredTags: []accesstypes.Tag{"body", "kindId", "title"},
 			},
 			{
 				Name:        "FeatureFlags",

@@ -628,3 +628,7 @@ func TestValidateGrantCondition_computed(t *testing.T) {
 		})
 	}
 }
+
+func (grammarCollection) RequiredOnCreate(accesstypes.PermissionScope, accesstypes.Resource) []accesstypes.Tag {
+	return nil
+}

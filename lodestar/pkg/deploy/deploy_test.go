@@ -41,7 +41,8 @@ var archivistFee = access.ConcealingKeyWarning{
 // the grammar holds, every condition resolves against the generated
 // collection, and the warnings the deploy's role check would print are exactly
 // the ones pinned here. No role holds a conditional write on a row it can
-// neither Read nor List. The archivist's Missions grants raise the concealing-key warning on
+// neither Read nor List, and no role may create a resource without a field every
+// create of it must be given. The archivist's Missions grants raise the concealing-key warning on
 // the fee filter key alone: her completed grant implies her closed-states
 // grant, so the six indexed keys granted on the closed states are covered by
 // implication and prune their CASE, while the fee's condition is the narrower
@@ -49,7 +50,7 @@ var archivistFee = access.ConcealingKeyWarning{
 // the default order, is declared positional and raises nothing: her every
 // page orders on the real column.
 //
-// Demonstrates: warning.concealing-key, masking.positional.
+// Demonstrates: warning.concealing-key, masking.positional, warning.required-field.
 func TestRoles_validateAgainstTheCollection(t *testing.T) {
 	t.Parallel()
 

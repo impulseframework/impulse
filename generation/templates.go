@@ -3588,6 +3588,9 @@ func Collection() *resource.GeneratedCollection {
 				{{- with .QueryKeys }}
 				QueryKeys: []accesstypes.Tag{ {{- range $i, $t := . }}{{ if $i }}, {{ end }}"{{ $t }}"{{ end -}} },
 				{{- end }}
+				{{- with .RequiredTags }}
+				RequiredTags: []accesstypes.Tag{ {{- range $i, $t := . }}{{ if $i }}, {{ end }}"{{ $t }}"{{ end -}} },
+				{{- end }}
 			},
 			{{- end }}
 		},

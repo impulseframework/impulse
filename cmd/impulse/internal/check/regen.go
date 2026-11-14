@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -43,7 +45,10 @@ func (c regen) Run(ctx context.Context, env *Env) Result {
 	}
 
 	env.notef("running go generate ./... (needs the Spanner emulator)")
-	out, err := env.Exec.Run(ctx, env.App.Root, nil, "go", "generate", "./...")
+	out, removed, err := Generate(ctx, env.Exec, env.App.Root)
+	if removed != "" {
+		env.notef("%s", RanAgain(removed))
+	}
 	if err != nil {
 		return GenerateFailed(out)
 	}
@@ -67,6 +72,56 @@ func (c regen) Run(ctx context.Context, env *Env) Result {
 	}
 
 	return pass(c.Name(), regenClean)
+}
+
+// goGenerateStopped matches the go command's own last line when a file it listed is
+// gone by the time it reads it: "generate: open <path>: <the system's words>".
+var goGenerateStopped = regexp.MustCompile(`(?m)^generate: open (.+\.go): `)
+
+// Generate runs go generate ./... in the application at root, and runs it once more when
+// the first run was stopped by a file the run itself removed. The go command lists every
+// package's files before it runs the first directive and reads each file when it reaches
+// it, so a generated file a generator removed, in a package the go command had not
+// reached, ends the run with exit status 1 though the generator finished; the directives
+// of the packages after that one did not run. The second run meets no such file and is
+// the one whose output and error are answered. removed is the file the first run stopped
+// at, relative to root, and empty when one run was all it took.
+func Generate(ctx context.Context, exec Execer, root string) (out []byte, removed string, err error) {
+	out, err = exec.Run(ctx, root, nil, "go", "generate", "./...")
+	if err == nil {
+		return out, "", nil
+	}
+	removed = removedDuringGenerate(out, root)
+	if removed == "" {
+		return out, "", err
+	}
+	out, err = exec.Run(ctx, root, nil, "go", "generate", "./...")
+
+	return out, removed, err
+}
+
+// removedDuringGenerate reads a failed go generate's output for the go command's stop
+// at a Go file under root that is no longer there, and answers the file relative to
+// root, or nothing: any other failure is the run's own.
+func removedDuringGenerate(out []byte, root string) string {
+	m := goGenerateStopped.FindSubmatch(out)
+	if m == nil {
+		return ""
+	}
+	rel, err := filepath.Rel(root, string(m[1]))
+	if err != nil || !filepath.IsLocal(rel) {
+		return ""
+	}
+	if _, err := os.Stat(filepath.Join(root, rel)); !errors.Is(err, fs.ErrNotExist) {
+		return ""
+	}
+
+	return filepath.ToSlash(rel)
+}
+
+// RanAgain says, for a caller that reports its steps, why go generate ./... ran twice.
+func RanAgain(removed string) string {
+	return fmt.Sprintf("go generate ./... ran a second time: its first run removed %s, a generated file no longer written, and the go command stops at a file that is gone once it has listed it", removed)
 }
 
 // regenClean is the summary of a regeneration that changed nothing.

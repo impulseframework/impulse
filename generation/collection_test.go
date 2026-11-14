@@ -264,6 +264,9 @@ func Test_computeCollectionData(t *testing.T) {
 					},
 					Order:     []accesstypes.Tag{"deadline"},
 					QueryKeys: []accesstypes.Tag{"name"},
+					// The fixture's tables declare no nullable column and no default, so a
+					// create must be given every field its request carries.
+					RequiredTags: []accesstypes.Tag{"deadline", "name"},
 				},
 				{
 					// A key-less computed resource is a whole read-only list: List only, no
@@ -300,6 +303,7 @@ func Test_computeCollectionData(t *testing.T) {
 					Tags: []resource.TagData{
 						{Name: "name", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Update}},
 					},
+					RequiredTags: []accesstypes.Tag{"name"},
 				},
 				{
 					// All handlers suppressed (hand-written), Sets declared via
@@ -330,7 +334,8 @@ func Test_computeCollectionData(t *testing.T) {
 						{Name: "linkedGadget", Column: "Id", Path: []resource.BindingHop{{Table: "Gadgets", JoinColumn: "Id", Column: "Name"}}},
 						{Name: "sprocketName", Column: "Name"},
 					},
-					SubjectSets: []resource.SubjectBindingData{{Name: "ownedSprockets", UserColumn: "Id", Column: "Name", Type: resource.AttributeTypeString}},
+					SubjectSets:  []resource.SubjectBindingData{{Name: "ownedSprockets", UserColumn: "Id", Column: "Name", Type: resource.AttributeTypeString}},
+					RequiredTags: []accesstypes.Tag{"name"},
 				},
 				{
 					Name:        "Summaries",
@@ -360,6 +365,8 @@ func Test_computeCollectionData(t *testing.T) {
 						{Name: "secret", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Update}},
 					},
 					ImmutableTags: []accesstypes.Tag{"code"},
+					// The derived field is the server's, so it is not among them.
+					RequiredTags: []accesstypes.Tag{"code", "listedName", "name", "secret"},
 				},
 			}},
 		},
@@ -473,6 +480,16 @@ func Test_collectionTemplate(t *testing.T) {
 			Order:     []accesstypes.Tag{"deadline"},
 			QueryKeys: []accesstypes.Tag{"fee", "id"},
 		},
+		{
+			Name:        "Tasks",
+			Scope:       accesstypes.DomainPermissionScope,
+			Permissions: []accesstypes.Permission{accesstypes.Create},
+			Tags: []resource.TagData{
+				{Name: "done", Permissions: []accesstypes.Permission{accesstypes.Create}},
+				{Name: "instructions", Permissions: []accesstypes.Permission{accesstypes.Create}},
+			},
+			RequiredTags: []accesstypes.Tag{"done", "instructions"},
+		},
 	}}
 
 	r := &resourceGenerator{client: &client{}}
@@ -513,6 +530,7 @@ func Test_collectionTemplate(t *testing.T) {
 		`{Name: "fee", Permissions: []accesstypes.Permission{accesstypes.List}},`,
 		`Order: []accesstypes.Tag{"deadline"},`,
 		`QueryKeys: []accesstypes.Tag{"fee", "id"},`,
+		`RequiredTags: []accesstypes.Tag{"done", "instructions"},`,
 	} {
 		if !strings.Contains(normalized, want) {
 			t.Errorf("rendered collection file missing %q:\n%s", want, formatted)
@@ -973,6 +991,67 @@ func Test_parsePermissionScopeAnnotation(t *testing.T) {
 			}
 			if !tt.wantErr && got != tt.want {
 				t.Errorf("parsePermissionScopeAnnotation(%q) = %q, want %q", tt.arg, got, tt.want)
+			}
+		})
+	}
+}
+
+// Test_requiredOnCreate pins which fields the collection is told a create must be given:
+// a column that takes no NULL and that nothing but the client fills. A key, a nullable
+// column, a column with a default, a field a default_create_fn fills and a field the
+// server owns are not among them, and a view has none.
+func Test_requiredOnCreate(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadFixture(t, "secretfixture"))
+	field := func(res *resourceInfo, name string) *resourceField {
+		for _, f := range res.Fields {
+			if f.Name() == name {
+				return f
+			}
+		}
+		t.Fatalf("field %s not found in the fixture", name)
+
+		return nil
+	}
+
+	tests := []struct {
+		name   string
+		mutate func(*resourceInfo)
+		want   []accesstypes.Tag
+	}{
+		{
+			// Lockbox: ID (the key), Name, Combination, Manifest, each NOT NULL here.
+			name: "every column that takes no NULL, the key aside",
+			want: []accesstypes.Tag{"name", "combination", "manifest"},
+		},
+		{
+			name:   "a nullable column is not required",
+			mutate: func(res *resourceInfo) { field(res, "Manifest").IsNullable = true },
+			want:   []accesstypes.Tag{"name", "combination"},
+		},
+		{
+			name:   "a column with a default is not required",
+			mutate: func(res *resourceInfo) { field(res, "Name").HasDefault = true },
+			want:   []accesstypes.Tag{"combination", "manifest"},
+		},
+		{
+			name:   "a field the server owns is not the client's to give",
+			mutate: func(res *resourceInfo) { field(res, "Name").IsState = true },
+			want:   []accesstypes.Tag{"combination", "manifest"},
+		},
+		{
+			name:   "a view takes no create",
+			mutate: func(res *resourceInfo) { res.IsVirtual = true },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := requiredOnCreate(fixtureResource(t, structs, "Lockbox", tt.mutate))
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("requiredOnCreate() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

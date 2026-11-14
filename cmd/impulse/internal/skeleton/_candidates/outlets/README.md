@@ -381,6 +381,13 @@ The resource package's README describes the design (section 14, "Live pages").
     golangci-lint-v2 run
     cd web && bun run build && bun run lint && bun run test
 
+A run that removes a generated Go file it no longer writes (after a resource, a method, an
+auth or an outlet is removed or renamed) says so in its last lines, and `go generate ./...`
+then exits 1 with `no such file or directory`: the go command lists every package's files
+before it runs the generator and stops at one that is gone when it reaches it. The generation
+is complete; run the command once more and it finishes. `impulse` runs it the second time
+itself wherever it regenerates.
+
 A generate program is three files in its directory: `generator.go` declares the generator
 (`newGenerator`), `main.go` runs it and prints every schema warning the run raised (an index a
 listed tenant-scoped resource wants, a tenant resolved through a join path, an enumeration
