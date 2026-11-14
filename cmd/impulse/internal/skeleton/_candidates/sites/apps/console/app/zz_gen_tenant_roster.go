@@ -43,8 +43,11 @@ var tenantDeclaration = resource.TenantDeclarationColumns{
 // (Tenant.DirectoryOnly and the TenantDirectory rows), so its Declarations is what the
 // application hands resource.SessionPermissions as the tenant declarations, and the
 // generated TenantDirectory write paths reload it too.
+// It reads each tenant's name (Tenant.Name) beside its key, so the session's
+// tenant list names each tenant from the copy (resource.WithDomainNames).
 func NewTenantRoster(client resource.Client, opts ...resource.TenantRosterOption) *resource.TenantRoster {
 	opts = append([]resource.TenantRosterOption{resource.WithTenantDeclarations(&tenantDeclaration)}, opts...)
+	opts = append([]resource.TenantRosterOption{resource.WithTenantNames("Name")}, opts...)
 
 	return resource.NewTenantRoster(client, "Tenants", "Id", opts...)
 }

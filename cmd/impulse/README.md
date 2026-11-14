@@ -883,10 +883,18 @@ is built (a new `tenancy.go` plus a field and the start inserted into
 restart; the app exposes the roster and the roster's copy of the declarations to the
 generated code as `TenantRoster()` and `TenantDeclarations()` and hands the roster's
 `Domains` and the declarations to the session permissions (a new `tenancy.go` plus the
-`Configurer`, `App` and `UserPermissions` edits); and the tenant pages are copied into
-the browser app: the tenant's sign-in page, the configuration of All tenants (the
-library's list page over the record) and the New tenant dialog, while the library's frame
-carries the tenant the URL names, the guard, the refusal page and the place switcher. The declaration rides along: the tenant table carries `DirectoryOnly` and a
+`Configurer`, `App` and `UserPermissions` edits); and the browser app takes the tenant's
+shape: the tenant pages are copied in (the tenant's sign-in page, the configuration of All
+tenants, the library's list page over the record, and the New tenant dialog), the menu
+file gains the tenant menus ahead of its others (Tenants with All tenants and New tenant…,
+People with the tenant's side of the auth's people, and Tenant with Sign-in settings), the
+frame's configuration names the place outside every tenant (Configuration, with a gear),
+and routes still as the skeleton rendered them are written in the tenant shape, while the
+library's frame carries the tenant the URL names, the guard, the refusal page and the
+place switcher. The record's name, marked `@tenantName`, is what the session's tenant
+list shows. A record of another name gets everything in its own words: with
+`--tenant-table ServiceAreas` the pages, the menus and the routes say service area, and
+every name the generator derives from the record is the record's. The declaration rides along: the tenant table carries `DirectoryOnly` and a
 `<Record>Directories` table beside it, the directories record joins the resource package
 (`@tenantDirectory`, tenant-scoped), both records track changes, each auth's `Settings`
 carry the reader and its `New` sets the library's sign-in rule over it
@@ -894,7 +902,7 @@ carry the reader and its `New` sets the library's sign-in rule over it
 data level's settings literal passes the reader in. Every edit whose anchor the
 application lacks is recorded in the brief as the agent's. Which resources become
 tenant-scoped and how their rows are assigned, the bootstrap order, the harnesses, the
-tests, the tenant segment in the routes, the tenant menus in the menu file, the declaration's grants and
+tests, routes edited since the skeleton rendered them, the dashboard's tenant, the declaration's grants and
 the directories the development seed declares are the agent's, and `tenancy-wired`
 holds it to them.
 

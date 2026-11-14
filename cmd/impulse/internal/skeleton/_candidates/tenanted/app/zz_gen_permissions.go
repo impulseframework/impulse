@@ -29,6 +29,8 @@ func (a *App) PermissionDigest() http.HandlerFunc {
 // foothold test over the session's admission, so the picker and the domain guard can
 // never disagree. The generated router registers it at
 // GET /api/user-domains.
+// Each tenant of the list carries its name from the application's tenant roster, which
+// reads the tenant record's name column, so the tenant's own people see it.
 func (a *App) UserDomains() http.HandlerFunc {
-	return resource.UserDomainsHandler(a.UserPermissions)
+	return resource.UserDomainsHandler(a.UserPermissions, resource.WithDomainNames(a.TenantRoster()))
 }

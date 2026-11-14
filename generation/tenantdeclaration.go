@@ -28,7 +28,8 @@ import (
 
 // resolveTenantDeclaration reads a table-backed struct's declaration annotations:
 // @tenantDirectory on the struct, @directoryOnly, @directoryMethod, @directoryConnection
-// and @directoryDefaultSeat on its fields, each refused where it cannot mean anything.
+// and @directoryDefaultSeat on its fields, each refused where it cannot mean anything,
+// and the record's @tenantName, the name the tenant list carries, beside them.
 // The rules that read across structs (one directories record, the record it belongs
 // to) run once every struct is extracted (rejectSecondTenantDirectory,
 // validateTenantDeclaration). The scope and the tenant record resolve first.
@@ -56,6 +57,10 @@ func resolveTenantDeclaration(res *resourceInfo, pStruct *parser.Struct, annotat
 				return errors.Newf("struct %s field %s: @%s on a second column; field %s carries it already, and a tenant has one directory-only flag", res.Name(), field.Name(), directoryOnlyKeyword, res.DirectoryOnlyField.Name())
 			}
 			res.DirectoryOnlyField = res.fieldNamed(field.Name())
+		case fieldAnnotations.Has(tenantNameKeyword):
+			if err := res.setTenantNameColumn(field); err != nil {
+				return err
+			}
 		case fieldAnnotations.Has(directoryMethodKeyword):
 			if err := res.setDirectoryColumn(&res.DirectoryMethodField, field, directoryMethodKeyword, "the sign-in method a directory is reached through"); err != nil {
 				return err
@@ -69,6 +74,26 @@ func resolveTenantDeclaration(res *resourceInfo, pStruct *parser.Struct, annotat
 				return err
 			}
 		}
+	}
+
+	return nil
+}
+
+// setTenantNameColumn records the tenant record's name column (@tenantName), refusing it
+// off the record, on a column that is neither a string nor a nullable string, and
+// declared twice.
+func (r *resourceInfo) setTenantNameColumn(field *parser.Field) error {
+	switch {
+	case !r.IsTenant:
+		return errors.Newf("struct %s field %s: @%s on a resource that is not the tenant record; a tenant's name is the @%s record's column", r.Name(), field.Name(), tenantNameKeyword, tenantKeyword)
+	case !isStringOrNullableString(field.GoType()):
+		return errors.Newf("struct %s field %s: @%s on a %s column; a tenant's name is a string or a nullable string (*string)", r.Name(), field.Name(), tenantNameKeyword, field.Type())
+	case r.TenantNameField != nil:
+		return errors.Newf("struct %s field %s: @%s on a second column; field %s carries it already, and a tenant has one name", r.Name(), field.Name(), tenantNameKeyword, r.TenantNameField.Name())
+	}
+	r.TenantNameField = r.fieldNamed(field.Name())
+	if r.TenantNameField == nil {
+		return errors.Newf("struct %s field %s: @%s on a column the schema does not hold", r.Name(), field.Name(), tenantNameKeyword)
 	}
 
 	return nil

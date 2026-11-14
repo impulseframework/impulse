@@ -40,12 +40,13 @@ func resolveTenant(res *resourceInfo, annotations genlang.StructAnnotations) err
 	if !isStringKinded(key.GoType()) {
 		return errors.Newf("struct %s: @%s on a resource whose key %s is %s; the tenant record's key is a string, the domain in every tenant-scoped URL", res.Name(), tenantKeyword, key.Name(), key.Type())
 	}
-	creation, err := parseTenantCreation(res.Name(), annotations.Struct.Get(tenantKeyword))
+	args, err := parseTenantArgs(res.Name(), annotations.Struct.Get(tenantKeyword))
 	if err != nil {
 		return err
 	}
 	res.IsTenant = true
-	res.TenantCreation = creation
+	res.TenantCreation = args.creation
+	res.TenantLabel = args.label
 
 	return nil
 }
@@ -149,8 +150,47 @@ func (r *resourceGenerator) resolveTenantRecord() error {
 
 	r.domainRouteSegment = strcase.ToKebab(r.pluralize(tenant.Name()))
 	r.domainRouteParam = strcase.ToGoCamel(tenant.Name() + tenant.PrimaryKey().Name())
+	r.domainWord = r.tenantWord(tenant)
 
 	return r.validateTenantDeclaration()
+}
+
+// namesTenants reports whether the generated tenant list names each tenant: the tenant
+// record marks its name (@tenantName), and the application serves tenant-scoped routes,
+// so it holds the roster the names are read from (TenantRoster).
+func (r *resourceGenerator) namesTenants() bool {
+	tenant := r.tenantRecord()
+
+	return tenant != nil && tenant.TenantNameField != nil && r.hasDomainScoped()
+}
+
+// tenantWordData is what the application calls a tenant on screen, one and many, as the
+// browser's descriptor carries it (domainRoute.word) for the frame's switcher and menus.
+type tenantWordData struct {
+	One  string
+	Many string
+}
+
+// tenantWord is the word for the record's rows: its label where it declares one
+// (@tenant(label: ...)), else its name in words ("ShipClass": "Ship class" and
+// "Ship classes"), the plural as the generator spells the record's table.
+func (r *resourceGenerator) tenantWord(tenant *resourceInfo) tenantWordData {
+	if tenant.TenantLabel != "" {
+		return tenantWordData{One: tenant.TenantLabel, Many: r.pluralize(tenant.TenantLabel)}
+	}
+
+	return tenantWordData{One: screenWords(tenant.Name()), Many: screenWords(r.pluralize(tenant.Name()))}
+}
+
+// screenWords spells a Go name as words with the first one capitalized: "ShipClass" is
+// "Ship class".
+func screenWords(name string) string {
+	words := strcase.ToCase(name, strcase.LowerCase, ' ')
+	if words == "" {
+		return ""
+	}
+
+	return strings.ToUpper(words[:1]) + words[1:]
 }
 
 // requireTenantRecordForMethods is resolveTenantRecord's rule for the RPC methods, which
@@ -187,6 +227,10 @@ type tenantsData struct {
 	KeyColumn string
 	// RecordLower is the word for one of the record's rows in prose.
 	RecordLower string
+	// NameColumn is the record's @tenantName column the roster reads names from, and
+	// NameField its field; both empty where the record marks none.
+	NameColumn string
+	NameField  string
 	// Declaration is the declaration's columns (resource.TenantDeclarationColumns), nil
 	// where the record declares none; Directories names the directories record and
 	// DefaultSeat its default seat field, empty where it carries none.
@@ -232,6 +276,10 @@ func (r *resourceGenerator) generateTenants() error {
 		LocalPackageImports: r.localPackageImports(),
 		RouterPackage:       r.router.Package(),
 		ApplicationName:     r.applicationName,
+	}
+	if field := tenant.TenantNameField; field != nil {
+		data.NameColumn, _ = field.LookupTag(spannerTagKey)
+		data.NameField = field.Name()
 	}
 	if tenant.HasDeclaration() {
 		data.Directories = tenant.declaration.Directories.Name()

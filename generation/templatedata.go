@@ -366,6 +366,10 @@ type permissionsData struct {
 	// RouterPackage is the package whose Collection() carries the former names the
 	// digest mirrors.
 	RouterPackage string
+	// TenantNames says the tenant list names each tenant from the application's tenant
+	// roster: the tenant record marks its name (@tenantName) and the application serves
+	// tenant-scoped routes, so it holds the roster.
+	TenantNames bool
 }
 
 // featureDeclarationsData feeds the resources package's zz_gen_features.go.
@@ -690,10 +694,13 @@ type tsAPIData struct {
 	Methods            []*tsAPIMethod
 	DomainRouteSegment string
 	DomainRouteParam   string
-	ConsolidatedRoute  string
-	HasDomainScoped    bool
-	HasGlobal          bool
-	HasDomain          bool
+	// DomainWord is the word for a tenant, one and many (tenantWord); empty where the
+	// package declares no tenant record.
+	DomainWord        tenantWordData
+	ConsolidatedRoute string
+	HasDomainScoped   bool
+	HasGlobal         bool
+	HasDomain         bool
 	// Live says the outlet serves the live routes (resource/live), so the descriptor
 	// names them; every outlet a client is generated for serves sessions, and every
 	// session outlet serves them.

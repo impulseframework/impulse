@@ -264,7 +264,13 @@ jobs:
     # rendered application's own golangci-lint configuration under both of its tag sets, so
     # a skeleton line an application's lint rejects fails here too, and not in the
     # application's upgrade walk (the candidates themselves are never linted: they are
-    # templates, not a module).
+    # templates, not a module). Each browser app of the rendered application is built,
+    # linted and tested too, as the application runs them: on the head leg against the
+    # browser packages built from this commit, on the pins leg against the published
+    # release its package.json pins. The solo head leg also composes the tenancy option
+    # with impulse new, for a record of two words, and runs that application's browser
+    # app the same way, since add tenancy writes the browser files a tenanted application
+    # starts from.
     # The legs start on every pull request (see the changes job): on one that touches
     # nothing of theirs every step is skipped. The pins leg also skips every step while no
     # release of the framework exists, since it has nothing to render against.
@@ -279,6 +285,9 @@ jobs:
     env:
       # testcontainers' reaper (Ryuk) is not needed on a runner discarded after the job, and its start has timed out here.
       TESTCONTAINERS_RYUK_DISABLED: "true"
+      # The bun that wrote web/bun.lock, which builds the browser packages and installs the
+      # rendered application's browser apps.
+      BUN_VERSION: 1.4.4
       # The leg does its work when the framework or the command line changed, or when the
       # changes job could not say; otherwise every step is skipped and the leg still reports
       # its name. The pins leg's release step adds a second condition, released, which the
@@ -398,6 +407,75 @@ jobs:
         working-directory: app
         run: |
           "$RUNNER_TEMP/impulse" check
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' }}
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+      - name: Build the browser packages at this commit
+        # The head leg's browser apps install the three packages built from this commit,
+        # packed, in place of the published versions their package.json pins: the
+        # package-manager counterpart of the replace line --dev-root writes.
+        if: ${{ env.RUN == 'true' && matrix.framework == 'head' }}
+        working-directory: impulse/web
+        run: |
+          bun install --frozen-lockfile
+          bun run build
+          mkdir -p "$RUNNER_TEMP/packs"
+          for p in resource resource-angular resource-firestore; do
+            (cd "dist/$p" && npm pack --silent --pack-destination "$RUNNER_TEMP/packs")
+          done
+          ls "$RUNNER_TEMP/packs"
+      - name: Build, lint and test the browser apps
+        # Every web root of the application (web/, or apps/<site>/web/ in the sites layout):
+        # its production build, its lint and its specs. The solo head leg first composes
+        # the tenancy option for a record of two words (ServiceAreas), whose browser files
+        # add tenancy writes in that record's words, and checks that application's browser
+        # app beside the rendered one; its Go side is left with the obligations the brief
+        # names, so only its browser app is checked here.
+        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' }}
+        env:
+          CANDIDATE: ${{ matrix.candidate }}
+          FRAMEWORK: ${{ matrix.framework }}
+          # impulse new makes the first commit composed options build on.
+          GIT_AUTHOR_NAME: ci
+          GIT_AUTHOR_EMAIL: ci@example.com
+          GIT_COMMITTER_NAME: ci
+          GIT_COMMITTER_EMAIL: ci@example.com
+        run: |
+          apps=app
+          if [ "$CANDIDATE" = solo ] && [ "$FRAMEWORK" = head ]; then
+            "$RUNNER_TEMP/impulse" new composed --module example.com/ci/composed --auth staff --tenancy --tenant-table ServiceAreas --dev-root "$GITHUB_WORKSPACE/impulse"
+            apps="app composed"
+          fi
+          for dir in $apps; do
+            roots=$(find "$dir" -path '*/node_modules' -prune -o -path '*web/package.json' -print | xargs -r -n1 dirname | sort)
+            if [ -z "$roots" ]; then
+              echo "::error::$dir has no browser app"
+              exit 1
+            fi
+            for root in $roots; do
+              echo "::group::$root"
+              (
+                cd "$root"
+                if [ "$FRAMEWORK" = head ]; then
+                  # The pins become the packs; a lockfile would hold the published versions.
+                  for p in resource resource-angular resource-firestore; do
+                    tgz=$(ls "$RUNNER_TEMP"/packs/impulseframework-"$p"-[0-9]*.tgz)
+                    jq --arg n "@impulseframework/$p" --arg v "file:$tgz" \
+                      '(if .dependencies[$n] then .dependencies[$n] = $v else . end) | (if (.overrides // {})[$n] then .overrides[$n] = $v else . end)' \
+                      package.json > package.json.next
+                    mv package.json.next package.json
+                  done
+                  rm -f bun.lock
+                fi
+                bun install
+                bun run build
+                bun run lint
+                bun run test
+              ) || { echo "::error::$root: the browser app failed to install, build, lint or test"; exit 1; }
+              echo "::endgroup::"
+            done
+          done
       - name: Save the Go caches
         # Always on master; on a pull request only when no entry for this go.sum was found.
         # The four candidates of a framework leg share the key, so the first to finish saves

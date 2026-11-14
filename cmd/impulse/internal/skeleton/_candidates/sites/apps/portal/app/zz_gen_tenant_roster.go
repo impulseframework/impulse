@@ -12,7 +12,10 @@ import "github.com/impulseframework/impulse/resource"
 // Tenant write paths reload it after their commit and publish the
 // tenants signal, so every instance reloads. The application exposes the roster as
 // TenantRoster(); resource.WithTenantSignals wires the live service the roster reloads on.
+// It reads each tenant's name (Tenant.Name) beside its key, so the session's
+// tenant list names each tenant from the copy (resource.WithDomainNames).
 func NewTenantRoster(client resource.Client, opts ...resource.TenantRosterOption) *resource.TenantRoster {
+	opts = append([]resource.TenantRosterOption{resource.WithTenantNames("Name")}, opts...)
 
 	return resource.NewTenantRoster(client, "Tenants", "Id", opts...)
 }

@@ -36,6 +36,9 @@ type typescriptGenerator struct {
 	// TypeScript route metadata can render the domain segment of domain-scoped routes.
 	domainRouteSegment string
 	domainRouteParam   string
+	// domainWord mirrors the resourceGenerator's word for a tenant, which the client's
+	// descriptor carries beside the route pair (domainRoute.word).
+	domainWord tenantWordData
 	// outletName is the router outlet this target serves (ForOutlet): every emitted
 	// file is filtered to the outlet's members. Empty means the default outlet
 	// (resolveOptions fills the name in; targetOutlet covers directly constructed
@@ -821,6 +824,7 @@ func (t *typescriptGenerator) apiClientData() *tsAPIData {
 		GenPrefix:          genPrefix,
 		DomainRouteSegment: t.domainRouteSegment,
 		DomainRouteParam:   t.domainRouteParam,
+		DomainWord:         t.domainWord,
 		// A client is only generated for a session-serving outlet (validateOutlets),
 		// and every session outlet serves the live routes.
 		Live:           true,

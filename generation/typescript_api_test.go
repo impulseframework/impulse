@@ -106,10 +106,11 @@ func Test_apiClientData(t *testing.T) {
 					},
 					domainRouteSegment: "stations",
 					domainRouteParam:   "stationID",
+					domainWord:         tenantWordData{One: "Station", Many: "Stations"},
 				}
 			},
 			wantContains: []string{
-				"domainRoute: { segment: 'stations', param: 'stationID' },",
+				"domainRoute: { segment: 'stations', param: 'stationID', word: { one: 'Station', many: 'Stations' } },",
 				"[Methods.DoSomething]: { method: Methods.DoSomething, property: 'doSomething', route: 'do-something', scope: 'domain' },",
 				"export interface DomainApi {\n  gadgets: ResourceHandle<Gadgets, GadgetsKey, 'list' | 'read' | 'create' | 'patch' | 'remove', GadgetsCreate, GadgetsPatch>;\n  doSomething: MethodHandle<DoSomething>;\n}",
 				"export interface GlobalApi {\n}",
