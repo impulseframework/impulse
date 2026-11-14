@@ -1,6 +1,6 @@
 import { CdkMenu, CdkMenuGroup, CdkMenuItem, CdkMenuItemRadio, CdkMenuTrigger } from '@angular/cdk/menu';
 import { NgTemplateOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, Component, inject, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, inject, input, viewChildren } from '@angular/core';
 import { MatIconModule } from '@angular/material/icon';
 import { Router } from '@angular/router';
 import { CurrentUrl } from './current-url';
@@ -11,7 +11,8 @@ import { linksTo, ShownEntry, ShownGroup } from './menu';
  * label, a hint at the right edge, and an arrow for a submenu or a check for the chosen one
  * of a set. Rows are 28 pixels tall, as in a desktop application's menus. The keyboard
  * works as in one: the arrow keys move and open submenus, a letter jumps to the entry it
- * starts, Enter chooses, Escape closes.
+ * starts, Enter chooses, Escape closes. A submenu opens when the pointer rests on its entry,
+ * and a click on the entry keeps it open.
  *
  * Whatever the component is given between its tags goes above the first group: the
  * person's name over their own menu, the find box over a long list.
@@ -23,7 +24,7 @@ import { linksTo, ShownEntry, ShownGroup } from './menu';
   template: `
     <div cdkMenu class="menu-list">
       <ng-content />
-      @for (group of groups(); track $index) {
+      @for (group of groups(); track $index; let at = $index) {
         @if (!$first) {
           <div class="separator" role="separator"></div>
         }
@@ -36,9 +37,9 @@ import { linksTo, ShownEntry, ShownGroup } from './menu';
               <button
                 type="button"
                 cdkMenuItem
-                class="item"
+                class="item submenu"
                 [cdkMenuTriggerFor]="submenu"
-                [cdkMenuTriggerData]="{ $implicit: entry.groups }"
+                [cdkMenuTriggerData]="{ group: at, label: entry.label }"
                 [cdkMenuItemDisabled]="entry.disabled">
                 <ng-container *ngTemplateOutlet="row; context: { $implicit: entry }" />
                 <mat-icon class="end">chevron_right</mat-icon>
@@ -78,8 +79,8 @@ import { linksTo, ShownEntry, ShownGroup } from './menu';
       <span class="hint">{{ entry.hint ?? '' }}</span>
     </ng-template>
 
-    <ng-template #submenu let-groups>
-      <impulse-menu-list [groups]="groups" />
+    <ng-template #submenu let-group="group" let-label="label">
+      <impulse-menu-list [groups]="submenuOf(group, label)" />
     </ng-template>
   `,
   styleUrl: './menu-list.component.scss',
@@ -88,8 +89,37 @@ export class MenuListComponent {
   private router = inject(Router);
   private url = inject(CurrentUrl).url;
 
+  /** The submenu entries' triggers, and their buttons in the same order. */
+  private triggers = viewChildren(CdkMenuTrigger);
+  private triggerButtons = viewChildren(CdkMenuTrigger, { read: ElementRef });
+
+  constructor() {
+    // The pointer resting on a submenu's entry opens the submenu, and the trigger closes it
+    // again on the click a person naturally gives the entry they are on. A click on an
+    // entry whose submenu is open stops here, before it reaches the trigger. The trigger is
+    // asked, not the page: the page shows the submenu open only once it has drawn again.
+    const host = inject<ElementRef<HTMLElement>>(ElementRef).nativeElement;
+    const keepOpen = (event: MouseEvent): void => {
+      const entry = (event.target as Element | null)?.closest('button.submenu');
+      const at = this.triggerButtons().findIndex((button) => button.nativeElement === entry);
+      if (at >= 0 && this.triggers()[at]?.isOpen()) {
+        event.stopPropagation();
+      }
+    };
+    host.addEventListener('click', keepOpen, true);
+    inject(DestroyRef).onDestroy(() => host.removeEventListener('click', keepOpen, true));
+  }
+
   /** What the menu shows, as the person may use it. */
   readonly groups = input.required<readonly ShownGroup[]>();
+
+  /**
+   * What a submenu shows now, by where its entry is. A trigger keeps the data it opened with
+   * the first time, so it is given the entry's place and the submenu reads it as it is.
+   */
+  submenuOf(group: number, label: string): readonly ShownGroup[] {
+    return this.groups()[group]?.entries.find((entry) => entry.label === label)?.groups ?? [];
+  }
 
   /** Whether the entry goes to the page the browser is on. */
   isCurrent(entry: ShownEntry): boolean {

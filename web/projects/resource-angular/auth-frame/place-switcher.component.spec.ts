@@ -50,6 +50,19 @@ describe('PlaceSwitcherComponent', () => {
     expect(element().querySelector('.switcher.alone .name')?.textContent).toBe('Configuration');
   });
 
+  it('asks a person on a page in none of their places to choose one, naming none they do not hold', async () => {
+    // A tenant's refusal page, for a person who holds one tenant and nothing outside every
+    // tenant: the page is outside every tenant, which is not one of their places.
+    await open({}, [{ domain: 'acme', name: 'Acme' }]);
+    const button = element().querySelector('button.switcher');
+    expect(button?.getAttribute('aria-label')).toBe('Choose a customer');
+    expect(button?.querySelector('.name')?.textContent).toBe('Choose a customer');
+    expect(element().textContent).not.toContain('Configuration');
+    expect(
+      fixture.componentInstance.groups().map((group) => group.entries.map((entry) => [entry.label, entry.checked])),
+    ).toEqual([[['Acme', false]]]);
+  });
+
   it(`opens with a box to find a place from ${findFrom} places`, async () => {
     const many = Array.from({ length: findFrom }, (_, i) => ({ domain: `t${i}`, name: `Customer ${i}` }));
     await open({}, many);

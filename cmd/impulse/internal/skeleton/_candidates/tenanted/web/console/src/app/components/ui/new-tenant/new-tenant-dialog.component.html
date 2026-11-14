@@ -9,7 +9,7 @@
     } @else {
       <p>The tenant is served the moment it exists. Nobody is in it until someone gives them a role there.</p>
     }
-    <mat-form-field appearance="outline" class="field">
+    <mat-form-field appearance="outline" class="field" subscriptSizing="dynamic">
       <mat-label>Identifier</mat-label>
       <input matInput formControlName="id" name="id" autocomplete="off" placeholder="west" />
       <mat-hint>Lowercase letters, digits and hyphens: the segment of every URL in the tenant.</mat-hint>
@@ -17,7 +17,7 @@
         <mat-error>Lowercase letters, digits and single hyphens only.</mat-error>
       }
     </mat-form-field>
-    <mat-form-field appearance="outline" class="field">
+    <mat-form-field appearance="outline" class="field" subscriptSizing="dynamic">
       <mat-label>Name</mat-label>
       <input matInput formControlName="name" name="name" autocomplete="organization" placeholder="West" />
     </mat-form-field>

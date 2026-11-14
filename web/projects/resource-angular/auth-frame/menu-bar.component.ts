@@ -38,7 +38,7 @@ import { MenuListComponent } from './menu-list.component';
           class="top"
           [class.current]="currentMenu() === menu.label"
           [cdkMenuTriggerFor]="panel"
-          [cdkMenuTriggerData]="{ $implicit: menu.groups }">
+          [cdkMenuTriggerData]="{ $implicit: menu.label }">
           {{ menu.label }}
         </button>
       }
@@ -50,7 +50,7 @@ import { MenuListComponent } from './menu-list.component';
           aria-label="More menus"
           [class.current]="overflowIsCurrent()"
           [cdkMenuTriggerFor]="panel"
-          [cdkMenuTriggerData]="{ $implicit: moreGroups() }">
+          [cdkMenuTriggerData]="{ $implicit: null }">
           <mat-icon>more_horiz</mat-icon>
         </button>
       }
@@ -63,8 +63,8 @@ import { MenuListComponent } from './menu-list.component';
       <span class="top more"><mat-icon>more_horiz</mat-icon></span>
     </div>
 
-    <ng-template #panel let-groups>
-      <impulse-menu-list [groups]="groups" />
+    <ng-template #panel let-label>
+      <impulse-menu-list [groups]="groupsOf(label)" />
     </ng-template>
   `,
   styleUrl: './menu-bar.component.scss',
@@ -105,6 +105,16 @@ export class MenuBarComponent {
   readonly moreGroups = computed<readonly ShownGroup[]>(() => [
     { entries: this.overflow().map((menu) => ({ label: menu.label, groups: menu.groups, disabled: false })) },
   ]);
+
+  /**
+   * What a menu of the bar shows now, by its label; null is the three dots'. A trigger keeps
+   * the data it opened with the first time, so it is given the label and the list reads the
+   * menu as it is: a tenant opened or a permission granted since redraws an open menu too.
+   */
+  groupsOf(label: string | null): readonly ShownGroup[] {
+    if (label === null) return this.moreGroups();
+    return this.menus().find((menu) => menu.label === label)?.groups ?? [];
+  }
 
   /** The menu that holds the page the browser is on. */
   readonly currentMenu = computed(() => this.menus().find((menu) => holdsUrl(menu.groups, this.url()))?.label);

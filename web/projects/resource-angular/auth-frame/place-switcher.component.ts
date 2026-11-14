@@ -12,28 +12,39 @@ export const findFrom = 8;
 /**
  * The place the page is in, beside the application's name, and the way to another: the
  * place outside every tenant for those who hold something there, then each tenant by name,
- * the open one checked. A person with one place sees its name and nothing to open. A long
- * list opens with a box that narrows it as they type; Enter opens the first match.
+ * the open one checked. A person with one place sees its name and nothing to open. A page
+ * in none of the person's places (a tenant's refusal page, for a person who holds nothing
+ * outside every tenant) names no place: the button asks them to choose one of theirs. A
+ * long list opens with a box that narrows it as they type; Enter opens the first match.
  */
 @Component({
   selector: 'impulse-place-switcher',
   imports: [CdkMenuTrigger, MatIconModule, MenuListComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    @if (places.places().length > 1) {
+    @if (listed()) {
       <button
         type="button"
         class="switcher"
         [cdkMenuTriggerFor]="list"
         (cdkMenuOpened)="opened()"
-        [attr.aria-label]="'In ' + place().label + '. Switch to another ' + lower(word.one)">
-        <mat-icon class="kind">{{ place().id ? 'domain' : outside.icon }}</mat-icon>
-        <span class="lines">
-          @if (place().id) {
-            <span class="caption">{{ word.one }}</span>
-          }
-          <span class="name">{{ place().label }}</span>
-        </span>
+        [attr.aria-label]="
+          inPlace() ? 'In ' + place().label + '. Switch to another ' + lower(word.one) : 'Choose a ' + lower(word.one)
+        ">
+        @if (inPlace()) {
+          <mat-icon class="kind">{{ place().id ? 'domain' : outside.icon }}</mat-icon>
+          <span class="lines">
+            @if (place().id) {
+              <span class="caption">{{ word.one }}</span>
+            }
+            <span class="name">{{ place().label }}</span>
+          </span>
+        } @else {
+          <mat-icon class="kind">swap_horiz</mat-icon>
+          <span class="lines">
+            <span class="name">Choose a {{ lower(word.one) }}</span>
+          </span>
+        }
         <mat-icon class="chevron">expand_more</mat-icon>
       </button>
     } @else if (places.places().length === 1) {
@@ -84,6 +95,13 @@ export class PlaceSwitcherComponent {
   readonly lower = inSentence;
 
   readonly place = this.places.current;
+  /** Whether the page is in one of the person's places. */
+  readonly inPlace = computed(() => this.places.places().some((place) => place.id === this.place().id));
+  /** Whether there is a list to open: more than one place, or a way back to the one from a page in none. */
+  readonly listed = computed(() => {
+    const count = this.places.places().length;
+    return count > 1 || (count === 1 && !this.inPlace());
+  });
   readonly filter = signal('');
   readonly findable = computed(() => this.places.places().length >= findFrom);
 
