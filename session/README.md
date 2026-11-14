@@ -789,9 +789,10 @@ the person reaches.
    wrong code is `401 {"code": "invalid_code"}` and the code stands with one fewer
    attempt; the fifth wrong code kills it, as its expiry does, and a code entered while
    none stands (none sent, or the one sent died) is `401 {"code": "code_expired"}`, so
-   the page asks for a new one, which replaces the old. An address is sent three codes
-   within fifteen minutes and the fourth is refused with `too_many_attempts` and the
-   wait, as a link is. The code goes to the address the user holds, verified or not:
+   the page asks for a new one, which replaces the old. An address is sent five codes
+   within fifteen minutes that go unused, and the sixth is refused with
+   `too_many_emails` and the wait, as a link is; a code that is used resets the count,
+   so a person who signs in with each code sent never meets the limit. The code goes to the address the user holds, verified or not:
    an address an operator entered is proven by the code as a link would prove it, and
    the user holds it verified once the code is entered. A user who holds no address
    gives one at the step (`Pending().EnrollEmail()`, `{"email"}`), which is written on
@@ -956,8 +957,9 @@ How an address gets onto a user:
   read's `emailHint`, and never stored by it. `Add` answers `{}` whatever the address's
   state, so the screen reveals nothing: an address another account holds is told so
   by mail to that address, and an address the user already holds verified gets no
-  mail. A mailbox is sent at most three links within fifteen minutes; the fourth is
-  refused with `too_many_attempts` and the wait, as a locked name is.
+  mail. A mailbox is sent at most five links within fifteen minutes that go unused; the
+  sixth is refused with `too_many_emails` and the wait. A link that is followed resets
+  the count, as a sign-in code that is used does.
 - **An operator enters one**, unverified: `CreateUserRequest.Email` or
   `SetSessionUserEmail`. The entry reserves the address within the auth: a later
   sign-up with it is pointed at this account by mail, and the person verifies it
@@ -1810,7 +1812,8 @@ table is the wire contract:
 | `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, and the policy was not built with `signin.AdmitWithoutTenant()`. |
 | `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection) that no tenant of the person declares. |
 | `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in that is not through a directory (a password, a session the application started itself) by a person whose every tenant admits its people through their directories only. |
-| `too_many_attempts` | `RefusedTooManyAttempts` | Auth: a password attempt on a name whose failed attempts reached the limit, or from a client held for its own, or a fourth sign-in code or link to one address within fifteen minutes; answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes (see "Attempt limiting and the after-sign-in hook"). |
+| `too_many_attempts` | `RefusedTooManyAttempts` | Auth: a password attempt on a name whose failed attempts reached the limit, or from a client held for its own; answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes (see "Attempt limiting and the after-sign-in hook"). |
+| `too_many_emails` | `RefusedTooManyEmails` | Auth: a sixth sign-in code or link asked for one address within fifteen minutes while the five before it went unused (a code or link that is used resets the count); answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes. |
 | `invalid_code` | `RefusedInvalidCode` | Auth: the sign-in code entered is not the one sent; the code stands with one fewer attempt (see "The second factor"). |
 | `code_expired` | `RefusedCodeExpired` | Auth: a sign-in code entered while none stands: none was sent, or the one sent expired, was used or took its last attempt; the page asks for a new one. |
 

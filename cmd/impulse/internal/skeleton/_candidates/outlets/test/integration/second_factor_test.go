@@ -22,7 +22,8 @@ import (
 // every later sign-in of theirs carries that browser's token (served.trusted), so it is
 // the remembered browser and is not asked. One sign-in at a time runs its factor on the
 // stack, so the code a browser reads from the recorder is its own, and a login is mailed
-// a code once (an address is sent three codes within fifteen minutes, no more).
+// a code once (an address is sent five codes it does not use within fifteen minutes, no
+// more).
 func (b *browser) signIn(ctx context.Context, user string) {
 	b.t.Helper()
 

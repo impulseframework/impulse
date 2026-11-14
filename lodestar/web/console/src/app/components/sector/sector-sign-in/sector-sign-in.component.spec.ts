@@ -194,4 +194,31 @@ describe('SectorSignInComponent', () => {
     expect(element().querySelector('.declare-form')).toBeNull();
     expect(transport.requests.map((r) => r.url.replace(/\?.*$/, '')).filter((u) => u.includes('/sectors/anvil'))).toEqual([]);
   });
+
+  // Opened by its address (a reload, a bookmark), the page renders before the sector's
+  // digest has loaded. It asks again when the digest arrives, and lists what it grants.
+  it('opened before the digests load, it lists the directories once they arrive', async () => {
+    transport = scriptedTransport(serverFor(headquarters));
+    await TestBed.configureTestingModule({
+      imports: [SectorSignInComponent],
+      providers: [
+        provideResourceTesting({ transport, client: (t) => createApi({ baseUrl: environment.apiUrl, transport: t }) }),
+      ],
+    }).compileComponents();
+    await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
+    fixture = TestBed.createComponent(SectorSignInComponent);
+    fixture.componentRef.setInput('sectorID', 'anvil');
+    await settle();
+    expect(texts('.empty')).toContain('Your role in this sector does not cover its directories.');
+
+    const client = TestBed.inject<ClientBase>(RESOURCE_CLIENT);
+    await client.permissions.loadDigest();
+    await client.permissions.loadDigest('anvil' as Domain);
+    await settle();
+    await settle();
+
+    expect(texts('.empty')).not.toContain('Your role in this sector does not cover its directories.');
+    expect(texts('.directories td:first-child')).toEqual(['Google Workspace', 'Microsoft Entra']);
+    expect(element().querySelector('.directory-only')).not.toBeNull();
+  });
 });

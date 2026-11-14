@@ -585,7 +585,8 @@ type mfaResponse struct {
 }
 
 // refusalResponse is a JSON sign-in handler's answer to a refused sign-in. RetryAfter
-// is the wait in seconds of a too_many_attempts refusal, and absent otherwise.
+// is the wait in seconds of a too_many_attempts or too_many_emails refusal, and absent
+// otherwise.
 type refusalResponse struct {
 	Message    string                       `json:"message"`
 	Code       sessioninfo.LoginRefusalCode `json:"code"`
@@ -594,9 +595,9 @@ type refusalResponse struct {
 
 // writeSignInError writes a JSON sign-in handler's error. A sessioninfo.LoginRefusal
 // is answered with 401 (403 for a forbidden cause) and {"message", "code"}, so the
-// page can map the code to its own text; a too_many_attempts refusal is 429 with the
-// wait in seconds as "retryAfter" and the Retry-After header. Any other error is the
-// usual client message.
+// page can map the code to its own text; a refusal that carries a wait
+// (too_many_attempts, too_many_emails) is 429 with the wait in seconds as "retryAfter"
+// and the Retry-After header. Any other error is the usual client message.
 func writeSignInError(ctx context.Context, w http.ResponseWriter, err error) error {
 	var refusal *sessioninfo.LoginRefusal
 	if !errors.As(err, &refusal) {

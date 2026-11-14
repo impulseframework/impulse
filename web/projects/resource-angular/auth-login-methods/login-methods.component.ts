@@ -33,7 +33,7 @@ import {
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { RESOURCE_CLIENT, storeSignal } from '@impulseframework/resource-angular/resource-client';
 import { FRONTEND_LOGIN_PATH, FRONTEND_SIGN_OUT_PATH, SessionInfo } from '@impulseframework/resource-angular/types';
-import { UiCoreService } from '@impulseframework/resource-angular/ui-core-service';
+import { MailHold, UiCoreService } from '@impulseframework/resource-angular/ui-core-service';
 import { firstValueFrom } from 'rxjs';
 import { map } from 'rxjs/operators';
 
@@ -126,7 +126,10 @@ export interface Landing {
  * a new code; a person whose account holds no address is asked for one first. A wrong code
  * (`invalid_code`) or one entered after the code sent died (`code_expired`) keeps the form
  * with its sentence; with the box checked, the server remembers the browser, and this
- * person's next sign-ins from it skip the code. A step this page does not render, a reason
+ * person's next sign-ins from it skip the code. An address the server will not mail yet
+ * (`too_many_emails`, 429 with the wait: codes and links sent to it and not used) renders
+ * the sentence and the wait, and the buttons that ask for mail stay disabled until the wait
+ * has passed. A step this page does not render, a reason
  * it does not know or a second-factor step without the mailed code, shows the note that the
  * page is older than the server, asking for a reload, with the cancel; the steps the page
  * renders are declared in `SIGN_IN_STEPS` and, for the framework's release check, under
@@ -236,6 +239,13 @@ export class LoginMethodsComponent implements OnInit {
   signUpEmail = '';
   /** A request of the component is in flight; its controls are disabled meanwhile. */
   busy = signal(false);
+  /**
+   * The server holds its mail to the address: a code or link asked for was refused with
+   * `too_many_emails`, and the wait it named has not passed. The buttons that ask for mail
+   * (Send code, Send a new code, Send me a link) stay disabled until it has.
+   */
+  private mailHold = new MailHold();
+  mailHeld = this.mailHold.held;
 
   /** The methods list as the client last read it; undefined before the first read answers. */
   private list = storeSignal(this.client.auth.snapshot);
@@ -500,7 +510,7 @@ export class LoginMethodsComponent implements OnInit {
 
   /** Has the sign-in code mailed, replacing one standing. */
   sendCode(): Promise<void> {
-    if (this.busy() || !this.pending()?.emailCode) {
+    if (this.busy() || this.mailHeld() || !this.pending()?.emailCode) {
       return Promise.resolve();
     }
     return this.step(() => this.mailCode(() => this.client.auth.sendCode()));
@@ -508,7 +518,7 @@ export class LoginMethodsComponent implements OnInit {
 
   /** Posts the address a person whose account holds none typed, and has the code mailed to it. */
   enrollEmail(): Promise<void> {
-    if (this.busy() || !this.pending()?.emailCode) {
+    if (this.busy() || this.mailHeld() || !this.pending()?.emailCode) {
       return Promise.resolve();
     }
     return this.step(() => this.mailCode(() => this.client.auth.enrollEmail(this.codeEmail)));
@@ -671,12 +681,13 @@ export class LoginMethodsComponent implements OnInit {
 
   /** Posts the address: a link to finish the sign-up is mailed to it, and the note says so whatever the address's state. */
   sendSignUpLink(): Promise<void> {
-    if (this.busy() || !this.starting()) {
+    if (this.busy() || this.mailHeld() || !this.starting()) {
       return Promise.resolve();
     }
     return this.step(async () => {
       const result = await this.client.auth.startSignUp(this.signUpEmail);
       if (result.outcome === 'refused') {
+        this.mailHold.hold(result);
         this.refusal.set(this.sentenceOf(result));
         return;
       }
@@ -1037,6 +1048,7 @@ export class LoginMethodsComponent implements OnInit {
       if (result.code === 'pending_expired' || result.status === 404 || result.status === 409) {
         this.pending.set(undefined);
       }
+      this.mailHold.hold(result);
       this.refusal.set(this.sentenceOf(result));
       return;
     }

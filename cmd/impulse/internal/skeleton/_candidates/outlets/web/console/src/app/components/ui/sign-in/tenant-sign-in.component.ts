@@ -10,7 +10,8 @@ import { MatTableModule } from '@angular/material/table';
 import { injectApi } from '@app/api/api';
 import { Permissions, Resources } from '@app/service/zz_gen_constants';
 import { StaffTenantRoles, TenantDirectories, Tenants } from '@app/service/zz_gen_resources';
-import { ApiError, Domain } from '@impulseframework/resource';
+import { ApiError, Domain, Permission } from '@impulseframework/resource';
+import { storeSignal } from '@impulseframework/resource-angular/resource-client';
 
 /** A sign-in method a directory is reached through, with what its connection is. */
 export interface DirectoryMethod {
@@ -72,6 +73,12 @@ export const directoryMethods: readonly DirectoryMethod[] = [
 })
 export class TenantSignInComponent {
   private api = injectApi();
+  /**
+   * The client's digest cache as a signal. The questions below read it, so they are asked
+   * again when a digest loads: a page opened by its address asks before the tenant's
+   * digest has arrived, and would keep that first "no" otherwise.
+   */
+  private permissions = storeSignal(this.api.permissions.snapshot);
 
   /** The tenant the URL names, bound from the route. */
   tenantID = input.required<string>();
@@ -83,36 +90,49 @@ export class TenantSignInComponent {
 
   /** The tenant's row on the global record: its name and its directory-only flag. */
   tenant = resource({
-    params: () => ({ tenant: this.tenantID() }),
+    params: () => ({ tenant: this.tenantID(), readable: this.canReadTenant() }),
     loader: ({ params }): Promise<Tenants | undefined> =>
-      this.api.tenants.can(Permissions.Read) ? this.api.tenants.read([params.tenant]) : Promise.resolve(undefined),
+      params.readable ? this.api.tenants.read([params.tenant]) : Promise.resolve(undefined),
   });
 
   /** The directories the tenant declares, listed under the tenant where the digest grants List. */
   directories = resource({
-    params: () => ({ tenant: this.tenantID() }),
-    loader: ({ params }): Promise<TenantDirectories[]> => {
-      const handle = this.api.domain(params.tenant as Domain).tenantDirectories;
-      return handle.can(Permissions.List) ? handle.list() : Promise.resolve([]);
-    },
+    params: () => ({ tenant: this.tenantID(), listed: this.canList() }),
+    loader: ({ params }): Promise<TenantDirectories[]> =>
+      params.listed ? this.api.domain(params.tenant as Domain).tenantDirectories.list() : Promise.resolve([]),
     defaultValue: [],
   });
 
   /** The tenant's roles, the default seat's choices, listed where the digest grants List on them. */
   roles = resource({
-    params: () => ({ tenant: this.tenantID() }),
-    loader: ({ params }): Promise<StaffTenantRoles[]> => {
-      const handle = this.api.domain(params.tenant as Domain).staffTenantRoles;
-      return handle.can(Permissions.List) ? handle.list() : Promise.resolve([]);
-    },
+    params: () => ({ tenant: this.tenantID(), listed: this.canListRoles() }),
+    loader: ({ params }): Promise<StaffTenantRoles[]> =>
+      params.listed ? this.api.domain(params.tenant as Domain).staffTenantRoles.list() : Promise.resolve([]),
     defaultValue: [],
   });
 
-  canList = computed(() => this.api.domain(this.tenantID() as Domain).tenantDirectories.can(Permissions.List));
-  canSeat = computed(() => this.api.domain(this.tenantID() as Domain).tenantDirectories.can(Permissions.Update));
-  canDeclare = computed(() => this.api.domain(this.tenantID() as Domain).tenantDirectories.can(Permissions.Create));
-  canWithdraw = computed(() => this.api.domain(this.tenantID() as Domain).tenantDirectories.can(Permissions.Delete));
-  canClose = computed(() => this.api.can(Permissions.Update, Resources.Tenants));
+  canList = computed(() => this.directoriesAllow(Permissions.List));
+  canSeat = computed(() => this.directoriesAllow(Permissions.Update));
+  canDeclare = computed(() => this.directoriesAllow(Permissions.Create));
+  canWithdraw = computed(() => this.directoriesAllow(Permissions.Delete));
+  canClose = computed(() => {
+    this.permissions();
+    return this.api.can(Permissions.Update, Resources.Tenants);
+  });
+  private canReadTenant = computed(() => {
+    this.permissions();
+    return this.api.tenants.can(Permissions.Read);
+  });
+  private canListRoles = computed(() => {
+    this.permissions();
+    return this.api.domain(this.tenantID() as Domain).staffTenantRoles.can(Permissions.List);
+  });
+
+  /** Whether the digest grants permission on the tenant's directories, asked again when a digest loads. */
+  private directoriesAllow(permission: Permission): boolean {
+    this.permissions();
+    return this.api.domain(this.tenantID() as Domain).tenantDirectories.can(permission);
+  }
 
   /** The directory being declared. */
   readonly form = new FormGroup({

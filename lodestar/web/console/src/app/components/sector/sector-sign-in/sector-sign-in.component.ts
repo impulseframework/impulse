@@ -10,7 +10,8 @@ import { MatTableModule } from '@angular/material/table';
 import { injectApi } from '@app/api/api';
 import { Permissions, Resources } from '@app/service/zz_gen_constants';
 import { CrewSectorRoles, SectorDirectories, Sectors } from '@app/service/zz_gen_resources';
-import { ApiError, Domain } from '@impulseframework/resource';
+import { ApiError, Domain, Permission } from '@impulseframework/resource';
+import { storeSignal } from '@impulseframework/resource-angular/resource-client';
 
 /** A sign-in method a directory is reached through, with what its connection is. */
 export interface DirectoryMethod {
@@ -73,6 +74,12 @@ export const directoryMethods: readonly DirectoryMethod[] = [
 })
 export class SectorSignInComponent {
   private api = injectApi();
+  /**
+   * The client's digest cache as a signal. The questions below read it, so they are asked
+   * again when a digest loads: a page opened by its address asks before the sector's
+   * digest has arrived, and would keep that first "no" otherwise.
+   */
+  private permissions = storeSignal(this.api.permissions.snapshot);
 
   /** The sector the URL names, bound from the route. */
   sectorID = input.required<string>();
@@ -84,36 +91,49 @@ export class SectorSignInComponent {
 
   /** The sector's row on the global record: its name and its directory-only flag. */
   sector = resource({
-    params: () => ({ sector: this.sectorID() }),
+    params: () => ({ sector: this.sectorID(), readable: this.canReadSector() }),
     loader: ({ params }): Promise<Sectors | undefined> =>
-      this.api.sectors.can(Permissions.Read) ? this.api.sectors.read([params.sector]) : Promise.resolve(undefined),
+      params.readable ? this.api.sectors.read([params.sector]) : Promise.resolve(undefined),
   });
 
   /** The directories the sector declares, listed under the sector where the digest grants List. */
   directories = resource({
-    params: () => ({ sector: this.sectorID() }),
-    loader: ({ params }): Promise<SectorDirectories[]> => {
-      const handle = this.api.domain(params.sector as Domain).sectorDirectories;
-      return handle.can(Permissions.List) ? handle.list() : Promise.resolve([]);
-    },
+    params: () => ({ sector: this.sectorID(), listed: this.canList() }),
+    loader: ({ params }): Promise<SectorDirectories[]> =>
+      params.listed ? this.api.domain(params.sector as Domain).sectorDirectories.list() : Promise.resolve([]),
     defaultValue: [],
   });
 
   /** The sector's roles, the default seat's choices, listed where the digest grants List on them. */
   roles = resource({
-    params: () => ({ sector: this.sectorID() }),
-    loader: ({ params }): Promise<CrewSectorRoles[]> => {
-      const handle = this.api.domain(params.sector as Domain).crewSectorRoles;
-      return handle.can(Permissions.List) ? handle.list() : Promise.resolve([]);
-    },
+    params: () => ({ sector: this.sectorID(), listed: this.canListRoles() }),
+    loader: ({ params }): Promise<CrewSectorRoles[]> =>
+      params.listed ? this.api.domain(params.sector as Domain).crewSectorRoles.list() : Promise.resolve([]),
     defaultValue: [],
   });
 
-  canList = computed(() => this.api.domain(this.sectorID() as Domain).sectorDirectories.can(Permissions.List));
-  canSeat = computed(() => this.api.domain(this.sectorID() as Domain).sectorDirectories.can(Permissions.Update));
-  canDeclare = computed(() => this.api.domain(this.sectorID() as Domain).sectorDirectories.can(Permissions.Create));
-  canWithdraw = computed(() => this.api.domain(this.sectorID() as Domain).sectorDirectories.can(Permissions.Delete));
-  canClose = computed(() => this.api.can(Permissions.Update, Resources.Sectors));
+  canList = computed(() => this.directoriesAllow(Permissions.List));
+  canSeat = computed(() => this.directoriesAllow(Permissions.Update));
+  canDeclare = computed(() => this.directoriesAllow(Permissions.Create));
+  canWithdraw = computed(() => this.directoriesAllow(Permissions.Delete));
+  canClose = computed(() => {
+    this.permissions();
+    return this.api.can(Permissions.Update, Resources.Sectors);
+  });
+  private canReadSector = computed(() => {
+    this.permissions();
+    return this.api.sectors.can(Permissions.Read);
+  });
+  private canListRoles = computed(() => {
+    this.permissions();
+    return this.api.domain(this.sectorID() as Domain).crewSectorRoles.can(Permissions.List);
+  });
+
+  /** Whether the digest grants permission on the sector's directories, asked again when a digest loads. */
+  private directoriesAllow(permission: Permission): boolean {
+    this.permissions();
+    return this.api.domain(this.sectorID() as Domain).sectorDirectories.can(permission);
+  }
 
   /** The directory being declared. */
   readonly form = new FormGroup({

@@ -10,7 +10,9 @@
         <mat-label>Email address</mat-label>
         <input matInput name="email" type="email" [(ngModel)]="email" autocomplete="email" required />
       </mat-form-field>
-      <button mat-flat-button type="submit" class="impulse-email-send" [disabled]="busy()">Send a confirmation link</button>
+      <button mat-flat-button type="submit" class="impulse-email-send" [disabled]="busy() || mailHeld()">
+        Send a confirmation link
+      </button>
       <button mat-button type="button" class="impulse-email-cancel" [disabled]="busy()" (click)="done()">Cancel</button>
     </form>
   } @else {

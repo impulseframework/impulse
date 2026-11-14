@@ -6,7 +6,7 @@ import { MatInputModule } from '@angular/material/input';
 import { SignInRefusal } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { RESOURCE_CLIENT, storeSignal } from '@impulseframework/resource-angular/resource-client';
-import { UiCoreService } from '@impulseframework/resource-angular/ui-core-service';
+import { MailHold, UiCoreService } from '@impulseframework/resource-angular/ui-core-service';
 
 /**
  * The signed-in person's email address, for an account page. The component reads the
@@ -17,8 +17,9 @@ import { UiCoreService } from '@impulseframework/resource-angular/ui-core-servic
  * it a confirmation link; nothing is written until the link is followed on the login page,
  * so an address never attaches to an account its follower does not control, and the
  * screen says the link is on its way whatever the address's state (an address another
- * account holds is told so by mail). A refusal (not an address; too many links to one
- * mailbox, with the wait) is rendered in place.
+ * account holds is told so by mail). A refusal (not an address; too many unused links to
+ * one mailbox, with the wait) is rendered in place, and after the second the button stays
+ * disabled until the wait has passed.
  *
  *     <impulse-email-address />
  */
@@ -43,6 +44,9 @@ export class EmailAddressComponent implements OnInit {
   sent = signal<string | undefined>(undefined);
   /** A request is in flight; the controls are disabled meanwhile. */
   busy = signal(false);
+  private mailHold = new MailHold();
+  /** The server holds its mail to the address (`too_many_emails`) until the wait it named has passed; the button stays disabled meanwhile. */
+  mailHeld = this.mailHold.held;
   /** The refusal of the last request, in the application's sentence or the server's words. */
   message = signal<string | undefined>(undefined);
 
@@ -97,7 +101,7 @@ export class EmailAddressComponent implements OnInit {
 
   /** Posts the address: a confirmation link is mailed to it, and the note says so whatever the address's state. */
   send(): Promise<void> {
-    if (this.busy() || !this.editing()) {
+    if (this.busy() || this.mailHeld() || !this.editing()) {
       return Promise.resolve();
     }
     return this.tracked(async () => {
@@ -106,6 +110,7 @@ export class EmailAddressComponent implements OnInit {
       try {
         const result = await this.client.auth.addEmail(this.email);
         if (result.outcome === 'refused') {
+          this.mailHold.hold(result);
           this.message.set(this.sentenceOf(result));
           return;
         }

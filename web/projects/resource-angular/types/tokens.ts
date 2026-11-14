@@ -207,8 +207,9 @@ export const IDLE_TIMEOUT_REQUIRE_CONFIRMATION = new InjectionToken<boolean>('ID
  * know, so no text that arrives in the URL is ever displayed. One entry per code in the
  * session module's "Login refusal codes" table. A refusal the server answers on a step
  * carries its code in the body, whatever its status: the attempt limiter's
- * `too_many_attempts` arrives with 429 and the wait in seconds (`retryAfter`), which
- * `UiCoreService.loginMessage(code, retryAfter)` renders after the sentence.
+ * `too_many_attempts` and the mail limit's `too_many_emails` arrive with 429 and the wait
+ * in seconds (`retryAfter`), which `UiCoreService.loginMessage(code, retryAfter)` renders
+ * after the sentence.
  */
 export const DEFAULT_LOGIN_MESSAGES: Readonly<Record<string, string>> = {
   internal_error: 'Sign-in failed because of a problem on our side. Please try again.',
@@ -244,6 +245,7 @@ export const DEFAULT_LOGIN_MESSAGES: Readonly<Record<string, string>> = {
   code_expired: 'That code is no longer valid. Ask for a new one.',
   no_email: 'The service you signed in with did not give an email address for this account.',
   too_many_attempts: 'Too many attempts.',
+  too_many_emails: 'We have sent several emails to this address in the last few minutes.',
   no_tenant: 'This account is not a member of any organization in this application. Please contact your administrator.',
   connection_not_in_tenant:
     'Your organization does not sign in the way you just tried. Please sign in the way your organization has set up.',

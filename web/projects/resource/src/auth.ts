@@ -180,8 +180,8 @@ export type InvitationAcceptResult = { readonly outcome: 'accepted' } | SignInRe
 /**
  * What asking for a mailed link answers: `sent`, whatever the address's state, so the
  * screen reveals nothing about it (an address an account already holds is told so by
- * mail); or the refusal: not an address (400), too many links to one mailbox (429 with
- * `too_many_attempts` and the wait), or the server does not offer the step (404).
+ * mail); or the refusal: not an address (400), too many unused links to one mailbox (429
+ * with `too_many_emails` and the wait), or the server does not offer the step (404).
  */
 export type MailLinkResult = { readonly outcome: 'sent' } | SignInRefusal;
 
@@ -233,8 +233,9 @@ export interface PasswordCredentials {
  * the pending sign-in does not wait for, and `message` is then the server's words.
  * `retryAfter` is the wait the server asks for before the next attempt, in seconds: the
  * attempt limiter answers a locked name with 429, `too_many_attempts`, `retryAfter` in the
- * body and the `Retry-After` header, and the client reads the body's, else the header's.
- * It is undefined when the answer named no wait.
+ * body and the `Retry-After` header, and an address sent as many codes or links as its
+ * limit allows, none used, with 429, `too_many_emails` and the same wait; the client reads
+ * the body's, else the header's. It is undefined when the answer named no wait.
  */
 export interface SignInRefusal {
   readonly outcome: 'refused';
@@ -304,9 +305,9 @@ export interface EmailCodeStep {
  * What having the code mailed answers: `sent`, with the masked address it went to and when
  * it stops being accepted, or the server's refusal: 409 when the pending sign-in waits for
  * no second factor, the policy does not accept the mailed code, or the account holds no
- * address (on an enrollment, already holds one); `too_many_attempts` with the wait when
- * the address was sent three codes within fifteen minutes; 400 on an enrollment of what
- * is not an address; `pending_expired` when the sign-in is gone.
+ * address (on an enrollment, already holds one); `too_many_emails` with the wait when
+ * the address was sent five codes within fifteen minutes and used none; 400 on an
+ * enrollment of what is not an address; `pending_expired` when the sign-in is gone.
  */
 export type EmailCodeResult = EmailCodeSent | SignInRefusal;
 
@@ -824,8 +825,8 @@ export class AuthClient {
    * route. Nothing is written until the link is followed (`verifyEmail`), and the answer is
    * `sent` whatever the address's state, so the screen reveals nothing about it: an address
    * another account holds is told so by mail, and one the person already holds verified gets
-   * none. The refusal is not an address (400) or too many links to one mailbox (429 with
-   * `too_many_attempts` and the wait). A server whose list names no email routes sends no
+   * none. The refusal is not an address (400) or too many unused links to one mailbox (429
+   * with `too_many_emails` and the wait). A server whose list names no email routes sends no
    * mail, and the call throws saying so.
    */
   async addEmail(email: string): Promise<MailLinkResult> {
@@ -858,8 +859,8 @@ export class AuthClient {
    * Starts a sign-up: reads the methods list again, then posts the address to the sign-up
    * start route, which mails it a link to finish. The answer is `sent` whatever the
    * address's state, so the screen reveals nothing: an address an account already holds is
-   * pointed at that account by mail. The refusal is not an address (400), too many links to
-   * one mailbox (429 with `too_many_attempts` and the wait), or sign-up not offered (404). A
+   * pointed at that account by mail. The refusal is not an address (400), too many unused
+   * links to one mailbox (429 with `too_many_emails` and the wait), or sign-up not offered (404). A
    * server whose list names no sign-up routes offers none, and the call throws saying so.
    */
   async startSignUp(email: string): Promise<MailLinkResult> {

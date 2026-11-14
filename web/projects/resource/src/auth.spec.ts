@@ -670,8 +670,8 @@ describe('the sign-in code', () => {
     },
     {
       name: 'an address sent too many codes resolves as refused with the code and the wait',
-      answer: { status: 429, body: { message: 'too many codes', code: 'too_many_attempts', retryAfter: 600 } },
-      want: { outcome: 'refused', status: 429, code: 'too_many_attempts', message: 'too many codes', retryAfter: 600 },
+      answer: { status: 429, body: { message: 'too many codes', code: 'too_many_emails', retryAfter: 600 } },
+      want: { outcome: 'refused', status: 429, code: 'too_many_emails', message: 'too many codes', retryAfter: 600 },
     },
     {
       name: 'an expired pending sign-in resolves with its code',
@@ -1042,13 +1042,13 @@ describe('the email address', () => {
     const tooMany = authOver(
       server({
         methods: mailingList,
-        emailAdd: { status: 429, body: { message: 'Too many links', code: 'too_many_attempts', retryAfter: 600 } },
+        emailAdd: { status: 429, body: { message: 'Too many links', code: 'too_many_emails', retryAfter: 600 } },
       }),
     );
     expect(await tooMany.auth.addEmail('pax@fleet.example')).toEqual({
       outcome: 'refused',
       status: 429,
-      code: 'too_many_attempts',
+      code: 'too_many_emails',
       message: 'Too many links',
       retryAfter: 600,
     });

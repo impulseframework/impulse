@@ -87,7 +87,9 @@
             <mat-label>Email address</mat-label>
             <input matInput name="codeEmail" type="email" [(ngModel)]="codeEmail" autocomplete="email" required />
           </mat-form-field>
-          <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy()">Send code</button>
+          <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy() || mailHeld()">
+            Send code
+          </button>
         </form>
       } @else {
         <p class="impulse-login-pending-note">{{ codeNote(step) }}</p>
@@ -109,11 +111,21 @@
             </mat-checkbox>
             <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy()">Sign in</button>
           </form>
-          <button mat-button type="button" class="impulse-login-resend" [disabled]="busy()" (click)="sendCode()">
+          <button
+            mat-button
+            type="button"
+            class="impulse-login-resend"
+            [disabled]="busy() || mailHeld()"
+            (click)="sendCode()">
             Send a new code
           </button>
         } @else {
-          <button mat-flat-button type="button" class="impulse-login-resend" [disabled]="busy()" (click)="sendCode()">
+          <button
+            mat-flat-button
+            type="button"
+            class="impulse-login-resend"
+            [disabled]="busy() || mailHeld()"
+            (click)="sendCode()">
             Send code
           </button>
         }
@@ -180,7 +192,9 @@
         <mat-label>Email address</mat-label>
         <input matInput name="signUpEmail" type="email" [(ngModel)]="signUpEmail" autocomplete="email" required />
       </mat-form-field>
-      <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy()">Send me a link</button>
+      <button mat-flat-button type="submit" class="impulse-login-submit" [disabled]="busy() || mailHeld()">
+        Send me a link
+      </button>
     </form>
     <button mat-button type="button" class="impulse-login-cancel" [disabled]="busy()" (click)="backToSignIn()">
       Cancel

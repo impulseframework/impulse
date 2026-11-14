@@ -29,9 +29,9 @@ type SignUpHandlers struct {
 // Start accepts {"email"} and mails that address a link to finish the sign-up. It
 // answers {} whatever the address's state, so the screen reveals nothing: an address
 // an account already holds is told so by mail. An address that is not one is 400; a
-// mailbox sent three links within fifteen minutes is refused with too_many_attempts
-// and the wait; 404 when sign-up is not offered. Route it behind StartSession and
-// ValidateXSRFToken.
+// mailbox sent five links within fifteen minutes and using none is refused with
+// too_many_emails and the wait; 404 when sign-up is not offered. Route it behind
+// StartSession and ValidateXSRFToken.
 func (h *SignUpHandlers) Start() http.HandlerFunc { return h.start }
 
 // Open accepts {"token"}, the token the mailed link carried, and answers {"email",
@@ -196,6 +196,8 @@ func (a *Auth[S, U, Tx]) completeSignUp(ctx context.Context, token, username, pa
 	if err := a.storage.ConsumeMailLink(ctx, link.TokenHash); err != nil && !httpio.HasNotFound(err) {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.ConsumeMailLink()")
 	}
+	// The link reached the person: the address's mail count is reset.
+	a.clearMailLimit(ctx, link.Email)
 
 	return user, nil
 }

@@ -52,10 +52,18 @@ const (
 	defaultLinkTimeout       = 24 * time.Hour
 )
 
-// mailLimit bounds the links one address is sent: three within fifteen minutes, then
-// none for fifteen minutes. It is kept in the sign-in attempts table under the
-// address, as a name's failed attempts are.
-var mailLimit = sessionstorage.SignInAttemptLimit{Failures: 3, Window: 15 * time.Minute, Lock: 15 * time.Minute}
+// mailLimit bounds the sign-in codes and links one address is sent and does not use:
+// five within fifteen minutes, then none for fifteen minutes. It is kept in the sign-in
+// attempts table under the address (mailLimitKey), as a name's failed attempts are. A
+// code or link that is used resets the address (clearMailLimit), so a person who uses
+// what they are sent never meets the limit; it stops mail asked for over and over and
+// never used.
+var mailLimit = sessionstorage.SignInAttemptLimit{Failures: 5, Window: 15 * time.Minute, Lock: 15 * time.Minute}
+
+// mailLimitKey is the address's key in the sign-in attempts table.
+func mailLimitKey(email string) string {
+	return "mail:" + strings.ToLower(email)
+}
 
 // mailSettings are the Auth's mail settings once validated.
 type mailSettings struct {
@@ -333,23 +341,32 @@ func optionalAddress(email *string) (*string, error) {
 	return &bare, nil
 }
 
-// limitMail bounds the links sent to an address (mailLimit): the address's record in
-// the sign-in attempts table counts each one, and an address at the limit is refused
-// with too_many_attempts and the wait, as a locked name is.
+// limitMail bounds the codes and links sent to an address (mailLimit): the address's
+// record in the sign-in attempts table counts each one, and an address at the limit is
+// refused with too_many_emails and the wait.
 func (a *Auth[S, U, Tx]) limitMail(ctx context.Context, email string) error {
-	key := "mail:" + strings.ToLower(email)
+	key := mailLimitKey(email)
 	record, err := a.storage.SignInAttempts(ctx, key)
 	if err != nil && !httpio.HasNotFound(err) {
 		return errors.Wrap(err, "sessionstorage.AuthStore.SignInAttempts()")
 	}
 	if wait, locked := record.Locked(time.Now()); locked {
-		return sessioninfo.NewTooManyAttemptsRefusal(wait)
+		return sessioninfo.NewTooManyEmailsRefusal(wait)
 	}
 	if _, err := a.storage.RecordSignInFailure(ctx, key, mailLimit); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.RecordSignInFailure()")
 	}
 
 	return nil
+}
+
+// clearMailLimit resets the address's count once a code or link sent to it is used:
+// the mail reached the person, so what they asked for counts against nothing. It is
+// bookkeeping after the proof: a failure is logged, and the request goes on.
+func (a *Auth[S, U, Tx]) clearMailLimit(ctx context.Context, email string) {
+	if err := a.storage.ClearSignInAttempts(ctx, mailLimitKey(email)); err != nil {
+		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.ClearSignInAttempts()"))
+	}
 }
 
 // minPasswordLength is the shortest password a sign-up accepts.
