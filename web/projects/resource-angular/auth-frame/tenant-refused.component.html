@@ -1,0 +1,18 @@
+<div class="refused">
+  <h1>{{ word.one }} {{ tenant() }}</h1>
+  @if (answer.hasValue()) {
+    @if (answer.value().served) {
+      <p class="served">You can open this {{ lower(word.one) }} now. <a [routerLink]="home()">Open it</a>.</p>
+    } @else {
+      <p class="refusal">
+        The server answered: <code>{{ answer.value().message }}</code>
+      </p>
+      <p class="note">
+        A {{ lower(word.one) }} where you have no role looks the same as one that does not exist. Choose another
+        {{ lower(word.one) }} at the top of the page, or ask an administrator to give you a role here.
+      </p>
+    }
+  } @else if (answer.isLoading()) {
+    <p class="asking">Asking the server…</p>
+  }
+</div>

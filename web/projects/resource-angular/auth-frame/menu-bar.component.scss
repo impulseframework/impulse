@@ -1,0 +1,78 @@
+:host {
+  display: block;
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  height: 100%;
+  outline: none;
+}
+
+// The bar's buttons and the hidden copies the widths are read from share every rule that
+// sets a width, so what is read is what is drawn.
+.top {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  height: 30px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font-family: Roboto, 'Helvetica Neue', sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+  position: relative;
+
+  &:hover,
+  &:focus-visible,
+  &[aria-expanded='true'] {
+    background: var(--mat-sys-surface-container-highest);
+  }
+
+  &:focus-visible {
+    outline: 1px solid var(--mat-sys-primary);
+    outline-offset: -1px;
+  }
+
+  &.current::after {
+    content: '';
+    position: absolute;
+    left: 10px;
+    right: 10px;
+    bottom: 2px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--mat-sys-primary);
+  }
+
+  &.more {
+    padding: 0 6px;
+
+    mat-icon {
+      width: 20px;
+      height: 20px;
+      font-size: 20px;
+    }
+  }
+}
+
+.measure {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: flex;
+  visibility: hidden;
+  pointer-events: none;
+  white-space: nowrap;
+}

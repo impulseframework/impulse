@@ -1,4 +1,5 @@
 export * from './configs';
+export * from './icon-names';
 export * from './list-page';
 export * from './notification-message';
 export * from './permissions';

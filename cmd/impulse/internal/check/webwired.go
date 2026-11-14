@@ -20,9 +20,10 @@ import (
 // webWired verifies that every browser application bound to a session outlet is bound to
 // the outlet's auth: the resources its hand-written TypeScript takes from the generated
 // constants (Resources.<Name>) are ones its generated client exports, the pages it asks
-// the library for of an auth's generated management (identityRoutes, identityPages) are
-// of an auth and a side its generated API description carries, and the XSRF cookie its
-// HttpClient echoes (withXsrfConfiguration) is the one the outlet's auth issues. A site's
+// the library for of an auth's generated management (identityRoutes, identityPages,
+// identityMenuPages) are of an auth and a side its generated API description carries,
+// and the XSRF cookie its HttpClient echoes (withXsrfConfiguration) is the one the
+// outlet's auth issues. A site's
 // browser application starts as a copy of the console's, bound to the console's auth;
 // when another auth is bound to the site's outlet the generated client describes that
 // auth instead, so every stale resource name fails the browser's own build (TS2339),
@@ -72,7 +73,7 @@ const (
 
 var (
 	// identityCallRE finds a request for the pages of an auth's generated management.
-	identityCallRE = regexp.MustCompile(`\b(identityRoutes|identityPages)\(`)
+	identityCallRE = regexp.MustCompile(`\b(identityRoutes|identityPages|identityMenuPages)\(`)
 	// pageAuthRE and pageScopeRE find the auth and the side a request or an entry names.
 	pageAuthRE  = regexp.MustCompile(`\bauth:\s*'([^']*)'`)
 	pageScopeRE = regexp.MustCompile(`\bscope:\s*'([^']*)'`)
@@ -489,9 +490,9 @@ func webUses(a *app.App, source string) (uses, cookies []webUse, pages []pageUse
 }
 
 // pageUses finds one file's requests for the pages of an auth's generated management:
-// the calls of identityRoutes and identityPages that name their auth as a literal, each
-// read through its closing parenthesis, since a formatter lays a long one over several
-// lines. A call in a comment is no request, and one that names its auth by a variable
+// the calls of identityRoutes, identityPages and identityMenuPages that name their auth
+// as a literal, each read through its closing parenthesis, since a formatter lays a long
+// one over several lines. A call in a comment is no request, and one that names its auth by a variable
 // is not read.
 func pageUses(rel, text string) []pageUse {
 	var uses []pageUse

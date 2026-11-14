@@ -61,7 +61,8 @@
             "exclude": [
               "styles/theme-contract.test.ts",
               "boundaries.test.ts",
-              "cycles.test.ts"
+              "cycles.test.ts",
+              "types/icon-names.test.ts"
             ]
           }
         },

@@ -3,7 +3,8 @@ import { CanMatchFn, PartialMatchRouteSnapshot, Route } from '@angular/router';
 import { createClient } from '@impulseframework/resource';
 import { scriptedTransport } from '@impulseframework/resource/testing';
 import { AuthorizationGuard } from '@impulseframework/resource-angular/auth-authorization-guard';
-import { generatedNavItems, resourcePageRoute } from '@impulseframework/resource-angular/resource-nav';
+import { pageDataKey } from '@impulseframework/resource-angular/auth-frame';
+import { resourcePageRoute } from '@impulseframework/resource-angular/resource-nav';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
 import {
@@ -19,7 +20,7 @@ import {
 } from '@impulseframework/resource-angular/types';
 import { firstValueFrom, isObservable } from 'rxjs';
 
-import { resourceRoutes } from './index';
+import { resourcePage, resourceRoutes } from './index';
 
 const field = (fieldName: string, extra: Partial<FieldMeta> = {}): FieldMeta =>
   ({ fieldName, displayType: 'string', required: false, isIndex: false, ...extra }) as FieldMeta;
@@ -35,7 +36,7 @@ describe('resourceRoutes', () => {
   const config = (routeData?: RootRouteData) =>
     rootConfig({
       ...(routeData ? { routeData } : {}),
-      nav: { navItem: { label: 'Clients' } },
+      page: { label: 'Clients', icon: 'groups' },
       parentConfig: listViewConfig({ primaryResource: clients, listColumns: [], elements: [] }),
     });
   const config_ = config;
@@ -83,21 +84,47 @@ describe('resourceRoutes', () => {
     });
   }
 
-  describe('in the navigation', () => {
-    it('lists the page at the top level when the config names no group, and in its group when it does', () => {
-      const top = config_();
-      resourceRoutes(top, meta);
-      expect(generatedNavItems).toContain(top.nav.navItem);
-      expect(top.nav.navItem.route).toEqual(['clients']);
-      const grouped = rootConfig({
-        routeData: { route: 'crew/clients' },
-        nav: { navItem: { label: 'Clients' }, group: 'Crew' },
+  describe('for the menus', () => {
+    it('carries the page the menu file places: its label and icon at its route, needing List', () => {
+      const config = config_({ route: 'sectors/:sectorID/clients' });
+      const route = resourceRoutes(config, meta);
+      const page = resourcePage(config, meta);
+      expect(route.data?.[pageDataKey]).toBe(page);
+      expect(page).toEqual({
+        label: 'Clients',
+        icon: 'groups',
+        route: ['sectors/:sectorID/clients'],
+        permission: { resource: clients, permission: ListPermission },
+        feature: undefined,
+      });
+    });
+
+    it('answers the same page for the same config, made before or after the routes', () => {
+      const config = config_();
+      const before = resourcePage(config, meta);
+      expect(resourceRoutes(config, meta).data?.[pageDataKey]).toBe(before);
+      expect(resourcePage(config_(), meta)).not.toBe(before);
+    });
+
+    it("keeps the config's own permission for the menus", () => {
+      const permission = { resource: 'Pilots' as Resource, permission: ListPermission };
+      const config = rootConfig({
+        page: { label: 'Clients', permission },
         parentConfig: listViewConfig({ primaryResource: clients, listColumns: [], elements: [] }),
       });
-      resourceRoutes(grouped, meta);
-      expect(generatedNavItems).not.toContain(grouped.nav.navItem);
-      expect(generatedNavItems.find((item) => item.label === 'Crew')?.children).toContain(grouped.nav.navItem);
-      expect(grouped.nav.navItem.route).toEqual(['crew/clients']);
+      expect(resourcePage(config, meta).permission).toBe(permission);
+      // The route is still guarded on List of its own resource.
+      expect(scopeOf(resourceRoutes(config, meta))).toEqual({ resource: clients, permission: ListPermission });
+    });
+
+    it('carries no page for a config that names none, and refuses to make one', () => {
+      const config = rootConfig({
+        parentConfig: listViewConfig({ primaryResource: clients, listColumns: [], elements: [] }),
+      });
+      expect(resourceRoutes(config, meta).data?.[pageDataKey]).toBeUndefined();
+      expect(() => resourcePage(config, meta)).toThrow(
+        'resourcePage: the config of Clients names no page (page: { label, icon }), so no menu can place it',
+      );
     });
   });
 
@@ -111,7 +138,7 @@ describe('resourceRoutes', () => {
     const route = resourceRoutes(
       rootConfig({
         routeData: { route: 'sector/crew' },
-        nav: { navItem: { label: 'Crew' } },
+        page: { label: 'Crew' },
         parentConfig: listViewConfig({ primaryResource: boards, listColumns: [], elements: [] }),
       }),
       (resource) => metas[resource],
@@ -139,7 +166,7 @@ describe('resourceRoutes', () => {
       const route = resourceRoutes(
         rootConfig({
           routeData: { route: 'sectors/:sectorID/missions' },
-          nav: { navItem: { label: 'Missions' } },
+          page: { label: 'Missions' },
           parentConfig: listViewConfig({ primaryResource: missions, listColumns: [], elements: [] }),
         }),
         () => keyed('sectors/{sectorID}/missions'),
@@ -159,7 +186,7 @@ describe('resourceRoutes', () => {
     const ordersConfig = (routeData?: RootRouteData) =>
       rootConfig({
         ...(routeData ? { routeData } : {}),
-        nav: { navItem: { label: 'Standing Orders' } },
+        page: { label: 'Standing Orders' },
         parentConfig: listViewConfig({ primaryResource: orders, listColumns: [], elements: [] }),
       });
 
@@ -192,7 +219,7 @@ describe('resourceRoutes', () => {
 
   // A resource behind a feature flag is matched only while the flag is on: the route
   // carries a match guard from the metadata's feature, under either form of the page
-  // route, and the navigation item carries the flag so a gated menu hides it. An ungated
+  // route, and the page sits behind the flag so the menus leave it out. An ungated
   // resource carries neither.
   describe('behind a feature flag', () => {
     const debriefs = 'Debriefs' as Resource;
@@ -200,7 +227,7 @@ describe('resourceRoutes', () => {
     const gatedConfig = (routeData?: RootRouteData) =>
       rootConfig({
         ...(routeData ? { routeData } : {}),
-        nav: { navItem: { label: 'Debriefs' } },
+        page: { label: 'Debriefs' },
         parentConfig: listViewConfig({ primaryResource: debriefs, listColumns: [], elements: [] }),
       });
 
@@ -211,12 +238,12 @@ describe('resourceRoutes', () => {
 
     for (const tt of cases) {
       describe(tt.name, () => {
-        it('carries a match guard and names the flag on the navigation item', () => {
+        it('carries a match guard and puts the page behind the flag', () => {
           const config = gatedConfig(tt.routeData);
           const route = resourceRoutes(config, gatedMeta);
           expect(route.canMatch).toHaveLength(1);
           expect(route.canActivate).toContain(AuthorizationGuard);
-          expect(config.nav.navItem.feature).toBe('debriefs');
+          expect(resourcePage(config, gatedMeta).feature).toBe('debriefs');
         });
       });
     }
@@ -261,20 +288,20 @@ describe('resourceRoutes', () => {
       expect(await answer()).toBe(true);
     });
 
-    it('keeps a feature the config named on the navigation item', () => {
+    it("keeps a feature the config's page names", () => {
       const config = rootConfig({
-        nav: { navItem: { label: 'Debriefs', feature: 'ops_console' } },
+        page: { label: 'Debriefs', feature: 'ops_console' },
         parentConfig: listViewConfig({ primaryResource: debriefs, listColumns: [], elements: [] }),
       });
       resourceRoutes(config, gatedMeta);
-      expect(config.nav.navItem.feature).toBe('ops_console');
+      expect(resourcePage(config, gatedMeta).feature).toBe('ops_console');
     });
 
     it('an ungated resource carries no match guard and no flag', () => {
       const config = config_();
       const route = resourceRoutes(config, meta);
       expect(route.canMatch).toBeUndefined();
-      expect(config.nav.navItem.feature).toBeUndefined();
+      expect(resourcePage(config, meta).feature).toBeUndefined();
     });
   });
 });

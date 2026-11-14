@@ -109,6 +109,14 @@ export interface MethodDescriptor {
 export interface DomainRouteDescriptor {
   segment: string;
   param: string;
+  /**
+   * What the application calls a tenant on screen, one and many: the tenant record's name
+   * ("Customer", "Customers"), or the label the record declares for an application that
+   * changed the word without renaming its tables. The frame's place switcher and menus
+   * read it. Absent on a descriptor from a generator that predates it, where the frame
+   * derives the word from the segment.
+   */
+  word?: { one: string; many: string };
 }
 
 /**

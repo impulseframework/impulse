@@ -30,8 +30,6 @@
   --impulse-shaded: var(--mat-sys-surface-container);
   --impulse-dirty: color-mix(in srgb, var(--mat-sys-primary) 15%, transparent);
   --impulse-muted: var(--mat-sys-on-surface-variant);
-  --impulse-hover: color-mix(in srgb, var(--mat-sys-on-surface) 8%, transparent);
-  --impulse-pressed: color-mix(in srgb, var(--mat-sys-on-surface) 12%, transparent);
   --impulse-warn: var(--mat-sys-error);
   --impulse-edit-shadow: var(--mat-sys-level2);
   --impulse-alert-bg: var(--mat-sys-surface-container-high);

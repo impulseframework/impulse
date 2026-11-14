@@ -1,6 +1,7 @@
 import { ApiDescriptor, IdentityDescriptor, Resource } from '@impulseframework/resource';
 import { FieldMeta, ListViewConfig, MethodPresentation, RecordData, ResourceMeta, RootConfig } from '@impulseframework/resource-angular/types';
-import { identityPages, identityRoutes } from './identity-pages';
+import { pageDataKey } from '@impulseframework/resource-angular/auth-frame';
+import { identityMenuPages, identityPages, identityRoutes } from './identity-pages';
 
 // The pages over an Auth's people are built from the API's description alone: which
 // pages, their routes and words, the columns the Auth's schema carries, the methods its
@@ -134,12 +135,12 @@ describe("identityPages, the whole application's side", () => {
   const pages = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
   const [people, invitations, sessions, attempts] = pages;
 
-  it('builds the accounts, the mailed links, the sessions and the failed sign-ins, each at a route named for the auth, in one group', () => {
-    expect(pages.map((page) => [page.routeData.route, page.nav.navItem.label, page.nav.group])).toEqual([
-      ['crew-accounts', 'Accounts', 'Crew accounts'],
-      ['crew-mailed-links', 'Mailed links', 'Crew accounts'],
-      ['crew-sessions', 'Sessions', 'Crew accounts'],
-      ['crew-failed-sign-ins', 'Failed sign-ins', 'Crew accounts'],
+  it('builds the accounts, the mailed links, the sessions and the failed sign-ins, each at a route named for the auth', () => {
+    expect(pages.map((page) => [page.routeData.route, page.page?.label, page.page?.icon])).toEqual([
+      ['crew-accounts', 'Accounts', 'manage_accounts'],
+      ['crew-mailed-links', 'Mailed links', 'forward_to_inbox'],
+      ['crew-sessions', 'Sessions', 'devices'],
+      ['crew-failed-sign-ins', 'Failed sign-ins', 'gpp_bad'],
     ]);
     expect(pages.map((page) => page.routeData.hasViewRoute)).toEqual([true, false, false, false]);
     expect(pages.map((page) => list(page).primaryResource)).toEqual(['CrewSessionUsers', 'CrewSessionMailLinks', 'CrewSessions', 'CrewSessionSignInAttempts']);
@@ -255,10 +256,10 @@ describe("identityPages, a tenant's side", () => {
   const pages = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'domain' });
   const [people, invitations] = pages;
 
-  it("builds the people and the invitations under the API's tenant segment, in a group named for the tenant record", () => {
-    expect(pages.map((page) => [page.routeData.route, page.nav.navItem.label, page.nav.group])).toEqual([
-      ['sectors/:sectorID/crew-people', 'People', 'Sector crew'],
-      ['sectors/:sectorID/crew-invitations', 'Invitations', 'Sector crew'],
+  it("builds the people and the invitations under the API's tenant segment", () => {
+    expect(pages.map((page) => [page.routeData.route, page.page?.label, page.page?.icon])).toEqual([
+      ['sectors/:sectorID/crew-people', 'People', 'group'],
+      ['sectors/:sectorID/crew-invitations', 'Invitations', 'mail'],
     ]);
   });
 
@@ -318,17 +319,22 @@ describe('identityPages, what an auth and an application decide', () => {
     expect(children(pages[0]).map((child) => [child.title, child.rowMethods])).toEqual([['Roles held', []]]);
   });
 
-  it('takes the group and the routes the application gives', () => {
+  it('takes the routes the application gives', () => {
     const pages = identityPages(descriptor, resourceMeta, {
       auth: 'Crew',
       scope: 'domain',
-      group: 'Sector People',
       routes: { users: 'sectors/:sectorID/people' },
     });
-    expect(pages.map((page) => [page.routeData.route, page.nav.group])).toEqual([
-      ['sectors/:sectorID/people', 'Sector People'],
-      ['sectors/:sectorID/crew-invitations', 'Sector People'],
+    expect(pages.map((page) => page.routeData.route)).toEqual([
+      'sectors/:sectorID/people',
+      'sectors/:sectorID/crew-invitations',
     ]);
+  });
+
+  it('answers the same request with the same pages, and another request with its own', () => {
+    const pages = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'domain' });
+    expect(identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'domain' })).toBe(pages);
+    expect(identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' })).not.toBe(pages);
   });
 
   const refusals: { name: string; descriptor: ApiDescriptor; auth: string; scope: 'global' | 'domain'; want: string }[] = [
@@ -370,12 +376,25 @@ describe('identityPages, what an auth and an application decide', () => {
 
 describe('identityRoutes', () => {
   it('builds a route for each page, with a row route for the people alone', () => {
-    const routes = identityRoutes(descriptor, resourceMeta, { auth: 'Crew', scope: 'global', group: 'Routes test' });
+    const routes = identityRoutes(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
     expect(routes.map((route) => [route.path, (route.children ?? []).map((child) => child.path)])).toEqual([
       ['crew-accounts', ['', ':uuid']],
       ['crew-mailed-links', ['']],
       ['crew-sessions', ['']],
       ['crew-failed-sign-ins', ['']],
+    ]);
+  });
+
+  it('carries on each route the page the menu file places', () => {
+    const routes = identityRoutes(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
+    const pages = identityMenuPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
+    expect(routes.map((route) => route.data?.[pageDataKey])).toEqual(pages);
+    routes.forEach((route, i) => expect(route.data?.[pageDataKey]).toBe(pages[i]));
+    expect(pages.map((page) => [page.label, page.route, page.permission])).toEqual([
+      ['Accounts', ['crew-accounts'], { resource: 'CrewSessionUsers', permission: 'List' }],
+      ['Mailed links', ['crew-mailed-links'], { resource: 'CrewSessionMailLinks', permission: 'List' }],
+      ['Sessions', ['crew-sessions'], { resource: 'CrewSessions', permission: 'List' }],
+      ['Failed sign-ins', ['crew-failed-sign-ins'], { resource: 'CrewSessionSignInAttempts', permission: 'List' }],
     ]);
   });
 });

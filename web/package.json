@@ -49,12 +49,13 @@
     "typecheck:resource": "tsc --noEmit -p projects/resource/tsconfig.spec.json",
     "typecheck:firestore": "tsc --noEmit -p projects/resource-firestore/tsconfig.spec.json",
     "fonts": "bun scripts/copy-fonts.mjs",
+    "icons": "bun scripts/icon-names.mjs",
     "build": "ng build resource && ng build resource-firestore && bun run fonts && ng build resource-angular",
     "test": "bun run test:resource && bun run test:firestore && bun run test:theme && bun run test:lint-rules && bun run test:angular",
     "test:resource": "bun test projects/resource/ && bun run typecheck:resource",
     "test:firestore": "bun test projects/resource-firestore/ && bun run typecheck:firestore",
     "test:theme": "bun test projects/resource-angular/styles/",
-    "test:lint-rules": "bun test projects/resource-angular/boundaries.test.ts projects/resource-angular/cycles.test.ts",
+    "test:lint-rules": "bun test projects/resource-angular/boundaries.test.ts projects/resource-angular/cycles.test.ts projects/resource-angular/types/icon-names.test.ts",
     "test:angular": "ng test resource-angular --watch=false"
   }
 }

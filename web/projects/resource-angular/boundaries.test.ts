@@ -84,13 +84,13 @@ describe('the boundary rule between entry points', () => {
   );
 
   it(
-    'counts the idle service and the sidenav among the auth entry points, which a UI entry point may not import',
+    'counts the idle service and the frame among the auth entry points, which a UI entry point may not import',
     async () => {
-      expect(entryPoints('auth-')).toEqual(expect.arrayContaining(['auth-idle-service', 'auth-sidenav']));
+      expect(entryPoints('auth-')).toEqual(expect.arrayContaining(['auth-idle-service', 'auth-frame']));
       expect(await refusals('auth-idle-service/probe.ts', `${scope}/auth-service`)).toBe(0);
-      expect(await refusals('auth-sidenav/probe.ts', `${scope}/auth-has-permission`)).toBe(0);
+      expect(await refusals('auth-frame/probe.ts', `${scope}/auth-has-permission`)).toBe(0);
       expect(await refusals('ui-alert/probe.ts', `${scope}/auth-idle-service`)).toBe(1);
-      expect(await refusals('ui-core-service/probe.ts', `${scope}/auth-sidenav`)).toBe(1);
+      expect(await refusals('ui-core-service/probe.ts', `${scope}/auth-frame`)).toBe(1);
     },
     limit,
   );
