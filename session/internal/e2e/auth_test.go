@@ -728,8 +728,12 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamEmailCodeEnrollment[Tx],
 		},
 		{
-			name: "five wrong codes kill the code sent, a new one is sent in its place, and a code is refused where the policy accepts another factor",
+			name: "five wrong codes kill the code sent, a new one is sent in its place, an address sent five codes it did not use is refused a sixth with too_many_emails, and a code is refused where the policy accepts another factor",
 			run:  seamEmailCodeLimits[Tx],
+		},
+		{
+			name: "a person who signs in with each code sent is mailed one every time: a used code resets the address's mail count",
+			run:  seamEmailCodeUsedResetsLimit[Tx],
 		},
 		{
 			name: "a refused WorkOS sign-in returns to the login page with its code only and leaves no session or pending identity",

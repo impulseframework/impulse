@@ -147,9 +147,25 @@ func NewTooManyAttemptsRefusal(wait time.Duration) error {
 	return NewLoginRefusal(RefusedTooManyAttempts, &retryAfterError{wait: wait, cause: httpio.NewTooManyRequestsMessage("Too many sign-in attempts")})
 }
 
+// RefusedTooManyEmails is the code for a sign-in code or link asked for an address that
+// reached its limit of mail: the address was sent as many codes and links as the limit
+// allows, none of them used, and is sent no more until its lock passes. A code or link
+// that is used resets the count. It is told apart from RefusedTooManyAttempts so a page
+// can say that the mail is held, not that a password was refused. The answer is 429
+// with the wait in the body (retryAfter, seconds) and the Retry-After header;
+// RetryAfterOf reads the wait from the error.
+const RefusedTooManyEmails LoginRefusalCode = "too_many_emails"
+
+// NewTooManyEmailsRefusal is the refusal of a code or link to an address at its limit
+// of mail: RefusedTooManyEmails over a TooManyRequests client message, carrying wait,
+// the time until the address may be sent another.
+func NewTooManyEmailsRefusal(wait time.Duration) error {
+	return NewLoginRefusal(RefusedTooManyEmails, &retryAfterError{wait: wait, cause: httpio.NewTooManyRequestsMessage("Too many emails to this address")})
+}
+
 // RetryAfterOf returns the wait a refused attempt asks for before the next one, and
-// whether err asks for one: true for a RefusedTooManyAttempts refusal anywhere in
-// err's chain, false for any other error.
+// whether err asks for one: true for a RefusedTooManyAttempts or RefusedTooManyEmails
+// refusal anywhere in err's chain, false for any other error.
 func RetryAfterOf(err error) (wait time.Duration, ok bool) {
 	var retry *retryAfterError
 	if !errors.As(err, &retry) {

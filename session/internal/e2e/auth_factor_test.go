@@ -368,6 +368,30 @@ func seamEmailCodeEnrollment[Tx any](ctx context.Context, t *testing.T, a *authA
 	}
 }
 
+// seamEmailCodeUsedResetsLimit: a person who signs in with each code they are sent
+// never meets the address's mail limit. Seven sign-ins in a row, more than the limit
+// allows unused, each finished with its code, are each mailed one.
+func seamEmailCodeUsedResetsLimit[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
+	t.Helper()
+
+	a.seedWithEmail(ctx, t, "pat@lakeside.edu", "pat@lakeside.edu")
+	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCode })
+	b := a.browser(t)
+
+	for i := 1; i <= 7; i++ {
+		b.prime(ctx)
+		if status, mfa := b.loginAs(ctx, "pat@lakeside.edu"); status != http.StatusOK || !mfa {
+			t.Fatalf("sign-in %d: password login = %d (mfaIsRequired %v), want 200 requiring MFA", i, status, mfa)
+		}
+		if status, body := b.do(ctx, http.MethodPost, "/pending/code/send", nil); status != http.StatusOK {
+			t.Fatalf("sign-in %d: send = %d %s, want 200: each used code resets the address", i, status, body)
+		}
+		b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": a.lastCode(t, "pat@lakeside.edu")})
+		assertEventsSeen(t, b.view(ctx), "password", "email-code")
+		b.expect(ctx, http.StatusOK, http.MethodPost, "/logout", nil)
+	}
+}
+
 func seamEmailCodeLimits[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
 	t.Helper()
 
@@ -409,11 +433,19 @@ func seamEmailCodeLimits[Tx any](ctx context.Context, t *testing.T, a *authApp[T
 			t.Errorf("the code a newer one replaced = %d %s, want 401", status, body)
 		}
 	}
-	// The fourth send within the window is the address's limit.
-	if status, body := b.do(ctx, http.MethodPost, "/pending/code/send", nil); status != http.StatusTooManyRequests || !strings.Contains(string(body), "too_many_attempts") {
-		t.Errorf("the fourth code within fifteen minutes = %d %s, want 429 too_many_attempts", status, body)
+	// Five codes sent within the window and none used: the sixth is the address's
+	// limit, refused with its own code and the wait.
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/send", nil)
+	last := a.lastCode(t, "pat@lakeside.edu")
+	sent := len(a.mail.Messages())
+	if status, body := b.do(ctx, http.MethodPost, "/pending/code/send", nil); status != http.StatusTooManyRequests || !strings.Contains(string(body), `"code":"too_many_emails"`) || !strings.Contains(string(body), `"retryAfter":`) {
+		t.Errorf("the sixth code within fifteen minutes = %d %s, want 429 too_many_emails with the wait", status, body)
 	}
-	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": freshest})
+	if got := len(a.mail.Messages()); got != sent {
+		t.Errorf("messages after the refused send = %d, want %d: nothing is mailed", got, sent)
+	}
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/pending/code/verify", map[string]any{"code": last})
 	assertEventsSeen(t, b.view(ctx), "password", "email-code")
 
 	// A policy that accepts the application's own factor only offers no code: the

@@ -792,9 +792,9 @@ func authInvitationCase5(t *testing.T) {
 func TestAuth_Email(t *testing.T) {
 	t.Parallel()
 
-	t.Run("adding an address mails it a verification link, and following the link writes the address verified", authEmailCase1)
+	t.Run("adding an address mails it a verification link, and following the link writes the address verified and resets the address's mail count", authEmailCase1)
 	t.Run("a link counts only for the account that asked", authEmailCase2)
-	t.Run("an address another account holds is told so by mail, the screen says nothing; a mailbox is sent three links, then refused", authEmailCase3)
+	t.Run("an address another account holds is told so by mail, the screen says nothing; a mailbox is sent five mails it does not use, then refused", authEmailCase3)
 	t.Run("an operator's entry is written unverified; an Auth without mail has no email handlers", authEmailCase4)
 	t.Run("where the username is the address, a verified new address renames the user and the rename hook moves what the application keys by it", authEmailCase5)
 }
@@ -819,11 +819,17 @@ func authEmailCase1(t *testing.T) {
 		t.Fatalf("messages = %+v, want the verification", msgs)
 	}
 	token := tokenIn(t, msgs[0].Text, "verify")
+	if record := f.attemptsRecord("mail:pat@lakeside.edu"); record == nil || record.Failures != 1 {
+		t.Errorf("the address's mail count after Add() = %+v, want one", record)
+	}
 
 	f.store.EXPECT().VerifyUserEmail(gomock.Any(), userID, "Pat@Lakeside.edu").Return(nil)
 	rr = f.asUser(f.auth.Email().Verify(), sessionID, map[string]string{"token": token}, nil)
 	if rr.Code != http.StatusOK || decoded(t, rr)["email"] != "Pat@Lakeside.edu" {
 		t.Errorf("Verify() = %d %s, want the address", rr.Code, rr.Body.String())
+	}
+	if record := f.attemptsRecord("mail:pat@lakeside.edu"); record != nil {
+		t.Errorf("the address's mail count after the link was followed = %+v, want none", record)
 	}
 	if rr := f.asUser(f.auth.Email().Verify(), sessionID, map[string]string{"token": token}, nil); rr.Code != http.StatusNotFound {
 		t.Errorf("second Verify() = %d, want 404: the link was used", rr.Code)
@@ -858,21 +864,24 @@ func authEmailCase3(t *testing.T) {
 	other := impulse.Must(impulse.NewUUID())
 	f.store.EXPECT().UserByEmail(gomock.Any(), "taken@lakeside.edu").Return(&sessionstorage.SessionUser{ID: other, Username: "sam", Email: strPtr("taken@lakeside.edu")}, nil).AnyTimes()
 
-	for i := range 3 {
+	for i := range 5 {
 		if rr := f.asUser(f.auth.Email().Add(), sessionID, map[string]string{"email": "taken@lakeside.edu"}, nil); rr.Code != http.StatusOK {
 			t.Fatalf("Add() %d = %d %s, want 200", i+1, rr.Code, rr.Body.String())
 		}
 	}
 	msgs := recorder.Messages()
-	if len(msgs) != 3 || msgs[0].Subject != "Your email address and Harbor" || !strings.Contains(msgs[0].Text, "already belongs to a Harbor account") {
-		t.Errorf("messages = %+v, want three notices to the holder", msgs)
+	if len(msgs) != 5 || msgs[0].Subject != "Your email address and Harbor" || !strings.Contains(msgs[0].Text, "already belongs to a Harbor account") {
+		t.Errorf("messages = %+v, want five notices to the holder", msgs)
 	}
 	if len(links.rows) != 0 {
 		t.Error("a link was stored for an address another account holds, want none")
 	}
 	rr := f.asUser(f.auth.Email().Add(), sessionID, map[string]string{"email": "taken@lakeside.edu"}, nil)
-	if rr.Code != http.StatusTooManyRequests || refusal(t, rr).Code != sessioninfo.RefusedTooManyAttempts {
-		t.Errorf("fourth Add() = %d %s, want 429 too_many_attempts", rr.Code, rr.Body.String())
+	if body := refusal(t, rr); rr.Code != http.StatusTooManyRequests || body.Code != sessioninfo.RefusedTooManyEmails || body.RetryAfter < 1 {
+		t.Errorf("sixth Add() = %d %s, want 429 too_many_emails with the wait", rr.Code, rr.Body.String())
+	}
+	if got := len(recorder.Messages()); got != 5 {
+		t.Errorf("messages after the refusal = %d, want still five", got)
 	}
 	if rr := f.asUser(f.auth.Email().Add(), sessionID, map[string]string{"email": "not an address"}, nil); rr.Code != http.StatusBadRequest {
 		t.Errorf("Add() of a bad address = %d, want 400", rr.Code)
@@ -934,7 +943,7 @@ func authEmailCase4(t *testing.T) {
 func TestAuth_SignUp(t *testing.T) {
 	t.Parallel()
 
-	t.Run("a sign-up mails a link, the link opens, and completing it creates the account with the address verified and signs in", authSignUpCase1)
+	t.Run("a sign-up mails a link, the link opens, and completing it creates the account with the address verified, signs in and resets the address's mail count", authSignUpCase1)
 	t.Run("an address an account holds is pointed at it by mail, and the screen says nothing", authSignUpCase2)
 	t.Run("sign-up is not offered without OpenSignUp, and OpenSignUp needs mail", authSignUpCase3)
 }
@@ -955,6 +964,9 @@ func authSignUpCase1(t *testing.T) {
 	token := tokenIn(t, msgs[0].Text, "signUp")
 	if row := links.last(t); row.Kind != sessionstorage.MailLinkSignUp || row.Email != "new@lakeside.edu" {
 		t.Errorf("stored link = %+v, want a sign-up for the address", row)
+	}
+	if record := f.attemptsRecord("mail:new@lakeside.edu"); record == nil || record.Failures != 1 {
+		t.Errorf("the address's mail count after Start() = %+v, want one", record)
 	}
 
 	rr := f.serve(f.auth.SignUp().Open(), http.MethodPost, "/sign-up/open", map[string]string{"token": token}, nil)
@@ -980,6 +992,9 @@ func authSignUpCase1(t *testing.T) {
 	}
 	if links.last(t).ConsumedAt == nil {
 		t.Error("the sign-up link stands after the completion, want it consumed")
+	}
+	if record := f.attemptsRecord("mail:new@lakeside.edu"); record != nil {
+		t.Errorf("the address's mail count after the sign-up was completed = %+v, want none", record)
 	}
 }
 

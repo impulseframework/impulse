@@ -74,6 +74,7 @@ describe('UiCoreService login messages', () => {
       'code_expired',
       'no_email',
       'too_many_attempts',
+      'too_many_emails',
       'no_tenant',
       'connection_not_in_tenant',
       'directory_only',
@@ -105,6 +106,12 @@ describe('UiCoreService login messages', () => {
         code: 'too_many_attempts',
         retryAfter: 840,
         want: 'Too many attempts. Try again in 14 minutes.',
+      },
+      {
+        name: 'the mail limit says the mail is held, and the wait',
+        code: 'too_many_emails',
+        retryAfter: 720,
+        want: 'We have sent several emails to this address in the last few minutes. Try again in 12 minutes.',
       },
       {
         name: 'a wait over a whole number of minutes rounded up',

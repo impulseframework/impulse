@@ -1167,15 +1167,68 @@ describe('LoginMethodsComponent runs the sign-in code step', () => {
     const page = await pageOver(
       server({
         status: { status: 200, body: codeStep },
-        sendCode: { status: 429, body: { message: 'too many codes', code: 'too_many_attempts', retryAfter: 600 } },
+        sendCode: { status: 429, body: { message: 'too many codes', code: 'too_many_emails', retryAfter: 600 } },
       }),
       { pending: 'mfa' },
     );
-    expect(messageOf(page)).toBe(`${DEFAULT_LOGIN_MESSAGES['too_many_attempts']} Try again in 10 minutes.`);
+    expect(messageOf(page)).toBe(`${DEFAULT_LOGIN_MESSAGES['too_many_emails']} Try again in 10 minutes.`);
     expect(page.component.pending()?.emailCode?.codeSent).toBe(false);
     expect(noteOf(page)).toBe('A sign-in code can be sent to n•••@fleet.example.');
     expect(page.element.querySelector('input[name="code"]')).toBeNull();
     expect(resendOf(page)).toBe('Send code');
+  });
+
+  it('a code the server will not mail yet keeps Send code off until the wait has passed, then sends again', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const script = server({
+        status: { status: 200, body: codeStep },
+        sendCode: { status: 429, body: { message: 'too many codes', code: 'too_many_emails', retryAfter: 600 } },
+      });
+      const page = await pageOver(script, { pending: 'mfa' });
+      const button = (): HTMLButtonElement | null => page.element.querySelector('button.impulse-login-resend');
+      expect(button()?.disabled).toBe(true);
+      const asked = page.transport.requests.length;
+      await page.component.sendCode();
+      expect(page.transport.requests.length).toBe(asked);
+      await vi.advanceTimersByTimeAsync(599_000);
+      await page.settle();
+      expect(button()?.disabled).toBe(true);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await page.settle();
+      expect(button()?.disabled).toBe(false);
+      script.sendCode = { status: 200, body: codeMailed };
+      await page.component.sendCode();
+      await page.settle();
+      expect(page.component.pending()?.emailCode?.codeSent).toBe(true);
+      expect(page.element.querySelector('input[name="code"]')).not.toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('an address the server will not mail yet keeps the enrollment\'s Send code off while the wait lasts', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const page = await pageOver(
+        server({
+          status: { status: 200, body: noAddress },
+          enrollEmail: { status: 429, body: { message: 'too many codes', code: 'too_many_emails', retryAfter: 60 } },
+        }),
+        { pending: 'mfa' },
+      );
+      page.component.codeEmail = 'nova@fleet.example';
+      await page.component.enrollEmail();
+      await page.settle();
+      const button = (): HTMLButtonElement | null => page.element.querySelector('button.impulse-login-submit');
+      expect(messageOf(page)).toBe(`${DEFAULT_LOGIN_MESSAGES['too_many_emails']} Try again in 1 minute.`);
+      expect(button()?.disabled).toBe(true);
+      await vi.advanceTimersByTimeAsync(60_000);
+      await page.settle();
+      expect(button()?.disabled).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('an account without an address asks for one, posts it to the enrollment route, then shows the code form', async () => {
@@ -2013,15 +2066,16 @@ describe('LoginMethodsComponent signs a person up', () => {
     const page = await pageOver(
       server({
         methods: mailingList,
-        signUpStart: { status: 429, body: { message: 'Too many links', code: 'too_many_attempts', retryAfter: 600 } },
+        signUpStart: { status: 429, body: { message: 'Too many links', code: 'too_many_emails', retryAfter: 600 } },
       }),
     );
     page.component.beginSignUp();
     page.component.signUpEmail = 'rookie@fleet.example';
     await page.component.sendSignUpLink();
     await page.settle();
-    expect(messageOf(page)).toBe(`${DEFAULT_LOGIN_MESSAGES['too_many_attempts']} Try again in 10 minutes.`);
+    expect(messageOf(page)).toBe(`${DEFAULT_LOGIN_MESSAGES['too_many_emails']} Try again in 10 minutes.`);
     expect(page.component.starting()).toBe(true);
+    expect(page.element.querySelector<HTMLButtonElement>('button.impulse-login-submit')?.disabled).toBe(true);
   });
 
   it('entered with ?signUp=, opens the link after the list and renders the account form, which completes the sign-up with the token', async () => {

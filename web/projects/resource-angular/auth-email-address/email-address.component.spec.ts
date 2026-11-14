@@ -163,14 +163,14 @@ describe('EmailAddressComponent', () => {
 
   it("renders a refusal in place: the sentence with the wait for a mailbox sent too many links, the server's words otherwise", async () => {
     const limited = await pageOver({
-      add: { status: 429, body: { message: 'Too many links', code: 'too_many_attempts', retryAfter: 120 } },
+      add: { status: 429, body: { message: 'Too many emails to this address', code: 'too_many_emails', retryAfter: 120 } },
     });
     limited.component.edit();
     limited.component.email = 'pax@fleet.example';
     await limited.component.send();
     await limited.settle();
     expect(textOf(limited.element.querySelector('.impulse-email-message'))).toBe(
-      `${DEFAULT_LOGIN_MESSAGES['too_many_attempts']} Try again in 2 minutes.`,
+      `${DEFAULT_LOGIN_MESSAGES['too_many_emails']} Try again in 2 minutes.`,
     );
     expect(limited.component.editing()).toBe(true);
     TestBed.resetTestingModule();
@@ -180,6 +180,34 @@ describe('EmailAddressComponent', () => {
     await notOne.component.send();
     await notOne.settle();
     expect(textOf(notOne.element.querySelector('.impulse-email-message'))).toBe('not an email address');
+  });
+
+  it('keeps the button off while the server holds its mail to the address, and turns it on once the wait has passed', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const page = await pageOver({
+        add: { status: 429, body: { message: 'Too many emails to this address', code: 'too_many_emails', retryAfter: 120 } },
+      });
+      const button = (): HTMLButtonElement | null => page.element.querySelector('.impulse-email-send');
+      page.component.edit();
+      page.component.email = 'pax@fleet.example';
+      await page.settle();
+      expect(button()?.disabled).toBe(false);
+      await page.component.send();
+      await page.settle();
+      expect(button()?.disabled).toBe(true);
+      const asked = page.transport.requests.length;
+      await page.component.send();
+      expect(page.transport.requests.length).toBe(asked);
+      await vi.advanceTimersByTimeAsync(119_000);
+      await page.settle();
+      expect(button()?.disabled).toBe(true);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await page.settle();
+      expect(button()?.disabled).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('offers nothing where the list names no email routes', async () => {

@@ -354,6 +354,8 @@ func (a *Auth[S, U, Tx]) completeWithEmailCode(ctx context.Context, w http.Respo
 	if err != nil {
 		return nil, err
 	}
+	// The code reached the person: the address's mail count is reset.
+	a.clearMailLimit(ctx, email)
 	if err := a.consumePending(ctx, p); err != nil {
 		return nil, err
 	}

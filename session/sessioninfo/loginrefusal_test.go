@@ -130,6 +130,12 @@ func TestRetryAfterOf(t *testing.T) {
 			wantOK:   true,
 		},
 		{
+			name:     "a too-many-emails refusal carries its wait",
+			err:      NewTooManyEmailsRefusal(12 * time.Minute),
+			wantWait: 12 * time.Minute,
+			wantOK:   true,
+		},
+		{
 			name:     "the wait rides through the handler chain",
 			err:      errors.Wrap(NewTooManyAttemptsRefusal(time.Minute), "passwordSignIn()"),
 			wantWait: time.Minute,
@@ -166,6 +172,21 @@ func TestNewTooManyAttemptsRefusal(t *testing.T) {
 		t.Errorf("HasTooManyRequests() = false, want the refusal to answer 429")
 	}
 	if got := httpio.Message(err); got != "Too many sign-in attempts" {
+		t.Errorf("Message() = %q, want the client message", got)
+	}
+}
+
+func TestNewTooManyEmailsRefusal(t *testing.T) {
+	t.Parallel()
+
+	err := NewTooManyEmailsRefusal(time.Minute)
+	if got := LoginRefusalCodeOf(err); got != RefusedTooManyEmails {
+		t.Errorf("LoginRefusalCodeOf() = %q, want %q", got, RefusedTooManyEmails)
+	}
+	if !httpio.HasTooManyRequests(err) {
+		t.Errorf("HasTooManyRequests() = false, want the refusal to answer 429")
+	}
+	if got := httpio.Message(err); got != "Too many emails to this address" {
 		t.Errorf("Message() = %q, want the client message", got)
 	}
 }

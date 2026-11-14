@@ -28,10 +28,11 @@ export class UiCoreService {
    * lookup is by own property, so a key inherited from Object is not a code.
    *
    * `retryAfter` is the wait the server named with the refusal, in seconds: the attempt
-   * limiter's `too_many_attempts` answers 429 with it. The sentence is then followed by the
-   * wait, "Too many attempts. Try again in 14 minutes.": in minutes from a minute up,
-   * rounded up, and in seconds below it. Without a wait, or with one of no time, the
-   * sentence stands alone; a code the application does not know answers nothing either way.
+   * limiter's `too_many_attempts` and the mail limit's `too_many_emails` answer 429 with
+   * it. The sentence is then followed by the wait, "Too many attempts. Try again in 14
+   * minutes.": in minutes from a minute up, rounded up, and in seconds below it. Without a
+   * wait, or with one of no time, the sentence stands alone; a code the application does
+   * not know answers nothing either way.
    */
   loginMessage(code: string, retryAfter?: number): string {
     if (!Object.hasOwn(this.loginMessages, code)) {

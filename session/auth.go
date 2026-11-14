@@ -676,9 +676,10 @@ func (h *PendingHandlers) Status() http.HandlerFunc { return h.status }
 // already standing is replaced. It answers 409 when the pending identity does not
 // wait for MFA, when the sign-in policy does not accept the email code, or when the
 // user holds no address (the page then asks for one and posts it to EnrollEmail());
-// an address sent three codes within fifteen minutes is refused with
-// too_many_attempts and the wait. Route it behind StartSession and
-// ValidateXSRFToken; it panics at wiring on an Auth without mail.
+// an address sent five codes within fifteen minutes and using none is refused with
+// too_many_emails and the wait; a code that is used resets the count. Route it
+// behind StartSession and ValidateXSRFToken; it panics at wiring on an Auth without
+// mail.
 func (h *PendingHandlers) SendCode() http.HandlerFunc {
 	h.requireMail("Pending().SendCode()")
 

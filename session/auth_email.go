@@ -34,8 +34,8 @@ type EmailHandlers struct {
 // confirm it; nothing is written until the link is followed. It answers {} whatever
 // the address's state, so the screen reveals nothing: an address another account
 // holds is told so by mail, and an address the user already holds verified gets no
-// mail. An address that is not one is 400; a mailbox sent three links within fifteen
-// minutes is refused with too_many_attempts and the wait. Route it behind
+// mail. An address that is not one is 400; a mailbox sent five links within fifteen
+// minutes and using none is refused with too_many_emails and the wait. Route it behind
 // ValidateSession.
 func (h *EmailHandlers) Add() http.HandlerFunc { return h.add }
 
@@ -165,6 +165,8 @@ func (a *Auth[S, U, Tx]) emailVerify() http.HandlerFunc {
 		if err := a.storage.VerifyUserEmail(ctx, user.ID, link.Email); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
+		// The link reached the person: the address's mail count is reset.
+		a.clearMailLimit(ctx, link.Email)
 		logger.FromCtx(ctx).Infof("user %s verified the email address %s", user.ID, link.Email)
 		// Where the username is the address, the verification renamed the user: the
 		// application moves what it keys by the old name.
