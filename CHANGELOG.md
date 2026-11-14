@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.1](https://github.com/impulseframework/impulse/compare/v0.2.0...v0.2.1) (2026-11-14)
+
+
+### Bug Fixes
+
+* a generator that sets no Spanner emulator version is refused with a message that names WithSpannerEmulatorVersion, where the container runtime refused an image with an empty tag; the latest tag is no longer a default, only a version a generator may name ([#23](https://github.com/impulseframework/impulse/issues/23)) ([985e207](https://github.com/impulseframework/impulse/commit/985e207f2ad0dc2e55f9a481c3190cca26df2df5))
+* a used sign-in code or link resets its address's mail limit, which allows five unused mails in fifteen minutes and refuses the next with its own code, too_many_emails; the login page and the email-address component keep their send buttons disabled until the wait has passed ([#24](https://github.com/impulseframework/impulse/issues/24)) ([9e74065](https://github.com/impulseframework/impulse/commit/9e74065e2c008d97b4d3ca625a4761f2100d7ae0))
+* the Resource Generator reads the schema again when the emulator version or the generator version changes, where it kept loading the schema an earlier version saved: the schema cache is keyed on both versions beside the migration files, and a generator on the latest emulator tag is told to pin a version ([#21](https://github.com/impulseframework/impulse/issues/21)) ([bbe9812](https://github.com/impulseframework/impulse/commit/bbe981230e4773e08fd44adde99f9c4534bc21c4))
+* the tenant Sign-in page lists its directories when it is opened by its address, where it kept the answer to its permission questions from before the tenant's permissions loaded; the skeletons and Lodestar's sector Sign-in page alike ([#24](https://github.com/impulseframework/impulse/issues/24)) ([9e74065](https://github.com/impulseframework/impulse/commit/9e74065e2c008d97b4d3ca625a4761f2100d7ae0))
+* the tenant Sign-in page's notes and Lodestar's sector, deck, graph and tracker styles take the theme's color tokens, where hard-coded black left text and borders nearly invisible in the dark theme ([#24](https://github.com/impulseframework/impulse/issues/24)) ([9e74065](https://github.com/impulseframework/impulse/commit/9e74065e2c008d97b4d3ca625a4761f2100d7ae0))
+
 ## [0.2.0](https://github.com/impulseframework/impulse/compare/v0.1.0...v0.2.0) (2026-11-13)
 
 
