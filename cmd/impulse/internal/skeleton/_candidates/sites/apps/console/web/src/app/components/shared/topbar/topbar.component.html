@@ -1,14 +1,16 @@
 <nav class="menu">
   @for (item of menuData; track item.label) {
     @if (item.children && item.children.length) {
-      <button mat-button [matMenuTriggerFor]="groupMenu">{{ item.label }} ▾</button>
-      <mat-menu #groupMenu="matMenu">
-        @for (child of item.children; track child.label) {
-          @if (linkFor(child); as link) {
-            <a mat-menu-item *impulseHasPermission="scopeFor(child)" [routerLink]="link">{{ child.label }}</a>
+      @if (shown(item)) {
+        <button mat-button [matMenuTriggerFor]="groupMenu">{{ item.label }} ▾</button>
+        <mat-menu #groupMenu="matMenu">
+          @for (child of item.children; track child.label) {
+            @if (linkFor(child); as link) {
+              <a mat-menu-item *impulseHasPermission="scopeFor(child)" [routerLink]="link">{{ child.label }}</a>
+            }
           }
-        }
-      </mat-menu>
+        </mat-menu>
+      }
     } @else if (linkFor(item); as link) {
       <a mat-button *impulseHasPermission="scopeFor(item)" [routerLink]="link">{{ item.label }}</a>
     }

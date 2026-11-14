@@ -157,8 +157,9 @@ underscores): the store refuses any other, and the constructor reports it under 
 option's name, so a name never reaches SQL unchecked. Name the users
 table's unique indexes after the table as the shipped DDL does
 (`<UsersTable>_NormalizedUsername_idx` and `<UsersTable>_NormalizedEmail_idx` on
-PostgreSQL, `<UsersTable>ByNormalizedUsername` and `<UsersTable>ByNormalizedEmail` on
-Spanner): the drivers read a username or an address conflict by those names. Build the
+PostgreSQL, `<UsersTable>ByNormalizedUsername`, `<UsersTable>ByUsername` and
+`<UsersTable>ByNormalizedEmail` on Spanner): the drivers read a username or an address
+conflict by those names. Build the
 storage with `NewSpannerAuth` / `NewPostgresAuth`. The application's rules are given to
 the `Auth` and to each method,
 typed to the storage's transaction (`*spanner.ReadWriteTransaction` or `pgx.Tx`) so
@@ -219,8 +220,10 @@ DML what a later rule must read.
   declaring tenant, or as the application's staff, is that tenant's person, seated
   ahead of their first sign-in, and is provisioned under the sign-in name. A
   declaration naming a **default seat** admits a stranger, who is provisioned and
-  seated with it in every tenant naming one, through the hook, once the resolution
-  has committed. A declaration naming none admits strangers by invitation only, the
+  seated with it in every tenant naming one, through the hook, in the transaction
+  that creates the account. A seat the invitation the sign-in consumes names too (the
+  same role in the same tenant) is given once, by the invitation, and is left out of
+  what the hook is handed. A declaration naming none admits strangers by invitation only, the
   invitation the sign-in carries being the account as under
   `signin.InvitedUsersOnly`, and without one the sign-in is refused
   (`invitation_only`) and nothing is written. A directory no tenant declares falls to
@@ -363,13 +366,18 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   of the directory the identity came through, each with its **default seat**
   (`signin.DeclaredDirectory`: the tenant and the role, `""` for none), in the
   sign-in's first transaction; `userManager` is the role store above, read for the
-  memberships the person already holds; `seatHook`, a `session.DirectorySeatedHook`,
+  memberships the person already holds; `seatHook`, a `session.DirectorySeatedHook[Tx]`,
   seats the person with the seats the declarations name (`signin.DirectorySeat`),
-  once the user is committed and before the policy decides, outside any transaction,
-  as the invitation hook does. A declared directory belongs to its tenant. A person
+  inside the transaction that creates the user, which it is handed, so the account is
+  made and seated together or neither is, under the contract the invitation hook has
+  (see "Invitations"). A declared directory belongs to its tenant. A person
   who already holds a role in a declaring tenant, or as staff, is admitted as that
   tenant's person, seated ahead of their first sign-in. A default seat admits and
-  seats a stranger, so rule 3 below then finds the membership. A declaration naming
+  seats a stranger, so rule 3 below then finds the membership. A stranger who
+  carries an invitation into the tenant that names the default seat's role is given
+  it once, by the invitation hook: the two hooks write in one transaction and neither
+  reads what the other wrote, so the seat hook is handed only the seats the
+  invitation does not name, and is not called for none. A declaration naming
   none refuses a stranger by invitation only (`invitation_only`), with no account
   created, unless the sign-in carries an invitation. A directory no tenant declares
   falls to the registration's account rule. Without the three, a stranger is the
@@ -911,10 +919,12 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `ChangeSessionUserPassword(ctx, w, id, &ChangeSessionUserPasswordRequest{OldPassword, NewPassword})` | The user's own change: the old password must match and the new one differ. Clears the mark, destroys the sessions and continues in a new one. `PasswordMethod.ChangeUserPassword()` is this over HTTP. |
 | `SetSessionUserPassword(ctx, id, password)` | A password the user chose through a flow of the application's own that proved who they are (a reset link, an enrollment). Clears the mark, destroys the sessions. |
 | `ResetSessionUserPassword(ctx, id, temporary)` | A temporary password an operator chose. Sets the mark, destroys the sessions. |
+| `HashPassword(password)` | The hash of a password as the users table's `PasswordHash` column holds it, made by the password method's hasher, for a caller that writes the column in a transaction of its own (the generated user management). An empty password is refused. `SignInAttemptName(username)`, a package function, is the key of the name's row in the sign-in attempts table, for the same caller clearing the count beside the password. |
 | `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. |
 | `Identities(ctx, id)`, `UnlinkIdentity(ctx, identityID)` | The user's identity links; unlinking a password-less user's last link is refused (Conflict). |
 | `UserByEmail(ctx, email)`, `SetSessionUserEmail(ctx, id, email)` | The user holding an address, verified or not; an operator's entry of an address, unverified, or its removal (nil). See "Users and their email address". |
 | `Invite(ctx, &InvitationRequest{Email, Tenant, RoleNames, InvitedBy})`, `Invitations(ctx)`, `RevokeInvitation(ctx, id)` | An invitation mailed to an address; the invitations that stand; one withdrawn. See "Invitations". |
+| `PrepareInvitation(ctx, &InvitationRequest{…})` | An invitation checked and made, and neither stored nor mailed: `Row()` is the mail links row for a caller that stores it in a transaction of its own (`InvitationRow`, whose comment says how each column is written), and `Send(ctx)` mails the link once that transaction has committed; a message that could not be sent withdraws the invitation. The token, the message and the sender stay in the library. `Invite` is the two in the Auth's own storage. |
 
 **The forced password change.** A password an operator set, at creation
 (`PasswordChangeRequired`) or by a reset, is temporary: the user changes it before
@@ -1005,8 +1015,9 @@ matching shape:
   ALTER TABLE "SessionUsers" ADD COLUMN "NormalizedEmail" character varying GENERATED ALWAYS AS (casefold(normalize("Username"))) STORED;
   ```
 
-  `EmailVerifiedAt` and the unique index on `NormalizedEmail` are as the migration has
-  them. Sign-in by address when the two are apart is not offered.
+  `EmailVerifiedAt`, the unique index on `NormalizedEmail` and the index by username,
+  which carries the address, are as the migration has them. Sign-in by address when the
+  two are apart is not offered.
 
 The session read (`Authenticated`) reports `email`, `emailVerified` and, for a user
 without an address, `emailHint`.
@@ -1060,13 +1071,21 @@ read the mailbox, and the account takes the address.
   invitation standing with nothing granted, and the person may sign in another way;
   once accepted, a sign-in the policy then denies leaves what the acceptance granted
   in place. The hook is set with
-  `auth.SetInvitationAccepted(func(ctx, userID, username, inv) error)` and runs once
-  the transaction that consumed the invitation has committed (for an external
-  identity, the resolution's own, so a user the invitation provisioned is committed
-  when the hook sees them), outside any transaction: an application's memberships
-  live in a store of their own, written through its own client, which no transaction
-  of the session store can carry, and which the Spanner emulator, allowing one
-  read-write transaction at a time, would deadlock inside one. Under the
+  `auth.SetInvitationAccepted(func(ctx, tx, userID, username, inv) (committed func(ctx), err error))`
+  and runs inside the transaction that consumes the invitation, which it is handed
+  (for an external identity, the resolution's own, the one that provisions a user the
+  invitation admits): the invitation is spent and its roles given together, or
+  neither. The hook reads and writes through `tx` alone, since the Spanner emulator
+  allows one read-write transaction at a time and a second one, or a read through
+  another client, inside the hook waits on the transaction it runs in; a user the
+  transaction provisioned is buffered and not readable in it, so the hook writes under
+  the username it is given. `committed`, nil for none, is what the library runs once
+  the transaction has committed and before the policy decides (the word to a
+  permission engine that its rows changed), once, for the run of the transaction that
+  committed. A hook that fails fails the transaction and ends the sign-in with its
+  error: the invitation stands, and a user the sign-in would have provisioned is not
+  created. An account `Invitation().SignUp()` created stays, since it is created
+  before the sign-in that accepts the invitation. Under the
   invited-users-only account rule the invitation is the account the rule asks for: a
   stranger who carries one is provisioned under their sign-in name, and so is a
   stranger from a directory a tenant declares with no default seat
@@ -1141,16 +1160,22 @@ longer tells an existing name from an unknown one. A matching password resets th
 name, as do an MFA completion (`CompletePending`) and a password change of any kind
 (`ChangeSessionUserPassword`, `SetSessionUserPassword`, `ResetSessionUserPassword`).
 Nothing locks a user an operator must unlock: the lock passes on its own, and a
-password change lifts it.
+password change lifts it. An operator who will not wait clears it: the name's row
+deleted from the sign-in attempts table (the key is `SignInAttemptName(username)`), as
+the generated user management's unlock method does in a transaction of the
+application's, lifts the lock on every instance within five seconds, since no instance
+trusts what it remembers of a name for longer.
 
 **The three layers.** The name's count is durable: a row of the sign-in attempts table
 (`SessionSignInAttempts`, keyed by the name, never a column on the user row), written
-on failures and locks only and read through a short-lived per-instance cache, so every
-instance refuses a locked name. Over it, each instance holds three kinds of key in
+on failures and locks only and read through a per-instance cache that trusts a record,
+a lock included, for five seconds, so every instance refuses a locked name and a lock
+cleared in the table is gone from every instance within that time. Over it, each instance holds three kinds of key in
 memory, in a bounded table: the name, the client's address and the login's XSRF cookie
 token, the cookie the XSRF guard reads (a POST without it never reaches the handler).
 During a name's lock every attempt on it is refused the moment it arrives, from memory,
-with the same answer and the remaining wait: nothing is read, written or hashed. An
+with the same answer and the remaining wait: nothing is written or hashed, and the
+name's row is read at most once in five seconds per instance. An
 early retry during a wait counts against the client's address and cookie, never against
 the name, so a script that ignores the wait extends its own lock while the name's stays
 as it was, and a person who waits is not locked out by someone hammering their name.

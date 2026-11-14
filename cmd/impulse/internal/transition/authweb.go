@@ -15,18 +15,12 @@ import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 )
 
-// The browser files bound to an auth, relative to a project's source root: the
-// application configuration, whose HttpClient names the auth's XSRF cookie, and the users
-// page, which composes the library's user-management component over the auth's user
-// surface and names its resources, its partition and its routes.
-const (
-	appConfigFile = "app/app.config.ts"
-	usersPageDir  = "app/components/ui/users"
-)
-
-// usersPageFiles are the users page's files that name the auth, in the order the did
-// line lists them. The stylesheet names nothing.
-var usersPageFiles = []string{"users.component.ts", "users.component.html", "users.component.spec.ts", "users.routes.ts"}
+// appConfigFile is the application configuration of a browser project, relative to its
+// source root. Two files of a browser application are bound to an auth: this one, whose
+// HttpClient names the auth's XSRF cookie, and the routes (appRoutesFile), which ask the
+// library for the pages of the auth's generated management by the auth's name
+// (identityRoutes with auth: '<Auth>').
+const appConfigFile = "app/app.config.ts"
 
 // baseSourceRoot is the console project's source root inside the base candidate, where
 // the templates of the bound files are read from.
@@ -52,14 +46,16 @@ const (
 
 // rebindWeb binds the browser application the outlet serves to the new auth, in the
 // sites layout: a site's browser application starts as a copy of the console's, bound to
-// the console's auth, so its users page names that auth's resources and its HttpClient
-// echoes that auth's XSRF cookie, and once the outlet names another auth the generated
-// client no longer exports those resources (the browser build fails on them) and the
-// cookie is another auth's. A file the skeleton rendered and nobody edited is rendered
-// again from the template for the new auth; a file edited since is rewritten in place.
-// The flat layout is left as it was: an additional outlet's project there is the agent's,
-// and the brief says what to name.
-func (au Auth) rebindWeb(a *app.App, choice *OutletChoice, src *authSource, ch *Change) error {
+// the console's auth, so its HttpClient echoes that auth's XSRF cookie, and its routes
+// may ask the library for the pages of that auth's management, which the API description
+// no longer carries once the outlet names another auth (the library refuses the request
+// when the application loads, which no build sees). managed says whether the outlet's
+// program generates the new auth's management: where it does the routes name the new
+// auth, and where it does not the pages are taken out. A file the skeleton rendered and
+// nobody edited is rendered again from the template for the new auth; a file edited since
+// is rewritten in place. The flat layout is left as it was: an additional outlet's
+// project there is the agent's, and the brief says what to name.
+func (au Auth) rebindWeb(a *app.App, choice *OutletChoice, src *authSource, managed bool, ch *Change) error {
 	if a.Profile().Layout != app.LayoutSites {
 		return nil
 	}
@@ -75,7 +71,7 @@ func (au Auth) rebindWeb(a *app.App, choice *OutletChoice, src *authSource, ch *
 		if base == au.Name {
 			continue
 		}
-		if err := au.rebindProject(a, source, base, ch); err != nil {
+		if err := au.rebindProject(a, source, base, managed, ch); err != nil {
 			return err
 		}
 	}
@@ -136,33 +132,72 @@ func (au Auth) webBaseAuth(a *app.App, choice *OutletChoice, source string, src 
 	return src.Name
 }
 
-// rebindProject rebinds one project's files from the base auth to the new one: the users
-// page's files, whose every name of the auth is the auth's (names.Rename, as the skeleton
-// renders them), and the application configuration's XSRF lines alone, since the rest of
-// that file is the application's own providers.
-func (au Auth) rebindProject(a *app.App, source, base string, ch *Change) error {
+// rebindProject rebinds one project's files from the base auth to the new one: the
+// routes, whose requests for the pages of an auth's management name the auth, and the
+// application configuration's XSRF lines alone, since the rest of that file is the
+// application's own providers.
+func (au Auth) rebindProject(a *app.App, source, base string, managed bool, ch *Change) error {
 	templates, err := skeleton.FS(skeleton.Base)
 	if err != nil {
 		return err
 	}
-	outcomes := map[webOutcome][]string{}
-	for _, name := range usersPageFiles {
-		outcome, err := au.rebindFile(a, templates, path.Join(source, usersPageDir, name), path.Join(usersPageDir, name), base, names.Rename)
-		if err != nil {
-			return err
-		}
-		outcomes[outcome] = append(outcomes[outcome], name)
+	routesRel := path.Join(source, appRoutesFile)
+	outcome, err := au.rebindRoutes(a, templates, routesRel, base, managed)
+	if err != nil {
+		return err
 	}
-	au.reportUsersPage(path.Join(source, usersPageDir), base, outcomes, ch)
+	au.reportRoutes(routesRel, base, outcome, managed, ch)
 
 	configRel := path.Join(source, appConfigFile)
-	outcome, err := au.rebindFile(a, templates, configRel, appConfigFile, base, xsrfRewrite)
+	outcome, err = au.rebindFile(a, templates, configRel, appConfigFile, base, xsrfRewrite)
 	if err != nil {
 		return err
 	}
 	au.reportAppConfig(configRel, base, outcome, ch)
 
 	return nil
+}
+
+// rebindRoutes rebinds a project's routes. Where the outlet's program generates the new
+// auth's management, the requests for the base auth's pages name the new auth. Where it
+// generates none, the API description carries no management on this outlet any longer,
+// and the requests are taken out (webRewritten), since the library refuses one it cannot
+// answer when the application loads.
+func (au Auth) rebindRoutes(a *app.App, templates fs.FS, rel, base string, managed bool) (webOutcome, error) {
+	if managed {
+		return au.rebindFile(a, templates, rel, appRoutesFile, base, routesRewrite)
+	}
+	if _, err := os.Stat(a.Abs(rel)); errors.Is(err, os.ErrNotExist) {
+		return webAbsent, nil
+	}
+	data, mode, err := readFile(a, rel)
+	if err != nil {
+		return webAbsent, err
+	}
+	edited, found := dropIdentityRoutes(string(data))
+	if !found {
+		return webUntouched, nil
+	}
+	if err := os.WriteFile(a.Abs(rel), []byte(edited), mode); err != nil {
+		return webAbsent, errors.Wrap(err, "os.WriteFile()")
+	}
+
+	return webRewritten, nil
+}
+
+// routesRewrite renames the auth in a routes file's requests for the pages of an auth's
+// management alone: the auth option of identityRoutes and identityPages, and the comment
+// naming the auth.
+func routesRewrite(text, from, to string) string {
+	for _, r := range []rewrite{
+		{"auth: '" + names.Pascal(from) + "'", "auth: '" + names.Pascal(to) + "'"},
+		{"the " + from + " auth", "the " + to + " auth"},
+		{"The " + from + "'s accounts", "The " + to + "'s accounts"},
+	} {
+		text = strings.ReplaceAll(text, r.old, r.new)
+	}
+
+	return text
 }
 
 // rebindFile rewrites one file from the base auth to the new one. The file is rendered
@@ -215,16 +250,26 @@ func xsrfRewrite(text, from, to string) string {
 	return text
 }
 
-// reportUsersPage records what rebinding the users page did: the files rendered again
-// and the files rewritten in place, each group in one line. A page with no file naming
-// the base auth is not the auth's, and nothing is said.
-func (au Auth) reportUsersPage(dir, base string, outcomes map[webOutcome][]string, ch *Change) {
-	basePascal := names.Pascal(base)
-	if rendered := outcomes[webRendered]; len(rendered) > 0 {
-		ch.didf("%s: the users page (%s) rendered again from the skeleton's for the %s auth, in place of the %s auth's: Resources.%[6]sUsers and Resources.%[6]sRoles, <impulse-user-management auth=%[7]q />, and the spec's %[3]s-users and %[3]s-roles routes", dir, strings.Join(rendered, ", "), au.Name, base, basePascal, au.Pascal(), au.Pascal())
+// reportRoutes records what rebinding the routes did, or what is left where they ask
+// for no page of the base auth's.
+func (au Auth) reportRoutes(rel, base string, outcome webOutcome, managed bool, ch *Change) {
+	request := fmt.Sprintf("identityRoutes(apiDescriptor, resourceMeta, { auth: '%s', scope: 'global' })", au.Pascal())
+	if !managed {
+		if outcome == webRewritten {
+			ch.didf("%s: without the pages of the %s auth's management (the identityRoutes spreads and what they alone used): the outlet's program generates no management of the %s auth, so its API description names no such page, and the library refuses a request for one when the application loads", rel, base, au.Name)
+		}
+
+		return
 	}
-	if rewritten := outcomes[webRewritten]; len(rewritten) > 0 {
-		ch.didf("%s: the users page (%s), edited since the skeleton rendered it, rewritten in place: every name of the %s auth is the %s auth's (%sUsers to %sUsers, %s-users to %s-users, %s to %s)", dir, strings.Join(rewritten, ", "), base, au.Name, basePascal, au.Pascal(), base, au.Name, basePascal, au.Pascal())
+	switch outcome {
+	case webRendered:
+		ch.didf("%s: rendered again from the skeleton's for the %s auth: it asks the library for the pages of the %s auth's management (%s) in place of the %s auth's", rel, au.Name, au.Name, request, base)
+	case webRewritten:
+		ch.didf("%s: its requests for the pages of an auth's management name the %s auth (auth: '%s') in place of the %s auth's; the rest of the file, edited since the skeleton rendered it, is as it was", rel, au.Name, au.Pascal(), base)
+	case webUntouched:
+		ch.skipf("%s: asks the library for no pages of the %s auth's management, so nothing was rewritten and the %s auth's people have no page; spread %s among the routes behind the login guard, as the base skeleton's routes do: the library builds the accounts, the invitations, the sessions and the failed sign-ins from the API description", rel, base, au.Name, request)
+	case webAbsent:
+		ch.skipf("%s: no routes file to ask for the pages of the %s auth's management in; spread %s among the project's routes behind the login guard", rel, au.Name, request)
 	}
 }
 
@@ -246,5 +291,5 @@ func (au Auth) reportAppConfig(rel, base string, outcome webOutcome, ch *Change)
 // webPlan is the sentence the brief carries about the browser application, for the
 // Meaning: what the transition did in the sites layout, what is the agent's in the flat.
 func webPlan(outlet string) string {
-	return fmt.Sprintf("In the sites layout the site's browser application is rebound with the auth: its users page names the auth's resources and partition, and its HttpClient the auth's XSRF cookie, each file rendered again from the skeleton's when nobody edited it and rewritten in place otherwise (the did lines say which); the web-wired check holds the result. In the flat layout the %s outlet's project is yours to rebind the same way.", outlet)
+	return fmt.Sprintf("In the sites layout the site's browser application is rebound with the auth: its HttpClient names the auth's XSRF cookie, and its routes ask the library for the pages of the auth's generated management by the auth's name (identityRoutes), or for none where the outlet's program generates no management of the auth; each file is rendered again from the skeleton's when nobody edited it and rewritten in place otherwise (the did lines say which), and the web-wired check holds the result. In the flat layout the %s outlet's project is yours to rebind the same way.", outlet)
 }

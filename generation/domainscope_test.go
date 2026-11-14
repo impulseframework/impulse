@@ -695,7 +695,7 @@ func Test_consolidatedTemplate_domainDispatch(t *testing.T) {
 			},
 		},
 		{
-			name: "the tenant record's create seats its creator between the roster's reload and the signal",
+			name: "the tenant record's create gives its creator the administrator roles in the transaction and waits on them between the roster's reload and the signal",
 			data: consolidatedPatchData{
 				Resources: []*resourceInfo{globalCase.resourceInfo, domainCase.resourceInfo},
 				SegmentCase: &consolidatedCaseData{
@@ -705,7 +705,7 @@ func Test_consolidatedTemplate_domainDispatch(t *testing.T) {
 					Seated:          true,
 				},
 				HasTenant:           true,
-				Seat:                &tenantSeatData{Record: "Sector", RecordLower: "sector", KeyType: "string", Auth: "Staff", AuthType: "StaffAuth", SurfaceAccessor: "StaffUserSurface", RolesAccessor: "SectorAdministratorRoles"},
+				Seat:                &tenantSeatData{Record: "Sector", RecordLower: "sector", KeyType: "string", Auth: "Staff", IdentityAccessor: "StaffIdentity", RolesAccessor: "SectorAdministratorRoles"},
 				DomainCases:         []consolidatedCaseData{domainCase},
 				DomainRouteSegment:  "sectors",
 				DomainPatternPrefix: "/sectors/{sectorID}",
@@ -717,13 +717,14 @@ func Test_consolidatedTemplate_domainDispatch(t *testing.T) {
 			},
 			wantContains: []string{
 				"roles := a.SectorAdministratorRoles()",
-				"seats := a.StaffUserSurface().SeatStore()",
+				"identity := a.StaffIdentity()",
 				"var created []string",
 				"created = nil",
+				// The creator's roles, in the transaction that writes the row.
+				"if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id)), string(userPermissions.User()), role); err != nil {",
 				"created = append(created, id)",
 				"for _, domain := range created {",
-				"if err := resource.SeatFirstAdministrator(ctx, seats, userPermissions, accesstypes.Domain(domain), roles); err != nil {",
-				"resources.NewSectorDeletePatch(row).Buffer(ctx, txn, eventSource)",
+				"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(domain)); err != nil {",
 				"return httpio.NewEncoder(w).ClientMessage(ctx, err)",
 			},
 		},
@@ -791,14 +792,17 @@ func Test_consolidatedTemplate_domainDispatch(t *testing.T) {
 				}
 			}
 			if tt.data.Seat != nil {
-				// The seat between the roster's reload and the tenants signal, before the answer.
+				// The creator's roles inside the transaction; the wait on them between the
+				// roster's reload and the tenants signal, before the answer.
 				rendered := string(out)
+				given := strings.Index(rendered, "identity.AssignRole(ctx, txn,")
+				commit := strings.Index(rendered, "}); err != nil {")
 				reload := strings.Index(rendered, "a.TenantRoster().Reload(ctx)")
-				seat := strings.Index(rendered, "resource.SeatFirstAdministrator(")
+				seat := strings.Index(rendered, "resource.AwaitFirstAdministrator(")
 				signal := strings.LastIndex(rendered, "Signal(ctx, resource.KindTenants)")
 				answer := strings.Index(rendered, "return httpio.NewEncoder(w).Ok(resp)")
-				if reload >= seat || seat >= signal || signal >= answer {
-					t.Errorf("order: roster %d, seat %d, signal %d, answer %d; want ascending:\n%s", reload, seat, signal, answer, out)
+				if given < 0 || given >= commit || commit >= reload || reload >= seat || seat >= signal || signal >= answer {
+					t.Errorf("order: membership %d, commit %d, roster %d, wait %d, signal %d, answer %d; want ascending:\n%s", given, commit, reload, seat, signal, answer, out)
 				}
 			}
 		})

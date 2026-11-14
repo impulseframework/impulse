@@ -290,6 +290,19 @@ func Test_typescriptMethodsTemplate_enumeration(t *testing.T) {
 			},
 		},
 		{
+			name: "a list field naming a resource is a list of picked keys",
+			method: func() *rpcMethodInfo {
+				field := &rpcField{Field: structs["DoSomething"].Fields()[0], typescriptType: "string" + sliceSuffix}
+				field.applyEnumeration(enumerationSource{Name: "Gadgets"})
+
+				return &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field}}
+			}(),
+			wantContains: []string{
+				"import { Methods, Resources } from './zz_gen_constants';",
+				"{ fieldName: 'input', displayType: 'enumerated[]', enumeratedResource: Resources.Gadgets }",
+			},
+		},
+		{
 			name:   "a field naming an enumeration table carries the values inline",
 			method: newMethod(enumerationSource{Name: "WidgetKinds", Enumeration: "WidgetKind", Values: kinds}),
 			wantContains: []string{

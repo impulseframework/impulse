@@ -74,7 +74,8 @@ func (c *MockClient) SpannerReadOnlyTransaction() spxapi.Querier {
 // client's does, it refuses a function that released an object of a store the client
 // holds none for, deletes the file objects the function's patches released from their
 // stores once the function returns nil, hands the rows the patches wrote to the
-// collector ctx carries (CollectTouchedRows), and does neither when it errors.
+// collector ctx carries (CollectTouchedRows), runs what the patches registered for after
+// the commit (AfterCommit), and does none of it when it errors.
 func (c *MockClient) ExecuteFunc(ctx context.Context, f func(ctx context.Context, txn ReadWriteTransaction) error) error {
 	txn := newMockReadWriteTransaction(c.txnMock, newReleasedKeys(), c.txnReadMocks...)
 	if err := f(ctx, txn); err != nil {
@@ -86,6 +87,7 @@ func (c *MockClient) ExecuteFunc(ctx context.Context, f func(ctx context.Context
 
 	releaseFiles(ctx, c.stores, txn.Released())
 	collectTouched(ctx, txn.touched())
+	txn.Committed(ctx)
 
 	return nil
 }
@@ -109,6 +111,7 @@ type MockReadWriteTransaction struct {
 	txnMock        ReadWriteTransaction
 	released       *releasedKeys
 	touchedRows    *touchedRows
+	committed      *afterCommit
 }
 
 // NewMockReadWriteTransaction creates a new MockReadWriteTransaction.
@@ -124,7 +127,21 @@ func newMockReadWriteTransaction(mock ReadWriteTransaction, released *releasedKe
 		txnMock:        mock,
 		released:       released,
 		touchedRows:    newTouchedRows(),
+		committed:      newAfterCommit(),
 	}
+}
+
+// recordAfterCommit notes a function to run once the transaction has committed.
+func (c *MockReadWriteTransaction) recordAfterCommit(key any, f func(ctx context.Context)) {
+	c.committed.record(key, f)
+}
+
+// Committed runs what the transaction's writes registered for after the commit
+// (AfterCommit), as SpannerReadWriteTransaction.Committed does: for a transaction a test
+// builds itself (NewMockReadWriteTransaction); the Mock client's ExecuteFunc makes the
+// calls once the function returns nil.
+func (c *MockReadWriteTransaction) Committed(ctx context.Context) {
+	c.committed.run(ctx)
 }
 
 // DBType returns the database type.

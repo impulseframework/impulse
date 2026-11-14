@@ -85,30 +85,30 @@ func TestTenants_createdThroughTheAPIAreUsableAtOnce(t *testing.T) {
 	}
 }
 
-// tenantRolesOf reads the roles the user holds in the tenant, as the tenant's crew list
-// (the staff auth's tenant partition) answers the browser b, nil when the user is not
-// on it.
+// tenantRolesOf reads the roles the user holds in the tenant, from the tenant's list of
+// the roles held as it answers the browser b; nil when the user holds none there.
 func tenantRolesOf(ctx context.Context, t *testing.T, b *browser, tenant, user string) []string {
 	t.Helper()
 
-	status, body := b.do(ctx, http.MethodGet, "/api/tenants/"+tenant+"/staff-tenant-users", nil)
+	status, body := b.do(ctx, http.MethodGet, "/api/tenants/"+tenant+"/staff-tenant-user-roles?limit=200", nil)
 	if status != http.StatusOK {
-		t.Fatalf("GET %s's crew: status %d: %s", tenant, status, body)
+		t.Fatalf("GET %s's roles held: status %d: %s", tenant, status, body)
 	}
 	var rows []struct {
-		Username string   `json:"username"`
-		Roles    []string `json:"roles"`
+		Username string `json:"username"`
+		Role     string `json:"role"`
 	}
 	if err := json.Unmarshal(body, &rows); err != nil {
-		t.Fatalf("the crew is not a list: %v: %s", err, body)
+		t.Fatalf("the roles held are not a list: %v: %s", err, body)
 	}
+	var roles []string
 	for _, row := range rows {
 		if row.Username == user {
-			return row.Roles
+			roles = append(roles, row.Role)
 		}
 	}
 
-	return nil
+	return roles
 }
 
 // signedIn returns a browser signed in as the development login, through the password

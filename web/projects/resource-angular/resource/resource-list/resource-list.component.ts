@@ -32,10 +32,12 @@ import {
 } from '@impulseframework/resource-angular/grid';
 import { pageRouteResolver, resourcePageRoute } from '@impulseframework/resource-angular/resource-nav';
 import {
+  AlertType,
   ChildResourceConfig,
   ColumnConfig,
   DataType,
   DeletePermission,
+  ExecutePermission,
   FieldName,
   FieldSort,
   iconCellKey,
@@ -46,6 +48,8 @@ import {
   Resource,
   RESOURCE_META,
   RootConfig,
+  RowAction,
+  rowActionsKey,
   rowRouteTarget,
   writeResource,
 } from '@impulseframework/resource-angular/types';
@@ -63,6 +67,8 @@ import {
 import { applyFormatting, formatByDisplayType, formatDateString } from '../format-fns';
 import { iconTemplateFields, resolveIconCell } from './icon-cell';
 import { DeleteResourceConfirmationModalComponent } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
+import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
+import { filledMethods, offered, OfferedMethod, rowMethods } from '../row-methods/row-methods';
 import { ResourceStore } from '../resource-store.service';
 import { SearchBoxComponent } from '../search-box/search-box.component';
 import {
@@ -117,6 +123,12 @@ export class ResourceListComponent implements OnInit {
 
   hideCreateButton = input<boolean>(true);
   createMode = output<boolean>();
+  /**
+   * A method ran from this list, against one of its rows or from above it. The list has
+   * already asked for its rows again; a page that holds the list under a row reads the
+   * row and its other lists again.
+   */
+  methodRan = output<void>();
   resourceConfig = input<ChildResourceConfig>();
   viewRoute = input<string>();
   filter = input<string>('');
@@ -234,6 +246,49 @@ export class ResourceListComponent implements OnInit {
     }
     return this.auth.hasPermission({ resource: this.writeResourceName(), permission: DeletePermission });
   });
+  /**
+   * The generated methods that run against a row of the listed resource (`@target`
+   * naming it), by the method metadata: the methods the list asks the server about with
+   * each row and a row's menu may offer. None when the page switches them off.
+   */
+  rowMethodNames = computed<string[]>(() => {
+    const config = this.config();
+    if (config.rowMethods === false || !config.primaryResource) {
+      return [];
+    }
+    return this.store.methodsTargeting(config.primaryResource);
+  });
+  /**
+   * The methods the page fills from a row and that name no target row (`fill` on a
+   * presentation among `rowMethods`), each while the digest grants the caller Execute
+   * on it: offered on every row, since the server answers nothing for a row the method
+   * does not name.
+   */
+  filledMethodNames = computed<string[]>(() =>
+    (this.methodPresentations() ?? [])
+      .filter((presentation) => presentation.fill && !presentation.hidden && !this.store.methodMeta(presentation.method)?.target)
+      .filter((presentation) => this.auth.hasPermission({ resource: presentation.method, permission: ExecutePermission }))
+      .map((presentation) => presentation.method),
+  );
+  /** How the page presents the methods it names; undefined where it names none. */
+  private methodPresentations = computed(() => {
+    const rowMethodsConfig = this.config().rowMethods;
+    return rowMethodsConfig === false ? undefined : rowMethodsConfig;
+  });
+  /**
+   * The methods offered above the list: the ones the page names (`listMethods`), each
+   * drawn when the digest grants the caller Execute on it in the selected tenant.
+   */
+  listMethods = computed<OfferedMethod[]>(() => {
+    const presentations = this.config().listMethods ?? [];
+    return presentations
+      .filter((presentation) => !presentation.hidden)
+      .filter((presentation) =>
+        this.auth.hasPermission({ resource: presentation.method, permission: ExecutePermission }),
+      )
+      .map((presentation) => offered(presentation.method, this.store.methodMeta(presentation.method), presentations));
+  });
+
   /** The row field an expanded row is opened by: the listed resource's single key, none on a key-less resource. */
   expansionKey = computed(() => keyFields(this.meta())[0]?.fieldName as FieldName | undefined);
   resourceRefMap = signal(new Map<string, ResourceRef<RecordData[]>>());
@@ -564,7 +619,16 @@ export class ResourceListComponent implements OnInit {
           }
           return formatByDisplayType(displayType, params) || (col.emptyDataValue as string);
         };
-        const shared = { id: indexId, header: col.header, width: col.width, resizable: col.resizable, valueFormatter };
+        // A column that says how its cell is read off the row (valueGetter) is read
+        // that way, then formatted like any other.
+        const shared = {
+          id: indexId,
+          header: col.header,
+          width: col.width,
+          resizable: col.resizable,
+          valueFormatter,
+          ...(col.valueGetter ? { valueGetter: col.valueGetter } : {}),
+        };
         // An icon column keeps its map and tooltip position for the grid; the cell itself is
         // resolved with the display row (processedRowData), never at render time.
         columns.push(
@@ -590,6 +654,17 @@ export class ResourceListComponent implements OnInit {
           keyField: target.keyField,
           actionType: 'link',
         },
+      });
+    }
+
+    if (this.rowMethodNames().length > 0 || this.filledMethodNames().length > 0) {
+      // The methods a row offers, in one menu at its end: the entries ride the display
+      // row (processedRowData), so a row that offers none draws no button.
+      columns.push({
+        id: rowActionsKey as FieldName,
+        header: 'Actions',
+        hideHeader: true,
+        buttonConfig: { label: 'Actions', icon: 'more_vert', actionType: 'menu' },
       });
     }
 
@@ -643,6 +718,8 @@ export class ResourceListComponent implements OnInit {
   processedRowData = computed(() => {
     const data = this.store.page().rows;
     const columns = this.columns();
+    const methods = this.rowMethodNames();
+    const filled = this.filledMethodNames();
 
     return data.map((row) => {
       const updatedRow = { ...row };
@@ -665,9 +742,51 @@ export class ResourceListComponent implements OnInit {
           updatedRow[iconCellKey(col.id)] = cell.icon;
         }
       }
+      if (methods.length > 0 || filled.length > 0) {
+        // The methods this row offers, read off its capability answer, then the ones
+        // the page fills from the row: the menu column's entries, each bound to the
+        // raw row it runs against.
+        (updatedRow as Record<string, unknown>)[rowActionsKey] = this.rowActions(row, methods, filled);
+      }
       return updatedRow;
     });
   });
+
+  /** The menu entries of one row: the methods it offers, each opening the method's dialog over the row. */
+  private rowActions(row: RecordData, methods: readonly string[], filled: readonly string[]): RowAction[] {
+    const presentations = this.methodPresentations();
+    const offeredHere = [
+      ...rowMethods(row, methods, this.store.methodMeta, presentations),
+      ...filledMethods(row, presentations, this.store.methodMeta, (method) => filled.includes(method)),
+    ];
+    return offeredHere.map((method) => ({
+      id: method.method,
+      label: method.label,
+      icon: method.icon,
+      run: (): void => this.runMethod(method, row),
+    }));
+  }
+
+  /**
+   * Runs a method through its dialog: against the row when one is given, its key filling
+   * the request, or with no row for a method offered above the list. Once the method has
+   * run the page says so and reads its rows again, by the page's own cursor.
+   */
+  runMethod(method: OfferedMethod, row?: RecordData): void {
+    openMethodDialog(this.dialog, method, row, this.relatedData()).subscribe((result) => {
+      if (!result) {
+        return;
+      }
+      this.store.notifications.addGlobalNotification({
+        message: methodDoneMessage(method),
+        type: AlertType.SUCCESS,
+        duration: 5000,
+        link: '',
+      });
+      this.store.reloadPage();
+      this.methodRan.emit();
+    });
+  }
 
   loadingRowData = computed(() => {
     if (this.store.pageStatus() === 'loading') {
@@ -745,6 +864,7 @@ export class ResourceListComponent implements OnInit {
       this.store.resourceName.set(this.writeResourceName());
       this.store.resourceMeta.set(this.meta());
       this.store.listColumns.set(this.listColumns());
+      this.store.pageCapabilities.set(this.rowMethodNames().length > 0 ? ['Execute'] : []);
       this.store.sorts.set(this.config().sorts || []);
       this.store.pageSize.set(this.config().pageSize);
     }
@@ -820,6 +940,8 @@ export class ResourceListComponent implements OnInit {
         this.store.disableCacheForFilterPii.set(this.config().disableCacheForFilterPii);
         this.store.searchPII.set(this.searchPII());
         this.store.liveChoice.set(this.config().live);
+        // A list whose rows offer methods asks for each row's Execute answer.
+        this.store.pageCapabilities.set(this.rowMethodNames().length > 0 ? ['Execute'] : []);
         this.store.listColumns.set(columns);
         // Nothing the digest grants is on this page: there is nothing to ask for, and
         // the table says so instead of provoking the refusal it already predicts.

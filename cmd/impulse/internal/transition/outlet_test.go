@@ -210,6 +210,9 @@ type fakeExec struct {
 	// program stands in for what a site's generate program writes when it runs alone,
 	// or its failure.
 	program func() error
+	// tolerant stands in for go mod tidy -e, the tidy that leaves a package the
+	// regeneration is yet to write be, or its failure.
+	tolerant func() error
 }
 
 func (f *fakeExec) Run(_ context.Context, _ string, _ []string, name string, args ...string) ([]byte, error) {
@@ -219,6 +222,15 @@ func (f *fakeExec) Run(_ context.Context, _ string, _ []string, name string, arg
 		if f.tidy != nil {
 			if err := f.tidy(); err != nil {
 				return []byte("go: tidy: boom\n"), err
+			}
+		}
+
+		return []byte{}, nil
+	}
+	if call == "go mod tidy -e" {
+		if f.tolerant != nil {
+			if err := f.tolerant(); err != nil {
+				return []byte("go: tidy -e: boom\n"), err
 			}
 		}
 

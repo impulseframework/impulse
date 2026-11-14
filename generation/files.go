@@ -542,7 +542,7 @@ func (r *resourceGenerator) storesUsed() []storeUse {
 			addFiles(res.Name(), res.Files)
 		}
 	}
-	if r.genRPCMethods {
+	if r.hasRPC() {
 		for _, rpcMethod := range r.rpcMethods {
 			if rpcMethod.SuppressHandler || rpcMethod.Upload == nil {
 				continue
@@ -561,7 +561,7 @@ func (r *resourceGenerator) storesUsed() []storeUse {
 // keys would have no column to land in, so the objects would be the cleanup's the
 // moment they were stored. The default store counts as held by any string key column.
 func (r *resourceGenerator) validateUploadStores() error {
-	if !r.genRPCMethods {
+	if !r.hasRPC() {
 		return nil
 	}
 	held := make(map[string]bool)

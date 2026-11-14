@@ -3,7 +3,15 @@ import { FormControl, FormGroup } from '@angular/forms';
 import { ApiDescriptor, createClient, Resource, TransportRequest, TransportResponse } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
-import { enumeratedConfig, field, FieldMeta, FieldName, RESOURCE_META, ResourceMeta } from '@impulseframework/resource-angular/types';
+import {
+  defaultEmptyFieldValue,
+  enumeratedConfig,
+  field,
+  FieldMeta,
+  FieldName,
+  RESOURCE_META,
+  ResourceMeta,
+} from '@impulseframework/resource-angular/types';
 
 import { ResourceStore } from '../../../resource-store.service';
 import { EnumeratedFieldComponent } from './enumerated-field.component';
@@ -38,6 +46,67 @@ describe('EnumeratedFieldComponent', () => {
 
   it('should create', () => {
     expect(component).toBeTruthy();
+  });
+});
+
+// A method's request field that holds several picked keys (display type enumerated[])
+// is drawn by the same picker: the control holds a list, the panel ticks each key, no
+// empty choice is offered, and the read form shows the picked displays together.
+describe('EnumeratedFieldComponent taking several keys', () => {
+  let component: EnumeratedFieldComponent;
+  let fixture: ComponentFixture<EnumeratedFieldComponent>;
+  let form: FormGroup;
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [EnumeratedFieldComponent],
+      providers: [provideResourceTesting(), ResourceStore],
+    }).compileComponents();
+
+    const fieldMeta = {
+      fieldName: 'roles',
+      displayType: 'enumerated[]',
+      enumeration: [
+        { id: 'cadet', display: 'Cadet' },
+        { id: 'pilot', display: 'Pilot' },
+        { id: 'veteran', display: 'Veteran' },
+      ],
+    };
+    form = new FormGroup({ roles: new FormControl<string[]>([]) });
+    fixture = TestBed.createComponent(EnumeratedFieldComponent);
+    component = fixture.componentInstance;
+    fixture.componentRef.setInput('meta', { route: 'create-user', fields: [fieldMeta] });
+    fixture.componentRef.setInput('fieldMeta', fieldMeta);
+    fixture.componentRef.setInput('fieldConfig', field({ name: 'roles' as FieldName, label: 'Roles' }));
+    fixture.componentRef.setInput('editMode', 'edit');
+    fixture.componentRef.setInput('form', form);
+    fixture.componentRef.setInput('showField', true);
+    fixture.detectChanges();
+  });
+
+  it('draws a select that takes several, with every value and no empty choice', () => {
+    expect(component.multiple()).toBe(true);
+    const select = (fixture.nativeElement as HTMLElement).querySelector('mat-select');
+    expect(select?.classList.contains('mat-mdc-select-multiple')).toBe(true);
+    expect(component.availableEnumOptions()?.map((option) => option.id)).toEqual(['cadet', 'pilot', 'veteran']);
+  });
+
+  it('holds the picked keys as a list and shows their displays together when read', () => {
+    component.select(['cadet', 'veteran']);
+    expect(form.get('roles')?.value).toEqual(['cadet', 'veteran']);
+    expect(form.dirty).toBe(true);
+    fixture.componentRef.setInput('editMode', 'view');
+    fixture.detectChanges();
+    expect(component.singleEnumDisplayText()).toBe('Cadet, Veteran');
+  });
+
+  it('shows a key the values do not hold as itself, and nothing picked as the empty value', () => {
+    fixture.componentRef.setInput('editMode', 'view');
+    fixture.detectChanges();
+    expect(component.singleEnumDisplayText()).toBe(defaultEmptyFieldValue);
+    component.select(['pilot', 'gone']);
+    fixture.detectChanges();
+    expect(component.singleEnumDisplayText()).toBe('Pilot, gone');
   });
 });
 

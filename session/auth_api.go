@@ -274,6 +274,28 @@ func (p *AuthAPI[S, U, Tx]) ResetSessionUserPassword(ctx context.Context, userID
 	return p.auth.replacePassword(ctx, userID, temporary, true)
 }
 
+// HashPassword hashes a password with the password method's hasher and answers the
+// hash as the users table's PasswordHash column holds it. It is for a caller that
+// writes the column in a transaction of its own (the generated user management, which
+// sets a temporary password beside its other writes); the session library's own
+// writers (ResetSessionUserPassword, CreateSessionUser) hash for themselves. An empty
+// password is refused: no password is an absent hash, never the hash of nothing.
+func (p *AuthAPI[S, U, Tx]) HashPassword(password string) (string, error) {
+	if password == "" {
+		return "", httpio.NewBadRequestMessage("an empty password is not a password")
+	}
+	hash, err := p.auth.registered().hasher.Hash(password)
+	if err != nil {
+		return "", errors.Wrap(err, "securehash.SecureHasher.Hash()")
+	}
+	text, err := hash.MarshalText()
+	if err != nil {
+		return "", errors.Wrap(err, "securehash.Hash.MarshalText()")
+	}
+
+	return string(text), nil
+}
+
 // replacePassword sets a new password for userID with its change mark, destroys the
 // user's sessions and resets the name's sign-in attempts.
 func (a *Auth[S, U, Tx]) replacePassword(ctx context.Context, userID impulse.UUID, password string, changeRequired bool) error {

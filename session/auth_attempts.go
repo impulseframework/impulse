@@ -8,6 +8,15 @@ import (
 	"github.com/impulseframework/impulse/session/internal/attempts"
 )
 
+// SignInAttemptName returns the name a username's failed sign-ins are counted under:
+// the key of its row in the sign-in attempts table (Tables.SignInAttempts), the
+// username in Unicode NFC and case-folded, as the users table normalizes usernames. A
+// caller that clears a name's count in a transaction of its own (the generated user
+// management) deletes the row of this key; a name with no row has no count.
+func SignInAttemptName(username string) string {
+	return attempts.Normalize(username)
+}
+
 // clientOf identifies the request's client for the attempt limiter: its address and
 // the login's XSRF cookie token, the cookie the XSRF guard reads, which a POST that
 // reaches the handler carries. The token is a key, hashed by the limiter; nothing is

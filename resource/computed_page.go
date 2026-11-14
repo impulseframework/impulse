@@ -5,6 +5,7 @@ import (
 	"reflect"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/accesstypes"
 )
 
 // The computed-resource query contract. The generated list handler applies the
@@ -64,12 +65,14 @@ func (b PageBounds) Fetch() uint64 { return b.size + 1 }
 // TakePage returns the page to yield and marks paging as the body's, when
 // paging in the body is correct: no filter condition remains for the handler,
 // the sort was taken (the body controls the order), the request asks for a page
-// rather than every row, and no count was asked for (a total needs every row).
-// Otherwise it answers false and the handler pages; a body written for pushdown
-// then degrades to the correct answer instead of the wrong page. A key-less list
-// is only ever whole, so it always answers false.
+// rather than every row, no count was asked for (a total needs every row), and
+// no grant's condition is left to judge the rows by (a row the handler leaves out
+// would leave the body's page short). Otherwise it answers false and the handler
+// pages; a body written for pushdown then degrades to the correct answer instead
+// of the wrong page. A key-less list is only ever whole, so it always answers
+// false.
 func (q *QuerySet[Resource]) TakePage() (PageBounds, bool) {
-	if q.page == nil || q.page.all || q.page.count || !q.sortTaken || !q.Filter().residualEmpty() {
+	if q.page == nil || q.page.all || q.page.count || !q.sortTaken || !q.Filter().residualEmpty() || q.rowConditions != nil {
 		return PageBounds{}, false
 	}
 	bounds := PageBounds{order: q.readOrder(), size: q.page.size}
@@ -110,32 +113,53 @@ func decodeBoundary(rowType reflect.Type, order []SortField, keys []*string) ([]
 	return values, nil
 }
 
-// Collect runs a computed List function's rows through the parts of the query
-// the body did not take — the residual filter, the sort, the cursor position,
-// and the page — and returns the page the handler encodes, with the headers it
-// writes. The order inside is fixed: filter, then count, then sort, then page,
-// because any other order gives a different answer. A whole list (limit=all, or a
-// key-less list) with no sort asked and no order declared is not sorted: the rows
-// keep the order the body yielded them in, after the filter. The sort and the cursor
-// position place NULL where the application's database does (the type the
-// computed decoder stamped), so they agree with the rows a body's plain ORDER BY
-// yields; a QuerySet no computed decoder produced is refused.
+// Collect runs a computed List function's rows through the caller's grants and
+// the parts of the query the body did not take — the residual filter, the sort,
+// the cursor position, and the page — and returns the page the handler encodes,
+// with the headers it writes. The order inside is fixed: the rows the caller's
+// grants admit, then filter, then count, then sort, then page, because any other
+// order gives a different answer. A grant under a condition that reads the row is
+// judged here, row by row (computed_conditions.go): a row it refuses is not
+// listed and not counted, and a field it refuses is left out of the row
+// (Page.RowFields). A whole list (limit=all, or a key-less list) with no sort
+// asked and no order declared is not sorted: the rows keep the order the body
+// yielded them in, after the filter. The sort and the cursor position place NULL
+// where the application's database does (the type the computed decoder stamped),
+// so they agree with the rows a body's plain ORDER BY yields; a QuerySet no
+// computed decoder produced is refused.
 func (q *QuerySet[Resource]) Collect(rows iter.Seq2[*Resource, error]) (*Page[Resource], error) {
 	if q.dbType == "" {
 		return nil, errors.New("resource.QuerySet.Collect: the query set carries no database type; a computed query set comes from a ComputedQueryDecoder, which stamps it")
 	}
 	filter := q.Filter()
 	var kept []*Resource
+	// hidden holds, for a row shown without some of its projected fields, those
+	// fields; a row shown whole has no entry.
+	var hidden map[*Resource][]accesstypes.Field
 	for row, err := range rows {
 		if err != nil {
 			return nil, err
+		}
+		shown, without, err := q.judgeRow(row)
+		if err != nil {
+			return nil, err
+		}
+		if !shown {
+			continue
 		}
 		ok, err := filter.Match(row)
 		if err != nil {
 			return nil, errors.Wrap(err, "FilterShape.Match()")
 		}
-		if ok {
-			kept = append(kept, row)
+		if !ok {
+			continue
+		}
+		kept = append(kept, row)
+		if len(without) > 0 {
+			if hidden == nil {
+				hidden = make(map[*Resource][]accesstypes.Field)
+			}
+			hidden[row] = without
 		}
 	}
 
@@ -159,12 +183,19 @@ func (q *QuerySet[Resource]) Collect(rows iter.Seq2[*Resource, error]) (*Page[Re
 	}
 
 	for _, row := range kept {
-		// A computed row is never masked (a Conditional decision is refused at
-		// decode), so the envelope carries the data alone.
-		if !page.Add(&Row[Resource]{Data: *row}) {
+		// The envelope names the cells the row is shown without. A sort key is
+		// never among them (it needs an unconditional grant), so the cursor reads
+		// its boundary off the row's real values.
+		without := hidden[row]
+		masked := make([]string, 0, len(without))
+		for _, field := range without {
+			masked = append(masked, q.jsonName(field))
+		}
+		if !page.Add(&Row[Resource]{Data: *row, masked: masked}) {
 			break
 		}
 		page.rows = append(page.rows, row)
+		page.rowFields = append(page.rowFields, q.fieldsWithout(without))
 	}
 
 	return page, nil

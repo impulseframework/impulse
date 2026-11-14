@@ -10,17 +10,33 @@ export interface PickerOption {
 }
 
 /**
- * The columns an enumerated field asks the listed resource for: the id it stores plus
+ * The columns an enumerated field asks the listed resource for: the key it stores plus
  * whatever the display concatenates, once each, and the search fields a whole source is
- * narrowed by in the browser. Asking explicitly matters: a resource whose fields carry
+ * narrowed by in the browser. The key is the source's own key field (`id` where the
+ * metadata names none). Asking explicitly matters: a resource whose fields carry
  * no read permission of their own — a computed catalog served from another service,
  * say — answers a request with no columns parameter with one empty object per row.
  */
 export function optionColumns(
   config: Pick<EnumeratedConfig, 'listDisplay' | 'viewDisplay'>,
   searchFields: readonly string[] = [],
+  keyField = 'id',
 ): string[] {
-  return [...new Set<string>(['id', ...config.listDisplay, ...config.viewDisplay, ...searchFields])];
+  return [...new Set<string>([keyField, ...config.listDisplay, ...config.viewDisplay, ...searchFields])];
+}
+
+/**
+ * What an option shows: the display fields the page configured, concatenated, or the
+ * key itself where the page configured none (a form drawn from the metadata alone),
+ * which reads well where the key is the row's name (a role).
+ */
+export function optionDisplay(
+  row: Record<string, string>,
+  key: string,
+  displayFields: readonly string[],
+  concat: (row: Record<string, string>, ...fields: string[]) => string,
+): string {
+  return displayFields.length > 0 ? concat(row, ...displayFields) : key;
 }
 
 /**

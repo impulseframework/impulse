@@ -138,6 +138,88 @@ func Test_validatePickerSources(t *testing.T) {
 	}
 }
 
+// Test_validateRPCPickerSources_list pins the rule for a request field that takes
+// several picked keys: its source is read whole, so a source with a @page maximum is
+// refused whether or not it serves a read, a source with no maximum is taken, and a
+// field of one key keeps the rule a bounded source serves a read.
+func Test_validateRPCPickerSources_list(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadCollectionFixture(t))
+
+	tests := []struct {
+		name     string
+		pageMax  uint64
+		suppress bool
+		list     bool
+		wantErr  string
+	}{
+		{
+			name:    "several keys of a source with a maximum are refused naming the way out",
+			pageMax: 200,
+			list:    true,
+			wantErr: "RPC method DoSomething field Input: the picker takes several keys of Curios, which serves at most 200 rows per page; a picker of several reads its source whole, so drop the @page maximum of Curios or take one key",
+		},
+		{
+			name:     "several keys of a source with a maximum and no read are refused the same way",
+			pageMax:  200,
+			suppress: true,
+			list:     true,
+			wantErr:  "the picker takes several keys of Curios, which serves at most 200 rows per page",
+		},
+		{
+			name:     "several keys of a source read whole are taken",
+			suppress: true,
+			list:     true,
+		},
+		{
+			name:    "one key of a source with a maximum that reads is taken",
+			pageMax: 200,
+		},
+		{
+			name:     "one key of a source with a maximum and no read is refused as a bounded source",
+			pageMax:  200,
+			suppress: true,
+			wantErr:  "RPC method DoSomething field Input: the picker lists Curios, which serves at most 200 rows per page and no read",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := &client{enumerateTables: map[string]string{}}
+			c.resources = append(c.resources, fixtureResource(t, structs, "Curio", func(res *resourceInfo) {
+				res.IsVirtual = true
+				res.PageMax = tt.pageMax
+				if tt.suppress {
+					res.SuppressedHandlers = []HandlerType{ReadHandler}
+				}
+			}))
+
+			typescriptType := "string"
+			if tt.list {
+				typescriptType += sliceSuffix
+			}
+			field := &rpcField{Field: structs["DoSomething"].Fields()[0], typescriptType: typescriptType}
+			field.applyEnumeration(enumerationSource{Name: "Curios"})
+			method := &rpcMethodInfo{Struct: structs["DoSomething"], Fields: []*rpcField{field}}
+
+			err := c.validateRPCPickerSources([]*rpcMethodInfo{method})
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("validateRPCPickerSources() error = %v, want none", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("validateRPCPickerSources() error = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 // Test_resourceEndpoints pins the handler set a resource generates: a table lists,
 // reads, and patches (no patch under the consolidated handler); a view lists, and
 // reads when it declares its key; suppression removes what it names.

@@ -22,6 +22,7 @@ import { filter, tap } from 'rxjs';
 import { BaseRPCModalComponent } from '../../base-rpc-modal/base-rpc-modal.component';
 import { ResourceStore } from '../../resource-store.service';
 import { metadataTypeCoercion } from '../../resources-helpers';
+import { holdsValue } from '../../row-methods/row-methods';
 
 @Component({
   selector: 'impulse-rpc-button',
@@ -105,9 +106,11 @@ export class RpcButtonComponent {
         filter((data) => !!data),
         tap((data) => {
           const coercedData = metadataTypeCoercion(data as RPCRecordData, meta);
+          // A value the form holds is sent as it is: false and 0 are values, and only an
+          // input left empty sends nothing.
           Object.keys(coercedData).forEach((key: string) => {
             const value = coercedData[key];
-            if (value) {
+            if (holdsValue(value)) {
               submitBody[key] = value;
             }
           });
@@ -145,7 +148,7 @@ export class RpcButtonComponent {
               canSubmitRPC = false;
               return;
             }
-            if (returnValue) submitBody[key] = returnValue as string | number | string[] | number[] | boolean;
+            if (holdsValue(returnValue)) submitBody[key] = returnValue as string | number | string[] | number[] | boolean;
           } else {
             submitBody[key] = value;
           }

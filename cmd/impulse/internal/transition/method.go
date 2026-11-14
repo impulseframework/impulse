@@ -332,7 +332,13 @@ func (m *Method) editAuth(a *app.App, auth *app.Auth, spec *authpkg.Method, ch *
 	case spec.Directory():
 		registration = fmt.Sprintf("\thandlers.%s = register%s(authSession, accessClient, settings)\n", field, spec.Pascal())
 	case spec.UsernameIsEmail:
-		registration += "\t// The sign-in name is the address, so a verified change of address renames the user,\n\t// and the seats held under the old name follow it.\n\tauthSession.SetUserRenamed(resource.SeatsFollowRename(accessClient.UserManager()))\n"
+		registration += "\t// The sign-in name is the address, so a verified change of address renames the user,\n\t// and the roles held under the old name follow it.\n\tauthSession.SetUserRenamed(identity.RolesFollowRename(accessClient.UserManager()))\n"
+	}
+	if spec.UsernameIsEmail && !spec.Fallible() && !spec.Directory() {
+		// The rename hook is the identity package's.
+		if edited, err = app.AddImport(rel, edited, identityImportPath); err != nil {
+			return err
+		}
 	}
 	listed := ""
 	if here := hereRE.FindSubmatchIndex(edited); here != nil {
@@ -341,7 +347,7 @@ func (m *Method) editAuth(a *app.App, auth *app.Auth, spec *authpkg.Method, ch *
 	}
 	loc := returnAuthRE.FindIndex(edited)
 	if loc == nil {
-		ch.skipf("%s: New does not end in `return &Auth{db: db, access: accessClient, handlers: handlers}, nil` as the skeleton's does (db: db where the auth carries a foothold), so the %s method is not registered; call register%s in New and set handlers.%s", rel, spec.Name, spec.Pascal(), field)
+		ch.skipf("%s: New does not end in `return &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil` as the skeleton's does (db: db where the auth carries a foothold, identity where the application generates the auth's management), so the %s method is not registered; call register%s in New and set handlers.%s", rel, spec.Name, spec.Pascal(), field)
 	} else {
 		edited = append(edited[:loc[0]:loc[0]], append([]byte(registration), edited[loc[0]:]...)...)
 	}
@@ -350,7 +356,7 @@ func (m *Method) editAuth(a *app.App, auth *app.Auth, spec *authpkg.Method, ch *
 	}
 	renamed := ""
 	if spec.UsernameIsEmail && loc != nil {
-		renamed = ", and a verified change of address renames the user with its seats (SetUserRenamed over resource.SeatsFollowRename)"
+		renamed = ", and a verified change of address renames the user with its roles (SetUserRenamed over identity.RolesFollowRename)"
 	}
 	ch.didf("%s: Handlers holds the %s method (%s %s), New registers it (register%s)%s%s%s", rel, spec.Name, field, typ, spec.Pascal(), settingsNote(spec), listed, renamed)
 
@@ -358,8 +364,10 @@ func (m *Method) editAuth(a *app.App, auth *app.Auth, spec *authpkg.Method, ch *
 }
 
 // returnAuthRE matches the Auth file's final statement, before which a method's
-// registration goes.
-var returnAuthRE = regexp.MustCompile(`(?m)^\n?\treturn &Auth\{(?:db: db, )?access: accessClient, handlers: handlers\}, nil`)
+// registration goes: the rendered auth packages' return, with the database client where
+// the auth carries a foothold and the identity client where the application generates
+// the auth's management.
+var returnAuthRE = regexp.MustCompile(`(?m)^\n?\treturn &Auth\{(?:db: db, )?access: accessClient, handlers: handlers(?:, identity: identityClient)?\}, nil`)
 
 // hereRE matches the package doc's list of the methods registered on the Auth, which a
 // method added joins.
@@ -622,7 +630,7 @@ func (m *Method) Meaning() string {
 			fmt.Sprintf("Prove it under `-tags skipAuth` as the reference's `test/integration/portal_login_skipauth_test.go` does, setting `APP_%s_USERNAME` for the registration and following `user/%s/login` to the callback.", strings.ToUpper(strings.ReplaceAll(spec.Name, "-", "_")), spec.Name),
 		)
 		if spec.Authority == AuthorityDirectory {
-			items = append(items, "Seed no roles for people who sign in this way; define the roles in the role file and assign them in the directory. The declaration chains `.SyncsRoles()` (the method file's `RoleSync`), so the generated users surface shows these people's roles as the directory's and never writes them.")
+			items = append(items, "Seed no roles for people who sign in this way; define the roles in the role file and assign them in the directory. The declaration chains `.SyncsRoles()` (the method file's `RoleSync`), so the generated management shows these people's roles as the directory's and never writes them.")
 		}
 		if spec.Kind == app.MethodOIDC && spec.Authority == AuthorityDirectory {
 			items = append(items, "Have the provider send the roles. The method reads a person's roles from the ID token's `roles` claim, a list of role names at the top level of the token, and nowhere else: set the provider up to add that claim for this client (a custom claim on Okta, a mapper on Keycloak), with the names the role file defines. A sign-in whose token names no role the file defines is refused.")
@@ -639,7 +647,7 @@ func (m *Method) Meaning() string {
 			items = append(items, passwordSignUpItem(m.Auth))
 		}
 		if spec.UsernameIsEmail {
-			items = append(items, fmt.Sprintf("Mind the sign-in name. The %s auth's password method takes the person's email address as the username (`session.UsernameIsEmail()`, and `.UsernameIsEmail()` on the declaration), so the generated users surface derives the address from the username, refuses a rename through the users resource, and renames the user when a verified change of address completes (`SetUserRenamed` over `resource.SeatsFollowRename`, which New now sets); the development logins and the first administrator are addresses.", m.Auth))
+			items = append(items, fmt.Sprintf("Mind the sign-in name. The %s auth's password method takes the person's email address as the username (`session.UsernameIsEmail()`, and `.UsernameIsEmail()` on the declaration), so the generated management derives the address from the username and carries no method that renames a user or sets an address by hand; the session library renames the user when a verified change of address completes, and the roles follow the name (`SetUserRenamed` over `identity.RolesFollowRename`, which New now sets); the development logins and the first administrator are addresses.", m.Auth))
 		}
 	}
 	for i, item := range items {
@@ -651,10 +659,10 @@ func (m *Method) Meaning() string {
 }
 
 // invitationsItem is the brief's item for registrations admitting invited users only:
-// the users surface the generator emits for the declaration's .InvitedUsers() creates the
-// invitations, behind Create on the auth's users resource.
+// the management the generator emits for the declaration's .InvitedUsers() creates their
+// users, behind Execute on the auth's create method.
 func invitationsItem(auth string, registrations []string) string {
-	return fmt.Sprintf("Invite its people. The %s registration(s) admit invited users only (`signin.InvitedUsersOnly`, and `.InvitedUsers()` on the declaration), so a person signs in once a user exists under the name the directory presents: the generated users surface of the %s auth creates them, so grant Create on `%sUsers` to the role that invites in the role file.", strings.Join(registrations, ", "), auth, names.Pascal(auth))
+	return fmt.Sprintf("Invite its people. The %s registration(s) admit invited users only (`signin.InvitedUsersOnly`, and `.InvitedUsers()` on the declaration), so a person signs in once a user exists under the name the directory presents: the generated management of the %s auth creates them (the `Create%sUser` method), so grant Execute on it to the role that invites in the role file.", strings.Join(registrations, ", "), auth, names.Pascal(auth))
 }
 
 // mailItem is the brief's item for the mail an auth sends: the sender it shares with the

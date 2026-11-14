@@ -24,11 +24,15 @@ import (
 //	projected grant-bearing column is unconditionally granted, otherwise the OR
 //	of the distinct conditions covering projected columns.
 //
-// The base-resource decision never renders here: it is the handler gate
-// (decided 2026-08-31), and its payload is by construction the union the field
-// decisions already deliver. Primary keys sit outside the visibility rules —
-// no CASE, no mask term, no row-predicate disjunct — otherwise their
-// always-visible cells would defeat row suppression.
+// The base-resource decision is the handler gate (decided 2026-08-31), and
+// where the projection carries a grant-bearing column it never renders here:
+// its payload is by construction the union the field decisions already
+// deliver. Primary keys sit outside the visibility rules — no CASE, no mask
+// term, no row-predicate disjunct — otherwise their always-visible cells would
+// defeat row suppression. So a read that projects the key alone has no
+// column's condition to stand for the row's, and there the base-resource
+// decision's condition is the row predicate: a row no grant of the caller's
+// admits is not listed and not counted, whatever the request selects.
 //
 // Implication pruning (decided 2026-08-31): a column whose condition set
 // covers every disjunct of the row predicate skips its CASE and mask term —
@@ -105,82 +109,14 @@ func (q *QuerySet[Resource]) readConditionPlan() (*readConditionPlan, error) {
 	}
 
 	plan := &readConditionPlan{fields: make(map[accesstypes.Field]*fieldConditions)}
-	unionKeys := make(map[string]struct{})
-	var union []condition.Expr
-	anyUnconditional := false
-
-	for _, field := range q.Fields() {
-		if !q.resourceSet.PermissionRequired(field, q.requiredPermission) {
-			// The perm:"-" primary-key exemption: outside the visibility rules.
-			continue
-		}
-
-		decision, ok := q.conditionalDecisions[q.resourceSet.Resource(field)]
-		if !ok {
-			anyUnconditional = true
-
-			continue
-		}
-
-		expr, err := conditionalExpr(q.resourceSet.Resource(field), decision)
-		if err != nil {
-			return nil, err
-		}
-
-		// Read grants never carry new. (deploy rejects the post-image outside
-		// create and update), so the bound is the identity for genuine read
-		// rules. What does reach here with new. is a mutation's carried
-		// decisions on the change-tracking pre-image read, where a post-image
-		// term has no meaning: the fail-open bound renders the evaluable
-		// residue, and the write check has already judged the full condition
-		// in the same transaction.
-		expr = condition.WithoutPostImage(expr)
-		if t, ok := expr.(condition.Truth); ok && t.Value {
-			anyUnconditional = true
-
-			continue
-		}
-
-		fc := &fieldConditions{
-			disjuncts: condition.Disjuncts(expr),
-			jsonName:  q.jsonName(field),
-		}
-		for _, disjunct := range fc.disjuncts {
-			key := disjunct.String()
-			if _, seen := unionKeys[key]; !seen {
-				unionKeys[key] = struct{}{}
-				union = append(union, disjunct)
-			}
-		}
-		plan.fields[field] = fc
-	}
-
-	if err := q.addQueryOnlyConditions(plan); err != nil {
-		return nil, err
-	}
-
-	// A @file route projects the frame's columns, exempt every one, and its one
-	// grant-bearing field is the route's segment: its condition is the row
-	// predicate, with no CASE since no column stands behind it, and its
-	// unconditional grant admits every row the tenancy admits.
-	gateDisjuncts, gateUnconditional, err := q.fileGateDisjuncts()
+	union, anyUnconditional, err := q.projectedDisjuncts(plan)
 	if err != nil {
 		return nil, err
 	}
-	if gateUnconditional {
-		anyUnconditional = true
-	}
-	for _, disjunct := range gateDisjuncts {
-		key := disjunct.String()
-		if _, seen := unionKeys[key]; !seen {
-			unionKeys[key] = struct{}{}
-			union = append(union, disjunct)
-		}
-	}
 
-	if len(plan.fields) == 0 && len(gateDisjuncts) == 0 {
-		// Only the base resource was conditional: it is the handler gate, and
-		// it never renders on the read path.
+	if len(plan.fields) == 0 && len(union) == 0 {
+		// Nothing the statement names is conditional, and no condition on the
+		// resource stands for the rows: the statement renders as RBAC's.
 		return nil, nil
 	}
 
@@ -201,6 +137,128 @@ func (q *QuerySet[Resource]) readConditionPlan() (*readConditionPlan, error) {
 	}
 
 	return plan, nil
+}
+
+// projectedDisjuncts fills the plan's fields and returns the row predicate's
+// candidate disjuncts: the distinct conditions covering the projection's
+// grant-bearing columns, in first-appearance order, and whether one of those
+// columns is granted outright (the predicate is then TRUE). Where the
+// projection carries no grant-bearing column at all, the key alone, the
+// disjuncts are the resource's own condition (resourceDisjuncts).
+func (q *QuerySet[Resource]) projectedDisjuncts(plan *readConditionPlan) (union []condition.Expr, anyUnconditional bool, err error) {
+	unionKeys := make(map[string]struct{})
+	add := func(disjuncts []condition.Expr) {
+		for _, disjunct := range disjuncts {
+			key := disjunct.String()
+			if _, seen := unionKeys[key]; !seen {
+				unionKeys[key] = struct{}{}
+				union = append(union, disjunct)
+			}
+		}
+	}
+	// guarded counts the projection's grant-bearing columns: the fields a grant
+	// names, and a @file route's segment.
+	guarded := 0
+
+	for _, field := range q.Fields() {
+		if !q.resourceSet.PermissionRequired(field, q.requiredPermission) {
+			// The perm:"-" primary-key exemption: outside the visibility rules.
+			continue
+		}
+		guarded++
+
+		decision, ok := q.conditionalDecisions[q.resourceSet.Resource(field)]
+		if !ok {
+			anyUnconditional = true
+
+			continue
+		}
+
+		expr, err := conditionalExpr(q.resourceSet.Resource(field), decision)
+		if err != nil {
+			return nil, false, err
+		}
+
+		// Read grants never carry new. (deploy rejects the post-image outside
+		// create and update), so the bound is the identity for genuine read
+		// rules. What does reach here with new. is a mutation's carried
+		// decisions on the change-tracking pre-image read, where a post-image
+		// term has no meaning: the fail-open bound renders the evaluable
+		// residue, and the write check has already judged the full condition
+		// in the same transaction.
+		expr = condition.WithoutPostImage(expr)
+		if t, ok := expr.(condition.Truth); ok && t.Value {
+			anyUnconditional = true
+
+			continue
+		}
+
+		fc := &fieldConditions{
+			disjuncts: condition.Disjuncts(expr),
+			jsonName:  q.jsonName(field),
+		}
+		add(fc.disjuncts)
+		plan.fields[field] = fc
+	}
+
+	if err := q.addQueryOnlyConditions(plan); err != nil {
+		return nil, false, err
+	}
+
+	// A @file route projects the frame's columns, exempt every one, and its one
+	// grant-bearing field is the route's segment: its condition is the row
+	// predicate, with no CASE since no column stands behind it, and its
+	// unconditional grant admits every row the tenancy admits.
+	gateDisjuncts, gateUnconditional, err := q.fileGateDisjuncts()
+	if err != nil {
+		return nil, false, err
+	}
+	if gateUnconditional {
+		anyUnconditional = true
+	}
+	if q.fileGate != "" {
+		guarded++
+	}
+	add(gateDisjuncts)
+
+	// A projection with no grant-bearing column (the key alone) leaves the row
+	// predicate to the condition on the resource itself.
+	if guarded == 0 {
+		union, err = q.resourceDisjuncts()
+		if err != nil {
+			return nil, false, err
+		}
+	}
+
+	return union, anyUnconditional, nil
+}
+
+// resourceDisjuncts reads the condition on the resource itself, for a read whose
+// projection carries no grant-bearing column: the disjuncts of the caller's
+// grants on the resource, nothing where one of them is unconditional. It is a
+// read's rule alone (Read and List). A mutation's pre-image read carries the
+// mutation's own decisions, and the write check judges those in the same
+// transaction: filtering the pre-image by them would answer a refused write as
+// a row that is not there.
+func (q *QuerySet[Resource]) resourceDisjuncts() ([]condition.Expr, error) {
+	if q.requiredPermission != accesstypes.Read && q.requiredPermission != accesstypes.List {
+		return nil, nil
+	}
+	base := q.resourceSet.BaseResource()
+	decision, ok := q.conditionalDecisions[base]
+	if !ok {
+		return nil, nil
+	}
+	expr, err := conditionalExpr(base, decision)
+	if err != nil {
+		return nil, err
+	}
+	expr = condition.WithoutPostImage(expr)
+	if t, ok := expr.(condition.Truth); ok && t.Value {
+		return nil, nil
+	}
+
+	return condition.Disjuncts(expr), nil
 }
 
 // fileGateDisjuncts reads the @file route's gate: nothing where no gate is stamped,
@@ -493,7 +551,7 @@ func (q *QuerySet[Resource]) loweringCtx() *loweringContext {
 // lowerToSQL runs one condition through the lowering and the statement's SQL
 // emitter.
 func lowerToSQL(expr condition.Expr, lctx *loweringContext, gen *sqlGenerator, registry *paramRegistry) (string, error) {
-	node, err := lowerCondition(expr, lctx, registry)
+	node, err := lowerRowCondition(expr, lctx, registry)
 	if err != nil {
 		return "", err
 	}

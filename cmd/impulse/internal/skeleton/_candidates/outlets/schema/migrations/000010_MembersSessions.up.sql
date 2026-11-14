@@ -45,7 +45,9 @@ CREATE TABLE MembersSessionIdentities (
 
 CREATE UNIQUE INDEX MembersSessionIdentitiesByKey ON MembersSessionIdentities(Method, Connection, Subject);
 
-CREATE INDEX MembersSessionIdentitiesByUserId ON MembersSessionIdentities(UserId);
+-- A person's links, with the columns a list of them shows, so a list that reaches the
+-- links through their people reads the index and no row of the table.
+CREATE INDEX MembersSessionIdentitiesByUserId ON MembersSessionIdentities(UserId) STORING (Method, Connection, Subject, Tenant, EmailAtLink, CreatedAt, LastUsedAt);
 
 -- The auth events: how each session was authenticated, one row per sign-in or step (the
 -- method, its registration, and the provider's own amr claims). Not interleaved: an
@@ -144,6 +146,11 @@ CREATE UNIQUE INDEX MembersSessionMailLinksByTokenHash ON MembersSessionMailLink
 
 CREATE INDEX MembersSessionMailLinksByKind ON MembersSessionMailLinks(Kind, ConsumedAt, ExpiresAt);
 
+-- A tenant's links, newest first, with the columns a tenant's list of its invitations
+-- shows: a page of that list reads its own rows from the index and nothing else. A link
+-- that names no tenant is not in it.
+CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenant ON MembersSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);
+
 -- The tokens: the bearer credentials of the machine outlets whose tokens the members auth
 -- issues. A row is one credential: an application token a person issued to a program of
 -- their own, or the access or refresh token of a device grant a command-line client
@@ -217,7 +224,7 @@ CREATE INDEX MembersSessionDeviceCodesByUserCode ON MembersSessionDeviceCodes(Us
 -- person asked to be remembered after a code (UserId): the browser holds an opaque token
 -- in the auth's trusted-device cookie and the row keeps its hash; it stands in for the
 -- factor while it is not revoked and not expired, and an administrator revokes every
--- browser of a person's from the users surface. A code goes with its pending sign-in and
+-- browser of a person's through the auth's management. A code goes with its pending sign-in and
 -- a device with its user. CreatedAt, ConsumedAt, LastUsedAt and RevokedAt take the commit
 -- time; ExpiresAt is the library's deadline, written as given.
 CREATE TABLE MembersSessionFactorCodes (

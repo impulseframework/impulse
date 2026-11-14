@@ -27,10 +27,13 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/app"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewidentity"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/membersidentity"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
 	"github.com/impulseframework/impulse/logger"
@@ -39,7 +42,6 @@ import (
 	"github.com/impulseframework/impulse/resource/jobs"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/resource/scheduled"
-	"github.com/impulseframework/impulse/resource/sessionusers"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -244,13 +246,7 @@ type testConfigurer struct {
 	membersAuth   *members.Auth
 	stores        *testStores
 	live          live.Service
-	// crewUsers and membersUsers are the two auths' user-management surfaces: the
-	// served stack's over the real sessions and engines, the policy-signal suite's over
-	// an in-memory account store and the instance's engine; nil builds one over empty
-	// in-memory stores, for the suites that never drive the user routes.
-	crewUsers    *resource.UserSurface[router.CrewAuth]
-	membersUsers *resource.UserSurface[router.MembersAuth]
-	tenants      *resource.TenantRoster
+	tenants       *resource.TenantRoster
 	// declarations scripts what each sector declares about who may enter it; nil, the
 	// served stack's answer, lets every sector admit every session.
 	declarations resource.TenantDeclarations
@@ -263,6 +259,50 @@ type testConfigurer struct {
 	// jobs is the job process's starter, a fake the served stack's suites read the
 	// starts from; nil gets a fake of its own.
 	jobs jobs.Starter
+}
+
+// noSessionAPI stands where a suite serves no session manager: the methods that need
+// one (a temporary password's hash) are driven on the served stack, which has the
+// real one.
+type noSessionAPI struct{}
+
+func (noSessionAPI) HashPassword(string) (string, error) {
+	return "", fmt.Errorf("this suite serves no session manager: drive the method on the served stack")
+}
+
+func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationRequest) (session.PreparedInvitation, error) {
+	return nil, fmt.Errorf("this suite serves no session manager: drive the method on the served stack")
+}
+
+// CrewIdentity is the crew auth's identity client: on the served stack the one the crew
+// auth built when it opened, as production's is; in a suite that serves no session
+// manager, one over the suite's crew engine.
+func (c *testConfigurer) CrewIdentity() *crewidentity.Client {
+	if c.crewAuth != nil {
+		return c.crewAuth.Identity()
+	}
+	client, err := crewidentity.NewClient(c.access, noSessionAPI{}, identity.WithAdministratorRoles(crew.AdministratorRoles()))
+	if err != nil {
+		panic(err)
+	}
+
+	return client
+}
+
+// MembersIdentity is the members auth's identity client over the suite's members engine.
+// A suite that serves no members population answers its members checks from the crew
+// engine (App.engine), and the client stands over the same one.
+func (c *testConfigurer) MembersIdentity() *membersidentity.Client {
+	engine := c.membersAccess
+	if engine == nil {
+		engine = c.access
+	}
+	client, err := membersidentity.NewClient(engine, noSessionAPI{})
+	if err != nil {
+		panic(err)
+	}
+
+	return client
 }
 
 // TenantRoster is the application's tenant roster as production's DataConfiguration
@@ -390,28 +430,6 @@ func (c *testConfigurer) Live() live.Service {
 // LiveOrigins names no change feed origin: the suites drive the test router, which
 // carries no security headers.
 func (c *testConfigurer) LiveOrigins() []string { return nil }
-
-// CrewUserSurface is the crew auth's user-management surface the suite supplied, or one
-// over empty in-memory stores.
-func (c *testConfigurer) CrewUserSurface() *resource.UserSurface[router.CrewAuth] {
-	if c.crewUsers != nil {
-		return c.crewUsers
-	}
-	store := resource.NewMemUserStore()
-
-	return router.NewCrewUserSurface(store, store)
-}
-
-// MembersUserSurface is the members auth's surface the suite supplied, or one over empty
-// in-memory stores.
-func (c *testConfigurer) MembersUserSurface() *resource.UserSurface[router.MembersAuth] {
-	if c.membersUsers != nil {
-		return c.membersUsers
-	}
-	store := resource.NewMemUserStore()
-
-	return router.NewMembersUserSurface(store, store)
-}
 
 // newTestApp builds the application with the given permission table backing every
 // request, served through the generated test router.
@@ -881,8 +899,6 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 		membersAuth:   membersAuth,
 		stores:        stores,
 		live:          fake,
-		crewUsers:     router.NewCrewUserSurface(sessionusers.Accounts(crewAuth.Session().API()), crewAuth.Access().UserManager(), resource.WithTenantDirectories(roster.Declarations), resource.WithAdministratorRoles(crew.AdministratorRoles())),
-		membersUsers:  router.NewMembersUserSurface(sessionusers.Accounts(membersAuth.Session().API()), membersAuth.Access().UserManager(), resource.WithTenantDirectories(roster.Declarations)),
 		version:       version,
 		scheduler:     scheduled.NewGuard(schedulerInvoker, keys),
 		jobs:          starter,

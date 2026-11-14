@@ -75,6 +75,15 @@ func (r *Recorder) Send(_ context.Context, msg Message) error {
 	return r.Err
 }
 
+// Fail sets what Send answers from now on, nil for a sender that works again: a test
+// that fails the sender part of the way through sets it here, under the recorder's
+// lock.
+func (r *Recorder) Fail(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.Err = err
+}
+
 // Messages answers a copy of what was sent so far.
 func (r *Recorder) Messages() []Message {
 	r.mu.Lock()

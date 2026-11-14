@@ -6,12 +6,182 @@ export interface FieldPointer {
   field: FieldName;
 }
 
+export interface DeleteMembersSectorUserConfig {
+  userId: string | FieldPointer;
+}
+export interface DeleteMembersSectorUser {
+  userId: string;
+}
+/** The statuses DeleteMembersSectorUser declares; the method chooses one per response. */
+export type DeleteMembersSectorUserStatus = 204;
+
+export interface DeleteMembersUserConfig {
+  userId: string | FieldPointer;
+}
+export interface DeleteMembersUser {
+  userId: string;
+}
+/** The statuses DeleteMembersUser declares; the method chooses one per response. */
+export type DeleteMembersUserStatus = 204;
+
+export interface DisableMembersSectorUserConfig {
+  userId: string | FieldPointer;
+}
+export interface DisableMembersSectorUser {
+  userId: string;
+}
+/** The statuses DisableMembersSectorUser declares; the method chooses one per response. */
+export type DisableMembersSectorUserStatus = 204;
+
+export interface DisableMembersUserConfig {
+  userId: string | FieldPointer;
+}
+export interface DisableMembersUser {
+  userId: string;
+}
+/** The statuses DisableMembersUser declares; the method chooses one per response. */
+export type DisableMembersUserStatus = 204;
+
+export interface EnableMembersSectorUserConfig {
+  userId: string | FieldPointer;
+}
+export interface EnableMembersSectorUser {
+  userId: string;
+}
+/** The statuses EnableMembersSectorUser declares; the method chooses one per response. */
+export type EnableMembersSectorUserStatus = 204;
+
+export interface EnableMembersUserConfig {
+  userId: string | FieldPointer;
+}
+export interface EnableMembersUser {
+  userId: string;
+}
+/** The statuses EnableMembersUser declares; the method chooses one per response. */
+export type EnableMembersUserStatus = 204;
+
+export interface EndMembersSectorUserSessionsConfig {
+  userId: string | FieldPointer;
+}
+export interface EndMembersSectorUserSessions {
+  userId: string;
+}
+/** The statuses EndMembersSectorUserSessions declares; the method chooses one per response. */
+export type EndMembersSectorUserSessionsStatus = 204;
+
+export interface EndMembersSessionConfig {
+  sessionId: string | FieldPointer;
+}
+export interface EndMembersSession {
+  sessionId: string;
+}
+/** The statuses EndMembersSession declares; the method chooses one per response. */
+export type EndMembersSessionStatus = 204;
+
+export interface EndMembersUserSessionsConfig {
+  userId: string | FieldPointer;
+}
+export interface EndMembersUserSessions {
+  userId: string;
+}
+/** The statuses EndMembersUserSessions declares; the method chooses one per response. */
+export type EndMembersUserSessionsStatus = 204;
+
+export interface RenameMembersSectorUserConfig {
+  userId: string | FieldPointer;
+  username: string | FieldPointer;
+}
+export interface RenameMembersSectorUser {
+  userId: string;
+  username: string;
+}
+/** The statuses RenameMembersSectorUser declares; the method chooses one per response. */
+export type RenameMembersSectorUserStatus = 204;
+
+export interface RenameMembersUserConfig {
+  userId: string | FieldPointer;
+  username: string | FieldPointer;
+}
+export interface RenameMembersUser {
+  userId: string;
+  username: string;
+}
+/** The statuses RenameMembersUser declares; the method chooses one per response. */
+export type RenameMembersUserStatus = 204;
+
+export interface RevokeMembersSectorUserTrustedDevicesConfig {
+  userId: string | FieldPointer;
+}
+export interface RevokeMembersSectorUserTrustedDevices {
+  userId: string;
+}
+/** The statuses RevokeMembersSectorUserTrustedDevices declares; the method chooses one per response. */
+export type RevokeMembersSectorUserTrustedDevicesStatus = 204;
+
+export interface RevokeMembersUserTrustedDevicesConfig {
+  userId: string | FieldPointer;
+}
+export interface RevokeMembersUserTrustedDevices {
+  userId: string;
+}
+/** The statuses RevokeMembersUserTrustedDevices declares; the method chooses one per response. */
+export type RevokeMembersUserTrustedDevicesStatus = 204;
+
+export interface SetMembersSectorUserEmailConfig {
+  userId: string | FieldPointer;
+  email?: string | FieldPointer;
+}
+export interface SetMembersSectorUserEmail {
+  userId: string;
+  email?: string;
+}
+/** The statuses SetMembersSectorUserEmail declares; the method chooses one per response. */
+export type SetMembersSectorUserEmailStatus = 204;
+
+export interface SetMembersUserEmailConfig {
+  userId: string | FieldPointer;
+  email?: string | FieldPointer;
+}
+export interface SetMembersUserEmail {
+  userId: string;
+  email?: string;
+}
+/** The statuses SetMembersUserEmail declares; the method chooses one per response. */
+export type SetMembersUserEmailStatus = 204;
+
 export interface StandDownMissionConfig {
   missionId: string | FieldPointer;
 }
 export interface StandDownMission {
   missionId: string;
 }
+
+export interface UnlinkMembersSectorSessionIdentityConfig {
+  identityId: string | FieldPointer;
+}
+export interface UnlinkMembersSectorSessionIdentity {
+  identityId: string;
+}
+/** The statuses UnlinkMembersSectorSessionIdentity declares; the method chooses one per response. */
+export type UnlinkMembersSectorSessionIdentityStatus = 204;
+
+export interface UnlinkMembersSessionIdentityConfig {
+  identityId: string | FieldPointer;
+}
+export interface UnlinkMembersSessionIdentity {
+  identityId: string;
+}
+/** The statuses UnlinkMembersSessionIdentity declares; the method chooses one per response. */
+export type UnlinkMembersSessionIdentityStatus = 204;
+
+export interface UnlockMembersSignInConfig {
+  name: string | FieldPointer;
+}
+export interface UnlockMembersSignIn {
+  name: string;
+}
+/** The statuses UnlockMembersSignIn declares; the method chooses one per response. */
+export type UnlockMembersSignInStatus = 204;
 
 /** The body SetFeature takes: the flag by name and the state to set. */
 export interface SetFeatureConfig {
@@ -29,41 +199,6 @@ export interface SetFeatureResult {
   updatedAt: Date;
 }
 
-/** The body UnlinkMembersUserIdentity takes. */
-export interface UnlinkMembersUserIdentityConfig {
-  user: string | FieldPointer;
-  identity: string | FieldPointer;
-}
-export interface UnlinkMembersUserIdentity {
-  user: string;
-  identity: string;
-}
-
-/** The body ResetMembersUserFactors takes. */
-export interface ResetMembersUserFactorsConfig {
-  user: string | FieldPointer;
-}
-export interface ResetMembersUserFactors {
-  user: string;
-}
-
-/** The body UnlinkMembersSectorUserIdentity takes. */
-export interface UnlinkMembersSectorUserIdentityConfig {
-  user: string | FieldPointer;
-  identity: string | FieldPointer;
-}
-export interface UnlinkMembersSectorUserIdentity {
-  user: string;
-  identity: string;
-}
-
-/** The body ResetMembersSectorUserFactors takes. */
-export interface ResetMembersSectorUserFactorsConfig {
-  user: string | FieldPointer;
-}
-export interface ResetMembersSectorUserFactors {
-  user: string;
-}
 
 export interface RPCFieldMeta {
   fieldName: string;
@@ -72,6 +207,17 @@ export interface RPCFieldMeta {
   enumeratedResource?: Resource;
   /** The fixed values of an enumeration table the field names; the picker renders them without a request. */
   enumeration?: EnumerationOption[];
+  /** Set when the method refuses a request that leaves the field empty; a form holds the input to it. */
+  required?: true;
+  /** Set when a request may leave the field out; a form sends nothing for an input left empty. */
+  optional?: true;
+  /**
+   * The name a grant's condition reads the field by (new.<name>), set on a field that
+   * declares it (@attribute). A role file may hold the method to a value of this field,
+   * and no value never passes such a condition, so a form that rehearses the call waits
+   * for the field and, on a refusal as not permitted, marks it.
+   */
+  attribute?: string;
 }
 
 /** A declared workflow transition: the resource the method moves, the states it runs from, and the state it stamps. */
@@ -81,28 +227,216 @@ export interface MethodTransition {
   to: string;
 }
 
+/**
+ * The row a method runs against (@target): the resource whose row it is, and the request
+ * fields that carry the row's key, each with the row's field it carries (one entry for a
+ * single-column key, one for each column of a compound one). A page that lists the
+ * resource draws the method's button on each row the caller may run it on, and fills
+ * the fields from the row.
+ */
+export interface MethodTarget {
+  resource: Resource;
+  key: Record<string, string>;
+}
+
 export interface MethodMeta {
   route: string;
   /** The feature flag the method is gated behind (@feature); absent when it is not gated. */
   feature?: string;
   transition?: MethodTransition;
+  /** The row the method runs against; absent on a method with no target row. */
+  target?: MethodTarget;
   /** Set when the method answers with a result body; absent methods resolve with nothing. */
   answers?: true;
   /** The statuses the method declares with @answers; a listed 4xx is the method's own answer, not a refusal by the frame. */
   statuses?: number[];
   /** Set on an @upload method: the request is multipart, and the whole body is bounded by maxBytes. */
   upload?: { maxBytes: number };
+  /**
+   * Set on a method that runs in a transaction: a dry run (X-Dry-Run) runs the whole
+   * call and rolls it back, so a refusal can be read before anything is changed. Absent
+   * on a method that runs outside one, which refuses the header.
+   */
+  dryRun?: true;
   fields: RPCFieldMeta[];
 }
 
 export type MethodMap = Record<Method, MethodMeta>;
 
 const methodMap: MethodMap = {
+  [Methods.DeleteMembersSectorUser]: {
+    route: 'delete-members-sector-user',
+    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.DeleteMembersUser]: {
+    route: 'delete-members-user',
+    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.DisableMembersSectorUser]: {
+    route: 'disable-members-sector-user',
+    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.DisableMembersUser]: {
+    route: 'disable-members-user',
+    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.EnableMembersSectorUser]: {
+    route: 'enable-members-sector-user',
+    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.EnableMembersUser]: {
+    route: 'enable-members-user',
+    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.EndMembersSectorUserSessions]: {
+    route: 'end-members-sector-user-sessions',
+    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.EndMembersSession]: {
+    route: 'end-members-session',
+    target: { resource: Resources.MembersSessions, key: { sessionId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'sessionId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.EndMembersUserSessions]: {
+    route: 'end-members-user-sessions',
+    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.RenameMembersSectorUser]: {
+    route: 'rename-members-sector-user',
+    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'username', displayType: 'string', required: true },
+    ],
+  },
+  [Methods.RenameMembersUser]: {
+    route: 'rename-members-user',
+    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'username', displayType: 'string', required: true },
+    ],
+  },
+  [Methods.RevokeMembersSectorUserTrustedDevices]: {
+    route: 'revoke-members-sector-user-trusted-devices',
+    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.RevokeMembersUserTrustedDevices]: {
+    route: 'revoke-members-user-trusted-devices',
+    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.SetMembersSectorUserEmail]: {
+    route: 'set-members-sector-user-email',
+    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'email', displayType: 'string', optional: true },
+    ],
+  },
+  [Methods.SetMembersUserEmail]: {
+    route: 'set-members-user-email',
+    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'email', displayType: 'string', optional: true },
+    ],
+  },
   [Methods.StandDownMission]: {
     route: 'stand-down-mission',
     transition: { target: Resources.Missions, from: ['open', 'claimed', 'on_hold'], to: 'stood_down' },
+    target: { resource: Resources.Missions, key: { missionId: 'id' } },
+    dryRun: true,
     fields: [
       { fieldName: 'missionId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.UnlinkMembersSectorSessionIdentity]: {
+    route: 'unlink-members-sector-session-identity',
+    target: { resource: Resources.MembersSectorIdentities, key: { identityId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'identityId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.UnlinkMembersSessionIdentity]: {
+    route: 'unlink-members-session-identity',
+    target: { resource: Resources.MembersSessionIdentities, key: { identityId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'identityId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.UnlockMembersSignIn]: {
+    route: 'unlock-members-sign-in',
+    target: { resource: Resources.MembersSessionSignInAttempts, key: { name: 'name' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'name', displayType: 'string', required: true },
     ],
   },
   [Methods.SetFeature]: {
@@ -113,32 +447,7 @@ const methodMap: MethodMap = {
       { fieldName: 'enabled', displayType: 'boolean' },
     ],
   },
-  [Methods.UnlinkMembersUserIdentity]: {
-    route: 'unlink-members-user-identity',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-      { fieldName: 'identity', displayType: 'uuid' },
-    ],
-  },
-  [Methods.ResetMembersUserFactors]: {
-    route: 'reset-members-user-factors',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-    ],
-  },
-  [Methods.UnlinkMembersSectorUserIdentity]: {
-    route: 'unlink-members-sector-user-identity',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-      { fieldName: 'identity', displayType: 'uuid' },
-    ],
-  },
-  [Methods.ResetMembersSectorUserFactors]: {
-    route: 'reset-members-sector-user-factors',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-    ],
-  },
+
 };
 
 export function methodMeta(method: Method): Meta {

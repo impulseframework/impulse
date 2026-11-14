@@ -19,17 +19,16 @@
 // because everything an auth names carries its name. The same name in this auth and in
 // another is two unrelated principals.
 //
-// A client is invited too: the console's administrators and the portal's invite an
-// address into the members' global partition or into a sector, and the directory
-// sign-in that follows the mailed link seats the person with the roles the invitation
-// carries (resource.SeatInvited), beside the ones the directory's groups name. A
-// member's address is the one the directory verified, held beside the username.
+// Nobody invites a client: the directory's groups name a member's roles, and the sync
+// that writes them at every sign-in removes a role they do not name, so a role an
+// invitation gave would be gone at the person's next sign-in. A member's address is the
+// one the directory verified, held beside the username.
 //
 // Every member session carries a second factor (pkg/auth: auth.RequireSecondFactor):
 // the company's directory attests for its people when the deployment says the fleet
 // administers it, and otherwise the login page runs the sign-in code the auth mails.
 //
-// Demonstrates: auth.directory-roles, auth.two-populations, auth.skipauth-directory, auth.login-refusal-code, auth.invitation, auth.second-factor, auth.attested-directory.
+// Demonstrates: auth.directory-roles, auth.two-populations, auth.skipauth-directory, auth.login-refusal-code, auth.second-factor, auth.attested-directory.
 package members
 
 import (
@@ -43,6 +42,7 @@ import (
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/access/spannerstore"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/membersidentity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/google"
@@ -150,6 +150,9 @@ type Session = session.Auth[session.NoCustomData, session.NoCustomData, *cloudsp
 type Auth struct {
 	access   *access.Client
 	handlers *Handlers
+	// identity is the auth's identity client: the generated management of the members
+	// (pkg/identity), built over the engine and the session manager above.
+	identity *membersidentity.Client
 }
 
 // Handlers is the auth's served surface, the shape the generated router names for the
@@ -267,9 +270,8 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	}
 
 	// One Auth session the directory establishes, which mails as the fleet
-	// (session.WithMail): the invitations the user-management surfaces send and the
-	// verification of an address, each leading to the portal's login page with its
-	// token in the query.
+	// (session.WithMail): the verification of an address, leading to the portal's login
+	// page with its token in the query.
 	membersSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionstorage.NewSpannerAuth(db, sessionstorage.WithAuthEvents(events)),
 		settings.CookieKey,
@@ -342,18 +344,18 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// Demonstrates: auth.second-factor.
 	membersSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(auth.RequireSecondFactor))
 
-	// An accepted invitation seats the client with the roles it carries, in the sector
-	// it names or in the global partition, written to the members engine by the
-	// library's hook (resource.SeatInvited) once the transaction that consumed the
-	// invitation has committed, before the sign-in rule decides. The directory's sync
-	// writes beside it at the same sign-in: an invitation's roles are the
-	// application's, the groups' the directory's, and a seat the sync does not name is
-	// left to it (SyncsRoles) only where the directory names roles at all.
-	//
-	// Demonstrates: auth.invitation.
-	membersSession.SetInvitationAccepted(resource.SeatInvited(accessClient.UserManager()))
+	// The members' identity client (pkg/identity, generated): the lists of the auth's
+	// people and the methods that act on an account, over the engine that reads their
+	// memberships and the API of the session manager that signs them in. No invitation
+	// gives a client a role: the directory's groups name the roles and the sync removes,
+	// at every sign-in, a role they do not name, so the client answers no sign-in hook
+	// and none is set.
+	identityClient, err := membersidentity.NewClient(accessClient, membersSession.API())
+	if err != nil {
+		return nil, errors.Wrap(err, "membersidentity.NewClient()")
+	}
 
-	return &Auth{access: accessClient, handlers: &Handlers{Session: membersSession, directory: directory}}, nil
+	return &Auth{access: accessClient, handlers: &Handlers{Session: membersSession, directory: directory}, identity: identityClient}, nil
 }
 
 // Access returns the auth's permission engine: the handlers check against it, and its
@@ -370,6 +372,12 @@ func (a *Auth) Session() *Session {
 // Handlers returns the auth's served surface.
 func (a *Auth) Handlers() *Handlers {
 	return a.handlers
+}
+
+// Identity returns the members' identity client: what the generated lists and methods
+// that manage the members run over (pkg/identity/membersidentity).
+func (a *Auth) Identity() *membersidentity.Client {
+	return a.identity
 }
 
 // Close releases the permission engine.

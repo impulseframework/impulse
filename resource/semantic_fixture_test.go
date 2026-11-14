@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/civil"
+	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/accesstypes/condition/conditiontest"
@@ -42,6 +43,9 @@ type semanticParcel struct {
 	DueDate     *civil.Date         `spanner:"DueDate"`
 	CarrierID   *string             `spanner:"CarrierId"`
 	RouteID     *string             `spanner:"RouteId"`
+	// Stamps is the list column: no list at all, a list with no item, and an item
+	// with no value all occur. No request reads or writes it; conditions do.
+	Stamps []spanner.NullString `spanner:"Stamps"`
 }
 
 func (semanticParcel) Resource() accesstypes.Resource { return semanticResource }
@@ -153,11 +157,22 @@ var semanticColumnAttributes = []semanticAttribute{
 func semanticCollection(t *testing.T) *GeneratedCollection {
 	t.Helper()
 
+	g, err := NewGeneratedCollection(CollectionData{Resources: semanticResources()})
+	if err != nil {
+		t.Fatalf("NewGeneratedCollection() error = %v", err)
+	}
+
+	return g
+}
+
+// semanticResources is the fixture's collection, resource by resource.
+func semanticResources() []CollectionResource {
 	attributes := make([]AttributeData, 0, len(semanticColumnAttributes)+2)
 	for _, attr := range semanticColumnAttributes {
 		attributes = append(attributes, AttributeData{Name: attr.name, Column: string(attr.field), Type: attr.typ})
 	}
 	attributes = append(attributes,
+		AttributeData{Name: "stamp", Column: "Stamps", Type: AttributeTypeString, List: true},
 		AttributeData{Name: "carrierCode", Column: "CarrierId", Type: AttributeTypeString, Path: []BindingHop{{Table: "Carriers", JoinColumn: "Id", Column: "Code"}}},
 		AttributeData{Name: "hubRegion", Column: "RouteId", Type: AttributeTypeString, Path: []BindingHop{
 			{Table: "Routes", JoinColumn: "Id", Column: "HubId"},
@@ -174,7 +189,7 @@ func semanticCollection(t *testing.T) *GeneratedCollection {
 		tags = append(tags, TagData{Name: accesstypes.Tag(f.json), Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}})
 	}
 
-	g, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{
+	return []CollectionResource{
 		{
 			Name:        semanticResource,
 			Scope:       accesstypes.DomainPermissionScope,
@@ -207,18 +222,15 @@ func semanticCollection(t *testing.T) *GeneratedCollection {
 				{Name: "homeRegion", UserColumn: "UserId", Column: "HomeHubId", Type: AttributeTypeString, Path: []BindingHop{{Table: "Hubs", JoinColumn: "Id", Column: "Region"}}},
 			},
 		},
-	}})
-	if err != nil {
-		t.Fatalf("NewGeneratedCollection() error = %v", err)
 	}
-
-	return g
 }
 
 // semanticVocabulary is the fixture's vocabulary as the condition generator
 // sees it, read from the collection so the generator pairs exactly what
-// deploy validation admits; postImage marks a write context.
-func semanticVocabulary(t *testing.T, collection *GeneratedCollection, postImage bool) conditiontest.Vocabulary {
+// deploy validation admits; postImage marks a write context, and lists says
+// whether the list attribute is in it: a create's condition reads the row the
+// create proposes, where a list is not judged, so its vocabulary has none.
+func semanticVocabulary(t *testing.T, collection *GeneratedCollection, postImage, lists bool) conditiontest.Vocabulary {
 	t.Helper()
 
 	bindings, ok := collection.Bindings(accesstypes.DomainPermissionScope, semanticResource)
@@ -227,7 +239,10 @@ func semanticVocabulary(t *testing.T, collection *GeneratedCollection, postImage
 	}
 	vocab := conditiontest.Vocabulary{PostImage: postImage}
 	for _, attr := range bindings.Attributes {
-		vocab.Attributes = append(vocab.Attributes, conditiontest.Attribute{Name: attr.Name, Type: attr.Type, JoinPath: len(attr.Path) > 0})
+		if attr.List && !lists {
+			continue
+		}
+		vocab.Attributes = append(vocab.Attributes, conditiontest.Attribute{Name: attr.Name, Type: attr.Type, JoinPath: len(attr.Path) > 0, List: attr.List})
 	}
 	data := collection.Data()
 	for i := range data.Resources {

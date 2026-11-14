@@ -13,7 +13,6 @@ import { RosterComponent } from './roster/roster.component';
 import { SalvageHoldComponent } from './salvage-hold/salvage-hold.component';
 import { sectorGuard, sectorLeave } from './sector.guard';
 import { SectorSignInComponent } from './sector-sign-in/sector-sign-in.component';
-import { SectorUsersComponent } from './sector-users/sector-users.component';
 import { ShipsLogComponent } from './ships-log/ships-log.component';
 import { WatchDeskComponent } from './watch-desk/watch-desk.component';
 
@@ -91,11 +90,6 @@ export const sectorRoute = (pages: Route[]): Route => {
       permission: { resource: Methods.CompileBriefing, permission: Permissions.Execute },
     },
     {
-      label: 'Sector Crew',
-      route: [DomainRoutePath, 'users'],
-      permission: { resource: Resources.CrewSectorUsers, permission: list },
-    },
-    {
       label: 'Sign-in',
       route: [DomainRoutePath, 'sign-in'],
       permission: { resource: Resources.SectorDirectories, permission: list },
@@ -161,11 +155,6 @@ export const sectorRoute = (pages: Route[]): Route => {
         path: 'briefing',
         loadComponent: (): Promise<Type<BriefingComponent>> =>
           import('./briefing/briefing.component').then((comp) => comp.BriefingComponent),
-      },
-      {
-        path: 'users',
-        loadComponent: (): Promise<Type<SectorUsersComponent>> =>
-          import('./sector-users/sector-users.component').then((comp) => comp.SectorUsersComponent),
       },
       // Who may enter the sector: its directories and whether they are the only way in.
       {

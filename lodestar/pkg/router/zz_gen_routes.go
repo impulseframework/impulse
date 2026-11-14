@@ -33,9 +33,31 @@ const (
 	ClientRosterID                    httpio.ParamType = "clientRosterID"
 	CommendationID                    httpio.ParamType = "commendationID"
 	ConsignmentID                     httpio.ParamType = "consignmentID"
+	CrewSectorIdentityID              httpio.ParamType = "crewSectorIdentityID"
+	CrewSectorInvitationID            httpio.ParamType = "crewSectorInvitationID"
+	CrewSectorUserID                  httpio.ParamType = "crewSectorUserID"
+	CrewSectorUserRoleUserID          httpio.ParamType = "crewSectorUserRoleUserID"
+	CrewSectorUserRoleRole            httpio.ParamType = "crewSectorUserRoleRole"
+	CrewSessionID                     httpio.ParamType = "crewSessionID"
+	CrewSessionIdentityID             httpio.ParamType = "crewSessionIdentityID"
+	CrewSessionImpersonationSessionID httpio.ParamType = "crewSessionImpersonationSessionID"
+	CrewSessionMailLinkID             httpio.ParamType = "crewSessionMailLinkID"
+	CrewSessionTokenID                httpio.ParamType = "crewSessionTokenID"
+	CrewSessionTrustedDeviceID        httpio.ParamType = "crewSessionTrustedDeviceID"
+	CrewSessionUserID                 httpio.ParamType = "crewSessionUserID"
 	DistressCallID                    httpio.ParamType = "distressCallID"
 	FeeByKindKindID                   httpio.ParamType = "feeByKindKindID"
 	HangarID                          httpio.ParamType = "hangarID"
+	MembersSectorIdentityID           httpio.ParamType = "membersSectorIdentityID"
+	MembersSectorInvitationID         httpio.ParamType = "membersSectorInvitationID"
+	MembersSectorUserID               httpio.ParamType = "membersSectorUserID"
+	MembersSectorUserRoleUserID       httpio.ParamType = "membersSectorUserRoleUserID"
+	MembersSectorUserRoleRole         httpio.ParamType = "membersSectorUserRoleRole"
+	MembersSessionID                  httpio.ParamType = "membersSessionID"
+	MembersSessionIdentityID          httpio.ParamType = "membersSessionIdentityID"
+	MembersSessionMailLinkID          httpio.ParamType = "membersSessionMailLinkID"
+	MembersSessionTrustedDeviceID     httpio.ParamType = "membersSessionTrustedDeviceID"
+	MembersSessionUserID              httpio.ParamType = "membersSessionUserID"
 	MissionID                         httpio.ParamType = "missionID"
 	MissionBoardID                    httpio.ParamType = "missionBoardID"
 	MissionDocumentID                 httpio.ParamType = "missionDocumentID"
@@ -51,6 +73,7 @@ const (
 	RefitTaskTaskNumber               httpio.ParamType = "refitTaskTaskNumber"
 	SectorID                          httpio.ParamType = "sectorID"
 	SectorDirectoryID                 httpio.ParamType = "sectorDirectoryID"
+	SectorPilotPilotID                httpio.ParamType = "sectorPilotPilotID"
 	ShipID                            httpio.ParamType = "shipID"
 	ShipClassID                       httpio.ParamType = "shipClassID"
 	SortieID                          httpio.ParamType = "sortieID"
@@ -91,6 +114,10 @@ type GeneratedHandlers interface {
 	// foothold predicate as concealed tenancy.
 	UserDomains() http.HandlerFunc
 
+	AssignCrewRole() http.HandlerFunc
+
+	AssignCrewSectorRole() http.HandlerFunc
+
 	AttachMissionDocument() http.HandlerFunc
 
 	AttachRefitPhoto() http.HandlerFunc
@@ -121,40 +148,97 @@ type GeneratedHandlers interface {
 	Consignments() http.HandlerFunc
 	Consignment() http.HandlerFunc
 
+	CreateCrewSectorUser() http.HandlerFunc
+
+	CreateCrewUser() http.HandlerFunc
+
 	CreateSector() http.HandlerFunc
 
-	CrewInvitations() http.HandlerFunc
-	CrewInvitation() http.HandlerFunc
-	PatchCrewInvitations() http.HandlerFunc
-
 	CrewRoles() http.HandlerFunc
-	CrewRole() http.HandlerFunc
 
-	CrewSeats() http.HandlerFunc
-	CrewSeat() http.HandlerFunc
-	PatchCrewSeats() http.HandlerFunc
+	CrewRoleGrants() http.HandlerFunc
+
+	CrewSectorIdentities() http.HandlerFunc
+	CrewSectorIdentity() http.HandlerFunc
 
 	CrewSectorInvitations() http.HandlerFunc
 	CrewSectorInvitation() http.HandlerFunc
-	PatchCrewSectorInvitations() http.HandlerFunc
 
 	CrewSectorRoles() http.HandlerFunc
-	CrewSectorRole() http.HandlerFunc
-
-	CrewSectorSeats() http.HandlerFunc
-	CrewSectorSeat() http.HandlerFunc
-	PatchCrewSectorSeats() http.HandlerFunc
 
 	CrewSectorUsers() http.HandlerFunc
 	CrewSectorUser() http.HandlerFunc
-	PatchCrewSectorUsers() http.HandlerFunc
 
-	CrewUsers() http.HandlerFunc
-	CrewUser() http.HandlerFunc
-	PatchCrewUsers() http.HandlerFunc
+	CrewSectorUserRoles() http.HandlerFunc
+	CrewSectorUserRole() http.HandlerFunc
+
+	CrewSessions() http.HandlerFunc
+	CrewSession() http.HandlerFunc
+
+	CrewSessionAuthEvents() http.HandlerFunc
+
+	CrewSessionIdentities() http.HandlerFunc
+	CrewSessionIdentity() http.HandlerFunc
+
+	CrewSessionImpersonations() http.HandlerFunc
+	CrewSessionImpersonation() http.HandlerFunc
+
+	CrewSessionMailLinks() http.HandlerFunc
+	CrewSessionMailLink() http.HandlerFunc
+
+	CrewSessionSignInAttempts() http.HandlerFunc
+
+	CrewSessionTokens() http.HandlerFunc
+	CrewSessionToken() http.HandlerFunc
+
+	CrewSessionTrustedDevices() http.HandlerFunc
+	CrewSessionTrustedDevice() http.HandlerFunc
+
+	CrewSessionUsers() http.HandlerFunc
+	CrewSessionUser() http.HandlerFunc
+
+	CrewUserRoles() http.HandlerFunc
+
+	DeleteCrewSectorUser() http.HandlerFunc
+
+	DeleteCrewUser() http.HandlerFunc
+
+	DeleteMembersSectorUser() http.HandlerFunc
+
+	DeleteMembersUser() http.HandlerFunc
+
+	DisableCrewSectorUser() http.HandlerFunc
+
+	DisableCrewUser() http.HandlerFunc
+
+	DisableMembersSectorUser() http.HandlerFunc
+
+	DisableMembersUser() http.HandlerFunc
 
 	DistressCalls() http.HandlerFunc
 	DistressCall() http.HandlerFunc
+
+	EnableCrewSectorUser() http.HandlerFunc
+
+	EnableCrewUser() http.HandlerFunc
+
+	EnableMembersSectorUser() http.HandlerFunc
+
+	EnableMembersUser() http.HandlerFunc
+
+	EndCrewSectorUserSessions() http.HandlerFunc
+
+	EndCrewSession() http.HandlerFunc
+
+	EndCrewSessionImpersonation() http.HandlerFunc
+
+	EndCrewUserSessions() http.HandlerFunc
+
+	EndMembersSectorUserSessions() http.HandlerFunc
+
+	EndMembersSession() http.HandlerFunc
+
+	EndMembersUserSessions() http.HandlerFunc
 
 	ExpenseManifests() http.HandlerFunc
 	ExpenseManifest() http.HandlerFunc
@@ -182,39 +266,50 @@ type GeneratedHandlers interface {
 
 	InspectShip() http.HandlerFunc
 
+	InviteCrewSectorUser() http.HandlerFunc
+
+	InviteCrewUser() http.HandlerFunc
+
 	IssueBulletin() http.HandlerFunc
 
 	LaunchMission() http.HandlerFunc
 
-	MembersInvitations() http.HandlerFunc
-	MembersInvitation() http.HandlerFunc
-	PatchMembersInvitations() http.HandlerFunc
-
 	MembersRoles() http.HandlerFunc
-	MembersRole() http.HandlerFunc
 
-	MembersSeats() http.HandlerFunc
-	MembersSeat() http.HandlerFunc
-	PatchMembersSeats() http.HandlerFunc
+	MembersRoleGrants() http.HandlerFunc
+
+	MembersSectorIdentities() http.HandlerFunc
+	MembersSectorIdentity() http.HandlerFunc
 
 	MembersSectorInvitations() http.HandlerFunc
 	MembersSectorInvitation() http.HandlerFunc
-	PatchMembersSectorInvitations() http.HandlerFunc
-
-	MembersSectorRoles() http.HandlerFunc
-	MembersSectorRole() http.HandlerFunc
-
-	MembersSectorSeats() http.HandlerFunc
-	MembersSectorSeat() http.HandlerFunc
-	PatchMembersSectorSeats() http.HandlerFunc
 
 	MembersSectorUsers() http.HandlerFunc
 	MembersSectorUser() http.HandlerFunc
-	PatchMembersSectorUsers() http.HandlerFunc
 
-	MembersUsers() http.HandlerFunc
-	MembersUser() http.HandlerFunc
-	PatchMembersUsers() http.HandlerFunc
+	MembersSectorUserRoles() http.HandlerFunc
+	MembersSectorUserRole() http.HandlerFunc
+
+	MembersSessions() http.HandlerFunc
+	MembersSession() http.HandlerFunc
+
+	MembersSessionAuthEvents() http.HandlerFunc
+
+	MembersSessionIdentities() http.HandlerFunc
+	MembersSessionIdentity() http.HandlerFunc
+
+	MembersSessionMailLinks() http.HandlerFunc
+	MembersSessionMailLink() http.HandlerFunc
+
+	MembersSessionSignInAttempts() http.HandlerFunc
+
+	MembersSessionTrustedDevices() http.HandlerFunc
+	MembersSessionTrustedDevice() http.HandlerFunc
+
+	MembersSessionUsers() http.HandlerFunc
+	MembersSessionUser() http.HandlerFunc
+
+	MembersUserRoles() http.HandlerFunc
 
 	Missions() http.HandlerFunc
 	Mission() http.HandlerFunc
@@ -251,17 +346,35 @@ type GeneratedHandlers interface {
 
 	ReleaseConsignment() http.HandlerFunc
 
+	RemoveCrewRole() http.HandlerFunc
+
+	RemoveCrewSectorRole() http.HandlerFunc
+
+	RenameCrewSectorUser() http.HandlerFunc
+
+	RenameCrewUser() http.HandlerFunc
+
+	RenameMembersSectorUser() http.HandlerFunc
+
+	RenameMembersUser() http.HandlerFunc
+
 	ReplaceMissionDocument() http.HandlerFunc
 
-	ResetCrewSectorUserFactors() http.HandlerFunc
+	RequireCrewPasswordChange() http.HandlerFunc
 
-	ResetCrewUserFactors() http.HandlerFunc
-
-	ResetMembersSectorUserFactors() http.HandlerFunc
-
-	ResetMembersUserFactors() http.HandlerFunc
+	RequireCrewSectorPasswordChange() http.HandlerFunc
 
 	ResumeMission() http.HandlerFunc
+
+	RevokeCrewSectorUserTrustedDevices() http.HandlerFunc
+
+	RevokeCrewSessionToken() http.HandlerFunc
+
+	RevokeCrewUserTrustedDevices() http.HandlerFunc
+
+	RevokeMembersSectorUserTrustedDevices() http.HandlerFunc
+
+	RevokeMembersUserTrustedDevices() http.HandlerFunc
 
 	ScrapShip() http.HandlerFunc
 
@@ -274,13 +387,26 @@ type GeneratedHandlers interface {
 	SectorHazardBoards() http.HandlerFunc
 	SectorHazardBoard() http.HandlerFunc
 
+	SectorPilots() http.HandlerFunc
+	SectorPilot() http.HandlerFunc
+
 	ServiceLedgers() http.HandlerFunc
 
-	SetCrewSectorUserPassword() http.HandlerFunc
+	SetCrewSectorTemporaryPassword() http.HandlerFunc
 
-	SetCrewUserPassword() http.HandlerFunc
+	SetCrewSectorUserEmail() http.HandlerFunc
+
+	SetCrewTemporaryPassword() http.HandlerFunc
+
+	SetCrewUserEmail() http.HandlerFunc
 
 	SetFeature() http.HandlerFunc
+
+	SetMembersSectorUserEmail() http.HandlerFunc
+
+	SetMembersUserEmail() http.HandlerFunc
+
+	SetSectorPilotClearance() http.HandlerFunc
 
 	Ships() http.HandlerFunc
 	Ship() http.HandlerFunc
@@ -309,16 +435,24 @@ type GeneratedHandlers interface {
 
 	StartFlightTest() http.HandlerFunc
 
-	UnlinkCrewSectorUserIdentity() http.HandlerFunc
+	UnlinkCrewSectorSessionIdentity() http.HandlerFunc
 
-	UnlinkCrewUserIdentity() http.HandlerFunc
+	UnlinkCrewSessionIdentity() http.HandlerFunc
 
-	UnlinkMembersSectorUserIdentity() http.HandlerFunc
+	UnlinkMembersSectorSessionIdentity() http.HandlerFunc
 
-	UnlinkMembersUserIdentity() http.HandlerFunc
+	UnlinkMembersSessionIdentity() http.HandlerFunc
+
+	UnlockCrewSignIn() http.HandlerFunc
+
+	UnlockMembersSignIn() http.HandlerFunc
 
 	Wings() http.HandlerFunc
 	Wing() http.HandlerFunc
+
+	WithdrawCrewInvitation() http.HandlerFunc
+
+	WithdrawCrewSectorInvitation() http.HandlerFunc
 
 	PatchResources() http.HandlerFunc
 }
@@ -342,6 +476,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	r.Post("/console/api/live/renew", h.LiveRenew())
 	r.Post("/console/api/live/unsubscribe", h.LiveUnsubscribe())
 	r.Get("/console/api/live/token", h.LiveToken())
+
+	r.Post("/console/api/assign-crew-role", h.AssignCrewRole())
+
+	r.Post("/console/api/sectors/{sectorID}/assign-crew-sector-role", domainGuard(h.AssignCrewSectorRole()))
 
 	r.Post("/console/api/sectors/{sectorID}/attach-mission-document", domainGuard(h.AttachMissionDocument()))
 
@@ -401,35 +539,27 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/sectors/{sectorID}/consignments/{consignmentID}", consignmentHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/consignments/{consignmentID}", consignmentHandler)
 
+	r.Post("/console/api/sectors/{sectorID}/create-crew-sector-user", domainGuard(h.CreateCrewSectorUser()))
+
+	r.Post("/console/api/create-crew-user", h.CreateCrewUser())
+
 	bounded.Post("/console/api/create-sector", h.CreateSector())
-
-	crewInvitationsHandler := h.CrewInvitations()
-	bounded.Get("/console/api/crew-invitations", crewInvitationsHandler)
-	bounded.Post("/console/api/crew-invitations", crewInvitationsHandler)
-
-	crewInvitationHandler := h.CrewInvitation()
-	bounded.Get("/console/api/crew-invitations/{crewInvitationID}", crewInvitationHandler)
-	bounded.Post("/console/api/crew-invitations/{crewInvitationID}", crewInvitationHandler)
-
-	bounded.Patch("/console/api/crew-invitations", h.PatchCrewInvitations())
 
 	crewRolesHandler := h.CrewRoles()
 	bounded.Get("/console/api/crew-roles", crewRolesHandler)
 	bounded.Post("/console/api/crew-roles", crewRolesHandler)
 
-	crewRoleHandler := h.CrewRole()
-	bounded.Get("/console/api/crew-roles/{crewRoleName}", crewRoleHandler)
-	bounded.Post("/console/api/crew-roles/{crewRoleName}", crewRoleHandler)
+	crewRoleGrantsHandler := h.CrewRoleGrants()
+	bounded.Get("/console/api/crew-role-grants", crewRoleGrantsHandler)
+	bounded.Post("/console/api/crew-role-grants", crewRoleGrantsHandler)
 
-	crewSeatsHandler := h.CrewSeats()
-	bounded.Get("/console/api/crew-seats", crewSeatsHandler)
-	bounded.Post("/console/api/crew-seats", crewSeatsHandler)
+	crewSectorIdentitiesHandler := domainGuard(h.CrewSectorIdentities())
+	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-identities", crewSectorIdentitiesHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/crew-sector-identities", crewSectorIdentitiesHandler)
 
-	crewSeatHandler := h.CrewSeat()
-	bounded.Get("/console/api/crew-seats/{crewSeatUser}/{crewSeatRole}", crewSeatHandler)
-	bounded.Post("/console/api/crew-seats/{crewSeatUser}/{crewSeatRole}", crewSeatHandler)
-
-	bounded.Patch("/console/api/crew-seats", h.PatchCrewSeats())
+	crewSectorIdentityHandler := domainGuard(h.CrewSectorIdentity())
+	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-identities/{crewSectorIdentityID}", crewSectorIdentityHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/crew-sector-identities/{crewSectorIdentityID}", crewSectorIdentityHandler)
 
 	crewSectorInvitationsHandler := domainGuard(h.CrewSectorInvitations())
 	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-invitations", crewSectorInvitationsHandler)
@@ -439,25 +569,9 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-invitations/{crewSectorInvitationID}", crewSectorInvitationHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/crew-sector-invitations/{crewSectorInvitationID}", crewSectorInvitationHandler)
 
-	bounded.Patch("/console/api/sectors/{sectorID}/crew-sector-invitations", domainGuard(h.PatchCrewSectorInvitations()))
-
 	crewSectorRolesHandler := domainGuard(h.CrewSectorRoles())
 	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-roles", crewSectorRolesHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/crew-sector-roles", crewSectorRolesHandler)
-
-	crewSectorRoleHandler := domainGuard(h.CrewSectorRole())
-	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-roles/{crewSectorRoleName}", crewSectorRoleHandler)
-	bounded.Post("/console/api/sectors/{sectorID}/crew-sector-roles/{crewSectorRoleName}", crewSectorRoleHandler)
-
-	crewSectorSeatsHandler := domainGuard(h.CrewSectorSeats())
-	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-seats", crewSectorSeatsHandler)
-	bounded.Post("/console/api/sectors/{sectorID}/crew-sector-seats", crewSectorSeatsHandler)
-
-	crewSectorSeatHandler := domainGuard(h.CrewSectorSeat())
-	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-seats/{crewSectorSeatUser}/{crewSectorSeatRole}", crewSectorSeatHandler)
-	bounded.Post("/console/api/sectors/{sectorID}/crew-sector-seats/{crewSectorSeatUser}/{crewSectorSeatRole}", crewSectorSeatHandler)
-
-	bounded.Patch("/console/api/sectors/{sectorID}/crew-sector-seats", domainGuard(h.PatchCrewSectorSeats()))
 
 	crewSectorUsersHandler := domainGuard(h.CrewSectorUsers())
 	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-users", crewSectorUsersHandler)
@@ -467,17 +581,97 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-users/{crewSectorUserID}", crewSectorUserHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/crew-sector-users/{crewSectorUserID}", crewSectorUserHandler)
 
-	bounded.Patch("/console/api/sectors/{sectorID}/crew-sector-users", domainGuard(h.PatchCrewSectorUsers()))
+	crewSectorUserRolesHandler := domainGuard(h.CrewSectorUserRoles())
+	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-user-roles", crewSectorUserRolesHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/crew-sector-user-roles", crewSectorUserRolesHandler)
 
-	crewUsersHandler := h.CrewUsers()
-	bounded.Get("/console/api/crew-users", crewUsersHandler)
-	bounded.Post("/console/api/crew-users", crewUsersHandler)
+	crewSectorUserRoleHandler := domainGuard(h.CrewSectorUserRole())
+	bounded.Get("/console/api/sectors/{sectorID}/crew-sector-user-roles/{crewSectorUserRoleUserID}/{crewSectorUserRoleRole}", crewSectorUserRoleHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/crew-sector-user-roles/{crewSectorUserRoleUserID}/{crewSectorUserRoleRole}", crewSectorUserRoleHandler)
 
-	crewUserHandler := h.CrewUser()
-	bounded.Get("/console/api/crew-users/{crewUserID}", crewUserHandler)
-	bounded.Post("/console/api/crew-users/{crewUserID}", crewUserHandler)
+	crewSessionsHandler := h.CrewSessions()
+	bounded.Get("/console/api/crew-sessions", crewSessionsHandler)
+	bounded.Post("/console/api/crew-sessions", crewSessionsHandler)
 
-	bounded.Patch("/console/api/crew-users", h.PatchCrewUsers())
+	crewSessionHandler := h.CrewSession()
+	bounded.Get("/console/api/crew-sessions/{crewSessionID}", crewSessionHandler)
+	bounded.Post("/console/api/crew-sessions/{crewSessionID}", crewSessionHandler)
+
+	crewSessionAuthEventsHandler := h.CrewSessionAuthEvents()
+	bounded.Get("/console/api/crew-session-auth-events", crewSessionAuthEventsHandler)
+	bounded.Post("/console/api/crew-session-auth-events", crewSessionAuthEventsHandler)
+
+	crewSessionIdentitiesHandler := h.CrewSessionIdentities()
+	bounded.Get("/console/api/crew-session-identities", crewSessionIdentitiesHandler)
+	bounded.Post("/console/api/crew-session-identities", crewSessionIdentitiesHandler)
+
+	crewSessionIdentityHandler := h.CrewSessionIdentity()
+	bounded.Get("/console/api/crew-session-identities/{crewSessionIdentityID}", crewSessionIdentityHandler)
+	bounded.Post("/console/api/crew-session-identities/{crewSessionIdentityID}", crewSessionIdentityHandler)
+
+	crewSessionImpersonationsHandler := h.CrewSessionImpersonations()
+	bounded.Get("/console/api/crew-session-impersonations", crewSessionImpersonationsHandler)
+	bounded.Post("/console/api/crew-session-impersonations", crewSessionImpersonationsHandler)
+
+	crewSessionImpersonationHandler := h.CrewSessionImpersonation()
+	bounded.Get("/console/api/crew-session-impersonations/{crewSessionImpersonationSessionID}", crewSessionImpersonationHandler)
+	bounded.Post("/console/api/crew-session-impersonations/{crewSessionImpersonationSessionID}", crewSessionImpersonationHandler)
+
+	crewSessionMailLinksHandler := h.CrewSessionMailLinks()
+	bounded.Get("/console/api/crew-session-mail-links", crewSessionMailLinksHandler)
+	bounded.Post("/console/api/crew-session-mail-links", crewSessionMailLinksHandler)
+
+	crewSessionMailLinkHandler := h.CrewSessionMailLink()
+	bounded.Get("/console/api/crew-session-mail-links/{crewSessionMailLinkID}", crewSessionMailLinkHandler)
+	bounded.Post("/console/api/crew-session-mail-links/{crewSessionMailLinkID}", crewSessionMailLinkHandler)
+
+	crewSessionSignInAttemptsHandler := h.CrewSessionSignInAttempts()
+	bounded.Get("/console/api/crew-session-sign-in-attempts", crewSessionSignInAttemptsHandler)
+	bounded.Post("/console/api/crew-session-sign-in-attempts", crewSessionSignInAttemptsHandler)
+
+	crewSessionTokensHandler := h.CrewSessionTokens()
+	bounded.Get("/console/api/crew-session-tokens", crewSessionTokensHandler)
+	bounded.Post("/console/api/crew-session-tokens", crewSessionTokensHandler)
+
+	crewSessionTokenHandler := h.CrewSessionToken()
+	bounded.Get("/console/api/crew-session-tokens/{crewSessionTokenID}", crewSessionTokenHandler)
+	bounded.Post("/console/api/crew-session-tokens/{crewSessionTokenID}", crewSessionTokenHandler)
+
+	crewSessionTrustedDevicesHandler := h.CrewSessionTrustedDevices()
+	bounded.Get("/console/api/crew-session-trusted-devices", crewSessionTrustedDevicesHandler)
+	bounded.Post("/console/api/crew-session-trusted-devices", crewSessionTrustedDevicesHandler)
+
+	crewSessionTrustedDeviceHandler := h.CrewSessionTrustedDevice()
+	bounded.Get("/console/api/crew-session-trusted-devices/{crewSessionTrustedDeviceID}", crewSessionTrustedDeviceHandler)
+	bounded.Post("/console/api/crew-session-trusted-devices/{crewSessionTrustedDeviceID}", crewSessionTrustedDeviceHandler)
+
+	crewSessionUsersHandler := h.CrewSessionUsers()
+	bounded.Get("/console/api/crew-session-users", crewSessionUsersHandler)
+	bounded.Post("/console/api/crew-session-users", crewSessionUsersHandler)
+
+	crewSessionUserHandler := h.CrewSessionUser()
+	bounded.Get("/console/api/crew-session-users/{crewSessionUserID}", crewSessionUserHandler)
+	bounded.Post("/console/api/crew-session-users/{crewSessionUserID}", crewSessionUserHandler)
+
+	crewUserRolesHandler := h.CrewUserRoles()
+	bounded.Get("/console/api/crew-user-roles", crewUserRolesHandler)
+	bounded.Post("/console/api/crew-user-roles", crewUserRolesHandler)
+
+	r.Post("/console/api/sectors/{sectorID}/delete-crew-sector-user", domainGuard(h.DeleteCrewSectorUser()))
+
+	r.Post("/console/api/delete-crew-user", h.DeleteCrewUser())
+
+	r.Post("/console/api/sectors/{sectorID}/delete-members-sector-user", domainGuard(h.DeleteMembersSectorUser()))
+
+	r.Post("/console/api/delete-members-user", h.DeleteMembersUser())
+
+	r.Post("/console/api/sectors/{sectorID}/disable-crew-sector-user", domainGuard(h.DisableCrewSectorUser()))
+
+	r.Post("/console/api/disable-crew-user", h.DisableCrewUser())
+
+	r.Post("/console/api/sectors/{sectorID}/disable-members-sector-user", domainGuard(h.DisableMembersSectorUser()))
+
+	r.Post("/console/api/disable-members-user", h.DisableMembersUser())
 
 	distressCallsHandler := domainGuard(h.DistressCalls())
 	bounded.Get("/console/api/sectors/{sectorID}/distress-calls", distressCallsHandler)
@@ -486,6 +680,28 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	distressCallHandler := domainGuard(h.DistressCall())
 	bounded.Get("/console/api/sectors/{sectorID}/distress-calls/{distressCallID}", distressCallHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/distress-calls/{distressCallID}", distressCallHandler)
+
+	r.Post("/console/api/sectors/{sectorID}/enable-crew-sector-user", domainGuard(h.EnableCrewSectorUser()))
+
+	r.Post("/console/api/enable-crew-user", h.EnableCrewUser())
+
+	r.Post("/console/api/sectors/{sectorID}/enable-members-sector-user", domainGuard(h.EnableMembersSectorUser()))
+
+	r.Post("/console/api/enable-members-user", h.EnableMembersUser())
+
+	r.Post("/console/api/sectors/{sectorID}/end-crew-sector-user-sessions", domainGuard(h.EndCrewSectorUserSessions()))
+
+	r.Post("/console/api/end-crew-session", h.EndCrewSession())
+
+	r.Post("/console/api/end-crew-session-impersonation", h.EndCrewSessionImpersonation())
+
+	r.Post("/console/api/end-crew-user-sessions", h.EndCrewUserSessions())
+
+	r.Post("/console/api/sectors/{sectorID}/end-members-sector-user-sessions", domainGuard(h.EndMembersSectorUserSessions()))
+
+	r.Post("/console/api/end-members-session", h.EndMembersSession())
+
+	r.Post("/console/api/end-members-user-sessions", h.EndMembersUserSessions())
 
 	expenseManifestsHandler := domainGuard(h.ExpenseManifests())
 	bounded.Get("/console/api/sectors/{sectorID}/expense-manifests", expenseManifestsHandler)
@@ -535,37 +751,29 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	r.Post("/console/api/sectors/{sectorID}/inspect-ship", domainGuard(h.InspectShip()))
 
+	r.Post("/console/api/sectors/{sectorID}/invite-crew-sector-user", domainGuard(h.InviteCrewSectorUser()))
+
+	r.Post("/console/api/invite-crew-user", h.InviteCrewUser())
+
 	r.Post("/console/api/issue-bulletin", h.IssueBulletin())
 
 	r.Post("/console/api/sectors/{sectorID}/launch-mission", domainGuard(h.LaunchMission()))
-
-	membersInvitationsHandler := h.MembersInvitations()
-	bounded.Get("/console/api/members-invitations", membersInvitationsHandler)
-	bounded.Post("/console/api/members-invitations", membersInvitationsHandler)
-
-	membersInvitationHandler := h.MembersInvitation()
-	bounded.Get("/console/api/members-invitations/{membersInvitationID}", membersInvitationHandler)
-	bounded.Post("/console/api/members-invitations/{membersInvitationID}", membersInvitationHandler)
-
-	bounded.Patch("/console/api/members-invitations", h.PatchMembersInvitations())
 
 	membersRolesHandler := h.MembersRoles()
 	bounded.Get("/console/api/members-roles", membersRolesHandler)
 	bounded.Post("/console/api/members-roles", membersRolesHandler)
 
-	membersRoleHandler := h.MembersRole()
-	bounded.Get("/console/api/members-roles/{membersRoleName}", membersRoleHandler)
-	bounded.Post("/console/api/members-roles/{membersRoleName}", membersRoleHandler)
+	membersRoleGrantsHandler := h.MembersRoleGrants()
+	bounded.Get("/console/api/members-role-grants", membersRoleGrantsHandler)
+	bounded.Post("/console/api/members-role-grants", membersRoleGrantsHandler)
 
-	membersSeatsHandler := h.MembersSeats()
-	bounded.Get("/console/api/members-seats", membersSeatsHandler)
-	bounded.Post("/console/api/members-seats", membersSeatsHandler)
+	membersSectorIdentitiesHandler := domainGuard(h.MembersSectorIdentities())
+	bounded.Get("/console/api/sectors/{sectorID}/members-sector-identities", membersSectorIdentitiesHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/members-sector-identities", membersSectorIdentitiesHandler)
 
-	membersSeatHandler := h.MembersSeat()
-	bounded.Get("/console/api/members-seats/{membersSeatUser}/{membersSeatRole}", membersSeatHandler)
-	bounded.Post("/console/api/members-seats/{membersSeatUser}/{membersSeatRole}", membersSeatHandler)
-
-	bounded.Patch("/console/api/members-seats", h.PatchMembersSeats())
+	membersSectorIdentityHandler := domainGuard(h.MembersSectorIdentity())
+	bounded.Get("/console/api/sectors/{sectorID}/members-sector-identities/{membersSectorIdentityID}", membersSectorIdentityHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/members-sector-identities/{membersSectorIdentityID}", membersSectorIdentityHandler)
 
 	membersSectorInvitationsHandler := domainGuard(h.MembersSectorInvitations())
 	bounded.Get("/console/api/sectors/{sectorID}/members-sector-invitations", membersSectorInvitationsHandler)
@@ -575,26 +783,6 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/sectors/{sectorID}/members-sector-invitations/{membersSectorInvitationID}", membersSectorInvitationHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/members-sector-invitations/{membersSectorInvitationID}", membersSectorInvitationHandler)
 
-	bounded.Patch("/console/api/sectors/{sectorID}/members-sector-invitations", domainGuard(h.PatchMembersSectorInvitations()))
-
-	membersSectorRolesHandler := domainGuard(h.MembersSectorRoles())
-	bounded.Get("/console/api/sectors/{sectorID}/members-sector-roles", membersSectorRolesHandler)
-	bounded.Post("/console/api/sectors/{sectorID}/members-sector-roles", membersSectorRolesHandler)
-
-	membersSectorRoleHandler := domainGuard(h.MembersSectorRole())
-	bounded.Get("/console/api/sectors/{sectorID}/members-sector-roles/{membersSectorRoleName}", membersSectorRoleHandler)
-	bounded.Post("/console/api/sectors/{sectorID}/members-sector-roles/{membersSectorRoleName}", membersSectorRoleHandler)
-
-	membersSectorSeatsHandler := domainGuard(h.MembersSectorSeats())
-	bounded.Get("/console/api/sectors/{sectorID}/members-sector-seats", membersSectorSeatsHandler)
-	bounded.Post("/console/api/sectors/{sectorID}/members-sector-seats", membersSectorSeatsHandler)
-
-	membersSectorSeatHandler := domainGuard(h.MembersSectorSeat())
-	bounded.Get("/console/api/sectors/{sectorID}/members-sector-seats/{membersSectorSeatUser}/{membersSectorSeatRole}", membersSectorSeatHandler)
-	bounded.Post("/console/api/sectors/{sectorID}/members-sector-seats/{membersSectorSeatUser}/{membersSectorSeatRole}", membersSectorSeatHandler)
-
-	bounded.Patch("/console/api/sectors/{sectorID}/members-sector-seats", domainGuard(h.PatchMembersSectorSeats()))
-
 	membersSectorUsersHandler := domainGuard(h.MembersSectorUsers())
 	bounded.Get("/console/api/sectors/{sectorID}/members-sector-users", membersSectorUsersHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/members-sector-users", membersSectorUsersHandler)
@@ -603,17 +791,65 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/sectors/{sectorID}/members-sector-users/{membersSectorUserID}", membersSectorUserHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/members-sector-users/{membersSectorUserID}", membersSectorUserHandler)
 
-	bounded.Patch("/console/api/sectors/{sectorID}/members-sector-users", domainGuard(h.PatchMembersSectorUsers()))
+	membersSectorUserRolesHandler := domainGuard(h.MembersSectorUserRoles())
+	bounded.Get("/console/api/sectors/{sectorID}/members-sector-user-roles", membersSectorUserRolesHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/members-sector-user-roles", membersSectorUserRolesHandler)
 
-	membersUsersHandler := h.MembersUsers()
-	bounded.Get("/console/api/members-users", membersUsersHandler)
-	bounded.Post("/console/api/members-users", membersUsersHandler)
+	membersSectorUserRoleHandler := domainGuard(h.MembersSectorUserRole())
+	bounded.Get("/console/api/sectors/{sectorID}/members-sector-user-roles/{membersSectorUserRoleUserID}/{membersSectorUserRoleRole}", membersSectorUserRoleHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/members-sector-user-roles/{membersSectorUserRoleUserID}/{membersSectorUserRoleRole}", membersSectorUserRoleHandler)
 
-	membersUserHandler := h.MembersUser()
-	bounded.Get("/console/api/members-users/{membersUserID}", membersUserHandler)
-	bounded.Post("/console/api/members-users/{membersUserID}", membersUserHandler)
+	membersSessionsHandler := h.MembersSessions()
+	bounded.Get("/console/api/members-sessions", membersSessionsHandler)
+	bounded.Post("/console/api/members-sessions", membersSessionsHandler)
 
-	bounded.Patch("/console/api/members-users", h.PatchMembersUsers())
+	membersSessionHandler := h.MembersSession()
+	bounded.Get("/console/api/members-sessions/{membersSessionID}", membersSessionHandler)
+	bounded.Post("/console/api/members-sessions/{membersSessionID}", membersSessionHandler)
+
+	membersSessionAuthEventsHandler := h.MembersSessionAuthEvents()
+	bounded.Get("/console/api/members-session-auth-events", membersSessionAuthEventsHandler)
+	bounded.Post("/console/api/members-session-auth-events", membersSessionAuthEventsHandler)
+
+	membersSessionIdentitiesHandler := h.MembersSessionIdentities()
+	bounded.Get("/console/api/members-session-identities", membersSessionIdentitiesHandler)
+	bounded.Post("/console/api/members-session-identities", membersSessionIdentitiesHandler)
+
+	membersSessionIdentityHandler := h.MembersSessionIdentity()
+	bounded.Get("/console/api/members-session-identities/{membersSessionIdentityID}", membersSessionIdentityHandler)
+	bounded.Post("/console/api/members-session-identities/{membersSessionIdentityID}", membersSessionIdentityHandler)
+
+	membersSessionMailLinksHandler := h.MembersSessionMailLinks()
+	bounded.Get("/console/api/members-session-mail-links", membersSessionMailLinksHandler)
+	bounded.Post("/console/api/members-session-mail-links", membersSessionMailLinksHandler)
+
+	membersSessionMailLinkHandler := h.MembersSessionMailLink()
+	bounded.Get("/console/api/members-session-mail-links/{membersSessionMailLinkID}", membersSessionMailLinkHandler)
+	bounded.Post("/console/api/members-session-mail-links/{membersSessionMailLinkID}", membersSessionMailLinkHandler)
+
+	membersSessionSignInAttemptsHandler := h.MembersSessionSignInAttempts()
+	bounded.Get("/console/api/members-session-sign-in-attempts", membersSessionSignInAttemptsHandler)
+	bounded.Post("/console/api/members-session-sign-in-attempts", membersSessionSignInAttemptsHandler)
+
+	membersSessionTrustedDevicesHandler := h.MembersSessionTrustedDevices()
+	bounded.Get("/console/api/members-session-trusted-devices", membersSessionTrustedDevicesHandler)
+	bounded.Post("/console/api/members-session-trusted-devices", membersSessionTrustedDevicesHandler)
+
+	membersSessionTrustedDeviceHandler := h.MembersSessionTrustedDevice()
+	bounded.Get("/console/api/members-session-trusted-devices/{membersSessionTrustedDeviceID}", membersSessionTrustedDeviceHandler)
+	bounded.Post("/console/api/members-session-trusted-devices/{membersSessionTrustedDeviceID}", membersSessionTrustedDeviceHandler)
+
+	membersSessionUsersHandler := h.MembersSessionUsers()
+	bounded.Get("/console/api/members-session-users", membersSessionUsersHandler)
+	bounded.Post("/console/api/members-session-users", membersSessionUsersHandler)
+
+	membersSessionUserHandler := h.MembersSessionUser()
+	bounded.Get("/console/api/members-session-users/{membersSessionUserID}", membersSessionUserHandler)
+	bounded.Post("/console/api/members-session-users/{membersSessionUserID}", membersSessionUserHandler)
+
+	membersUserRolesHandler := h.MembersUserRoles()
+	bounded.Get("/console/api/members-user-roles", membersUserRolesHandler)
+	bounded.Post("/console/api/members-user-roles", membersUserRolesHandler)
 
 	missionsHandler := domainGuard(h.Missions())
 	bounded.Get("/console/api/sectors/{sectorID}/missions", missionsHandler)
@@ -699,17 +935,35 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	r.Post("/console/api/sectors/{sectorID}/release-consignment", domainGuard(h.ReleaseConsignment()))
 
+	r.Post("/console/api/remove-crew-role", h.RemoveCrewRole())
+
+	r.Post("/console/api/sectors/{sectorID}/remove-crew-sector-role", domainGuard(h.RemoveCrewSectorRole()))
+
+	r.Post("/console/api/sectors/{sectorID}/rename-crew-sector-user", domainGuard(h.RenameCrewSectorUser()))
+
+	r.Post("/console/api/rename-crew-user", h.RenameCrewUser())
+
+	r.Post("/console/api/sectors/{sectorID}/rename-members-sector-user", domainGuard(h.RenameMembersSectorUser()))
+
+	r.Post("/console/api/rename-members-user", h.RenameMembersUser())
+
 	r.Post("/console/api/sectors/{sectorID}/replace-mission-document", domainGuard(h.ReplaceMissionDocument()))
 
-	bounded.Post("/console/api/sectors/{sectorID}/reset-crew-sector-user-factors", domainGuard(h.ResetCrewSectorUserFactors()))
+	r.Post("/console/api/require-crew-password-change", h.RequireCrewPasswordChange())
 
-	bounded.Post("/console/api/reset-crew-user-factors", h.ResetCrewUserFactors())
-
-	bounded.Post("/console/api/sectors/{sectorID}/reset-members-sector-user-factors", domainGuard(h.ResetMembersSectorUserFactors()))
-
-	bounded.Post("/console/api/reset-members-user-factors", h.ResetMembersUserFactors())
+	r.Post("/console/api/sectors/{sectorID}/require-crew-sector-password-change", domainGuard(h.RequireCrewSectorPasswordChange()))
 
 	r.Post("/console/api/sectors/{sectorID}/resume-mission", domainGuard(h.ResumeMission()))
+
+	r.Post("/console/api/sectors/{sectorID}/revoke-crew-sector-user-trusted-devices", domainGuard(h.RevokeCrewSectorUserTrustedDevices()))
+
+	r.Post("/console/api/revoke-crew-session-token", h.RevokeCrewSessionToken())
+
+	r.Post("/console/api/revoke-crew-user-trusted-devices", h.RevokeCrewUserTrustedDevices())
+
+	r.Post("/console/api/sectors/{sectorID}/revoke-members-sector-user-trusted-devices", domainGuard(h.RevokeMembersSectorUserTrustedDevices()))
+
+	r.Post("/console/api/revoke-members-user-trusted-devices", h.RevokeMembersUserTrustedDevices())
 
 	r.Post("/console/api/sectors/{sectorID}/scrap-ship", domainGuard(h.ScrapShip()))
 
@@ -737,15 +991,33 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/sectors/{sectorID}/sector-hazard-boards/{sectorHazardBoardShipID}/{sectorHazardBoardSubsystem}", sectorHazardBoardHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/sector-hazard-boards/{sectorHazardBoardShipID}/{sectorHazardBoardSubsystem}", sectorHazardBoardHandler)
 
+	sectorPilotsHandler := domainGuard(h.SectorPilots())
+	bounded.Get("/console/api/sectors/{sectorID}/sector-pilots", sectorPilotsHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/sector-pilots", sectorPilotsHandler)
+
+	sectorPilotHandler := domainGuard(h.SectorPilot())
+	bounded.Get("/console/api/sectors/{sectorID}/sector-pilots/{sectorPilotPilotID}", sectorPilotHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/sector-pilots/{sectorPilotPilotID}", sectorPilotHandler)
+
 	serviceLedgersHandler := h.ServiceLedgers()
 	bounded.Get("/console/api/service-ledgers", serviceLedgersHandler)
 	bounded.Post("/console/api/service-ledgers", serviceLedgersHandler)
 
-	bounded.Post("/console/api/sectors/{sectorID}/set-crew-sector-user-password", domainGuard(h.SetCrewSectorUserPassword()))
+	r.Post("/console/api/sectors/{sectorID}/set-crew-sector-temporary-password", domainGuard(h.SetCrewSectorTemporaryPassword()))
 
-	bounded.Post("/console/api/set-crew-user-password", h.SetCrewUserPassword())
+	r.Post("/console/api/sectors/{sectorID}/set-crew-sector-user-email", domainGuard(h.SetCrewSectorUserEmail()))
+
+	r.Post("/console/api/set-crew-temporary-password", h.SetCrewTemporaryPassword())
+
+	r.Post("/console/api/set-crew-user-email", h.SetCrewUserEmail())
 
 	bounded.Post("/console/api/set-feature", h.SetFeature())
+
+	r.Post("/console/api/sectors/{sectorID}/set-members-sector-user-email", domainGuard(h.SetMembersSectorUserEmail()))
+
+	r.Post("/console/api/set-members-user-email", h.SetMembersUserEmail())
+
+	r.Post("/console/api/sectors/{sectorID}/set-sector-pilot-clearance", domainGuard(h.SetSectorPilotClearance()))
 
 	shipsHandler := domainGuard(h.Ships())
 	bounded.Get("/console/api/sectors/{sectorID}/ships", shipsHandler)
@@ -811,13 +1083,17 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	r.Post("/console/api/sectors/{sectorID}/start-flight-test", domainGuard(h.StartFlightTest()))
 
-	bounded.Post("/console/api/sectors/{sectorID}/unlink-crew-sector-user-identity", domainGuard(h.UnlinkCrewSectorUserIdentity()))
+	r.Post("/console/api/sectors/{sectorID}/unlink-crew-sector-session-identity", domainGuard(h.UnlinkCrewSectorSessionIdentity()))
 
-	bounded.Post("/console/api/unlink-crew-user-identity", h.UnlinkCrewUserIdentity())
+	r.Post("/console/api/unlink-crew-session-identity", h.UnlinkCrewSessionIdentity())
 
-	bounded.Post("/console/api/sectors/{sectorID}/unlink-members-sector-user-identity", domainGuard(h.UnlinkMembersSectorUserIdentity()))
+	r.Post("/console/api/sectors/{sectorID}/unlink-members-sector-session-identity", domainGuard(h.UnlinkMembersSectorSessionIdentity()))
 
-	bounded.Post("/console/api/unlink-members-user-identity", h.UnlinkMembersUserIdentity())
+	r.Post("/console/api/unlink-members-session-identity", h.UnlinkMembersSessionIdentity())
+
+	r.Post("/console/api/unlock-crew-sign-in", h.UnlockCrewSignIn())
+
+	r.Post("/console/api/unlock-members-sign-in", h.UnlockMembersSignIn())
 
 	wingsHandler := domainGuard(h.Wings())
 	bounded.Get("/console/api/sectors/{sectorID}/wings", wingsHandler)
@@ -826,6 +1102,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	wingHandler := domainGuard(h.Wing())
 	bounded.Get("/console/api/sectors/{sectorID}/wings/{wingID}", wingHandler)
 	bounded.Post("/console/api/sectors/{sectorID}/wings/{wingID}", wingHandler)
+
+	r.Post("/console/api/withdraw-crew-invitation", h.WithdrawCrewInvitation())
+
+	r.Post("/console/api/sectors/{sectorID}/withdraw-crew-sector-invitation", domainGuard(h.WithdrawCrewSectorInvitation()))
 
 	bounded.Patch("/console/api/resources", h.PatchResources())
 }
@@ -930,43 +1210,68 @@ type GeneratedPortalHandlers interface {
 	ClientRosters() http.HandlerFunc
 	ClientRoster() http.HandlerFunc
 
+	DeleteMembersSectorUser() http.HandlerFunc
+
+	DeleteMembersUser() http.HandlerFunc
+
+	DisableMembersSectorUser() http.HandlerFunc
+
+	DisableMembersUser() http.HandlerFunc
+
 	DistressCalls() http.HandlerFunc
 	DistressCall() http.HandlerFunc
+
+	EnableMembersSectorUser() http.HandlerFunc
+
+	EnableMembersUser() http.HandlerFunc
+
+	EndMembersSectorUserSessions() http.HandlerFunc
+
+	EndMembersSession() http.HandlerFunc
+
+	EndMembersUserSessions() http.HandlerFunc
 
 	FeatureFlags() http.HandlerFunc
 	FeatureFlag() http.HandlerFunc
 
 	Features() http.HandlerFunc
 
-	MembersInvitations() http.HandlerFunc
-	MembersInvitation() http.HandlerFunc
-	PatchMembersInvitations() http.HandlerFunc
-
 	MembersRoles() http.HandlerFunc
-	MembersRole() http.HandlerFunc
 
-	MembersSeats() http.HandlerFunc
-	MembersSeat() http.HandlerFunc
-	PatchMembersSeats() http.HandlerFunc
+	MembersRoleGrants() http.HandlerFunc
+
+	MembersSectorIdentities() http.HandlerFunc
+	MembersSectorIdentity() http.HandlerFunc
 
 	MembersSectorInvitations() http.HandlerFunc
 	MembersSectorInvitation() http.HandlerFunc
-	PatchMembersSectorInvitations() http.HandlerFunc
-
-	MembersSectorRoles() http.HandlerFunc
-	MembersSectorRole() http.HandlerFunc
-
-	MembersSectorSeats() http.HandlerFunc
-	MembersSectorSeat() http.HandlerFunc
-	PatchMembersSectorSeats() http.HandlerFunc
 
 	MembersSectorUsers() http.HandlerFunc
 	MembersSectorUser() http.HandlerFunc
-	PatchMembersSectorUsers() http.HandlerFunc
 
-	MembersUsers() http.HandlerFunc
-	MembersUser() http.HandlerFunc
-	PatchMembersUsers() http.HandlerFunc
+	MembersSectorUserRoles() http.HandlerFunc
+	MembersSectorUserRole() http.HandlerFunc
+
+	MembersSessions() http.HandlerFunc
+	MembersSession() http.HandlerFunc
+
+	MembersSessionAuthEvents() http.HandlerFunc
+
+	MembersSessionIdentities() http.HandlerFunc
+	MembersSessionIdentity() http.HandlerFunc
+
+	MembersSessionMailLinks() http.HandlerFunc
+	MembersSessionMailLink() http.HandlerFunc
+
+	MembersSessionSignInAttempts() http.HandlerFunc
+
+	MembersSessionTrustedDevices() http.HandlerFunc
+	MembersSessionTrustedDevice() http.HandlerFunc
+
+	MembersSessionUsers() http.HandlerFunc
+	MembersSessionUser() http.HandlerFunc
+
+	MembersUserRoles() http.HandlerFunc
 
 	Missions() http.HandlerFunc
 	Mission() http.HandlerFunc
@@ -975,17 +1280,27 @@ type GeneratedPortalHandlers interface {
 	MissionDocument() http.HandlerFunc
 	MissionDocumentContent() http.HandlerFunc
 
-	ResetMembersSectorUserFactors() http.HandlerFunc
+	RenameMembersSectorUser() http.HandlerFunc
 
-	ResetMembersUserFactors() http.HandlerFunc
+	RenameMembersUser() http.HandlerFunc
+
+	RevokeMembersSectorUserTrustedDevices() http.HandlerFunc
+
+	RevokeMembersUserTrustedDevices() http.HandlerFunc
 
 	SetFeature() http.HandlerFunc
 
+	SetMembersSectorUserEmail() http.HandlerFunc
+
+	SetMembersUserEmail() http.HandlerFunc
+
 	StandDownMission() http.HandlerFunc
 
-	UnlinkMembersSectorUserIdentity() http.HandlerFunc
+	UnlinkMembersSectorSessionIdentity() http.HandlerFunc
 
-	UnlinkMembersUserIdentity() http.HandlerFunc
+	UnlinkMembersSessionIdentity() http.HandlerFunc
+
+	UnlockMembersSignIn() http.HandlerFunc
 
 	PatchPortalResources() http.HandlerFunc
 }
@@ -1028,6 +1343,14 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/sectors/{sectorID}/client-rosters/{clientRosterID}", clientRosterHandler)
 	bounded.Post("/portal/api/sectors/{sectorID}/client-rosters/{clientRosterID}", clientRosterHandler)
 
+	r.Post("/portal/api/sectors/{sectorID}/delete-members-sector-user", domainGuard(h.DeleteMembersSectorUser()))
+
+	r.Post("/portal/api/delete-members-user", h.DeleteMembersUser())
+
+	r.Post("/portal/api/sectors/{sectorID}/disable-members-sector-user", domainGuard(h.DisableMembersSectorUser()))
+
+	r.Post("/portal/api/disable-members-user", h.DisableMembersUser())
+
 	distressCallsHandler := domainGuard(h.DistressCalls())
 	bounded.Get("/portal/api/sectors/{sectorID}/distress-calls", distressCallsHandler)
 	bounded.Post("/portal/api/sectors/{sectorID}/distress-calls", distressCallsHandler)
@@ -1035,6 +1358,16 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	distressCallHandler := domainGuard(h.DistressCall())
 	bounded.Get("/portal/api/sectors/{sectorID}/distress-calls/{distressCallID}", distressCallHandler)
 	bounded.Post("/portal/api/sectors/{sectorID}/distress-calls/{distressCallID}", distressCallHandler)
+
+	r.Post("/portal/api/sectors/{sectorID}/enable-members-sector-user", domainGuard(h.EnableMembersSectorUser()))
+
+	r.Post("/portal/api/enable-members-user", h.EnableMembersUser())
+
+	r.Post("/portal/api/sectors/{sectorID}/end-members-sector-user-sessions", domainGuard(h.EndMembersSectorUserSessions()))
+
+	r.Post("/portal/api/end-members-session", h.EndMembersSession())
+
+	r.Post("/portal/api/end-members-user-sessions", h.EndMembersUserSessions())
 
 	featureFlagsHandler := h.FeatureFlags()
 	bounded.Get("/portal/api/feature-flags", featureFlagsHandler)
@@ -1046,33 +1379,21 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 
 	bounded.Get("/portal/api/features", h.Features())
 
-	membersInvitationsHandler := h.MembersInvitations()
-	bounded.Get("/portal/api/members-invitations", membersInvitationsHandler)
-	bounded.Post("/portal/api/members-invitations", membersInvitationsHandler)
-
-	membersInvitationHandler := h.MembersInvitation()
-	bounded.Get("/portal/api/members-invitations/{membersInvitationID}", membersInvitationHandler)
-	bounded.Post("/portal/api/members-invitations/{membersInvitationID}", membersInvitationHandler)
-
-	bounded.Patch("/portal/api/members-invitations", h.PatchMembersInvitations())
-
 	membersRolesHandler := h.MembersRoles()
 	bounded.Get("/portal/api/members-roles", membersRolesHandler)
 	bounded.Post("/portal/api/members-roles", membersRolesHandler)
 
-	membersRoleHandler := h.MembersRole()
-	bounded.Get("/portal/api/members-roles/{membersRoleName}", membersRoleHandler)
-	bounded.Post("/portal/api/members-roles/{membersRoleName}", membersRoleHandler)
+	membersRoleGrantsHandler := h.MembersRoleGrants()
+	bounded.Get("/portal/api/members-role-grants", membersRoleGrantsHandler)
+	bounded.Post("/portal/api/members-role-grants", membersRoleGrantsHandler)
 
-	membersSeatsHandler := h.MembersSeats()
-	bounded.Get("/portal/api/members-seats", membersSeatsHandler)
-	bounded.Post("/portal/api/members-seats", membersSeatsHandler)
+	membersSectorIdentitiesHandler := domainGuard(h.MembersSectorIdentities())
+	bounded.Get("/portal/api/sectors/{sectorID}/members-sector-identities", membersSectorIdentitiesHandler)
+	bounded.Post("/portal/api/sectors/{sectorID}/members-sector-identities", membersSectorIdentitiesHandler)
 
-	membersSeatHandler := h.MembersSeat()
-	bounded.Get("/portal/api/members-seats/{membersSeatUser}/{membersSeatRole}", membersSeatHandler)
-	bounded.Post("/portal/api/members-seats/{membersSeatUser}/{membersSeatRole}", membersSeatHandler)
-
-	bounded.Patch("/portal/api/members-seats", h.PatchMembersSeats())
+	membersSectorIdentityHandler := domainGuard(h.MembersSectorIdentity())
+	bounded.Get("/portal/api/sectors/{sectorID}/members-sector-identities/{membersSectorIdentityID}", membersSectorIdentityHandler)
+	bounded.Post("/portal/api/sectors/{sectorID}/members-sector-identities/{membersSectorIdentityID}", membersSectorIdentityHandler)
 
 	membersSectorInvitationsHandler := domainGuard(h.MembersSectorInvitations())
 	bounded.Get("/portal/api/sectors/{sectorID}/members-sector-invitations", membersSectorInvitationsHandler)
@@ -1082,26 +1403,6 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/sectors/{sectorID}/members-sector-invitations/{membersSectorInvitationID}", membersSectorInvitationHandler)
 	bounded.Post("/portal/api/sectors/{sectorID}/members-sector-invitations/{membersSectorInvitationID}", membersSectorInvitationHandler)
 
-	bounded.Patch("/portal/api/sectors/{sectorID}/members-sector-invitations", domainGuard(h.PatchMembersSectorInvitations()))
-
-	membersSectorRolesHandler := domainGuard(h.MembersSectorRoles())
-	bounded.Get("/portal/api/sectors/{sectorID}/members-sector-roles", membersSectorRolesHandler)
-	bounded.Post("/portal/api/sectors/{sectorID}/members-sector-roles", membersSectorRolesHandler)
-
-	membersSectorRoleHandler := domainGuard(h.MembersSectorRole())
-	bounded.Get("/portal/api/sectors/{sectorID}/members-sector-roles/{membersSectorRoleName}", membersSectorRoleHandler)
-	bounded.Post("/portal/api/sectors/{sectorID}/members-sector-roles/{membersSectorRoleName}", membersSectorRoleHandler)
-
-	membersSectorSeatsHandler := domainGuard(h.MembersSectorSeats())
-	bounded.Get("/portal/api/sectors/{sectorID}/members-sector-seats", membersSectorSeatsHandler)
-	bounded.Post("/portal/api/sectors/{sectorID}/members-sector-seats", membersSectorSeatsHandler)
-
-	membersSectorSeatHandler := domainGuard(h.MembersSectorSeat())
-	bounded.Get("/portal/api/sectors/{sectorID}/members-sector-seats/{membersSectorSeatUser}/{membersSectorSeatRole}", membersSectorSeatHandler)
-	bounded.Post("/portal/api/sectors/{sectorID}/members-sector-seats/{membersSectorSeatUser}/{membersSectorSeatRole}", membersSectorSeatHandler)
-
-	bounded.Patch("/portal/api/sectors/{sectorID}/members-sector-seats", domainGuard(h.PatchMembersSectorSeats()))
-
 	membersSectorUsersHandler := domainGuard(h.MembersSectorUsers())
 	bounded.Get("/portal/api/sectors/{sectorID}/members-sector-users", membersSectorUsersHandler)
 	bounded.Post("/portal/api/sectors/{sectorID}/members-sector-users", membersSectorUsersHandler)
@@ -1110,17 +1411,65 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	bounded.Get("/portal/api/sectors/{sectorID}/members-sector-users/{membersSectorUserID}", membersSectorUserHandler)
 	bounded.Post("/portal/api/sectors/{sectorID}/members-sector-users/{membersSectorUserID}", membersSectorUserHandler)
 
-	bounded.Patch("/portal/api/sectors/{sectorID}/members-sector-users", domainGuard(h.PatchMembersSectorUsers()))
+	membersSectorUserRolesHandler := domainGuard(h.MembersSectorUserRoles())
+	bounded.Get("/portal/api/sectors/{sectorID}/members-sector-user-roles", membersSectorUserRolesHandler)
+	bounded.Post("/portal/api/sectors/{sectorID}/members-sector-user-roles", membersSectorUserRolesHandler)
 
-	membersUsersHandler := h.MembersUsers()
-	bounded.Get("/portal/api/members-users", membersUsersHandler)
-	bounded.Post("/portal/api/members-users", membersUsersHandler)
+	membersSectorUserRoleHandler := domainGuard(h.MembersSectorUserRole())
+	bounded.Get("/portal/api/sectors/{sectorID}/members-sector-user-roles/{membersSectorUserRoleUserID}/{membersSectorUserRoleRole}", membersSectorUserRoleHandler)
+	bounded.Post("/portal/api/sectors/{sectorID}/members-sector-user-roles/{membersSectorUserRoleUserID}/{membersSectorUserRoleRole}", membersSectorUserRoleHandler)
 
-	membersUserHandler := h.MembersUser()
-	bounded.Get("/portal/api/members-users/{membersUserID}", membersUserHandler)
-	bounded.Post("/portal/api/members-users/{membersUserID}", membersUserHandler)
+	membersSessionsHandler := h.MembersSessions()
+	bounded.Get("/portal/api/members-sessions", membersSessionsHandler)
+	bounded.Post("/portal/api/members-sessions", membersSessionsHandler)
 
-	bounded.Patch("/portal/api/members-users", h.PatchMembersUsers())
+	membersSessionHandler := h.MembersSession()
+	bounded.Get("/portal/api/members-sessions/{membersSessionID}", membersSessionHandler)
+	bounded.Post("/portal/api/members-sessions/{membersSessionID}", membersSessionHandler)
+
+	membersSessionAuthEventsHandler := h.MembersSessionAuthEvents()
+	bounded.Get("/portal/api/members-session-auth-events", membersSessionAuthEventsHandler)
+	bounded.Post("/portal/api/members-session-auth-events", membersSessionAuthEventsHandler)
+
+	membersSessionIdentitiesHandler := h.MembersSessionIdentities()
+	bounded.Get("/portal/api/members-session-identities", membersSessionIdentitiesHandler)
+	bounded.Post("/portal/api/members-session-identities", membersSessionIdentitiesHandler)
+
+	membersSessionIdentityHandler := h.MembersSessionIdentity()
+	bounded.Get("/portal/api/members-session-identities/{membersSessionIdentityID}", membersSessionIdentityHandler)
+	bounded.Post("/portal/api/members-session-identities/{membersSessionIdentityID}", membersSessionIdentityHandler)
+
+	membersSessionMailLinksHandler := h.MembersSessionMailLinks()
+	bounded.Get("/portal/api/members-session-mail-links", membersSessionMailLinksHandler)
+	bounded.Post("/portal/api/members-session-mail-links", membersSessionMailLinksHandler)
+
+	membersSessionMailLinkHandler := h.MembersSessionMailLink()
+	bounded.Get("/portal/api/members-session-mail-links/{membersSessionMailLinkID}", membersSessionMailLinkHandler)
+	bounded.Post("/portal/api/members-session-mail-links/{membersSessionMailLinkID}", membersSessionMailLinkHandler)
+
+	membersSessionSignInAttemptsHandler := h.MembersSessionSignInAttempts()
+	bounded.Get("/portal/api/members-session-sign-in-attempts", membersSessionSignInAttemptsHandler)
+	bounded.Post("/portal/api/members-session-sign-in-attempts", membersSessionSignInAttemptsHandler)
+
+	membersSessionTrustedDevicesHandler := h.MembersSessionTrustedDevices()
+	bounded.Get("/portal/api/members-session-trusted-devices", membersSessionTrustedDevicesHandler)
+	bounded.Post("/portal/api/members-session-trusted-devices", membersSessionTrustedDevicesHandler)
+
+	membersSessionTrustedDeviceHandler := h.MembersSessionTrustedDevice()
+	bounded.Get("/portal/api/members-session-trusted-devices/{membersSessionTrustedDeviceID}", membersSessionTrustedDeviceHandler)
+	bounded.Post("/portal/api/members-session-trusted-devices/{membersSessionTrustedDeviceID}", membersSessionTrustedDeviceHandler)
+
+	membersSessionUsersHandler := h.MembersSessionUsers()
+	bounded.Get("/portal/api/members-session-users", membersSessionUsersHandler)
+	bounded.Post("/portal/api/members-session-users", membersSessionUsersHandler)
+
+	membersSessionUserHandler := h.MembersSessionUser()
+	bounded.Get("/portal/api/members-session-users/{membersSessionUserID}", membersSessionUserHandler)
+	bounded.Post("/portal/api/members-session-users/{membersSessionUserID}", membersSessionUserHandler)
+
+	membersUserRolesHandler := h.MembersUserRoles()
+	bounded.Get("/portal/api/members-user-roles", membersUserRolesHandler)
+	bounded.Post("/portal/api/members-user-roles", membersUserRolesHandler)
 
 	missionsHandler := domainGuard(h.Missions())
 	bounded.Get("/portal/api/sectors/{sectorID}/missions", missionsHandler)
@@ -1140,17 +1489,27 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 
 	bounded.Get("/portal/api/sectors/{sectorID}/mission-documents/{missionDocumentID}/content", domainGuard(h.MissionDocumentContent()))
 
-	bounded.Post("/portal/api/sectors/{sectorID}/reset-members-sector-user-factors", domainGuard(h.ResetMembersSectorUserFactors()))
+	r.Post("/portal/api/sectors/{sectorID}/rename-members-sector-user", domainGuard(h.RenameMembersSectorUser()))
 
-	bounded.Post("/portal/api/reset-members-user-factors", h.ResetMembersUserFactors())
+	r.Post("/portal/api/rename-members-user", h.RenameMembersUser())
+
+	r.Post("/portal/api/sectors/{sectorID}/revoke-members-sector-user-trusted-devices", domainGuard(h.RevokeMembersSectorUserTrustedDevices()))
+
+	r.Post("/portal/api/revoke-members-user-trusted-devices", h.RevokeMembersUserTrustedDevices())
 
 	bounded.Post("/portal/api/set-feature", h.SetFeature())
 
+	r.Post("/portal/api/sectors/{sectorID}/set-members-sector-user-email", domainGuard(h.SetMembersSectorUserEmail()))
+
+	r.Post("/portal/api/set-members-user-email", h.SetMembersUserEmail())
+
 	r.Post("/portal/api/sectors/{sectorID}/stand-down-mission", domainGuard(h.StandDownMission()))
 
-	bounded.Post("/portal/api/sectors/{sectorID}/unlink-members-sector-user-identity", domainGuard(h.UnlinkMembersSectorUserIdentity()))
+	r.Post("/portal/api/sectors/{sectorID}/unlink-members-sector-session-identity", domainGuard(h.UnlinkMembersSectorSessionIdentity()))
 
-	bounded.Post("/portal/api/unlink-members-user-identity", h.UnlinkMembersUserIdentity())
+	r.Post("/portal/api/unlink-members-session-identity", h.UnlinkMembersSessionIdentity())
+
+	r.Post("/portal/api/unlock-members-sign-in", h.UnlockMembersSignIn())
 
 	bounded.Patch("/portal/api/resources", h.PatchPortalResources())
 }

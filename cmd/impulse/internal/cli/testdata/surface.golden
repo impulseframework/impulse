@@ -152,8 +152,8 @@ checks:
   auths-wired
   roles-file
   persona-cast
-  administrator-roles
   directory-admission
+  tenant-accounts
   second-factor
   change-signal
   conditions-proven

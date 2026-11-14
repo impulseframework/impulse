@@ -28,9 +28,12 @@ the page loads, checked against the session's tenant list, and nothing else writ
 header's picker opens the same page under the chosen tenant, and a URL naming a tenant the
 session cannot reach lands on the refusal page (`/tenants/{tenantID}/refused`), which shows
 the server's answer. The dashboard lives outside a tenant and under it, and each
-application's Users page is split the same way: the auth's global partition at `/users`,
-the tenant's partition at `/tenants/{tenantID}/users` with the route's tenant as the
-component's domain.
+application manages its auth's people in both places the same way: the whole
+application's accounts (`/staff-accounts` on the console, `/members-accounts` on the
+portal), a tenant's people under the tenant (`/tenants/{tenantID}/staff-people`,
+`/tenants/{tenantID}/members-people`). The library draws them from the API description
+(`identityRoutes` in each application's `app.routes.ts`), and a tenant's pages read the
+tenant from the URL (`RESOURCE_DOMAIN` in `app.config.ts`).
 
 Who may enter a tenant is the record's declaration, data of the application rather than
 deploy configuration: the directories the tenant admits its people through
@@ -105,22 +108,55 @@ generated router test proves the route sits behind the token check.
   validated against the generated collection when the auth's engine opens. A domain role
   is held in every tenant domain, so nothing provisions a file per tenant. A role is named
   for its job in PascalCase (`Administrator`, `TenantAdministrator`, `DeviceOperator`),
-  never for where it is held: the file's structure says that, and the Users page shows it
-  as the role's kind. Every role carries a description, one or two plain sentences saying
-  what it is for, which the Users page shows beside the name; a role without one is
-  refused. The staff file
-  authors `Administrator` over the tenant record and the global partition of the
-  staff auth's user-management surface (`StaffUsers`, `StaffSeats`, `StaffInvitations`, `StaffRoles`,
-  `SetStaffUserPassword`), `TenantAdministrator` over the console's announcements and the
-  surface's tenant partition (`StaffTenantUsers` and its siblings), and `DeviceOperator`,
+  never for where it is held: the file's structure says that. Every role carries a
+  description, one or two plain sentences saying what it is for, which the lists of the
+  roles (`StaffRoles`, and a tenant's `StaffTenantRoles`) answer beside the name; a role
+  without one is refused. The staff file
+  authors `Administrator` over the tenant record and the whole application's side of the
+  staff auth's generated management (`pkg/identity`), `TenantAdministrator` over the
+  console's announcements and the management's tenant side, and `DeviceOperator`,
   the role of the people whose programs read and write the readings through the devices
   outlet, over the readings; the members file authors
-  `TenantAdministrator` over the portal's announcements and the members auth's tenant
-  partition (`MembersTenantUsers` and its siblings). A new resource stays invisible until a role in its auth's file is granted
+  `TenantAdministrator` over the portal's announcements and the tenant side of the
+  members auth's management, and no role of the whole application, so the members' lists
+  and methods for the whole application are served and granted to nobody until a role is
+  written for them. An account is one row for the whole application, whichever tenants
+  its person holds a role in, so the methods a tenant changes an account through (a
+  temporary password, a new name, a delete and the rest) are granted to a tenant's
+  administrator under a condition: the tenant holds the person alone
+  (`heldElsewhere = false AND heldGlobally = false`). Without it one tenant's
+  administrator could set a password on an account that also manages another tenant or
+  the application. The address and the directory's subject of a person another tenant
+  holds too are left out of the tenant's lists the same way (`heldElsewhere = false`), a
+  role held in every tenant is not one tenant's to take (`everyDomain = false`), and an
+  invitation is withdrawn while it stands (`pending = true`);
+  `test/integration/tenant_people_test.go` proves each of them for the staff on the
+  console and `tenant_members_test.go` for the members on the portal. A new resource stays invisible until a role in its auth's file is granted
   it. Every grant in either file is proven live by `test/integration/grants_test.go`, which
   opens each auth the way the deployment does and asks its engine about each
   unconditional grant; a conditional grant is proven by a test case that names it through
   `provesGrant`, and `impulse check` fails on one no case names.
+- `pkg/identity` holds each auth's management of its people, written by the generator
+  (`GenerateIdentity`) as code of this application; the generator owns the tree whole.
+  Each auth has two sides. The whole application's: the lists (`StaffSessionUsers`,
+  `StaffUserRoles`, `StaffSessionMailLinks`, `StaffSessions` and the rest) and the methods
+  (`CreateStaffUser`, `InviteStaffUser`, `AssignStaffRole`, `SetStaffTemporaryPassword`
+  and the rest). A tenant's, under the tenant segment and named with the tenant record:
+  the lists of its people, the roles held in it, its invitations, its people's sign-in
+  identities and the roles it gives (`StaffTenantUsers`, `StaffTenantUserRoles`,
+  `StaffTenantInvitations`, `StaffTenantIdentities`, `StaffTenantRoles`), and the methods
+  (`CreateStaffTenantUser`, `InviteStaffTenantUser`, `AssignStaffTenantRole` and the
+  rest). The members' carry the same names with `Members` for `Staff`, served on the
+  portal, without the methods that create an account or set a password: the members
+  sign in through a directory, which presents the account, and hold no password. All of it is served like every other resource and method and
+  granted in the auth's role file. Each auth builds its client when it opens
+  (its package's `New`, answered by its `Auth.Identity`) with the roles that count as an
+  administrator's (the auth package's `AdministratorRoles`), so neither the application
+  nor a tenant is left with nobody to give the next role, and sets the client's two hooks
+  on its session manager, through which a sign-in gives a role in the transaction of the
+  step that causes it: an accepted invitation's roles, and the default role of a
+  directory a tenant declares. No auth is open without them. Neither browser application writes a
+  page for any of it: the library builds them from the API description.
 - `pkg/deploy` holds the database steps a deployment runs: the schema migrations, then
   each auth's role policy check (`CheckRoles`), which prints what its store holds that
   this release cannot use as written. Then `MigrateFeatures` brings the `FeatureFlags` table
@@ -130,7 +166,7 @@ generated router test proves the route sits behind the token check.
   (`APP_STAFF_ADMINISTRATOR_PASSWORD`, a generated secret), holding the development
   administrator's roles; the members auth's administrator role memberships in every domain under the
   sign-in name the placement names (`APP_MEMBERS_ADMINISTRATOR`), which the first person
-  to sign in holds. A user that exists stops the seed; the administration surface
+  to sign in holds. A user that exists stops the seed; the auth's management
   creates every user after the first, and the bootstrap creates the development logins
   instead. `cmd/deployment/migrate` is the deploy step;
   `cmd/bootstrap` reuses it to stand up an emulator database, seeds the development
@@ -223,7 +259,7 @@ serves every outlet on `$PORT` (:8093). The first run
 compiles and bootstraps before it listens; wait for "Starting Server" in the server pane.
 
 The auths mail: an administrator invites a person by address with the roles the invitation
-seats, a signed-in person adds and verifies an address, and every sign-in that carries no
+gives, a signed-in person adds and verifies an address, and every sign-in that carries no
 second factor of its own (a password, or a directory the deployment does not administer)
 is mailed a sign-in code, which the login page asks for; a browser the person asks to be
 remembered is not asked again. In development the mail is written to the server's log,

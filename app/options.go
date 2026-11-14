@@ -323,6 +323,7 @@ type optionSpec struct {
 var knownOptions = map[string]optionSpec{
 	optGenerateHandlers:          {kind: kindResourceOption, params: []paramKind{paramString}},
 	"GenerateHandlerTests":       {kind: kindResourceOption, params: []paramKind{paramString}},
+	"GenerateIdentity":           {kind: kindResourceOption, params: []paramKind{paramString}},
 	"ApplicationName":            {kind: kindResourceOption, params: []paramKind{paramString}},
 	optGenerateRoutes:            {kind: kindResourceOption, params: []paramKind{paramString, paramString}, variadic: paramOutletOption},
 	optGenerateRouter:            {kind: kindResourceOption},

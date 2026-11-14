@@ -130,6 +130,7 @@ linters:
           - go.opentelemetry.io/proto/otlp
           - go.uber.org/mock
           - go/ast
+          - go/build
           - go/constant
           - go/format
           - go/parser
@@ -372,12 +373,20 @@ linters:
       path: generation/servedrouter\.go
       text: G101
     - linters:
+      - gosec
+      path: generation/templates_identity\.go
+      text: G101
+    - linters:
       - paralleltest
       path: generation/options_test\.go
       text: TestApplicationName
     - linters:
       - paralleltest
       path: generation/cache_test\.go
+    - linters:
+      - paralleltest
+      path: generation/identity_test\.go
+      text: Test_prepareIdentity
     - linters:
       - funlen
       path: resource/(.*/)?resourceset\.go

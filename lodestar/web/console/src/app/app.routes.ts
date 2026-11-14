@@ -1,12 +1,13 @@
 import { Routes } from '@angular/router';
+import { apiDescriptor } from '@app/service/zz_gen_api';
 import { DomainRoutePath, resourceMeta } from '@app/service/zz_gen_resources';
 import { LoginAuthenticationGuard } from '@impulseframework/resource-angular/auth-authentication-guard';
+import { identityRoutes } from '@impulseframework/resource-angular/identity-pages';
 import { resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
 import { sectorRoute, watchDeskRoute } from '@components/sector/sector.routes';
 import { refusedSegment } from '@components/sector/sector.service';
 import { tokensRoute } from '@components/ui/tokens/tokens.routes';
 import { UiComponent } from '@components/ui/ui.component';
-import { usersRoute } from '@components/ui/users/users.routes';
 import { clientsConfig } from './configs/clients.config';
 import { commendationsConfig } from './configs/commendations.config';
 import { distressCallsConfig } from './configs/distressCalls.config';
@@ -65,13 +66,27 @@ export const routes: Routes = [
       // Demonstrates: @feature.
       resourceRoutes(commendationsConfig, resourceMeta),
       resourceRoutes(sectorsConfig, resourceMeta),
-      // The Users page composes the library's user-management component over the global
-      // partitions of the surfaces the console serves; it joins the Headquarters group the
-      // config-driven pages above registered. The sector's crew is the sector's own page.
-      usersRoute(),
+      // The crew's accounts across the whole service: the accounts with a person's row
+      // page (the roles held, the linked identities and the sessions under it), every
+      // mailed link, the sessions and the failed sign-ins. No page is written for them
+      // here: the generator describes the management it writes for an auth
+      // (GenerateIdentity) in the API description, and the library builds the pages from
+      // the description, each a list whose rows offer the generated methods the caller
+      // may run on them.
+      //
+      // Demonstrates: auth.generated-identity, auth.identity-pages, list.row-methods.
+      ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Crew', scope: 'global' }),
+      // The clients' accounts, the same pages over the other auth's management: the
+      // console serves it because the generator program says the console manages the
+      // members auth (Manages). A directory writes the members' roles at every sign-in, so
+      // the description names no method that gives or takes a role, creates an account or
+      // invites one, and the pages draw none.
+      //
+      // Demonstrates: auth.generated-identity, auth.identity-pages.
+      ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' }),
       // The Tokens page composes the library's tokens component over the descriptor's
       // tokens block: a crew member's own tokens for the droids outlet, in the
-      // Headquarters group with the Users page.
+      // Headquarters group.
       tokensRoute(),
       // The device page, where a command-line client sends a crew member for approval
       // (/console/device?userCode=..., the crew auth's DevicePage); no navigation item.
@@ -108,6 +123,18 @@ export const routes: Routes = [
         resourceRoutes(squadronsConfig, resourceMeta),
         resourceRoutes(missionDocumentsConfig, resourceMeta),
         resourceRoutes(distressCallsConfig, resourceMeta),
+        // The sector's people and its invitations, with a person's row page (the roles
+        // held here and the identities under it): the tenant's side of the same generated
+        // management, built by the library from the same description. The Sector Marshal
+        // sees Disable on a person the sector holds alone and no such entry on a person
+        // who also holds a role elsewhere: the role file's condition on the method's
+        // grant decides, row by row, and no page repeats it. The Marshal's grant on the
+        // method that gives a role carries a condition on the role given
+        // (new.role != 'SectorMarshal' in pkg/auth/crew/roles.json), so the dialog
+        // rehearses the call with a dry run when a role is picked.
+        //
+        // Demonstrates: auth.generated-identity, auth.identity-pages, list.row-methods, method.rehearsal.
+        ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Crew', scope: 'domain' }),
       ]),
       { path: '**', redirectTo: 'dashboard' },
     ],

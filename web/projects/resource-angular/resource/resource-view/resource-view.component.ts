@@ -11,6 +11,7 @@ import {
   OnInit,
   output,
   signal,
+  untracked,
   WritableSignal,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -21,15 +22,19 @@ import { MatDividerModule } from '@angular/material/divider';
 import { MatExpansionPanel, MatExpansionPanelHeader, MatExpansionPanelTitle } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
 import { MatInputModule } from '@angular/material/input';
+import { MatMenuModule } from '@angular/material/menu';
 import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { ActivatedRoute, Router, RouterModule } from '@angular/router';
+import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { FormStateService } from '@impulseframework/resource-angular/resource-services';
 import { sparseFormData } from '@impulseframework/resource-angular/forms';
 import {
   AlertType,
   DataType,
+  ExecutePermission,
   FieldElement,
   ListViewConfig,
+  Method,
   RecordData,
   Resource,
   RESOURCE_META,
@@ -47,6 +52,8 @@ import {
 } from '../actions/action-button-smart/action-access-control-wrapper.component';
 import { RpcButtonComponent } from '../actions/rpc-button/rpc-button.component';
 import { DeleteResourceConfirmationModalComponent } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
+import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
+import { filledMethods, OfferedMethod, rowMethods } from '../row-methods/row-methods';
 import { civildateCoercion, flattenElements } from '../gui-constants';
 import { ResourceCreateComponent } from '../resource-create/resource-create.component';
 import { ResourceLayoutComponent } from '../resource-layout/resource-layout.component';
@@ -60,6 +67,7 @@ import { maxLengthValidator, metadataTypeCoercion, unchangedFieldWarning } from 
     FormsModule,
     ReactiveFormsModule,
     MatInputModule,
+    MatMenuModule,
     RouterModule,
     MatButtonModule,
     MatIconModule,
@@ -92,6 +100,7 @@ export class ResourceViewComponent implements OnInit {
   router = inject(Router);
   activatedRoute = inject(ActivatedRoute);
   notifications = inject(NotificationService);
+  private auth = inject(AuthService);
   store = inject(ResourceStore);
   injector = inject(Injector);
   destroyRef = inject(DestroyRef);
@@ -195,6 +204,63 @@ export class ResourceViewComponent implements OnInit {
       shouldRender: (data: RecordData): boolean => commonConfig.config.shouldRenderActions.delete(data),
     } satisfies ActionButtonContext;
   });
+
+  /**
+   * The generated methods the row offers: those that run against a row of the page's
+   * resource (`@target` naming it) and that the row's own Execute answer lists, less the
+   * ones the page hides. The server judged each for this row and this caller, so the
+   * page offers what the caller may run here and nothing else. None while the row is
+   * not on hand, while the page creates a row, and where the page switches them off
+   * (`rowMethods: false`).
+   */
+  rowMethods = computed<OfferedMethod[]>(() => {
+    const config = this.config();
+    const resource = this.store.resourceName();
+    if (!config || config.rowMethods === false || !resource || !this.store.rowPresent() || this.showCreateForm()) {
+      return [];
+    }
+    const row = this.store.viewData();
+    const presentations = config.rowMethods || undefined;
+    return [
+      ...rowMethods(row, this.store.methodsTargeting(resource as Resource), this.store.methodMeta, presentations),
+      // The methods the page fills from the row and that name no target row: offered
+      // while the digest grants the caller Execute on them.
+      ...filledMethods(row, presentations, this.store.methodMeta, (method) =>
+        this.auth.hasPermission({ resource: method as Method, permission: ExecutePermission }),
+      ),
+    ];
+  });
+
+  /**
+   * Runs a method against the page's row through its dialog. Once it has run the page
+   * says so and reads the row and its child lists again; a row the method removed takes
+   * the page back to where it was opened from (see the constructor).
+   */
+  runMethod(method: OfferedMethod): void {
+    openMethodDialog(this.dialog, method, this.store.viewData()).subscribe((result) => {
+      if (!result) {
+        return;
+      }
+      this.notifications.addGlobalNotification({
+        message: methodDoneMessage(method),
+        type: AlertType.SUCCESS,
+        duration: 5000,
+        link: '',
+      });
+      this.store.rowChanged();
+    });
+  }
+
+  /**
+   * The row is gone after a method ran: the page says the row left, and a row page goes
+   * back to where it was opened from, as it does after its own Delete.
+   */
+  private leaveGoneRow(): void {
+    this.deleted.emit(true);
+    if (this.compoundResourceView() && this.navAfterDelete() !== false) {
+      this.location.back();
+    }
+  }
 
   inlineRpcConfigs = computed(() => {
     const config = this.config();
@@ -337,6 +403,8 @@ export class ResourceViewComponent implements OnInit {
       this.store.resourceName.set(resource);
       this.store.resourceMeta.set(this.resourceMeta(resource));
     }
+    // A page that offers none of its row's methods asks the server nothing about them.
+    this.store.viewMethods.set(this.config().rowMethods !== false);
 
     this.inlineRpcConfigs();
     this.endRpcConfigs();
@@ -560,6 +628,29 @@ export class ResourceViewComponent implements OnInit {
       this.store.liveChoice.set(this.config().live);
       if (!create) {
         this.store.buildStoreViewData();
+      }
+    });
+
+    // After a method ran against the row or under it the row is read again. When that
+    // read answers that the row is no longer there (the method deleted it, or took away
+    // what made it a row of this list), the page leaves; any other answer stays.
+    let settled = this.store.rowChanges();
+    effect(() => {
+      const status = this.store.viewStatus();
+      const changes = this.store.rowChanges();
+      if (changes === settled) {
+        return;
+      }
+      if (status === 'resolved') {
+        settled = changes;
+        return;
+      }
+      if (status === 'error') {
+        settled = changes;
+        const error = untracked(() => this.store.viewError());
+        if (error instanceof ApiError && error.status === 404) {
+          untracked(() => this.leaveGoneRow());
+        }
       }
     });
   }

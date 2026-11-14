@@ -6,18 +6,17 @@ package app
 import (
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/lodestar/pkg/router"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/signin"
 )
 
-// The Sector record's create seats its creator as the first administrator of the new
-// sector (resource.SeatFirstAdministrator, after the commit) with the roles
-// SectorAdministratorRoles names, through the Crew auth's user-management surface:
-// the application supplies both beside the generated contract.
+// The Sector record's create makes its creator the first administrator of the new
+// sector: the roles SectorAdministratorRoles names are given in the
+// transaction that writes the row, through the Crew auth's generated identity
+// client (CrewIdentity, which the auth's generated handlers ask of the
+// application too). The application supplies the roles beside the generated contract.
 var _ interface {
 	SectorAdministratorRoles() []accesstypes.Role
-	CrewUserSurface() *resource.UserSurface[router.CrewAuth]
 } = (*App)(nil)
 
 // sectorDeclaration names where the Sector record keeps its declaration of who
@@ -66,7 +65,8 @@ func NewSectorDeclarationReader() signin.DeclarationReader[*spanner.ReadWriteTra
 // directory vouches for is seated with at their first sign-in, none for a NULL, and the
 // sector admits them by invitation only),
 // read in the sign-in's own transaction. The application hands it to the auth whose
-// people enter sectors, beside the seat hook (resource.SeatDeclared).
+// people enter sectors, beside the hook that gives the default role (the
+// auth's generated identity client's DirectorySeated).
 func NewSectorDirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTransaction] {
 	return resource.NewTenantDirectoryReader(&sectorDeclaration)
 }

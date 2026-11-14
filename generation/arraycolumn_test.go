@@ -98,30 +98,35 @@ func Test_listColumnTags(t *testing.T) {
 	}
 }
 
-// Test_listFieldEnumerate pins the field-scope @enumerate a list field refuses at
-// extraction, on every path that reads the annotation: a slice on a table, a named list
-// type and a Go array on a view, and a slice of keys on a computed resource and on a
-// request, each refused naming the struct and the field with the one sentence and
-// nothing about the argument, since the refusal precedes its reading; and the byte slice
-// admitted beside them on a table and on a request, one value on the wire, whose
-// declaration is recorded or resolved as any other.
+// Test_listFieldEnumerate pins the field-scope @enumerate on a list field, on every
+// path that reads the annotation. A row holds one picked key, so a slice on a table, a
+// named list type and a Go array on a view, and a slice of keys on a computed resource
+// are refused; a request may take several picked keys, so a slice of keys on a request
+// is admitted and marked a list, and a slice of nested values, which holds no key, is
+// refused. Each refusal names the struct and the field with the one sentence and nothing
+// about the argument, since it precedes the argument's reading. The byte slice admitted
+// on a table and on a request is one value on the wire, whose declaration is recorded
+// or resolved as any other.
 func Test_listFieldEnumerate(t *testing.T) {
 	t.Parallel()
 
 	structs := fixtureStructs(loadFixture(t, "arrayfixture"))
 
 	tests := []struct {
-		name       string
-		structName string
-		kind       string // the struct's kind keyword
-		wantField  string // the refused field; empty when the declaration is admitted
+		name        string
+		structName  string
+		kind        string // the struct's kind keyword
+		wantField   string // the refused field; empty when the declaration is admitted
+		wantRefusal string // the refusal's sentence; listFieldEnumerateRefusal when empty
+		wantList    bool   // the admitted request field takes several keys
 	}{
 		{name: "a slice on a table is refused", structName: "Crate", kind: resourceKeyword, wantField: "Labels"},
 		{name: "a byte slice on a table is admitted", structName: "Parcel", kind: resourceKeyword},
 		{name: "a named list type on a view is refused", structName: "NamedListView", kind: virtualKeyword, wantField: "Sizes"},
 		{name: "an array on a view is refused", structName: "ArrayView", kind: virtualKeyword, wantField: "Slots"},
 		{name: "a slice of keys on a computed resource is refused", structName: "Ledger", kind: computedKeyword, wantField: "HoldIDs"},
-		{name: "a slice of keys on a request is refused", structName: "Stow", kind: rpcKeyword, wantField: "HoldIDs"},
+		{name: "a slice of keys on a request is admitted as several picked keys", structName: "Stow", kind: rpcKeyword, wantList: true},
+		{name: "a slice of nested values on a request is refused", structName: "Load", kind: rpcKeyword, wantField: "Lots", wantRefusal: nestedListEnumerateRefusal},
 		{name: "a byte slice on a request is admitted", structName: "Stamp", kind: rpcKeyword},
 	}
 
@@ -131,7 +136,7 @@ func Test_listFieldEnumerate(t *testing.T) {
 
 			c := &client{
 				tableMap:  arrayFixtureTables(),
-				resources: []*resourceInfo{fixtureResource(t, structs, "Manifest", nil)},
+				resources: []*resourceInfo{fixtureResource(t, structs, "Manifest", nil), fixtureResource(t, structs, "Hold", nil)},
 			}
 			pStruct := []*parser.Struct{structs[tt.structName]}
 			var (
@@ -151,6 +156,12 @@ func Test_listFieldEnumerate(t *testing.T) {
 				var methods []*rpcMethodInfo
 				methods, err = c.structsToRPCMethods(pStruct)
 				declared = err == nil && methods[0].Fields[0].IsEnumerated()
+				if declared && methods[0].Fields[0].isList() != tt.wantList {
+					t.Errorf("the admitted field takes several keys = %t, want %t", methods[0].Fields[0].isList(), tt.wantList)
+				}
+				if declared && tt.wantList && methods[0].Fields[0].TypescriptDisplayType() != enumeratedDisplayType+sliceSuffix {
+					t.Errorf("the admitted list's display type = %q, want %q", methods[0].Fields[0].TypescriptDisplayType(), enumeratedDisplayType+sliceSuffix)
+				}
 			default:
 				t.Fatalf("unknown struct kind %q", tt.kind)
 			}
@@ -164,14 +175,18 @@ func Test_listFieldEnumerate(t *testing.T) {
 
 				return
 			}
+			refusal := tt.wantRefusal
+			if refusal == "" {
+				refusal = listFieldEnumerateRefusal
+			}
 			if err == nil {
-				t.Fatalf("extraction error = nil, want %q on %s", listFieldEnumerateRefusal, tt.wantField)
+				t.Fatalf("extraction error = nil, want %q on %s", refusal, tt.wantField)
 			}
 			got := err.Error()
-			if !strings.Contains(got, tt.wantField) || !strings.Contains(got, listFieldEnumerateRefusal) {
-				t.Errorf("extraction error = %v, want it to name %s with %q", err, tt.wantField, listFieldEnumerateRefusal)
+			if !strings.Contains(got, tt.wantField) || !strings.Contains(got, refusal) {
+				t.Errorf("extraction error = %v, want it to name %s with %q", err, tt.wantField, refusal)
 			}
-			if strings.Count(got, listFieldEnumerateRefusal) != 1 || strings.Contains(got, "@"+enumerateKeyword+"(") {
+			if strings.Count(got, refusal) != 1 || strings.Contains(got, "@"+enumerateKeyword+"(") {
 				t.Errorf("extraction error = %v, want the one sentence and nothing about the argument", err)
 			}
 		})

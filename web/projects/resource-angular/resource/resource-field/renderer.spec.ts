@@ -12,6 +12,8 @@ describe('rendererFor', () => {
     { displayType: 'date', want: 'date' },
     { displayType: 'civildate', want: 'date' },
     { displayType: 'enumerated', want: 'enumerated' },
+    // A method's request field that holds several picked keys is the picker too.
+    { displayType: 'enumerated[]', want: 'enumerated' },
     { displayType: 'bytes', want: 'bytes' },
     { displayType: 'object', want: 'object' },
     { displayType: 'string[]', want: 'array' },

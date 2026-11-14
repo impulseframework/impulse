@@ -14,7 +14,7 @@ import (
 	"github.com/go-playground/validator/v10"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/auth/staff"
-	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/router"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/identity/staffidentity"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
@@ -57,11 +57,10 @@ type Configurer interface {
 	// Staff returns the auth this surface binds to: the staff auth, whose session manager
 	// the App composes its login and session handlers from.
 	Staff() *staff.Auth
-	// StaffUserStores are the stores the staff auth's user-management surface serves over:
-	// the staff session's accounts and the staff engine's seats. New builds the surface
-	// with the generated constructor (router.NewStaffUserSurface); the generated handlers
-	// of the staff users, seats and roles delegate to it.
-	StaffUserStores() (resource.UserAccounts, resource.UserSeats)
+	// StaffIdentity is the staff auth's identity client (pkg/identity/staffidentity,
+	// generated): what the generated methods that manage the staff's people run over.
+	// The data level builds it over the auth's permission engine and its session manager.
+	StaffIdentity() *staffidentity.Client
 	// Live is the live service the generated handlers subscribe through and publish to
 	// (LiveService) and the feature flags follow (Start): the Firestore service over the
 	// database or the emulator the data level opened, required in every application.
@@ -85,7 +84,9 @@ type Configurer interface {
 type App struct {
 	access access.Controller
 	*staff.Handlers
-	staffUsers     *resource.UserSurface[router.StaffAuth]
+	// staffIdentity is the staff auth's identity client, which the generated handlers of
+	// pkg/identity read through StaffIdentity.
+	staffIdentity  *staffidentity.Client
 	resourceClient resource.Client
 	cursorKey      *resource.CursorKey
 	validate       *validator.Validate
@@ -106,14 +107,10 @@ type App struct {
 
 // New constructs an App from its dependencies.
 func New(cfg Configurer) *App {
-	// The user-management surfaces over the auths' stores: each knows its auth's
-	// administrator roles (resource.WithAdministratorRoles), so a self-unseat is judged
-	// by the last-owner rule.
-	staffAccounts, staffSeats := cfg.StaffUserStores()
 	a := &App{
 		access:         cfg.Access(),
 		resourceClient: cfg.ResourceClient(),
-		staffUsers:     router.NewStaffUserSurface(staffAccounts, staffSeats, resource.WithAdministratorRoles(staff.AdministratorRoles())),
+		staffIdentity:  cfg.StaffIdentity(),
 		cursorKey:      cfg.CursorKey(),
 		validate:       cfg.Validator(),
 		logExporter:    cfg.LogExporter(),

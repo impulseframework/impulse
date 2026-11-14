@@ -116,6 +116,38 @@ func TestQuerySet_stmt_readRendering(t *testing.T) {
 			wantSQL:    "SELECT Id, Public, Tagged FROM enforcementResources WHERE (`enforcementResources`.`Station` = @domain) AND (`enforcementResources`.`Owner` = @subject)",
 			wantParams: map[string]any{"subject": "u1", "domain": "testDomain"},
 		},
+		// The key sits outside the visibility rules, so a projection of the key
+		// alone has no column's condition to stand for the row's: the condition on
+		// the resource is the row predicate there, and a row no grant admits is
+		// not listed whatever the request selects.
+		{
+			name:   "a request for the key alone is filtered by the condition on the resource",
+			fields: []accesstypes.Field{"ID"},
+			decisions: accesstypes.Decisions{
+				enforcedResource:             conditionalOn(enforcedResource, "owner = subject"),
+				enforcedResource + ".public": conditionalOn(enforcedResource+".public", "owner = subject"),
+			},
+			wantSQL:    "SELECT Id FROM enforcementResources WHERE (`enforcementResources`.`Station` = @domain) AND (`enforcementResources`.`Owner` = @subject)",
+			wantParams: map[string]any{"subject": "u1", "domain": "testDomain"},
+		},
+		{
+			name:   "the key alone under two grants on the resource is filtered by either",
+			fields: []accesstypes.Field{"ID"},
+			decisions: accesstypes.Decisions{
+				enforcedResource: conditionalOn(enforcedResource, "owner = subject OR priority = 3"),
+			},
+			wantSQL:    "SELECT Id FROM enforcementResources WHERE (`enforcementResources`.`Station` = @domain) AND (`enforcementResources`.`Owner` = @subject OR `enforcementResources`.`Priority` = @_c1)",
+			wantParams: map[string]any{"subject": "u1", "domain": "testDomain", "_c1": int64(3)},
+		},
+		{
+			name:   "the key alone under an unconditional grant on the resource is every row of the tenant",
+			fields: []accesstypes.Field{"ID"},
+			decisions: accesstypes.Decisions{
+				enforcedResource + ".public": conditionalOn(enforcedResource+".public", "owner = subject"),
+			},
+			wantSQL:    "SELECT Id FROM enforcementResources WHERE (`enforcementResources`.`Station` = @domain)",
+			wantParams: map[string]any{"domain": "testDomain"},
+		},
 		{
 			name:   "partial pruning keeps the narrower column's CASE and mask term",
 			fields: []accesstypes.Field{"ID", "Public", "Tagged"},

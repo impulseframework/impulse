@@ -284,6 +284,12 @@ func (r *resourceGenerator) Generate() error {
 	r.warnings = nil
 	r.findings = nil
 
+	// The generated management of every declared auth is written first, declarations and
+	// methods, so the load below reads them beside the application's own.
+	if err := r.prepareIdentity(); err != nil {
+		return err
+	}
+
 	// Resilient load: stale generated output from a previous run must not stop the
 	// run that would overwrite it. Anything tolerated here is re-checked strictly
 	// after generation below.
@@ -313,15 +319,8 @@ func (r *resourceGenerator) Generate() error {
 	}
 	r.manualRegistrations = append(r.manualRegistrations, annotatedRegistrations...)
 
-	if r.genVirtualResources {
-		virtualStructs := parser.ParsePackage(packageMap[r.virtual.Package()]).Structs
-		virtualResources, err := r.structsToVirtualResources(virtualStructs, r.validateStructNameMatchesFile(pkg, true), validateNoPermTags, validateConditionsTags, validateMaskingTags)
-		if err != nil {
-			return err
-		}
-
-		r.resources = append(r.resources, virtualResources...)
-		sortResources(r.resources)
+	if err := r.extractResourcesBesideTheApplications(packageMap, pkg); err != nil {
+		return err
 	}
 
 	if err := r.validateManualAddResourceSets(); err != nil {
@@ -471,18 +470,39 @@ func (r *resourceGenerator) finishGeneration(toleratedStaleOutput bool) error {
 // presence and signature against the package's types, so the refusal names the
 // function and its shape instead of a compile error in generated code.
 func (r *resourceGenerator) extractComputedResources(packageMap map[string]*packages.Package, pkg *packages.Package) error {
-	if !r.genComputedResources {
-		return nil
+	if r.genComputedResources {
+		computedPkg := packageMap[r.computed.Package()]
+		computedResources, err := r.structsToCompResources(parser.ParsePackage(computedPkg).Structs, r.validateStructNameMatchesFile(pkg, true), validateNoPermTags, validateConditionsTags, validateMaskingTags)
+		if err != nil {
+			return err
+		}
+		r.computedResources = computedResources
+		if err := validateComputedContentFunctions(computedPkg.Types, r.computedResources); err != nil {
+			return err
+		}
 	}
 
-	computedPkg := packageMap[r.computed.Package()]
-	computedResources, err := r.structsToCompResources(parser.ParsePackage(computedPkg).Structs, r.validateStructNameMatchesFile(pkg, true), validateNoPermTags, validateConditionsTags, validateMaskingTags)
+	// The computed resources of an auth's generated management, declared beside its
+	// methods. They carry no file, so no content function is theirs to check.
+	generated, err := r.identityComputedResources(packageMap, pkg)
 	if err != nil {
 		return err
 	}
-	r.computedResources = computedResources
+	own := make(map[string]string, len(r.computedResources))
+	for _, res := range r.computedResources {
+		own[res.Name()] = r.computed.Dir()
+	}
+	if err := refuseIdentityNamesTaken(generated, func(res *computedResource) *identityInstance { return res.identity }, own); err != nil {
+		return err
+	}
+	if len(generated) > 0 {
+		r.computedResources = append(r.computedResources, generated...)
+		slices.SortStableFunc(r.computedResources, func(a, b *computedResource) int {
+			return strings.Compare(a.Name(), b.Name())
+		})
+	}
 
-	return validateComputedContentFunctions(computedPkg.Types, r.computedResources)
+	return nil
 }
 
 // runWiringGeneration renders the enabled wiring outputs: routes, handlers,
@@ -507,22 +527,78 @@ func (r *resourceGenerator) runWiringGeneration() error {
 	return nil
 }
 
-// extractAndGenerateRPC parses the RPC package into rpcMethods, the scheduled methods
-// apart, and runs the RPC generation, when enabled.
-func (r *resourceGenerator) extractAndGenerateRPC(packageMap map[string]*packages.Package, pkg *packages.Package) error {
-	if !r.genRPCMethods {
-		return nil
+// extractResourcesBesideTheApplications adds the resources declared outside the resources
+// package to the run's: the views of the virtual package, and the declarations of every
+// auth's generated management, each marked with its instance.
+func (r *resourceGenerator) extractResourcesBesideTheApplications(packageMap map[string]*packages.Package, pkg *packages.Package) error {
+	var beside []*resourceInfo
+	if r.genVirtualResources {
+		virtualStructs := parser.ParsePackage(packageMap[r.virtual.Package()]).Structs
+		virtualResources, err := r.structsToVirtualResources(virtualStructs, r.validateStructNameMatchesFile(pkg, true), validateNoPermTags, validateConditionsTags, validateMaskingTags)
+		if err != nil {
+			return err
+		}
+		beside = append(beside, virtualResources...)
 	}
-
-	rpcStructs := parser.ParsePackage(packageMap[r.rpc.Package()]).Structs
-	if len(rpcStructs) == 0 {
-		log.Printf("(RPC Generation) No structs in package %q annotated with @rpc", r.rpc.Dir())
+	// The sources of the generated management were written for the tenant record read
+	// before the load; the load's own reading is known now.
+	if err := r.holdIdentityTenant(); err != nil {
+		return err
 	}
-
-	methods, err := r.structsToRPCMethods(rpcStructs, r.validateStructNameMatchesFile(pkg, false), validateNoPermTags, validateConditionsTags, validateMaskingTags)
+	identityResources, err := r.identityResources(packageMap, pkg)
 	if err != nil {
 		return err
 	}
+	own := make(map[string]string, len(r.resources)+len(beside))
+	for _, res := range r.resources {
+		own[res.Name()] = r.resource.Dir()
+	}
+	for _, res := range beside {
+		own[res.Name()] = r.virtual.Dir()
+	}
+	if err := refuseIdentityNamesTaken(identityResources, func(res *resourceInfo) *identityInstance { return res.identity }, own); err != nil {
+		return err
+	}
+	beside = append(beside, identityResources...)
+	if len(beside) > 0 {
+		r.resources = append(r.resources, beside...)
+		sortResources(r.resources)
+	}
+
+	return nil
+}
+
+// extractAndGenerateRPC parses the RPC package into rpcMethods, the scheduled methods
+// apart, and runs the RPC generation, when enabled.
+func (r *resourceGenerator) extractAndGenerateRPC(packageMap map[string]*packages.Package, pkg *packages.Package) error {
+	if !r.hasRPC() {
+		return nil
+	}
+
+	methods, err := r.identityMethods(packageMap, pkg)
+	if err != nil {
+		return err
+	}
+	if r.genRPCMethods {
+		rpcStructs := parser.ParsePackage(packageMap[r.rpc.Package()]).Structs
+		if len(rpcStructs) == 0 {
+			log.Printf("(RPC Generation) No structs in package %q annotated with @rpc", r.rpc.Dir())
+		}
+
+		own, err := r.structsToRPCMethods(rpcStructs, r.validateStructNameMatchesFile(pkg, false), validateNoPermTags, validateConditionsTags, validateMaskingTags)
+		if err != nil {
+			return err
+		}
+		names := make(map[string]string, len(own))
+		for _, method := range own {
+			names[method.Name()] = r.rpc.Dir()
+		}
+		if err := refuseIdentityNamesTaken(methods, func(method *rpcMethodInfo) *identityInstance { return method.identity }, names); err != nil {
+			return err
+		}
+		methods = append(methods, own...)
+	}
+	sortMethods(methods)
 	r.rpcMethods, r.scheduledMethods = splitScheduled(methods)
 	if err := r.requireRouterForSchedules(); err != nil {
 		return err
@@ -619,11 +695,6 @@ func (r *resourceGenerator) buildUnifiedTypescriptGenerator(gc *resource.Generat
 	t.client = r.client
 	t.rc = gc
 	t.routerResources = routerResources
-	surfaces, err := r.userSurfaces()
-	if err != nil {
-		return nil, err
-	}
-	t.userSurfaces = surfaces
 	t.tokenIssuers = r.tokenIssuers()
 	t.manualRegistrations = r.manualRegistrations
 	t.domainRouteSegment = r.domainRouteSegment
@@ -699,18 +770,23 @@ func (r *resourceGenerator) runResourcesGeneration() (map[packageDir][]string, e
 	return storage, nil
 }
 
+// generateResourceInterfaces writes each home's Resourcer union: the application's over
+// its own table, view and computed resources, an instance's over its declarations.
 func (r *resourceGenerator) generateResourceInterfaces() error {
-	destinationFile := filepath.Join(r.handler.Dir(), generatedGoFileName(resourceInterfaceOutputName))
+	for _, home := range r.homes() {
+		computed := r.computedOf(home)
+		destinationFile := filepath.Join(home.dir.Dir(), generatedGoFileName(resourceInterfaceOutputName))
 
-	if err := r.writeFormattedGoFile(destinationFile, "resourcesInterfaceTemplate", resourcesInterfaceTemplate, &resourceInterfacesData{
-		Source:                   r.resource.Dir(),
-		Package:                  r.handler.Package(),
-		ResourcesPackage:         r.resource.Package(),
-		ComputedResourcesPackage: r.computed.Package(),
-		Types:                    r.resources,
-		ComputedResourceTypes:    r.computedResources,
-	}); err != nil {
-		return errors.Wrap(err, "writeFormattedGoFile()")
+		if err := r.writeFormattedGoFile(destinationFile, "resourcesInterfaceTemplate", resourcesInterfaceTemplate, &resourceInterfacesData{
+			Source:                   home.resources.Dir(),
+			Package:                  home.dir.Package(),
+			ResourcesPackage:         home.resources.Package(),
+			ComputedResourcesPackage: home.computed.Package(),
+			Types:                    r.resourcesOf(home),
+			ComputedResourceTypes:    computed,
+		}); err != nil {
+			return errors.Wrap(err, "writeFormattedGoFile()")
+		}
 	}
 
 	return nil
@@ -723,13 +799,9 @@ func (r *resourceGenerator) generateResources(res *resourceInfo) error {
 		packageName         string
 		destinationFilePath string
 	)
-	if !res.IsVirtual {
-		packageName = r.resource.Package()
-		destinationFilePath = filepath.Join(r.resource.Dir(), fileName)
-	} else {
-		packageName = r.virtual.Package()
-		destinationFilePath = filepath.Join(r.virtual.Dir(), fileName)
-	}
+	home := r.resourcesDirOf(res)
+	packageName = home.Package()
+	destinationFilePath = filepath.Join(home.Dir(), fileName)
 
 	if err := r.writeFormattedGoFile(destinationFilePath, "resourceFileTemplate", resourceFileTemplate, &resourceFileData{
 		Source:   r.resource.Dir(),

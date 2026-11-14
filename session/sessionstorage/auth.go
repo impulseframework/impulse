@@ -278,12 +278,13 @@ type AuthStore[Tx any] interface {
 	// administrator's reset of the person's factors.
 	RevokeTrustedDevices(ctx context.Context, userID impulse.UUID) error
 	// AcceptInvitation accepts inv for user userID in one transaction: the
-	// invitation is consumed and the user's address is set from it when the user
-	// holds no verified address, in one transaction; once it has committed, accept,
-	// the application's hook, grants what the invitation names, outside any
-	// transaction; nil for none. An invitation that is no longer live is NotFound,
-	// and nothing is written.
-	AcceptInvitation(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor) error
+	// invitation is consumed, the user's address is set from it when the user holds
+	// no verified address, and accept, the application's hook (nil for none), gives
+	// what the invitation names, handed the transaction; what the hook asks to have
+	// run after the commit runs once it has landed. An invitation that is no longer
+	// live is NotFound (signin.ErrInvitationExpired its cause), and nothing is
+	// written; a hook that fails is its error, and nothing is written either.
+	AcceptInvitation(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor[Tx]) error
 }
 
 // MailLink is a row of the mail links table: one single-use link the library mailed.
@@ -417,10 +418,10 @@ type SignInRules[Tx any] struct {
 	Account     signin.AccountRule[Tx]
 	Standard    signin.StandardAccountRule
 	Policy      signin.Policy[Tx]
-	Accept      signinflow.InvitationAcceptor
+	Accept      signinflow.InvitationAcceptor[Tx]
 	Directories signin.DirectoryReader[Tx]
 	Roles       signin.UserRoleManager
-	Seat        signinflow.DirectorySeater
+	Seat        signinflow.DirectorySeater[Tx]
 	// TrustedDevice reports whether the browser signing in is a trusted device of
 	// the user, which stands in for the second factor a RequireMFA asks; nil for none.
 	TrustedDevice signinflow.TrustedDeviceCheck
@@ -449,7 +450,7 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 }
 
 // AcceptInvitation implements AuthStore.
-func (a *Auth[Tx]) AcceptInvitation(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor) error {
+func (a *Auth[Tx]) AcceptInvitation(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation, accept signinflow.InvitationAcceptor[Tx]) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 

@@ -6,6 +6,32 @@ export interface FieldPointer {
   field: FieldName;
 }
 
+export interface AssignCrewRoleConfig {
+  username: string | FieldPointer;
+  role: string | FieldPointer;
+  domain?: string | FieldPointer;
+  everyDomain: boolean | FieldPointer;
+}
+export interface AssignCrewRole {
+  username: string;
+  role: string;
+  domain?: string;
+  everyDomain: boolean;
+}
+/** The statuses AssignCrewRole declares; the method chooses one per response. */
+export type AssignCrewRoleStatus = 204;
+
+export interface AssignCrewSectorRoleConfig {
+  userId: string | FieldPointer;
+  role: string | FieldPointer;
+}
+export interface AssignCrewSectorRole {
+  userId: string;
+  role: string;
+}
+/** The statuses AssignCrewSectorRole declares; the method chooses one per response. */
+export type AssignCrewSectorRoleStatus = 204;
+
 export interface AttachMissionDocumentConfig {
   missionId: string | FieldPointer;
   title: string | FieldPointer;
@@ -101,6 +127,215 @@ export namespace CompleteMission {
   }
 }
 
+export interface CreateCrewSectorUserConfig {
+  username: string | FieldPointer;
+  email?: string | FieldPointer;
+  password?: string | FieldPointer;
+  roles: string[] | FieldPointer;
+}
+export interface CreateCrewSectorUser {
+  username: string;
+  email?: string;
+  password?: string;
+  roles: string[];
+}
+/** The result CreateCrewSectorUser answers with. */
+export interface CreateCrewSectorUserResult {
+  id: string;
+}
+
+export interface CreateCrewUserConfig {
+  username: string | FieldPointer;
+  email?: string | FieldPointer;
+  password?: string | FieldPointer;
+  roles: string[] | FieldPointer;
+  domain?: string | FieldPointer;
+  everyDomain: boolean | FieldPointer;
+}
+export interface CreateCrewUser {
+  username: string;
+  email?: string;
+  password?: string;
+  roles: string[];
+  domain?: string;
+  everyDomain: boolean;
+}
+/** The result CreateCrewUser answers with. */
+export interface CreateCrewUserResult {
+  id: string;
+}
+
+export interface DeleteCrewSectorUserConfig {
+  userId: string | FieldPointer;
+}
+export interface DeleteCrewSectorUser {
+  userId: string;
+}
+/** The statuses DeleteCrewSectorUser declares; the method chooses one per response. */
+export type DeleteCrewSectorUserStatus = 204;
+
+export interface DeleteCrewUserConfig {
+  userId: string | FieldPointer;
+}
+export interface DeleteCrewUser {
+  userId: string;
+}
+/** The statuses DeleteCrewUser declares; the method chooses one per response. */
+export type DeleteCrewUserStatus = 204;
+
+export interface DeleteMembersSectorUserConfig {
+  userId: string | FieldPointer;
+}
+export interface DeleteMembersSectorUser {
+  userId: string;
+}
+/** The statuses DeleteMembersSectorUser declares; the method chooses one per response. */
+export type DeleteMembersSectorUserStatus = 204;
+
+export interface DeleteMembersUserConfig {
+  userId: string | FieldPointer;
+}
+export interface DeleteMembersUser {
+  userId: string;
+}
+/** The statuses DeleteMembersUser declares; the method chooses one per response. */
+export type DeleteMembersUserStatus = 204;
+
+export interface DisableCrewSectorUserConfig {
+  userId: string | FieldPointer;
+}
+export interface DisableCrewSectorUser {
+  userId: string;
+}
+/** The statuses DisableCrewSectorUser declares; the method chooses one per response. */
+export type DisableCrewSectorUserStatus = 204;
+
+export interface DisableCrewUserConfig {
+  userId: string | FieldPointer;
+}
+export interface DisableCrewUser {
+  userId: string;
+}
+/** The statuses DisableCrewUser declares; the method chooses one per response. */
+export type DisableCrewUserStatus = 204;
+
+export interface DisableMembersSectorUserConfig {
+  userId: string | FieldPointer;
+}
+export interface DisableMembersSectorUser {
+  userId: string;
+}
+/** The statuses DisableMembersSectorUser declares; the method chooses one per response. */
+export type DisableMembersSectorUserStatus = 204;
+
+export interface DisableMembersUserConfig {
+  userId: string | FieldPointer;
+}
+export interface DisableMembersUser {
+  userId: string;
+}
+/** The statuses DisableMembersUser declares; the method chooses one per response. */
+export type DisableMembersUserStatus = 204;
+
+export interface EnableCrewSectorUserConfig {
+  userId: string | FieldPointer;
+}
+export interface EnableCrewSectorUser {
+  userId: string;
+}
+/** The statuses EnableCrewSectorUser declares; the method chooses one per response. */
+export type EnableCrewSectorUserStatus = 204;
+
+export interface EnableCrewUserConfig {
+  userId: string | FieldPointer;
+}
+export interface EnableCrewUser {
+  userId: string;
+}
+/** The statuses EnableCrewUser declares; the method chooses one per response. */
+export type EnableCrewUserStatus = 204;
+
+export interface EnableMembersSectorUserConfig {
+  userId: string | FieldPointer;
+}
+export interface EnableMembersSectorUser {
+  userId: string;
+}
+/** The statuses EnableMembersSectorUser declares; the method chooses one per response. */
+export type EnableMembersSectorUserStatus = 204;
+
+export interface EnableMembersUserConfig {
+  userId: string | FieldPointer;
+}
+export interface EnableMembersUser {
+  userId: string;
+}
+/** The statuses EnableMembersUser declares; the method chooses one per response. */
+export type EnableMembersUserStatus = 204;
+
+export interface EndCrewSectorUserSessionsConfig {
+  userId: string | FieldPointer;
+}
+export interface EndCrewSectorUserSessions {
+  userId: string;
+}
+/** The statuses EndCrewSectorUserSessions declares; the method chooses one per response. */
+export type EndCrewSectorUserSessionsStatus = 204;
+
+export interface EndCrewSessionConfig {
+  sessionId: string | FieldPointer;
+}
+export interface EndCrewSession {
+  sessionId: string;
+}
+/** The statuses EndCrewSession declares; the method chooses one per response. */
+export type EndCrewSessionStatus = 204;
+
+export interface EndCrewSessionImpersonationConfig {
+  sessionId: string | FieldPointer;
+}
+export interface EndCrewSessionImpersonation {
+  sessionId: string;
+}
+/** The statuses EndCrewSessionImpersonation declares; the method chooses one per response. */
+export type EndCrewSessionImpersonationStatus = 204;
+
+export interface EndCrewUserSessionsConfig {
+  userId: string | FieldPointer;
+}
+export interface EndCrewUserSessions {
+  userId: string;
+}
+/** The statuses EndCrewUserSessions declares; the method chooses one per response. */
+export type EndCrewUserSessionsStatus = 204;
+
+export interface EndMembersSectorUserSessionsConfig {
+  userId: string | FieldPointer;
+}
+export interface EndMembersSectorUserSessions {
+  userId: string;
+}
+/** The statuses EndMembersSectorUserSessions declares; the method chooses one per response. */
+export type EndMembersSectorUserSessionsStatus = 204;
+
+export interface EndMembersSessionConfig {
+  sessionId: string | FieldPointer;
+}
+export interface EndMembersSession {
+  sessionId: string;
+}
+/** The statuses EndMembersSession declares; the method chooses one per response. */
+export type EndMembersSessionStatus = 204;
+
+export interface EndMembersUserSessionsConfig {
+  userId: string | FieldPointer;
+}
+export interface EndMembersUserSessions {
+  userId: string;
+}
+/** The statuses EndMembersUserSessions declares; the method chooses one per response. */
+export type EndMembersUserSessionsStatus = 204;
+
 export interface FailFlightTestConfig {
   refitId: string | FieldPointer;
 }
@@ -160,6 +395,36 @@ export namespace InspectShip {
   }
 }
 
+export interface InviteCrewSectorUserConfig {
+  email: string | FieldPointer;
+  roles: string[] | FieldPointer;
+}
+export interface InviteCrewSectorUser {
+  email: string;
+  roles: string[];
+}
+/** The result InviteCrewSectorUser answers with. */
+export interface InviteCrewSectorUserResult {
+  id: string;
+  sent: boolean;
+}
+
+export interface InviteCrewUserConfig {
+  email: string | FieldPointer;
+  roles: string[] | FieldPointer;
+  domain?: string | FieldPointer;
+}
+export interface InviteCrewUser {
+  email: string;
+  roles: string[];
+  domain?: string;
+}
+/** The result InviteCrewUser answers with. */
+export interface InviteCrewUserResult {
+  id: string;
+  sent: boolean;
+}
+
 export interface IssueBulletinConfig {
   announcement: string | FieldPointer;
 }
@@ -198,12 +463,100 @@ export interface ReleaseConsignmentResult {
   releasedAt: Date;
 }
 
+export interface RemoveCrewRoleConfig {
+  username: string | FieldPointer;
+  role: string | FieldPointer;
+  domain?: string | FieldPointer;
+  everyDomain: boolean | FieldPointer;
+}
+export interface RemoveCrewRole {
+  username: string;
+  role: string;
+  domain?: string;
+  everyDomain: boolean;
+}
+/** The statuses RemoveCrewRole declares; the method chooses one per response. */
+export type RemoveCrewRoleStatus = 204;
+
+export interface RemoveCrewSectorRoleConfig {
+  userId: string | FieldPointer;
+  role: string | FieldPointer;
+}
+export interface RemoveCrewSectorRole {
+  userId: string;
+  role: string;
+}
+/** The statuses RemoveCrewSectorRole declares; the method chooses one per response. */
+export type RemoveCrewSectorRoleStatus = 204;
+
+export interface RenameCrewSectorUserConfig {
+  userId: string | FieldPointer;
+  username: string | FieldPointer;
+}
+export interface RenameCrewSectorUser {
+  userId: string;
+  username: string;
+}
+/** The statuses RenameCrewSectorUser declares; the method chooses one per response. */
+export type RenameCrewSectorUserStatus = 204;
+
+export interface RenameCrewUserConfig {
+  userId: string | FieldPointer;
+  username: string | FieldPointer;
+}
+export interface RenameCrewUser {
+  userId: string;
+  username: string;
+}
+/** The statuses RenameCrewUser declares; the method chooses one per response. */
+export type RenameCrewUserStatus = 204;
+
+export interface RenameMembersSectorUserConfig {
+  userId: string | FieldPointer;
+  username: string | FieldPointer;
+}
+export interface RenameMembersSectorUser {
+  userId: string;
+  username: string;
+}
+/** The statuses RenameMembersSectorUser declares; the method chooses one per response. */
+export type RenameMembersSectorUserStatus = 204;
+
+export interface RenameMembersUserConfig {
+  userId: string | FieldPointer;
+  username: string | FieldPointer;
+}
+export interface RenameMembersUser {
+  userId: string;
+  username: string;
+}
+/** The statuses RenameMembersUser declares; the method chooses one per response. */
+export type RenameMembersUserStatus = 204;
+
 export interface ReplaceMissionDocumentConfig {
   documentId: string | FieldPointer;
 }
 export interface ReplaceMissionDocument {
   documentId: string;
 }
+
+export interface RequireCrewPasswordChangeConfig {
+  userId: string | FieldPointer;
+}
+export interface RequireCrewPasswordChange {
+  userId: string;
+}
+/** The statuses RequireCrewPasswordChange declares; the method chooses one per response. */
+export type RequireCrewPasswordChangeStatus = 204;
+
+export interface RequireCrewSectorPasswordChangeConfig {
+  userId: string | FieldPointer;
+}
+export interface RequireCrewSectorPasswordChange {
+  userId: string;
+}
+/** The statuses RequireCrewSectorPasswordChange declares; the method chooses one per response. */
+export type RequireCrewSectorPasswordChangeStatus = 204;
 
 export interface ResumeMissionConfig {
   missionId: string | FieldPointer;
@@ -212,12 +565,134 @@ export interface ResumeMission {
   missionId: string;
 }
 
+export interface RevokeCrewSectorUserTrustedDevicesConfig {
+  userId: string | FieldPointer;
+}
+export interface RevokeCrewSectorUserTrustedDevices {
+  userId: string;
+}
+/** The statuses RevokeCrewSectorUserTrustedDevices declares; the method chooses one per response. */
+export type RevokeCrewSectorUserTrustedDevicesStatus = 204;
+
+export interface RevokeCrewSessionTokenConfig {
+  tokenId: string | FieldPointer;
+}
+export interface RevokeCrewSessionToken {
+  tokenId: string;
+}
+/** The statuses RevokeCrewSessionToken declares; the method chooses one per response. */
+export type RevokeCrewSessionTokenStatus = 204;
+
+export interface RevokeCrewUserTrustedDevicesConfig {
+  userId: string | FieldPointer;
+}
+export interface RevokeCrewUserTrustedDevices {
+  userId: string;
+}
+/** The statuses RevokeCrewUserTrustedDevices declares; the method chooses one per response. */
+export type RevokeCrewUserTrustedDevicesStatus = 204;
+
+export interface RevokeMembersSectorUserTrustedDevicesConfig {
+  userId: string | FieldPointer;
+}
+export interface RevokeMembersSectorUserTrustedDevices {
+  userId: string;
+}
+/** The statuses RevokeMembersSectorUserTrustedDevices declares; the method chooses one per response. */
+export type RevokeMembersSectorUserTrustedDevicesStatus = 204;
+
+export interface RevokeMembersUserTrustedDevicesConfig {
+  userId: string | FieldPointer;
+}
+export interface RevokeMembersUserTrustedDevices {
+  userId: string;
+}
+/** The statuses RevokeMembersUserTrustedDevices declares; the method chooses one per response. */
+export type RevokeMembersUserTrustedDevicesStatus = 204;
+
 export interface ScrapShipConfig {
   refitId: string | FieldPointer;
 }
 export interface ScrapShip {
   refitId: string;
 }
+
+export interface SetCrewSectorTemporaryPasswordConfig {
+  userId: string | FieldPointer;
+  password: string | FieldPointer;
+}
+export interface SetCrewSectorTemporaryPassword {
+  userId: string;
+  password: string;
+}
+/** The statuses SetCrewSectorTemporaryPassword declares; the method chooses one per response. */
+export type SetCrewSectorTemporaryPasswordStatus = 204;
+
+export interface SetCrewSectorUserEmailConfig {
+  userId: string | FieldPointer;
+  email?: string | FieldPointer;
+}
+export interface SetCrewSectorUserEmail {
+  userId: string;
+  email?: string;
+}
+/** The statuses SetCrewSectorUserEmail declares; the method chooses one per response. */
+export type SetCrewSectorUserEmailStatus = 204;
+
+export interface SetCrewTemporaryPasswordConfig {
+  userId: string | FieldPointer;
+  password: string | FieldPointer;
+}
+export interface SetCrewTemporaryPassword {
+  userId: string;
+  password: string;
+}
+/** The statuses SetCrewTemporaryPassword declares; the method chooses one per response. */
+export type SetCrewTemporaryPasswordStatus = 204;
+
+export interface SetCrewUserEmailConfig {
+  userId: string | FieldPointer;
+  email?: string | FieldPointer;
+}
+export interface SetCrewUserEmail {
+  userId: string;
+  email?: string;
+}
+/** The statuses SetCrewUserEmail declares; the method chooses one per response. */
+export type SetCrewUserEmailStatus = 204;
+
+export interface SetMembersSectorUserEmailConfig {
+  userId: string | FieldPointer;
+  email?: string | FieldPointer;
+}
+export interface SetMembersSectorUserEmail {
+  userId: string;
+  email?: string;
+}
+/** The statuses SetMembersSectorUserEmail declares; the method chooses one per response. */
+export type SetMembersSectorUserEmailStatus = 204;
+
+export interface SetMembersUserEmailConfig {
+  userId: string | FieldPointer;
+  email?: string | FieldPointer;
+}
+export interface SetMembersUserEmail {
+  userId: string;
+  email?: string;
+}
+/** The statuses SetMembersUserEmail declares; the method chooses one per response. */
+export type SetMembersUserEmailStatus = 204;
+
+export interface SetSectorPilotClearanceConfig {
+  pilotId: string | FieldPointer;
+  clearance: number | FieldPointer;
+}
+export interface SetSectorPilotClearance {
+  pilotId: string;
+  clearance: number;
+}
+/** The statuses SetSectorPilotClearance declares; the method chooses one per response. */
+export type SetSectorPilotClearanceStatus = 204;
 
 export interface StandDownMissionConfig {
   missionId: string | FieldPointer;
@@ -232,6 +707,78 @@ export interface StartFlightTestConfig {
 export interface StartFlightTest {
   refitId: string;
 }
+
+export interface UnlinkCrewSectorSessionIdentityConfig {
+  identityId: string | FieldPointer;
+}
+export interface UnlinkCrewSectorSessionIdentity {
+  identityId: string;
+}
+/** The statuses UnlinkCrewSectorSessionIdentity declares; the method chooses one per response. */
+export type UnlinkCrewSectorSessionIdentityStatus = 204;
+
+export interface UnlinkCrewSessionIdentityConfig {
+  identityId: string | FieldPointer;
+}
+export interface UnlinkCrewSessionIdentity {
+  identityId: string;
+}
+/** The statuses UnlinkCrewSessionIdentity declares; the method chooses one per response. */
+export type UnlinkCrewSessionIdentityStatus = 204;
+
+export interface UnlinkMembersSectorSessionIdentityConfig {
+  identityId: string | FieldPointer;
+}
+export interface UnlinkMembersSectorSessionIdentity {
+  identityId: string;
+}
+/** The statuses UnlinkMembersSectorSessionIdentity declares; the method chooses one per response. */
+export type UnlinkMembersSectorSessionIdentityStatus = 204;
+
+export interface UnlinkMembersSessionIdentityConfig {
+  identityId: string | FieldPointer;
+}
+export interface UnlinkMembersSessionIdentity {
+  identityId: string;
+}
+/** The statuses UnlinkMembersSessionIdentity declares; the method chooses one per response. */
+export type UnlinkMembersSessionIdentityStatus = 204;
+
+export interface UnlockCrewSignInConfig {
+  name: string | FieldPointer;
+}
+export interface UnlockCrewSignIn {
+  name: string;
+}
+/** The statuses UnlockCrewSignIn declares; the method chooses one per response. */
+export type UnlockCrewSignInStatus = 204;
+
+export interface UnlockMembersSignInConfig {
+  name: string | FieldPointer;
+}
+export interface UnlockMembersSignIn {
+  name: string;
+}
+/** The statuses UnlockMembersSignIn declares; the method chooses one per response. */
+export type UnlockMembersSignInStatus = 204;
+
+export interface WithdrawCrewInvitationConfig {
+  invitationId: string | FieldPointer;
+}
+export interface WithdrawCrewInvitation {
+  invitationId: string;
+}
+/** The statuses WithdrawCrewInvitation declares; the method chooses one per response. */
+export type WithdrawCrewInvitationStatus = 204;
+
+export interface WithdrawCrewSectorInvitationConfig {
+  invitationId: string | FieldPointer;
+}
+export interface WithdrawCrewSectorInvitation {
+  invitationId: string;
+}
+/** The statuses WithdrawCrewSectorInvitation declares; the method chooses one per response. */
+export type WithdrawCrewSectorInvitationStatus = 204;
 
 /** The body SetFeature takes: the flag by name and the state to set. */
 export interface SetFeatureConfig {
@@ -249,97 +796,6 @@ export interface SetFeatureResult {
   updatedAt: Date;
 }
 
-/** The body SetCrewUserPassword takes. */
-export interface SetCrewUserPasswordConfig {
-  user: string | FieldPointer;
-  password: string | FieldPointer;
-}
-export interface SetCrewUserPassword {
-  user: string;
-  password: string;
-}
-
-/** The body UnlinkCrewUserIdentity takes. */
-export interface UnlinkCrewUserIdentityConfig {
-  user: string | FieldPointer;
-  identity: string | FieldPointer;
-}
-export interface UnlinkCrewUserIdentity {
-  user: string;
-  identity: string;
-}
-
-/** The body ResetCrewUserFactors takes. */
-export interface ResetCrewUserFactorsConfig {
-  user: string | FieldPointer;
-}
-export interface ResetCrewUserFactors {
-  user: string;
-}
-
-/** The body SetCrewSectorUserPassword takes. */
-export interface SetCrewSectorUserPasswordConfig {
-  user: string | FieldPointer;
-  password: string | FieldPointer;
-}
-export interface SetCrewSectorUserPassword {
-  user: string;
-  password: string;
-}
-
-/** The body UnlinkCrewSectorUserIdentity takes. */
-export interface UnlinkCrewSectorUserIdentityConfig {
-  user: string | FieldPointer;
-  identity: string | FieldPointer;
-}
-export interface UnlinkCrewSectorUserIdentity {
-  user: string;
-  identity: string;
-}
-
-/** The body ResetCrewSectorUserFactors takes. */
-export interface ResetCrewSectorUserFactorsConfig {
-  user: string | FieldPointer;
-}
-export interface ResetCrewSectorUserFactors {
-  user: string;
-}
-
-/** The body UnlinkMembersUserIdentity takes. */
-export interface UnlinkMembersUserIdentityConfig {
-  user: string | FieldPointer;
-  identity: string | FieldPointer;
-}
-export interface UnlinkMembersUserIdentity {
-  user: string;
-  identity: string;
-}
-
-/** The body ResetMembersUserFactors takes. */
-export interface ResetMembersUserFactorsConfig {
-  user: string | FieldPointer;
-}
-export interface ResetMembersUserFactors {
-  user: string;
-}
-
-/** The body UnlinkMembersSectorUserIdentity takes. */
-export interface UnlinkMembersSectorUserIdentityConfig {
-  user: string | FieldPointer;
-  identity: string | FieldPointer;
-}
-export interface UnlinkMembersSectorUserIdentity {
-  user: string;
-  identity: string;
-}
-
-/** The body ResetMembersSectorUserFactors takes. */
-export interface ResetMembersSectorUserFactorsConfig {
-  user: string | FieldPointer;
-}
-export interface ResetMembersSectorUserFactors {
-  user: string;
-}
 
 export interface RPCFieldMeta {
   fieldName: string;
@@ -348,6 +804,17 @@ export interface RPCFieldMeta {
   enumeratedResource?: Resource;
   /** The fixed values of an enumeration table the field names; the picker renders them without a request. */
   enumeration?: EnumerationOption[];
+  /** Set when the method refuses a request that leaves the field empty; a form holds the input to it. */
+  required?: true;
+  /** Set when a request may leave the field out; a form sends nothing for an input left empty. */
+  optional?: true;
+  /**
+   * The name a grant's condition reads the field by (new.<name>), set on a field that
+   * declares it (@attribute). A role file may hold the method to a value of this field,
+   * and no value never passes such a condition, so a form that rehearses the call waits
+   * for the field and, on a refusal as not permitted, marks it.
+   */
+  attribute?: string;
 }
 
 /** A declared workflow transition: the resource the method moves, the states it runs from, and the state it stamps. */
@@ -357,27 +824,70 @@ export interface MethodTransition {
   to: string;
 }
 
+/**
+ * The row a method runs against (@target): the resource whose row it is, and the request
+ * fields that carry the row's key, each with the row's field it carries (one entry for a
+ * single-column key, one for each column of a compound one). A page that lists the
+ * resource draws the method's button on each row the caller may run it on, and fills
+ * the fields from the row.
+ */
+export interface MethodTarget {
+  resource: Resource;
+  key: Record<string, string>;
+}
+
 export interface MethodMeta {
   route: string;
   /** The feature flag the method is gated behind (@feature); absent when it is not gated. */
   feature?: string;
   transition?: MethodTransition;
+  /** The row the method runs against; absent on a method with no target row. */
+  target?: MethodTarget;
   /** Set when the method answers with a result body; absent methods resolve with nothing. */
   answers?: true;
   /** The statuses the method declares with @answers; a listed 4xx is the method's own answer, not a refusal by the frame. */
   statuses?: number[];
   /** Set on an @upload method: the request is multipart, and the whole body is bounded by maxBytes. */
   upload?: { maxBytes: number };
+  /**
+   * Set on a method that runs in a transaction: a dry run (X-Dry-Run) runs the whole
+   * call and rolls it back, so a refusal can be read before anything is changed. Absent
+   * on a method that runs outside one, which refuses the header.
+   */
+  dryRun?: true;
   fields: RPCFieldMeta[];
 }
 
 export type MethodMap = Record<Method, MethodMeta>;
 
 const methodMap: MethodMap = {
+  [Methods.AssignCrewRole]: {
+    route: 'assign-crew-role',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'username', displayType: 'string', required: true },
+      { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
+      { fieldName: 'domain', displayType: 'string', optional: true },
+      { fieldName: 'everyDomain', displayType: 'boolean' },
+    ],
+  },
+  [Methods.AssignCrewSectorRole]: {
+    route: 'assign-crew-sector-role',
+    target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.CrewSectorRoles, required: true, attribute: 'role' },
+    ],
+  },
   [Methods.AttachMissionDocument]: {
     route: 'attach-mission-document',
+    target: { resource: Resources.Missions, key: { missionId: 'id' } },
     answers: true,
     upload: { maxBytes: 5242880 },
+    dryRun: true,
     fields: [
       { fieldName: 'missionId', displayType: 'uuid' },
       { fieldName: 'title', displayType: 'string' },
@@ -385,7 +895,9 @@ const methodMap: MethodMap = {
   },
   [Methods.AttachRefitPhoto]: {
     route: 'attach-refit-photo',
+    target: { resource: Resources.Refits, key: { refitId: 'id' } },
     upload: { maxBytes: 5242880 },
+    dryRun: true,
     fields: [
       { fieldName: 'refitId', displayType: 'uuid' },
       { fieldName: 'taskNumber', displayType: 'number' },
@@ -394,6 +906,8 @@ const methodMap: MethodMap = {
   [Methods.BeginRefit]: {
     route: 'begin-refit',
     transition: { target: Resources.Refits, from: ['inspected'], to: 'in_refit' },
+    target: { resource: Resources.Refits, key: { refitId: 'id' } },
+    dryRun: true,
     fields: [
       { fieldName: 'refitId', displayType: 'uuid' },
     ],
@@ -401,6 +915,8 @@ const methodMap: MethodMap = {
   [Methods.ClaimMission]: {
     route: 'claim-mission',
     transition: { target: Resources.Missions, from: ['open'], to: 'claimed' },
+    target: { resource: Resources.Missions, key: { missionId: 'id' } },
+    dryRun: true,
     fields: [
       { fieldName: 'missionId', displayType: 'uuid' },
       { fieldName: 'squadronId', displayType: 'enumerated', enumeratedResource: Resources.Squadrons },
@@ -417,15 +933,214 @@ const methodMap: MethodMap = {
   [Methods.CompleteMission]: {
     route: 'complete-mission',
     transition: { target: Resources.Missions, from: ['underway'], to: 'completed' },
+    target: { resource: Resources.Missions, key: { missionId: 'id' } },
     answers: true,
     statuses: [200, 409],
+    dryRun: true,
     fields: [
       { fieldName: 'missionId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.CreateCrewSectorUser]: {
+    route: 'create-crew-sector-user',
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'username', displayType: 'string', required: true },
+      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'password', displayType: 'string', optional: true },
+      { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.CrewSectorRoles, attribute: 'role' },
+    ],
+  },
+  [Methods.CreateCrewUser]: {
+    route: 'create-crew-user',
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'username', displayType: 'string', required: true },
+      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'password', displayType: 'string', optional: true },
+      { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
+      { fieldName: 'domain', displayType: 'string', optional: true },
+      { fieldName: 'everyDomain', displayType: 'boolean' },
+    ],
+  },
+  [Methods.DeleteCrewSectorUser]: {
+    route: 'delete-crew-sector-user',
+    target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.DeleteCrewUser]: {
+    route: 'delete-crew-user',
+    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.DeleteMembersSectorUser]: {
+    route: 'delete-members-sector-user',
+    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.DeleteMembersUser]: {
+    route: 'delete-members-user',
+    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.DisableCrewSectorUser]: {
+    route: 'disable-crew-sector-user',
+    target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.DisableCrewUser]: {
+    route: 'disable-crew-user',
+    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.DisableMembersSectorUser]: {
+    route: 'disable-members-sector-user',
+    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.DisableMembersUser]: {
+    route: 'disable-members-user',
+    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.EnableCrewSectorUser]: {
+    route: 'enable-crew-sector-user',
+    target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.EnableCrewUser]: {
+    route: 'enable-crew-user',
+    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.EnableMembersSectorUser]: {
+    route: 'enable-members-sector-user',
+    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.EnableMembersUser]: {
+    route: 'enable-members-user',
+    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.EndCrewSectorUserSessions]: {
+    route: 'end-crew-sector-user-sessions',
+    target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.EndCrewSession]: {
+    route: 'end-crew-session',
+    target: { resource: Resources.CrewSessions, key: { sessionId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'sessionId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.EndCrewSessionImpersonation]: {
+    route: 'end-crew-session-impersonation',
+    target: { resource: Resources.CrewSessionImpersonations, key: { sessionId: 'sessionId' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'sessionId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.EndCrewUserSessions]: {
+    route: 'end-crew-user-sessions',
+    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.EndMembersSectorUserSessions]: {
+    route: 'end-members-sector-user-sessions',
+    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.EndMembersSession]: {
+    route: 'end-members-session',
+    target: { resource: Resources.MembersSessions, key: { sessionId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'sessionId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.EndMembersUserSessions]: {
+    route: 'end-members-user-sessions',
+    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
   [Methods.FailFlightTest]: {
     route: 'fail-flight-test',
     transition: { target: Resources.Refits, from: ['flight_test'], to: 'in_refit' },
+    target: { resource: Resources.Refits, key: { refitId: 'id' } },
+    dryRun: true,
     fields: [
       { fieldName: 'refitId', displayType: 'uuid' },
     ],
@@ -433,6 +1148,8 @@ const methodMap: MethodMap = {
   [Methods.FailMission]: {
     route: 'fail-mission',
     transition: { target: Resources.Missions, from: ['underway'], to: 'failed' },
+    target: { resource: Resources.Missions, key: { missionId: 'id' } },
+    dryRun: true,
     fields: [
       { fieldName: 'missionId', displayType: 'uuid' },
       { fieldName: 'reasonId', displayType: 'enumerated', enumeration: [{ id: "aborted", display: "Aborted" }, { id: "recalled", display: "Recalled" }, { id: "solar_weather", display: "Solar weather" }, { id: "unrecoverable", display: "Unrecoverable" }] },
@@ -440,7 +1157,9 @@ const methodMap: MethodMap = {
   },
   [Methods.HailShip]: {
     route: 'hail-ship',
+    target: { resource: Resources.Ships, key: { shipId: 'id' } },
     statuses: [204],
+    dryRun: true,
     fields: [
       { fieldName: 'shipId', displayType: 'uuid' },
     ],
@@ -448,6 +1167,8 @@ const methodMap: MethodMap = {
   [Methods.HoldMission]: {
     route: 'hold-mission',
     transition: { target: Resources.Missions, from: ['underway'], to: 'on_hold' },
+    target: { resource: Resources.Missions, key: { missionId: 'id' } },
+    dryRun: true,
     fields: [
       { fieldName: 'missionId', displayType: 'uuid' },
       { fieldName: 'reason', displayType: 'string' },
@@ -456,13 +1177,35 @@ const methodMap: MethodMap = {
   [Methods.InspectShip]: {
     route: 'inspect-ship',
     transition: { target: Resources.Refits, from: ['docked'], to: 'inspected' },
+    target: { resource: Resources.Refits, key: { refitId: 'id' } },
     answers: true,
+    dryRun: true,
     fields: [
       { fieldName: 'refitId', displayType: 'uuid' },
     ],
   },
+  [Methods.InviteCrewSectorUser]: {
+    route: 'invite-crew-sector-user',
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'email', displayType: 'string', required: true },
+      { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.CrewSectorRoles, attribute: 'role' },
+    ],
+  },
+  [Methods.InviteCrewUser]: {
+    route: 'invite-crew-user',
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'email', displayType: 'string', required: true },
+      { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
+      { fieldName: 'domain', displayType: 'string', optional: true },
+    ],
+  },
   [Methods.IssueBulletin]: {
     route: 'issue-bulletin',
+    dryRun: true,
     fields: [
       { fieldName: 'announcement', displayType: 'string' },
     ],
@@ -470,6 +1213,8 @@ const methodMap: MethodMap = {
   [Methods.LaunchMission]: {
     route: 'launch-mission',
     transition: { target: Resources.Missions, from: ['claimed'], to: 'underway' },
+    target: { resource: Resources.Missions, key: { missionId: 'id' } },
+    dryRun: true,
     fields: [
       { fieldName: 'missionId', displayType: 'uuid' },
       { fieldName: 'shipId', displayType: 'enumerated', enumeratedResource: Resources.Ships },
@@ -479,41 +1224,247 @@ const methodMap: MethodMap = {
   [Methods.PassFlightTest]: {
     route: 'pass-flight-test',
     transition: { target: Resources.Refits, from: ['flight_test'], to: 'cleared' },
+    target: { resource: Resources.Refits, key: { refitId: 'id' } },
+    dryRun: true,
     fields: [
       { fieldName: 'refitId', displayType: 'uuid' },
     ],
   },
   [Methods.ReleaseConsignment]: {
     route: 'release-consignment',
+    target: { resource: Resources.Consignments, key: { consignmentId: 'id' } },
     answers: true,
+    dryRun: true,
     fields: [
       { fieldName: 'consignmentId', displayType: 'uuid' },
     ],
   },
+  [Methods.RemoveCrewRole]: {
+    route: 'remove-crew-role',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'username', displayType: 'string', required: true },
+      { fieldName: 'role', displayType: 'string', required: true },
+      { fieldName: 'domain', displayType: 'string', optional: true },
+      { fieldName: 'everyDomain', displayType: 'boolean' },
+    ],
+  },
+  [Methods.RemoveCrewSectorRole]: {
+    route: 'remove-crew-sector-role',
+    target: { resource: Resources.CrewSectorUserRoles, key: { userId: 'userId', role: 'role' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'role', displayType: 'string', required: true },
+    ],
+  },
+  [Methods.RenameCrewSectorUser]: {
+    route: 'rename-crew-sector-user',
+    target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'username', displayType: 'string', required: true },
+    ],
+  },
+  [Methods.RenameCrewUser]: {
+    route: 'rename-crew-user',
+    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'username', displayType: 'string', required: true },
+    ],
+  },
+  [Methods.RenameMembersSectorUser]: {
+    route: 'rename-members-sector-user',
+    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'username', displayType: 'string', required: true },
+    ],
+  },
+  [Methods.RenameMembersUser]: {
+    route: 'rename-members-user',
+    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'username', displayType: 'string', required: true },
+    ],
+  },
   [Methods.ReplaceMissionDocument]: {
     route: 'replace-mission-document',
+    target: { resource: Resources.MissionDocuments, key: { documentId: 'id' } },
     upload: { maxBytes: 5242880 },
+    dryRun: true,
     fields: [
       { fieldName: 'documentId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.RequireCrewPasswordChange]: {
+    route: 'require-crew-password-change',
+    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.RequireCrewSectorPasswordChange]: {
+    route: 'require-crew-sector-password-change',
+    target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
   [Methods.ResumeMission]: {
     route: 'resume-mission',
     transition: { target: Resources.Missions, from: ['on_hold'], to: 'underway' },
+    target: { resource: Resources.Missions, key: { missionId: 'id' } },
+    dryRun: true,
     fields: [
       { fieldName: 'missionId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.RevokeCrewSectorUserTrustedDevices]: {
+    route: 'revoke-crew-sector-user-trusted-devices',
+    target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.RevokeCrewSessionToken]: {
+    route: 'revoke-crew-session-token',
+    target: { resource: Resources.CrewSessionTokens, key: { tokenId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'tokenId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.RevokeCrewUserTrustedDevices]: {
+    route: 'revoke-crew-user-trusted-devices',
+    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.RevokeMembersSectorUserTrustedDevices]: {
+    route: 'revoke-members-sector-user-trusted-devices',
+    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.RevokeMembersUserTrustedDevices]: {
+    route: 'revoke-members-user-trusted-devices',
+    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
   [Methods.ScrapShip]: {
     route: 'scrap-ship',
     transition: { target: Resources.Refits, from: ['inspected', 'in_refit', 'flight_test'], to: 'scrapped' },
+    target: { resource: Resources.Refits, key: { refitId: 'id' } },
+    dryRun: true,
     fields: [
       { fieldName: 'refitId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.SetCrewSectorTemporaryPassword]: {
+    route: 'set-crew-sector-temporary-password',
+    target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'password', displayType: 'string', required: true },
+    ],
+  },
+  [Methods.SetCrewSectorUserEmail]: {
+    route: 'set-crew-sector-user-email',
+    target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'email', displayType: 'string', optional: true },
+    ],
+  },
+  [Methods.SetCrewTemporaryPassword]: {
+    route: 'set-crew-temporary-password',
+    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'password', displayType: 'string', required: true },
+    ],
+  },
+  [Methods.SetCrewUserEmail]: {
+    route: 'set-crew-user-email',
+    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'email', displayType: 'string', optional: true },
+    ],
+  },
+  [Methods.SetMembersSectorUserEmail]: {
+    route: 'set-members-sector-user-email',
+    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'email', displayType: 'string', optional: true },
+    ],
+  },
+  [Methods.SetMembersUserEmail]: {
+    route: 'set-members-user-email',
+    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'email', displayType: 'string', optional: true },
+    ],
+  },
+  [Methods.SetSectorPilotClearance]: {
+    route: 'set-sector-pilot-clearance',
+    target: { resource: Resources.SectorPilots, key: { pilotId: 'pilotId' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'pilotId', displayType: 'uuid' },
+      { fieldName: 'clearance', displayType: 'number', attribute: 'clearance' },
     ],
   },
   [Methods.StandDownMission]: {
     route: 'stand-down-mission',
     transition: { target: Resources.Missions, from: ['open', 'claimed', 'on_hold'], to: 'stood_down' },
+    target: { resource: Resources.Missions, key: { missionId: 'id' } },
+    dryRun: true,
     fields: [
       { fieldName: 'missionId', displayType: 'uuid' },
     ],
@@ -521,8 +1472,82 @@ const methodMap: MethodMap = {
   [Methods.StartFlightTest]: {
     route: 'start-flight-test',
     transition: { target: Resources.Refits, from: ['in_refit'], to: 'flight_test' },
+    target: { resource: Resources.Refits, key: { refitId: 'id' } },
+    dryRun: true,
     fields: [
       { fieldName: 'refitId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.UnlinkCrewSectorSessionIdentity]: {
+    route: 'unlink-crew-sector-session-identity',
+    target: { resource: Resources.CrewSectorIdentities, key: { identityId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'identityId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.UnlinkCrewSessionIdentity]: {
+    route: 'unlink-crew-session-identity',
+    target: { resource: Resources.CrewSessionIdentities, key: { identityId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'identityId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.UnlinkMembersSectorSessionIdentity]: {
+    route: 'unlink-members-sector-session-identity',
+    target: { resource: Resources.MembersSectorIdentities, key: { identityId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'identityId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.UnlinkMembersSessionIdentity]: {
+    route: 'unlink-members-session-identity',
+    target: { resource: Resources.MembersSessionIdentities, key: { identityId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'identityId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.UnlockCrewSignIn]: {
+    route: 'unlock-crew-sign-in',
+    target: { resource: Resources.CrewSessionSignInAttempts, key: { name: 'name' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'name', displayType: 'string', required: true },
+    ],
+  },
+  [Methods.UnlockMembersSignIn]: {
+    route: 'unlock-members-sign-in',
+    target: { resource: Resources.MembersSessionSignInAttempts, key: { name: 'name' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'name', displayType: 'string', required: true },
+    ],
+  },
+  [Methods.WithdrawCrewInvitation]: {
+    route: 'withdraw-crew-invitation',
+    target: { resource: Resources.CrewSessionMailLinks, key: { invitationId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.WithdrawCrewSectorInvitation]: {
+    route: 'withdraw-crew-sector-invitation',
+    target: { resource: Resources.CrewSectorInvitations, key: { invitationId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'invitationId', displayType: 'uuid' },
     ],
   },
   [Methods.SetFeature]: {
@@ -533,72 +1558,7 @@ const methodMap: MethodMap = {
       { fieldName: 'enabled', displayType: 'boolean' },
     ],
   },
-  [Methods.SetCrewUserPassword]: {
-    route: 'set-crew-user-password',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-      { fieldName: 'password', displayType: 'string' },
-    ],
-  },
-  [Methods.UnlinkCrewUserIdentity]: {
-    route: 'unlink-crew-user-identity',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-      { fieldName: 'identity', displayType: 'uuid' },
-    ],
-  },
-  [Methods.ResetCrewUserFactors]: {
-    route: 'reset-crew-user-factors',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-    ],
-  },
-  [Methods.SetCrewSectorUserPassword]: {
-    route: 'set-crew-sector-user-password',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-      { fieldName: 'password', displayType: 'string' },
-    ],
-  },
-  [Methods.UnlinkCrewSectorUserIdentity]: {
-    route: 'unlink-crew-sector-user-identity',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-      { fieldName: 'identity', displayType: 'uuid' },
-    ],
-  },
-  [Methods.ResetCrewSectorUserFactors]: {
-    route: 'reset-crew-sector-user-factors',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-    ],
-  },
-  [Methods.UnlinkMembersUserIdentity]: {
-    route: 'unlink-members-user-identity',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-      { fieldName: 'identity', displayType: 'uuid' },
-    ],
-  },
-  [Methods.ResetMembersUserFactors]: {
-    route: 'reset-members-user-factors',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-    ],
-  },
-  [Methods.UnlinkMembersSectorUserIdentity]: {
-    route: 'unlink-members-sector-user-identity',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-      { fieldName: 'identity', displayType: 'uuid' },
-    ],
-  },
-  [Methods.ResetMembersSectorUserFactors]: {
-    route: 'reset-members-sector-user-factors',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-    ],
-  },
+
 };
 
 export function methodMeta(method: Method): Meta {

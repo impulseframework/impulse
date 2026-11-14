@@ -2,8 +2,8 @@
 import { ApiDescriptor, Client, ClientOptions, createClient, MethodHandle, ResourceHandle } from '@impulseframework/resource';
 import { Point } from 'geojson';
 import { Methods, Resources } from './zz_gen_constants';
-import { ClientContacts, ClientRosters, DistressCalls, Missions, MissionDocuments, BriefingTemplates, FeatureFlags, MembersUsers, MembersSeats, MembersRoles, MembersInvitations, MembersSectorUsers, MembersSectorSeats, MembersSectorRoles, MembersSectorInvitations } from './zz_gen_resources';
-import { StandDownMission, SetFeature, SetFeatureResult, UnlinkMembersUserIdentity, ResetMembersUserFactors, UnlinkMembersSectorUserIdentity, ResetMembersSectorUserFactors } from './zz_gen_methods';
+import { ClientContacts, ClientRosters, DistressCalls, MembersRoles, MembersRoleGrants, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionDocuments, BriefingTemplates, FeatureFlags } from './zz_gen_resources';
+import { DeleteMembersSectorUser, DeleteMembersUser, DisableMembersSectorUser, DisableMembersUser, EnableMembersSectorUser, EnableMembersUser, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, RenameMembersSectorUser, RenameMembersUser, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, SetMembersSectorUserEmail, SetMembersUserEmail, StandDownMission, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockMembersSignIn, SetFeature, SetFeatureResult } from './zz_gen_methods';
 
 /** The feature flags the application declares, by name: what a route, a field or a method is gated behind. */
 export type Feature = 'commendations';
@@ -53,6 +53,48 @@ export interface DistressCallsPatch {
 }
 /** The primary key of DistressCalls, in route order. */
 export type DistressCallsKey = [id: string];
+
+/** The primary key of MembersRoles, in route order. */
+export type MembersRolesKey = [kind: string, axis: string, domain: string, role: string];
+
+/** The primary key of MembersRoleGrants, in route order. */
+export type MembersRoleGrantsKey = [kind: string, axis: string, domain: string, role: string, permission: string, resourceName: string, field: string, condition: string];
+
+/** The primary key of MembersSectorIdentities, in route order. */
+export type MembersSectorIdentitiesKey = [id: string];
+
+/** The primary key of MembersSectorInvitations, in route order. */
+export type MembersSectorInvitationsKey = [id: string];
+
+/** The primary key of MembersSectorUsers, in route order. */
+export type MembersSectorUsersKey = [id: string];
+
+/** The primary key of MembersSectorUserRoles, in route order. */
+export type MembersSectorUserRolesKey = [userId: string, role: string];
+
+/** The primary key of MembersSessions, in route order. */
+export type MembersSessionsKey = [id: string];
+
+/** The primary key of MembersSessionAuthEvents, in route order. */
+export type MembersSessionAuthEventsKey = [sessionId: string, seq: number];
+
+/** The primary key of MembersSessionIdentities, in route order. */
+export type MembersSessionIdentitiesKey = [id: string];
+
+/** The primary key of MembersSessionMailLinks, in route order. */
+export type MembersSessionMailLinksKey = [id: string];
+
+/** The primary key of MembersSessionSignInAttempts, in route order. */
+export type MembersSessionSignInAttemptsKey = [name: string];
+
+/** The primary key of MembersSessionTrustedDevices, in route order. */
+export type MembersSessionTrustedDevicesKey = [id: string];
+
+/** The primary key of MembersSessionUsers, in route order. */
+export type MembersSessionUsersKey = [id: string];
+
+/** The primary key of MembersUserRoles, in route order. */
+export type MembersUserRolesKey = [kind: string, axis: string, domain: string, role: string, user: string];
 
 /**
  * The fields a client may set when creating Missions. Server-owned fields are
@@ -111,68 +153,6 @@ export type BriefingTemplatesKey = [id: string];
 /** The primary key of FeatureFlags, in route order. */
 export type FeatureFlagsKey = [name: string];
 
-/** The fields a client may change on MembersUsers. Keys, server-owned, and immutable fields are absent. */
-export interface MembersUsersPatch {
-  username?: string;
-  disabled?: boolean;
-  email?: string;
-}
-/** The primary key of MembersUsers, in route order. */
-export type MembersUsersKey = [id: string];
-
-/**
- * The fields a client may set when creating MembersSeats. Server-owned fields are
- * absent; a server-generated key is absent, a client-assigned key is required.
- */
-export type MembersSeatsCreate = Record<never, never>;
-/** The primary key of MembersSeats, in route order. */
-export type MembersSeatsKey = [user: string, role: string];
-
-/** The primary key of MembersRoles, in route order. */
-export type MembersRolesKey = [name: string];
-
-/**
- * The fields a client may set when creating MembersInvitations. Server-owned fields are
- * absent; a server-generated key is absent, a client-assigned key is required.
- */
-export interface MembersInvitationsCreate {
-  email: string;
-  roles: string[];
-}
-/** The primary key of MembersInvitations, in route order. */
-export type MembersInvitationsKey = [id: string];
-
-/** The fields a client may change on MembersSectorUsers. Keys, server-owned, and immutable fields are absent. */
-export interface MembersSectorUsersPatch {
-  username?: string;
-  disabled?: boolean;
-  email?: string;
-}
-/** The primary key of MembersSectorUsers, in route order. */
-export type MembersSectorUsersKey = [id: string];
-
-/**
- * The fields a client may set when creating MembersSectorSeats. Server-owned fields are
- * absent; a server-generated key is absent, a client-assigned key is required.
- */
-export type MembersSectorSeatsCreate = Record<never, never>;
-/** The primary key of MembersSectorSeats, in route order. */
-export type MembersSectorSeatsKey = [user: string, role: string];
-
-/** The primary key of MembersSectorRoles, in route order. */
-export type MembersSectorRolesKey = [name: string];
-
-/**
- * The fields a client may set when creating MembersSectorInvitations. Server-owned fields are
- * absent; a server-generated key is absent, a client-assigned key is required.
- */
-export interface MembersSectorInvitationsCreate {
-  email: string;
-  roles: string[];
-}
-/** The primary key of MembersSectorInvitations, in route order. */
-export type MembersSectorInvitationsKey = [id: string];
-
 /**
  * Keeps the literal types of the descriptor while letting a client that predates a field
  * ignore it: TypeScript checks the literal against the fields ApiDescriptor declares and
@@ -227,6 +207,160 @@ export const apiDescriptor = defineApiDescriptor({
       order: [{ field: 'severity', direction: 'desc' }],
       patchable: ['summary', 'severity', 'callerContact', 'transcript', 'position'],
     },
+    [Resources.MembersRoles]: {
+      resource: Resources.MembersRoles,
+      property: 'membersRoles',
+      route: 'members-roles',
+      scope: 'global',
+      consolidated: false,
+      keys: ['kind', 'axis', 'domain', 'role'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'role', direction: 'asc' }],
+    },
+    [Resources.MembersRoleGrants]: {
+      resource: Resources.MembersRoleGrants,
+      property: 'membersRoleGrants',
+      route: 'members-role-grants',
+      scope: 'global',
+      consolidated: false,
+      keys: ['kind', 'axis', 'domain', 'role', 'permission', 'resourceName', 'field', 'condition'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'role', direction: 'asc' }],
+    },
+    [Resources.MembersSectorIdentities]: {
+      resource: Resources.MembersSectorIdentities,
+      property: 'membersSectorIdentities',
+      route: 'members-sector-identities',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.MembersSectorInvitations]: {
+      resource: Resources.MembersSectorInvitations,
+      property: 'membersSectorInvitations',
+      route: 'members-sector-invitations',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.MembersSectorUsers]: {
+      resource: Resources.MembersSectorUsers,
+      property: 'membersSectorUsers',
+      route: 'members-sector-users',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'username', direction: 'asc' }],
+    },
+    [Resources.MembersSectorUserRoles]: {
+      resource: Resources.MembersSectorUserRoles,
+      property: 'membersSectorUserRoles',
+      route: 'members-sector-user-roles',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['userId', 'role'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }],
+    },
+    [Resources.MembersSessions]: {
+      resource: Resources.MembersSessions,
+      property: 'membersSessions',
+      route: 'members-sessions',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.MembersSessionAuthEvents]: {
+      resource: Resources.MembersSessionAuthEvents,
+      property: 'membersSessionAuthEvents',
+      route: 'members-session-auth-events',
+      scope: 'global',
+      consolidated: false,
+      keys: ['sessionId', 'seq'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'occurredAt', direction: 'desc' }],
+    },
+    [Resources.MembersSessionIdentities]: {
+      resource: Resources.MembersSessionIdentities,
+      property: 'membersSessionIdentities',
+      route: 'members-session-identities',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.MembersSessionMailLinks]: {
+      resource: Resources.MembersSessionMailLinks,
+      property: 'membersSessionMailLinks',
+      route: 'members-session-mail-links',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.MembersSessionSignInAttempts]: {
+      resource: Resources.MembersSessionSignInAttempts,
+      property: 'membersSessionSignInAttempts',
+      route: 'members-session-sign-in-attempts',
+      scope: 'global',
+      consolidated: false,
+      keys: ['name'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'updatedAt', direction: 'desc' }],
+    },
+    [Resources.MembersSessionTrustedDevices]: {
+      resource: Resources.MembersSessionTrustedDevices,
+      property: 'membersSessionTrustedDevices',
+      route: 'members-session-trusted-devices',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.MembersSessionUsers]: {
+      resource: Resources.MembersSessionUsers,
+      property: 'membersSessionUsers',
+      route: 'members-session-users',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'username', direction: 'asc' }],
+    },
+    [Resources.MembersUserRoles]: {
+      resource: Resources.MembersUserRoles,
+      property: 'membersUserRoles',
+      route: 'members-user-roles',
+      scope: 'global',
+      consolidated: false,
+      keys: ['kind', 'axis', 'domain', 'role', 'user'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'user', direction: 'asc' }],
+    },
     [Resources.Missions]: {
       resource: Resources.Missions,
       property: 'missions',
@@ -273,116 +407,45 @@ export const apiDescriptor = defineApiDescriptor({
       page: { default: 50 },
       order: [{ field: 'name', direction: 'asc' }],
     },
-    [Resources.MembersUsers]: {
-      resource: Resources.MembersUsers,
-      property: 'membersUsers',
-      route: 'members-users',
-      scope: 'global',
-      consolidated: false,
-      keys: ['id'],
-      operations: ['list', 'read', 'patch', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'username', direction: 'asc' }],
-      patchable: ['username', 'disabled', 'email'],
-    },
-    [Resources.MembersSeats]: {
-      resource: Resources.MembersSeats,
-      property: 'membersSeats',
-      route: 'members-seats',
-      scope: 'global',
-      consolidated: false,
-      keys: ['user', 'role'],
-      operations: ['list', 'read', 'create', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }],
-    },
-    [Resources.MembersRoles]: {
-      resource: Resources.MembersRoles,
-      property: 'membersRoles',
-      route: 'members-roles',
-      scope: 'global',
-      consolidated: false,
-      keys: ['name'],
-      operations: ['list', 'read'],
-      page: { default: 50 },
-      order: [{ field: 'name', direction: 'asc' }],
-    },
-    [Resources.MembersInvitations]: {
-      resource: Resources.MembersInvitations,
-      property: 'membersInvitations',
-      route: 'members-invitations',
-      scope: 'global',
-      consolidated: false,
-      keys: ['id'],
-      operations: ['list', 'read', 'create', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'email', direction: 'asc' }],
-    },
-    [Resources.MembersSectorUsers]: {
-      resource: Resources.MembersSectorUsers,
-      property: 'membersSectorUsers',
-      route: 'members-sector-users',
-      scope: 'domain',
-      consolidated: false,
-      keys: ['id'],
-      operations: ['list', 'read', 'patch', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'username', direction: 'asc' }],
-      patchable: ['username', 'disabled', 'email'],
-    },
-    [Resources.MembersSectorSeats]: {
-      resource: Resources.MembersSectorSeats,
-      property: 'membersSectorSeats',
-      route: 'members-sector-seats',
-      scope: 'domain',
-      consolidated: false,
-      keys: ['user', 'role'],
-      operations: ['list', 'read', 'create', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }],
-    },
-    [Resources.MembersSectorRoles]: {
-      resource: Resources.MembersSectorRoles,
-      property: 'membersSectorRoles',
-      route: 'members-sector-roles',
-      scope: 'domain',
-      consolidated: false,
-      keys: ['name'],
-      operations: ['list', 'read'],
-      page: { default: 50 },
-      order: [{ field: 'name', direction: 'asc' }],
-    },
-    [Resources.MembersSectorInvitations]: {
-      resource: Resources.MembersSectorInvitations,
-      property: 'membersSectorInvitations',
-      route: 'members-sector-invitations',
-      scope: 'domain',
-      consolidated: false,
-      keys: ['id'],
-      operations: ['list', 'read', 'create', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'email', direction: 'asc' }],
-    },
   },
   methods: {
+    [Methods.DeleteMembersSectorUser]: { method: Methods.DeleteMembersSectorUser, property: 'deleteMembersSectorUser', route: 'delete-members-sector-user', scope: 'domain', statuses: [204] },
+    [Methods.DeleteMembersUser]: { method: Methods.DeleteMembersUser, property: 'deleteMembersUser', route: 'delete-members-user', scope: 'global', statuses: [204] },
+    [Methods.DisableMembersSectorUser]: { method: Methods.DisableMembersSectorUser, property: 'disableMembersSectorUser', route: 'disable-members-sector-user', scope: 'domain', statuses: [204] },
+    [Methods.DisableMembersUser]: { method: Methods.DisableMembersUser, property: 'disableMembersUser', route: 'disable-members-user', scope: 'global', statuses: [204] },
+    [Methods.EnableMembersSectorUser]: { method: Methods.EnableMembersSectorUser, property: 'enableMembersSectorUser', route: 'enable-members-sector-user', scope: 'domain', statuses: [204] },
+    [Methods.EnableMembersUser]: { method: Methods.EnableMembersUser, property: 'enableMembersUser', route: 'enable-members-user', scope: 'global', statuses: [204] },
+    [Methods.EndMembersSectorUserSessions]: { method: Methods.EndMembersSectorUserSessions, property: 'endMembersSectorUserSessions', route: 'end-members-sector-user-sessions', scope: 'domain', statuses: [204] },
+    [Methods.EndMembersSession]: { method: Methods.EndMembersSession, property: 'endMembersSession', route: 'end-members-session', scope: 'global', statuses: [204] },
+    [Methods.EndMembersUserSessions]: { method: Methods.EndMembersUserSessions, property: 'endMembersUserSessions', route: 'end-members-user-sessions', scope: 'global', statuses: [204] },
+    [Methods.RenameMembersSectorUser]: { method: Methods.RenameMembersSectorUser, property: 'renameMembersSectorUser', route: 'rename-members-sector-user', scope: 'domain', statuses: [204] },
+    [Methods.RenameMembersUser]: { method: Methods.RenameMembersUser, property: 'renameMembersUser', route: 'rename-members-user', scope: 'global', statuses: [204] },
+    [Methods.RevokeMembersSectorUserTrustedDevices]: { method: Methods.RevokeMembersSectorUserTrustedDevices, property: 'revokeMembersSectorUserTrustedDevices', route: 'revoke-members-sector-user-trusted-devices', scope: 'domain', statuses: [204] },
+    [Methods.RevokeMembersUserTrustedDevices]: { method: Methods.RevokeMembersUserTrustedDevices, property: 'revokeMembersUserTrustedDevices', route: 'revoke-members-user-trusted-devices', scope: 'global', statuses: [204] },
+    [Methods.SetMembersSectorUserEmail]: { method: Methods.SetMembersSectorUserEmail, property: 'setMembersSectorUserEmail', route: 'set-members-sector-user-email', scope: 'domain', statuses: [204] },
+    [Methods.SetMembersUserEmail]: { method: Methods.SetMembersUserEmail, property: 'setMembersUserEmail', route: 'set-members-user-email', scope: 'global', statuses: [204] },
     [Methods.StandDownMission]: { method: Methods.StandDownMission, property: 'standDownMission', route: 'stand-down-mission', scope: 'domain' },
+    [Methods.UnlinkMembersSectorSessionIdentity]: { method: Methods.UnlinkMembersSectorSessionIdentity, property: 'unlinkMembersSectorSessionIdentity', route: 'unlink-members-sector-session-identity', scope: 'domain', statuses: [204] },
+    [Methods.UnlinkMembersSessionIdentity]: { method: Methods.UnlinkMembersSessionIdentity, property: 'unlinkMembersSessionIdentity', route: 'unlink-members-session-identity', scope: 'global', statuses: [204] },
+    [Methods.UnlockMembersSignIn]: { method: Methods.UnlockMembersSignIn, property: 'unlockMembersSignIn', route: 'unlock-members-sign-in', scope: 'global', statuses: [204] },
     [Methods.SetFeature]: { method: Methods.SetFeature, property: 'setFeature', route: 'set-feature', scope: 'global', answers: true },
-    [Methods.UnlinkMembersUserIdentity]: { method: Methods.UnlinkMembersUserIdentity, property: 'unlinkMembersUserIdentity', route: 'unlink-members-user-identity', scope: 'global' },
-    [Methods.ResetMembersUserFactors]: { method: Methods.ResetMembersUserFactors, property: 'resetMembersUserFactors', route: 'reset-members-user-factors', scope: 'global' },
-    [Methods.UnlinkMembersSectorUserIdentity]: { method: Methods.UnlinkMembersSectorUserIdentity, property: 'unlinkMembersSectorUserIdentity', route: 'unlink-members-sector-user-identity', scope: 'domain' },
-    [Methods.ResetMembersSectorUserFactors]: { method: Methods.ResetMembersSectorUserFactors, property: 'resetMembersSectorUserFactors', route: 'reset-members-sector-user-factors', scope: 'domain' },
   },
-  userSurfaces: [
+  identity: [
     {
       auth: 'Members',
       label: 'Members',
-      password: false,
-      usernameIsEmail: false,
-      openSignUp: false,
-      registrations: [{ name: 'directory', kind: 'google', label: 'Company directory', invited: false, syncsRoles: true }],
-      partitions: [
-        { scope: 'global', users: Resources.MembersUsers, seats: Resources.MembersSeats, roles: Resources.MembersRoles, invitations: Resources.MembersInvitations, unlinkIdentity: Methods.UnlinkMembersUserIdentity, resetFactors: Methods.ResetMembersUserFactors },
-        { scope: 'domain', users: Resources.MembersSectorUsers, seats: Resources.MembersSectorSeats, roles: Resources.MembersSectorRoles, invitations: Resources.MembersSectorInvitations, unlinkIdentity: Methods.UnlinkMembersSectorUserIdentity, resetFactors: Methods.ResetMembersSectorUserFactors },
+      tenant: 'Sector',
+      sides: [
+        {
+          scope: 'global',
+          lists: { users: Resources.MembersSessionUsers, roles: Resources.MembersUserRoles, identities: Resources.MembersSessionIdentities, invitations: Resources.MembersSessionMailLinks, sessions: Resources.MembersSessions, signInAttempts: Resources.MembersSessionSignInAttempts },
+          methods: { disable: Methods.DisableMembersUser, enable: Methods.EnableMembersUser, delete: Methods.DeleteMembersUser, rename: Methods.RenameMembersUser, setEmail: Methods.SetMembersUserEmail, endUserSessions: Methods.EndMembersUserSessions, revokeTrustedDevices: Methods.RevokeMembersUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersSessionIdentity, endSession: Methods.EndMembersSession, unlockSignIn: Methods.UnlockMembersSignIn },
+        },
+        {
+          scope: 'domain',
+          lists: { users: Resources.MembersSectorUsers, roles: Resources.MembersSectorUserRoles, identities: Resources.MembersSectorIdentities, invitations: Resources.MembersSectorInvitations },
+          methods: { disable: Methods.DisableMembersSectorUser, enable: Methods.EnableMembersSectorUser, delete: Methods.DeleteMembersSectorUser, rename: Methods.RenameMembersSectorUser, setEmail: Methods.SetMembersSectorUserEmail, endUserSessions: Methods.EndMembersSectorUserSessions, revokeTrustedDevices: Methods.RevokeMembersSectorUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersSectorSessionIdentity },
+        },
       ],
     },
   ],
@@ -391,30 +454,50 @@ export const apiDescriptor = defineApiDescriptor({
 /** Handles for the global scope, available on the client root. */
 export interface GlobalApi {
   clientContacts: ResourceHandle<ClientContacts, ClientContactsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', ClientContactsCreate, ClientContactsPatch>;
+  membersRoles: ResourceHandle<MembersRoles, MembersRolesKey, 'list'>;
+  membersRoleGrants: ResourceHandle<MembersRoleGrants, MembersRoleGrantsKey, 'list'>;
+  membersSessions: ResourceHandle<MembersSessions, MembersSessionsKey, 'list' | 'read'>;
+  membersSessionAuthEvents: ResourceHandle<MembersSessionAuthEvents, MembersSessionAuthEventsKey, 'list'>;
+  membersSessionIdentities: ResourceHandle<MembersSessionIdentities, MembersSessionIdentitiesKey, 'list' | 'read'>;
+  membersSessionMailLinks: ResourceHandle<MembersSessionMailLinks, MembersSessionMailLinksKey, 'list' | 'read'>;
+  membersSessionSignInAttempts: ResourceHandle<MembersSessionSignInAttempts, MembersSessionSignInAttemptsKey, 'list'>;
+  membersSessionTrustedDevices: ResourceHandle<MembersSessionTrustedDevices, MembersSessionTrustedDevicesKey, 'list' | 'read'>;
+  membersSessionUsers: ResourceHandle<MembersSessionUsers, MembersSessionUsersKey, 'list' | 'read'>;
+  membersUserRoles: ResourceHandle<MembersUserRoles, MembersUserRolesKey, 'list'>;
   briefingTemplates: ResourceHandle<BriefingTemplates, BriefingTemplatesKey, 'list'>;
   featureFlags: ResourceHandle<FeatureFlags, FeatureFlagsKey, 'list' | 'read'>;
-  membersUsers: ResourceHandle<MembersUsers, MembersUsersKey, 'list' | 'read' | 'patch' | 'remove', never, MembersUsersPatch>;
-  membersSeats: ResourceHandle<MembersSeats, MembersSeatsKey, 'list' | 'read' | 'create' | 'remove', MembersSeatsCreate>;
-  membersRoles: ResourceHandle<MembersRoles, MembersRolesKey, 'list' | 'read'>;
-  membersInvitations: ResourceHandle<MembersInvitations, MembersInvitationsKey, 'list' | 'read' | 'create' | 'remove', MembersInvitationsCreate>;
+  deleteMembersUser: MethodHandle<DeleteMembersUser>;
+  disableMembersUser: MethodHandle<DisableMembersUser>;
+  enableMembersUser: MethodHandle<EnableMembersUser>;
+  endMembersSession: MethodHandle<EndMembersSession>;
+  endMembersUserSessions: MethodHandle<EndMembersUserSessions>;
+  renameMembersUser: MethodHandle<RenameMembersUser>;
+  revokeMembersUserTrustedDevices: MethodHandle<RevokeMembersUserTrustedDevices>;
+  setMembersUserEmail: MethodHandle<SetMembersUserEmail>;
+  unlinkMembersSessionIdentity: MethodHandle<UnlinkMembersSessionIdentity>;
+  unlockMembersSignIn: MethodHandle<UnlockMembersSignIn>;
   setFeature: MethodHandle<SetFeature, SetFeatureResult>;
-  unlinkMembersUserIdentity: MethodHandle<UnlinkMembersUserIdentity>;
-  resetMembersUserFactors: MethodHandle<ResetMembersUserFactors>;
 }
 
 /** Handles for one tenant partition, available on client.domain(...). */
 export interface DomainApi {
   clientRosters: ResourceHandle<ClientRosters, ClientRostersKey, 'list' | 'read'>;
   distressCalls: ResourceHandle<DistressCalls, DistressCallsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', DistressCallsCreate, DistressCallsPatch>;
+  membersSectorIdentities: ResourceHandle<MembersSectorIdentities, MembersSectorIdentitiesKey, 'list' | 'read'>;
+  membersSectorInvitations: ResourceHandle<MembersSectorInvitations, MembersSectorInvitationsKey, 'list' | 'read'>;
+  membersSectorUsers: ResourceHandle<MembersSectorUsers, MembersSectorUsersKey, 'list' | 'read'>;
+  membersSectorUserRoles: ResourceHandle<MembersSectorUserRoles, MembersSectorUserRolesKey, 'list' | 'read'>;
   missions: ResourceHandle<Missions, MissionsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', MissionsCreate, MissionsPatch>;
   missionDocuments: ResourceHandle<MissionDocuments, MissionDocumentsKey, 'list' | 'read' | 'patch' | 'remove' | 'batch', never, MissionDocumentsPatch>;
-  membersSectorUsers: ResourceHandle<MembersSectorUsers, MembersSectorUsersKey, 'list' | 'read' | 'patch' | 'remove', never, MembersSectorUsersPatch>;
-  membersSectorSeats: ResourceHandle<MembersSectorSeats, MembersSectorSeatsKey, 'list' | 'read' | 'create' | 'remove', MembersSectorSeatsCreate>;
-  membersSectorRoles: ResourceHandle<MembersSectorRoles, MembersSectorRolesKey, 'list' | 'read'>;
-  membersSectorInvitations: ResourceHandle<MembersSectorInvitations, MembersSectorInvitationsKey, 'list' | 'read' | 'create' | 'remove', MembersSectorInvitationsCreate>;
+  deleteMembersSectorUser: MethodHandle<DeleteMembersSectorUser>;
+  disableMembersSectorUser: MethodHandle<DisableMembersSectorUser>;
+  enableMembersSectorUser: MethodHandle<EnableMembersSectorUser>;
+  endMembersSectorUserSessions: MethodHandle<EndMembersSectorUserSessions>;
+  renameMembersSectorUser: MethodHandle<RenameMembersSectorUser>;
+  revokeMembersSectorUserTrustedDevices: MethodHandle<RevokeMembersSectorUserTrustedDevices>;
+  setMembersSectorUserEmail: MethodHandle<SetMembersSectorUserEmail>;
   standDownMission: MethodHandle<StandDownMission>;
-  unlinkMembersSectorUserIdentity: MethodHandle<UnlinkMembersSectorUserIdentity>;
-  resetMembersSectorUserFactors: MethodHandle<ResetMembersSectorUserFactors>;
+  unlinkMembersSectorSessionIdentity: MethodHandle<UnlinkMembersSectorSessionIdentity>;
 }
 
 export type Api = Client<GlobalApi, DomainApi>;

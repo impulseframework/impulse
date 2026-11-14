@@ -150,15 +150,14 @@ export interface ApiDescriptor {
    */
   live?: LiveRoutes;
   /**
-   * The user-management surfaces this outlet serves, one per Auth whose users it manages
-   * (its own, and every Auth the generator program declared it manages): the users, seats
-   * and roles resources of each partition and the methods beside them, all of them
-   * ordinary entries of `resources` and `methods`, so the handles, the digest and the
-   * capability envelope work for them as for everything else. The block says which
-   * entries make up a surface and what the Auth's sign-in methods give it. Absent, on a
-   * descriptor from a generator that predates the surfaces, the outlet serves none.
+   * The generated management of each Auth this outlet serves it for (GenerateIdentity):
+   * the lists and the methods of each side, every one an ordinary entry of `resources`
+   * and `methods`, under the key a page knows it by. The names differ in every
+   * application (they carry the Auth's name and the tenant record's), so this block is
+   * what lets the pages over an Auth's people be drawn from the description alone.
+   * Absent where the outlet serves no Auth's generated management.
    */
-  userSurfaces?: readonly UserSurfaceDescriptor[];
+  identity?: readonly IdentityDescriptor[];
   /**
    * The token routes this outlet serves, when its Auth issues tokens for the application's
    * machine outlets: where the signed-in person lists, issues and revokes their own tokens,
@@ -172,65 +171,73 @@ export interface ApiDescriptor {
 }
 
 /**
- * One Auth's user-management surface as the generator derived it from the Auth's sign-in
- * methods: `auth` is the Auth's name (`Crew`, the auth package's name in PascalCase),
- * `label` the words a page shows for it, `password` whether a password method is
- * registered (then a user is created with an optional password, a password is set for
- * one, and a password an operator sets is changed before anything else is served),
- * `usernameIsEmail` whether that method declares the username as the person's email
- * address (then the username and the address are not edited by hand: a verified new
- * address renames the user), `openSignUp` whether it lets a stranger create an account
- * from a mailed link, and `registrations` the external methods. The partitions come
- * global first; the tenant partition is present when the application has a tenant
- * record. A descriptor from a generator that predates the mailed links carries neither
- * flag.
+ * One Auth's generated management: the Auth's name (the prefix of everything generated
+ * for it), the words a page shows for it, the application's tenant record by its
+ * struct's name where it has one, and the sides the outlet serves, the whole
+ * application's first and a tenant's after it.
  */
-export interface UserSurfaceDescriptor {
+export interface IdentityDescriptor {
   readonly auth: string;
   readonly label: string;
-  readonly password: boolean;
-  readonly usernameIsEmail?: boolean;
-  readonly openSignUp?: boolean;
-  readonly registrations: readonly UserRegistrationDescriptor[];
-  readonly partitions: readonly UserPartitionDescriptor[];
+  readonly tenant?: string;
+  readonly sides: readonly IdentitySideDescriptor[];
 }
 
 /**
- * One external sign-in registration of the Auth: `invited`, the directory admits only
- * people the application created first (so the surface creates users without a
- * password); `syncsRoles`, the directory writes the roles of the people who sign in
- * through it at every sign-in (so the surface leaves their seats to the directory and
- * says so on the row, `rolesSynced`).
+ * One side of an Auth's generated management: the whole application's (`global`: every
+ * person of the Auth) or a tenant's (`domain`: the people who hold a role in the
+ * route's tenant). A side names only what the outlet serves: a list the schema has no
+ * table for and a method the Auth's sign-in methods do not give are absent.
  */
-export interface UserRegistrationDescriptor {
-  readonly name: string;
-  readonly kind: string;
-  readonly label: string;
-  readonly invited: boolean;
-  readonly syncsRoles: boolean;
-}
-
-/**
- * One partition of a surface: the global one (every user of the Auth, with the seats
- * held globally and in every domain) or the tenant one (the users seated in the route's
- * tenant or everywhere, with their seats there). `users`, `seats`, `roles` and
- * `invitations` name the partition's resources in `resources` (`invitations`, the
- * standing invitations into the partition, is absent on a descriptor from a generator
- * that predates them); `setPassword`, `unlinkIdentity` and `resetFactors` the methods in
- * `methods`: the first two absent where the Auth's methods give none (no password method;
- * no external registration), the last, which forgets the browsers a user asked to be
- * remembered so their next sign-in asks for the second factor, on every Auth, absent only
- * on a descriptor from a generator that predates the second factor.
- */
-export interface UserPartitionDescriptor {
+export interface IdentitySideDescriptor {
   readonly scope: ScopeKind;
+  readonly lists: IdentityLists;
+  readonly methods: IdentityMethods;
+}
+
+/**
+ * The lists of a side, each a resource in `resources`: the people; the roles they hold
+ * (one row for each role a person holds); the identities they sign in with; the
+ * invitations (a tenant's) or every mailed link (the whole application's); and, for the
+ * whole application alone, the sessions and the names whose sign-in is being counted or
+ * is locked.
+ */
+export interface IdentityLists {
   readonly users: string;
-  readonly seats: string;
-  readonly roles: string;
+  readonly roles?: string;
+  readonly identities?: string;
   readonly invitations?: string;
-  readonly setPassword?: string;
+  readonly sessions?: string;
+  readonly signInAttempts?: string;
+}
+
+/**
+ * The methods of a side, each a method in `methods`, by what it does. `create` and
+ * `invite` name no row. On a tenant's side `assignRole` runs against a person and
+ * `removeRole` against a role held; on the whole application's side both take the
+ * person's name, since a role may be held by a name that has no account.
+ * `withdrawInvitation` runs against an invitation, `unlinkIdentity` against an identity,
+ * `endSession` against a session, `unlockSignIn` against a counted name, and the rest
+ * against a person.
+ */
+export interface IdentityMethods {
+  readonly create?: string;
+  readonly invite?: string;
+  readonly withdrawInvitation?: string;
+  readonly assignRole?: string;
+  readonly removeRole?: string;
+  readonly disable?: string;
+  readonly enable?: string;
+  readonly delete?: string;
+  readonly rename?: string;
+  readonly setEmail?: string;
+  readonly setTemporaryPassword?: string;
+  readonly requirePasswordChange?: string;
+  readonly endUserSessions?: string;
+  readonly revokeTrustedDevices?: string;
   readonly unlinkIdentity?: string;
-  readonly resetFactors?: string;
+  readonly endSession?: string;
+  readonly unlockSignIn?: string;
 }
 
 /** The route the enabled set of feature flags is read from, under the API prefix like every other route. */

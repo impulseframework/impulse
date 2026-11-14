@@ -27,13 +27,19 @@ type PermissionCollection interface {
 	// does not declare.
 	AttributeComparisonType(scope accesstypes.PermissionScope, res accesstypes.Resource, name string) (accesstypes.AttributeType, bool)
 	AttributeIsColumn(scope accesstypes.PermissionScope, res accesstypes.Resource, name string) bool
+	// AttributeIsList reports whether an attribute reads a list column: a
+	// condition that reads one is judged once for each item of the row's
+	// list, so it reads one list, as the row holds it.
+	AttributeIsList(scope accesstypes.PermissionScope, res accesstypes.Resource, name string) bool
 	SubjectSetComparisonType(name string) (accesstypes.AttributeType, bool)
 	SubjectValueComparisonType(name string) (accesstypes.AttributeType, bool)
 
-	// IsComputedResource reports whether res is a computed resource: a
-	// hand-written query surface whose permission checks run at decode time,
-	// where no row exists — so its grants accept only row-free conditions,
-	// exactly as target-less Execute grants do.
+	// IsComputedResource reports whether res is a computed resource: one whose
+	// rows come from the application's Go function. The library judges a
+	// condition against each row the function yields, in Go, so a grant's
+	// condition reads the fields the resource declares (@attribute on the
+	// field) and validates against them as a table's does against its
+	// columns; the marker lets a refusal name that declaration.
 	IsComputedResource(scope accesstypes.PermissionScope, res accesstypes.Resource) bool
 
 	// MethodTarget reports the row resource an RPC method's @target field

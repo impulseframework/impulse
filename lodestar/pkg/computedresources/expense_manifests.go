@@ -29,7 +29,16 @@ type (
 	// sheet's validator is a digest of its rows, so a browser that kept the sheet asks
 	// again and hears 304 until an expense is booked.
 	//
-	// Demonstrates: @file.rendered, @computed, computed.domain.
+	// The manifest is also where a grant on a computed resource reads a FACT ABOUT THE
+	// CALLER held in a table. AssignedSquadronID, the squadron the mission is assigned
+	// to, is declared for conditions (@attribute), and the Flight Lead's grants carry
+	// `assignedSquadron IN subject.squadrons`: the library reads the caller's squadrons
+	// once for the request and judges each manifest this package's functions yield, so
+	// a Flight Lead lists, reads and downloads the manifests of the missions their own
+	// squadrons fly, and another squadron's manifest is a row that is not there. The
+	// Purser's grants carry no condition and reach every manifest of the sector.
+	//
+	// Demonstrates: @file.rendered, @computed, computed.domain, computed.subject-fact.
 	//
 	// @computed
 	// @permissionScope(domain)
@@ -41,6 +50,8 @@ type (
 		Title     string          `spanner:"Title"`
 		Sorties   int64           `spanner:"Sorties"`
 		Expenses  decimal.Decimal `spanner:"Expenses"`
+		// @attribute(assignedSquadron)
+		AssignedSquadronID *impulse.UUID `spanner:"AssignedSquadronId"`
 	}
 )
 
@@ -164,11 +175,11 @@ func ExpenseManifestContent(ctx context.Context, missionID impulse.UUID, qSet *r
 // come back in the missions' title order; the generated handler sorts and pages them.
 func manifestsOf(ctx context.Context, client resource.Client, sector accesstypes.Domain, missionID *impulse.UUID) ([]*ExpenseManifest, error) {
 	missions := resources.NewMissionQuery().
-		AddColumns(resources.NewMissionColumns().ID().Title()).
+		AddColumns(resources.NewMissionColumns().ID().Title().AssignedSquadronID()).
 		Where(resources.NewMissionQueryClause().SectorID().Equal(string(sector)))
 	if missionID != nil {
 		missions = resources.NewMissionQuery().
-			AddColumns(resources.NewMissionColumns().ID().Title()).
+			AddColumns(resources.NewMissionColumns().ID().Title().AssignedSquadronID()).
 			Where(resources.NewMissionQueryClause().SectorID().Equal(string(sector)).And().ID().Equal(*missionID))
 	}
 
@@ -178,6 +189,9 @@ func manifestsOf(ctx context.Context, client resource.Client, sector accesstypes
 			return nil, errors.Wrap(err, "resources.MissionQuery.List()")
 		}
 		manifest := &ExpenseManifest{MissionID: mission.Data.ID, Title: mission.Data.Title}
+		if squadron := mission.Data.AssignedSquadronID; squadron.Valid {
+			manifest.AssignedSquadronID = &squadron.UUID
+		}
 		sorties := resources.NewSortieQuery().
 			AddColumns(resources.NewSortieColumns().ID()).
 			Where(resources.NewSortieQueryClause().MissionID().Equal(mission.Data.ID))

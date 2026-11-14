@@ -1,0 +1,37 @@
+<div mat-dialog-title>{{ data.label }}</div>
+<mat-dialog-content>
+  @if (question) {
+    <p class="question">{{ question }}</p>
+  }
+  @if (elements.length > 0) {
+    <div class="resource-container">
+      <form [formGroup]="form" (ngSubmit)="run()">
+        <div class="resource row">
+          @for (element of elements; track element.name) {
+            <impulse-resource-layout-template
+              [element]="element"
+              [meta]="meta"
+              [pristineValue]="pristine[element.name]"
+              editMode="edit"
+              [form]="form"></impulse-resource-layout-template>
+          }
+        </div>
+      </form>
+    </div>
+  }
+  @if (uploadLimit) {
+    <div class="files">
+      <label class="files-label" for="impulse-method-files">Choose what to send. The files can be up to {{ uploadLimit }} together.</label>
+      <input id="impulse-method-files" class="files-input" type="file" multiple (change)="pick($event)" />
+    </div>
+  }
+  @if (refusal()) {
+    <p class="refusal" role="alert">{{ refusal() }}</p>
+  }
+</mat-dialog-content>
+<mat-dialog-actions align="end">
+  <button mat-raised-button type="button" color="warn" [mat-dialog-close]="undefined" [disabled]="busy()">Cancel</button>
+  <button mat-raised-button type="button" color="accent" (click)="run()" [disabled]="busy() || form.invalid || !hasFiles()">
+    {{ data.label }}
+  </button>
+</mat-dialog-actions>

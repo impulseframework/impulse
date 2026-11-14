@@ -47,8 +47,8 @@ const authTemplate = `// Package {{.Name}} is the {{.Name}} auth: {{.Doc}}, who 
 // browser is one the person asked to be remembered after a code (the {{.Name}}-trusted
 // cookie); a sign-in through a directory the deployment administers, or whose token says
 // a second factor was passed, carries the directory's and is asked for nothing. An
-// administrator resets the browsers a person asked to be remembered from the users
-// surface, so their next sign-in asks again.
+// administrator makes the server forget the browsers a person asked to be remembered,
+// from the person's account page, so their next sign-in asks again.
 package {{.Name}}
 
 import (
@@ -231,6 +231,11 @@ type Auth struct {
 {{- end}}
 	access   *access.Client
 	handlers *Handlers
+{{- if .IdentityPackage}}
+	// identity is the auth's identity client: the generated management of its people
+	// ({{.IdentityDir}}), built over the engine and the session manager above.
+	identity *{{.Name}}identity.Client
+{{- end}}
 }
 
 // Handlers is the auth's served surface, the shape the generated router names for the
@@ -487,34 +492,52 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// The sign-in rule: every session carries a second factor (requireSecondFactor).
 	authSession.SetSignInPolicy(requireSecondFactor)
 {{- end}}
+{{- if .UsernameIsEmail}}
+
+	// The sign-in name is the address, so a verified change of address renames the user,
+	// and the roles held under the old name follow it.
+	authSession.SetUserRenamed(identity.RolesFollowRename(accessClient.UserManager()))
+{{- end}}
+{{- if .IdentityPackage}}
+
+	// The auth's identity client ({{.IdentityDir}}, generated): the rules that manage the
+	// auth's people, over the engine that reads its memberships and the API of the session
+	// manager that signs them in, whose hasher makes the hash of a temporary password one
+	// of its methods sets.{{if .Foothold}} The client knows the auth's administrator roles
+	// (identity.WithAdministratorRoles), so a person who removes a role from themselves
+	// is judged by the rule on the last administrator.{{end}}
+	identityClient, err := {{.Name}}identity.NewClient(accessClient, authSession.API(){{if .Foothold}}, identity.WithAdministratorRoles(AdministratorRoles()){{end}})
+	if err != nil {
+		return nil, errors.Wrap(err, "{{.Name}}identity.NewClient()")
+	}
 {{- if .DirectoryAdmission}}
 
 	// The directory admission: what a stranger gets at their first sign-in through a
 	// directory a tenant declares, before the registration's account rule is reached.
 	// The directory rows the tenants declare for the identity's connection decide: a
-	// row with a default seat creates the person and seats them with it (written
-	// through the engine once the sign-in's transaction has committed, resource.SeatDeclared,
-	// before the sign-in rule decides, so the rule finds the membership); rows with
-	// none refuse them (invitation_only) and no account is created, unless they
-	// followed an invitation link, which is the way in; a person already seated
-	// somewhere is the tenant's own and passes. A directory no tenant declares falls to
-	// the registration's rule. The auth's roles are the application's, so the admission
-	// is set here; an auth whose directory writes the roles sets none.
-	authSession.SetDirectoryAdmission(settings.TenantDirectories, resource.SignInRoles(accessClient.UserManager()), resource.SeatDeclared(accessClient.UserManager()))
+	// row with a default seat creates the person and gives them that role in the tenant
+	// in one transaction (the identity client's DirectorySeated, which the session
+	// library runs inside the transaction that creates the person), and the sign-in rule
+	// then finds the membership; rows with none refuse them (invitation_only) and no
+	// account is created, unless they followed an invitation link, which is the way in;
+	// a person who already holds a role somewhere is the tenant's own and passes. A
+	// directory no tenant declares falls to the registration's rule. The auth's roles
+	// are the application's, so the admission is set here; an auth whose directory
+	// writes the roles sets none.
+	authSession.SetDirectoryAdmission(settings.TenantDirectories, resource.SignInRoles(accessClient.UserManager()), identityClient.DirectorySeated())
+{{- end}}
+{{- if not .RolesSynced}}
+
+	// An accepted invitation gives its roles, in the tenant it names or for the whole
+	// application, in the transaction that consumes the invitation (the identity
+	// client's InvitationAccepted, which the session library runs inside it): the
+	// invitation is spent and its roles given together or neither is, and the sign-in
+	// rule that follows finds the memberships.
+	authSession.SetInvitationAccepted(identityClient.InvitationAccepted())
+{{- end}}
 {{- end}}
 
-	// An invitation accepted seats its roles: once the transaction that consumed the
-	// invitation has committed, the hook writes the invitee's memberships through the
-	// permission engine, outside the sign-in's transaction (the engine's own read-write
-	// transaction would wait on it), and the sign-in rule that follows finds them.
-	authSession.SetInvitationAccepted(resource.SeatInvited(accessClient.UserManager()))
-{{- if .UsernameIsEmail}}
-	// The sign-in name is the address, so a verified change of address renames the user,
-	// and the seats held under the old name follow it.
-	authSession.SetUserRenamed(resource.SeatsFollowRename(accessClient.UserManager()))
-{{- end}}
-
-	return &Auth{ {{- if .Foothold}}db: db, {{end}}access: accessClient, handlers: handlers}, nil
+	return &Auth{ {{- if .Foothold}}db: db, {{end}}access: accessClient, handlers: handlers{{if .IdentityPackage}}, identity: identityClient{{end}}}, nil
 }
 
 // Access returns the auth's permission engine: the handlers check against it, and its
@@ -532,6 +555,16 @@ func (a *Auth) Session() *Session {
 func (a *Auth) Handlers() *Handlers {
 	return a.handlers
 }
+{{- if .IdentityPackage}}
+
+// Identity returns the auth's identity client: what the generated methods that manage
+// the auth's people run over ({{.IdentityDir}}/{{.Name}}identity), on their routes and
+// in a transaction the application opens itself.{{if not .RolesSynced}} The roles a sign-in gives are written
+// through the same client, by the hooks New sets.{{end}}
+func (a *Auth) Identity() *{{.Name}}identity.Client {
+	return a.identity
+}
+{{- end}}
 
 // Close releases the permission engine, which ends its subscription to the policy kind.
 func (a *Auth) Close() error {
@@ -832,7 +865,7 @@ func (h *Handlers) {{.Pascal}}FrontChannelLogout() http.HandlerFunc {
 // not name, and a sign-in naming no known role is refused. Hand-assigned roles do not
 // survive it, so nothing in the application assigns roles in this store, and the
 // registration's declaration on every outlet chains .SyncsRoles(), so the generated
-// users surface shows these people's roles as the directory's and never writes them.
+// management shows these people's roles as the directory's and never writes them.
 {{- else}}
 // The application is the authority for role membership (signin.DisableRoleSync): the
 // directory proves who someone is and the application decides what they may do, so a
@@ -1017,7 +1050,7 @@ func (h *Handlers) {{.Pascal}}Callback() http.HandlerFunc {
 // person's own sign-in token as far as the group lookup reaches, removing any role no
 // group names; a sign-in in no role group is refused. Hand-assigned roles do not survive
 // it, so nothing in the application assigns roles in this store, and the registration's
-// declaration on every outlet chains .SyncsRoles(), so the generated users surface shows
+// declaration on every outlet chains .SyncsRoles(), so the generated management shows
 // these people's roles as the directory's and never writes them.
 {{- else}}
 // The application is the authority for role membership (google.DisableRoleSync): Google
@@ -1222,7 +1255,7 @@ func (h *Handlers) {{.Pascal}}Callback() http.HandlerFunc {
 // file defines is refused. The provider has to be set up to send that claim. Hand-assigned
 // roles do not survive it, so nothing in the application assigns roles in this store, and
 // the registration's declaration on every outlet chains .SyncsRoles(), so the generated
-// users surface shows these people's roles as the provider's and never writes them.
+// management shows these people's roles as the provider's and never writes them.
 {{- else}}
 // The application is the authority for role membership (signin.DisableRoleSync): the
 // provider proves who someone is and the application decides what they may do, so a

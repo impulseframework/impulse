@@ -108,7 +108,7 @@ type storeSignIn struct {
 	rule     signin.AccountRule[mockTx]
 	standard signin.StandardAccountRule
 	policy   signin.Policy[mockTx]
-	accept   signinflow.InvitationAcceptor
+	accept   signinflow.InvitationAcceptor[mockTx]
 }
 
 func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption) *authFixture {

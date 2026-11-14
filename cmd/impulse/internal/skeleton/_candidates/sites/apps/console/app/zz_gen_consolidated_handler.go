@@ -48,12 +48,13 @@ func (a *App) PatchResources() http.HandlerFunc {
 	type response map[string][]impulse.UUID
 
 	// The creator of a Tenant is its first administrator: the roles TenantAdministratorRoles
-	// names, seated through the Staff auth's seats after a create's commit.
+	// names, given in the create's transaction through the Staff auth's generated
+	// identity client.
 	roles := a.TenantAdministratorRoles()
 	if len(roles) == 0 {
 		panic("TenantAdministratorRoles() names no role: the person who creates a Tenant holds its administrator role, which the application names there")
 	}
-	seats := a.StaffUserSurface().SeatStore()
+	identity := a.StaffIdentity()
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -68,7 +69,8 @@ func (a *App) PatchResources() http.HandlerFunc {
 		// The roster follows the commit: a tenant or a declaration this transaction
 		// writes reaches it once the commit lands, never inside the transaction.
 		tenantsWritten := false
-		// The Tenants this transaction creates, their creator seated after the commit.
+		// The Tenants this transaction creates with their creator's membership,
+		// which the answer waits on after the commit.
 		var created []string
 
 		// The rows the transaction writes are collected for the live pages, published
@@ -108,6 +110,11 @@ func (a *App) PatchResources() http.HandlerFunc {
 							id := httpio.Param[string](req, "id")
 							if err := resources.NewTenantCreatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.TenantCreatePatch.Buffer()")
+							}
+							for _, role := range roles {
+								if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id)), string(userPermissions.User()), role); err != nil {
+									return errors.Wrap(err, "the auth's identity client: AssignRole()")
+								}
 							}
 							created = append(created, id)
 						case resource.OperationUpdate:
@@ -229,26 +236,8 @@ func (a *App) PatchResources() http.HandlerFunc {
 			}
 		}
 		for _, domain := range created {
-			if err := resource.SeatFirstAdministrator(ctx, seats, userPermissions, accesstypes.Domain(domain), roles); err != nil {
-				if undo := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-					for _, row := range created {
-						if err := resources.NewTenantDeletePatch(row).Buffer(ctx, txn, eventSource); err != nil {
-							return errors.Wrap(err, "resources.TenantDeletePatch.Buffer()")
-						}
-					}
-
-					return nil
-				}); undo != nil {
-					logger.FromCtx(ctx).Errorf("tenant %s: its creator could not be seated as its administrator, and the rows this request created could not be removed either: %v", domain, undo)
-				}
-				if err := a.TenantRoster().Reload(ctx); err != nil {
-					logger.FromCtx(ctx).Errorf("tenants: rereading the roster after the rows were removed failed; this instance reloads on the tenants signal or at its backstop: %v", err)
-				}
-				if err := a.LiveService().Signal(ctx, resource.KindTenants); err != nil {
-					logger.FromCtx(ctx).Errorf("tenants: signaling the tenants kind failed; the other instances reload at their backstop: %v", err)
-				}
-
-				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(domain)); err != nil {
+				logger.FromCtx(ctx).Errorf("tenant %s: %v", domain, err)
 			}
 		}
 		if tenantsWritten {

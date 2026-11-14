@@ -120,11 +120,24 @@ type (
 		HoldIDs []impulse.UUID // @enumerate(Holds)
 	}
 
-	// Stow is a method declaring a picker on a list request field.
+	// Stow is a method declaring a picker on a list request field: several picked keys,
+	// so the declaration resolves.
 	//
 	// @rpc
 	Stow struct {
 		HoldIDs []impulse.UUID // @enumerate(Holds)
+	}
+
+	// Lot is a nested value of a request.
+	Lot struct {
+		HoldID impulse.UUID
+	}
+
+	// Load is a method declaring a picker on a list of nested values, which holds no key.
+	//
+	// @rpc
+	Load struct {
+		Lots []Lot // @enumerate(Holds)
 	}
 
 	// Stamp is a method declaring a picker on a byte slice request field: one value on
@@ -137,6 +150,10 @@ type (
 )
 
 func (*Stow) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+
+func (*Load) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
 	return nil
 }
 

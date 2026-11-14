@@ -51,7 +51,9 @@ export class BaseRPCModalComponent {
     const allElements = flattenElements(this.data.elements);
     if (meta) {
       for (const field of meta.fields || []) {
-        const value = '';
+        // A field that holds a list starts as an empty list: the control of several
+        // picked keys reads and writes a list.
+        const value: string | string[] = field.displayType.endsWith('[]') ? [] : '';
         const control = new FormControl(value);
         const findConfig = allElements.find((element) => element.type === 'field' && element.name === field.fieldName);
         const fieldConfig = findConfig as FieldElement | undefined;

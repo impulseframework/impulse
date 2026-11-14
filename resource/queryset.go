@@ -83,6 +83,12 @@ type QuerySet[Resource Resourcer] struct {
 	// boundary follow, the one the tables beside the resource list in and a
 	// body's plain ORDER BY produces. Empty on a hand-built QuerySet.
 	dbType DBType
+	// rowConditions are the conditions a computed resource's rows are judged by,
+	// in Go, as the application's function yields them: stamped by the computed
+	// decoders when a grant the caller holds reads the row (computed_conditions.go),
+	// nil otherwise and on every table's QuerySet, whose conditions the statement
+	// renders.
+	rowConditions *rowConditions
 	// filterString is the request's filter exactly as sent, fingerprinted into
 	// every cursor the page emits so a cursor cannot be carried to another
 	// query.
@@ -151,23 +157,33 @@ func (q *QuerySet[Resource]) query() (withClause, query string, params map[strin
 
 	switch t := any(r).(type) {
 	case virtualQuerier:
-		query, params = t.Subquery()
-
-		withClause, query = extractWithClause(query)
-
-		// newlines before final parenthesis is necessary to combat any trailing comments
-		query = fmt.Sprintf("(%s\n) AS %s", query, r.Resource())
-
-		for pramName := range params {
-			if strings.HasPrefix(pramName, "_") {
-				panic(fmt.Sprintf("Subquery params for %s can not start with an _", r.Resource()))
-			}
+		withClause, query, params, err := viewFromItem(r.Resource(), t)
+		if err != nil {
+			panic(err.Error())
 		}
 
 		return withClause, query, params
 	default:
 		return "", string(r.Resource()), nil
 	}
+}
+
+// viewFromItem renders a view's query as the FROM item every statement over the view
+// selects from: the query in parentheses under the resource's name, its WITH clause
+// lifted out to lead the statement, and the parameters the query binds. A parameter
+// whose name starts with an underscore is refused: that namespace is the statement's
+// own.
+func viewFromItem(res accesstypes.Resource, view virtualQuerier) (withClause, item string, params map[string]any, err error) {
+	query, params := view.Subquery()
+	for name := range params {
+		if strings.HasPrefix(name, "_") {
+			return "", "", nil, errors.Newf("Subquery params for %s can not start with an _", res)
+		}
+	}
+	withClause, query = extractWithClause(query)
+
+	// newlines before final parenthesis is necessary to combat any trailing comments
+	return withClause, fmt.Sprintf("(%s\n) AS %s", query, res), params, nil
 }
 
 // RequiredPermission returns the permission required to execute the query.

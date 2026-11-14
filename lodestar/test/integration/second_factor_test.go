@@ -20,8 +20,8 @@ import (
 // waits for the sign-in code: she holds no address, gives one, reads the code from the
 // mail the auth sent, and the right code opens her session, the address now hers and
 // verified. The browser she asked to be remembered is not asked again; another browser
-// of hers is; headquarters resets her second factor from the user-management surface,
-// and the remembered browser is asked once more. The navigator, who signs in through
+// of hers is; headquarters makes the server forget her remembered browsers through the
+// crew's generated management, and the remembered browser is asked once more. The navigator, who signs in through
 // the fleet's directory, is never asked: the fleet administers its Workspace, which
 // attests for him.
 //
@@ -107,9 +107,9 @@ func TestSecondFactor(t *testing.T) {
 	// remembered is forgotten, and the remembered one is asked again.
 	governor := newBrowser(t, s, consoleAPI)
 	governor.signIn(ctx, "governor")
-	reset := jsonBody(t, map[string]any{"user": crewUserID(ctx, t, governor, "cadet")})
-	if status, body := governor.do(ctx, http.MethodPost, consoleAPI+"/"+crewPartitions().Global.ResetFactorsRoute, reset); status != http.StatusOK {
-		t.Fatalf("resetting the cadet's second factor: status %d: %s", status, body)
+	reset := jsonBody(t, map[string]any{"userId": crewUserID(ctx, t, governor, "cadet")})
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("revoke-crew-user-trusted-devices"), reset); status != http.StatusNoContent {
+		t.Fatalf("forgetting the cadet's trusted devices: status %d: %s", status, body)
 	}
 	cass.logout(ctx)
 	if status, body := cass.login(ctx, "cadet", personaPassword); status != http.StatusOK || !heldForFactor(t, body) {

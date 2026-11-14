@@ -331,13 +331,13 @@ func genericMethodNote(declared, registered string) string {
 // methodMismatches compares an outlet's declared methods with the methods the package
 // registers: a declaration the package does not register would mount routes to handlers
 // the App cannot supply, and a registration the outlet does not declare has routes
-// nowhere. The two must agree in name and method, and in the options the users surface
-// and the router read from the declaration: for the password method, a declaration
+// nowhere. The two must agree in name and method, and in the options the generated
+// management and the router read from the declaration: for the password method, a declaration
 // chaining .OpenSignUp() mounts the sign-up routes, which the registration serves only
-// with session.OpenSignUp(), and one chaining .UsernameIsEmail() has the users surface
+// with session.OpenSignUp(), and one chaining .UsernameIsEmail() has the management
 // derive the address from the username, which the registration does only with
 // session.UsernameIsEmail(); for a directory method, a declaration chaining .SyncsRoles()
-// has the users surface leave the person's roles to the directory, which is right only
+// has the management leave the person's roles to the directory, which is right only
 // where the registration's RoleSync writes them.
 func methodMismatches(o *app.Outlet, p *app.AuthPackage, auth *app.Auth) []string {
 	var details []string
@@ -383,9 +383,9 @@ func passwordMismatches(o *app.Outlet, p *app.AuthPackage, declared *app.AuthMet
 	}
 	switch {
 	case declared.UsernameIsEmail && !registered.UsernameIsEmail:
-		details = append(details, fmt.Sprintf("%s: outlet %s declares the password method with .UsernameIsEmail() on the %s auth, but %s:%d registers it without session.UsernameIsEmail(); the users surface would derive the address from a username the method does not hold to one (register it with the option, or drop .UsernameIsEmail())", o.Pos, o.Name, p.Name, registered.File, registered.Line))
+		details = append(details, fmt.Sprintf("%s: outlet %s declares the password method with .UsernameIsEmail() on the %s auth, but %s:%d registers it without session.UsernameIsEmail(); the generated management would derive the address from a username the method does not hold to one (register it with the option, or drop .UsernameIsEmail())", o.Pos, o.Name, p.Name, registered.File, registered.Line))
 	case !declared.UsernameIsEmail && registered.UsernameIsEmail:
-		details = append(details, fmt.Sprintf("%s:%d: the %s auth registers the password method with session.UsernameIsEmail(), but outlet %s (%s) does not declare .UsernameIsEmail(), so the users surface would hold an address apart from the username that is the address; chain .UsernameIsEmail() on the declaration", registered.File, registered.Line, p.Name, o.Name, o.Pos))
+		details = append(details, fmt.Sprintf("%s:%d: the %s auth registers the password method with session.UsernameIsEmail(), but outlet %s (%s) does not declare .UsernameIsEmail(), so the generated management would hold an address apart from the username that is the address; chain .UsernameIsEmail() on the declaration", registered.File, registered.Line, p.Name, o.Name, o.Pos))
 	}
 
 	return details
@@ -393,17 +393,17 @@ func passwordMismatches(o *app.Outlet, p *app.AuthPackage, declared *app.AuthMet
 
 // roleSyncMismatches compares a directory method's declaration with its registration:
 // the directory writing the person's roles is said in both places or neither. The
-// declaration's .SyncsRoles() has the generated users surface show the roles the
+// declaration's .SyncsRoles() has the generated management show the roles the
 // registration's RoleSync writes as the directory's and never write them; without it the
-// surface offers those roles as seats an administrator may remove, which the directory
-// puts back at the next sign-in. A registration whose RoleSync the scan does not read is
+// management offers them as roles an administrator may remove, which the directory puts
+// back at the next sign-in. A registration whose RoleSync the scan does not read is
 // not compared.
 func roleSyncMismatches(o *app.Outlet, p *app.AuthPackage, declared *app.AuthMethodArg, registered *app.Method) []string {
 	switch {
 	case declared.SyncsRoles && registered.Authority == app.AuthorityApplication:
-		return []string{fmt.Sprintf("%s: outlet %s declares the %s method %s with .SyncsRoles() on the %s auth, but %s:%d registers it with DisableRoleSync; the users surface would leave these people's roles to a directory that writes none (register it with RoleSync, or drop .SyncsRoles())", o.Pos, o.Name, declared.Kind, declared.Name, p.Name, registered.File, registered.Line)}
+		return []string{fmt.Sprintf("%s: outlet %s declares the %s method %s with .SyncsRoles() on the %s auth, but %s:%d registers it with DisableRoleSync; the generated management would leave these people's roles to a directory that writes none (register it with RoleSync, or drop .SyncsRoles())", o.Pos, o.Name, declared.Kind, declared.Name, p.Name, registered.File, registered.Line)}
 	case !declared.SyncsRoles && registered.Authority == app.AuthorityDirectory:
-		return []string{fmt.Sprintf("%s:%d: the %s auth registers the %s method %s with RoleSync, but outlet %s (%s) does not declare .SyncsRoles(), so the users surface would show the roles the directory writes as seats an administrator may remove, which the directory puts back at the next sign-in; chain .SyncsRoles() on the declaration", registered.File, registered.Line, p.Name, registered.Kind, registered.Name, o.Name, o.Pos)}
+		return []string{fmt.Sprintf("%s:%d: the %s auth registers the %s method %s with RoleSync, but outlet %s (%s) does not declare .SyncsRoles(), so the generated management would offer the roles the directory writes as roles an administrator may remove, which the directory puts back at the next sign-in; chain .SyncsRoles() on the declaration", registered.File, registered.Line, p.Name, registered.Kind, registered.Name, o.Name, o.Pos)}
 	default:
 		return nil
 	}
@@ -456,8 +456,8 @@ func RoleSyncUndeclaredMethods(a *app.App) []RoleSyncUndeclared {
 // standsAlone holds the rule that a registration whose directory writes the roles stands
 // alone on its auth: the directory is then the authority for everyone the auth holds,
 // and a second way in is a second authority over the same people (a person it
-// provisions holds nothing, and the users surface refuses to seat them because the
-// directory will not). The session library refuses the registration at construction;
+// provisions holds nothing, and the generated management refuses to give them a role
+// because the directory will not). The session library refuses the registration at construction;
 // this names it before the application starts.
 func standsAlone(p *app.AuthPackage, auth *app.Auth, m *app.Method) []string {
 	if len(auth.Methods) < 2 {

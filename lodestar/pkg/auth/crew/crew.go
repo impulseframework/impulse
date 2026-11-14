@@ -29,10 +29,11 @@
 // the authority for roles is the members auth's shape (pkg/auth/members), where the
 // directory's registration stands alone.
 //
-// Invitations are the way an administrator brings a person in: the user-management
-// surface mails a link carrying the roles, into the global partition or into a sector,
+// Invitations are the way an administrator brings a person in: the auth's generated
+// management mails a link carrying the roles, into the whole service or into a sector,
 // and whoever follows it and signs in, by any method or by creating a password login,
-// is seated with those roles by the acceptance hook (resource.SeatInvited). A person's
+// is given those roles by the acceptance hook, in the transaction that consumes the
+// invitation (New sets it from the auth's identity client). A person's
 // email address is held apart from their username, added and verified by the person
 // through a mailed link, or entered unverified by an operator.
 //
@@ -40,8 +41,9 @@
 // (pkg/auth: auth.RequireSecondFactor, the sign-in rule's last word): the fleet's
 // directory attests for its people when the deployment says the fleet administers it,
 // a browser a person asked to be remembered stands in for the factor, and otherwise the
-// login page runs the sign-in code the auth mails. Headquarters resets a person's
-// remembered browsers from the user-management surface (ResetCrewUserFactors).
+// login page runs the sign-in code the auth mails. Headquarters makes the server forget
+// a person's remembered browsers from the person's account
+// (RevokeCrewUserTrustedDevices).
 //
 // Demonstrates: auth.password, auth.two-populations, auth.multi-method, auth.directory-roles, auth.open-sign-up, auth.invitation, auth.email-address, auth.password-sign-up, auth.second-factor, auth.trusted-device.
 package crew
@@ -60,7 +62,9 @@ import (
 	"github.com/impulseframework/impulse/access/spannerstore"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewidentity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/google"
@@ -153,12 +157,13 @@ const (
 	impersonationTimeout = 4 * time.Hour
 )
 
-// AdministratorRoles are the roles whose holders administer a partition, by where they
-// are held: Headquarters in the global partition, SectorMarshal in a sector (the
-// governor holds it in every sector). The user-management surface judges a self-unseat
-// by them (resource.WithAdministratorRoles, the last-owner rule): a marshal leaves a
-// sector once another marshal holds it, and the last one is refused; and the Sector
-// record's create seats the creator with the sector's (app.SectorAdministratorRoles).
+// AdministratorRoles are the roles whose holders administer, by where they are held:
+// Headquarters in the whole service, SectorMarshal in a sector (the governor holds it
+// in every sector). The auth's generated management judges a person who takes a role
+// from themselves by them (identity.WithAdministratorRoles, the last-owner rule): a
+// marshal leaves a sector once another marshal holds it, and the last one is refused;
+// and the Sector record's create gives the creator the sector's
+// (app.SectorAdministratorRoles).
 //
 // Demonstrates: tenancy.creator-seat.
 func AdministratorRoles() (global, everyDomain []accesstypes.Role) {
@@ -242,6 +247,9 @@ type Session = session.Auth[session.NoCustomData, session.NoCustomData, *cloudsp
 type Auth struct {
 	access   *access.Client
 	handlers *Handlers
+	// identity is the auth's identity client: the generated management of the crew
+	// (pkg/identity), built over the engine and the session manager above.
+	identity *crewidentity.Client
 }
 
 // Handlers is the auth's served surface, the shape the generated router names for the
@@ -571,7 +579,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	}
 
 	// One Auth session that every method establishes, which mails as the fleet
-	// (session.WithMail): the invitations the user-management surface sends, the
+	// (session.WithMail): the invitations the auth's generated management sends, the
 	// verification of an address a person adds, and the sign-up links, each leading to
 	// the console's login page with its token in the query.
 	sessionStore := sessionstorage.NewSpannerAuth(db, sessionstorage.WithImpersonation(impersonation), sessionstorage.WithAuthEvents(events))
@@ -676,33 +684,49 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// Demonstrates: tenancy.declaration, tenancy.directory-only, auth.second-factor.
 	crewSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(auth.RequireSecondFactor))
 
+	// The crew's identity client (pkg/identity, generated): the rules that manage the
+	// auth's people, over the engine that reads its memberships and the API of the
+	// session manager that signs them in, whose hasher makes the hash of a temporary
+	// password one of its methods sets. A membership one of its methods commits is
+	// announced by that engine, on this instance at the commit and on every other
+	// through the policy signal. The client knows the crew's administrator roles
+	// (identity.WithAdministratorRoles), so a person who removes a role from themselves
+	// is judged by the rule on the last administrator: headquarters is never left
+	// without a holder, nor a sector without a marshal.
+	//
+	// Demonstrates: auth.generated-identity.
+	identityClient, err := crewidentity.NewClient(accessClient, crewSession.API(), identity.WithAdministratorRoles(AdministratorRoles()))
+	if err != nil {
+		return nil, errors.Wrap(err, "crewidentity.NewClient()")
+	}
+
+	// The two ways a sign-in gives a person roles, each a hook of the identity client
+	// that the session library runs inside the transaction of the step that causes it
+	// and hands that transaction, so the role is written with the step or not at all.
+	// They are set here, where the auth is built, so no crew auth is open without them.
+	//
 	// The directory admission: what a fleet member nobody has seated gets at their first
 	// sign-in through a directory a sector declares, before the registration's account
 	// rule is reached. The directory rows the sectors declare for the identity's
 	// connection decide: a row with a default seat creates the person and seats them
-	// with it (Cinder seats them SectorCrew, written through the engine once the
-	// sign-in's transaction has committed, resource.SeatDeclared, before the sign-in
-	// rule decides, so the rule finds the membership); rows with none refuse them
-	// (invitation_only), and no account is created, unless they followed an invitation
-	// link, which is the way in; a person already seated somewhere is the sector's own
-	// and passes. A directory no sector declares falls to the registration's rule as
-	// before (the pioneer's sign-up). The crew's roles are the application's, so the
-	// admission is set here; an auth whose directory writes the roles (the members'
-	// directory) is the authority for everyone it holds and sets none.
+	// with it in one transaction (Cinder seats them SectorCrew), and the sign-in rule
+	// then finds the membership; rows with none refuse them (invitation_only), and no
+	// account is created, unless they followed an invitation link, which is the way in;
+	// a person already seated somewhere is the sector's own and passes. A directory no
+	// sector declares falls to the registration's rule as before (the pioneer's
+	// sign-up). The crew's roles are the application's, so the admission is set on this
+	// auth; an auth whose directory writes the roles (the members' directory) is the
+	// authority for everyone it holds and sets none.
 	//
-	// Demonstrates: tenancy.default-seat.
-	crewSession.SetDirectoryAdmission(settings.TenantDirectories, resource.SignInRoles(accessClient.UserManager()), resource.SeatDeclared(accessClient.UserManager()))
-
-	// An accepted invitation seats the person with the roles it carries, in the
-	// sector it names or in the global partition, written to the crew engine by the
-	// library's hook (resource.SeatInvited) once the transaction that consumed the
-	// invitation has committed and before the sign-in rule decides, so the rule sees
-	// the new seat: a stranger invited into Bastion signs in admitted. The engine
-	// writes through its own client, outside any transaction, keyed by the username
-	// the hook is handed.
+	// The invitation's acceptance: an accepted invitation seats the person with the
+	// roles it carries, in the sector it names or in the global partition, in the
+	// transaction that consumes the invitation, so the invitation is spent and its
+	// roles given together or neither is, and the sign-in rule sees the new seat: a
+	// stranger invited into Bastion signs in admitted.
 	//
-	// Demonstrates: auth.invitation.
-	crewSession.SetInvitationAccepted(resource.SeatInvited(accessClient.UserManager()))
+	// Demonstrates: tenancy.default-seat, auth.invitation.
+	crewSession.SetDirectoryAdmission(settings.TenantDirectories, resource.SignInRoles(accessClient.UserManager()), identityClient.DirectorySeated())
+	crewSession.SetInvitationAccepted(identityClient.InvitationAccepted())
 
 	// The machine outlet the auth issues tokens for, registered before the first
 	// request as the methods are: the droids' channel, whose token check the generated
@@ -711,7 +735,11 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// or a test harness may reach after creating users through the API.
 	droids := session.RegisterMachineOutlet(crewSession, DroidsOutlet)
 
-	return &Auth{access: accessClient, handlers: &Handlers{Session: crewSession, store: sessionStore, password: password, google: googleMethod, signUp: signUpMethod, persona: personaMethod, droids: droids}}, nil
+	return &Auth{
+		access:   accessClient,
+		handlers: &Handlers{Session: crewSession, store: sessionStore, password: password, google: googleMethod, signUp: signUpMethod, persona: personaMethod, droids: droids},
+		identity: identityClient,
+	}, nil
 }
 
 // registerPersona registers the persona method on the Auth where the provider is
@@ -766,6 +794,14 @@ func (a *Auth) Session() *Session {
 // Handlers returns the auth's served surface.
 func (a *Auth) Handlers() *Handlers {
 	return a.handlers
+}
+
+// Identity returns the crew's identity client: what the generated methods that manage
+// the crew run over (pkg/identity/crewidentity), on their routes and in a transaction
+// the application opens itself. The roles a sign-in gives are written through the same
+// client, by the hooks New sets.
+func (a *Auth) Identity() *crewidentity.Client {
+	return a.identity
 }
 
 // Close releases the permission engine.

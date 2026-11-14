@@ -67,6 +67,38 @@ func GenerateHandlers(targetDir string) ResourceOption {
 	})
 }
 
+// GenerateIdentity enables generating the management of every auth the program declares
+// (Auth on GenerateRoutes or WithRouterOutlet) into treeDir, a tree the generator owns:
+// for each auth, resources over the tables the auth keeps (the session library's users,
+// sessions, identity links, tokens, mail links, sign-in attempts, sign-in events and
+// impersonation records, and the permission store's role memberships, roles and role
+// grants, each under the auth's prefix and each declared where the schema holds it) and
+// the methods that change them. No declaration carries a password hash or a token hash.
+// The resources are listed and read through the application's permission surface like
+// any other and have no write route: the methods change them, each gated by Execute, and
+// an application runs the same methods in its own transactions, beside its own writes.
+//
+// Three packages are written per auth, the Crew auth's being
+// <tree>/internal/crewresources (the declarations and their generated query and patch
+// types, importable inside the tree alone), <tree>/crewidentity (the methods and the
+// Client they run over) and <tree>/crewhandlers (the generated handlers, over the Deps the
+// application hands them). The application's type supplies each auth's client through an
+// accessor named for the auth (CrewIdentity), which the generated code asserts. A file in
+// the tree the generator did not write refuses the run; the packages an earlier run wrote
+// for an auth the program no longer declares are removed, so an auth taken out of the
+// program, or renamed, leaves nothing to clear by hand. Requires GenerateRoutes and
+// GenerateHandlers.
+func GenerateIdentity(treeDir string) ResourceOption {
+	return resourceOption(func(r *resourceGenerator) error {
+		if treeDir == "" {
+			return errors.New("GenerateIdentity: the tree's directory is empty")
+		}
+		r.identityTree = packageDir(treeDir)
+
+		return nil
+	})
+}
+
 // GenerateHandlerTests enables generation of the handler test suite in targetDir: the
 // Spanner-emulator bootstrap (TestMain + prepareDatabase over the application's
 // schema migrations) and the authorization-matrix tests, which drive every generated
@@ -195,8 +227,8 @@ type routerOutlet struct {
 	// undeclared when the outlet takes the application's.
 	requestLog RequestLog
 	traces     Traces
-	// manages are the import paths of the other Auths whose user-management surfaces
-	// this outlet serves beside its own (Manages), in declaration order.
+	// manages are the import paths of the other Auths whose generated management this
+	// outlet serves beside its own (Manages), in declaration order.
 	manages []string
 	// programs are the programs a machine outlet ships to their installed copies
 	// (ShipsProgram), in declaration order; a session outlet ships none, which
@@ -353,7 +385,7 @@ type AuthMethod struct {
 	label string
 	// invited marks a registration admitting invited users only (InvitedUsers), and
 	// syncsRoles one that writes its users' roles from the directory (SyncsRoles); both
-	// shape the Auth's user-management surface. openSignUp marks a registration
+	// shape the Auth's generated management. openSignUp marks a registration
 	// admitting anyone (OpenSignUp): what a tenant record's self-service creation
 	// shape needs on the outlet serving it.
 	invited    bool
@@ -446,9 +478,10 @@ func (m AuthMethod) Labeled(label string) AuthMethod {
 
 // InvitedUsers declares that the registration admits invited users only (the session
 // library's invited-users account rule): a person signs in through the directory once
-// an operator has created their account, so the Auth's user-management surface creates
-// users for it, without a password. Not for the password method, whose users are
-// always created here.
+// an operator has created their account, so the Auth's generated management creates
+// users for it (Create<Auth>User), without a password where the Auth has no password
+// method and with an optional one beside it. Not for the password method, whose users
+// are always created here.
 func (m AuthMethod) InvitedUsers() AuthMethod {
 	m.invited = true
 
@@ -456,11 +489,12 @@ func (m AuthMethod) InvitedUsers() AuthMethod {
 }
 
 // SyncsRoles declares that the registration writes its users' roles from the
-// directory at every sign-in (the method's RoleSync): the Auth's user-management
-// surface shows every user's seats and never writes them, since a seat made by hand
-// would not survive the next sign-in. Such a registration stands alone on its Auth
-// (validateAuthMethods refuses another method beside it): the directory is then the
-// authority for everyone the Auth holds. Not for the password method.
+// directory at every sign-in (the method's RoleSync): the Auth's generated management
+// lists the roles every person holds and has no method that gives or takes one, creates
+// an account or invites one, since a role given by hand would not survive the next
+// sign-in and a person is created holding a role. Such a registration stands alone on
+// its Auth (validateAuthMethods refuses another method beside it): the directory is
+// then the authority for everyone the Auth holds. Not for the password method.
 func (m AuthMethod) SyncsRoles() AuthMethod {
 	m.syncsRoles = true
 
@@ -485,8 +519,9 @@ func (m AuthMethod) OpenSignUp() AuthMethod {
 // UsernameIsEmail declares that the password method's username is the person's email
 // address (the session library's session.UsernameIsEmail): the users table derives the
 // address from the username, the login page asks for the address, a sign-up takes no
-// username, and the user-management surface takes no address beside the username and
-// refuses a rename. For the password method alone.
+// username, and the Auth's generated management has no method that renames a person or
+// sets their address, which changes when the person verifies a new one. For the
+// password method alone.
 func (m AuthMethod) UsernameIsEmail() AuthMethod {
 	m.usernameIsEmail = true
 
@@ -629,14 +664,14 @@ func Auth(importPath string, methods ...AuthMethod) OutletOption {
 	})
 }
 
-// Manages declares that the outlet also serves the user-management surface of another
-// Auth, named by its import path: the staff console managing the members a portal
-// outlet signs in. The managed Auth must be declared with Auth on some outlet. The
-// managed Auth's resources mount under this outlet's prefix exactly as under their own,
-// served through the managed Auth's stores and checked in the caller's engine against
-// the caller's role file; the collection is shared, so either role file may grant them,
-// and an application that wants only staff to manage members leaves the resources out
-// of the members' file.
+// Manages declares that the outlet also serves the generated management of another
+// Auth (GenerateIdentity), named by its import path: the staff console managing the
+// members a portal outlet signs in. The managed Auth must be declared with Auth on some
+// outlet. The managed Auth's lists and methods mount under this outlet's prefix exactly
+// as under their own, served through the managed Auth's identity client and checked in
+// the caller's engine against the caller's role file; the collection is shared, so
+// either role file may grant them, and an application that wants only staff to manage
+// members leaves them out of the members' file.
 func Manages(importPath string) OutletOption {
 	return outletOption(func(o *routerOutlet) error {
 		if importPath == "" || strings.ContainsAny(importPath, " \t\n\"") || strings.Trim(importPath, "/") != importPath {
@@ -1465,6 +1500,7 @@ const (
 	complex128GoType  = "complex128"
 	impulseUUIDGoType = "impulse.UUID"
 	civilDateGoType   = "civil.Date"
+	timeGoType        = "time.Time"
 )
 
 // jsonTrueLiteral is the JSON boolean literal the authorization matrix's synthesized

@@ -181,6 +181,10 @@ func (u *unionCollection) AttributeIsColumn(scope accesstypes.PermissionScope, r
 	return u.owner(res).AttributeIsColumn(scope, res, name)
 }
 
+func (u *unionCollection) AttributeIsList(scope accesstypes.PermissionScope, res accesstypes.Resource, name string) bool {
+	return u.owner(res).AttributeIsList(scope, res, name)
+}
+
 // SubjectSetComparisonType resolves a subject set's comparison type from
 // whichever collection declares it: the subject namespace is application-wide.
 func (u *unionCollection) SubjectSetComparisonType(name string) (accesstypes.AttributeType, bool) {

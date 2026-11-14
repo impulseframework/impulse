@@ -397,30 +397,33 @@ func Test_patchTemplate_tenant(t *testing.T) {
 			},
 		},
 		{
-			name:   "the record's create seats its creator between the roster's reload and the signal",
+			name:   "the record's create gives its creator the administrator roles in its transaction, and waits on them between the roster's reload and the signal",
 			tenant: true,
 			auth:   true,
 			wantContains: []string{
 				"roles := a.SectorAdministratorRoles()",
 				`panic("SectorAdministratorRoles() names no role: the person who creates a Sector holds its administrator role, which the application names there")`,
-				"seats := a.StaffUserSurface().SeatStore()",
+				"identity := a.StaffIdentity()",
 				"var created []string",
 				"userPermissions := a.UserPermissions(r)",
 				"created = nil",
+				"if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id)), string(userPermissions.User()), role); err != nil {",
 				"created = append(created, id)",
 				"for _, domain := range created {",
-				"if err := resource.SeatFirstAdministrator(ctx, seats, userPermissions, accesstypes.Domain(domain), roles); err != nil {",
-				".NewSectorDeletePatch(row).Buffer(ctx, txn, eventSource)",
+				"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(domain)); err != nil {",
 				"if err := a.TenantRoster().Reload(ctx); err != nil {",
 				"if err := a.LiveService().Signal(ctx, resource.KindTenants); err != nil {",
 			},
+			// Nothing is removed after the commit: the row and the membership are one
+			// transaction, written through the auth's identity client.
+			wantNotContains: []string{"SeatFirstAdministrator", "UserSurface", ".NewSectorDeletePatch(row)"},
 		},
 		{
 			name:            "a self-service record's handler seats nobody, since it creates nothing",
 			tenant:          true,
 			auth:            true,
 			creation:        tenantCreationSelfService,
-			wantNotContains: []string{"SeatFirstAdministrator", "AdministratorRoles"},
+			wantNotContains: []string{"AwaitFirstAdministrator", "AssignRole", "AdministratorRoles"},
 		},
 		{
 			name:      "the directories record reloads the roster after the commit and signals, as the record does",
@@ -447,6 +450,7 @@ func Test_patchTemplate_tenant(t *testing.T) {
 			r := &resourceGenerator{client: &client{resource: "testdata/tenantfixture"}, applicationName: "App", receiverName: "a"}
 			if tt.auth {
 				r.defaultOutlet.auth = &outletAuth{importPath: "example.com/app/pkg/auth/staff"}
+				r.identity = generatedIdentityOf("example.com/app/pkg/auth/staff")
 			}
 			out, err := r.handlerContent(PatchHandler, res)
 			if err != nil {
@@ -481,8 +485,11 @@ func Test_patchTemplate_tenant(t *testing.T) {
 			if commit >= reload || reload >= signal || signal >= answer {
 				t.Errorf("order: commit %d, roster %d, signal %d, answer %d; want ascending:\n%s", commit, reload, signal, answer, out)
 			}
-			if seat := strings.Index(s, "resource.SeatFirstAdministrator("); tt.auth && (reload >= seat || seat >= signal) {
-				t.Errorf("order: roster %d, seat %d, signal %d; want the seat between them:\n%s", reload, seat, signal, out)
+			if wait := strings.Index(s, "resource.AwaitFirstAdministrator("); tt.auth && (reload >= wait || wait >= signal) {
+				t.Errorf("order: roster %d, wait %d, signal %d; want the wait between them:\n%s", reload, wait, signal, out)
+			}
+			if given := strings.Index(s, "identity.AssignRole(ctx, txn,"); tt.auth && (given < 0 || given >= commit) {
+				t.Errorf("order: membership %d, commit %d; want the membership written inside the transaction:\n%s", given, commit, out)
 			}
 		})
 	}

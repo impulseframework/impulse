@@ -82,7 +82,7 @@ func newAuthInstance(ctx context.Context, t *testing.T, schema drivertest.AuthSc
 	return &drivertest.AuthInstance{
 		Driver: d, Raw: conn.Client,
 		SignIn: drivertest.NewSignIn(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
-		Accept: drivertest.NewAccept(d, cfg),
+		Accept: drivertest.NewAccept(d, cfg, func(txn *spanner.ReadWriteTransaction) drivertest.HookTx { return hookTx{txn} }),
 	}
 }
 

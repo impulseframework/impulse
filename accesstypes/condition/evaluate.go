@@ -14,10 +14,10 @@ import (
 // lowering or its SQL: where the two disagree, the differential that compares
 // them (the resource layer's semantic suite, through conditiontest) has found
 // a rendering fault, not an evaluator fault. A row the database holds is
-// judged by the database, through the lowering; the evaluator judges a row a
-// library composes in Go from several stores (the user-management surface:
-// users from the session store, memberships from the permission store), which
-// no one statement could evaluate.
+// judged by the database, through the lowering; the evaluator judges a row
+// that reaches the library as a Go value and through no statement of its own:
+// a computed resource's row, which the application's function yields (the
+// resource layer's computed_conditions.go).
 //
 // The evaluator knows no schema. A join-path attribute arrives already
 // resolved (the related row's column, or nothing), a subject set arrives as
@@ -120,6 +120,10 @@ func (d Date) compare(o Date) int {
 // time.Time (a timestamp, an instant), and Date. A map entry that is absent
 // or nil is "no value" — a NULL column, a NULL foreign key, a join path that
 // reaches no row, a subject value whose requester has no anchor row.
+//
+// A list attribute's value is a List of those values. A condition that reads
+// one is judged once for each item and holds only when it holds for every one
+// (see Evaluate).
 type Image struct {
 	// Pre holds the pre-image attribute values by binding name: the row as it
 	// is. A join-path attribute is already resolved to the related row's
@@ -153,17 +157,146 @@ type Image struct {
 	SubjectValues map[string]any
 }
 
+// List is the value of a list attribute: the items a list column holds, each
+// a value of the language's storage types or nil for an item with no value.
+type List []any
+
 // Evaluate returns the expression's three-valued truth over the image. It
 // errors on a malformed literal, a comparison between values of different
 // types, a temporal zone it cannot resolve, and a value of a type outside the
 // storage vocabulary — each a misuse deploy validation refuses, so an error
 // here means the harness or the generator is wrong, never the row or the requester.
+//
+// An expression that reads a list attribute is judged once for each item of
+// the list, the whole expression each time with the item as the attribute's
+// value, and holds only when it holds for every item: the result is TRUE when
+// every item's is, and FALSE otherwise. A list with no item, and no list at
+// all, is judged once with no value, so no value never permits and IS NULL is
+// TRUE of it. The rule is the one a request's list field follows when a
+// method's grant reads it, and the one the resource layer renders into SQL.
+// An expression reads at most one list, and never on a comparison's right
+// side: a second is an error, as deploy validation refuses it.
 func Evaluate(expr Expr, image *Image) (Truth3, error) {
+	read, err := image.listRead(expr)
+	if err != nil {
+		return Unknown, err
+	}
+	if read == nil {
+		return evaluate(expr, image)
+	}
+
+	items := read.items
+	if len(items) == 0 {
+		items = List{nil}
+	}
+	for _, item := range items {
+		t, err := evaluate(expr, read.with(image, item))
+		if err != nil {
+			return Unknown, err
+		}
+		if t != True {
+			return False, nil
+		}
+	}
+
+	return True, nil
+}
+
+// listRead is the one list an expression reads: the attribute, the image that
+// holds it, and its items.
+type listRead struct {
+	name  string
+	post  bool
+	items List
+}
+
+// listRead finds the list the expression reads, nil when it reads none.
+func (image *Image) listRead(expr Expr) (*listRead, error) {
+	var (
+		read *listRead
+		err  error
+	)
+	note := func(ref Ref) {
+		if ref.IsNow() || ref.IsTemporal() {
+			return
+		}
+		items, post, listed := image.list(ref)
+		if !listed {
+			return
+		}
+		if read != nil && (read.name != ref.Name || read.post != post) {
+			err = fmt.Errorf("condition: %q reads two lists (%s and %s); an expression is judged item by item over one", expr.String(), read.name, ref.Name)
+
+			return
+		}
+		read = &listRead{name: ref.Name, post: post, items: items}
+	}
+	walk(expr, func(node Expr) {
+		switch n := node.(type) {
+		case Comparison:
+			note(n.Left)
+			if right, ok := n.Right.(Ref); ok {
+				if _, _, listed := image.list(Ref{Name: right.Name}); listed {
+					err = fmt.Errorf("condition: %q compares against the list %s; a list is read on a comparison's left side alone", n.String(), right.Name)
+				}
+			}
+		case In:
+			note(n.Left)
+		case NullTest:
+			note(n.Left)
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return read, nil
+}
+
+// list reads a reference as a list: its items, whether the post-image holds
+// it, and whether the value is a list at all.
+func (image *Image) list(ref Ref) (items List, post, listed bool) {
+	if ref.PostImage {
+		if value, touched := image.Post[ref.Name]; touched {
+			items, listed = value.(List)
+
+			return items, true, listed
+		}
+	}
+	items, listed = image.Pre[ref.Name].(List)
+
+	return items, false, listed
+}
+
+// with is the image one item of the list is judged over: the image with the
+// item in the list's place.
+func (r *listRead) with(image *Image, item any) *Image {
+	one := *image
+	source := image.Pre
+	if r.post {
+		source = image.Post
+	}
+	values := make(map[string]any, len(source))
+	for name, value := range source {
+		values[name] = value
+	}
+	values[r.name] = item
+	if r.post {
+		one.Post = values
+	} else {
+		one.Pre = values
+	}
+
+	return &one
+}
+
+// evaluate is Evaluate over an image that holds no list the expression reads.
+func evaluate(expr Expr, image *Image) (Truth3, error) {
 	switch n := expr.(type) {
 	case And:
 		result := True
 		for _, operand := range n.Operands {
-			t, err := Evaluate(operand, image)
+			t, err := evaluate(operand, image)
 			if err != nil {
 				return Unknown, err
 			}
@@ -175,7 +308,7 @@ func Evaluate(expr Expr, image *Image) (Truth3, error) {
 	case Or:
 		result := False
 		for _, operand := range n.Operands {
-			t, err := Evaluate(operand, image)
+			t, err := evaluate(operand, image)
 			if err != nil {
 				return Unknown, err
 			}
@@ -185,7 +318,7 @@ func Evaluate(expr Expr, image *Image) (Truth3, error) {
 		return result, nil
 
 	case Not:
-		t, err := Evaluate(n.Operand, image)
+		t, err := evaluate(n.Operand, image)
 		if err != nil {
 			return Unknown, err
 		}

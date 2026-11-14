@@ -10,6 +10,174 @@ export interface Announcements {
   body?: string;
 }
 
+export interface StaffRoles {
+  kind: string;
+  axis: string;
+  domain: string;
+  role: string;
+  description?: string;
+  updatedAt?: Date;
+}
+
+export interface StaffRoleGrants {
+  kind: string;
+  axis: string;
+  domain: string;
+  role: string;
+  permission: string;
+  resourceName: string;
+  field: string;
+  condition: string;
+  updatedAt?: Date;
+}
+
+export interface StaffSessions {
+  id: string;
+  userId?: string;
+  username?: string;
+  expired?: boolean;
+  authenticatedAt?: Date;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface StaffSessionAuthEvents {
+  sessionId: string;
+  seq: number;
+  method?: string;
+  connection?: string;
+  idpAmr?: string[];
+  occurredAt?: Date;
+}
+
+export interface StaffSessionIdentities {
+  id: string;
+  userId?: string;
+  method?: string;
+  connection?: string;
+  subject?: string;
+  tenant?: string;
+  emailAtLink?: string;
+  createdAt?: Date;
+  lastUsedAt?: Date;
+}
+
+export interface StaffSessionMailLinks {
+  id: string;
+  kind?: string;
+  email?: string;
+  userId?: string;
+  tenant?: string;
+  roleNames?: string[];
+  invitedBy?: string;
+  createdAt?: Date;
+  expiresAt?: Date;
+  consumedAt?: Date;
+}
+
+export interface StaffSessionSignInAttempts {
+  name: string;
+  failures?: number;
+  windowEndsAt?: Date;
+  lockedUntil?: Date;
+  updatedAt?: Date;
+}
+
+export interface StaffSessionTokens {
+  id: string;
+  kind?: string;
+  userId?: string;
+  outlet?: string;
+  name?: string;
+  family?: string;
+  clientId?: string;
+  createdAt?: Date;
+  expiresAt?: Date;
+  lastUsedAt?: Date;
+  revokedAt?: Date;
+  revokedReason?: string;
+}
+
+export interface StaffSessionTrustedDevices {
+  id: string;
+  userId?: string;
+  createdAt?: Date;
+  expiresAt?: Date;
+  lastUsedAt?: Date;
+  revokedAt?: Date;
+}
+
+export interface StaffSessionUsers {
+  id: string;
+  username?: string;
+  email?: string;
+  emailVerifiedAt?: Date;
+  disabled?: boolean;
+  passwordChangeRequired?: boolean;
+  createdAt?: Date;
+  lastSignInAt?: Date;
+}
+
+export interface StaffTenantIdentities {
+  id: string;
+  domain?: string;
+  userId?: string;
+  username?: string;
+  method?: string;
+  connection?: string;
+  subject?: string;
+  tenant?: string;
+  emailAtLink?: string;
+  createdAt?: Date;
+  lastUsedAt?: Date;
+  heldElsewhere?: boolean;
+  heldGlobally?: boolean;
+}
+
+export interface StaffTenantInvitations {
+  id: string;
+  domain?: string;
+  email?: string;
+  roleNames?: string[];
+  invitedBy?: string;
+  createdAt?: Date;
+  expiresAt?: Date;
+  consumedAt?: Date;
+  pending?: boolean;
+}
+
+export interface StaffTenantUsers {
+  id: string;
+  domain?: string;
+  username?: string;
+  email?: string;
+  emailVerifiedAt?: Date;
+  disabled?: boolean;
+  passwordChangeRequired?: boolean;
+  createdAt?: Date;
+  lastSignInAt?: Date;
+  heldElsewhere?: boolean;
+  heldGlobally?: boolean;
+}
+
+export interface StaffTenantUserRoles {
+  domain?: string;
+  userId: string;
+  username?: string;
+  role: string;
+  everyDomain?: boolean;
+  createdAt?: Date;
+}
+
+export interface StaffUserRoles {
+  kind: string;
+  axis: string;
+  domain: string;
+  role: string;
+  user: string;
+  createdAt?: Date;
+}
+
 export interface Tenants {
   id: string;
   name?: string;
@@ -24,6 +192,11 @@ export interface TenantDirectories {
   defaultSeat?: string;
 }
 
+export interface StaffTenantRoles {
+  name: string;
+  description?: string;
+}
+
 /** A feature flag: one declared flag's row, as the feature flags dialog lists it. */
 export interface FeatureFlags {
   name: string;
@@ -33,94 +206,6 @@ export interface FeatureFlags {
   updatedBy?: string;
 }
 
-/** One external identity linked to a user: how they sign in through a registration. */
-export interface UserIdentity {
-  id: string;
-  method: string;
-  connection: string;
-  subject: string;
-  organization: string | null;
-  email: string | null;
-  linkedAt: Date;
-  lastUsedAt: Date;
-}
-/** A user of the Staff auth in the global partition: the account, its sign-in means and its seats. */
-export interface StaffUsers {
-  id: string;
-  username?: string;
-  disabled?: boolean;
-  hasPassword?: boolean;
-  passwordChangeRequired?: boolean;
-  createdAt?: Date;
-  lastSignInAt?: Date | null;
-  organization?: string | null;
-  email?: string | null;
-  emailVerifiedAt?: Date | null;
-  identities?: UserIdentity[];
-  roles?: string[];
-  everywhereRoles?: string[];
-  rolesSynced?: boolean;
-}
-/** A seat of the Staff auth in the global partition: a user holding a role. */
-export interface StaffSeats {
-  user: string;
-  role: string;
-  username?: string;
-  everyDomain?: boolean;
-}
-/** A role a seat of the Staff auth in the global partition may take. */
-export interface StaffRoles {
-  name: string;
-  kind?: 'global' | 'domain';
-  description?: string;
-}
-/** A standing invitation into the global partition of the Staff auth: an address invited to hold roles, until it is accepted, revoked or expires. */
-export interface StaffInvitations {
-  id: string;
-  email?: string;
-  roles?: string[];
-  invitedBy?: string | null;
-  createdAt?: Date;
-  expiresAt?: Date;
-}
-/** A user of the Staff auth in one tenant: the account, its sign-in means and its seats. */
-export interface StaffTenantUsers {
-  id: string;
-  username?: string;
-  disabled?: boolean;
-  hasPassword?: boolean;
-  passwordChangeRequired?: boolean;
-  createdAt?: Date;
-  lastSignInAt?: Date | null;
-  organization?: string | null;
-  email?: string | null;
-  emailVerifiedAt?: Date | null;
-  identities?: UserIdentity[];
-  roles?: string[];
-  everywhereRoles?: string[];
-  rolesSynced?: boolean;
-}
-/** A seat of the Staff auth in one tenant: a user holding a role. */
-export interface StaffTenantSeats {
-  user: string;
-  role: string;
-  username?: string;
-  everywhere?: boolean;
-}
-/** A role a seat of the Staff auth in one tenant may take. */
-export interface StaffTenantRoles {
-  name: string;
-  description?: string;
-}
-/** A standing invitation into one tenant of the Staff auth: an address invited to hold roles, until it is accepted, revoked or expires. */
-export interface StaffTenantInvitations {
-  id: string;
-  email?: string;
-  roles?: string[];
-  invitedBy?: string | null;
-  createdAt?: Date;
-  expiresAt?: Date;
-}
 
 /**
  * Keeps the literal types of the metadata while letting a client that predates a field
@@ -146,6 +231,257 @@ const resourceMap = defineResourceMap({
       { fieldName: 'body', displayType: 'string', required: true, isIndex: false },
     ],
   },
+  [Resources.StaffRoles]: {
+    route: 'staff-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domain', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
+    ],
+  },
+  [Resources.StaffRoleGrants]: {
+    route: 'staff-role-grants',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domain', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'permission', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'resourceName', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'field', primaryKey: { ordinalPosition: 6 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'condition', primaryKey: { ordinalPosition: 7 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
+    ],
+  },
+  [Resources.StaffSessions]: {
+    route: 'staff-sessions',
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.StaffSessionUsers },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'expired', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'authenticatedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
+    ],
+  },
+  [Resources.StaffSessionAuthEvents]: {
+    route: 'staff-session-auth-events',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'sessionId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.StaffSessions },
+      { fieldName: 'seq', primaryKey: { ordinalPosition: 1 }, displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'connection', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'idpAmr', displayType: 'string[]', required: false, isIndex: false },
+      { fieldName: 'occurredAt', displayType: 'date', required: true, isIndex: false },
+    ],
+  },
+  [Resources.StaffSessionIdentities]: {
+    route: 'staff-session-identities',
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.StaffSessionUsers },
+      { fieldName: 'method', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'connection', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'subject', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'tenant', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'emailAtLink', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
+    ],
+  },
+  [Resources.StaffSessionMailLinks]: {
+    route: 'staff-session-mail-links',
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', displayType: 'string', required: true, isIndex: true, filterable: 'always', maxLength: 16 },
+      { fieldName: 'email', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.StaffSessionUsers },
+      { fieldName: 'tenant', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'roleNames', displayType: 'string[]', required: false, isIndex: false },
+      { fieldName: 'invitedBy', displayType: 'uuid', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.StaffSessionSignInAttempts]: {
+    route: 'staff-session-sign-in-attempts',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'failures', displayType: 'number', required: true, isIndex: false },
+      { fieldName: 'windowEndsAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'lockedUntil', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
+    ],
+  },
+  [Resources.StaffSessionTokens]: {
+    route: 'staff-session-tokens',
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'kind', displayType: 'string', required: true, isIndex: false, maxLength: 16 },
+      { fieldName: 'userId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.StaffSessionUsers },
+      { fieldName: 'outlet', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'family', displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'clientId', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'lastUsedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'revokedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'revokedReason', displayType: 'string', required: false, isIndex: false, maxLength: 16 },
+    ],
+  },
+  [Resources.StaffSessionTrustedDevices]: {
+    route: 'staff-session-trusted-devices',
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.StaffSessionUsers },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'lastUsedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'revokedAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.StaffSessionUsers]: {
+    route: 'staff-session-users',
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'emailVerifiedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'disabled', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'passwordChangeRequired', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
+    ],
+  },
+  [Resources.StaffTenantIdentities]: {
+    route: 'tenants/{tenantID}/staff-tenant-identities',
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'domain', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'method', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'connection', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'subject', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'tenant', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'emailAtLink', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'lastUsedAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+    ],
+  },
+  [Resources.StaffTenantInvitations]: {
+    route: 'tenants/{tenantID}/staff-tenant-invitations',
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'domain', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'email', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'roleNames', displayType: 'string[]', required: true, isIndex: false },
+      { fieldName: 'invitedBy', displayType: 'uuid', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'pending', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+    ],
+  },
+  [Resources.StaffTenantUsers]: {
+    route: 'tenants/{tenantID}/staff-tenant-users',
+    live: true,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'domain', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'emailVerifiedAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'disabled', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'passwordChangeRequired', displayType: 'boolean', required: true, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+    ],
+  },
+  [Resources.StaffTenantUserRoles]: {
+    route: 'tenants/{tenantID}/staff-tenant-user-roles',
+    live: true,
+    fields: [
+      { fieldName: 'domain', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+    ],
+  },
+  [Resources.StaffUserRoles]: {
+    route: 'staff-user-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: true,
+    fields: [
+      { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domain', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'user', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+    ],
+  },
   [Resources.Tenants]: {
     route: 'tenants',
     consolidatedRoute: 'resources',
@@ -168,6 +504,18 @@ const resourceMap = defineResourceMap({
       { fieldName: 'defaultSeat', displayType: 'string', required: false, isIndex: false, maxLength: 64 },
     ],
   },
+  [Resources.StaffTenantRoles]: {
+    route: 'tenants/{tenantID}/staff-tenant-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
   [Resources.FeatureFlags]: {
     route: 'feature-flags',
     createDisabled: true,
@@ -182,117 +530,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'updatedBy', displayType: 'string', required: true, isIndex: false },
     ],
   },
-  [Resources.StaffUsers]: {
-    route: 'staff-users',
-    live: false,
-    fields: [
-      { fieldName: 'id', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: true, isIndex: true },
-      { fieldName: 'username', displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'disabled', displayType: 'boolean', required: true, isIndex: false },
-      { fieldName: 'hasPassword', displayType: 'boolean', required: true, isIndex: false },
-      { fieldName: 'passwordChangeRequired', displayType: 'boolean', required: true, isIndex: false },
-      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
-      { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
-      { fieldName: 'organization', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'emailVerifiedAt', displayType: 'date', required: false, isIndex: false },
-      { fieldName: 'identities', displayType: 'object[]', required: true, isIndex: false },
-      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false },
-      { fieldName: 'everywhereRoles', displayType: 'string[]', required: true, isIndex: false },
-      { fieldName: 'rolesSynced', displayType: 'boolean', required: true, isIndex: false },
-    ],
-  },
-  [Resources.StaffSeats]: {
-    route: 'staff-seats',
-    updateDisabled: true,
-    live: false,
-    fields: [
-      { fieldName: 'user', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: true, isIndex: true },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true },
-      { fieldName: 'username', displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: false },
-    ],
-  },
-  [Resources.StaffRoles]: {
-    route: 'staff-roles',
-    createDisabled: true,
-    updateDisabled: true,
-    deleteDisabled: true,
-    live: false,
-    fields: [
-      { fieldName: 'name', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true },
-      { fieldName: 'kind', displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
-    ],
-  },
-  [Resources.StaffInvitations]: {
-    route: 'staff-invitations',
-    updateDisabled: true,
-    live: false,
-    fields: [
-      { fieldName: 'id', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: true, isIndex: true },
-      { fieldName: 'email', displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false },
-      { fieldName: 'invitedBy', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
-      { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
-    ],
-  },
-  [Resources.StaffTenantUsers]: {
-    route: 'tenants/{tenantID}/staff-tenant-users',
-    live: false,
-    fields: [
-      { fieldName: 'id', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: true, isIndex: true },
-      { fieldName: 'username', displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'disabled', displayType: 'boolean', required: true, isIndex: false },
-      { fieldName: 'hasPassword', displayType: 'boolean', required: true, isIndex: false },
-      { fieldName: 'passwordChangeRequired', displayType: 'boolean', required: true, isIndex: false },
-      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
-      { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
-      { fieldName: 'organization', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'emailVerifiedAt', displayType: 'date', required: false, isIndex: false },
-      { fieldName: 'identities', displayType: 'object[]', required: true, isIndex: false },
-      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false },
-      { fieldName: 'everywhereRoles', displayType: 'string[]', required: true, isIndex: false },
-      { fieldName: 'rolesSynced', displayType: 'boolean', required: true, isIndex: false },
-    ],
-  },
-  [Resources.StaffTenantSeats]: {
-    route: 'tenants/{tenantID}/staff-tenant-seats',
-    updateDisabled: true,
-    live: false,
-    fields: [
-      { fieldName: 'user', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: true, isIndex: true },
-      { fieldName: 'role', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true },
-      { fieldName: 'username', displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'everywhere', displayType: 'boolean', required: true, isIndex: false },
-    ],
-  },
-  [Resources.StaffTenantRoles]: {
-    route: 'tenants/{tenantID}/staff-tenant-roles',
-    createDisabled: true,
-    updateDisabled: true,
-    deleteDisabled: true,
-    live: false,
-    fields: [
-      { fieldName: 'name', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true },
-      { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
-    ],
-  },
-  [Resources.StaffTenantInvitations]: {
-    route: 'tenants/{tenantID}/staff-tenant-invitations',
-    updateDisabled: true,
-    live: false,
-    fields: [
-      { fieldName: 'id', primaryKey: { ordinalPosition: 1 }, displayType: 'uuid', required: true, isIndex: true },
-      { fieldName: 'email', displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'roles', displayType: 'string[]', required: true, isIndex: false },
-      { fieldName: 'invitedBy', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
-      { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
-    ],
-  },
+
 });
 
 export function resourceMeta(resource: Resource): ResourceMeta {
@@ -314,15 +552,23 @@ export const DomainRoutePath = 'tenants/:tenantID';
 
 export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.Announcements]: PermissionScopes.domain,
+  [Resources.StaffRoles]: PermissionScopes.global,
+  [Resources.StaffRoleGrants]: PermissionScopes.global,
+  [Resources.StaffSessions]: PermissionScopes.global,
+  [Resources.StaffSessionAuthEvents]: PermissionScopes.global,
+  [Resources.StaffSessionIdentities]: PermissionScopes.global,
+  [Resources.StaffSessionMailLinks]: PermissionScopes.global,
+  [Resources.StaffSessionSignInAttempts]: PermissionScopes.global,
+  [Resources.StaffSessionTokens]: PermissionScopes.global,
+  [Resources.StaffSessionTrustedDevices]: PermissionScopes.global,
+  [Resources.StaffSessionUsers]: PermissionScopes.global,
+  [Resources.StaffTenantIdentities]: PermissionScopes.domain,
+  [Resources.StaffTenantInvitations]: PermissionScopes.domain,
+  [Resources.StaffTenantUsers]: PermissionScopes.domain,
+  [Resources.StaffTenantUserRoles]: PermissionScopes.domain,
+  [Resources.StaffUserRoles]: PermissionScopes.global,
   [Resources.Tenants]: PermissionScopes.global,
   [Resources.TenantDirectories]: PermissionScopes.domain,
-  [Resources.FeatureFlags]: PermissionScopes.global,
-  [Resources.StaffUsers]: PermissionScopes.global,
-  [Resources.StaffSeats]: PermissionScopes.global,
-  [Resources.StaffRoles]: PermissionScopes.global,
-  [Resources.StaffInvitations]: PermissionScopes.global,
-  [Resources.StaffTenantUsers]: PermissionScopes.domain,
-  [Resources.StaffTenantSeats]: PermissionScopes.domain,
   [Resources.StaffTenantRoles]: PermissionScopes.domain,
-  [Resources.StaffTenantInvitations]: PermissionScopes.domain,
+  [Resources.FeatureFlags]: PermissionScopes.global,
 };

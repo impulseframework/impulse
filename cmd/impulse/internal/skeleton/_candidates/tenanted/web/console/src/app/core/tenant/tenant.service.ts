@@ -77,9 +77,9 @@ export class TenantService {
   /**
    * open navigates to the page the browser is on, under the given tenant: the picker's
    * action. A page under a tenant keeps its path with the tenant replaced; a page outside
-   * one enters the tenant on that path (`/users` opens `/tenants/acme/users`); the refusal
-   * page opens the tenant's landing. Query and fragment travel along, and the guard on the
-   * segment settles the tenant from the new URL.
+   * one enters the tenant on that path (`/dashboard` opens `/tenants/acme/dashboard`); the
+   * refusal page opens the tenant's landing. Query and fragment travel along, and the
+   * guard on the segment settles the tenant from the new URL.
    */
   open(tenant: string): Promise<boolean> {
     const { segment } = apiDescriptor.domainRoute;

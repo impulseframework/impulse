@@ -2,6 +2,7 @@ package resource
 
 import (
 	"math/big"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -55,6 +56,83 @@ type loweringContext struct {
 	// set is an error (rule validation rejects those conditions at deploy;
 	// this is the runtime backstop).
 	insertImage bool
+
+	// item is the list attribute the condition is being judged over, item by
+	// item: a reference to it resolves to the item, not to the column. Set by
+	// lowerRowCondition alone.
+	item *listItem
+}
+
+// listItem is the list attribute a condition reads and the alias its items
+// take inside the rendered predicate.
+type listItem struct {
+	name  string
+	alias string
+}
+
+// lowerRowCondition lowers the condition of one decision: the any-of of the
+// grants that cover a check. A condition that reads a list attribute is judged
+// once for each item of the row's list, the whole condition each time with
+// the item as the attribute's value, and holds only when it holds for every
+// item: every item is admitted by one of the covering grants. It is the rule
+// the decoder follows for a method's request field that is a list
+// (settleRequestFields) and the one condition.Evaluate states; the semantic
+// differential holds the three to one answer.
+//
+// The list is read as the row holds it. A second list, a list on a
+// comparison's right side, a proposed list (new., or any read in an insert's
+// check) and a list reached through a join path are refused when the roles
+// are deployed and the resources generated; reaching one here is the runtime
+// backstop.
+func lowerRowCondition(expr condition.Expr, ctx *loweringContext, registry *paramRegistry) (ExpressionNode, error) {
+	list, err := ctx.listRead(expr)
+	if err != nil {
+		return nil, err
+	}
+	if list == nil {
+		return lowerCondition(expr, ctx, registry)
+	}
+
+	inner := *ctx
+	inner.item = &listItem{name: list.Name, alias: registry.alias()}
+	where, err := lowerCondition(expr, &inner, registry)
+	if err != nil {
+		return nil, err
+	}
+
+	return &everyItemNode{list: columnComparand(ctx.outer, list.Column), alias: inner.item.alias, where: where}, nil
+}
+
+// listRead finds the one list attribute the condition reads, nil when it
+// reads none.
+func (ctx *loweringContext) listRead(expr condition.Expr) (*AttributeData, error) {
+	var list *AttributeData
+	for _, name := range condition.Bindings(expr) {
+		attr, ok := ctx.attribute(name)
+		if !ok || !attr.List {
+			continue
+		}
+		if list != nil {
+			return nil, errors.Newf("condition lowering: the condition reads two list attributes (%s and %s); it is judged item by item over one", list.Name, attr.Name)
+		}
+		list = &attr
+	}
+	if list == nil {
+		return nil, nil
+	}
+
+	switch {
+	case len(list.Path) > 0:
+		return nil, errors.Newf("condition lowering: %s is a list attribute reached through a join path; a list is a column of the checked row", list.Name)
+	case ctx.insertImage:
+		return nil, errors.Newf("condition lowering: %s is a list attribute read in an insert's check; a proposed list is not judged", list.Name)
+	case slices.Contains(condition.PostImageBindings(expr), list.Name):
+		return nil, errors.Newf("condition lowering: new.%s reads a proposed list, which is not judged", list.Name)
+	case slices.Contains(condition.RightSideBindings(expr), list.Name):
+		return nil, errors.Newf("condition lowering: %s is a list attribute on the right side of a comparison; a list is read on the left side alone", list.Name)
+	}
+
+	return list, nil
 }
 
 // lowerCondition translates a compiled condition onto the ExpressionNode
@@ -252,6 +330,16 @@ func (ctx *loweringContext) resolveRef(ref condition.Ref, registry *paramRegistr
 	binding, ok := ctx.attribute(ref.Name)
 	if !ok {
 		return comparand{}, errors.Newf("condition lowering: %q is not an attribute of the checked resource", ref.Name)
+	}
+
+	if binding.List {
+		// A list attribute reads as the item the condition is being judged
+		// over (lowerRowCondition); outside that it has no single value.
+		if ctx.item == nil || ctx.item.name != ref.Name {
+			return comparand{}, errors.Newf("condition lowering: %s is a list attribute read outside an item-by-item judgment", ref.Name)
+		}
+
+		return columnComparand("", ctx.item.alias), nil
 	}
 
 	if ctx.insertImage {

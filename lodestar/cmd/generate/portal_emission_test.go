@@ -151,8 +151,9 @@ func TestPortalTargetEmission(t *testing.T) {
 	// The portal emits exactly its members' resource interfaces (the members with a
 	// struct, and with them the resources Mission's declared pickers name, which follow
 	// Mission onto every outlet it serves, the library's FeatureFlags, which every
-	// session outlet serves, and the members auth's user-management surface with the
-	// identity shape its rows carry) and the console emits every one.
+	// session outlet serves, and the members auth's own tables and the lists a sector
+	// keeps of the members, declared by the generated management of the auth and served
+	// on its outlet) and the console emits every one.
 	iface := regexp.MustCompile(`(?m)^export interface (\w+) \{`)
 	portalIfaces := iface.FindAllStringSubmatch(read("web/portal/src/app/core/service/zz_gen_resources.ts"), -1)
 	var names []string
@@ -164,7 +165,7 @@ func TestPortalTargetEmission(t *testing.T) {
 		}
 		names = append(names, m[1])
 	}
-	want := "ClientContacts,ClientRosters,DistressCalls,Missions,MissionDocuments,BriefingTemplates,FeatureFlags,UserIdentity,MembersUsers,MembersSeats,MembersRoles,MembersInvitations,MembersSectorUsers,MembersSectorSeats,MembersSectorRoles,MembersSectorInvitations"
+	want := "ClientContacts,ClientRosters,DistressCalls,MembersRoles,MembersRoleGrants,MembersSectorIdentities,MembersSectorInvitations,MembersSectorUsers,MembersSectorUserRoles,MembersSessions,MembersSessionAuthEvents,MembersSessionIdentities,MembersSessionMailLinks,MembersSessionSignInAttempts,MembersSessionTrustedDevices,MembersSessionUsers,MembersUserRoles,Missions,MissionDocuments,BriefingTemplates,FeatureFlags"
 	if strings.Join(names, ",") != want {
 		t.Errorf("portal resource interfaces = %v, want %s", names, want)
 	}

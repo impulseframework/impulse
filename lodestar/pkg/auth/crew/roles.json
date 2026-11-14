@@ -126,87 +126,230 @@
               ]
             },
             {
-              "resource": "CrewUsers",
+              "resource": "CrewSessionUsers",
               "fields": [
                 "username",
-                "disabled",
-                "hasPassword",
-                "passwordChangeRequired",
-                "createdAt",
-                "lastSignInAt",
-                "organization",
                 "email",
                 "emailVerifiedAt",
-                "identities",
-                "roles",
-                "everywhereRoles",
-                "rolesSynced"
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt"
               ]
             },
             {
-              "resource": "CrewSeats",
+              "resource": "CrewSessions",
+              "fields": [
+                "userId",
+                "username",
+                "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "CrewUserRoles",
+              "fields": [
+                "createdAt"
+              ]
+            },
+            {
+              "resource": "MembersSessionUsers",
               "fields": [
                 "username",
-                "everyDomain"
+                "email",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
+                "createdAt",
+                "lastSignInAt"
+              ]
+            },
+            {
+              "resource": "MembersSessions",
+              "fields": [
+                "userId",
+                "username",
+                "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "MembersUserRoles",
+              "fields": [
+                "createdAt"
+              ]
+            },
+            {
+              "resource": "CrewSessionIdentities",
+              "fields": [
+                "connection",
+                "createdAt",
+                "emailAtLink",
+                "lastUsedAt",
+                "method",
+                "subject",
+                "tenant",
+                "userId"
+              ]
+            },
+            {
+              "resource": "CrewSessionTokens",
+              "fields": [
+                "clientId",
+                "createdAt",
+                "expiresAt",
+                "family",
+                "kind",
+                "lastUsedAt",
+                "name",
+                "outlet",
+                "revokedAt",
+                "revokedReason",
+                "userId"
+              ]
+            },
+            {
+              "resource": "CrewSessionMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "expiresAt",
+                "invitedBy",
+                "kind",
+                "roleNames",
+                "tenant",
+                "userId"
+              ]
+            },
+            {
+              "resource": "CrewSessionSignInAttempts",
+              "fields": [
+                "failures",
+                "lockedUntil",
+                "updatedAt",
+                "windowEndsAt"
+              ]
+            },
+            {
+              "resource": "CrewSessionAuthEvents",
+              "fields": [
+                "connection",
+                "idpAmr",
+                "method",
+                "occurredAt"
+              ]
+            },
+            {
+              "resource": "CrewSessionImpersonations",
+              "fields": [
+                "actorRealm",
+                "actorUsername",
+                "endReason",
+                "endedAt",
+                "expiresAt",
+                "mask",
+                "principalKind",
+                "principalRole",
+                "principalUser",
+                "reason",
+                "sourceSessionId",
+                "startedAt"
               ]
             },
             {
               "resource": "CrewRoles",
               "fields": [
-                "kind",
-                "description"
+                "description",
+                "updatedAt"
               ]
             },
             {
-              "resource": "CrewInvitations",
+              "resource": "CrewRoleGrants",
               "fields": [
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "MembersSessionIdentities",
+              "fields": [
+                "connection",
+                "createdAt",
+                "emailAtLink",
+                "lastUsedAt",
+                "method",
+                "subject",
+                "tenant",
+                "userId"
+              ]
+            },
+            {
+              "resource": "MembersSessionMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
                 "email",
-                "roles",
+                "expiresAt",
                 "invitedBy",
-                "createdAt",
-                "expiresAt"
+                "kind",
+                "roleNames",
+                "tenant",
+                "userId"
               ]
             },
             {
-              "resource": "MembersUsers",
+              "resource": "MembersSessionSignInAttempts",
               "fields": [
-                "username",
-                "disabled",
-                "hasPassword",
-                "passwordChangeRequired",
-                "createdAt",
-                "lastSignInAt",
-                "organization",
-                "email",
-                "emailVerifiedAt",
-                "identities",
-                "roles",
-                "everywhereRoles",
-                "rolesSynced"
+                "failures",
+                "lockedUntil",
+                "updatedAt",
+                "windowEndsAt"
               ]
             },
             {
-              "resource": "MembersSeats",
+              "resource": "MembersSessionAuthEvents",
               "fields": [
-                "username",
-                "everyDomain"
+                "connection",
+                "idpAmr",
+                "method",
+                "occurredAt"
               ]
             },
             {
               "resource": "MembersRoles",
               "fields": [
-                "kind",
-                "description"
+                "description",
+                "updatedAt"
               ]
             },
             {
-              "resource": "MembersInvitations",
+              "resource": "MembersRoleGrants",
               "fields": [
-                "email",
-                "roles",
-                "invitedBy",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "CrewSessionTrustedDevices",
+              "fields": [
                 "createdAt",
-                "expiresAt"
+                "expiresAt",
+                "lastUsedAt",
+                "revokedAt",
+                "userId"
+              ]
+            },
+            {
+              "resource": "MembersSessionTrustedDevices",
+              "fields": [
+                "createdAt",
+                "expiresAt",
+                "lastUsedAt",
+                "revokedAt",
+                "userId"
               ]
             }
           ],
@@ -230,87 +373,156 @@
               ]
             },
             {
-              "resource": "CrewUsers",
+              "resource": "CrewSessionUsers",
               "fields": [
                 "username",
-                "disabled",
-                "hasPassword",
-                "passwordChangeRequired",
-                "createdAt",
-                "lastSignInAt",
-                "organization",
                 "email",
                 "emailVerifiedAt",
-                "identities",
-                "roles",
-                "everywhereRoles",
-                "rolesSynced"
-              ]
-            },
-            {
-              "resource": "CrewSeats",
-              "fields": [
-                "username",
-                "everyDomain"
-              ]
-            },
-            {
-              "resource": "CrewRoles",
-              "fields": [
-                "kind",
-                "description"
-              ]
-            },
-            {
-              "resource": "CrewInvitations",
-              "fields": [
-                "email",
-                "roles",
-                "invitedBy",
-                "createdAt",
-                "expiresAt"
-              ]
-            },
-            {
-              "resource": "MembersUsers",
-              "fields": [
-                "username",
                 "disabled",
-                "hasPassword",
                 "passwordChangeRequired",
                 "createdAt",
-                "lastSignInAt",
-                "organization",
-                "email",
-                "emailVerifiedAt",
-                "identities",
-                "roles",
-                "everywhereRoles",
-                "rolesSynced"
+                "lastSignInAt"
               ]
             },
             {
-              "resource": "MembersSeats",
+              "resource": "CrewSessions",
+              "fields": [
+                "userId",
+                "username",
+                "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "MembersSessionUsers",
               "fields": [
                 "username",
-                "everyDomain"
-              ]
-            },
-            {
-              "resource": "MembersRoles",
-              "fields": [
-                "kind",
-                "description"
-              ]
-            },
-            {
-              "resource": "MembersInvitations",
-              "fields": [
                 "email",
-                "roles",
-                "invitedBy",
+                "emailVerifiedAt",
+                "disabled",
+                "passwordChangeRequired",
                 "createdAt",
-                "expiresAt"
+                "lastSignInAt"
+              ]
+            },
+            {
+              "resource": "MembersSessions",
+              "fields": [
+                "userId",
+                "username",
+                "expired",
+                "authenticatedAt",
+                "createdAt",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "CrewSessionIdentities",
+              "fields": [
+                "connection",
+                "createdAt",
+                "emailAtLink",
+                "lastUsedAt",
+                "method",
+                "subject",
+                "tenant",
+                "userId"
+              ]
+            },
+            {
+              "resource": "CrewSessionTokens",
+              "fields": [
+                "clientId",
+                "createdAt",
+                "expiresAt",
+                "family",
+                "kind",
+                "lastUsedAt",
+                "name",
+                "outlet",
+                "revokedAt",
+                "revokedReason",
+                "userId"
+              ]
+            },
+            {
+              "resource": "CrewSessionMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "expiresAt",
+                "invitedBy",
+                "kind",
+                "roleNames",
+                "tenant",
+                "userId"
+              ]
+            },
+            {
+              "resource": "CrewSessionImpersonations",
+              "fields": [
+                "actorRealm",
+                "actorUsername",
+                "endReason",
+                "endedAt",
+                "expiresAt",
+                "mask",
+                "principalKind",
+                "principalRole",
+                "principalUser",
+                "reason",
+                "sourceSessionId",
+                "startedAt"
+              ]
+            },
+            {
+              "resource": "MembersSessionIdentities",
+              "fields": [
+                "connection",
+                "createdAt",
+                "emailAtLink",
+                "lastUsedAt",
+                "method",
+                "subject",
+                "tenant",
+                "userId"
+              ]
+            },
+            {
+              "resource": "MembersSessionMailLinks",
+              "fields": [
+                "consumedAt",
+                "createdAt",
+                "email",
+                "expiresAt",
+                "invitedBy",
+                "kind",
+                "roleNames",
+                "tenant",
+                "userId"
+              ]
+            },
+            {
+              "resource": "CrewSessionTrustedDevices",
+              "fields": [
+                "createdAt",
+                "expiresAt",
+                "lastUsedAt",
+                "revokedAt",
+                "userId"
+              ]
+            },
+            {
+              "resource": "MembersSessionTrustedDevices",
+              "fields": [
+                "createdAt",
+                "expiresAt",
+                "lastUsedAt",
+                "revokedAt",
+                "userId"
               ]
             }
           ],
@@ -362,43 +574,6 @@
                 "clientId",
                 "displayName"
               ]
-            },
-            {
-              "resource": "CrewUsers",
-              "fields": [
-                "username",
-                "password",
-                "disabled",
-                "email"
-              ]
-            },
-            {
-              "resource": "CrewSeats",
-              "fields": [
-                "user",
-                "role"
-              ]
-            },
-            {
-              "resource": "CrewInvitations",
-              "fields": [
-                "email",
-                "roles"
-              ]
-            },
-            {
-              "resource": "MembersSeats",
-              "fields": [
-                "user",
-                "role"
-              ]
-            },
-            {
-              "resource": "MembersInvitations",
-              "fields": [
-                "email",
-                "roles"
-              ]
             }
           ],
           "Update": [
@@ -445,22 +620,6 @@
                 "clientId",
                 "displayName"
               ]
-            },
-            {
-              "resource": "CrewUsers",
-              "fields": [
-                "username",
-                "disabled",
-                "email"
-              ]
-            },
-            {
-              "resource": "MembersUsers",
-              "fields": [
-                "username",
-                "disabled",
-                "email"
-              ]
             }
           ],
           "Delete": [
@@ -478,24 +637,6 @@
             },
             {
               "resource": "ClientContacts"
-            },
-            {
-              "resource": "CrewUsers"
-            },
-            {
-              "resource": "CrewSeats"
-            },
-            {
-              "resource": "CrewInvitations"
-            },
-            {
-              "resource": "MembersUsers"
-            },
-            {
-              "resource": "MembersSeats"
-            },
-            {
-              "resource": "MembersInvitations"
             }
           ],
           "Execute": [
@@ -503,19 +644,91 @@
               "resource": "IssueBulletin"
             },
             {
-              "resource": "SetCrewUserPassword"
+              "resource": "CreateCrewUser"
             },
             {
-              "resource": "ResetCrewUserFactors"
+              "resource": "DisableCrewUser"
             },
             {
-              "resource": "UnlinkCrewUserIdentity"
+              "resource": "EnableCrewUser"
             },
             {
-              "resource": "UnlinkMembersUserIdentity"
+              "resource": "AssignCrewRole"
             },
             {
-              "resource": "ResetMembersUserFactors"
+              "resource": "RemoveCrewRole"
+            },
+            {
+              "resource": "DisableMembersUser"
+            },
+            {
+              "resource": "EnableMembersUser"
+            },
+            {
+              "resource": "EndCrewSession"
+            },
+            {
+              "resource": "EndCrewUserSessions"
+            },
+            {
+              "resource": "EndCrewSessionImpersonation"
+            },
+            {
+              "resource": "EndMembersSession"
+            },
+            {
+              "resource": "EndMembersUserSessions"
+            },
+            {
+              "resource": "RequireCrewPasswordChange"
+            },
+            {
+              "resource": "UnlinkCrewSessionIdentity"
+            },
+            {
+              "resource": "RevokeCrewSessionToken"
+            },
+            {
+              "resource": "UnlinkMembersSessionIdentity"
+            },
+            {
+              "resource": "DeleteCrewUser"
+            },
+            {
+              "resource": "RenameCrewUser"
+            },
+            {
+              "resource": "SetCrewTemporaryPassword"
+            },
+            {
+              "resource": "RevokeCrewUserTrustedDevices"
+            },
+            {
+              "resource": "DeleteMembersUser"
+            },
+            {
+              "resource": "RenameMembersUser"
+            },
+            {
+              "resource": "RevokeMembersUserTrustedDevices"
+            },
+            {
+              "resource": "UnlockCrewSignIn"
+            },
+            {
+              "resource": "UnlockMembersSignIn"
+            },
+            {
+              "resource": "InviteCrewUser"
+            },
+            {
+              "resource": "WithdrawCrewInvitation"
+            },
+            {
+              "resource": "SetCrewUserEmail"
+            },
+            {
+              "resource": "SetMembersUserEmail"
             }
           ]
         }
@@ -911,41 +1124,69 @@
               "fields": [
                 "username",
                 "disabled",
-                "hasPassword",
-                "passwordChangeRequired",
                 "createdAt",
                 "lastSignInAt",
-                "organization",
+                "heldElsewhere",
+                "heldGlobally"
+              ]
+            },
+            {
+              "resource": "CrewSectorUsers",
+              "fields": [
                 "email",
                 "emailVerifiedAt",
-                "identities",
-                "roles",
-                "everywhereRoles",
-                "rolesSynced"
-              ]
+                "passwordChangeRequired"
+              ],
+              "condition": "heldElsewhere = false"
             },
             {
-              "resource": "CrewSectorSeats",
+              "resource": "CrewSectorUserRoles",
               "fields": [
                 "username",
-                "everywhere"
-              ]
-            },
-            {
-              "resource": "CrewSectorRoles",
-              "fields": [
-                "description"
+                "everyDomain",
+                "createdAt"
               ]
             },
             {
               "resource": "CrewSectorInvitations",
               "fields": [
                 "email",
-                "roles",
+                "roleNames",
                 "invitedBy",
                 "createdAt",
-                "expiresAt"
+                "expiresAt",
+                "consumedAt",
+                "pending"
               ]
+            },
+            {
+              "resource": "CrewSectorIdentities",
+              "fields": [
+                "userId",
+                "username",
+                "method",
+                "connection",
+                "tenant",
+                "createdAt",
+                "lastUsedAt",
+                "heldElsewhere",
+                "heldGlobally"
+              ]
+            },
+            {
+              "resource": "CrewSectorIdentities",
+              "fields": [
+                "subject",
+                "emailAtLink"
+              ],
+              "condition": "heldElsewhere = false"
+            },
+            {
+              "resource": "CrewSectorRoles",
+              "fields": [
+                "description"
+              ],
+              "condition": "name != 'SectorMarshal'"
             },
             {
               "resource": "SectorDirectories",
@@ -954,6 +1195,15 @@
                 "method",
                 "connection",
                 "defaultSeat"
+              ]
+            },
+            {
+              "resource": "SectorPilots",
+              "fields": [
+                "displayName",
+                "squadrons",
+                "clearance",
+                "fliesElsewhere"
               ]
             }
           ],
@@ -1119,41 +1369,62 @@
               "fields": [
                 "username",
                 "disabled",
-                "hasPassword",
-                "passwordChangeRequired",
                 "createdAt",
                 "lastSignInAt",
-                "organization",
+                "heldElsewhere",
+                "heldGlobally"
+              ]
+            },
+            {
+              "resource": "CrewSectorUsers",
+              "fields": [
                 "email",
                 "emailVerifiedAt",
-                "identities",
-                "roles",
-                "everywhereRoles",
-                "rolesSynced"
-              ]
+                "passwordChangeRequired"
+              ],
+              "condition": "heldElsewhere = false"
             },
             {
-              "resource": "CrewSectorSeats",
+              "resource": "CrewSectorUserRoles",
               "fields": [
                 "username",
-                "everywhere"
-              ]
-            },
-            {
-              "resource": "CrewSectorRoles",
-              "fields": [
-                "description"
+                "everyDomain",
+                "createdAt"
               ]
             },
             {
               "resource": "CrewSectorInvitations",
               "fields": [
                 "email",
-                "roles",
+                "roleNames",
                 "invitedBy",
                 "createdAt",
-                "expiresAt"
+                "expiresAt",
+                "consumedAt",
+                "pending"
               ]
+            },
+            {
+              "resource": "CrewSectorIdentities",
+              "fields": [
+                "userId",
+                "username",
+                "method",
+                "connection",
+                "tenant",
+                "createdAt",
+                "lastUsedAt",
+                "heldElsewhere",
+                "heldGlobally"
+              ]
+            },
+            {
+              "resource": "CrewSectorIdentities",
+              "fields": [
+                "subject",
+                "emailAtLink"
+              ],
+              "condition": "heldElsewhere = false"
             },
             {
               "resource": "SectorDirectories",
@@ -1162,6 +1433,15 @@
                 "method",
                 "connection",
                 "defaultSeat"
+              ]
+            },
+            {
+              "resource": "SectorPilots",
+              "fields": [
+                "displayName",
+                "squadrons",
+                "clearance",
+                "fliesElsewhere"
               ]
             }
           ],
@@ -1270,37 +1550,10 @@
               ]
             },
             {
-              "resource": "CrewSectorUsers",
-              "fields": [
-                "username",
-                "password",
-                "disabled",
-                "email",
-                "role"
-              ]
-            },
-            {
-              "resource": "CrewSectorSeats",
-              "fields": [
-                "user",
-                "role"
-              ],
-              "condition": "new.role != 'SectorMarshal'"
-            },
-            {
-              "resource": "CrewSectorInvitations",
-              "fields": [
-                "email",
-                "roles"
-              ],
-              "condition": "new.role != 'SectorMarshal'"
-            },
-            {
               "resource": "SectorDirectories",
               "fields": [
                 "method",
-                "connection",
-                "defaultSeat"
+                "connection"
               ]
             }
           ],
@@ -1309,7 +1562,8 @@
               "resource": "SectorDirectories",
               "fields": [
                 "defaultSeat"
-              ]
+              ],
+              "condition": "new.defaultSeat IS NULL OR new.defaultSeat != 'SectorMarshal'"
             },
             {
               "resource": "Wings",
@@ -1406,14 +1660,6 @@
                 "transcript",
                 "position"
               ]
-            },
-            {
-              "resource": "CrewSectorUsers",
-              "fields": [
-                "username",
-                "disabled",
-                "email"
-              ]
             }
           ],
           "Delete": [
@@ -1452,17 +1698,6 @@
             },
             {
               "resource": "DistressCalls"
-            },
-            {
-              "resource": "CrewSectorUsers"
-            },
-            {
-              "resource": "CrewSectorSeats",
-              "condition": "role != 'SectorMarshal'"
-            },
-            {
-              "resource": "CrewSectorInvitations",
-              "condition": "role != 'SectorMarshal'"
             },
             {
               "resource": "SectorDirectories"
@@ -1521,13 +1756,67 @@
               "resource": "CompileBriefing"
             },
             {
-              "resource": "SetCrewSectorUserPassword"
+              "resource": "SetSectorPilotClearance"
             },
             {
-              "resource": "ResetCrewSectorUserFactors"
+              "resource": "CreateCrewSectorUser",
+              "condition": "new.role != 'SectorMarshal'"
             },
             {
-              "resource": "UnlinkCrewSectorUserIdentity"
+              "resource": "InviteCrewSectorUser",
+              "condition": "new.role != 'SectorMarshal'"
+            },
+            {
+              "resource": "WithdrawCrewSectorInvitation",
+              "condition": "pending = true AND role != 'SectorMarshal'"
+            },
+            {
+              "resource": "AssignCrewSectorRole",
+              "condition": "new.role != 'SectorMarshal'"
+            },
+            {
+              "resource": "RemoveCrewSectorRole",
+              "condition": "role != 'SectorMarshal' AND everyDomain = false"
+            },
+            {
+              "resource": "DisableCrewSectorUser",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "EnableCrewSectorUser",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "DeleteCrewSectorUser",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "RenameCrewSectorUser",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "SetCrewSectorUserEmail",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "SetCrewSectorTemporaryPassword",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "RequireCrewSectorPasswordChange",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "RevokeCrewSectorUserTrustedDevices",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "EndCrewSectorUserSessions",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "UnlinkCrewSectorSessionIdentity",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
             }
           ]
         }
@@ -1872,6 +2161,16 @@
                 "amount",
                 "memo"
               ]
+            },
+            {
+              "resource": "ExpenseManifests",
+              "fields": [
+                "title",
+                "sorties",
+                "expenses",
+                "assignedSquadronId"
+              ],
+              "condition": "assignedSquadron IN subject.squadrons"
             }
           ],
           "Read": [
@@ -1931,6 +2230,17 @@
                 "amount",
                 "memo"
               ]
+            },
+            {
+              "resource": "ExpenseManifests",
+              "fields": [
+                "title",
+                "sorties",
+                "expenses",
+                "assignedSquadronId",
+                "content"
+              ],
+              "condition": "assignedSquadron IN subject.squadrons"
             }
           ],
           "Create": [
@@ -1979,7 +2289,7 @@
       },
       {
         "name": "Dispatcher",
-        "description": "Dispatches a sector's missions: keeps the mission board, attaches documents, compiles briefings, and holds a mission.",
+        "description": "Dispatches a sector's missions: keeps the mission board, attaches documents, compiles briefings, and holds a mission. Sees who holds which role in the sector's own crew.",
         "permissions": {
           "Execute": [
             {
@@ -2086,6 +2396,13 @@
                 "squadronName",
                 "wingName"
               ]
+            },
+            {
+              "resource": "CrewSectorUserRoles",
+              "fields": [
+                "username"
+              ],
+              "condition": "everyDomain = false"
             }
           ],
           "Read": [
@@ -2155,6 +2472,13 @@
                 "filedBy",
                 "position"
               ]
+            },
+            {
+              "resource": "CrewSectorUserRoles",
+              "fields": [
+                "username"
+              ],
+              "condition": "everyDomain = false"
             }
           ],
           "Update": [
@@ -2410,7 +2734,7 @@
       },
       {
         "name": "WingCommander",
-        "description": "Commands a wing: sees the sector's missions and squadrons.",
+        "description": "Commands a wing: sees the sector's missions and squadrons, and rates the pilots who fly for the sector alone.",
         "permissions": {
           "List": [
             {
@@ -2439,6 +2763,21 @@
                 "wingId"
               ],
               "condition": "wing IN subject.wings"
+            },
+            {
+              "resource": "SectorPilots",
+              "fields": [
+                "displayName",
+                "squadrons",
+                "fliesElsewhere"
+              ]
+            },
+            {
+              "resource": "SectorPilots",
+              "fields": [
+                "clearance"
+              ],
+              "condition": "fliesElsewhere = false"
             }
           ],
           "Read": [
@@ -2468,6 +2807,27 @@
                 "wingId"
               ],
               "condition": "wing IN subject.wings"
+            },
+            {
+              "resource": "SectorPilots",
+              "fields": [
+                "displayName",
+                "squadrons",
+                "fliesElsewhere"
+              ]
+            },
+            {
+              "resource": "SectorPilots",
+              "fields": [
+                "clearance"
+              ],
+              "condition": "fliesElsewhere = false"
+            }
+          ],
+          "Execute": [
+            {
+              "resource": "SetSectorPilotClearance",
+              "condition": "fliesElsewhere = false"
             }
           ]
         }
@@ -3230,7 +3590,8 @@
               "fields": [
                 "title",
                 "sorties",
-                "expenses"
+                "expenses",
+                "assignedSquadronId"
               ]
             }
           ],
@@ -3241,6 +3602,7 @@
                 "title",
                 "sorties",
                 "expenses",
+                "assignedSquadronId",
                 "content"
               ]
             }

@@ -170,6 +170,13 @@ type ScalarOnCompositeKey struct {
 	Seat int64 `spanner:"Seat"`
 }
 
+// CrewSeat is a table keyed by two columns: a seat a person holds in a group.
+type CrewSeat struct {
+	GroupID impulse.UUID `spanner:"GroupId"`
+	UserID  impulse.UUID `spanner:"UserId"`
+	Rank    int64        `spanner:"Rank"`
+}
+
 // ScalarOnCompositeUnique anchors a @subjectValue on one column of a composite unique
 // index over (UserId, GroupId): the same one-row-per-group shape under a secondary
 // index, refused for the same reason.
@@ -305,6 +312,182 @@ type VirtualWithBinding struct {
 	// @attribute(crew)
 	CrewID impulse.UUID `spanner:"CrewId"`
 }
+
+// The views: a view's projection carries its own columns, so a view declares the
+// bare bindings alone. TaskDigest is the well-formed shape; the others are one
+// rejection each.
+type (
+	// TaskDigest is a tenant-scoped view over the tasks: its tenant column, and two
+	// facts its query selects, each a column a grant's condition reads by name.
+	//
+	// @virtual
+	// @permissionScope(domain)
+	TaskDigest struct {
+		// @primarykey
+		ID impulse.UUID `spanner:"Id"`
+
+		// @domain
+		StationID impulse.UUID `spanner:"StationId"`
+
+		// @attribute(overdue)
+		Overdue bool `spanner:"Overdue"`
+
+		// @attribute(crew)
+		CrewID impulse.UUID `spanner:"CrewId"`
+
+		Note string `spanner:"Note"`
+	}
+
+	// FleetDigest is a global view keyed by one field: a row of it is addressed by
+	// the key alone.
+	//
+	// @virtual
+	FleetDigest struct {
+		// @primarykey
+		ID impulse.UUID `spanner:"Id"`
+
+		// @attribute(grounded)
+		Grounded bool `spanner:"Grounded"`
+	}
+
+	// KeylessDigest declares no key, so no row of it can be addressed.
+	//
+	// @virtual
+	KeylessDigest struct {
+		Total int64 `spanner:"Total"`
+	}
+
+	// CompoundDigest keys a tenant-scoped view by its tenant column and an id.
+	//
+	// @virtual
+	// @permissionScope(domain)
+	CompoundDigest struct {
+		// @primarykey
+		// @domain
+		StationID impulse.UUID `spanner:"StationId"`
+
+		// @primarykey
+		ID impulse.UUID `spanner:"Id"`
+	}
+
+	// CompoundFleetDigest keys a global view by two fields.
+	//
+	// @virtual
+	CompoundFleetDigest struct {
+		// @primarykey
+		ID impulse.UUID `spanner:"Id"`
+
+		// @primarykey
+		Slot int64 `spanner:"Slot"`
+	}
+
+	// DigestByPath declares a join path on a view's field: a view has no schema
+	// to resolve one against.
+	//
+	// @virtual
+	DigestByPath struct {
+		// @primarykey
+		ID impulse.UUID `spanner:"Id"`
+
+		// @attribute(shipClass, via: Class)
+		ShipID impulse.UUID `spanner:"ShipId"`
+	}
+
+	// DigestReservedName names a fact with a word of the condition language.
+	//
+	// @virtual
+	DigestReservedName struct {
+		// @primarykey
+		ID impulse.UUID `spanner:"Id"`
+
+		// @attribute(subject)
+		CrewID impulse.UUID `spanner:"CrewId"`
+	}
+
+	// DigestBadCharset names a fact outside the identifier charset.
+	//
+	// @virtual
+	DigestBadCharset struct {
+		// @primarykey
+		ID impulse.UUID `spanner:"Id"`
+
+		// @attribute(crew-chief)
+		CrewID impulse.UUID `spanner:"CrewId"`
+	}
+
+	// DigestDuplicateName declares one name on two fields.
+	//
+	// @virtual
+	DigestDuplicateName struct {
+		// @primarykey
+		ID impulse.UUID `spanner:"Id"`
+
+		// @attribute(crew)
+		CrewID impulse.UUID `spanner:"CrewId"`
+
+		// @attribute(crew)
+		LeadID impulse.UUID `spanner:"LeadId"`
+	}
+
+	// DigestUnsupportedType declares a fact on a column no condition can compare.
+	//
+	// @virtual
+	DigestUnsupportedType struct {
+		// @primarykey
+		ID impulse.UUID `spanner:"Id"`
+
+		// @attribute(payload)
+		Payload []byte `spanner:"Payload"`
+	}
+
+	// DigestWithLists declares facts on list columns: each is a list attribute,
+	// typed by one item, which a condition judges item by item.
+	//
+	// @virtual
+	// @permissionScope(domain)
+	DigestWithLists struct {
+		// @primarykey
+		ID impulse.UUID `spanner:"Id"`
+
+		// @domain
+		StationID impulse.UUID `spanner:"StationId"`
+
+		// @attribute(label)
+		Labels []string `spanner:"Labels"`
+
+		// @attribute(score)
+		Scores []int64 `spanner:"Scores"`
+
+		// @attribute(open)
+		Open bool `spanner:"Open"`
+	}
+
+	// DigestListOfUnsupported declares a fact on a list whose items no condition
+	// can compare.
+	//
+	// @virtual
+	DigestListOfUnsupported struct {
+		// @primarykey
+		ID impulse.UUID `spanner:"Id"`
+
+		// @attribute(part)
+		Parts [][]byte `spanner:"Parts"`
+	}
+
+	// DigestSubjectSet declares subject vocabulary on a view, which stays a
+	// table's alone.
+	//
+	// @virtual
+	DigestSubjectSet struct {
+		// @primarykey
+		ID impulse.UUID `spanner:"Id"`
+
+		// @subjectSet(crews, value: CrewID)
+		UserID impulse.UUID `spanner:"UserId"`
+
+		CrewID impulse.UUID `spanner:"CrewId"`
+	}
+)
 
 // StatefulTask carries the @state marker; TaskState is the state column's
 // enum-backed type.
@@ -523,6 +706,151 @@ type (
 		// @target(StatefulTask)
 		TaskID impulse.UUID
 	}
+
+	// PlainTargetDigest targets a row of a tenant-scoped view: the gate locates
+	// it by the key within the request's tenant.
+	//
+	// @rpc
+	// @permissionScope(domain)
+	PlainTargetDigest struct {
+		// @target(TaskDigest)
+		TaskID impulse.UUID
+	}
+
+	// PlainTargetFleetDigest targets a row of a global view.
+	//
+	// @rpc
+	PlainTargetFleetDigest struct {
+		// @target(FleetDigest)
+		ShipID impulse.UUID
+	}
+
+	// @rpc
+	TargetKeylessDigest struct {
+		// @target(KeylessDigest)
+		ID impulse.UUID
+	}
+
+	// @rpc
+	// @permissionScope(domain)
+	TargetCompoundDigest struct {
+		// @target(CompoundDigest)
+		ID impulse.UUID
+	}
+
+	// @rpc
+	TargetCompoundFleetDigest struct {
+		// @target(CompoundFleetDigest)
+		ID impulse.UUID
+	}
+
+	// PlainTargetCompoundFleetDigest targets a row of a view keyed by two fields: one
+	// field for each, named by key: and declared here out of the key's order.
+	//
+	// @rpc
+	PlainTargetCompoundFleetDigest struct {
+		// @target(CompoundFleetDigest, key: Slot)
+		Slot int64
+		// @target(CompoundFleetDigest, key: ID)
+		ShipID impulse.UUID
+		Note   string
+	}
+
+	// PlainTargetCrewSeat targets a row of a table keyed by two columns.
+	//
+	// @rpc
+	PlainTargetCrewSeat struct {
+		// @target(CrewSeat, key: GroupID)
+		GroupID impulse.UUID
+		// @target(CrewSeat, key: UserID)
+		UserID impulse.UUID
+	}
+
+	// @rpc
+	TargetCompoundMissingColumn struct {
+		// @target(CompoundFleetDigest, key: ID)
+		ShipID impulse.UUID
+	}
+
+	// @rpc
+	TargetCompoundUnknownKey struct {
+		// @target(CompoundFleetDigest, key: ID)
+		ShipID impulse.UUID
+		// @target(CompoundFleetDigest, key: Berth)
+		Slot int64
+	}
+
+	// @rpc
+	TargetCompoundSameKeyTwice struct {
+		// @target(CompoundFleetDigest, key: ID)
+		ShipID impulse.UUID
+		// @target(CompoundFleetDigest, key: ID)
+		OtherID impulse.UUID
+	}
+
+	// @rpc
+	TargetCompoundTypeMismatch struct {
+		// @target(CompoundFleetDigest, key: ID)
+		ShipID impulse.UUID
+		// @target(CompoundFleetDigest, key: Slot)
+		Slot string
+	}
+
+	// @rpc
+	TargetTwoRoots struct {
+		// @target(CompoundFleetDigest, key: ID)
+		ShipID impulse.UUID
+		// @target(FleetDigest)
+		OtherID impulse.UUID
+	}
+
+	// @rpc
+	TargetTwoFieldsOneColumn struct {
+		// @target(FleetDigest)
+		ShipID impulse.UUID
+		// @target(FleetDigest)
+		OtherID impulse.UUID
+	}
+
+	// @rpc
+	TargetKeyNamesNoKey struct {
+		// @target(FleetDigest, key: Slot)
+		ShipID impulse.UUID
+	}
+
+	// TargetKeyNamesTheKey names the one key column it carries, which it need not.
+	//
+	// @rpc
+	TargetKeyNamesTheKey struct {
+		// @target(FleetDigest, key: ID)
+		ShipID impulse.UUID
+	}
+
+	// TransitionOnDigest names a view as a workflow root.
+	//
+	// @rpc
+	// @permissionScope(domain)
+	// @transition(TaskDigest, from: open, to: approved)
+	TransitionOnDigest struct {
+		// @target
+		TaskID impulse.UUID
+	}
+
+	// TargetDigestScopeMismatch is a global method over a tenant-scoped view.
+	//
+	// @rpc
+	TargetDigestScopeMismatch struct {
+		// @target(TaskDigest)
+		TaskID impulse.UUID
+	}
+
+	// TargetDigestTypeMismatch carries a key of another type than the view's.
+	//
+	// @rpc
+	TargetDigestTypeMismatch struct {
+		// @target(FleetDigest)
+		ShipID string
+	}
 )
 
 // Every RPC fixture declares Execute in the transaction form the transition
@@ -569,6 +897,61 @@ func (PlainTargetPathTenant) Execute(context.Context, resource.ReadWriteTransact
 	return nil
 }
 func (TransitionTargetWithArg) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+
+func (PlainTargetDigest) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (PlainTargetFleetDigest) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (TargetKeylessDigest) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (TargetCompoundDigest) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (TargetCompoundFleetDigest) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (PlainTargetCompoundFleetDigest) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (PlainTargetCrewSeat) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (TargetCompoundMissingColumn) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (TargetCompoundUnknownKey) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (TargetCompoundSameKeyTwice) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (TargetCompoundTypeMismatch) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (TargetTwoRoots) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (TargetTwoFieldsOneColumn) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (TargetKeyNamesNoKey) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (TargetKeyNamesTheKey) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (TransitionOnDigest) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (TargetDigestScopeMismatch) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
+	return nil
+}
+func (TargetDigestTypeMismatch) Execute(context.Context, resource.ReadWriteTransaction, *Client) error {
 	return nil
 }
 

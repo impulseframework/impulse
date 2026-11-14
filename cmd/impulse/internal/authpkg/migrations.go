@@ -55,19 +55,29 @@ CREATE TABLE %[1]sSessionUsers (
 CREATE UNIQUE INDEX %[1]sSessionUsersByNormalizedUsername ON %[1]sSessionUsers(NormalizedUsername);
 
 CREATE UNIQUE NULL_FILTERED INDEX %[1]sSessionUsersByNormalizedEmail ON %[1]sSessionUsers(NormalizedEmail);
+
+-- The index a list of people reads the account through when it starts from who holds a
+-- role (a tenant's people, the roles held in a tenant): by the exact username a role
+-- membership names its person by, carrying the columns those lists show, so a page reads
+-- one index entry for each person and no row of the table.
+CREATE UNIQUE INDEX %[1]sSessionUsersByUsername ON %[1]sSessionUsers(Username) STORING (Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);
 `, p, who, guidCheck, emailColumns(usernameIsEmail))
 }
 
 // emailColumns are the users table's address columns: the address in two states (the
-// session library's SessionUserEmail migration), derived from the username where the
-// sign-in name is the address.
+// session library's SessionUserEmail migration), both derived from the username by the
+// database where the sign-in name is the address (the session library's "one value"
+// shape). The session library and the generated management read Email in either shape
+// and write it in neither where it is derived, so the column is there in both.
 func emailColumns(usernameIsEmail bool) string {
 	if usernameIsEmail {
 		return `  -- The person's email address is their sign-in name (session.UsernameIsEmail), so the
-  -- normalized address derives from the username and uniqueness holds once, and
+  -- database derives the address and its normalized form from the username: the two
+  -- cannot diverge, uniqueness holds once, and nothing writes either column.
   -- EmailVerifiedAt is the database's time at which the person proved they read the
   -- mailbox by following a link sent to it; null while the address is unverified. An
   -- address is trusted for nothing until it is verified.
+  Email              STRING(MAX) AS (Username) STORED,
   NormalizedEmail    STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED,
   EmailVerifiedAt    TIMESTAMP OPTIONS (allow_commit_timestamp = true),
 `
@@ -86,7 +96,7 @@ func emailColumns(usernameIsEmail bool) string {
 }
 
 func usersDown(p string) string {
-	return fmt.Sprintf("DROP INDEX %[1]sSessionUsersByNormalizedEmail;\nDROP INDEX %[1]sSessionUsersByNormalizedUsername;\nDROP TABLE %[1]sSessionUsers;\n", p)
+	return fmt.Sprintf("DROP INDEX %[1]sSessionUsersByUsername;\nDROP INDEX %[1]sSessionUsersByNormalizedEmail;\nDROP INDEX %[1]sSessionUsersByNormalizedUsername;\nDROP TABLE %[1]sSessionUsers;\n", p)
 }
 
 func sessionsUp(p, who string) string {
@@ -137,7 +147,9 @@ CREATE TABLE %[1]sSessionIdentities (
 
 CREATE UNIQUE INDEX %[1]sSessionIdentitiesByKey ON %[1]sSessionIdentities(Method, Connection, Subject);
 
-CREATE INDEX %[1]sSessionIdentitiesByUserId ON %[1]sSessionIdentities(UserId);
+-- A person's links, with the columns a list of them shows, so a list that reaches the
+-- links through their people reads the index and no row of the table.
+CREATE INDEX %[1]sSessionIdentitiesByUserId ON %[1]sSessionIdentities(UserId) STORING (Method, Connection, Subject, Tenant, EmailAtLink, CreatedAt, LastUsedAt);
 
 -- The auth events: how each session was authenticated, one row per sign-in or step (the
 -- method, its registration, and the provider's own amr claims). Not interleaved: an
@@ -242,6 +254,11 @@ CREATE UNIQUE INDEX %[1]sSessionMailLinksByTokenHash ON %[1]sSessionMailLinks(To
 
 CREATE INDEX %[1]sSessionMailLinksByKind ON %[1]sSessionMailLinks(Kind, ConsumedAt, ExpiresAt);
 
+-- A tenant's links, newest first, with the columns a tenant's list of its invitations
+-- shows: a page of that list reads its own rows from the index and nothing else. A link
+-- that names no tenant is not in it.
+CREATE NULL_FILTERED INDEX %[1]sSessionMailLinksByTenant ON %[1]sSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);
+
 `, p, who, guidCheck)
 }
 
@@ -328,7 +345,7 @@ func factorsUp(p, who string) string {
 -- person asked to be remembered after a code (UserId): the browser holds an opaque token
 -- in the auth's trusted-device cookie and the row keeps its hash; it stands in for the
 -- factor while it is not revoked and not expired, and an administrator revokes every
--- browser of a person's from the users surface. A code goes with its pending sign-in and
+-- browser of a person's through the auth's management. A code goes with its pending sign-in and
 -- a device with its user. CreatedAt, ConsumedAt, LastUsedAt and RevokedAt take the commit
 -- time; ExpiresAt is the library's deadline, written as given.
 CREATE TABLE %[1]sSessionFactorCodes (
@@ -378,6 +395,7 @@ func sessionsDown(p string) string {
 		"DROP INDEX %[1]sSessionTokensByUser;",
 		"DROP INDEX %[1]sSessionTokensByTokenHash;",
 		"DROP TABLE %[1]sSessionTokens;",
+		"DROP INDEX %[1]sSessionMailLinksByTenant;",
 		"DROP INDEX %[1]sSessionMailLinksByKind;",
 		"DROP INDEX %[1]sSessionMailLinksByTokenHash;",
 		"DROP TABLE %[1]sSessionMailLinks;",

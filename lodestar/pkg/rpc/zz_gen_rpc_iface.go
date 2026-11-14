@@ -10,5 +10,6 @@ type Method interface {
 	AttachMissionDocument | AttachRefitPhoto | BeginRefit | ClaimMission | CompileBriefing |
 		CompleteMission | FailFlightTest | FailMission | HailShip | HoldMission | IngestDroidReports |
 		InspectShip | IssueBulletin | LaunchMission | PassFlightTest | ReleaseConsignment |
-		ReplaceMissionDocument | ResumeMission | ScrapShip | StandDownMission | StartFlightTest
+		ReplaceMissionDocument | ResumeMission | ScrapShip | SetSectorPilotClearance |
+		StandDownMission | StartFlightTest
 }
