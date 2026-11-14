@@ -52,6 +52,17 @@ const (
 	searchTagKey = "search"
 )
 
+// The one declaration the package reads off the resource struct itself, as its author
+// wrote it, where every other key above is read off a generated request struct:
+// conditions:"secret" on a field. The generator turns the word into everything a client
+// meets (the field is never served, and its input is masked); the package reads it for
+// the one thing only it does with the value, which is to leave it out of the change
+// record (PatchSet.Diff).
+const (
+	conditionsTagKey = "conditions"
+	secretCondition  = "secret"
+)
+
 // maskingPositional is the masking tag value the generator writes for a
 // positional field.
 const maskingPositional = "positional"

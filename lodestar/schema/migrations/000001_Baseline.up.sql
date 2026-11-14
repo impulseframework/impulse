@@ -367,6 +367,10 @@ CREATE TABLE Ships (
   -- equality and cannot index an ARRAY column, so the field carries no allow_filter and no
   -- list filters or sorts by it.
   CargoBays ARRAY<INT64> NOT NULL DEFAULT (ARRAY<INT64>[]),
+  -- TransponderKey is the key a ship's transponder signs its answers with: a secret. The
+  -- resource declares it conditions:"secret", so it is written and never served, and the
+  -- ship's log names a change of it without the value.
+  TransponderKey STRING(64),
 ) PRIMARY KEY (Id);
 
 CREATE UNIQUE INDEX ShipsByRegistry ON Ships(Registry);

@@ -29,7 +29,7 @@ type (
 	CreateCrewUser struct {
 		Username string `validate:"required"`
 		Email    *string
-		Password *string
+		Password *string `conditions:"secret"`
 		// Roles are the roles the person is given. A grant's condition reads each of them as
 		// new.role, so a role file can limit which roles the grant's holder hands out.
 		//

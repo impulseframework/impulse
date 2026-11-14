@@ -155,14 +155,15 @@ func (a *App) PatchResources() http.HandlerFunc {
 	sectorDirectoryDecoder := NewDecoder[resources.SectorDirectory, sectorDirectoryRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type shipRequest struct {
-		ID          impulse.UUID `json:"-"`
-		HangarID    impulse.UUID `json:"hangarId"`
-		ClassID     impulse.UUID `json:"classId"`
-		Registry    string       `json:"registry"  immutable:"true" sqltype:"STRING(16)"`
-		Name        string       `json:"name"`
-		LastRefitAt *time.Time   `json:"-"`
-		UpdatedAt   *time.Time   `json:"-"`
-		CargoBays   []int64      `json:"cargoBays"`
+		ID             impulse.UUID `json:"-"`
+		HangarID       impulse.UUID `json:"hangarId"`
+		ClassID        impulse.UUID `json:"classId"`
+		Registry       string       `json:"registry"       immutable:"true"     sqltype:"STRING(16)"`
+		Name           string       `json:"name"`
+		LastRefitAt    *time.Time   `json:"-"`
+		UpdatedAt      *time.Time   `json:"-"`
+		CargoBays      []int64      `json:"cargoBays"`
+		TransponderKey *string      `json:"transponderKey" sqltype:"STRING(64)"`
 	}
 	shipDecoder := NewDecoder[resources.Ship, shipRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 

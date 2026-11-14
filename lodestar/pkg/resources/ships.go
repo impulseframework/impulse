@@ -44,7 +44,14 @@ type (
 	// carries no allow_filter: a filter compares single values and Spanner cannot index an
 	// array, so the generator would refuse the tag; a sort naming it answers 400.
 	//
-	// Demonstrates: @domain.join-path, @attribute.join-path, @attribute.join-path-global, immutable, output_only_update_fn, transition-owned-timestamp, change-tracking, commit.referential-refusal, commit.constraint-refusal, warning.join-path-list, decode.value-limit, typescript.array-column.
+	// TransponderKey is a secret (conditions:"secret"): the marshal sets it, on the
+	// create or later, and nothing serves it back. It is write-only as an input_only field
+	// is (absent from every list and read, refused as a column, a filter or a sort), the
+	// console types it into a masked box whose toggle shows what is being typed, and the
+	// ship's log, which serves every change of a ship, names a change of the key without
+	// the old value or the new one (test/integration/secret_test.go).
+	//
+	// Demonstrates: @domain.join-path, @attribute.join-path, @attribute.join-path-global, immutable, output_only_update_fn, transition-owned-timestamp, change-tracking, commit.referential-refusal, commit.constraint-refusal, warning.join-path-list, decode.value-limit, typescript.array-column, secret.
 	//
 	// @resource
 	// @permissionScope(domain)
@@ -62,6 +69,8 @@ type (
 		LastRefitAt *time.Time   `spanner:"LastRefitAt" conditions:"output_only"`
 		UpdatedAt   *time.Time   `spanner:"UpdatedAt"   output_only_update_fn:"resource.CommitTimestampPtr"`
 		CargoBays   []int64      `spanner:"CargoBays"`
+		// TransponderKey is the key the ship's transponder signs its answers with.
+		TransponderKey *string `spanner:"TransponderKey" conditions:"secret"`
 	}
 )
 

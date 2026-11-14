@@ -22,7 +22,7 @@ import (
 type SetCrewTemporaryPassword struct {
 	// @target(CrewSessionUser)
 	UserID   impulse.UUID
-	Password string `validate:"required"`
+	Password string `validate:"required" conditions:"secret"`
 }
 
 // Execute buffers the password, the end of the person's sessions and the cleared count

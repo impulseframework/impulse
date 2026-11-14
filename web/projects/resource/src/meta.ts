@@ -73,6 +73,11 @@ export interface RPCFieldMeta {
   /** Set when a request may leave the field out; a form sends nothing for an input left empty. */
   optional?: true;
   /**
+   * Set on a request field that holds a secret (`conditions:"secret"` on the method's
+   * field): a form types it into a masked input whose toggle shows what is being typed.
+   */
+  secret?: true;
+  /**
    * The name a grant's condition reads the field by (new.<name>), set on a field that
    * declares it (@attribute). A role file may hold the method to a value of this field,
    * and no value never passes such a condition, so a form that rehearses the call waits
@@ -217,6 +222,13 @@ export interface FieldMeta {
    * input for it and a view renders nothing. Emitted by the ccc TypeScript generator.
    */
   writeOnly?: boolean;
+  /**
+   * The field holds a secret (`conditions:"secret"`): a password, an API key. It is
+   * write-only, so `writeOnly` is set with it, and a form types it into a masked input
+   * whose toggle shows what is being typed. There is no stored value to show: the server
+   * returns none. Emitted by the generator.
+   */
+  secret?: boolean;
   /**
    * The feature flag that gates the field (`@feature` on the field), by name. While the
    * flag is off the field is absent: omitted from every response, an unknown field in a

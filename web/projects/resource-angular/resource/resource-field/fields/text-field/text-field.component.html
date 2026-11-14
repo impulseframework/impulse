@@ -12,9 +12,26 @@
         matInput
         (keydown.enter)="$event.preventDefault()"
         [readonly]="editMode() === 'view'"
-        type="text"
+        [type]="secret() && !shown() ? 'password' : 'text'"
+        [attr.autocomplete]="secret() ? 'new-password' : null"
+        [attr.autocapitalize]="secret() ? 'off' : null"
+        [attr.spellcheck]="secret() ? 'false' : null"
         [formControlName]="fieldConfig().name"
         [class.dirty-input]="form().get(fieldConfig().name)?.dirty" />
+      @if (secret() && editMode() === 'edit') {
+        <!-- What is typed is masked; the button shows it and hides it again. It is the
+             input's own text: a secret has no stored value to show. -->
+        <button
+          matSuffix
+          mat-icon-button
+          type="button"
+          class="secret-toggle"
+          [attr.aria-label]="shown() ? 'Hide what you typed' : 'Show what you typed'"
+          [attr.aria-pressed]="shown()"
+          (click)="toggleShown()">
+          <mat-icon>{{ shown() ? 'visibility_off' : 'visibility' }}</mat-icon>
+        </button>
+      }
       @if (editMode() === 'edit' && form().get(fieldConfig().name)?.dirty) {
         <button matSuffix mat-icon-button (click)="reset()" tabindex="-1">
           <mat-icon>refresh</mat-icon>

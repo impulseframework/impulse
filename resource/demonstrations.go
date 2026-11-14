@@ -92,6 +92,7 @@ var Demonstrations = []Demonstration{
 	{"pii.filter-placement", "A PII filter is refused in the URL and accepted in the request body."},
 	{"input_only", "A field accepted on mutations and never serialized back: absent from the TypeScript row interface, writeOnly in its metadata entry, and carried by the Create and Patch shapes."},
 	{"output_only", "A field the wire can never write."},
+	{"secret", "A field that holds a secret: write-only as an input_only field is (never served, refused as a column, a filter or a sort), flagged secret in its metadata entry so the form types it into a masked input, and named in a change record without its old or its new value."},
 	{"default_create_fn", "A server-side default computed at create time."},
 	{"immutable", "A field that can be created but never updated."},
 	{"output_only_update_fn", "A mechanical stamp written on every update."},

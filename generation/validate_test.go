@@ -65,7 +65,7 @@ func Test_validateConditionsTags(t *testing.T) {
 	}{
 		{name: "a misspelling is refused with a suggestion", structName: "Misspelled", wantContains: `field Misspelled.Name: conditions tag value "immutble" is not recognized; did you mean "immutable"?`},
 		{name: "a space-padded value is refused with the trimmed value suggested", structName: "Spaced", wantContains: `conditions tag value " pii" is not recognized; did you mean "pii"?`},
-		{name: "a trailing comma's empty value is refused without a suggestion", structName: "Trailing", wantContains: `conditions tag value "" is not recognized (recognized: immutable, pii, input_only, output_only)`},
+		{name: "a trailing comma's empty value is refused without a suggestion", structName: "Trailing", wantContains: `conditions tag value "" is not recognized (recognized: immutable, pii, input_only, output_only, secret)`},
 		{name: "recognized values pass", structName: "Clean"},
 		{name: "a struct without the tag passes", structName: "OneKind"},
 	}

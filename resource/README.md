@@ -143,6 +143,24 @@ Values recognized in a `conditions` tag:
   envelope when the caller's Update grant covers it, since the envelope speaks for every
   field the caller may write, projected or not (section 4). Example:
   [DistressCall.Transcript](../lodestar/pkg/resources/distress_calls.go).
+- `secret` — the field holds a secret: a password, an API key, a signing key. It says
+  everything `input_only` says, since a secret is never served, and two things more. The
+  metadata entry is flagged `secret: true` beside `writeOnly: true`, so a form types the
+  value into a masked input whose toggle shows what is being typed; there is no stored
+  value for it to show, since the server returns none. And a change record names the
+  field as changed and keeps neither its old value nor its new one (`"Secret": true` in
+  the change set), where it keeps both for every other field, write-only ones included.
+  `input_only` alone does not mean secret: a write-only field can be something a person
+  files and the server does not serve back, which is read as it is typed and belongs in
+  the record. The generator refuses `secret` where the field cannot honor it: on a primary
+  key, on a field the server owns (`output_only`, an `@state` column, the tenant key), on
+  a view, on a foreign key or a field with a picker (`@enumerate`), and on a column that
+  is not one `STRING` or one `BYTES` value, since a form masks text as it is typed and
+  would draw a number, a date or a list in the open. A method's request field takes the
+  same word under the same rule (text or bytes, no picker), and the method's dialog draws
+  the same masked input (the generated temporary-password methods declare theirs so).
+  Example:
+  [Ship.TransponderKey](../lodestar/pkg/resources/ships.go).
 - `output_only` — the server owns the value: returned to clients but never accepted from
   them (patch structs get `json:"-"`, excluding it from both create and update input).
   The value comes from the database or from `default_create_fn` /
@@ -150,23 +168,25 @@ Values recognized in a `conditions` tag:
   even without the condition. Example:
   [DistressCall.CaseNumber](../lodestar/pkg/resources/distress_calls.go).
 
-`immutable`, `input_only`, and `output_only` each answer the same question — what may a
-REST client do with the field, and when — so they are easy to confuse. In particular,
-`immutable` is not `output_only`: an immutable field is client-supplied exactly once
-(e.g. an identifier chosen at creation), while an output-only field is never
+`immutable`, `input_only`, `secret`, and `output_only` each answer the same question —
+what may a REST client do with the field, and when — so they are easy to confuse. In
+particular, `immutable` is not `output_only`: an immutable field is client-supplied
+exactly once (e.g. an identifier chosen at creation), while an output-only field is never
 client-supplied at all (e.g. a commit timestamp).
 
 | `conditions:` | Client reads it | Client sets it on create | Client sets it on update |
 | --- | --- | --- | --- |
 | *(none)* | ✔ | ✔ | ✔ |
 | `input_only` | ✘ | ✔ | ✔ |
+| `secret` | ✘ | ✔ | ✔ |
 | `output_only` | ✔ | ✘ | ✘ |
 | `immutable` | ✔ | ✔ | ✘ (rejected with a 400) |
 
 These conditions describe the REST contract only: what an untrusted client can read and
 write over the wire. Application code calling the generated CRUD layer is not constrained
 by them — it can write any field; that path is guarded by code review, not by these
-rules. The `default_create_fn` / `output_only_update_fn` functions are not REST-specific,
+rules. One part of `secret` is not the wire's alone: a change record leaves the value
+out whoever wrote it, application code included, since the patch layer writes the record. The `default_create_fn` / `output_only_update_fn` functions are not REST-specific,
 however: they run inside the generated patch pipeline and fire for application code
 exactly as for REST requests. They fill a field the caller left unset — explicitly
 setting the field pre-empts them, which a REST client can never do for an output-only
