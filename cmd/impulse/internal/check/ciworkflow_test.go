@@ -3,6 +3,7 @@ package check
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -44,6 +45,7 @@ func TestCIWorkflow(t *testing.T) {
 
 	const jobs = "15 job(s): title, go-build, go-test, go-test-skipauth, go-lint, go-lint-skipauth, go-vuln, go-semgrep, go-check, go, angular-web, web, image, secrets, migrations"
 	const symref = "git ls-remote --symref origin HEAD"
+	const toplevel = "git rev-parse --show-toplevel"
 	written := func(t *testing.T, a *app.App) {
 		t.Helper()
 		if _, err := ci.Write(a); err != nil {
@@ -58,8 +60,20 @@ func TestCIWorkflow(t *testing.T) {
 		prepare func(t *testing.T, a *app.App)
 		// answers is what git says, by command line; nil runs without an Execer.
 		answers map[string]fakeAnswer
-		want    Result
+		// repositoryRoot puts the repository's root one directory above the application;
+		// the wanted summary then takes the application's directory name.
+		repositoryRoot bool
+		want           Result
 	}{
+		{
+			// No workflow is written and none is missed: the root's are not the
+			// application's.
+			name:           "an application that is a directory of a larger repository is skipped",
+			prepare:        func(*testing.T, *app.App) {},
+			answers:        map[string]fakeAnswer{},
+			repositoryRoot: true,
+			want:           Result{Name: ciWorkflow{}.Name(), Status: Skip, Summary: "the application is the directory %s of a larger repository: GitHub runs the workflows at a repository's root alone, so the application holds none of its own"},
+		},
 		{
 			name:    "the files as the code renders them pass; without an Execer origin is not asked",
 			prepare: written,
@@ -187,7 +201,18 @@ func TestCIWorkflow(t *testing.T) {
 			tt.prepare(t, a)
 			env := &Env{App: a}
 			if tt.answers != nil {
+				// Unless the case says where the repository's root is, the application
+				// is that root.
+				if _, said := tt.answers[toplevel]; !said {
+					tt.answers[toplevel] = fakeAnswer{out: root + "\n"}
+				}
+				if tt.repositoryRoot {
+					tt.answers[toplevel] = fakeAnswer{out: filepath.Dir(root) + "\n"}
+				}
 				env.Exec = &fakeExec{t: t, answers: tt.answers}
+			}
+			if tt.repositoryRoot {
+				tt.want.Summary = fmt.Sprintf(tt.want.Summary, filepath.Base(root))
 			}
 			got := ciWorkflow{}.Run(context.Background(), env)
 			if diff := cmp.Diff(tt.want, got); diff != "" {

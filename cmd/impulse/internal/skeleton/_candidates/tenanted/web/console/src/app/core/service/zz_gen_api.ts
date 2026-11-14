@@ -309,7 +309,7 @@ export const apiDescriptor = defineApiDescriptor({
       scope: 'global',
       consolidated: true,
       keys: ['id'],
-      operations: ['list', 'read', 'create', 'patch', 'remove', 'batch'],
+      operations: ['list', 'read', 'create', 'patch', 'remove', 'batch', 'patchOrAdd', 'addOrSkip'],
       page: { default: 50 },
       order: [{ field: 'name', direction: 'asc' }],
       patchable: ['name', 'directoryOnly'],
@@ -432,7 +432,7 @@ export interface GlobalApi {
   staffSessionTrustedDevices: ResourceHandle<StaffSessionTrustedDevices, StaffSessionTrustedDevicesKey, 'list' | 'read'>;
   staffSessionUsers: ResourceHandle<StaffSessionUsers, StaffSessionUsersKey, 'list' | 'read'>;
   staffUserRoles: ResourceHandle<StaffUserRoles, StaffUserRolesKey, 'list'>;
-  tenants: ResourceHandle<Tenants, TenantsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', TenantsCreate, TenantsPatch>;
+  tenants: ResourceHandle<Tenants, TenantsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch' | 'patchOrAdd' | 'addOrSkip', TenantsCreate, TenantsPatch>;
   featureFlags: ResourceHandle<FeatureFlags, FeatureFlagsKey, 'list' | 'read'>;
   assignStaffRole: MethodHandle<AssignStaffRole>;
   createStaffUser: MethodHandle<CreateStaffUser, CreateStaffUserResult>;

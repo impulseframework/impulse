@@ -343,7 +343,7 @@ export interface RefitTasksCreate {
   refitId: string;
   taskNumber: number;
   instructions: string;
-  done: boolean;
+  done?: boolean;
   notes?: string | null;
 }
 /** The fields a client may change on RefitTasks. Keys, server-owned, and immutable fields are absent. */
@@ -1074,7 +1074,7 @@ export const apiDescriptor = defineApiDescriptor({
       scope: 'global',
       consolidated: true,
       keys: ['userId', 'certificationId'],
-      operations: ['list', 'read', 'create', 'patch', 'remove', 'batch'],
+      operations: ['list', 'read', 'create', 'patch', 'remove', 'batch', 'patchOrAdd', 'addOrSkip'],
       page: { default: 25, max: 200 },
       order: [{ field: 'userId', direction: 'asc' }],
       patchable: [],
@@ -1098,7 +1098,7 @@ export const apiDescriptor = defineApiDescriptor({
       scope: 'domain',
       consolidated: true,
       keys: ['refitId', 'taskNumber'],
-      operations: ['list', 'read', 'create', 'patch', 'remove', 'batch'],
+      operations: ['list', 'read', 'create', 'patch', 'remove', 'batch', 'patchOrAdd', 'addOrSkip'],
       page: { default: 25, max: 200 },
       order: [{ field: 'taskNumber', direction: 'asc' }],
       patchable: ['instructions', 'done', 'notes'],
@@ -1111,7 +1111,7 @@ export const apiDescriptor = defineApiDescriptor({
       scope: 'global',
       consolidated: true,
       keys: ['id'],
-      operations: ['list', 'read', 'create', 'patch', 'remove', 'batch'],
+      operations: ['list', 'read', 'create', 'patch', 'remove', 'batch', 'patchOrAdd', 'addOrSkip'],
       page: { default: 25, max: 200 },
       order: [{ field: 'name', direction: 'asc' }],
       patchable: ['name', 'region', 'established', 'directoryOnly'],
@@ -1205,7 +1205,7 @@ export const apiDescriptor = defineApiDescriptor({
       scope: 'domain',
       consolidated: true,
       keys: ['squadronId', 'userId'],
-      operations: ['list', 'read', 'create', 'patch', 'remove', 'batch'],
+      operations: ['list', 'read', 'create', 'patch', 'remove', 'batch', 'patchOrAdd', 'addOrSkip'],
       page: { default: 25, max: 200 },
       order: [{ field: 'userId', direction: 'asc' }],
       patchable: [],
@@ -1487,8 +1487,8 @@ export interface GlobalApi {
   membersSessionUsers: ResourceHandle<MembersSessionUsers, MembersSessionUsersKey, 'list' | 'read'>;
   membersUserRoles: ResourceHandle<MembersUserRoles, MembersUserRolesKey, 'list'>;
   pilots: ResourceHandle<Pilots, PilotsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', PilotsCreate, PilotsPatch>;
-  pilotCertifications: ResourceHandle<PilotCertifications, PilotCertificationsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', PilotCertificationsCreate, PilotCertificationsPatch>;
-  sectors: ResourceHandle<Sectors, SectorsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', SectorsCreate, SectorsPatch>;
+  pilotCertifications: ResourceHandle<PilotCertifications, PilotCertificationsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch' | 'patchOrAdd' | 'addOrSkip', PilotCertificationsCreate, PilotCertificationsPatch>;
+  sectors: ResourceHandle<Sectors, SectorsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch' | 'patchOrAdd' | 'addOrSkip', SectorsCreate, SectorsPatch>;
   shipClasses: ResourceHandle<ShipClasses, ShipClassesKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', ShipClassesCreate, ShipClassesPatch>;
   briefingTemplates: ResourceHandle<BriefingTemplates, BriefingTemplatesKey, 'list'>;
   pilotCards: ResourceHandle<PilotCards, PilotCardsKey, 'list'>;
@@ -1548,14 +1548,14 @@ export interface DomainApi {
   openMissionsBySquadrons: ResourceHandle<OpenMissionsBySquadrons, OpenMissionsBySquadronsKey, 'list' | 'read'>;
   pilotAssignments: ResourceHandle<PilotAssignments, PilotAssignmentsKey, 'list' | 'read'>;
   refits: ResourceHandle<Refits, RefitsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', RefitsCreate, RefitsPatch>;
-  refitTasks: ResourceHandle<RefitTasks, RefitTasksKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', RefitTasksCreate, RefitTasksPatch>;
+  refitTasks: ResourceHandle<RefitTasks, RefitTasksKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch' | 'patchOrAdd' | 'addOrSkip', RefitTasksCreate, RefitTasksPatch>;
   sectorDirectories: ResourceHandle<SectorDirectories, SectorDirectoriesKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', SectorDirectoriesCreate, SectorDirectoriesPatch>;
   sectorPilots: ResourceHandle<SectorPilots, SectorPilotsKey, 'list' | 'read'>;
   ships: ResourceHandle<Ships, ShipsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', ShipsCreate, ShipsPatch>;
   sorties: ResourceHandle<Sorties, SortiesKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', SortiesCreate, SortiesPatch>;
   sortieExpenses: ResourceHandle<SortieExpenses, SortieExpensesKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', SortieExpensesCreate, SortieExpensesPatch>;
   squadrons: ResourceHandle<Squadrons, SquadronsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', SquadronsCreate, SquadronsPatch>;
-  squadronMemberships: ResourceHandle<SquadronMemberships, SquadronMembershipsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', SquadronMembershipsCreate, SquadronMembershipsPatch>;
+  squadronMemberships: ResourceHandle<SquadronMemberships, SquadronMembershipsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch' | 'patchOrAdd' | 'addOrSkip', SquadronMembershipsCreate, SquadronMembershipsPatch>;
   squadronRosters: ResourceHandle<SquadronRosters, SquadronRostersKey, 'list' | 'read'>;
   wings: ResourceHandle<Wings, WingsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', WingsCreate, WingsPatch>;
   crewSectorRoles: ResourceHandle<CrewSectorRoles, CrewSectorRolesKey, 'list'>;

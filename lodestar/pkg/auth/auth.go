@@ -12,11 +12,8 @@ package auth
 import (
 	"context"
 
-	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/session/google"
 	"github.com/impulseframework/impulse/session/mail"
-	"github.com/impulseframework/impulse/session/sessioninfo"
-	"github.com/impulseframework/impulse/session/signin"
 )
 
 type ctxKey struct{}
@@ -94,21 +91,6 @@ func (d *Directory) Workspace() google.WorkspaceSet {
 	}
 
 	return workspace
-}
-
-// RequireSecondFactor is the last word of both auths' sign-in rules, chained after the
-// tenant policy (signin.Policy.Then): every session carries a second factor, with the
-// sign-in code the library mails as the factor the login page runs
-// (signin.RequireMFA(sessioninfo.MethodEmailCode)). The library satisfies it before it
-// holds the sign-in: a directory the fleet administers attests for its people
-// (Directory.Administered), a browser the person asked to be remembered after a code
-// stands in for the next thirty days, and otherwise the sign-in waits for the code the
-// person reads from their mail. The requirement is the rule's, not a tenant's, so no
-// sector turns it off.
-//
-// Demonstrates: auth.second-factor.
-func RequireSecondFactor(context.Context, *cloudspanner.ReadWriteTransaction, *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
-	return signin.RequireMFA(sessioninfo.MethodEmailCode), nil
 }
 
 // Persona is how the application is known to the persona provider, the sign-in of the

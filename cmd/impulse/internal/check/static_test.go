@@ -429,7 +429,7 @@ func main() {
 				"pkg/rpc/relight.go":     "package rpc\n\n// @rpc\ntype Relight struct{}\n",
 			},
 			want: Result{Name: rpcExecute{}.Name(), Status: Fail, Summary: "2 RPC finding(s) (regenerate and read the generator output)", Details: []string{
-				"pkg/rpc/ping_beacon.go:6: PingBeacon.Execute(context.Context, *Client) (error) is none of the three forms the generator classifies: Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error, Execute(ctx context.Context, client resource.Client, rpcClient *Client) error, or Execute(ctx context.Context, txn resource.ReadWriteTransaction, files resource.Files, client *Client) error",
+				"pkg/rpc/ping_beacon.go:6: PingBeacon.Execute(context.Context, *Client) (error) is none of the three forms the generator classifies: Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error, Execute(ctx context.Context, client resource.Client, rpcClient *Client) error, or Execute(ctx context.Context, txn resource.ReadWriteTransaction, files resource.Files, client *Client) error (resource.FilesIn[S] where the method names its store)",
 				"pkg/rpc/relight.go:4: Relight declares @rpc but no Execute method; the generator refuses it",
 			}},
 		},
@@ -441,12 +441,28 @@ func main() {
 			want: Result{Name: rpcExecute{}.Name(), Status: Pass, Summary: "1 RPC method(s) declare a recognized Execute and 1 generated handler(s) call it"},
 		},
 		{
+			name: "the upload form naming its store passes",
+			files: map[string]string{
+				"pkg/rpc/attach_document.go": "package rpc\n\n// @rpc\n// @upload\ntype AttachDocument struct{}\n\nfunc (m *AttachDocument) Execute(ctx context.Context, txn resource.ReadWriteTransaction, files resource.FilesIn[resources.Documents], _ *Client) (*Attached, error) { return nil, nil }\n",
+			},
+			want: Result{Name: rpcExecute{}.Name(), Status: Pass, Summary: "1 RPC method(s) declare a recognized Execute and 1 generated handler(s) call it"},
+		},
+		{
+			name: "four parameters whose third is another generic type fail, and the finding prints the type",
+			files: map[string]string{
+				"pkg/rpc/attach_document.go": "package rpc\n\n// @rpc\ntype AttachDocument struct{}\n\nfunc (m *AttachDocument) Execute(ctx context.Context, txn resource.ReadWriteTransaction, files resource.Key[resources.Documents], client *Client) error { return nil }\n",
+			},
+			want: Result{Name: rpcExecute{}.Name(), Status: Fail, Summary: "1 RPC finding(s) (regenerate and read the generator output)", Details: []string{
+				"pkg/rpc/attach_document.go:6: AttachDocument.Execute(context.Context, resource.ReadWriteTransaction, resource.Key[resources.Documents], *Client) (error) is none of the three forms the generator classifies: Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error, Execute(ctx context.Context, client resource.Client, rpcClient *Client) error, or Execute(ctx context.Context, txn resource.ReadWriteTransaction, files resource.Files, client *Client) error (resource.FilesIn[S] where the method names its store)",
+			}},
+		},
+		{
 			name: "four parameters whose third is not resource.Files fail",
 			files: map[string]string{
 				"pkg/rpc/attach_document.go": "package rpc\n\n// @rpc\ntype AttachDocument struct{}\n\nfunc (m *AttachDocument) Execute(ctx context.Context, txn resource.ReadWriteTransaction, name string, client *Client) error { return nil }\n",
 			},
 			want: Result{Name: rpcExecute{}.Name(), Status: Fail, Summary: "1 RPC finding(s) (regenerate and read the generator output)", Details: []string{
-				"pkg/rpc/attach_document.go:6: AttachDocument.Execute(context.Context, resource.ReadWriteTransaction, string, *Client) (error) is none of the three forms the generator classifies: Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error, Execute(ctx context.Context, client resource.Client, rpcClient *Client) error, or Execute(ctx context.Context, txn resource.ReadWriteTransaction, files resource.Files, client *Client) error",
+				"pkg/rpc/attach_document.go:6: AttachDocument.Execute(context.Context, resource.ReadWriteTransaction, string, *Client) (error) is none of the three forms the generator classifies: Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error, Execute(ctx context.Context, client resource.Client, rpcClient *Client) error, or Execute(ctx context.Context, txn resource.ReadWriteTransaction, files resource.Files, client *Client) error (resource.FilesIn[S] where the method names its store)",
 			}},
 		},
 		{
@@ -455,7 +471,7 @@ func main() {
 				"pkg/rpc/attach_document.go": "package rpc\n\n// @rpc\ntype AttachDocument struct{}\n\nfunc (m *AttachDocument) Execute(ctx context.Context, client resource.Client, files resource.Files, rpcClient *Client) error { return nil }\n",
 			},
 			want: Result{Name: rpcExecute{}.Name(), Status: Fail, Summary: "1 RPC finding(s) (regenerate and read the generator output)", Details: []string{
-				"pkg/rpc/attach_document.go:6: AttachDocument.Execute(context.Context, resource.Client, resource.Files, *Client) (error) is none of the three forms the generator classifies: Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error, Execute(ctx context.Context, client resource.Client, rpcClient *Client) error, or Execute(ctx context.Context, txn resource.ReadWriteTransaction, files resource.Files, client *Client) error",
+				"pkg/rpc/attach_document.go:6: AttachDocument.Execute(context.Context, resource.Client, resource.Files, *Client) (error) is none of the three forms the generator classifies: Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error, Execute(ctx context.Context, client resource.Client, rpcClient *Client) error, or Execute(ctx context.Context, txn resource.ReadWriteTransaction, files resource.Files, client *Client) error (resource.FilesIn[S] where the method names its store)",
 			}},
 		},
 		{

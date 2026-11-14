@@ -720,6 +720,8 @@ func Test_consolidatedTemplate_domainDispatch(t *testing.T) {
 				"identity := a.StaffIdentity()",
 				"var created []string",
 				"created = nil",
+				// A tenant an add-or-skip found there was created by nobody now.
+				"if patch.RowSkipped() {",
 				// The creator's roles, in the transaction that writes the row.
 				"if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id)), string(userPermissions.User()), role); err != nil {",
 				"created = append(created, id)",

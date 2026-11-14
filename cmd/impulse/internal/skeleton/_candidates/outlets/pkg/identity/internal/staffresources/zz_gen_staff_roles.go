@@ -416,6 +416,26 @@ func (p *StaffRoleCreatePatch) Enforce(caller *resource.Caller) *StaffRoleCreate
 	return p
 }
 
+// OrSkip turns the create into create-unless-there. Apply and Buffer look for the
+// row by its key inside the transaction: when it is not there the create runs as
+// it is, and when it is there nothing is done at all, so the row keeps every
+// value it holds and no default, validation, or change record runs. A row an
+// earlier patch of the same transaction wrote counts as there. An armed patch is
+// checked for Create before the row is looked for. RowSkipped says afterwards
+// which it was.
+func (p *StaffRoleCreatePatch) OrSkip() *StaffRoleCreatePatch {
+	p.patchSet.OrSkip()
+
+	return p
+}
+
+// RowSkipped reports whether the last Apply or Buffer of an OrSkip patch found the
+// row there and left it as it is. It is false when the patch created the row, on a
+// patch that is not an OrSkip, and before the patch has run.
+func (p *StaffRoleCreatePatch) RowSkipped() bool {
+	return p.patchSet.Outcome() == resource.OutcomeSkipped
+}
+
 func (p *StaffRoleCreatePatch) registerDefaultFuncs() {
 }
 
@@ -538,6 +558,30 @@ func (p *StaffRoleUpdatePatch) Enforce(caller *resource.Caller) *StaffRoleUpdate
 	p.patchSet.Enforce(caller, staffRoleWriteSets.For(accesstypes.Update), accesstypes.Update)
 
 	return p
+}
+
+// OrCreate turns the update into update-or-create. Apply and Buffer look for the
+// row by its key inside the transaction: when it is there the update runs as it
+// is, and when it is not the patch creates the row with the fields it carries,
+// through everything a StaffRoleCreatePatch runs (its defaults, its
+// validation, the Create grant of an armed patch, its change record). A row an
+// earlier patch of the same transaction wrote counts as there. An armed patch is
+// asked for Update on the resource before the row is looked for. The fields set
+// here are written in both cases: where the two must write different things,
+// read the row and build the create patch or the update patch. RowCreated says
+// afterwards which it was.
+func (p *StaffRoleUpdatePatch) OrCreate() *StaffRoleUpdatePatch {
+	(&StaffRoleCreatePatch{patchSet: p.patchSet}).registerDefaultFuncs()
+	p.patchSet.OrCreate(staffRoleWriteSets.For(accesstypes.Create))
+
+	return p
+}
+
+// RowCreated reports whether the last Apply or Buffer of an OrCreate patch found
+// no row and created it. It is false when the patch updated the row, on a patch
+// that is not an OrCreate, and before the patch has run.
+func (p *StaffRoleUpdatePatch) RowCreated() bool {
+	return p.patchSet.Outcome() == resource.OutcomeCreated
 }
 
 func (p *StaffRoleUpdatePatch) registerDefaultFuncs() {

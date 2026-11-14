@@ -27,7 +27,11 @@ type AssignCrewRole struct {
 	// role file can limit which roles the grant's holder hands out.
 	//
 	// @attribute(role)
-	Role        string `validate:"required"`
+	Role string `validate:"required"`
+	// Domain is the one Sector the role is given in, picked from the
+	// Sector records the caller may list.
+	//
+	// @enumerate(Sectors)
 	Domain      *string
 	EveryDomain bool
 }

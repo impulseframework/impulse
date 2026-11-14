@@ -17,7 +17,8 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 )
 
-// OperationType defines the type of a patch operation (add, patch, remove).
+// OperationType defines the type of a patch operation (add, patch, remove, and the two
+// that decide from whether the row is there: patch-or-add and add-or-skip).
 type OperationType string
 
 const (
@@ -27,6 +28,17 @@ const (
 	OperationUpdate OperationType = "patch"
 	// OperationDelete corresponds to a "remove" operation.
 	OperationDelete OperationType = "remove"
+	// OperationUpdateOrCreate corresponds to a "patch-or-add" operation: an update of
+	// the row its path names, and a create of that row when it is not there. A handler
+	// asks the decoder which of the two it is (Decoder.DecideOperation: the caller's
+	// Update grant on the resource, then a look for the row inside the transaction) and
+	// runs the operation as the patch or the add it turned out to be, so everything a
+	// patch or an add is held to holds for it.
+	OperationUpdateOrCreate OperationType = "patch-or-add"
+	// OperationCreateOrSkip corresponds to an "add-or-skip" operation: a create of the
+	// row its path names that leaves the row exactly as it is when it is there. A
+	// handler runs it as the add it is (AsCreate) with the create patch marked OrSkip.
+	OperationCreateOrSkip OperationType = "add-or-skip"
 )
 
 // Operation represents a single operation within a batch request, containing its type and a corresponding http.Request.
@@ -55,6 +67,19 @@ func (o *Operation) ReqWithPattern(pattern string, opts ...Option) (*http.Reques
 	}
 
 	return o.Req.WithContext(ctx), nil
+}
+
+// AsCreate returns a copy of the operation that runs as an add: what a patch-or-add
+// whose row is not there turns into, and what an add-or-skip is decoded as. The request,
+// with the key its path carries, is the operation's own.
+func (o *Operation) AsCreate() *Operation {
+	return &Operation{Type: OperationCreate, Req: o.Req, pathPrefix: o.pathPrefix}
+}
+
+// AsUpdate returns a copy of the operation that runs as a patch: what a patch-or-add
+// whose row is there turns into.
+func (o *Operation) AsUpdate() *Operation {
+	return &Operation{Type: OperationUpdate, Req: o.Req, pathPrefix: o.pathPrefix}
 }
 
 // PathDepth returns the number of segments in the operation's path ("/organizations"
@@ -189,7 +214,9 @@ func Operations(r *http.Request, pattern string, opts ...Option) iter.Seq2[*Oper
 				return
 			}
 
-			if !yield(&Operation{Type: OperationType(op.Op), Req: r2, pathPrefix: pathPrefix}, nil) {
+			// The name is read without regard to case, here as in httpMethod, so the
+			// handlers and the decoder meet one spelling of each operation.
+			if !yield(&Operation{Type: OperationType(strings.ToLower(op.Op)), Req: r2, pathPrefix: pathPrefix}, nil) {
 				return
 			}
 		}
@@ -212,7 +239,8 @@ func httpMethod(op string) (string, error) {
 	switch OperationType(strings.ToLower(op)) {
 	case OperationCreate:
 		return http.MethodPost, nil
-	case OperationUpdate:
+	case OperationUpdate, OperationUpdateOrCreate, OperationCreateOrSkip:
+		// The two that decide from the row name it in their path, as a patch does.
 		return http.MethodPatch, nil
 	case OperationDelete:
 		return http.MethodDelete, nil
@@ -252,7 +280,7 @@ func withParams(ctx context.Context, method, pattern, path, pathPrefix string, o
 		fallthrough
 	case http.MethodPatch, http.MethodDelete:
 		if path == "" {
-			return ctx, pathPrefix, httpio.NewBadRequestMessage("path is required for patch and delete operations")
+			return ctx, pathPrefix, httpio.NewBadRequestMessage("path is required for patch, patch-or-add, add-or-skip and delete operations")
 		}
 
 		var chiContext *chi.Context
@@ -281,6 +309,10 @@ func permissionFromType(typ OperationType) accesstypes.Permission {
 		return accesstypes.Update
 	case OperationDelete:
 		return accesstypes.Delete
+	case OperationUpdateOrCreate, OperationCreateOrSkip:
+		// Neither asks for a permission under its own name: a handler runs each as the
+		// patch or the add it turns out to be, and a decode refuses one that reaches it
+		// as it came (refuseUndecided).
 	}
 
 	panic("implementation error")

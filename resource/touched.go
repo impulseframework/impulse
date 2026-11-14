@@ -101,6 +101,28 @@ func (t *touchedRows) record(patch PatchSetMetadata) {
 	t.rows = append(t.rows, row)
 }
 
+// find reports whether a patch of the transaction wrote the row the given patch names,
+// and whether the last such write deleted it. The row is matched by its resource and key
+// alone: a row is one row whichever domain the patch that wrote it was decoded in.
+func (t *touchedRows) find(patch PatchSetMetadata) (written, deleted bool) {
+	key := patch.PrimaryKey()
+	if key.Len() == 0 {
+		return false, false
+	}
+	values := make([]any, 0, key.Len())
+	for _, part := range key.Parts() {
+		values = append(values, part.Value)
+	}
+	rowKey := RowKey(values...)
+	for _, row := range t.rows {
+		if row.resource == patch.Resource() && row.change.Key == rowKey {
+			written, deleted = true, row.change.Deleted
+		}
+	}
+
+	return written, deleted
+}
+
 // list returns the recorded rows, in recording order.
 func (t *touchedRows) list() []touchedRow {
 	return slices.Clone(t.rows)

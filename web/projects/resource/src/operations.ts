@@ -1,4 +1,11 @@
-export type OperationType = 'add' | 'patch' | 'remove';
+/**
+ * What one operation does. `add`, `patch` and `remove` create, update and delete a row.
+ * The other two decide from whether the row their path names is there: `patch-or-add`
+ * updates it and creates it when it is not there, and `add-or-skip` creates it and
+ * leaves it exactly as it is when it is there. The server takes those two only on a
+ * resource whose key the client supplies.
+ */
+export type OperationType = 'add' | 'patch' | 'remove' | 'patch-or-add' | 'add-or-skip';
 
 /**
  * The endpoint an operation must be sent to when it is not the consolidated one. A

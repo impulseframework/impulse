@@ -251,7 +251,7 @@ func Test_readIdentityTenant(t *testing.T) {
 		wantErr string
 	}{
 		{name: "no tenant record", source: "package resources\n\n// @resource\ntype Dock struct {\n\tID string\n}\n"},
-		{name: "the record, its table and its key", source: shipTenantSource, table: shipsTable(), want: &identityTenant{name: "Ship", table: "Ships", key: "Id"}},
+		{name: "the record, its table and its key", source: shipTenantSource, table: shipsTable(), want: &identityTenant{name: "Ship", table: "Ships", key: "Id", outlets: []string{"default"}}},
 		{name: "a record whose table the schema does not hold", source: shipTenantSource, wantErr: "struct Ship is the tenant record (@tenant) and the schema holds no table Ships"},
 		{
 			name:   "a record keyed by two columns",
@@ -304,7 +304,7 @@ func Test_readIdentityTenant(t *testing.T) {
 func Test_identityInstance_lists(t *testing.T) {
 	t.Parallel()
 
-	ship := &identityTenant{name: "Ship", table: "Ships", key: "Id"}
+	ship := &identityTenant{name: "Ship", table: "Ships", key: "Id", outlets: []string{"default"}}
 	tests := []struct {
 		name   string
 		tenant *identityTenant
@@ -344,7 +344,7 @@ func Test_identityInstance_lists(t *testing.T) {
 func Test_identityInstance_tenantMethodSources(t *testing.T) {
 	t.Parallel()
 
-	ship := &identityTenant{name: "Ship", table: "Ships", key: "Id"}
+	ship := &identityTenant{name: "Ship", table: "Ships", key: "Id", outlets: []string{"default"}}
 	every := []identityTable{identityUsers, identityMemberships, identityMailLinks, identitySessions, identityTrustedDevices}
 	account := []string{"disable_crew_ship_user", "enable_crew_ship_user", "delete_crew_ship_user", "end_crew_ship_user_sessions", "revoke_crew_ship_user_trusted_devices"}
 	named := []string{"rename_crew_ship_user", "set_crew_ship_user_email"}
@@ -463,7 +463,7 @@ func Test_identityTenantUsersTemplate_accountColumns(t *testing.T) {
 func Test_holdIdentityTenant(t *testing.T) {
 	t.Parallel()
 
-	ship := &identityTenant{name: "Ship", table: "Ships", key: "Id"}
+	ship := &identityTenant{name: "Ship", table: "Ships", key: "Id", outlets: []string{"default"}}
 	tests := []struct {
 		name     string
 		written  *identityTenant
@@ -525,5 +525,72 @@ func Test_sqlStringLiteral(t *testing.T) {
 			}()
 			_ = sqlStringLiteral(value)
 		}()
+	}
+}
+
+// Test_tenantRecordIn_outlets pins the outlets the tenant record is read as served on:
+// what its @outlet names, and the default outlet when it names none.
+func Test_tenantRecordIn_outlets(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		outlet string
+		want   []string
+	}{
+		{name: "no @outlet: the default outlet", want: []string{"default"}},
+		{name: "the outlets it names, in the order written", outlet: "\t// @outlet(portal, default)\n", want: []string{"portal", "default"}},
+		{name: "one outlet that is not the default", outlet: "\t// @outlet(portal)\n", want: []string{"portal"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			source := "package resources\n\ntype (\n\t// Ship is the tenant record.\n\t//\n\t// @resource\n\t// @tenant\n" + tt.outlet +
+				"\tShip struct {\n\t\tID string `spanner:\"Id\"`\n\t}\n)\n"
+			dir := filepath.Join(t.TempDir(), "resources")
+			writeResourcesPackage(t, dir, map[string]string{"fixture.go": source})
+
+			name, outlets, err := tenantRecordIn(dir)
+			if err != nil {
+				t.Fatalf("tenantRecordIn() error = %v", err)
+			}
+			if name != "Ship" {
+				t.Fatalf("tenantRecordIn() name = %q, want Ship", name)
+			}
+			if diff := cmp.Diff(tt.want, outlets); diff != "" {
+				t.Errorf("tenantRecordIn() outlets mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_identitySourceData_TenantPicker pins where the field that says which tenant a role
+// is given in gets a picker of the tenant record: where the record is served on every
+// outlet the instance's methods are on, since a picker lists a resource of the method's
+// own outlet. Anywhere else the field stays typed.
+func Test_identitySourceData_TenantPicker(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		tenant  *identityTenant
+		outlets []string
+		want    string
+	}{
+		{name: "no tenant record", outlets: []string{"default"}},
+		{name: "the record is on the methods' one outlet", tenant: &identityTenant{name: "Ship", table: "Ships", outlets: []string{"default"}}, outlets: []string{"default"}, want: "Ships"},
+		{name: "the record is on both of the methods' outlets", tenant: &identityTenant{name: "Ship", table: "Ships", outlets: []string{"default", "portal"}}, outlets: []string{"portal", "default"}, want: "Ships"},
+		{name: "the methods are also on an outlet the record is not on", tenant: &identityTenant{name: "Ship", table: "Ships", outlets: []string{"default"}}, outlets: []string{"portal", "default"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			d := &identitySourceData{identityInstance: &identityInstance{auth: "Crew", tenant: tt.tenant, outlets: tt.outlets}}
+			if got := d.TenantPicker(); got != tt.want {
+				t.Errorf("TenantPicker() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

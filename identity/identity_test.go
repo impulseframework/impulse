@@ -434,13 +434,18 @@ func (f *fakeStore) RoleHolders(_ context.Context, _ resource.ReadWriteTransacti
 	return users, nil
 }
 
-func (f *fakeStore) InsertMembership(_ context.Context, _ resource.ReadWriteTransaction, key *access.MembershipKey) error {
+// InsertMembership writes the row unless the membership is held, as the generated
+// store's create-unless-there does.
+func (f *fakeStore) InsertMembership(_ context.Context, _ resource.ReadWriteTransaction, key *access.MembershipKey) (bool, error) {
 	if err := f.fail("InsertMembership"); err != nil {
-		return err
+		return false, err
+	}
+	if f.memberships[*key] {
+		return false, nil
 	}
 	f.writes = append(f.writes, "insert membership "+membershipText(key))
 
-	return nil
+	return true, nil
 }
 
 func (f *fakeStore) DeleteMembership(_ context.Context, _ resource.ReadWriteTransaction, key *access.MembershipKey) error {

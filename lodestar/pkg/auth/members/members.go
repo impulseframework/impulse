@@ -24,7 +24,7 @@
 // invitation gave would be gone at the person's next sign-in. A member's address is the
 // one the directory verified, held beside the username.
 //
-// Every member session carries a second factor (pkg/auth: auth.RequireSecondFactor):
+// Every member session carries a second factor (requireSecondFactor):
 // the company's directory attests for its people when the deployment says the fleet
 // administers it, and otherwise the login page runs the sign-in code the auth mails.
 //
@@ -46,6 +46,7 @@ import (
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/google"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -338,11 +339,11 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// company directory on every sector. The memberships are read outside the sign-in's
 	// transaction (resource.SignInRoles): the Spanner client refuses the engine's read
 	// under the transaction's context as a nested transaction. The rule's last word is
-	// the second factor every member session carries (auth.RequireSecondFactor), which
+	// the second factor every member session carries (requireSecondFactor), which
 	// the company's directory attests for where the fleet administers it.
 	//
 	// Demonstrates: auth.second-factor.
-	membersSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(auth.RequireSecondFactor))
+	membersSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(requireSecondFactor))
 
 	// The members' identity client (pkg/identity, generated): the lists of the auth's
 	// people and the methods that act on an account, over the engine that reads their
@@ -387,4 +388,13 @@ func (a *Auth) Close() error {
 	}
 
 	return nil
+}
+
+// requireSecondFactor is the last word of the members' sign-in rule, chained after the
+// tenant policy: every member session carries a second factor, the sign-in code the
+// library mails (signin.RequireMFA(sessioninfo.MethodEmailCode)), unless the company's
+// directory attests for the person where the fleet administers it. It is the crew's rule
+// (pkg/auth/crew), held here as each auth package holds its own.
+func requireSecondFactor(context.Context, *cloudspanner.ReadWriteTransaction, *sessioninfo.NewSessionRequest) (*signin.Decision, error) {
+	return signin.RequireMFA(sessioninfo.MethodEmailCode), nil
 }

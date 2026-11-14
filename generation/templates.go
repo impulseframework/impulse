@@ -489,6 +489,28 @@ func (p *{{ .Resource.Name }}CreatePatch) Enforce(caller *resource.Caller) *{{ .
 	return p
 }
 
+{{ if not .Resource.PrimaryKeyIsGeneratedUUID -}}
+// OrSkip turns the create into create-unless-there. Apply and Buffer look for the
+// row by its key inside the transaction: when it is not there the create runs as
+// it is, and when it is there nothing is done at all, so the row keeps every
+// value it holds and no default, validation, or change record runs. A row an
+// earlier patch of the same transaction wrote counts as there. An armed patch is
+// checked for Create before the row is looked for. RowSkipped says afterwards
+// which it was.
+func (p *{{ .Resource.Name }}CreatePatch) OrSkip() *{{ .Resource.Name }}CreatePatch {
+	p.patchSet.OrSkip()
+
+	return p
+}
+
+// RowSkipped reports whether the last Apply or Buffer of an OrSkip patch found the
+// row there and left it as it is. It is false when the patch created the row, on a
+// patch that is not an OrSkip, and before the patch has run.
+func (p *{{ .Resource.Name }}CreatePatch) RowSkipped() bool {
+	return p.patchSet.Outcome() == resource.OutcomeSkipped
+}
+
+{{ end -}}
 func (p *{{ .Resource.Name }}CreatePatch) registerDefaultFuncs() {
 {{- range $field := .Resource.Fields }}
 {{- if $field.HasDefaultCreateFunc }}
@@ -589,6 +611,30 @@ func (p *{{ .Resource.Name }}UpdatePatch) Enforce(caller *resource.Caller) *{{ .
 	p.patchSet.Enforce(caller, {{ PrivateType .Resource.Name }}WriteSets.For(accesstypes.Update), accesstypes.Update)
 
 	return p
+}
+
+// OrCreate turns the update into update-or-create. Apply and Buffer look for the
+// row by its key inside the transaction: when it is there the update runs as it
+// is, and when it is not the patch creates the row with the fields it carries,
+// through everything a {{ .Resource.Name }}CreatePatch runs (its defaults, its
+// validation, the Create grant of an armed patch, its change record). A row an
+// earlier patch of the same transaction wrote counts as there. An armed patch is
+// asked for Update on the resource before the row is looked for. The fields set
+// here are written in both cases: where the two must write different things,
+// read the row and build the create patch or the update patch. RowCreated says
+// afterwards which it was.
+func (p *{{ .Resource.Name }}UpdatePatch) OrCreate() *{{ .Resource.Name }}UpdatePatch {
+	(&{{ .Resource.Name }}CreatePatch{patchSet: p.patchSet}).registerDefaultFuncs()
+	p.patchSet.OrCreate({{ PrivateType .Resource.Name }}WriteSets.For(accesstypes.Create))
+
+	return p
+}
+
+// RowCreated reports whether the last Apply or Buffer of an OrCreate patch found
+// no row and created it. It is false when the patch updated the row, on a patch
+// that is not an OrCreate, and before the patch has run.
+func (p *{{ .Resource.Name }}UpdatePatch) RowCreated() bool {
+	return p.patchSet.Outcome() == resource.OutcomeCreated
 }
 
 func (p *{{ .Resource.Name }}UpdatePatch) registerDefaultFuncs() {
@@ -2228,6 +2274,36 @@ import (
 				if err != nil {
 					return errors.Wrap(err, "resource.Operations()")
 				}
+				{{- if not $PrimaryKeyIsGeneratedUUID }}
+
+				// The two operations that decide from whether their row is there run as
+				// the add or the patch they turn out to be: an add-or-skip is the add it
+				// is, with the create patch told to leave a row that is there alone, and a
+				// patch-or-add is a patch when its row is there and an add when it is not.
+				orSkip := false
+				switch op.Type {
+				case resource.OperationCreateOrSkip:
+					op, orSkip = op.AsCreate(), true
+				case resource.OperationUpdateOrCreate:
+					{{- if .Resource.PatchOrAddRefusal }}
+					return httpio.NewBadRequestMessage("{{ .Resource.PatchOrAddRefusal }}")
+					{{- else }}
+					key := resource.KeySet{}
+					{{- if .Resource.HasCompoundPrimaryKey }}
+					{{- range $i, $field := .Resource.PrimaryKeys }}
+					key = key.Add("{{ $field.Name }}", httpio.Param[{{ $field.Type }}](op.Req, "id{{ Add $i 1 }}"))
+					{{- end }}
+					{{- else }}
+					key = key.Add("{{ .Resource.PrimaryKey.Name }}", httpio.Param[{{ $PrimaryKeyType }}](op.Req, "id"))
+					{{- end }}
+					decided, err := decoder.DecideOperation(ctx, txn, op, {{ .ReceiverName }}.UserPermissions(r), {{ if .Resource.IsDomainScoped }}accesstypes.DomainScope(domain){{ else }}accesstypes.GlobalScope(){{ end }}, key)
+					if err != nil {
+						return errors.Wrap(err, "decoder.DecideOperation()")
+					}
+					op = decided
+					{{- end }}
+				}
+				{{- end }}
 				{{- if .Resource.CreateDisabled }}
 				if op.Type == resource.OperationCreate {
 					// A row comes in another way (a NOT NULL @file key: the @upload method
@@ -2260,15 +2336,27 @@ import (
 					{{- range $i, $field := .Resource.PrimaryKeys }}
 					id{{ Add $i 1 }} := httpio.Param[{{ $field.Type }}](op.Req, "id{{ Add $i 1 }}")
 					{{- end }}
-					if err := {{ .ResourcePackage }}.New{{ .Resource.Name }}CreatePatchFromPatchSet({{- range $i := .Resource.PrimaryKeys }}id{{ Add $i 1 }}, {{ end }}patchSet).Buffer(ctx, txn, eventSource); err != nil {
+					patch := {{ .ResourcePackage }}.New{{ .Resource.Name }}CreatePatchFromPatchSet({{- range $i := .Resource.PrimaryKeys }}id{{ Add $i 1 }}, {{ end }}patchSet)
+					if orSkip {
+						patch.OrSkip()
+					}
+					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}CreatePatch.Buffer()")
 					}
 				{{- else }}
 					id := httpio.Param[{{ $PrimaryKeyType }}](op.Req, "id")
-					if err := {{ .ResourcePackage }}.New{{ .Resource.Name }}CreatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+					patch := {{ .ResourcePackage }}.New{{ .Resource.Name }}CreatePatchFromPatchSet(id, patchSet)
+					if orSkip {
+						patch.OrSkip()
+					}
+					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}CreatePatch.Buffer()")
 					}
 					{{- if .Seat }}
+					if patch.RowSkipped() {
+						// The row was there: nothing was created, so nobody is its creator.
+						continue
+					}
 					` + tenantCreatorRoles + `
 					{{- end }}
 				{{- end }}
@@ -2492,6 +2580,40 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							return httpio.NewBadRequestMessagef("unknown resource %q", httpio.Param[string](op.Req, "resource"))
 						}
 					{{- end }}
+					{{- if not .PrimaryKeyIsGeneratedUUID }}
+						// The two operations that decide from whether their row is there run
+						// as the add or the patch they turn out to be: an add-or-skip is the
+						// add it is, with the create patch told to leave a row that is there
+						// alone, and a patch-or-add is a patch when its row is there and an
+						// add when it is not.
+						orSkip := false
+						switch op.Type {
+						case resource.OperationCreateOrSkip:
+							op, orSkip = op.AsCreate(), true
+						case resource.OperationUpdateOrCreate:
+							{{- if .PatchOrAddRefusal }}
+							return httpio.NewBadRequestMessage("{{ .PatchOrAddRefusal }}")
+							{{- else }}
+							keyReq, err := op.ReqWithPattern("{{ .DomainPatternPrefix }}/{resource}{{ .OperationPathPattern }}", resource.RequireCreatePath())
+							if err != nil {
+								return errors.Wrap(err, "op.ReqWithPattern()")
+							}
+							key := resource.KeySet{}
+							{{- if .HasCompoundPrimaryKey }}
+							{{- range $i, $field := .PrimaryKeys }}
+							key = key.Add("{{ $field.Name }}", httpio.Param[{{ $field.Type }}](keyReq, "id{{ Add $i 1 }}"))
+							{{- end }}
+							{{- else }}
+							key = key.Add("{{ .PrimaryKey.Name }}", httpio.Param[{{ $primaryKeyType }}](keyReq, "id"))
+							{{- end }}
+							decided, err := {{ GoCamel .Name}}Decoder.DecideOperation(ctx, txn, op, userPermissions, {{ if .DomainPatternPrefix }}accesstypes.DomainScope(domain){{ else }}accesstypes.GlobalScope(){{ end }}, key)
+							if err != nil {
+								return errors.Wrap(err, "{{ GoCamel .Name}}Decoder.DecideOperation()")
+							}
+							op = decided
+							{{- end }}
+						}
+					{{- end }}
 					{{- if .CreateDisabled }}
 						if op.Type == resource.OperationCreate {
 							// A row comes in another way (a NOT NULL @file key: the @upload
@@ -2528,15 +2650,27 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							{{- range $i, $field := .PrimaryKeys }}
 							id{{ Add $i 1 }} := httpio.Param[{{ $field.Type }}](req, "id{{ Add $i 1 }}")
 							{{- end }}
-							if err := {{ .ResourcePackage }}.New{{ .Name }}CreatePatchFromPatchSet({{- range $i := .PrimaryKeys }}id{{ Add $i 1 }}, {{ end }}patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := {{ .ResourcePackage }}.New{{ .Name }}CreatePatchFromPatchSet({{- range $i := .PrimaryKeys }}id{{ Add $i 1 }}, {{ end }}patchSet)
+							if orSkip {
+								patch.OrSkip()
+							}
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}CreatePatch.Buffer()")
 							}
 						{{- else }}
 							id := httpio.Param[{{ $primaryKeyType }}](req, "id")
-							if err := {{ .ResourcePackage }}.New{{ .Name }}CreatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := {{ .ResourcePackage }}.New{{ .Name }}CreatePatchFromPatchSet(id, patchSet)
+							if orSkip {
+								patch.OrSkip()
+							}
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}CreatePatch.Buffer()")
 							}
 							{{- if .Seated }}
+							if patch.RowSkipped() {
+								// The row was there: nothing was created, so nobody is its creator.
+								continue
+							}
 							for _, role := range roles {
 								if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id)), string(userPermissions.User()), role); err != nil {
 									return errors.Wrap(err, "the auth's identity client: AssignRole()")

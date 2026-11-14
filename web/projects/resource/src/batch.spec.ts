@@ -49,10 +49,25 @@ const descriptor: ApiDescriptor = {
       operations: ['list', 'read', 'create', 'patch', 'remove'],
       patchable: ['name'],
     },
+    Certifications: {
+      resource: 'Certifications' as Resource,
+      property: 'certifications',
+      route: 'certifications',
+      scope: 'domain',
+      consolidated: true,
+      keys: ['userId', 'certificationId'],
+      operations: ['list', 'read', 'create', 'patch', 'remove', 'batch', 'patchOrAdd', 'addOrSkip'],
+      patchable: ['level'],
+    },
   },
   methods: {},
 };
 
+interface Certification {
+  userId: string;
+  certificationId: string;
+  level: number;
+}
 interface Client {
   id: string;
   name: string;
@@ -76,6 +91,15 @@ interface Global {
 interface Sector {
   missions: ResourceHandle<Mission, [string], Ops, Omit<Mission, 'id'>, Partial<Pick<Mission, 'notes'>>>;
   hangars: ResourceHandle<Hangar, [string], Ops, Omit<Hangar, 'id'>, Partial<Pick<Hangar, 'name'>>>;
+  // A resource whose key the client supplies takes the two operations that decide
+  // from whether the row is there; its Create carries the key fields.
+  certifications: ResourceHandle<
+    Certification,
+    [string, string],
+    Ops | 'patchOrAdd' | 'addOrSkip',
+    Certification,
+    Partial<Pick<Certification, 'level'>>
+  >;
 }
 
 /** A server that commits whatever it is sent: every request a 200 with an empty result. */
@@ -188,5 +212,52 @@ describe("a create's new key", () => {
   it('is undefined when the answer names none', async () => {
     const client = api(answering({}));
     expect(await client.clients.create({ name: 'Anvil', trusted: false })).toBeUndefined();
+  });
+});
+
+// The two operations that decide from whether their row is there: the value supplies
+// the key, which becomes the path, and the rest is the body, as an add with a
+// client-supplied key sends it.
+describe('patch-or-add and add-or-skip', () => {
+  it('builds a patch-or-add that names its row in the path', async () => {
+    const transport = recording();
+    const client = api(transport);
+    const certifications = client.domain('anvil').certifications;
+    await client.batch([certifications.ops.patchOrAdd({ userId: 'u1', certificationId: 'c9', level: 3 })]);
+    expect(transport.requests).toHaveLength(1);
+    expect(transport.requests[0].url).toBe('/api/resources');
+    expect(transport.requests[0].body).toEqual([
+      { op: 'patch-or-add', path: '/sectors/anvil/certifications/u1/c9', value: { level: 3 } },
+    ]);
+  });
+
+  it('builds an add-or-skip that names its row in the path', async () => {
+    const transport = recording();
+    const client = api(transport);
+    const certifications = client.domain('anvil').certifications;
+    await client.batch([certifications.ops.addOrSkip({ userId: 'u1', certificationId: 'c9', level: 1 })]);
+    expect(transport.requests[0].body).toEqual([
+      { op: 'add-or-skip', path: '/sectors/anvil/certifications/u1/c9', value: { level: 1 } },
+    ]);
+  });
+
+  it('commits in one request with the other operations of the batch', async () => {
+    const transport = recording();
+    const client = api(transport);
+    const sector = client.domain('anvil');
+    await client.batch([
+      sector.missions.ops.patch(['m1'], { notes: 'certified' }),
+      sector.certifications.ops.patchOrAdd({ userId: 'u1', certificationId: 'c9', level: 3 }),
+    ]);
+    expect(transport.requests).toHaveLength(1);
+    expect((transport.requests[0].body as Operation[]).map((operation) => operation.op)).toEqual(['patch', 'patch-or-add']);
+  });
+
+  it('refuses a value that leaves a key field out: the operation would name no row', () => {
+    const client = api(recording());
+    const certifications = client.domain('anvil').certifications;
+    const partial = { userId: 'u1', level: 3 } as unknown as Certification;
+    expect(() => certifications.ops.patchOrAdd(partial)).toThrow('must supply every key field (userId, certificationId)');
+    expect(() => certifications.ops.addOrSkip(partial)).toThrow('must supply every key field (userId, certificationId)');
   });
 });

@@ -613,7 +613,7 @@ manifest, its words for a method (the portal's "your company directory", a label
 keyed by the registration's name) and where a sign-in lands.
 
 Every session carries a second factor, whichever way the person signed in: both auths'
-sign-in rule ends with `auth.RequireSecondFactor` (`signin.RequireMFA` with the sign-in
+sign-in rule ends with its package's `requireSecondFactor` (`signin.RequireMFA` with the sign-in
 code as the factor, chained after the tenant policy with `Then`), and the session
 library satisfies it before it holds the sign-in. The fleet's Google Workspace attests
 for its people where the deployment says the fleet administers it

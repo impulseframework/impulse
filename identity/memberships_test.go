@@ -83,7 +83,7 @@ func TestManager_AssignRole(t *testing.T) {
 		{
 			name:  "a role neither the role file nor the roles table holds is refused before any membership is read",
 			scope: alphaScope, username: "dana", role: "Steward",
-			failOn:    "HasMembership",
+			failOn:    "InsertMembership",
 			wantReads: []string{"role domain/alpha Steward"},
 			wantErr:   httpio.HasNotFound,
 		},

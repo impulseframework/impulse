@@ -258,6 +258,44 @@ export interface Batchable<Create, Patch, Key extends unknown[]> {
   };
 }
 
+/** The names of the properties a shape requires. */
+type RequiredKeys<T> = { [K in keyof T]-?: Record<never, never> extends Pick<T, K> ? never : K }[keyof T];
+
+/**
+ * The value a `patch-or-add` carries: the fields a create must have, the key fields among
+ * them, and any field a patch may change. The server writes it whether it finds the row
+ * or not, so a field that only a create takes has no place in it: a patch refuses the
+ * field, and the operation would fail on the day the row is there. Such a field does not
+ * compile here, and a resource whose create must carry one has no `patchOrAdd` at all.
+ */
+export type PatchOrAddValue<Create, Patch> = Pick<Create, RequiredKeys<Create>> & Patch;
+
+/**
+ * The builder of a `patch-or-add` operation: update the row the value's key fields name,
+ * and create it with the same fields when it is not there. Pass the result to
+ * `client.batch`, where it commits with the batch's other operations or not at all.
+ * Offer the action it serves only where the caller holds both the Create and the Update
+ * grant (`handle.can`): the page cannot know which of the two the server will ask for,
+ * and a caller with no Update grant on the resource is refused before the server looks
+ * for the row.
+ */
+export interface PatchOrAddable<Create, Patch> {
+  readonly ops: {
+    patchOrAdd(value: PatchOrAddValue<Create, Patch>): Operation;
+  };
+}
+
+/**
+ * The builder of an `add-or-skip` operation: create the row the value's key fields name,
+ * and leave it exactly as it is when it is there. The caller needs the Create grant
+ * either way.
+ */
+export interface AddOrSkippable<Create> {
+  readonly ops: {
+    addOrSkip(value: Create): Operation;
+  };
+}
+
 /**
  * A typed handle on one resource in one scope. `Ops` names the operations the server
  * generated for it; the others do not exist on the type, so a call the server would
@@ -275,7 +313,9 @@ export type ResourceHandle<
   ('create' extends Ops ? Creatable<Create> : unknown) &
   ('patch' extends Ops ? Patchable<Patch, Key> : unknown) &
   ('remove' extends Ops ? Removable<Key> : unknown) &
-  ('batch' extends Ops ? Batchable<Create, Patch, Key> : unknown);
+  ('batch' extends Ops ? Batchable<Create, Patch, Key> : unknown) &
+  ('patchOrAdd' extends Ops ? PatchOrAddable<Create, Patch> : unknown) &
+  ('addOrSkip' extends Ops ? AddOrSkippable<Create> : unknown);
 
 /** A handle with every operation, for resources the generator did not describe. */
 export type AnyResourceHandle<Row = Record<string, unknown>, Key extends unknown[] = string[]> = ResourceHandle<
@@ -753,6 +793,24 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
     return client.batch([operation]);
   };
 
+  // The two operations that decide from whether the row is there name the row in their
+  // path, so the value supplies every key field; the rest is the body.
+  const keyed = (op: 'patch-or-add' | 'add-or-skip', value: Record<string, unknown>): Operation => {
+    const body = { ...value };
+    const key: unknown[] = [];
+    for (const field of descriptor.keys) {
+      if (body[field] === undefined) {
+        throw new Error(`${descriptor.resource}: ${op} names its row, so the value must supply every key field (${descriptor.keys.join(', ')})`);
+      }
+      key.push(body[field]);
+      delete body[field];
+    }
+    if (key.length === 0) {
+      throw new Error(`${descriptor.resource}: ${op} needs a resource with a key`);
+    }
+    return bound({ op, path: path(key), value: body });
+  };
+
   const ops = {
     add: (value: Record<string, unknown>): Operation => {
       const body = { ...value };
@@ -774,6 +832,8 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
     },
     patch: (key: Key, value: Record<string, unknown>): Operation => bound({ op: 'patch', path: path(key), value }),
     remove: (key: Key): Operation => bound({ op: 'remove', path: path(key) }),
+    patchOrAdd: (value: Record<string, unknown>): Operation => keyed('patch-or-add', value),
+    addOrSkip: (value: Record<string, unknown>): Operation => keyed('add-or-skip', value),
   };
 
   const handle: AnyResourceHandle<Row, Key> = {

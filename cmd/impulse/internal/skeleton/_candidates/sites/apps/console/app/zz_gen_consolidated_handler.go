@@ -94,6 +94,28 @@ func (a *App) PatchResources() http.HandlerFunc {
 				switch httpio.Param[string](op.Req, "resource") {
 				case "tenants":
 					if op.PathDepth() <= 2 {
+						// The two operations that decide from whether their row is there run
+						// as the add or the patch they turn out to be: an add-or-skip is the
+						// add it is, with the create patch told to leave a row that is there
+						// alone, and a patch-or-add is a patch when its row is there and an
+						// add when it is not.
+						orSkip := false
+						switch op.Type {
+						case resource.OperationCreateOrSkip:
+							op, orSkip = op.AsCreate(), true
+						case resource.OperationUpdateOrCreate:
+							keyReq, err := op.ReqWithPattern("/{resource}/{id}", resource.RequireCreatePath())
+							if err != nil {
+								return errors.Wrap(err, "op.ReqWithPattern()")
+							}
+							key := resource.KeySet{}
+							key = key.Add("ID", httpio.Param[string](keyReq, "id"))
+							decided, err := tenantDecoder.DecideOperation(ctx, txn, op, userPermissions, accesstypes.GlobalScope(), key)
+							if err != nil {
+								return errors.Wrap(err, "tenantDecoder.DecideOperation()")
+							}
+							op = decided
+						}
 						patchSet, err := tenantDecoder.DecodeOperation(op, userPermissions, accesstypes.GlobalScope())
 						if err != nil {
 							return errors.Wrap(err, "tenantDecoder.DecodeOperation()")
@@ -108,8 +130,16 @@ func (a *App) PatchResources() http.HandlerFunc {
 						switch op.Type {
 						case resource.OperationCreate:
 							id := httpio.Param[string](req, "id")
-							if err := resources.NewTenantCreatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+							patch := resources.NewTenantCreatePatchFromPatchSet(id, patchSet)
+							if orSkip {
+								patch.OrSkip()
+							}
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.TenantCreatePatch.Buffer()")
+							}
+							if patch.RowSkipped() {
+								// The row was there: nothing was created, so nobody is its creator.
+								continue
 							}
 							for _, role := range roles {
 								if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id)), string(userPermissions.User()), role); err != nil {

@@ -739,6 +739,8 @@ func decodeWrite[Resource Resourcer, Request any](t *testing.T, collection *Gene
 		patchSet.SetPatchType(UpdatePatchType)
 	case OperationDelete:
 		patchSet.SetPatchType(DeletePatchType)
+	default:
+		t.Fatalf("the shape's operation %q is none of add, patch and remove", shape.op)
 	}
 	patchSet.SetKey("ID", rowID)
 

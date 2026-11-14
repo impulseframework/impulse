@@ -33,7 +33,7 @@ func (conditionsProven) Describe() string {
 
 // Meaning explains the obligation for the handoff brief: how a conditional grant is proven.
 func (conditionsProven) Meaning() string {
-	return "A conditional grant is proven by one test case over seeded rows, Lodestar's pattern: seed rows on both sides of the condition in `schema/devseed` (the first conditional grant in an application brings that directory with it; `impulse add tenancy` already creates one), a login holding the role in `cmd/bootstrap/users.json`, the request through the served harness in `test/integration`, and the expectation derived from the grant and the seed, never from an observed response: a row the condition admits answers, a row it refuses is refused (a read answers not found, a write forbidden). Write the case table-driven, and name the grant it proves with the harness helper, `provesGrant(t, <auth>.Roles(), role, permission, resource, condition)`, whose coordinates are literals: the helper parses the auth's embedded role file when the test runs and fails when the grant is gone or its condition reads differently, and the conditions-proven check reads the call to find the grants no case names. Unconditional grants need no case; the generic test in `test/integration/grants_test.go` proves every one of them live. Run `impulse check` until it is clean."
+	return "A conditional grant is proven by one test case over seeded rows, Lodestar's pattern: seed rows on both sides of the condition in `schema/devseed` (the first conditional grant in an application brings that directory with it; `impulse add tenancy` already creates one), a login holding the role in `cmd/bootstrap/users.json`, the request through the served harness in `test/integration`, and the expectation derived from the grant and the seed, never from an observed response: a row the condition admits answers, a row it refuses is refused (a read answers not found, a write forbidden). Write the case table-driven, and name the grant it proves with the harness helper, `provesGrant(t, <auth>.Roles(), role, permission, resource, condition)`, whose coordinates are literals: the helper parses the auth's embedded role file when the test runs and fails when the grant is gone or its condition reads differently, and the conditions-proven check reads the call to find the grants no case names. Unconditional grants need no case; the generic test in `test/integration/grants_test.go` proves every one of them live. A case may still pin an unconditional grant its suite depends on, with an empty condition: the helper then fails when the file puts a condition on that grant or drops it, and the check takes the call where the file carries the grant with no condition. Run `impulse check` until it is clean."
 }
 
 // grant is one conditional grant's coordinates inside a role file.
@@ -66,7 +66,7 @@ func (c conditionsProven) Run(_ context.Context, env *Env) Result {
 	var proven, unproven int
 	var counts []string
 	for _, f := range files {
-		grants, err := conditionalGrants(a.Abs(f.Path))
+		grants, plain, err := roleFileGrants(a.Abs(f.Path))
 		if err != nil {
 			details = append(details, fmt.Sprintf("%s: cannot be read: %v", f.Path, errors.Cause(err)))
 
@@ -84,6 +84,15 @@ func (c conditionsProven) Run(_ context.Context, env *Env) Result {
 			unproven++
 			details = append(details, fmt.Sprintf("%s: %s %s %s under %q is proven by no test case; write one over seeded rows and name the grant in it: provesGrant(t, %s.%s(), %q, %q, %q, %q)",
 				f.Path, g.Role, g.Permission, g.Resource, g.Condition, f.Auth.Name, authRoles, g.Role, g.Permission, g.Resource, g.Condition))
+		}
+		// A case may also pin a grant that carries no condition, one its suite depends on
+		// as it is: the helper fails when the file puts a condition there or drops the
+		// grant. Such a call is taken where the file carries the grant so, and proves no
+		// conditional grant.
+		for g := range claimed {
+			if g.Condition == "" && plain[g] {
+				delete(claimed, g)
+			}
 		}
 		details = append(details, staleProofs(f.Path, claimed)...)
 		proven += provenHere
@@ -161,12 +170,22 @@ func staleProofs(file string, leftover map[grant][]string) []string {
 	for g, positions := range leftover {
 		sort.Strings(positions)
 		for _, pos := range positions {
-			details = append(details, fmt.Sprintf("%s: provesGrant names a grant %s does not carry (%s %s %s under %q); the case fails at test time until the call matches the file", pos, file, g.Role, g.Permission, g.Resource, g.Condition))
+			details = append(details, fmt.Sprintf("%s: provesGrant names a grant %s does not carry (%s %s %s %s); the case fails at test time until the call matches the file", pos, file, g.Role, g.Permission, g.Resource, conditionWords(g.Condition)))
 		}
 	}
 	sort.Strings(details)
 
 	return details
+}
+
+// conditionWords spells the condition a call names a grant under: the condition itself,
+// or that the call names the grant with none.
+func conditionWords(condition string) string {
+	if condition == "" {
+		return "with no condition"
+	}
+
+	return fmt.Sprintf("under %q", condition)
 }
 
 // rolesDocument is the generic shape of a role file: the roles by scope, each role's
@@ -202,15 +221,16 @@ func readRolesFile(abs string) (rolesDocument, error) {
 	return doc, nil
 }
 
-// conditionalGrants reads the conditional grants of a role file in file order: the
+// roleFileGrants reads the grants of a role file: the conditional ones in file order (the
 // global roles, then the domain roles, each role's permissions by name, each permission's
-// grants as written.
-func conditionalGrants(abs string) ([]grant, error) {
+// grants as written), and the ones that carry no condition as a set, each with an empty
+// Condition.
+func roleFileGrants(abs string) (conditional []grant, plain map[grant]bool, err error) {
 	doc, err := readRolesFile(abs)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var grants []grant
+	plain = map[grant]bool{}
 	for _, role := range slices.Concat(doc.Roles.Global, doc.Roles.Domain) {
 		permissions := make([]string, 0, len(role.Permissions))
 		for p := range role.Permissions {
@@ -219,13 +239,16 @@ func conditionalGrants(abs string) ([]grant, error) {
 		sort.Strings(permissions)
 		for _, p := range permissions {
 			for _, g := range role.Permissions[p] {
+				found := grant{Role: role.Name, Permission: p, Resource: g.Resource, Condition: g.Condition}
 				if g.Condition == "" {
+					plain[found] = true
+
 					continue
 				}
-				grants = append(grants, grant{Role: role.Name, Permission: p, Resource: g.Resource, Condition: g.Condition})
+				conditional = append(conditional, found)
 			}
 		}
 	}
 
-	return grants, nil
+	return conditional, plain, nil
 }
