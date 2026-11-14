@@ -20,7 +20,7 @@ import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
 import { MatTooltipModule } from '@angular/material/tooltip';
 import { RouterModule } from '@angular/router';
 import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-case-to-title';
-import { ColumnConfig, iconCellKey, RecordData } from '@impulseframework/resource-angular/types';
+import { ColumnConfig, iconCellKey, RecordData, RowAction, rowActionsKey } from '@impulseframework/resource-angular/types';
 import {
   dateTimeParts,
   filterControlFor,
@@ -509,6 +509,15 @@ export class AppGridComponent {
   /** The display-row key the list wrote an icon column's icon under; the column's own key holds the words. */
   iconKeyOf(col: ColumnConfig): string {
     return iconCellKey(col.id);
+  }
+
+  /**
+   * The actions a row offers in its menu column: the entries the list wrote on the
+   * display row under the reserved key, none where it wrote nothing. A row that offers
+   * none draws no button.
+   */
+  actionsOf(row: RecordData): RowAction[] {
+    return ((row as Record<string, unknown>)[rowActionsKey] as RowAction[] | undefined) ?? [];
   }
 
   widthFor(col: ColumnConfig): number | null {

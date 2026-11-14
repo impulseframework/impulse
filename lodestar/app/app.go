@@ -21,6 +21,8 @@ import (
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
 	"github.com/impulseframework/impulse/lodestar/pkg/computedresources"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewidentity"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/membersidentity"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
 	"github.com/impulseframework/impulse/lodestar/pkg/rpc"
@@ -99,12 +101,12 @@ type Configurer interface {
 	// content security policy names in connect-src: the Firestore emulator in
 	// development, Firebase's hosts in production.
 	LiveOrigins() []string
-	// CrewUserSurface and MembersUserSurface are the two auths' user-management
-	// surfaces (resource.UserSurface), each built with the generated constructor over
-	// the auth's account store and its engine's user manager; the generated handlers
-	// of the crew's and the members' users, seats and roles delegate to them.
-	CrewUserSurface() *resource.UserSurface[router.CrewAuth]
-	MembersUserSurface() *resource.UserSurface[router.MembersAuth]
+	// CrewIdentity and MembersIdentity are the two auths' identity clients, each built by
+	// its auth when it opens (crew.Auth.Identity, members.Auth.Identity) over the engine
+	// that reads the auth's memberships: what the generated management methods of the
+	// auth run over, on their routes and in a transaction the application opens itself.
+	CrewIdentity() *crewidentity.Client
+	MembersIdentity() *membersidentity.Client
 	// Scheduler is the guard the scheduled routes sit behind (resource/scheduled): the
 	// invoker identity the stack names in APP_SCHEDULER_INVOKER, whose Google-signed
 	// tokens alone are admitted. A guard with no invoker, or none at all, refuses every
@@ -189,8 +191,10 @@ type App struct {
 	rpcClient      *rpc.Client
 	computedClient *computedresources.Client
 	live           live.Service
-	crewUsers      *resource.UserSurface[router.CrewAuth]
-	membersUsers   *resource.UserSurface[router.MembersAuth]
+	// crewIdentity and membersIdentity are the two auths' identity clients, which the
+	// generated handlers of pkg/identity read through CrewIdentity and MembersIdentity.
+	crewIdentity    *crewidentity.Client
+	membersIdentity *membersidentity.Client
 	// features is the application's copy of its feature flags, read through the
 	// configuration's database client when the App is built; featuresErr is why it
 	// could not be, which Start reports.
@@ -212,25 +216,25 @@ func New(cfg Configurer) *App {
 	// back from.
 	resourceClient := cfg.ResourceClient()
 	a := &App{
-		access:         engine,
-		engines:        map[string]access.Controller{},
-		resourceClient: resourceClient,
-		cursorKey:      cfg.CursorKey(),
-		validate:       cfg.Validator(),
-		logExporter:    cfg.LogExporter(),
-		version:        cfg.AppVersion(),
-		consoleApp:     resource.NewBrowserApp(cfg.ConsoleDist(), "/console"),
-		portalApp:      resource.NewBrowserApp(cfg.PortalDist(), "/portal"),
-		droidsAPIKey:   cfg.DroidsAPIKey(),
-		scheduler:      cfg.Scheduler(),
-		tenants:        cfg.TenantRoster(),
-		declarations:   cfg.TenantDeclarations(),
-		rpcClient:      rpc.NewClient(func(role accesstypes.Role) resource.RolePermissions { return engine.ForRole(role) }, resourceClient.FileStore(resource.StoreNameFor[resources.Documents]()), cfg.Jobs()),
-		computedClient: computedresources.NewClient(),
-		live:           cfg.Live(),
-		crewUsers:      cfg.CrewUserSurface(),
-		membersUsers:   cfg.MembersUserSurface(),
-		csp:            cspPolicy(cfg.LiveOrigins()),
+		access:          engine,
+		engines:         map[string]access.Controller{},
+		resourceClient:  resourceClient,
+		cursorKey:       cfg.CursorKey(),
+		validate:        cfg.Validator(),
+		logExporter:     cfg.LogExporter(),
+		version:         cfg.AppVersion(),
+		consoleApp:      resource.NewBrowserApp(cfg.ConsoleDist(), "/console"),
+		portalApp:       resource.NewBrowserApp(cfg.PortalDist(), "/portal"),
+		droidsAPIKey:    cfg.DroidsAPIKey(),
+		scheduler:       cfg.Scheduler(),
+		tenants:         cfg.TenantRoster(),
+		declarations:    cfg.TenantDeclarations(),
+		rpcClient:       rpc.NewClient(func(role accesstypes.Role) resource.RolePermissions { return engine.ForRole(role) }, resourceClient.FileStore(resource.StoreNameFor[resources.Documents]()), cfg.Jobs()),
+		computedClient:  computedresources.NewClient(),
+		live:            cfg.Live(),
+		crewIdentity:    cfg.CrewIdentity(),
+		membersIdentity: cfg.MembersIdentity(),
+		csp:             cspPolicy(cfg.LiveOrigins()),
 	}
 	// The feature flags: the application's copy of the FeatureFlags table, read as the
 	// App is built so the generated handlers answer from it at once; Start keeps it
@@ -430,9 +434,10 @@ func (a *App) TenantRoster() *resource.TenantRoster {
 // the generated create-sector route holds in it from then on, and the surveyor who
 // charts one through the record's create path the same: SectorMarshal, the full
 // authority in a sector the marshal holds at Anvil (crew.AdministratorRoles), so the
-// pioneer can crew her own sector, seat and unseat its people, and fly it, and the
-// surveyor seats Dawn's first marshal and leaves. Both paths seat the person through the
-// crew auth's user-management surface after the row commits.
+// pioneer can crew her own sector, give and take its roles, and fly it, and the
+// surveyor makes Dawn's first marshal and leaves. Both paths give the person the roles
+// through the crew auth's generated identity client, in the transaction that writes the
+// sector's row.
 //
 // Demonstrates: tenancy.self-service, tenancy.creator-seat.
 func (a *App) SectorAdministratorRoles() []accesstypes.Role {

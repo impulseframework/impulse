@@ -27,6 +27,7 @@ var candidateAuths = map[string][]authpkg.Spec{
 		Methods: []authpkg.Method{{Kind: app.MethodAzure, Name: "directory", Authority: app.AuthorityApplication}},
 		// The development member's domain role (cmd/bootstrap/users.json), in every domain.
 		AdministratorRoles: authpkg.AdministratorRoles{EveryDomain: []string{"TenantAdministrator"}},
+		IdentityDir:        identityDir("outlets"),
 		TenantPolicy:       tenantPolicy("outlets"),
 	}},
 }
@@ -52,8 +53,20 @@ func staffSpec(candidate string) authpkg.Spec {
 		Methods:            []authpkg.Method{{Kind: app.MethodPassword}},
 		AdministratorRoles: roles,
 		MachineOutlets:     outlets,
+		IdentityDir:        identityDir(candidate),
 		TenantPolicy:       tenantPolicy(candidate),
 	}
+}
+
+// identityDir is the tree each candidate's generator program writes the management of
+// its auths' people into (GenerateIdentity): the console site's in the sites candidate,
+// whose console generator alone sets the option.
+func identityDir(candidate string) string {
+	if candidate == "sites" {
+		return "apps/console/pkg/identity"
+	}
+
+	return "pkg/identity"
 }
 
 // tenantPolicy is the sign-in rule of a tenanted candidate's auths: the library's

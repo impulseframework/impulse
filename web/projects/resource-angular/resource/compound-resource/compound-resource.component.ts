@@ -194,6 +194,12 @@ export class CompoundResourceComponent implements OnInit {
       this.store.resourceName.set(resource);
       this.store.resourceMeta.set(meta);
     }
+    // A page that offers none of its row's methods asks the server nothing about them;
+    // said here, before the row is first read.
+    const config = this.primaryConfig();
+    if (config.type === 'View' || config.type === 'ListView') {
+      this.store.viewMethods.set(config.rowMethods !== false);
+    }
   }
 
   constructor() {

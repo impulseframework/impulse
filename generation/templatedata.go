@@ -165,6 +165,9 @@ type handlerContentData struct {
 	// create's commit, nil on every other resource and where the record's create
 	// seats nobody (tenantSeatData).
 	Seat *tenantSeatData
+	// Home is where the handler is written, nil for the application's handler package:
+	// it says what the handler hands to every publish (handlerHome.LiveDerivations).
+	Home *handlerHome
 }
 
 // fileHandlerData feeds one @file route's handler on a table or view resource.
@@ -208,10 +211,6 @@ type routerFileData struct {
 	RoutesMap              map[string][]*generatedRoute
 	ConstResources         []*resourceInfo
 	ConstComputedResources []*computedResource
-	// UserRouteParams are the read parameters of the user-management surfaces' routes
-	// (crewUserID, crewSeatUser, crewSeatRole, crewRoleName and the tenant partition's),
-	// which the test stubs record beside the resources' key parameters.
-	UserRouteParams        []string
 	RouterTestRoutes       []*generatedRoute
 	HasConsolidatedHandler bool
 	// HasDomainScoped emits the Domain route-parameter const, which generated
@@ -566,6 +565,9 @@ type rpcHandlerData struct {
 	// none (the literal limit when no router is generated). BodyLimitText says which.
 	BodyLimitExpr string
 	BodyLimitText string
+	// Home is where the handler is written, nil for the application's handler package:
+	// it says what the handler hands to every publish (handlerHome.LiveDerivations).
+	Home *handlerHome
 }
 
 func (d *rpcHandlerData) typeImports() []fixerImport {
@@ -622,9 +624,6 @@ type tsResourcesData struct {
 	// FeatureFlags emits the library's FeatureFlags resource: its interface, its
 	// metadata and its scope, which every application that generates routes serves.
 	FeatureFlags bool
-	// UserResources are the user-management surfaces' resources the target outlet
-	// serves: their interfaces, metadata and scopes.
-	UserResources []*tsUserResource
 }
 
 type tsMethodsData struct {
@@ -634,9 +633,6 @@ type tsMethodsData struct {
 	// FeatureFlags emits the library's SetFeature method: its body and result
 	// interfaces and its metadata.
 	FeatureFlags bool
-	// UserMethods are the user-management surfaces' methods the target outlet serves:
-	// their body interfaces and metadata.
-	UserMethods []*tsUserMethod
 }
 
 type tsEnumsData struct {
@@ -705,10 +701,10 @@ type tsAPIData struct {
 	// Features are the declared flags in constant order: the Feature union and the
 	// Feature constants the client file declares. Empty, neither is declared.
 	Features []resource.FeatureDeclaration
-	// UserSurfaces are the user-management surfaces the outlet serves, in the
-	// descriptor's userSurfaces block: what a user-management page configures
-	// itself from. Empty, the block is left out.
-	UserSurfaces []*tsAPISurface
+	// Identity is the descriptor's identity block: the generated management of every
+	// auth the outlet serves it for, each list and method under the key a page knows
+	// it by (identity_pages.go). Empty, the block is left out.
+	Identity []*tsAPIIdentity
 	// TenantCreation is the create-your-tenant route the outlet serves, where the
 	// tenant record's creation shape admits self-service: the route's segment and
 	// the body's shape, exported beside the descriptor. Nil, nothing is written.
@@ -718,42 +714,6 @@ type tsAPIData struct {
 	// page and the device page read and write through, and the outlets a token is
 	// issued for. Nil, the block is left out.
 	Tokens *tsAPITokens
-}
-
-// tsAPISurface is one Auth's user-management surface as the descriptor carries it.
-type tsAPISurface struct {
-	Auth     string
-	Label    string
-	Password bool
-	// UsernameIsEmail and OpenSignUp are the password method's flags: the username is
-	// the address, and sign-up is open to anyone with one.
-	UsernameIsEmail bool
-	OpenSignUp      bool
-	Registrations   []*tsAPIRegistration
-	Partitions      []*tsAPIPartition
-}
-
-// tsAPIRegistration is one external registration of the Auth in the descriptor.
-type tsAPIRegistration struct {
-	Name       string
-	Kind       string
-	Label      string
-	Invited    bool
-	SyncsRoles bool
-}
-
-// tsAPIPartition is one partition of a surface in the descriptor: its scope, the
-// four resources' names and the three methods' names, the password reset and the
-// unlinking empty where the Auth's methods give none.
-type tsAPIPartition struct {
-	Scope          string
-	Users          string
-	Seats          string
-	Roles          string
-	Invitations    string
-	SetPassword    string
-	UnlinkIdentity string
-	ResetFactors   string
 }
 
 // tsAPITokens is the descriptor's tokens block: the token routes of a session outlet

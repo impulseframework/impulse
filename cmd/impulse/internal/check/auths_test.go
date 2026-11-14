@@ -577,7 +577,7 @@ func TestAuthsWired(t *testing.T) {
 			wantStatus: Fail, wantSummary: "2 auth wiring problem(s)",
 			wantDetails: []string{
 				"cmd/generate/main.go:15: outlet default declares the password method with .OpenSignUp() on the staff auth, but pkg/auth/staff/staff.go:39 registers it without session.OpenSignUp(); the generated router would mount sign-up routes the method refuses (register it with the option, or drop .OpenSignUp())",
-				"cmd/generate/main.go:15: outlet default declares the password method with .UsernameIsEmail() on the staff auth, but pkg/auth/staff/staff.go:39 registers it without session.UsernameIsEmail(); the users surface would derive the address from a username the method does not hold to one (register it with the option, or drop .UsernameIsEmail())",
+				"cmd/generate/main.go:15: outlet default declares the password method with .UsernameIsEmail() on the staff auth, but pkg/auth/staff/staff.go:39 registers it without session.UsernameIsEmail(); the generated management would derive the address from a username the method does not hold to one (register it with the option, or drop .UsernameIsEmail())",
 			},
 		},
 		{
@@ -596,7 +596,7 @@ func TestAuthsWired(t *testing.T) {
 			},
 			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
 			wantDetails: []string{
-				"pkg/auth/members/members.go:40: the members auth registers the azure method directory with RoleSync, but outlet default (cmd/generate/main.go:15) does not declare .SyncsRoles(), so the users surface would show the roles the directory writes as seats an administrator may remove, which the directory puts back at the next sign-in; chain .SyncsRoles() on the declaration",
+				"pkg/auth/members/members.go:40: the members auth registers the azure method directory with RoleSync, but outlet default (cmd/generate/main.go:15) does not declare .SyncsRoles(), so the generated management would offer the roles the directory writes as roles an administrator may remove, which the directory puts back at the next sign-in; chain .SyncsRoles() on the declaration",
 			},
 		},
 		{
@@ -615,7 +615,7 @@ func TestAuthsWired(t *testing.T) {
 			},
 			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
 			wantDetails: []string{
-				"cmd/generate/main.go:15: outlet default declares the azure method directory with .SyncsRoles() on the members auth, but pkg/auth/members/members.go:40 registers it with DisableRoleSync; the users surface would leave these people's roles to a directory that writes none (register it with RoleSync, or drop .SyncsRoles())",
+				"cmd/generate/main.go:15: outlet default declares the azure method directory with .SyncsRoles() on the members auth, but pkg/auth/members/members.go:40 registers it with DisableRoleSync; the generated management would leave these people's roles to a directory that writes none (register it with RoleSync, or drop .SyncsRoles())",
 			},
 		},
 		{

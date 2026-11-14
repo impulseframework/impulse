@@ -247,12 +247,35 @@ func genParcel(rng *rand.Rand, pools *semanticPools, w *semanticWorld, carrierID
 		DueDate:     maybe(rng, pools.dates),
 		CarrierID:   maybe(rng, carrierIDs),
 		RouteID:     maybe(rng, routeIDs),
+		Stamps:      genStamps(rng, pools),
 	}
 	if fee := maybe(rng, pools.numerics); fee != nil {
 		p.Fee = decimal.NewNullDecimal(*fee)
 	}
 
 	return p
+}
+
+// genStamps draws the list column: no list, a list with no item, or one to
+// three items, one of which may have no value.
+func genStamps(rng *rand.Rand, pools *semanticPools) []spanner.NullString {
+	switch rng.IntN(6) {
+	case 0:
+		return nil
+	case 1:
+		return []spanner.NullString{}
+	}
+	stamps := make([]spanner.NullString, 0, 3)
+	for range 1 + rng.IntN(3) {
+		if rng.IntN(8) == 0 {
+			stamps = append(stamps, spanner.NullString{})
+
+			continue
+		}
+		stamps = append(stamps, spanner.NullString{StringVal: draw(rng, pools.strings), Valid: true})
+	}
+
+	return stamps
 }
 
 func genMembership(rng *rand.Rand, pools *semanticPools, id, user, depot string, hubIDs []string) *semanticMembership {
@@ -406,6 +429,15 @@ func (w *semanticWorld) image(p *semanticParcel, post map[string]any) *condition
 	}
 	pre["carrierCode"] = w.carrierCode(p.CarrierID)
 	pre["hubRegion"] = w.hubRegion(p.RouteID)
+	stamps := conditiontest.List(nil)
+	for _, stamp := range p.Stamps {
+		if stamp.Valid {
+			stamps = append(stamps, stamp.StringVal)
+		} else {
+			stamps = append(stamps, nil)
+		}
+	}
+	pre["stamp"] = stamps
 
 	sets := map[string][]any{}
 	for _, m := range w.memberships {
@@ -545,11 +577,11 @@ func genFieldGrants(rng *rand.Rand, pools *semanticPools, perm accesstypes.Permi
 // genPolicy draws a case's grants: read grants covering every projected
 // field, update and create grants covering a random share, and zero to two
 // delete grants on the resource.
-func genPolicy(rng *rand.Rand, pools *semanticPools, readGen, writeGen *conditiontest.Generator) *semanticPolicy {
+func genPolicy(rng *rand.Rand, pools *semanticPools, readGen, writeGen, createGen *conditiontest.Generator) *semanticPolicy {
 	policy := &semanticPolicy{}
 	policy.grants = append(policy.grants, genFieldGrants(rng, pools, accesstypes.List, readGen, true, rng.IntN(4) == 0)...)
 	policy.grants = append(policy.grants, genFieldGrants(rng, pools, accesstypes.Update, writeGen, rng.IntN(2) == 0, rng.IntN(3) == 0)...)
-	policy.grants = append(policy.grants, genFieldGrants(rng, pools, accesstypes.Create, readGen, rng.IntN(2) == 0, rng.IntN(3) == 0)...)
+	policy.grants = append(policy.grants, genFieldGrants(rng, pools, accesstypes.Create, createGen, rng.IntN(2) == 0, rng.IntN(3) == 0)...)
 	for range rng.IntN(3) {
 		grant := semanticGrant{perm: accesstypes.Delete}
 		if rng.IntN(4) != 0 {
@@ -692,20 +724,25 @@ type semanticTally struct {
 	updateGroups, insertGroups           int
 	deleteGroups, forbiddenGates         int
 	capabilityUpdates, capabilityDeletes int
+	// listShown and listMasked count the cells a condition that reads the list
+	// attribute decided, by the way it decided: the list column has to decide
+	// both ways for the differential to say anything about it.
+	listShown, listMasked int
 }
 
 // semanticHarness holds what every case shares: the client, the collection,
 // the sets, the list decoder, the pools, and the tally.
 type semanticHarness struct {
-	tally      semanticTally
-	client     *spanner.Client
-	collection *GeneratedCollection
-	listSet    *Set[semanticParcel]
-	patchSet   *Set[semanticParcel]
-	decoder    *QueryDecoder[semanticParcel, semanticListRequest]
-	pools      *semanticPools
-	readVocab  conditiontest.Vocabulary
-	writeVocab conditiontest.Vocabulary
+	tally       semanticTally
+	client      *spanner.Client
+	collection  *GeneratedCollection
+	listSet     *Set[semanticParcel]
+	patchSet    *Set[semanticParcel]
+	decoder     *QueryDecoder[semanticParcel, semanticListRequest]
+	pools       *semanticPools
+	readVocab   conditiontest.Vocabulary
+	writeVocab  conditiontest.Vocabulary
+	createVocab conditiontest.Vocabulary
 }
 
 func newSemanticHarness(t *testing.T, client *spanner.Client) *semanticHarness {
@@ -728,14 +765,15 @@ func newSemanticHarness(t *testing.T, client *spanner.Client) *semanticHarness {
 	decoder.WithPaging(Paging{DefaultLimit: 2 * semanticRowsPerCase})
 
 	return &semanticHarness{
-		client:     client,
-		collection: collection,
-		listSet:    listSet,
-		patchSet:   patchSet,
-		decoder:    decoder,
-		pools:      newSemanticPools(t),
-		readVocab:  semanticVocabulary(t, collection, false),
-		writeVocab: semanticVocabulary(t, collection, true),
+		client:      client,
+		collection:  collection,
+		listSet:     listSet,
+		patchSet:    patchSet,
+		decoder:     decoder,
+		pools:       newSemanticPools(t),
+		readVocab:   semanticVocabulary(t, collection, false, true),
+		writeVocab:  semanticVocabulary(t, collection, true, true),
+		createVocab: semanticVocabulary(t, collection, false, false),
 	}
 }
 
@@ -791,6 +829,8 @@ func TestSemanticDifferential(t *testing.T) {
 	// second; the partition predicate still isolates the case's rows, and the
 	// requester's membership in another partition still has to be excluded.
 	h := newSemanticHarness(t, db.Client)
+	factCollection := semanticFactCollection(t)
+	var facts factTally
 	for i := range semanticCases {
 		c := h.drawCase(t, i)
 		if _, err := h.client.Apply(ctx, c.world.mutations()); err != nil {
@@ -798,6 +838,9 @@ func TestSemanticDifferential(t *testing.T) {
 		}
 
 		h.checkRead(t, c)
+		// The facts about the caller, read for a computed resource's conditions
+		// (subject_facts.go), against the same world before the writes change it.
+		h.checkSubjectFacts(t, c, factCollection, &facts)
 		h.checkWrites(t, c)
 
 		if _, err := h.client.Apply(ctx, c.world.deletions()); err != nil {
@@ -806,6 +849,52 @@ func TestSemanticDifferential(t *testing.T) {
 	}
 
 	t.Logf("compared %+v", h.tally)
+	t.Logf("facts about the caller: %+v", facts)
+	if facts.sets == 0 || facts.values == 0 || facts.shown == 0 || facts.hidden == 0 {
+		t.Errorf("the facts about the caller read %d set members and %d values, and decided %d rows shown and %d hidden: the suite has to see them read and decide both ways", facts.sets, facts.values, facts.shown, facts.hidden)
+	}
+	if h.tally.listShown == 0 || h.tally.listMasked == 0 {
+		t.Errorf("conditions that read the list attribute showed %d cells and masked %d: the differential has to see the list decide both ways", h.tally.listShown, h.tally.listMasked)
+	}
+}
+
+// drawFactRows draws the computed rows the facts about the caller are compared
+// against (checkSubjectFacts, subject_facts_test.go), from the pools the anchors'
+// values come from. The draws are this check's own, seeded by the case: the
+// case's generator is left where the read and write checks expect it.
+func (h *semanticHarness) drawFactRows(index uint64) []*semanticFactRow {
+	rng := rand.New(rand.NewPCG(semanticSeed, index<<32|0xfac7))
+	rows := make([]*semanticFactRow, 0, 16)
+	for i := range 16 {
+		rows = append(rows, &semanticFactRow{
+			Name:   "row-" + string(rune('a'+i)),
+			Team:   draw(rng, h.pools.strings),
+			Tier:   draw(rng, h.pools.ints),
+			Region: draw(rng, h.pools.strings),
+			Ratio:  draw(rng, h.pools.floats),
+			Active: rng.IntN(2) == 0,
+			At:     draw(rng, h.pools.times),
+			Day:    draw(rng, h.pools.dates),
+		})
+	}
+
+	return rows
+}
+
+// readsList reports whether a Conditional decision's condition reads the
+// fixture's list attribute.
+func readsList(t *testing.T, res accesstypes.Resource, decision accesstypes.Decision) bool {
+	t.Helper()
+
+	if !decision.IsConditional() {
+		return false
+	}
+	expr, err := conditionalExpr(res, decision)
+	if err != nil {
+		t.Fatalf("conditionalExpr(%s) error = %v", res, err)
+	}
+
+	return slices.Contains(condition.Bindings(expr), "stamp")
 }
 
 // drawCase draws the world, the policy, and the decisions for one case.
@@ -816,7 +905,8 @@ func (h *semanticHarness) drawCase(t *testing.T, index uint64) *semanticCase {
 	world := genWorld(rng, h.pools, index)
 	readGen := conditiontest.New(rng, &h.readVocab)
 	writeGen := conditiontest.New(rng, &h.writeVocab)
-	policy := genPolicy(rng, h.pools, readGen, writeGen)
+	createGen := conditiontest.New(rng, &h.createVocab)
+	policy := genPolicy(rng, h.pools, readGen, writeGen, createGen)
 
 	facts := world.facts()
 	decisions := map[accesstypes.Permission]accesstypes.Decisions{
@@ -931,6 +1021,13 @@ func (h *semanticHarness) expectRead(t *testing.T, c *semanticCase, shape *seman
 			res := h.listSet.Resource(f.field)
 			e.visible[f.field] = permits(t, res, c.decisions[accesstypes.List][res], image)
 			survives = survives || e.visible[f.field]
+			if readsList(t, res, c.decisions[accesstypes.List][res]) {
+				if e.visible[f.field] {
+					h.tally.listShown++
+				} else {
+					h.tally.listMasked++
+				}
+			}
 		}
 		if !survives {
 			continue

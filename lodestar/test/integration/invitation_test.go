@@ -3,16 +3,13 @@
 package integration
 
 import (
-	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 	"testing"
 
-	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/session/mail"
 )
 
@@ -21,19 +18,14 @@ import (
 // the person does: the recorder the two auths send through holds every message, and the
 // suite reads the token from the link in it.
 //
-// The crew's routes: the global partition's invitations under the console's API, the
-// sector partition's under the sector's URL, the session's invitation, email and sign-up
-// routes under the console's user prefix.
+// The crew's routes: the invitation methods of its generated management (InviteCrewUser
+// under the console's API, InviteCrewSectorUser under the sector's URL) and the session's
+// invitation, email and sign-up routes under the console's user prefix.
 
 const (
 	// A strong enough password for the sign-ups.
 	signUpPassword = "orbit-and-anchor"
 )
-
-// crewGlobalRoute is the console's route of one of the crew's global-partition resources.
-func crewGlobalRoute(route string) string {
-	return consoleAPI + "/" + route
-}
 
 // lastMailTo answers the last message the auths sent to the address and the token in
 // its link under the query parameter named (invitation, verify, signUp).
@@ -61,87 +53,20 @@ func lastMailTo(t *testing.T, s *served, to, param string) (message mail.Message
 	return mail.Message{}, ""
 }
 
-// inviteBody is the operations body that invites the address with the roles.
-func inviteBody(email string, roles ...string) []byte {
-	quoted := make([]string, 0, len(roles))
-	for _, role := range roles {
-		quoted = append(quoted, fmt.Sprintf("%q", role))
-	}
-
-	return []byte(fmt.Sprintf(`[{"op":"add","path":"/","value":{"email":%q,"roles":[%s]}}]`, email, strings.Join(quoted, ",")))
-}
-
-// invitations reads the standing invitations at the route as the browser.
-func invitations(ctx context.Context, t *testing.T, b *browser, route string) []map[string]any {
+// inviteBody is the request of an invitation method: the address and the roles.
+func inviteBody(t *testing.T, email string, roles ...string) []byte {
 	t.Helper()
 
-	status, body := b.do(ctx, http.MethodGet, route, nil)
-	if status != http.StatusOK {
-		t.Fatalf("GET %s: status %d: %s", route, status, body)
-	}
-	var rows []map[string]any
-	if err := json.Unmarshal(body, &rows); err != nil {
-		t.Fatalf("decoding the invitations: %v: %s", err, body)
-	}
-
-	return rows
+	return jsonBody(t, map[string]any{"email": email, "roles": roles})
 }
 
-// userRow finds the user by name among the users at the route, or nil.
-func userRow(ctx context.Context, t *testing.T, b *browser, route, username string) map[string]any {
-	t.Helper()
-
-	status, body := b.do(ctx, http.MethodGet, route, nil)
-	if status != http.StatusOK {
-		t.Fatalf("GET %s: status %d: %s", route, status, body)
-	}
-	var rows []map[string]any
-	if err := json.Unmarshal(body, &rows); err != nil {
-		t.Fatalf("decoding the users: %v: %s", err, body)
-	}
-	for _, row := range rows {
-		if row["username"] == username {
-			return row
-		}
-	}
-
-	return nil
-}
-
-// rolesOf reads the roles a user row carries, sorted.
-func rolesOf(row map[string]any) []string {
-	var roles []string
-	if list, ok := row["roles"].([]any); ok {
-		for _, role := range list {
-			if name, ok := role.(string); ok {
-				roles = append(roles, name)
-			}
-		}
-	}
-	slices.Sort(roles)
-
-	return roles
-}
-
-// idOf reads a row's id.
-func idOf(t *testing.T, row map[string]any) string {
-	t.Helper()
-
-	id, ok := row["id"].(string)
-	if !ok {
-		t.Fatalf("the row carries no id: %v", row)
-	}
-
-	return id
-}
-
-// TestInvitation_globalSignUpWithPassword invites a stranger into the global partition
-// and follows the link to a password login: the governor (Headquarters, which holds
-// Create on CrewInvitations) invites an address with a global role, the recorder holds
+// TestInvitation_globalSignUpWithPassword invites a stranger into the application and
+// follows the link to a password login: the governor (Headquarters, which holds Execute
+// on InviteCrewUser) invites an address with a global role, the recorder holds
 // the message, the stranger opens the invitation on a fresh browser, creates a login
 // with a password, and is signed in holding the role; the invitation is consumed, the
-// address is theirs verified, and when the governor removes that one seat, the last the
-// person holds anywhere, the account goes with it.
+// address is theirs verified, and when the governor takes that one role away, the last
+// the person holds anywhere, the account goes with it.
 //
 // Demonstrates: auth.invitation, auth.email-address.
 func TestInvitation_globalSignUpWithPassword(t *testing.T) {
@@ -149,18 +74,14 @@ func TestInvitation_globalSignUpWithPassword(t *testing.T) {
 
 	ctx := t.Context()
 	s := newServed(ctx, t)
-	names := crewPartitions().Global
-	invitationsRoute := crewGlobalRoute(names.InvitationsRoute)
-	usersRoute := crewGlobalRoute(names.UsersRoute)
-	seatsRoute := crewGlobalRoute(names.SeatsRoute)
 	const email, username = "ensign@example.com", "ensign"
 
 	governor := newBrowser(t, s, consoleAPI)
 	governor.signIn(ctx, "governor")
-	if status, body := governor.do(ctx, http.MethodPatch, invitationsRoute, inviteBody(email, "ClientBrowser")); status != http.StatusOK {
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("invite-crew-user"), inviteBody(t, email, "ClientBrowser")); status != http.StatusOK {
 		t.Fatalf("the governor's invitation: status %d: %s", status, body)
 	}
-	standing := invitations(ctx, t, governor, invitationsRoute)
+	standing := standingInvitations(ctx, t, governor)
 	if len(standing) != 1 || standing[0]["email"] != email {
 		t.Fatalf("standing invitations = %v, want the one to %s", standing, email)
 	}
@@ -197,26 +118,27 @@ func TestInvitation_globalSignUpWithPassword(t *testing.T) {
 		t.Fatalf("session after the sign-up = %v, want %s signed in with %s verified", sess, username, email)
 	}
 
-	// Seated by the acceptance: the governor's list shows the role, and the invitation
-	// is gone.
-	row := userRow(ctx, t, governor, usersRoute, username)
-	if row == nil || !equalStrings(rolesOf(row), []string{"ClientBrowser"}) || row["email"] != email || row["emailVerifiedAt"] == nil {
-		t.Fatalf("the ensign's row = %v, want ClientBrowser with the verified address", row)
+	// Given by the acceptance: the governor's lists show the account with its verified
+	// address and the role, and the invitation no longer stands.
+	row := crewAccount(ctx, t, governor, username)
+	if row == nil || row["email"] != email || row["emailVerifiedAt"] == nil {
+		t.Fatalf("the ensign's account = %v, want one with the verified address", row)
 	}
-	if standing := invitations(ctx, t, governor, invitationsRoute); len(standing) != 0 {
+	if held := crewRolesHeld(ctx, t, governor, username); !equalStrings(held, []string{"ClientBrowser"}) {
+		t.Fatalf("the ensign's roles = %v, want ClientBrowser alone", held)
+	}
+	if standing := standingInvitations(ctx, t, governor); len(standing) != 0 {
 		t.Errorf("standing invitations after the acceptance = %v, want none", standing)
 	}
 
-	// The orphan rule: the governor removes the one seat, and the account goes with it.
-	id, err := impulse.UUIDFromString(idOf(t, row))
-	if err != nil {
-		t.Fatal(err)
+	// The rule on a last role: the governor takes the one role away, and the account
+	// goes with it.
+	take := jsonBody(t, map[string]any{"username": username, "role": "ClientBrowser"})
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("remove-crew-role"), take); status != http.StatusNoContent {
+		t.Fatalf("the governor takes the ensign's role away: status %d: %s", status, body)
 	}
-	if status, body := governor.do(ctx, http.MethodPatch, seatsRoute, []byte(unseatBody(id, "ClientBrowser"))); status != http.StatusOK {
-		t.Fatalf("the governor unseats the ensign: status %d: %s", status, body)
-	}
-	if row := userRow(ctx, t, governor, usersRoute, username); row != nil {
-		t.Errorf("the ensign's row after the last seat went = %v, want the account deleted", row)
+	if row := crewAccount(ctx, t, governor, username); row != nil {
+		t.Errorf("the ensign's account after the last role went = %v, want it deleted", row)
 	}
 	if sess := stranger.session(ctx); sess["authenticated"] == true {
 		t.Errorf("the ensign's session after the account went = %v, want ended", sess)
@@ -225,13 +147,13 @@ func TestInvitation_globalSignUpWithPassword(t *testing.T) {
 
 // TestInvitation_sectorAcceptedBySignedInPersona invites an address into Anvil and has
 // a persona who already holds a login accept it: the marshal (SectorMarshal at Anvil,
-// Create on CrewSectorInvitations in every role but its own) invites a stranger's
+// Execute on InviteCrewSectorUser for every role but its own) invites a stranger's
 // address as a harbormaster and cannot invite a marshal; the cadet, signed in with her
 // password and holding the address she gave for her sign-in code, opens that link and is
 // refused the acceptance, since an invitation is accepted only by the account that holds
 // its address, and the invitation stands; invited at her own address, she opens the link
-// and accepts: she holds the seat, her address unchanged. A revoked invitation is one the
-// link no longer opens.
+// and accepts: she holds the role, her address unchanged. A withdrawn invitation is one
+// the link no longer opens.
 //
 // Demonstrates: auth.invitation.
 func TestInvitation_sectorAcceptedBySignedInPersona(t *testing.T) {
@@ -239,42 +161,37 @@ func TestInvitation_sectorAcceptedBySignedInPersona(t *testing.T) {
 
 	ctx := t.Context()
 	s := newServed(ctx, t)
-	names := crewPartitions().Tenant
-	invitationsRoute := sectorPath(anvil, names.InvitationsRoute)
+	invite := sectorPath(anvil, "invite-crew-sector-user")
 	const email = "cass@example.com"
 
 	marshal := newBrowser(t, s, consoleAPI)
 	marshal.signIn(ctx, "marshal")
-	if status, body := marshal.do(ctx, http.MethodPatch, invitationsRoute, inviteBody(email, string(marshalRole))); status != http.StatusForbidden {
+	if status, body := marshal.do(ctx, http.MethodPost, invite, inviteBody(t, email, string(marshalRole))); status != http.StatusForbidden {
 		t.Fatalf("the marshal invites a marshal: status %d, want 403: %s", status, body)
 	}
-	if status, body := marshal.do(ctx, http.MethodPatch, sectorPath(bastion, names.InvitationsRoute), inviteBody(email, string(harbormasterRole))); status != http.StatusNotFound {
+	if status, body := marshal.do(ctx, http.MethodPost, sectorPath(bastion, "invite-crew-sector-user"), inviteBody(t, email, string(harbormasterRole))); status != http.StatusNotFound {
 		t.Fatalf("the marshal invites into Bastion: status %d, want 404: %s", status, body)
 	}
-	if status, body := marshal.do(ctx, http.MethodPatch, invitationsRoute, inviteBody(email, string(harbormasterRole))); status != http.StatusOK {
+	if status, body := marshal.do(ctx, http.MethodPost, invite, inviteBody(t, email, string(harbormasterRole))); status != http.StatusOK {
 		t.Fatalf("the marshal's invitation: status %d: %s", status, body)
 	}
 	_, token := lastMailTo(t, s, email, "invitation")
 
-	// A second invitation, revoked before anyone follows it.
-	if status, body := marshal.do(ctx, http.MethodPatch, invitationsRoute, inviteBody("later@example.com", string(harbormasterRole))); status != http.StatusOK {
-		t.Fatalf("the marshal's second invitation: status %d: %s", status, body)
+	// A second invitation, withdrawn before anyone follows it.
+	status, body := marshal.do(ctx, http.MethodPost, invite, inviteBody(t, "later@example.com", string(harbormasterRole)))
+	var later invited
+	if err := json.Unmarshal(body, &later); status != http.StatusOK || err != nil || later.ID == "" {
+		t.Fatalf("the marshal's second invitation: status %d: %s (%v)", status, body, err)
 	}
-	_, revokedToken := lastMailTo(t, s, "later@example.com", "invitation")
-	var revokedID string
-	for _, inv := range invitations(ctx, t, marshal, invitationsRoute) {
-		if inv["email"] == "later@example.com" {
-			revokedID = idOf(t, inv)
-		}
-	}
-	if status, body := marshal.do(ctx, http.MethodPatch, invitationsRoute, []byte(fmt.Sprintf(`[{"op":"remove","path":"/%s"}]`, revokedID))); status != http.StatusOK {
-		t.Fatalf("the marshal revokes: status %d: %s", status, body)
+	_, withdrawnToken := lastMailTo(t, s, "later@example.com", "invitation")
+	if status, body := marshal.do(ctx, http.MethodPost, sectorPath(anvil, "withdraw-crew-sector-invitation"), jsonBody(t, map[string]string{"invitationId": later.ID})); status != http.StatusNoContent {
+		t.Fatalf("the marshal withdraws: status %d: %s", status, body)
 	}
 
 	cadet := newBrowser(t, s, consoleAPI)
 	cadet.signIn(ctx, string(policyCadet))
-	if status, body := cadet.do(ctx, http.MethodPost, consoleAPI+"/user/invitation", jsonBody(t, map[string]string{"token": revokedToken})); status == http.StatusOK {
-		t.Fatalf("the revoked invitation opens: status %d: %s", status, body)
+	if status, body := cadet.do(ctx, http.MethodPost, consoleAPI+"/user/invitation", jsonBody(t, map[string]string{"token": withdrawnToken})); status == http.StatusOK {
+		t.Fatalf("the withdrawn invitation opens: status %d: %s", status, body)
 	}
 	if status, body := cadet.do(ctx, http.MethodPost, consoleAPI+"/user/invitation", jsonBody(t, map[string]string{"token": token})); status != http.StatusOK {
 		t.Fatalf("the cadet opens the invitation: status %d: %s", status, body)
@@ -282,7 +199,7 @@ func TestInvitation_sectorAcceptedBySignedInPersona(t *testing.T) {
 	// The cadet holds the address she gave for her sign-in code, not the invited one: an
 	// invitation is accepted only by the account that holds its address, so the acceptance
 	// is refused with the sentence the login page shows, and nothing is consumed.
-	status, body := cadet.do(ctx, http.MethodPost, consoleAPI+"/user/invitation/accept", nil)
+	status, body = cadet.do(ctx, http.MethodPost, consoleAPI+"/user/invitation/accept", nil)
 	if status != http.StatusForbidden {
 		t.Fatalf("the cadet accepts an invitation to another address: status %d, want 403: %s", status, body)
 	}
@@ -292,19 +209,19 @@ func TestInvitation_sectorAcceptedBySignedInPersona(t *testing.T) {
 	if want := "This invitation is for " + email + ". Sign in with that account."; json.Unmarshal(body, &refused) != nil || refused.Message != want {
 		t.Errorf("the refusal = %s, want the message %q", body, want)
 	}
-	if row := userRow(ctx, t, marshal, crewSectorUsers(anvil), string(policyCadet)); row == nil || slices.Contains(rolesOf(row), string(harbormasterRole)) {
-		t.Fatalf("the cadet's row at Anvil after the refusal = %v, want no Harbormaster seat", row)
+	if held := rolesHeldInSector(ctx, t, marshal, anvil, string(policyCadet)); len(held) == 0 || slices.Contains(held, string(harbormasterRole)) {
+		t.Fatalf("the cadet's roles at Anvil after the refusal = %v, want hers without Harbormaster", held)
 	}
-	if standing := invitations(ctx, t, marshal, invitationsRoute); len(standing) != 1 || standing[0]["email"] != email {
+	if standing := standingSectorInvitations(ctx, t, marshal, anvil); len(standing) != 1 || standing[0]["email"] != email {
 		t.Fatalf("Anvil's standing invitations after the refusal = %v, want the one to %s", standing, email)
 	}
 
-	// Invited at the address she holds, she accepts: she holds the seat, and the address
+	// Invited at the address she holds, she accepts: she holds the role, and the address
 	// stays hers verified; an invitation's address lands on a person who holds none (the
 	// ensign's sign-up), never over one held. The stranger's invitation stands for the
 	// account that holds that address.
 	own := factorAddress(string(policyCadet))
-	if status, body := marshal.do(ctx, http.MethodPatch, invitationsRoute, inviteBody(own, string(harbormasterRole))); status != http.StatusOK {
+	if status, body := marshal.do(ctx, http.MethodPost, invite, inviteBody(t, own, string(harbormasterRole))); status != http.StatusOK {
 		t.Fatalf("the marshal invites the cadet's own address: status %d: %s", status, body)
 	}
 	_, ownToken := lastMailTo(t, s, own, "invitation")
@@ -318,11 +235,10 @@ func TestInvitation_sectorAcceptedBySignedInPersona(t *testing.T) {
 	if sess["email"] != own || sess["emailVerified"] != true {
 		t.Errorf("the cadet's session after the acceptance = %v, want %s verified", sess, own)
 	}
-	row := userRow(ctx, t, marshal, crewSectorUsers(anvil), string(policyCadet))
-	if row == nil || !equalStrings(rolesOf(row), []string{"Cadet", string(harbormasterRole), "SectorCrew"}) {
-		t.Fatalf("the cadet's row at Anvil = %v, want Cadet, Harbormaster and SectorCrew", row)
+	if held := rolesHeldInSector(ctx, t, marshal, anvil, string(policyCadet)); !equalStrings(held, []string{"Cadet", string(harbormasterRole), "SectorCrew"}) {
+		t.Fatalf("the cadet's roles at Anvil = %v, want Cadet, Harbormaster and SectorCrew", held)
 	}
-	if standing := invitations(ctx, t, marshal, invitationsRoute); len(standing) != 1 || standing[0]["email"] != email {
+	if standing := standingSectorInvitations(ctx, t, marshal, anvil); len(standing) != 1 || standing[0]["email"] != email {
 		t.Errorf("Anvil's standing invitations = %v, want the stranger's alone, untouched", standing)
 	}
 }

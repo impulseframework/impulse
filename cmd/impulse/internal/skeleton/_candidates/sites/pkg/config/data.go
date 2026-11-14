@@ -10,12 +10,12 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access"
 	consoleapp "github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/app"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/identity/staffidentity"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/pkg/auth/staff"
 	"github.com/impulseframework/impulse/resource"
 	database "github.com/impulseframework/impulse/resource/database/spanner"
 	"github.com/impulseframework/impulse/resource/live"
 	liveservice "github.com/impulseframework/impulse/resource/live/firestore"
-	"github.com/impulseframework/impulse/resource/sessionusers"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/mail/workspace"
 	"github.com/sethvargo/go-envconfig"
@@ -194,12 +194,12 @@ func (c *DataConfiguration) Staff() *staff.Auth {
 	return c.staff
 }
 
-// StaffUserStores returns the stores the staff auth's user-management surface serves over:
-// the staff session's accounts (sessionusers.Accounts over its API) and the staff
-// engine's memberships. A seat written through the surface is a policy write the engine
-// announces to every instance.
-func (c *DataConfiguration) StaffUserStores() (resource.UserAccounts, resource.UserSeats) {
-	return sessionusers.Accounts(c.staff.Session().API()), c.staff.Access().UserManager()
+// StaffIdentity returns the staff auth's identity client, which the auth builds when it
+// opens (staff.Auth.Identity): what the generated methods that manage the auth's people run
+// over. A membership one of them commits is a policy write the auth's engine announces
+// to every instance.
+func (c *DataConfiguration) StaffIdentity() *staffidentity.Client {
+	return c.staff.Identity()
 }
 
 // StaffAdministratorPassword returns the password the staff auth's first administrator is

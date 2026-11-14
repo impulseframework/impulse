@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 import { Method } from './brands';
-import { createClient, MethodAnswer, MethodHandle } from './client';
+import { createClient, MethodAnswer, MethodHandle, methodHandle } from './client';
 import { ApiDescriptor } from './descriptor';
 import { ApiError, Transport, dryRunHeader } from './transport';
 import { scriptedTransport } from '@impulseframework/resource/testing';
@@ -107,6 +107,57 @@ describe('a method without declared statuses', () => {
     const transport = scriptedTransport({ status: 409, body: { message: 'already on hold' } });
     await expect(api(transport).holdMission.execute({ missionId: 'm1', reason: 'weather' })).rejects.toBeInstanceOf(
       ApiError,
+    );
+  });
+});
+
+// A page that learns its methods at run time reaches one by its name: the same handle
+// the typed client carries, bound to the tenant for a tenant's method.
+describe('a method reached by its name', () => {
+  const tenanted: ApiDescriptor = {
+    ...descriptor,
+    domainRoute: { segment: 'sectors', param: 'sectorID' },
+    methods: {
+      ...descriptor.methods,
+      DisableCrewSectorUser: {
+        method: 'DisableCrewSectorUser' as Method,
+        property: 'disableCrewSectorUser',
+        route: 'disable-crew-sector-user',
+        scope: 'domain',
+        statuses: [204],
+      },
+    },
+  };
+  const client = (transport: Transport) => createClient(tenanted, { baseUrl: '/api', transport });
+
+  it("posts a tenant's method under the tenant's segment", async () => {
+    const transport = scriptedTransport({ status: 204, body: null });
+    await methodHandle(client(transport), 'DisableCrewSectorUser', 'anvil').execute({ userId: 'u1' });
+    expect(transport.requests[0].url).toBe('/api/sectors/anvil/disable-crew-sector-user');
+    expect(transport.requests[0].body).toEqual({ userId: 'u1' });
+  });
+
+  it("refuses a tenant's method with no tenant, before anything is sent", () => {
+    const transport = scriptedTransport({ status: 204, body: null });
+    expect(() => methodHandle(client(transport), 'DisableCrewSectorUser')).toThrow('is domain-scoped');
+    expect(transport.requests).toHaveLength(0);
+  });
+
+  it('posts a global method at its own route, whatever tenant is given', async () => {
+    const transport = scriptedTransport({ status: 200, body: null });
+    await methodHandle(client(transport), 'HoldMission', 'anvil').execute({ missionId: 'm1', reason: 'weather' });
+    expect(transport.requests[0].url).toBe('/api/hold-mission');
+  });
+
+  it('resolves like the typed handle: a declared status with its result', async () => {
+    const transport = scriptedTransport({ status: 409, body: { fee: '1', net: '-1' } });
+    const answer = await methodHandle(client(transport), 'CompleteMission').execute({ missionId: 'm1' });
+    expect(answer).toEqual({ status: 409, result: { fee: '1', net: '-1' } });
+  });
+
+  it('refuses a name the API does not describe, naming it', () => {
+    expect(() => methodHandle(client(scriptedTransport({ status: 200, body: null })), 'LaunchNothing')).toThrow(
+      'LaunchNothing is no method of this API',
     );
   });
 });

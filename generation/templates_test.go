@@ -90,8 +90,8 @@ func Test_decodersTemplate_gating(t *testing.T) {
 			wantContains: []string{
 				"func NewFileDecoder[Resource Resourcer, Request any](_ *App, segment string) *resource.FileDecoder[Resource, Request] {",
 				"resource.MustNewFileDecoder[Resource, Request](router.Collection(), segment)",
-				"func NewComputedFileDecoder[Resource Resourcer, Request any](_ *App, segment string) *resource.FileDecoder[Resource, Request] {",
-				"resource.MustNewComputedFileDecoder[Resource, Request](segment)",
+				"func NewComputedFileDecoder[Resource Resourcer, Request any](a *App, segment string) *resource.FileDecoder[Resource, Request] {",
+				"resource.MustNewComputedFileDecoder[Resource, Request](router.Collection(), segment).WithSubjectFacts(a.ResourceClient())",
 			},
 			wantNotContains: []string{"NewQueryDecoder", "NewDecoder[", "NewRPCDecoder"},
 		},
@@ -115,7 +115,24 @@ func Test_decodersTemplate_gating(t *testing.T) {
 				HasComputedQueryDecoder: true,
 			},
 			wantContains:    []string{"func NewComputedQueryDecoder["},
-			wantNotContains: []string{"func NewQueryDecoder[", "func NewDecoder[", "func NewRPCDecoder["},
+			wantNotContains: []string{"func NewQueryDecoder[", "func NewDecoder[", "func NewRPCDecoder[", "WithCollection"},
+		},
+		{
+			// The collection holds the fields a computed resource declares for its
+			// grants' conditions, and the resource client reads the facts about the
+			// caller a condition names; with them the decoder judges the rows.
+			name: "a computed decoder is wired to the generated collection where one is generated",
+			data: decodersFileData{
+				Package:                 "app",
+				ApplicationName:         "App",
+				ReceiverName:            "a",
+				RouterPackage:           "router",
+				HasComputedQueryDecoder: true,
+				HasCollection:           true,
+			},
+			wantContains: []string{
+				"resource.MustNewComputedQueryDecoder[Resource, Request](a.ResourceClient().DBType(), permissions...).WithCursorKey(a.CursorKey()).WithFeatures(a.FeatureSet()).WithCollection(router.Collection()).WithSubjectFacts(a.ResourceClient())",
+			},
 		},
 	}
 
@@ -874,7 +891,9 @@ func Test_handlerTemplates_live(t *testing.T) {
 			template: patchTemplate,
 			want: []string{
 				"ctx, touched := resource.CollectTouchedRows(ctx)",
-				`live.Publish(ctx, {{ .ReceiverName }}.LiveService(), liveDerivations, {{ if .Resource.IsDomainScoped }}domain{{ else }}""{{ end }}, touched)`,
+				// What a handler publishes with is its home's to say: the application's
+				// assembly, or the field an auth's handlers keep the same value in.
+				`live.Publish(ctx, {{ .ReceiverName }}.LiveService(), {{ .Home.LiveDerivations }}, {{ if .Resource.IsDomainScoped }}domain{{ else }}""{{ end }}, touched)`,
 			},
 		},
 		{
@@ -892,7 +911,7 @@ func Test_handlerTemplates_live(t *testing.T) {
 				`{{- template "rpcCollectTouched" $ }}`,
 				`{{- template "rpcPublish" $ }}`,
 				"ctx, touched := resource.CollectTouchedRows(ctx)",
-				`live.Publish(ctx, {{ $.ReceiverName }}.LiveService(), liveDerivations, {{ if .RPCMethod.IsDomainScoped }}domain{{ else }}""{{ end }}, touched)`,
+				`live.Publish(ctx, {{ $.ReceiverName }}.LiveService(), {{ $.Home.LiveDerivations }}, {{ if .RPCMethod.IsDomainScoped }}domain{{ else }}""{{ end }}, touched)`,
 			},
 		},
 		{

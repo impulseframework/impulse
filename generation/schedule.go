@@ -349,7 +349,7 @@ func (r *resourceGenerator) requireRouterForTraces() error {
 // scheduledRoutes are the scheduled methods' routes as the router mounts them; none when
 // the RPC methods are not generated, since then no handler is either.
 func (r *resourceGenerator) scheduledRoutes() []*scheduledRoute {
-	if !r.genRPCMethods {
+	if !r.hasRPC() {
 		return nil
 	}
 

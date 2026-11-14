@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	cloudspanner "cloud.google.com/go/spanner"
-	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -88,12 +87,12 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 	if got, want := navigator.domains(ctx), []string{cinder}; !slices.Equal(got, want) {
 		t.Fatalf("the navigator's chart after the first sign-in = %v, want %v: Cinder's row names SectorCrew as its default seat", got, want)
 	}
-	if row := userRow(ctx, t, governor, crewSectorUsers(cinder), navigatorUser); row == nil || !slices.Equal(rolesOf(row), []string{"SectorCrew"}) {
-		t.Fatalf("the navigator on Cinder's crew = %v, want seated as SectorCrew by the directory's default seat", row)
+	if held := rolesHeldInSector(ctx, t, governor, cinder, navigatorUser); !slices.Equal(held, []string{"SectorCrew"}) {
+		t.Fatalf("the navigator's roles at Cinder = %v, want SectorCrew alone, given by the directory's default seat", held)
 	}
-	seat := seatBody(crewUserID(ctx, t, governor, navigatorUser), "Pilot")
-	if status, body := governor.do(ctx, http.MethodPatch, consoleAPI+"/"+crewPartitions().Global.SeatsRoute, []byte(seat)); status != http.StatusOK {
-		t.Fatalf("seating the navigator as Pilot: status %d: %s", status, body)
+	pilot := jsonBody(t, map[string]any{"username": navigatorUser, "role": "Pilot", "everyDomain": true})
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), pilot); status != http.StatusNoContent {
+		t.Fatalf("giving the navigator the Pilot role in every sector: status %d: %s", status, body)
 	}
 	if got, want := navigator.domains(ctx), []string{anvil, bastion, cinder}; !slices.Equal(got, want) {
 		t.Errorf("the navigator's chart = %v, want %v: every sector declares the fleet's directory", got, want)
@@ -167,7 +166,7 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 	if sess := drifter.session(ctx); sess["authenticated"] != false {
 		t.Errorf("the drifter's session after the refusal = %v, want none", sess)
 	}
-	if row := userRow(ctx, t, governor, crewGlobalRoute(crewPartitions().Global.UsersRoute), drifterUser); row != nil {
+	if row := crewAccount(ctx, t, governor, drifterUser); row != nil {
 		t.Errorf("the drifter's account after the refusal = %v, want none created", row)
 	}
 
@@ -187,8 +186,8 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 	if got, want := drifter.domains(ctx), []string{anvil}; !slices.Equal(got, want) {
 		t.Errorf("the drifter's chart = %v, want %v: Anvil's row seats her, no other row names a seat", got, want)
 	}
-	if row := userRow(ctx, t, governor, crewSectorUsers(anvil), drifterUser); row == nil || !slices.Equal(rolesOf(row), []string{"SectorCrew"}) {
-		t.Errorf("the drifter on Anvil's crew = %v, want seated as SectorCrew by the directory's default seat", row)
+	if held := rolesHeldInSector(ctx, t, governor, anvil, drifterUser); !slices.Equal(held, []string{"SectorCrew"}) {
+		t.Errorf("the drifter's roles at Anvil = %v, want SectorCrew alone, given by the directory's default seat", held)
 	}
 
 	// Every edit is audited: the records' change events carry the declaration's writes.
@@ -249,30 +248,4 @@ func changeEvents(ctx context.Context, t *testing.T, s *served, tables ...string
 	}
 
 	return counts
-}
-
-// crewUserID finds a crew member's id by username through the console's global users
-// route, as the browser b (one who may list the crew) reads it.
-func crewUserID(ctx context.Context, t *testing.T, b *browser, username string) impulse.UUID {
-	t.Helper()
-
-	status, body := b.do(ctx, http.MethodGet, consoleAPI+"/"+crewPartitions().Global.UsersRoute, nil)
-	if status != http.StatusOK {
-		t.Fatalf("GET the crew's users: status %d: %s", status, body)
-	}
-	var rows []struct {
-		ID       impulse.UUID `json:"id"`
-		Username string       `json:"username"`
-	}
-	if err := json.Unmarshal(body, &rows); err != nil {
-		t.Fatalf("the crew's users are not a list: %v: %s", err, body)
-	}
-	for _, row := range rows {
-		if row.Username == username {
-			return row.ID
-		}
-	}
-	t.Fatalf("no crew member %q among %d rows", username, len(rows))
-
-	return impulse.UUID{}
 }

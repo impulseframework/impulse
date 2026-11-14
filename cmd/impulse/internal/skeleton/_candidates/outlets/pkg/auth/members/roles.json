@@ -4,7 +4,7 @@
     "domain": [
       {
         "name": "TenantAdministrator",
-        "description": "Runs one tenant on the portal: manages its members and their seats, and posts its announcements.",
+        "description": "Runs one tenant on the portal: manages its members and the roles they hold there, and posts its announcements.",
         "permissions": {
           "Create": [
             {
@@ -13,35 +13,59 @@
                 "body",
                 "title"
               ]
-            },
-            {
-              "resource": "MembersTenantSeats",
-              "fields": [
-                "user",
-                "role"
-              ]
             }
           ],
           "Delete": [
             {
               "resource": "Announcements"
-            },
-            {
-              "resource": "MembersTenantUsers"
-            },
-            {
-              "resource": "MembersTenantInvitations"
-            },
-            {
-              "resource": "MembersTenantSeats"
             }
           ],
           "Execute": [
             {
-              "resource": "UnlinkMembersTenantUserIdentity"
+              "resource": "InviteMembersTenantUser"
             },
             {
-              "resource": "ResetMembersTenantUserFactors"
+              "resource": "WithdrawMembersTenantInvitation",
+              "condition": "pending = true"
+            },
+            {
+              "resource": "AssignMembersTenantRole"
+            },
+            {
+              "resource": "RemoveMembersTenantRole",
+              "condition": "everyDomain = false"
+            },
+            {
+              "resource": "DisableMembersTenantUser",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "EnableMembersTenantUser",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "DeleteMembersTenantUser",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "RenameMembersTenantUser",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "SetMembersTenantUserEmail",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "RevokeMembersTenantUserTrustedDevices",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "EndMembersTenantUserSessions",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "UnlinkMembersTenantSessionIdentity",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
             }
           ],
           "List": [
@@ -58,35 +82,62 @@
               "fields": [
                 "username",
                 "disabled",
-                "hasPassword",
-                "passwordChangeRequired",
                 "createdAt",
                 "lastSignInAt",
-                "organization",
-                "identities",
-                "roles",
-                "everywhereRoles",
-                "rolesSynced",
+                "heldElsewhere",
+                "heldGlobally"
+              ]
+            },
+            {
+              "resource": "MembersTenantUsers",
+              "fields": [
                 "email",
-                "emailVerifiedAt"
+                "emailVerifiedAt",
+                "passwordChangeRequired"
+              ],
+              "condition": "heldElsewhere = false"
+            },
+            {
+              "resource": "MembersTenantUserRoles",
+              "fields": [
+                "username",
+                "everyDomain",
+                "createdAt"
               ]
             },
             {
               "resource": "MembersTenantInvitations",
               "fields": [
                 "email",
-                "roles",
+                "roleNames",
                 "invitedBy",
                 "createdAt",
-                "expiresAt"
+                "expiresAt",
+                "consumedAt",
+                "pending"
               ]
             },
             {
-              "resource": "MembersTenantSeats",
+              "resource": "MembersTenantIdentities",
               "fields": [
+                "userId",
                 "username",
-                "everywhere"
+                "method",
+                "connection",
+                "tenant",
+                "createdAt",
+                "lastUsedAt",
+                "heldElsewhere",
+                "heldGlobally"
               ]
+            },
+            {
+              "resource": "MembersTenantIdentities",
+              "fields": [
+                "subject",
+                "emailAtLink"
+              ],
+              "condition": "heldElsewhere = false"
             },
             {
               "resource": "MembersTenantRoles",
@@ -109,41 +160,62 @@
               "fields": [
                 "username",
                 "disabled",
-                "hasPassword",
-                "passwordChangeRequired",
                 "createdAt",
                 "lastSignInAt",
-                "organization",
-                "identities",
-                "roles",
-                "everywhereRoles",
-                "rolesSynced",
+                "heldElsewhere",
+                "heldGlobally"
+              ]
+            },
+            {
+              "resource": "MembersTenantUsers",
+              "fields": [
                 "email",
-                "emailVerifiedAt"
+                "emailVerifiedAt",
+                "passwordChangeRequired"
+              ],
+              "condition": "heldElsewhere = false"
+            },
+            {
+              "resource": "MembersTenantUserRoles",
+              "fields": [
+                "username",
+                "everyDomain",
+                "createdAt"
               ]
             },
             {
               "resource": "MembersTenantInvitations",
               "fields": [
                 "email",
-                "roles",
+                "roleNames",
                 "invitedBy",
                 "createdAt",
-                "expiresAt"
+                "expiresAt",
+                "consumedAt",
+                "pending"
               ]
             },
             {
-              "resource": "MembersTenantSeats",
+              "resource": "MembersTenantIdentities",
               "fields": [
+                "userId",
                 "username",
-                "everywhere"
+                "method",
+                "connection",
+                "tenant",
+                "createdAt",
+                "lastUsedAt",
+                "heldElsewhere",
+                "heldGlobally"
               ]
             },
             {
-              "resource": "MembersTenantRoles",
+              "resource": "MembersTenantIdentities",
               "fields": [
-                "description"
-              ]
+                "subject",
+                "emailAtLink"
+              ],
+              "condition": "heldElsewhere = false"
             }
           ],
           "Update": [
@@ -152,14 +224,6 @@
               "fields": [
                 "body",
                 "title"
-              ]
-            },
-            {
-              "resource": "MembersTenantUsers",
-              "fields": [
-                "username",
-                "disabled",
-                "email"
               ]
             }
           ]

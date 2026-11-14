@@ -68,6 +68,13 @@ type Attribute struct {
 	// never stands on the right side of an old-vs-new comparison, the rules
 	// deploy validation enforces.
 	JoinPath bool
+
+	// List marks an attribute over a list column, typed by one item: a
+	// condition that reads it is judged once for each item. It is read as the
+	// row holds it, so never from the post-image and never on the right side
+	// of an old-vs-new comparison, and a condition reads one list, so a
+	// vocabulary declares at most one: the rules deploy validation enforces.
+	List bool
 }
 
 // Generator draws random expressions over a vocabulary.
@@ -104,15 +111,22 @@ func New(rng *rand.Rand, vocab *Vocabulary) *Generator {
 		vocab:  *vocab,
 		byType: make(map[accesstypes.AttributeType][]Attribute),
 	}
+	lists := 0
 	for _, attr := range vocab.Attributes {
 		checkName(attr.Name, "attribute")
 		if !accesstypes.ValidAttributeType(attr.Type) {
 			panic(fmt.Sprintf("conditiontest.New: attribute %q has type %q, which is not a comparison type", attr.Name, attr.Type))
 		}
 		g.byType[attr.Type] = append(g.byType[attr.Type], attr)
-		if !attr.JoinPath {
+		if !attr.JoinPath && !attr.List {
 			g.columns = append(g.columns, attr)
 		}
+		if attr.List {
+			lists++
+		}
+	}
+	if lists > 1 {
+		panic(fmt.Sprintf("conditiontest.New: the vocabulary declares %d list attributes; a condition reads one list, so a vocabulary declares one", lists))
 	}
 	for _, set := range vocab.SubjectSets {
 		checkSubject(set, "subject set")
@@ -327,7 +341,7 @@ func (g *Generator) temporal(fn string) condition.Ref {
 // ref draws an attribute reference, reading the post-image a quarter of the
 // time where the vocabulary and the attribute admit it.
 func (g *Generator) ref(attr Attribute) condition.Ref {
-	postImage := g.vocab.PostImage && !attr.JoinPath && g.rng.IntN(4) == 0
+	postImage := g.vocab.PostImage && !attr.JoinPath && !attr.List && g.rng.IntN(4) == 0
 
 	return condition.Ref{Name: attr.Name, PostImage: postImage}
 }

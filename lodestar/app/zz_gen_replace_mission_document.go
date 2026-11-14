@@ -84,13 +84,13 @@ func (a *App) ReplaceMissionDocument() http.HandlerFunc {
 			// gate verifies the located row resolves to the request's domain
 			// in this transaction — absent and cross-tenant are the same
 			// NotFound.
-			if err := gate.VerifyTenancy(ctx, txn, resource.ExecuteTarget{Resource: "MissionDocuments", Label: "MissionDocument", PKColumn: "Id"}, p.DocumentID); err != nil {
+			if err := gate.VerifyTenancy(ctx, txn, resource.ExecuteTarget{Resource: "MissionDocuments", Label: "MissionDocument", PKColumns: []string{"Id"}}, p.DocumentID); err != nil {
 				return err
 			}
 
 			// A row-referencing condition on the caller's Execute grant
 			// evaluates against the located row, in this transaction.
-			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "MissionDocuments", Label: "MissionDocument", PKColumn: "Id"}, p.DocumentID); err != nil {
+			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "MissionDocuments", Label: "MissionDocument", PKColumns: []string{"Id"}}, p.DocumentID); err != nil {
 				return err
 			}
 			if err := p.Execute(ctx, txn, files, a.RPCClient()); err != nil {

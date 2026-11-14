@@ -34,6 +34,10 @@ await api.batch([station.requisitions.ops.add(values), station.requisitionLines.
 // route; its operations remember it, so the same call reaches the right endpoint.
 // Operations for two different endpoints cannot commit together and are refused.
 await api.batch([api.clients.ops.patch([clientId], { trusted: true })]);
+
+// A page that learns its methods at run time (from the generated method metadata)
+// reaches one by its name: the same handle, bound to the tenant for a tenant's method.
+await methodHandle(api, 'ScheduleWorkOrder', 'ws-alpha').execute(body);
 ```
 
 ## What the types enforce
@@ -471,83 +475,41 @@ address a directory asserted at a sign-in, offered as a prefill and trusted for 
 
 ## User management
 
-Every Auth the server's generated router binds has a user-management surface: its users, their
-seats (a user holding a role), the roles a seat may take and the invitations standing into it,
-served as resources beside the application's own, in a global partition and, where the
-application has a tenant record, a tenant partition under the domain pair, with a set-password
-method and an unlink-identity method beside them. They are ordinary entries of the descriptor's
-`resources` and `methods`, so the generated handles (`api.crewUsers`,
-`api.domain(sector).crewSectorSeats`), the digest, the capability envelope and the operations
-body work for them as for everything else. The descriptor's `userSurfaces` block says which
-entries make up each surface and what the Auth's sign-in methods give it, so a component is
-written once and configures itself to the application: `auth` and `label`, `password` (a
-password method is registered: users are created with an optional password, a password is set
-for one), `usernameIsEmail` (that method declares the username as the person's email address,
-so neither is edited by hand: a verified new address renames the person) and `openSignUp` (it
-lets a stranger create an account from a mailed link), the external `registrations` (each with
-`invited`, the directory admits only people created first, and `syncsRoles`, the directory
-writes their seats at every sign-in), and the `partitions`, global first, each naming its
-`users`, `seats`, `roles` and `invitations` resources, its `setPassword` and `unlinkIdentity`
-methods where the Auth has them, and its `resetFactors` method, which forgets the browsers a user
-asked to be remembered at the sign-in code step. `userSurfaces(descriptor)` lists them; a
-descriptor from a generator that predates the surfaces carries none, one that predates the
-mailed links carries no `invitations` and neither flag, and one that predates the second factor
-no `resetFactors`.
+An Auth whose management is generated (`GenerateIdentity`) is named in the descriptor's
+`identity` block: `auth`, `label`, `tenant` (the tenant record's name, where the application
+has one) and `sides`, one for each scope the outlet serves (`global` first, then `domain`),
+each with its `lists` (`users`, `roles`, `identities`, `invitations`, `sessions`,
+`signInAttempts`) and its `methods` (`create`, `invite`, `withdrawInvitation`, `assignRole`,
+`removeRole`, `disable`, `enable`, `delete`, `rename`, `setEmail`, `setTemporaryPassword`,
+`requirePasswordChange`, `endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`,
+`endSession`, `unlockSignIn`) by the names the generator gave them. Every key but `users` is
+optional: the block names what the outlet serves and nothing else. The lists and the methods
+are ordinary entries of `resources` and `methods`; the block says which is which, so a page
+over an Auth's people is written once for every application (`IdentityDescriptor`,
+`IdentitySideDescriptor`, `IdentityLists`, `IdentityMethods`). The block is optional: a
+descriptor from a generator that predates it, or of an API that serves no generated
+management, carries none.
 
-The rows have the same shape on every application (`UserRow`, `SeatRow`, `RoleRow`,
-`UserIdentity`, `InvitationRow`): a user carries `id`, `username`, `disabled`, `hasPassword`,
-`passwordChangeRequired`, `createdAt`, `lastSignInAt`, `organization`, `email` and
-`emailVerifiedAt` (the person's address and when they proved they read it; null while an
-operator's entry stands unverified, which reserves the address and is trusted for nothing),
-its `identities`, the `roles` held in the partition's scope, the `everywhereRoles` held in
-every domain, and `rolesSynced` when its seats are a directory's; a role carries its `name`, its
-`kind` (`global` or `domain` in the global partition, absent in the tenant one) and the
-`description` the role file gives it, absent on a server that predates descriptions; an invitation
-carries `id`, `email`, the `roles` its acceptance grants, `invitedBy`, `createdAt` and `expiresAt`.
-`userPartition(api, surface, partition, domain?)` binds one partition: the handles typed over
-those rows (`users.create` takes `username`, an optional `password`, `disabled` and `email`,
-and the tenant partition's `role`; `users.patch` takes `username`, `disabled` and `email`;
-`seats.create` takes `user` and `role`, the seat's key; `invitations.create` takes `email` and
-`roles`, and `invitations.remove` revokes by id; the `invitations` handle is absent where the
-descriptor names none), `setPassword(user, password)`, `unlinkIdentity(user, identity)` and
-`resetFactors(user)` posting to the methods' routes, and `canCreateUsers()`, `canSeat()`,
-`canUnseat()`, `canSetPassword()`, `canUnlinkIdentity()`, `canResetFactors()`,
-`canListInvitations()`, `canInvite()` and `canRevokeInvitations()`, the digest's answer folded
-with what the Auth's methods give the partition: no create on an Auth with no way for the new
-user to sign in, no set-password without a password method, no unlink without a registration,
-no reset on a descriptor that predates the second factor, nothing about invitations where the
-partition has none. The tenant partition needs its domain; the global one takes none.
+Nothing in this package is written for those lists and methods in particular: each is reached
+by its generated handle, read and called as any other, and the digest and a row's capability
+answer say what the caller may do with it. A page that must work in every application takes the
+names from the block; an application's own code uses the handles by name.
 
 ```ts
-const [crew] = userSurfaces(api.descriptor);
-const sector = userPartition(api, crew, crew.partitions[1], 'anvil');
-const users = await sector.users.list({ capabilities: ['Update', 'Delete', 'Execute'] });
-if (sector.canSeat() && !users[0].rolesSynced) {
-  await sector.seats.create({ user: users[0].id, role: 'Harbormaster' });
+// The people who hold a role in the sector, each with the methods the caller may run on them.
+const people = await api.domain('anvil').crewSectorUsers.list({ capabilities: ['Execute'] });
+if (api.domain('anvil').assignCrewSectorRole.can()) {
+  await api.domain('anvil').assignCrewSectorRole.execute({ userId: people[0].id, role: 'Harbormaster' });
 }
-if (sector.canInvite()) {
-  // The same request whether an account holds the address or not; the page does not learn which.
-  await sector.invitations?.create({ email: 'cass@fleet.example', roles: ['Harbormaster'] });
-}
+// The same request whether an account holds the address or not; the page does not learn which.
+await api.domain('anvil').inviteCrewSectorUser.execute({ email: 'cass@fleet.example', roles: ['Harbormaster'] });
 ```
 
-An invitation is a mailed link into the partition carrying the roles its acceptance grants:
-whoever follows it and signs in, by any method, or creates an account with a password, accepts
-it and is seated with them (see the sign-in section for the login page's side), and the
-standing invitation is gone from the list; one nobody followed is revoked, or expires. The
-roles are judged by the role file's grant grammar role by role, so a role granted `Create` on
-the invitations resource under a condition on the roles invites into every role but the ones
-it may not, and the refusal of the one it may not is the server's.
-
-The server keeps the rules no role file should have to state, and answers them as refusals the
-client's error hook renders: nobody disables, deletes or unseats themselves (403); a user whose
-seats a directory writes is not seated or unseated by hand (409); an account-level action from
-the tenant partition on a user also seated outside the tenant (409); the last way in is never
-unlinked (409); a tenant seat needs the user already in the tenant, or a person the tenant's
-own directory vouched for (400); where the username is the address, the row's envelope
-withholds the username and the address from the write. Removing a person's last seat anywhere
-deletes the account with its identity links, unless a global role keeps it. The Angular
-binding's `<impulse-user-management>` renders a partition over these calls.
+A list of a tenant's side shows the people who hold a role in that tenant and what they hold
+there; a role file's condition on a method's grant is answered row by row, so a row lists a
+method under `Execute` only where the caller may run it on that row. The rules no role file
+states are the server's, and reach the client as refusals its error hook renders. The Angular
+binding builds the pages over an Auth's people from the block (`identityRoutes`).
 
 ## Tokens
 

@@ -99,7 +99,7 @@ func TestMaskingDeclarations(t *testing.T) {
 		{name: "positional on an allow_filter field passes", fixture: "PositionalFilterDeck", wantPositional: []string{"Title"}},
 		{name: "positional on a primary key is a contradiction", fixture: "PositionalKeyDeck", wantErr: `PositionalKeyDeck.ID: masking:"positional" on a primary key: keys are exempt from masking`},
 		{name: "positional on a field no list sorts or filters by with an index is a contradiction", fixture: "PositionalPlainDeck", wantErr: `PositionalPlainDeck.Title: masking:"positional" on a field no list orders or filters by with an index behind it (neither indexed, nor allow_filter, nor named in @order)`},
-		{name: "a computed resource never masks", fixture: "PositionalBoard", computed: true, wantErr: "PositionalBoard.Name: the masking tag says how a masked cell meets a sort or a filter, and a computed resource never masks"},
+		{name: "no masked cell of a computed resource meets a sort or a filter", fixture: "PositionalBoard", computed: true, wantErr: "PositionalBoard.Name: the masking tag says how a masked cell meets a sort or a filter, and on a computed resource none ever does: a field its list sorts or filters by needs an unconditional grant"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

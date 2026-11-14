@@ -169,6 +169,18 @@ type FileDecoder[Resource Resourcer, Request any] struct {
 	// locates: the gate is checked here, eagerly, and the QuerySet carries the scope
 	// and identity to the function, as the computed decoder's does.
 	computed bool
+	// facts is the client a computed resource's decoder reads the facts about the
+	// caller through, where a Read grant's condition names one; nil until wired.
+	facts SubjectFactSource
+}
+
+// WithSubjectFacts installs the client the facts about the caller are read through
+// on a computed resource's route (ComputedQueryDecoder.WithSubjectFacts). A table's
+// route needs none: its statement reads them beside the row.
+func (d *FileDecoder[Resource, Request]) WithSubjectFacts(source SubjectFactSource) *FileDecoder[Resource, Request] {
+	d.facts = source
+
+	return d
 }
 
 // NewFileDecoder builds the decoder for a table or view resource's @file route: the
@@ -197,14 +209,16 @@ func MustNewFileDecoder[Resource Resourcer, Request any](collection *GeneratedCo
 }
 
 // NewComputedFileDecoder builds the decoder for a computed resource's @file route. A
-// computed resource executes application code, so the gate is checked at decode, and a
-// Conditional decision there is the invariant breach the computed decoder names:
-// MigrateRoles refuses a row-referencing condition on a computed resource.
-func NewComputedFileDecoder[Resource Resourcer, Request any](segment string) (*FileDecoder[Resource, Request], error) {
+// computed resource executes application code, so the gate is checked at decode. A
+// Read grant under a condition that reads the row passes it, as on a table, and the
+// QuerySet judges the row the application's read function answers (QuerySet.Admit),
+// against the attributes the collection holds for the resource.
+func NewComputedFileDecoder[Resource Resourcer, Request any](collection *GeneratedCollection, segment string) (*FileDecoder[Resource, Request], error) {
 	decoder, err := newFileDecoder[Resource, Request](segment)
 	if err != nil {
 		return nil, err
 	}
+	decoder.collection = collection
 	decoder.computed = true
 
 	return decoder, nil
@@ -212,8 +226,8 @@ func NewComputedFileDecoder[Resource Resourcer, Request any](segment string) (*F
 
 // MustNewComputedFileDecoder is NewComputedFileDecoder for the generated handlers; a
 // construction error panics at application startup.
-func MustNewComputedFileDecoder[Resource Resourcer, Request any](segment string) *FileDecoder[Resource, Request] {
-	decoder, err := NewComputedFileDecoder[Resource, Request](segment)
+func MustNewComputedFileDecoder[Resource Resourcer, Request any](collection *GeneratedCollection, segment string) *FileDecoder[Resource, Request] {
+	decoder, err := NewComputedFileDecoder[Resource, Request](collection, segment)
 	if err != nil {
 		panic(err)
 	}
@@ -260,8 +274,9 @@ func (d *FileDecoder[Resource, Request]) Segment() accesstypes.Tag {
 // resource and on the segment field are checked in one call, as the read route checks
 // its base and its fields: a Denied decision on either is Forbidden in the read route's
 // words, a Conditional one on the segment is the row condition the statement renders,
-// so a row the condition does not admit is 404 as on the read route. The request's
-// query string is not read: the route takes no parameters.
+// so a row the condition does not admit is 404 as on the read route. A computed
+// resource's conditions are judged over the row its read function answers, to the same
+// end. The request's query string is not read: the route takes no parameters.
 func (d *FileDecoder[Resource, Request]) Decode(request *http.Request, userPermissions UserPermissions, scope accesstypes.Scope) (*QuerySet[Resource], error) {
 	ctx := request.Context()
 	base := d.resourceSet.BaseResource()
@@ -285,12 +300,32 @@ func (d *FileDecoder[Resource, Request]) Decode(request *http.Request, userPermi
 	}
 
 	if d.computed {
-		if conditional := decisions.ConditionalResources(); len(conditional) > 0 {
-			return nil, errConditionalAtDecode(accesstypes.Read, conditional)
-		}
 		qSet.scope = scope
 		qSet.requiredPermission = accesstypes.Read
 		qSet.userPermissions = userPermissions
+
+		// A condition on the resource, or on the segment (the route's one
+		// grant-bearing projection), is judged over the row the application's read
+		// function answers: a row it refuses is 404, as an absent one is.
+		plan := &rowConditions{}
+		if decision := decisions[base]; decision.IsConditional() {
+			plan.resource, err = conditionalExpr(base, decision)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if decision := decisions[gate]; decision.IsConditional() {
+			expr, err := conditionalExpr(gate, decision)
+			if err != nil {
+				return nil, err
+			}
+			plan.fields = append(plan.fields, fieldCondition{expr: expr})
+		} else {
+			plan.open = true
+		}
+		if err := qSet.judgeRowsBy(ctx, plan, base, userPermissions, d.facts); err != nil {
+			return nil, err
+		}
 
 		return qSet, nil
 	}

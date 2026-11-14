@@ -26,3 +26,8 @@ CREATE TABLE SessionMailLinks (
 
 CREATE UNIQUE INDEX SessionMailLinksByTokenHash ON SessionMailLinks(TokenHash);
 CREATE INDEX SessionMailLinksByKind ON SessionMailLinks(Kind, ConsumedAt, ExpiresAt);
+
+-- A tenant's links, newest first, with the columns a tenant's list of its invitations
+-- shows: a page of that list reads its own rows from the index and nothing else. A link
+-- that names no tenant is not in it.
+CREATE NULL_FILTERED INDEX SessionMailLinksByTenant ON SessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);

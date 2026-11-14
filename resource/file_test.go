@@ -70,7 +70,7 @@ func TestNewFileDecoder(t *testing.T) {
 		{
 			name: "an empty segment is refused",
 			build: func() error {
-				_, err := NewComputedFileDecoder[enforcementResource, enforcementFileRequest]("")
+				_, err := NewComputedFileDecoder[enforcementResource, enforcementFileRequest](enforcementCollection(t), "")
 
 				return err
 			},
@@ -112,6 +112,9 @@ func TestFileDecoder_Decode(t *testing.T) {
 		// wantPredicate says whether the statement carries the fixture condition's
 		// column as its row predicate.
 		wantPredicate bool
+		// noCollection builds the computed decoder without the collection a
+		// conditional grant resolves against.
+		noCollection bool
 	}{
 		{
 			name:   "Read on the resource and the segment opens the route with no row predicate",
@@ -145,12 +148,16 @@ func TestFileDecoder_Decode(t *testing.T) {
 			computed: true,
 			grants:   map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Read: {enforcedResource, gate}},
 		},
+		// A computed resource's conditional grant passes the gate and is judged over
+		// the row its function answers: computed_conditions_test.go, over a fixture
+		// whose row carries the condition's field.
 		{
-			name:        "a computed resource meets a conditional decision as the invariant breach it is",
-			computed:    true,
-			grants:      map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Read: {enforcedResource}},
-			conditional: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Read: {gate}},
-			wantErr:     "invariant breach: conditional grants for (Read) on [enforcementResources.content]",
+			name:         "a computed resource's conditional grant with no collection to resolve it is refused",
+			computed:     true,
+			noCollection: true,
+			grants:       map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Read: {enforcedResource}},
+			conditional:  map[accesstypes.Permission][]accesstypes.Resource{accesstypes.Read: {gate}},
+			wantErr:      "the decoder holds no collection",
 		},
 	}
 
@@ -166,7 +173,11 @@ func TestFileDecoder_Decode(t *testing.T) {
 				err  error
 			)
 			if tt.computed {
-				qSet, err = MustNewComputedFileDecoder[enforcementResource, enforcementFileRequest]("content").Decode(req, userPermissions, testScope)
+				collection := enforcementCollection(t)
+				if tt.noCollection {
+					collection = nil
+				}
+				qSet, err = MustNewComputedFileDecoder[enforcementResource, enforcementFileRequest](collection, "content").Decode(req, userPermissions, testScope)
 			} else {
 				qSet, err = MustNewFileDecoder[enforcementResource, enforcementFileRequest](enforcementCollection(t), "content").Decode(req, userPermissions, testScope)
 			}
@@ -205,7 +216,18 @@ func TestFileDecoder_Decode(t *testing.T) {
 				t.Errorf("QuerySet carries scope %v, user %v, permission %v", qSet.Scope(), qSet.User(), qSet.RequiredPermission())
 			}
 			if tt.computed {
-				// The computed row is the application's function's; nothing runs a statement.
+				// The computed row is the application's function's; nothing runs a
+				// statement, and with no condition every row it answers is shown.
+				if qSet.JudgesRows() {
+					t.Error("JudgesRows() = true, want false under unconditional grants")
+				}
+				if _, shown, err := qSet.Admit(&enforcementResource{}); err != nil || !shown {
+					t.Errorf("Admit() = %v, %v, want the row shown", shown, err)
+				}
+				if _, shown, _ := qSet.Admit(nil); shown {
+					t.Error("Admit(nil) shown = true, want a row that is not there to stay so")
+				}
+
 				return
 			}
 

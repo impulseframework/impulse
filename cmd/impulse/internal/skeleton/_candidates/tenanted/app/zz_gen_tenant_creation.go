@@ -10,7 +10,6 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/resources"
-	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/router"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
@@ -19,13 +18,12 @@ import (
 	"github.com/impulseframework/impulse/tracer"
 )
 
-// The create-your-tenant route draws on two things the application supplies beside
-// the generated contract: TenantAdministratorRoles, the domain roles the person who creates a
-// Tenant holds in it from then on (its administrator role, or roles), and the Staff
-// auth's user-management surface, whose seats the person is seated through.
+// The create-your-tenant route draws on TenantAdministratorRoles, which the application
+// supplies beside the generated contract: the domain roles the person who creates a
+// Tenant holds in it from then on (its administrator role, or roles). They are given
+// through the Staff auth's generated identity client (StaffIdentity).
 var _ interface {
 	TenantAdministratorRoles() []accesstypes.Role
-	StaffUserSurface() *resource.UserSurface[router.StaffAuth]
 } = (*App)(nil)
 
 // CreateTenant serves the create-your-tenant route, POST /api/create-tenant: a signed-in person
@@ -33,22 +31,22 @@ var _ interface {
 // No grant admits the call. The session must be established, which the router's session
 // group holds it to, and must hold a grant in no tenant: a person creates one tenant,
 // and the member or administrator of one is refused (403). The row is written first, in
-// its own transaction, which is the claim on the key (a key already taken answers 409);
-// this instance's roster rereads its table, so it lists the new tenant; the
-// person's administrator membership is seated through the Staff auth's seats after
-// the commit, since the permission store writes memberships outside the row's
-// transaction, and a seat that cannot be written takes the row with it; the answer
-// waits until the permission engine answers the new membership as a foothold the
-// session reaches, so the person's next request stands in the tenant; the tenants
-// kind is signaled last, so every instance serves it at once.
+// its own transaction, which is the claim on the key (a key already taken answers 409),
+// and the person's administrator membership is written in that transaction, through the
+// Staff auth's generated identity client, so the tenant and its administrator are
+// committed together or not at all; this instance's roster rereads its table, so it
+// lists the new tenant; the answer waits until the permission engine answers the
+// new membership as a foothold the session reaches, so the person's next request stands
+// in the tenant; the tenants kind is signaled last, so every instance serves it at
+// once.
 // The tenant's first directory is the one its creator came through: a person who
 // signed in through a directory (Google, Microsoft Entra, WorkOS) has it declared on the
 // new tenant in the row's transaction (TenantDirectory), so the tenant admits
 // them at once, one domain, one directory; a person who signed in by password declares
 // none, and the tenant admits passwords as every tenant declaring nothing does.
-// The roster must list the tenant and its declaration before the seat is probed:
-// the probe asks what the next request asks, and a tenant the roster does not know
-// admits nobody who came through a directory.
+// The roster must list the tenant and its declaration before the membership is
+// probed: the probe asks what the next request asks, and a tenant the roster does
+// not know admits nobody who came through a directory.
 func (a *App) CreateTenant() http.HandlerFunc {
 	type request struct {
 		ID   string `json:"id"   validate:"required"`
@@ -63,7 +61,7 @@ func (a *App) CreateTenant() http.HandlerFunc {
 	if len(roles) == 0 {
 		panic("TenantAdministratorRoles() names no role: the person who creates a Tenant holds its administrator role, which the application names there")
 	}
-	seats := a.StaffUserSurface().SeatStore()
+	identity := a.StaffIdentity()
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -85,28 +83,33 @@ func (a *App) CreateTenant() http.HandlerFunc {
 		domain := accesstypes.Domain(req.ID)
 		eventSource := resource.UserEvent(ctx)
 
-		// The row, in its own transaction: the key is the claim.
+		// The row and its administrator, in one transaction: the key is the claim, and
+		// the person's membership is written with the row or not at all.
 		ctx, touched := resource.CollectTouchedRows(ctx)
-		// The creator's directory, written with the row; nil for a creator who came by
-		// password. Spanner may run the transaction again, so it is set inside it.
-		var directory *resources.TenantDirectoryCreatePatch
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			patch := resources.NewTenantCreatePatch(req.ID)
 			patch.SetName(req.Name)
 			if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "resources.TenantCreatePatch.Buffer()")
 			}
-			directory = nil
+			// The creator's directory, written with the row; none for a creator who came
+			// by password.
 			if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok && established.Method.ThroughDirectory() {
-				created, err := resources.NewTenantDirectoryCreatePatch()
+				directory, err := resources.NewTenantDirectoryCreatePatch()
 				if err != nil {
 					return errors.Wrap(err, "resources.NewTenantDirectoryCreatePatch()")
 				}
-				created.SetTenantID(req.ID).SetMethod(string(established.Method)).SetConnection(established.Connection)
-				if err := created.Buffer(ctx, txn, eventSource); err != nil {
+				directory.SetTenantID(req.ID).SetMethod(string(established.Method)).SetConnection(established.Connection)
+				if err := directory.Buffer(ctx, txn, eventSource); err != nil {
 					return errors.Wrap(err, "resources.TenantDirectoryCreatePatch.Buffer()")
 				}
-				directory = created
+			}
+			// The first administrator: the person's membership of each role, in the row's
+			// transaction.
+			for _, role := range roles {
+				if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), string(userPermissions.User()), role); err != nil {
+					return errors.Wrap(err, "StaffIdentity().AssignRole()")
+				}
 			}
 
 			return nil
@@ -115,35 +118,18 @@ func (a *App) CreateTenant() http.HandlerFunc {
 		}
 		live.Publish(ctx, a.LiveService(), liveDerivations, "", touched)
 
-		// This instance's roster learns the tenant before its administrator is seated:
-		// the seat is probed as the person's next request is answered, a foothold in a
+		// This instance's roster learns the tenant before the membership is probed:
+		// the probe asks what the person's next request asks, a foothold in a
 		// tenant the roster lists whose declaration admits the session.
 		if err := a.TenantRoster().Reload(ctx); err != nil {
 			logger.FromCtx(ctx).Errorf("tenants: rereading the roster after the commit failed; this instance reloads on the tenants signal or at its backstop: %v", err)
 		}
 
-		// The first administrator, seated after the commit; a seat that cannot be
-		// written takes the row with it, and the creator's directory.
-		if err := resource.SeatFirstAdministrator(ctx, seats, userPermissions, domain, roles); err != nil {
-			if undo := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				if directory != nil {
-					if err := resources.NewTenantDirectoryDeletePatch(directory.ID()).Buffer(ctx, txn, eventSource); err != nil {
-						return errors.Wrap(err, "resources.TenantDirectoryDeletePatch.Buffer()")
-					}
-				}
-				if err := resources.NewTenantDeletePatch(req.ID).Buffer(ctx, txn, eventSource); err != nil {
-					return errors.Wrap(err, "resources.TenantDeletePatch.Buffer()")
-				}
-
-				return nil
-			}); undo != nil {
-				logger.FromCtx(ctx).Errorf("tenant %s: its administrator could not be seated, and the row could not be removed either: %v", domain, undo)
-			}
-			if err := a.TenantRoster().Reload(ctx); err != nil {
-				logger.FromCtx(ctx).Errorf("tenants: rereading the roster after the row was removed failed; this instance reloads on the tenants signal or at its backstop: %v", err)
-			}
-
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		// The answer waits until the engine answers the membership. One that does not
+		// in time is logged and the request answered: the tenant and its
+		// administrator are committed.
+		if err := resource.AwaitFirstAdministrator(ctx, userPermissions, domain); err != nil {
+			logger.FromCtx(ctx).Errorf("tenant %s: %v", domain, err)
 		}
 
 		// Every instance reloads on the tenants kind.

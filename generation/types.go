@@ -220,8 +220,12 @@ const (
 
 const (
 	resourceInterfaceOutputName = "resources_iface"
-	resourceEnumsFileName       = "enums"
-	domainGuardOutputName       = "domain_guard"
+	// rpcInterfaceOutputName names the methods package's file carrying the method
+	// interfaces: the one generated file there that stands for the package, not for a
+	// method declared beside it.
+	rpcInterfaceOutputName = "rpc_iface"
+	resourceEnumsFileName  = "enums"
+	domainGuardOutputName  = "domain_guard"
 	// tenantRosterOutputName names the handler package's file carrying the tenant
 	// record's roster constructor (New<Record>Roster): a singular stem, since every
 	// resource's handler file takes the plural of its name.
@@ -496,6 +500,9 @@ type routeTestParam struct {
 type rpcMethodInfo struct {
 	*parser.Struct
 	outletMembership
+	// identity is the auth whose generated management declares the method, nil for a
+	// method the application declares.
+	identity *identityInstance
 	// Form is how Execute runs, read off its signature at extraction.
 	Form rpcForm
 	// Request is the struct's wire shape: the fields as the handler's local request
@@ -510,6 +517,10 @@ type rpcMethodInfo struct {
 	ResultNamed     *types.Named
 	Fields          []*rpcField
 	SuppressHandler bool
+	// RequestAttributes are the request fields a grant's
+	// condition may read as new.<name>: the bare @attribute(name) on a field. Column
+	// is the field's Go name, which the decoder reads the decoded request by.
+	RequestAttributes []resource.AttributeData
 	// PermissionScope is the scope the method's registration uses
 	// (@permissionScope); empty means accesstypes.GlobalPermissionScope.
 	PermissionScope accesstypes.PermissionScope
@@ -610,6 +621,19 @@ func (u *rpcUpload) StoreNameExpr() string {
 // domain scope (an absent annotation defaults to global).
 func (r *rpcMethodInfo) IsDomainScoped() bool {
 	return r.PermissionScope == accesstypes.DomainPermissionScope
+}
+
+// ConditionName is the name a grant's condition reads the request field by
+// (new.<name>): the bare @attribute(name) on the field, found by the field's Go
+// name. Empty for a field no condition may read.
+func (r *rpcMethodInfo) ConditionName(field string) string {
+	for _, attribute := range r.RequestAttributes {
+		if attribute.Column == field {
+			return attribute.Name
+		}
+	}
+
+	return ""
 }
 
 // IsTxnForm reports whether Execute runs inside the generated handler's
@@ -787,6 +811,36 @@ func (r *rpcField) JSONTag() string {
 	return fmt.Sprintf("%s:%q", jsonTagKey, camelCaseName)
 }
 
+// validateTagKey is the struct tag a method's request field carries its validation rules
+// under, read by the validator the handler runs the decoded request through.
+const validateTagKey = "validate"
+
+// Optional reports whether a request may leave the field out: a pointer field, which
+// the method reads as not given when it is nil. The generated interface declares it
+// optional and the metadata says so, so a form sends nothing for an input left empty.
+func (r *rpcField) Optional() bool {
+	if r.wire != nil {
+		return r.wire.Pointer
+	}
+
+	return strings.HasPrefix(r.Type(), "*")
+}
+
+// Required reports whether the method refuses a request that leaves the field empty:
+// its validate tag names required. The metadata says so, so a form holds the input to it
+// before the request is sent.
+func (r *rpcField) Required() bool {
+	tag, ok := r.LookupTag(validateTagKey)
+
+	return ok && validateRequires(tag)
+}
+
+// validateRequires reports whether a validate tag holds the rule required, as a rule
+// of its own: required_if and its kin are conditions a form cannot judge.
+func validateRequires(tag string) bool {
+	return slices.Contains(strings.Split(tag, ","), "required")
+}
+
 // FormerWireName is the field's former wire name; empty for a field never renamed.
 func (r *rpcField) FormerWireName() string {
 	return formerWireName(r.Formerly)
@@ -827,6 +881,15 @@ func (r *rpcField) IsEnumerated() bool {
 	return r.enumeratedResource != ""
 }
 
+// isList reports whether the request field holds a list of values.
+func (r *rpcField) isList() bool {
+	if r.wire != nil {
+		return r.wire.Slice
+	}
+
+	return strings.HasSuffix(r.typescriptType, sliceSuffix)
+}
+
 func (r *rpcField) EnumeratedResource() string {
 	return r.enumeratedResource
 }
@@ -840,6 +903,10 @@ func (r *rpcField) applyEnumeration(src enumerationSource) {
 
 func (r *rpcField) TypescriptDisplayType() string {
 	if r.IsEnumerated() {
+		if r.isList() {
+			return enumeratedDisplayType + sliceSuffix
+		}
+
 		return enumeratedDisplayType
 	}
 	if r.wire != nil {
@@ -852,6 +919,10 @@ func (r *rpcField) TypescriptDisplayType() string {
 type computedResource struct {
 	*parser.Struct
 	outletMembership
+	// identity is the instance of an auth's generated management the resource belongs
+	// to, nil for one of the application's computed package. The generator names the
+	// instance's packages for it (computedDirOf, homeOf).
+	identity *identityInstance
 	pagingDecl
 	rowsOfDecl
 	publishDecl
@@ -873,6 +944,12 @@ type computedResource struct {
 	// Feature is the resource's @feature: the flag its routes and its digest entries
 	// are gated behind; nil when the resource is not gated.
 	Feature *featureGate
+
+	// Attributes are the fields of a row a grant's condition may read (a bare
+	// @attribute(name) on the field), the Column of each being the row struct's Go
+	// field: the library judges the rows the resource's function yields against
+	// them, in Go.
+	Attributes []resource.AttributeData
 }
 
 // IsDomainScoped reports whether the resource's @permissionScope resolves to the
@@ -1153,6 +1230,10 @@ func (c *computedField) TypescriptDataType() string {
 type resourceInfo struct {
 	*parser.TypeInfo
 	outletMembership
+	// identity is the auth whose generated management declares the resource, nil for a
+	// resource the application declares: everything written per package goes to the
+	// instance's packages for it (resourcesDirOf, homeOf).
+	identity *identityInstance
 	pagingDecl
 	rowsOfDecl
 	publishDecl
@@ -1720,7 +1801,7 @@ func (f *resourceField) UnwrappedNullType() *string {
 
 	var hasValidColumn bool
 	for i := range fields {
-		if fields[i].Name() == "Valid" && fields[i].DerefUnqualifiedType() == "bool" {
+		if fields[i].Name() == "Valid" && fields[i].DerefUnqualifiedType() == boolGoType {
 			hasValidColumn = true
 		}
 	}

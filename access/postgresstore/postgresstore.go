@@ -24,7 +24,6 @@ package postgresstore
 import (
 	"context"
 	"fmt"
-	"regexp"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access"
@@ -35,17 +34,6 @@ import (
 )
 
 var _ access.Store = (*Store)(nil)
-
-const defaultPrefix = "Access"
-
-var (
-	// prefixPattern keeps concatenated table names valid identifiers in both
-	// supported stores without quoting gymnastics (Spanner cannot quote its
-	// way around invalid identifiers, and the two stores must accept the same
-	// naming options).
-	prefixPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*$`)
-	storePattern  = regexp.MustCompile(`^[A-Za-z0-9]*$`)
-)
 
 // Option configures a Store.
 type Option func(*config)
@@ -83,24 +71,19 @@ type tableNames struct {
 }
 
 func resolveNames(opts []Option) (tableNames, error) {
-	c := config{prefix: defaultPrefix}
+	c := config{prefix: access.DefaultTablePrefix}
 	for _, opt := range opts {
 		opt(&c)
 	}
-
-	if !prefixPattern.MatchString(c.prefix) {
-		return tableNames{}, errors.Newf("invalid table prefix %q: must match %s", c.prefix, prefixPattern)
+	tables, err := access.TablesWithPrefix(c.prefix, c.store)
+	if err != nil {
+		return tableNames{}, errors.Wrap(err, "access.TablesWithPrefix()")
 	}
-	if !storePattern.MatchString(c.store) {
-		return tableNames{}, errors.Newf("invalid store name %q: must match %s", c.store, storePattern)
-	}
-
-	base := c.prefix + c.store
 	n := tableNames{
-		rawRoles:      base + "Roles",
-		rawUserRoles:  base + "UserRoles",
-		rawRoleGrants: base + "RoleGrants",
-		rawUserIndex:  base + "UserRolesByUser",
+		rawRoles:      tables.Roles,
+		rawUserRoles:  tables.UserRoles,
+		rawRoleGrants: tables.RoleGrants,
+		rawUserIndex:  tables.UserRolesByUser,
 	}
 	n.roles = pgx.Identifier{n.rawRoles}.Sanitize()
 	n.userRoles = pgx.Identifier{n.rawUserRoles}.Sanitize()

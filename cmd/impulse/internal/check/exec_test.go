@@ -34,8 +34,10 @@ func TestRegen(t *testing.T) {
 	tests := []struct {
 		name         string
 		skipGenerate bool
-		generateErr  error
-		generateOut  string
+		// program is the generator program the application holds, when the case needs one.
+		program     string
+		generateErr error
+		generateOut string
 		// generate stands in for what go generate does to the tree.
 		generate    func(t *testing.T, root string)
 		wantStatus  Status
@@ -105,6 +107,30 @@ func TestRegen(t *testing.T) {
 			wantCalls:   []string{generate},
 		},
 		{
+			// The GenerateIdentity tree is the generator's whole: its files carry plain
+			// names and are held like any generated file, while a file of the same name
+			// outside the tree is the application's own.
+			name:    "every file under a tree a generator owns is generated, whatever its name",
+			program: "package main\n\nimport \"github.com/impulseframework/impulse/generation\"\n\nfunc main() {\n\t_, _ = generation.NewResourceGenerator(nil, \"pkg/resources\", nil,\n\t\tgeneration.GenerateHandlers(\"app\"),\n\t\tgeneration.GenerateIdentity(\"pkg/identity\"),\n\t)\n}\n",
+			generate: func(t *testing.T, root string) {
+				t.Helper()
+				write(t, root, "pkg/identity/staffidentity/client.go", "package staffidentity // regenerated\n")
+				write(t, root, "pkg/identity/internal/staffresources/staff_sessions.go", "package staffresources\n")
+				if err := os.RemoveAll(filepath.Join(root, "pkg", "identity", "partnershandlers")); err != nil {
+					t.Fatal(err)
+				}
+				write(t, root, "pkg/config/client.go", "package config // edited by hand\n")
+			},
+			wantStatus:  Fail,
+			wantSummary: "3 generated file(s) changed when regenerated; commit the regenerated files if the change is intentional",
+			wantDetails: []string{
+				"pkg/identity/internal/staffresources/staff_sessions.go (written)",
+				"pkg/identity/partnershandlers/handlers.go (removed)",
+				"pkg/identity/staffidentity/client.go (changed)",
+			},
+			wantCalls: []string{generate},
+		},
+		{
 			name: "generated files under node_modules are not the application's",
 			generate: func(t *testing.T, root string) {
 				t.Helper()
@@ -124,6 +150,17 @@ func TestRegen(t *testing.T) {
 			write(t, root, "pkg/router/zz_gen_stale.go", "package router\n")
 			write(t, root, "README.md", "hand-written\n")
 			write(t, root, "gui/node_modules/dep/zz_gen_thing.js", "vendored\n")
+			write(t, root, "pkg/identity/staffidentity/client.go", "package staffidentity\n")
+			write(t, root, "pkg/identity/partnershandlers/handlers.go", "package partnershandlers\n")
+			write(t, root, "pkg/config/client.go", "package config\n")
+			application := &app.App{Root: root}
+			if tt.program != "" {
+				g, err := app.ParseGenerator("cmd/generate/main.go", []byte(tt.program))
+				if err != nil || g == nil {
+					t.Fatalf("app.ParseGenerator() = %v, error = %v, want the case's program read", g, err)
+				}
+				application.Generators = []*app.Generator{g}
+			}
 
 			answers := map[string]fakeAnswer{}
 			if !tt.skipGenerate {
@@ -134,7 +171,7 @@ func TestRegen(t *testing.T) {
 				answers[generate] = answer
 			}
 			exec := &fakeExec{t: t, answers: answers}
-			got := regen{}.Run(context.Background(), &Env{App: &app.App{Root: root}, Exec: exec, SkipGenerate: tt.skipGenerate})
+			got := regen{}.Run(context.Background(), &Env{App: application, Exec: exec, SkipGenerate: tt.skipGenerate})
 			want := Result{Name: regen{}.Name(), Status: tt.wantStatus, Summary: tt.wantSummary, Details: tt.wantDetails}
 			if diff := cmp.Diff(want, got); diff != "" {
 				t.Errorf("Run() mismatch (-want +got):\n%s", diff)

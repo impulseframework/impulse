@@ -5,14 +5,20 @@ package app
 
 import (
 	"github.com/impulseframework/impulse/lodestar/pkg/computedresources"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewhandlers"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/membershandlers"
 	"github.com/impulseframework/impulse/lodestar/pkg/virtualresources"
 	"github.com/impulseframework/impulse/resource/live"
 )
 
 // liveDerivations is the application's live derivations: the LiveDerivations of every
 // package holding a published virtual or computed resource, generated next to the
-// resources, merged into the one value the generated handlers hand to every publish.
+// resources, and of every auth whose generated management declares views, generated in
+// the auth's handlers package, merged into the one value the generated handlers hand to
+// every publish.
 var liveDerivations = live.Merge(
 	computedresources.LiveDerivations,
+	crewhandlers.LiveDerivations,
+	membershandlers.LiveDerivations,
 	virtualresources.LiveDerivations,
 )

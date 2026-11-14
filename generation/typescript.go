@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/ettle/strcase"
@@ -24,9 +25,6 @@ type typescriptGenerator struct {
 	typescriptDestination string
 	rc                    *resource.GeneratedCollection
 	routerResources       []accesstypes.Resource
-	// userSurfaces are the user-management surfaces the router serves, filtered to the
-	// target outlet's by userSurfacesOn.
-	userSurfaces []*userSurface
 	// tokenIssuers are the descriptor's tokens blocks by session outlet, for the outlets
 	// whose Auth issues tokens for the application's machine outlets (tokenIssuers);
 	// tokensOn picks the target outlet's.
@@ -221,7 +219,48 @@ func (t *typescriptGenerator) parseResources(packageMap map[string]*packages.Pac
 		sortResources(resources)
 	}
 
+	identityResources, err := t.identityResources(packageMap, pkg)
+	if err != nil {
+		return nil, nil, err
+	}
+	// A declaration of an auth's generated management that serves no route has nothing
+	// for a browser: it is declared for the methods' own reads and writes.
+	identityResources = slices.DeleteFunc(identityResources, func(res *resourceInfo) bool {
+		return len(resourceEndpoints(res)) == 0
+	})
+	if len(identityResources) > 0 {
+		resources = append(resources, identityResources...)
+		sortResources(resources)
+	}
+
 	return resources, resourcesPkg, nil
+}
+
+// parseRPCMethods parses the methods a browser client may carry into the target: the
+// application's RPC package and the methods of every auth's generated management, in
+// name order, the scheduled ones apart.
+func (t *typescriptGenerator) parseRPCMethods(packageMap map[string]*packages.Package) error {
+	if !t.hasRPC() {
+		return nil
+	}
+	methods, err := t.identityMethods(packageMap, packageMap[t.resource.Package()])
+	if err != nil {
+		return err
+	}
+	if t.genRPCMethods {
+		pkg := packageMap[t.rpc.Package()]
+		own, err := t.structsToRPCMethods(parser.ParsePackage(pkg).Structs, t.validateStructNameMatchesFile(pkg, false), validateNoPermTags, validateConditionsTags, validateMaskingTags)
+		if err != nil {
+			return err
+		}
+		methods = append(methods, own...)
+	}
+	sortMethods(methods)
+	// A scheduled method is Cloud Scheduler's to call, never a browser's: the
+	// client carries the methods a person calls alone.
+	t.rpcMethods, t.scheduledMethods = splitScheduled(methods)
+
+	return t.validateRPCPickerSources(t.rpcMethods)
 }
 
 func (t *typescriptGenerator) Generate() error {
@@ -255,6 +294,19 @@ func (t *typescriptGenerator) Generate() error {
 		}
 	}
 
+	// The computed resources of an auth's generated management, declared beside its
+	// methods.
+	generated, err := t.identityComputedResources(packageMap, packageMap[t.resource.Package()])
+	if err != nil {
+		return err
+	}
+	if len(generated) > 0 {
+		computedResources = append(computedResources, generated...)
+		slices.SortStableFunc(computedResources, func(a, b *computedResource) int {
+			return strings.Compare(a.Name(), b.Name())
+		})
+	}
+
 	// A field-scope @enumerate may name a computed resource, so the declarations
 	// resolve only now, against every kind, before the filter narrows the sets.
 	t.computedResources = computedResources
@@ -272,19 +324,8 @@ func (t *typescriptGenerator) Generate() error {
 		return err
 	}
 
-	if t.genRPCMethods {
-		pkg := packageMap[t.rpc.Package()]
-		rpcStructs := parser.ParsePackage(pkg).Structs
-		methods, err := t.structsToRPCMethods(rpcStructs, t.validateStructNameMatchesFile(pkg, false), validateNoPermTags, validateConditionsTags, validateMaskingTags)
-		if err != nil {
-			return err
-		}
-		// A scheduled method is Cloud Scheduler's to call, never a browser's: the
-		// client carries the methods a person calls alone.
-		t.rpcMethods, t.scheduledMethods = splitScheduled(methods)
-		if err := t.validateRPCPickerSources(t.rpcMethods); err != nil {
-			return err
-		}
+	if err := t.parseRPCMethods(packageMap); err != nil {
+		return err
 	}
 
 	resources, computedResources, err = t.applyOutletFilter(resources, computedResources)
@@ -429,8 +470,7 @@ func (t *typescriptGenerator) generateTypescriptMetadata() error {
 func (t *typescriptGenerator) generateResourceMetadata() error {
 	begin := time.Now()
 	log.Println("Starting resource metadata generation...")
-	userResources := t.tsUserResourcesOn()
-	hasDomainScoped := anyDomainScoped(t.resources, t.computedResources, userResources)
+	hasDomainScoped := anyDomainScoped(t.resources, t.computedResources)
 
 	output, err := t.generateTemplateOutput(typescriptResourcesTemplate, typescriptResourcesTemplate, tsResourcesData{
 		File:              t,
@@ -444,7 +484,6 @@ func (t *typescriptGenerator) generateResourceMetadata() error {
 		HasDomainScoped:   hasDomainScoped,
 		Workflows:         t.assembleWorkflows(),
 		FeatureFlags:      t.servesFeatureFlags(),
-		UserResources:     userResources,
 	})
 	if err != nil {
 		return errors.Wrap(err, "generateTemplateOutput()")
@@ -464,7 +503,7 @@ func (t *typescriptGenerator) generateResourceMetadata() error {
 // table, virtual or computed resource annotated @permissionScope(domain), or a user
 // surface's tenant partition. The domain route exports (DomainRouteParam, DomainRoutePath)
 // are emitted exactly then, as the client's domainRoute is.
-func anyDomainScoped(resources []*resourceInfo, computed []*computedResource, users []*tsUserResource) bool {
+func anyDomainScoped(resources []*resourceInfo, computed []*computedResource) bool {
 	for _, res := range resources {
 		if res.IsDomainScoped() {
 			return true
@@ -472,11 +511,6 @@ func anyDomainScoped(resources []*resourceInfo, computed []*computedResource, us
 	}
 	for _, res := range computed {
 		if res.IsDomainScoped() {
-			return true
-		}
-	}
-	for _, res := range users {
-		if res.Scope == accesstypes.DomainPermissionScope {
 			return true
 		}
 	}
@@ -501,7 +535,6 @@ func (t *typescriptGenerator) generateMethodMetadata() error {
 		RPCMethods:   t.rpcMethods,
 		GenPrefix:    genPrefix,
 		FeatureFlags: t.servesFeatureFlags(),
-		UserMethods:  t.tsUserMethodsOn(),
 	})
 	if err != nil {
 		return errors.Wrap(err, "generateTemplateOutput()")
@@ -828,17 +861,9 @@ func (t *typescriptGenerator) apiClientData() *tsAPIData {
 		data.Resources = append(data.Resources, featureFlagsAPIResource())
 		data.Methods = append(data.Methods, setFeatureAPIMethod())
 	}
-	// The user-management surfaces the outlet serves, carried as the generated
-	// resources and methods are.
-	for _, res := range t.tsUserResourcesOn() {
-		data.Resources = append(data.Resources, res.apiResource())
-	}
-	for _, method := range t.tsUserMethodsOn() {
-		data.Methods = append(data.Methods, method.apiMethod())
-	}
-	for _, s := range t.userSurfacesOn() {
-		data.UserSurfaces = append(data.UserSurfaces, s.apiSurface())
-	}
+	// The generated management of the auths the outlet serves it for, named from the
+	// resources and the methods gathered above.
+	data.Identity = t.identityOn(data)
 	// The token routes the outlet serves when its Auth issues tokens for the
 	// application's machine outlets, carried for the token page and the device page.
 	data.Tokens = t.tokensOn()

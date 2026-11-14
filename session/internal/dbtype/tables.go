@@ -20,3 +20,22 @@ func ValidateTableName(name string) error {
 
 	return nil
 }
+
+// The library's own names for an Auth's tables: what each driver reads and writes until
+// an option or a storage constructor names another, what the library's schema sets create
+// (schema/spanner/migrations and schema/spanner/auth/migrations), and what an Auth kept
+// under a prefix leads with the prefix (session.TablesWithPrefix).
+const (
+	SessionsTable       = "Sessions"
+	UsersTable          = "SessionUsers"
+	IdentitiesTable     = "SessionIdentities"
+	PendingSignInsTable = "SessionPendingSignIns"
+	SignInAttemptsTable = "SessionSignInAttempts"
+	MailLinksTable      = "SessionMailLinks"
+	FactorCodesTable    = "SessionFactorCodes"
+	TrustedDevicesTable = "SessionTrustedDevices"
+	TokensTable         = "SessionTokens"
+	DeviceCodesTable    = "SessionDeviceCodes"
+	AuthEventsTable     = "SessionAuthEvents"
+	ImpersonationsTable = "SessionImpersonations"
+)

@@ -87,7 +87,7 @@ func (a *App) ReleaseConsignment() http.HandlerFunc {
 
 			// A row-referencing condition on the caller's Execute grant
 			// evaluates against the located row, in this transaction.
-			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "Consignments", Label: "Consignment", PKColumn: "Id"}, p.ConsignmentID); err != nil {
+			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "Consignments", Label: "Consignment", PKColumns: []string{"Id"}}, p.ConsignmentID); err != nil {
 				return err
 			}
 			answer, err := p.Execute(ctx, txn, a.RPCClient())

@@ -15,6 +15,5 @@ export * from './src/search';
 export * from './src/store';
 export * from './src/tokens';
 export * from './src/transport';
-export * from './src/users';
 export * from './src/versions';
 export * from './src/warnings';

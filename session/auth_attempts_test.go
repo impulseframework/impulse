@@ -16,6 +16,7 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/azure"
+	"github.com/impulseframework/impulse/session/internal/attempts"
 	internalcookie "github.com/impulseframework/impulse/session/internal/cookie"
 	"github.com/impulseframework/impulse/session/internal/workos"
 	"github.com/impulseframework/impulse/session/mock/mock_azure"
@@ -741,5 +742,61 @@ func TestRetryAfterSeconds(t *testing.T) {
 				t.Errorf("retryAfterSeconds(%v) = %d, want %d", tt.wait, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestSignInAttemptName pins the key a name's failed sign-ins are counted under, for a
+// caller that deletes the row itself: the name case-folded and in NFC, as the limiter
+// keys it.
+func TestSignInAttemptName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		username string
+		want     string
+	}{
+		{name: "a lowercase name is itself", username: "pat", want: "pat"},
+		{name: "another case is the same name", username: "Pat@Example.COM", want: "pat@example.com"},
+		{name: "a decomposed letter is composed", username: "renée", want: "renée"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := SignInAttemptName(tt.username); got != tt.want {
+				t.Errorf("SignInAttemptName(%q) = %q, want %q", tt.username, got, tt.want)
+			}
+			if got, limiter := SignInAttemptName(tt.username), attempts.Normalize(tt.username); got != limiter {
+				t.Errorf("SignInAttemptName(%q) = %q, the limiter keys it %q", tt.username, got, limiter)
+			}
+		})
+	}
+}
+
+// TestAuthAPI_HashPassword pins the hash a caller writes in a transaction of its own:
+// the text the users table's column holds, made by the password method's hasher, which
+// the sign-in then compares the password against; an empty password is refused.
+func TestAuthAPI_HashPassword(t *testing.T) {
+	t.Parallel()
+
+	f := newAuthFixture(t, gomock.NewController(t))
+	text, err := f.auth.API().HashPassword("correct horse")
+	if err != nil {
+		t.Fatalf("HashPassword() error = %v", err)
+	}
+	var hash securehash.Hash
+	if err := hash.UnmarshalText([]byte(text)); err != nil {
+		t.Fatalf("the hash does not read back as the column's text: %v", err)
+	}
+	hasher := securehash.New(securehash.Argon2())
+	if _, err := hasher.Compare(&hash, "correct horse"); err != nil {
+		t.Errorf("the hash does not match its password: %v", err)
+	}
+	if _, err := hasher.Compare(&hash, "wrong"); err == nil {
+		t.Error("the hash matches another password")
+	}
+	if _, err := f.auth.API().HashPassword(""); !httpio.HasBadRequest(err) {
+		t.Errorf("HashPassword(\"\") error = %v, want a bad request", err)
 	}
 }

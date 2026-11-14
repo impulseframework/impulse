@@ -97,8 +97,8 @@ type AuthMethodArg struct {
 	InvitedUsers bool
 	// SyncsRoles is set when the declaration chains .SyncsRoles(): the directory writes
 	// the user's roles at every sign-in (its role groups, or the token's application
-	// roles), as the registration's RoleSync does, so the users surface shows them as the
-	// directory's and never writes them.
+	// roles), as the registration's RoleSync does, so the generated management shows them
+	// as the directory's and never writes them.
 	SyncsRoles bool
 	// OpenSignUp is set when the declaration chains .OpenSignUp(): the directory admits
 	// anyone it verifies, the rule a self-service tenant record needs; on the password
@@ -187,6 +187,10 @@ func (g *Generator) RoutesDir() string { return g.firstString(optGenerateRoutes)
 
 // HandlerTestsDir is the GenerateHandlerTests target directory, or empty.
 func (g *Generator) HandlerTestsDir() string { return g.firstString("GenerateHandlerTests") }
+
+// IdentityDir is the GenerateIdentity tree, the directory the generator writes the
+// management of every declared auth into and owns whole, or empty.
+func (g *Generator) IdentityDir() string { return g.firstString("GenerateIdentity") }
 
 // RPCDir is the WithRPC package directory, or empty.
 func (g *Generator) RPCDir() string { return g.firstString("WithRPC") }

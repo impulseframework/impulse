@@ -97,8 +97,23 @@ func (c *client) validatePickerSources(resources []*resourceInfo, computed []*co
 	return nil
 }
 
+// listPickerSourceRefusal is the refusal for a request field that takes several picked
+// keys of a source that declares a maximum, or "" when the source is fine. A picker of
+// one key over a paged source shows a page at a time and reads the chosen row by key; a
+// picker of several shows every row with a mark beside each chosen one, so it reads its
+// source whole, and a source that pages would show the marks of its first page alone.
+func (c *client) listPickerSourceRefusal(source string) string {
+	src, ok := c.pickerSourceOf(source)
+	if !ok || src.pageMax == 0 {
+		return ""
+	}
+
+	return fmt.Sprintf("the picker takes several keys of %s, which serves at most %d rows per page; a picker of several reads its source whole, so drop the @page maximum of %s or take one key", source, src.pageMax, source)
+}
+
 // validateRPCPickerSources is validatePickerSources for request fields, which
-// always declare their picker source; run once the methods are parsed.
+// always declare their picker source; run once the methods are parsed. A request
+// field that takes several keys is held to a source read whole.
 func (c *client) validateRPCPickerSources(methods []*rpcMethodInfo) error {
 	var errs []error
 	for _, method := range methods {
@@ -106,7 +121,11 @@ func (c *client) validateRPCPickerSources(methods []*rpcMethodInfo) error {
 			if !field.IsEnumerated() || field.Enumeration != "" {
 				continue
 			}
-			if problem := c.boundedPickerSourceRefusal(field.EnumeratedResource(), true); problem != "" {
+			problem := c.boundedPickerSourceRefusal(field.EnumeratedResource(), true)
+			if field.isList() {
+				problem = c.listPickerSourceRefusal(field.EnumeratedResource())
+			}
+			if problem != "" {
 				errs = append(errs, errors.Newf("RPC method %s field %s: %s", method.Name(), field.Name(), problem))
 			}
 		}

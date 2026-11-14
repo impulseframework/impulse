@@ -11,6 +11,7 @@ import {
   Signal,
   signal,
   Type,
+  untracked,
   viewChild,
 } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
@@ -52,6 +53,8 @@ import { ResourceStore } from '../resource-store.service';
 export class ResourceArrayViewComponent implements OnInit {
   resourceMeta = inject(RESOURCE_META);
   store = inject(ResourceStore);
+  /** The store of the row page the children sit under: the count of the methods that ran against the row or under it. */
+  private pageStore = inject(ResourceStore, { skipSelf: true, optional: true });
   injector = inject(Injector);
 
   resourceConfig = input.required<ArrayConfig>();
@@ -168,6 +171,25 @@ export class ResourceArrayViewComponent implements OnInit {
   }
 
   constructor() {
+    // A method that ran against the page's row, or from one of its lists, may have
+    // changed these children: they are read again. The first run only notes the count
+    // the view opened on.
+    let seen = this.pageStore?.rowChanges() ?? 0;
+    effect(() => {
+      const count = this.pageStore?.rowChanges() ?? 0;
+      if (count === seen) {
+        return;
+      }
+      seen = count;
+      untracked(() => {
+        if (this.paged()) {
+          this.store.reloadPage();
+        } else {
+          this.store.reloadListData();
+        }
+      });
+    });
+
     // The filter follows the parent row: nothing until the row is on hand, then the
     // configured listFilter over it, and the reader built once. A later change of the
     // row (a reload after a save) re-runs this, sets the same filter string, and issues

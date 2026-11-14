@@ -200,9 +200,9 @@ func (b *browser) askCodeLocked(ctx context.Context, enroll bool, address string
 // does: the development login's password is accepted and the sign-in waits for the code;
 // the login holds no address, so it gives one and the code goes there; a wrong code is
 // refused and the right one, read from the mail the auth sent, opens the session and
-// remembers the browser, which is not asked at its next sign-in; an administrator resets
-// the login's remembered browsers from the users surface, and the sign-in after that
-// waits for the code again.
+// remembers the browser, which is not asked at its next sign-in; an administrator makes
+// the server forget the login's remembered browsers through the auth's generated
+// management, and the sign-in after that waits for the code again.
 func TestSecondFactor(t *testing.T) {
 	t.Parallel()
 
@@ -262,14 +262,14 @@ func TestSecondFactor(t *testing.T) {
 		t.Fatalf("session from the remembered browser = %+v, want authenticated", sess)
 	}
 
-	// An administrator resets the login's second factor from the users surface: the
-	// remembered browsers are forgotten, and the next sign-in waits for the code again.
-	reset, err := json.Marshal(map[string]string{"user": s.adminID})
+	// An administrator makes the server forget the login's remembered browsers through
+	// the generated method: the next sign-in waits for the code again.
+	reset, err := json.Marshal(map[string]string{"userId": s.adminID})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if status, body := b.do(ctx, http.MethodPost, "/api/reset-staff-user-factors", reset); status != http.StatusOK {
-		t.Fatalf("POST /api/reset-staff-user-factors: status %d: %s", status, body)
+	if status, body := b.do(ctx, http.MethodPost, "/api/revoke-staff-user-trusted-devices", reset); status != http.StatusNoContent {
+		t.Fatalf("POST /api/revoke-staff-user-trusted-devices: status %d: %s", status, body)
 	}
 	b.logout(ctx)
 	if status, body := b.login(ctx, adminUser, adminPassword); status != http.StatusOK || !heldForFactor(t, body) {

@@ -12,7 +12,7 @@ import (
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
-// testUserAccounts pins the user row as the user-management surface reads it: the
+// testUserAccounts pins the user row as the management of an auth's users reads it: the
 // password change mark travels with the insert, CreatedAt is the database's time at
 // the insert, LastSignInAt is nil before the first sign-in, and the users list orders
 // by username without regard to case, each user as stored.

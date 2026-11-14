@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"net/http"
+	"slices"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -24,8 +25,8 @@ import (
 // the mailbox, and the account they sign in with is theirs. The login page opens the
 // invitation (Invitation().Open()), which sets an encrypted cookie holding its token,
 // so the sign-in that follows, external round trip included, carries it; the store
-// accepts it once the user is known, and the application's hook grants the roles in
-// the same transaction. A person already signed in accepts with Accept(). See
+// accepts it once the user is known, and the application's hook gives the roles in
+// the same transaction, which it is handed. A person already signed in accepts with Accept(). See
 // "Invitations" in the README.
 
 // invitationCookieKey is the invitation cookie's value holding the token.
@@ -257,7 +258,10 @@ func (a *Auth[S, U, Tx]) invitationAccept() http.HandlerFunc {
 		}
 		user := sessioninfo.UserFromCtx(ctx)
 		if err := a.storage.AcceptInvitation(ctx, user.ID, user.Username, addressOf(user.Email), inv, a.acceptInvitation); err != nil {
-			if httpio.HasNotFound(err) {
+			// A dead invitation is nothing to carry any more. The hook's own error,
+			// whatever it is (a role that is not found, say), leaves the invitation
+			// standing and the browser carrying it.
+			if errors.Is(err, signin.ErrInvitationExpired) {
 				a.invitationCookies.Cookie().Delete(w, a.settings.invitationCookie, a.invitationCookies.Domain)
 			}
 			// The person signed in holds another address: the invitation stands for the
@@ -392,16 +396,9 @@ func (p *AuthAPI[S, U, Tx]) Invite(ctx context.Context, req *InvitationRequest) 
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	m, err := p.auth.mailOf()
+	m, email, err := p.auth.invitee(req.Email)
 	if err != nil {
 		return nil, err
-	}
-	email, err := address(req.Email)
-	if err != nil {
-		return nil, err
-	}
-	if !p.auth.couldAdmitAddress(email) {
-		return nil, httpio.NewBadRequestMessagef("No sign-in method of this application accepts an address at %s.", signin.AddressDomain(email))
 	}
 	token, hash, err := linkToken()
 	if err != nil {
@@ -415,15 +412,145 @@ func (p *AuthAPI[S, U, Tx]) Invite(ctx context.Context, req *InvitationRequest) 
 	if err := p.auth.storage.InsertMailLink(ctx, link); err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.InsertMailLink()")
 	}
-	if err := p.auth.send(ctx, m.invitationMessage(email, token, lifetime)); err != nil {
-		if rerr := p.auth.storage.RevokeMailLink(ctx, link.ID); rerr != nil {
-			logger.FromCtx(ctx).Error(errors.Wrap(rerr, "sessionstorage.AuthStore.RevokeMailLink()"))
-		}
-
+	if err := p.auth.sendInvitation(ctx, m, link.ID, email, token, lifetime); err != nil {
 		return nil, err
 	}
 
 	return invitationOf(link), nil
+}
+
+// invitee applies the checks an invitation's address is held to before anything is
+// stored or mailed: the Auth sends mail, the address is one, and a sign-in method the
+// login page offers could admit it. It answers the mail settings and the address bare.
+func (a *Auth[S, U, Tx]) invitee(to string) (*mailSettings, string, error) {
+	m, err := a.mailOf()
+	if err != nil {
+		return nil, "", err
+	}
+	email, err := address(to)
+	if err != nil {
+		return nil, "", err
+	}
+	if !a.couldAdmitAddress(email) {
+		return nil, "", httpio.NewBadRequestMessagef("No sign-in method of this application accepts an address at %s.", signin.AddressDomain(email))
+	}
+
+	return m, email, nil
+}
+
+// sendInvitation mails the stored invitation id its link. A message that could not be
+// sent withdraws the invitation, so no link stands that nobody holds, and is the error.
+func (a *Auth[S, U, Tx]) sendInvitation(ctx context.Context, m *mailSettings, id impulse.UUID, email, token string, lifetime time.Duration) error {
+	if err := a.send(ctx, m.invitationMessage(email, token, lifetime)); err != nil {
+		if rerr := a.storage.RevokeMailLink(ctx, id); rerr != nil {
+			logger.FromCtx(ctx).Error(errors.Wrap(rerr, "sessionstorage.AuthStore.RevokeMailLink()"))
+		}
+
+		return err
+	}
+
+	return nil
+}
+
+// InvitationRow is the row a prepared invitation is stored as, in the mail links table
+// (Tables.MailLinks), for a caller that writes it in a transaction of its own. The
+// caller writes every field to the column of its name (TokenHash as the bytes they
+// are), Kind as sessionstorage.MailLinkInvitation, CreatedAt as the commit time, and
+// leaves UserId and ConsumedAt null; Tenant is null for the application's global
+// surface (""), and InvitedBy null when unknown. The row is what the sign-in reads
+// when the link is followed, so a row written otherwise is an invitation nobody can
+// accept.
+type InvitationRow struct {
+	// ID is the invitation's id.
+	ID impulse.UUID
+	// TokenHash is the hash the link's token is found by. The token itself is in the
+	// message alone; the hash is a secret of the table and is served nowhere.
+	TokenHash []byte
+	// Email is the invited address, bare.
+	Email string
+	// Tenant is the tenant the acceptance seats the person in, "" for the
+	// application's global surface, and RoleNames the roles it grants.
+	Tenant    string
+	RoleNames []string
+	// InvitedBy is the user who sent the invitation, null when unknown.
+	InvitedBy impulse.NullUUID
+	// ExpiresAt is when the link stops being accepted.
+	ExpiresAt time.Time
+}
+
+// PreparedInvitation is an invitation checked and made, and neither stored nor mailed
+// yet: the row to store, and the step that mails its link. The token, the message and
+// the sender stay inside it. It is for a caller that stores the row in a transaction of
+// its own beside other writes (the generated user management): the row is written
+// there, and Send runs once that transaction has committed, since a message cannot be
+// taken back if the commit fails. It is an interface so that code written over one is
+// tested without an Auth; the Auth's is the only one that mails.
+type PreparedInvitation interface {
+	// Row answers the row to store, the caller's own copy.
+	Row() *InvitationRow
+	// Send mails the invitation's link to its address. Call it once the row is
+	// committed. A message that could not be sent withdraws the invitation, in the
+	// Auth's own storage, so no link stands that nobody holds, and is the error; the
+	// caller reports that the mail did not go, and the invitation is sent again by
+	// inviting again.
+	Send(ctx context.Context) error
+}
+
+// preparedInvitation is the Auth's PreparedInvitation.
+type preparedInvitation struct {
+	row  InvitationRow
+	send func(ctx context.Context) error
+}
+
+// Row implements PreparedInvitation.
+func (p *preparedInvitation) Row() *InvitationRow {
+	row := p.row
+	row.TokenHash = slices.Clone(p.row.TokenHash)
+	row.RoleNames = slices.Clone(p.row.RoleNames)
+
+	return &row
+}
+
+// Send implements PreparedInvitation.
+func (p *preparedInvitation) Send(ctx context.Context) error {
+	return p.send(ctx)
+}
+
+// PrepareInvitation checks and makes an invitation to req.Email without storing or
+// mailing it: the checks Invite makes (the Auth sends mail, the address is one, and a
+// sign-in method the login page offers could admit it), the token and its hash, and
+// the time the link stands for (MailSettings.InvitationTimeout). The caller stores the
+// row (PreparedInvitation.Row) in a transaction of its own and, once that has
+// committed, mails the link (PreparedInvitation.Send). Invite is the two in the Auth's
+// own storage.
+func (p *AuthAPI[S, U, Tx]) PrepareInvitation(ctx context.Context, req *InvitationRequest) (PreparedInvitation, error) {
+	_, span := tracer.Start(ctx)
+	defer span.End()
+
+	a := p.auth
+	m, email, err := a.invitee(req.Email)
+	if err != nil {
+		return nil, err
+	}
+	token, hash, err := linkToken()
+	if err != nil {
+		return nil, err
+	}
+	id, err := impulse.NewUUID()
+	if err != nil {
+		return nil, errors.Wrap(err, "impulse.NewUUID()")
+	}
+	lifetime := m.settings.InvitationTimeout
+
+	return &preparedInvitation{
+		row: InvitationRow{
+			ID: id, TokenHash: hash, Email: email, Tenant: req.Tenant, RoleNames: slices.Clone(req.RoleNames), InvitedBy: req.InvitedBy,
+			ExpiresAt: time.Now().Add(lifetime),
+		},
+		send: func(ctx context.Context) error {
+			return a.sendInvitation(ctx, m, id, email, token, lifetime)
+		},
+	}, nil
 }
 
 // Invitations lists the invitations that stand: sent, not accepted, not revoked and

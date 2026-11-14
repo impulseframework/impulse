@@ -154,6 +154,18 @@ func (mr *MockControllerMockRecorder) Handlers(handler any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Handlers", reflect.TypeOf((*MockController)(nil).Handlers), handler)
 }
 
+// PolicyChanged mocks base method.
+func (m *MockController) PolicyChanged() {
+	m.ctrl.T.Helper()
+	m.ctrl.Call(m, "PolicyChanged")
+}
+
+// PolicyChanged indicates an expected call of PolicyChanged.
+func (mr *MockControllerMockRecorder) PolicyChanged() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PolicyChanged", reflect.TypeOf((*MockController)(nil).PolicyChanged))
+}
+
 // RoleHasGrants mocks base method.
 func (m *MockController) RoleHasGrants(ctx context.Context, role accesstypes.Role, scope accesstypes.Scope) (bool, error) {
 	m.ctrl.T.Helper()
@@ -496,6 +508,21 @@ func (mr *MockUserManagerMockRecorder) DeleteUserRoles(ctx, scope, user any, rol
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, scope, user}, roles...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteUserRoles", reflect.TypeOf((*MockUserManager)(nil).DeleteUserRoles), varargs...)
+}
+
+// Membership mocks base method.
+func (m *MockUserManager) Membership(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, held access.RoleReader) (access.MembershipKey, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Membership", ctx, scope, user, role, held)
+	ret0, _ := ret[0].(access.MembershipKey)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Membership indicates an expected call of Membership.
+func (mr *MockUserManagerMockRecorder) Membership(ctx, scope, user, role, held any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Membership", reflect.TypeOf((*MockUserManager)(nil).Membership), ctx, scope, user, role, held)
 }
 
 // ResolveRole mocks base method.

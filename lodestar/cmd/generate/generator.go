@@ -20,6 +20,19 @@ func NewGenerator(ctx context.Context) (generation.Generator, error) {
 		"pkg/resources",
 		[]string{"file://schema/migrations"},
 		generation.GenerateHandlers("app"),
+		// The management of each auth's people is generated into pkg/identity, a tree
+		// the generator owns: resources over the auth's own tables and the methods that
+		// change them, served on the auth's outlet and on every outlet that manages it.
+		// Lodestar has a tenant record (Sector), so each auth also gets the lists a
+		// sector keeps of its people, served under the sector's address (the sector's
+		// people, the roles held there, the sector's invitations and its people's
+		// identities), the methods a sector changes them through, each naming a row
+		// of one of the lists, and for the crew, whose roles a sector gives by hand, the
+		// roles a sector picks from: a computed resource the permission engine answers,
+		// which the Sector Marshal's grant trims by a condition on the role's name.
+		//
+		// Demonstrates: auth.generated-identity, auth.tenant-lists, auth.tenant-methods, auth.tenant-role-picker, condition.list-attribute, computed.row-condition.
+		generation.GenerateIdentity("pkg/identity"),
 		// The router is generated: the default outlet is the console, the crew auth's
 		// sessions under /console/api, opened with a password or through the fleet's
 		// Google directory, with the console's browser application at /console. No application is mounted at /: an installed browser application
@@ -38,8 +51,7 @@ func NewGenerator(ctx context.Context) (generation.Generator, error) {
 			// crew's roles are the application's on every method (crew.go registers the
 			// directory with DisableRoleSync): a registration whose directory writes the
 			// roles stands alone on its auth, which the members auth below shows; the
-			// user-management surface the generator serves for the crew seats everyone
-			// by hand.
+			// management the generator writes for the crew gives every role by hand.
 			//
 			// The third method is the sign-up registration (crew.SignUpRegistration):
 			// any Google account under the open sign-up rule, declared OpenSignUp, which
@@ -47,15 +59,15 @@ func NewGenerator(ctx context.Context) (generation.Generator, error) {
 			// signs in before charting a sector of their own; the router mounts it at
 			// /console/api/user/sign-up/login and the login page offers it under its label.
 			//
-			// Demonstrates: auth.multi-method, auth.user-management, auth.open-sign-up, auth.password-sign-up.
+			// Demonstrates: auth.multi-method, auth.open-sign-up, auth.password-sign-up.
 			generation.Auth("github.com/impulseframework/impulse/lodestar/pkg/auth/crew", generation.PasswordMethod().OpenSignUp(), generation.GoogleMethod("google").Labeled("Lodestar"), generation.GoogleMethod("sign-up").OpenSignUp(), generation.PersonaMethod("persona").InvitedUsers()),
 			generation.WebApp("/console"),
-			// The console also manages the members: the members auth's users, seats and
-			// roles are served under /console/api beside the crew's, through the members
-			// auth's stores and checked against the crew role file, so headquarters
-			// administers both populations from one place.
+			// The console also manages the members: the lists and methods of the members
+			// auth's generated management are served under /console/api beside the crew's,
+			// over the members auth's tables and checked against the crew role file, so
+			// headquarters administers both populations from one place.
 			//
-			// Demonstrates: auth.user-management.
+			// Demonstrates: auth.generated-identity.
 			generation.Manages("github.com/impulseframework/impulse/lodestar/pkg/auth/members"),
 			// The oldest release of the console the server still answers. A console build
 			// sends the release it was built from in X-Api-Version, and the generated router

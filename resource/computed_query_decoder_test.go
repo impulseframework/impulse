@@ -149,7 +149,7 @@ func TestComputedQueryDecoder_Decode_permissionEnforcement(t *testing.T) {
 			wantErrContains: "sort or filter on tagged",
 		},
 		{
-			name:   "sort on a conditionally granted field is Forbidden, not an invariant breach",
+			name:   "sort on a conditionally granted field is Forbidden: the handler orders by the field's real values",
 			target: "/?sort=tagged",
 			grants: map[accesstypes.Permission][]accesstypes.Resource{
 				accesstypes.List: {computedEnforcedResource, computedEnforcedResource + ".public"},
@@ -160,16 +160,20 @@ func TestComputedQueryDecoder_Decode_permissionEnforcement(t *testing.T) {
 			wantForbidden:   true,
 			wantErrContains: "must be granted unconditionally",
 		},
+		// A grant under a condition is a grant: it passes the decoder, which keeps the
+		// condition for the rows (computed_conditions_test.go judges them). It is
+		// resolved against the attributes the collection holds, so a decoder with no
+		// collection refuses it.
 		{
-			name:   "conditional resource-level grant is an invariant breach, not Forbidden",
+			name:   "a conditional resource-level grant needs the collection its condition resolves against",
 			target: "/?limit=all",
 			conditional: map[accesstypes.Permission][]accesstypes.Resource{
 				accesstypes.List: {computedEnforcedResource},
 			},
-			wantErrContains: "invariant breach",
+			wantErrContains: "the decoder holds no collection",
 		},
 		{
-			name:   "conditional grant on an explicitly requested field is an invariant breach",
+			name:   "a conditional grant on an explicitly requested field needs the collection too",
 			target: "/?columns=public&limit=all",
 			grants: map[accesstypes.Permission][]accesstypes.Resource{
 				accesstypes.List: {computedEnforcedResource},
@@ -177,10 +181,10 @@ func TestComputedQueryDecoder_Decode_permissionEnforcement(t *testing.T) {
 			conditional: map[accesstypes.Permission][]accesstypes.Resource{
 				accesstypes.List: {computedEnforcedResource + ".public"},
 			},
-			wantErrContains: "invariant breach",
+			wantErrContains: "the decoder holds no collection",
 		},
 		{
-			name:   "conditional field grant on the narrowing path is an invariant breach",
+			name:   "and so does one met on the narrowing path",
 			target: "/?limit=all",
 			grants: map[accesstypes.Permission][]accesstypes.Resource{
 				accesstypes.List: {computedEnforcedResource, computedEnforcedResource + ".public"},
@@ -188,7 +192,7 @@ func TestComputedQueryDecoder_Decode_permissionEnforcement(t *testing.T) {
 			conditional: map[accesstypes.Permission][]accesstypes.Resource{
 				accesstypes.List: {computedEnforcedResource + ".tagged"},
 			},
-			wantErrContains: "invariant breach",
+			wantErrContains: "the decoder holds no collection",
 		},
 	}
 

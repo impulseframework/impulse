@@ -12,3 +12,10 @@ ALTER TABLE SessionIdentities ALTER COLUMN LastUsedAt SET OPTIONS (allow_commit_
 ALTER TABLE SessionAuthEvents ALTER COLUMN OccurredAt SET OPTIONS (allow_commit_timestamp = true);
 ALTER TABLE SessionPendingSignIns ALTER COLUMN CreatedAt SET OPTIONS (allow_commit_timestamp = true);
 ALTER TABLE SessionPendingSignIns ALTER COLUMN ConsumedAt SET OPTIONS (allow_commit_timestamp = true);
+
+-- A person's links by their person, with the columns a list of them shows, so a list
+-- that reaches the links through their people reads the index and no row of the table.
+-- It replaces the index of the same name here, where the two times it carries have the
+-- option they keep.
+DROP INDEX SessionIdentitiesByUserId;
+CREATE INDEX SessionIdentitiesByUserId ON SessionIdentities(UserId) STORING (Method, Connection, Subject, Tenant, EmailAtLink, CreatedAt, LastUsedAt);

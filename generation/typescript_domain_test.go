@@ -191,8 +191,8 @@ func Test_domainRoutePath(t *testing.T) {
 }
 
 // Test_anyDomainScoped pins when the metadata's domain route exports are emitted: for a
-// resource under the tenant segment, a computed one, or a user surface's tenant partition,
-// and not for a metadata that serves nothing under it.
+// resource under the tenant segment or a computed one, and not for a metadata that
+// serves nothing under it.
 func Test_anyDomainScoped(t *testing.T) {
 	t.Parallel()
 
@@ -204,20 +204,18 @@ func Test_anyDomainScoped(t *testing.T) {
 		name      string
 		resources []*resourceInfo
 		computed  []*computedResource
-		users     []*tsUserResource
 		want      bool
 	}{
-		{name: "nothing under the segment", resources: []*resourceInfo{global}, users: []*tsUserResource{{Scope: accesstypes.GlobalPermissionScope}}, want: false},
+		{name: "nothing under the segment", resources: []*resourceInfo{global}, want: false},
 		{name: "a resource under the segment", resources: []*resourceInfo{global, domain}, want: true},
 		{name: "a computed resource under the segment", computed: []*computedResource{{PermissionScope: accesstypes.DomainPermissionScope}}, want: true},
-		{name: "a user surface's tenant partition", resources: []*resourceInfo{global}, users: []*tsUserResource{{Scope: accesstypes.GlobalPermissionScope}, {Scope: accesstypes.DomainPermissionScope}}, want: true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if got := anyDomainScoped(tt.resources, tt.computed, tt.users); got != tt.want {
+			if got := anyDomainScoped(tt.resources, tt.computed); got != tt.want {
 				t.Errorf("anyDomainScoped() = %v, want %v", got, tt.want)
 			}
 		})

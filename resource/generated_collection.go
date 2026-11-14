@@ -145,10 +145,13 @@ type CollectionResource struct {
 	Name  accesstypes.Resource
 	Scope accesstypes.PermissionScope
 
-	// Computed marks a computed resource: a hand-written query surface whose
-	// permission checks run at decode time, where no row exists. Deploy-time
-	// grant validation (access.MigrateRoles) uses it to reject conditions that
-	// could never settle there.
+	// Computed marks a computed resource: one whose rows come from the
+	// application's Go function, with no query of the library's for the database
+	// to judge a row's condition in. The library judges the rows the function
+	// yields, in Go, against the Attributes below (each one's Column is the row
+	// struct's Go field), and deploy-time grant validation (access.MigrateRoles)
+	// uses the marker to name that declaration where a condition reads a field
+	// the resource has not declared.
 	Computed bool
 
 	Permissions   []accesstypes.Permission
@@ -284,8 +287,10 @@ func (b *CollectionBuilder) AddMethodResource(scope accesstypes.PermissionScope,
 	return b.g.addResource(false, scope, permission, res)
 }
 
-// SetResourceComputed marks res as a computed resource within scope: a hand-written
-// query surface whose permission checks run at decode time, where no row exists.
+// SetResourceComputed marks res as a computed resource within scope: one whose rows
+// come from the application's Go function, so its permission checks run at decode
+// time, and a grant's condition that reads the row is judged in Go over the rows the
+// function yields, no query of the library's being there to judge it.
 func (b *CollectionBuilder) SetResourceComputed(scope accesstypes.PermissionScope, res accesstypes.Resource) {
 	b.g.setResourceComputed(scope, res)
 }
@@ -704,8 +709,9 @@ func (g *GeneratedCollection) IsResourceImmutable(scope accesstypes.PermissionSc
 }
 
 // IsComputedResource reports whether res is a computed resource within scope: a
-// hand-written query surface whose permission checks run at decode time, where
-// no row exists. A field resource answers as its base resource.
+// hand-written query surface whose permission checks run at decode time, and
+// whose rows the library judges in Go as its function yields them. A field
+// resource answers as its base resource.
 func (g *GeneratedCollection) IsComputedResource(scope accesstypes.PermissionScope, res accesstypes.Resource) bool {
 	base, _ := res.ResourceAndTag()
 	_, ok := g.computed[scope][base]

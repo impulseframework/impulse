@@ -6,6 +6,7 @@ import {
   matchOptions,
   narrowedFilter,
   optionColumns,
+  optionDisplay,
   PickerNarrowing,
   pickerNarrowing,
   PickerOption,
@@ -49,6 +50,26 @@ describe('optionColumns', () => {
 
   it('asks for the search fields a whole source is narrowed by, once each', () => {
     expect(optionColumns({ listDisplay: ['name' as FieldName], viewDisplay: [] }, ['name', 'contactEmail'])).toEqual(['id', 'name', 'contactEmail']);
+  });
+
+  it("asks for the source's own key field where it is not named id, once", () => {
+    expect(optionColumns({ listDisplay: [], viewDisplay: [] }, [], 'name')).toEqual(['name']);
+    expect(optionColumns({ listDisplay: ['name' as FieldName, 'description' as FieldName], viewDisplay: [] }, [], 'name')).toEqual([
+      'name',
+      'description',
+    ]);
+  });
+});
+
+describe('optionDisplay', () => {
+  const concat = (row: Record<string, string>, ...fields: string[]): string => fields.map((f) => row[f]).join(' - ');
+
+  it('shows the configured display fields, concatenated', () => {
+    expect(optionDisplay({ name: 'Pilot', description: 'Flies' }, 'Pilot', ['name', 'description'], concat)).toBe('Pilot - Flies');
+  });
+
+  it('shows the key where the page configured no display field', () => {
+    expect(optionDisplay({ name: 'Pilot', description: 'Flies' }, 'Pilot', [], concat)).toBe('Pilot');
   });
 });
 

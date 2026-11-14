@@ -20,16 +20,18 @@ tenant; a URL naming a tenant the session cannot reach lands on the refusal page
 that tenant's URL (`/tenants/{tenantID}/refused`), which shows the server's answer — with
 concealed domains, the 404 every route under the tenant gives — and never switches to
 another tenant. The dashboard lives in both places, the global digest outside a tenant and
-the tenant's under it, and the Users page is split the same way: the staff surface's
-global partition at `/users`, the tenant's partition at `/tenants/{tenantID}/users` with
-the route's tenant as the component's domain.
+the tenant's under it, and the staff auth's people are managed in both places the same
+way: the whole application's accounts at `/staff-accounts`, a tenant's people at
+`/tenants/{tenantID}/staff-people`. The library draws both from the API description
+(`identityRoutes` in `app.routes.ts`), and a tenant's pages read the tenant from the URL
+(`RESOURCE_DOMAIN` in `app.config.ts`).
 
 Who may create a tenant is declared on the record, apart from who may enter one. The
 record declares both ways (`@tenant(creation: both)`): an administrator creates tenants
 through the record's create path, under the `Administrator` role's Create grant,
 and a person who signs in holding no tenant creates their own through the generated
-create-your-tenant route (`POST /api/create-tenant`), which writes the row, seats them
-with the roles the App names in `TenantAdministratorRoles` (`TenantAdministrator`) and
+create-your-tenant route (`POST /api/create-tenant`), which writes the row, gives them
+the roles the App names in `TenantAdministratorRoles` (`TenantAdministrator`) and
 hands the tenant to the roster, so their next request stands in it; a person who already
 holds a tenant is refused, an administrator of one tenant never creates another, and the
 console's dashboard offers the page to a session without a tenant. The order is sign in
@@ -81,21 +83,50 @@ the connection a tenant declares) beside any Google account.
   default roles the release ships, embedded in the binary and validated against the
   generated collection when the engine opens. A role is named for its job in PascalCase
   (`Administrator`, `TenantAdministrator`), never for where it is held: the file's
-  structure says that, and the Users page shows it as the role's kind. Every role carries
-  a description, one or two plain sentences saying what it is for, which the Users page
-  shows beside the name; a role without one is refused. It authors the
-  development logins' roles,
-  `Administrator` over the tenant record and the global partition of the staff
-  auth's user-management surface (`StaffUsers`, `StaffSeats`, `StaffInvitations`, `StaffRoles`,
-  `SetStaffUserPassword`), `TenantAdministrator` over every tenant-scoped resource and
-  the surface's tenant partition (`StaffTenantUsers` and its siblings); a domain role is
+  structure says that. Every role carries a description, one or two plain sentences
+  saying what it is for, which the lists of the roles (`StaffRoles`, and a tenant's
+  `StaffTenantRoles`) answer beside the name; a role without one is refused. It authors
+  the development logins' roles,
+  `Administrator` over the tenant record and the whole application's side of the staff
+  auth's generated management (`pkg/identity`), `TenantAdministrator` over every
+  tenant-scoped resource and the management's tenant side; a domain role is
   held in every tenant domain, the seeded ones
-  and those created later, so nothing provisions the file per tenant. A new resource
+  and those created later, so nothing provisions the file per tenant. An account is one
+  row for the whole application, whichever tenants its person holds a role in, so the
+  methods a tenant changes an account through (a temporary password, a new name, a
+  delete and the rest) are granted to `TenantAdministrator` under a condition: the
+  tenant holds the person alone (`heldElsewhere = false AND heldGlobally = false`).
+  Without it one tenant's administrator could set a password on an account that also
+  manages another tenant or the application. The address and the directory's subject of
+  a person another tenant holds too are left out of the tenant's lists the same way
+  (`heldElsewhere = false`), a role held in every tenant is not one tenant's to take
+  (`everyDomain = false`), and an invitation is withdrawn while it stands
+  (`pending = true`); `test/integration/tenant_people_test.go` proves each of them on the
+  served stack. A new resource
   stays invisible to every login until a role in this file is granted it. Every grant in
   it is proven live by `test/integration/grants_test.go`, which opens the auth the way
   the deployment does and asks the engine about each unconditional grant; a conditional
   grant is proven by a test case that names it through `provesGrant`, and `impulse check`
   fails on one no case names.
+- `pkg/identity` holds the staff auth's management of its people, written by the
+  generator (`GenerateIdentity`) as code of this application; the generator owns the
+  tree whole. It has two sides. The whole application's: the lists (`StaffSessionUsers`,
+  `StaffUserRoles`, `StaffSessionMailLinks`, `StaffSessions` and the rest) and the methods
+  (`CreateStaffUser`, `InviteStaffUser`, `AssignStaffRole`, `SetStaffTemporaryPassword`
+  and the rest). A tenant's, under the tenant segment and named with the tenant record:
+  the lists of its people, the roles held in it, its invitations, its people's sign-in
+  identities and the roles it gives (`StaffTenantUsers`, `StaffTenantUserRoles`,
+  `StaffTenantInvitations`, `StaffTenantIdentities`, `StaffTenantRoles`), and the methods
+  (`CreateStaffTenantUser`, `InviteStaffTenantUser`, `AssignStaffTenantRole` and the
+  rest). All of it is served like every other resource and method and granted in the role
+  file. The auth builds the client the handlers act through when it opens (`staff.New`,
+  answered by `staff.Auth.Identity`) with the roles that count as an administrator's
+  (`staff.AdministratorRoles`), so neither the application nor a tenant is left with
+  nobody to give the next role, and sets the client's two hooks on its session manager,
+  through which a sign-in gives a role in the transaction of the step that causes it:
+  an accepted invitation's roles, and the default role of a directory a tenant declares.
+  No auth is open without them. The console writes no page for any of it: the library builds
+  them from the API description (`identityRoutes` in `web/console/src/app/app.routes.ts`).
 - `pkg/deploy` holds the database steps a deployment runs: the schema migrations, then
   the role policy check (`CheckRoles`), which prints what the store holds that this
   release cannot use as written. Then `MigrateFeatures` brings the `FeatureFlags` table to the
@@ -103,7 +134,7 @@ the connection a tenant declares) beside any Google account.
   administrator while its users table holds no rows, the foothold a deployed environment
   starts from: the staff auth's `administrator`, with the password the stack generates
   (`APP_STAFF_ADMINISTRATOR_PASSWORD`, a generated secret), holding the development
-  administrator's roles. A user that exists stops the seed; the administration surface
+  administrator's roles. A user that exists stops the seed; the auth's management
   creates every user after the first, and the bootstrap creates the development logins
   instead. `cmd/deployment/migrate` is the deploy step;
   `cmd/bootstrap` reuses it to stand up an emulator database, seeds the development
@@ -196,7 +227,7 @@ holds no tenant and creates one from the dashboard), and serves the API on
 "Starting Server" in the server pane.
 
 The auths mail: an administrator invites a person by address with the roles the invitation
-seats, a signed-in person adds and verifies an address, and every sign-in that carries no
+gives, a signed-in person adds and verifies an address, and every sign-in that carries no
 second factor of its own (a password, or a directory the deployment does not administer)
 is mailed a sign-in code, which the login page asks for; a browser the person asks to be
 remembered is not asked again. In development the mail is written to the server's log,
@@ -264,7 +295,7 @@ permission digest over a scripted client from `@impulseframework/resource-angula
 request and answers from the test); the tenant guard is driven through the router
 (`RouterTestingHarness`: a tenant the session holds opens and is written once, one it
 cannot reach is refused, a deep link loads the list first, leaving clears); the picker's
-navigation, the refusal page's answer, the two Users pages and the top bar's links have
+navigation, the refusal page's answer and the top bar's links have
 specs of their own; and the login page, header, footer, and shell have creation specs
 with the same providers.
 

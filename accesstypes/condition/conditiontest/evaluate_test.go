@@ -100,6 +100,80 @@ func TestEvaluate_truthTable(t *testing.T) {
 	}
 }
 
+// TestEvaluate_lists pins the reading of a list attribute: the whole expression
+// is judged once for each item and holds only when it holds for every item; a
+// list with no item, and no list at all, is judged once with no value; an item
+// with no value is no value for that item.
+func TestEvaluate_lists(t *testing.T) {
+	t.Parallel()
+
+	list := func(items ...any) conditiontest.List {
+		return conditiontest.List(items)
+	}
+	tests := []struct {
+		name   string
+		source string
+		pre    map[string]any
+		post   map[string]any
+		want   conditiontest.Truth3
+	}{
+		{name: "every item passes", source: "role != 'Admin'", pre: map[string]any{"role": list("Staff", "Viewer")}, want: conditiontest.True},
+		{name: "one item fails", source: "role != 'Admin'", pre: map[string]any{"role": list("Staff", "Admin")}, want: conditiontest.False},
+		{name: "a list with no item is no value, which never permits", source: "role != 'Admin'", pre: map[string]any{"role": list()}, want: conditiontest.False},
+		{name: "no list at all is no value", source: "role != 'Admin'", pre: map[string]any{"role": conditiontest.List(nil)}, want: conditiontest.False},
+		{name: "an item with no value fails the item", source: "role != 'Admin'", pre: map[string]any{"role": list("Staff", nil)}, want: conditiontest.False},
+		{name: "IS NULL is true of a list with no item", source: "role IS NULL OR role != 'Admin'", pre: map[string]any{"role": list()}, want: conditiontest.True},
+		{name: "IS NULL is true of an item with no value", source: "role IS NULL OR role != 'Admin'", pre: map[string]any{"role": list("Staff", nil)}, want: conditiontest.True},
+		{name: "the whole expression is judged per item: each item meets one arm", source: "role = 'Staff' OR role = 'Viewer'", pre: map[string]any{"role": list("Staff", "Viewer")}, want: conditiontest.True},
+		{name: "the whole expression is judged per item: NOT holds of every item", source: "NOT (role = 'Admin')", pre: map[string]any{"role": list("Staff", "Viewer")}, want: conditiontest.True},
+		{name: "the whole expression is judged per item: NOT fails on one", source: "NOT (role = 'Admin')", pre: map[string]any{"role": list("Staff", "Admin")}, want: conditiontest.False},
+		{name: "IN a literal list, every item", source: "role IN ('Staff', 'Viewer')", pre: map[string]any{"role": list("Viewer", "Staff")}, want: conditiontest.True},
+		{name: "IN a literal list, one item outside", source: "role IN ('Staff', 'Viewer')", pre: map[string]any{"role": list("Viewer", "Admin")}, want: conditiontest.False},
+		{name: "a term on the row beside the list holds", source: "pending = true AND role != 'Admin'", pre: map[string]any{"pending": true, "role": list("Staff")}, want: conditiontest.True},
+		{name: "a term on the row beside the list fails", source: "pending = true AND role != 'Admin'", pre: map[string]any{"pending": false, "role": list("Staff")}, want: conditiontest.False},
+		{name: "a term on the row with no value fails, never unknown", source: "pending = true AND role != 'Admin'", pre: map[string]any{"role": list("Staff")}, want: conditiontest.False},
+		{name: "a number list compares as numbers", source: "level <= 3", pre: map[string]any{"level": list(int64(1), int64(3))}, want: conditiontest.True},
+		{name: "a proposed list is judged per item", source: "new.role != 'Admin'", pre: map[string]any{"role": list("Admin")}, post: map[string]any{"role": list("Staff", "Viewer")}, want: conditiontest.True},
+		{name: "a list the mutation leaves alone is read as the row holds it", source: "new.role != 'Admin'", pre: map[string]any{"role": list("Admin")}, post: map[string]any{}, want: conditiontest.False},
+		{name: "an expression that reads no list is judged once", source: "label = 'a'", pre: map[string]any{"label": "a", "role": list("Admin")}, want: conditiontest.True},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := conditiontest.Evaluate(parse(t, tt.source), &conditiontest.Image{Pre: tt.pre, Post: tt.post, Now: evalNow})
+			if err != nil {
+				t.Fatalf("Evaluate(%q) error = %v", tt.source, err)
+			}
+			if got != tt.want {
+				t.Errorf("Evaluate(%q) = %s, want %s", tt.source, got, tt.want)
+			}
+		})
+	}
+
+	refused := []struct {
+		name   string
+		source string
+		pre    map[string]any
+		post   map[string]any
+		want   string
+	}{
+		{name: "two lists", source: "role != 'Admin' AND tag = 'x'", pre: map[string]any{"role": list("Staff"), "tag": list("x")}, want: "reads two lists"},
+		{name: "one list in both images", source: "role != 'Admin' AND new.role != 'Admin'", pre: map[string]any{"role": list("Staff")}, post: map[string]any{"role": list("Viewer")}, want: "reads two lists"},
+		{name: "a list on the right side", source: "new.label != role", pre: map[string]any{"label": "a", "role": list("Staff")}, post: map[string]any{"label": "b"}, want: "left side alone"},
+	}
+	for _, tt := range refused {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := conditiontest.Evaluate(parse(t, tt.source), &conditiontest.Image{Pre: tt.pre, Post: tt.post, Now: evalNow})
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("Evaluate(%q) error = %v, want one containing %q", tt.source, err, tt.want)
+			}
+		})
+	}
+}
+
 // TestEvaluate_numbers pins rule 3: a number literal takes the attribute's
 // storage type — exact against INT64 and NUMERIC, a double against FLOAT64 —
 // and two stored numbers compare exactly unless either is a double.

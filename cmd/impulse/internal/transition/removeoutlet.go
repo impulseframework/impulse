@@ -85,6 +85,7 @@ func (r RemoveOutlet) Apply(ctx context.Context, a *app.App, exec check.Execer) 
 		if err := r.editProgram(a, g, targets, ch); err != nil {
 			return nil, err
 		}
+		noteIdentityRetired(a, &sites[i], r.Name, ch)
 		for _, t := range targets {
 			if err := r.removeProject(a, g, t, ch); err != nil {
 				return nil, err

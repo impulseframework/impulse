@@ -31,7 +31,7 @@ func Test_renderDisplayType(t *testing.T) {
 		{name: "a name outside the vocabulary is refused", raw: "link", wantErr: true},
 		{name: "an empty name is refused", raw: "", wantErr: true},
 		{name: "a list of nullable booleans is refused", raw: "nullboolean[]", wantErr: true},
-		{name: "a list of pickers is refused", raw: "enumerated[]", wantErr: true},
+		{name: "a list of picked keys is a member", raw: "enumerated[]", want: "enumerated[]"},
 		{name: "the interface type of a value with no fixed shape is refused", raw: "unknown", wantErr: true},
 	}
 
@@ -103,7 +103,11 @@ func Test_displayTypeVocabulary(t *testing.T) {
 					}
 				}
 
-				return append(raw, (&rpcField{enumeratedResource: "Gadgets"}).TypescriptDisplayType())
+				// A request field takes one picked key, or several.
+				return append(raw,
+					(&rpcField{enumeratedResource: "Gadgets"}).TypescriptDisplayType(),
+					(&rpcField{enumeratedResource: "Gadgets", typescriptType: stringTSType + sliceSuffix}).TypescriptDisplayType(),
+				)
 			},
 		},
 		{

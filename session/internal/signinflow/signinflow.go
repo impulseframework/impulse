@@ -78,26 +78,33 @@ type Driver[Tx any] interface {
 }
 
 // InvitationAcceptor is the application's half of an invitation's acceptance: it
-// grants what the invitation names (its roles, in its tenant) to userID, once the
-// transaction that consumed the invitation has committed and before the sign-in
-// policy runs, so the policy sees the membership. It runs outside any transaction,
-// exactly once per acceptance: an application's memberships live in a store of their
-// own, written through its own client, which no transaction of the session store can
-// carry (and which the Spanner emulator, allowing one read-write transaction at a
-// time, would deadlock inside one). A hook that fails ends the sign-in with its
-// error; the invitation stays consumed and a user it provisioned stays, so the
-// person's next attempt at the link finds it dead and an administrator invites again.
-type InvitationAcceptor func(ctx context.Context, userID impulse.UUID, username string, inv *sessioninfo.Invitation) error
+// gives userID what the invitation names (its roles, in its tenant), inside the
+// transaction that consumes the invitation, which it is handed: the invitation is
+// spent and its roles given together, or neither. It reads and writes through tx
+// alone: the Spanner emulator allows one read-write transaction at a time, so a second
+// transaction or a read through another client inside the hook waits on the one it
+// runs in. A user the same transaction provisioned is buffered and not readable in it
+// (Spanner applies a buffered row at the commit), so the user is named by id and by
+// username, which is what the hook writes under.
+//
+// committed, nil for none, is work the flow runs once that transaction has committed
+// and before the sign-in policy decides: telling a permission engine that its rows
+// changed, so the policy sees the membership. A transaction's closure may run more
+// than once (Spanner retries an aborted transaction), so the hook is called once per
+// run and only the committed function of the run that committed is called, once. An
+// error fails the transaction: the invitation stands, a user the transaction would
+// have provisioned is not created, and the sign-in ends with the error.
+type InvitationAcceptor[Tx any] func(ctx context.Context, tx Tx, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (committed func(ctx context.Context), err error)
 
 // DirectorySeater is the application's half of a directory's default seat: it seats
 // userID, named by id and by username, with seats, the default seats of the
-// directories the tenants declared for the identity's connection, once the resolution
-// that provisioned the user has committed and before the sign-in policy decides, so
-// the policy sees the memberships. It runs outside any transaction, once, for the
-// reason InvitationAcceptor does. A hook that fails ends the sign-in with its error;
-// the user stays, holding nothing, and the person's next sign-in finds them
-// pre-created and links.
-type DirectorySeater func(ctx context.Context, userID impulse.UUID, username string, seats []signin.DirectorySeat) error
+// directories the tenants declared for the identity's connection, inside the
+// resolution's transaction that provisions the user, which it is handed: the account
+// is made and seated together, or neither. It is held to what InvitationAcceptor is:
+// tx alone for reads and writes, a committed function (nil for none) the flow runs
+// once the transaction has committed and before the sign-in policy decides, and an
+// error that fails the transaction, so no account is left holding nothing.
+type DirectorySeater[Tx any] func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (committed func(ctx context.Context), err error)
 
 // TrustedDeviceCheck reports whether the browser signing in is a trusted device of
 // userID: a device the person asked to be remembered after a second factor, named by
@@ -119,14 +126,14 @@ type Rules[Tx any] struct {
 	// Policy is the sign-in policy, nil for none.
 	Policy signin.Policy[Tx]
 	// Accept is the application's invitation acceptor, nil for none.
-	Accept InvitationAcceptor
+	Accept InvitationAcceptor[Tx]
 	// Directories reads the tenants' declarations of a directory for a stranger's
 	// first sign-in, nil for none; Roles is the role store the person's memberships
 	// are read from, nil for none, and Seat seats the person with the default seats
 	// the declarations name, nil for none; see standardRule.
 	Directories signin.DirectoryReader[Tx]
 	Roles       signin.UserRoleManager
-	Seat        DirectorySeater
+	Seat        DirectorySeater[Tx]
 	// TrustedDevice reports whether the browser is a trusted device of the user, nil
 	// for none; see decideSignIn.
 	TrustedDevice TrustedDeviceCheck
@@ -159,8 +166,9 @@ type Rules[Tx any] struct {
 // takes the address. Accepting it consumes the invitation and sets the user's address from it when the
 // user holds no verified address, in the resolution transaction for an external
 // identity (so a user the invitation provisioned and the consumption commit together)
-// and in a transaction of its own for a password identity; once that has committed,
-// rules.Accept grants what the invitation names, outside any transaction. The
+// and in a transaction of its own for a password identity; rules.Accept gives what
+// the invitation names inside that same transaction, which it is handed, so the
+// invitation is spent and its roles given together or neither is. The
 // invitation is consumed only once the resolution has admitted the sign-in: the user
 // found, linked or provisioned, and enabled. A sign-in the account rules refuse or
 // hold for a confirmation, or a disabled user's, leaves the invitation standing,
@@ -169,12 +177,20 @@ type Rules[Tx any] struct {
 // that is no longer live is skipped and the sign-in goes on, unless the invitation
 // alone admitted the person (the invited-users-only rule), which is then a refusal
 // (invitation_expired) and provisions nothing; req.Invitation.Accepted reports whether
-// it was accepted, which a failed grant leaves false.
+// it was accepted. An acceptor that fails ends the sign-in with its error and fails
+// the transaction: the invitation stands, a user the resolution would have provisioned
+// or linked is not, and Accepted is false.
 //
 // A stranger from a directory some tenant declares is decided by the tenants' rows
 // when rules.Directories is set (standardRule): a user the default seats provisioned
-// is seated by rules.Seat once the resolution has committed, before the invitation's
-// grant and before the policy decides.
+// is seated by rules.Seat inside the resolution's transaction, before the invitation's
+// grant, so the account is made and seated together or neither is.
+//
+// What the two hooks ask to have run once their transaction has committed (their
+// committed functions: the word to a permission engine that its rows changed) runs
+// right after the commit and before the policy decides, so the policy sees the
+// memberships. Only the functions of the run of the transaction that committed are
+// called, each once.
 func SignIn[Tx any](
 	ctx context.Context, d Driver[Tx], id impulse.UUID, insertSession *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, rules Rules[Tx],
 ) error {
@@ -196,33 +212,31 @@ func SignIn[Tx any](
 			return errors.Newf("the %s sign-in method has neither a standard account rule nor a custom one", req.Identity.Method)
 		}
 		var (
-			seats []signin.DirectorySeat
-			stop  error
-			err   error
+			committed committedWork
+			stop      error
+			err       error
 		)
-		source, tenant, seats, stop, err = resolveIdentity(ctx, d, &resolved, rules)
+		source, tenant, committed, stop, err = resolveIdentity(ctx, d, &resolved, rules)
 		if err != nil {
 			return err
 		}
+		// The resolution has committed with the default seats and the invitation's
+		// roles in it: what the hooks asked to have run after the commit runs now,
+		// before the policy reads the memberships.
+		committed.run(ctx)
 		if stop != nil {
 			return stop
 		}
-		// The resolution has committed, so a link or a provisioned user is reported
-		// even when the decision then fails, and the default seats it granted and an
-		// invitation it consumed are granted now, before the policy reads the
-		// memberships.
+		// A link or a provisioned user is reported even when the decision then fails.
 		resolved.User = &sessioninfo.SignInUser{ID: resolved.UserID, Username: resolved.Username, Source: source, Tenant: tenant}
-		if err := seatDeclared(ctx, resolved.UserID, resolved.Username, seats, rules.Seat); err != nil {
-			return err
-		}
-		if err := grantConsumed(ctx, resolved.UserID, resolved.Username, req.Invitation, rules.Accept); err != nil {
-			return err
-		}
 	case req.UserID.IsNil():
 		return errors.New("a password sign-in names its user in req.UserID")
 	default:
 		if req.Invitation != nil {
-			if err := AcceptInvitation(ctx, d, resolved.UserID, resolved.Username, req.Identity.Email, req.Invitation, rules.Accept); err != nil && !httpio.HasNotFound(err) {
+			// The address was held to the invited one above. A dead invitation is
+			// skipped and the sign-in goes on; an acceptor that fails ends it, the
+			// invitation standing.
+			if _, err := acceptInvitation(ctx, d, resolved.UserID, resolved.Username, req.Invitation, rules.Accept); err != nil {
 				return err
 			}
 		}
@@ -329,90 +343,160 @@ func consumeInvitation[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *se
 // claimInvitation finishes the consumption of the live invitation req carries for the
 // user the resolution found, inside its transaction: the user's address is set from
 // it when the user holds no verified address (a user provisioned in this transaction
-// had it set at the insert). inv.Accepted marks the invitation as consumed for this
-// user, so the grant follows once the transaction commits (grantConsumed).
+// had it set at the insert).
 func claimInvitation[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, source sessioninfo.UserSource) error {
-	inv := req.Invitation
 	if source != sessioninfo.UserProvisioned {
-		if _, err := d.ClaimVerifiedEmailIn(ctx, tx, req.UserID, inv.Email); err != nil {
+		if _, err := d.ClaimVerifiedEmailIn(ctx, tx, req.UserID, req.Invitation.Email); err != nil {
 			return errors.Wrap(err, "Driver.ClaimVerifiedEmailIn()")
 		}
 	}
-	inv.Accepted = true
 
 	return nil
 }
 
-// grantConsumed runs the application's acceptor for an invitation the committed
-// transaction consumed (inv.Accepted), outside any transaction. A failed grant ends
-// the sign-in with the acceptor's error and leaves inv.Accepted false: the invitation
-// is consumed and the user stays, so the next attempt at the link finds it dead.
-func grantConsumed(ctx context.Context, userID impulse.UUID, username string, inv *sessioninfo.Invitation, accept InvitationAcceptor) error {
-	if inv == nil || !inv.Accepted || accept == nil {
-		return nil
-	}
-	if err := accept(ctx, userID, username, inv); err != nil {
-		inv.Accepted = false
+// committedWork is what the hooks of one run of a transaction's closure asked to have
+// run once the transaction has committed, in the order they asked. A closure that runs
+// again starts an empty one, so the work of a run that did not commit is never run.
+type committedWork []func(ctx context.Context)
 
-		return errors.Wrap(err, "InvitationAcceptor()")
+// add notes f, nil for none.
+func (w *committedWork) add(f func(ctx context.Context)) {
+	if f != nil {
+		*w = append(*w, f)
 	}
-
-	return nil
 }
 
-// seatDeclared grants the default seats a resolution carries, once it has committed:
-// seat, outside any transaction. Seats on an Auth with no seater is a wiring mistake,
-// a directory reader set without its hook.
-func seatDeclared(ctx context.Context, userID impulse.UUID, username string, seats []signin.DirectorySeat, seat DirectorySeater) error {
+// run calls the work, once the transaction it was collected in has committed.
+func (w committedWork) run(ctx context.Context) {
+	for _, f := range w {
+		f(ctx)
+	}
+}
+
+// grantConsumed runs the application's acceptor, nil for none, for the live invitation
+// the transaction consumed, inside that transaction, and answers what the acceptor
+// asks to have run once it has committed. A failed grant is the acceptor's error and
+// fails the transaction: the invitation stands.
+func grantConsumed[Tx any](
+	ctx context.Context, tx Tx, userID impulse.UUID, username string, inv *sessioninfo.Invitation, accept InvitationAcceptor[Tx],
+) (committed func(ctx context.Context), err error) {
+	if accept == nil {
+		return nil, nil
+	}
+	committed, err = accept(ctx, tx, userID, username, inv)
+	if err != nil {
+		return nil, errors.Wrap(err, "InvitationAcceptor()")
+	}
+
+	return committed, nil
+}
+
+// seatsBeyondInvitation leaves out the default seats the invitation this sign-in consumes
+// also names: the same role in the same tenant. Both are given in the one transaction,
+// by two hooks neither of which can read what the other buffered, and a row written
+// twice in a transaction is refused at its commit, so the sign-in of a person invited
+// with their directory's default role would fail every time. Such a role is given once,
+// by the invitation. An invitation into the application names no tenant and gives its
+// roles elsewhere (globally, or in every tenant), so it shares no row with a seat.
+func seatsBeyondInvitation(seats []signin.DirectorySeat, inv *sessioninfo.Invitation) []signin.DirectorySeat {
+	if inv == nil || inv.Tenant == "" || len(seats) == 0 {
+		return seats
+	}
+
+	return slices.DeleteFunc(slices.Clone(seats), func(seat signin.DirectorySeat) bool {
+		return string(seat.Tenant) == inv.Tenant && slices.Contains(inv.RoleNames, string(seat.Role))
+	})
+}
+
+// seatDeclared grants the default seats a resolution carries, inside its transaction:
+// seat, handed the transaction, and answers what it asks to have run once the
+// transaction has committed. Seats on an Auth with no seater is a wiring mistake, a
+// directory reader set without its hook, and fails the transaction as a seater's error
+// does: no account is made.
+func seatDeclared[Tx any](
+	ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat, seat DirectorySeater[Tx],
+) (committed func(ctx context.Context), err error) {
 	if len(seats) == 0 {
-		return nil
+		return nil, nil
 	}
 	if seat == nil {
-		return errors.New("the resolution grants default seats and the Auth has no directory seat hook: set both with SetDirectoryAdmission")
+		return nil, errors.New("the resolution grants default seats and the Auth has no directory seat hook: set both with SetDirectoryAdmission")
 	}
-	if err := seat(ctx, userID, username, seats); err != nil {
-		return errors.Wrap(err, "DirectorySeater()")
+	committed, err = seat(ctx, tx, userID, username, seats)
+	if err != nil {
+		return nil, errors.Wrap(err, "DirectorySeater()")
 	}
 
-	return nil
+	return committed, nil
 }
 
-// AcceptInvitation accepts inv for userID, whose address is email ("" for none): in
-// one transaction the invitation is consumed and the user's address is set from it
-// when the user holds no verified address and no other user holds it; once that has
-// committed, accept, nil for none, grants what the invitation names, outside any
-// transaction. inv.Accepted is set to the outcome. The user accepts only an
-// invitation to their own address: one mailed to another address is refused (a
-// *sessioninfo.LoginRefusal, invitation_address) with nothing written, the invitation
-// left standing (addressRefusal); a user with no address accepts by the link and takes
-// the address. An invitation that is no longer live (consumed, expired or revoked) is
-// NotFound, and nothing is written; a grant that fails is the acceptor's error, with
-// the invitation consumed.
-func AcceptInvitation[Tx any](ctx context.Context, d Driver[Tx], userID impulse.UUID, username, email string, inv *sessioninfo.Invitation, accept InvitationAcceptor) error {
+// AcceptInvitation accepts inv for userID, whose address is email ("" for none), in
+// one transaction: the invitation is consumed, the user's address is set from it when
+// the user holds no verified address and no other user holds it, and accept, nil for
+// none, gives what the invitation names, handed the transaction; what accept asks to
+// have run after the commit runs once it has landed. inv.Accepted is set to the
+// outcome. The user accepts only an invitation to their own address: one mailed to
+// another address is refused (a *sessioninfo.LoginRefusal, invitation_address) with
+// nothing written, the invitation left standing (addressRefusal); a user with no
+// address accepts by the link and takes the address. An invitation that is no longer
+// live (consumed, expired or revoked) is NotFound with signin.ErrInvitationExpired as
+// its cause, and nothing is written; a grant that fails is the acceptor's error,
+// whatever it is, with nothing written either: the invitation stands.
+func AcceptInvitation[Tx any](ctx context.Context, d Driver[Tx], userID impulse.UUID, username, email string, inv *sessioninfo.Invitation, accept InvitationAcceptor[Tx]) error {
 	inv.Accepted = false
 	if stop := addressRefusal(email, true, inv); stop != nil {
 		return stop
 	}
-	err := d.Transact(ctx, func(ctx context.Context, tx Tx) error {
+	dead, err := acceptInvitation(ctx, d, userID, username, inv, accept)
+	if err != nil {
+		return err
+	}
+	if dead {
+		return httpio.NewNotFoundMessageWithError(signin.ErrInvitationExpired, "the invitation has expired or was already used")
+	}
+
+	return nil
+}
+
+// acceptInvitation is the transaction of an acceptance outside a resolution: a password
+// sign-in's, and a signed-in person's (AcceptInvitation). dead reports an invitation
+// that is no longer live, with nothing written and no error; an error is the driver's
+// or the acceptor's, and nothing is written either. inv.Accepted is set to the outcome.
+func acceptInvitation[Tx any](
+	ctx context.Context, d Driver[Tx], userID impulse.UUID, username string, inv *sessioninfo.Invitation, accept InvitationAcceptor[Tx],
+) (dead bool, err error) {
+	inv.Accepted = false
+	var committed committedWork
+	err = d.Transact(ctx, func(ctx context.Context, tx Tx) error {
+		// Each run starts with nothing owed and the invitation taken for live.
+		committed, dead = nil, false
 		if err := d.ConsumeMailLinkIn(ctx, tx, inv.ID, time.Now()); err != nil {
+			dead = httpio.HasNotFound(err)
+
 			return errors.Wrap(err, "Driver.ConsumeMailLinkIn()")
 		}
 		if _, err := d.ClaimVerifiedEmailIn(ctx, tx, userID, inv.Email); err != nil {
 			return errors.Wrap(err, "Driver.ClaimVerifiedEmailIn()")
 		}
+		granted, err := grantConsumed(ctx, tx, userID, username, inv, accept)
+		if err != nil {
+			return err
+		}
+		committed.add(granted)
 
 		return nil
 	})
 	if err != nil {
-		if httpio.HasNotFound(err) {
-			return httpio.NewNotFoundMessage("the invitation has expired or was already used")
+		if dead {
+			return true, nil
 		}
 
-		return errors.Wrap(err, "Driver.Transact()")
+		return false, errors.Wrap(err, "Driver.Transact()")
 	}
 	inv.Accepted = true
+	committed.run(ctx)
 
-	return grantConsumed(ctx, userID, username, inv, accept)
+	return false, nil
 }
 
 // resolveIdentity is the first transaction of SignIn. It sets req.UserID (and
@@ -422,21 +506,31 @@ func AcceptInvitation[Tx any](ctx context.Context, d Driver[Tx], userID impulse.
 // provisioning loser on the username first), and its resolution runs once more and
 // finds the winner's link. A transaction the database ends to break a deadlock or a
 // serialization failure between racing sign-ins runs once more too.
+//
+// committed is what the hooks of the run that committed asked to have run after the
+// commit, for the caller to run: every run of the closure, the database's own retries
+// and the loop's alike, starts an empty one, so a run that did not commit leaves
+// nothing to run. A transaction that fails, an acceptor's or a seater's error among
+// the causes, leaves the invitation the sign-in carries unaccepted.
 func resolveIdentity[Tx any](
 	ctx context.Context, d Driver[Tx], req *sessioninfo.NewSessionRequest, rules Rules[Tx],
-) (source sessioninfo.UserSource, tenant string, seats []signin.DirectorySeat, stop, err error) {
+) (source sessioninfo.UserSource, tenant string, committed committedWork, stop, err error) {
 	base := *req
 	for attempt := 1; ; attempt++ {
 		err = d.Transact(ctx, func(ctx context.Context, tx Tx) error {
-			// Each run starts from the caller's request.
+			// Each run starts from the caller's request, with nothing owed.
 			*req = base
 			var err error
-			source, tenant, seats, stop, err = resolveIn(ctx, d, tx, req, rules)
+			source, tenant, committed, stop, err = resolveIn(ctx, d, tx, req, rules)
 
 			return err
 		})
 		if err == nil {
-			return source, tenant, seats, stop, nil
+			return source, tenant, committed, stop, nil
+		}
+		// Nothing was committed: the invitation was not accepted, whatever the run set.
+		if req.Invitation != nil {
+			req.Invitation.Accepted = false
 		}
 		if errors.Is(err, errInvitationDead) {
 			return "", "", nil, Refusal("", sessioninfo.RefusedInvitationExpired, signin.ErrInvitationExpired, "the invitation has expired or was already used"), nil
@@ -476,15 +570,23 @@ func resolveIdentity[Tx any](
 // the account rules, and their answer is applied. The invitation the sign-in carries
 // is consumed for the user found, in the same transaction, once the resolution has
 // admitted the sign-in and not for a disabled user, who is refused once the sign-in
-// is decided; its grant follows the commit.
+// is decided. What the sign-in gives is given here too, by the application's hooks
+// handed tx: the default seats of a user the resolution provisioned (rules.Seat), then
+// what the consumed invitation names (rules.Accept), each written with the row that
+// causes it or not at all, and a role both would give given once, by the invitation
+// (seatsBeyondInvitation). committed is what the hooks ask to have run once tx has
+// committed.
 func resolveIn[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, rules Rules[Tx],
-) (source sessioninfo.UserSource, tenant string, seats []signin.DirectorySeat, stop, err error) {
+) (source sessioninfo.UserSource, tenant string, committed committedWork, stop, err error) {
 	link, err := d.IdentityIn(ctx, tx, req.Identity.Method, req.Identity.Connection, req.Identity.Subject)
 	if err != nil {
 		return "", "", nil, nil, errors.Wrap(err, "Driver.IdentityIn()")
 	}
-	var live bool
+	var (
+		live  bool
+		seats []signin.DirectorySeat
+	)
 	if link != nil {
 		user, err := d.UserIn(ctx, tx, link.UserID)
 		if err != nil {
@@ -511,18 +613,32 @@ func resolveIn[Tx any](
 		source, tenant, seats, live = resolved.source, resolved.tenant, resolved.seats, resolved.live
 	}
 	if live {
+		seats = seatsBeyondInvitation(seats, req.Invitation)
+	}
+	seated, err := seatDeclared(ctx, tx, req.UserID, req.Username, seats, rules.Seat)
+	if err != nil {
+		return "", "", nil, nil, err
+	}
+	committed.add(seated)
+	if live {
 		if err := claimInvitation(ctx, d, tx, req, source); err != nil {
 			return "", "", nil, nil, err
 		}
+		granted, err := grantConsumed(ctx, tx, req.UserID, req.Username, req.Invitation, rules.Accept)
+		if err != nil {
+			return "", "", nil, nil, err
+		}
+		committed.add(granted)
+		// Consumed and granted for this user, once the transaction commits.
+		req.Invitation.Accepted = true
 	}
 
-	return source, tenant, seats, nil, nil
+	return source, tenant, committed, nil, nil
 }
 
 // unlinkedUser is how an identity linked to no user resolved: the user's source and
-// the tenant key for the link, the default seats a provisioned user is granted once
-// the transaction has committed, and whether the invitation the sign-in carries is
-// live.
+// the tenant key for the link, the default seats a provisioned user is granted in the
+// same transaction, and whether the invitation the sign-in carries is live.
 type unlinkedUser struct {
 	source sessioninfo.UserSource
 	tenant string
@@ -655,7 +771,7 @@ func standardRule[Tx any](
 // they are provisioned under the sign-in name, with the default seats of the
 // declaring tenants where they hold nothing. A tenant that names a default seat
 // admits a stranger: they are provisioned and seated in every tenant that names one,
-// once the resolution has committed (Rules.Seat). When no tenant names a seat and the
+// in the resolution's transaction (Rules.Seat). When no tenant names a seat and the
 // person holds nothing, the tenants admit their people by invitation only: the
 // invitation the browser carries is the account, as under the invited-users-only
 // rule, and without one the sign-in is refused (invitation_only) and nothing is

@@ -42,6 +42,13 @@ type (
 		Method string `spanner:"Method"`
 		// @directoryConnection
 		Connection string `spanner:"Connection"`
+		// The role is an attribute a grant's condition reads: the marshal's Update grant
+		// names no role a marshal may not give (new.defaultSeat), as the grants on the
+		// methods that give a role do. A directory is declared without a seat (the
+		// marshal's Create grant carries the method and the connection alone), so every
+		// seat is named by an update, under that limit.
+		//
+		// @attribute(defaultSeat)
 		// @directoryDefaultSeat
 		DefaultSeat *string `spanner:"DefaultSeat"`
 	}

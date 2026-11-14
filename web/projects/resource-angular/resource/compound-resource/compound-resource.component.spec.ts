@@ -18,6 +18,7 @@ import {
   viewConfig,
 } from '@impulseframework/resource-angular/types';
 
+import { ResourceListCreateComponent } from '../resource-list-create/resource-list-create.component';
 import { ResourceViewComponent } from '../resource-view/resource-view.component';
 import { CompoundResourceComponent } from './compound-resource.component';
 
@@ -291,6 +292,32 @@ describe('CompoundResourceComponent row page', () => {
     expect(rowReads(script)).toHaveLength(2);
     expect(arrayLists(script)).toHaveLength(1);
     expect(rosterLists(script)).toHaveLength(1);
+  });
+
+  it('reads the row and every child again after a method ran against the row, and leaves alone the list a method ran from', async () => {
+    const script = scripted();
+    const fixture = await pageOver(squadronPage, script);
+    await settle(() => rowReads(script).length === 1);
+    script.releaseRow();
+    await settle(() => arrayLists(script).length === 1 && rosterLists(script).length === 1);
+    const store = fixture.componentInstance.store;
+
+    // A method ran against the page's row: it may have changed anything under the row.
+    store.rowChanged();
+    await settle(() => rowReads(script).length === 2 && arrayLists(script).length === 2 && rosterLists(script).length === 2);
+    expect(rowReads(script)).toHaveLength(2);
+    expect(arrayLists(script)).toHaveLength(2);
+    expect(rosterLists(script)).toHaveLength(2);
+
+    // A method ran from the child list, which has asked for its own rows again already:
+    // the page reads the row and its other children, and asks nothing more of that list.
+    const roster = fixture.debugElement.query(By.directive(ResourceListCreateComponent)).componentInstance as ResourceListCreateComponent;
+    roster.methodRan();
+    await settle(() => rowReads(script).length === 3 && arrayLists(script).length === 3);
+    expect(rowReads(script)).toHaveLength(3);
+    expect(arrayLists(script)).toHaveLength(3);
+    expect(rosterLists(script)).toHaveLength(2);
+    expect(store.rowChanges()).toBe(2);
   });
 
   it('shares the page store with the primary view and gives a related-row view its own', async () => {

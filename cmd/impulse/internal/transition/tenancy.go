@@ -40,6 +40,7 @@ const (
 	rosterAccessor      = "TenantRoster"
 	rosterStart         = "startTenants"
 	resourceImportPath  = "github.com/impulseframework/impulse/resource"
+	identityImportPath  = "github.com/impulseframework/impulse/identity"
 	liveFirestoreImport = "github.com/impulseframework/impulse/resource/live/firestore"
 	spannerImportPath   = "cloud.google.com/go/spanner"
 	errorsImportPath    = "github.com/go-playground/errors/v5"
@@ -560,10 +561,10 @@ func (tn Tenancy) editApp(a *app.App, ch *Change) error {
 		return err
 	}
 	if seatPkg == nil {
-		ch.skipf("no auth whose roles the application assigns constructs a session.Auth the scan reads, so the roles the %s record's create path seats a tenant's creator with were not exposed on the app; the generated contract asks the handlers for %s() []accesstypes.Role (the domain roles the creator holds in the new tenant, the auth's AdministratorRoles held in every tenant) beside the auth's user-management surface accessor (<Auth>UserSurface()); add them where the App is declared", tn.Record(), tn.rolesAccessor())
+		ch.skipf("no auth whose roles the application assigns constructs a session.Auth the scan reads, so the roles the %s record's create path seats a tenant's creator with were not exposed on the app; the generated contract asks the handlers for %s() []accesstypes.Role (the domain roles the creator holds in the new tenant, the auth's AdministratorRoles held in every tenant) beside the auth's identity client (<Auth>Identity()); add them where the App is declared", tn.Record(), tn.rolesAccessor())
 		ch.didf("%s: TenancyConfigurer (embedded in Configurer, asking %s() and %s()) and App.%s(); %s gained the fields and their assignments", tenancyFile, rosterAccessor, declarationsAccessor, rosterAccessor, rel)
 	} else {
-		ch.didf("%s: TenancyConfigurer (embedded in Configurer, asking %s() and %s()), App.%s() and App.%s() (the %s auth's AdministratorRoles held in every tenant: the domain roles the %s record's create path seats a tenant's creator with, through the auth's user-management surface the generated contract asks the handlers for); %s gained the fields and their assignments", tenancyFile, rosterAccessor, declarationsAccessor, rosterAccessor, tn.rolesAccessor(), seatPkg.Name, tn.Record(), rel)
+		ch.didf("%s: TenancyConfigurer (embedded in Configurer, asking %s() and %s()), App.%s() and App.%s() (the %s auth's AdministratorRoles held in every tenant: the domain roles the %s record's create path seats a tenant's creator with, through the auth's identity client, which the generated contract asks the handlers for); %s gained the fields and their assignments", tenancyFile, rosterAccessor, declarationsAccessor, rosterAccessor, tn.rolesAccessor(), seatPkg.Name, tn.Record(), rel)
 	}
 	if edited != nil {
 		if err := tn.editPermissions(a, rel, ch); err != nil {
@@ -618,8 +619,8 @@ func (tn Tenancy) rolesAccessor() string {
 	return tn.Record() + "AdministratorRoles"
 }
 
-// seatAuth picks the auth whose user-management surface the tenant record's create
-// path seats a tenant's creator through: the first auth package whose Auth the scan
+// seatAuth picks the auth whose generated management the tenant record's create path
+// gives a tenant's creator the roles through: the first auth package whose Auth the scan
 // reads and whose roles the application assigns (an auth whose directory names the
 // roles seats nobody). Nil when none qualifies.
 func (tn Tenancy) seatAuth(a *app.App) *app.AuthPackage {

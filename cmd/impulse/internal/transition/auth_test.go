@@ -288,7 +288,7 @@ func TestAuthMeaning(t *testing.T) {
 		{
 			name:  "a directory auth admitting invited users only names the Create grant the invitations need",
 			auth:  Auth{Name: "partners", Methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication, Accounts: authpkg.AccountsInvited}}, Outlet: "portal"},
-			wants: []string{`generation.GoogleMethod("workspace").InvitedUsers())`, "invited users only, role membership the application's", "Invite its people. The workspace registration(s) admit invited users only (`signin.InvitedUsersOnly`, and `.InvitedUsers()` on the declaration)", "grant Create on `PartnersUsers` to the role that invites in the role file"},
+			wants: []string{`generation.GoogleMethod("workspace").InvitedUsers())`, "invited users only, role membership the application's", "Invite its people. The workspace registration(s) admit invited users only (`signin.InvitedUsersOnly`, and `.InvitedUsers()` on the declaration)", "the generated management of the partners auth creates them (the `CreatePartnersUser` method), so grant Execute on it to the role that invites in the role file"},
 		},
 	}
 	for _, tt := range tests {
@@ -425,7 +425,9 @@ func TestAuthApply(t *testing.T) {
 		wantSkipped []string
 		// neverDid are words no did line carries.
 		neverDid []string
-		check    func(t *testing.T, a *app.App)
+		// neverSkipped are words no skipped line carries.
+		neverSkipped []string
+		check        func(t *testing.T, a *app.App)
 		// tidiedGoMod is the go.mod the tidy script leaves; empty leaves go.mod as it is.
 		tidiedGoMod string
 		generateErr error
@@ -544,9 +546,11 @@ func TestAuthApply(t *testing.T) {
 			},
 		},
 		{
-			name:  "a password auth serving a tenanted site sets the sign-in rule over the record's declaration",
-			auth:  Auth{Name: "partners", Outlet: "default"},
-			extra: map[string]string{"pkg/config/data.go": declaredConfig, "pkg/resources/tenants.go": tenantRecord},
+			name: "a password auth serving a tenanted site sets the sign-in rule over the record's declaration",
+			auth: Auth{Name: "partners", Outlet: "default"},
+			// The program generates each auth's management, so the auth builds its identity
+			// client in New and sets the hooks a sign-in gives roles through from it.
+			extra: map[string]string{"pkg/config/data.go": declaredConfig, "pkg/resources/tenants.go": tenantRecord, programFile: strings.Replace(authRouterProgram, "\t\tgeneration.GenerateRouter(),\n", "\t\tgeneration.GenerateRouter(),\n\t\tgeneration.GenerateIdentity(\"pkg/identity\"),\n", 1)},
 			wantDid: []string{
 				packageDid + ", and the sign-in rule over the Tenant record's declaration (signin.TenantPolicy through the reader its settings carry, app.NewTenantDeclarationReader), admitting a person who holds no tenant yet (signin.AdmitWithoutTenant), since the record is created by its own people, and the directory admission over the record's directory rows (session.Auth.SetDirectoryAdmission through the directory reader its settings carry, app.NewTenantDirectoryReader: a stranger from a declared directory gets the row's default seat or is refused by invitation only)",
 				migrationsDid, rolesDid, configDid, "ran go generate ./...",
@@ -559,9 +563,11 @@ func TestAuthApply(t *testing.T) {
 					"\tTenantDirectories signin.DirectoryReader[*cloudspanner.ReadWriteTransaction]\n}",
 					"\tif settings.TenantDeclarations == nil {\n\t\treturn nil, errors.New(\"partners.Settings.TenantDeclarations is nil: the sign-in rule reads what each tenant declares about who may enter it through the generated reader (app.NewTenantDeclarationReader), which the data level hands in\")\n\t}\n",
 					"\tif settings.TenantDirectories == nil {\n\t\treturn nil, errors.New(\"partners.Settings.TenantDirectories is nil: the directory admission reads what the tenants declare about one directory, its default seat included, through the generated reader (app.NewTenantDirectoryReader), which the data level hands in\")\n\t}\n\tstore, err := spannerstore.New(",
-					"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n\n\t// The directory admission",
-					"\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, resource.SignInRoles(accessClient.UserManager()), resource.SeatDeclared(accessClient.UserManager()))\n\n\t// An invitation accepted seats its roles",
-					"\tauthSession.SetInvitationAccepted(resource.SeatInvited(accessClient.UserManager()))\n\n\treturn &Auth{db: db, access: accessClient, handlers: handlers}, nil\n",
+					"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n\n\t// The auth's identity client (pkg/identity, generated)",
+					"\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), identity.WithAdministratorRoles(AdministratorRoles()))\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"partnersidentity.NewClient()\")\n\t}\n\n\t// The directory admission",
+					"\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, resource.SignInRoles(accessClient.UserManager()), identityClient.DirectorySeated())\n\n\t// An accepted invitation gives its roles",
+					"\tauthSession.SetInvitationAccepted(identityClient.InvitationAccepted())\n\n\treturn &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil\n",
+					"func (a *Auth) Identity() *partnersidentity.Client {\n\treturn a.identity\n}\n",
 					"\t\"github.com/impulseframework/impulse/session/signin\"\n",
 				} {
 					if !strings.Contains(pkg, want) {
@@ -660,7 +666,7 @@ func TestAuthApply(t *testing.T) {
 			},
 			// The flat layout's browser projects are left as they were: rebinding the
 			// portal's is the agent's, as the brief says.
-			neverDid: []string{"users page", "XSRF cookie"},
+			neverDid: []string{"app.routes.ts", "XSRF cookie"},
 			wantSkipped: []string{
 				"pkg/config/data.go: no environment struct (env := &T{}) to add the partners auth's registration variables to; read them and pass them in partners.Settings",
 				`test/integration/harness_test.go and cmd/deployment/migrate/main_test.go: the workspace registration validates its organization slot and its role groups' prefix at registration whether or not the directory is simulated, so give the partners auth's construction in the harness Workspace: partners.WorkspaceSettings{HostedDomain: "example.com", RedirectURL: <the served callback>, GroupPrefix: "partners-"} and set APP_PARTNERS_WORKSPACE_HOSTED_DOMAIN=example.com and APP_PARTNERS_WORKSPACE_GROUP_PREFIX=partners- where the migrate run's environment is`,
@@ -683,6 +689,30 @@ func TestAuthApply(t *testing.T) {
 				if want := "\t\tgeneration.GenerateRoutes(\"pkg/router\", \"console/api\",\n\t\t\tgeneration.Auth(\"example.com/acme/beacon/pkg/auth/staff\", generation.PasswordMethod()),"; !strings.Contains(program, want) {
 					t.Errorf("the console's declaration moved:\n%s", program)
 				}
+			},
+		},
+		{
+			// The program generates each auth's management: the new auth's packages come
+			// with the regeneration, and the accessor the generated contract asks for is
+			// named as the agent's to write.
+			name:  "an auth bound under a program that generates each auth's management names the accessor left to write",
+			auth:  Auth{Name: "partners", Outlet: "portal"},
+			extra: map[string]string{programFile: strings.Replace(authRouterProgram, "\t\tgeneration.GenerateRouter(),\n", "\t\tgeneration.GenerateRouter(),\n\t\tgeneration.GenerateIdentity(\"pkg/identity\"),\n", 1)},
+			wantSkipped: []string{
+				programFile + `: the program generates each auth's management (GenerateIdentity("pkg/identity")), so the regeneration writes the partners auth's packages under pkg/identity and the generated contract asks the handlers for PartnersIdentity() *partnersidentity.Client, which the tool does not write. The auth builds its client when it opens (partners.Auth.Identity(), with the hooks a sign-in gives roles through set in New): hand it to the App through the Configurer, and add the accessor where the App is declared and on every test configurer; the application does not compile until it holds`,
+			},
+			// The default outlet still declares the staff auth, so its management stays.
+			neverSkipped: []string{"no outlet declares"},
+		},
+		{
+			// The portal was the one outlet declaring its auth: bound to another, the auth
+			// has no declaration left, and what names its generated packages is named as
+			// the agent's to remove.
+			name:  "an outlet bound away from the one declaration of its auth names what the regeneration leaves broken",
+			auth:  Auth{Name: "partners", Outlet: "portal"},
+			extra: map[string]string{programFile: strings.Replace(strings.Replace(authRouterProgram, "\t\tgeneration.GenerateRouter(),\n", "\t\tgeneration.GenerateRouter(),\n\t\tgeneration.GenerateIdentity(\"pkg/identity\"),\n", 1), "generation.WithRouterOutlet(\"portal\", \"portal/api\",\n\t\t\tgeneration.Auth(\"example.com/acme/beacon/pkg/auth/staff\"", "generation.WithRouterOutlet(\"portal\", \"portal/api\",\n\t\t\tgeneration.Auth(\"example.com/acme/beacon/pkg/auth/members\"", 1)},
+			wantSkipped: []string{
+				programFile + ": no outlet declares the members auth any longer, so the regeneration removes its generated management under pkg/identity (membersidentity, membershandlers and internal/membersresources); remove what names it, which no longer compiles: the client the auth's package builds in New with the hooks it sets from it and its Identity method (or the package, where nothing signs in through the auth any longer), and MembersIdentity() on the Configurer, on the App and on every test configurer",
 			},
 		},
 		{
@@ -785,7 +815,14 @@ func TestAuthApply(t *testing.T) {
 				exec.tidy = tidied(a, tt.tidiedGoMod)
 			}
 			ch, err := tt.auth.Apply(t.Context(), a, exec)
-			if diff := cmp.Diff(regenerated, exec.calls); diff != "" {
+			// An auth rendered with its identity client imports a package the regeneration
+			// writes, so the generators run between a tidy that tolerates the missing
+			// package and the one that holds the module whole.
+			wantCalls := regenerated
+			if strings.Contains(files[programFile], "GenerateIdentity") {
+				wantCalls = []string{"go mod tidy -e", "go generate ./...", "go mod tidy"}
+			}
+			if diff := cmp.Diff(wantCalls, exec.calls); diff != "" {
 				t.Errorf("exec calls mismatch (-want +got):\n%s", diff)
 			}
 			if tt.wantErr != "" {
@@ -806,6 +843,13 @@ func TestAuthApply(t *testing.T) {
 			for _, want := range tt.wantSkipped {
 				if !slices.Contains(ch.Skipped, want) {
 					t.Errorf("Skipped lacks %q; got:\n%s", want, strings.Join(ch.Skipped, "\n"))
+				}
+			}
+			for _, never := range tt.neverSkipped {
+				for _, skipped := range ch.Skipped {
+					if strings.Contains(skipped, never) {
+						t.Errorf("Skipped carries %q: %s", never, skipped)
+					}
 				}
 			}
 			for _, never := range tt.neverDid {
@@ -874,14 +918,12 @@ func run(ctx context.Context) error {
 `, "<site>", site)
 }
 
-// The browser files bound to an auth, by their path under a project's source root: what
-// the promotion copies from the console into a site's browser application.
+// The browser files bound to an auth, by their path under a project's source root: the
+// application configuration, which names the auth's XSRF cookie, and the routes, which
+// ask the library for the pages of the auth's generated management.
 var boundWebFiles = []string{
 	"app/app.config.ts",
-	"app/components/ui/users/users.component.ts",
-	"app/components/ui/users/users.component.html",
-	"app/components/ui/users/users.component.spec.ts",
-	"app/components/ui/users/users.routes.ts",
+	"app/app.routes.ts",
 }
 
 // skeletonWeb reads one file of the base skeleton's console project by its path under
@@ -903,9 +945,11 @@ func skeletonWeb(t *testing.T, rel string) string {
 
 // sitesApp writes an application in the sites layout, the console and the portal, each
 // with its generator program bound to the staff auth, its browser workspace with the
-// project named for the site, and the skeleton's users page and application configuration
-// as the promotion copies them from the console; plus the staff auth's files, and with
-// the edits applied to the named files. Then it discovers the application.
+// project named for the site, and the skeleton's routes and application configuration:
+// the console's as the skeleton renders them, its program generating the management of
+// the auth's people, and the portal's as impulse add site lays a copy in, without the
+// management and its pages; plus the staff auth's files, and with the edits applied to
+// the named files. Then it discovers the application.
 func sitesApp(t *testing.T, edits map[string]func(text string) string) *app.App {
 	t.Helper()
 
@@ -913,6 +957,10 @@ func sitesApp(t *testing.T, edits map[string]func(text string) string) *app.App 
 	files["go.mod"] = "module example.com/acme/beacon\n\ngo 1.26\n"
 	for _, site := range []string{"console", "portal"} {
 		files["cmd/generate/"+site+"generator/main.go"] = siteRouterProgram(site)
+		if site == "console" {
+			// The first site's program generates the management; the copy does not.
+			files["cmd/generate/consolegenerator/main.go"] = strings.Replace(siteRouterProgram(site), "\t\tgeneration.GenerateRouter(),\n", "\t\tgeneration.GenerateIdentity(\"apps/console/pkg/identity\"),\n\t\tgeneration.GenerateRouter(),\n", 1)
+		}
 		files["apps/"+site+"/pkg/resources/doc.go"] = "package resources\n"
 		files["apps/"+site+"/app/doc.go"] = "package app\n"
 		files["apps/"+site+"/pkg/router/router.go"] = "package router\n"
@@ -922,6 +970,14 @@ func sitesApp(t *testing.T, edits map[string]func(text string) string) *app.App 
 		files[source+"app/core/service/zz_gen_api.ts"] = "// generated\n"
 		for _, rel := range boundWebFiles {
 			files[source+rel] = skeletonWeb(t, rel)
+		}
+		if site == "portal" {
+			// As impulse add site lays the copy in: without the pages of the management.
+			routes, found := dropIdentityRoutes(files[source+appRoutesFile])
+			if !found {
+				t.Fatal("the base skeleton's routes ask for no pages of the auth's management: the fixture is not the copy add site makes")
+			}
+			files[source+appRoutesFile] = routes
 		}
 	}
 	for rel, edit := range edits {
@@ -950,22 +1006,37 @@ func TestAuthApplyRebindsSiteWeb(t *testing.T) {
 
 	const (
 		portalSource  = "apps/portal/web/portal/src/"
-		portalUsers   = portalSource + "app/components/ui/users"
+		portalRoutes  = portalSource + "app/app.routes.ts"
 		portalConfig  = portalSource + "app/app.config.ts"
+		portalProgram = "cmd/generate/portalgenerator/main.go"
 		consoleSource = "apps/console/web/console/src/"
-		consoleUsers  = consoleSource + "app/components/ui/users"
+		consoleRoutes = consoleSource + "app/app.routes.ts"
 		consoleConfig = consoleSource + "app/app.config.ts"
 	)
 	members := Auth{Name: "members", Methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "google", Authority: AuthorityApplication, Accounts: authpkg.AccountsInvited}}, Outlet: "portal"}
-	const renderedPage = portalUsers + `: the users page (users.component.ts, users.component.html, users.component.spec.ts, users.routes.ts) rendered again from the skeleton's for the members auth, in place of the staff auth's: Resources.MembersUsers and Resources.MembersRoles, <impulse-user-management auth="Members" />, and the spec's members-users and members-roles routes`
-	const renderedConfig = portalConfig + ": rendered again from the skeleton's: its HttpClient names the members auth's XSRF cookie (members-xsrf) in place of the staff auth's"
-	// A note the site's developer left in the users page, and a provider of the site's
-	// own in its application configuration: the files are no longer the skeleton's.
-	note := func(text string) string {
-		return strings.Replace(text, "export class UsersComponent {\n", "// The portal's people are its members.\nexport class UsersComponent {\n", 1)
-	}
+	partners := Auth{Name: "partners", Outlet: "console"}
+	const (
+		renderedConfig = portalConfig + ": rendered again from the skeleton's: its HttpClient names the members auth's XSRF cookie (members-xsrf) in place of the staff auth's"
+		ownTreeDid     = portalProgram + `: generation.GenerateIdentity("apps/portal/pkg/identity") added: the program generated no management, and the members auth is the only auth it declares, so the management of the auth's people is generated into apps/portal/pkg/identity and the auth's package builds its identity client from it`
+		noPages        = portalRoutes + ": asks the library for no pages of the staff auth's management, so nothing was rewritten and the members auth's people have no page; spread identityRoutes(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' }) among the routes behind the login guard, as the base skeleton's routes do: the library builds the accounts, the invitations, the sessions and the failed sign-ins from the API description"
+		staffPages     = "      ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'global' }),\n"
+	)
+	// A provider of the site's own in its application configuration, and a page of the
+	// site's own among its routes: the files are no longer the skeleton's.
 	provider := func(text string) string {
 		return strings.Replace(text, "    provideNativeDateAdapter(),\n", "    provideNativeDateAdapter(),\n    providePortalTheme(),\n", 1)
+	}
+	page := func(text string) string {
+		return strings.Replace(text, "      { path: '**', redirectTo: 'dashboard' },\n", "      { path: 'orders', loadComponent: () => import('./orders').then((comp) => comp.Orders) },\n      { path: '**', redirectTo: 'dashboard' },\n", 1)
+	}
+	// A portal whose program declares the staff auth on a second outlet too, and whose
+	// routes still ask for the staff's pages: the program gains no tree for the members,
+	// since it would generate the staff's management a second time.
+	secondOutlet := func(text string) string {
+		return strings.Replace(text, "\t\tgeneration.GenerateHandlerTests(", "\t\tgeneration.WithRouterOutlet(\"desk\", \"desk/api\",\n\t\t\tgeneration.Auth(\"example.com/acme/beacon/pkg/auth/staff\", generation.PasswordMethod()),\n\t\t),\n\t\tgeneration.GenerateHandlerTests(", 1)
+	}
+	keptPages := func(string) string {
+		return skeletonWeb(t, appRoutesFile)
 	}
 
 	tests := []struct {
@@ -980,44 +1051,27 @@ func TestAuthApplyRebindsSiteWeb(t *testing.T) {
 		neverText map[string][]string
 	}{
 		{
-			name:    "the portal's copy of the console's browser application is rebound to the auth",
-			auth:    members,
-			wantDid: []string{renderedPage, renderedConfig},
+			name:        "the portal, a copy of the console that serves no management, takes a tree of its own and the auth's cookie",
+			auth:        members,
+			wantDid:     []string{ownTreeDid, renderedConfig},
+			wantSkipped: []string{noPages},
 			wantText: map[string][]string{
-				portalUsers + "/users.component.ts":      {"Resources.MembersUsers", "readonly membersScope", "over the members auth's"},
-				portalUsers + "/users.component.html":    {`class="users-members" *impulseHasPermission="membersScope"`, `<impulse-user-management auth="Members" />`},
-				portalUsers + "/users.component.spec.ts": {"MembersUsers: { List: 'granted' }, MembersRoles: { List: 'granted' }", "`${environment.apiUrl}/members-users`", "`${environment.apiUrl}/members-roles`", "['Members users']", "const members = ["},
-				portalUsers + "/users.routes.ts":         {"Resources.MembersUsers", "the members surface's"},
-				portalConfig:                             {"withXsrfConfiguration({ cookieName: 'members-xsrf' })", "the members auth's (pkg/auth/members, XSRFCookie)"},
-				consoleUsers + "/users.component.ts":     {"Resources.StaffUsers", "readonly staffScope"},
-				consoleUsers + "/users.component.html":   {`<impulse-user-management auth="Staff" />`},
-				consoleConfig:                            {"cookieName: 'staff-xsrf'"},
+				portalProgram:                 {"\t\tgeneration.GenerateHandlers(\"apps/portal/app\"),\n\t\t// The management of the members auth's people is generated into apps/portal/pkg/identity, a tree this\n", "\t\tgeneration.GenerateIdentity(\"apps/portal/pkg/identity\"),\n"},
+				portalConfig:                  {"withXsrfConfiguration({ cookieName: 'members-xsrf' })", "the members auth's (pkg/auth/members, XSRFCookie)"},
+				"pkg/auth/members/members.go": {`"example.com/acme/beacon/apps/portal/pkg/identity/membersidentity"`, "identityClient, err := membersidentity.NewClient("},
+				consoleRoutes:                 {staffPages},
+				consoleConfig:                 {"cookieName: 'staff-xsrf'"},
 			},
 			neverText: map[string][]string{
-				portalUsers + "/users.component.ts":      {"Staff", "staff"},
-				portalUsers + "/users.component.html":    {"Staff", "staff"},
-				portalUsers + "/users.component.spec.ts": {"Staff", "staff"},
-				portalUsers + "/users.routes.ts":         {"Staff", "staff"},
-				portalConfig:                             {"staff"},
+				portalConfig: {"staff"},
+				portalRoutes: {"identityRoutes"},
 			},
-		},
-		{
-			name:  "a users page edited since the skeleton rendered it is rewritten in place",
-			auth:  members,
-			edits: map[string]func(string) string{portalUsers + "/users.component.ts": note},
-			wantDid: []string{
-				portalUsers + `: the users page (users.component.html, users.component.spec.ts, users.routes.ts) rendered again from the skeleton's for the members auth, in place of the staff auth's: Resources.MembersUsers and Resources.MembersRoles, <impulse-user-management auth="Members" />, and the spec's members-users and members-roles routes`,
-				portalUsers + ": the users page (users.component.ts), edited since the skeleton rendered it, rewritten in place: every name of the staff auth is the members auth's (StaffUsers to MembersUsers, staff-users to members-users, Staff to Members)",
-				renderedConfig,
-			},
-			wantText:  map[string][]string{portalUsers + "/users.component.ts": {"// The portal's people are its members.", "Resources.MembersUsers", "readonly membersScope"}},
-			neverText: map[string][]string{portalUsers + "/users.component.ts": {"Staff", "staff"}},
 		},
 		{
 			name:    "an application configuration with providers of its own keeps them and names the auth's cookie",
 			auth:    members,
 			edits:   map[string]func(string) string{portalConfig: provider},
-			wantDid: []string{renderedPage, portalConfig + ": its HttpClient names the members auth's XSRF cookie (members-xsrf) in place of the staff auth's; the rest of the file, edited since the skeleton rendered it, is as it was"},
+			wantDid: []string{portalConfig + ": its HttpClient names the members auth's XSRF cookie (members-xsrf) in place of the staff auth's; the rest of the file, edited since the skeleton rendered it, is as it was"},
 			wantText: map[string][]string{
 				portalConfig: {"    providePortalTheme(),\n", "withXsrfConfiguration({ cookieName: 'members-xsrf' })", "the members auth's (pkg/auth/members, XSRFCookie)"},
 			},
@@ -1027,22 +1081,47 @@ func TestAuthApplyRebindsSiteWeb(t *testing.T) {
 			name:        "an application configuration naming no cookie of the auth is left to the agent",
 			auth:        members,
 			edits:       map[string]func(string) string{portalConfig: func(string) string { return "export const appConfig = { providers: [] };\n" }},
-			wantDid:     []string{renderedPage},
 			wantSkipped: []string{portalConfig + ": names no XSRF cookie of the staff auth, so nothing was rewritten; name the members auth's (members-xsrf) in withXsrfConfiguration, since the browser echoes that cookie in X-XSRF-TOKEN and the server verifies the echo"},
 		},
 		{
-			name: "the console's outlet rebound rewrites the console's browser application and leaves the portal's",
-			auth: Auth{Name: "partners", Outlet: "console"},
+			name:  "a program that declares another auth gains no tree, and the pages of the auth it no longer serves are taken out",
+			auth:  members,
+			edits: map[string]func(string) string{portalProgram: secondOutlet, portalRoutes: keptPages},
 			wantDid: []string{
-				consoleUsers + `: the users page (users.component.ts, users.component.html, users.component.spec.ts, users.routes.ts) rendered again from the skeleton's for the partners auth, in place of the staff auth's: Resources.PartnersUsers and Resources.PartnersRoles, <impulse-user-management auth="Partners" />, and the spec's partners-users and partners-roles routes`,
+				portalRoutes + ": without the pages of the staff auth's management (the identityRoutes spreads and what they alone used): the outlet's program generates no management of the members auth, so its API description names no such page, and the library refuses a request for one when the application loads",
+				renderedConfig,
+			},
+			wantSkipped: []string{portalProgram + ": the program generates no management of its auths' people (no generation.GenerateIdentity) and declares another auth beside the members auth, so the tool adds none: the members auth is rendered without an identity client, and nothing creates its people, gives them a role or invites an address until the application does. To have it generated, add generation.GenerateIdentity with a tree of the program's own: it generates the management of every auth the program declares, and each auth's package builds its client from that tree in New, as an auth the tool renders for such a program does"},
+			neverText: map[string][]string{
+				portalProgram:                 {"GenerateIdentity"},
+				portalRoutes:                  {"identityRoutes", "apiDescriptor", "resourceMeta"},
+				"pkg/auth/members/members.go": {"identityClient", "membersidentity"},
+			},
+		},
+		{
+			name: "the console's outlet rebound rewrites the console's browser application and leaves the portal's",
+			auth: partners,
+			wantDid: []string{
+				consoleRoutes + ": rendered again from the skeleton's for the partners auth: it asks the library for the pages of the partners auth's management (identityRoutes(apiDescriptor, resourceMeta, { auth: 'Partners', scope: 'global' })) in place of the staff auth's",
 				consoleConfig + ": rendered again from the skeleton's: its HttpClient names the partners auth's XSRF cookie (partners-xsrf) in place of the staff auth's",
 			},
 			wantText: map[string][]string{
-				consoleUsers + "/users.component.ts": {"Resources.PartnersUsers"},
-				consoleConfig:                        {"cookieName: 'partners-xsrf'"},
-				portalUsers + "/users.component.ts":  {"Resources.StaffUsers"},
-				portalConfig:                         {"cookieName: 'staff-xsrf'"},
+				consoleRoutes:                   {"      ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Partners', scope: 'global' }),\n", "// The partners's accounts"},
+				consoleConfig:                   {"cookieName: 'partners-xsrf'"},
+				portalConfig:                    {"cookieName: 'staff-xsrf'"},
+				"pkg/auth/partners/partners.go": {`"example.com/acme/beacon/apps/console/pkg/identity/partnersidentity"`},
 			},
+			neverText: map[string][]string{consoleRoutes: {"Staff", "staff"}},
+		},
+		{
+			name:    "routes edited since the skeleton rendered them are rewritten in place",
+			auth:    partners,
+			edits:   map[string]func(string) string{consoleRoutes: page},
+			wantDid: []string{consoleRoutes + ": its requests for the pages of an auth's management name the partners auth (auth: 'Partners') in place of the staff auth's; the rest of the file, edited since the skeleton rendered it, is as it was"},
+			wantText: map[string][]string{
+				consoleRoutes: {"      ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Partners', scope: 'global' }),\n", "{ path: 'orders', loadComponent: () => import('./orders').then((comp) => comp.Orders) },"},
+			},
+			neverText: map[string][]string{consoleRoutes: {"auth: 'Staff'"}},
 		},
 	}
 	for _, tt := range tests {

@@ -2,8 +2,9 @@ import { signal, WritableSignal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
-import { ColumnConfig, FieldName, RESOURCE_DOMAIN } from '@impulseframework/resource-angular/types';
-import { ApiDescriptor, ApiError, createClient, Domain, Resource, Transport, TransportRequest } from '@impulseframework/resource';
+import { ColumnConfig, FieldName, RESOURCE_DOMAIN, rpcConfig } from '@impulseframework/resource-angular/types';
+import { ApiDescriptor, ApiError, createClient, Domain, Method, Resource, Transport, TransportRequest } from '@impulseframework/resource';
+import { firstValueFrom } from 'rxjs';
 import { ResourceStore } from './resource-store.service';
 
 // The store's whole-set funnel and the paged reader, on the read mode the descriptor's
@@ -53,7 +54,12 @@ const descriptor: ApiDescriptor = {
       page: { default: 10, max: 50 },
     },
   },
-  methods: {},
+  methods: {
+    // A tenant's method: posted under the selected tenant.
+    OpenHangar: { method: 'OpenHangar' as Method, property: 'openHangar', route: 'open-hangar', scope: 'domain' },
+    // A method of the whole application: posted at its own route.
+    RetireShipClass: { method: 'RetireShipClass' as Method, property: 'retireShipClass', route: 'retire-ship-class', scope: 'global' },
+  },
 };
 
 interface Scripted {
@@ -304,6 +310,52 @@ describe('ResourceStore row reader', () => {
     expect(store.rowPresent()).toBe(false);
     expect(store.viewData()).toEqual({});
     expect(store.viewError() instanceof ApiError).toBe(true);
+  });
+});
+
+describe('ResourceStore method calls', () => {
+  // A page calls a method through the method's handle: a tenant's method is posted under
+  // the selected tenant, a method of the whole application at its own route, and the body
+  // is sent as it was given.
+  const openHangar = rpcConfig({ label: 'Open', conditions: [], method: 'OpenHangar' as never });
+  const retire = rpcConfig({ label: 'Retire', conditions: [], method: 'RetireShipClass' as never });
+
+  it("posts a tenant's method under the selected tenant, and under the next one once it changes", async () => {
+    const script = scripted({
+      '/api/sectors/anvil/open-hangar': { rows: null },
+      '/api/sectors/bastion/open-hangar': { rows: null },
+    });
+    const domain = signal<Domain | undefined>('anvil' as Domain);
+    const store = storeOver(script, domain);
+
+    await firstValueFrom(store.rpcCall(openHangar, { hangarId: 'h1', sealed: false, crew: 0 }));
+    domain.set('bastion' as Domain);
+    await firstValueFrom(store.rpcCall(openHangar, { hangarId: 'h1', sealed: true, crew: 4 }));
+
+    expect(script.requests.map((r) => `${r.method} ${r.url}`)).toEqual([
+      'POST /api/sectors/anvil/open-hangar',
+      'POST /api/sectors/bastion/open-hangar',
+    ]);
+    // false and 0 are values of the request, sent as given.
+    expect(script.requests[0].body).toEqual({ hangarId: 'h1', sealed: false, crew: 0 });
+  });
+
+  it('posts a method of the whole application at its own route, whatever tenant is selected', async () => {
+    const script = scripted({ '/api/retire-ship-class': { rows: null } });
+    const store = storeOver(script);
+
+    await firstValueFrom(store.rpcCall(retire, { classId: 'c1' }));
+
+    expect(script.requests.map((r) => `${r.method} ${r.url}`)).toEqual(['POST /api/retire-ship-class']);
+  });
+
+  it("refuses a tenant's method with no tenant selected, before anything is sent", () => {
+    const script = scripted({});
+    const store = storeOver(script, signal<Domain | undefined>(undefined));
+
+    expect(() => store.rpcCall(openHangar, { hangarId: 'h1' })).toThrow('is domain-scoped');
+    expect(() => store.methodHandle('LaunchNothing')).toThrow('LaunchNothing is no method of this API');
+    expect(script.requests).toHaveLength(0);
   });
 });
 

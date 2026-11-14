@@ -21,11 +21,13 @@ import (
 // and they render only under a registry.
 
 // SQL relational operator spellings shared by the filter path and the
-// condition lowering, and the literal an empty disjunction collapses to.
+// condition lowering, the literal an empty disjunction collapses to, and the
+// one a check with no condition to judge selects.
 const (
 	sqlLessEq    = "<="
 	sqlGreaterEq = ">="
 	sqlFalse     = "FALSE"
+	sqlTrue      = "TRUE"
 )
 
 // Reserved named parameters the lowered SQL binds. The statement builder
@@ -234,6 +236,24 @@ func (n *nullGuardNode) String() string {
 	return fmt.Sprintf("guard(%v is null: %s)", n.value, n.expr.String())
 }
 
+// everyItemNode holds a predicate to every item of a list: the rendering of a
+// condition that reads a list attribute. The predicate is the whole condition
+// with the attribute read as the item (alias), and the node is TRUE only when
+// the predicate is TRUE for every item of list. A list with no item, and no
+// list at all, is judged once with no value: the row the items are joined to
+// keeps one row with a NULL item there, so no value never permits and IS NULL
+// is TRUE of it. The node is never UNKNOWN: an item the predicate cannot
+// decide refuses.
+type everyItemNode struct {
+	list  comparand
+	alias string
+	where ExpressionNode
+}
+
+func (n *everyItemNode) String() string {
+	return fmt.Sprintf("every(%s in %v: %s)", n.alias, n.list, n.where.String())
+}
+
 // truthNode is a constant boolean predicate; residual trees are usually
 // fact-folded before lowering, so it renders only defensively.
 type truthNode struct {
@@ -242,7 +262,7 @@ type truthNode struct {
 
 func (n *truthNode) String() string {
 	if n.value {
-		return "TRUE"
+		return sqlTrue
 	}
 
 	return sqlFalse
@@ -370,6 +390,28 @@ func (s *sqlGenerator) generateNullGuardSQL(n *nullGuardNode) (string, error) {
 	}
 
 	return fmt.Sprintf("CASE WHEN %s IS NULL THEN NULL ELSE %s END", value, inner), nil
+}
+
+// generateEveryItemSQL renders "no item fails the predicate": the items are
+// left-joined to a one-row source, so a list with no item is one row whose
+// item is NULL. Both databases take the same shape; PostgreSQL names the
+// correlated function call LATERAL.
+func (s *sqlGenerator) generateEveryItemSQL(n *everyItemNode) (string, error) {
+	list, err := s.renderComparand(&n.list)
+	if err != nil {
+		return "", err
+	}
+	where, _, err := s.generateSQLRecursive(n.where)
+	if err != nil {
+		return "", err
+	}
+	one := s.quoteIdentifier(n.alias + "_row")
+	item := s.quoteIdentifier(n.alias)
+	if s.dialect == Spanner {
+		return fmt.Sprintf("NOT EXISTS (SELECT 1 FROM (SELECT 1) AS %s LEFT JOIN UNNEST(%s) AS %s ON TRUE WHERE (%s) IS NOT TRUE)", one, list, item, where), nil
+	}
+
+	return fmt.Sprintf("NOT EXISTS (SELECT 1 FROM (SELECT 1) AS %s LEFT JOIN LATERAL unnest(%s) AS %s ON TRUE WHERE (%s) IS NOT TRUE)", one, list, item, where), nil
 }
 
 func (s *sqlGenerator) generateExistsSQL(n *existsNode) (string, error) {

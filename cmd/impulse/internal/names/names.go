@@ -26,16 +26,28 @@ func Pascal(name string) string {
 	return strings.ToUpper(name[:1]) + name[1:]
 }
 
+// managementPackages are the packages the generator writes for the management of an
+// auth's people (generation.GenerateIdentity), each named for the auth with no separator:
+// membersidentity, membershandlers, membersresources.
+var managementPackages = []string{"identity", "handlers", "resources"}
+
 // Rename substitutes one auth name for another through text, in both cases. The lowercase
 // name is renamed where it stands on its own or starts an identifier (members,
 // membersAuth, pkg/auth/members) and not inside an English word that happens to begin
-// with it (membership). The PascalCase form is renamed wherever it starts a word of an
-// identifier (MembersSessions, CK_MembersSessionsId, MembersMembersUserRoles). Adjacent
-// occurrences are each renamed: the boundary is read, never consumed.
+// with it (membership); the packages of the auth's generated management are the one
+// place the lowercase name runs into another lowercase word, and are renamed whole
+// (membersidentity, membershandlers, membersresources). The PascalCase form is renamed
+// wherever it starts a word of an identifier (MembersSessions, CK_MembersSessionsId,
+// MembersMembersUserRoles). Adjacent occurrences are each renamed: the boundary is read,
+// never consumed.
 func Rename(text, from, to string) string {
+	standsAlone := func(prev, next byte) bool { return !isLetter(prev) && !isLower(next) }
 	text = replaceBounded(text, Pascal(from), Pascal(to), func(_, next byte) bool { return !isLower(next) })
+	for _, pkg := range managementPackages {
+		text = replaceBounded(text, from+pkg, to+pkg, standsAlone)
+	}
 
-	return replaceBounded(text, from, to, func(prev, next byte) bool { return !isLetter(prev) && !isLower(next) })
+	return replaceBounded(text, from, to, standsAlone)
 }
 
 // replaceBounded replaces every occurrence of from whose neighbors satisfy ok; a neighbor

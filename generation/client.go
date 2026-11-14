@@ -50,12 +50,23 @@ type client struct {
 	// calls them under the scheduled prefix, and nothing that reads the methods a person
 	// calls (an outlet, a permission, a browser client) sees them.
 	scheduledMethods []*rpcMethodInfo
+	// identityTree is the tree the generated management of every declared auth is
+	// written into (GenerateIdentity), empty when the run generates none, and identity
+	// the instances derived for the run, one per auth (prepareIdentity). Their
+	// declarations and methods join resources and rpcMethods, each marked with its
+	// instance, for the resource run and for every TypeScript target alike.
+	identityTree packageDir
+	identity     []*identityInstance
 	// imports are the import paths WithImports names beyond what the run derives: the
 	// escape hatch, each use of it a generator gap.
 	imports []string
 	// module is the main module, recorded from the resources package when the run loads
 	// it: the output packages' import paths are its path plus their directory.
 	module *packages.Module
+	// modulePathRoot is the main module's path as go.mod states it, known before any
+	// package is loaded: the import paths of the sources a run writes ahead of its load
+	// (the generated management of an auth) are derived from it.
+	modulePathRoot string
 	// outputs are the packages the run writes generated files into (the handlers and the
 	// routes), whose import paths are derived from the module.
 	outputs             []packageDir
@@ -124,6 +135,7 @@ func newClient(ctx context.Context, resourcePackageDir string, migrationSourceUR
 	c := &client{
 		migrationSourceURLs: migrationSourceURL,
 		genCache:            gCache,
+		modulePathRoot:      modInfo.PackageName,
 	}
 	if err := resolveOptions(c, opts); err != nil {
 		return nil, err
@@ -291,9 +303,12 @@ func (c *client) hasRPCMethods() bool {
 	return len(c.rpcMethods) > 0
 }
 
-func (c *client) hasRPCMethodWithTransition() bool {
+// hasRPCMethodWithTarget reports whether a method runs against a row (@target, a
+// transition's target included): its metadata names the row's resource, so the methods
+// file imports the resource names.
+func (c *client) hasRPCMethodWithTarget() bool {
 	for _, rpcMethod := range c.rpcMethods {
-		if rpcMethod.Transition != nil {
+		if rpcMethod.Target != nil {
 			return true
 		}
 	}
@@ -928,15 +943,11 @@ func formatInterfaceTypes(types []string) string {
 func (c *client) formatResourceInterfaceTypes(resources []*resourceInfo, computedResources []*computedResource) string {
 	names := make([]string, 0, len(resources)+len(computedResources))
 	for _, res := range resources {
-		if res.IsVirtual {
-			names = append(names, fmt.Sprintf("%s.%s", c.virtual.Package(), res.Name()))
-		} else {
-			names = append(names, fmt.Sprintf("%s.%s", c.resource.Package(), res.Name()))
-		}
+		names = append(names, fmt.Sprintf("%s.%s", c.resourcesDirOf(res).Package(), res.Name()))
 	}
 
 	for _, res := range computedResources {
-		names = append(names, fmt.Sprintf("%s.%s", c.computed.Package(), res.Name()))
+		names = append(names, fmt.Sprintf("%s.%s", c.computedDirOf(res).Package(), res.Name()))
 	}
 
 	return formatInterfaceTypes(names)
@@ -1006,10 +1017,10 @@ func sanitizeEnumIdentifier(name string) string {
 
 func typescriptMethodImports(t *typescriptGenerator) string {
 	pkgs := make([]string, 0, 2)
-	if t.hasRPCMethods() || t.servesFeatureFlags() || len(t.tsUserMethodsOn()) > 0 {
+	if t.hasRPCMethods() || t.servesFeatureFlags() {
 		pkgs = append(pkgs, "Methods")
 	}
-	if t.hasRPCMethodWithEnumeratedResource() || t.hasRPCMethodWithTransition() {
+	if t.hasRPCMethodWithEnumeratedResource() || t.hasRPCMethodWithTarget() {
 		pkgs = append(pkgs, "Resources")
 	}
 
@@ -1021,7 +1032,7 @@ func typescriptConsImports(t *typescriptGenerator, d *resource.TypescriptData) s
 	if len(d.ResourceTags) > 0 || len(t.rpcMethods) > 0 {
 		pkgs = append(pkgs, "FieldName")
 	}
-	if len(t.rpcMethods) > 0 || t.servesFeatureFlags() || len(t.tsUserMethodsOn()) > 0 {
+	if len(t.rpcMethods) > 0 || t.servesFeatureFlags() {
 		pkgs = append(pkgs, "Method")
 	}
 	if len(d.Permissions) > 0 {

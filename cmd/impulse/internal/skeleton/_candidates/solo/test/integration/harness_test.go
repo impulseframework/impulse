@@ -19,12 +19,12 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/auth/staff"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/identity/staffidentity"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/router"
 	initiator "github.com/impulseframework/impulse/db"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
-	"github.com/impulseframework/impulse/resource/sessionusers"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/mail"
 )
@@ -64,11 +64,10 @@ func (c *servedConfigurer) Access() access.Controller { return c.auth.Access() }
 
 func (c *servedConfigurer) Staff() *staff.Auth { return c.auth }
 
-// StaffUserStores are the real stores: the test staff auth's session accounts and its
-// engine's memberships, so the suites drive the user surface as the served application does.
-func (c *servedConfigurer) StaffUserStores() (resource.UserAccounts, resource.UserSeats) {
-	return sessionusers.Accounts(c.auth.Session().API()), c.auth.Access().UserManager()
-}
+// StaffIdentity is the staff auth's identity client, which the test auth built when it
+// opened as the served application's does, so the suites drive the generated management
+// as the served application does.
+func (c *servedConfigurer) StaffIdentity() *staffidentity.Client { return c.auth.Identity() }
 
 func (c *servedConfigurer) Validator() *validator.Validate { return validator.New() }
 
@@ -97,7 +96,8 @@ func (c *servedConfigurer) LiveOrigins() []string {
 type served struct {
 	server *httptest.Server
 	access *access.Client
-	// adminID is the development login's user id, for the users surface's methods.
+	// adminID is the development login's user id, for the methods of the auth's generated
+	// management.
 	adminID string
 	// mail is the recorder the staff auth sends its mail to, where a suite reads the
 	// sign-in code a sign-in waits for.

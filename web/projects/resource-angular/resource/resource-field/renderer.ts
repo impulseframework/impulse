@@ -14,11 +14,15 @@ export type FieldRenderer = 'bytes' | 'array' | 'object' | 'date' | 'number' | '
  * their own read-only presentations, every type ending in `[]` the array of its element
  * type, `date` and `civildate` the date control, `boolean` and `nullboolean` the boolean
  * fragment, `enumerated` the picker, and anything else (a string, a uuid, no metadata)
- * the text control.
+ * the text control. `enumerated[]`, a method's request field that holds several picked
+ * keys, is the picker too, which takes several.
  */
 export function rendererFor(displayType: ValidDisplayTypes | undefined): FieldRenderer {
   if (displayType === undefined) {
     return 'text';
+  }
+  if (displayType === 'enumerated[]') {
+    return 'enumerated';
   }
   if (displayType.endsWith('[]')) {
     return 'array';

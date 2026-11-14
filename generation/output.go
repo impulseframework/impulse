@@ -61,6 +61,16 @@ func (o *generatedOutput) writeGeneratedFile(path string, data []byte) error {
 	return nil
 }
 
+// wrote reports whether the run has written path.
+func (o *generatedOutput) wrote(path string) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	_, ok := o.written[filepath.Clean(path)]
+
+	return ok
+}
+
 // removeStaleOutput removes, from every registered directory, the generated files the
 // run did not write, and forgets the record so a later run on the same client starts
 // clean.

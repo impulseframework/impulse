@@ -138,3 +138,57 @@ func Test_ScanStruct(t *testing.T) {
 		})
 	}
 }
+
+// Test_ScanStructComment pins the scan of a struct's comment given as text: what
+// ScanStruct reads off the struct's own comment, prose lines passed over, two keywords on
+// one line both read, and the scanner's refusals kept.
+func Test_ScanStructComment(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		comment string
+		want    map[string]genlang.Arg
+		wantErr bool
+	}{
+		{name: "no comment", comment: "", want: map[string]genlang.Arg{}},
+		{name: "prose alone", comment: "Ship is one ship.\nIt says view somewhere.\n", want: map[string]genlang.Arg{}},
+		{
+			name:    "annotations under prose",
+			comment: "Ship is one ship.\n\n@view\n@policy(Read, crew)\n",
+			want:    map[string]genlang.Arg{"view": genlang.Arg(""), "policy": genlang.Arg("Read, crew")},
+		},
+		{
+			name:    "two keywords on one line",
+			comment: "@view @policy(Read, crew)\n",
+			want:    map[string]genlang.Arg{"view": genlang.Arg(""), "policy": genlang.Arg("Read, crew")},
+		},
+		{name: "a keyword that is no keyword", comment: "@veiw\n", wantErr: true},
+		{name: "an exclusive keyword twice", comment: "@view\n@view\n", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := genlang.NewScanner(keywords).ScanStructComment(tt.comment)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("ScanStructComment() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			for keyword, arg := range tt.want {
+				if !got.Has(keyword) || got.Get(keyword) != arg {
+					t.Errorf("ScanStructComment() %s = %q (has %t), want %q", keyword, got.Get(keyword), got.Has(keyword), arg)
+				}
+			}
+			count := 0
+			for range got.Keys() {
+				count++
+			}
+			if count != len(tt.want) {
+				t.Errorf("ScanStructComment() read %d keywords, want %d", count, len(tt.want))
+			}
+		})
+	}
+}

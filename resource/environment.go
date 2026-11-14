@@ -42,13 +42,14 @@ func RequestEnvironment() accesstypes.Environment {
 }
 
 // errConditionalAtDecode reports a Conditional decision reaching a
-// decode-time-only permission check (RPC methods and computed resources).
-// Conditions evaluate at the data layer, and these paths have no library
-// execution underneath them to evaluate one, so a condition here is
-// unenforceable: the deployment invariant is that MigrateRoles rejects
-// row-referencing conditions on RPC and computed grants, and row-free
-// conditions fold inside the check itself. Reaching this is a 500-class
-// invariant breach — never an allow, never a 403.
+// decode-time-only permission check: an RPC method without a target row.
+// Conditions that read a row evaluate where the row is, and such a method has
+// none, so a condition here is unenforceable: the deployment invariant is
+// that MigrateRoles rejects row-referencing conditions on those grants, and
+// row-free conditions fold inside the check itself. Reaching this is a
+// 500-class invariant breach — never an allow, never a 403. (A computed
+// resource is no longer one of these: its rows are judged as its function
+// yields them, computed_conditions.go.)
 func errConditionalAtDecode(perm accesstypes.Permission, conditional []accesstypes.Resource) error {
 	return errors.Newf("invariant breach: conditional grants for (%s) on %s reached a decode-time-only permission check, where conditions cannot be evaluated", perm, conditional)
 }

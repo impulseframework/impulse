@@ -61,16 +61,16 @@ const expiredColumnName = "Expired"
 func NewSessionStorageDriver(client *spanner.Client) *SessionStorageDriver {
 	return &SessionStorageDriver{
 		spanner:                 client,
-		sessionTableName:        "Sessions",
-		userTableName:           "SessionUsers",
-		identitiesTableName:     "SessionIdentities",
-		pendingTableName:        "SessionPendingSignIns",
-		attemptsTableName:       "SessionSignInAttempts",
-		mailLinksTableName:      "SessionMailLinks",
-		tokensTableName:         "SessionTokens",
-		deviceCodesTableName:    "SessionDeviceCodes",
-		factorCodesTableName:    "SessionFactorCodes",
-		trustedDevicesTableName: "SessionTrustedDevices",
+		sessionTableName:        dbtype.SessionsTable,
+		userTableName:           dbtype.UsersTable,
+		identitiesTableName:     dbtype.IdentitiesTable,
+		pendingTableName:        dbtype.PendingSignInsTable,
+		attemptsTableName:       dbtype.SignInAttemptsTable,
+		mailLinksTableName:      dbtype.MailLinksTable,
+		tokensTableName:         dbtype.TokensTable,
+		deviceCodesTableName:    dbtype.DeviceCodesTable,
+		factorCodesTableName:    dbtype.FactorCodesTable,
+		trustedDevicesTableName: dbtype.TrustedDevicesTable,
 	}
 }
 
@@ -102,6 +102,25 @@ func (s *SessionStorageDriver) SetUserTableName(name string) error {
 // conflict.
 func (s *SessionStorageDriver) usernameIndex() string {
 	return s.userTableName + "ByNormalizedUsername"
+}
+
+// exactUsernameIndex is the unique index on the user table's username as written, named
+// after the table as the shipped DDL names it (<UserTable>ByUsername): the index a list
+// of people reads an account through when it starts from who holds a role.
+func (s *SessionStorageDriver) exactUsernameIndex() string {
+	return s.userTableName + "ByUsername"
+}
+
+// usernameConflict reports whether a write was refused by one of the user table's unique
+// indexes on the username. A name that repeats as written repeats normalized too, and
+// the database names either index, so a conflict on either is a username conflict.
+func (s *SessionStorageDriver) usernameConflict(err error) bool {
+	if spanner.ErrCode(err) != codes.AlreadyExists {
+		return false
+	}
+	text := err.Error()
+
+	return strings.Contains(text, s.usernameIndex()) || strings.Contains(text, s.exactUsernameIndex())
 }
 
 // emailIndex is the unique index on the user table's normalized email, named after the
@@ -611,7 +630,7 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, insertUser *dbtyp
 	}
 
 	if _, err := s.spanner.Apply(ctx, mutations); err != nil {
-		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.usernameIndex()) {
+		if s.usernameConflict(err) {
 			return nil, httpio.NewConflictMessagef("username %q already exists", user.Username)
 		}
 		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.emailIndex()) {
@@ -703,7 +722,7 @@ func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UU
 			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 		}
 
-		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.usernameIndex()) {
+		if s.usernameConflict(err) {
 			return httpio.NewConflictMessagef("username %q already exists", newUsername)
 		}
 		if spanner.ErrCode(err) == codes.AlreadyExists && strings.Contains(err.Error(), s.emailIndex()) {

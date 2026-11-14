@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"fmt"
 	"regexp"
 	"slices"
 	"strings"
@@ -20,6 +21,9 @@ import (
 // that anchors it, so the local anchor is never a spelled name; only remote
 // path segments are spelled, and every hop is validated many-to-one against
 // the FK metadata loaded from the emulator.
+
+// bindingViaArgKey names the join path of an @attribute or a @domain binding.
+const bindingViaArgKey = "via"
 
 // bindingName pins the attribute-name charset, agreed jointly with the
 // condition expression language: identifiers are case-sensitive,
@@ -62,6 +66,11 @@ type attributeBinding struct {
 	// Path is the resolved remote chain for a join-path binding; empty for a
 	// column binding.
 	Path []bindingHop
+
+	// List marks an attribute over a list column (an ARRAY): Type is the type
+	// of one item, and a condition that reads the attribute is judged once
+	// for each item of the row's list.
+	List bool
 }
 
 // domainBinding resolves every row of a domain-scoped resource to its tenant:
@@ -195,7 +204,7 @@ func validateDomainBinding(res *resourceInfo, structName string) error {
 // bare is a column binding on the anchor itself; via: resolves a join path
 // leaving through the anchor.
 func (c *client) resolveAttribute(anchor *resourceField, arg genlang.Arg, structsByTable map[string]*parser.Struct) (*attributeBinding, error) {
-	invocations, err := arg.ParseInvocations(&genlang.ArgSpec{Positional: 1, Keys: []string{"via"}})
+	invocations, err := arg.ParseInvocations(&genlang.ArgSpec{Positional: 1, Keys: []string{bindingViaArgKey}})
 	if err != nil {
 		return nil, errors.Wrapf(err, "@%s", attributeKeyword)
 	}
@@ -203,18 +212,60 @@ func (c *client) resolveAttribute(anchor *resourceField, arg genlang.Arg, struct
 
 	binding := &attributeBinding{Name: invocation.Positional[0], Anchor: anchor}
 	terminal := &anchor.TypeInfo
-	if via, ok := invocation.Named("via"); ok {
+	if via, ok := invocation.Named(bindingViaArgKey); ok {
 		binding.Path, terminal, err = c.resolveRemotePath(anchor, splitPathSegments(via), structsByTable)
 		if err != nil {
 			return nil, errors.Wrapf(err, "@%s(%s)", attributeKeyword, binding.Name)
 		}
 	}
-	binding.Type, err = attributeTypeFor(terminal)
-	if err != nil {
+	if err := typeAttribute(binding, terminal); err != nil {
 		return nil, errors.Wrapf(err, "@%s(%s)", attributeKeyword, binding.Name)
 	}
 
 	return binding, nil
+}
+
+// typeAttribute gives a binding its comparison type from the column it ends
+// on. A list column (an ARRAY: a slice field, or a named type over one, never
+// a byte slice) makes a list attribute, typed by one item: a condition that
+// reads it is judged once for each item of the row's list. A list is a column
+// of the resource's own row, so one at the end of a join path is refused.
+func typeAttribute(binding *attributeBinding, terminal *parser.TypeInfo) error {
+	item, isList := listItemType(terminal)
+	if !isList {
+		mapped, err := attributeTypeFor(terminal)
+		if err != nil {
+			return err
+		}
+		binding.Type = mapped
+
+		return nil
+	}
+	if len(binding.Path) > 0 {
+		return errors.Newf("the path ends on a list column (%s); a list attribute is a column of the resource's own row", terminal.Type())
+	}
+	mapped, ok := goTypeToAttributeType(item)
+	if !ok {
+		return errors.Newf("type %s is a list of %s, which is not a supported attribute comparison type (string, number, bool, timestamp, or date)", terminal.Type(), item)
+	}
+	binding.Type, binding.List = mapped, true
+
+	return nil
+}
+
+// listItemType is the Go type of one item of a list column's field, ok false
+// for a field that is no list column.
+func listItemType(t *parser.TypeInfo) (item string, ok bool) {
+	if t.GoType() == nil || !isListColumn(t.GoType()) {
+		return "", false
+	}
+	for _, spelled := range []string{t.DerefType(), strings.TrimPrefix(t.UnderlyingType(), "*")} {
+		if item, ok := strings.CutPrefix(spelled, "[]"); ok {
+			return strings.TrimPrefix(item, "*"), true
+		}
+	}
+
+	return "", false
 }
 
 // resolveDomainBinding compiles and attaches a resource's @domain annotation.
@@ -252,11 +303,11 @@ func (c *client) resolveDomain(anchor *resourceField, arg genlang.Arg, structsBy
 		return binding, nil
 	}
 
-	invocations, err := arg.ParseInvocations(&genlang.ArgSpec{Keys: []string{"via"}})
+	invocations, err := arg.ParseInvocations(&genlang.ArgSpec{Keys: []string{bindingViaArgKey}})
 	if err != nil {
 		return nil, errors.Wrapf(err, "@%s", domainKeyword)
 	}
-	via, ok := invocations[0].Named("via")
+	via, ok := invocations[0].Named(bindingViaArgKey)
 	if !ok {
 		return nil, errors.Newf("@%s takes no arguments, or via: alone", domainKeyword)
 	}
@@ -424,9 +475,9 @@ func goTypeToAttributeType(goType string) (string, bool) {
 		"decimal.Decimal", "decimal.NullDecimal",
 		"spanner.NullInt64", "spanner.NullFloat64", "spanner.NullNumeric":
 		return string(resource.AttributeTypeNumber), true
-	case "bool", "spanner.NullBool":
+	case boolGoType, "spanner.NullBool":
 		return string(resource.AttributeTypeBool), true
-	case "time.Time", "spanner.NullTime":
+	case timeGoType, "spanner.NullTime":
 		return string(resource.AttributeTypeTimestamp), true
 	case civilDateGoType, "spanner.NullDate":
 		return string(resource.AttributeTypeDate), true
@@ -449,8 +500,9 @@ func validateBindingName(name, keyword string) error {
 // rejectBindingAnnotations fails extraction when a binding annotation appears
 // on a struct kind that has no schema to resolve it against: bindings are
 // table-backed resources' vocabulary. Keywords in allowed are exempt — a
-// virtual resource may carry a bare @domain naming a column of its own
-// projection (design plan §06), which needs no schema to resolve.
+// virtual resource may carry a bare @domain and a bare @attribute, each naming
+// a column of its own projection (design plan §06), which needs no schema to
+// resolve. Every refusal says where the annotation belongs.
 func rejectBindingAnnotations(pStruct *parser.Struct, annotations genlang.StructAnnotations, kind string, allowed ...string) error {
 	var errs []error
 	for i, field := range pStruct.Fields() {
@@ -459,7 +511,7 @@ func rejectBindingAnnotations(pStruct *parser.Struct, annotations genlang.Struct
 				continue
 			}
 			if annotations.Fields[i].Has(keyword) {
-				errs = append(errs, errors.Newf("struct %s field %s: @%s is only valid on @resource structs; a %s has no schema to resolve it against", pStruct.Name(), field.Name(), keyword, kind))
+				errs = append(errs, errors.Newf("struct %s field %s: @%s is only valid on %s; a %s has no schema to resolve it against — %s", pStruct.Name(), field.Name(), keyword, bindingPlacement(keyword), kind, bindingRemedy(keyword)))
 			}
 		}
 	}
@@ -470,25 +522,75 @@ func rejectBindingAnnotations(pStruct *parser.Struct, annotations genlang.Struct
 	return nil
 }
 
-// resolveVirtualDomain compiles a virtual resource's @domain binding. A
-// virtual resource executes through the library path over its embedded
-// subquery, so tenancy injection reaches it — but there is no schema to
-// resolve a join path against: only the bare form is valid, naming a column
-// the view's projection must carry.
-func resolveVirtualDomain(res *resourceInfo, pStruct *parser.Struct, annotations genlang.StructAnnotations) error {
+// bindingPlacement names the struct kinds a binding annotation is valid on:
+// a table-backed resource for every one, a view as well for the two a view's
+// own projection can carry, in their bare form, and for the attribute an RPC
+// method's field (the request field a grant's condition reads) and a computed
+// resource's (the field of a row it reads).
+func bindingPlacement(keyword string) string {
+	switch keyword {
+	case attributeKeyword:
+		return fmt.Sprintf("@%s structs, bare on @%s structs, and bare on the fields of @%s and @%s structs", resourceKeyword, virtualKeyword, rpcKeyword, computedKeyword)
+	case domainKeyword:
+		return fmt.Sprintf("@%s structs and, bare, on @%s structs", resourceKeyword, virtualKeyword)
+	default:
+		return fmt.Sprintf("@%s structs", resourceKeyword)
+	}
+}
+
+// bindingRemedy says what to do with a binding annotation on a struct kind
+// that cannot carry it.
+func bindingRemedy(keyword string) string {
+	switch keyword {
+	case attributeKeyword, domainKeyword:
+		return "remove it, or declare it on the table or the view whose rows carry the column"
+	default:
+		return "remove it, or declare it on the table whose rows carry the column"
+	}
+}
+
+// resolveVirtualBindings compiles a virtual resource's @domain binding and its
+// @attribute bindings. A virtual resource executes through the library path
+// over its embedded subquery, so tenancy injection and condition lowering
+// reach it — but there is no schema to resolve a join path against: only the
+// bare forms are valid, each naming a column the view's projection must
+// carry. A fact a condition reads on a view's row is a column the view's
+// query selects; whatever join computes it is the query's own.
+func resolveVirtualBindings(res *resourceInfo, pStruct *parser.Struct, annotations genlang.StructAnnotations) error {
 	fieldByName := make(map[string]*resourceField, len(res.Fields))
 	for _, f := range res.Fields {
 		fieldByName[f.Name()] = f
 	}
 
+	names := make(map[string]bool)
 	for i, pField := range pStruct.Fields() {
-		if !annotations.Fields[i].Has(domainKeyword) {
+		fieldAnnotations := annotations.Fields[i]
+		if !fieldAnnotations.Has(domainKeyword) && !fieldAnnotations.Has(attributeKeyword) {
 			continue
 		}
-		if annotations.Fields[i].Get(domainKeyword).Count() != 0 {
+		anchor, ok := fieldByName[pField.Name()]
+
+		if fieldAnnotations.Has(attributeKeyword) {
+			if !ok {
+				return errors.Newf("struct %s field %s: @%s requires a projection-backed field", pStruct.Name(), pField.Name(), attributeKeyword)
+			}
+			binding, err := resolveVirtualAttribute(anchor, fieldAnnotations.Get(attributeKeyword))
+			if err != nil {
+				return errors.Wrapf(err, "struct %s field %s", pStruct.Name(), pField.Name())
+			}
+			if names[binding.Name] {
+				return errors.Newf("struct %s field %s: @%s(%s): name already declared by @%s on this resource", pStruct.Name(), pField.Name(), attributeKeyword, binding.Name, attributeKeyword)
+			}
+			names[binding.Name] = true
+			res.Attributes = append(res.Attributes, binding)
+		}
+
+		if !fieldAnnotations.Has(domainKeyword) {
+			continue
+		}
+		if fieldAnnotations.Get(domainKeyword).Count() != 0 {
 			return errors.Newf("struct %s field %s: @%s on a virtual resource takes no arguments — a virtual has no schema to resolve a join path against; the binding names a column of the view's projection", pStruct.Name(), pField.Name(), domainKeyword)
 		}
-		anchor, ok := fieldByName[pField.Name()]
 		if !ok {
 			return errors.Newf("struct %s field %s: @%s requires a projection-backed field", pStruct.Name(), pField.Name(), domainKeyword)
 		}
@@ -499,6 +601,31 @@ func resolveVirtualDomain(res *resourceInfo, pStruct *parser.Struct, annotations
 	}
 
 	return validateDomainBinding(res, pStruct.Name())
+}
+
+// resolveVirtualAttribute compiles one @attribute(name) on a view's field: the
+// column binding alone, named and typed by the rules a table's attribute
+// follows. A via: path is refused with the way to the same fact: the view's
+// query selects it.
+func resolveVirtualAttribute(anchor *resourceField, arg genlang.Arg) (*attributeBinding, error) {
+	invocations, err := arg.ParseInvocations(&genlang.ArgSpec{Positional: 1, Keys: []string{bindingViaArgKey}})
+	if err != nil {
+		return nil, errors.Wrapf(err, "@%s", attributeKeyword)
+	}
+	invocation := invocations[0]
+
+	binding := &attributeBinding{Name: invocation.Positional[0], Anchor: anchor}
+	if via, ok := invocation.Named(bindingViaArgKey); ok {
+		return nil, errors.Newf("@%s(%s, via: %s): on a virtual resource @%s takes the name alone — a virtual has no schema to resolve a join path against; select the value in the view's query and declare @%s(%s) on the field over that column", attributeKeyword, binding.Name, via, attributeKeyword, attributeKeyword, binding.Name)
+	}
+	if err := validateBindingName(binding.Name, attributeKeyword); err != nil {
+		return nil, err
+	}
+	if err := typeAttribute(binding, &anchor.TypeInfo); err != nil {
+		return nil, errors.Wrapf(err, "@%s(%s)", attributeKeyword, binding.Name)
+	}
+
+	return binding, nil
 }
 
 // splitPathSegments splits a dotted path into its Go-field-name segments.
@@ -519,6 +646,7 @@ func collectionBindings(res *resourceInfo) *resource.Bindings {
 			Column: fieldColumn(attr.Anchor),
 			Type:   resource.AttributeType(attr.Type),
 			Path:   collectionHops(attr.Path),
+			List:   attr.List,
 		})
 	}
 	if res.DomainBinding != nil {
@@ -565,4 +693,139 @@ func fieldColumn(f *resourceField) string {
 	column, _ := f.LookupTag(spannerTagKey)
 
 	return column
+}
+
+// resolveRequestAttributes compiles the bare @attribute(name) on an RPC method's
+// fields: the request fields a grant's condition may read as new.<name>. The name
+// follows a binding name's rules and is declared once per method. The type is the
+// field's comparison type, a pointer's being what it points to and a list's its
+// element's; a list is judged element by element, so a method declares at most one
+// list field this way.
+func resolveRequestAttributes(method *rpcMethodInfo, pStruct *parser.Struct, annotations genlang.StructAnnotations) error {
+	attributes, err := goFieldAttributes(pStruct, annotations, &goFieldAttributePlace{
+		field:   "an RPC method's field",
+		names:   "it names the request field itself",
+		owner:   "method",
+		value:   "request field",
+		oneList: true,
+	})
+	if err != nil {
+		return err
+	}
+	method.RequestAttributes = attributes
+
+	return nil
+}
+
+// resolveComputedAttributes compiles the bare @attribute(name) on a computed
+// resource's fields: the fields of a row a grant's condition may read. A computed
+// resource's rows come from the application's Go function, so there is no schema
+// to resolve a join path against and no query for the database to judge the
+// condition in: the attribute names the row struct's own field, and the library
+// judges each row the function yields by reading that field in Go. The name
+// follows a binding name's rules and is declared once per resource; the type is the
+// field's comparison type, as a method's request field is typed. A resource may
+// declare several list fields; a condition reads one, which deploy validation
+// holds it to.
+func resolveComputedAttributes(res *computedResource, annotations genlang.StructAnnotations) error {
+	attributes, err := goFieldAttributes(res.Struct, annotations, &goFieldAttributePlace{
+		field: "a computed resource's field",
+		names: "it names the row's own field, and a fact from elsewhere is a field the resource's function fills",
+		owner: "computed resource",
+		value: "field",
+	})
+	if err != nil {
+		return err
+	}
+	res.Attributes = attributes
+
+	return nil
+}
+
+// goFieldAttributePlace is where a bare @attribute(name) names a Go field the
+// library reads the value from: its words for the refusals, and whether one list
+// field is all the place takes.
+type goFieldAttributePlace struct {
+	// field names the kind of field ("an RPC method's field").
+	field string
+	// names says what the bare name stands for, the reason a join path is refused.
+	names string
+	// owner is the declaring struct's kind ("method", "computed resource").
+	owner string
+	// value is what a condition compares ("request field", "field").
+	value string
+	// oneList holds the place to one list field: its decoder settles a condition
+	// against the request before any deploy validation of the condition could say
+	// which list it reads.
+	oneList bool
+}
+
+// goFieldAttributes compiles the bare @attribute(name) declarations on a struct
+// whose values the library reads in Go: the Column of each attribute is the Go
+// field itself.
+func goFieldAttributes(pStruct *parser.Struct, annotations genlang.StructAnnotations, place *goFieldAttributePlace) ([]resource.AttributeData, error) {
+	var attributes []resource.AttributeData
+	names := make(map[string]bool)
+	listField := ""
+	for i, pField := range pStruct.Fields() {
+		fieldAnnotations := annotations.Fields[i]
+		if !fieldAnnotations.Has(attributeKeyword) {
+			continue
+		}
+		invocations, err := fieldAnnotations.Get(attributeKeyword).ParseInvocations(&genlang.ArgSpec{Positional: 1, Keys: []string{bindingViaArgKey}})
+		if err != nil {
+			return nil, errors.Wrapf(err, "struct %s field %s: @%s", pStruct.Name(), pField.Name(), attributeKeyword)
+		}
+		name := invocations[0].Positional[0]
+		if _, ok := invocations[0].Named(bindingViaArgKey); ok {
+			return nil, errors.Newf("struct %s field %s: @%s(%s) on %s takes the name alone: %s", pStruct.Name(), pField.Name(), attributeKeyword, name, place.field, place.names)
+		}
+		if err := validateBindingName(name, attributeKeyword); err != nil {
+			return nil, errors.Wrapf(err, "struct %s field %s", pStruct.Name(), pField.Name())
+		}
+		if names[name] {
+			return nil, errors.Newf("struct %s field %s: @%s(%s): name already declared on this %s", pStruct.Name(), pField.Name(), attributeKeyword, name, place.owner)
+		}
+		names[name] = true
+
+		goType, isList := strings.CutPrefix(pField.Type(), "[]")
+		if isList && place.oneList {
+			if listField != "" {
+				return nil, errors.Newf("struct %s field %s: @%s(%s): the %s already declares the list field %s for conditions; a condition judges a list element by element, so a %s declares one", pStruct.Name(), pField.Name(), attributeKeyword, name, place.owner, listField, place.owner)
+			}
+			listField = pField.Name()
+		}
+		attrType, ok := requestFieldAttributeType(strings.TrimPrefix(goType, "*"))
+		if !ok {
+			return nil, errors.Newf("struct %s field %s: @%s(%s): a condition cannot compare a %s of type %s; it compares a string, an id (%s), an integer, a float, a bool, a time.Time or a %s, a pointer to one, or a list of one", pStruct.Name(), pField.Name(), attributeKeyword, name, place.value, pField.Type(), impulseUUIDGoType, civilDateGoType)
+		}
+		attributes = append(attributes, resource.AttributeData{Name: name, Column: pField.Name(), Type: resource.AttributeType(attrType), List: isList})
+	}
+
+	return attributes, nil
+}
+
+// requestFieldAttributeType is the comparison type of a Go field a condition may
+// read: a method's request field, a computed resource's field. It is narrower than a
+// column's (goTypeToAttributeType): the value is read off the decoded request, or off
+// the row the application's function yielded, in Go, so only the types the library
+// turns into a comparison value are admitted, and the database's own wrappers (a
+// decimal, a nullable) are not.
+func requestFieldAttributeType(goType string) (string, bool) {
+	switch goType {
+	case stringGoType, impulseUUIDGoType:
+		return string(resource.AttributeTypeString), true
+	case intGoType, int8GoType, int16GoType, int32GoType, int64GoType,
+		uintGoType, uint8GoType, uint16GoType, uint32GoType, uint64GoType,
+		float32GoType, float64GoType:
+		return string(resource.AttributeTypeNumber), true
+	case boolGoType:
+		return string(resource.AttributeTypeBool), true
+	case timeGoType:
+		return string(resource.AttributeTypeTimestamp), true
+	case civilDateGoType:
+		return string(resource.AttributeTypeDate), true
+	default:
+		return "", false
+	}
 }

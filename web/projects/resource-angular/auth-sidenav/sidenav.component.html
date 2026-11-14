@@ -14,9 +14,11 @@
       <ng-container [ngTemplateOutlet]="linkTemplate" [ngTemplateOutletContext]="{ navItem: navItem }"></ng-container>
     }
     @case ('expandable') {
-      <ng-container
-        [ngTemplateOutlet]="expandableTemplate"
-        [ngTemplateOutletContext]="{ navItem: navItem }"></ng-container>
+      @if (shown(navItem)) {
+        <ng-container
+          [ngTemplateOutlet]="expandableTemplate"
+          [ngTemplateOutletContext]="{ navItem: navItem }"></ng-container>
+      }
     }
   }
 </ng-template>

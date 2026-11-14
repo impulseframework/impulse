@@ -118,7 +118,7 @@ func TestMethodApply(t *testing.T) {
 					}
 				}
 				main := read(t, a, "pkg/auth/staff/staff.go")
-				for _, want := range []string{"\tpassword  *session.PasswordMethod\n\tworkspace *google.Method\n", "\thandlers.password = registerPassword(authSession)\n", "\tauthSession.SetInvitationAccepted(resource.SeatInvited(accessClient.UserManager()))\n\thandlers.workspace, err = registerWorkspace(authSession, accessClient, settings)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\n\treturn &Auth{db: db, access: accessClient, handlers: handlers}, nil", "\tWorkspace WorkspaceSettings\n", "\tLoginURL string\n", "\t\"github.com/impulseframework/impulse/session/google\"\n"} {
+				for _, want := range []string{"\tpassword  *session.PasswordMethod\n\tworkspace *google.Method\n", "\thandlers.password = registerPassword(authSession)\n", "\tauthSession.SetInvitationAccepted(identityClient.InvitationAccepted())\n\thandlers.workspace, err = registerWorkspace(authSession, accessClient, settings)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\n\treturn &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil", "\tWorkspace WorkspaceSettings\n", "\tLoginURL string\n", "\t\"github.com/impulseframework/impulse/session/google\"\n"} {
 					if !strings.Contains(main, want) {
 						t.Errorf("staff.go lacks %q:\n%s", want, main)
 					}
@@ -145,8 +145,8 @@ func TestMethodApply(t *testing.T) {
 					t.Errorf("program = %s", program)
 				}
 				meaning := (&Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication, Accounts: authpkg.AccountsInvited}}).Meaning()
-				if !strings.Contains(meaning, "grant Create on `StaffUsers` to the role that invites in the role file") {
-					t.Errorf("Meaning() lacks the Create grant:\n%s", meaning)
+				if !strings.Contains(meaning, "the generated management of the staff auth creates them (the `CreateStaffUser` method), so grant Execute on it to the role that invites in the role file") {
+					t.Errorf("Meaning() lacks the grant on the create method:\n%s", meaning)
 				}
 			},
 		},

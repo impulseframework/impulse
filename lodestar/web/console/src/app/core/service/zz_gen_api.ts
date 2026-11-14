@@ -2,8 +2,8 @@
 import { ApiDescriptor, Client, ClientOptions, createClient, MethodHandle, NullBoolean, ResourceHandle, UploadMethodHandle } from '@impulseframework/resource';
 import { Point } from 'geojson';
 import { Methods, Resources } from './zz_gen_constants';
-import { Clients, ClientContacts, ClientRosters, Commendations, Consignments, DistressCalls, FeeByKinds, Hangars, Missions, MissionBoards, MissionDocuments, OpenMissionsBySquadrons, Pilots, PilotAssignments, PilotCertifications, Refits, RefitTasks, Sectors, SectorDirectories, Ships, ShipClasses, Sorties, SortieExpenses, Squadrons, SquadronMemberships, SquadronRosters, Wings, BriefingTemplates, ExpenseManifests, PilotCards, SectorHazardBoards, ServiceLedgers, StandingOrders, FeatureFlags, CrewUsers, CrewSeats, CrewRoles, CrewInvitations, CrewSectorUsers, CrewSectorSeats, CrewSectorRoles, CrewSectorInvitations, MembersUsers, MembersSeats, MembersRoles, MembersInvitations, MembersSectorUsers, MembersSectorSeats, MembersSectorRoles, MembersSectorInvitations } from './zz_gen_resources';
-import { AttachMissionDocument, AttachMissionDocumentResult, AttachRefitPhoto, BeginRefit, ClaimMission, CompileBriefing, CompileBriefingResult, CompleteMission, CompleteMissionAnswer, FailFlightTest, FailMission, HailShip, HoldMission, InspectShip, InspectShipResult, IssueBulletin, LaunchMission, PassFlightTest, ReleaseConsignment, ReleaseConsignmentResult, ReplaceMissionDocument, ResumeMission, ScrapShip, StandDownMission, StartFlightTest, SetFeature, SetFeatureResult, SetCrewUserPassword, UnlinkCrewUserIdentity, ResetCrewUserFactors, SetCrewSectorUserPassword, UnlinkCrewSectorUserIdentity, ResetCrewSectorUserFactors, UnlinkMembersUserIdentity, ResetMembersUserFactors, UnlinkMembersSectorUserIdentity, ResetMembersSectorUserFactors } from './zz_gen_methods';
+import { Clients, ClientContacts, ClientRosters, Commendations, Consignments, CrewRoles, CrewRoleGrants, CrewSectorIdentities, CrewSectorInvitations, CrewSectorUsers, CrewSectorUserRoles, CrewSessions, CrewSessionAuthEvents, CrewSessionIdentities, CrewSessionImpersonations, CrewSessionMailLinks, CrewSessionSignInAttempts, CrewSessionTokens, CrewSessionTrustedDevices, CrewSessionUsers, CrewUserRoles, DistressCalls, FeeByKinds, Hangars, MembersRoles, MembersRoleGrants, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionBoards, MissionDocuments, OpenMissionsBySquadrons, Pilots, PilotAssignments, PilotCertifications, Refits, RefitTasks, Sectors, SectorDirectories, SectorPilots, Ships, ShipClasses, Sorties, SortieExpenses, Squadrons, SquadronMemberships, SquadronRosters, Wings, BriefingTemplates, CrewSectorRoles, ExpenseManifests, PilotCards, SectorHazardBoards, ServiceLedgers, StandingOrders, FeatureFlags } from './zz_gen_resources';
+import { AssignCrewRole, AssignCrewSectorRole, AttachMissionDocument, AttachMissionDocumentResult, AttachRefitPhoto, BeginRefit, ClaimMission, CompileBriefing, CompileBriefingResult, CompleteMission, CompleteMissionAnswer, CreateCrewSectorUser, CreateCrewSectorUserResult, CreateCrewUser, CreateCrewUserResult, DeleteCrewSectorUser, DeleteCrewUser, DeleteMembersSectorUser, DeleteMembersUser, DisableCrewSectorUser, DisableCrewUser, DisableMembersSectorUser, DisableMembersUser, EnableCrewSectorUser, EnableCrewUser, EnableMembersSectorUser, EnableMembersUser, EndCrewSectorUserSessions, EndCrewSession, EndCrewSessionImpersonation, EndCrewUserSessions, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, FailFlightTest, FailMission, HailShip, HoldMission, InspectShip, InspectShipResult, InviteCrewSectorUser, InviteCrewSectorUserResult, InviteCrewUser, InviteCrewUserResult, IssueBulletin, LaunchMission, PassFlightTest, ReleaseConsignment, ReleaseConsignmentResult, RemoveCrewRole, RemoveCrewSectorRole, RenameCrewSectorUser, RenameCrewUser, RenameMembersSectorUser, RenameMembersUser, ReplaceMissionDocument, RequireCrewPasswordChange, RequireCrewSectorPasswordChange, ResumeMission, RevokeCrewSectorUserTrustedDevices, RevokeCrewSessionToken, RevokeCrewUserTrustedDevices, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, ScrapShip, SetCrewSectorTemporaryPassword, SetCrewSectorUserEmail, SetCrewTemporaryPassword, SetCrewUserEmail, SetMembersSectorUserEmail, SetMembersUserEmail, SetSectorPilotClearance, StandDownMission, StartFlightTest, UnlinkCrewSectorSessionIdentity, UnlinkCrewSessionIdentity, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockCrewSignIn, UnlockMembersSignIn, WithdrawCrewInvitation, WithdrawCrewSectorInvitation, SetFeature, SetFeatureResult } from './zz_gen_methods';
 
 /** The feature flags the application declares, by name: what a route, a field or a method is gated behind. */
 export type Feature = 'commendations';
@@ -93,6 +93,54 @@ export interface ConsignmentsPatch {
 /** The primary key of Consignments, in route order. */
 export type ConsignmentsKey = [id: string];
 
+/** The primary key of CrewRoles, in route order. */
+export type CrewRolesKey = [kind: string, axis: string, domain: string, role: string];
+
+/** The primary key of CrewRoleGrants, in route order. */
+export type CrewRoleGrantsKey = [kind: string, axis: string, domain: string, role: string, permission: string, resourceName: string, field: string, condition: string];
+
+/** The primary key of CrewSectorIdentities, in route order. */
+export type CrewSectorIdentitiesKey = [id: string];
+
+/** The primary key of CrewSectorInvitations, in route order. */
+export type CrewSectorInvitationsKey = [id: string];
+
+/** The primary key of CrewSectorUsers, in route order. */
+export type CrewSectorUsersKey = [id: string];
+
+/** The primary key of CrewSectorUserRoles, in route order. */
+export type CrewSectorUserRolesKey = [userId: string, role: string];
+
+/** The primary key of CrewSessions, in route order. */
+export type CrewSessionsKey = [id: string];
+
+/** The primary key of CrewSessionAuthEvents, in route order. */
+export type CrewSessionAuthEventsKey = [sessionId: string, seq: number];
+
+/** The primary key of CrewSessionIdentities, in route order. */
+export type CrewSessionIdentitiesKey = [id: string];
+
+/** The primary key of CrewSessionImpersonations, in route order. */
+export type CrewSessionImpersonationsKey = [sessionId: string];
+
+/** The primary key of CrewSessionMailLinks, in route order. */
+export type CrewSessionMailLinksKey = [id: string];
+
+/** The primary key of CrewSessionSignInAttempts, in route order. */
+export type CrewSessionSignInAttemptsKey = [name: string];
+
+/** The primary key of CrewSessionTokens, in route order. */
+export type CrewSessionTokensKey = [id: string];
+
+/** The primary key of CrewSessionTrustedDevices, in route order. */
+export type CrewSessionTrustedDevicesKey = [id: string];
+
+/** The primary key of CrewSessionUsers, in route order. */
+export type CrewSessionUsersKey = [id: string];
+
+/** The primary key of CrewUserRoles, in route order. */
+export type CrewUserRolesKey = [kind: string, axis: string, domain: string, role: string, user: string];
+
 /**
  * The fields a client may set when creating DistressCalls. Server-owned fields are
  * absent; a server-generated key is absent, a client-assigned key is required.
@@ -133,6 +181,48 @@ export interface HangarsPatch {
 }
 /** The primary key of Hangars, in route order. */
 export type HangarsKey = [id: string];
+
+/** The primary key of MembersRoles, in route order. */
+export type MembersRolesKey = [kind: string, axis: string, domain: string, role: string];
+
+/** The primary key of MembersRoleGrants, in route order. */
+export type MembersRoleGrantsKey = [kind: string, axis: string, domain: string, role: string, permission: string, resourceName: string, field: string, condition: string];
+
+/** The primary key of MembersSectorIdentities, in route order. */
+export type MembersSectorIdentitiesKey = [id: string];
+
+/** The primary key of MembersSectorInvitations, in route order. */
+export type MembersSectorInvitationsKey = [id: string];
+
+/** The primary key of MembersSectorUsers, in route order. */
+export type MembersSectorUsersKey = [id: string];
+
+/** The primary key of MembersSectorUserRoles, in route order. */
+export type MembersSectorUserRolesKey = [userId: string, role: string];
+
+/** The primary key of MembersSessions, in route order. */
+export type MembersSessionsKey = [id: string];
+
+/** The primary key of MembersSessionAuthEvents, in route order. */
+export type MembersSessionAuthEventsKey = [sessionId: string, seq: number];
+
+/** The primary key of MembersSessionIdentities, in route order. */
+export type MembersSessionIdentitiesKey = [id: string];
+
+/** The primary key of MembersSessionMailLinks, in route order. */
+export type MembersSessionMailLinksKey = [id: string];
+
+/** The primary key of MembersSessionSignInAttempts, in route order. */
+export type MembersSessionSignInAttemptsKey = [name: string];
+
+/** The primary key of MembersSessionTrustedDevices, in route order. */
+export type MembersSessionTrustedDevicesKey = [id: string];
+
+/** The primary key of MembersSessionUsers, in route order. */
+export type MembersSessionUsersKey = [id: string];
+
+/** The primary key of MembersUserRoles, in route order. */
+export type MembersUserRolesKey = [kind: string, axis: string, domain: string, role: string, user: string];
 
 /**
  * The fields a client may set when creating Missions. Server-owned fields are
@@ -304,6 +394,9 @@ export interface SectorDirectoriesPatch {
 /** The primary key of SectorDirectories, in route order. */
 export type SectorDirectoriesKey = [id: string];
 
+/** The primary key of SectorPilots, in route order. */
+export type SectorPilotsKey = [pilotId: string];
+
 /**
  * The fields a client may set when creating Ships. Server-owned fields are
  * absent; a server-generated key is absent, a client-assigned key is required.
@@ -439,6 +532,9 @@ export type WingsKey = [id: string];
 /** The primary key of BriefingTemplates, in route order. */
 export type BriefingTemplatesKey = [id: string];
 
+/** The primary key of CrewSectorRoles, in route order. */
+export type CrewSectorRolesKey = [name: string];
+
 /** The primary key of ExpenseManifests, in route order. */
 export type ExpenseManifestsKey = [missionId: string];
 
@@ -456,151 +552,6 @@ export type StandingOrdersKey = [];
 
 /** The primary key of FeatureFlags, in route order. */
 export type FeatureFlagsKey = [name: string];
-
-/**
- * The fields a client may set when creating CrewUsers. Server-owned fields are
- * absent; a server-generated key is absent, a client-assigned key is required.
- */
-export interface CrewUsersCreate {
-  username: string;
-  password?: string;
-  disabled?: boolean;
-  email?: string;
-}
-/** The fields a client may change on CrewUsers. Keys, server-owned, and immutable fields are absent. */
-export interface CrewUsersPatch {
-  username?: string;
-  disabled?: boolean;
-  email?: string;
-}
-/** The primary key of CrewUsers, in route order. */
-export type CrewUsersKey = [id: string];
-
-/**
- * The fields a client may set when creating CrewSeats. Server-owned fields are
- * absent; a server-generated key is absent, a client-assigned key is required.
- */
-export type CrewSeatsCreate = Record<never, never>;
-/** The primary key of CrewSeats, in route order. */
-export type CrewSeatsKey = [user: string, role: string];
-
-/** The primary key of CrewRoles, in route order. */
-export type CrewRolesKey = [name: string];
-
-/**
- * The fields a client may set when creating CrewInvitations. Server-owned fields are
- * absent; a server-generated key is absent, a client-assigned key is required.
- */
-export interface CrewInvitationsCreate {
-  email: string;
-  roles: string[];
-}
-/** The primary key of CrewInvitations, in route order. */
-export type CrewInvitationsKey = [id: string];
-
-/**
- * The fields a client may set when creating CrewSectorUsers. Server-owned fields are
- * absent; a server-generated key is absent, a client-assigned key is required.
- */
-export interface CrewSectorUsersCreate {
-  username: string;
-  password?: string;
-  disabled?: boolean;
-  email?: string;
-  role: string;
-}
-/** The fields a client may change on CrewSectorUsers. Keys, server-owned, and immutable fields are absent. */
-export interface CrewSectorUsersPatch {
-  username?: string;
-  disabled?: boolean;
-  email?: string;
-}
-/** The primary key of CrewSectorUsers, in route order. */
-export type CrewSectorUsersKey = [id: string];
-
-/**
- * The fields a client may set when creating CrewSectorSeats. Server-owned fields are
- * absent; a server-generated key is absent, a client-assigned key is required.
- */
-export type CrewSectorSeatsCreate = Record<never, never>;
-/** The primary key of CrewSectorSeats, in route order. */
-export type CrewSectorSeatsKey = [user: string, role: string];
-
-/** The primary key of CrewSectorRoles, in route order. */
-export type CrewSectorRolesKey = [name: string];
-
-/**
- * The fields a client may set when creating CrewSectorInvitations. Server-owned fields are
- * absent; a server-generated key is absent, a client-assigned key is required.
- */
-export interface CrewSectorInvitationsCreate {
-  email: string;
-  roles: string[];
-}
-/** The primary key of CrewSectorInvitations, in route order. */
-export type CrewSectorInvitationsKey = [id: string];
-
-/** The fields a client may change on MembersUsers. Keys, server-owned, and immutable fields are absent. */
-export interface MembersUsersPatch {
-  username?: string;
-  disabled?: boolean;
-  email?: string;
-}
-/** The primary key of MembersUsers, in route order. */
-export type MembersUsersKey = [id: string];
-
-/**
- * The fields a client may set when creating MembersSeats. Server-owned fields are
- * absent; a server-generated key is absent, a client-assigned key is required.
- */
-export type MembersSeatsCreate = Record<never, never>;
-/** The primary key of MembersSeats, in route order. */
-export type MembersSeatsKey = [user: string, role: string];
-
-/** The primary key of MembersRoles, in route order. */
-export type MembersRolesKey = [name: string];
-
-/**
- * The fields a client may set when creating MembersInvitations. Server-owned fields are
- * absent; a server-generated key is absent, a client-assigned key is required.
- */
-export interface MembersInvitationsCreate {
-  email: string;
-  roles: string[];
-}
-/** The primary key of MembersInvitations, in route order. */
-export type MembersInvitationsKey = [id: string];
-
-/** The fields a client may change on MembersSectorUsers. Keys, server-owned, and immutable fields are absent. */
-export interface MembersSectorUsersPatch {
-  username?: string;
-  disabled?: boolean;
-  email?: string;
-}
-/** The primary key of MembersSectorUsers, in route order. */
-export type MembersSectorUsersKey = [id: string];
-
-/**
- * The fields a client may set when creating MembersSectorSeats. Server-owned fields are
- * absent; a server-generated key is absent, a client-assigned key is required.
- */
-export type MembersSectorSeatsCreate = Record<never, never>;
-/** The primary key of MembersSectorSeats, in route order. */
-export type MembersSectorSeatsKey = [user: string, role: string];
-
-/** The primary key of MembersSectorRoles, in route order. */
-export type MembersSectorRolesKey = [name: string];
-
-/**
- * The fields a client may set when creating MembersSectorInvitations. Server-owned fields are
- * absent; a server-generated key is absent, a client-assigned key is required.
- */
-export interface MembersSectorInvitationsCreate {
-  email: string;
-  roles: string[];
-}
-/** The primary key of MembersSectorInvitations, in route order. */
-export type MembersSectorInvitationsKey = [id: string];
 
 /**
  * Keeps the literal types of the descriptor while letting a client that predates a field
@@ -681,6 +632,182 @@ export const apiDescriptor = defineApiDescriptor({
       order: [{ field: 'releasedAt', direction: 'desc' }],
       patchable: ['clientId', 'description', 'mass', 'expiresOn', 'releasedAt'],
     },
+    [Resources.CrewRoles]: {
+      resource: Resources.CrewRoles,
+      property: 'crewRoles',
+      route: 'crew-roles',
+      scope: 'global',
+      consolidated: false,
+      keys: ['kind', 'axis', 'domain', 'role'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'role', direction: 'asc' }],
+    },
+    [Resources.CrewRoleGrants]: {
+      resource: Resources.CrewRoleGrants,
+      property: 'crewRoleGrants',
+      route: 'crew-role-grants',
+      scope: 'global',
+      consolidated: false,
+      keys: ['kind', 'axis', 'domain', 'role', 'permission', 'resourceName', 'field', 'condition'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'role', direction: 'asc' }],
+    },
+    [Resources.CrewSectorIdentities]: {
+      resource: Resources.CrewSectorIdentities,
+      property: 'crewSectorIdentities',
+      route: 'crew-sector-identities',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.CrewSectorInvitations]: {
+      resource: Resources.CrewSectorInvitations,
+      property: 'crewSectorInvitations',
+      route: 'crew-sector-invitations',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.CrewSectorUsers]: {
+      resource: Resources.CrewSectorUsers,
+      property: 'crewSectorUsers',
+      route: 'crew-sector-users',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'username', direction: 'asc' }],
+    },
+    [Resources.CrewSectorUserRoles]: {
+      resource: Resources.CrewSectorUserRoles,
+      property: 'crewSectorUserRoles',
+      route: 'crew-sector-user-roles',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['userId', 'role'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }],
+    },
+    [Resources.CrewSessions]: {
+      resource: Resources.CrewSessions,
+      property: 'crewSessions',
+      route: 'crew-sessions',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.CrewSessionAuthEvents]: {
+      resource: Resources.CrewSessionAuthEvents,
+      property: 'crewSessionAuthEvents',
+      route: 'crew-session-auth-events',
+      scope: 'global',
+      consolidated: false,
+      keys: ['sessionId', 'seq'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'occurredAt', direction: 'desc' }],
+    },
+    [Resources.CrewSessionIdentities]: {
+      resource: Resources.CrewSessionIdentities,
+      property: 'crewSessionIdentities',
+      route: 'crew-session-identities',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.CrewSessionImpersonations]: {
+      resource: Resources.CrewSessionImpersonations,
+      property: 'crewSessionImpersonations',
+      route: 'crew-session-impersonations',
+      scope: 'global',
+      consolidated: false,
+      keys: ['sessionId'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'startedAt', direction: 'desc' }],
+    },
+    [Resources.CrewSessionMailLinks]: {
+      resource: Resources.CrewSessionMailLinks,
+      property: 'crewSessionMailLinks',
+      route: 'crew-session-mail-links',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.CrewSessionSignInAttempts]: {
+      resource: Resources.CrewSessionSignInAttempts,
+      property: 'crewSessionSignInAttempts',
+      route: 'crew-session-sign-in-attempts',
+      scope: 'global',
+      consolidated: false,
+      keys: ['name'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'updatedAt', direction: 'desc' }],
+    },
+    [Resources.CrewSessionTokens]: {
+      resource: Resources.CrewSessionTokens,
+      property: 'crewSessionTokens',
+      route: 'crew-session-tokens',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.CrewSessionTrustedDevices]: {
+      resource: Resources.CrewSessionTrustedDevices,
+      property: 'crewSessionTrustedDevices',
+      route: 'crew-session-trusted-devices',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.CrewSessionUsers]: {
+      resource: Resources.CrewSessionUsers,
+      property: 'crewSessionUsers',
+      route: 'crew-session-users',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'username', direction: 'asc' }],
+    },
+    [Resources.CrewUserRoles]: {
+      resource: Resources.CrewUserRoles,
+      property: 'crewUserRoles',
+      route: 'crew-user-roles',
+      scope: 'global',
+      consolidated: false,
+      keys: ['kind', 'axis', 'domain', 'role', 'user'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'user', direction: 'asc' }],
+    },
     [Resources.DistressCalls]: {
       resource: Resources.DistressCalls,
       property: 'distressCalls',
@@ -715,6 +842,160 @@ export const apiDescriptor = defineApiDescriptor({
       page: { default: 25, max: 200 },
       order: [{ field: 'name', direction: 'asc' }],
       patchable: ['name', 'zone'],
+    },
+    [Resources.MembersRoles]: {
+      resource: Resources.MembersRoles,
+      property: 'membersRoles',
+      route: 'members-roles',
+      scope: 'global',
+      consolidated: false,
+      keys: ['kind', 'axis', 'domain', 'role'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'role', direction: 'asc' }],
+    },
+    [Resources.MembersRoleGrants]: {
+      resource: Resources.MembersRoleGrants,
+      property: 'membersRoleGrants',
+      route: 'members-role-grants',
+      scope: 'global',
+      consolidated: false,
+      keys: ['kind', 'axis', 'domain', 'role', 'permission', 'resourceName', 'field', 'condition'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'role', direction: 'asc' }],
+    },
+    [Resources.MembersSectorIdentities]: {
+      resource: Resources.MembersSectorIdentities,
+      property: 'membersSectorIdentities',
+      route: 'members-sector-identities',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.MembersSectorInvitations]: {
+      resource: Resources.MembersSectorInvitations,
+      property: 'membersSectorInvitations',
+      route: 'members-sector-invitations',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.MembersSectorUsers]: {
+      resource: Resources.MembersSectorUsers,
+      property: 'membersSectorUsers',
+      route: 'members-sector-users',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'username', direction: 'asc' }],
+    },
+    [Resources.MembersSectorUserRoles]: {
+      resource: Resources.MembersSectorUserRoles,
+      property: 'membersSectorUserRoles',
+      route: 'members-sector-user-roles',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['userId', 'role'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }],
+    },
+    [Resources.MembersSessions]: {
+      resource: Resources.MembersSessions,
+      property: 'membersSessions',
+      route: 'members-sessions',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.MembersSessionAuthEvents]: {
+      resource: Resources.MembersSessionAuthEvents,
+      property: 'membersSessionAuthEvents',
+      route: 'members-session-auth-events',
+      scope: 'global',
+      consolidated: false,
+      keys: ['sessionId', 'seq'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'occurredAt', direction: 'desc' }],
+    },
+    [Resources.MembersSessionIdentities]: {
+      resource: Resources.MembersSessionIdentities,
+      property: 'membersSessionIdentities',
+      route: 'members-session-identities',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.MembersSessionMailLinks]: {
+      resource: Resources.MembersSessionMailLinks,
+      property: 'membersSessionMailLinks',
+      route: 'members-session-mail-links',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.MembersSessionSignInAttempts]: {
+      resource: Resources.MembersSessionSignInAttempts,
+      property: 'membersSessionSignInAttempts',
+      route: 'members-session-sign-in-attempts',
+      scope: 'global',
+      consolidated: false,
+      keys: ['name'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'updatedAt', direction: 'desc' }],
+    },
+    [Resources.MembersSessionTrustedDevices]: {
+      resource: Resources.MembersSessionTrustedDevices,
+      property: 'membersSessionTrustedDevices',
+      route: 'members-session-trusted-devices',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'createdAt', direction: 'desc' }],
+    },
+    [Resources.MembersSessionUsers]: {
+      resource: Resources.MembersSessionUsers,
+      property: 'membersSessionUsers',
+      route: 'members-session-users',
+      scope: 'global',
+      consolidated: false,
+      keys: ['id'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'username', direction: 'asc' }],
+    },
+    [Resources.MembersUserRoles]: {
+      resource: Resources.MembersUserRoles,
+      property: 'membersUserRoles',
+      route: 'members-user-roles',
+      scope: 'global',
+      consolidated: false,
+      keys: ['kind', 'axis', 'domain', 'role', 'user'],
+      operations: ['list'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'user', direction: 'asc' }],
     },
     [Resources.Missions]: {
       resource: Resources.Missions,
@@ -847,6 +1128,17 @@ export const apiDescriptor = defineApiDescriptor({
       order: [{ field: 'method', direction: 'asc' }, { field: 'connection', direction: 'asc' }],
       patchable: ['method', 'connection', 'defaultSeat'],
     },
+    [Resources.SectorPilots]: {
+      resource: Resources.SectorPilots,
+      property: 'sectorPilots',
+      route: 'sector-pilots',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['pilotId'],
+      operations: ['list', 'read'],
+      page: { default: 25, max: 200 },
+      order: [{ field: 'displayName', direction: 'asc' }],
+    },
     [Resources.Ships]: {
       resource: Resources.Ships,
       property: 'ships',
@@ -951,6 +1243,17 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list'],
       page: { default: 50 },
     },
+    [Resources.CrewSectorRoles]: {
+      resource: Resources.CrewSectorRoles,
+      property: 'crewSectorRoles',
+      route: 'crew-sector-roles',
+      scope: 'domain',
+      consolidated: false,
+      keys: ['name'],
+      operations: ['list'],
+      page: { default: 50 },
+      order: [{ field: 'name', direction: 'asc' }],
+    },
     [Resources.ExpenseManifests]: {
       resource: Resources.ExpenseManifests,
       property: 'expenseManifests',
@@ -1017,243 +1320,116 @@ export const apiDescriptor = defineApiDescriptor({
       page: { default: 50 },
       order: [{ field: 'name', direction: 'asc' }],
     },
-    [Resources.CrewUsers]: {
-      resource: Resources.CrewUsers,
-      property: 'crewUsers',
-      route: 'crew-users',
-      scope: 'global',
-      consolidated: false,
-      keys: ['id'],
-      operations: ['list', 'read', 'create', 'patch', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'username', direction: 'asc' }],
-      patchable: ['username', 'disabled', 'email'],
-    },
-    [Resources.CrewSeats]: {
-      resource: Resources.CrewSeats,
-      property: 'crewSeats',
-      route: 'crew-seats',
-      scope: 'global',
-      consolidated: false,
-      keys: ['user', 'role'],
-      operations: ['list', 'read', 'create', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }],
-    },
-    [Resources.CrewRoles]: {
-      resource: Resources.CrewRoles,
-      property: 'crewRoles',
-      route: 'crew-roles',
-      scope: 'global',
-      consolidated: false,
-      keys: ['name'],
-      operations: ['list', 'read'],
-      page: { default: 50 },
-      order: [{ field: 'name', direction: 'asc' }],
-    },
-    [Resources.CrewInvitations]: {
-      resource: Resources.CrewInvitations,
-      property: 'crewInvitations',
-      route: 'crew-invitations',
-      scope: 'global',
-      consolidated: false,
-      keys: ['id'],
-      operations: ['list', 'read', 'create', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'email', direction: 'asc' }],
-    },
-    [Resources.CrewSectorUsers]: {
-      resource: Resources.CrewSectorUsers,
-      property: 'crewSectorUsers',
-      route: 'crew-sector-users',
-      scope: 'domain',
-      consolidated: false,
-      keys: ['id'],
-      operations: ['list', 'read', 'create', 'patch', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'username', direction: 'asc' }],
-      patchable: ['username', 'disabled', 'email'],
-    },
-    [Resources.CrewSectorSeats]: {
-      resource: Resources.CrewSectorSeats,
-      property: 'crewSectorSeats',
-      route: 'crew-sector-seats',
-      scope: 'domain',
-      consolidated: false,
-      keys: ['user', 'role'],
-      operations: ['list', 'read', 'create', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }],
-    },
-    [Resources.CrewSectorRoles]: {
-      resource: Resources.CrewSectorRoles,
-      property: 'crewSectorRoles',
-      route: 'crew-sector-roles',
-      scope: 'domain',
-      consolidated: false,
-      keys: ['name'],
-      operations: ['list', 'read'],
-      page: { default: 50 },
-      order: [{ field: 'name', direction: 'asc' }],
-    },
-    [Resources.CrewSectorInvitations]: {
-      resource: Resources.CrewSectorInvitations,
-      property: 'crewSectorInvitations',
-      route: 'crew-sector-invitations',
-      scope: 'domain',
-      consolidated: false,
-      keys: ['id'],
-      operations: ['list', 'read', 'create', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'email', direction: 'asc' }],
-    },
-    [Resources.MembersUsers]: {
-      resource: Resources.MembersUsers,
-      property: 'membersUsers',
-      route: 'members-users',
-      scope: 'global',
-      consolidated: false,
-      keys: ['id'],
-      operations: ['list', 'read', 'patch', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'username', direction: 'asc' }],
-      patchable: ['username', 'disabled', 'email'],
-    },
-    [Resources.MembersSeats]: {
-      resource: Resources.MembersSeats,
-      property: 'membersSeats',
-      route: 'members-seats',
-      scope: 'global',
-      consolidated: false,
-      keys: ['user', 'role'],
-      operations: ['list', 'read', 'create', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }],
-    },
-    [Resources.MembersRoles]: {
-      resource: Resources.MembersRoles,
-      property: 'membersRoles',
-      route: 'members-roles',
-      scope: 'global',
-      consolidated: false,
-      keys: ['name'],
-      operations: ['list', 'read'],
-      page: { default: 50 },
-      order: [{ field: 'name', direction: 'asc' }],
-    },
-    [Resources.MembersInvitations]: {
-      resource: Resources.MembersInvitations,
-      property: 'membersInvitations',
-      route: 'members-invitations',
-      scope: 'global',
-      consolidated: false,
-      keys: ['id'],
-      operations: ['list', 'read', 'create', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'email', direction: 'asc' }],
-    },
-    [Resources.MembersSectorUsers]: {
-      resource: Resources.MembersSectorUsers,
-      property: 'membersSectorUsers',
-      route: 'members-sector-users',
-      scope: 'domain',
-      consolidated: false,
-      keys: ['id'],
-      operations: ['list', 'read', 'patch', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'username', direction: 'asc' }],
-      patchable: ['username', 'disabled', 'email'],
-    },
-    [Resources.MembersSectorSeats]: {
-      resource: Resources.MembersSectorSeats,
-      property: 'membersSectorSeats',
-      route: 'members-sector-seats',
-      scope: 'domain',
-      consolidated: false,
-      keys: ['user', 'role'],
-      operations: ['list', 'read', 'create', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'username', direction: 'asc' }, { field: 'role', direction: 'asc' }],
-    },
-    [Resources.MembersSectorRoles]: {
-      resource: Resources.MembersSectorRoles,
-      property: 'membersSectorRoles',
-      route: 'members-sector-roles',
-      scope: 'domain',
-      consolidated: false,
-      keys: ['name'],
-      operations: ['list', 'read'],
-      page: { default: 50 },
-      order: [{ field: 'name', direction: 'asc' }],
-    },
-    [Resources.MembersSectorInvitations]: {
-      resource: Resources.MembersSectorInvitations,
-      property: 'membersSectorInvitations',
-      route: 'members-sector-invitations',
-      scope: 'domain',
-      consolidated: false,
-      keys: ['id'],
-      operations: ['list', 'read', 'create', 'remove'],
-      page: { default: 50 },
-      order: [{ field: 'email', direction: 'asc' }],
-    },
   },
   methods: {
+    [Methods.AssignCrewRole]: { method: Methods.AssignCrewRole, property: 'assignCrewRole', route: 'assign-crew-role', scope: 'global', statuses: [204] },
+    [Methods.AssignCrewSectorRole]: { method: Methods.AssignCrewSectorRole, property: 'assignCrewSectorRole', route: 'assign-crew-sector-role', scope: 'domain', statuses: [204] },
     [Methods.AttachMissionDocument]: { method: Methods.AttachMissionDocument, property: 'attachMissionDocument', route: 'attach-mission-document', scope: 'domain', answers: true, upload: { maxBytes: 5242880 } },
     [Methods.AttachRefitPhoto]: { method: Methods.AttachRefitPhoto, property: 'attachRefitPhoto', route: 'attach-refit-photo', scope: 'domain', upload: { maxBytes: 5242880 } },
     [Methods.BeginRefit]: { method: Methods.BeginRefit, property: 'beginRefit', route: 'begin-refit', scope: 'domain' },
     [Methods.ClaimMission]: { method: Methods.ClaimMission, property: 'claimMission', route: 'claim-mission', scope: 'domain' },
     [Methods.CompileBriefing]: { method: Methods.CompileBriefing, property: 'compileBriefing', route: 'compile-briefing', scope: 'domain', answers: true },
     [Methods.CompleteMission]: { method: Methods.CompleteMission, property: 'completeMission', route: 'complete-mission', scope: 'domain', answers: true, statuses: [200, 409] },
+    [Methods.CreateCrewSectorUser]: { method: Methods.CreateCrewSectorUser, property: 'createCrewSectorUser', route: 'create-crew-sector-user', scope: 'domain', answers: true },
+    [Methods.CreateCrewUser]: { method: Methods.CreateCrewUser, property: 'createCrewUser', route: 'create-crew-user', scope: 'global', answers: true },
+    [Methods.DeleteCrewSectorUser]: { method: Methods.DeleteCrewSectorUser, property: 'deleteCrewSectorUser', route: 'delete-crew-sector-user', scope: 'domain', statuses: [204] },
+    [Methods.DeleteCrewUser]: { method: Methods.DeleteCrewUser, property: 'deleteCrewUser', route: 'delete-crew-user', scope: 'global', statuses: [204] },
+    [Methods.DeleteMembersSectorUser]: { method: Methods.DeleteMembersSectorUser, property: 'deleteMembersSectorUser', route: 'delete-members-sector-user', scope: 'domain', statuses: [204] },
+    [Methods.DeleteMembersUser]: { method: Methods.DeleteMembersUser, property: 'deleteMembersUser', route: 'delete-members-user', scope: 'global', statuses: [204] },
+    [Methods.DisableCrewSectorUser]: { method: Methods.DisableCrewSectorUser, property: 'disableCrewSectorUser', route: 'disable-crew-sector-user', scope: 'domain', statuses: [204] },
+    [Methods.DisableCrewUser]: { method: Methods.DisableCrewUser, property: 'disableCrewUser', route: 'disable-crew-user', scope: 'global', statuses: [204] },
+    [Methods.DisableMembersSectorUser]: { method: Methods.DisableMembersSectorUser, property: 'disableMembersSectorUser', route: 'disable-members-sector-user', scope: 'domain', statuses: [204] },
+    [Methods.DisableMembersUser]: { method: Methods.DisableMembersUser, property: 'disableMembersUser', route: 'disable-members-user', scope: 'global', statuses: [204] },
+    [Methods.EnableCrewSectorUser]: { method: Methods.EnableCrewSectorUser, property: 'enableCrewSectorUser', route: 'enable-crew-sector-user', scope: 'domain', statuses: [204] },
+    [Methods.EnableCrewUser]: { method: Methods.EnableCrewUser, property: 'enableCrewUser', route: 'enable-crew-user', scope: 'global', statuses: [204] },
+    [Methods.EnableMembersSectorUser]: { method: Methods.EnableMembersSectorUser, property: 'enableMembersSectorUser', route: 'enable-members-sector-user', scope: 'domain', statuses: [204] },
+    [Methods.EnableMembersUser]: { method: Methods.EnableMembersUser, property: 'enableMembersUser', route: 'enable-members-user', scope: 'global', statuses: [204] },
+    [Methods.EndCrewSectorUserSessions]: { method: Methods.EndCrewSectorUserSessions, property: 'endCrewSectorUserSessions', route: 'end-crew-sector-user-sessions', scope: 'domain', statuses: [204] },
+    [Methods.EndCrewSession]: { method: Methods.EndCrewSession, property: 'endCrewSession', route: 'end-crew-session', scope: 'global', statuses: [204] },
+    [Methods.EndCrewSessionImpersonation]: { method: Methods.EndCrewSessionImpersonation, property: 'endCrewSessionImpersonation', route: 'end-crew-session-impersonation', scope: 'global', statuses: [204] },
+    [Methods.EndCrewUserSessions]: { method: Methods.EndCrewUserSessions, property: 'endCrewUserSessions', route: 'end-crew-user-sessions', scope: 'global', statuses: [204] },
+    [Methods.EndMembersSectorUserSessions]: { method: Methods.EndMembersSectorUserSessions, property: 'endMembersSectorUserSessions', route: 'end-members-sector-user-sessions', scope: 'domain', statuses: [204] },
+    [Methods.EndMembersSession]: { method: Methods.EndMembersSession, property: 'endMembersSession', route: 'end-members-session', scope: 'global', statuses: [204] },
+    [Methods.EndMembersUserSessions]: { method: Methods.EndMembersUserSessions, property: 'endMembersUserSessions', route: 'end-members-user-sessions', scope: 'global', statuses: [204] },
     [Methods.FailFlightTest]: { method: Methods.FailFlightTest, property: 'failFlightTest', route: 'fail-flight-test', scope: 'domain' },
     [Methods.FailMission]: { method: Methods.FailMission, property: 'failMission', route: 'fail-mission', scope: 'domain' },
     [Methods.HailShip]: { method: Methods.HailShip, property: 'hailShip', route: 'hail-ship', scope: 'domain', statuses: [204] },
     [Methods.HoldMission]: { method: Methods.HoldMission, property: 'holdMission', route: 'hold-mission', scope: 'domain' },
     [Methods.InspectShip]: { method: Methods.InspectShip, property: 'inspectShip', route: 'inspect-ship', scope: 'domain', answers: true },
+    [Methods.InviteCrewSectorUser]: { method: Methods.InviteCrewSectorUser, property: 'inviteCrewSectorUser', route: 'invite-crew-sector-user', scope: 'domain', answers: true },
+    [Methods.InviteCrewUser]: { method: Methods.InviteCrewUser, property: 'inviteCrewUser', route: 'invite-crew-user', scope: 'global', answers: true },
     [Methods.IssueBulletin]: { method: Methods.IssueBulletin, property: 'issueBulletin', route: 'issue-bulletin', scope: 'global' },
     [Methods.LaunchMission]: { method: Methods.LaunchMission, property: 'launchMission', route: 'launch-mission', scope: 'domain' },
     [Methods.PassFlightTest]: { method: Methods.PassFlightTest, property: 'passFlightTest', route: 'pass-flight-test', scope: 'domain' },
     [Methods.ReleaseConsignment]: { method: Methods.ReleaseConsignment, property: 'releaseConsignment', route: 'release-consignment', scope: 'domain', answers: true },
+    [Methods.RemoveCrewRole]: { method: Methods.RemoveCrewRole, property: 'removeCrewRole', route: 'remove-crew-role', scope: 'global', statuses: [204] },
+    [Methods.RemoveCrewSectorRole]: { method: Methods.RemoveCrewSectorRole, property: 'removeCrewSectorRole', route: 'remove-crew-sector-role', scope: 'domain', statuses: [204] },
+    [Methods.RenameCrewSectorUser]: { method: Methods.RenameCrewSectorUser, property: 'renameCrewSectorUser', route: 'rename-crew-sector-user', scope: 'domain', statuses: [204] },
+    [Methods.RenameCrewUser]: { method: Methods.RenameCrewUser, property: 'renameCrewUser', route: 'rename-crew-user', scope: 'global', statuses: [204] },
+    [Methods.RenameMembersSectorUser]: { method: Methods.RenameMembersSectorUser, property: 'renameMembersSectorUser', route: 'rename-members-sector-user', scope: 'domain', statuses: [204] },
+    [Methods.RenameMembersUser]: { method: Methods.RenameMembersUser, property: 'renameMembersUser', route: 'rename-members-user', scope: 'global', statuses: [204] },
     [Methods.ReplaceMissionDocument]: { method: Methods.ReplaceMissionDocument, property: 'replaceMissionDocument', route: 'replace-mission-document', scope: 'domain', upload: { maxBytes: 5242880 } },
+    [Methods.RequireCrewPasswordChange]: { method: Methods.RequireCrewPasswordChange, property: 'requireCrewPasswordChange', route: 'require-crew-password-change', scope: 'global', statuses: [204] },
+    [Methods.RequireCrewSectorPasswordChange]: { method: Methods.RequireCrewSectorPasswordChange, property: 'requireCrewSectorPasswordChange', route: 'require-crew-sector-password-change', scope: 'domain', statuses: [204] },
     [Methods.ResumeMission]: { method: Methods.ResumeMission, property: 'resumeMission', route: 'resume-mission', scope: 'domain' },
+    [Methods.RevokeCrewSectorUserTrustedDevices]: { method: Methods.RevokeCrewSectorUserTrustedDevices, property: 'revokeCrewSectorUserTrustedDevices', route: 'revoke-crew-sector-user-trusted-devices', scope: 'domain', statuses: [204] },
+    [Methods.RevokeCrewSessionToken]: { method: Methods.RevokeCrewSessionToken, property: 'revokeCrewSessionToken', route: 'revoke-crew-session-token', scope: 'global', statuses: [204] },
+    [Methods.RevokeCrewUserTrustedDevices]: { method: Methods.RevokeCrewUserTrustedDevices, property: 'revokeCrewUserTrustedDevices', route: 'revoke-crew-user-trusted-devices', scope: 'global', statuses: [204] },
+    [Methods.RevokeMembersSectorUserTrustedDevices]: { method: Methods.RevokeMembersSectorUserTrustedDevices, property: 'revokeMembersSectorUserTrustedDevices', route: 'revoke-members-sector-user-trusted-devices', scope: 'domain', statuses: [204] },
+    [Methods.RevokeMembersUserTrustedDevices]: { method: Methods.RevokeMembersUserTrustedDevices, property: 'revokeMembersUserTrustedDevices', route: 'revoke-members-user-trusted-devices', scope: 'global', statuses: [204] },
     [Methods.ScrapShip]: { method: Methods.ScrapShip, property: 'scrapShip', route: 'scrap-ship', scope: 'domain' },
+    [Methods.SetCrewSectorTemporaryPassword]: { method: Methods.SetCrewSectorTemporaryPassword, property: 'setCrewSectorTemporaryPassword', route: 'set-crew-sector-temporary-password', scope: 'domain', statuses: [204] },
+    [Methods.SetCrewSectorUserEmail]: { method: Methods.SetCrewSectorUserEmail, property: 'setCrewSectorUserEmail', route: 'set-crew-sector-user-email', scope: 'domain', statuses: [204] },
+    [Methods.SetCrewTemporaryPassword]: { method: Methods.SetCrewTemporaryPassword, property: 'setCrewTemporaryPassword', route: 'set-crew-temporary-password', scope: 'global', statuses: [204] },
+    [Methods.SetCrewUserEmail]: { method: Methods.SetCrewUserEmail, property: 'setCrewUserEmail', route: 'set-crew-user-email', scope: 'global', statuses: [204] },
+    [Methods.SetMembersSectorUserEmail]: { method: Methods.SetMembersSectorUserEmail, property: 'setMembersSectorUserEmail', route: 'set-members-sector-user-email', scope: 'domain', statuses: [204] },
+    [Methods.SetMembersUserEmail]: { method: Methods.SetMembersUserEmail, property: 'setMembersUserEmail', route: 'set-members-user-email', scope: 'global', statuses: [204] },
+    [Methods.SetSectorPilotClearance]: { method: Methods.SetSectorPilotClearance, property: 'setSectorPilotClearance', route: 'set-sector-pilot-clearance', scope: 'domain', statuses: [204] },
     [Methods.StandDownMission]: { method: Methods.StandDownMission, property: 'standDownMission', route: 'stand-down-mission', scope: 'domain' },
     [Methods.StartFlightTest]: { method: Methods.StartFlightTest, property: 'startFlightTest', route: 'start-flight-test', scope: 'domain' },
+    [Methods.UnlinkCrewSectorSessionIdentity]: { method: Methods.UnlinkCrewSectorSessionIdentity, property: 'unlinkCrewSectorSessionIdentity', route: 'unlink-crew-sector-session-identity', scope: 'domain', statuses: [204] },
+    [Methods.UnlinkCrewSessionIdentity]: { method: Methods.UnlinkCrewSessionIdentity, property: 'unlinkCrewSessionIdentity', route: 'unlink-crew-session-identity', scope: 'global', statuses: [204] },
+    [Methods.UnlinkMembersSectorSessionIdentity]: { method: Methods.UnlinkMembersSectorSessionIdentity, property: 'unlinkMembersSectorSessionIdentity', route: 'unlink-members-sector-session-identity', scope: 'domain', statuses: [204] },
+    [Methods.UnlinkMembersSessionIdentity]: { method: Methods.UnlinkMembersSessionIdentity, property: 'unlinkMembersSessionIdentity', route: 'unlink-members-session-identity', scope: 'global', statuses: [204] },
+    [Methods.UnlockCrewSignIn]: { method: Methods.UnlockCrewSignIn, property: 'unlockCrewSignIn', route: 'unlock-crew-sign-in', scope: 'global', statuses: [204] },
+    [Methods.UnlockMembersSignIn]: { method: Methods.UnlockMembersSignIn, property: 'unlockMembersSignIn', route: 'unlock-members-sign-in', scope: 'global', statuses: [204] },
+    [Methods.WithdrawCrewInvitation]: { method: Methods.WithdrawCrewInvitation, property: 'withdrawCrewInvitation', route: 'withdraw-crew-invitation', scope: 'global', statuses: [204] },
+    [Methods.WithdrawCrewSectorInvitation]: { method: Methods.WithdrawCrewSectorInvitation, property: 'withdrawCrewSectorInvitation', route: 'withdraw-crew-sector-invitation', scope: 'domain', statuses: [204] },
     [Methods.SetFeature]: { method: Methods.SetFeature, property: 'setFeature', route: 'set-feature', scope: 'global', answers: true },
-    [Methods.SetCrewUserPassword]: { method: Methods.SetCrewUserPassword, property: 'setCrewUserPassword', route: 'set-crew-user-password', scope: 'global' },
-    [Methods.UnlinkCrewUserIdentity]: { method: Methods.UnlinkCrewUserIdentity, property: 'unlinkCrewUserIdentity', route: 'unlink-crew-user-identity', scope: 'global' },
-    [Methods.ResetCrewUserFactors]: { method: Methods.ResetCrewUserFactors, property: 'resetCrewUserFactors', route: 'reset-crew-user-factors', scope: 'global' },
-    [Methods.SetCrewSectorUserPassword]: { method: Methods.SetCrewSectorUserPassword, property: 'setCrewSectorUserPassword', route: 'set-crew-sector-user-password', scope: 'domain' },
-    [Methods.UnlinkCrewSectorUserIdentity]: { method: Methods.UnlinkCrewSectorUserIdentity, property: 'unlinkCrewSectorUserIdentity', route: 'unlink-crew-sector-user-identity', scope: 'domain' },
-    [Methods.ResetCrewSectorUserFactors]: { method: Methods.ResetCrewSectorUserFactors, property: 'resetCrewSectorUserFactors', route: 'reset-crew-sector-user-factors', scope: 'domain' },
-    [Methods.UnlinkMembersUserIdentity]: { method: Methods.UnlinkMembersUserIdentity, property: 'unlinkMembersUserIdentity', route: 'unlink-members-user-identity', scope: 'global' },
-    [Methods.ResetMembersUserFactors]: { method: Methods.ResetMembersUserFactors, property: 'resetMembersUserFactors', route: 'reset-members-user-factors', scope: 'global' },
-    [Methods.UnlinkMembersSectorUserIdentity]: { method: Methods.UnlinkMembersSectorUserIdentity, property: 'unlinkMembersSectorUserIdentity', route: 'unlink-members-sector-user-identity', scope: 'domain' },
-    [Methods.ResetMembersSectorUserFactors]: { method: Methods.ResetMembersSectorUserFactors, property: 'resetMembersSectorUserFactors', route: 'reset-members-sector-user-factors', scope: 'domain' },
   },
-  userSurfaces: [
+  identity: [
     {
       auth: 'Crew',
       label: 'Crew',
-      password: true,
-      usernameIsEmail: false,
-      openSignUp: true,
-      registrations: [{ name: 'google', kind: 'google', label: 'Lodestar', invited: false, syncsRoles: false }, { name: 'sign-up', kind: 'google', label: 'Google', invited: false, syncsRoles: false }, { name: 'persona', kind: 'persona', label: 'Persona', invited: true, syncsRoles: false }],
-      partitions: [
-        { scope: 'global', users: Resources.CrewUsers, seats: Resources.CrewSeats, roles: Resources.CrewRoles, invitations: Resources.CrewInvitations, setPassword: Methods.SetCrewUserPassword, unlinkIdentity: Methods.UnlinkCrewUserIdentity, resetFactors: Methods.ResetCrewUserFactors },
-        { scope: 'domain', users: Resources.CrewSectorUsers, seats: Resources.CrewSectorSeats, roles: Resources.CrewSectorRoles, invitations: Resources.CrewSectorInvitations, setPassword: Methods.SetCrewSectorUserPassword, unlinkIdentity: Methods.UnlinkCrewSectorUserIdentity, resetFactors: Methods.ResetCrewSectorUserFactors },
+      tenant: 'Sector',
+      sides: [
+        {
+          scope: 'global',
+          lists: { users: Resources.CrewSessionUsers, roles: Resources.CrewUserRoles, identities: Resources.CrewSessionIdentities, invitations: Resources.CrewSessionMailLinks, sessions: Resources.CrewSessions, signInAttempts: Resources.CrewSessionSignInAttempts },
+          methods: { create: Methods.CreateCrewUser, invite: Methods.InviteCrewUser, withdrawInvitation: Methods.WithdrawCrewInvitation, assignRole: Methods.AssignCrewRole, removeRole: Methods.RemoveCrewRole, disable: Methods.DisableCrewUser, enable: Methods.EnableCrewUser, delete: Methods.DeleteCrewUser, rename: Methods.RenameCrewUser, setEmail: Methods.SetCrewUserEmail, setTemporaryPassword: Methods.SetCrewTemporaryPassword, requirePasswordChange: Methods.RequireCrewPasswordChange, endUserSessions: Methods.EndCrewUserSessions, revokeTrustedDevices: Methods.RevokeCrewUserTrustedDevices, unlinkIdentity: Methods.UnlinkCrewSessionIdentity, endSession: Methods.EndCrewSession, unlockSignIn: Methods.UnlockCrewSignIn },
+        },
+        {
+          scope: 'domain',
+          lists: { users: Resources.CrewSectorUsers, roles: Resources.CrewSectorUserRoles, identities: Resources.CrewSectorIdentities, invitations: Resources.CrewSectorInvitations },
+          methods: { create: Methods.CreateCrewSectorUser, invite: Methods.InviteCrewSectorUser, withdrawInvitation: Methods.WithdrawCrewSectorInvitation, assignRole: Methods.AssignCrewSectorRole, removeRole: Methods.RemoveCrewSectorRole, disable: Methods.DisableCrewSectorUser, enable: Methods.EnableCrewSectorUser, delete: Methods.DeleteCrewSectorUser, rename: Methods.RenameCrewSectorUser, setEmail: Methods.SetCrewSectorUserEmail, setTemporaryPassword: Methods.SetCrewSectorTemporaryPassword, requirePasswordChange: Methods.RequireCrewSectorPasswordChange, endUserSessions: Methods.EndCrewSectorUserSessions, revokeTrustedDevices: Methods.RevokeCrewSectorUserTrustedDevices, unlinkIdentity: Methods.UnlinkCrewSectorSessionIdentity },
+        },
       ],
     },
     {
       auth: 'Members',
       label: 'Members',
-      password: false,
-      usernameIsEmail: false,
-      openSignUp: false,
-      registrations: [{ name: 'directory', kind: 'google', label: 'Company directory', invited: false, syncsRoles: true }],
-      partitions: [
-        { scope: 'global', users: Resources.MembersUsers, seats: Resources.MembersSeats, roles: Resources.MembersRoles, invitations: Resources.MembersInvitations, unlinkIdentity: Methods.UnlinkMembersUserIdentity, resetFactors: Methods.ResetMembersUserFactors },
-        { scope: 'domain', users: Resources.MembersSectorUsers, seats: Resources.MembersSectorSeats, roles: Resources.MembersSectorRoles, invitations: Resources.MembersSectorInvitations, unlinkIdentity: Methods.UnlinkMembersSectorUserIdentity, resetFactors: Methods.ResetMembersSectorUserFactors },
+      tenant: 'Sector',
+      sides: [
+        {
+          scope: 'global',
+          lists: { users: Resources.MembersSessionUsers, roles: Resources.MembersUserRoles, identities: Resources.MembersSessionIdentities, invitations: Resources.MembersSessionMailLinks, sessions: Resources.MembersSessions, signInAttempts: Resources.MembersSessionSignInAttempts },
+          methods: { disable: Methods.DisableMembersUser, enable: Methods.EnableMembersUser, delete: Methods.DeleteMembersUser, rename: Methods.RenameMembersUser, setEmail: Methods.SetMembersUserEmail, endUserSessions: Methods.EndMembersUserSessions, revokeTrustedDevices: Methods.RevokeMembersUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersSessionIdentity, endSession: Methods.EndMembersSession, unlockSignIn: Methods.UnlockMembersSignIn },
+        },
+        {
+          scope: 'domain',
+          lists: { users: Resources.MembersSectorUsers, roles: Resources.MembersSectorUserRoles, identities: Resources.MembersSectorIdentities, invitations: Resources.MembersSectorInvitations },
+          methods: { disable: Methods.DisableMembersSectorUser, enable: Methods.EnableMembersSectorUser, delete: Methods.DeleteMembersSectorUser, rename: Methods.RenameMembersSectorUser, setEmail: Methods.SetMembersSectorUserEmail, endUserSessions: Methods.EndMembersSectorUserSessions, revokeTrustedDevices: Methods.RevokeMembersSectorUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersSectorSessionIdentity },
+        },
       ],
     },
   ],
@@ -1287,7 +1463,29 @@ export interface GlobalApi {
   clients: ResourceHandle<Clients, ClientsKey, 'list' | 'read' | 'create' | 'patch' | 'remove', ClientsCreate, ClientsPatch>;
   clientContacts: ResourceHandle<ClientContacts, ClientContactsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', ClientContactsCreate, ClientContactsPatch>;
   commendations: ResourceHandle<Commendations, CommendationsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', CommendationsCreate, CommendationsPatch>;
+  crewRoles: ResourceHandle<CrewRoles, CrewRolesKey, 'list'>;
+  crewRoleGrants: ResourceHandle<CrewRoleGrants, CrewRoleGrantsKey, 'list'>;
+  crewSessions: ResourceHandle<CrewSessions, CrewSessionsKey, 'list' | 'read'>;
+  crewSessionAuthEvents: ResourceHandle<CrewSessionAuthEvents, CrewSessionAuthEventsKey, 'list'>;
+  crewSessionIdentities: ResourceHandle<CrewSessionIdentities, CrewSessionIdentitiesKey, 'list' | 'read'>;
+  crewSessionImpersonations: ResourceHandle<CrewSessionImpersonations, CrewSessionImpersonationsKey, 'list' | 'read'>;
+  crewSessionMailLinks: ResourceHandle<CrewSessionMailLinks, CrewSessionMailLinksKey, 'list' | 'read'>;
+  crewSessionSignInAttempts: ResourceHandle<CrewSessionSignInAttempts, CrewSessionSignInAttemptsKey, 'list'>;
+  crewSessionTokens: ResourceHandle<CrewSessionTokens, CrewSessionTokensKey, 'list' | 'read'>;
+  crewSessionTrustedDevices: ResourceHandle<CrewSessionTrustedDevices, CrewSessionTrustedDevicesKey, 'list' | 'read'>;
+  crewSessionUsers: ResourceHandle<CrewSessionUsers, CrewSessionUsersKey, 'list' | 'read'>;
+  crewUserRoles: ResourceHandle<CrewUserRoles, CrewUserRolesKey, 'list'>;
   feeByKinds: ResourceHandle<FeeByKinds, FeeByKindsKey, 'list' | 'read'>;
+  membersRoles: ResourceHandle<MembersRoles, MembersRolesKey, 'list'>;
+  membersRoleGrants: ResourceHandle<MembersRoleGrants, MembersRoleGrantsKey, 'list'>;
+  membersSessions: ResourceHandle<MembersSessions, MembersSessionsKey, 'list' | 'read'>;
+  membersSessionAuthEvents: ResourceHandle<MembersSessionAuthEvents, MembersSessionAuthEventsKey, 'list'>;
+  membersSessionIdentities: ResourceHandle<MembersSessionIdentities, MembersSessionIdentitiesKey, 'list' | 'read'>;
+  membersSessionMailLinks: ResourceHandle<MembersSessionMailLinks, MembersSessionMailLinksKey, 'list' | 'read'>;
+  membersSessionSignInAttempts: ResourceHandle<MembersSessionSignInAttempts, MembersSessionSignInAttemptsKey, 'list'>;
+  membersSessionTrustedDevices: ResourceHandle<MembersSessionTrustedDevices, MembersSessionTrustedDevicesKey, 'list' | 'read'>;
+  membersSessionUsers: ResourceHandle<MembersSessionUsers, MembersSessionUsersKey, 'list' | 'read'>;
+  membersUserRoles: ResourceHandle<MembersUserRoles, MembersUserRolesKey, 'list'>;
   pilots: ResourceHandle<Pilots, PilotsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', PilotsCreate, PilotsPatch>;
   pilotCertifications: ResourceHandle<PilotCertifications, PilotCertificationsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', PilotCertificationsCreate, PilotCertificationsPatch>;
   sectors: ResourceHandle<Sectors, SectorsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', SectorsCreate, SectorsPatch>;
@@ -1297,29 +1495,53 @@ export interface GlobalApi {
   serviceLedgers: ResourceHandle<ServiceLedgers, ServiceLedgersKey, 'list'>;
   standingOrders: ResourceHandle<StandingOrders, StandingOrdersKey, 'list'>;
   featureFlags: ResourceHandle<FeatureFlags, FeatureFlagsKey, 'list' | 'read'>;
-  crewUsers: ResourceHandle<CrewUsers, CrewUsersKey, 'list' | 'read' | 'create' | 'patch' | 'remove', CrewUsersCreate, CrewUsersPatch>;
-  crewSeats: ResourceHandle<CrewSeats, CrewSeatsKey, 'list' | 'read' | 'create' | 'remove', CrewSeatsCreate>;
-  crewRoles: ResourceHandle<CrewRoles, CrewRolesKey, 'list' | 'read'>;
-  crewInvitations: ResourceHandle<CrewInvitations, CrewInvitationsKey, 'list' | 'read' | 'create' | 'remove', CrewInvitationsCreate>;
-  membersUsers: ResourceHandle<MembersUsers, MembersUsersKey, 'list' | 'read' | 'patch' | 'remove', never, MembersUsersPatch>;
-  membersSeats: ResourceHandle<MembersSeats, MembersSeatsKey, 'list' | 'read' | 'create' | 'remove', MembersSeatsCreate>;
-  membersRoles: ResourceHandle<MembersRoles, MembersRolesKey, 'list' | 'read'>;
-  membersInvitations: ResourceHandle<MembersInvitations, MembersInvitationsKey, 'list' | 'read' | 'create' | 'remove', MembersInvitationsCreate>;
+  assignCrewRole: MethodHandle<AssignCrewRole>;
+  createCrewUser: MethodHandle<CreateCrewUser, CreateCrewUserResult>;
+  deleteCrewUser: MethodHandle<DeleteCrewUser>;
+  deleteMembersUser: MethodHandle<DeleteMembersUser>;
+  disableCrewUser: MethodHandle<DisableCrewUser>;
+  disableMembersUser: MethodHandle<DisableMembersUser>;
+  enableCrewUser: MethodHandle<EnableCrewUser>;
+  enableMembersUser: MethodHandle<EnableMembersUser>;
+  endCrewSession: MethodHandle<EndCrewSession>;
+  endCrewSessionImpersonation: MethodHandle<EndCrewSessionImpersonation>;
+  endCrewUserSessions: MethodHandle<EndCrewUserSessions>;
+  endMembersSession: MethodHandle<EndMembersSession>;
+  endMembersUserSessions: MethodHandle<EndMembersUserSessions>;
+  inviteCrewUser: MethodHandle<InviteCrewUser, InviteCrewUserResult>;
   issueBulletin: MethodHandle<IssueBulletin>;
+  removeCrewRole: MethodHandle<RemoveCrewRole>;
+  renameCrewUser: MethodHandle<RenameCrewUser>;
+  renameMembersUser: MethodHandle<RenameMembersUser>;
+  requireCrewPasswordChange: MethodHandle<RequireCrewPasswordChange>;
+  revokeCrewSessionToken: MethodHandle<RevokeCrewSessionToken>;
+  revokeCrewUserTrustedDevices: MethodHandle<RevokeCrewUserTrustedDevices>;
+  revokeMembersUserTrustedDevices: MethodHandle<RevokeMembersUserTrustedDevices>;
+  setCrewTemporaryPassword: MethodHandle<SetCrewTemporaryPassword>;
+  setCrewUserEmail: MethodHandle<SetCrewUserEmail>;
+  setMembersUserEmail: MethodHandle<SetMembersUserEmail>;
+  unlinkCrewSessionIdentity: MethodHandle<UnlinkCrewSessionIdentity>;
+  unlinkMembersSessionIdentity: MethodHandle<UnlinkMembersSessionIdentity>;
+  unlockCrewSignIn: MethodHandle<UnlockCrewSignIn>;
+  unlockMembersSignIn: MethodHandle<UnlockMembersSignIn>;
+  withdrawCrewInvitation: MethodHandle<WithdrawCrewInvitation>;
   setFeature: MethodHandle<SetFeature, SetFeatureResult>;
-  setCrewUserPassword: MethodHandle<SetCrewUserPassword>;
-  unlinkCrewUserIdentity: MethodHandle<UnlinkCrewUserIdentity>;
-  resetCrewUserFactors: MethodHandle<ResetCrewUserFactors>;
-  unlinkMembersUserIdentity: MethodHandle<UnlinkMembersUserIdentity>;
-  resetMembersUserFactors: MethodHandle<ResetMembersUserFactors>;
 }
 
 /** Handles for one tenant partition, available on client.domain(...). */
 export interface DomainApi {
   clientRosters: ResourceHandle<ClientRosters, ClientRostersKey, 'list' | 'read'>;
   consignments: ResourceHandle<Consignments, ConsignmentsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', ConsignmentsCreate, ConsignmentsPatch>;
+  crewSectorIdentities: ResourceHandle<CrewSectorIdentities, CrewSectorIdentitiesKey, 'list' | 'read'>;
+  crewSectorInvitations: ResourceHandle<CrewSectorInvitations, CrewSectorInvitationsKey, 'list' | 'read'>;
+  crewSectorUsers: ResourceHandle<CrewSectorUsers, CrewSectorUsersKey, 'list' | 'read'>;
+  crewSectorUserRoles: ResourceHandle<CrewSectorUserRoles, CrewSectorUserRolesKey, 'list' | 'read'>;
   distressCalls: ResourceHandle<DistressCalls, DistressCallsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', DistressCallsCreate, DistressCallsPatch>;
   hangars: ResourceHandle<Hangars, HangarsKey, 'list' | 'read' | 'create' | 'patch' | 'remove', HangarsCreate, HangarsPatch>;
+  membersSectorIdentities: ResourceHandle<MembersSectorIdentities, MembersSectorIdentitiesKey, 'list' | 'read'>;
+  membersSectorInvitations: ResourceHandle<MembersSectorInvitations, MembersSectorInvitationsKey, 'list' | 'read'>;
+  membersSectorUsers: ResourceHandle<MembersSectorUsers, MembersSectorUsersKey, 'list' | 'read'>;
+  membersSectorUserRoles: ResourceHandle<MembersSectorUserRoles, MembersSectorUserRolesKey, 'list' | 'read'>;
   missions: ResourceHandle<Missions, MissionsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', MissionsCreate, MissionsPatch>;
   missionBoards: ResourceHandle<MissionBoards, MissionBoardsKey, 'list' | 'read'>;
   missionDocuments: ResourceHandle<MissionDocuments, MissionDocumentsKey, 'list' | 'read' | 'patch' | 'remove' | 'batch', never, MissionDocumentsPatch>;
@@ -1328,6 +1550,7 @@ export interface DomainApi {
   refits: ResourceHandle<Refits, RefitsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', RefitsCreate, RefitsPatch>;
   refitTasks: ResourceHandle<RefitTasks, RefitTasksKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', RefitTasksCreate, RefitTasksPatch>;
   sectorDirectories: ResourceHandle<SectorDirectories, SectorDirectoriesKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', SectorDirectoriesCreate, SectorDirectoriesPatch>;
+  sectorPilots: ResourceHandle<SectorPilots, SectorPilotsKey, 'list' | 'read'>;
   ships: ResourceHandle<Ships, ShipsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', ShipsCreate, ShipsPatch>;
   sorties: ResourceHandle<Sorties, SortiesKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', SortiesCreate, SortiesPatch>;
   sortieExpenses: ResourceHandle<SortieExpenses, SortieExpensesKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', SortieExpensesCreate, SortieExpensesPatch>;
@@ -1335,40 +1558,52 @@ export interface DomainApi {
   squadronMemberships: ResourceHandle<SquadronMemberships, SquadronMembershipsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', SquadronMembershipsCreate, SquadronMembershipsPatch>;
   squadronRosters: ResourceHandle<SquadronRosters, SquadronRostersKey, 'list' | 'read'>;
   wings: ResourceHandle<Wings, WingsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', WingsCreate, WingsPatch>;
+  crewSectorRoles: ResourceHandle<CrewSectorRoles, CrewSectorRolesKey, 'list'>;
   expenseManifests: ResourceHandle<ExpenseManifests, ExpenseManifestsKey, 'list' | 'read'>;
   sectorHazardBoards: ResourceHandle<SectorHazardBoards, SectorHazardBoardsKey, 'list' | 'read'>;
-  crewSectorUsers: ResourceHandle<CrewSectorUsers, CrewSectorUsersKey, 'list' | 'read' | 'create' | 'patch' | 'remove', CrewSectorUsersCreate, CrewSectorUsersPatch>;
-  crewSectorSeats: ResourceHandle<CrewSectorSeats, CrewSectorSeatsKey, 'list' | 'read' | 'create' | 'remove', CrewSectorSeatsCreate>;
-  crewSectorRoles: ResourceHandle<CrewSectorRoles, CrewSectorRolesKey, 'list' | 'read'>;
-  crewSectorInvitations: ResourceHandle<CrewSectorInvitations, CrewSectorInvitationsKey, 'list' | 'read' | 'create' | 'remove', CrewSectorInvitationsCreate>;
-  membersSectorUsers: ResourceHandle<MembersSectorUsers, MembersSectorUsersKey, 'list' | 'read' | 'patch' | 'remove', never, MembersSectorUsersPatch>;
-  membersSectorSeats: ResourceHandle<MembersSectorSeats, MembersSectorSeatsKey, 'list' | 'read' | 'create' | 'remove', MembersSectorSeatsCreate>;
-  membersSectorRoles: ResourceHandle<MembersSectorRoles, MembersSectorRolesKey, 'list' | 'read'>;
-  membersSectorInvitations: ResourceHandle<MembersSectorInvitations, MembersSectorInvitationsKey, 'list' | 'read' | 'create' | 'remove', MembersSectorInvitationsCreate>;
+  assignCrewSectorRole: MethodHandle<AssignCrewSectorRole>;
   attachMissionDocument: UploadMethodHandle<AttachMissionDocument, AttachMissionDocumentResult>;
   attachRefitPhoto: UploadMethodHandle<AttachRefitPhoto>;
   beginRefit: MethodHandle<BeginRefit>;
   claimMission: MethodHandle<ClaimMission>;
   compileBriefing: MethodHandle<CompileBriefing, CompileBriefingResult>;
   completeMission: MethodHandle<CompleteMission, CompleteMissionAnswer>;
+  createCrewSectorUser: MethodHandle<CreateCrewSectorUser, CreateCrewSectorUserResult>;
+  deleteCrewSectorUser: MethodHandle<DeleteCrewSectorUser>;
+  deleteMembersSectorUser: MethodHandle<DeleteMembersSectorUser>;
+  disableCrewSectorUser: MethodHandle<DisableCrewSectorUser>;
+  disableMembersSectorUser: MethodHandle<DisableMembersSectorUser>;
+  enableCrewSectorUser: MethodHandle<EnableCrewSectorUser>;
+  enableMembersSectorUser: MethodHandle<EnableMembersSectorUser>;
+  endCrewSectorUserSessions: MethodHandle<EndCrewSectorUserSessions>;
+  endMembersSectorUserSessions: MethodHandle<EndMembersSectorUserSessions>;
   failFlightTest: MethodHandle<FailFlightTest>;
   failMission: MethodHandle<FailMission>;
   hailShip: MethodHandle<HailShip>;
   holdMission: MethodHandle<HoldMission>;
   inspectShip: MethodHandle<InspectShip, InspectShipResult>;
+  inviteCrewSectorUser: MethodHandle<InviteCrewSectorUser, InviteCrewSectorUserResult>;
   launchMission: MethodHandle<LaunchMission>;
   passFlightTest: MethodHandle<PassFlightTest>;
   releaseConsignment: MethodHandle<ReleaseConsignment, ReleaseConsignmentResult>;
+  removeCrewSectorRole: MethodHandle<RemoveCrewSectorRole>;
+  renameCrewSectorUser: MethodHandle<RenameCrewSectorUser>;
+  renameMembersSectorUser: MethodHandle<RenameMembersSectorUser>;
   replaceMissionDocument: UploadMethodHandle<ReplaceMissionDocument>;
+  requireCrewSectorPasswordChange: MethodHandle<RequireCrewSectorPasswordChange>;
   resumeMission: MethodHandle<ResumeMission>;
+  revokeCrewSectorUserTrustedDevices: MethodHandle<RevokeCrewSectorUserTrustedDevices>;
+  revokeMembersSectorUserTrustedDevices: MethodHandle<RevokeMembersSectorUserTrustedDevices>;
   scrapShip: MethodHandle<ScrapShip>;
+  setCrewSectorTemporaryPassword: MethodHandle<SetCrewSectorTemporaryPassword>;
+  setCrewSectorUserEmail: MethodHandle<SetCrewSectorUserEmail>;
+  setMembersSectorUserEmail: MethodHandle<SetMembersSectorUserEmail>;
+  setSectorPilotClearance: MethodHandle<SetSectorPilotClearance>;
   standDownMission: MethodHandle<StandDownMission>;
   startFlightTest: MethodHandle<StartFlightTest>;
-  setCrewSectorUserPassword: MethodHandle<SetCrewSectorUserPassword>;
-  unlinkCrewSectorUserIdentity: MethodHandle<UnlinkCrewSectorUserIdentity>;
-  resetCrewSectorUserFactors: MethodHandle<ResetCrewSectorUserFactors>;
-  unlinkMembersSectorUserIdentity: MethodHandle<UnlinkMembersSectorUserIdentity>;
-  resetMembersSectorUserFactors: MethodHandle<ResetMembersSectorUserFactors>;
+  unlinkCrewSectorSessionIdentity: MethodHandle<UnlinkCrewSectorSessionIdentity>;
+  unlinkMembersSectorSessionIdentity: MethodHandle<UnlinkMembersSectorSessionIdentity>;
+  withdrawCrewSectorInvitation: MethodHandle<WithdrawCrewSectorInvitation>;
 }
 
 export type Api = Client<GlobalApi, DomainApi>;

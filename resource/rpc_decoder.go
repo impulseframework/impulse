@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/accesstypes/condition"
 	"github.com/impulseframework/impulse/httpio"
 )
 
@@ -97,7 +98,30 @@ func (s *RPCDecoder[Request]) DecodeCaller(request *http.Request, scope accessty
 		return nil, nil, httpio.NewForbiddenMessagef("user %s, scope %s, does not have %s on %s", userPermissions.User(), scope, s.requiredPermission, denied)
 	}
 	if conditional := decisions.ConditionalResources(); len(conditional) > 0 {
-		return nil, nil, errConditionalAtDecode(s.requiredPermission, conditional)
+		// A condition that reads the method's own request
+		// fields alone settles here, against the request just decoded. Anything it
+		// leaves (a part that reads a row) is the invariant breach it was.
+		decision, ok := decisions[s.res]
+		if !ok || !decision.IsConditional() || len(conditional) != 1 {
+			return nil, nil, errConditionalAtDecode(s.requiredPermission, conditional)
+		}
+		expr, err := conditionalExpr(s.res, decision)
+		if err != nil {
+			return nil, nil, err
+		}
+		settled, err := settleRequestFields(s.collection, s.res, expr, req)
+		if err != nil {
+			return nil, nil, err
+		}
+		truth, constant := settled.(condition.Truth)
+		if !constant {
+			return nil, nil, errConditionalAtDecode(s.requiredPermission, conditional)
+		}
+		if !truth.Value {
+			// The words a caller with no grant hears: the wire does not say a
+			// condition refused.
+			return nil, nil, httpio.NewForbiddenMessagef("user %s, scope %s, does not have %s on %s", userPermissions.User(), scope, s.requiredPermission, conditional)
+		}
 	}
 
 	return req, &Caller{Permissions: userPermissions, Scope: scope, Env: env, collection: s.collection}, nil

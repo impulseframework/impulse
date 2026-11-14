@@ -71,6 +71,17 @@
 // request is partitioned and the anchor is domain-bound; a present value is
 // IN an empty set FALSE and NOT IN it TRUE.
 //
+// A list attribute reads a list column, and is typed by one item. A condition
+// that reads one is judged once for each item of the row's list, the whole
+// condition each time with the item as the attribute's value, and permits only
+// when it is TRUE for every item. A list with no item, and no list at all, is
+// judged once with no value, so no value never permits and IS NULL is TRUE of
+// it; an item with no value is no value for that item. A condition reads one
+// list, on the left of a comparison, as the row holds it: deploy validation
+// refuses a second list, a list on a comparison's right side, and a proposed
+// list (new., or any list on a create). A request's list field, read as
+// new.<name> by a method's grant, follows the same rule over the request.
+//
 // A literal takes the attribute's type. A number literal compares exactly
 // against an INT64 or a NUMERIC attribute and as a double against a FLOAT64
 // attribute, whose stored value is already the nearest double; two stored

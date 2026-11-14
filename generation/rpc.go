@@ -10,7 +10,9 @@ import (
 )
 
 func (r *resourceGenerator) runRPCGeneration() error {
-	r.output.registerOutput(r.rpc.Dir(), prefix)
+	if r.genRPCMethods {
+		r.output.registerOutput(r.rpc.Dir(), prefix)
+	}
 
 	begin := time.Now()
 
@@ -28,12 +30,13 @@ func (r *resourceGenerator) runRPCGeneration() error {
 }
 
 func (r *resourceGenerator) generateRPCMethod(rpc *rpcMethodInfo) error {
+	home := r.homeOf(rpc.identity)
 	fileName := generatedGoFileName(fileStem(rpc.Name()))
-	destinationFilePath := filepath.Join(r.rpc.Dir(), fileName)
+	destinationFilePath := filepath.Join(home.rpc.Dir(), fileName)
 
 	if err := r.writeFormattedGoFile(destinationFilePath, fmt.Sprintf("rpcFileTemplate:%q", rpc.Name()), rpcFileTemplate, &rpcFileData{
-		Source:    r.rpc.Dir(),
-		Package:   r.rpc.Package(),
+		Source:    home.rpc.Dir(),
+		Package:   home.rpc.Package(),
 		RPCMethod: rpc,
 	}); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")
@@ -44,8 +47,9 @@ func (r *resourceGenerator) generateRPCMethod(rpc *rpcMethodInfo) error {
 
 func (r *resourceGenerator) generateRPCHandler(rpcMethod *rpcMethodInfo) error {
 	begin := time.Now()
+	home := r.homeOf(rpcMethod.identity)
 	fileName := generatedGoFileName(fileStem(rpcMethod.Name()))
-	destinationFilePath := filepath.Join(r.handler.Dir(), fileName)
+	destinationFilePath := filepath.Join(home.dir.Dir(), fileName)
 
 	template := rpcHandlerTemplate
 	if rpcMethod.Upload != nil {
@@ -55,15 +59,16 @@ func (r *resourceGenerator) generateRPCHandler(rpcMethod *rpcMethodInfo) error {
 
 	limitExpr, limitText := r.rpcBodyLimit(rpcMethod)
 	if err := r.writeFormattedGoFile(destinationFilePath, fmt.Sprintf("rcpHandlerTemplate:%q", rpcMethod.Name()), template, &rpcHandlerData{
-		Source:              r.rpc.Dir(),
+		Source:              home.rpc.Dir(),
 		LocalPackageImports: r.localPackageImports(),
 		RPCMethod:           rpcMethod,
-		Package:             r.handler.Package(),
-		ApplicationName:     r.applicationName,
-		ReceiverName:        r.receiverName,
-		ResourcesPackage:    r.resource.Package(),
+		Package:             home.dir.Package(),
+		ApplicationName:     home.applicationName,
+		ReceiverName:        home.receiverName,
+		ResourcesPackage:    home.resources.Package(),
 		BodyLimitExpr:       limitExpr,
 		BodyLimitText:       limitText,
+		Home:                home,
 	}); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")
 	}
@@ -97,15 +102,22 @@ func (r *resourceGenerator) generateScheduledHandler(method *rpcMethodInfo) erro
 	return nil
 }
 
+// generateRPCInterfaces writes each methods package's Method union: the application's RPC
+// package's over its own methods, an instance's over the instance's.
 func (r *resourceGenerator) generateRPCInterfaces() error {
-	destinationFile := filepath.Join(".", r.rpc.Dir(), generatedGoFileName("rpc_iface"))
+	for _, home := range r.homes() {
+		if home.rpc == "" {
+			continue
+		}
+		destinationFile := filepath.Join(".", home.rpc.Dir(), generatedGoFileName(rpcInterfaceOutputName))
 
-	if err := r.writeFormattedGoFile(destinationFile, "rpcInterfacesTemplate", rpcInterfacesTemplate, &rpcInterfacesData{
-		Source:  r.rpc.Dir(),
-		Package: r.rpc.Package(),
-		Types:   r.rpcMethods,
-	}); err != nil {
-		return errors.Wrap(err, "writeFormattedGoFile()")
+		if err := r.writeFormattedGoFile(destinationFile, "rpcInterfacesTemplate", rpcInterfacesTemplate, &rpcInterfacesData{
+			Source:  home.rpc.Dir(),
+			Package: home.rpc.Package(),
+			Types:   r.methodsOf(home),
+		}); err != nil {
+			return errors.Wrap(err, "writeFormattedGoFile()")
+		}
 	}
 
 	return nil

@@ -148,10 +148,10 @@ type AuthConfig struct {
 	// CustomData, when set, attaches the AuthWithAppTables schema's
 	// SessionCustomData table (CustomStringData) with CustomData as its resolver.
 	CustomData func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (any, error)
-	// Accept is the invitation acceptor the instance's SignIn runs with, once the
-	// transaction that consumed an invitation the sign-in carries has committed,
-	// outside any transaction; nil for none.
-	Accept signinflow.InvitationAcceptor
+	// Accept is the invitation acceptor the instance's SignIn and Accept run with,
+	// inside the transaction that consumes the invitation, which the harness adapts to
+	// the driver's transaction; nil for none. See signinflow.InvitationAcceptor.
+	Accept func(ctx context.Context, tx HookTx, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (committed func(ctx context.Context), err error)
 	// Admission is what a tenanted application gives a first sign-in through a
 	// directory by a person no user was created for; nil for none.
 	Admission *DirectoryAdmission
@@ -161,11 +161,12 @@ type AuthConfig struct {
 // sign-in with: Directories reads the tenants' declarations of the directory, which
 // the harness adapts to the driver's transaction; Roles is the role store the
 // person's memberships are read from, nil for none; Seat seats the person with the
-// default seats the declarations name, outside any transaction, nil for none.
+// default seats the declarations name, inside the transaction that provisions them,
+// which the harness adapts to the driver's transaction, nil for none.
 type DirectoryAdmission struct {
 	Directories func(ctx context.Context, tx HookTx, directory signin.Directory) ([]signin.DeclaredDirectory, error)
 	Roles       signin.UserRoleManager
-	Seat        signinflow.DirectorySeater
+	Seat        func(ctx context.Context, tx HookTx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (committed func(ctx context.Context), err error)
 }
 
 // AuthInstance is a driver over a freshly prepared users database, with the
@@ -183,14 +184,29 @@ type AuthInstance struct {
 }
 
 // NewAccept returns an instance's Accept over d: the flow's acceptance with cfg's
-// acceptor.
-func NewAccept[Tx any](d signinflow.Driver[Tx], cfg AuthConfig) func(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation) error {
+// acceptor, given the driver's transaction through adapt.
+func NewAccept[Tx any](
+	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+) func(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation) error {
+	accept := adaptAccept(cfg, adapt)
+
 	return func(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation) error {
-		if err := signinflow.AcceptInvitation(ctx, d, userID, username, email, inv, cfg.Accept); err != nil {
+		if err := signinflow.AcceptInvitation(ctx, d, userID, username, email, inv, accept); err != nil {
 			return errors.Wrap(err, "signinflow.AcceptInvitation()")
 		}
 
 		return nil
+	}
+}
+
+// adaptAccept is cfg's acceptor over the driver's transaction, nil for none.
+func adaptAccept[Tx any](cfg AuthConfig, adapt func(tx Tx) HookTx) signinflow.InvitationAcceptor[Tx] {
+	if cfg.Accept == nil {
+		return nil
+	}
+
+	return func(ctx context.Context, tx Tx, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (func(ctx context.Context), error) {
+		return cfg.Accept(ctx, adapt(tx), userID, username, inv)
 	}
 }
 
@@ -218,21 +234,27 @@ func NewSignIn[Tx any](
 	var (
 		directories signin.DirectoryReader[Tx]
 		roles       signin.UserRoleManager
-		seat        signinflow.DirectorySeater
+		seat        signinflow.DirectorySeater[Tx]
 	)
 	if cfg.Admission != nil {
 		lookup := cfg.Admission.Directories
 		directories = func(ctx context.Context, tx Tx, directory signin.Directory) ([]signin.DeclaredDirectory, error) {
 			return lookup(ctx, adapt(tx), directory)
 		}
-		roles, seat = cfg.Admission.Roles, cfg.Admission.Seat
+		roles = cfg.Admission.Roles
+		if seater := cfg.Admission.Seat; seater != nil {
+			seat = func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
+				return seater(ctx, adapt(tx), userID, username, seats)
+			}
+		}
 	}
+	accept := adaptAccept(cfg, adapt)
 	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (impulse.UUID, error) {
 		id, err := impulse.NewUUID()
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "impulse.NewUUID()")
 		}
-		rules := signinflow.Rules[Tx]{Account: rule, Standard: cfg.Accounts, Policy: policy, Accept: cfg.Accept, Directories: directories, Roles: roles, Seat: seat}
+		rules := signinflow.Rules[Tx]{Account: rule, Standard: cfg.Accounts, Policy: policy, Accept: accept, Directories: directories, Roles: roles, Seat: seat}
 		if err := signinflow.SignIn(ctx, d, id, insert, req, rules); err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
 		}
@@ -334,8 +356,10 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a stranger from a directory a tenant declares with a default seat is provisioned and seated with it before the policy decides; a tenant declaring it without a seat gives nothing; a second sign-in seats nothing more", run: testDirectoryDefaultSeat},
 		{name: "a stranger from a directory a tenant declares with no default seat is refused with invitation_only and nothing is written, whatever the registration's rule; a pre-created user links; an invitation is the way past, and a dead one refuses with invitation_expired", run: testDirectoryInvitationOnly},
 		{name: "a directory no tenant declares falls to the registration's rule", run: testDirectoryUndeclared},
-		{name: "a default seat on an Auth with no seat hook fails the sign-in once the user is committed, who stays", run: testDirectorySeatHookMissing},
-		{name: "a failing invitation hook ends the sign-in and leaves the invitation and the user untouched", run: testInvitationHookFails},
+		{name: "a default seat on an Auth with no seat hook fails the sign-in in its transaction: no user is created", run: testDirectorySeatHookMissing},
+		{name: "a failing seat hook fails the transaction that provisions the user: no account, no link, none of the hook's writes; the next sign-in is provisioned and seated", run: testDirectorySeatHookFails},
+		{name: "a failing invitation hook fails the transaction that consumes the invitation: the invitation stands, a stranger is not provisioned, the hook's writes are not committed, and the next attempt accepts it", run: testInvitationHookFails},
+		{name: "an invitation hook's committed function runs exactly once, after the commit and before the policy decides", run: testInvitationHookCommitted},
 		{name: "a password sign-in accepts the invitation it carries in a transaction of its own, and so does an acceptance by hand, each only for the address the account holds", run: testInvitationAcceptedByHand},
 		{name: "a token is read back by its hash with everything it carried, and a user's live tokens are listed newest first", run: testTokenRoundTrip},
 		{name: "a token is touched at the database's time, revoked once by its user alone, its family with it, and every token of a user at once", run: testTokenTouchAndRevoke},

@@ -1,3 +1,4 @@
+DROP INDEX MembersSessionUsersByUsername;
 DROP INDEX MembersSessionUsersByNormalizedEmail;
 DROP INDEX MembersSessionUsersByNormalizedUsername;
 DROP TABLE MembersSessionUsers;

@@ -315,7 +315,12 @@ How it is wired:
   every table as the `Resource` method of the type over it, and
   [`app/zz_gen_live_derivations.go`](app/zz_gen_live_derivations.go) assembles them for
   every publish; each such resource's metadata says `live: true`, so its pages are live
-  by default. A
+  by default. The lists a sector keeps of the crew and of the members are views too,
+  declared by each auth's generated management and recorded in the auth's handlers
+  package
+  ([`pkg/identity/crewhandlers/zz_gen_live_derivations.go`](pkg/identity/crewhandlers/zz_gen_live_derivations.go)),
+  one more value of the assembly: a role given through the generated method reaches the
+  sector's open list ([`auth.tenant-lists`](cmd/generate/generator.go)). A
   mission's write reaches the mission board's row and list subscribers under the
   mission's own key, as Missions' own; a client's write, Clients being global, reaches
   every board subscriber in every sector as one resource document; a ship's write
@@ -470,19 +475,20 @@ How it is wired:
   engine's context ends. `pkg/config/data.go` builds it once over the live service and
   hands it to both auths (`crew.Settings.ChangeSignal` and `members.Settings.ChangeSignal`,
   both required), so the crew store and the members store ride one listener.
-- The route. The console's seats route of the crew's sector partition
-  (`/console/api/sectors/{sector}/crew-sector-seats`: `GET` lists the sector's seats,
-  `PATCH` seats and unseats through an operations body, the seat's user and role in the
-  operation's path) is the generated user-management surface's, served by the library
-  over the crew session's accounts and the crew engine's memberships
-  ([`app/users.go`](app/users.go), `pkg/config/data.go`): Create and Delete on
-  `CrewSectorSeats` in the sector, held by `SectorMarshal` under the condition
-  `new.role != 'SectorMarshal'`, so a marshal seats crew in every role but its own. The
-  crew's seats are the application's whichever way a person signs in; the members' are
-  their directory's at every sign-in (the registration's `SyncsRoles`, standing alone on
-  its auth), so that surface refuses to seat or unseat anyone by hand.
-- The checks. The walkthrough's "one channel" section seats and unseats the cadet
-  against the second server process over the Firestore emulator;
+- The route. A role is given and taken away in a sector through two methods of the
+  management the generator writes for the crew
+  (`POST /console/api/sectors/{sector}/assign-crew-sector-role` and
+  `…/remove-crew-sector-role`, each taking the person's id and the role;
+  `GET …/crew-sector-user-roles` lists the roles held there), which write the membership
+  through the crew's identity client ([`app/users.go`](app/users.go),
+  `pkg/config/data.go`): Execute on `AssignCrewSectorRole` in the sector, held by
+  `SectorMarshal` under the condition `new.role != 'SectorMarshal'`, so a marshal gives
+  every role but its own. The crew's roles are the application's whichever way a person
+  signs in; the members' are their directory's at every sign-in (the registration's
+  `SyncsRoles`, standing alone on its auth), so the members' management has no method
+  that gives or takes one.
+- The checks. The walkthrough's "one channel" section gives the cadet a role and takes
+  it away against the second server process over the Firestore emulator;
   [`policy_signal_test.go`](test/integration/policy_signal_test.go) pins it over two
   instances, two crew engines with the heartbeat pinned to an hour, and the in-memory
   live service, which fans a signal out to every subscription.
@@ -563,8 +569,11 @@ project the application credentials reach.
    with no schema change, in about a minute.
 4. `go run -tags skipAuth .` serves the application on `PORT` against the real database,
    and `overmind start -l console,portal` runs the browser apps against it.
-5. `./walkthrough.sh` runs every persona's proof; it moves workflow state, so reset before
-   running it again. Then use the console and the portal by hand.
+5. `LODESTAR_LOG=<the server's log> ./walkthrough.sh` runs every persona's proof; it moves
+   workflow state, so reset before running it again. A password sign-in waits for a mailed
+   sign-in code, and in development the mail is the log, so the walkthrough reads each
+   code from the file the server's output goes to (`go run -tags skipAuth . 2>&1 | tee
+   server.log`). Then use the console and the portal by hand.
 6. Reset with the server stopped, and start it again after. A running server's permission
    engine re-reads its store every minute; a reload that lands while the reset has the
    role tables empty answers every domain as unknown until the next reload after the
@@ -617,8 +626,8 @@ development the mail is the log), entered on the login page through the pending 
 (`/console/api/user/pending/code`, `…/code/verify`, `…/email`); a browser a person asked
 to be remembered stands in for the code for thirty days (the `crew-trusted` and
 `members-trusted` cookies, the trusted devices table under each auth's prefix), and
-headquarters forgets a person's remembered browsers from the Users page
-(`ResetCrewUserFactors`, `ResetMembersUserFactors`, beside the password reset).
+headquarters forgets a person's remembered browsers from the person's account page
+(`RevokeCrewUserTrustedDevices`, `RevokeMembersUserTrustedDevices`).
 Demonstrates: auth.second-factor, auth.attested-directory, auth.trusted-device.
 
 The crew sign in with passwords at `/console/api/user/password/login`, or through the
@@ -645,20 +654,73 @@ names Google groups carry. The deploy's migrate step and the bootstrap print wha
 holds that the release cannot use. Each auth is a package (`pkg/auth/crew`,
 `pkg/auth/members`) with its own session tables, permission store, role file, and XSRF
 cookie (`crew-xsrf`, `members-xsrf`), and each outlet binds to one. The crew's memberships
-are also the application's to change at run time: the console's generated
-user-management surface (`crew-users`, `crew-seats`, `crew-roles` in the global
-partition and the `crew-sector-…` routes under a sector) lists, creates, seats and unseats
-crew ([one channel](#one-channel-between-instances)), and the console serves the members'
-surface beside it (`members-users`, …; the generator program's `Manages`), so headquarters
-administers both populations; a directory-signed member's seats are the directory's,
-reconciled at every login, and the surface refuses to write them by hand. The console's
-Users page (Headquarters menu) is the library's user-management component composed over
-the generated descriptor's global partitions, the crew's and the members', and the Sector
-Crew page (Sector Ops menu, under the sector's URL) over the crew's partition in the
-sector the URL names, with the route's sector as the component's domain; each is drawn
-where the digest grants its List, and nothing on either page names a user, a role or a
-route. A crew login an operator creates or resets carries the forced password change,
-which the login page serves before anything else.
+are also the application's to change at run time, through the management the generator
+writes for each auth (below, and [one channel](#one-channel-between-instances)): the
+console serves the crew's and, by the generator program's `Manages`, the members' beside
+it, so headquarters administers both populations; a directory-signed member's roles are
+the directory's, reconciled at every login, and the members' management has no method
+that writes them. A crew login an operator creates with a password, or gives a temporary
+one, carries the forced password change, which the login page serves before anything
+else.
+
+The generator also writes each auth's management as code the application owns
+(`generation.GenerateIdentity("pkg/identity")` in the generator program). Per auth it
+writes three packages: resource declarations over every table the session library and
+the permission store keep for the auth (`pkg/identity/internal/crewresources`), the
+methods that change them (`pkg/identity/crewidentity`: create a user holding a role;
+rename, disable, enable and delete one; set a temporary password and require a password
+change; reset the second factor; clear a lockout; invite an address and withdraw the
+invitation; assign and remove a role; end a session, all of a person's sessions or an
+impersonation; unlink an identity; revoke a token), and their handlers
+(`pkg/identity/crewhandlers`); the members get the same three, without the methods
+their auth has no use for (their roles are the directory's and the auth declares no
+password, so they have no create, no invitation, no role method and no password
+method). The lists are served through the console's permission surface
+(`crew-session-users`, `crew-sessions`, …) and take no write: a table changes through a
+method, each a route behind an Execute grant (`disable-crew-user`, …) and also a Go call
+the application makes in a transaction of its own, beside its own writes. No declaration
+carries a password hash or a token hash. The rules are the methods' own: an account
+is created holding a role and deleted with its last, nobody disables or deletes their
+own account, a person keeps an administrator role nobody else holds (the client is
+built with the crew's administrator roles, `identity.WithAdministratorRoles` in
+`pkg/config/data.go`), and an invitation is written in the method's transaction and
+mailed once it has committed, the answer saying whether the message went. The
+console writes no page for any of it. The generated API description names each list and
+method of an auth's management by what it is, and the browser library builds the pages
+from it (`identityRoutes` in
+[`web/console/src/app/app.routes.ts`](web/console/src/app/app.routes.ts)): the crew's
+accounts, mailed links, sessions and failed sign-ins, and the members', each in its own
+group of the navigation ("Crew accounts", "Members accounts"), with a person's row page
+holding the roles held, the sign-in identities and the sessions. A row's menu holds the
+methods the server says the caller may run on that row, so a role that holds no grant on
+a method sees no entry for it, and the members' pages offer nothing that gives a role,
+adds an account or invites one. Headquarters holds the grants
+(`pkg/auth/crew/roles.json`).
+
+Lodestar has a tenant record, so the generated management also declares, per auth, the
+lists a sector keeps of the auth's people. An account is one row for the whole
+application and a role held names where it is held, so each list is a view, written
+beside the auth's tables and served under the sector's address like any tenant record:
+the sector's people (`sectors/{sectorID}/crew-sector-users`: everyone who holds a
+role in the sector or in every sector, with the account's columns), the roles held there
+(`crew-sector-user-roles`, one row per person and role) and the sector's invitations
+(`crew-sector-invitations`). Each carries facts a grant's condition reads:
+`heldElsewhere` and `heldGlobally` on a person (a role held in another sector or in
+every sector; a role held for the whole application), `everyDomain` on a role (held
+through a membership in every sector alone, so not the sector's to take away) and
+`pending` on an invitation. The role file says what a sector sees with them. The Sector
+Marshal holds all three lists, and sees a person's address and password state only
+where the person holds no role outside the sector (`heldElsewhere = false`); the
+Dispatcher sees the sector's own crew, the rows whose role the sector itself gave
+(`everyDomain = false`). A role given or a person created through the generated methods
+reaches the open lists: the views' record is part of the application's live derivations.
+A sector changes its people through the methods the management writes beside the lists
+(`create-crew-sector-user`, `invite-crew-sector-user`, `assign-crew-sector-role`,
+`remove-crew-sector-role` and the account methods), each run against a row of the
+sector's lists, so a grant's condition decides row by row: the Sector Marshal disables a
+person the sector holds alone and no one who also holds a role elsewhere, and gives every
+role but its own. The sector's People and Invitations pages ("Sector crew", under the
+sector's URL) are built by the library from the same description.
 
 Who may enter a sector is the sector record's declaration, data of the application
 rather than deploy configuration: the directories the sector admits its people through
@@ -690,17 +752,20 @@ there; Anvil's and Bastion's name none, so a stranger no row seats is refused by
 invitation only (`invitation_only`, the login page's sentence) and no account is created,
 unless they followed an invitation. The crew auth reads every sector's declaration of a
 directory with its seat through the generated `app.NewSectorDirectoryReader`
-(`SetDirectoryAdmission`, with `resource.SeatDeclared` writing the seat once the sign-in
-has committed); the members auth, whose directory names the roles, sets none. The
+(`SetDirectoryAdmission`, with the seat written by the auth's generated identity client
+in the transaction that creates the person, `crewidentity.Client.DirectorySeated`); the
+members auth, whose
+directory names the roles, sets none. The
 console's Sign-in page (Sector Ops menu, under the sector's URL) carries the declaration:
 the sector's marshal declares and withdraws directories there and picks each one's
 default seat from the sector's roles, headquarters sets directory only. A sector's
 creator is its first marshal whatever the creation shape: the create path seats the
-surveyor as `SectorMarshal` in Dawn after the row commits, as the create-sector route
-seats the pioneer in Ember (`SectorAdministratorRoles`, from `crew.AdministratorRoles`),
-and the last holder of a partition's administrator role (`Headquarters` globally,
-`SectorMarshal` in a sector, `resource.WithAdministratorRoles`) is refused leaving it
-until another holds it, so an operator creates a customer's sector, seats its first
+surveyor as `SectorMarshal` in Dawn in the transaction that writes the row, as the
+create-sector route seats the pioneer in Ember (`SectorAdministratorRoles`, from
+`crew.AdministratorRoles`, written by the crew's generated identity client),
+and the last holder of an administrator role (`Headquarters` for the whole service,
+`SectorMarshal` in a sector, `identity.WithAdministratorRoles`) is refused leaving it
+until another holds it, so an operator creates a customer's sector, makes its first
 administrator and leaves. Demonstrates: tenancy.declaration, tenancy.directory-only,
 tenancy.creator-directory, tenancy.default-seat, tenancy.creator-seat.
 
@@ -712,15 +777,15 @@ manifest: pick a card, sign in, switch, never more than two clicks.
 | Login | Who | What their view proves |
 | --- | --- | --- |
 | `governor` | Governor Greer, headquarters | Every global role and Sector Marshal in all three sectors: the pruned pure-RBAC baseline. Runs the watch desk over every live impersonated session and can revoke one. Demonstrates: impersonation.active-list, impersonation.revoke, impersonation.act-as-role, computed.pushdown. |
-| `marshal` | Marshal Maren, Anvil | Full sector authority at Anvil, nothing at Bastion or Cinder (the fail-closed border); every transition including Scrap; the row-free `now` condition on IssueBulletin; the sector briefing with every fee; attaches mission documents through the `@upload` method and downloads them through the generated file route, whose gate is her Read grant on `content` (the client portal lists documents and holds no such grant). Demonstrates: tenancy.concealed, @transition.multi-from, condition.now, rpc.client-form, @upload, @file.stored, impersonation.view-as. |
+| `marshal` | Marshal Maren, Anvil | Full sector authority at Anvil, nothing at Bastion or Cinder (the fail-closed border); every transition including Scrap; the row-free `now` condition on IssueBulletin; the sector briefing with every fee; the sector's lists of the crew (its people, the roles held there, its invitations), with a person's address answered only where the person holds no role outside the sector (`heldElsewhere = false`); the roles the sector picks from, every one but the Marshal's own (`name != 'SectorMarshal'` on a computed list, judged over the rows its function yields); attaches mission documents through the `@upload` method and downloads them through the generated file route, whose gate is her Read grant on `content` (the client portal lists documents and holds no such grant). Demonstrates: tenancy.concealed, @transition.multi-from, condition.now, rpc.client-form, @upload, @file.stored, impersonation.view-as, auth.tenant-lists, computed.row-condition. |
 | `cadet` | Cadet Cass | `hazard IN (1, 2)`; the flight deck with only Claim lit; the two-input distress-call form (create-form narrowing). Demonstrates: execute-condition, create-form-narrowing, capability-envelope. |
 | `pilot` | Pilot Pax, clearance 3 | `hazard <= subject.clearance AND (requiredCert IS NULL OR requiredCert IN subject.certifications)`; `hangarZone != 'quarantine'` on ships and on HailShip, the touch that answers No Content. Demonstrates: @subjectValue, @subjectSet.global, @attribute.nullable-fk, @attribute.join-path, touch, @answers.no-content. |
 | `veteran` | Veteran Vela | `NOT (hazard IN (1, 2) OR fee < 5000)`. Demonstrates: condition.prefix-not. |
-| `lead` | Flight Lead Lior, Hammer | `assignedSquadron IN subject.squadrons OR bookedBy = subject`; launch, hold, resume, complete, fail; sorties only while underway. Holds Execute on HoldMission but no Update on the notes, so the armed hold refuses inside the transaction in the grant's words, and the dry run of every lit edge says so before anything is touched. CompleteMission posts the settlement through the Paymaster role's checker (`caller.As`) and chooses its status (`@answers(200, 409)`). Demonstrates: @subjectSet.domain, condition.subject-scalar, rpc.armed-write, rpc.dry-run, rpc.as-role, @answers, @transition.loop, create-under-parent. |
-| `dispatcher` | Dispatcher Dunn | `state NOT IN (...)`; two Update grants on one resource: `new.assignedSquadron IN subject.squadrons` and `new.deadline >= deadline`, the write-grouping demo; compiles the briefing without the hazard board. Demonstrates: condition.not-in, write-grouping, condition.old-vs-new, rpc.decision-as-data. |
+| `lead` | Flight Lead Lior, Hammer | `assignedSquadron IN subject.squadrons OR bookedBy = subject`; launch, hold, resume, complete, fail; sorties only while underway. Holds Execute on HoldMission but no Update on the notes, so the armed hold refuses inside the transaction in the grant's words, and the dry run of every lit edge says so before anything is touched. CompleteMission posts the settlement through the Paymaster role's checker (`caller.As`) and chooses its status (`@answers(200, 409)`). The expense manifests of the missions Hammer flies, and no other squadron's: the same subject set on a `@computed` list (`assignedSquadron IN subject.squadrons`), where the library reads his squadrons once for the request and judges each manifest the list's function yields, through the list, the read and the rendered file. Demonstrates: @subjectSet.domain, condition.subject-scalar, rpc.armed-write, rpc.dry-run, rpc.as-role, @answers, @transition.loop, create-under-parent, computed.subject-fact. |
+| `dispatcher` | Dispatcher Dunn | `state NOT IN (...)`; two Update grants on one resource: `new.assignedSquadron IN subject.squadrons` and `new.deadline >= deadline`, the write-grouping demo; compiles the briefing without the hazard board; sees the sector's own crew, the roles the sector itself gave (`everyDomain = false` on the roles held in the sector). Demonstrates: condition.not-in, write-grouping, condition.old-vs-new, rpc.decision-as-data, auth.tenant-lists. |
 | `overseer` | Overseer Orla | `deadline < now` as a right-side operand; the reassign that unlocks by the clock (the seeded three-minute mission). Demonstrates: condition.now, @attribute.timestamp. |
 | `booking` | Booking Agent Bex | `new.fee <= subject.feeLimit` on create and inside an Update; `fee > 10000 OR bookedBy = subject`; delete by base decision; Stand Down from three sources. Demonstrates: @subjectValue.two-per-anchor, @attribute.decimal, @transition.multi-from. |
-| `wingco` | Wing Commander Wilde, Forge Wing | `wing IN subject.wings`, a subject set with a dotted value path; `hazard >= 4`. Demonstrates: @subjectSet.dotted-value. |
+| `wingco` | Wing Commander Wilde, Forge Wing | `wing IN subject.wings`, a subject set with a dotted value path; `hazard >= 4`; rates the pilots who fly for Anvil alone: the clearance field of the sector's pilots, a view, and `SetSectorPilotClearance`, a method whose target is a row of that view, each under `fliesElsewhere = false`, a fact the view's query computes (over the API; the console draws no page for it). Demonstrates: @subjectSet.dotted-value, @attribute.view, @target.view. |
 | `engineer` | Engineer Ezra | The refit workflow with its failed-test loop on a join-path root; `inspectedAt IS NOT NULL`; interleaved compound-key tasks; the Hail touch. Demonstrates: @transition.join-path-root, @transition.loop, interleaved-table, compound-key, client-supplied-key, transition-owned-timestamp, @defaultsUpdateType, @validateUpdateType. |
 | `quartermaster` | Quartermaster Quill | `state = 'underway'` evaluated two hops deep on SortieExpenses. Demonstrates: @stateRoot.two-hop. |
 | `supercargo` | Supercargo Sol | `releasedAt IS NULL` on Update and on ReleaseConsignment (shared with the droid, which reads the manifest armed and answers a receipt); `expiresOn < '2026-09-01'`; `allow_filter` on Mass; the hold walked by release date across the NULL boundary. Demonstrates: @attribute.date, allow_filter, paging.nullable-sort, rpc.armed-read, rpc.typed-result, outlet.shared. |
@@ -752,15 +817,15 @@ manifest: pick a card, sign in, switch, never more than two clicks.
   Cloud Scheduler calls ([`@schedule`](pkg/rpc/prune_droid_reports.go)); `pkg/computedresources`
   (the pushdown [`computed.pushdown`](pkg/computedresources/service_ledgers.go), the
   fold, and the key-less standing orders
-  [`computed.keyless`](pkg/computedresources/standing_orders.go)) and `pkg/virtualresources`; `pkg/router`: the generated router over three outlets
+  [`computed.keyless`](pkg/computedresources/standing_orders.go)) and `pkg/virtualresources` (among them the sector's pilots, a view keyed by the pilot whose row carries a fact its query computes, [`@attribute.view`](pkg/virtualresources/sector_pilots.go), and is the target of a method, [`@target.view`](pkg/rpc/set_sector_pilot_clearance.go)); `pkg/router`: the generated router over three outlets
   (`/console/api`, `/portal/api`, `/droids`; each browser outlet's API under its
   application's mount path) with its chain documented at the top of
   `zz_gen_router.go`, and `hooks.go`, the console's and the portal's own routes composed
   into it and the beacon pulse mounted outside every outlet under the prefix the
   generator program declares quiet ([`generation.request-log`](cmd/generate/generator.go));
   `app/`: wiring, middleware, the ship's log, the client statement, the
-  impersonation mint route, the watch desk, the user-management surfaces the generated
-  user handlers serve through (`users.go`) and the beacon pulse. The mission document download is
+  impersonation mint route, the watch desk, the accessors of each auth's generated
+  identity client (`users.go`) and the beacon pulse. The mission document download is
   generated from `MissionDocument.StoreKey`'s `@file`
   ([`@file.stored`](pkg/resources/mission_documents.go)), and the purser's expense
   manifest is a computed resource whose struct-scope `@file` renders a CSV sheet on
@@ -890,7 +955,9 @@ manifest: pick a card, sign in, switch, never more than two clicks.
   directory: `go test -tags skipAuth ./...`, as the CI stub and the Procfile do.
 - `demonstrations_test.go` and `DEMONSTRATIONS.md`: the demonstration index, and
   `walkthrough.sh`, the proof by hand. Demonstrates: demonstration-index, walkthrough.
-- `walkthrough.sh`: every persona's proof by curl against a freshly bootstrapped or reset stack, including the
+- `walkthrough.sh`: every persona's proof by curl against a freshly bootstrapped or reset stack
+  (`LODESTAR_LOG` names the file the server's output goes to, where the walkthrough reads the
+  sign-in code each password sign-in waits for: `overmind start 2>&1 | tee stack.log`), including the
   droid channel, the portal through the simulated directory, the dry runs, the watch desk,
   both impersonation moments, the feature flag's flip with a second server process built
   from the tree on `LODESTAR_SECOND_PORT` (default 8091), and the three-minute wait for

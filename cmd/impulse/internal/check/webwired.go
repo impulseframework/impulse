@@ -19,14 +19,18 @@ import (
 
 // webWired verifies that every browser application bound to a session outlet is bound to
 // the outlet's auth: the resources its hand-written TypeScript takes from the generated
-// constants (Resources.<Name>) are ones its generated client exports, and the XSRF cookie
-// its HttpClient echoes (withXsrfConfiguration) is the one the outlet's auth issues. A
-// site's browser application starts as a copy of the console's, bound to the console's
-// auth; when another auth is bound to the site's outlet the generated client exports that
-// auth's user surface instead, so every stale resource name fails the browser's own build
-// (TS2339), which no Go build or check sees, and a stale cookie has the server refuse
-// every mutating request. impulse add auth rewrites both in the sites layout, and this
-// check holds the result.
+// constants (Resources.<Name>) are ones its generated client exports, the pages it asks
+// the library for of an auth's generated management (identityRoutes, identityPages) are
+// of an auth and a side its generated API description carries, and the XSRF cookie its
+// HttpClient echoes (withXsrfConfiguration) is the one the outlet's auth issues. A site's
+// browser application starts as a copy of the console's, bound to the console's auth;
+// when another auth is bound to the site's outlet the generated client describes that
+// auth instead, so every stale resource name fails the browser's own build (TS2339),
+// which no Go build or check sees, a request for the pages of an auth the description
+// does not carry is refused by the library when the application loads, which no build
+// sees at all, and a stale cookie has the server refuse every mutating request. impulse
+// add auth rewrites the routes and the cookie in the sites layout, and this check holds
+// the result.
 type webWired struct{}
 
 func (webWired) Name() string {
@@ -34,7 +38,7 @@ func (webWired) Name() string {
 }
 
 func (webWired) Describe() string {
-	return "every browser application names resources its generated client exports and the XSRF cookie of the auth bound to its outlet"
+	return "every browser application names resources its generated client exports, asks for the pages of an auth's management its API description carries, and names the XSRF cookie of the auth bound to its outlet"
 }
 
 // The generated constants file a browser project's resource names come from, and the
@@ -57,6 +61,32 @@ var (
 
 // xsrfCall is the HttpClient feature that names the cookie.
 const xsrfCall = "withXsrfConfiguration("
+
+// The generated API description of a TypeScript target, and the block of it that lists
+// the generated management it carries, one entry per auth with its sides.
+const (
+	apiFile       = "zz_gen_api.ts"
+	identityBlock = "\n  identity: [\n"
+	identityEnd   = "\n  ],\n"
+)
+
+var (
+	// identityCallRE finds a request for the pages of an auth's generated management.
+	identityCallRE = regexp.MustCompile(`\b(identityRoutes|identityPages)\(`)
+	// pageAuthRE and pageScopeRE find the auth and the side a request or an entry names.
+	pageAuthRE  = regexp.MustCompile(`\bauth:\s*'([^']*)'`)
+	pageScopeRE = regexp.MustCompile(`\bscope:\s*'([^']*)'`)
+)
+
+// pageUse is one request for the pages of an auth's management: the function called, and
+// the auth and the side it names.
+type pageUse struct {
+	file  string
+	line  int
+	call  string
+	auth  string
+	scope string
+}
 
 // webUse is one place a hand-written file names something: a resource or a cookie.
 type webUse struct {
@@ -140,11 +170,23 @@ func (webWired) project(a *app.App, key string, o *outletSurface, t app.TSTarget
 	if err != nil {
 		return nil, "", err
 	}
-	uses, cookies, err := webUses(a, source)
+	uses, cookies, pages, err := webUses(a, source)
 	if err != nil {
 		return nil, "", err
 	}
 	issued := outletCookies(a, o)
+	description := path.Join(t.Dir, apiFile)
+	carried, described, err := carriedManagement(a, description)
+	if err != nil {
+		return nil, "", err
+	}
+	if described {
+		for i := range pages {
+			if finding := pageFinding(&pages[i], carried, description, key); finding != "" {
+				findings = append(findings, finding)
+			}
+		}
+	}
 
 	if generated {
 		fix := resourceFix(key, authResources(o, issued, exported))
@@ -164,26 +206,106 @@ func (webWired) project(a *app.App, key string, o *outletSurface, t app.TSTarget
 		}
 	}
 
-	return findings, projectLine(source, uses, cookies, issued, generated), nil
+	return findings, projectLine(source, uses, cookies, pages, issued, generated), nil
+}
+
+// pageFinding holds one request for the pages of an auth's management to what the
+// outlet's API description carries: the auth, then the side.
+func pageFinding(p *pageUse, carried map[string][]string, description, key string) string {
+	sides, ok := carried[p.auth]
+	if !ok {
+		auths := make([]string, 0, len(carried))
+		for auth := range carried {
+			auths = append(auths, auth)
+		}
+		sort.Strings(auths)
+		has, fix := "it carries no auth's management", fmt.Sprintf("the %s outlet's program generates none (generation.GenerateIdentity): take the request out, or have the program generate the management and run go generate ./...", key)
+		if len(auths) > 0 {
+			has = "it carries the management of " + strings.Join(auths, ", ")
+			fix = fmt.Sprintf("name an auth it carries (auth: '%s'), as impulse add auth --outlet %s writes the site's routes", auths[0], key)
+		}
+
+		return fmt.Sprintf("%s:%d: %s asks the library for the pages of the %s auth's management, which %s, the %s outlet's API description, does not carry (%s), so the library refuses the request when the application loads, which no build sees; %s", p.file, p.line, p.call, p.auth, description, key, has, fix)
+	}
+	if p.scope != "" && !slices.Contains(sides, p.scope) {
+		return fmt.Sprintf("%s:%d: %s asks the library for the %s side of the %s auth's management (scope: '%s'), which %s, the %s outlet's API description, does not carry (it carries: %s), so the library refuses the request when the application loads, which no build sees; ask for a side it carries", p.file, p.line, p.call, sideWords(p.scope), p.auth, p.scope, description, key, strings.Join(sides, ", "))
+	}
+
+	return ""
+}
+
+// sideWords names a side of an auth's management as a sentence does.
+func sideWords(scope string) string {
+	if scope == "domain" {
+		return "tenant's"
+	}
+
+	return "whole application's"
+}
+
+// carriedManagement reads the generated management an API description carries: the
+// sides by auth, as the description names them, and whether the file exists at all (a
+// client not generated yet has nothing to compare).
+func carriedManagement(a *app.App, rel string) (carried map[string][]string, generated bool, err error) {
+	data, err := os.ReadFile(a.Abs(rel))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, errors.Wrap(err, "os.ReadFile()")
+	}
+	carried = map[string][]string{}
+	_, block, ok := strings.Cut(string(data), identityBlock)
+	if !ok {
+		return carried, true, nil
+	}
+	block, _, _ = strings.Cut(block, identityEnd)
+	auth := ""
+	for line := range strings.Lines(block) {
+		line = strings.TrimSpace(line)
+		switch {
+		case strings.HasPrefix(line, "auth:"):
+			if m := pageAuthRE.FindStringSubmatch(line); m != nil {
+				auth = m[1]
+				carried[auth] = nil
+			}
+		case strings.HasPrefix(line, "scope:") && auth != "":
+			if m := pageScopeRE.FindStringSubmatch(line); m != nil {
+				carried[auth] = append(carried[auth], m[1])
+			}
+		}
+	}
+
+	return carried, true, nil
 }
 
 // resourceFix is the fix a stale resource name takes: one the client exports, when the
-// client exports the surface of the outlet's auth (the users page impulse add auth
-// writes names it), and regeneration when it exports nothing of that auth, since the
-// client then predates the outlet's binding.
+// client exports resources of the outlet's auth, and regeneration when it exports
+// nothing of that auth, since the client then predates the outlet's binding.
 func resourceFix(key, surface string) string {
 	if surface == "" {
 		return fmt.Sprintf("the client exports no resource of the auth bound to the %s outlet, so it predates the binding: run go generate ./...", key)
 	}
 
-	return fmt.Sprintf("rename it to a resource the client exports%s, as impulse add auth --outlet %s writes the site's users page", surface, key)
+	return fmt.Sprintf("rename it to a resource the client exports%s", surface)
 }
 
 // projectLine renders one project's part of the PASS line: what it names, and whose.
-func projectLine(source string, uses, cookies []webUse, issued map[string]string, generated bool) string {
+func projectLine(source string, uses, cookies []webUse, pages []pageUse, issued map[string]string, generated bool) string {
 	resources := fmt.Sprintf("%d resource(s) its generated client exports", len(uses))
 	if !generated {
 		resources = fmt.Sprintf("%d resource(s), with the client not generated yet", len(uses))
+	}
+	asked := ""
+	if len(pages) > 0 {
+		var auths []string
+		for i := range pages {
+			if !slices.Contains(auths, pages[i].auth) {
+				auths = append(auths, pages[i].auth)
+			}
+		}
+		sort.Strings(auths)
+		asked = fmt.Sprintf(", asks for the pages of the management of %s", strings.Join(auths, ", "))
 	}
 	cookie := "no XSRF cookie"
 	if len(cookies) > 0 {
@@ -197,12 +319,15 @@ func projectLine(source string, uses, cookies []webUse, issued map[string]string
 		}
 		cookie = strings.Join(slices.Compact(named), " and ")
 	}
+	if asked != "" {
+		return fmt.Sprintf("%s names %s%s, and names %s", source, resources, asked, cookie)
+	}
 
 	return fmt.Sprintf("%s names %s and %s", source, resources, cookie)
 }
 
 // authResources names the resources of the outlet's auths among the exported ones, for
-// the fix: the user surface a users page is written over.
+// the fix: what a page of the application's own over the auth's people is written over.
 func authResources(o *outletSurface, issued map[string]string, exported map[string]bool) string {
 	var names []string
 	for _, auth := range issued {
@@ -310,14 +435,15 @@ func exportedResources(a *app.App, rel string) (exported map[string]bool, genera
 
 // webUses reads the hand-written TypeScript under a project's source root: every
 // Resources.<Name> in a file taking Resources from the generated constants, one use per
-// file and name at its first line, and every cookie withXsrfConfiguration names.
-func webUses(a *app.App, source string) (uses, cookies []webUse, err error) {
+// file and name at its first line, every cookie withXsrfConfiguration names, and every
+// request for the pages of an auth's generated management.
+func webUses(a *app.App, source string) (uses, cookies []webUse, pages []pageUse, err error) {
 	root, err := os.OpenRoot(a.Abs(source))
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "os.OpenRoot()")
+		return nil, nil, nil, errors.Wrap(err, "os.OpenRoot()")
 	}
 	defer root.Close()
 	err = fs.WalkDir(root.FS(), ".", func(p string, d fs.DirEntry, walkErr error) error {
@@ -342,16 +468,70 @@ func webUses(a *app.App, source string) (uses, cookies []webUse, err error) {
 		rel := path.Join(source, p)
 		uses = append(uses, resourceUses(rel, string(data))...)
 		cookies = append(cookies, cookieUses(rel, string(data))...)
+		pages = append(pages, pageUses(rel, string(data))...)
 
 		return nil
 	})
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "fs.WalkDir()")
+		return nil, nil, nil, errors.Wrap(err, "fs.WalkDir()")
 	}
 	sortUses(uses)
 	sortUses(cookies)
+	sort.Slice(pages, func(i, j int) bool {
+		if pages[i].file != pages[j].file {
+			return pages[i].file < pages[j].file
+		}
 
-	return uses, cookies, nil
+		return pages[i].line < pages[j].line
+	})
+
+	return uses, cookies, pages, nil
+}
+
+// pageUses finds one file's requests for the pages of an auth's generated management:
+// the calls of identityRoutes and identityPages that name their auth as a literal, each
+// read through its closing parenthesis, since a formatter lays a long one over several
+// lines. A call in a comment is no request, and one that names its auth by a variable
+// is not read.
+func pageUses(rel, text string) []pageUse {
+	var uses []pageUse
+	for _, m := range identityCallRE.FindAllStringSubmatchIndex(text, -1) {
+		lineStart := strings.LastIndexByte(text[:m[0]], '\n') + 1
+		if before := strings.TrimSpace(text[lineStart:m[0]]); strings.HasPrefix(before, "//") || strings.HasPrefix(before, "*") || strings.HasPrefix(before, "/*") {
+			continue
+		}
+		call := callText(text, m[1]-1)
+		auth := pageAuthRE.FindStringSubmatch(call)
+		if auth == nil {
+			continue
+		}
+		use := pageUse{file: rel, line: strings.Count(text[:m[0]], "\n") + 1, call: text[m[2]:m[3]], auth: auth[1]}
+		if scope := pageScopeRE.FindStringSubmatch(call); scope != nil {
+			use.scope = scope[1]
+		}
+		uses = append(uses, use)
+	}
+
+	return uses
+}
+
+// callText returns a call's text from the parenthesis at open through the one that
+// closes it, or to the end of the text where none does.
+func callText(text string, open int) string {
+	depth := 0
+	for i := open; i < len(text); i++ {
+		switch text[i] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				return text[open : i+1]
+			}
+		}
+	}
+
+	return text[open:]
 }
 
 // resourceUses finds the Resources.<Name> expressions of one file taking Resources from
@@ -403,5 +583,5 @@ func sortUses(uses []webUse) {
 
 // Meaning explains the invariant for the brief.
 func (webWired) Meaning() string {
-	return "A browser application is bound to the auth of the outlet it is served from: its users page composes the library's user-management component over that auth's user surface (`Resources.<Auth>Users` and `Resources.<Auth>Roles` from the generated constants, `<impulse-user-management auth=\"<Auth>\" />`, and the spec's `<auth>-users` and `<auth>-roles` routes), and its HttpClient names that auth's XSRF cookie (`withXsrfConfiguration({ cookieName: '<auth>-xsrf' })`, the `XSRFCookie` of `pkg/auth/<auth>`), since the browser echoes the cookie in `X-XSRF-TOKEN` and the server verifies the echo. A site's browser application starts as a copy of the console's, bound to the console's auth; once the site's outlet is bound to another auth (`generation.Auth(...)` on its declaration), the generated client exports that auth's resources instead, so each stale name fails the browser's build (TS2339) and the stale cookie has the server refuse every mutating request. `impulse add auth --outlet <site>` rewrites both in the sites layout; each line under the check names a file still bound to the old auth, the name it carries, and the name to write."
+	return "A browser application is bound to the auth of the outlet it is served from. Its routes ask the library for the pages of that auth's generated management by the auth's name (`...identityRoutes(apiDescriptor, resourceMeta, { auth: '<Auth>', scope: 'global' })`, and `scope: 'domain'` for a tenant's side): the library builds them from the generated API description (`zz_gen_api.ts`, its `identity` entries), and refuses a request for an auth or a side the description does not carry when the application loads, which no build sees. A page of the application's own names resources from the generated constants (`Resources.<Name>`), and a name the client does not export fails the browser's build (TS2339). Its HttpClient names the auth's XSRF cookie (`withXsrfConfiguration({ cookieName: '<auth>-xsrf' })`, the `XSRFCookie` of `pkg/auth/<auth>`), since the browser echoes the cookie in `X-XSRF-TOKEN` and the server verifies the echo. A site's browser application starts as a copy of the console's, bound to the console's auth; once the site's outlet is bound to another auth (`generation.Auth(...)` on its declaration), the generated client describes that auth instead, so each stale name fails the build, a stale request for pages fails at load, and the stale cookie has the server refuse every mutating request. `impulse add auth --outlet <site>` rewrites the routes and the cookie in the sites layout; each line under the check names a file still bound to the old auth, what it carries, and what to write."
 }

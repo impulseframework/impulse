@@ -1,25 +1,28 @@
 package app
 
 import (
-	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/router"
-	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/membersidentity"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/staffidentity"
 )
 
-// The user-management surfaces. The generator serves each auth's users, seats and roles
-// as resources, with the targeted methods beside them, and generates their handlers into
-// zz_gen_users.go as delegations to the surface New builds for each auth with the
-// generated constructor, over the stores the configuration hands it: the staff's over the
-// staff session's accounts and the staff engine's seats, served on the console; the
-// members' over the members', served on the portal. What a role may do with them is each
-// auth's role file's to say, in the same grammar as every other resource.
+// The management of each auth's people is generated (pkg/identity, the generator
+// program's GenerateIdentity): each auth's lists (the accounts, the roles they hold, their sign-in
+// identities, the mailed links, the sessions) and the methods that change them (create a
+// user, give and take a role, invite an address, set a temporary password) are served by
+// generated handlers, which reach its auth's identity client through the accessors below.
+// What a role may do with them is the role file's to say, in the same grammar as every
+// other resource and method.
 
-// StaffUserSurface is the staff auth's surface, which the generated staff handlers call.
-func (a *App) StaffUserSurface() *resource.UserSurface[router.StaffAuth] {
-	return a.staffUsers
+// StaffIdentity is the staff auth's identity client: what the generated methods that manage
+// the auth's people run over (pkg/identity/staffidentity), on their routes and in a transaction the
+// application opens itself.
+func (a *App) StaffIdentity() *staffidentity.Client {
+	return a.staffIdentity
 }
 
-// MembersUserSurface is the members auth's surface, which the generated members handlers
-// call on the portal.
-func (a *App) MembersUserSurface() *resource.UserSurface[router.MembersAuth] {
-	return a.membersUsers
+// MembersIdentity is the members auth's identity client: what the generated methods that manage
+// the auth's people run over (pkg/identity/membersidentity), on their routes and in a transaction the
+// application opens itself.
+func (a *App) MembersIdentity() *membersidentity.Client {
+	return a.membersIdentity
 }

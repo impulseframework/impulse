@@ -248,7 +248,7 @@ type Auth[SessionData, UserData, Tx any] struct {
 	// trustedCookies writes and reads the trusted device cookie.
 	trustedCookies *internalcookie.Client
 	// acceptInvitation is the application's invitation acceptor, nil for none.
-	acceptInvitation signinflow.InvitationAcceptor
+	acceptInvitation signinflow.InvitationAcceptor[Tx]
 	userRenamed      UserRenamedHook
 	// directories reads the tenants' declarations of a directory for a stranger's
 	// first sign-in, directoryRoles is the role store the person's memberships are
@@ -256,7 +256,7 @@ type Auth[SessionData, UserData, Tx any] struct {
 	// Set by SetDirectoryAdmission before the Auth is in use.
 	directories     signin.DirectoryReader[Tx]
 	directoryRoles  signin.UserRoleManager
-	directorySeated signinflow.DirectorySeater
+	directorySeated signinflow.DirectorySeater[Tx]
 	// methods are the registered sign-in methods. Read them through registered.
 	methods signInMethods[Tx]
 }
@@ -448,27 +448,36 @@ func (a *Auth[SessionData, UserData, Tx]) SetUserRenamed(hook UserRenamedHook) {
 }
 
 // InvitationAcceptedHook is the application's half of an invitation's acceptance: it
-// grants what the invitation names, its roles in its tenant, to the user who accepted
-// it, once the transaction that consumed the invitation has committed and before the
-// sign-in policy decides, so the policy sees the membership. It runs for every
-// acceptance: the one a sign-in or a sign-up performs with the invitation the browser
-// carries, and Invitation().Accept() for a person already signed in. The user is named
-// by id and by username, the key an application's memberships are held under, and is
-// committed when the hook runs. The hook runs outside any transaction, once: an
-// application's memberships live in a store of their own, written through its own
-// client, which no transaction of the session store can carry (and which the Spanner
-// emulator, allowing one read-write transaction at a time, would deadlock inside one).
-// A hook that fails ends the sign-in with its error and leaves the invitation
-// consumed: the person's next attempt at the link finds it dead, and an administrator
-// invites again.
-type InvitationAcceptedHook = func(ctx context.Context, userID impulse.UUID, username string, inv *sessioninfo.Invitation) error
+// gives what the invitation names, its roles in its tenant, to the user who accepted
+// it, inside the transaction that consumes the invitation, which it is handed (tx, the
+// storage's transaction type): the invitation is spent and its roles given together,
+// or neither. It runs for every acceptance: the one a sign-in or a sign-up performs
+// with the invitation the browser carries, and Invitation().Accept() for a person
+// already signed in. The user is named by id and by username, the key an application's
+// memberships are held under; a user the same transaction provisioned is buffered in
+// it and is not readable until the commit, so the hook writes under the name it is
+// given and looks nobody up.
+//
+// The hook reads and writes through tx alone. The Spanner emulator allows one
+// read-write transaction at a time, so a second transaction, or a read through another
+// client, inside the hook waits on the transaction the hook runs in and never returns.
+//
+// committed, nil for none, is work the library runs once that transaction has
+// committed and before the sign-in policy decides: the word to a permission engine
+// that its rows changed, so the policy sees the membership. Spanner runs a
+// transaction's closure again when it aborts, so the hook may be called more than
+// once for one acceptance; only the committed function of the call whose transaction
+// committed is run, once. A hook that fails fails the transaction and ends the sign-in
+// with its error: nothing is consumed, a user the sign-in would have provisioned is not
+// created, and the invitation stands for the next attempt.
+type InvitationAcceptedHook[Tx any] = func(ctx context.Context, tx Tx, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (committed func(ctx context.Context), err error)
 
 // SetInvitationAccepted sets the application's invitation acceptor, the hook that
 // grants what an invitation names when it is accepted. An Auth that sends invitations
 // (AuthAPI.Invite) needs one, or an acceptance grants nothing. Set it after NewAuth
 // and before serving the first request; a nil hook, a second hook, or a hook set once
 // the Auth is in use is a wiring mistake and panics, as SetSignInPolicy does.
-func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationAcceptedHook) {
+func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationAcceptedHook[Tx]) {
 	if hook == nil {
 		panic("session: SetInvitationAccepted was given nil: pass the application's hook, or set none")
 	}
@@ -581,15 +590,19 @@ func (a *Auth[S, U, Tx]) ValidateSession(next http.Handler) http.Handler {
 }
 
 // DirectorySeatedHook is the application's half of a directory's default seat: it
-// seats the user a first sign-in provisioned, named by id and by username (the key an
+// seats the user a first sign-in provisions, named by id and by username (the key an
 // application's memberships are held under), with seats, the default seats of the
-// directories the tenants declared for the identity's connection, once the
-// resolution that created the user has committed and before the sign-in policy
-// decides, so the policy sees the memberships. It runs outside any transaction, once,
-// for the reason InvitationAcceptedHook does. A hook that fails ends the sign-in with
-// its error; the user stays, holding nothing, and the person's next sign-in finds
-// them pre-created and links.
-type DirectorySeatedHook = func(ctx context.Context, userID impulse.UUID, username string, seats []signin.DirectorySeat) error
+// directories the tenants declared for the identity's connection, inside the
+// transaction that provisions the user, which it is handed: the account is made and
+// seated together, or neither. A seat the invitation this sign-in consumes names too
+// (the same role in the same tenant) is not among seats: InvitationAcceptedHook gives
+// it, in the same transaction, and the two hooks never write one membership twice. The
+// hook is not called for no seats. It is held to what InvitationAcceptedHook is: tx alone
+// for its reads and writes, the user not readable in it, a committed function (nil for
+// none) the library runs once the transaction has committed and before the sign-in
+// policy decides, and an error that fails the transaction and ends the sign-in, so no
+// account is left holding nothing.
+type DirectorySeatedHook[Tx any] = func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (committed func(ctx context.Context), err error)
 
 // SetDirectoryAdmission sets what a tenanted application gives a first sign-in
 // through a directory by a person no user was created for: reader, which reads
@@ -608,7 +621,7 @@ type DirectorySeatedHook = func(ctx context.Context, userID impulse.UUID, userna
 // after NewAuth and before serving the first request; a nil reader, roles or hook, a
 // second call, or a call once the Auth is in use is a wiring mistake and panics, as
 // SetSignInPolicy does.
-func (a *Auth[SessionData, UserData, Tx]) SetDirectoryAdmission(reader signin.DirectoryReader[Tx], roles signin.UserRoleManager, hook DirectorySeatedHook) {
+func (a *Auth[SessionData, UserData, Tx]) SetDirectoryAdmission(reader signin.DirectoryReader[Tx], roles signin.UserRoleManager, hook DirectorySeatedHook[Tx]) {
 	if reader == nil {
 		panic("session: SetDirectoryAdmission was given no reader: pass the application's reader of the tenants' directory declarations")
 	}

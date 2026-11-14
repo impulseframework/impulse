@@ -12,6 +12,25 @@ import (
 	"github.com/go-playground/errors/v5"
 )
 
+// generateMethodHandlers writes the handler of every method that serves one, and of every
+// scheduled method.
+func (r *resourceGenerator) generateMethodHandlers() error {
+	if !r.hasRPC() {
+		return nil
+	}
+	rpcMethods := make([]*rpcMethodInfo, 0, len(r.rpcMethods))
+	for _, rpcMethod := range r.rpcMethods {
+		if !rpcMethod.SuppressHandler {
+			rpcMethods = append(rpcMethods, rpcMethod)
+		}
+	}
+	if err := forEachGo(rpcMethods, r.generateRPCHandler); err != nil {
+		return err
+	}
+
+	return forEachGo(r.scheduledMethods, r.generateScheduledHandler)
+}
+
 func (r *resourceGenerator) runHandlerGeneration() error {
 	r.output.registerOutput(r.handler.Dir(), prefix)
 
@@ -53,35 +72,20 @@ func (r *resourceGenerator) runHandlerGeneration() error {
 	if err := r.generateFeatures(); err != nil {
 		return errors.Wrap(err, "generateFeatures()")
 	}
-	if err := r.generateUsers(); err != nil {
-		return errors.Wrap(err, "generateUsers()")
+	if err := r.generateIdentityDelegates(); err != nil {
+		return errors.Wrap(err, "generateIdentityDelegates()")
 	}
 
 	if err := forEachGo(r.resources, r.generateHandlers); err != nil {
 		return err
 	}
 
-	if r.genRPCMethods {
-		rpcMethods := make([]*rpcMethodInfo, 0, len(r.rpcMethods))
-		for _, rpcMethod := range r.rpcMethods {
-			if !rpcMethod.SuppressHandler {
-				rpcMethods = append(rpcMethods, rpcMethod)
-			}
-		}
-
-		if err := forEachGo(rpcMethods, r.generateRPCHandler); err != nil {
-			return err
-		}
-
-		if err := forEachGo(r.scheduledMethods, r.generateScheduledHandler); err != nil {
-			return err
-		}
+	if err := r.generateMethodHandlers(); err != nil {
+		return err
 	}
 
-	if r.genComputedResources {
-		if err := forEachGo(r.computedResources, r.generateComputedResourceHandler); err != nil {
-			return err
-		}
+	if err := forEachGo(r.computedResources, r.generateComputedResourceHandler); err != nil {
+		return err
 	}
 
 	consolidatedResources := r.consolidatedPatchResources()
@@ -173,9 +177,9 @@ type handlerFeatures struct {
 	rpcPackage string
 }
 
-func (r *resourceGenerator) handlerFeatures() handlerFeatures {
+func (r *resourceGenerator) handlerFeatures(home *handlerHome) handlerFeatures {
 	var f handlerFeatures
-	for _, res := range r.resources {
+	for _, res := range r.resourcesOf(home) {
 		for _, ht := range resourceEndpoints(res) {
 			switch ht {
 			case ListHandler, ReadHandler:
@@ -192,24 +196,20 @@ func (r *resourceGenerator) handlerFeatures() handlerFeatures {
 			f.hasFileDecoder = true
 		}
 	}
-	if r.genComputedResources {
-		for _, res := range r.computedResources {
-			if !res.ReadHandlerDisabled() || !res.SuppressListHandler {
-				f.hasComputed = true
-			}
-			if !res.RoutingDisabled() && !res.ReadHandlerDisabled() && len(res.Files) > 0 {
-				f.hasComputedFileDecoder = true
-			}
+	for _, res := range r.computedOf(home) {
+		if !res.ReadHandlerDisabled() || !res.SuppressListHandler {
+			f.hasComputed = true
+		}
+		if !res.RoutingDisabled() && !res.ReadHandlerDisabled() && len(res.Files) > 0 {
+			f.hasComputedFileDecoder = true
 		}
 	}
-	if r.genRPCMethods {
-		for _, rpcMethod := range r.rpcMethods {
-			if !rpcMethod.SuppressHandler {
-				f.hasRPC = true
-				f.rpcPackage = r.rpc.Package()
-				if rpcMethod.Target != nil {
-					f.hasTargetedRPC = true
-				}
+	for _, rpcMethod := range r.methodsOf(home) {
+		if !rpcMethod.SuppressHandler {
+			f.hasRPC = true
+			f.rpcPackage = home.rpc.Package()
+			if rpcMethod.Target != nil {
+				f.hasTargetedRPC = true
 			}
 		}
 	}
@@ -222,20 +222,32 @@ func (r *resourceGenerator) handlerFeatures() handlerFeatures {
 // unions (Resourcer, Method). Each constructor is emitted only when a generated
 // handler calls it.
 func (r *resourceGenerator) generateDecoders() error {
-	f := r.handlerFeatures()
+	for _, home := range r.homes() {
+		if err := r.generateHomeDecoders(home); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// generateHomeDecoders writes one home's decoder constructors: the application's, or an
+// instance's over its own unions and its Handlers type.
+func (r *resourceGenerator) generateHomeDecoders(home *handlerHome) error {
+	f := r.handlerFeatures(home)
 	if !f.hasQuery && !f.hasComputed && !f.hasPatch && !f.hasRPC && !f.hasFileDecoder && !f.hasComputedFileDecoder {
 		return nil
 	}
 
 	begin := time.Now()
-	destinationFilePath := filepath.Join(r.handler.Dir(), generatedGoFileName(decodersOutputName))
+	destinationFilePath := filepath.Join(home.dir.Dir(), generatedGoFileName(decodersOutputName))
 
 	if err := r.writeFormattedGoFile(destinationFilePath, "decodersTemplate", decodersTemplate, &decodersFileData{
-		Source:                  r.resource.Dir(),
-		Package:                 r.handler.Package(),
+		Source:                  home.resources.Dir(),
+		Package:                 home.dir.Package(),
 		LocalPackageImports:     r.localPackageImports(),
-		ApplicationName:         r.applicationName,
-		ReceiverName:            r.receiverName,
+		ApplicationName:         home.applicationName,
+		ReceiverName:            home.receiverName,
 		RPCPackage:              f.rpcPackage,
 		RouterPackage:           r.router.Package(),
 		HasQueryDecoder:         f.hasQuery,
@@ -261,7 +273,7 @@ func (r *resourceGenerator) generateDecoders() error {
 // generates a caller, so dropping a feature leaves the methods it drew on visibly
 // unasserted on the next regeneration.
 func (r *resourceGenerator) generateAppContract() error {
-	f := r.handlerFeatures()
+	f := r.handlerFeatures(r.homeOf(nil))
 
 	begin := time.Now()
 	destinationFilePath := filepath.Join(r.handler.Dir(), generatedGoFileName(appContractOutputName))
@@ -351,10 +363,12 @@ func (r *resourceGenerator) generateLive() error {
 
 // generateLiveDerivations writes the live derivations next to the resources, one file
 // per package holding published virtual or computed resources with that package's
-// LiveDerivations, and the handler package's assembly of them, liveDerivations, which
-// the generated handlers hand to every publish. A package with no published resource
-// gets no file, and the stale sweep removes one an earlier run wrote: the computed
-// package joins the sweep here, by header, since nothing else writes into it.
+// LiveDerivations, one per auth whose generated management declares views (a tenant's
+// lists), in the auth's handlers package, and the handler package's assembly of them,
+// liveDerivations, which the generated handlers hand to every publish, an auth's
+// management's included. A package with no published resource gets no file, and the
+// stale sweep removes one an earlier run wrote: the computed package joins the sweep
+// here, by header, since nothing else writes into it.
 func (r *resourceGenerator) generateLiveDerivations() error {
 	begin := time.Now()
 	if r.computed != "" {
@@ -366,14 +380,22 @@ func (r *resourceGenerator) generateLiveDerivations() error {
 	}
 	fileName := generatedGoFileName(liveDerivationsOutputName)
 	values := make([]string, 0, len(packages))
+	authViews := false
 	for _, pkg := range packages {
 		destinationFilePath := filepath.Join(pkg.dir.Dir(), fileName)
-		if err := r.writeFormattedGoFile(destinationFilePath, "liveDerivationsPackageTemplate", liveDerivationsPackageTemplate, &liveDerivationsPackageData{
+		data := &liveDerivationsPackageData{
 			Source:             r.resource.Dir(),
 			Package:            pkg.dir.Package(),
 			ResourcesQualifier: packageQualifier(pkg.dir, r.resource),
 			Resources:          pkg.Resources,
-		}); err != nil {
+		}
+		if pkg.instance != nil {
+			authViews = true
+			data.Source = fmt.Sprintf("Auth(%q)", pkg.instance.importPath)
+			data.Auth = pkg.instance.auth
+			data.TypesQualifier = packageQualifier(pkg.dir, pkg.instance.resources)
+		}
+		if err := r.writeFormattedGoFile(destinationFilePath, "liveDerivationsPackageTemplate", liveDerivationsPackageTemplate, data); err != nil {
 			return errors.Wrap(err, "writeFormattedGoFile()")
 		}
 		log.Printf("Generated live derivations file in %s: %s", time.Since(begin), destinationFilePath)
@@ -381,14 +403,21 @@ func (r *resourceGenerator) generateLiveDerivations() error {
 	}
 	destinationFilePath := filepath.Join(r.handler.Dir(), fileName)
 	if err := r.writeFormattedGoFile(destinationFilePath, "liveDerivationsTemplate", liveDerivationsTemplate, &liveDerivationsAssemblyData{
-		Source:  r.resource.Dir(),
-		Package: r.handler.Package(),
-		Values:  values,
+		Source:    r.resource.Dir(),
+		Package:   r.handler.Package(),
+		Values:    values,
+		AuthViews: authViews,
 	}); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")
 	}
 	log.Printf("Generated live derivations assembly in %s: %s", time.Since(begin), destinationFilePath)
 
+	// An instance's handlers package gets no assembly of its own: its handlers publish
+	// with the application's, handed to them where the application constructs them
+	// (identityDelegatesTemplate), so a view of the application's that reads the auth's
+	// tables is told of a change the auth's management commits. What the package may
+	// hold is the record of the instance's own views (a tenant's lists), one of the
+	// values the application's assembly merges.
 	return nil
 }
 
@@ -429,14 +458,15 @@ func (r *resourceGenerator) generateHandlers(res *resourceInfo) error {
 
 	if len(handlerData) > 0 {
 		begin := time.Now()
+		home := r.homeOf(res.identity)
 		fileName := generatedGoFileName(fileStem(r.pluralize(res.Name())))
-		destinationFilePath := filepath.Join(r.handler.Dir(), fileName)
+		destinationFilePath := filepath.Join(home.dir.Dir(), fileName)
 
 		if err := r.writeFormattedGoFile(destinationFilePath, "handlers", handlerHeaderTemplate, &handlersFileData{
-			Source:              r.resource.Dir(),
+			Source:              home.resources.Dir(),
 			LocalPackageImports: r.localPackageImports(),
 			Handlers:            string(bytes.Join(handlerData, []byte("\n\n"))),
-			Package:             r.handler.Package(),
+			Package:             home.dir.Package(),
 			resource:            res,
 		}); err != nil {
 			return errors.Wrap(err, "writeFormattedGoFile()")
@@ -529,13 +559,15 @@ func (r *resourceGenerator) handlerContent(handler HandlerType, res *resourceInf
 			return nil, err
 		}
 	}
+	home := r.homeOf(res.identity)
 	output, err := r.generateTemplateOutput("handler", handler.template(), handlerContentData{
-		ResourcePackage:         r.resource.Package(),
+		ResourcePackage:         home.resources.Package(),
 		Resource:                res,
-		VirtualResourcesPackage: r.virtual.Package(),
-		ApplicationName:         r.applicationName,
-		ReceiverName:            r.receiverName,
+		VirtualResourcesPackage: home.views.Package(),
+		ApplicationName:         home.applicationName,
+		ReceiverName:            home.receiverName,
 		Seat:                    seat,
+		Home:                    home,
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "generateTemplateOutput()")

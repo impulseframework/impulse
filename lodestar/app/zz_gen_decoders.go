@@ -24,10 +24,13 @@ func NewQueryDecoder[Resource Resourcer, Request any](a *App, permissions ...acc
 // and request pair. Computed resources execute application code, so the decoder
 // enforces permissions at decode time rather than deferring to query execution, and
 // it carries the application database's type so a computed list sorts and pages NULL
-// where the tables beside it do. The Resourcer union keeps construction inside the
-// generated universe: a decoder over any other struct is a compile error.
+// where the tables beside it do, and the generated collection and the resource client
+// so a grant's condition that reads the row is judged over the rows the resource's
+// function yields, against the facts about the caller the client reads. The
+// Resourcer union keeps construction inside the generated universe: a decoder over
+// any other struct is a compile error.
 func NewComputedQueryDecoder[Resource Resourcer, Request any](a *App, permissions ...accesstypes.Permission) *resource.ComputedQueryDecoder[Resource, Request] {
-	return resource.MustNewComputedQueryDecoder[Resource, Request](a.ResourceClient().DBType(), permissions...).WithCursorKey(a.CursorKey()).WithFeatures(a.FeatureSet())
+	return resource.MustNewComputedQueryDecoder[Resource, Request](a.ResourceClient().DBType(), permissions...).WithCursorKey(a.CursorKey()).WithFeatures(a.FeatureSet()).WithCollection(router.Collection()).WithSubjectFacts(a.ResourceClient())
 }
 
 // NewDecoder builds a patch decoder for a generated resource and request pair,
@@ -57,11 +60,14 @@ func NewFileDecoder[Resource Resourcer, Request any](_ *App, segment string) *re
 }
 
 // NewComputedFileDecoder builds the decoder of a generated computed resource's @file
-// route: the gate checked at decode, as every computed resource's is, and the QuerySet
-// carrying the checked scope and identity to the application's function. The Resourcer
-// union keeps construction inside the generated universe.
-func NewComputedFileDecoder[Resource Resourcer, Request any](_ *App, segment string) *resource.FileDecoder[Resource, Request] {
-	return resource.MustNewComputedFileDecoder[Resource, Request](segment)
+// route: the gate checked at decode, as every computed resource's is, the QuerySet
+// carrying the checked scope and identity to the application's function, and the
+// generated collection and the resource client so a Read grant's condition that reads
+// the row is judged over the row that function answers, against the facts about the
+// caller the client reads. The Resourcer union keeps construction inside the generated
+// universe.
+func NewComputedFileDecoder[Resource Resourcer, Request any](a *App, segment string) *resource.FileDecoder[Resource, Request] {
+	return resource.MustNewComputedFileDecoder[Resource, Request](router.Collection(), segment).WithSubjectFacts(a.ResourceClient())
 }
 
 // NewTargetedRPCDecoder builds a decoder for a @target-bearing RPC method

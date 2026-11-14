@@ -111,7 +111,11 @@ func enforcementCollection(t *testing.T) *GeneratedCollection {
 type fakeUserPermissions struct {
 	granted     map[accesstypes.Permission][]accesstypes.Resource
 	conditional map[accesstypes.Permission][]accesstypes.Resource
-	err         error
+	// conditions answers the resources it names Conditional under the condition
+	// given, whatever the permission; the resources under conditional carry
+	// testCondition.
+	conditions map[accesstypes.Resource]string
+	err        error
 
 	checkCalls   int
 	gotEnvs      []accesstypes.Environment
@@ -132,6 +136,8 @@ func (f *fakeUserPermissions) Check(_ context.Context, env accesstypes.Environme
 	decisions := make(accesstypes.Decisions, len(resources))
 	for _, res := range resources {
 		switch {
+		case f.conditions[res] != "":
+			decisions[res] = accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{res}, Condition: mustCondition(f.conditions[res])})
 		case slices.Contains(f.conditional[perm], res):
 			decisions[res] = accesstypes.Conditional(accesstypes.ConditionGroup{Resources: []accesstypes.Resource{res}, Condition: testCondition})
 		case slices.Contains(f.granted[perm], res):

@@ -360,7 +360,20 @@ func (au Auth) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Chang
 		return nil, err
 	}
 	ch := &Change{Command: au.Command()}
-	spec := &authpkg.Spec{Module: modulePath(a), AuthDir: src.AuthDir, Name: au.Name, Methods: au.methods(), TenantPolicy: tenantPolicy(a, &outlet.Site), Application: applicationName(a, src)}
+	// The tree the site's generator program writes its auths' management into: the auth
+	// builds its identity client from the tree's package for it, which the regeneration
+	// below writes. A program that generates none gains a tree for the new auth where the
+	// auth is the only one its outlets will declare (ownTree); otherwise the auth is
+	// rendered without a client, as it is under a hand-written router.
+	identityDir := ""
+	if outlet.Site.Generator != nil {
+		identityDir = outlet.Site.Generator.IdentityDir()
+	}
+	module := modulePath(a)
+	if identityDir == "" && module != "" {
+		identityDir = ownTree(outlet)
+	}
+	spec := &authpkg.Spec{Module: module, AuthDir: src.AuthDir, Name: au.Name, Methods: au.methods(), TenantPolicy: tenantPolicy(a, &outlet.Site), Application: applicationName(a, src), IdentityDir: identityDir}
 	if err := au.writePackage(a, src, spec, ch); err != nil {
 		return nil, err
 	}
@@ -376,7 +389,7 @@ func (au Auth) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Chang
 	if err := au.bindOutlet(a, outlet, spec, ch); err != nil {
 		return nil, err
 	}
-	if err := au.rebindWeb(a, outlet, src, ch); err != nil {
+	if err := au.rebindWeb(a, outlet, src, spec.IdentityDir != "", ch); err != nil {
 		return nil, err
 	}
 	if au.directory() {
@@ -393,11 +406,42 @@ func (au Auth) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Chang
 			}
 		}
 	}
-	if err := generate(ctx, a, exec, ch, "go generate ./... failed, so the outlet's routes for the auth are not generated yet; fix the cause and run it:", "ran go generate ./..."); err != nil {
+	// An auth rendered with its identity client imports a package the regeneration
+	// writes, so the generators run before the module is held whole.
+	regenerate := generate
+	if spec.IdentityDir != "" {
+		regenerate = generateFirst
+	}
+	if err := regenerate(ctx, a, exec, ch, "go generate ./... failed, so the outlet's routes for the auth are not generated yet; fix the cause and run it:", "ran go generate ./..."); err != nil {
 		return nil, err
 	}
 
 	return ch, nil
+}
+
+// ownTree is the tree the outlet's program gains for the management of the new auth's
+// people, or empty where it gains none. A program generates the management of every auth
+// its outlets declare into one tree (GenerateIdentity), and an auth's package builds its
+// identity client from one tree, so the option is added only where the new auth will be
+// the only auth the program declares: a site laid in as a copy serves none of the first
+// site's management, and takes its own when it is bound to an auth of its own. Where
+// another outlet of the program declares an auth, the option would generate that auth's
+// management a second time, or for an application that chose to write its own, and it is
+// left out. The tree lies beside the program's resources package, as the base's does.
+func ownTree(choice *OutletChoice) string {
+	site := &choice.Site
+	g := site.Generator
+	if g == nil || !site.GeneratedRouter || g.IdentityDir() != "" || g.ResourcePackageDir == "" {
+		return ""
+	}
+	outlets := site.AllOutlets()
+	for i := range outlets {
+		if o := &outlets[i]; o.Name != choice.Outlet.Name && o.Auth != nil {
+			return ""
+		}
+	}
+
+	return path.Join(path.Dir(g.ResourcePackageDir), "identity")
 }
 
 // bindOutlet points the outlet's declaration at the new auth: its Auth option names the
@@ -433,6 +477,15 @@ func (au Auth) bindOutlet(a *app.App, choice *OutletChoice, spec *authpkg.Spec, 
 	if err != nil {
 		return err
 	}
+	tree := site.Generator.IdentityDir()
+	if tree == "" && spec.IdentityDir != "" {
+		// The program gains the tree the auth was rendered against (ownTree).
+		tree = spec.IdentityDir
+		option := fmt.Sprintf("// The management of the %s auth's people is generated into %s, a tree this\n// program owns: its lists and the methods that change them, served on the outlet\n// behind the role file's grants.\ngeneration.GenerateIdentity(%q)", au.Name, tree, tree)
+		if out, err = app.InsertOptions(file, out, "GenerateHandlers", []string{option}); err != nil {
+			return err
+		}
+	}
 	if err := os.WriteFile(a.Abs(file), out, mode); err != nil {
 		return errors.Wrap(err, "os.WriteFile()")
 	}
@@ -441,6 +494,16 @@ func (au Auth) bindOutlet(a *app.App, choice *OutletChoice, spec *authpkg.Spec, 
 		was = fmt.Sprintf("in place of the %s auth's", authName(a, choice.Outlet.Auth.ImportPath))
 	}
 	ch.didf("%s: the %s outlet's declaration names the %s auth with its methods, %s, %s, so the regenerated router mounts the auth's session group under %s: one login route per method, the methods route its login page renders from, and the pending sign-in routes", file, choice.Key, au.Name, declaration, was, prefix)
+	switch {
+	case tree == "":
+		ch.skipf("%[1]s: the program generates no management of its auths' people (no generation.GenerateIdentity) and declares another auth beside the %[2]s auth, so the tool adds none: the %[2]s auth is rendered without an identity client, and nothing creates its people, gives them a role or invites an address until the application does. To have it generated, add generation.GenerateIdentity with a tree of the program's own: it generates the management of every auth the program declares, and each auth's package builds its client from that tree in New, as an auth the tool renders for such a program does", file, au.Name)
+	case site.Generator.IdentityDir() == "":
+		ch.didf("%[1]s: generation.GenerateIdentity(%[2]q) added: the program generated no management, and the %[3]s auth is the only auth it declares, so the management of the auth's people is generated into %[2]s and the auth's package builds its identity client from it", file, tree, au.Name)
+	}
+	if tree != "" {
+		ch.skipf("%[1]s: the program generates each auth's management (GenerateIdentity(%[2]q)), so the regeneration writes the %[3]s auth's packages under %[2]s and the generated contract asks the handlers for %[4]sIdentity() *%[3]sidentity.Client, which the tool does not write. The auth builds its client when it opens (%[3]s.Auth.Identity(), with the hooks a sign-in gives roles through set in New): hand it to the App through the Configurer, and add the accessor where the App is declared and on every test configurer; the application does not compile until it holds", file, tree, au.Name, au.Pascal())
+	}
+	noteIdentityRetired(a, site, choice.Outlet.Name, ch)
 
 	return nil
 }
@@ -942,7 +1005,7 @@ func (au Auth) registrationNote() string {
 // methods' authorities.
 func (au Auth) identitiesNote() string {
 	if au.authority() == AuthorityDirectory {
-		return " Seed no role assignments for the directory-run method: the directory assigns them, and the role file defines what each role may do; its declaration chains `.SyncsRoles()` (the method file's `RoleSync`), so the generated users surface shows these people's roles as the directory's and never writes them."
+		return " Seed no role assignments for the directory-run method: the directory assigns them, and the role file defines what each role may do; its declaration chains `.SyncsRoles()` (the method file's `RoleSync`), so the generated management shows these people's roles as the directory's and never writes them."
 	}
 
 	return fmt.Sprintf(" Give the %s auth its development identities in the bootstrap identities: a login with a password for the password method, role assignments by username under `global`, `everyDomain` and `domains` for a directory method, kept apart from the other auths' identities.", au.Name)

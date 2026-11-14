@@ -13,13 +13,14 @@ import (
 	"github.com/impulseframework/impulse/lodestar/pkg/auth"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewidentity"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/membersidentity"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
 	"github.com/impulseframework/impulse/resource"
 	database "github.com/impulseframework/impulse/resource/database/spanner"
 	"github.com/impulseframework/impulse/resource/filestore"
 	"github.com/impulseframework/impulse/resource/live"
 	liveservice "github.com/impulseframework/impulse/resource/live/firestore"
-	"github.com/impulseframework/impulse/resource/sessionusers"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/mail/workspace"
 	"github.com/sethvargo/go-envconfig"
@@ -153,8 +154,8 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 	// every engine on every instance through the policy kind of the signals document.
 	policySignal := auth.PolicySignal(liveService)
 
-	// The one mail driver both auths send through: the invitations the user-management
-	// surfaces mail, the verification of an address a person adds, and the crew's
+	// The one mail driver both auths send through: the invitations the crew's generated
+	// management mails, the verification of an address a person adds, and the crew's
 	// sign-up links. Every link leads to the login page of the surface the auth binds
 	// to, at the application's public address.
 	//
@@ -279,25 +280,17 @@ func (c *DataConfiguration) Crew() *crew.Auth {
 	return c.crew
 }
 
-// CrewUserSurface returns the crew auth's user-management surface: the crew session's
-// accounts (sessionusers.Accounts over its API) and the crew engine's memberships, which
-// the generated crew user handlers serve through. A seat written here is a policy write
-// the engine announces to every instance through the live service. The surface reads
-// each sector's declaration from the roster's copy, so a sector's marshal may seat a
-// person directly, without an invitation, when the person entered through a directory
-// the sector declares (resource.WithTenantDirectories), and knows the crew's
-// administrator roles (resource.WithAdministratorRoles), so a self-unseat is judged by
-// the last-owner rule: a marshal leaves a sector once another marshal holds it.
-func (c *DataConfiguration) CrewUserSurface() *resource.UserSurface[router.CrewAuth] {
-	return router.NewCrewUserSurface(sessionusers.Accounts(c.crew.Session().API()), c.crew.Access().UserManager(), resource.WithTenantDirectories(c.tenants.Declarations), resource.WithAdministratorRoles(crew.AdministratorRoles()))
+// CrewIdentity returns the crew auth's identity client, which the auth builds when it
+// opens (crew.Auth.Identity): what the generated methods that manage the crew's people
+// run over.
+func (c *DataConfiguration) CrewIdentity() *crewidentity.Client {
+	return c.crew.Identity()
 }
 
-// MembersUserSurface returns the members auth's surface over the members session's
-// accounts and the members engine's memberships, served on the portal and, by the
-// generator program's Manages, on the console, with the same directory-vouched direct
-// seat the crew's offers.
-func (c *DataConfiguration) MembersUserSurface() *resource.UserSurface[router.MembersAuth] {
-	return router.NewMembersUserSurface(sessionusers.Accounts(c.members.Session().API()), c.members.Access().UserManager(), resource.WithTenantDirectories(c.tenants.Declarations))
+// MembersIdentity returns the members auth's identity client, which the auth builds
+// when it opens (members.Auth.Identity).
+func (c *DataConfiguration) MembersIdentity() *membersidentity.Client {
+	return c.members.Identity()
 }
 
 // openCrewAuth opens the crew auth: the console's people, whose default roles ride in

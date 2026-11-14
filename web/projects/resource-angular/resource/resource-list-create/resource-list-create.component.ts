@@ -1,5 +1,5 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, computed, inject, Injector, input, signal, Type, viewChild } from '@angular/core';
+import { Component, computed, effect, inject, Injector, input, signal, Type, untracked, viewChild } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatExpansionModule, MatExpansionPanel } from '@angular/material/expansion';
 import { MatIconModule } from '@angular/material/icon';
@@ -32,6 +32,13 @@ export class ResourceListCreateComponent {
 
   injector = inject(Injector);
   store = inject(ResourceStore);
+  /**
+   * The store of the row page this list sits under: the page's row and the count of the
+   * methods that ran under it. Absent for a list that is a page of its own.
+   */
+  private pageStore = inject(ResourceStore, { skipSelf: true, optional: true });
+  /** Set while the count moves for a method this list ran itself: it has already asked for its rows again. */
+  private ranHere = false;
   listChild = viewChild<ResourceListComponent, ResourceListComponent>('list', { read: ResourceListComponent });
 
   route = inject(ActivatedRoute);
@@ -115,5 +122,39 @@ export class ResourceListCreateComponent {
       this.listChild()?.reloadListData();
       this.create.set(false);
     }
+  }
+
+  /**
+   * A method ran from this list. Under a row page it may have changed the row or
+   * another of the row's lists (a role taken away is one fewer role the person holds),
+   * so the page reads the row and its other lists again; a list that is a page of its
+   * own has nothing above it to tell.
+   */
+  methodRan(): void {
+    if (this.isRootList() || !this.pageStore) {
+      return;
+    }
+    this.ranHere = true;
+    this.pageStore.rowChanged();
+  }
+
+  constructor() {
+    // A method that ran against the page's row, or from another of its lists, reads this
+    // list again. The first run only notes the count the list opened on.
+    let seen = this.pageStore?.rowChanges() ?? 0;
+    effect(() => {
+      const count = this.pageStore?.rowChanges() ?? 0;
+      if (count === seen) {
+        return;
+      }
+      seen = count;
+      if (this.ranHere) {
+        this.ranHere = false;
+        return;
+      }
+      if (!this.isRootList()) {
+        untracked(() => this.listChild()?.reloadListData());
+      }
+    });
   }
 }

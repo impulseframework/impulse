@@ -25,6 +25,16 @@
   padding-left: 10px;
 }
 
+.list-methods {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  margin-bottom: auto;
+  padding-left: 10px;
+}
+
 .edit-text {
   display: flex;
   flex-direction: row;

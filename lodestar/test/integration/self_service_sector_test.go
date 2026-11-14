@@ -5,9 +5,10 @@ package integration
 // (@tenant(creation: both)) over two instances with the real engines, the shape a
 // deployment has. The pioneer, a crew login holding no role and no sector (the sign-up
 // registration's person, on no manifest), charts sector Ember through the generated
-// create-sector route: the route writes the row, seats her as Ember's marshal through the
-// crew auth's user-management surface (the engine answers the seat before the route
-// answers), adds Ember to the writing instance's roster and signals the tenants kind.
+// create-sector route: the route writes the row and, in the same transaction, makes her
+// Ember's marshal through the crew's generated identity client (the engine answers the
+// membership before the route answers), adds Ember to the writing instance's roster and
+// signals the tenants kind.
 // Her star chart lights Ember and Ember's flight deck answers her at once; a second
 // sector is refused her, as the route is refused the marshal and the governor, who hold
 // sectors already (an administrator of one sector never creates another here; the
@@ -28,7 +29,6 @@ import (
 	"github.com/impulseframework/impulse/lodestar/app"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
-	"github.com/impulseframework/impulse/lodestar/pkg/router"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 )
@@ -49,9 +49,9 @@ const (
 	chartEmberAgain = `{"id":"ember-two","name":"Ember Two","region":"Near frontier","established":"2226-10-21"}`
 )
 
-// startSelfServiceInstance is startTenantInstance with the crew auth's user-management
-// surface over the real crew engine's seats, the way the served stack builds it, so the
-// seat the create-sector route writes reaches the engine every instance checks against.
+// startSelfServiceInstance is an instance over the real crew engine, the way the served
+// stack builds it, so the membership the create-sector route writes through the crew's
+// identity client reaches the engine every instance checks against.
 func startSelfServiceInstance(t *testing.T, name string, db *initiator.SpannerDB, crewEngine, membersEngine *access.Client, svc live.Service) *flagInstance {
 	t.Helper()
 
@@ -59,8 +59,7 @@ func startSelfServiceInstance(t *testing.T, name string, db *initiator.SpannerDB
 	if err := roster.Start(t.Context()); err != nil {
 		t.Fatalf("resource.TenantRoster.Start() error = %v", err)
 	}
-	crewUsers := router.NewCrewUserSurface(resource.NewMemUserStore(), crewEngine.UserManager())
-	a := app.New(&testConfigurer{db: db, access: crewEngine, membersAccess: membersEngine, live: svc, tenants: roster, crewUsers: crewUsers})
+	a := app.New(&testConfigurer{db: db, access: crewEngine, membersAccess: membersEngine, live: svc, tenants: roster})
 	if err := a.Start(t.Context()); err != nil {
 		t.Fatalf("app.Start() error = %v", err)
 	}

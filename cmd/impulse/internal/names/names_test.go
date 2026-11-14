@@ -25,6 +25,14 @@ func TestRename(t *testing.T) {
 		{name: "the name at the ends of the text", text: "members\nMembers", want: "partners\nPartners"},
 		{name: "adjacent occurrences in a path", text: "pkg/auth/members/members.go", want: "pkg/auth/partners/partners.go"},
 		{name: "the name repeated with the pascal form", text: "members.Members", want: "partners.Partners"},
+		// The packages of the auth's generated management run the name into another
+		// lowercase word, and are renamed whole, in a path and as a qualifier.
+		{
+			name: "the generated management's packages",
+			text: `"example.com/acme/pkg/identity/membersidentity" membersidentity.NewClient membershandlers.Handlers pkg/identity/internal/membersresources/members_roles.go`,
+			want: `"example.com/acme/pkg/identity/partnersidentity" partnersidentity.NewClient partnershandlers.Handlers pkg/identity/internal/partnersresources/partners_roles.go`,
+		},
+		{name: "a longer word that begins with a management package's name", text: "membersidentityless nonmembersidentity", want: "membersidentityless nonmembersidentity"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

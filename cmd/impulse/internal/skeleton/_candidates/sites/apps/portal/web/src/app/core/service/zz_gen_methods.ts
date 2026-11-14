@@ -22,41 +22,6 @@ export interface SetFeatureResult {
   updatedAt: Date;
 }
 
-/** The body SetStaffUserPassword takes. */
-export interface SetStaffUserPasswordConfig {
-  user: string | FieldPointer;
-  password: string | FieldPointer;
-}
-export interface SetStaffUserPassword {
-  user: string;
-  password: string;
-}
-
-/** The body ResetStaffUserFactors takes. */
-export interface ResetStaffUserFactorsConfig {
-  user: string | FieldPointer;
-}
-export interface ResetStaffUserFactors {
-  user: string;
-}
-
-/** The body SetStaffTenantUserPassword takes. */
-export interface SetStaffTenantUserPasswordConfig {
-  user: string | FieldPointer;
-  password: string | FieldPointer;
-}
-export interface SetStaffTenantUserPassword {
-  user: string;
-  password: string;
-}
-
-/** The body ResetStaffTenantUserFactors takes. */
-export interface ResetStaffTenantUserFactorsConfig {
-  user: string | FieldPointer;
-}
-export interface ResetStaffTenantUserFactors {
-  user: string;
-}
 
 export interface RPCFieldMeta {
   fieldName: string;
@@ -65,6 +30,17 @@ export interface RPCFieldMeta {
   enumeratedResource?: Resource;
   /** The fixed values of an enumeration table the field names; the picker renders them without a request. */
   enumeration?: EnumerationOption[];
+  /** Set when the method refuses a request that leaves the field empty; a form holds the input to it. */
+  required?: true;
+  /** Set when a request may leave the field out; a form sends nothing for an input left empty. */
+  optional?: true;
+  /**
+   * The name a grant's condition reads the field by (new.<name>), set on a field that
+   * declares it (@attribute). A role file may hold the method to a value of this field,
+   * and no value never passes such a condition, so a form that rehearses the call waits
+   * for the field and, on a refusal as not permitted, marks it.
+   */
+  attribute?: string;
 }
 
 /** A declared workflow transition: the resource the method moves, the states it runs from, and the state it stamps. */
@@ -74,17 +50,37 @@ export interface MethodTransition {
   to: string;
 }
 
+/**
+ * The row a method runs against (@target): the resource whose row it is, and the request
+ * fields that carry the row's key, each with the row's field it carries (one entry for a
+ * single-column key, one for each column of a compound one). A page that lists the
+ * resource draws the method's button on each row the caller may run it on, and fills
+ * the fields from the row.
+ */
+export interface MethodTarget {
+  resource: Resource;
+  key: Record<string, string>;
+}
+
 export interface MethodMeta {
   route: string;
   /** The feature flag the method is gated behind (@feature); absent when it is not gated. */
   feature?: string;
   transition?: MethodTransition;
+  /** The row the method runs against; absent on a method with no target row. */
+  target?: MethodTarget;
   /** Set when the method answers with a result body; absent methods resolve with nothing. */
   answers?: true;
   /** The statuses the method declares with @answers; a listed 4xx is the method's own answer, not a refusal by the frame. */
   statuses?: number[];
   /** Set on an @upload method: the request is multipart, and the whole body is bounded by maxBytes. */
   upload?: { maxBytes: number };
+  /**
+   * Set on a method that runs in a transaction: a dry run (X-Dry-Run) runs the whole
+   * call and rolls it back, so a refusal can be read before anything is changed. Absent
+   * on a method that runs outside one, which refuses the header.
+   */
+  dryRun?: true;
   fields: RPCFieldMeta[];
 }
 
@@ -99,32 +95,7 @@ const methodMap: MethodMap = {
       { fieldName: 'enabled', displayType: 'boolean' },
     ],
   },
-  [Methods.SetStaffUserPassword]: {
-    route: 'set-staff-user-password',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-      { fieldName: 'password', displayType: 'string' },
-    ],
-  },
-  [Methods.ResetStaffUserFactors]: {
-    route: 'reset-staff-user-factors',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-    ],
-  },
-  [Methods.SetStaffTenantUserPassword]: {
-    route: 'set-staff-tenant-user-password',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-      { fieldName: 'password', displayType: 'string' },
-    ],
-  },
-  [Methods.ResetStaffTenantUserFactors]: {
-    route: 'reset-staff-tenant-user-factors',
-    fields: [
-      { fieldName: 'user', displayType: 'uuid' },
-    ],
-  },
+
 };
 
 export function methodMeta(method: Method): Meta {

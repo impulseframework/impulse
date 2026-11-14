@@ -725,7 +725,9 @@ CREATE TABLE CrewSessionIdentities (
 
 CREATE UNIQUE INDEX CrewSessionIdentitiesByKey ON CrewSessionIdentities(Method, Connection, Subject);
 
-CREATE INDEX CrewSessionIdentitiesByUserId ON CrewSessionIdentities(UserId);
+-- A person's links, with the columns a list of them shows, so a list that reaches the
+-- links through their people reads the index and no row of the table.
+CREATE INDEX CrewSessionIdentitiesByUserId ON CrewSessionIdentities(UserId) STORING (Method, Connection, Subject, Tenant, EmailAtLink, CreatedAt, LastUsedAt);
 
 -- The crew's auth events: how each session was authenticated, one row per sign-in or
 -- step (the method, its registration, and the provider's own amr claims), which the
@@ -804,7 +806,9 @@ CREATE TABLE MembersSessionIdentities (
 
 CREATE UNIQUE INDEX MembersSessionIdentitiesByKey ON MembersSessionIdentities(Method, Connection, Subject);
 
-CREATE INDEX MembersSessionIdentitiesByUserId ON MembersSessionIdentities(UserId);
+-- A person's links, with the columns a list of them shows, so a list that reaches the
+-- links through their people reads the index and no row of the table.
+CREATE INDEX MembersSessionIdentitiesByUserId ON MembersSessionIdentities(UserId) STORING (Method, Connection, Subject, Tenant, EmailAtLink, CreatedAt, LastUsedAt);
 
 -- The members's auth events: how each session was authenticated, one row per sign-in or
 -- step (the method, its registration, and the provider's own amr claims), which the
@@ -882,6 +886,12 @@ CREATE TABLE CrewSessionSignInAttempts (
 
 CREATE UNIQUE NULL_FILTERED INDEX CrewSessionUsersByNormalizedEmail ON CrewSessionUsers(NormalizedEmail);
 
+-- The index a list of people reads the account through when it starts from who holds a
+-- role (a sector's people, the roles held in a sector): by the exact username a role
+-- membership names its person by, carrying the columns those lists show, so a page reads
+-- one index entry for each person and no row of the table.
+CREATE UNIQUE INDEX CrewSessionUsersByUsername ON CrewSessionUsers(Username) STORING (Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);
+
 -- The crew's mail links: the single-use links the auth mails (the session library's
 -- SessionMailLinks migration, under the auth's prefix). A row is one link: an invitation
 -- to an address, carrying the sector and the roles its acceptance seats and who sent it;
@@ -913,6 +923,11 @@ CREATE UNIQUE INDEX CrewSessionMailLinksByTokenHash ON CrewSessionMailLinks(Toke
 
 CREATE INDEX CrewSessionMailLinksByKind ON CrewSessionMailLinks(Kind, ConsumedAt, ExpiresAt);
 
+-- A sector's links, newest first, with the columns a sector's list of its invitations
+-- shows: a page of that list reads its own rows from the index and nothing else. A link
+-- that names no sector is not in it.
+CREATE NULL_FILTERED INDEX CrewSessionMailLinksByTenant ON CrewSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);
+
 -- The members' sign-in attempts: the password method's attempt limiter counts the failed
 -- attempts on one name, known or not, within a window, and the lock those failures
 -- earned (the session library's SessionSignInAttempts migration, under the auth's
@@ -932,6 +947,12 @@ CREATE TABLE MembersSessionSignInAttempts (
 ) PRIMARY KEY (Name);
 
 CREATE UNIQUE NULL_FILTERED INDEX MembersSessionUsersByNormalizedEmail ON MembersSessionUsers(NormalizedEmail);
+
+-- The index a list of people reads the account through when it starts from who holds a
+-- role (a sector's people, the roles held in a sector): by the exact username a role
+-- membership names its person by, carrying the columns those lists show, so a page reads
+-- one index entry for each person and no row of the table.
+CREATE UNIQUE INDEX MembersSessionUsersByUsername ON MembersSessionUsers(Username) STORING (Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);
 
 -- The members' mail links: the single-use links the auth mails (the session library's
 -- SessionMailLinks migration, under the auth's prefix). A row is one link: an invitation
@@ -963,6 +984,11 @@ CREATE TABLE MembersSessionMailLinks (
 CREATE UNIQUE INDEX MembersSessionMailLinksByTokenHash ON MembersSessionMailLinks(TokenHash);
 
 CREATE INDEX MembersSessionMailLinksByKind ON MembersSessionMailLinks(Kind, ConsumedAt, ExpiresAt);
+
+-- A sector's links, newest first, with the columns a sector's list of its invitations
+-- shows: a page of that list reads its own rows from the index and nothing else. A link
+-- that names no sector is not in it.
+CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenant ON MembersSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);
 
 -- The crew's tokens: the bearer credentials of the droids outlet (the session library's
 -- SessionTokens migration, under the auth's prefix). A row is one credential: an

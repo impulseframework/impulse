@@ -12,12 +12,13 @@ import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/auth/members"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/auth/staff"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/membersidentity"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/staffidentity"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/router"
 	"github.com/impulseframework/impulse/resource"
 	database "github.com/impulseframework/impulse/resource/database/spanner"
 	"github.com/impulseframework/impulse/resource/live"
 	liveservice "github.com/impulseframework/impulse/resource/live/firestore"
-	"github.com/impulseframework/impulse/resource/sessionusers"
 	"github.com/impulseframework/impulse/session/mail"
 	"github.com/impulseframework/impulse/session/mail/workspace"
 	"github.com/sethvargo/go-envconfig"
@@ -204,12 +205,12 @@ func (c *DataConfiguration) Staff() *staff.Auth {
 	return c.staff
 }
 
-// StaffUserStores returns the stores the staff auth's user-management surface serves over:
-// the staff session's accounts (sessionusers.Accounts over its API) and the staff
-// engine's memberships. A seat written through the surface is a policy write the engine
-// announces to every instance.
-func (c *DataConfiguration) StaffUserStores() (resource.UserAccounts, resource.UserSeats) {
-	return sessionusers.Accounts(c.staff.Session().API()), c.staff.Access().UserManager()
+// StaffIdentity returns the staff auth's identity client, which the auth builds when it
+// opens (staff.Auth.Identity): what the generated methods that manage the auth's people run
+// over. A membership one of them commits is a policy write the auth's engine announces
+// to every instance.
+func (c *DataConfiguration) StaffIdentity() *staffidentity.Client {
+	return c.staff.Identity()
 }
 
 // StaffAdministratorPassword returns the password the staff auth's first administrator is
@@ -223,12 +224,12 @@ func (c *DataConfiguration) Members() *members.Auth {
 	return c.members
 }
 
-// MembersUserStores returns the stores the members auth's user-management surface serves over:
-// the members session's accounts (sessionusers.Accounts over its API) and the members
-// engine's memberships. A seat written through the surface is a policy write the engine
-// announces to every instance.
-func (c *DataConfiguration) MembersUserStores() (resource.UserAccounts, resource.UserSeats) {
-	return sessionusers.Accounts(c.members.Session().API()), c.members.Access().UserManager()
+// MembersIdentity returns the members auth's identity client, which the auth builds when it
+// opens (members.Auth.Identity): what the generated methods that manage the auth's people run
+// over. A membership one of them commits is a policy write the auth's engine announces
+// to every instance.
+func (c *DataConfiguration) MembersIdentity() *membersidentity.Client {
+	return c.members.Identity()
 }
 
 // MembersAdministrator returns the sign-in name the members auth's first administrator is

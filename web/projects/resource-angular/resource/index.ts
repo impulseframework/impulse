@@ -7,6 +7,8 @@ export * from './delete-resource-confirmation-modal/delete-resource-confirmation
 export * from './empty-readonly-field/empty-readonly-field.component';
 export * from './format-fns';
 export * from './gui-constants';
+export * from './method-dialog/method-dialog.component';
+export * from './method-dialog/open-method-dialog';
 export * from './padding-element/padding-element.component';
 export * from './paged-list';
 export * from './resource-array-view/resource-array-view.component';
@@ -18,6 +20,7 @@ export * from './resource-list-create/resource-list-create.component';
 export * from './resource-list/resource-list.component';
 export * from './resource-resolver/resource-resolver.component';
 export * from './resource-store.service';
+export * from './row-methods/row-methods';
 export * from './row-store.directive';
 export * from './resource-view/resource-view.component';
 export * from './search-box/search-box.component';

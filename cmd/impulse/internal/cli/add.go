@@ -807,17 +807,18 @@ accounts alone, so it is refused with the one organization taken here, and an id
 provider never takes it, since everyone it signs in is a member of its organization);
 impulse add method composes the other slots. The rule is
 written to the method file (Accounts) and, for invited, as .InvitedUsers() on the method's
-declaration, so the generated users surface creates the invitations. The password method
+declaration, so the generated management creates their users. The password method
 takes open alone: a stranger gives their address on the login page, follows the link
 mailed to it and chooses a password (session.OpenSignUp(), and .OpenSignUp() on the
 declaration, so the router serves the sign-up routes); members and invited describe a
 directory and are refused with the password method alone. --username-is-email makes the
 password method's sign-in name the person's email address (session.UsernameIsEmail(), and
-.UsernameIsEmail() on the declaration): the users surface derives the address from the
-username, and a verified change of address renames the user with its seats. Every auth
+.UsernameIsEmail() on the declaration): the generated management derives the address from
+the username, and a verified change of address renames the user, the roles following the
+name. Every auth
 mails, through the application's one sender (Settings.Mail) and to the login page of the
 surface bound to it (Settings.MailLoginURL): an administrator invites a person by address
-with the roles the invitation seats, and a signed-in person adds and verifies an address.
+with the roles the invitation gives, and a signed-in person adds and verifies an address.
 A directory method's settings are read from the environment under the registration's
 variables (APP_<NAME>_<REGISTRATION>_*), the Procfile builds with the session library's
 skipAuth tag (the directory simulated until the application is registered with one), and
@@ -895,9 +896,9 @@ the login page, follows the link mailed to it and chooses a password (session.Op
 and .OpenSignUp() on the declaration, so the router serves the sign-up routes).
 
 --username-is-email makes the password method's sign-in name the person's email address
-(session.UsernameIsEmail(), and .UsernameIsEmail() on the declaration): the users surface
-derives the address from the username, and a verified change of address renames the user
-with its seats.
+(session.UsernameIsEmail(), and .UsernameIsEmail() on the declaration): the generated
+management derives the address from the username, and a verified change of address renames
+the user, the roles following the name.
 
 --authority is who owns role membership for a directory method, asked when not given:
 directory (the directory's roles are synchronized at every sign-in, allowed with one

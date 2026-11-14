@@ -45,6 +45,13 @@ var LiveDerivations = &live.Derivations{
 			{Name: resources.Squadron{}.Resource()},
 			{Name: resources.Wing{}.Resource()},
 		}},
+		// SectorPilots: the tables its query reads.
+		{Resource: SectorPilot{}.Resource(), Tables: []live.SourceTable{
+			{Name: resources.Pilot{}.Resource(), Global: true},
+			{Name: resources.SquadronMembership{}.Resource()},
+			{Name: resources.Squadron{}.Resource()},
+			{Name: resources.Wing{}.Resource()},
+		}},
 		// SquadronRosters: the tables its query reads.
 		{Resource: SquadronRoster{}.Resource(), Root: resources.SquadronMembership{}.Resource(), Tables: []live.SourceTable{
 			{Name: resources.Pilot{}.Resource(), Global: true},

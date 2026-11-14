@@ -8,8 +8,8 @@ let cachedTokensRoute: Route | undefined;
 
 /**
  * tokensRoute wires the Tokens page and lists it in the Headquarters group of the
- * generated navigation, beside the Users page. The item carries no permission: every
- * crew member has tokens of their own, and the page shows only theirs.
+ * generated navigation. The item carries no permission: every crew member has tokens of
+ * their own, and the page shows only theirs.
  *
  * Demonstrates: outlet.tokens.
  */

@@ -60,14 +60,6 @@ func (r *resourceGenerator) runRouteGeneration() error {
 	// whose creation shape admits self-service.
 	routerTestRoutes = append(routerTestRoutes, r.accumulateTenantCreationRoute(outlets, outletRoutes)...)
 
-	// The user-management surfaces: each Auth's resources and methods on its outlet
-	// and on the outlets that manage it.
-	userRoutes, err := r.accumulateUserRoutes(outlets, outletRoutes)
-	if err != nil {
-		return err
-	}
-	routerTestRoutes = append(routerTestRoutes, userRoutes...)
-
 	// Every outlet's routes are known now: none of a shipping outlet's may sit under
 	// the segment its programs route owns.
 	if err := validateShippedProgramRoutes(outlets, outletRoutes); err != nil {
@@ -112,10 +104,6 @@ func (r *resourceGenerator) runRouteGeneration() error {
 	if err != nil {
 		return err
 	}
-	userRouteParams, err := r.userRouteParams()
-	if err != nil {
-		return err
-	}
 
 	data := routerFileData{
 		Source:                 r.resource.Dir(),
@@ -124,7 +112,6 @@ func (r *resourceGenerator) runRouteGeneration() error {
 		RoutesMap:              defaultOutlet.RoutesMap,
 		ConstResources:         constResources,
 		ConstComputedResources: constComputedResources,
-		UserRouteParams:        userRouteParams,
 		RouterTestRoutes:       routerTestRoutes,
 		HasConsolidatedHandler: defaultOutlet.HasConsolidatedHandler,
 		HasBoundedRoutes:       defaultOutlet.HasBoundedRoutes,
@@ -171,11 +158,6 @@ func (r *resourceGenerator) runRouteGeneration() error {
 		if err := r.runServedRouterGeneration(outlets, negativeTests, fileRoutesByOutlet(outletRoutes), wordedRoutesByOutlet(outletRoutes)); err != nil {
 			return err
 		}
-	}
-
-	// The user-management surfaces' marker types and constructors, beside the router.
-	if err := r.generateUserSurfaces(); err != nil {
-		return errors.Wrap(err, "generateUserSurfaces()")
 	}
 
 	return nil
@@ -403,7 +385,7 @@ func (r *resourceGenerator) accumulateComputedRoutes(outlets []*routerOutlet, ou
 // route carries no dispatch-test entry (the dispatch test covers resource and
 // computed routes).
 func (r *resourceGenerator) accumulateRPCRoutes(outlets []*routerOutlet, outletRoutes []*outletRouteData) []*generatedRoute {
-	if !r.genRPCMethods {
+	if !r.hasRPC() {
 		return nil
 	}
 
@@ -684,7 +666,7 @@ func (r *resourceGenerator) computedNegativeTests(outlet *routerOutlet) ([]negat
 // rpcNegativeTests are the 404 cases of the RPC methods off the outlet, a renamed
 // method's former route among them.
 func (r *resourceGenerator) rpcNegativeTests(outlet *routerOutlet) []negativeRouterTest {
-	if !r.genRPCMethods {
+	if !r.hasRPC() {
 		return nil
 	}
 	var tests []negativeRouterTest
@@ -704,11 +686,6 @@ func (r *resourceGenerator) rpcNegativeTests(outlet *routerOutlet) []negativeRou
 
 func (r *resourceGenerator) negativeTestsForOutlet(outlet *routerOutlet) ([]negativeRouterTest, error) {
 	tests := sessionlessNegativeTests(outlet)
-	userTests, err := r.userNegativeTests(outlet)
-	if err != nil {
-		return nil, err
-	}
-	tests = append(tests, userTests...)
 
 	anyConsolidated, outletHasConsolidated := false, false
 	for _, res := range r.resources {

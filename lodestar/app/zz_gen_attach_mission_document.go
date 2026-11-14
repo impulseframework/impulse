@@ -98,7 +98,7 @@ func (a *App) AttachMissionDocument() http.HandlerFunc {
 
 			// A row-referencing condition on the caller's Execute grant
 			// evaluates against the located row, in this transaction.
-			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "Missions", Label: "Mission", PKColumn: "Id"}, p.MissionID); err != nil {
+			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "Missions", Label: "Mission", PKColumns: []string{"Id"}}, p.MissionID); err != nil {
 				return err
 			}
 			answer, err := p.Execute(ctx, txn, files, a.RPCClient())

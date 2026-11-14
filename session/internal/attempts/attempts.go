@@ -2,8 +2,10 @@
 // per instance, before any store access and before the password hash, over a durable
 // record the store keeps by the submitted name. The memory holds three kinds of key: the
 // name, the client's address and the login's XSRF cookie token. A name is held by its
-// store record, cached here until its lock passes, so an attempt during the lock is
-// refused the moment it arrives with nothing read, written or hashed. The client's keys
+// store record, cached here for a few seconds (readTTL), a lock like any other record,
+// so an attempt during the lock is refused the moment it arrives with nothing written
+// or hashed and the store read at most once in that time, and a lock an administrator
+// cleared in the store is gone from every instance within it. The client's keys
 // are counted here alone: every failure and every refused attempt counts against them,
 // and a client that keeps trying during a wait extends its own lock while the name's
 // stays as it was. The memory is bounded; the store is the truth for the name.
@@ -46,7 +48,11 @@ const (
 	// without limit. A name's lock evicted from memory is still the store's.
 	cacheSize = 16384
 	// readTTL is how long a name's store record is trusted before the next attempt
-	// reads it again. A lock is trusted until it passes.
+	// reads it again: one window for every record, a lock included. A lock was once
+	// trusted until it passed, which left no way to clear one: the row deleted in the
+	// store, every instance that had seen the lock went on refusing the name. Read
+	// again after the window, a cleared lock is gone from every instance within it,
+	// and a name still locked costs one read of its row per instance per window.
 	readTTL = 5 * time.Second
 	// ClientMultiple is how many times the name limit's failures a client's address or
 	// cookie may fail, across names, within the window before the client is locked for
@@ -104,7 +110,8 @@ func Normalize(name string) string {
 
 // Check decides whether an attempt on name by client goes on to the user lookup and the
 // hash: wait is zero when it does, and otherwise how long the caller is to wait. The
-// name's lock answers from memory when it is cached and from the store when it is not,
+// name's lock answers from memory while its record is cached (readTTL) and from the
+// store when it is not,
 // the client's locks from memory alone, and a refused attempt counts against the
 // client's keys and never against the name. err is a store failure.
 func (l *Limiter) Check(ctx context.Context, name string, client Client) (wait time.Duration, err error) {
@@ -219,7 +226,9 @@ func (l *Limiter) read(ctx context.Context, key string) (*dbtype.SignInAttempts,
 }
 
 // nameHeld answers from memory: the wait while the cached record locks the name, and
-// whether the cache answers at all (a lock until it passes, a record for readTTL).
+// whether the cache answers at all. A record answers for readTTL from its read, a lock
+// like any other: past it the store is asked again, so a lock cleared there is not
+// held here.
 func (l *Limiter) nameHeld(key string, now time.Time) (wait time.Duration, cached bool) {
 	el, found := l.entries[nameKey(key)]
 	if !found {
@@ -227,11 +236,12 @@ func (l *Limiter) nameHeld(key string, now time.Time) (wait time.Duration, cache
 	}
 	e := valueOf(el)
 	l.order.MoveToFront(el)
-	if wait, locked := e.record.Locked(now); locked {
-		return wait, true
+	if !now.Before(e.readAt.Add(readTTL)) {
+		return 0, false
 	}
+	wait, _ = e.record.Locked(now)
 
-	return 0, now.Before(e.readAt.Add(readTTL))
+	return wait, true
 }
 
 // clientHeld is the longest wait the client's keys hold.

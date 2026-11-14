@@ -18,10 +18,11 @@ type Resourcer interface {
 		virtualresources.MissionBoard | resources.MissionDocument |
 		virtualresources.OpenMissionsBySquadron | resources.Pilot |
 		virtualresources.PilotAssignment | resources.PilotCertification | resources.Refit |
-		resources.RefitTask | resources.Sector | resources.SectorDirectory | resources.Ship |
-		resources.ShipClass | resources.Sortie | resources.SortieExpense | resources.Squadron |
-		resources.SquadronMembership | virtualresources.SquadronRoster | resources.Wing |
-		computedresources.BriefingTemplate | computedresources.ExpenseManifest |
-		computedresources.PilotCard | computedresources.SectorHazardBoard |
-		computedresources.ServiceLedger | computedresources.StandingOrder
+		resources.RefitTask | resources.Sector | resources.SectorDirectory |
+		virtualresources.SectorPilot | resources.Ship | resources.ShipClass | resources.Sortie |
+		resources.SortieExpense | resources.Squadron | resources.SquadronMembership |
+		virtualresources.SquadronRoster | resources.Wing | computedresources.BriefingTemplate |
+		computedresources.ExpenseManifest | computedresources.PilotCard |
+		computedresources.SectorHazardBoard | computedresources.ServiceLedger |
+		computedresources.StandingOrder
 }

@@ -48,9 +48,9 @@ func (grammarCollection) AttributeComparisonType(_ accesstypes.PermissionScope, 
 		return "", false
 	}
 	switch name {
-	case "owner", "shipClass":
+	case "owner", "shipClass", "tags":
 		return accesstypes.AttributeTypeString, true
-	case "price":
+	case "price", "grades":
 		return accesstypes.AttributeTypeNumber, true
 	case "expires":
 		return accesstypes.AttributeTypeTimestamp, true
@@ -67,6 +67,12 @@ func (grammarCollection) AttributeIsColumn(_ accesstypes.PermissionScope, res ac
 	// shipClass is the fixture's join-path attribute; everything else is a
 	// column on the row.
 	return res == "Widgets" && name != "shipClass"
+}
+
+// tags and grades are the fixture's list attributes: a list of strings and a
+// list of numbers.
+func (grammarCollection) AttributeIsList(_ accesstypes.PermissionScope, res accesstypes.Resource, name string) bool {
+	return res == "Widgets" && (name == "tags" || name == "grades")
 }
 
 // The fixture's subject vocabulary: a string set and a number set, and a
@@ -399,7 +405,7 @@ func TestValidateGrantCondition_targetedExecute(t *testing.T) {
 		{name: "row-free condition still folds at decode", condition: "now < '2027-01-01T00:00:00Z'"},
 		{name: "unknown attribute names the target resource", condition: "ghost = subject", wantErr: "not an attribute of Widgets"},
 		{name: "literal types validate against the target", condition: "price = 'cheap'", wantErr: "cannot compare against the string"},
-		{name: "post-image stays rejected on Execute", condition: "new.price <= 100", wantErr: "post-image"},
+		{name: "a request field the method does not declare is refused by name", condition: "new.price <= 100", wantErr: "condition reads new.price, which DoThing does not declare as a request field"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -421,29 +427,197 @@ func TestValidateGrantCondition_targetedExecute(t *testing.T) {
 	}
 }
 
-func TestValidateGrantCondition_computedIsDecodeTime(t *testing.T) {
+// requestFieldCollection is grammarCollection with the method DoThing declaring two
+// request fields for conditions (@attribute on the field): role, a string, and level,
+// a number.
+type requestFieldCollection struct{ grammarCollection }
+
+func (c requestFieldCollection) AttributeComparisonType(scope accesstypes.PermissionScope, res accesstypes.Resource, name string) (accesstypes.AttributeType, bool) {
+	if res != "DoThing" {
+		return c.grammarCollection.AttributeComparisonType(scope, res, name)
+	}
+	switch name {
+	case "role":
+		return accesstypes.AttributeTypeString, true
+	case "level":
+		return accesstypes.AttributeTypeNumber, true
+	default:
+		return "", false
+	}
+}
+
+// A request field is the field itself: no join path stands behind it.
+func (c requestFieldCollection) AttributeIsColumn(scope accesstypes.PermissionScope, res accesstypes.Resource, name string) bool {
+	if res == "DoThing" {
+		return true
+	}
+
+	return c.grammarCollection.AttributeIsColumn(scope, res, name)
+}
+
+// targetedRequestFieldCollection is requestFieldCollection with DoThing reporting a
+// @target row (Widgets): a condition may then read the row and the request together.
+type targetedRequestFieldCollection struct{ requestFieldCollection }
+
+func (targetedRequestFieldCollection) MethodTarget(_ accesstypes.PermissionScope, method accesstypes.Resource) (accesstypes.Resource, bool) {
+	if method == "DoThing" {
+		return "Widgets", true
+	}
+
+	return "", false
+}
+
+func TestValidateGrantCondition_executeRequestFields(t *testing.T) {
 	t.Parallel()
 
-	// A computed resource's checks run at decode, exactly like Execute: only
-	// row-free conditions can settle there, whatever the permission.
+	// An Execute grant's condition may read the request fields its method declares,
+	// as new.<name>: against literals alone, validated against the method's own
+	// vocabulary, on a method with a target row or without one. What it reads off
+	// the row still validates against the target's vocabulary.
 	tests := []struct {
 		name      string
+		targeted  bool
+		perm      accesstypes.Permission
 		condition string
-		wantErr   bool
+		wantErr   string
 	}{
-		{name: "row-referencing condition is rejected", condition: "owner = subject", wantErr: true},
-		{name: "subject-value condition is rejected", condition: "price <= subject.approvalLimit", wantErr: true},
-		{name: "row-free condition is permitted", condition: "now < '2027-01-01T00:00:00Z'"},
+		{name: "no target: a request field alone", condition: "new.role != 'Administrator'"},
+		{name: "no target: a request field in a list of literals", condition: "new.role IN ('Reader', 'Editor')"},
+		{name: "no target: a request field beside an environment fact", condition: "new.level <= 3 AND now < '2027-01-01T00:00:00Z'"},
+		{name: "no target: a row attribute beside the request field is still decode time", condition: "new.role != 'Administrator' AND owner = subject", wantErr: "decode time"},
+		{name: "no target: a subject value beside the request field is still decode time", condition: "new.level <= 3 AND price <= subject.approvalLimit", wantErr: "decode time"},
+		{name: "a target: a fact of the row and a request field", targeted: true, condition: "archived = false AND new.level <= 3"},
+		{name: "a target: a request field alone", targeted: true, condition: "new.level <= 3"},
+		{name: "a target: the row's part validates against the target", targeted: true, condition: "ghost = 'x' AND new.level <= 3", wantErr: "not an attribute of Widgets"},
+		{name: "a name the method does not declare", condition: "new.price <= 100", wantErr: "condition reads new.price, which DoThing does not declare as a request field"},
+		{name: "a name the target carries is not the method's", targeted: true, condition: "new.owner = 'x'", wantErr: "condition reads new.owner, which DoThing does not declare as a request field"},
+		{name: "a literal of another type", condition: "new.level = 'high'", wantErr: "level is a number attribute and cannot compare against the string"},
+		{name: "a request field against the caller", condition: "new.role = subject", wantErr: "a request field (new.) compares against literals"},
+		{name: "a request field against a subject set", condition: "new.role IN subject.crews", wantErr: "a request field (new.) compares against literals"},
+		{name: "a request field against a subject value", condition: "new.level <= subject.approvalLimit", wantErr: "a request field (new.) compares against literals"},
+		{name: "a request field against an attribute of the row", targeted: true, condition: "new.level <= price", wantErr: "a request field (new.) compares against literals"},
+		{name: "a read grant proposes nothing to read", perm: accesstypes.Read, condition: "new.price <= 100", wantErr: "post-image"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			var store PermissionCollection = requestFieldCollection{}
+			if tt.targeted {
+				store = targetedRequestFieldCollection{}
+			}
+			perm, res := accesstypes.Execute, accesstypes.Resource("DoThing")
+			if tt.perm != "" {
+				perm, res = tt.perm, "Widgets"
+			}
+			err := validateGrantCondition(store, "Tester", perm, Grant{Resource: res, Condition: tt.condition})
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("validateGrantCondition() error = %v, want containing %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("validateGrantCondition() error = %v", err)
+			}
+		})
+	}
+}
+
+// TestValidateGrantCondition_lists pins how a condition reads a list
+// attribute: one list, on the left of a comparison, as the row holds it. Each
+// item is compared, so the literal is held to the type of one item.
+func TestValidateGrantCondition_lists(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		perm      accesstypes.Permission
+		resource  accesstypes.Resource
+		condition string
+		wantErr   string
+	}{
+		{name: "a read reads a list", perm: accesstypes.Read, condition: "tags != 'restricted'"},
+		{name: "a list beside a term on the row", perm: accesstypes.List, condition: "archived = false AND tags != 'restricted'"},
+		{name: "a list tested for membership and for no value", perm: accesstypes.Delete, condition: "tags IS NULL OR tags IN ('a', 'b')"},
+		{name: "a list of numbers", perm: accesstypes.Read, condition: "grades <= 3"},
+		{name: "an update reads the list the row holds, beside an old-vs-new term", perm: accesstypes.Update, condition: "new.price <= price AND tags != 'restricted'"},
+		{name: "a method reads the list of its target row", perm: accesstypes.Execute, resource: "DoThing", condition: "tags != 'restricted'"},
+		{name: "the literal is held to the type of one item", perm: accesstypes.Read, condition: "tags = 3", wantErr: "tags"},
+		{name: "two lists are refused", perm: accesstypes.Read, condition: "tags != 'restricted' AND grades <= 3", wantErr: "reads 2 list attributes (grades, tags)"},
+		{name: "a list on the right side is refused", perm: accesstypes.Update, condition: "new.owner != tags", wantErr: "tags is a list attribute and stands on the right side"},
+		{name: "the list an update proposes is refused", perm: accesstypes.Update, condition: "new.tags != 'restricted'", wantErr: "new.tags reads the list an update proposes"},
+		{name: "a create reads no list", perm: accesstypes.Create, condition: "tags != 'restricted'", wantErr: "a Create grant's condition reads the row a create proposes"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var store PermissionCollection = grammarCollection{}
+			res := tt.resource
+			if res == "" {
+				res = "Widgets"
+			} else {
+				store = targetedRequestFieldCollection{}
+			}
+			err := validateGrantCondition(store, "Tester", tt.perm, Grant{Resource: res, Condition: tt.condition})
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("validateGrantCondition() error = %v, want containing %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("validateGrantCondition() error = %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateGrantCondition_computed(t *testing.T) {
+	t.Parallel()
+
+	// A computed resource's rows come from a Go function and through no query
+	// of the library's. The library judges each row the function yields, so a
+	// condition reads the fields the resource declares, the caller, the decision
+	// instant and the facts about the caller held in tables, and validates
+	// against the resource's own vocabulary as a table's does.
+	tests := []struct {
+		name      string
+		perm      accesstypes.Permission
+		condition string
+		wantErr   string
+	}{
+		{name: "a condition over a declared field is permitted", condition: "owner != 'root'"},
+		{name: "a comparison against the caller is permitted", condition: "owner = subject"},
+		{name: "a comparison against the decision instant is permitted", condition: "expires > now"},
+		{name: "a list field is read item by item", condition: "tags != 'restricted'"},
+		{name: "a row-free condition is permitted", condition: "now < '2027-01-01T00:00:00Z'"},
+		{name: "a subject value of the field's type is permitted", condition: "price <= subject.approvalLimit"},
+		{name: "a subject set of the field's type is permitted", condition: "owner IN subject.crews"},
+		{name: "a subject value beside now is permitted", condition: "now < subject.clearedUntil"},
+		{name: "a subject value of another type is refused as on a table", condition: "owner = subject.approvalLimit", wantErr: "owner is a string attribute and cannot compare against subject.approvalLimit, a number subject value"},
+		{name: "a subject set the application does not declare is refused as on a table", condition: "owner IN subject.teams", wantErr: "condition references subject.teams, which is not a declared subject set"},
+		{name: "a field the resource does not declare is refused, with the declaration that admits it", condition: "color = 'red'", wantErr: `condition references "color", which is not an attribute of Widgets; a computed resource declares the fields a condition may read with @attribute(color) on the field`},
+		{name: "a literal of another type is refused as on a table", condition: "price = 'high'", wantErr: "price is a number attribute and cannot compare against the string"},
+		{name: "two list fields are refused as on a table", condition: "tags != 'x' AND grades > 1", wantErr: "condition reads 2 list attributes"},
+		{name: "the post-image is refused on a read", condition: "new.owner = subject", wantErr: "condition reads the post-image (new.)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			perm := tt.perm
+			if perm == "" {
+				perm = "Read"
+			}
 			grant := Grant{Resource: "Widgets", Fields: []accesstypes.Tag{"name"}, Condition: tt.condition}
-			err := validateGrantCondition(computedGrammarCollection{}, "Tester", "Read", grant)
-			if tt.wantErr {
-				if err == nil || !strings.Contains(err.Error(), "decode time") {
-					t.Fatalf("validateGrantCondition() error = %v, want the decode-time rejection", err)
+			err := validateGrantCondition(computedGrammarCollection{}, "Tester", perm, grant)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("validateGrantCondition() error = %v, want containing %q", err, tt.wantErr)
 				}
 
 				return

@@ -6,17 +6,21 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/go-playground/validator/v10"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/auth/members"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/auth/staff"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/membersidentity"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/staffidentity"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/router"
 	initiator "github.com/impulseframework/impulse/db"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
+	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -42,6 +46,23 @@ func (f *fakeAccess) ForUser(user accesstypes.User) *access.UserChecker {
 
 func (f *fakeAccess) ForRole(role accesstypes.Role) *access.RoleChecker {
 	return access.NewRoleChecker(f, role)
+}
+
+// UserManager answers the one question a generated handler asks the engine's user
+// manager: the roles that exist in a tenant, which the Auth's generated management
+// lists for a role picker. Every other method panics through the embedded nil
+// interface, as the Controller's do.
+func (f *fakeAccess) UserManager() access.UserManager {
+	return fakeUserManager{}
+}
+
+// fakeUserManager scripts the roles of a scope: one, whatever the scope.
+type fakeUserManager struct {
+	access.UserManager
+}
+
+func (fakeUserManager) Roles(context.Context, accesstypes.PolicyScope) ([]access.RoleInfo, error) {
+	return []access.RoleInfo{{Name: "Scripted", Description: "A scripted role."}}, nil
 }
 
 // UserHasGrants answers the concealed-domain foothold question the generated DomainGuard
@@ -105,24 +126,42 @@ func (c *testConfigurer) Access() access.Controller {
 
 func (c *testConfigurer) Staff() *staff.Auth { return nil }
 
-// StaffUserStores are empty in-memory stores: the generated matrix drives the staff users,
-// seats and roles routes as it drives every other, a denied case answered before any
-// store is read and a granted list or read answered from the empty store.
-func (c *testConfigurer) StaffUserStores() (resource.UserAccounts, resource.UserSeats) {
-	store := resource.NewMemUserStore()
+// noSessionAPI stands where the matrix serves no session manager: a denied case is
+// answered before any method runs, so nothing here is ever hashed or mailed.
+type noSessionAPI struct{}
 
-	return store, store
+func (noSessionAPI) HashPassword(string) (string, error) {
+	return "", errors.New("the authorization matrix serves no session manager")
+}
+
+func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationRequest) (session.PreparedInvitation, error) {
+	return nil, errors.New("the authorization matrix serves no session manager")
+}
+
+// StaffIdentity is the staff auth's identity client over the scripted engine: the matrix
+// drives the generated methods' routes as it drives every other, and a denied case is
+// answered before any of them runs.
+func (c *testConfigurer) StaffIdentity() *staffidentity.Client {
+	client, err := staffidentity.NewClient(c.Access(), noSessionAPI{})
+	if err != nil {
+		panic(err)
+	}
+
+	return client
 }
 
 func (c *testConfigurer) Members() *members.Auth { return nil }
 
-// MembersUserStores are empty in-memory stores: the generated matrix drives the members users,
-// seats and roles routes as it drives every other, a denied case answered before any
-// store is read and a granted list or read answered from the empty store.
-func (c *testConfigurer) MembersUserStores() (resource.UserAccounts, resource.UserSeats) {
-	store := resource.NewMemUserStore()
+// MembersIdentity is the members auth's identity client over the scripted engine: the matrix
+// drives the generated methods' routes as it drives every other, and a denied case is
+// answered before any of them runs.
+func (c *testConfigurer) MembersIdentity() *membersidentity.Client {
+	client, err := membersidentity.NewClient(c.Access(), noSessionAPI{})
+	if err != nil {
+		panic(err)
+	}
 
-	return store, store
+	return client
 }
 
 func (c *testConfigurer) Validator() *validator.Validate {

@@ -2,6 +2,7 @@ package generation
 
 import (
 	"go/format"
+	"slices"
 	"strings"
 	"testing"
 
@@ -47,6 +48,45 @@ func Test_liveDerivationsPackageTemplate(t *testing.T) {
 				"{Name: Squadron{}.Resource()},",
 			},
 		},
+		{
+			name: "a table of an auth is named as text beside the types, and the file says why",
+			data: &liveDerivationsPackageData{Source: "pkg/resources", Package: "virtualresources", ResourcesQualifier: "resources.", Resources: []derivedResourceData{
+				{
+					Type:    "SectorCrew",
+					Comment: "SectorCrews: the tables its query reads. CrewSessionUsers, CrewUserRoles are named as text: an auth's generated management declares the types over them inside its tree, where this package cannot import them.",
+					Tables:  []sourceTableData{{Table: "CrewSessionUsers", Global: true}, {Table: "CrewUserRoles", Global: true}, {Type: "Sector", Global: true}},
+				},
+				{Type: "SeatLog", Comment: "SeatLogs: the tables declared with @changedBy.", Global: true, RootTable: "CrewUserRoles"},
+			}},
+			wantContains: []string{
+				"// A table of an auth is the exception to the naming: the generated management declares\n",
+				"{Resource: SectorCrew{}.Resource(), Tables: []live.SourceTable{",
+				`{Name: "CrewSessionUsers", Global: true},`,
+				`{Name: "CrewUserRoles", Global: true},`,
+				"{Name: resources.Sector{}.Resource(), Global: true},",
+				`{Resource: SeatLog{}.Resource(), Global: true, Root: "CrewUserRoles"},`,
+			},
+		},
+		{
+			name: "the views of an auth's generated management, recorded in the auth's handlers package: the declarations package qualifies the views and the auth's own tables, the resources package the application's",
+			data: &liveDerivationsPackageData{Source: `Auth("example.com/acme/beacon/pkg/auth/crew")`, Package: "crewhandlers", ResourcesQualifier: "resources.", Auth: "Crew", TypesQualifier: "crewresources.", Resources: []derivedResourceData{
+				{
+					Type:    "CrewShipUser",
+					Comment: "CrewShipUsers: the tables its query reads.",
+					Tables:  []sourceTableData{{Type: "CrewSessionUser", Own: true, Global: true}, {Type: "CrewUserRole", Own: true, Global: true}, {Type: "Ship", Global: true}},
+				},
+				{Type: "CrewShipLog", Comment: "CrewShipLogs: the tables its query reads.", Root: "CrewUserRole", RootOwn: true},
+			}},
+			wantContains: []string{
+				"package crewhandlers",
+				"// LiveDerivations records, for each view the Crew auth's generated management\n",
+				"{Resource: crewresources.CrewShipUser{}.Resource(), Tables: []live.SourceTable{",
+				"{Name: crewresources.CrewSessionUser{}.Resource(), Global: true},",
+				"{Name: crewresources.CrewUserRole{}.Resource(), Global: true},",
+				"{Name: resources.Ship{}.Resource(), Global: true},",
+				"{Resource: crewresources.CrewShipLog{}.Resource(), Root: crewresources.CrewUserRole{}.Resource()},",
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -58,6 +98,14 @@ func Test_liveDerivationsPackageTemplate(t *testing.T) {
 				if !strings.Contains(out, want) {
 					t.Errorf("output lacks %q:\n%s", want, out)
 				}
+			}
+			// The file's comment is the package's own, or the auth's.
+			if own := "for each published resource of this package"; strings.Contains(out, own) != (tt.data.Auth == "") {
+				t.Errorf("output speaks of the package's own resources = %v, want %v:\n%s", strings.Contains(out, own), tt.data.Auth == "", out)
+			}
+			// The exception is said only in a file that carries it.
+			if exception := "A table of an auth is the exception"; strings.Contains(out, exception) != tt.data.NamesTablesAsText() {
+				t.Errorf("output says the naming exception = %v, want %v:\n%s", strings.Contains(out, exception), tt.data.NamesTablesAsText(), out)
 			}
 		})
 	}
@@ -83,6 +131,15 @@ func Test_liveDerivationsTemplate(t *testing.T) {
 			data: &liveDerivationsAssemblyData{Source: "pkg/resources", Package: "app", Values: []string{"LiveDerivations", "computedresources.LiveDerivations", "virtualresources.LiveDerivations"}},
 			wantContains: []string{
 				"var liveDerivations = live.Merge(\n\tLiveDerivations,\n\tcomputedresources.LiveDerivations,\n\tvirtualresources.LiveDerivations,\n)",
+			},
+			wantNotContains: []string{"generated management"},
+		},
+		{
+			name: "an auth's record among the values, which the comment names",
+			data: &liveDerivationsAssemblyData{Source: "pkg/resources", Package: "app", Values: []string{"crewhandlers.LiveDerivations", "virtualresources.LiveDerivations"}, AuthViews: true},
+			wantContains: []string{
+				"and of every auth whose generated management declares views, generated in\n// the auth's handlers package,",
+				"var liveDerivations = live.Merge(\n\tcrewhandlers.LiveDerivations,\n\tvirtualresources.LiveDerivations,\n)",
 			},
 		},
 	}
@@ -161,6 +218,155 @@ func Test_liveDerivationsByPackage(t *testing.T) {
 	}
 }
 
+// Test_liveDerivationsByPackage_authTables pins the entry of a view that reads tables an
+// auth's generated management declares: the declarations are internal to the auth's
+// tree, so the view's package cannot name their types, and the entry names each such
+// table as text, the @rowsOf root included, beside the application's own by type.
+func Test_liveDerivationsByPackage_authTables(t *testing.T) {
+	t.Parallel()
+
+	loaded, parsed := loadFixturePackage(t, "changedbyfixture")
+	structs := fixtureStructs(parsed)
+	crew := &identityInstance{auth: "Crew", resources: "pkg/identity/internal/crewresources"}
+
+	tests := []struct {
+		name       string
+		authTables []string
+		want       derivedResourceData
+	}{
+		{
+			name:       "a table the query reads",
+			authTables: []string{"Dock"},
+			want: derivedResourceData{
+				Type:    "Roster",
+				Comment: "Rosters: the tables its query reads. Docks is named as text: an auth's generated management declares the type over it inside its tree, where this package cannot import it.",
+				Global:  true,
+				Root:    "Berth",
+				Tables:  []sourceTableData{{Table: "Docks", Global: true}},
+			},
+		},
+		{
+			name:       "the root and a table",
+			authTables: []string{"Berth", "Dock"},
+			want: derivedResourceData{
+				Type:      "Roster",
+				Comment:   "Rosters: the tables its query reads. Berths, Docks are named as text: an auth's generated management declares the types over them inside its tree, where this package cannot import them.",
+				Global:    true,
+				RootTable: "Berths",
+				Tables:    []sourceTableData{{Table: "Docks", Global: true}},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := changedByClient(loaded)
+			c.resources = []*resourceInfo{fixtureTable(t, structs, "Berth", "DockID", "Slot"), fixtureTable(t, structs, "Dock", "ID")}
+			for _, res := range c.resources {
+				if slices.Contains(tt.authTables, res.Name()) {
+					res.identity = crew
+				}
+			}
+			roster := fixtureVirtualPublished(t, structs, "Roster")
+			if err := c.resolvePublished([]*resourceInfo{roster}, nil); err != nil {
+				t.Fatalf("resolvePublished() error = %v", err)
+			}
+			c.resources = append(c.resources, roster)
+			c.virtual = "pkg/virtualresources"
+			r := &resourceGenerator{client: c}
+
+			got, err := r.liveDerivationsByPackage()
+			if err != nil {
+				t.Fatalf("liveDerivationsByPackage() error = %v", err)
+			}
+			want := []derivationsPackage{{dir: "pkg/virtualresources", Resources: []derivedResourceData{tt.want}}}
+			if diff := cmp.Diff(want, got, cmp.AllowUnexported(derivationsPackage{})); diff != "" {
+				t.Errorf("liveDerivationsByPackage() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// Test_liveDerivationsByPackage_identityViews pins the entry of a view an auth's
+// generated management declares itself: its record is the auth's handlers package's, the
+// auth's own tables are named by type and marked as declared beside the view, the
+// application's by type, and nothing as text; a view there that reads another auth's
+// table is refused as a fault of the generator.
+func Test_liveDerivationsByPackage_identityViews(t *testing.T) {
+	t.Parallel()
+
+	loaded, parsed := loadFixturePackage(t, "changedbyfixture")
+	structs := fixtureStructs(parsed)
+	crew := &identityInstance{auth: "Crew", importPath: crewAuthPath, resources: "pkg/identity/internal/crewresources", handlers: "pkg/identity/crewhandlers"}
+	members := &identityInstance{auth: "Members", importPath: membersAuthPath, resources: "pkg/identity/internal/membersresources", handlers: "pkg/identity/membershandlers"}
+
+	tests := []struct {
+		name    string
+		owners  map[string]*identityInstance
+		want    derivedResourceData
+		wantErr string
+	}{
+		{
+			name:   "the root is the auth's own, the other table the application's",
+			owners: map[string]*identityInstance{"Berth": crew},
+			want:   derivedResourceData{Type: "Roster", Comment: "Rosters: the tables its query reads.", Global: true, Root: "Berth", RootOwn: true, Tables: []sourceTableData{{Type: "Dock", Global: true}}},
+		},
+		{
+			name:   "both are the auth's own",
+			owners: map[string]*identityInstance{"Berth": crew, "Dock": crew},
+			want:   derivedResourceData{Type: "Roster", Comment: "Rosters: the tables its query reads.", Global: true, Root: "Berth", RootOwn: true, Tables: []sourceTableData{{Type: "Dock", Own: true, Global: true}}},
+		},
+		{
+			name:    "a table of another auth",
+			owners:  map[string]*identityInstance{"Berth": crew, "Dock": members},
+			wantErr: `struct Roster: a view of the generated management of Auth("example.com/acme/beacon/pkg/auth/crew") reads Docks, a table of Auth("example.com/acme/beacon/pkg/auth/members")`,
+		},
+		{
+			name:    "a root of another auth",
+			owners:  map[string]*identityInstance{"Berth": members},
+			wantErr: `reads Berths, a table of Auth("example.com/acme/beacon/pkg/auth/members")`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := changedByClient(loaded)
+			c.resources = []*resourceInfo{fixtureTable(t, structs, "Berth", "DockID", "Slot"), fixtureTable(t, structs, "Dock", "ID")}
+			for _, res := range c.resources {
+				res.identity = tt.owners[res.Name()]
+			}
+			roster := fixtureVirtualPublished(t, structs, "Roster")
+			if err := c.resolvePublished([]*resourceInfo{roster}, nil); err != nil {
+				t.Fatalf("resolvePublished() error = %v", err)
+			}
+			roster.identity = crew
+			c.resources = append(c.resources, roster)
+			c.virtual = "pkg/virtualresources"
+			r := &resourceGenerator{client: c}
+
+			got, err := r.liveDerivationsByPackage()
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) || !strings.Contains(err.Error(), "fault of the generator") {
+					t.Fatalf("liveDerivationsByPackage() error = %v, want one containing %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("liveDerivationsByPackage() error = %v", err)
+			}
+			want := []derivationsPackage{{dir: "pkg/identity/crewhandlers", instance: crew, Resources: []derivedResourceData{tt.want}}}
+			if diff := cmp.Diff(want, got, cmp.AllowUnexported(derivationsPackage{}, identityInstance{})); diff != "" {
+				t.Errorf("liveDerivationsByPackage() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func Test_derivationComment(t *testing.T) {
 	t.Parallel()
 
@@ -169,22 +375,103 @@ func Test_derivationComment(t *testing.T) {
 		resource string
 		declared bool
 		unbacked []string
+		byName   []string
 		want     string
 	}{
 		{name: "read off the query", resource: "MissionBoards", want: "MissionBoards: the tables its query reads."},
 		{name: "declared", resource: "SectorHazardBoards", declared: true, want: "SectorHazardBoards: the tables declared with @changedBy."},
 		{name: "one table no resource backs", resource: "Rosters", unbacked: []string{"AuditTrail"}, want: "Rosters: the tables its query reads. The set also names AuditTrail, which no resource backs: no write to it is published, so it is left out."},
 		{name: "two tables no resource backs", resource: "Rosters", declared: true, unbacked: []string{"AuditTrail", "Ledger"}, want: "Rosters: the tables declared with @changedBy. The set also names AuditTrail, Ledger, which no resource backs: no write to them is published, so they are left out."},
+		{name: "one table of an auth", resource: "SectorCrews", byName: []string{"CrewUserRoles"}, want: "SectorCrews: the tables its query reads. CrewUserRoles is named as text: an auth's generated management declares the type over it inside its tree, where this package cannot import it."},
+		{
+			name: "a table no resource backs and two of an auth", resource: "SectorCrews", declared: true, unbacked: []string{"CrewSessionSignIns"}, byName: []string{"CrewSessionUsers", "CrewUserRoles"},
+			want: "SectorCrews: the tables declared with @changedBy. The set also names CrewSessionSignIns, which no resource backs: no write to it is published, so it is left out. CrewSessionUsers, CrewUserRoles are named as text: an auth's generated management declares the types over them inside its tree, where this package cannot import them.",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			if diff := cmp.Diff(tt.want, derivationComment(tt.resource, tt.declared, tt.unbacked)); diff != "" {
+			if diff := cmp.Diff(tt.want, derivationComment(tt.resource, tt.declared, tt.unbacked, tt.byName)); diff != "" {
 				t.Errorf("derivationComment() mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// Test_handlerHome_LiveDerivations pins what a handler hands to every publish, by where
+// it is written: the application's handlers name the assembly in their own package, and
+// an auth's name the field that keeps the value the application constructed them with,
+// so a commit of the auth's management reaches the application's derived resources.
+func Test_handlerHome_LiveDerivations(t *testing.T) {
+	t.Parallel()
+
+	r := &resourceGenerator{client: &client{}}
+	r.handler, r.applicationName, r.receiverName = "app", "App", "a"
+	crew := &identityInstance{auth: "Crew", resources: "pkg/identity/internal/crewresources", methods: "pkg/identity/crewidentity", handlers: "pkg/identity/crewhandlers"}
+
+	tests := []struct {
+		name string
+		home *handlerHome
+		want string
+	}{
+		{name: "the application's handler package", home: r.homeOf(nil), want: "liveDerivations"},
+		{name: "no home is the application's", home: nil, want: "liveDerivations"},
+		{name: "an auth's handlers", home: r.homeOf(crew), want: "h.liveDerivations"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.home.LiveDerivations(); got != tt.want {
+				t.Errorf("LiveDerivations() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// Test_homeOf_views pins the package a home's handlers name a view in: the application's
+// virtual package for its own, and an auth's declarations package, which holds the
+// auth's views beside its tables.
+func Test_homeOf_views(t *testing.T) {
+	t.Parallel()
+
+	r := &resourceGenerator{client: &client{}}
+	r.handler, r.virtual = "app", "pkg/virtualresources"
+	crew := &identityInstance{auth: "Crew", resources: "pkg/identity/internal/crewresources", methods: "pkg/identity/crewidentity", handlers: "pkg/identity/crewhandlers"}
+
+	if got := r.homeOf(nil).views; got != "pkg/virtualresources" {
+		t.Errorf("the application's views = %q, want its virtual package", got)
+	}
+	if got := r.homeOf(crew).views; got != "pkg/identity/internal/crewresources" {
+		t.Errorf("an auth's views = %q, want its declarations package", got)
+	}
+}
+
+// Test_identityDelegatesTemplate_liveDerivations pins the hand-over: every delegating
+// method constructs the auth's handlers with the application's live derivations.
+func Test_identityDelegatesTemplate_liveDerivations(t *testing.T) {
+	t.Parallel()
+
+	out := renderFormatted(t, "identityDelegatesTemplate", identityDelegatesTemplate, &identityDelegatesData{
+		Source:          "pkg/identity",
+		Package:         "app",
+		ApplicationName: "App",
+		ReceiverName:    "a",
+		Instances: []*identityDelegates{{
+			Auth: "Crew", AuthPackage: "crew", MethodsPackage: "crewidentity", HandlersPackage: "crewhandlers",
+			Handlers: []identityDelegate{{Name: "AssignCrewRole"}, {Name: "CrewSessionUsers"}},
+		}},
+	})
+	for _, want := range []string{
+		"var _ crewhandlers.Deps = (*App)(nil)",
+		"func (a *App) AssignCrewRole() http.HandlerFunc {\n\treturn crewhandlers.New(a, liveDerivations).AssignCrewRole()\n}",
+		"func (a *App) CrewSessionUsers() http.HandlerFunc {\n\treturn crewhandlers.New(a, liveDerivations).CrewSessionUsers()\n}",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
 	}
 }
 

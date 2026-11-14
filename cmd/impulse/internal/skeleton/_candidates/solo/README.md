@@ -19,17 +19,30 @@ what they hold.
   default roles the release ships, embedded in the binary and validated against the
   generated collection when the engine opens, so a release whose roles are wrong does not
   start. A role is named for its job in PascalCase (`Administrator`,
-  `FeatureAdministrator`), never for where it is held: the file's structure says that,
-  and the Users page shows it as the role's kind. Every role carries a description, one
-  or two plain sentences saying what it is for, which the Users page shows beside the
-  name; a role without one is refused. It authors `Administrator`, the
-  development login's role, over the staff
-  auth's user-management surface alone (`StaffUsers`, `StaffSeats`, `StaffInvitations`, `StaffRoles` and
-  `SetStaffUserPassword`, the resources the generator declares for the auth): a new
+  `FeatureAdministrator`), never for where it is held: the file's structure says that.
+  Every role carries a description, one or two plain sentences saying what it is for,
+  which the list of the auth's roles (`StaffRoles`) answers beside the name; a role
+  without one is refused. It authors `Administrator`, the development login's role, over
+  the staff auth's generated management alone (the lists and methods under
+  `pkg/identity`): a new
   resource stays invisible to every login until a role in this file is granted it. Every grant in it is proven live by `test/integration/grants_test.go`, which opens
   the auth the way the deployment does and asks the engine about each unconditional
   grant; a conditional grant is proven by a test case that names it through
   `provesGrant`, and `impulse check` fails on one no case names.
+- `pkg/identity` holds the staff auth's management of its people, written by the
+  generator (`GenerateIdentity`) as code of this application; the generator owns the
+  tree whole. It carries the lists (`StaffSessionUsers`, `StaffUserRoles`,
+  `StaffSessionMailLinks`, `StaffSessions` and the rest) and the methods
+  (`CreateStaffUser`, `InviteStaffUser`, `AssignStaffRole`, `SetStaffTemporaryPassword`
+  and the rest), served like every other resource and method and granted in the role
+  file. The auth builds the client the handlers act through when it opens (`staff.New`,
+  answered by `staff.Auth.Identity`) with the roles that count as an administrator's
+  (`staff.AdministratorRoles`), so an administrator cannot give the role up while nobody
+  else holds it, and sets the client's hook on its session manager, through which a
+  person who accepts an invitation is given its roles in the transaction that spends it:
+  no auth is open without it. The console writes no page for any of it: the library builds
+  the accounts, mailed links, sessions and failed sign-ins pages from the API description
+  (`identityRoutes` in `web/console/src/app/app.routes.ts`).
 - `pkg/deploy` holds the database steps a deployment runs: the schema migrations, then
   the role policy check (`CheckRoles`), which prints what the store holds that this
   release cannot use as written. Then `MigrateFeatures` brings the `FeatureFlags` table to the
@@ -37,7 +50,7 @@ what they hold.
   administrator while its users table holds no rows, the foothold a deployed environment
   starts from: the staff auth's `administrator`, with the password the stack generates
   (`APP_STAFF_ADMINISTRATOR_PASSWORD`, a generated secret), holding the development
-  administrator's roles. A user that exists stops the seed; the administration surface
+  administrator's roles. A user that exists stops the seed; the auth's management
   creates every user after the first, and the bootstrap creates the development logins
   instead. `cmd/deployment/migrate` is the deploy step;
   `cmd/bootstrap` reuses it to stand up an emulator database and adds the development
@@ -126,7 +139,7 @@ login), and serves the API on `$PORT` (:8090). The first run compiles and bootst
 before it listens; wait for "Starting Server" in the server pane.
 
 The auths mail: an administrator invites a person by address with the roles the invitation
-seats, a signed-in person adds and verifies an address, and every sign-in that carries no
+gives, a signed-in person adds and verifies an address, and every sign-in that carries no
 second factor of its own (a password, or a directory the deployment does not administer)
 is mailed a sign-in code, which the login page asks for; a browser the person asks to be
 remembered is not asked again. In development the mail is written to the server's log,

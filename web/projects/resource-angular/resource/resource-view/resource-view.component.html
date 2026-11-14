@@ -126,6 +126,27 @@
           <action-access-control-wrapper [actionContext]="deleteButtonContext()">
             <button mat-raised-button color="primary" (click)="confirmDeleteResource()">Delete</button>
           </action-access-control-wrapper>
+
+          @if (rowMethods().length > 0) {
+            <!-- The methods the server says the caller may run on this row, in one menu as
+                 on a row of the list: a row may offer a dozen. -->
+            <button mat-raised-button type="button" class="row-methods" [matMenuTriggerFor]="rowMethodsMenu">
+              <div class="button-text">
+                <mat-icon>more_vert</mat-icon>
+                <span class="mode-text"> Actions </span>
+              </div>
+            </button>
+            <mat-menu #rowMethodsMenu="matMenu">
+              @for (method of rowMethods(); track method.method) {
+                <button type="button" mat-menu-item class="row-method" (click)="runMethod(method)">
+                  @if (method.icon) {
+                    <mat-icon>{{ method.icon }}</mat-icon>
+                  }
+                  <span>{{ method.label }}</span>
+                </button>
+              }
+            </mat-menu>
+          }
         }
 
         @if (editMode() === 'edit') {

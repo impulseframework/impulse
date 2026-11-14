@@ -67,12 +67,15 @@ func (c *SpannerClient) SpannerReadOnlyTransaction() spxapi.Querier {
 // pointed at another object) are deleted from their stores, synchronously, before
 // ExecuteFunc returns, detached from the request's cancellation; a failed delete is
 // logged naming the keys and the call still returns nil, since the rows are gone. A
-// transaction that does not commit, for any reason, releases nothing.
+// transaction that does not commit, for any reason, releases nothing. Last, what the
+// transaction's writes registered for after the commit runs (AfterCommit), in
+// registration order; a transaction that does not commit runs none of it.
 func (c *SpannerClient) ExecuteFunc(ctx context.Context, f func(ctx context.Context, txn ReadWriteTransaction) error) error {
 	var (
 		buffered   = newBufferedPatches()
 		released   = newReleasedKeys()
 		touched    = newTouchedRows()
+		committed  = newAfterCommit()
 		funcFailed bool
 	)
 	_, err := c.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
@@ -80,8 +83,9 @@ func (c *SpannerClient) ExecuteFunc(ctx context.Context, f func(ctx context.Cont
 		buffered = newBufferedPatches()
 		released = newReleasedKeys()
 		touched = newTouchedRows()
+		committed = newAfterCommit()
 		funcFailed = false
-		if err := f(ctx, newSpannerReadWriteTransaction(txn, buffered, released, touched)); err != nil {
+		if err := f(ctx, newSpannerReadWriteTransaction(txn, buffered, released, touched, committed)); err != nil {
 			funcFailed = true
 
 			return errors.Wrap(err, "f()")
@@ -105,6 +109,7 @@ func (c *SpannerClient) ExecuteFunc(ctx context.Context, f func(ctx context.Cont
 
 	releaseFiles(ctx, c.stores, released.list())
 	collectTouched(ctx, touched.list())
+	committed.run(ctx)
 
 	return nil
 }
@@ -417,6 +422,7 @@ type SpannerReadWriteTransaction struct {
 	buffered         *bufferedPatches
 	released         *releasedKeys
 	touchedRows      *touchedRows
+	committed        *afterCommit
 }
 
 // NewSpannerReadWriteTransaction creates a new SpannerReadWriteTransaction from a
@@ -424,22 +430,38 @@ type SpannerReadWriteTransaction struct {
 // outside ExecuteFunc has no executor to delete the file objects its patches released:
 // read them off the wrapper with Released after the commit and delete them from the
 // store yourself. It also has no executor to hand the rows it wrote to the request's
-// collector, so nothing it writes reaches the live pages.
+// collector, so nothing it writes reaches the live pages, and none to run what its
+// writes registered for after the commit (AfterCommit): call Committed once the commit
+// has landed.
 func NewSpannerReadWriteTransaction(txn *spanner.ReadWriteTransaction) *SpannerReadWriteTransaction {
-	return newSpannerReadWriteTransaction(txn, newBufferedPatches(), newReleasedKeys(), newTouchedRows())
+	return newSpannerReadWriteTransaction(txn, newBufferedPatches(), newReleasedKeys(), newTouchedRows(), newAfterCommit())
 }
 
 // newSpannerReadWriteTransaction wraps a transaction over the records its buffered
-// patches, released file keys, and written rows are noted in; ExecuteFunc holds the
-// same records when the commit comes back.
-func newSpannerReadWriteTransaction(txn *spanner.ReadWriteTransaction, buffered *bufferedPatches, released *releasedKeys, touched *touchedRows) *SpannerReadWriteTransaction {
+// patches, released file keys, written rows, and after-commit registrations are noted
+// in; ExecuteFunc holds the same records when the commit comes back.
+func newSpannerReadWriteTransaction(txn *spanner.ReadWriteTransaction, buffered *bufferedPatches, released *releasedKeys, touched *touchedRows, committed *afterCommit) *SpannerReadWriteTransaction {
 	return &SpannerReadWriteTransaction{
 		txn:              txn,
 		resourceRowIndex: make(map[string]int),
 		buffered:         buffered,
 		released:         released,
 		touchedRows:      touched,
+		committed:        committed,
 	}
+}
+
+// recordAfterCommit notes a function to run once the transaction has committed.
+func (c *SpannerReadWriteTransaction) recordAfterCommit(key any, f func(ctx context.Context)) {
+	c.committed.record(key, f)
+}
+
+// Committed runs what the transaction's writes registered for after the commit
+// (AfterCommit), for a transaction committed outside ExecuteFunc, whose executor makes
+// the calls itself. Call it once, after the commit has landed, and never for a
+// transaction that did not commit.
+func (c *SpannerReadWriteTransaction) Committed(ctx context.Context) {
+	c.committed.run(ctx)
 }
 
 // touched returns the rows the transaction's patches wrote so far.

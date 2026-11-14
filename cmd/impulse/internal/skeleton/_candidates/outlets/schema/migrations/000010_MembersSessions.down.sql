@@ -10,6 +10,7 @@ DROP INDEX MembersSessionTokensByFamily;
 DROP INDEX MembersSessionTokensByUser;
 DROP INDEX MembersSessionTokensByTokenHash;
 DROP TABLE MembersSessionTokens;
+DROP INDEX MembersSessionMailLinksByTenant;
 DROP INDEX MembersSessionMailLinksByKind;
 DROP INDEX MembersSessionMailLinksByTokenHash;
 DROP TABLE MembersSessionMailLinks;

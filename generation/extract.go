@@ -195,7 +195,7 @@ func resolveVirtualAnnotations(resource *resourceInfo, pStruct *parser.Struct, a
 
 	// Scope resolves above; the tenancy pairing (domain-scoped ⇔ @domain)
 	// validates against it.
-	if err := resolveVirtualDomain(resource, pStruct, annotations); err != nil {
+	if err := resolveVirtualBindings(resource, pStruct, annotations); err != nil {
 		return err
 	}
 
@@ -446,7 +446,7 @@ func (c *client) structsToVirtualResources(structs []*parser.Struct, validators 
 			continue
 		}
 
-		if err := rejectBindingAnnotations(pStruct, annotations, "virtual resource", domainKeyword); err != nil {
+		if err := rejectBindingAnnotations(pStruct, annotations, "virtual resource", domainKeyword, attributeKeyword); err != nil {
 			errs = append(errs, err)
 
 			continue
@@ -600,6 +600,14 @@ func newResourceFields(parent *resourceInfo, pStruct *parser.Struct, table *tabl
 
 			continue
 		}
+		if slices.Contains(generatedSetMethods(), field.Name()) {
+			// The generated set declares these methods on the resource's struct, and a
+			// key field's name is a parameter of its patch constructors, where
+			// "resource" would hide the package they call.
+			field.AddError(fmt.Sprintf("field name %q is a method the generated set declares on the struct; name the field otherwise and keep the column in its spanner tag", field.Name()))
+
+			continue
+		}
 		tableColumn, ok := table.Columns[spannerTag]
 		if !ok {
 			field.AddError("spanner tag does not match any table columns")
@@ -689,13 +697,16 @@ func (r *resourceInfo) deriveTenantIndexFlags(table *tableMetadata) {
 // that reads one. Spanner has no array equality and cannot index an ARRAY column, and a
 // computed resource's evaluator compares single values, so a filter or an index on a
 // list is refused at generation naming the field, with one sentence shape wherever it
-// is met. A picker stores one key, so a field-scope @enumerate on a list is refused the
-// same way, where the argument is captured and before it is read: the list field hears
-// this sentence and never a second one about the resource it names.
+// is met. A column stores one key, so a field-scope @enumerate on a list field of a
+// table, a view or a computed resource is refused the same way, where the argument is
+// captured and before it is read: the list field hears this sentence and never a second
+// one about the resource it names. A method's request field is the one list that takes
+// @enumerate, as a list of picked keys, unless its elements are nested values.
 const (
-	listFieldFilterRefusal    = allowFilterTagKey + " on a list field; a filter compares single values"
-	listFieldIndexRefusal     = " on a list field; no index serves an ARRAY column"
-	listFieldEnumerateRefusal = "@" + enumerateKeyword + " on a list field; a picker stores one key"
+	listFieldFilterRefusal     = allowFilterTagKey + " on a list field; a filter compares single values"
+	listFieldIndexRefusal      = " on a list field; no index serves an ARRAY column"
+	listFieldEnumerateRefusal  = "@" + enumerateKeyword + " on a list field; a picker stores one key"
+	nestedListEnumerateRefusal = "@" + enumerateKeyword + " on a list of nested values; a picker stores keys"
 )
 
 // listColumnTagRefusal is the refusal a table or view field earns for a query tag on a
@@ -781,7 +792,7 @@ func (c *client) structsToRPCMethods(structs []*parser.Struct, validators ...str
 		// The annotations other kinds own: a resource's bindings, a view's table, and a
 		// field type's TypeScript type; and the masking tag, which a method's request
 		// never carries.
-		if err := errors.Join(rejectBindingAnnotations(s, annotations, "RPC method"), rejectRowsOf(s, annotations, "RPC method"), rejectChangedBy(s, annotations, "RPC method"), rejectTypescriptAnnotation(s, annotations, "RPC method"), rejectMaskingTags(s, "RPC method"), rejectFileAnnotations(s, annotations, "RPC method"), rejectTenantAnnotation(s, annotations, "@"+rpcKeyword+" struct"), rejectSearchAlso(s, annotations, "RPC method"), rejectReservedMethodName(s)); err != nil {
+		if err := errors.Join(rejectBindingAnnotations(s, annotations, "RPC method", attributeKeyword), rejectRowsOf(s, annotations, "RPC method"), rejectChangedBy(s, annotations, "RPC method"), rejectTypescriptAnnotation(s, annotations, "RPC method"), rejectMaskingTags(s, "RPC method"), rejectFileAnnotations(s, annotations, "RPC method"), rejectTenantAnnotation(s, annotations, "@"+rpcKeyword+" struct"), rejectSearchAlso(s, annotations, "RPC method"), rejectReservedMethodName(s)); err != nil {
 			errs = append(errs, err)
 
 			continue
@@ -813,6 +824,13 @@ func (c *client) structsToRPCMethods(structs []*parser.Struct, validators ...str
 		}
 
 		rpcMethod.SuppressHandler = annotations.Struct.Has(suppressKeyword)
+
+		// The request fields a grant's condition may read (@attribute on the field).
+		if err := resolveRequestAttributes(rpcMethod, s, annotations); err != nil {
+			errs = append(errs, err)
+
+			continue
+		}
 
 		if err := c.resolveRPCDeclarations(rpcMethod, s, annotations, structsByName); err != nil {
 			errs = append(errs, err)
@@ -953,8 +971,8 @@ func (c *client) walkResult(walker *wireWalker, s *parser.Struct, signature exec
 			}
 		}
 	}
-	if pkg == c.computed.Package() {
-		for _, res := range c.computedResources {
+	for _, res := range c.computedResources {
+		if pkg == c.computedDirOf(res).Package() {
 			if res.Name() == name {
 				return nil, errors.Newf("struct %s: Execute answers with the computed resource %s.%s; a method answers with identifiers and outcomes, and rows are read through the resource's own routes, where permission masking applies", s.Name(), pkg, name)
 			}
@@ -984,7 +1002,7 @@ func (c *client) structsToCompResources(structs []*parser.Struct, validators ...
 			continue
 		}
 
-		if err := rejectBindingAnnotations(s, annotations, "computed resource"); err != nil {
+		if err := rejectBindingAnnotations(s, annotations, "computed resource", attributeKeyword); err != nil {
 			resourceErrors = append(resourceErrors, err)
 
 			continue
@@ -1043,19 +1061,7 @@ func (c *client) structsToCompResources(structs []*parser.Struct, validators ...
 			continue
 		}
 
-		if err := resolveComputedPaging(res, annotations); err != nil {
-			resourceErrors = append(resourceErrors, err)
-
-			continue
-		}
-
-		if err := resolveComputedFiles(res, s, annotations); err != nil {
-			resourceErrors = append(resourceErrors, err)
-
-			continue
-		}
-
-		if err := c.resolveComputedFeatures(res, annotations); err != nil {
+		if err := c.resolveComputedDeclarations(res, s, annotations); err != nil {
 			resourceErrors = append(resourceErrors, err)
 
 			continue
@@ -1068,6 +1074,23 @@ func (c *client) structsToCompResources(structs []*parser.Struct, validators ...
 	}
 
 	return compResources, nil
+}
+
+// resolveComputedDeclarations compiles what a computed resource declares over its
+// fields once they are built: its paging, its @file routes, its feature gates, and
+// the fields a grant's condition may read.
+func (c *client) resolveComputedDeclarations(res *computedResource, s *parser.Struct, annotations genlang.StructAnnotations) error {
+	if err := resolveComputedPaging(res, annotations); err != nil {
+		return err
+	}
+	if err := resolveComputedFiles(res, s, annotations); err != nil {
+		return err
+	}
+	if err := c.resolveComputedFeatures(res, annotations); err != nil {
+		return err
+	}
+
+	return resolveComputedAttributes(res, annotations)
 }
 
 // computedFields builds the resource's fields off its walked shape and the
@@ -1130,7 +1153,7 @@ func checkComputedQueryTags(resource string, field *computedField) error {
 		}
 	}
 	if _, ok := field.LookupTag(maskingTagKey); ok {
-		return errors.Newf("%s: the %s tag says how a masked cell meets a sort or a filter, and a computed resource never masks: its permission checks run at decode time, where conditional grants are refused", path, maskingTagKey)
+		return errors.Newf("%s: the %s tag says how a masked cell meets a sort or a filter, and on a computed resource none ever does: a field its list sorts or filters by needs an unconditional grant", path, maskingTagKey)
 	}
 	if _, ok := field.LookupTag(allowFilterTagKey); !ok {
 		return nil
@@ -1203,6 +1226,12 @@ func checkOpaqueInner(path string, shape *wireShape, seen map[*wireShape]bool) e
 	}
 
 	return nil
+}
+
+// generatedSetMethods are the methods the generated set may declare on a resource's
+// struct (resourceFileTemplate), which no field of it may be named.
+func generatedSetMethods() []string {
+	return []string{"Resource", "DefaultConfig", "FileKeys", "SearchBranches"}
 }
 
 // reservedRowName reports whether a column or field name collides with one of

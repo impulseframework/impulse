@@ -24,7 +24,6 @@ package spannerstore
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"slices"
 
 	"cloud.google.com/go/spanner"
@@ -37,8 +36,6 @@ import (
 )
 
 var _ access.Store = (*Store)(nil)
-
-const defaultPrefix = "Access"
 
 // Column and query-parameter names shared by the prepared statements and
 // mutations.
@@ -61,14 +58,6 @@ const (
 	paramDomain = "domain"
 	paramRole   = "role"
 	paramUser   = "user"
-)
-
-var (
-	// prefixPattern keeps concatenated table names valid Spanner identifiers;
-	// the same rule applies in postgresstore so both stores accept the same
-	// naming options.
-	prefixPattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9]*$`)
-	storePattern  = regexp.MustCompile(`^[A-Za-z0-9]*$`)
 )
 
 // Option configures a Store.
@@ -101,25 +90,20 @@ type tableNames struct {
 }
 
 func resolveNames(opts []Option) (tableNames, error) {
-	c := config{prefix: defaultPrefix}
+	c := config{prefix: access.DefaultTablePrefix}
 	for _, opt := range opts {
 		opt(&c)
 	}
-
-	if !prefixPattern.MatchString(c.prefix) {
-		return tableNames{}, errors.Newf("invalid table prefix %q: must match %s", c.prefix, prefixPattern)
+	tables, err := access.TablesWithPrefix(c.prefix, c.store)
+	if err != nil {
+		return tableNames{}, errors.Wrap(err, "access.TablesWithPrefix()")
 	}
-	if !storePattern.MatchString(c.store) {
-		return tableNames{}, errors.Newf("invalid store name %q: must match %s", c.store, storePattern)
-	}
-
-	base := c.prefix + c.store
 
 	return tableNames{
-		roles:      base + "Roles",
-		userRoles:  base + "UserRoles",
-		roleGrants: base + "RoleGrants",
-		userIndex:  base + "UserRolesByUser",
+		roles:      tables.Roles,
+		userRoles:  tables.UserRoles,
+		roleGrants: tables.RoleGrants,
+		userIndex:  tables.UserRolesByUser,
 	}, nil
 }
 

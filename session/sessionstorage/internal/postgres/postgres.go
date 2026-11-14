@@ -56,16 +56,16 @@ type SessionStorageDriver struct {
 func NewSessionStorageDriver(conn Queryer) *SessionStorageDriver {
 	return &SessionStorageDriver{
 		conn:                    conn,
-		sessionTableName:        "Sessions",
-		userTableName:           "SessionUsers",
-		identitiesTableName:     "SessionIdentities",
-		pendingTableName:        "SessionPendingSignIns",
-		attemptsTableName:       "SessionSignInAttempts",
-		mailLinksTableName:      "SessionMailLinks",
-		tokensTableName:         "SessionTokens",
-		deviceCodesTableName:    "SessionDeviceCodes",
-		factorCodesTableName:    "SessionFactorCodes",
-		trustedDevicesTableName: "SessionTrustedDevices",
+		sessionTableName:        dbtype.SessionsTable,
+		userTableName:           dbtype.UsersTable,
+		identitiesTableName:     dbtype.IdentitiesTable,
+		pendingTableName:        dbtype.PendingSignInsTable,
+		attemptsTableName:       dbtype.SignInAttemptsTable,
+		mailLinksTableName:      dbtype.MailLinksTable,
+		tokensTableName:         dbtype.TokensTable,
+		deviceCodesTableName:    dbtype.DeviceCodesTable,
+		factorCodesTableName:    dbtype.FactorCodesTable,
+		trustedDevicesTableName: dbtype.TrustedDevicesTable,
 	}
 }
 

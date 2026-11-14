@@ -568,7 +568,7 @@ func (r *resourceGenerator) featureTests() (*featureTestsData, error) {
 			}
 		}
 	}
-	if r.genRPCMethods {
+	if r.hasRPC() {
 		r.methodFeatureTests(data)
 	}
 

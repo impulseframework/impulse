@@ -131,7 +131,7 @@ func (a *App) InspectShip() http.HandlerFunc {
 			// gate verifies the located row resolves to the request's domain
 			// in this transaction — absent and cross-tenant are the same
 			// NotFound.
-			if err := gate.VerifyTenancy(ctx, txn, resource.ExecuteTarget{Resource: "Refits", Label: "Refit", PKColumn: "Id"}, p.RefitID); err != nil {
+			if err := gate.VerifyTenancy(ctx, txn, resource.ExecuteTarget{Resource: "Refits", Label: "Refit", PKColumns: []string{"Id"}}, p.RefitID); err != nil {
 				return err
 			}
 			switch row.Data.StatusID {
@@ -144,7 +144,7 @@ func (a *App) InspectShip() http.HandlerFunc {
 
 			// A row-referencing condition on the caller's Execute grant
 			// evaluates against the located row, in this transaction.
-			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "Refits", Label: "Refit", PKColumn: "Id"}, p.RefitID); err != nil {
+			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "Refits", Label: "Refit", PKColumns: []string{"Id"}}, p.RefitID); err != nil {
 				return err
 			}
 			answer, err := p.Execute(ctx, txn, a.RPCClient())

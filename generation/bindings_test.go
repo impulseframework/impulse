@@ -8,6 +8,7 @@ import (
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse/generation/parser"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // bindingFixtureTables is the synthetic schema behind the bindingfixture
@@ -61,6 +62,9 @@ func bindingFixtureTables() map[string]*tableMetadata {
 		}},
 		"ScalarOnCompositeKeys": {PkCount: 2, Columns: map[string]columnMeta{
 			"GroupId": compositeKey, "UserId": compositeKey, "Seat": plain,
+		}},
+		"CrewSeats": {PkCount: 2, Columns: map[string]columnMeta{
+			"GroupId": compositeKey, "UserId": compositeKey, "Rank": plain,
 		}},
 		"ScalarOnCompositeUniques": {PkCount: 1, Columns: map[string]columnMeta{
 			"Id": pk, "UserId": compositeUnique, "GroupId": compositeUnique, "Seat": plain,
@@ -361,26 +365,243 @@ func TestResolveBindingAnnotations_rejections(t *testing.T) {
 }
 
 // TestRejectBindingAnnotations pins the placement rule: binding annotations
-// are table-backed resources' vocabulary, rejected on every schemaless
-// struct kind.
+// are table-backed resources' vocabulary, rejected on every schemaless struct
+// kind with where the annotation belongs; a view is exempt for the two bare
+// bindings its own projection carries.
 func TestRejectBindingAnnotations(t *testing.T) {
 	t.Parallel()
 
 	structs := fixtureStructs(loadFixture(t, "bindingfixture"))
-	s := structs["VirtualWithBinding"]
-	if s == nil {
-		t.Fatal("struct VirtualWithBinding not found in fixture package")
-	}
-	annotations, err := genlang.NewScanner(resourceKeywords()).ScanStruct(s)
-	if err != nil {
-		t.Fatalf("ScanStruct() error = %v", err)
+
+	tests := []struct {
+		name       string
+		structName string
+		kind       string
+		allowed    []string
+		wantErr    string
+	}{
+		{
+			name:       "an attribute on a kind that takes none",
+			structName: "VirtualWithBinding",
+			kind:       "RPC result",
+			wantErr:    "struct VirtualWithBinding field CrewID: @attribute is only valid on @resource structs, bare on @virtual structs, and bare on the fields of @rpc and @computed structs; a RPC result has no schema to resolve it against — remove it, or declare it on the table or the view whose rows carry the column",
+		},
+		{
+			name:       "an attribute on a computed resource's field is the resource's own to resolve",
+			structName: "VirtualWithBinding",
+			kind:       "computed resource",
+			allowed:    []string{attributeKeyword},
+		},
+		{
+			name:       "subject vocabulary on a computed resource stays refused",
+			structName: "DigestSubjectSet",
+			kind:       "computed resource",
+			allowed:    []string{attributeKeyword},
+			wantErr:    "struct DigestSubjectSet field UserID: @subjectSet is only valid on @resource structs; a computed resource has no schema to resolve it against — remove it, or declare it on the table whose rows carry the column",
+		},
+		{
+			name:       "an attribute on a view is the view's own to resolve",
+			structName: "VirtualWithBinding",
+			kind:       "virtual resource",
+			allowed:    []string{domainKeyword, attributeKeyword},
+		},
+		{
+			name:       "subject vocabulary on a view stays refused",
+			structName: "DigestSubjectSet",
+			kind:       "virtual resource",
+			allowed:    []string{domainKeyword, attributeKeyword},
+			wantErr:    "struct DigestSubjectSet field UserID: @subjectSet is only valid on @resource structs; a virtual resource has no schema to resolve it against — remove it, or declare it on the table whose rows carry the column",
+		},
 	}
 
-	err = rejectBindingAnnotations(s, annotations, "virtual resource")
-	if err == nil {
-		t.Fatal("rejectBindingAnnotations() expected an error, got nil")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			s := structs[tt.structName]
+			if s == nil {
+				t.Fatalf("struct %s not found in fixture package", tt.structName)
+			}
+			annotations, err := genlang.NewScanner(resourceKeywords()).ScanStruct(s)
+			if err != nil {
+				t.Fatalf("ScanStruct() error = %v", err)
+			}
+
+			err = rejectBindingAnnotations(s, annotations, tt.kind, tt.allowed...)
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("rejectBindingAnnotations() error = %v, want nil", err)
+				}
+
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("rejectBindingAnnotations() error = %v, want it to contain %q", err, tt.wantErr)
+			}
+		})
 	}
-	if !strings.Contains(err.Error(), "only valid on @resource structs") {
-		t.Errorf("rejectBindingAnnotations() error = %q, want the placement-rule message", err)
+}
+
+// Test_resolveVirtualBindings pins what a view declares about its own rows: the
+// tenant column and the facts its query selects, each a bare binding on a column
+// of the projection, named and typed by the rules a table's attribute follows;
+// and what it refuses, each refusal saying what to write instead.
+func Test_resolveVirtualBindings(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadFixture(t, "bindingfixture"))
+
+	t.Run("a view's facts and its tenant column resolve", func(t *testing.T) {
+		t.Parallel()
+
+		c := &client{tableMap: bindingFixtureTables()}
+		views, err := c.structsToVirtualResources([]*parser.Struct{structs["TaskDigest"]})
+		if err != nil {
+			t.Fatalf("structsToVirtualResources() error = %v", err)
+		}
+		if len(views) != 1 {
+			t.Fatalf("structsToVirtualResources() returned %d resources, want 1", len(views))
+		}
+		view := views[0]
+
+		type attribute struct{ Name, Anchor, Type string }
+		var got []attribute
+		for _, attr := range view.Attributes {
+			if len(attr.Path) != 0 {
+				t.Errorf("attribute %s carries a path %v; a view's attribute is its column alone", attr.Name, attr.Path)
+			}
+			got = append(got, attribute{Name: attr.Name, Anchor: attr.Anchor.Name(), Type: attr.Type})
+		}
+		want := []attribute{
+			{Name: "overdue", Anchor: "Overdue", Type: "bool"},
+			{Name: "crew", Anchor: "CrewID", Type: "string"},
+		}
+		if diff := cmp.Diff(want, got); diff != "" {
+			t.Errorf("view attributes mismatch (-want +got):\n%s", diff)
+		}
+		if view.DomainBinding == nil || view.DomainBinding.Anchor.Name() != "StationID" {
+			t.Errorf("DomainBinding = %+v, want the bare binding on StationID", view.DomainBinding)
+		}
+
+		// The collection carries the facts as it carries a table's: what the role
+		// file's migration validates a condition's names against, and what a
+		// condition lowers through.
+		bindings := collectionBindings(view)
+		wantBindings := &resource.Bindings{
+			Attributes: []resource.AttributeData{
+				{Name: "overdue", Column: "Overdue", Type: resource.AttributeTypeBool},
+				{Name: "crew", Column: "CrewId", Type: resource.AttributeTypeString},
+			},
+			Domain: &resource.DomainBindingData{Column: "StationId"},
+		}
+		if diff := cmp.Diff(wantBindings, bindings); diff != "" {
+			t.Errorf("collectionBindings() mismatch (-want +got):\n%s", diff)
+		}
+	})
+
+	t.Run("a list column makes a list attribute, typed by one item", func(t *testing.T) {
+		t.Parallel()
+
+		c := &client{tableMap: bindingFixtureTables()}
+		views, err := c.structsToVirtualResources([]*parser.Struct{structs["DigestWithLists"]})
+		if err != nil {
+			t.Fatalf("structsToVirtualResources() error = %v", err)
+		}
+		if len(views) != 1 {
+			t.Fatalf("structsToVirtualResources() returned %d resources, want 1", len(views))
+		}
+
+		// The collection carries the mark: what deploy validation holds a condition's
+		// list reads to, and what tells the lowering to judge the condition item by item.
+		wantBindings := &resource.Bindings{
+			Attributes: []resource.AttributeData{
+				{Name: "label", Column: "Labels", Type: resource.AttributeTypeString, List: true},
+				{Name: "score", Column: "Scores", Type: resource.AttributeTypeNumber, List: true},
+				{Name: "open", Column: "Open", Type: resource.AttributeTypeBool},
+			},
+			Domain: &resource.DomainBindingData{Column: "StationId"},
+		}
+		if diff := cmp.Diff(wantBindings, collectionBindings(views[0])); diff != "" {
+			t.Errorf("collectionBindings() mismatch (-want +got):\n%s", diff)
+		}
+
+		// A list is a column of the resource's own row: one at the end of a join path
+		// is refused, whichever kind of resource declares it.
+		var labels *resourceField
+		for _, field := range views[0].Fields {
+			if field.Name() == "Labels" {
+				labels = field
+			}
+		}
+		if labels == nil {
+			t.Fatal("the fixture's Labels field is missing")
+		}
+		err = typeAttribute(&attributeBinding{Name: "label", Path: []bindingHop{{Table: "Elsewhere", JoinColumn: "Id", Column: "Labels"}}}, &labels.TypeInfo)
+		if err == nil || !strings.Contains(err.Error(), "the path ends on a list column ([]string); a list attribute is a column of the resource's own row") {
+			t.Errorf("typeAttribute() at the end of a join path error = %v, want the refusal", err)
+		}
+	})
+
+	// Each refusal names the struct and the field, then the reason and what to
+	// write instead; the wrapped error carries them as separate frames.
+	rejections := []struct {
+		name       string
+		structName string
+		wantErr    []string
+	}{
+		{
+			name:       "a list whose items no condition can compare",
+			structName: "DigestListOfUnsupported",
+			wantErr:    []string{"struct DigestListOfUnsupported field Parts", "@attribute(part)", "type [][]byte is a list of []byte, which is not a supported attribute comparison type"},
+		},
+		{
+			name:       "a join path",
+			structName: "DigestByPath",
+			wantErr: []string{
+				"struct DigestByPath field ShipID",
+				"@attribute(shipClass, via: Class): on a virtual resource @attribute takes the name alone — a virtual has no schema to resolve a join path against; select the value in the view's query and declare @attribute(shipClass) on the field over that column",
+			},
+		},
+		{
+			name:       "a reserved name",
+			structName: "DigestReservedName",
+			wantErr:    []string{"struct DigestReservedName field CrewID", `@attribute(subject): "subject" is reserved by the condition expression language`},
+		},
+		{
+			name:       "a name outside the identifier charset",
+			structName: "DigestBadCharset",
+			wantErr:    []string{"struct DigestBadCharset field CrewID", "@attribute(crew-chief): a binding name must match"},
+		},
+		{
+			name:       "one name on two fields",
+			structName: "DigestDuplicateName",
+			wantErr:    []string{"struct DigestDuplicateName field LeadID: @attribute(crew): name already declared by @attribute on this resource"},
+		},
+		{
+			name:       "a column no condition can compare",
+			structName: "DigestUnsupportedType",
+			wantErr:    []string{"struct DigestUnsupportedType field Payload", "@attribute(payload)", "type []byte is not a supported attribute comparison type"},
+		},
+		{
+			name:       "subject vocabulary",
+			structName: "DigestSubjectSet",
+			wantErr:    []string{"struct DigestSubjectSet field UserID: @subjectSet is only valid on @resource structs; a virtual resource has no schema to resolve it against"},
+		},
+	}
+	for _, tt := range rejections {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := &client{tableMap: bindingFixtureTables()}
+			_, err := c.structsToVirtualResources([]*parser.Struct{structs[tt.structName]})
+			if err == nil {
+				t.Fatalf("structsToVirtualResources(%s) error = nil, want one containing %q", tt.structName, tt.wantErr)
+			}
+			for _, want := range tt.wantErr {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("structsToVirtualResources(%s) error = %v, want it to contain %q", tt.structName, err, want)
+				}
+			}
+		})
 	}
 }

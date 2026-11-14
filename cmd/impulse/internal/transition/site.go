@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -215,6 +216,13 @@ func (s Site) promote(a *app.App, site *app.Site, ch *Change) error {
 	dirs := []string{g.ResourcePackageDir, g.HandlersDir(), g.RoutesDir()}
 	if tests := g.HandlerTestsDir(); tests != "" {
 		dirs = append(dirs, tests)
+	}
+	// The tree the generator writes each auth's management into (GenerateIdentity) goes
+	// with the site: a tree belongs to one program, which removes from it what it no
+	// longer writes, so the next site's program gets a tree of its own under its own
+	// directory, as the copy of this program names it.
+	if tree := g.IdentityDir(); tree != "" {
+		dirs = append(dirs, tree)
 	}
 	webDir := ""
 	if target := defaultTarget(g); target != nil {
@@ -1108,13 +1116,31 @@ func (s Site) copySite(a *app.App, first *app.Site, ch *Change) (string, error) 
 		{"the " + first.Name + " site", "the " + s.Name + " site"},
 	}
 	// Hand-written Go files of the site's packages, the resources kept back: every
-	// resource belongs to the first site until someone moves it.
+	// resource belongs to the first site until someone moves it. So does the management of
+	// the auths' people the first site's program generates (GenerateIdentity): an auth's
+	// package builds its identity client from one tree, so one program generates an auth's
+	// management, and the copy is laid in without what names the first site's tree.
+	managed := ""
+	if tree := g.IdentityDir(); tree != "" {
+		managed = modulePath + "/" + tree
+	}
+	var dropped, left []string
 	for _, dir := range []string{g.HandlersDir(), g.RoutesDir(), g.HandlerTestsDir(), from} {
 		if dir == "" {
 			continue
 		}
-		if _, err := copyGoFiles(a, dir, strings.Replace(dir, from, to, 1), rewrites); err != nil {
+		toDir := strings.Replace(dir, from, to, 1)
+		without, err := copyGoFiles(a, dir, toDir, rewrites, managed)
+		if err != nil {
 			return "", err
+		}
+		for _, name := range without.Dropped {
+			if !slices.Contains(dropped, name) {
+				dropped = append(dropped, name)
+			}
+		}
+		for _, line := range without.Left {
+			left = append(left, path.Join(toDir, line))
 		}
 	}
 	resourcesDir := strings.Replace(g.ResourcePackageDir, from, to, 1)
@@ -1136,13 +1162,16 @@ func defaultConfig() resource.Config {
 		return "", err
 	}
 	ch.didf("%s: the %s site, its main package, handlers, router, and authorization harness copied from the %s site with the imports renamed, and an empty resources package (every resource stays the %s site's until it is moved or declared in both)", to, s.Name, first.Name, first.Name)
+	if managed != "" {
+		s.reportManagement(first, g.IdentityDir(), to, dropped, left, ch)
+	}
 
 	// The browser workspace.
 	webDir, project, port := "", "", 0
 	if target := defaultTarget(g); target != nil {
 		if w, ok := a.WebAppFor(target.Dir); ok {
 			webDir = w.Dir
-			project, port = s.copyWorkspace(a, w.Dir, strings.Replace(w.Dir, from, to, 1), ch)
+			project, port = s.copyWorkspace(a, w.Dir, strings.Replace(w.Dir, from, to, 1), managed != "", ch)
 		}
 	}
 	// The generator.
@@ -1239,13 +1268,16 @@ func (s Site) addSharedTarget(a *app.App, shared *app.Generator, clientDir strin
 }
 
 // copyGoFiles copies the hand-written, non-test-generated Go files of one directory to
-// another with the rewrites applied, and returns how many.
-func copyGoFiles(a *app.App, from, to string, rewrites []rewrite) (int, error) {
+// another, rewriting their text, and returns what the copy left out. Where without names
+// a module path, the declarations that name a package imported from under it are not
+// copied (dropPackages): what the first site's program generates there is not the new
+// site's.
+func copyGoFiles(a *app.App, from, to string, rewrites []rewrite, without string) (*withoutPackages, error) {
 	entries, err := os.ReadDir(a.Abs(from))
 	if err != nil {
-		return 0, errors.Wrap(err, "os.ReadDir()")
+		return nil, errors.Wrap(err, "os.ReadDir()")
 	}
-	n := 0
+	files := map[string]string{}
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasPrefix(name, "zz_gen_") {
@@ -1253,29 +1285,56 @@ func copyGoFiles(a *app.App, from, to string, rewrites []rewrite) (int, error) {
 		}
 		data, err := os.ReadFile(a.Abs(path.Join(from, name)))
 		if err != nil {
-			return 0, errors.Wrap(err, "os.ReadFile()")
+			return nil, errors.Wrap(err, "os.ReadFile()")
 		}
-		text := string(data)
+		files[name] = string(data)
+	}
+	copied := &withoutPackages{Files: files}
+	if without != "" {
+		if copied, err = dropPackages(files, without); err != nil {
+			return nil, errors.Wrapf(err, "%s", from)
+		}
+	}
+	written := make([]string, 0, len(copied.Files))
+	for name := range copied.Files {
+		written = append(written, name)
+	}
+	sort.Strings(written)
+	for _, name := range written {
+		text := copied.Files[name]
 		for _, r := range rewrites {
 			text = strings.ReplaceAll(text, r.old, r.new)
 		}
 		formatted, err := formatRewritten(path.Join(to, name), text)
 		if err != nil {
-			return 0, err
+			return nil, err
 		}
 		if err := writeNew(a, path.Join(to, name), string(formatted)); err != nil {
-			return 0, err
+			return nil, err
 		}
-		n++
 	}
 
-	return n, nil
+	return copied, nil
+}
+
+// reportManagement records that the new site was laid in without the management of the
+// auths' people, which stays the first site's, and what is left where hand-written code
+// that was kept still calls for it.
+func (s Site) reportManagement(first *app.Site, tree, to string, dropped, left []string, ch *Change) {
+	what := "nothing of it was named in the copied packages"
+	if len(dropped) > 0 {
+		what = "the copy leaves out what names it (" + strings.Join(dropped, ", ") + ")"
+	}
+	ch.didf("%s: the %s site serves none of the management of the auths' people: the %s site's program generates it into %s, an auth's package builds its identity client from that one tree, and %s. People are managed on the %s site; a site that signs in an auth of its own generates that auth's management in its own program (impulse add auth)", to, s.Name, first.Name, tree, what, first.Name)
+	for _, line := range left {
+		ch.skipf("%s: still calls the method, which the %s site's App no longer carries (the management stays the %s site's); decide what the caller does on the %s site", line, s.Name, first.Name, s.Name)
+	}
 }
 
 // copyWorkspace copies the first site's browser workspace to the new site's, renaming
 // its project after the site: the project directory, and the project's name where the
 // workspace configuration spells it. Returns the project's new name and dev port.
-func (s Site) copyWorkspace(a *app.App, from, to string, ch *Change) (project string, port int) {
+func (s Site) copyWorkspace(a *app.App, from, to string, managed bool, ch *Change) (project string, port int) {
 	projects, err := a.ReadAngular(from)
 	if err != nil || len(projects) == 0 {
 		ch.skipf("%s: no Angular project to copy for the %s site (%v); create its browser workspace at %s", from, s.Name, err, to)
@@ -1308,8 +1367,47 @@ func (s Site) copyWorkspace(a *app.App, from, to string, ch *Change) (project st
 		project = s.Name
 	}
 	ch.didf("%s: the %s site's browser workspace, a copy of %s with its project named %s on port %d; its titles and API prefix still say what the %s site's do", to, s.Name, from, project, port, old.Name)
+	if managed {
+		s.dropIdentityPages(a, to, ch)
+	}
 
 	return project, port
+}
+
+// dropIdentityPages takes the pages of the auths' generated management out of the copied
+// workspace's routes: the new site's program generates none, so its API description
+// names no such page. The projects are read again, since the copy renamed one.
+func (s Site) dropIdentityPages(a *app.App, webDir string, ch *Change) {
+	projects, err := a.ReadAngular(webDir)
+	if err != nil {
+		ch.skipf("%s: its projects could not be read (%v); take the identityRoutes spreads out of the %s site's routes, since its program generates no management", webDir, err, s.Name)
+
+		return
+	}
+	for i := range projects {
+		source := projects[i].SourceRoot
+		if source == "" {
+			source = path.Join(projects[i].Root, "src")
+		}
+		rel := path.Join(webDir, source, appRoutesFile)
+		data, mode, err := readFile(a, rel)
+		if err != nil {
+			continue // a project with no routes file names no page
+		}
+		edited, found := dropIdentityRoutes(string(data))
+		if strings.Contains(edited, "identityRoutes(") {
+			ch.skipf("%s: still calls identityRoutes where the tool does not rewrite it (a spread that shares its line with other code); take it out, since the %s site's program generates no management and its API description names no such page", rel, s.Name)
+		}
+		if !found {
+			continue
+		}
+		if err := os.WriteFile(a.Abs(rel), []byte(edited), mode); err != nil {
+			ch.skipf("%s: not rewritten (%v); take the identityRoutes spreads out of it, since the %s site's program generates no management", rel, err, s.Name)
+
+			continue
+		}
+		ch.didf("%s: without the pages of the auths' generated management (the identityRoutes spreads and what they alone used), which the %s site does not serve", rel, s.Name)
+	}
 }
 
 // writeCI rewrites the owned workflows from the code once the browser workspaces changed:
@@ -1474,6 +1572,13 @@ func (s Site) copyGenerator(a *app.App, g *app.Generator, from, to, webDir, proj
 		data, _, err := readFile(a, path.Join(srcDir, entry.Name()))
 		if err != nil {
 			return "", err
+		}
+		// The management of the auths' people stays the first site's: the tree is one
+		// program's, and an auth's package builds its client from it.
+		if tree := g.IdentityDir(); tree != "" && entry.Name() == path.Base(g.File) {
+			if data, _, err = app.RemoveOptions(g.File, data, optGenerateIdentity, tree); err != nil {
+				return "", err
+			}
 		}
 		if err := writeNew(a, path.Join(dstDir, entry.Name()), rewrite(string(data))); err != nil {
 			return "", err

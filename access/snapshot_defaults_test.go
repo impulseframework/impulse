@@ -52,6 +52,10 @@ func (defaultsCollection) AttributeIsColumn(accesstypes.PermissionScope, accesst
 	return false
 }
 
+func (defaultsCollection) AttributeIsList(accesstypes.PermissionScope, accesstypes.Resource, string) bool {
+	return false
+}
+
 func (defaultsCollection) SubjectSetComparisonType(string) (accesstypes.AttributeType, bool) {
 	return "", false
 }

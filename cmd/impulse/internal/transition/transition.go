@@ -102,7 +102,8 @@ const plainErr = "err"
 // printed. A failed tidy or generate refuses the transition with the given lead sentence
 // and the command's output, instead of noting it for the agent: the regeneration is the
 // transition's own step, and an application left without it is half-bound, its router,
-// user surfaces and browser client still those of the application before the change.
+// generated management and browser client still those of the application before the
+// change.
 func generate(ctx context.Context, a *app.App, exec check.Execer, ch *Change, failed, did string) error {
 	if err := tidy(ctx, a, exec, ch); err != nil {
 		return err
@@ -110,6 +111,47 @@ func generate(ctx context.Context, a *app.App, exec check.Execer, ch *Change, fa
 	out, err := exec.Run(ctx, a.Root, nil, "go", "generate", "./...")
 	if err != nil {
 		return errors.Newf("%s\n%s", failed, strings.TrimSpace(string(out)))
+	}
+	ch.didf("%s", did)
+	for line := range strings.Lines(string(out)) {
+		if w, ok := strings.CutPrefix(strings.TrimRight(line, "\r\n"), WarningPrefix); ok {
+			ch.Warnings = append(ch.Warnings, w)
+		}
+	}
+
+	return nil
+}
+
+// generateFirst is generate for a change whose code imports a package the regeneration
+// itself writes: an auth rendered with its identity client imports the package of the
+// auth's generated management, which exists once the generator ran, and go mod tidy
+// refuses a module whose packages import what does not exist. So the module is tidied
+// first as far as it goes (go mod tidy -e, which adds the requirements the change's other
+// imports need and leaves the missing package be), the generators run, and the strict
+// tidy after them holds the module whole, as generate's does before them. The did lines
+// and the refusals are generate's.
+func generateFirst(ctx context.Context, a *app.App, exec check.Execer, ch *Change, failed, did string) error {
+	before, err := parseGoMod(a)
+	if err != nil {
+		return err
+	}
+	if out, err := exec.Run(ctx, a.Root, nil, "go", "mod", "tidy", "-e"); err != nil {
+		return errors.Newf("go mod tidy -e failed, so go.mod does not require what the change imports; fix the cause and run it, then go generate ./... and go mod tidy:\n%s", strings.TrimSpace(string(out)))
+	}
+	out, err := exec.Run(ctx, a.Root, nil, "go", "generate", "./...")
+	if err != nil {
+		return errors.Newf("%s\n%s", failed, strings.TrimSpace(string(out)))
+	}
+	if tidied, err := exec.Run(ctx, a.Root, nil, "go", "mod", "tidy"); err != nil {
+		return errors.Newf("go mod tidy failed after the regeneration, so the module is not whole: a package the change imports is neither required nor generated; fix the cause and run it:\n%s", strings.TrimSpace(string(tidied)))
+	}
+	after, err := parseGoMod(a)
+	if err != nil {
+		return err
+	}
+	a.GoMod = after
+	for _, line := range requirementChanges(before, after) {
+		ch.didf("%s", line)
 	}
 	ch.didf("%s", did)
 	for line := range strings.Lines(string(out)) {

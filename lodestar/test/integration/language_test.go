@@ -1,4 +1,4 @@
-// Demonstrates: condition.subject-scalar, condition.not-in, condition.prefix-not, @attribute.bool, @attribute.nullable-bool, @attribute.date, @attribute.decimal, @attribute.nullable-fk, @attribute.join-path, @subjectSet.domain, @subjectSet.global, @subjectSet.dotted-value, @subjectValue, @subjectValue.two-per-anchor, immutable, @attribute, @attribute.join-path-global, condition.now, execute-condition.
+// Demonstrates: condition.subject-scalar, condition.not-in, condition.prefix-not, @attribute.bool, @attribute.nullable-bool, @attribute.date, @attribute.decimal, @attribute.nullable-fk, @attribute.join-path, @subjectSet.domain, @subjectSet.global, @subjectSet.dotted-value, @subjectValue, @subjectValue.two-per-anchor, immutable, @attribute, @attribute.join-path-global, condition.now, execute-condition, condition.key-only-read.
 package integration
 
 // language_test is the grammar's drift gate (design plan §9): one case per construct
@@ -62,6 +62,23 @@ func TestConditionLanguage(t *testing.T) {
 			user:      "cadet",
 			target:    sectorPath(anvil, "missions?limit=200"),
 			wantIDs:   append([]string{missionHaulerID, missionCourierID, missionTowID, missionQuarantineID}, missionIDs(12, 13, 17, 18, 22, 23, 27, 28, 32, 33)...),
+		},
+		// The key sits outside the visibility rules, so a list of the key alone has
+		// no column's condition to stand for the row's: the condition on the
+		// resource filters it, and the rows are the ones the full list shows.
+		{
+			name:      "cadet: a list of the key alone is filtered by the same condition",
+			construct: "hazard IN (1, 2), columns=id",
+			user:      "cadet",
+			target:    sectorPath(anvil, "missions?columns=id&limit=200"),
+			wantIDs:   append([]string{missionHaulerID, missionCourierID, missionTowID, missionQuarantineID}, missionIDs(12, 13, 17, 18, 22, 23, 27, 28, 32, 33)...),
+		},
+		{
+			name:      "pilot: a list of the key alone, under a subject value and a subject set",
+			construct: "hazard <= subject.clearance AND (requiredCert IS NULL OR requiredCert IN subject.certifications), columns=id",
+			user:      "pilot",
+			target:    sectorPath(anvil, "missions?columns=id&limit=200"),
+			wantIDs:   append([]string{missionHaulerID, missionCorvidID, missionCourierID, missionTowID, missionQuarantineID}, missionIDs(12, 13, 17, 19, 23, 24, 27, 28, 29, 32, 33)...),
 		},
 		{
 			name:      "veteran: prefix NOT over a parenthesised OR drops routine, low-fee work",

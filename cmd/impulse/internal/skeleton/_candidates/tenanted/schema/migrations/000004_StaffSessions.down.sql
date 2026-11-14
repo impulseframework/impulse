@@ -10,6 +10,7 @@ DROP INDEX StaffSessionTokensByFamily;
 DROP INDEX StaffSessionTokensByUser;
 DROP INDEX StaffSessionTokensByTokenHash;
 DROP TABLE StaffSessionTokens;
+DROP INDEX StaffSessionMailLinksByTenant;
 DROP INDEX StaffSessionMailLinksByKind;
 DROP INDEX StaffSessionMailLinksByTokenHash;
 DROP TABLE StaffSessionMailLinks;

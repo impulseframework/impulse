@@ -11,6 +11,20 @@
         </button>
       </div>
     </action-access-control-wrapper>
+    @if (listMethods().length > 0) {
+      <div class="list-methods">
+        @for (method of listMethods(); track method.method) {
+          <button mat-raised-button type="button" class="list-method" color="accent" (click)="runMethod(method)">
+            <div class="edit-text">
+              @if (method.icon) {
+                <mat-icon>{{ method.icon }}</mat-icon>
+              }
+              <span class="edit-button-text"> {{ method.label }} </span>
+            </div>
+          </button>
+        }
+      </div>
+    }
   </div>
   @if (showSearchBox()) {
     <div class="search-container" [class.indent]="indentTitle()">

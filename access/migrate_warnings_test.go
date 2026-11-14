@@ -64,6 +64,10 @@ func (probeCollection) AttributeIsColumn(_ accesstypes.PermissionScope, res acce
 	return res == "Missions"
 }
 
+func (probeCollection) AttributeIsList(accesstypes.PermissionScope, accesstypes.Resource, string) bool {
+	return false
+}
+
 func (probeCollection) SubjectSetComparisonType(string) (accesstypes.AttributeType, bool) {
 	return "", false
 }

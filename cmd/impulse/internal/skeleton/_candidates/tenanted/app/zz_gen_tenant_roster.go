@@ -6,18 +6,17 @@ package app
 import (
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/router"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/signin"
 )
 
-// The Tenant record's create seats its creator as the first administrator of the new
-// tenant (resource.SeatFirstAdministrator, after the commit) with the roles
-// TenantAdministratorRoles names, through the Staff auth's user-management surface:
-// the application supplies both beside the generated contract.
+// The Tenant record's create makes its creator the first administrator of the new
+// tenant: the roles TenantAdministratorRoles names are given in the
+// transaction that writes the row, through the Staff auth's generated identity
+// client (StaffIdentity, which the auth's generated handlers ask of the
+// application too). The application supplies the roles beside the generated contract.
 var _ interface {
 	TenantAdministratorRoles() []accesstypes.Role
-	StaffUserSurface() *resource.UserSurface[router.StaffAuth]
 } = (*App)(nil)
 
 // tenantDeclaration names where the Tenant record keeps its declaration of who
@@ -66,7 +65,8 @@ func NewTenantDeclarationReader() signin.DeclarationReader[*spanner.ReadWriteTra
 // directory vouches for is seated with at their first sign-in, none for a NULL, and the
 // tenant admits them by invitation only),
 // read in the sign-in's own transaction. The application hands it to the auth whose
-// people enter tenants, beside the seat hook (resource.SeatDeclared).
+// people enter tenants, beside the hook that gives the default role (the
+// auth's generated identity client's DirectorySeated).
 func NewTenantDirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTransaction] {
 	return resource.NewTenantDirectoryReader(&tenantDeclaration)
 }

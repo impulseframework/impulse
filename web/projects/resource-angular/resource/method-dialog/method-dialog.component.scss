@@ -1,0 +1,15 @@
+.question {
+  margin: 0;
+}
+
+.files {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0 0;
+}
+
+.refusal {
+  margin: 12px 0 0;
+  color: var(--mat-sys-error, #b3261e);
+}

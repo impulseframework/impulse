@@ -17,6 +17,8 @@ import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/auth"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/auth/members"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/auth/staff"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/membersidentity"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/staffidentity"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/router"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
@@ -78,19 +80,17 @@ type Configurer interface {
 	// Staff returns the auth the console binds to: the staff auth, whose session manager
 	// the App composes the console's login and session handlers from.
 	Staff() *staff.Auth
-	// StaffUserStores are the stores the staff auth's user-management surface serves over:
-	// the staff session's accounts and the staff engine's seats. New builds the surface
-	// with the generated constructor (router.NewStaffUserSurface); the generated handlers
-	// of the staff users, seats and roles delegate to it.
-	StaffUserStores() (resource.UserAccounts, resource.UserSeats)
+	// StaffIdentity is the staff auth's identity client (pkg/identity/staffidentity, generated): what
+	// the generated methods that manage the auth's people run over. The data level builds
+	// it over the auth's permission engine and its session manager.
+	StaffIdentity() *staffidentity.Client
 	// Members returns the auth the portal outlet binds to: the members auth, whose
 	// session manager the App hands the router for the portal's session group.
 	Members() *members.Auth
-	// MembersUserStores are the stores the members auth's user-management surface serves over:
-	// the members session's accounts and the members engine's seats. New builds the surface
-	// with the generated constructor (router.NewMembersUserSurface); the generated handlers
-	// of the members users, seats and roles delegate to it.
-	MembersUserStores() (resource.UserAccounts, resource.UserSeats)
+	// MembersIdentity is the members auth's identity client (pkg/identity/membersidentity, generated): what
+	// the generated methods that manage the auth's people run over. The data level builds
+	// it over the auth's permission engine and its session manager.
+	MembersIdentity() *membersidentity.Client
 	// Live is the live service the generated handlers subscribe through and publish to
 	// (LiveService) and the feature flags follow (Start): the Firestore service over the
 	// database or the emulator the data level opened, required in every application. One
@@ -120,16 +120,20 @@ type App struct {
 	access  access.Controller
 	engines map[string]access.Controller
 	*staff.Handlers
-	staffUsers     *resource.UserSurface[router.StaffAuth]
-	portal         *members.Handlers
-	membersUsers   *resource.UserSurface[router.MembersAuth]
-	resourceClient resource.Client
-	cursorKey      *resource.CursorKey
-	tenants        *resource.TenantRoster
-	declarations   resource.TenantDeclarations
-	validate       *validator.Validate
-	logExporter    logger.Exporter
-	version        string
+	// staffIdentity is the staff auth's identity client, which the generated handlers of
+	// pkg/identity read through StaffIdentity.
+	staffIdentity *staffidentity.Client
+	portal        *members.Handlers
+	// membersIdentity is the members auth's identity client, which the generated handlers of
+	// pkg/identity read through MembersIdentity.
+	membersIdentity *membersidentity.Client
+	resourceClient  resource.Client
+	cursorKey       *resource.CursorKey
+	tenants         *resource.TenantRoster
+	declarations    resource.TenantDeclarations
+	validate        *validator.Validate
+	logExporter     logger.Exporter
+	version         string
 	// consoleApp and portalApp serve the two built bundles under /console and /portal: the
 	// resource package's served browser app holds the deep-link rewrite, the prefix strip,
 	// and the two cache classes a service worker needs (hashed files immutable, everything
@@ -147,28 +151,22 @@ type App struct {
 
 // New constructs an App from its dependencies.
 func New(cfg Configurer) *App {
-	// The user-management surfaces over the auths' stores: each knows its auth's
-	// administrator roles (resource.WithAdministratorRoles), so a self-unseat is judged
-	// by the last-owner rule, and what each tenant declares (resource.WithTenantDirectories),
-	// so a tenant's administrator seats a person its own directory vouched for.
-	staffAccounts, staffSeats := cfg.StaffUserStores()
-	memberAccounts, memberSeats := cfg.MembersUserStores()
 	a := &App{
-		access:         cfg.Access(),
-		engines:        map[string]access.Controller{},
-		resourceClient: cfg.ResourceClient(),
-		staffUsers:     router.NewStaffUserSurface(staffAccounts, staffSeats, resource.WithTenantDirectories(cfg.TenantDeclarations()), resource.WithAdministratorRoles(staff.AdministratorRoles())),
-		membersUsers:   router.NewMembersUserSurface(memberAccounts, memberSeats, resource.WithTenantDirectories(cfg.TenantDeclarations()), resource.WithAdministratorRoles(members.AdministratorRoles())),
-		cursorKey:      cfg.CursorKey(),
-		tenants:        cfg.TenantRoster(),
-		declarations:   cfg.TenantDeclarations(),
-		validate:       cfg.Validator(),
-		logExporter:    cfg.LogExporter(),
-		version:        cfg.AppVersion(),
-		consoleApp:     resource.NewBrowserApp(cfg.ConsoleDist(), "/console"),
-		portalApp:      resource.NewBrowserApp(cfg.PortalDist(), "/portal"),
-		live:           cfg.Live(),
-		csp:            cspPolicy(cfg.LiveOrigins()),
+		access:          cfg.Access(),
+		engines:         map[string]access.Controller{},
+		resourceClient:  cfg.ResourceClient(),
+		staffIdentity:   cfg.StaffIdentity(),
+		membersIdentity: cfg.MembersIdentity(),
+		cursorKey:       cfg.CursorKey(),
+		tenants:         cfg.TenantRoster(),
+		declarations:    cfg.TenantDeclarations(),
+		validate:        cfg.Validator(),
+		logExporter:     cfg.LogExporter(),
+		version:         cfg.AppVersion(),
+		consoleApp:      resource.NewBrowserApp(cfg.ConsoleDist(), "/console"),
+		portalApp:       resource.NewBrowserApp(cfg.PortalDist(), "/portal"),
+		live:            cfg.Live(),
+		csp:             cspPolicy(cfg.LiveOrigins()),
 	}
 	// The feature flags: the application's copy of the FeatureFlags table, read as the
 	// App is built so the generated handlers answer from it at once; Start keeps it

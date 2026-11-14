@@ -177,7 +177,31 @@
             @for (col of columnDefs(); track col.id + col.header) {
               @if (col.buttonConfig) {
                 <td class="data-col action-col" [style.width.px]="widthFor(col)">
-                  @if (col.buttonConfig.actionType === 'link' && col.buttonConfig.viewRoute) {
+                  @if (col.buttonConfig.actionType === 'menu') {
+                    @let actions = actionsOf(row);
+                    @if (actions.length > 0) {
+                      <button
+                        type="button"
+                        mat-icon-button
+                        class="row-actions"
+                        [matMenuTriggerFor]="rowActionsMenu"
+                        [attr.aria-label]="col.buttonConfig.label"
+                        [matTooltip]="col.buttonConfig.label || ''"
+                        [matTooltipPosition]="col.tooltipPosition || 'above'">
+                        <mat-icon>{{ col.buttonConfig.icon || 'more_vert' }}</mat-icon>
+                      </button>
+                      <mat-menu #rowActionsMenu="matMenu">
+                        @for (action of actions; track action.id) {
+                          <button type="button" mat-menu-item class="row-action" (click)="action.run()">
+                            @if (action.icon) {
+                              <mat-icon>{{ action.icon }}</mat-icon>
+                            }
+                            <span>{{ action.label }}</span>
+                          </button>
+                        }
+                      </mat-menu>
+                    }
+                  } @else if (col.buttonConfig.actionType === 'link' && col.buttonConfig.viewRoute) {
                     <a
                       mat-icon-button
                       [routerLink]="'/' + col.buttonConfig.viewRoute + '/' + row[col.buttonConfig.keyField ?? 'id']"

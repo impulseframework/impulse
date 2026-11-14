@@ -598,6 +598,16 @@ func (u *userManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyS
 // methods take a role as it is held; ResolveRole is where a name from outside
 // finds its spelling.
 func (u *userManager) roleExists(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
+	return u.roleExistsBy(ctx, scope, role, u.store.roleExists)
+}
+
+// roleReader reports whether the roles table holds the custom role in exactly the scope:
+// the store's own read, or a caller's over its transaction (Membership).
+type roleReader func(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
+
+// roleExistsBy is roleExists with the read of the roles table the caller names, so the
+// rule is one whoever reads.
+func (u *userManager) roleExistsBy(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, held roleReader) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -605,19 +615,24 @@ func (u *userManager) roleExists(ctx context.Context, scope accesstypes.PolicySc
 		return true, nil
 	}
 
-	held, err := u.customRoleScope(ctx, scope, role)
+	where, err := customRoleScopeBy(ctx, scope, role, held)
 	if err != nil {
 		return false, err
 	}
 
-	return held != nil, nil
+	return where != nil, nil
 }
 
 // customRoleScope finds where the custom role a request in scope would see is
 // held: scope itself, or every domain when scope is one domain; nil when no
 // custom role of that name is held in either.
 func (u *userManager) customRoleScope(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (*accesstypes.PolicyScope, error) {
-	exists, err := u.store.roleExists(ctx, scope, role)
+	return customRoleScopeBy(ctx, scope, role, u.store.roleExists)
+}
+
+// customRoleScopeBy is customRoleScope with the read of the roles table the caller names.
+func customRoleScopeBy(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, held roleReader) (*accesstypes.PolicyScope, error) {
+	exists, err := held(ctx, scope, role)
 	if err != nil {
 		return nil, err
 	}
@@ -628,7 +643,7 @@ func (u *userManager) customRoleScope(ctx context.Context, scope accesstypes.Pol
 		return nil, nil
 	}
 	everywhere := accesstypes.EveryDomainPolicyScope()
-	exists, err = u.store.roleExists(ctx, everywhere, role)
+	exists, err = held(ctx, everywhere, role)
 	if err != nil {
 		return nil, err
 	}

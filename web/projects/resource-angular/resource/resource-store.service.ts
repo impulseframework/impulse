@@ -33,12 +33,15 @@ import { NotificationService } from '@impulseframework/resource-angular/ui-notif
 import {
   AnyResourceHandle,
   BatchResult,
+  Capability,
   Domain,
   keyBatches,
   keyLookupQuery,
   ListQuery,
   liveSubscription,
   LiveSubscription,
+  MethodHandle,
+  methodHandle,
   Operation,
   Page,
   pageIsLive,
@@ -51,6 +54,7 @@ import {
 import { from, map, mergeMap, Observable, of, tap, toArray } from 'rxjs';
 import { PagedList, PagedListRequest } from './paged-list';
 import { PagePosition, positionAfter } from './resource-list/list-request';
+import { methodsTargeting } from './row-methods/row-methods';
 
 /** One page of the listed resource as the table shows it, positioned in the server's list. */
 export interface ListPage {
@@ -95,6 +99,12 @@ export class ResourceStore {
   searchPII = signal(false);
   /** Set while the page has nothing to ask for (the digest grants none of its columns): no request is made. */
   listSuspended = signal(false);
+  /**
+   * The per-row capabilities the list page asks the server to answer with its rows: none
+   * by default, `Execute` on a list whose rows offer methods. A change asks for a first
+   * page again.
+   */
+  pageCapabilities = signal<Capability[]>([], { equal: (a, b) => a.length === b.length && a.every((c, i) => c === b[i]) });
   /**
    * The page's own choice about being live: `live` on its ListViewConfig or ViewConfig,
    * undefined when the config says nothing. Resolved against the metadata in `live`.
@@ -217,6 +227,7 @@ export class ResourceStore {
       limit: this.pageSize(),
       domain: this.scopedDomain(this.descriptorFor(route)),
       live: this.live(),
+      capabilities: this.pageCapabilities(),
     };
   });
 
@@ -305,6 +316,7 @@ export class ResourceStore {
       limit: query.limit,
       count: true,
       live: query.live || undefined,
+      capabilities: query.capabilities.length > 0 ? query.capabilities : undefined,
     };
     void this.runPageRequest(() => handle.page(request as never) as Promise<Page<RecordData>>, 'first', 0);
   }
@@ -372,6 +384,37 @@ export class ResourceStore {
    * whether they may delete it. Undefined until the row resolves.
    */
   viewCapabilities = computed(() => rowCapabilities(this.viewData()));
+  /**
+   * Whether the row page offers the row's methods: on unless the page switches them off
+   * (`rowMethods: false`), and then the read asks the server nothing about them.
+   */
+  viewMethods = signal(true);
+
+  /**
+   * How many methods have run against the page's row, or against a row of one of its
+   * child lists, since the page opened. A method may change anything under the row, so
+   * every child list of the page reads again when this moves (see rowChanged).
+   */
+  rowChanges = signal(0);
+
+  /**
+   * A method has run against the page's row or under it: the row is read again, and the
+   * count moves so the page's child lists read again with it. The read is asked for
+   * first, so whoever follows the count sees the row already reading.
+   */
+  rowChanged(): void {
+    this.reloadViewData();
+    this.rowChanges.update((count) => count + 1);
+  }
+
+  /**
+   * The generated methods that run against a row of the resource (`@target` naming it),
+   * by the method metadata: the methods a page of the resource asks the server about
+   * with a row and may offer on it.
+   */
+  methodsTargeting(resource: Resource): string[] {
+    return methodsTargeting(Object.keys(this.client.descriptor.methods), this.methodMeta, resource);
+  }
 
   overrideRoute = signal<string>('');
   resourceRoute = computed(() => this.resourceMeta()?.route);
@@ -614,19 +657,24 @@ export class ResourceStore {
           if (!currentRoute || !key || key === 'undefined') {
             return undefined;
           }
+          const descriptor = this.descriptorFor(currentRoute);
           return {
             route: currentRoute,
             uuid: key,
-            domain: this.scopedDomain(this.descriptorFor(currentRoute)),
+            domain: this.scopedDomain(descriptor),
             live: live(),
+            // The row's Execute answer is asked for where a generated method runs
+            // against a row of the resource and the page offers its rows' methods.
+            execute: this.viewMethods() && this.methodsTargeting(descriptor.resource as Resource).length > 0,
           };
         },
         stream: ({ params }) => {
           // The view is the edit surface: opt into the capability envelope so each
-          // field and the delete button render from the row's own affordances.
+          // field, the delete button and the row's methods render from the row's own
+          // affordances.
           return from(
             this.handleFor(params.route).read([params.uuid], {
-              capabilities: ['Update', 'Delete'],
+              capabilities: params.execute ? ['Update', 'Delete', 'Execute'] : ['Update', 'Delete'],
               live: params.live || undefined,
             }) as Promise<RecordData>,
           );
@@ -811,14 +859,23 @@ export class ResourceStore {
     return from(handle.list(request as never) as Promise<T[]>);
   }
 
-  rpcCall<T>(rpcConfig: RPCConfig, body: T): Observable<T> {
-    const methodData = this.methodMeta(rpcConfig.method);
-    if (!methodData) {
-      console.error('Method not found in methodMap:', rpcConfig.method);
-      return of({} as T);
-    }
+  /**
+   * The handle of a generated method, by its name: bound to the selected tenant when the
+   * method is a tenant's, so its route carries the tenant and its digest answer is the
+   * tenant's. A tenant's method with no tenant selected is refused before anything is
+   * sent, and so is a name the API does not describe.
+   */
+  methodHandle<Body = Record<string, unknown>, Result = unknown>(method: string): MethodHandle<Body, Result> {
+    return methodHandle<Body, Result>(this.client, method, this.domain());
+  }
 
-    return from(this.client.request<T>('POST', methodData.route, { body })).pipe(
+  /**
+   * Calls the method a page's configuration names, through the method's handle: a
+   * tenant's method is posted under the selected tenant, and a method that declares its
+   * statuses resolves a declared one.
+   */
+  rpcCall<T>(rpcConfig: RPCConfig, body: T): Observable<T> {
+    return from(this.methodHandle<T, T>(rpcConfig.method).execute(body)).pipe(
       tap(() => {
         this.notifications.addGlobalNotification({
           message: rpcConfig.successMessage ? rpcConfig.successMessage : `${rpcConfig.method} called successfully`,

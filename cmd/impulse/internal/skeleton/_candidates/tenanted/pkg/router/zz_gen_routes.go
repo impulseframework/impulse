@@ -25,10 +25,21 @@ const BodyLimit int64 = 4194304
 
 const (
 	// Domain is the route parameter carrying the permission domain for domain-scoped routes.
-	Domain            httpio.ParamType = "tenantID"
-	AnnouncementID    httpio.ParamType = "announcementID"
-	TenantID          httpio.ParamType = "tenantID"
-	TenantDirectoryID httpio.ParamType = "tenantDirectoryID"
+	Domain                      httpio.ParamType = "tenantID"
+	AnnouncementID              httpio.ParamType = "announcementID"
+	StaffSessionID              httpio.ParamType = "staffSessionID"
+	StaffSessionIdentityID      httpio.ParamType = "staffSessionIdentityID"
+	StaffSessionMailLinkID      httpio.ParamType = "staffSessionMailLinkID"
+	StaffSessionTokenID         httpio.ParamType = "staffSessionTokenID"
+	StaffSessionTrustedDeviceID httpio.ParamType = "staffSessionTrustedDeviceID"
+	StaffSessionUserID          httpio.ParamType = "staffSessionUserID"
+	StaffTenantIdentityID       httpio.ParamType = "staffTenantIdentityID"
+	StaffTenantInvitationID     httpio.ParamType = "staffTenantInvitationID"
+	StaffTenantUserID           httpio.ParamType = "staffTenantUserID"
+	StaffTenantUserRoleUserID   httpio.ParamType = "staffTenantUserRoleUserID"
+	StaffTenantUserRoleRole     httpio.ParamType = "staffTenantUserRoleRole"
+	TenantID                    httpio.ParamType = "tenantID"
+	TenantDirectoryID           httpio.ParamType = "tenantDirectoryID"
 )
 
 type GeneratedHandlers interface {
@@ -55,52 +66,112 @@ type GeneratedHandlers interface {
 	Announcements() http.HandlerFunc
 	Announcement() http.HandlerFunc
 
+	AssignStaffRole() http.HandlerFunc
+
+	AssignStaffTenantRole() http.HandlerFunc
+
+	CreateStaffTenantUser() http.HandlerFunc
+
+	CreateStaffUser() http.HandlerFunc
+
 	CreateTenant() http.HandlerFunc
+
+	DeleteStaffTenantUser() http.HandlerFunc
+
+	DeleteStaffUser() http.HandlerFunc
+
+	DisableStaffTenantUser() http.HandlerFunc
+
+	DisableStaffUser() http.HandlerFunc
+
+	EnableStaffTenantUser() http.HandlerFunc
+
+	EnableStaffUser() http.HandlerFunc
+
+	EndStaffSession() http.HandlerFunc
+
+	EndStaffTenantUserSessions() http.HandlerFunc
+
+	EndStaffUserSessions() http.HandlerFunc
 
 	FeatureFlags() http.HandlerFunc
 	FeatureFlag() http.HandlerFunc
 
 	Features() http.HandlerFunc
 
-	ResetStaffTenantUserFactors() http.HandlerFunc
+	InviteStaffTenantUser() http.HandlerFunc
 
-	ResetStaffUserFactors() http.HandlerFunc
+	InviteStaffUser() http.HandlerFunc
+
+	RemoveStaffRole() http.HandlerFunc
+
+	RemoveStaffTenantRole() http.HandlerFunc
+
+	RenameStaffTenantUser() http.HandlerFunc
+
+	RenameStaffUser() http.HandlerFunc
+
+	RequireStaffPasswordChange() http.HandlerFunc
+
+	RequireStaffTenantPasswordChange() http.HandlerFunc
+
+	RevokeStaffSessionToken() http.HandlerFunc
+
+	RevokeStaffTenantUserTrustedDevices() http.HandlerFunc
+
+	RevokeStaffUserTrustedDevices() http.HandlerFunc
 
 	SetFeature() http.HandlerFunc
 
-	SetStaffTenantUserPassword() http.HandlerFunc
+	SetStaffTemporaryPassword() http.HandlerFunc
 
-	SetStaffUserPassword() http.HandlerFunc
+	SetStaffTenantTemporaryPassword() http.HandlerFunc
 
-	StaffInvitations() http.HandlerFunc
-	StaffInvitation() http.HandlerFunc
-	PatchStaffInvitations() http.HandlerFunc
+	SetStaffTenantUserEmail() http.HandlerFunc
+
+	SetStaffUserEmail() http.HandlerFunc
 
 	StaffRoles() http.HandlerFunc
-	StaffRole() http.HandlerFunc
 
-	StaffSeats() http.HandlerFunc
-	StaffSeat() http.HandlerFunc
-	PatchStaffSeats() http.HandlerFunc
+	StaffRoleGrants() http.HandlerFunc
+
+	StaffSessions() http.HandlerFunc
+	StaffSession() http.HandlerFunc
+
+	StaffSessionAuthEvents() http.HandlerFunc
+
+	StaffSessionIdentities() http.HandlerFunc
+	StaffSessionIdentity() http.HandlerFunc
+
+	StaffSessionMailLinks() http.HandlerFunc
+	StaffSessionMailLink() http.HandlerFunc
+
+	StaffSessionSignInAttempts() http.HandlerFunc
+
+	StaffSessionTokens() http.HandlerFunc
+	StaffSessionToken() http.HandlerFunc
+
+	StaffSessionTrustedDevices() http.HandlerFunc
+	StaffSessionTrustedDevice() http.HandlerFunc
+
+	StaffSessionUsers() http.HandlerFunc
+	StaffSessionUser() http.HandlerFunc
+
+	StaffTenantIdentities() http.HandlerFunc
+	StaffTenantIdentity() http.HandlerFunc
 
 	StaffTenantInvitations() http.HandlerFunc
 	StaffTenantInvitation() http.HandlerFunc
-	PatchStaffTenantInvitations() http.HandlerFunc
 
 	StaffTenantRoles() http.HandlerFunc
-	StaffTenantRole() http.HandlerFunc
-
-	StaffTenantSeats() http.HandlerFunc
-	StaffTenantSeat() http.HandlerFunc
-	PatchStaffTenantSeats() http.HandlerFunc
 
 	StaffTenantUsers() http.HandlerFunc
 	StaffTenantUser() http.HandlerFunc
-	PatchStaffTenantUsers() http.HandlerFunc
 
-	StaffUsers() http.HandlerFunc
-	StaffUser() http.HandlerFunc
-	PatchStaffUsers() http.HandlerFunc
+	StaffTenantUserRoles() http.HandlerFunc
+	StaffTenantUserRole() http.HandlerFunc
+
+	StaffUserRoles() http.HandlerFunc
 
 	Tenants() http.HandlerFunc
 	Tenant() http.HandlerFunc
@@ -108,9 +179,15 @@ type GeneratedHandlers interface {
 	TenantDirectories() http.HandlerFunc
 	TenantDirectory() http.HandlerFunc
 
-	UnlinkStaffTenantUserIdentity() http.HandlerFunc
+	UnlinkStaffSessionIdentity() http.HandlerFunc
 
-	UnlinkStaffUserIdentity() http.HandlerFunc
+	UnlinkStaffTenantSessionIdentity() http.HandlerFunc
+
+	UnlockStaffSignIn() http.HandlerFunc
+
+	WithdrawStaffInvitation() http.HandlerFunc
+
+	WithdrawStaffTenantInvitation() http.HandlerFunc
 
 	PatchResources() http.HandlerFunc
 }
@@ -141,7 +218,33 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/tenants/{tenantID}/announcements/{announcementID}", announcementHandler)
 	bounded.Post("/api/tenants/{tenantID}/announcements/{announcementID}", announcementHandler)
 
+	r.Post("/api/assign-staff-role", h.AssignStaffRole())
+
+	r.Post("/api/tenants/{tenantID}/assign-staff-tenant-role", domainGuard(h.AssignStaffTenantRole()))
+
+	r.Post("/api/tenants/{tenantID}/create-staff-tenant-user", domainGuard(h.CreateStaffTenantUser()))
+
+	r.Post("/api/create-staff-user", h.CreateStaffUser())
+
 	bounded.Post("/api/create-tenant", h.CreateTenant())
+
+	r.Post("/api/tenants/{tenantID}/delete-staff-tenant-user", domainGuard(h.DeleteStaffTenantUser()))
+
+	r.Post("/api/delete-staff-user", h.DeleteStaffUser())
+
+	r.Post("/api/tenants/{tenantID}/disable-staff-tenant-user", domainGuard(h.DisableStaffTenantUser()))
+
+	r.Post("/api/disable-staff-user", h.DisableStaffUser())
+
+	r.Post("/api/tenants/{tenantID}/enable-staff-tenant-user", domainGuard(h.EnableStaffTenantUser()))
+
+	r.Post("/api/enable-staff-user", h.EnableStaffUser())
+
+	r.Post("/api/end-staff-session", h.EndStaffSession())
+
+	r.Post("/api/tenants/{tenantID}/end-staff-tenant-user-sessions", domainGuard(h.EndStaffTenantUserSessions()))
+
+	r.Post("/api/end-staff-user-sessions", h.EndStaffUserSessions())
 
 	featureFlagsHandler := h.FeatureFlags()
 	bounded.Get("/api/feature-flags", featureFlagsHandler)
@@ -153,43 +256,109 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	bounded.Get("/api/features", h.Features())
 
-	bounded.Post("/api/tenants/{tenantID}/reset-staff-tenant-user-factors", domainGuard(h.ResetStaffTenantUserFactors()))
+	r.Post("/api/tenants/{tenantID}/invite-staff-tenant-user", domainGuard(h.InviteStaffTenantUser()))
 
-	bounded.Post("/api/reset-staff-user-factors", h.ResetStaffUserFactors())
+	r.Post("/api/invite-staff-user", h.InviteStaffUser())
+
+	r.Post("/api/remove-staff-role", h.RemoveStaffRole())
+
+	r.Post("/api/tenants/{tenantID}/remove-staff-tenant-role", domainGuard(h.RemoveStaffTenantRole()))
+
+	r.Post("/api/tenants/{tenantID}/rename-staff-tenant-user", domainGuard(h.RenameStaffTenantUser()))
+
+	r.Post("/api/rename-staff-user", h.RenameStaffUser())
+
+	r.Post("/api/require-staff-password-change", h.RequireStaffPasswordChange())
+
+	r.Post("/api/tenants/{tenantID}/require-staff-tenant-password-change", domainGuard(h.RequireStaffTenantPasswordChange()))
+
+	r.Post("/api/revoke-staff-session-token", h.RevokeStaffSessionToken())
+
+	r.Post("/api/tenants/{tenantID}/revoke-staff-tenant-user-trusted-devices", domainGuard(h.RevokeStaffTenantUserTrustedDevices()))
+
+	r.Post("/api/revoke-staff-user-trusted-devices", h.RevokeStaffUserTrustedDevices())
 
 	bounded.Post("/api/set-feature", h.SetFeature())
 
-	bounded.Post("/api/tenants/{tenantID}/set-staff-tenant-user-password", domainGuard(h.SetStaffTenantUserPassword()))
+	r.Post("/api/set-staff-temporary-password", h.SetStaffTemporaryPassword())
 
-	bounded.Post("/api/set-staff-user-password", h.SetStaffUserPassword())
+	r.Post("/api/tenants/{tenantID}/set-staff-tenant-temporary-password", domainGuard(h.SetStaffTenantTemporaryPassword()))
 
-	staffInvitationsHandler := h.StaffInvitations()
-	bounded.Get("/api/staff-invitations", staffInvitationsHandler)
-	bounded.Post("/api/staff-invitations", staffInvitationsHandler)
+	r.Post("/api/tenants/{tenantID}/set-staff-tenant-user-email", domainGuard(h.SetStaffTenantUserEmail()))
 
-	staffInvitationHandler := h.StaffInvitation()
-	bounded.Get("/api/staff-invitations/{staffInvitationID}", staffInvitationHandler)
-	bounded.Post("/api/staff-invitations/{staffInvitationID}", staffInvitationHandler)
-
-	bounded.Patch("/api/staff-invitations", h.PatchStaffInvitations())
+	r.Post("/api/set-staff-user-email", h.SetStaffUserEmail())
 
 	staffRolesHandler := h.StaffRoles()
 	bounded.Get("/api/staff-roles", staffRolesHandler)
 	bounded.Post("/api/staff-roles", staffRolesHandler)
 
-	staffRoleHandler := h.StaffRole()
-	bounded.Get("/api/staff-roles/{staffRoleName}", staffRoleHandler)
-	bounded.Post("/api/staff-roles/{staffRoleName}", staffRoleHandler)
+	staffRoleGrantsHandler := h.StaffRoleGrants()
+	bounded.Get("/api/staff-role-grants", staffRoleGrantsHandler)
+	bounded.Post("/api/staff-role-grants", staffRoleGrantsHandler)
 
-	staffSeatsHandler := h.StaffSeats()
-	bounded.Get("/api/staff-seats", staffSeatsHandler)
-	bounded.Post("/api/staff-seats", staffSeatsHandler)
+	staffSessionsHandler := h.StaffSessions()
+	bounded.Get("/api/staff-sessions", staffSessionsHandler)
+	bounded.Post("/api/staff-sessions", staffSessionsHandler)
 
-	staffSeatHandler := h.StaffSeat()
-	bounded.Get("/api/staff-seats/{staffSeatUser}/{staffSeatRole}", staffSeatHandler)
-	bounded.Post("/api/staff-seats/{staffSeatUser}/{staffSeatRole}", staffSeatHandler)
+	staffSessionHandler := h.StaffSession()
+	bounded.Get("/api/staff-sessions/{staffSessionID}", staffSessionHandler)
+	bounded.Post("/api/staff-sessions/{staffSessionID}", staffSessionHandler)
 
-	bounded.Patch("/api/staff-seats", h.PatchStaffSeats())
+	staffSessionAuthEventsHandler := h.StaffSessionAuthEvents()
+	bounded.Get("/api/staff-session-auth-events", staffSessionAuthEventsHandler)
+	bounded.Post("/api/staff-session-auth-events", staffSessionAuthEventsHandler)
+
+	staffSessionIdentitiesHandler := h.StaffSessionIdentities()
+	bounded.Get("/api/staff-session-identities", staffSessionIdentitiesHandler)
+	bounded.Post("/api/staff-session-identities", staffSessionIdentitiesHandler)
+
+	staffSessionIdentityHandler := h.StaffSessionIdentity()
+	bounded.Get("/api/staff-session-identities/{staffSessionIdentityID}", staffSessionIdentityHandler)
+	bounded.Post("/api/staff-session-identities/{staffSessionIdentityID}", staffSessionIdentityHandler)
+
+	staffSessionMailLinksHandler := h.StaffSessionMailLinks()
+	bounded.Get("/api/staff-session-mail-links", staffSessionMailLinksHandler)
+	bounded.Post("/api/staff-session-mail-links", staffSessionMailLinksHandler)
+
+	staffSessionMailLinkHandler := h.StaffSessionMailLink()
+	bounded.Get("/api/staff-session-mail-links/{staffSessionMailLinkID}", staffSessionMailLinkHandler)
+	bounded.Post("/api/staff-session-mail-links/{staffSessionMailLinkID}", staffSessionMailLinkHandler)
+
+	staffSessionSignInAttemptsHandler := h.StaffSessionSignInAttempts()
+	bounded.Get("/api/staff-session-sign-in-attempts", staffSessionSignInAttemptsHandler)
+	bounded.Post("/api/staff-session-sign-in-attempts", staffSessionSignInAttemptsHandler)
+
+	staffSessionTokensHandler := h.StaffSessionTokens()
+	bounded.Get("/api/staff-session-tokens", staffSessionTokensHandler)
+	bounded.Post("/api/staff-session-tokens", staffSessionTokensHandler)
+
+	staffSessionTokenHandler := h.StaffSessionToken()
+	bounded.Get("/api/staff-session-tokens/{staffSessionTokenID}", staffSessionTokenHandler)
+	bounded.Post("/api/staff-session-tokens/{staffSessionTokenID}", staffSessionTokenHandler)
+
+	staffSessionTrustedDevicesHandler := h.StaffSessionTrustedDevices()
+	bounded.Get("/api/staff-session-trusted-devices", staffSessionTrustedDevicesHandler)
+	bounded.Post("/api/staff-session-trusted-devices", staffSessionTrustedDevicesHandler)
+
+	staffSessionTrustedDeviceHandler := h.StaffSessionTrustedDevice()
+	bounded.Get("/api/staff-session-trusted-devices/{staffSessionTrustedDeviceID}", staffSessionTrustedDeviceHandler)
+	bounded.Post("/api/staff-session-trusted-devices/{staffSessionTrustedDeviceID}", staffSessionTrustedDeviceHandler)
+
+	staffSessionUsersHandler := h.StaffSessionUsers()
+	bounded.Get("/api/staff-session-users", staffSessionUsersHandler)
+	bounded.Post("/api/staff-session-users", staffSessionUsersHandler)
+
+	staffSessionUserHandler := h.StaffSessionUser()
+	bounded.Get("/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
+	bounded.Post("/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
+
+	staffTenantIdentitiesHandler := domainGuard(h.StaffTenantIdentities())
+	bounded.Get("/api/tenants/{tenantID}/staff-tenant-identities", staffTenantIdentitiesHandler)
+	bounded.Post("/api/tenants/{tenantID}/staff-tenant-identities", staffTenantIdentitiesHandler)
+
+	staffTenantIdentityHandler := domainGuard(h.StaffTenantIdentity())
+	bounded.Get("/api/tenants/{tenantID}/staff-tenant-identities/{staffTenantIdentityID}", staffTenantIdentityHandler)
+	bounded.Post("/api/tenants/{tenantID}/staff-tenant-identities/{staffTenantIdentityID}", staffTenantIdentityHandler)
 
 	staffTenantInvitationsHandler := domainGuard(h.StaffTenantInvitations())
 	bounded.Get("/api/tenants/{tenantID}/staff-tenant-invitations", staffTenantInvitationsHandler)
@@ -199,25 +368,9 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/tenants/{tenantID}/staff-tenant-invitations/{staffTenantInvitationID}", staffTenantInvitationHandler)
 	bounded.Post("/api/tenants/{tenantID}/staff-tenant-invitations/{staffTenantInvitationID}", staffTenantInvitationHandler)
 
-	bounded.Patch("/api/tenants/{tenantID}/staff-tenant-invitations", domainGuard(h.PatchStaffTenantInvitations()))
-
 	staffTenantRolesHandler := domainGuard(h.StaffTenantRoles())
 	bounded.Get("/api/tenants/{tenantID}/staff-tenant-roles", staffTenantRolesHandler)
 	bounded.Post("/api/tenants/{tenantID}/staff-tenant-roles", staffTenantRolesHandler)
-
-	staffTenantRoleHandler := domainGuard(h.StaffTenantRole())
-	bounded.Get("/api/tenants/{tenantID}/staff-tenant-roles/{staffTenantRoleName}", staffTenantRoleHandler)
-	bounded.Post("/api/tenants/{tenantID}/staff-tenant-roles/{staffTenantRoleName}", staffTenantRoleHandler)
-
-	staffTenantSeatsHandler := domainGuard(h.StaffTenantSeats())
-	bounded.Get("/api/tenants/{tenantID}/staff-tenant-seats", staffTenantSeatsHandler)
-	bounded.Post("/api/tenants/{tenantID}/staff-tenant-seats", staffTenantSeatsHandler)
-
-	staffTenantSeatHandler := domainGuard(h.StaffTenantSeat())
-	bounded.Get("/api/tenants/{tenantID}/staff-tenant-seats/{staffTenantSeatUser}/{staffTenantSeatRole}", staffTenantSeatHandler)
-	bounded.Post("/api/tenants/{tenantID}/staff-tenant-seats/{staffTenantSeatUser}/{staffTenantSeatRole}", staffTenantSeatHandler)
-
-	bounded.Patch("/api/tenants/{tenantID}/staff-tenant-seats", domainGuard(h.PatchStaffTenantSeats()))
 
 	staffTenantUsersHandler := domainGuard(h.StaffTenantUsers())
 	bounded.Get("/api/tenants/{tenantID}/staff-tenant-users", staffTenantUsersHandler)
@@ -227,17 +380,17 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/tenants/{tenantID}/staff-tenant-users/{staffTenantUserID}", staffTenantUserHandler)
 	bounded.Post("/api/tenants/{tenantID}/staff-tenant-users/{staffTenantUserID}", staffTenantUserHandler)
 
-	bounded.Patch("/api/tenants/{tenantID}/staff-tenant-users", domainGuard(h.PatchStaffTenantUsers()))
+	staffTenantUserRolesHandler := domainGuard(h.StaffTenantUserRoles())
+	bounded.Get("/api/tenants/{tenantID}/staff-tenant-user-roles", staffTenantUserRolesHandler)
+	bounded.Post("/api/tenants/{tenantID}/staff-tenant-user-roles", staffTenantUserRolesHandler)
 
-	staffUsersHandler := h.StaffUsers()
-	bounded.Get("/api/staff-users", staffUsersHandler)
-	bounded.Post("/api/staff-users", staffUsersHandler)
+	staffTenantUserRoleHandler := domainGuard(h.StaffTenantUserRole())
+	bounded.Get("/api/tenants/{tenantID}/staff-tenant-user-roles/{staffTenantUserRoleUserID}/{staffTenantUserRoleRole}", staffTenantUserRoleHandler)
+	bounded.Post("/api/tenants/{tenantID}/staff-tenant-user-roles/{staffTenantUserRoleUserID}/{staffTenantUserRoleRole}", staffTenantUserRoleHandler)
 
-	staffUserHandler := h.StaffUser()
-	bounded.Get("/api/staff-users/{staffUserID}", staffUserHandler)
-	bounded.Post("/api/staff-users/{staffUserID}", staffUserHandler)
-
-	bounded.Patch("/api/staff-users", h.PatchStaffUsers())
+	staffUserRolesHandler := h.StaffUserRoles()
+	bounded.Get("/api/staff-user-roles", staffUserRolesHandler)
+	bounded.Post("/api/staff-user-roles", staffUserRolesHandler)
 
 	tenantsHandler := h.Tenants()
 	bounded.Get("/api/tenants", tenantsHandler)
@@ -255,9 +408,15 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/tenants/{tenantID}/tenant-directories/{tenantDirectoryID}", tenantDirectoryHandler)
 	bounded.Post("/api/tenants/{tenantID}/tenant-directories/{tenantDirectoryID}", tenantDirectoryHandler)
 
-	bounded.Post("/api/tenants/{tenantID}/unlink-staff-tenant-user-identity", domainGuard(h.UnlinkStaffTenantUserIdentity()))
+	r.Post("/api/unlink-staff-session-identity", h.UnlinkStaffSessionIdentity())
 
-	bounded.Post("/api/unlink-staff-user-identity", h.UnlinkStaffUserIdentity())
+	r.Post("/api/tenants/{tenantID}/unlink-staff-tenant-session-identity", domainGuard(h.UnlinkStaffTenantSessionIdentity()))
+
+	r.Post("/api/unlock-staff-sign-in", h.UnlockStaffSignIn())
+
+	r.Post("/api/withdraw-staff-invitation", h.WithdrawStaffInvitation())
+
+	r.Post("/api/tenants/{tenantID}/withdraw-staff-tenant-invitation", domainGuard(h.WithdrawStaffTenantInvitation()))
 
 	bounded.Patch("/api/resources", h.PatchResources())
 }

@@ -13,17 +13,18 @@ func (r *resourceGenerator) generateComputedResourceHandler(res *computedResourc
 	begin := time.Now()
 	// The handler file is plural like every other resource kind's (and like the
 	// handler method it holds).
+	home := r.homeOf(res.identity)
 	fileName := generatedGoFileName(fileStem(r.pluralize(res.Name())))
-	destinationFilePath := filepath.Join(r.handler.Dir(), fileName)
+	destinationFilePath := filepath.Join(home.dir.Dir(), fileName)
 
 	if err := r.writeFormattedGoFile(destinationFilePath, fmt.Sprintf("computedResourceHandlerTemplate:%q", res.Name()), computedResourceHandlerTemplate, &computedHandlerData{
-		Source:              r.computed.Dir(),
+		Source:              home.computed.Dir(),
 		LocalPackageImports: r.localPackageImports(),
 		Resource:            res,
-		Package:             r.handler.Package(),
-		ComputedPackage:     r.computed.Package(),
-		ApplicationName:     r.applicationName,
-		ReceiverName:        r.receiverName,
+		Package:             home.dir.Package(),
+		ComputedPackage:     home.computed.Package(),
+		ApplicationName:     home.applicationName,
+		ReceiverName:        home.receiverName,
 	}); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")
 	}

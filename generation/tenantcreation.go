@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -113,30 +114,33 @@ func tenantCreationRolesAccessor(record string) string {
 	return record + "AdministratorRoles"
 }
 
-// tenantSeatData is what the tenant record's create path seats its creator with
-// (resource.SeatFirstAdministrator, after the commit): the record's name, the word for
+// tenantSeatData is what the tenant record's create path makes its creator the first
+// administrator with, in the create's own transaction: the record's name, the word for
 // one of its rows, its key's type, the application's accessor of the administrator
-// roles, and the auth whose user-management surface the seat is written through, the
-// auth of the session outlets serving the record. The create-your-tenant route seats
-// the same way.
+// roles, and the auth whose generated identity client writes the memberships, the auth
+// of the session outlets serving the record (IdentityAccessor, the application's
+// accessor of that client, which the auth's generated handlers ask for too). The
+// create-your-tenant route gives the roles the same way.
 type tenantSeatData struct {
-	Record          string
-	RecordLower     string
-	KeyType         string
-	Auth            string
-	AuthType        string
-	SurfaceAccessor string
-	RolesAccessor   string
+	Record           string
+	RecordLower      string
+	KeyType          string
+	Auth             string
+	IdentityAccessor string
+	RolesAccessor    string
 }
 
 // tenantSeatData resolves the creator's seat for the record's create path: nil where
-// the record has no create path (self-service alone creates through its route) or no
-// session outlet bound to an auth serves it (a hand-written router, a machine
-// outlet), since the seat is written through an auth's surface; an error where the
-// session outlets serving it bind to different auths, since the record's handler is
-// one and seats through one surface.
+// the record has no create path in this program (self-service alone creates through its
+// route; or the record's patch handler is suppressed, as in a site that declares the
+// record another site serves, so nothing here writes the row) or no session outlet
+// bound to an auth serves it (a hand-written router, a machine outlet), since the
+// membership is written through an auth's identity client; an error where the session
+// outlets serving it bind to different auths, since the record's handler is one and
+// writes through one client, and where the program does not generate that auth's
+// management (GenerateIdentity), since the client is part of it.
 func (r *resourceGenerator) tenantSeatData(record *resourceInfo) (*tenantSeatData, error) {
-	if !record.TenantCreation.AdministratorCreates() {
+	if !record.TenantCreation.AdministratorCreates() || slices.Contains(record.SuppressedHandlers, PatchHandler) {
 		return nil, nil
 	}
 	var auth *outletAuth
@@ -145,24 +149,47 @@ func (r *resourceGenerator) tenantSeatData(record *resourceInfo) (*tenantSeatDat
 			continue
 		}
 		if auth != nil && auth.importPath != outlet.auth.importPath {
-			return nil, errors.Newf("struct %s: the record is served by outlets bound to different auths (%q and %q); its create seats the creator as the %s's first administrator through one auth's user-management surface, so serve the record on the outlets of one auth (@outlet)", record.Name(), auth.importPath, outlet.auth.importPath, strings.ToLower(strcase.ToCase(record.Name(), strcase.LowerCase, ' ')))
+			return nil, errors.Newf("struct %s: the record is served by outlets bound to different auths (%q and %q); its create makes the creator the %s's first administrator through one auth's generated identity client, so serve the record on the outlets of one auth (@outlet)", record.Name(), auth.importPath, outlet.auth.importPath, strings.ToLower(strcase.ToCase(record.Name(), strcase.LowerCase, ' ')))
 		}
 		auth = outlet.auth
 	}
 	if auth == nil {
 		return nil, nil
 	}
+	if err := r.requireIdentityOf(record, auth); err != nil {
+		return nil, err
+	}
 	name := caser.ToPascal(auth.packageName())
 
 	return &tenantSeatData{
-		Record:          record.Name(),
-		RecordLower:     strings.ToLower(strcase.ToCase(record.Name(), strcase.LowerCase, ' ')),
-		KeyType:         record.PrimaryKeyType(),
-		Auth:            name,
-		AuthType:        name + "Auth",
-		SurfaceAccessor: name + "UserSurface",
-		RolesAccessor:   tenantCreationRolesAccessor(record.Name()),
+		Record:           record.Name(),
+		RecordLower:      strings.ToLower(strcase.ToCase(record.Name(), strcase.LowerCase, ' ')),
+		KeyType:          record.PrimaryKeyType(),
+		Auth:             name,
+		IdentityAccessor: tenantCreationIdentityAccessor(name),
+		RolesAccessor:    tenantCreationRolesAccessor(record.Name()),
 	}, nil
+}
+
+// tenantCreationIdentityAccessor is the application's accessor of the auth's generated
+// identity client, as the auth's generated handlers name it (identityInstance.accessor):
+// StaffIdentity.
+func tenantCreationIdentityAccessor(auth string) string {
+	return auth + "Identity"
+}
+
+// requireIdentityOf refuses a tenant record whose creator is made its first
+// administrator when the program does not generate the management of the auth that
+// writes the membership: the roles are given through that auth's generated identity
+// client, in the transaction that writes the record's row.
+func (r *resourceGenerator) requireIdentityOf(record *resourceInfo, auth *outletAuth) error {
+	for _, inst := range r.identity {
+		if inst.importPath == auth.importPath {
+			return nil
+		}
+	}
+
+	return errors.Newf("struct %s: the person who creates a %s is made its first administrator through the generated management of Auth(%q), which this program does not generate; add GenerateIdentity to the generator program", record.Name(), strings.ToLower(strcase.ToCase(record.Name(), strcase.LowerCase, ' ')), auth.importPath)
 }
 
 // tenantCreationOutlets are the session-serving outlets the record is served on: where
@@ -182,8 +209,9 @@ func (r *resourceGenerator) tenantCreationOutlets(record *resourceInfo) []*route
 // declares around it, once the record and the methods are known. Self-service needs a
 // stranger who can sign in: at least one registration with the open sign-up rule
 // (OpenSignUp on the method declaration) on the Auth of the outlet serving the record,
-// one auth for every session outlet the record is on, since the generated route seats
-// the person in that auth's store; and the handler's name must be free, so no RPC
+// one auth for every session outlet the record is on, since the generated route gives
+// the person their roles through that auth's generated identity client, which the
+// program must generate (GenerateIdentity); and the handler's name must be free, so no RPC
 // method is named Create<Record>. An administrator-only record is held to nothing: an
 // open registration beside it signs a stranger in to nothing, which is not
 // self-service.
@@ -212,6 +240,9 @@ func (r *resourceGenerator) validateTenantCreation() error {
 			return errors.Newf("struct %s: %s on a record served by outlets bound to different auths (%q and %q); the create-your-%s route seats the person in one auth, so serve the record on the outlets of one (@outlet), or keep the administrator shape", record.Name(), declared, auth.importPath, outlet.auth.importPath, strcase.ToKebab(record.Name()))
 		}
 		auth = outlet.auth
+	}
+	if err := r.requireIdentityOf(record, auth); err != nil {
+		return err
 	}
 	open := false
 	for _, m := range auth.methods {
@@ -250,14 +281,12 @@ type tenantCreationData struct {
 	// under the default outlet's prefix.
 	HandlerFunc string
 	RoutePath   string
-	// Auth is the outlet auth's Pascal name, AuthType the router package's marker
-	// type for it, SurfaceAccessor the application's accessor of the auth's
-	// user-management surface, RolesAccessor the application's accessor of the
-	// administrator roles.
-	Auth            string
-	AuthType        string
-	SurfaceAccessor string
-	RolesAccessor   string
+	// Auth is the outlet auth's Pascal name, IdentityAccessor the application's
+	// accessor of the auth's generated identity client, RolesAccessor the application's
+	// accessor of the administrator roles.
+	Auth             string
+	IdentityAccessor string
+	RolesAccessor    string
 	// Key is the record's key as the request carries it; Fields are the request's
 	// fields, the key first; Setters are the create patch's setters, one per field
 	// after the key.
@@ -375,8 +404,7 @@ func (r *resourceGenerator) tenantCreationData(record *resourceInfo, outlet *rou
 		HandlerFunc:         tenantCreationHandlerFunc(record.Name()),
 		RoutePath:           fmt.Sprintf("/%s/%s", outlet.prefix, tenantCreationRoute(record.Name())),
 		Auth:                auth,
-		AuthType:            auth + "Auth",
-		SurfaceAccessor:     auth + "UserSurface",
+		IdentityAccessor:    tenantCreationIdentityAccessor(auth),
 		RolesAccessor:       tenantCreationRolesAccessor(record.Name()),
 		Key:                 key,
 		Fields:              fields,

@@ -71,13 +71,13 @@ func (a *App) HailShip() http.HandlerFunc {
 			// gate verifies the located row resolves to the request's domain
 			// in this transaction — absent and cross-tenant are the same
 			// NotFound.
-			if err := gate.VerifyTenancy(ctx, txn, resource.ExecuteTarget{Resource: "Ships", Label: "Ship", PKColumn: "Id"}, p.ShipID); err != nil {
+			if err := gate.VerifyTenancy(ctx, txn, resource.ExecuteTarget{Resource: "Ships", Label: "Ship", PKColumns: []string{"Id"}}, p.ShipID); err != nil {
 				return err
 			}
 
 			// A row-referencing condition on the caller's Execute grant
 			// evaluates against the located row, in this transaction.
-			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "Ships", Label: "Ship", PKColumn: "Id"}, p.ShipID); err != nil {
+			if err := gate.Enforce(ctx, txn, resource.ExecuteTarget{Resource: "Ships", Label: "Ship", PKColumns: []string{"Id"}}, p.ShipID); err != nil {
 				return err
 			}
 			if err := p.Execute(ctx, txn, a.RPCClient()); err != nil {
