@@ -154,6 +154,9 @@ func (c *client) resolveResource(resource *resourceInfo, pStruct *parser.Struct,
 	if err := checkMaskingDeclarations(resource); err != nil {
 		return err
 	}
+	if err := checkSecretDeclarations(resource); err != nil {
+		return err
+	}
 
 	if err := c.resolveStateAnnotations(resource, pStruct, annotations); err != nil {
 		return err
@@ -486,7 +489,7 @@ func (c *client) structsToVirtualResources(structs []*parser.Struct, validators 
 			continue
 		}
 
-		if err := checkMaskingDeclarations(resource); err != nil {
+		if err := errors.Join(checkMaskingDeclarations(resource), checkSecretDeclarations(resource)); err != nil {
 			errs = append(errs, err)
 
 			continue
@@ -814,6 +817,9 @@ func (c *client) structsToRPCMethods(structs []*parser.Struct, validators ...str
 		for i, field := range s.Fields() {
 			field := rpcField{Field: field, wire: rpcMethod.Request.Fields[i], namespace: s.Name(), typescriptType: rpcMethod.Request.Fields[i].TypescriptDisplayType()}
 			c.declareRPCEnumeration(&field, annotations.Fields[i])
+			if refusal := secretRequestRefusal(&field); refusal != "" {
+				field.AddError(refusal)
+			}
 			rpcMethod.Fields = append(rpcMethod.Fields, &field)
 		}
 
@@ -1374,6 +1380,69 @@ func rejectMaskingTags(s *parser.Struct, kind string) error {
 	}
 
 	return nil
+}
+
+// checkSecretDeclarations refuses a conditions:"secret" the field cannot honor. A secret
+// is set by the client and never returned, so it has no place on a primary key, which
+// is in every route and every row; on a field the server owns (output_only, a state
+// column, the tenant key, a @file key, a generated column), which no client sets; or on
+// a view, which takes no writes at all. And a secret is typed: a form masks text as it
+// is typed and draws no control over bytes, so the column is a STRING or a BYTES, and
+// it is neither a key into another table, whose value that table's rows carry, nor a
+// field with a picker, whose values the page lists.
+func checkSecretDeclarations(res *resourceInfo) error {
+	var errs []error
+	for _, field := range res.Fields {
+		if !field.IsSecret() {
+			continue
+		}
+		path := res.Name() + "." + field.Name()
+		switch {
+		case res.IsVirtual:
+			errs = append(errs, errors.Newf("%s: conditions:%q on a field of a view: a view takes no writes, so no client ever sets the field; declare the secret on the table's resource", path, secretCondition))
+		case field.IsPrimaryKey:
+			errs = append(errs, errors.Newf("%s: conditions:%q on a primary key: a key is in every route and every row, so it cannot be kept from being returned", path, secretCondition))
+		case field.IsOutputOnly():
+			errs = append(errs, errors.Newf("%s: conditions:%q on a field the server owns: a secret is a value the client sets and the server never returns, and no client sets this field; drop one of the two", path, secretCondition))
+		case field.IsForeignKey:
+			errs = append(errs, errors.Newf("%s: conditions:%q on a foreign key: the value is the key of a row of %s, which that table's rows carry, so it cannot be kept secret", path, secretCondition, field.ReferencedResource))
+		case field.HasDeclaredEnumeration():
+			errs = append(errs, errors.Newf("%s: conditions:%q on a field with a picker (@%s): a secret is typed, and a page that lists the values to pick from keeps none of them secret", path, secretCondition, enumerateKeyword))
+		case !secretColumnType(field.SpannerType):
+			errs = append(errs, errors.Newf("%s: conditions:%q on a %s column: a secret is text or bytes (a STRING or a BYTES column), since a form masks text as it is typed and would draw this field in the open", path, secretCondition, field.SpannerType))
+		}
+	}
+
+	if len(errs) > 0 {
+		return errors.Wrap(errors.Join(errs...), "secret declarations")
+	}
+
+	return nil
+}
+
+// secretColumnType reports whether a column of the declared type can hold a secret: one
+// STRING or one BYTES value, and no list of either.
+func secretColumnType(spannerType string) bool {
+	return strings.HasPrefix(spannerType, "STRING(") || strings.HasPrefix(spannerType, "BYTES(")
+}
+
+// secretRequestRefusal is the refusal of a conditions:"secret" a method's request field
+// cannot honor, and empty for a field that declares none or honors it. A method's dialog
+// masks what is typed into a text box (a string, a uuid) and draws no control over
+// bytes; every other field it would draw in the open, and a picker lists its values.
+func secretRequestRefusal(field *rpcField) string {
+	if !field.IsSecret() {
+		return ""
+	}
+	if field.IsEnumerated() {
+		return fmt.Sprintf("conditions:%q on a field with a picker (@%s): a secret is typed, and a dialog that lists the values to pick from keeps none of them secret", secretCondition, enumerateKeyword)
+	}
+	switch display := displayType(strings.ToLower(field.TypescriptDisplayType())); display {
+	case displayTypeString, displayTypeUUID, displayTypeBytes:
+		return ""
+	default:
+		return fmt.Sprintf("conditions:%q on a %s field: a secret is text or bytes, since a dialog masks text as it is typed and would draw this field in the open", secretCondition, display)
+	}
 }
 
 // checkMaskingDeclarations refuses a masking:"positional" declaration the field

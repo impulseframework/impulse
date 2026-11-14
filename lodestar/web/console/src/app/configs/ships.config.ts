@@ -86,6 +86,9 @@ export const shipsConfig = rootConfig({
             }),
           }),
           field({ name: Ships.fieldName.cargoBays, label: 'Cargo bays', cols: 12 }),
+          // A secret: the box is masked, and its toggle shows what is being typed. The row
+          // never carries the key, so the page has none to show.
+          field({ name: Ships.fieldName.transponderKey, label: 'Transponder key', cols: 4 }),
         ],
       }),
       section({

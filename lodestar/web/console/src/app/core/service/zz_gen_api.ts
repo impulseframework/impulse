@@ -407,6 +407,7 @@ export interface ShipsCreate {
   registry: string;
   name: string;
   cargoBays?: number[];
+  transponderKey?: string | null;
 }
 /** The fields a client may change on Ships. Keys, server-owned, and immutable fields are absent. */
 export interface ShipsPatch {
@@ -414,6 +415,7 @@ export interface ShipsPatch {
   classId?: string;
   name?: string;
   cargoBays?: number[];
+  transponderKey?: string | null;
 }
 /** The primary key of Ships, in route order. */
 export type ShipsKey = [id: string];
@@ -1149,7 +1151,7 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list', 'read', 'create', 'patch', 'remove', 'batch'],
       page: { default: 10, max: 100 },
       order: [{ field: 'name', direction: 'asc' }],
-      patchable: ['hangarId', 'classId', 'name', 'cargoBays'],
+      patchable: ['hangarId', 'classId', 'name', 'cargoBays', 'transponderKey'],
     },
     [Resources.ShipClasses]: {
       resource: Resources.ShipClasses,

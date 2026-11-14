@@ -59,6 +59,11 @@ const (
 	piiCondition        = "pii"
 	inputOnlyCondition  = "input_only"
 	outputOnlyCondition = "output_only"
+	// secretCondition marks a field whose value is a secret (a password, an API key).
+	// It says everything input_only says, since a secret is never served, and two things
+	// more: the browser types it into a masked input, and a change record names the
+	// field without keeping its value. A method's request field takes it too.
+	secretCondition = "secret"
 )
 
 // conditionValues registers every recognized conditions value for the README.md
@@ -68,6 +73,7 @@ var conditionValues = []string{
 	piiCondition,
 	inputOnlyCondition,
 	outputOnlyCondition,
+	secretCondition,
 }
 
 // Struct-tag keys the generator writes into generated request structs, read back at

@@ -1477,7 +1477,8 @@
                 "hangarId",
                 "classId",
                 "registry",
-                "name"
+                "name",
+                "transponderKey"
               ]
             },
             {
@@ -1592,7 +1593,8 @@
                 "hangarId",
                 "classId",
                 "name",
-                "cargoBays"
+                "cargoBays",
+                "transponderKey"
               ]
             },
             {

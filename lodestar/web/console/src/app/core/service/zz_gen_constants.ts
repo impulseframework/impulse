@@ -1421,6 +1421,7 @@ export namespace Ships {
     lastRefitAt: 'lastRefitAt' as FieldName,
     name: 'name' as FieldName,
     registry: 'registry' as FieldName,
+    transponderKey: 'transponderKey' as FieldName,
     updatedAt: 'updatedAt' as FieldName,
   };
   export const resourceName = {
@@ -1431,6 +1432,7 @@ export namespace Ships {
     lastRefitAt: 'Ships.lastRefitAt' as Resource,
     name: 'Ships.name' as Resource,
     registry: 'Ships.registry' as Resource,
+    transponderKey: 'Ships.transponderKey' as Resource,
     updatedAt: 'Ships.updatedAt' as Resource,
   };
 }

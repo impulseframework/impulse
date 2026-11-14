@@ -1297,9 +1297,9 @@ type (
 		Email       *string
 		{{- end }}
 		{{- if eq .PasswordOnCreate "required" }}
-		Password    string ` + "`validate:\"required\"`" + `
+		Password    string ` + "`validate:\"required\" conditions:\"secret\"`" + `
 		{{- else if eq .PasswordOnCreate "optional" }}
-		Password    *string
+		Password    *string ` + "`conditions:\"secret\"`" + `
 		{{- end }}
 		// Roles are the roles the person is given. A grant's condition reads each of them as
 		// new.role, so a role file can limit which roles the grant's holder hands out.
@@ -1848,7 +1848,7 @@ import (
 type Set{{ .Subject }}TemporaryPassword struct {
 	// @target({{ .SubjectUser }})
 	UserID   impulse.UUID
-	Password string ` + "`validate:\"required\"`" + `
+	Password string ` + "`validate:\"required\" conditions:\"secret\"`" + `
 }
 
 // Execute buffers the password, the end of the person's sessions and the cleared count

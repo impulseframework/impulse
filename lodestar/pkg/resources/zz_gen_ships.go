@@ -27,14 +27,15 @@ func (Ship) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; shipReadSets holds one Set per read operation.
 type shipRead struct {
-	ID          impulse.UUID `json:"id"          perm:"-"`
-	HangarID    impulse.UUID `json:"hangarId"`
-	ClassID     impulse.UUID `json:"classId"`
-	Registry    string       `json:"registry"`
-	Name        string       `json:"name"`
-	LastRefitAt *time.Time   `json:"lastRefitAt"`
-	UpdatedAt   *time.Time   `json:"updatedAt"`
-	CargoBays   []int64      `json:"cargoBays"`
+	ID             impulse.UUID `json:"id"          perm:"-"`
+	HangarID       impulse.UUID `json:"hangarId"`
+	ClassID        impulse.UUID `json:"classId"`
+	Registry       string       `json:"registry"`
+	Name           string       `json:"name"`
+	LastRefitAt    *time.Time   `json:"lastRefitAt"`
+	UpdatedAt      *time.Time   `json:"updatedAt"`
+	CargoBays      []int64      `json:"cargoBays"`
+	TransponderKey *string      `json:"-"`
 }
 
 var shipReadSets resource.SetCache[Ship, shipRead]
@@ -43,14 +44,15 @@ var shipReadSets resource.SetCache[Ship, shipRead]
 // accept on a mutation, so a patch armed with Enforce meets the field permissions the
 // routes enforce; shipWriteSets holds one Set per mutation.
 type shipWrite struct {
-	ID          impulse.UUID `json:"-"`
-	HangarID    impulse.UUID `json:"hangarId"`
-	ClassID     impulse.UUID `json:"classId"`
-	Registry    string       `json:"registry"  immutable:"true" sqltype:"STRING(16)"`
-	Name        string       `json:"name"`
-	LastRefitAt *time.Time   `json:"-"`
-	UpdatedAt   *time.Time   `json:"-"`
-	CargoBays   []int64      `json:"cargoBays"`
+	ID             impulse.UUID `json:"-"`
+	HangarID       impulse.UUID `json:"hangarId"`
+	ClassID        impulse.UUID `json:"classId"`
+	Registry       string       `json:"registry"       immutable:"true"     sqltype:"STRING(16)"`
+	Name           string       `json:"name"`
+	LastRefitAt    *time.Time   `json:"-"`
+	UpdatedAt      *time.Time   `json:"-"`
+	CargoBays      []int64      `json:"cargoBays"`
+	TransponderKey *string      `json:"transponderKey" sqltype:"STRING(64)"`
 }
 
 var shipWriteSets resource.SetCache[Ship, shipWrite]
@@ -179,6 +181,7 @@ func (c *ShipColumns) All() *ShipColumns {
 		"LastRefitAt",
 		"UpdatedAt",
 		"CargoBays",
+		"TransponderKey",
 	}
 
 	return c
@@ -228,6 +231,12 @@ func (c *ShipColumns) UpdatedAt() *ShipColumns {
 
 func (c *ShipColumns) CargoBays() *ShipColumns {
 	c.fields = append(c.fields, "CargoBays")
+
+	return c
+}
+
+func (c *ShipColumns) TransponderKey() *ShipColumns {
+	c.fields = append(c.fields, "TransponderKey")
 
 	return c
 }
@@ -356,6 +365,10 @@ func (c *shipSort) UpdatedAt() *ShipSort {
 
 func (c *shipSort) CargoBays() *ShipSort {
 	return c.addField("CargoBays")
+}
+
+func (c *shipSort) TransponderKey() *ShipSort {
+	return c.addField("TransponderKey")
 }
 
 type ShipSort struct {
@@ -563,6 +576,26 @@ func (p *ShipCreatePatch) CargoBays() []int64 {
 
 func (p *ShipCreatePatch) CargoBaysIsSet() bool {
 	return p.patchSet.IsSet("CargoBays")
+}
+
+func (p *ShipCreatePatch) SetTransponderKey(v *string) *ShipCreatePatch {
+	if v != nil {
+		p.patchSet.Set("TransponderKey", v)
+	} else {
+		p.patchSet.Set("TransponderKey", nil)
+	}
+
+	return p
+}
+
+func (p *ShipCreatePatch) TransponderKey() *string {
+	v, _ := p.patchSet.Get("TransponderKey").(*string)
+
+	return v
+}
+
+func (p *ShipCreatePatch) TransponderKeyIsSet() bool {
+	return p.patchSet.IsSet("TransponderKey")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
@@ -776,6 +809,26 @@ func (p *ShipUpdatePatch) CargoBays() []int64 {
 
 func (p *ShipUpdatePatch) CargoBaysIsSet() bool {
 	return p.patchSet.IsSet("CargoBays")
+}
+
+func (p *ShipUpdatePatch) SetTransponderKey(v *string) *ShipUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("TransponderKey", v)
+	} else {
+		p.patchSet.Set("TransponderKey", nil)
+	}
+
+	return p
+}
+
+func (p *ShipUpdatePatch) TransponderKey() *string {
+	v, _ := p.patchSet.Get("TransponderKey").(*string)
+
+	return v
+}
+
+func (p *ShipUpdatePatch) TransponderKeyIsSet() bool {
+	return p.patchSet.IsSet("TransponderKey")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp

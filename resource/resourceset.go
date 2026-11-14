@@ -440,6 +440,16 @@ type Metadata[Resource Resourcer] struct {
 	// searchBranches are the resource's @searchAlso declarations (the generated
 	// SearchBranches): the child text its search box also searches.
 	searchBranches []SearchBranch
+	// secrets are the fields the resource struct declares conditions:"secret": a change
+	// record names one as changed and keeps neither of its values.
+	secrets map[accesstypes.Field]struct{}
+}
+
+// secret reports whether the resource struct declares the field a secret.
+func (r *Metadata[Resource]) secret(field accesstypes.Field) bool {
+	_, ok := r.secrets[field]
+
+	return ok
 }
 
 // NewMetadata creates or retrieves cached metadata for a resource.
@@ -455,6 +465,7 @@ func NewMetadata[Resource Resourcer]() *Metadata[Resource] {
 		trackChanges:        c.cfg.TrackChanges,
 		fileKeys:            c.fileKeys,
 		searchBranches:      c.searchBranches,
+		secrets:             c.secrets,
 	}
 }
 
@@ -485,6 +496,7 @@ type resourceMetadataCacheEntry struct {
 	cfg            Config
 	fileKeys       []FileKey
 	searchBranches []SearchBranch
+	secrets        map[accesstypes.Field]struct{}
 }
 
 type resourceMetadataCache struct {
@@ -550,9 +562,23 @@ func (c *resourceMetadataCache) get(res Resourcer) *resourceMetadataCacheEntry {
 		cfg:            cfg,
 		fileKeys:       fileKeys,
 		searchBranches: searchBranches,
+		secrets:        secretFields(t),
 	}
 
 	return c.cache[t]
+}
+
+// secretFields reads the fields a resource struct declares conditions:"secret".
+func secretFields(t reflect.Type) map[accesstypes.Field]struct{} {
+	secrets := make(map[accesstypes.Field]struct{})
+	for i := range t.NumField() {
+		field := t.Field(i)
+		if slices.Contains(strings.Split(field.Tag.Get(conditionsTagKey), ","), secretCondition) {
+			secrets[accesstypes.Field(field.Name)] = struct{}{}
+		}
+	}
+
+	return secrets
 }
 
 func dbStructTags(t reflect.Type, dbType DBType) (map[accesstypes.Field]dbFieldMetadata, []accesstypes.Field) {

@@ -825,9 +825,7 @@ func (p *PatchSet[Resource]) deleteChangeSet(old any) (map[accesstypes.Field]Dif
 		// nosemgrep: go.lang.security.audit.unsafe-reflect-by-name.unsafe-reflect-by-name
 		oldValue := oldValue.FieldByName(field.Name)
 		if oldValue.IsValid() && !oldValue.IsZero() {
-			oldMap[accesstypes.Field(field.Name)] = DiffElem{
-				Old: oldValue.Interface(),
-			}
+			oldMap[accesstypes.Field(field.Name)] = p.change(accesstypes.Field(field.Name), oldValue.Interface(), nil)
 		}
 	}
 
@@ -853,7 +851,19 @@ func (p *PatchSet[Resource]) Resolve(dbType DBType) (map[string]any, error) {
 	return newMap, nil
 }
 
-// Diff returns a map of fields that have changed between old and patchSet.
+// change is a field's entry in a change set: its old and new value, or, for a field the
+// resource declares a secret, the fact that it changed and neither value.
+func (p *PatchSet[Resource]) change(field accesstypes.Field, oldV, newV any) DiffElem {
+	if p.querySet.rMeta.secret(field) {
+		return DiffElem{Secret: true}
+	}
+
+	return DiffElem{Old: oldV, New: newV}
+}
+
+// Diff returns a map of fields that have changed between old and patchSet. A field the
+// resource struct declares a secret (conditions:"secret") is in the map when it changed,
+// marked Secret, with neither value.
 func (p *PatchSet[Resource]) Diff(old any) (map[accesstypes.Field]DiffElem, error) {
 	oldValue := reflect.ValueOf(old)
 	oldType := reflect.TypeOf(old)
@@ -887,10 +897,7 @@ func (p *PatchSet[Resource]) Diff(old any) (map[accesstypes.Field]DiffElem, erro
 		if match, err := match(oldV, newV); err != nil {
 			return nil, err
 		} else if !match {
-			diff[field] = DiffElem{
-				Old: oldV,
-				New: newV,
-			}
+			diff[field] = p.change(field, oldV, newV)
 		}
 	}
 

@@ -22,3 +22,11 @@ CREATE TABLE DataChangeEvents (
   EventSource STRING(MAX) NOT NULL,
   ChangeSet JSON,
 ) PRIMARY KEY (TableName, RowId, Sequence, EventTime);
+
+-- The secret-field tests' fixture: a table that keeps change records and has a column
+-- its resource declares a secret.
+CREATE TABLE SealedRows (
+  Id STRING(36) NOT NULL,
+  Title STRING(MAX) NOT NULL,
+  AccessCode STRING(MAX),
+) PRIMARY KEY (Id);

@@ -2975,7 +2975,7 @@ const resourceMap = defineResourceMap({
        {{- if $field.IsPrimaryKey }} primaryKey: { ordinalPosition: {{ $field.KeyOrdinalPosition }} }, 
        {{- end }} displayType: '{{ DisplayType $field.TypescriptDisplayType }}', required: {{ $field.IsRequired }}, isIndex: {{ $field.IsIndex }}{{ if $field.TypescriptFilterable }}, filterable: '{{ $field.TypescriptFilterable }}'{{ end }}{{ if $field.TypescriptSearch }}, search: [{{ $field.TypescriptSearch }}]{{ end }}{{ if $field.IsPII }}, pii: true{{ end }}{{ if $field.IsPositional }}, masking: 'positional'{{ end }}{{ if $field.TypescriptMaxLength }}, maxLength: {{ $field.TypescriptMaxLength }}{{ end -}}
       {{- if $field.Enumeration }}, enumeration: {{ EnumerationLiteral $field.EnumerationValues }}
-      {{- else if $field.IsEnumerated }}, enumeratedResource: Resources.{{ $field.EnumeratedResource }}{{ end }}{{ if or $field.IsOutputOnly $resource.IsEnumeration }}, readOnly: true{{ end }}{{ if $field.IsInputOnly }}, writeOnly: true{{ end }}{{ if $field.FeatureName }}, feature: '{{ $field.FeatureName }}'{{ end }} },
+      {{- else if $field.IsEnumerated }}, enumeratedResource: Resources.{{ $field.EnumeratedResource }}{{ end }}{{ if or $field.IsOutputOnly $resource.IsEnumeration }}, readOnly: true{{ end }}{{ if $field.IsInputOnly }}, writeOnly: true{{ end }}{{ if $field.IsSecret }}, secret: true{{ end }}{{ if $field.FeatureName }}, feature: '{{ $field.FeatureName }}'{{ end }} },
       {{- end }}
       {{- end }}
     ],
@@ -3190,6 +3190,11 @@ export interface RPCFieldMeta {
   /** Set when a request may leave the field out; a form sends nothing for an input left empty. */
   optional?: true;
   /**
+   * Set on a request field that holds a secret (conditions:"secret" on the method's
+   * field): a form types it into a masked input whose toggle shows what is being typed.
+   */
+  secret?: true;
+  /**
    * The name a grant's condition reads the field by (new.<name>), set on a field that
    * declares it (@attribute). A role file may hold the method to a value of this field,
    * and no value never passes such a condition, so a form that rehearses the call waits
@@ -3272,7 +3277,7 @@ const methodMap: MethodMap = {
       { fieldName: '{{ Camel $field.Name }}', displayType: '{{ DisplayType $field.TypescriptDisplayType }}'
       {{- if $field.Enumeration }}, enumeration: {{ EnumerationLiteral $field.EnumerationValues }}
       {{- else if $field.IsEnumerated }}, enumeratedResource: Resources.{{ $field.EnumeratedResource }}{{ end }}
-      {{- if $field.Required }}, required: true{{ end }}{{ if $field.Optional }}, optional: true{{ end }}
+      {{- if $field.Required }}, required: true{{ end }}{{ if $field.Optional }}, optional: true{{ end }}{{ if $field.IsSecret }}, secret: true{{ end }}
       {{- with $rpcMethod.ConditionName $field.Name }}, attribute: '{{ . }}'{{ end }} },
     {{- end }}
     ],

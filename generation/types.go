@@ -826,6 +826,14 @@ func (r *rpcField) Optional() bool {
 	return strings.HasPrefix(r.Type(), "*")
 }
 
+// IsSecret reports whether the request field holds a secret (conditions:"secret"): the
+// metadata says so, and a form types it into a masked input.
+func (r *rpcField) IsSecret() bool {
+	tag, ok := r.LookupTag(conditionsTagKey)
+
+	return ok && slices.Contains(strings.Split(tag, ","), secretCondition)
+}
+
 // Required reports whether the method refuses a request that leaves the field empty:
 // its validate tag names required. The metadata says so, so a form holds the input to it
 // before the request is sent.
@@ -2053,7 +2061,17 @@ func (f *resourceField) IsInputOnly() bool {
 
 	conditions := strings.Split(tag, ",")
 
-	return slices.Contains(conditions, inputOnlyCondition)
+	// A secret is write-only by definition: the server never returns it.
+	return slices.Contains(conditions, inputOnlyCondition) || slices.Contains(conditions, secretCondition)
+}
+
+// IsSecret reports whether the field holds a secret (conditions:"secret"): write-only as
+// an input_only field is, typed into a masked input, and named in a change record
+// without its value.
+func (f *resourceField) IsSecret() bool {
+	tag, ok := f.LookupTag(conditionsTagKey)
+
+	return ok && slices.Contains(strings.Split(tag, ","), secretCondition)
 }
 
 func (f *resourceField) DefaultCreateFuncName() string {

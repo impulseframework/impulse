@@ -1463,6 +1463,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastRefitAt', displayType: 'date', required: false, isIndex: false, readOnly: true },
       { fieldName: 'updatedAt', displayType: 'date', required: false, isIndex: false, readOnly: true },
       { fieldName: 'cargoBays', displayType: 'number[]', required: false, isIndex: false },
+      { fieldName: 'transponderKey', displayType: 'string', required: false, isIndex: false, maxLength: 64, writeOnly: true, secret: true },
     ],
   },
   [Resources.ShipClasses]: {

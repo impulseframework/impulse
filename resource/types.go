@@ -51,10 +51,16 @@ func (d *DataChangeEvent) PrimaryKey() KeySet {
 	return KeySet{}
 }
 
-// DiffElem represents the old and new values of a field that has been changed.
+// DiffElem represents the old and new values of a field that has been changed. A field
+// that holds a secret (conditions:"secret" on the resource struct) is recorded as changed
+// with neither value: Secret is set, and Old and New stay empty, so a change record says
+// that a password or a key was set and never what it was or is.
 type DiffElem struct {
 	Old any
 	New any
+	// Secret marks the change of a secret field, whose values are not kept. Its key is
+	// spelled as Old and New are, which carry no tag and so are stored under their names.
+	Secret bool `json:",omitempty"` //nolint:tagliatelle // a change record's keys are Old, New and Secret
 }
 
 type jsonFieldName string

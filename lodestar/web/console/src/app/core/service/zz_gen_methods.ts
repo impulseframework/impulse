@@ -809,6 +809,11 @@ export interface RPCFieldMeta {
   /** Set when a request may leave the field out; a form sends nothing for an input left empty. */
   optional?: true;
   /**
+   * Set on a request field that holds a secret (conditions:"secret" on the method's
+   * field): a form types it into a masked input whose toggle shows what is being typed.
+   */
+  secret?: true;
+  /**
    * The name a grant's condition reads the field by (new.<name>), set on a field that
    * declares it (@attribute). A role file may hold the method to a value of this field,
    * and no value never passes such a condition, so a form that rehearses the call waits
@@ -959,7 +964,7 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'username', displayType: 'string', required: true },
       { fieldName: 'email', displayType: 'string', optional: true },
-      { fieldName: 'password', displayType: 'string', optional: true },
+      { fieldName: 'password', displayType: 'string', optional: true, secret: true },
       { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Sectors, optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
@@ -1397,7 +1402,7 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'password', displayType: 'string', required: true },
+      { fieldName: 'password', displayType: 'string', required: true, secret: true },
     ],
   },
   [Methods.SetCrewSectorUserEmail]: {
@@ -1417,7 +1422,7 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
-      { fieldName: 'password', displayType: 'string', required: true },
+      { fieldName: 'password', displayType: 'string', required: true, secret: true },
     ],
   },
   [Methods.SetCrewUserEmail]: {

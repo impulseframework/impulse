@@ -802,6 +802,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "lastRefitAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 					{Name: "registry", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read}},
+					{Name: "transponderKey", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Update}},
 					{Name: "updatedAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 				},
 				ImmutableTags: []accesstypes.Tag{"registry"},
