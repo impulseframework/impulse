@@ -197,7 +197,9 @@ or one per domain), loaded on demand and cached for the session.
   (denied outright, or a keys-only resource) — so narrow only on a defined answer.
   Key fields never appear: they are structural, not grant-bearing.
 - `api.permissions.loadDigest(domain?)` loads a scope; `loadDomains()` fetches the
-  domains where the user holds any grant; `subscribe` notifies a UI framework.
+  domains where the user holds any grant, each with its name (`user-domains` answers
+  `[{ "domain", "name" }]`), and `domainName(domain)` answers a listed domain's name for a
+  picker to show, the domain itself where none is held; `subscribe` notifies a UI framework.
 - Every answer here reads a `Store`, and a UI framework can make each read a
   dependency of its reactive code by setting the store read hook once
   (`setStoreReadHook`). The Angular client does (`provideResourceClient`), so a
@@ -441,7 +443,15 @@ server offers a password method, and `changePassword(oldPassword, newPassword)` 
 reading the list again first like every step: `changed`, after which the page checks the
 session again (the server regenerated it), or `refused` with the server's words (the old
 password did not match, the new one is the old one). A login page that finds the mark on the
-session read renders the change form before it opens the application.
+session read renders the change form before it opens the application. A signed-in person
+changes their own password the same way, from their account page.
+
+A browser the second factor remembered (the person ticked "Remember this browser" at the
+emailed code) is forgotten from the account page: the session read carries
+`browserRemembered: true` while the browser holds the person's remembered entry, the list
+names the forget path as `forgetBrowser`, and `forgetBrowser()` posts there. The person's
+next sign-in from the browser asks for the code again; the other people it remembers keep
+theirs.
 
 The server's mailed links all lead to the login page, each with its token in the URL, and the
 list names the routes they post to: `invitation` (`open`, `accept`, and `signUp` when the

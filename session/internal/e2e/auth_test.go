@@ -263,19 +263,13 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserD
 		// The logout is reached by a user who must change their password, so it sits
 		// outside ValidateSession, as the README prescribes.
 		r.Post("/logout", auth.Logout())
+		// A signed-in person forgets this browser as a trusted device of theirs; the
+		// handler validates the session itself, as the password change does.
+		r.Post("/forget-browser", auth.ForgetBrowser())
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.ValidateSession)
 			r.Get("/whoami", whoami)
-			// A signed-in person forgets this browser as a trusted device of theirs.
-			r.Post("/forget-device", func(w http.ResponseWriter, r *http.Request) {
-				if err := api.ForgetTrustedDevice(r.Context(), w); err != nil {
-					_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
-
-					return
-				}
-				w.WriteHeader(http.StatusNoContent)
-			})
 			r.Get("/session-data", func(w http.ResponseWriter, r *http.Request) {
 				data, err := api.CustomData(r.Context())
 				if err != nil {

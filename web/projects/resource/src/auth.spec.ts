@@ -149,6 +149,8 @@ function transportOf(state: Server): ScriptedTransport {
         return state.enrollEmail;
       case 'POST /console/api/user/password/change':
         return state.change;
+      case 'POST /console/api/user/browser/forget':
+        return { status: 200, body: undefined };
       case 'POST /console/api/user/invitation':
         return state.invitationOpen;
       case 'POST /console/api/user/invitation/accept':
@@ -752,6 +754,23 @@ describe('the sign-in code', () => {
     await expect(auth.sendCode()).rejects.toThrow('names no sign-in code routes');
     await expect(auth.enrollEmail('nova@fleet.example')).rejects.toThrow('names no sign-in code routes');
     await expect(auth.verifyCode('123456', false)).rejects.toThrow('names no sign-in code routes');
+    expect(sent(transport).filter((request) => request.startsWith('POST'))).toEqual([]);
+  });
+});
+
+describe('forgetting this browser', () => {
+  const forgetPath = '/console/api/user/browser/forget';
+
+  it('reads the list again, then posts to the forget path it names', async () => {
+    const { auth, transport, errors } = authOver(server({ methods: { ...consoleList, forgetBrowser: forgetPath } }));
+    await auth.forgetBrowser();
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${forgetPath}`]);
+    expect(errors).toEqual([]);
+  });
+
+  it('throws on a server whose list names no forget path, sending nothing', async () => {
+    const { auth, transport } = authOver(server());
+    await expect(auth.forgetBrowser()).rejects.toThrow(/names no forget-this-browser path/);
     expect(sent(transport).filter((request) => request.startsWith('POST'))).toEqual([]);
   });
 });

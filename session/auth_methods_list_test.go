@@ -50,6 +50,7 @@ func TestAuth_Methods(t *testing.T) {
 				},
 				Pending:        PendingRoutes{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel"},
 				ChangePassword: "/api/user/password",
+				ForgetBrowser:  "/api/user/browser/forget",
 			},
 			want: map[string]any{
 				"methods": []any{
@@ -59,6 +60,7 @@ func TestAuth_Methods(t *testing.T) {
 				},
 				"pending":        map[string]any{"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"},
 				"changePassword": "/api/user/password",
+				"forgetBrowser":  "/api/user/browser/forget",
 			},
 		},
 		{
@@ -121,6 +123,7 @@ func TestAuth_MethodsRefused(t *testing.T) {
 		{name: "a pending route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, Pending: PendingRoutes{Status: pending.Status, Confirm: "https://evil.example/confirm", Cancel: pending.Cancel}, ChangePassword: "/password"}, want: "name the status, confirm and cancel paths together"},
 		{name: "the password method without the password change route", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}}, want: "lists the password method with the password change route \"\""},
 		{name: "a password change route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "https://evil.example/password"}, want: "lists the password method with the password change route"},
+		{name: "a forget-this-browser route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password", ForgetBrowser: "https://evil.example/forget"}, want: "forget-this-browser route"},
 		{name: "a password change route without the password method", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, ChangePassword: "/password"}, want: "lists no password method"},
 	}
 	for _, tt := range tests {

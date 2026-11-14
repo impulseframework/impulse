@@ -289,8 +289,15 @@ func seamTrustedDevicePerUser[Tx any](ctx context.Context, t *testing.T, a *auth
 	b.expect(ctx, http.StatusOK, http.MethodPost, "/logout", nil)
 	withoutCode("pat@lakeside.edu", pat)
 
-	// pat forgets the browser: pat is asked for the code again, sam is not.
-	b.expect(ctx, http.StatusNoContent, http.MethodPost, "/forget-device", nil)
+	// pat forgets the browser from the account page: the session read said it is
+	// remembered for pat and says so no longer; pat is asked for the code again, sam is not.
+	if !browserRemembered(ctx, t, b) {
+		t.Fatal("the session read of pat on the remembered browser says it is not remembered")
+	}
+	b.expect(ctx, http.StatusOK, http.MethodPost, "/forget-browser", nil)
+	if browserRemembered(ctx, t, b) {
+		t.Error("the session read after pat forgot the browser still says it is remembered")
+	}
 	b.expect(ctx, http.StatusOK, http.MethodPost, "/logout", nil)
 	heldThenCancelled("pat@lakeside.edu")
 	withoutCode("sam@lakeside.edu", sam)
@@ -304,6 +311,21 @@ func seamTrustedDevicePerUser[Tx any](ctx context.Context, t *testing.T, a *auth
 	}
 	heldThenCancelled("sam@lakeside.edu")
 	withoutCode("pat@lakeside.edu", pat)
+}
+
+// browserRemembered reads the session and answers whether it says the browser is
+// remembered for the person signed in.
+func browserRemembered(ctx context.Context, t *testing.T, b *browser) bool {
+	t.Helper()
+
+	var answer struct {
+		BrowserRemembered bool `json:"browserRemembered"`
+	}
+	if err := json.Unmarshal(b.expect(ctx, http.StatusOK, http.MethodGet, "/authenticated", nil), &answer); err != nil {
+		t.Fatalf("decoding the session read: %v", err)
+	}
+
+	return answer.BrowserRemembered
 }
 
 func seamEmailCodeEnrollment[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], _ *fakeWorkOS) {
