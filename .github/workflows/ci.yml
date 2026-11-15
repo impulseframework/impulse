@@ -330,6 +330,9 @@ jobs:
           restore-keys: |
             lodestar-go-${{ runner.os }}-${{ hashFiles('lodestar/go.sum') }}-
             lodestar-go-${{ runner.os }}-
+      - name: PROBE, a failure in one part of the integration suite
+        if: ${{ matrix.part == 2 }}
+        run: exit 1
       - name: Test this part of the integration suite (the harness starts the Spanner emulator in a container; skipAuth simulates the directories the served suites sign in through)
         if: ${{ env.RUN == 'true' }}
         working-directory: lodestar
@@ -659,6 +662,9 @@ jobs:
         working-directory: app
         run: |
           "$RUNNER_TEMP/impulse" check
+      - name: PROBE, a failure in one job of a head leg
+        if: ${{ matrix.candidate == 'solo' && matrix.part == 'browser' }}
+        run: exit 1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && env.BROWSER_PART == 'true' }}
         with:
