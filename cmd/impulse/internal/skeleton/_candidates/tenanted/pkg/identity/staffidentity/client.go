@@ -28,6 +28,14 @@ import (
 // compile time, so the tables managed here are the ones the auth signs people in from.
 const TablePrefix = "Staff"
 
+// AuthName is the name of the auth the package was generated for: the auth package's own
+// (Name), which the application's generated handlers hold it equal to at compile time.
+// An outlet's generated routes bind the name of the auth that signed the request's caller
+// in, and the rules read it against this one: on an outlet that serves this auth's
+// management and signs its own people in through another auth, a caller is nobody of
+// this auth, whatever their username, so nobody there is refused as acting on themselves.
+const AuthName = "staff"
+
 // Client is what the Staff auth's methods run over: the identity package's rules,
 // applied to the auth's own tables with the permission engine that reads its
 // memberships. The application builds one where it builds the auth, hands it to the
@@ -46,7 +54,7 @@ type Client struct {
 // roles (identity.WithAdministratorRoles), which the rule on a person removing a role
 // from themselves reads.
 func NewClient(controller access.Controller, sessions identity.SessionAPI, opts ...identity.Option) (*Client, error) {
-	manager, err := identity.New(store{}, controller, sessions, opts...)
+	manager, err := identity.New(AuthName, store{}, controller, sessions, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.New()")
 	}

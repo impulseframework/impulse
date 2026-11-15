@@ -19,7 +19,7 @@ var invitationID = mustUUID("44444444-4444-4444-8444-444444444444")
 // newInviter builds a manager whose session library mails to the mailbox.
 func newInviter(t *testing.T, store Store, mail *fakeMail) *Manager {
 	t.Helper()
-	m, err := New(store, &fakeEngine{roles: engineRoles}, fakeSessions{mail: mail})
+	m, err := New(managedAuth, store, &fakeEngine{roles: engineRoles}, fakeSessions{mail: mail})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}

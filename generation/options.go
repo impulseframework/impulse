@@ -671,7 +671,10 @@ func Auth(importPath string, methods ...AuthMethod) OutletOption {
 // as under their own, served through the managed Auth's identity client and checked in
 // the caller's engine against the caller's role file; the collection is shared, so
 // either role file may grant them, and an application that wants only staff to manage
-// members leaves them out of the members' file.
+// members leaves them out of the members' file. A caller on this outlet is a person of
+// the outlet's own Auth and nobody of the managed one, whatever their username: the
+// managed Auth's rules on a person acting on themselves (nobody disables or deletes
+// their own account, the last administrator keeps the role) refuse nobody here.
 func Manages(importPath string) OutletOption {
 	return outletOption(func(o *routerOutlet) error {
 		if importPath == "" || strings.ContainsAny(importPath, " \t\n\"") || strings.Trim(importPath, "/") != importPath {

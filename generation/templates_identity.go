@@ -519,6 +519,14 @@ import (
 // compile time, so the tables managed here are the ones the auth signs people in from.
 const TablePrefix = "{{ .Auth }}"
 
+// AuthName is the name of the auth the package was generated for: the auth package's own
+// (Name), which the application's generated handlers hold it equal to at compile time.
+// An outlet's generated routes bind the name of the auth that signed the request's caller
+// in, and the rules read it against this one: on an outlet that serves this auth's
+// management and signs its own people in through another auth, a caller is nobody of
+// this auth, whatever their username, so nobody there is refused as acting on themselves.
+const AuthName = "{{ .AuthName }}"
+
 // Client is what the {{ .Auth }} auth's methods run over: the identity package's rules,
 // applied to the auth's own tables with the permission engine that reads its
 // memberships. The application builds one where it builds the auth, hands it to the
@@ -537,7 +545,7 @@ type Client struct {
 // roles (identity.WithAdministratorRoles), which the rule on a person removing a role
 // from themselves reads.
 func NewClient(controller access.Controller, sessions identity.SessionAPI, opts ...identity.Option) (*Client, error) {
-	manager, err := identity.New(store{}, controller, sessions, opts...)
+	manager, err := identity.New(AuthName, store{}, controller, sessions, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.New()")
 	}
@@ -2139,6 +2147,13 @@ var _ {{ $instance.HandlersPackage }}.Deps = (*{{ $.ApplicationName }})(nil)
 // one key twice, which fails the build here: generate again after an auth's tables are
 // renamed.
 var _ = map[bool]struct{}{false: {}, {{ $instance.AuthPackage }}.TablePrefix == {{ $instance.MethodsPackage }}.TablePrefix: {}}
+
+// The auth package's Name is the name the outlets' generated routes bind to a request,
+// and the management was generated for that name, which is the auth package's own. The
+// same device holds the two equal: an auth package whose Name is not its package's name
+// fails the build here, since the rules that keep a person from acting on themselves
+// would take every caller for a person of another auth.
+var _ = map[bool]struct{}{false: {}, {{ $instance.AuthPackage }}.Name == {{ $instance.MethodsPackage }}.AuthName: {}}
 {{ range $handler := $instance.Handlers }}
 func ({{ $.ReceiverName }} *{{ $.ApplicationName }}) {{ $handler.Name }}() http.HandlerFunc {
 	return {{ $instance.HandlersPackage }}.New({{ $.ReceiverName }}, liveDerivations).{{ $handler.Name }}()

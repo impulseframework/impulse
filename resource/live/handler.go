@@ -34,13 +34,11 @@ func Tab(r *http.Request) (string, error) {
 	return tab, nil
 }
 
-// authKey is the request context key Subscribing binds the auth's name under.
-type authKey struct{}
-
 // Subscribing is the middleware a session-serving outlet's generated routes run under.
 // auth is the name of the auth whose sessions the outlet serves (the auth package's
-// Name); every request has it bound, so the live layer keys the session principal by
-// it (PrincipalID). A request carrying the subscribe header has the tab noted on its
+// Name); every request has it bound (resource.WithAuth), so the live layer keys the
+// session principal by it (PrincipalID) and the rules that keep a person from acting on
+// themselves tell the caller from a person of another auth. A request carrying the subscribe header has the tab noted on its
 // request log line and is refused when the tab is malformed; a request without the
 // header passes on with nothing else done. An auth name that is empty, or that carries
 // AuthSeparator or a "/", panics as the routes are registered, so a server never
@@ -52,7 +50,7 @@ func Subscribing(auth string) func(http.Handler) http.Handler {
 
 	return func(next http.Handler) http.Handler {
 		return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
-			r = r.WithContext(context.WithValue(r.Context(), authKey{}, auth))
+			r = r.WithContext(resource.WithAuth(r.Context(), auth))
 			if r.Header.Get(SubscribeHeader) == "" {
 				next.ServeHTTP(w, r)
 
@@ -199,7 +197,7 @@ func Publish(ctx context.Context, svc Service, derivations *Derivations, domain 
 // auth was bound to fails as a server error, since its principal could not be told from
 // another auth's.
 func PrincipalID(ctx context.Context) (string, error) {
-	auth, ok := ctx.Value(authKey{}).(string)
+	auth, ok := resource.AuthFrom(ctx)
 	if !ok {
 		return "", errors.New("live.PrincipalID(): no auth is bound to the request; the outlet's generated routes bind it (live.Subscribing)")
 	}

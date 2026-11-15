@@ -396,6 +396,8 @@ func Test_prepareIdentity(t *testing.T) {
 		"internal/crewresources/crew_roles.go":               {"// @suppress(readHandler)", "// @suppress(patchHandler)", "// @outlet(default)", "CrewRole struct {"},
 		"crewidentity/client.go": {
 			`const TablePrefix = "Crew"`, "func NewClient(controller access.Controller, sessions identity.SessionAPI, opts ...identity.Option) (*Client, error) {",
+			// The manager is built for the auth by its name, the one its outlets bind to a request.
+			`const AuthName = "crew"`, "identity.New(AuthName, store{}, controller, sessions, opts...)",
 			// The roles a sign-in gives are the manager's, handed the session library's transaction.
 			"func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.ReadWriteTransaction] {", `return c.manager.InvitationAccepted("Crew")`,
 			"func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {", `return c.manager.DirectorySeated("Crew")`,

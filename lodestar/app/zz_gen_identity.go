@@ -25,6 +25,13 @@ var _ crewhandlers.Deps = (*App)(nil)
 // renamed.
 var _ = map[bool]struct{}{false: {}, crew.TablePrefix == crewidentity.TablePrefix: {}}
 
+// The auth package's Name is the name the outlets' generated routes bind to a request,
+// and the management was generated for that name, which is the auth package's own. The
+// same device holds the two equal: an auth package whose Name is not its package's name
+// fails the build here, since the rules that keep a person from acting on themselves
+// would take every caller for a person of another auth.
+var _ = map[bool]struct{}{false: {}, crew.Name == crewidentity.AuthName: {}}
+
 func (a *App) CrewRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewRoles()
 }
@@ -283,6 +290,13 @@ var _ membershandlers.Deps = (*App)(nil)
 // one key twice, which fails the build here: generate again after an auth's tables are
 // renamed.
 var _ = map[bool]struct{}{false: {}, members.TablePrefix == membersidentity.TablePrefix: {}}
+
+// The auth package's Name is the name the outlets' generated routes bind to a request,
+// and the management was generated for that name, which is the auth package's own. The
+// same device holds the two equal: an auth package whose Name is not its package's name
+// fails the build here, since the rules that keep a person from acting on themselves
+// would take every caller for a person of another auth.
+var _ = map[bool]struct{}{false: {}, members.Name == membersidentity.AuthName: {}}
 
 func (a *App) MembersRoles() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).MembersRoles()

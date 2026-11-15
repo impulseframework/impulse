@@ -790,7 +790,8 @@ for its service manager to start the new release. A session outlet declaring the
 is refused, and the generated test proves the route sits behind the token check.
 
 **The auth in the route tables.** Each session outlet's routes function binds the name of
-its auth for the live pages (section 14): `generatedRoutes` opens with
+its auth to every request, for the live pages (section 14) and for the generated
+management's rules on a person acting on themselves: `generatedRoutes` opens with
 `live.Subscribing(crew.Name)`, so the routes file imports every declared auth package,
 whether one auth is declared or several, and `NewTestRouter` binds the same names. Where
 the application writes its own router, the generator does not know the auths, so each
@@ -2886,6 +2887,15 @@ own, outside any request, has no caller and is the application's act):
 - The removal of a person's last role anywhere deletes the account, with its identity
   links and sessions, in the same transaction and whoever removed the role: an account
   nothing admits is not kept.
+
+A username names a person within one Auth, so the first two rules take the caller for the
+person acted on only where the request came through the Auth being managed. An outlet's
+routes bind the name of the Auth that signs its people in to every request
+(`live.Subscribing(crew.Name)`, read back with `resource.AuthFrom`), and the client holds
+the name it was generated for (`crewidentity.AuthName`, which the application's generated
+handlers hold equal to the auth package's `Name` at compile time). On an outlet that
+serves another Auth's management (`Manages`), a console person and a member may carry one
+username and are two people: there nobody is refused as acting on themselves.
 
 **The pages.** No application writes a page for an Auth's management. The generated API
 description (`zz_gen_api.ts`) carries an `identity` block beside its resources and

@@ -26,7 +26,7 @@ const (
 
 // withAuth binds the auth's name the way an outlet's Subscribing middleware does.
 func withAuth(ctx context.Context, auth string) context.Context {
-	return context.WithValue(ctx, authKey{}, auth)
+	return resource.WithAuth(ctx, auth)
 }
 
 // withUser seeds the session identity the way the session middleware would, with no

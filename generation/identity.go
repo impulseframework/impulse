@@ -182,6 +182,15 @@ func (i *identityInstance) accessor() string {
 	return i.auth + "Identity"
 }
 
+// authName is the auth's name as its auth package spells it (Name): the package's own
+// name, which an outlet's generated routes bind to every request (live.Subscribing) and
+// the generated management is built with, so the rules that keep a person from acting on
+// themselves tell a caller of this auth from a person of another. The application's
+// generated handlers hold it equal to the auth package's Name at compile time.
+func (i *identityInstance) authName() string {
+	return assumedPackageName(i.importPath)
+}
+
 // identityInstances derives the instances of the run: one per declared Auth, served on
 // the outlets that declare the Auth and on those that manage it (Manages). Nothing
 // without GenerateIdentity.
@@ -539,6 +548,7 @@ func (d *identitySourceData) RoleGrant() string     { return d.auth + "RoleGrant
 // Auth is the auth's name in PascalCase, and Accessor the method the application hands
 // the instance's client through.
 func (d *identitySourceData) Auth() string     { return d.auth }
+func (d *identitySourceData) AuthName() string { return d.authName() }
 func (d *identitySourceData) Accessor() string { return d.accessor() }
 
 // Has reports whether the schema holds the instance's table of a kind.

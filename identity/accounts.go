@@ -115,7 +115,7 @@ func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransact
 	if !found {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 	}
-	if callerIs(ctx, username) {
+	if m.callerIs(ctx, username) {
 		return httpio.NewForbiddenMessage("you cannot delete your own account")
 	}
 	held, err := m.store.Memberships(ctx, txn, username)

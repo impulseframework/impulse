@@ -22,6 +22,13 @@ var _ staffhandlers.Deps = (*App)(nil)
 // renamed.
 var _ = map[bool]struct{}{false: {}, staff.TablePrefix == staffidentity.TablePrefix: {}}
 
+// The auth package's Name is the name the outlets' generated routes bind to a request,
+// and the management was generated for that name, which is the auth package's own. The
+// same device holds the two equal: an auth package whose Name is not its package's name
+// fails the build here, since the rules that keep a person from acting on themselves
+// would take every caller for a person of another auth.
+var _ = map[bool]struct{}{false: {}, staff.Name == staffidentity.AuthName: {}}
+
 func (a *App) StaffRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffRoles()
 }

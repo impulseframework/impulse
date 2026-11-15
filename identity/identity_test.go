@@ -591,11 +591,18 @@ func (p *fakePrepared) Send(context.Context) error {
 	return nil
 }
 
+// managedAuth is the auth the tests' managers manage, and otherAuth another one over the
+// same database, whose outlet serves the management of the first.
+const (
+	managedAuth = "members"
+	otherAuth   = "staff"
+)
+
 // newManager builds a manager over the store and an engine holding the roles.
 func newManager(t *testing.T, store Store, roles map[accesstypes.PolicyScope][]accesstypes.Role, opts ...Option) (*Manager, *fakeEngine) {
 	t.Helper()
 	engine := &fakeEngine{roles: roles}
-	m, err := New(store, engine, fakeSessions{}, opts...)
+	m, err := New(managedAuth, store, engine, fakeSessions{}, opts...)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
@@ -607,13 +614,16 @@ func newManager(t *testing.T, store Store, roles map[accesstypes.PolicyScope][]a
 func TestNew(t *testing.T) {
 	t.Parallel()
 
-	if _, err := New(nil, &fakeEngine{}, fakeSessions{}); err == nil {
+	if _, err := New("", &fakeStore{}, &fakeEngine{}, fakeSessions{}); err == nil {
+		t.Error("New(no auth name) error = nil, want a refusal")
+	}
+	if _, err := New(managedAuth, nil, &fakeEngine{}, fakeSessions{}); err == nil {
 		t.Error("New(nil store) error = nil, want a refusal")
 	}
-	if _, err := New(&fakeStore{}, nil, fakeSessions{}); err == nil {
+	if _, err := New(managedAuth, &fakeStore{}, nil, fakeSessions{}); err == nil {
 		t.Error("New(nil engine) error = nil, want a refusal")
 	}
-	if _, err := New(&fakeStore{}, &fakeEngine{}, nil); err == nil {
+	if _, err := New(managedAuth, &fakeStore{}, &fakeEngine{}, nil); err == nil {
 		t.Error("New(nil session API) error = nil, want a refusal")
 	}
 }
