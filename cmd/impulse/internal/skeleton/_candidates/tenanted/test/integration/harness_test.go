@@ -415,7 +415,7 @@ func unmarshalDomains[T ~string](body []byte, domains *[]T) error {
 		Domain string `json:"domain"`
 	}
 	if err := json.Unmarshal(body, &listed); err != nil {
-		return err
+		return errors.Wrap(err, "json.Unmarshal()")
 	}
 	out := make([]T, 0, len(listed))
 	for _, entry := range listed {
