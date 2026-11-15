@@ -451,13 +451,17 @@ func TestDir_confinement(t *testing.T) {
 
 // TestBucket_refusedPermission pins the 403 path against a server answering 403: the
 // store starts, every file operation answers 503 through the frame, and once the
-// server grants, the next operation runs. The test sets the emulator variable, so it
-// runs in sequence.
+// server grants, the next operation runs. The readiness check sends every probe of its
+// startup bound to the server and skips the pauses between them, which TestBucketCheck
+// holds on a clock of its own. The test sets the emulator variable, so it runs in
+// sequence.
 func TestBucket_refusedPermission(t *testing.T) {
 	var granted atomic.Bool
+	var refusals atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if !granted.Load() {
+			refusals.Add(1)
 			w.WriteHeader(http.StatusForbidden)
 			_, _ = io.WriteString(w, `{"error":{"code":403,"message":"the caller does not have storage.objects.list access","errors":[{"message":"forbidden","domain":"global","reason":"forbidden"}]}}`)
 
@@ -474,9 +478,12 @@ func TestBucket_refusedPermission(t *testing.T) {
 	t.Cleanup(server.Close)
 	t.Setenv("STORAGE_EMULATOR_HOST", strings.TrimPrefix(server.URL, "http://"))
 
-	store, err := filestore.Open(t.Context(), "gs://harbor-files")
+	store, err := filestore.OpenBucketSkippingStartupWaits(t.Context(), "harbor-files")
 	if err != nil {
-		t.Fatalf("Open() under a refused permission error = %v, want the store to start", err)
+		t.Fatalf("opening the bucket store under a refused permission error = %v, want the store to start", err)
+	}
+	if got := refusals.Load(); got != filestore.StartupProbes {
+		t.Errorf("the readiness check sent %d probes before the store started refused, want %d: one at the start and one after each pause of the bound", got, filestore.StartupProbes)
 	}
 	t.Cleanup(func() { _ = store.Close() })
 

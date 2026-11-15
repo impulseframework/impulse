@@ -108,7 +108,9 @@ bun run test
 
 Lodestar builds against the packages in `web/dist`, so build them first; then
 `cd lodestar/web && bun install && bun run build` and, for the Go side,
-`cd lodestar && go build ./... && go vet ./... && go test -race ./...`. The skeletons the
+`cd lodestar && go build ./... && go vet ./... && go test -race -tags skipAuth ./...` (the
+tag simulates the directories Lodestar's people sign in through; the served suites skip
+without it). The skeletons the
 tool renders are validated by rendering each one and building, testing, linting and
 checking the result, which CI does for every skeleton against the framework at the commit
 (`impulse render <candidate> <dir> --module <path> --dev-root <checkout>`).

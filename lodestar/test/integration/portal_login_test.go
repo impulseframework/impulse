@@ -7,7 +7,7 @@ import "context"
 // The portal's people sign in through Google, and the members auth reads their groups
 // through the Admin SDK, which needs credentials a test process has none of. Only the
 // session library's skipAuth build simulates the directory, so the served suites run
-// under `go test -tags skipAuth ./...`, as the Procfile and the CI stub do; without the tag
+// under `go test -tags skipAuth ./...`, as the Procfile and CI's integration job do; without the tag
 // they skip with the reason.
 
 // simulatedDirectory reports whether this build simulates the directory: it does not, so

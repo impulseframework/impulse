@@ -12,8 +12,14 @@ name: CI
 #    entries saved on its own branch and on its base, nothing else. So the Go jobs compile
 #    everything, the tests' binaries among it, run no test, and save, on the standard runner.
 #  * The release pull request changes the changelog, the manifest and the version lines of
-#    the browser packages: no Go job runs for it. The skeleton legs and the browser jobs do,
-#    since they install the packages at the version the release gives them.
+#    the browser packages: no Go job runs for it. The skeleton legs against its commit and
+#    the browser jobs do, since they install the packages at the version the release gives
+#    them.
+#  * The skeleton legs against the released framework install the release and its published
+#    packages, so they read nothing of a pull request but this file and the Go version.
+#    They run on a pull request that changes either, and for a release once it is out: the
+#    npm publish workflow, which a release starts, starts this one when it ends, and that
+#    run does those legs and nothing else. The same run can be started by hand.
 on:
   pull_request:
     # opened, synchronize (commits pushed) and reopened are the defaults; ready_for_review is
@@ -21,9 +27,15 @@ on:
     types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [master]
+  workflow_run:
+    workflows: ["npm publish"]
+    types: [completed]
+  workflow_dispatch:
 
 concurrency:
-  group: ${{ github.ref }}
+  # One run per branch, the newest. A run for a release is on master's ref and is a group
+  # of its own, so it neither cancels the run of a push to master nor is canceled by one.
+  group: ${{ (github.event_name == 'workflow_run' || github.event_name == 'workflow_dispatch') && format('released-{0}', github.ref) || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -33,6 +45,8 @@ jobs:
     # module the workflow does not see; the lodestar-go job below covers it.
     # A called workflow gets no more than its caller grants: the scans upload their findings
     # to code scanning (security-events) and read the run they belong to (actions).
+    # Not in a run for a release, which does the released skeleton legs alone.
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     permissions:
       contents: read
       security-events: write
@@ -66,6 +80,7 @@ jobs:
     # application to a step no release carries. Every other pull request passes with no step
     # run, so the job is a required check.
     name: release ledger
+    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     env:
       RUN: ${{ startsWith(github.head_ref, 'release-please--branches--master') }}
@@ -97,8 +112,12 @@ jobs:
       lodestar-web: ${{ steps.paths.outputs.lodestar-web }}
       # 'true' when a Go file, the module's go.mod or go.sum, the command line (cmd/, the
       # skeleton candidates among it), the browser packages the skeletons' web roots pin, or
-      # this workflow changed. The skeleton legs read it with draft below.
+      # this workflow changed. The skeleton legs against this commit read it with draft below.
       impulse: ${{ steps.paths.outputs.impulse }}
+      # 'true' when the skeleton legs against the released framework have something to say:
+      # on a pull request that changes this workflow or the Go version in go.mod, the two
+      # things of the tree those legs read, and in a run for a release.
+      pins: ${{ steps.paths.outputs.pins }}
       # What Lodestar's Go jobs do: 'run' the tests (a Go file, a go.mod or go.sum, or
       # Lodestar changed, on a pull request that is ready), 'compile' them without running
       # one (a push to master, for the caches), or 'skip' (nothing of theirs changed, or the
@@ -116,12 +135,23 @@ jobs:
           BASE: ${{ github.base_ref }}
           EVENT: ${{ github.event_name }}
           DRAFT: ${{ github.event.pull_request.draft }}
+          # What the npm publish run that started this one came to; empty on any other event.
+          PUBLISHED: ${{ github.event.workflow_run.conclusion }}
         run: |
           if [ "$EVENT" = push ]; then
             # A push to master: there is nothing to diff against, and the run is the merge
             # result, so every job runs; Lodestar's Go jobs compile for the caches and run
-            # no test, since the pull request that merged tested this tree.
-            printf 'web=true\nlodestar-web=true\nimpulse=true\nlodestar-go=compile\ndraft=false\n' >> "$GITHUB_OUTPUT"; cat "$GITHUB_OUTPUT"; exit 0
+            # no test, since the pull request that merged tested this tree. The legs against
+            # the released framework wait for a release.
+            printf 'web=true\nlodestar-web=true\nimpulse=true\npins=false\nlodestar-go=compile\ndraft=false\n' >> "$GITHUB_OUTPUT"; cat "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ "$EVENT" != pull_request ]; then
+            # A run for a release, started by the end of the npm publish workflow or by hand:
+            # the legs against the released framework and nothing else. A publish that did
+            # not succeed left nothing new to render against.
+            pins=true
+            if [ "$EVENT" = workflow_run ] && [ "$PUBLISHED" != success ]; then pins=false; fi
+            printf 'web=false\nlodestar-web=false\nimpulse=false\npins=%s\nlodestar-go=skip\ndraft=false\n' "$pins" >> "$GITHUB_OUTPUT"; cat "$GITHUB_OUTPUT"; exit 0
           fi
           draft=false
           if [ "$DRAFT" = true ]; then draft=true; fi
@@ -131,6 +161,11 @@ jobs:
             echo "web=$(touches '^(web/|\.github/workflows/ci\.yml$)')"
             echo "lodestar-web=$(touches '^(generation/|resource/|lodestar/|web/|\.github/workflows/ci\.yml$)')"
             echo "impulse=$(touches '(\.go$|^go\.(mod|sum)$|^(cmd|web)/|^\.github/workflows/ci\.yml$)')"
+            if [ "$(touches '^\.github/workflows/ci\.yml$')" = true ] || git diff "origin/$BASE...HEAD" -- go.mod | grep -qE '^[+-](go|toolchain) '; then
+              echo "pins=true"
+            else
+              echo "pins=false"
+            fi
             if [ "$draft" = false ] && [ "$(touches '(\.go$|(^|/)go\.(mod|sum)$|^lodestar/)')" = true ]; then
               echo "lodestar-go=run"
             else
@@ -239,31 +274,53 @@ jobs:
     # workflow's modules are the packages of release-please-config.json and Lodestar is not
     # released.
     #
-    # The work is two jobs side by side, so neither waits for the other's emulator: this
-    # one runs the integration suite, the longest package by far, and lodestar-go-rest
-    # everything else. The required check is the lodestar-go job below them, which reports
-    # under the one name `lodestar go` what the two came to.
-    name: lodestar go (the integration suite)
+    # The work is jobs side by side, so none waits for another's emulator: this one runs
+    # the integration suite, the longest package by far, and lodestar-go-rest everything
+    # else. The required check is the lodestar-go job below them, which reports
+    # under the one name `lodestar go` what they came to.
+    #
+    # The suite is built with the session library's skipAuth tag, which simulates the
+    # directories the portal's and the console's people sign in through: the served suites
+    # need them and skip without the tag. The tagged build runs every test the untagged
+    # one runs, so this is the one run of the suite, under the race detector.
+    #
+    # The suite is one package and the longest thing CI runs (about three minutes of tests
+    # on 16 cores), so it runs as three jobs, each with an emulator of its own: its tests by
+    # name, in order, are dealt out in turn.
+    name: lodestar go (the integration suite, part ${{ matrix.part }} of 3)
     needs: changes
-    # On a pull request that is ready and touches Lodestar or Go, and when the changes job
-    # could not say. Master's push compiles this suite in the other job.
-    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.lodestar-go == 'run') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        part: [1, 2, 3]
+    # The three jobs start on every pull request and push, since a matrix job skipped whole
+    # reports one check under its unexpanded name. They do their work on a pull request
+    # that is ready and touches Lodestar or Go, and when the changes job could not say;
+    # otherwise (a draft, a pull request that touches nothing of theirs, master's push,
+    # which compiles this suite in the other job) every step is skipped.
+    if: ${{ !cancelled() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
     # The suite runs under the race detector against the Spanner emulator, minutes on the
     # standard runner: it runs on the larger runner CI_LARGE_RUNNER names, as golang-ci's
-    # test jobs do, and on the standard runner while the variable is unset.
-    runs-on: ${{ vars.CI_LARGE_RUNNER || 'ubuntu-latest' }}
+    # test jobs do, and on the standard runner while the variable is unset or the job has
+    # nothing to do.
+    runs-on: ${{ (needs.changes.result != 'success' || needs.changes.outputs.lodestar-go == 'run') && vars.CI_LARGE_RUNNER || 'ubuntu-latest' }}
     env:
       # testcontainers' reaper (Ryuk) is not needed on a runner discarded after the job, and its start has timed out here.
       TESTCONTAINERS_RYUK_DISABLED: "true"
+      # 'true' where the job does its work.
+      RUN: ${{ needs.changes.result != 'success' || needs.changes.outputs.lodestar-go == 'run' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: ${{ env.RUN == 'true' }}
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: ${{ env.RUN == 'true' }}
         with:
           go-version-file: lodestar/go.mod
           cache: false
       - name: Restore the Go caches
         # The entry lodestar-go-rest saves: that job compiles every package, this one a
         # part of them, so this one restores and never saves.
+        if: ${{ env.RUN == 'true' }}
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -273,9 +330,24 @@ jobs:
           restore-keys: |
             lodestar-go-${{ runner.os }}-${{ hashFiles('lodestar/go.sum') }}-
             lodestar-go-${{ runner.os }}-
-      - name: Test the integration suite (the harness starts the Spanner emulator in a container)
+      - name: Test this part of the integration suite (the harness starts the Spanner emulator in a container; skipAuth simulates the directories the served suites sign in through)
+        if: ${{ env.RUN == 'true' }}
         working-directory: lodestar
-        run: go test -race ./test/integration/...
+        env:
+          PART: ${{ matrix.part }}
+          PARTS: 3
+        run: |
+          # The listing compiles the test binary the run below uses. A part with no test
+          # would pass having run nothing, so it is an error.
+          go test -race -tags skipAuth -list '^Test' ./test/integration/ > "$RUNNER_TEMP/listing"
+          grep '^Test' "$RUNNER_TEMP/listing" | sort > "$RUNNER_TEMP/tests"
+          awk -v part="$PART" -v parts="$PARTS" 'NR % parts == part - 1' "$RUNNER_TEMP/tests" > "$RUNNER_TEMP/part"
+          echo "part $PART of $PARTS: $(wc -l < "$RUNNER_TEMP/part") of the suite's $(wc -l < "$RUNNER_TEMP/tests") tests"
+          if [ ! -s "$RUNNER_TEMP/part" ]; then
+            echo "::error::the listing of the integration suite gave this part no test"
+            exit 1
+          fi
+          go test -race -tags skipAuth -run "^($(paste -sd'|' "$RUNNER_TEMP/part"))\$" ./test/integration/
   lodestar-go-rest:
     name: lodestar go (build, vet, the other suites, impulse check)
     needs: changes
@@ -319,11 +391,16 @@ jobs:
           go list ./... | grep -v '/test/integration$' > "$RUNNER_TEMP/packages"
           xargs go test -race < "$RUNNER_TEMP/packages"
       - name: Compile every package and every test binary, and run none (master's push, for the caches)
-        # As the two jobs' tests compile them, the integration suite among them. The
-        # binaries are discarded; what was compiled is in the build cache the job saves.
+        # As the jobs' tests compile them: the integration suite with its tag, every
+        # other package without. The binaries are discarded; what was compiled is in the
+        # build cache the job saves.
         if: ${{ env.COMPILE_ONLY == 'true' }}
         working-directory: lodestar
-        run: go build ./... && go vet ./... && go test -race -c -o /dev/null ./...
+        run: |
+          go build ./... && go vet ./...
+          go list ./... | grep -v '/test/integration$' > "$RUNNER_TEMP/packages"
+          xargs go test -race -c -o /dev/null < "$RUNNER_TEMP/packages"
+          go test -race -tags skipAuth -c -o /dev/null ./test/integration/...
       - name: impulse check (built from this commit, on Lodestar)
         # The checks an application runs, held against the application that proves the
         # framework: a finding here is a defect in Lodestar or in the check, and either one
@@ -347,21 +424,21 @@ jobs:
             ~/.cache/go-build
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
   lodestar-go:
-    # The required check of Lodestar's Go jobs: it passes when each of the two passed or
-    # had nothing to do (a pull request that touches nothing of theirs, or a draft), and
-    # fails when either failed or was canceled. It runs whatever became of them, so a run
+    # The required check of Lodestar's Go jobs: it passes when each of them passed, skipped
+    # its steps or was skipped (a pull request that touches nothing of theirs, or a
+    # draft), and fails when any failed or was canceled. It runs whatever became of them, so a run
     # canceled by hand never reads as a pass.
     name: lodestar go
     needs: [lodestar-go-integration, lodestar-go-rest]
-    if: ${{ always() }}
+    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
     runs-on: ubuntu-latest
     steps:
-      - name: Both jobs passed, or had nothing to do
+      - name: Every job passed, or had nothing to do
         env:
           INTEGRATION: ${{ needs.lodestar-go-integration.result }}
           REST: ${{ needs.lodestar-go-rest.result }}
         run: |
-          echo "the integration suite: $INTEGRATION"
+          echo "the integration suite, every part: $INTEGRATION"
           echo "build, vet, the other suites, impulse check: $REST"
           for result in "$INTEGRATION" "$REST"; do
             case "$result" in
@@ -386,43 +463,85 @@ jobs:
     # with impulse new, for a record of two words, and runs that application's browser
     # app the same way, since add tenancy writes the browser files a tenanted application
     # starts from.
-    # The legs start on every pull request (see the changes job): on one that touches
-    # nothing of theirs, and on a draft, every step is skipped. The pins leg also skips
-    # every step while no release of the framework exists, since it has nothing to render
-    # against.
-    name: impulse ${{ matrix.candidate }} (${{ matrix.framework }})
+    #
+    # A head leg is two jobs side by side, each rendering the skeleton for itself: one
+    # does the Go work (build, vet, test, lint, impulse check) and one the browser apps.
+    # The required check `impulse <skeleton> (head)` is the impulse-skeletons-head job
+    # below, which reports what the two came to. A pins leg is one job under its required
+    # name: it reads nothing of a pull request but this file and the Go version, so it
+    # works on a pull request that changes either and in a run for a release (see the
+    # changes job), where the release is the one just published.
+    #
+    # The jobs start on every pull request: on one that touches nothing of theirs, and on
+    # a draft, every step is skipped. The pins leg also skips every step while no release
+    # of the framework exists, since it has nothing to render against.
+    name: "impulse ${{ matrix.candidate }} (${{ matrix.framework }})${{ matrix.part != 'all' && format(': {0}', matrix.part) || '' }}"
     needs: changes
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         candidate: [solo, tenanted, outlets, sites]
-        framework: [pins, head]
+        framework: [head]
+        part: [go, browser]
+        include:
+          - {candidate: solo, framework: pins, part: all}
+          - {candidate: tenanted, framework: pins, part: all}
+          - {candidate: outlets, framework: pins, part: all}
+          - {candidate: sites, framework: pins, part: all}
+    outputs:
+      # What each head job came to, for the required checks below: 'ok' from a job whose
+      # every step passed or was skipped, nothing from one that failed or was canceled.
+      # Each job of the matrix writes the one name that is its own.
+      solo-go: ${{ steps.done.outputs.solo-go }}
+      solo-browser: ${{ steps.done.outputs.solo-browser }}
+      tenanted-go: ${{ steps.done.outputs.tenanted-go }}
+      tenanted-browser: ${{ steps.done.outputs.tenanted-browser }}
+      outlets-go: ${{ steps.done.outputs.outlets-go }}
+      outlets-browser: ${{ steps.done.outputs.outlets-browser }}
+      sites-go: ${{ steps.done.outputs.sites-go }}
+      sites-browser: ${{ steps.done.outputs.sites-browser }}
     env:
       # testcontainers' reaper (Ryuk) is not needed on a runner discarded after the job, and its start has timed out here.
       TESTCONTAINERS_RYUK_DISABLED: "true"
       # The bun that wrote web/bun.lock, which builds the browser packages and installs the
       # rendered application's browser apps.
       BUN_VERSION: 1.4.4
-      # The leg does its work when the framework or the command line changed on a pull
-      # request that is ready (or on master's push), or when the changes job could not say;
-      # otherwise every step is skipped and the leg still reports its name. The pins leg's
-      # release step adds a second condition, released, which the head leg leaves empty.
-      RUN: ${{ needs.changes.result != 'success' || (needs.changes.outputs.impulse == 'true' && needs.changes.outputs.draft != 'true') }}
+      # The job does its work on a pull request that is ready (or on master's push, or in
+      # a run for a release) when what its leg reads changed: the framework or the command
+      # line for a head leg, this file or the Go version for a pins leg, which a release
+      # also starts. It works too when the changes job could not say. Otherwise every step
+      # is skipped and the job still reports its name. The pins leg's release step adds a
+      # second condition, released, which the head leg leaves empty.
+      RUN: ${{ needs.changes.result != 'success' || (needs.changes.outputs.draft != 'true' && ((matrix.framework == 'head' && needs.changes.outputs.impulse == 'true') || (matrix.framework == 'pins' && needs.changes.outputs.pins == 'true'))) }}
+      # Which of the leg's two kinds of work this job does: a pins job does both.
+      GO_PART: ${{ matrix.part != 'browser' }}
+      BROWSER_PART: ${{ matrix.part != 'go' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: ${{ env.RUN == 'true' }}
         with:
           path: impulse
-      - name: Ask the module proxy for a release of the framework
-        # The pins leg renders with the latest release of impulse, installed from the module
-        # proxy. Before the first release exists the proxy knows no version (it answers 404,
-        # or an empty list for a module with no tags): the step says so and the rest of the
-        # leg is skipped, so the leg stays green until the first release is cut. Any other
-        # answer than a version list or not-found is a proxy failure and fails the leg.
+      - name: Name the release of the framework to render with
+        # The pins leg renders with a release of impulse, installed from the module proxy.
+        # In a run for a release it is the repository's latest release, by its tag. On a
+        # pull request it is what the proxy calls the latest. Before the first release
+        # exists the proxy knows no version (it answers 404, or an empty list for a module
+        # with no tags): the step says so and the rest of the leg is skipped, so the leg
+        # stays green until the first release is cut. Any other answer than a version list
+        # or not-found is a proxy failure and fails the leg.
         if: ${{ env.RUN == 'true' && matrix.framework == 'pins' }}
         id: release
+        env:
+          EVENT: ${{ github.event_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
+          if [ "$EVENT" = workflow_run ] || [ "$EVENT" = workflow_dispatch ]; then
+            tag=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+            echo "the latest release: $tag"
+            printf 'released=true\nversion=%s\n' "$tag" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           code=$(curl -sS -o "$RUNNER_TEMP/versions" -w '%{http_code}' "https://proxy.golang.org/github.com/impulseframework/impulse/@v/list")
           case "$code" in
             200) ;;
@@ -431,7 +550,7 @@ jobs:
           esac
           if [ -s "$RUNNER_TEMP/versions" ]; then
             echo "released: $(sort -V "$RUNNER_TEMP/versions" | tr '\n' ' ')"
-            echo "released=true" >> "$GITHUB_OUTPUT"
+            printf 'released=true\nversion=latest\n' >> "$GITHUB_OUTPUT"
           else
             echo "::notice::no release of the framework exists yet; the pins leg has nothing to render against"
             echo "released=false" >> "$GITHUB_OUTPUT"
@@ -470,7 +589,24 @@ jobs:
           # The binary lands where the head leg builds its own, so the steps below run the
           # same path on both legs.
           GOBIN: ${{ runner.temp }}
-        run: go install github.com/impulseframework/impulse/cmd/impulse@latest
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          if [ "$VERSION" != latest ]; then
+            # A release's tag is not on the module proxy the moment the release is out:
+            # the proxy fetches a version when it is first asked for it by name and serves
+            # it about a minute later. The version is asked for until it is served.
+            for attempt in $(seq 1 40); do
+              code=$(curl -sS -o /dev/null -w '%{http_code}' "https://proxy.golang.org/github.com/impulseframework/impulse/@v/$VERSION.info")
+              if [ "$code" = 200 ]; then break; fi
+              if [ "$attempt" = 40 ]; then
+                echo "::error::the module proxy did not serve $VERSION within twenty minutes (its last answer: $code)"
+                exit 1
+              fi
+              echo "the module proxy answered $code for $VERSION (attempt $attempt of 40); asking again in 30 seconds"
+              sleep 30
+            done
+          fi
+          go install "github.com/impulseframework/impulse/cmd/impulse@$VERSION"
       - name: Render the skeleton
         if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' }}
         env:
@@ -485,22 +621,22 @@ jobs:
           fi
           cd app && git init -q && git add -A && git -c user.name=ci -c user.email=ci@example.com commit -qm "rendered by impulse"
       - name: Build and vet
-        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' }}
+        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && env.GO_PART == 'true' }}
         working-directory: app
         run: go build ./... && go vet ./...
       - name: Test (the harnesses start the Spanner emulator in a container; skipAuth simulates the directory an OIDC auth signs in through)
-        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' }}
+        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && env.GO_PART == 'true' }}
         working-directory: app
         run: go test -tags skipAuth ./... -timeout 20m
       - name: Install golangci-lint
-        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' }}
+        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && env.GO_PART == 'true' }}
         uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: 'v2.14.0'
           install-only: true
           skip-cache: true
       - name: Lint with the application's own configuration (both tag sets)
-        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' }}
+        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && env.GO_PART == 'true' }}
         working-directory: app
         env:
           FRAMEWORK: ${{ matrix.framework }}
@@ -519,19 +655,19 @@ jobs:
       - name: impulse check
         # The same binary that rendered: the check reads the application against the
         # framework it was rendered from.
-        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' }}
+        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && env.GO_PART == 'true' }}
         working-directory: app
         run: |
           "$RUNNER_TEMP/impulse" check
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' }}
+        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && env.BROWSER_PART == 'true' }}
         with:
           bun-version: ${{ env.BUN_VERSION }}
       - name: Build the browser packages at this commit
         # The head leg's browser apps install the three packages built from this commit,
         # packed, in place of the published versions their package.json pins: the
         # package-manager counterpart of the replace line --dev-root writes.
-        if: ${{ env.RUN == 'true' && matrix.framework == 'head' }}
+        if: ${{ env.RUN == 'true' && matrix.framework == 'head' && env.BROWSER_PART == 'true' }}
         working-directory: impulse/web
         run: |
           bun install --frozen-lockfile
@@ -548,7 +684,7 @@ jobs:
         # add tenancy writes in that record's words, and checks that application's browser
         # app beside the rendered one; its Go side is left with the obligations the brief
         # names, so only its browser app is checked here.
-        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' }}
+        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && env.BROWSER_PART == 'true' }}
         env:
           CANDIDATE: ${{ matrix.candidate }}
           FRAMEWORK: ${{ matrix.framework }}
@@ -564,7 +700,7 @@ jobs:
             apps="app composed"
           fi
           for dir in $apps; do
-            roots=$(find "$dir" -path '*/node_modules' -prune -o -path '*web/package.json' -print | xargs -r -n1 dirname | sort)
+            roots=$(find "$dir" -path '*/node_modules' -prune -o -path '*web/package.json' -printf '%h\n' | sort)
             if [ -z "$roots" ]; then
               echo "::error::$dir has no browser app"
               exit 1
@@ -597,10 +733,39 @@ jobs:
         # The four candidates of a framework leg share the key, so the first to finish saves
         # and the others find the entry taken, which the action reports and moves past. A
         # failed test still saves what compiled; a canceled run saves nothing.
-        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && !cancelled() && (github.event_name != 'pull_request' || !startsWith(steps.go-cache.outputs.cache-matched-key, format('impulse-{0}-{1}-{2}-', matrix.framework, runner.os, hashFiles('impulse/go.sum')))) }}
+        if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && env.GO_PART == 'true' && !cancelled() && (github.event_name != 'pull_request' || !startsWith(steps.go-cache.outputs.cache-matched-key, format('impulse-{0}-{1}-{2}-', matrix.framework, runner.os, hashFiles('impulse/go.sum')))) }}
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/go/pkg/mod
             ~/.cache/go-build
           key: ${{ steps.go-cache.outputs.cache-primary-key }}
+      - name: Report this job to the leg's required check
+        # The last step, which runs when every step before it passed or was skipped.
+        id: done
+        if: ${{ matrix.framework == 'head' }}
+        env:
+          NAME: ${{ matrix.candidate }}-${{ matrix.part }}
+        run: echo "$NAME=ok" >> "$GITHUB_OUTPUT"
+  impulse-skeletons-head:
+    # The required check of a skeleton's head leg: it passes when the leg's two jobs each
+    # passed or had nothing to do (a pull request that touches nothing of theirs, or a
+    # draft), and fails when either failed or was canceled. It runs whatever became of
+    # them, so a run canceled by hand never reads as a pass.
+    name: impulse ${{ matrix.candidate }} (head)
+    needs: impulse-skeletons
+    if: ${{ always() && (github.event_name == 'pull_request' || github.event_name == 'push') }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        candidate: [solo, tenanted, outlets, sites]
+    steps:
+      - name: Both jobs passed, or had nothing to do
+        env:
+          GO: ${{ needs.impulse-skeletons.outputs[format('{0}-go', matrix.candidate)] }}
+          BROWSER: ${{ needs.impulse-skeletons.outputs[format('{0}-browser', matrix.candidate)] }}
+        run: |
+          echo "go: ${GO:-failed or canceled}"
+          echo "browser: ${BROWSER:-failed or canceled}"
+          [ "$GO" = ok ] && [ "$BROWSER" = ok ]

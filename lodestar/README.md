@@ -956,7 +956,7 @@ manifest: pick a card, sign in, switch, never more than two clicks.
   [`rpc.armed-read`](test/integration/rpc_forms_test.go),
   [`impersonation.revoke`](test/integration/impersonation_ops_test.go), and the parity
   world provisioned from the shipped role files. The served suites need the simulated
-  directory: `go test -tags skipAuth ./...`, as the CI stub and the Procfile do.
+  directory: `go test -tags skipAuth ./...`, as CI's integration job and the Procfile do.
 - `demonstrations_test.go` and `DEMONSTRATIONS.md`: the demonstration index, and
   `walkthrough.sh`, the proof by hand. Demonstrates: demonstration-index, walkthrough.
 - `walkthrough.sh`: every persona's proof by curl against a freshly bootstrapped or reset stack
