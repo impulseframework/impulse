@@ -13,7 +13,7 @@ import {
 // clearance and fee limit feed the `subject.clearance` and `subject.feeLimit`
 // conditions on the flight deck. The registry is global and keeps its route (`/pilots`);
 // the same page is served under the sector segment too (sectorPilotsConfig, at
-// `/sectors/:sectorID/pilots`, where the star chart takes it from the registry), and there
+// `/sectors/:sectorID/pilots`, under Operations in a sector), and there
 // a pilot's page carries their assignments in the sector the URL names: the
 // PilotAssignments view, the second view over SquadronMemberships. The view declares its
 // backing table, a create goes into the table, and the new row shows up in the view on
@@ -49,14 +49,14 @@ const registry = (): ReturnType<typeof listViewConfig> =>
 
 /** The registry: the global Pilots page, with no sector to ask. */
 export const pilotsConfig = rootConfig({
-  nav: { navItem: { label: 'Pilots' }, group: 'Headquarters' },
+  page: { label: 'Pilots', icon: 'badge' },
   parentConfig: registry(),
   relatedConfigs: [],
 });
 
 /** The registry under the sector segment: a pilot's page carries their assignments there. */
 export const sectorPilotsConfig = rootConfig({
-  nav: { navItem: { label: 'Pilots' } },
+  page: { label: 'Pilots', icon: 'badge' },
   routeData: { route: `${DomainRoutePath}/pilots` },
   parentConfig: registry(),
   relatedConfigs: [

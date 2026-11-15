@@ -9,7 +9,6 @@ import { Methods, Permissions, Resources } from '@app/service/zz_gen_constants';
 import { CREW_MANIFEST } from '@components/login/login.component';
 import { ImpersonationService } from '../impersonation.service';
 import { SectorService } from '../sector.service';
-import { StarChartComponent } from '../star-chart/star-chart.component';
 
 /**
  * The squadron roster: the sector's wings and squadrons (the Wing Commander sees only
@@ -23,7 +22,7 @@ import { StarChartComponent } from '../star-chart/star-chart.component';
  */
 @Component({
   selector: 'app-roster',
-  imports: [FormsModule, MatButtonModule, MatCardModule, MatFormFieldModule, MatSelectModule, MatTableModule, StarChartComponent],
+  imports: [FormsModule, MatButtonModule, MatCardModule, MatFormFieldModule, MatSelectModule, MatTableModule],
   templateUrl: './roster.component.html',
   styleUrl: './roster.component.scss',
 })

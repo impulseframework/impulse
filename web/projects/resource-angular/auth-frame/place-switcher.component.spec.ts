@@ -1,15 +1,34 @@
 import { ApplicationRef } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { PermissionDigest } from '@impulseframework/resource';
+import { Permission, PermissionDigest, Resource } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { firstValueFrom } from 'rxjs';
 import { provideFrameTesting, specTransport } from './frame-testing';
+import { Menu, page } from './menu';
 import { findFrom, PlaceSwitcherComponent } from './place-switcher.component';
 
 // The place switcher names the place the page is in, captioned with the application's word
 // for a tenant, and lists the others: the place outside every tenant apart, then the
 // tenants under the word for many. One place has nothing to switch to; a long list opens
 // with a box to find one by name.
+
+/** The application's menu file: one page of the place outside every tenant, under a grant there. */
+const menus: Menu[] = [
+  {
+    label: 'System',
+    groups: [
+      {
+        entries: [
+          page({
+            label: 'Feature flags',
+            route: ['feature-flags'],
+            permission: { resource: 'FeatureFlags' as Resource, permission: 'List' as Permission },
+          }),
+        ],
+      },
+    ],
+  },
+];
 
 describe('PlaceSwitcherComponent', () => {
   let fixture: ComponentFixture<PlaceSwitcherComponent>;
@@ -18,7 +37,7 @@ describe('PlaceSwitcherComponent', () => {
     const transport = specTransport({ digests: { '': digest }, domains });
     await TestBed.configureTestingModule({
       imports: [PlaceSwitcherComponent],
-      providers: [provideFrameTesting(transport)],
+      providers: [provideFrameTesting(transport, { menus })],
     }).compileComponents();
     await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
     fixture = TestBed.createComponent(PlaceSwitcherComponent);

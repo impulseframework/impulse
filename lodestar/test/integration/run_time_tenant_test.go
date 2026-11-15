@@ -10,7 +10,7 @@ package integration
 // instance that wrote makes her Dawn's marshal in the transaction that writes the sector
 // (SectorMarshal, the role SectorAdministratorRoles names: the creator of a sector is
 // its first administrator), adds Dawn to its roster after the commit and signals the
-// tenants kind, her star chart lights
+// tenants kind, her chart lights
 // Dawn and Dawn's wings answer her; the marshal's chart does not light it and Dawn's
 // routes answer her 404, a sector that does not exist for her; the portal's client, whose
 // directory role is held in every sector, opens Dawn's portal at once, as the governor
@@ -85,7 +85,7 @@ func startTenantInstance(t *testing.T, name string, db *initiator.SpannerDB, cre
 	return &flagInstance{name: name, h: withHandWrittenRoutes(a)}
 }
 
-// assertDomains pins the star chart a user-domains answer draws, in the sorted order the
+// assertDomains pins the chart a user-domains answer draws, in the sorted order the
 // route lists.
 func assertDomains(want ...accesstypes.Domain) func(t *testing.T, step string, body []byte) {
 	return func(t *testing.T, step string, body []byte) {
@@ -189,7 +189,7 @@ func TestRunTimeTenant_chartedSectorReachesSecondInstance(t *testing.T) {
 			},
 		},
 		{name: "charted: the sector list carries Dawn, in name order", on: first, user: tenantSurveyor, method: http.MethodGet, target: sectorsRoute, wantStatus: http.StatusOK, check: assertSectorNames("Anvil", "Bastion", "Cinder", "Dawn")},
-		{name: "charted: her star chart lights Dawn with no restart, no migrate job and no new login", on: first, user: tenantSurveyor, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(charted...)},
+		{name: "charted: her chart lights Dawn with no restart, no migrate job and no new login", on: first, user: tenantSurveyor, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(charted...)},
 		{name: "charted: Dawn's wings answer her on the instance that wrote, an empty list", on: first, user: tenantSurveyor, method: http.MethodGet, target: sectorPath(dawn, "wings"), wantStatus: http.StatusOK, check: assertNoRows},
 		{name: "charted: the surveyor corrects Dawn's region, Update on Sectors", on: first, user: tenantSurveyor, method: http.MethodPatch, target: resourcesRoute, body: surveyDawn, wantStatus: http.StatusOK},
 		{name: "charted: the create made the surveyor Dawn's marshal in its own transaction, so Dawn's list of the roles held answers her and carries her as SectorMarshal", on: first, user: tenantSurveyor, method: http.MethodGet, target: dawnRolesHeld, wantStatus: http.StatusOK, check: heldAsMarshal},

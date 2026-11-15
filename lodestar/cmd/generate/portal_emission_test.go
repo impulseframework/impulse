@@ -87,7 +87,7 @@ func TestPortalTargetEmission(t *testing.T) {
 		{
 			name:   "the portal descriptor bootstraps under the shared domain route with its own permission channels",
 			source: portalAPI,
-			want:   []string{"domainRoute: { segment: 'sectors', param: 'sectorID' }", "permissionDigestRoute: 'permission-digest'", "userDomainsRoute: 'user-domains'", "consolidatedRoute: 'resources'"},
+			want:   []string{"domainRoute: { segment: 'sectors', param: 'sectorID', word: { one: 'Sector', many: 'Sectors' } }", "permissionDigestRoute: 'permission-digest'", "userDomainsRoute: 'user-domains'", "consolidatedRoute: 'resources'"},
 			absent: []string{"Refits", "Squadrons", "Pilots"},
 		},
 		{

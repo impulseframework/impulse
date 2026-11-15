@@ -35,7 +35,7 @@ import { SquadronChannelComponent } from '@components/sector/squadron-channel/sq
 //
 // Demonstrates: @rowsOf.association, list.row-route, config.component, config.array, field.array.
 export const squadronsConfig = rootConfig({
-  nav: { navItem: { label: 'Squadrons (config page)' }, group: 'Sector Ops' },
+  page: { label: 'Squadrons', icon: 'group_work' },
   routeData: { route: `${DomainRoutePath}/squadrons` },
   parentConfig: listViewConfig({
     title: 'Squadrons',

@@ -198,6 +198,26 @@ export function shownMenus(menus: readonly Menu[], context: MenuContext): ShownM
     .filter((menu) => menu.groups.length > 0);
 }
 
+/**
+ * Whether the menus hold anything of the place outside every tenant that the person may
+ * use: a page that lives there, or an action kept to it. The context answers for that
+ * place (no tenant open). What every place has (a page under `here`, an action with no
+ * place) does not count, since it is no reason to be there.
+ */
+export function showsOutside(menus: readonly Menu[], context: MenuContext): boolean {
+  const inGroups = (groups: readonly MenuGroup[]): boolean =>
+    groups.some((group) =>
+      group.entries.some((entry) => {
+        if ('groups' in entry) return inGroups(entry.groups);
+        if (entry.permission && !allowed(entry.permission, context)) return false;
+        if (entry.feature && !context.enabled(entry.feature)) return false;
+        if (isPage(entry)) return !entry.route.includes(here) && context.link(entry.route) !== undefined;
+        return entry.place === 'outside';
+      }),
+    );
+  return menus.some((menu) => inGroups(menu.groups));
+}
+
 /** Whether a link goes to the page at the URL, or to a page under it. */
 export function linksTo(link: readonly string[] | undefined, url: string): boolean {
   if (!link) return false;

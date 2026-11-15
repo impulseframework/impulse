@@ -408,8 +408,8 @@ func (a *App) SchedulerAuth(next http.Handler) http.Handler {
 // established as a role, and attenuated by the session's permission mask. The sectors
 // the session lists are the tenant roster filtered by where the checker holds a grant
 // and by what each sector declares about who may enter it (the configuration's
-// TenantDeclarations), so the star chart and the sector guard can never disagree, and a
-// sector charted a moment ago lights for everyone whose role is held in every sector.
+// TenantDeclarations), so the place switcher and the tenant guard can never disagree, and
+// a sector charted a moment ago is listed for everyone whose role is held in every sector.
 //
 // Demonstrates: impersonation.session-permissions.
 func (a *App) UserPermissions(r *http.Request) resource.UserPermissions {

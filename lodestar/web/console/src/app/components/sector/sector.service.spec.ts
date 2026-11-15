@@ -1,13 +1,12 @@
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { ResourceRef } from '@angular/core';
-import { Component } from '@angular/core';
-import { provideRouter, Router } from '@angular/router';
-import { RouterTestingHarness } from '@angular/router/testing';
+import { provideRouter } from '@angular/router';
 import { TestBed } from '@angular/core/testing';
 import { Permissions, Resources } from '@app/service/zz_gen_constants';
 import { createApi } from '@app/service/zz_gen_api';
 import { ClientBase, PermissionDigest, TransportRequest, TransportResponse } from '@impulseframework/resource';
+import { provideFrame, TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
@@ -52,7 +51,13 @@ function server(request: TransportRequest): TransportResponse {
       }
       return { status: 200, body: globalDigest() };
     case `${environment.apiUrl}/user-domains`:
-      return { status: 200, body: ['anvil', 'bastion'] };
+      return {
+        status: 200,
+        body: [
+          { domain: 'anvil', name: 'Anvil' },
+          { domain: 'bastion', name: 'Bastion' },
+        ],
+      };
     case `${environment.apiUrl}/pilot-cards`:
       return { status: 200, body: [{ id: 'p1', callsign: 'Kestrel' }], headers: { 'total-count': '1' } };
     default:
@@ -96,6 +101,9 @@ describe('SectorService global readers', () => {
         provideResourceTesting({ transport, client: (t) => createApi({ baseUrl: environment.apiUrl, transport: t }) }),
         provideHttpClient(),
         provideHttpClientTesting(),
+        // The sector is the frame's: the library's tenant service, which the tenant guard writes.
+        provideRouter([]),
+        provideFrame({ home: 'dashboard', menus: [] }),
       ],
     });
     await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
@@ -117,7 +125,7 @@ describe('SectorService global readers', () => {
         await settle(() => cards.status() === 'resolved');
         expect(pilotCardReads()).toBe(1);
 
-        // Entering a sector loads its digest, as the sector guard's write does; it has
+        // Entering a sector loads its digest, as the tenant guard's does; it has
         // landed once the sector's own grant answers.
         await settle(() => sectors.can(Permissions.List, Resources.Missions));
         expect(pilotCardReads()).toBe(1);
@@ -125,7 +133,7 @@ describe('SectorService global readers', () => {
         // The same digests again, and another sector entered and its digest landed.
         await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.refresh();
         await settle(() => false, 5);
-        sectors.enter('bastion');
+        TestBed.inject(TenantService).enter('bastion');
         await settle(() => sectors.current() === 'bastion' && sectors.can(Permissions.List, Resources.Missions));
         await settle(() => false, 5);
         expect(pilotCardReads()).toBe(1);
@@ -178,67 +186,4 @@ describe('SectorService global readers', () => {
     expect(pilotCardColumns()).toEqual(['userId,clearance,displayName', 'userId,clearance,commendations,displayName']);
     expect(cards.status()).toBe('resolved');
   });
-});
-
-// The star chart's action: open(sector) navigates to the page the browser is on, under the
-// chosen sector. A page under a sector keeps its path with the sector replaced, a page
-// outside one enters the sector on that path, the refusal page opens the sector's landing,
-// and the query travels along. The service writes no sector itself: the guard on the
-// segment does, from the new URL.
-
-@Component({ template: 'any page' })
-class AnyPageComponent {}
-
-describe('SectorService.open', () => {
-  const cases: { name: string; from: string; sector: string; want: string }[] = [
-    {
-      name: 'a page under a sector keeps its path under the new sector',
-      from: '/sectors/anvil/pilots',
-      sector: 'bastion',
-      want: '/sectors/bastion/pilots',
-    },
-    {
-      name: 'the query travels along',
-      from: '/sectors/anvil/pilots?q=1',
-      sector: 'bastion',
-      want: '/sectors/bastion/pilots?q=1',
-    },
-    {
-      name: 'a page outside a sector enters the sector on that path',
-      from: '/pilots',
-      sector: 'anvil',
-      want: '/sectors/anvil/pilots',
-    },
-    {
-      name: "the dashboard outside a sector opens the sector's dashboard",
-      from: '/dashboard',
-      sector: 'anvil',
-      want: '/sectors/anvil/dashboard',
-    },
-    {
-      name: "the refusal page opens the sector's landing",
-      from: '/sectors/zzz/refused',
-      sector: 'bastion',
-      want: '/sectors/bastion/dashboard',
-    },
-  ];
-
-  for (const tt of cases) {
-    it(tt.name, async () => {
-      TestBed.configureTestingModule({
-        providers: [
-          provideResourceTesting({ client: (t) => createApi({ baseUrl: environment.apiUrl, transport: t }) }),
-          provideRouter([{ path: '**', component: AnyPageComponent }]),
-        ],
-      });
-      const harness = await RouterTestingHarness.create();
-      await harness.navigateByUrl(tt.from);
-      const sectors = TestBed.inject(SectorService);
-
-      expect(await sectors.open(tt.sector)).toBe(true);
-
-      expect(TestBed.inject(Router).url).toBe(tt.want);
-      expect(sectors.current()).toBe('');
-    });
-  }
 });

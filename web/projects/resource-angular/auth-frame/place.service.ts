@@ -6,6 +6,7 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
 import { BASE_URL } from '@impulseframework/resource-angular/types';
 import { firstValueFrom } from 'rxjs';
 import { Frame } from './frame';
+import { MenuService } from './menu.service';
 import { TenantService } from './tenant.service';
 
 /** A place a person works in: a tenant, or the place outside every tenant (the empty id). */
@@ -20,8 +21,8 @@ const rememberedOutside = '@outside';
 
 /**
  * PlaceService answers where a person can work and where they land. The places are the
- * place outside every tenant, for a person who holds something there, then every tenant
- * the session reaches, by name. A person lands where they last worked; the first time, a
+ * place outside every tenant, for a person the application's menus show something there,
+ * then every tenant the session reaches, by name. A person lands where they last worked; the first time, a
  * person who holds something outside every tenant lands there, and anyone else lands in
  * their first tenant by name. Nobody lands on an empty page outside every tenant.
  *
@@ -33,17 +34,18 @@ export class PlaceService {
   private auth = inject(AuthService);
   private client = inject(RESOURCE_CLIENT);
   private tenants = inject(TenantService);
+  private menus = inject(MenuService);
   private router = inject(Router);
   private frame = inject(Frame);
   private base = inject(BASE_URL);
 
-  /** Whether the person holds any grant outside every tenant: the global digest grants something. */
-  readonly holdsOutside = computed(() => {
-    const digest = this.client.permissions.digest();
-    return Object.values(digest ?? {}).some((states) =>
-      Object.values(states ?? {}).some((state) => state === 'granted' || state === 'conditional'),
-    );
-  });
+  /**
+   * Whether the person holds anything outside every tenant: the application's menu file
+   * shows them a page that lives there, or an action kept to it. A grant there that no
+   * menu entry answers to (a record the application reads behind a tenant's page) is not
+   * a place to work in, so it is no place of theirs and they never land on it.
+   */
+  readonly holdsOutside = computed(() => this.menus.showsOutside());
 
   /** Every place the person can work in: outside every tenant first when they hold something there, then the tenants by name. */
   readonly places = computed<readonly Place[]>(() => {

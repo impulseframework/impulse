@@ -1,4 +1,4 @@
-import { inject, Injectable, InjectionToken } from '@angular/core';
+import { inject, Injectable, InjectionToken, Type } from '@angular/core';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { IconName } from '@impulseframework/resource-angular/types';
 import { Menu, MenuGroup } from './menu';
@@ -32,6 +32,12 @@ export interface FrameConfig {
   readonly help?: readonly MenuGroup[];
   /** The application's own entries in the person's menu, above Appearance. */
   readonly person?: readonly MenuGroup[];
+  /**
+   * A component of the application's drawn above the bar on every signed-in page: a notice
+   * that holds for the whole session, such as the one saying whose eyes the person is
+   * viewing through, with the way back. It draws nothing when it has nothing to say.
+   */
+  readonly banner?: Type<unknown>;
 }
 
 /** The application's frame configuration (provideFrame). */

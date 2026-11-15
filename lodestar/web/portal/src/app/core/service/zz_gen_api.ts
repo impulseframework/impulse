@@ -165,7 +165,7 @@ function defineApiDescriptor<T extends ApiDescriptor>(descriptor: T): T {
 
 /** The generated API as the @impulseframework/resource runtime addresses it. Routes carry no API prefix. */
 export const apiDescriptor = defineApiDescriptor({
-  domainRoute: { segment: 'sectors', param: 'sectorID' },
+  domainRoute: { segment: 'sectors', param: 'sectorID', word: { one: 'Sector', many: 'Sectors' } },
   consolidatedRoute: 'resources',
   permissionDigestRoute: 'permission-digest',
   userDomainsRoute: 'user-domains',

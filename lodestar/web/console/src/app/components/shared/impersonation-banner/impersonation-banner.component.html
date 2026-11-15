@@ -1,0 +1,10 @@
+@if (banner(); as banner) {
+  <div class="impersonation-banner" [class.role]="banner.kind === 'Role'" role="status">
+    <mat-icon>{{ banner.kind === 'Role' ? 'badge' : 'visibility' }}</mat-icon>
+    <span class="text">{{ banner.text }}</span>
+    <span class="cap" title="Every minted session carries a two-hour hard cap (MaxDuration)">{{
+      banner.remaining
+    }}</span>
+    <button mat-stroked-button (click)="endImpersonation()">Return to yourself</button>
+  </div>
+}

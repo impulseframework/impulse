@@ -2,18 +2,19 @@ import { ApplicationRef, Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { Router, Routes } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
-import { PermissionDigest } from '@impulseframework/resource';
+import { Permission, PermissionDigest, Resource } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { RESOURCE_DOMAIN } from '@impulseframework/resource-angular/types';
 import { firstValueFrom } from 'rxjs';
 import { FrameConfig } from './frame';
 import { provideFrameTesting, specTransport } from './frame-testing';
+import { Menu, page } from './menu';
 import { homeGuard, outsideGuard } from './place.guard';
 import { PlaceService } from './place.service';
 import { tenantGuard } from './tenant.guard';
 
 // Where a person works and where they land. The places are the place outside every tenant,
-// for a person who holds something there, then the tenants by name. Signing in lands where
+// for a person the application's menus show something there, then the tenants by name. Signing in lands where
 // the person last worked if they still can, else in the first place; nobody lands on an
 // empty page outside every tenant. The tenant every library page reads is the URL's.
 
@@ -33,8 +34,27 @@ const routes: Routes = [
   },
 ];
 
-/** A grant outside every tenant. */
+/** The application's menu file: one page of the place outside every tenant, under a grant there. */
+const menus: Menu[] = [
+  {
+    label: 'System',
+    groups: [
+      {
+        entries: [
+          page({
+            label: 'Feature flags',
+            route: ['feature-flags'],
+            permission: { resource: 'FeatureFlags' as Resource, permission: 'List' as Permission },
+          }),
+        ],
+      },
+    ],
+  },
+];
+/** A grant outside every tenant that the menus show a page for. */
 const holdsOutside: PermissionDigest = { FeatureFlags: { List: 'granted' } };
+/** A grant outside every tenant that no menu entry answers to: a record read behind a tenant's page. */
+const holdsUnplaced: PermissionDigest = { Contacts: { Read: 'granted' } };
 /** No grant outside every tenant. */
 const holdsNothing: PermissionDigest = {};
 /** Two tenants, whose names sort the other way from their ids. */
@@ -52,7 +72,7 @@ describe('PlaceService', () => {
 
   const signIn = async (digest: PermissionDigest, config: Partial<FrameConfig> = {}): Promise<PlaceService> => {
     const transport = specTransport({ digests: { '': digest }, domains });
-    TestBed.configureTestingModule({ providers: [provideFrameTesting(transport, config, routes)] });
+    TestBed.configureTestingModule({ providers: [provideFrameTesting(transport, { menus, ...config }, routes)] });
     await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
     harness = await RouterTestingHarness.create();
     return TestBed.inject(PlaceService);
@@ -73,6 +93,17 @@ describe('PlaceService', () => {
     expect(places.places().map((place) => place.label)).toEqual(['Acme', 'Zenith']);
   });
 
+  it('lists only the tenants for a person whose grant outside them no menu entry answers to', async () => {
+    const places = await signIn(holdsUnplaced);
+    expect(places.holdsOutside()).toBe(false);
+    expect(places.places().map((place) => place.label)).toEqual(['Acme', 'Zenith']);
+  });
+
+  it('lists only the tenants in an application whose menus hold nothing outside them', async () => {
+    const places = await signIn(holdsOutside, { menus: [] });
+    expect(places.places().map((place) => place.label)).toEqual(['Acme', 'Zenith']);
+  });
+
   it('names the place outside every tenant as the application does', async () => {
     const places = await signIn(holdsOutside, { outside: { label: 'Headquarters', icon: 'apartment' } });
     expect(places.current()).toEqual({ id: '', label: 'Headquarters' });
@@ -89,6 +120,11 @@ describe('PlaceService', () => {
     {
       name: 'anyone else lands in their first tenant by name',
       digest: holdsNothing,
+      want: '/tenants/b-id/dashboard',
+    },
+    {
+      name: 'a person whose grant outside the tenants no menu entry answers to lands in their first tenant',
+      digest: holdsUnplaced,
       want: '/tenants/b-id/dashboard',
     },
     {

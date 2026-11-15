@@ -1,21 +1,9 @@
-import {
-  computed,
-  effect,
-  inject,
-  Injectable,
-  linkedSignal,
-  resource,
-  ResourceRef,
-  Signal,
-  signal,
-  untracked,
-} from '@angular/core';
-import { PRIMARY_OUTLET, Router, UrlSegment, UrlSegmentGroup } from '@angular/router';
+import { computed, inject, Injectable, resource, ResourceRef, Signal } from '@angular/core';
 import { injectApi } from '@app/api/api';
 import { Permissions, Resources } from '@app/service/zz_gen_constants';
-import { Api, apiDescriptor, DomainApi } from '@app/service/zz_gen_api';
+import { Api, DomainApi } from '@app/service/zz_gen_api';
 import { ResourceScopes } from '@app/service/zz_gen_resources';
-import { AuthService } from '@impulseframework/resource-angular/auth-service';
+import { Frame, TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { storeSignal } from '@impulseframework/resource-angular/resource-client';
 import {
   ApiError,
@@ -33,12 +21,6 @@ import {
 
 /** The generated client bound to one sector: its resources and RPC methods. */
 export type SectorApi = DomainClient<DomainApi>;
-
-/** The segment under a sector where a URL naming a sector the session cannot reach lands. */
-export const refusedSegment = 'refused';
-
-/** The page a sector opens on when the star chart is used from the refusal page. */
-const landing = 'dashboard';
 
 /** A handle a page can list from and ask about: what sectorList/globalList need. */
 export type ListHandle<Row> = Listable<Row> & {
@@ -95,28 +77,23 @@ export interface ShipsLogEntry {
 }
 
 /**
- * SectorService holds the one piece of state the sector-scoped decks share — the sector
- * the deck is open in — and binds the generated API client to it.
+ * SectorService binds the generated API client to the sector a deck is open in, and holds
+ * the rules the decks follow.
  *
- * Demonstrates: tenancy.user-domains, tenancy.concealed, star-chart, permission-digest, paging.descriptor-sizes.
+ * Demonstrates: permission-digest, paging.descriptor-sizes.
  *
  * The sector is a consequence of the route, never a choice. Every sector-scoped page lives
  * under the sector segment (`sectors/:sectorID`, the generated DomainRoutePath, mirroring
- * the API's), the sector guard on that segment writes `current` from the URL before the
- * page loads and clears it when the URL leaves the segment, and nothing else writes it.
- * The star chart sets no sector: it navigates to the same page under the chosen sector
- * (`open`) and the guard does the rest, so a link to a sector's deck can be shared and a
- * bookmark lands where it points; a sector the session cannot reach lands on the refusal
- * page, in the server's words.
- *
- * The rest of the class comment describes the rules the decks follow. The sector is the
- * permission domain for every request those decks make: `sector()` is the client
- * bound to it, so moving between sectors re-scopes what each persona can see and do.
+ * the API's), and the library's tenant guard on that segment writes the sector from the
+ * URL before the page loads (TenantService, the frame's), loading that sector's digest;
+ * the frame's place switcher sets no sector, it opens the same page under the chosen one.
+ * `current` is the frame's sector, and `sector()` the client bound to it, so moving
+ * between sectors re-scopes what each persona can see and do.
  *
  * Permissions: the client owns the digest cache — @impulseframework/resource-angular's AuthService, guard, and
- * directive answer from the same cache. Entering a sector loads that sector's digest;
- * `can` answers from it reactively. Absent grant = hide the surface, never provoke a
- * 403 (waystation's rule); conditional grant = render, the server narrows per row.
+ * directive answer from the same cache, and `can` answers from it reactively. Absent
+ * grant = hide the surface, never provoke a 403 (waystation's rule); conditional grant =
+ * render, the server narrows per row.
  *
  * Data loading is DECLARATIVE: each deck's lists are resources derived from the
  * open sector and the List grant, never HTTP issued from an effect (an effect
@@ -127,8 +104,8 @@ export class SectorService {
   /** The generated client: global handles on the root, sector handles under domain(). */
   readonly api: Api = injectApi();
 
-  private auth = inject(AuthService);
-  private router = inject(Router);
+  private tenants = inject(TenantService);
+  private frame = inject(Frame);
 
   // The digest cache mirrored into a signal: can() reads it so computeds re-evaluate
   // when a digest loads, then asks the client for the answer.
@@ -153,81 +130,24 @@ export class SectorService {
     );
   }
 
-  // chartAll widens the star chart from the permission-derived constellation to the
-  // full roster of sectors. A real application would not offer it; the demo keeps it
-  // as the clickable path to a concealed refusal: open a dark sector and the sector
-  // guard lands on the refusal page, which shows the 404 the domain guard answers.
-  readonly chartAll = signal(false);
+  /** The sector the deck is open in, the frame's (the tenant guard's alone to write); empty outside the sector segment. */
+  readonly current = this.tenants.current;
 
-  // The chart has no bespoke endpoint: "where do I hold grants" is the generated
-  // user-domains endpoint (AuthService.domains()), and "what does the whole frontier
-  // look like" is the generated, permission-checked Sectors resource, fetched only
-  // while chartAll is on and the GLOBAL List grant is held. The request depends on the
-  // toggle and the global digest alone, never on the open sector: round 2 derived
-  // it from the selection, so selecting a dark star reloaded the roster, the roster's
-  // empty loading value snapped the selection back, and the click was discarded.
-  // Sectors declares a maximum page size, so it is never read whole: the chart asks for
-  // one page of the descriptor's maximum, the most one request may carry, and nothing
-  // here walks past it.
-  private roster = resource({
-    params: () => {
-      this.permissions();
-      return { wanted: this.chartAll() && this.api.can(Permissions.List, Resources.Sectors) };
-    },
-    loader: ({ params }) =>
-      params.wanted ? this.api.sectors.list({ limit: this.api.sectors.descriptor.page?.max }) : Promise.resolve([]),
-    defaultValue: [],
+  /**
+   * The place the page is in, by name: the open sector's name as the session's sector
+   * list carries it, or Headquarters, the place outside every sector.
+   */
+  readonly placeName = computed(() => {
+    this.permissions();
+    const current = this.current();
+    return current ? this.api.permissions.domainName(current as Domain) : this.frame.outside.label;
   });
-
-  // The chart holds the last roster while the next one loads, so a reload never
-  // empties the constellation under a selection.
-  private heldRoster = linkedSignal<string[] | undefined, string[]>({
-    source: () =>
-      this.roster.hasValue() && this.roster.value().length
-        ? this.roster
-            .value()
-            .map((row) => row.id)
-            .sort()
-        : undefined,
-    computation: (roster, previous) => roster ?? previous?.value ?? [],
-  });
-
-  /** The sectors the chart offers: lit ones, or every sector when chartAll is on. */
-  readonly sectors = computed<string[]>(() => {
-    if (this.chartAll()) {
-      const held = this.heldRoster();
-      return held.length ? held : [...this.auth.domains()];
-    }
-
-    return [...this.auth.domains()];
-  });
-
-  /** The lit sectors: where the session user holds at least one grant. */
-  readonly lit = computed<readonly string[]>(() => this.auth.domains());
-
-  // The sector the URL names: the sector guard's alone to write (enter, leave).
-  private routed = signal('');
-
-  /** The sector the deck is open in; empty outside the sector segment. */
-  readonly current = this.routed.asReadonly();
 
   /** The client bound to the open sector; undefined while none is open. */
   readonly sector = computed<SectorApi | undefined>(() => {
     const current = this.current();
     return current ? this.api.domain(current) : undefined;
   });
-
-  constructor() {
-    // Entering a sector re-scopes every permission question, so load that sector's
-    // digest into the client's cache. The load runs untracked (see the class comment).
-    // A failed load caches an empty digest: every question about the sector answers
-    // false.
-    effect(() => {
-      const sector = this.current();
-      if (!sector) return;
-      untracked(() => void this.api.permissions.loadDigest(sector as Domain).catch(() => undefined));
-    });
-  }
 
   /** The open sector's client, for handlers that run only while one is open. */
   sectorApi(): SectorApi {
@@ -236,47 +156,6 @@ export class SectorService {
       throw new Error('no sector open');
     }
     return sector;
-  }
-
-  /**
-   * enter is the sector guard's write, and nobody else's: the guard calls it with the
-   * sector the URL names once the session is known to reach it, before any deck under
-   * the segment loads.
-   */
-  enter(sector: string): void {
-    this.routed.set(sector);
-  }
-
-  /** leave is the guard's other write: the URL has left the sector segment. */
-  leave(): void {
-    this.routed.set('');
-  }
-
-  /**
-   * open navigates to the page the browser is on, under the given sector: the star
-   * chart's action. A page under a sector keeps its path with the sector replaced; a page
-   * outside one enters the sector on that path (`/dashboard` opens
-   * `/sectors/anvil/dashboard`); the refusal page opens the sector's landing. Query and
-   * fragment travel along, and the guard on the segment settles the sector from the new
-   * URL — or refuses it, for a dark star.
-   */
-  open(sector: string): Promise<boolean> {
-    const { segment } = apiDescriptor.domainRoute;
-    const tree = this.router.parseUrl(this.router.url);
-    const primary = tree.root.children[PRIMARY_OUTLET];
-    const segments = primary?.segments ?? [];
-    const underSector = segments[0]?.path === segment && segments.length > 1;
-    let page = underSector ? segments.slice(2) : segments;
-    if (page[0]?.path === refusedSegment) {
-      page = [new UrlSegment(landing, {})];
-    }
-    const under = [new UrlSegment(segment, {}), new UrlSegment(sector, {}), ...page];
-    if (primary) {
-      primary.segments = under;
-    } else {
-      tree.root.children[PRIMARY_OUTLET] = new UrlSegmentGroup(under, {});
-    }
-    return this.router.navigateByUrl(tree);
   }
 
   /**
@@ -346,10 +225,6 @@ export class SectorService {
   grantedFields(permission: Permission, resource: Resource): readonly string[] | undefined {
     this.permissions();
     return this.api.grantedFields(permission, resource, (this.current() || undefined) as Domain | undefined);
-  }
-
-  setChartAll(all: boolean): void {
-    this.chartAll.set(all);
   }
 
   /**

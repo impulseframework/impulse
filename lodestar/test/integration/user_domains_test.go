@@ -1,7 +1,7 @@
-// Demonstrates: tenancy.user-domains, star-chart.
+// Demonstrates: tenancy.user-domains, frame.place-switcher.
 package integration
 
-// Bootstrap parity for the user-domains endpoint — the star chart's source: the
+// Bootstrap parity for the user-domains endpoint — the place switcher's source: the
 // sectors where each persona holds at least one grant, on the same foothold predicate
 // as concealed tenancy. Cinder lights only for headquarters, the archivist, and the
 // hazard analyst.
@@ -55,6 +55,30 @@ func TestUserDomains(t *testing.T) {
 				t.Errorf("empty membership body = %q, want [] (never null)", body)
 			}
 		})
+	}
+}
+
+// TestUserDomainsNames pins the name each sector is listed with (@tenantName on the
+// sector record's Name), the label the place switcher shows for it.
+func TestUserDomainsNames(t *testing.T) {
+	t.Parallel()
+
+	_, h, _ := sharedWorld(t)
+
+	status, body := doRequestAs(t, h, "governor", http.MethodGet, "/console/api/user-domains", "")
+	assertStatus(t, status, http.StatusOK, body)
+
+	type listed struct {
+		Domain string `json:"domain"`
+		Name   string `json:"name"`
+	}
+	var got []listed
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshaling domains %s: %v", body, err)
+	}
+	want := []listed{{"anvil", "Anvil"}, {"bastion", "Bastion"}, {"cinder", "Cinder"}}
+	if !slices.Equal(got, want) {
+		t.Errorf("domains = %v, want %v", got, want)
 	}
 }
 

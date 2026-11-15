@@ -1,0 +1,23 @@
+@if (card(); as card) {
+  <mat-card appearance="outlined" class="pilot-card">
+    <mat-card-header>
+      <mat-card-title>Your standing</mat-card-title>
+    </mat-card-header>
+    <mat-card-content>
+      <p class="standing" [title]="'Certified: ' + (card.certifications?.join(', ') || 'none')">
+        {{ card.displayName }} · clearance {{ card.clearance }}
+        @if (card.squadrons?.length) {
+          · {{ card.squadrons.join(', ') }}
+        }
+        <!--
+          The card's one gated field (@feature.field): how many citations the commendations
+          desk holds for the pilot. While the flag is off the server leaves the field out of
+          the row and the digest, and *impulseFeature renders nothing; on, the count shows, zero
+          included. The flag is the generated Feature member, so a misspelled name fails to
+          compile.
+        -->
+        <ng-container *impulseFeature="commendations">· Cited: {{ card.commendations }}</ng-container>
+      </p>
+    </mat-card-content>
+  </mat-card>
+}

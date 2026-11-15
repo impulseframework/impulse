@@ -16,7 +16,7 @@ import { enumeratedConfig, field, listViewConfig, rootConfig, section } from '@i
 //
 // Demonstrates: field.bytes, field.object.
 export const missionDocumentsConfig = rootConfig({
-  nav: { navItem: { label: 'Documents (config page)' }, group: 'Sector Ops' },
+  page: { label: 'Documents', icon: 'description' },
   routeData: { route: `${DomainRoutePath}/documents` },
   parentConfig: listViewConfig({
     title: 'Documents',

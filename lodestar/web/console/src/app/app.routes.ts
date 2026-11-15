@@ -1,13 +1,17 @@
-import { Routes } from '@angular/router';
+import { Route, Routes } from '@angular/router';
 import { apiDescriptor } from '@app/service/zz_gen_api';
 import { DomainRoutePath, resourceMeta } from '@app/service/zz_gen_resources';
 import { LoginAuthenticationGuard } from '@impulseframework/resource-angular/auth-authentication-guard';
+import {
+  FrameComponent,
+  frameRoutes,
+  homeGuard,
+  outsideGuard,
+  refusedRoute,
+} from '@impulseframework/resource-angular/auth-frame';
 import { identityRoutes } from '@impulseframework/resource-angular/identity-pages';
 import { resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
 import { sectorRoute, watchDeskRoute } from '@components/sector/sector.routes';
-import { refusedSegment } from '@components/sector/sector.service';
-import { tokensRoute } from '@components/ui/tokens/tokens.routes';
-import { UiComponent } from '@components/ui/ui.component';
 import { clientsConfig } from './configs/clients.config';
 import { commendationsConfig } from './configs/commendations.config';
 import { distressCallsConfig } from './configs/distressCalls.config';
@@ -20,6 +24,13 @@ import { shipClassesConfig } from './configs/shipClasses.config';
 import { shipsConfig } from './configs/ships.config';
 import { standingOrdersConfig } from './configs/standingOrders.config';
 
+// The dashboard is every place's first page (provideFrame's home): in Headquarters the
+// service ledger and the global digest, in a sector that sector's digest.
+const dashboardRoute = (): Route => ({
+  path: 'dashboard',
+  loadComponent: () => import('./components/ui/dashboard/dashboard.component').then((comp) => comp.DashboardComponent),
+});
+
 export const routes: Routes = [
   {
     path: 'login',
@@ -30,84 +41,93 @@ export const routes: Routes = [
     loadComponent: () => import('@impulseframework/resource-angular/auth-sign-out').then((comp) => comp.SignOutComponent),
   },
   {
+    // Every signed-in page sits in the library's frame (provideFrame in app.config.ts): the
+    // bar with the menus of the menu file (app.menus.ts), the place switcher between
+    // Headquarters and each sector by name, and the person's own menu.
     path: '',
-    component: UiComponent,
+    component: FrameComponent,
     canActivate: [LoginAuthenticationGuard],
     children: [
-      {
-        path: 'dashboard',
-        loadComponent: () =>
-          import('./components/ui/dashboard/dashboard.component').then((comp) => comp.DashboardComponent),
-      },
-      // Global resources are config-driven over the generated metadata; the
-      // sector-scoped decks are hand-written (see SectorService), except the Missions
-      // page and its siblings under the sector segment below, config-driven pages in the
-      // sector the URL names (RESOURCE_DOMAIN) whose pickers list exactly the resources
-      // the metadata names.
-      //
-      // Every config-driven list and row route carries the library's canDeactivateGuard,
-      // attached by resourceRoutes: leaving a page whose form is dirty (FormStateService)
-      // opens the library's LeavePageConfirmationModalComponent, and a route to the
-      // FRONTEND_LOGIN_PATH app.config.ts provides leaves without asking. The console
-      // adds no leave-page guard of its own.
-      //
-      // Demonstrates: form.leave-page.
-      resourceRoutes(clientsConfig, resourceMeta),
-      resourceRoutes(shipClassesConfig, resourceMeta),
-      // The standing orders are a key-less list: resourceRoutes builds the list route
-      // alone, no `:uuid` row route, since a line has no key to open by.
-      resourceRoutes(standingOrdersConfig, resourceMeta),
-      resourceRoutes(pilotsConfig, resourceMeta),
-      // The commendations desk sits behind the one feature flag. Nothing here says so:
-      // resourceRoutes reads `feature` from the generated metadata and matches the route
-      // only while the flag is on (the library's featureMatch guard), so a URL to the
-      // desk while it is off falls to the wildcard below as an unknown URL does.
-      //
-      // Demonstrates: @feature.
-      resourceRoutes(commendationsConfig, resourceMeta),
-      resourceRoutes(sectorsConfig, resourceMeta),
-      // The crew's accounts across the whole service: the accounts with a person's row
-      // page (the roles held, the linked identities and the sessions under it), every
-      // mailed link, the sessions and the failed sign-ins. No page is written for them
-      // here: the generator describes the management it writes for an auth
-      // (GenerateIdentity) in the API description, and the library builds the pages from
-      // the description, each a list whose rows offer the generated methods the caller
-      // may run on them.
-      //
-      // Demonstrates: auth.generated-identity, auth.identity-pages, list.row-methods.
-      ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Crew', scope: 'global' }),
-      // The clients' accounts, the same pages over the other auth's management: the
-      // console serves it because the generator program says the console manages the
-      // members auth (Manages). A directory writes the members' roles at every sign-in, so
-      // the description names no method that gives or takes a role, creates an account or
-      // invites one, and the pages draw none.
-      //
-      // Demonstrates: auth.generated-identity, auth.identity-pages.
-      ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' }),
-      // The Tokens page composes the library's tokens component over the descriptor's
-      // tokens block: a crew member's own tokens for the droids outlet, in the
-      // Headquarters group.
-      tokensRoute(),
+      // Signing in arrives at the root, and the person is sent to the first page of the
+      // place they land in: where they last worked, else Headquarters when they hold
+      // something there, else their first sector by name.
+      { path: '', pathMatch: 'full', canActivate: [homeGuard], children: [] },
+      // Where a URL naming a sector the session cannot reach lands (the tenant guard): the
+      // server's answer, under the sector's own URL, a concealed sector answering as one
+      // that does not exist.
+      refusedRoute(DomainRoutePath),
       // The device page, where a command-line client sends a crew member for approval
-      // (/console/device?userCode=..., the crew auth's DevicePage); no navigation item.
+      // (/console/device?userCode=..., the crew auth's DevicePage). It is no menu's and no
+      // place's: the link lands here whichever place the person works in. The crew
+      // member's own tokens for the droids outlet are the frame's API keys page, which the
+      // person's menu offers as Your API keys.
       //
       // Demonstrates: outlet.tokens.
       {
         path: 'device',
         loadComponent: () => import('./components/ui/device/device.component').then((comp) => comp.DeviceComponent),
       },
-      // The watch desk lists every live impersonation in the service: global, listed with
-      // the sector decks.
-      watchDeskRoute(),
-      // Where a URL naming a sector the session cannot reach lands (sectorGuard): the
-      // server's answer, under the sector's own URL. Declared ahead of the segment, so the
-      // guard is not asked again on the way there.
+      // Headquarters, the place outside every sector. A person who holds nothing here is
+      // sent to the place they land in. It comes before the sector segment, so the sector
+      // record's own page (`sectors/<id>`, the record's address as the API has it) is
+      // reached, while every longer address under a sector passes on to the segment.
       {
-        path: `${DomainRoutePath}/${refusedSegment}`,
-        loadComponent: () =>
-          import('./components/sector/sector-refused/sector-refused.component').then(
-            (comp) => comp.SectorRefusedComponent,
-          ),
+        path: '',
+        canActivate: [outsideGuard],
+        children: [
+          dashboardRoute(),
+          // Global resources are config-driven over the generated metadata; the
+          // sector-scoped decks are hand-written (see SectorService), except the Missions
+          // page and its siblings under the sector segment below, config-driven pages in the
+          // sector the URL names (RESOURCE_DOMAIN, which the frame provides) whose pickers
+          // list exactly the resources the metadata names.
+          //
+          // Every config-driven list and row route carries the library's canDeactivateGuard,
+          // attached by resourceRoutes: leaving a page whose form is dirty (FormStateService)
+          // opens the library's LeavePageConfirmationModalComponent, and a route to the
+          // FRONTEND_LOGIN_PATH app.config.ts provides leaves without asking. The console
+          // adds no leave-page guard of its own.
+          //
+          // Demonstrates: form.leave-page.
+          resourceRoutes(clientsConfig, resourceMeta),
+          resourceRoutes(shipClassesConfig, resourceMeta),
+          // The standing orders are a key-less list: resourceRoutes builds the list route
+          // alone, no `:uuid` row route, since a line has no key to open by.
+          resourceRoutes(standingOrdersConfig, resourceMeta),
+          resourceRoutes(pilotsConfig, resourceMeta),
+          // The commendations desk sits behind the one feature flag. Nothing here says so:
+          // resourceRoutes reads `feature` from the generated metadata and matches the route
+          // only while the flag is on (the library's featureMatch guard), so a URL to the
+          // desk while it is off falls to the wildcard below as an unknown URL does, and its
+          // menu entry shows only while the flag is on.
+          //
+          // Demonstrates: @feature.
+          resourceRoutes(commendationsConfig, resourceMeta),
+          resourceRoutes(sectorsConfig, resourceMeta),
+          // The crew's accounts across the whole service: the accounts with a person's row
+          // page (the roles held, the linked identities and the sessions under it), every
+          // mailed link, the sessions and the failed sign-ins. No page is written for them
+          // here: the generator describes the management it writes for an auth
+          // (GenerateIdentity) in the API description, and the library builds the pages from
+          // the description, each a list whose rows offer the generated methods the caller
+          // may run on them.
+          //
+          // Demonstrates: auth.generated-identity, auth.identity-pages, list.row-methods.
+          ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Crew', scope: 'global' }),
+          // The clients' accounts, the same pages over the other auth's management: the
+          // console serves it because the generator program says the console manages the
+          // members auth (Manages). A directory writes the members' roles at every sign-in, so
+          // the description names no method that gives or takes a role, creates an account or
+          // invites one, and the pages draw none.
+          //
+          // Demonstrates: auth.generated-identity, auth.identity-pages.
+          ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' }),
+          // The watch desk lists every live impersonation in the service: a page of
+          // Headquarters.
+          watchDeskRoute(),
+          // The person's account, API keys and About pages: the library's, in every place.
+          ...frameRoutes(),
+        ],
       },
       // The sector segment, sectors/:sectorID, mirroring the API's: every sector-scoped
       // page lives under it. The config-driven pages in the sector are registered by

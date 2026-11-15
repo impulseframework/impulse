@@ -4,7 +4,6 @@ import { MatCardModule } from '@angular/material/card';
 import { MatTableModule } from '@angular/material/table';
 import { Permissions, Resources } from '@app/service/zz_gen_constants';
 import { SectorService, ShipsLogEntry } from '../sector.service';
-import { StarChartComponent } from '../star-chart/star-chart.component';
 
 /**
  * The ship's log is change tracking rendered as a log: who claimed, who reassigned,
@@ -19,7 +18,7 @@ import { StarChartComponent } from '../star-chart/star-chart.component';
  */
 @Component({
   selector: 'app-ships-log',
-  imports: [DatePipe, MatCardModule, MatTableModule, StarChartComponent],
+  imports: [DatePipe, MatCardModule, MatTableModule],
   templateUrl: './ships-log.component.html',
   styleUrl: './ships-log.component.scss',
 })

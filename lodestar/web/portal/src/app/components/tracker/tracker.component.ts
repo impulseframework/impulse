@@ -1,21 +1,18 @@
 import { DatePipe, DecimalPipe } from '@angular/common';
-import { Component, computed, effect, inject, resource, signal, untracked } from '@angular/core';
+import { Component, computed, inject, resource, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { MatSelectModule } from '@angular/material/select';
 import { MatTableModule } from '@angular/material/table';
-import { RouterLink } from '@angular/router';
 import { injectApi } from '@app/api/api';
 import { DistressCalls as DistressCallFields, Methods, Permissions, Resources } from '@app/service/zz_gen_constants';
 import { DistressCalls, Missions } from '@app/service/zz_gen_resources';
+import { TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { storeSignal } from '@impulseframework/resource-angular/resource-client';
 import { Domain, Method, Page, ResourceHandle, rowCapabilities } from '@impulseframework/resource';
-import { ReleaseComponent } from '@impulseframework/resource-angular/ui-release';
-import { ThemePickerComponent } from '@impulseframework/resource-angular/ui-theme';
 import { TrackerGraphComponent } from './graph/tracker-graph.component';
 
 /** One line of the company's statement, as app.clientStatementLine's wire struct. */
@@ -28,13 +25,13 @@ export interface ClientStatementLine {
 }
 
 /**
- * The client's tracker: the missions their company booked in the selected sector, paged
+ * The client's tracker: the missions their company booked in the sector the page is open
+ * in (the frame's, from the address; the place switcher opens another), paged
  * at the size the portal's descriptor carries and each drawn as the same state graph
  * the flight deck uses but with no edge lit except Stand down; a three-field
  * distress-call form (summary, severity, and the contact details, the one PII field a
  * client writes); the calls they filed listed back; the company's statement over the
- * change log (the portal-only manual resource); and their own contact record in the
- * header. Everything renders from the portal's own generated client, whose digest and
+ * change log (the portal-only manual resource); and their own contact record. Everything renders from the portal's own generated client, whose digest and
  * user-domains channels live under /portal/api.
  *
  * Demonstrates: outlet.session, typescript.second-target, paging.descriptor-sizes, create-form-narrowing, @manualAddResource.outlet.
@@ -42,7 +39,6 @@ export interface ClientStatementLine {
 @Component({
   selector: 'app-tracker',
   imports: [
-    RouterLink,
     DatePipe,
     DecimalPipe,
     FormsModule,
@@ -50,11 +46,8 @@ export interface ClientStatementLine {
     MatCardModule,
     MatFormFieldModule,
     MatInputModule,
-    MatSelectModule,
     MatTableModule,
     TrackerGraphComponent,
-    ReleaseComponent,
-    ThemePickerComponent,
   ],
   templateUrl: './tracker.component.html',
   styleUrl: './tracker.component.scss',
@@ -69,23 +62,17 @@ export class TrackerComponent {
   readonly fields = { ...DistressCallFields.fieldName, ...DistressCallFields.piiFieldName };
   readonly username = this.auth.sessionInfo;
 
-  // The sectors where the client's portal role is held, from the portal's user-domains.
-  sectors = computed(() => [...this.auth.domains()]);
-  current = signal<string>('');
+  private tenants = inject(TenantService);
 
-  constructor() {
-    effect(() => {
-      const sectors = this.sectors();
-      if (!this.current() && sectors[0]) {
-        untracked(() => this.current.set(sectors[0]!));
-      }
-    });
-    effect(() => {
-      const sector = this.current();
-      if (!sector) return;
-      untracked(() => void this.api.permissions.loadDigest(sector as Domain).catch(() => undefined));
-    });
-  }
+  /** The sector the page is open in, the frame's (the tenant guard's alone to write); empty outside every sector. */
+  readonly current = this.tenants.current;
+
+  /** The sector's name as the session's sector list carries it, for the heading. */
+  readonly sectorName = computed(() => {
+    this.permissions();
+    const sector = this.current();
+    return sector ? this.api.permissions.domainName(sector as Domain) : '';
+  });
 
   private sectorApi = computed(() => (this.current() ? this.api.domain(this.current()) : undefined));
 

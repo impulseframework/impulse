@@ -1,5 +1,18 @@
 import { PermissionScope } from '@impulseframework/resource';
-import { fillRoute, here, holdsUrl, isAction, isPage, linksTo, Menu, MenuContext, page, shownMenus } from './menu';
+import {
+  fillRoute,
+  here,
+  holdsUrl,
+  isAction,
+  isPage,
+  linksTo,
+  Menu,
+  MenuContext,
+  MenuEntry,
+  page,
+  shownMenus,
+  showsOutside,
+} from './menu';
 
 // What a person sees of a declared menu: entries they cannot use go, then groups left
 // empty, submenus left empty and menus left empty; routes are filled for the open tenant.
@@ -192,6 +205,72 @@ describe('a menu shows only what lives in the place the page is in', () => {
   it('under a tenant, they go, and the menu with them; pages every place has stay', () => {
     expect(labels(shownMenus(system, session([], [], 'acme')))).toEqual(['Help: Guides']);
   });
+});
+
+// The place outside every tenant is a place of the person's only when the menus hold
+// something of it that they may use: what every place has is no reason to be there.
+describe('showsOutside', () => {
+  const outside = (grants: string[], flags: string[] = []): MenuContext => session(grants, flags, '');
+  const menu = (...entries: MenuEntry[]): Menu[] => [{ label: 'Menu', groups: [{ entries }] }];
+  const run = (): void => undefined;
+
+  const tests: { name: string; menus: Menu[]; grants?: string[]; flags?: string[]; want: boolean }[] = [
+    {
+      name: 'a page that lives there, which the person may use, is something',
+      menus: menu({ label: 'Customers', route: ['customers'], permission: allowed('Customers') }),
+      grants: ['Customers'],
+      want: true,
+    },
+    {
+      name: 'a page there the person may not use is nothing',
+      menus: menu({ label: 'Customers', route: ['customers'], permission: allowed('Customers') }),
+      want: false,
+    },
+    {
+      name: 'a page there behind a flag that is off is nothing',
+      menus: menu({ label: 'Customers', route: ['customers'], feature: 'Customers' }),
+      want: false,
+    },
+    {
+      name: 'the same page with the flag on is something',
+      menus: menu({ label: 'Customers', route: ['customers'], feature: 'Customers' }),
+      flags: ['Customers'],
+      want: true,
+    },
+    {
+      name: "a tenant's page is nothing, whatever the person holds",
+      menus: menu({ label: 'People', route: ['tenants/:tenantID', 'users'], permission: allowed('Users') }),
+      grants: ['Users'],
+      want: false,
+    },
+    {
+      name: 'a page every place has is no reason to be there',
+      menus: menu({ label: 'Guides', route: [here, 'guides'] }),
+      want: false,
+    },
+    {
+      name: 'an action kept to the place is something',
+      menus: menu({ label: 'Feature flags…', run, place: 'outside', permission: allowed('FeatureFlags') }),
+      grants: ['FeatureFlags'],
+      want: true,
+    },
+    {
+      name: 'an action every place has is no reason to be there',
+      menus: menu({ label: 'Refresh', run }),
+      want: false,
+    },
+    {
+      name: 'a page there inside a submenu is found',
+      menus: menu({ label: 'More', groups: [{ entries: [{ label: 'Customers', route: ['customers'] }] }] }),
+      want: true,
+    },
+    { name: 'an application with no menus holds nothing there', menus: [], grants: ['Customers'], want: false },
+  ];
+  for (const tt of tests) {
+    it(tt.name, () => {
+      expect(showsOutside(tt.menus, outside(tt.grants ?? [], tt.flags))).toBe(tt.want);
+    });
+  }
 });
 
 describe('a page declared once and placed by reference', () => {

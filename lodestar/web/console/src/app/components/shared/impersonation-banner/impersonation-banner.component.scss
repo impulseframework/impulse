@@ -1,0 +1,24 @@
+.impersonation-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 6px 16px;
+  background: #1f6f8b;
+  color: #fff;
+  font-size: 14px;
+
+  &.role {
+    background: #8a5208;
+  }
+
+  .text {
+    flex: 1;
+    min-width: 12rem;
+  }
+
+  button {
+    color: #fff;
+    border-color: rgba(255, 255, 255, 0.6);
+  }
+}

@@ -18,7 +18,7 @@ type (
 	// the subject attribute tables (Pilots, PilotCertifications, SquadronMemberships)
 	// for the identity the permission check ran as. It is the CALLER-SCOPED READ: List
 	// yields exactly one row, chosen by QuerySet.User() — the viewed person under a
-	// view-as session, the real actor under an act-as-role session — so the header
+	// view-as session, the real actor under an act-as-role session — so the dashboard's
 	// card changes when the Overseer views as a Cadet. A question with no write is a
 	// computed resource, not an RPC. The keyed read route is suppressed: there is no
 	// key to give but one's own.

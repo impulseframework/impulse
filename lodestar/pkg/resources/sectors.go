@@ -25,7 +25,7 @@ type (
 	// key cannot change on update.
 	//
 	// Sector itself is a GLOBAL resource: administering the sector list is a global
-	// concern. The star chart's dark sectors are the ones a login holds no grant in.
+	// concern. The place switcher lists only the sectors a login holds a grant in.
 	//
 	// Who may chart a sector is declared here, apart from who may enter one
 	// (@tenant(creation: ...)), and the record declares both ways: the surveyor's, Create

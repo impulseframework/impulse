@@ -21,7 +21,7 @@ import { field, listViewConfig, rootConfig, section } from '@impulseframework/re
 //
 // Demonstrates: field.object, field.write-only.
 export const distressCallsConfig = rootConfig({
-  nav: { navItem: { label: 'Calls (config page)' }, group: 'Sector Ops' },
+  page: { label: 'Calls', icon: 'sos' },
   routeData: { route: `${DomainRoutePath}/calls` },
   parentConfig: listViewConfig({
     title: 'Distress calls',

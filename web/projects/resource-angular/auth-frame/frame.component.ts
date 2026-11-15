@@ -1,3 +1,4 @@
+import { NgComponentOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, effect, inject, viewChild } from '@angular/core';
 import { MatSidenav, MatSidenavModule } from '@angular/material/sidenav';
 import { RouterOutlet } from '@angular/router';
@@ -11,11 +12,12 @@ import { MenuService } from './menu.service';
  * The frame every signed-in page sits in: the bar across the top, the page, and the side
  * panel the menus open in on a phone. The panel closes itself when the screen grows past
  * a phone's, where the menus are on the bar. It has no footer: the release is on the About
- * page. Route it as the parent of every signed-in page, behind the sign-in guard.
+ * page. An application's banner (provideFrame's banner) goes above the bar. Route it as
+ * the parent of every signed-in page, behind the sign-in guard.
  */
 @Component({
   selector: 'impulse-frame',
-  imports: [FrameBarComponent, MatSidenavModule, MenuDrawerComponent, RouterOutlet],
+  imports: [FrameBarComponent, MatSidenavModule, MenuDrawerComponent, NgComponentOutlet, RouterOutlet],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <mat-sidenav-container class="shell">
@@ -28,6 +30,9 @@ import { MenuService } from './menu.service';
           (closing)="panel.close()" />
       </mat-sidenav>
       <mat-sidenav-content class="main">
+        @if (frame.config.banner; as banner) {
+          <ng-container *ngComponentOutlet="banner" />
+        }
         <impulse-frame-bar (menuOpened)="panel.open()" />
         <main class="page-content">
           <router-outlet />

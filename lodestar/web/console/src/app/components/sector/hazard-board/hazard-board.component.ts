@@ -5,7 +5,6 @@ import { MatTableModule } from '@angular/material/table';
 import { Permissions, Resources } from '@app/service/zz_gen_constants';
 import { SectorHazardBoards } from '@app/service/zz_gen_resources';
 import { SectorService } from '../sector.service';
-import { StarChartComponent } from '../star-chart/star-chart.component';
 
 /**
  * The hazard board is the only human window onto droid telemetry: the worst reading
@@ -19,7 +18,7 @@ import { StarChartComponent } from '../star-chart/star-chart.component';
  */
 @Component({
   selector: 'app-hazard-board',
-  imports: [DatePipe, MatCardModule, MatTableModule, StarChartComponent],
+  imports: [DatePipe, MatCardModule, MatTableModule],
   templateUrl: './hazard-board.component.html',
   styleUrl: './hazard-board.component.scss',
 })

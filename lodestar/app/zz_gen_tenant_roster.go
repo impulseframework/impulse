@@ -43,8 +43,11 @@ var sectorDeclaration = resource.TenantDeclarationColumns{
 // (Sector.DirectoryOnly and the SectorDirectory rows), so its Declarations is what the
 // application hands resource.SessionPermissions as the tenant declarations, and the
 // generated SectorDirectory write paths reload it too.
+// It reads each sector's name (Sector.Name) beside its key, so the session's
+// tenant list names each tenant from the copy (resource.WithDomainNames).
 func NewSectorRoster(client resource.Client, opts ...resource.TenantRosterOption) *resource.TenantRoster {
 	opts = append([]resource.TenantRosterOption{resource.WithTenantDeclarations(&sectorDeclaration)}, opts...)
+	opts = append([]resource.TenantRosterOption{resource.WithTenantNames("Name")}, opts...)
 
 	return resource.NewTenantRoster(client, "Sectors", "Id", opts...)
 }

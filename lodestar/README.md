@@ -334,8 +334,8 @@ The commendations desk is behind a feature flag, and the flag is seeded off. Sig
 `adjutant` (Adjutant Alba): the server answers the desk's routes with the router's own 404,
 the permission digest carries no `Commendations` and no `PilotCards.commendations`, so the
 console shows no page and no card field for it, and a request naming the card's field is
-refused as an unknown field. Turn the flag on (the header's "Feature flags" link opens the
-library's dialog for anyone holding List on `FeatureFlags`; its toggles are live for a
+refused as an unknown field. Turn the flag on (Feature flags, under System in
+Headquarters, opens the library's dialog for anyone holding List on `FeatureFlags`; its toggles are live for a
 login holding Execute on `SetFeature`, read-only otherwise; the walkthrough does the same
 through `POST /console/api/set-feature` with `{"name":"commendations","enabled":true}`)
 and the desk exists: its routes answer, the digest carries it, the Commendations item
@@ -385,10 +385,11 @@ How it is wired:
   matrix puts every declared flag on in its own test database before it drives a route,
   since a flag that is off answers before the permission gate the matrix pins. In the
   console, `resourceRoutes` reads `feature` from the generated metadata and guards the
-  desk's route with `featureMatch`, the header's "Cited" line sits under `*impulseFeature`, and
-  the header's "Feature flags" link opens the library's dialog; `header.component.spec.ts`
-  covers the link, the dialog and the card in both states, and the headless check in the
-  walkthrough's feature-flags section drives the flip through the dialog.
+  desk's route with `featureMatch`, `resourcePage` carries the flag onto the desk's menu
+  entry, the pilot card's "Cited" line on the dashboard sits under `*impulseFeature`, and
+  Feature flags, under System, opens the library's dialog; `pilot-card.component.spec.ts`
+  covers the card in both states, and the walkthrough's feature-flags section drives the
+  flip through `SetFeature`.
 
 ## Finding and narrowing on one list
 
@@ -800,7 +801,7 @@ manifest: pick a card, sign in, switch, never more than two clicks.
 | `dock` / `watch` | Dockmaster Dara / Night Watch Nadia | `timeOfDay(now, local)` and the wrap-around `timeOfDay(now, 'America/Denver')` window; `dayOfWeek(now, local) NOT IN ('sat', 'sun')`. At any hour exactly one sees the hangar deck. Demonstrates: condition.time-of-day, condition.day-of-week, condition.local-zone. |
 | `harbormaster` | Harbormaster Hollis, Anvil | List and Read on Ships, nothing else of her own: the live fleet board. Her list and the ship she has open are subscribed when they are read, the engineer's refit (or a hail) lands on both without a reload, a board left and reopened inside five minutes is the browser's own, and the pilot watching Bastion's fleet and the cadet, who holds no List on Ships, receive nothing. Demonstrates: live.pages. |
 | `adjutant` | Adjutant Alba, headquarters | The commendations desk, the one resource behind a feature flag, and the key that turns it: `FeatureAdministrator` (List and Read on `FeatureFlags`, Execute on `SetFeature`, global) beside `Adjutant` (List, Read and Create on `Commendations`). Off, the desk's routes answer the router's own 404, the digest leaves the desk and the card's `commendations` field out, and the field named in a request is unknown; she turns the flag on through `SetFeature`, the desk answers, Pax's card counts his citations, and a second server process serves the desk at its next request with no restart; off again, both refuse. Demonstrates: @feature, @feature.field. |
-| `surveyor` | Surveyor Shen, headquarters | Charts new sectors: `Surveyor` (Create and Update on `Sectors`, global) beside `SectorCrew` held in every sector. `Sectors` is the tenant record (`@tenant`) and every instance holds a roster of it: when she charts Dawn through the consolidated patch, the instance that wrote adds Dawn to its roster after the commit and signals the tenants kind, so her star chart lights Dawn and Dawn's wings answer her at once, with no restart, no migrate job and no new login; the marshal's chart stays dark and Dawn answers her as a sector that does not exist; the client's portal, the governor and the archivist, all held in every sector, see Dawn with nothing written for them; and a second server process serves Dawn at its next request. Demonstrates: tenancy.run-time-tenant. |
+| `surveyor` | Surveyor Shen, headquarters | Charts new sectors: `Surveyor` (Create and Update on `Sectors`, global) beside `SectorCrew` held in every sector. `Sectors` is the tenant record (`@tenant`) and every instance holds a roster of it: when she charts Dawn through the consolidated patch, the instance that wrote adds Dawn to its roster after the commit and signals the tenants kind, so her place switcher lists Dawn and Dawn's wings answer her at once, with no restart, no migrate job and no new login; the marshal's does not list it and Dawn answers her as a sector that does not exist; the client's portal, the governor and the archivist, all held in every sector, see Dawn with nothing written for them; and a second server process serves Dawn at its next request. Demonstrates: tenancy.run-time-tenant. |
 | `pioneer` | Pioneer Pia, on no manifest | Signs up with any Google account (the crew auth's `sign-up` registration: open sign-up, no roles, the application the authority), a crew login holding nothing, and charts her own sector through the generated `create-sector` route: `Sectors` declares who may chart one apart from who may enter one (`@tenant(creation: both)`), so the route writes Ember, seats her as its marshal (`SectorMarshal`, the roles `SectorAdministratorRoles` names) and hands it to the roster in one call, and her chart lights Ember at once; a second sector is refused her, as the route is refused the marshal and the governor, who hold sectors already. Sign in first, then name the sector. Demonstrates: tenancy.self-service, auth.open-sign-up. |
 | `rigger` | Rigger Rook, Anvil and Bastion, no global role | `SectorCrew` in Anvil and in Bastion, by password, and nothing global: Bastion admits its people through its directory only (`Sector.DirectoryOnly`), so her chart lights Anvil alone and Bastion answers her as a sector that does not exist, until headquarters opens Bastion to passwords and her chart lights it at once. Demonstrates: tenancy.directory-only. |
 | `bosun` | Bosun Bram, Bastion only | `SectorCrew` in Bastion alone, by password: every sector of his is directory only, so his sign-in is refused naming the rule (`directory_only`), and admitted once headquarters opens Bastion. Demonstrates: tenancy.directory-only. |
@@ -870,25 +871,28 @@ manifest: pick a card, sign in, switch, never more than two clicks.
   three in its `lodestar-web` job against the framework's packages built from the same
   commit, which `web/package.json` links from `../web/dist`; the specs run on Angular's unit-test builder with
   Vitest under jsdom, no browser, the wiring the
-  Impulse skeleton carries (the console's dashboard, login, header, top bar, footer, and
-  shell, the portal's login and tracker, over a scripted client from
+  Impulse skeleton carries (the console's dashboard, login, menu file and pilot card, the
+  portal's login, menu file and tracker, over a scripted client from
   `@impulseframework/resource-angular/testing`). The console mirrors the API's shape: every
   sector-scoped page lives under the sector segment, `/sectors/{sectorID}/...` (the
   generated `DomainRoutePath`; the decks at `/sectors/anvil/flight-deck`, the config-driven
   pages at `/sectors/anvil/missions`, the sector's crew at `/sectors/anvil/users`), so a
   link to a deck can be shared and a bookmark lands where it points, and the global pages
-  keep their routes. The sector a deck works in is a consequence of its URL: the
-  [sector guard](web/console/src/app/components/sector/sector.guard.ts) on the segment
-  sets `SectorService.current` from the URL before the deck loads, checked against the
-  session's sector list (user-domains, the server's own foothold test), and nothing else
-  writes it; the [star chart](web/console/src/app/components/sector/star-chart/star-chart.component.ts)
-  sets no sector either, it opens the page it is on under the chosen sector's URL. A URL
-  naming a sector the session cannot reach — a dark star opened with "chart every sector"
-  on, or a pasted link — lands on the
-  [refusal page](web/console/src/app/components/sector/sector-refused/sector-refused.component.ts)
-  under that sector's URL (`/sectors/cinder/refused`), which asks the server what a deck
-  there would have asked and shows the answer in the server's words, the concealing 404,
-  and never switches to another sector. The guard rewrites no URL: the library's
+  keep their routes. Every signed-in page sits in the library's frame
+  ([`app.config.ts`](web/console/src/app/app.config.ts) provides it; the menus are the
+  [menu file](web/console/src/app/app.menus.ts)), and the sector a deck works in is a
+  consequence of its URL: the library's tenant guard on the
+  [segment](web/console/src/app/components/sector/sector.routes.ts) settles the sector
+  from the URL before the deck loads, checked against the session's sector list
+  (user-domains, the server's own foothold test), and nothing else writes it
+  (`SectorService.current` reads the library's `TenantService`). The frame's place
+  switcher sets no sector either: between sectors it opens the page it is on under the
+  chosen sector's URL, and Headquarters, or a sector opened from it, opens on its first
+  page. A URL naming a sector the session cannot reach, a pasted link or a bookmark, lands
+  on the frame's refusal page under that sector's URL (`/sectors/cinder/refused`), which
+  asks the server what a page there would have asked and shows the answer in the server's
+  words, the concealing 404, and never switches to another sector. The guard rewrites no
+  URL: the library's
   config-driven pages build their row links and after-create navigation under the page's
   sector (`/sectors/anvil/missions/…`), so a row link is the row's real URL and opens in a
   new tab where it points. Two consumers page on the server: the
