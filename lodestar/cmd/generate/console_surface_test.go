@@ -192,7 +192,7 @@ func TestConsoleHandsTheClientItsHooks(t *testing.T) {
 			name: "the console's page hands the component where a sign-in lands and takes the page it emits",
 			file: "console/src/app/components/login/login.component.html",
 			want: []string{
-				`<impulse-login-methods #methods home="/dashboard" (signedIn)="go($event)" />`,
+				`<impulse-login-methods #methods home="/" (signedIn)="go($event)" />`,
 				`[class.arriving]="methods.arriving()"`,
 				`<mat-card-footer class="release"><impulse-release /></mat-card-footer>`,
 			},
@@ -210,10 +210,10 @@ func TestConsoleHandsTheClientItsHooks(t *testing.T) {
 			absent: []string{"HttpClient", "/user/", "user/methods", "redirectUrl", "location.assign", "logout()"},
 		},
 		{
-			name: "the portal's page hands the component the tracker and its labels",
+			name: "the portal's page hands the component the root, where a sign-in lands, and its labels",
 			file: "portal/src/app/components/login/login.component.html",
 			want: []string{
-				`<impulse-login-methods #methods home="/tracker" [labels]="labels" (signedIn)="go($event)" />`,
+				`<impulse-login-methods #methods home="/" [labels]="labels" (signedIn)="go($event)" />`,
 				`[class.arriving]="methods.arriving()"`,
 				`<mat-card-footer class="release"><impulse-release /></mat-card-footer>`,
 			},

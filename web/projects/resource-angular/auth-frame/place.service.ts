@@ -1,4 +1,4 @@
-import { computed, effect, inject, Injectable } from '@angular/core';
+import { computed, DestroyRef, effect, inject, Injectable, signal } from '@angular/core';
 import { Router, UrlTree } from '@angular/router';
 import { Domain } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
@@ -26,6 +26,11 @@ const rememberedOutside = '@outside';
  * person who holds something outside every tenant lands there, and anyone else lands in
  * their first tenant by name. Nobody lands on an empty page outside every tenant.
  *
+ * Where a person works is where a page under the top bar was open: a page inside the
+ * frame (FrameComponent), once the navigation to it has ended. The sign-in and sign-out
+ * pages are outside every tenant by their URLs and are no place anybody works in, so
+ * signing out of a tenant and signing in again lands in that tenant.
+ *
  * The open place is still the URL's, as TenantService says: a page under the tenant
  * segment is in that tenant, and any other page is outside every tenant.
  */
@@ -38,6 +43,10 @@ export class PlaceService {
   private router = inject(Router);
   private frame = inject(Frame);
   private base = inject(BASE_URL);
+
+  // How many frames are on the screen: one while a page under the top bar is drawn, none
+  // on the sign-in and sign-out pages.
+  private frames = signal(0);
 
   /**
    * Whether the person holds anything outside every tenant: the application's menu file
@@ -64,10 +73,14 @@ export class PlaceService {
 
   constructor() {
     // Remember where the person works, so the next sign-in lands there. The place outside
-    // every tenant is remembered only for a person who holds something in it.
+    // every tenant is remembered only for a person who holds something in it. A navigation
+    // under way has settled the tenant before it has drawn its page (the frame of the page
+    // being left still stands while a lazy page loads), so nothing is remembered until it
+    // ends, and then only under a frame.
     effect(() => {
       const place = this.current();
       const username = this.auth.sessionInfo().username;
+      if (this.router.currentNavigation() || !this.frames()) return;
       if (!this.auth.authenticated() || !username) return;
       if (!place.id && !this.holdsOutside()) return;
       try {
@@ -76,6 +89,16 @@ export class PlaceService {
         // A browser that refuses storage lands the person by the first-time rule.
       }
     });
+  }
+
+  /**
+   * drawn says a frame is on the screen until the given DestroyRef runs. FrameComponent
+   * calls it with its own; a component an application draws its signed-in pages under in
+   * the frame's stead does the same, or no place is remembered.
+   */
+  drawn(until: DestroyRef): void {
+    this.frames.update((count) => count + 1);
+    until.onDestroy(() => this.frames.update((count) => count - 1));
   }
 
   /** Waits until the person's places are known: the global digest and the tenant list. */

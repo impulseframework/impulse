@@ -8,7 +8,7 @@
       <p>
         Sign in with your organization account. The directory verifies who you are; the portal decides what you may do.
       </p>
-      <impulse-login-methods #methods home="/dashboard" [labels]="labels" (signedIn)="go($event)" />
+      <impulse-login-methods #methods home="/" [labels]="labels" (signedIn)="go($event)" />
     </mat-card-content>
     <mat-card-footer class="release"><impulse-release /></mat-card-footer>
   </mat-card>

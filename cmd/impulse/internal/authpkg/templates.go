@@ -503,9 +503,9 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// The auth's identity client ({{.IdentityDir}}, generated): the rules that manage the
 	// auth's people, over the engine that reads its memberships and the API of the session
 	// manager that signs them in, whose hasher makes the hash of a temporary password one
-	// of its methods sets.{{if .Foothold}} The client knows the auth's administrator roles
-	// (identity.WithAdministratorRoles), so a person who removes a role from themselves
-	// is judged by the rule on the last administrator.{{end}}
+	// of its methods sets.{{if .Foothold}} The client knows the roles that count as an
+	// administrator's (identity.WithAdministratorRoles), so a person who removes a role
+	// from themselves is judged by the rule on the last administrator.{{end}}
 	identityClient, err := {{.Name}}identity.NewClient(accessClient, authSession.API(){{if .Foothold}}, identity.WithAdministratorRoles(AdministratorRoles()){{end}})
 	if err != nil {
 		return nil, errors.Wrap(err, "{{.Name}}identity.NewClient()")
@@ -700,16 +700,29 @@ import (
 // bootstrap creates its own logins instead (cmd/bootstrap/users.json).
 const Administrator = "administrator"
 {{end}}
-// AdministratorRoles are the roles the first administrator holds, by where they are held:
-{{- if .AdministratorAuthored}}
-// what the development identities hold (cmd/bootstrap/users.json), a domain role in every
-// tenant domain, so the foothold can do what the development logins can.
-{{- else}}
-// none until they are authored with the role file (roles.json), since the seed names
-// nothing the file does not define, and the first administrator holds nothing until then.
+// AdministratorRoles are the roles that count as an administrator's, by where they are
+// held: the ones whose holder can give a role back.
+{{- if .AdministratorAuthored}} A person removes one from themselves
+// only while another person holds one where it is held (identity.WithAdministratorRoles),
+// so nobody is the last to leave and the auth always has someone who manages its people.
+// A role that manages nothing of people is not among them, whoever holds it.
+{{- else}} None until they are authored with
+// the role file (roles.json); the rule on the last administrator judges nobody until then.
 {{- end}}
 func AdministratorRoles() (global, everyDomain []accesstypes.Role) {
 	return {{.AdministratorGlobal}}, {{.AdministratorEveryDomain}}
+}
+
+// FirstAdministratorRoles are the roles the first administrator is seeded with, by where
+// they are held:
+{{- if .AdministratorAuthored}} the administrator's roles and what else the development identities hold
+// (cmd/bootstrap/users.json), so the foothold can do what the development logins can.
+{{- else}} none until they are authored with the role file (roles.json), since the
+// seed names nothing the file does not define, and the first administrator holds nothing
+// until then.
+{{- end}}
+func FirstAdministratorRoles() (global, everyDomain []accesstypes.Role) {
+	return {{.FirstAdministratorGlobal}}, {{.FirstAdministratorEveryDomain}}
 }
 {{if eq .Foothold "password"}}
 // SeedAdministrator creates the first administrator when the auth's users table holds no
@@ -777,7 +790,7 @@ func (a *Auth) SeedAdministrator(ctx context.Context, signInName string) (bool, 
 // assignAdministrator writes the first administrator's memberships under username, each
 // where its roles are held; a membership that exists is left as it is.
 func (a *Auth) assignAdministrator(ctx context.Context, username string) error {
-	global, everyDomain := AdministratorRoles()
+	global, everyDomain := FirstAdministratorRoles()
 	manager := a.access.UserManager()
 	if len(global) > 0 {
 		if err := manager.AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), accesstypes.User(username), global...); err != nil {

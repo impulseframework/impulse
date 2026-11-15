@@ -59,7 +59,7 @@ export class LoginComponent {
     this.idle.stop();
   }
 
-  /** Signed in and the session checked: the idle watch starts and the browser moves to the page the guard turned away from, else the tracker. */
+  /** Signed in and the session checked: the idle watch starts and the browser moves to the page the guard turned away from, else the home the page hands the sign-in component. */
   go(page: string): void {
     this.idle.start();
     void this.router.navigateByUrl(page);

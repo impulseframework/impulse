@@ -25,7 +25,8 @@ var candidateAuths = map[string][]authpkg.Spec{
 		Module: candidateModule("outlets"), AuthDir: "pkg/auth", Name: "members",
 		Doc:     "the people who sign in through the organization's directory (OpenID Connect against Microsoft Entra), the portal's people",
 		Methods: []authpkg.Method{{Kind: app.MethodAzure, Name: "directory", Authority: app.AuthorityApplication}},
-		// The development member's domain role (cmd/bootstrap/users.json), in every domain.
+		// The development member's domain role (cmd/bootstrap/users.json), in every domain:
+		// the one role that counts as an administrator's, and what the first one is seeded with.
 		AdministratorRoles: authpkg.AdministratorRoles{EveryDomain: []string{"TenantAdministrator"}},
 		IdentityDir:        identityDir("outlets"),
 		TenantPolicy:       tenantPolicy("outlets"),
@@ -35,11 +36,16 @@ var candidateAuths = map[string][]authpkg.Spec{
 // staffSpec is the staff auth of each candidate: a password auth whose first administrator
 // holds what the development administrator holds (cmd/bootstrap/users.json): the global
 // roles, and the domain role in every domain where the candidate has tenants, with the
-// sign-in rule over the tenant record's declaration where the candidate has one.
+// sign-in rule over the tenant record's declaration where the candidate has one. The
+// roles that count as an administrator's are the ones that give a role back:
+// Administrator, and TenantAdministrator in a tenant. FeatureAdministrator turns flags
+// on and off and manages nobody, so its holder is no administrator left behind.
 func staffSpec(candidate string) authpkg.Spec {
-	roles := authpkg.AdministratorRoles{Global: []string{"Administrator", "FeatureAdministrator"}, EveryDomain: []string{"TenantAdministrator"}}
+	roles := authpkg.AdministratorRoles{Global: []string{"Administrator"}, EveryDomain: []string{"TenantAdministrator"}}
+	first := authpkg.AdministratorRoles{Global: []string{"Administrator", "FeatureAdministrator"}, EveryDomain: []string{"TenantAdministrator"}}
 	if candidate == Base {
 		roles.EveryDomain = nil
+		first.EveryDomain = nil
 	}
 	// The outlets candidate's staff auth issues the devices outlet's tokens.
 	var outlets []string
@@ -49,12 +55,13 @@ func staffSpec(candidate string) authpkg.Spec {
 
 	return authpkg.Spec{
 		Module: candidateModule(candidate), AuthDir: "pkg/auth", Name: PlaceholderAuth,
-		Doc:                "the people who sign in to the console with a password",
-		Methods:            []authpkg.Method{{Kind: app.MethodPassword}},
-		AdministratorRoles: roles,
-		MachineOutlets:     outlets,
-		IdentityDir:        identityDir(candidate),
-		TenantPolicy:       tenantPolicy(candidate),
+		Doc:                     "the people who sign in to the console with a password",
+		Methods:                 []authpkg.Method{{Kind: app.MethodPassword}},
+		AdministratorRoles:      roles,
+		FirstAdministratorRoles: first,
+		MachineOutlets:          outlets,
+		IdentityDir:             identityDir(candidate),
+		TenantPolicy:            tenantPolicy(candidate),
 	}
 }
 

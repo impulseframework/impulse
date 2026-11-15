@@ -460,9 +460,10 @@ jobs:
     # linted and tested too, as the application runs them: on the head leg against the
     # browser packages built from this commit, on the pins leg against the published
     # release its package.json pins. The solo head leg also composes the tenancy option
-    # with impulse new, for a record of two words, and runs that application's browser
-    # app the same way, since add tenancy writes the browser files a tenanted application
-    # starts from.
+    # with impulse new, for a record of two words and an auth that is not the skeletons'
+    # placeholder, and runs that application's browser app the same way, since add
+    # tenancy writes the browser files a tenanted application starts from, in the
+    # record's words and for the application's own auth.
     #
     # A head leg is two jobs side by side, each rendering the skeleton for itself: one
     # does the Go work (build, vet, test, lint, impulse check) and one the browser apps.
@@ -680,10 +681,11 @@ jobs:
       - name: Build, lint and test the browser apps
         # Every web root of the application (web/, or apps/<site>/web/ in the sites layout):
         # its production build, its lint and its specs. The solo head leg first composes
-        # the tenancy option for a record of two words (ServiceAreas), whose browser files
-        # add tenancy writes in that record's words, and checks that application's browser
-        # app beside the rendered one; its Go side is left with the obligations the brief
-        # names, so only its browser app is checked here.
+        # the tenancy option for a record of two words (ServiceAreas) and an auth named
+        # people, whose browser files add tenancy writes in that record's words and for
+        # that auth, and checks that application's browser app beside the rendered one;
+        # its Go side is left with the obligations the brief names, so only its browser
+        # app is checked here.
         if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && env.BROWSER_PART == 'true' }}
         env:
           CANDIDATE: ${{ matrix.candidate }}
@@ -696,7 +698,7 @@ jobs:
         run: |
           apps=app
           if [ "$CANDIDATE" = solo ] && [ "$FRAMEWORK" = head ]; then
-            "$RUNNER_TEMP/impulse" new composed --module example.com/ci/composed --auth staff --tenancy --tenant-table ServiceAreas --dev-root "$GITHUB_WORKSPACE/impulse"
+            "$RUNNER_TEMP/impulse" new composed --module example.com/ci/composed --auth people --tenancy --tenant-table ServiceAreas --dev-root "$GITHUB_WORKSPACE/impulse"
             apps="app composed"
           fi
           for dir in $apps; do

@@ -9,7 +9,7 @@
         Sign in with your company account. The directory says who you are and which groups you hold; the groups are your
         roles here.
       </p>
-      <impulse-login-methods #methods home="/tracker" [labels]="labels" (signedIn)="go($event)" />
+      <impulse-login-methods #methods home="/" [labels]="labels" (signedIn)="go($event)" />
       <div class="manifest">
         @for (persona of manifest; track persona.login) {
           <div class="persona">

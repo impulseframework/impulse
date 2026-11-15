@@ -144,7 +144,7 @@ const beaconProcfile = `# Development processes.
 # console: ng serve with /api proxied.
 spanner: podman run --rm -p 127.0.0.1:${SPANNER_EMULATOR_PORT}:9010 gcr.io/cloud-spanner-emulator/emulator:1.5.56
 server: bash -c 'go run ./cmd/bootstrap && go run .'
-console: bash -c 'cd web && bun install && bun run start:console'
+console: bash -c 'cd web && bun install && API_PORT=${PORT} env -u PORT bun run start:console'
 `
 
 // beaconGoMod is the fixture's go.mod: a module requiring nothing, so a tidy script
@@ -465,7 +465,7 @@ func TestOutletApply(t *testing.T) {
 						t.Errorf("package.json lacks %q:\n%s", want, pkg)
 					}
 				}
-				if got := read(t, a, "Procfile"); !strings.Contains(got, "console: bash -c 'cd web && bun install && bun run start:console'\nportal: bash -c 'cd web && bun install && bun run start:portal'\n") {
+				if got := read(t, a, "Procfile"); !strings.Contains(got, "console: bash -c 'cd web && bun install && API_PORT=${PORT} env -u PORT bun run start:console'\nportal: bash -c 'cd web && bun install && API_PORT=${PORT} env -u PORT bun run start:portal'\n") {
 					t.Errorf("Procfile = %q", got)
 				}
 			},

@@ -1,6 +1,6 @@
-import { ApplicationRef, Component } from '@angular/core';
+import { ApplicationRef, Component, DestroyRef, inject } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { Router, Routes } from '@angular/router';
+import { Router, RouterOutlet, Routes } from '@angular/router';
 import { RouterTestingHarness } from '@angular/router/testing';
 import { Permission, PermissionDigest, Resource } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
@@ -17,19 +17,41 @@ import { tenantGuard } from './tenant.guard';
 // for a person the application's menus show something there, then the tenants by name. Signing in lands where
 // the person last worked if they still can, else in the first place; nobody lands on an
 // empty page outside every tenant. The tenant every library page reads is the URL's.
+// Where a person works is where a page under the top bar was open: the sign-in and
+// sign-out pages, routed outside the frame, are nobody's place.
 
 @Component({ template: 'the page' })
 class PageComponent {}
 
+/** Stands for the frame: says a page under the top bar is on the screen, as FrameComponent does. */
+@Component({ imports: [RouterOutlet], template: '<router-outlet />' })
+class FramedComponent {
+  constructor() {
+    inject(PlaceService).drawn(inject(DestroyRef));
+  }
+}
+
+/** A page that loads lazily, as an application's sign-in and sign-out pages do: the page being left stays up meanwhile. */
+const lazyPage = (): Promise<typeof PageComponent> =>
+  new Promise((resolve) => setTimeout(() => resolve(PageComponent), 30));
+
 const routes: Routes = [
-  { path: '', pathMatch: 'full', canActivate: [homeGuard], children: [] },
-  { path: 'dashboard', canActivate: [outsideGuard], component: PageComponent },
+  { path: 'login', loadComponent: lazyPage },
+  { path: 'logout', loadComponent: lazyPage },
   {
-    path: 'tenants/:tenantID',
-    canActivate: [tenantGuard],
+    path: '',
+    component: FramedComponent,
     children: [
-      { path: 'dashboard', component: PageComponent },
-      { path: 'users', component: PageComponent },
+      { path: '', pathMatch: 'full', canActivate: [homeGuard], children: [] },
+      { path: 'dashboard', canActivate: [outsideGuard], component: PageComponent },
+      {
+        path: 'tenants/:tenantID',
+        canActivate: [tenantGuard],
+        children: [
+          { path: 'dashboard', component: PageComponent },
+          { path: 'users', component: PageComponent },
+        ],
+      },
     ],
   },
 ];
@@ -159,6 +181,23 @@ describe('PlaceService', () => {
     expect(localStorage.getItem(rememberKey)).toBe('a-id');
     await go('/dashboard');
     expect(localStorage.getItem(rememberKey)).toBe('@outside');
+  });
+
+  it('keeps the tenant a person who holds something outside every tenant worked in through the sign-out and sign-in pages', async () => {
+    await signIn(holdsOutside);
+    await go('/tenants/a-id/users');
+    expect(localStorage.getItem(rememberKey)).toBe('a-id');
+    await go('/logout');
+    expect(localStorage.getItem(rememberKey)).toBe('a-id');
+    await go('/login');
+    expect(localStorage.getItem(rememberKey)).toBe('a-id');
+    expect(await go('/')).toBe('/tenants/a-id/dashboard');
+  });
+
+  it('remembers nothing for a person who has opened no page under the top bar', async () => {
+    await signIn(holdsOutside);
+    await go('/login');
+    expect(localStorage.getItem(rememberKey)).toBeNull();
   });
 
   it('opens a tenant from outside on its first page, and another tenant on the same page', async () => {

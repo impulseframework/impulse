@@ -516,8 +516,10 @@ var (
 	goRunRootRE = regexp.MustCompile(`(\bgo run(?: -[^ ]+)* )\.(['"\s]|$)`)
 	// envPortRE is the environment template's PORT export.
 	envPortRE = regexp.MustCompile(`(?m)^export PORT=(\d+)\n`)
-	// portOnLineRE finds a PORT assignment on a process line.
-	portOnLineRE = regexp.MustCompile(`\bPORT=(\d+)`)
+	// portOnLineRE finds a PORT assignment on a process line, and apiPortOnLineRE the
+	// port a browser process hands its proxy.
+	portOnLineRE    = regexp.MustCompile(`\bPORT=(\d+)`)
+	apiPortOnLineRE = regexp.MustCompile(`\bAPI_PORT=(\d+)`)
 	// cdWebRE is a process line's change into the browser workspace.
 	cdWebRE = regexp.MustCompile(`\bcd ([A-Za-z0-9_./-]+) && `)
 	// serverProcessRE is the base's serve process name, and webProcessRE its browser
@@ -531,6 +533,22 @@ var (
 	// siteRouterImportRE is an aliased site router import in the deploy package.
 	siteRouterImportRE = regexp.MustCompile(`(?m)^\t\w+router "[^"]+"\n`)
 )
+
+// flatBrowserStart is how a flat application's browser process starts its development
+// server: the proxy's target under API_PORT, and no PORT.
+const flatBrowserStart = "API_PORT=${PORT} env -u PORT bun run start:"
+
+// siteBrowserStart gives a flat application's browser process the site's port. The
+// process hands its proxy the port as API_PORT and runs without PORT, which Angular's
+// development server would take for its own. A process file from before API_PORT has
+// the bare start command and a proxy that reads PORT, and keeps that shape.
+func siteBrowserStart(procfile string, port int) string {
+	if strings.Contains(procfile, flatBrowserStart) {
+		return strings.ReplaceAll(procfile, flatBrowserStart, fmt.Sprintf("API_PORT=%d env -u PORT bun run start:", port))
+	}
+
+	return strings.ReplaceAll(procfile, "&& bun run start:", fmt.Sprintf("&& PORT=%d bun run start:", port))
+}
 
 // promoteProcfile makes the flat serve process the first site's: it runs apps/<first>
 // with the site's PORT, APP_DIST, and APP_SERVICE_NAME inline, and the browser process
@@ -562,7 +580,7 @@ func (s Site) promoteProcfile(a *app.App, base, webDir string, ch *Change) {
 
 			return fmt.Sprintf("cd %s && ", path.Join(base, webDir))
 		})
-		edited = strings.ReplaceAll(edited, "&& bun run start:", fmt.Sprintf("&& PORT=%d bun run start:", port))
+		edited = siteBrowserStart(edited, port)
 		edited = strings.ReplaceAll(edited, "/dev/tcp/127.0.0.1/${PORT})", fmt.Sprintf("/dev/tcp/127.0.0.1/%d)", port))
 	}
 	if edited == text {
@@ -1679,6 +1697,7 @@ func firstSiteProcesses(lines []string, from, webDir string) (serve, web string,
 func (s Site) webProcess(web, webDir, from, to, project string, firstPort, port int) string {
 	newWeb := strings.Replace(web, "cd "+webDir+" ", "cd "+strings.Replace(webDir, from, to, 1)+" ", 1)
 	newWeb = portOnLineRE.ReplaceAllString(newWeb, fmt.Sprintf("PORT=%d", port))
+	newWeb = apiPortOnLineRE.ReplaceAllString(newWeb, fmt.Sprintf("API_PORT=%d", port))
 	newWeb = strings.Replace(newWeb, "/"+strconv.Itoa(firstPort)+")", "/"+strconv.Itoa(port)+")", 1)
 	if project != "" {
 		newWeb = startScriptRE.ReplaceAllString(newWeb, "start:"+project)

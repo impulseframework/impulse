@@ -76,8 +76,8 @@ portal: bash -c 'PORT=8094 go run ./apps/portal/main.go'
 	taggedPorts = `spanner: podman run --rm gcr.io/cloud-spanner-emulator/emulator:1.5.56
 console: bash -c 'go run -tags skipAuth ./cmd/bootstrap && APP_SERVICE_NAME=console PORT=8094 APP_DIST=apps/console/web/dist go run -tags skipAuth ./apps/console'
 portal: bash -c 'APP_SERVICE_NAME=portal PORT=8095 APP_DIST=apps/portal/web/dist go run -race -tags skipAuth ./apps/portal'
-console-web: bash -c 'cd apps/console/web && bun install && PORT=8094 bun run start:console'
-portal-web: bash -c 'cd apps/portal/web && bun install && PORT=8095 bun run start:portal'
+console-web: bash -c 'cd apps/console/web && bun install && API_PORT=8094 env -u PORT bun run start:console'
+portal-web: bash -c 'cd apps/portal/web && bun install && API_PORT=8095 env -u PORT bun run start:portal'
 `
 )
 

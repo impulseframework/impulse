@@ -21,11 +21,14 @@
 # The *-web processes need each web workspace installed once first (README, "Browser
 # apps"); until then start the Go side alone: overmind start -l spanner,firestore,console,portal
 #
+# Each *-web process is handed its site's port as API_PORT, which the proxy reads, and
+# runs without PORT: Angular's development server takes PORT for its own port.
+#
 # .envrc sets OVERMIND_NO_PORT so PORT reaches each process as written; without it overmind
 # reassigns PORT per process (base, base+100, ...) and the server binds the wrong port.
 spanner: podman run --rm -p 127.0.0.1:${SPANNER_EMULATOR_PORT}:9010 gcr.io/cloud-spanner-emulator/emulator:1.5.56
 firestore: podman run --rm -p 127.0.0.1:${FIRESTORE_EMULATOR_PORT}:8080 -v "${PWD}/schema/firestore:/rules:ro,Z" gcr.io/google.com/cloudsdktool/google-cloud-cli:562.0.0-emulators gcloud emulators firestore start --host-port=0.0.0.0:8080 --rules=/rules/firestore.rules
 console: bash -c 'for i in {1..300}; do (echo > /dev/tcp/127.0.0.1/${SPANNER_EMULATOR_PORT}) >/dev/null 2>&1 && break || sleep 0.1; done; for i in {1..600}; do (echo > /dev/tcp/127.0.0.1/${FIRESTORE_EMULATOR_PORT}) >/dev/null 2>&1 && break || sleep 0.1; done; go run ./cmd/bootstrap && APP_SERVICE_NAME=console PORT=8094 APP_DIST=apps/console/web/dist go run ./apps/console'
 portal: bash -c 'for i in {1..600}; do (echo > /dev/tcp/127.0.0.1/8094) >/dev/null 2>&1 && break || sleep 0.5; done; APP_SERVICE_NAME=portal PORT=8095 APP_PUBLIC_URL=http://127.0.0.1:4305 APP_DIST=apps/portal/web/dist go run ./apps/portal'
-console-web: bash -c 'for i in {1..600}; do (echo > /dev/tcp/127.0.0.1/8094) >/dev/null 2>&1 && break || sleep 0.5; done; cd apps/console/web && bun install && PORT=8094 bun run start'
-portal-web: bash -c 'for i in {1..600}; do (echo > /dev/tcp/127.0.0.1/8095) >/dev/null 2>&1 && break || sleep 0.5; done; cd apps/portal/web && bun install && PORT=8095 bun run start'
+console-web: bash -c 'for i in {1..600}; do (echo > /dev/tcp/127.0.0.1/8094) >/dev/null 2>&1 && break || sleep 0.5; done; cd apps/console/web && bun install && API_PORT=8094 env -u PORT bun run start'
+portal-web: bash -c 'for i in {1..600}; do (echo > /dev/tcp/127.0.0.1/8095) >/dev/null 2>&1 && break || sleep 0.5; done; cd apps/portal/web && bun install && API_PORT=8095 env -u PORT bun run start'
