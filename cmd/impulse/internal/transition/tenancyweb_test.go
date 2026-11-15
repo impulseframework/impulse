@@ -389,8 +389,12 @@ func TestTenancyBrowserRecordWords(t *testing.T) {
 		"label: 'Service area',",
 	}, nil)
 	wantContains(t, a, src+"components/ui/new-tenant/new-tenant-dialog.component.ts", []string{
-		"import { ServiceAreasCreate } from '@app/service/zz_gen_api';",
+		"import { apiDescriptor, ServiceAreasCreate } from '@app/service/zz_gen_api';",
 		"const body: ServiceAreasCreate = this.form.getRawValue();",
+		// A name another service area carries is refused in the record's word, which the
+		// generated description carries; the reference's word is never written here.
+		"named ${name} already exists. Choose another name.`;",
+		"apiDescriptor.domainRoute?.word?.one",
 		"await this.api.serviceAreas.create(body)",
 		"export function openNewTenantDialog(",
 	}, nil)
