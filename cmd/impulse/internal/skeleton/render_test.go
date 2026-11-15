@@ -143,7 +143,8 @@ func TestRender(t *testing.T) {
 }
 
 // TestRenderAuth renders the base with its first auth named: the placeholder is gone from
-// every path and every file, the named auth is where the placeholder was, and the static
+// every path and every file in each of its cases (staff, Staff, and the STAFF of an
+// environment variable), the named auth is where the placeholder was, and the static
 // checks read the renamed auth as wired.
 func TestRenderAuth(t *testing.T) {
 	t.Parallel()
@@ -162,7 +163,7 @@ func TestRenderAuth(t *testing.T) {
 			t.Errorf("%s: %v", rel, err)
 		}
 	}
-	placeholder := regexp.MustCompile(`(^|[^A-Za-z])staff([^a-z]|$)|Staff([^a-z]|$)`)
+	placeholder := regexp.MustCompile(`(^|[^A-Za-z])staff([^a-z]|$)|Staff([^a-z]|$)|STAFF`)
 	err = fs.WalkDir(root.FS(), ".", func(rel string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return errors.Wrap(err, "fs.WalkDir()")
@@ -188,6 +189,21 @@ func TestRenderAuth(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The first administrator's password is read under the auth's own variable, in the
+	// configuration, the environment template and the migrate command alike.
+	for rel, want := range map[string]string{
+		"pkg/config/data.go":   "MembersAdministratorPassword string `env:\"APP_MEMBERS_ADMINISTRATOR_PASSWORD\" secret:\"generated\"`",
+		".envrc.template":      "# export APP_MEMBERS_ADMINISTRATOR_PASSWORD=",
+		"pkg/deploy/deploy.go": "members.Auth.SeedAdministrator() with APP_MEMBERS_ADMINISTRATOR_PASSWORD",
+	} {
+		data, err := root.ReadFile(filepath.FromSlash(rel))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(data), want) {
+			t.Errorf("%s lacks %q", rel, want)
+		}
 	}
 	pkg, err := root.ReadFile("pkg/auth/members/members.go")
 	if err != nil {

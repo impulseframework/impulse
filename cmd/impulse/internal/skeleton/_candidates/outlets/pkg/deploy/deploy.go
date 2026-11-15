@@ -168,14 +168,14 @@ func SeedAdministrators(ctx context.Context, data *config.DataConfiguration) err
 	if err != nil {
 		return errors.Wrap(err, "staff.Auth.SeedAdministrator() with APP_STAFF_ADMINISTRATOR_PASSWORD")
 	}
-	global, everyDomain := staff.AdministratorRoles()
+	global, everyDomain := staff.FirstAdministratorRoles()
 	reportSeed(staff.Name, seeded, fmt.Sprintf("%s holding %v in the global partition and %v in every domain", staff.Administrator, global, everyDomain))
 
 	seeded, err = data.Members().SeedAdministrator(ctx, data.MembersAdministrator())
 	if err != nil {
 		return errors.Wrap(err, "members.Auth.SeedAdministrator() with APP_MEMBERS_ADMINISTRATOR")
 	}
-	_, everyDomain = members.AdministratorRoles()
+	_, everyDomain = members.FirstAdministratorRoles()
 	reportSeed(members.Name, seeded, fmt.Sprintf("%v in every domain under %s, who holds them at the first sign-in", everyDomain, data.MembersAdministrator()))
 
 	return nil

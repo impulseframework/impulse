@@ -2,6 +2,7 @@ package deploy_test
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/impulseframework/impulse/access"
@@ -10,13 +11,13 @@ import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/router"
 )
 
-// TestAdministratorRoles_areInTheRoleFile holds the foothold to the role file: every role
-// the first administrator is seeded with is one the auth's file defines, at the scope the
-// membership is held in, so the seed names nothing the engine would refuse.
-func TestAdministratorRoles_areInTheRoleFile(t *testing.T) {
+// TestFirstAdministratorRoles_areInTheRoleFile holds the foothold to the role file: every
+// role the first administrator is seeded with is one the auth's file defines, at the scope
+// the membership is held in, so the seed names nothing the engine would refuse.
+func TestFirstAdministratorRoles_areInTheRoleFile(t *testing.T) {
 	t.Parallel()
 
-	staffGlobal, staffEveryDomain := staff.AdministratorRoles()
+	staffGlobal, staffEveryDomain := staff.FirstAdministratorRoles()
 	tests := []struct {
 		name  string
 		roles access.RoleFile
@@ -50,6 +51,38 @@ func TestAdministratorRoles_areInTheRoleFile(t *testing.T) {
 			for _, r := range tt.domain {
 				if !domain[r] {
 					t.Errorf("%s is seeded in every domain and the role file defines no domain role by that name", r)
+				}
+			}
+		})
+	}
+}
+
+// TestAdministratorRoles_areHeldByTheFirstAdministrator holds the foothold's two lists
+// together: every role that counts as an administrator's, which the rule on the last
+// administrator judges by, is one the first administrator is seeded with, where it is
+// held. So the foothold is an administrator, and never the person the rule passes over.
+func TestAdministratorRoles_areHeldByTheFirstAdministrator(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name                 string
+		administrator, first func() (global, everyDomain []accesstypes.Role)
+	}{
+		{name: "staff", administrator: staff.AdministratorRoles, first: staff.FirstAdministratorRoles},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			global, everyDomain := tt.administrator()
+			firstGlobal, firstEveryDomain := tt.first()
+			for _, r := range global {
+				if !slices.Contains(firstGlobal, r) {
+					t.Errorf("%s counts as an administrator's role in the global partition and the first administrator is not seeded with it", r)
+				}
+			}
+			for _, r := range everyDomain {
+				if !slices.Contains(firstEveryDomain, r) {
+					t.Errorf("%s counts as an administrator's role in every domain and the first administrator is not seeded with it", r)
 				}
 			}
 		})

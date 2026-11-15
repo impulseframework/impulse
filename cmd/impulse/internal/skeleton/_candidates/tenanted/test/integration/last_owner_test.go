@@ -13,8 +13,10 @@ import (
 // the served stack: a person gives up an administrator role once another holder remains
 // where it is held, and the last one is refused. The administrator, the one holder of
 // Administrator, the application's administrator role (staff.AdministratorRoles), is
-// refused giving it up in the rule's words; a role that is no administrator role where
-// it is held goes freely, TenantAdministrator held in every tenant; in a tenant they
+// refused giving it up in the rule's words, and still refused while another person holds
+// FeatureAdministrator alone, a role that gives no role back; a role that is no
+// administrator role where it is held goes freely, TenantAdministrator held in every
+// tenant; in a tenant they
 // created, where the create path made them its administrator, they are refused giving
 // the role up as its last holder and give it up once they hold it in every tenant again;
 // and once the member holds Administrator beside them, they give that up too. So an
@@ -35,6 +37,20 @@ func TestLastOwner_anAdministratorLeavesOnceAnotherRemains(t *testing.T) {
 	}
 	if roles := globalRolesOf(ctx, t, admin, adminUser); !slices.Contains(roles, "Administrator") {
 		t.Fatalf("the administrator's roles after the refusal = %v, want Administrator kept", roles)
+	}
+
+	// A person who holds FeatureAdministrator alone turns flags on and off and manages
+	// nobody, so they are no administrator left behind: with the member holding it, the
+	// administrator is still the last one and is refused as before.
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(memberUser, "FeatureAdministrator", false)); status != http.StatusNoContent {
+		t.Fatalf("giving the member FeatureAdministrator: status %d: %s", status, body)
+	}
+	status, body = admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminUser, "Administrator", false))
+	if status != http.StatusForbidden || !strings.Contains(string(body), "you are the last administrator: give another person the role before you remove your own") {
+		t.Fatalf("the administrator giving up Administrator while the member holds FeatureAdministrator alone: status %d, want 403 naming the rule: %s", status, body)
+	}
+	if roles := globalRolesOf(ctx, t, admin, adminUser); !slices.Contains(roles, "Administrator") {
+		t.Fatalf("the administrator's roles after the second refusal = %v, want Administrator kept", roles)
 	}
 
 	// A role that is no administrator role where it is held goes freely:

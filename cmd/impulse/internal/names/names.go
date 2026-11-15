@@ -38,11 +38,17 @@ var managementPackages = []string{"identity", "handlers", "resources"}
 // place the lowercase name runs into another lowercase word, and are renamed whole
 // (membersidentity, membershandlers, membersresources). The PascalCase form is renamed
 // wherever it starts a word of an identifier (MembersSessions, CK_MembersSessionsId,
-// MembersMembersUserRoles). Adjacent occurrences are each renamed: the boundary is read,
-// never consumed.
+// MembersMembersUserRoles). The upper-case form is renamed where it is a whole word of an
+// upper-case name, as an auth's environment variables spell it
+// (APP_MEMBERS_ADMINISTRATOR_PASSWORD), and not inside a longer one (MEMBERSHIP).
+// Adjacent occurrences are each renamed: the boundary is read, never consumed.
 func Rename(text, from, to string) string {
 	standsAlone := func(prev, next byte) bool { return !isLetter(prev) && !isLower(next) }
+	wholeWord := func(prev, next byte) bool {
+		return !isLetter(prev) && !isDigit(prev) && !isLetter(next) && !isDigit(next)
+	}
 	text = replaceBounded(text, Pascal(from), Pascal(to), func(_, next byte) bool { return !isLower(next) })
+	text = replaceBounded(text, strings.ToUpper(from), strings.ToUpper(to), wholeWord)
 	for _, pkg := range managementPackages {
 		text = replaceBounded(text, from+pkg, to+pkg, standsAlone)
 	}
@@ -82,6 +88,11 @@ func replaceBounded(text, from, to string, ok func(prev, next byte) bool) string
 
 func isLower(c byte) bool  { return c >= 'a' && c <= 'z' }
 func isLetter(c byte) bool { return isLower(c) || (c >= 'A' && c <= 'Z') }
+
+// isDigit reports whether the byte is an ASCII digit.
+func isDigit(c byte) bool {
+	return c >= '0' && c <= '9'
+}
 
 // predeclared are Go's predeclared identifiers an auth name would shadow.
 var predeclared = map[string]bool{

@@ -32,10 +32,17 @@ import (
 
 // Spec describes the auth package to render.
 type Spec struct {
-	// AdministratorRoles are the roles the auth's first administrator holds, by where
-	// they are held, which the foothold file names (AdministratorRoles); empty renders a
-	// foothold whose roles are left to author with the role file.
+	// AdministratorRoles are the roles that count as an administrator's, by where they
+	// are held: the ones whose holder can give a role back. The foothold file names them
+	// (AdministratorRoles) and the auth's identity client judges a person who removes a
+	// role from themselves by them, so a role that manages nothing of people is not among
+	// them. Empty renders a foothold whose roles are left to author with the role file.
 	AdministratorRoles AdministratorRoles
+	// FirstAdministratorRoles are the roles the auth's first administrator is seeded
+	// with, by where they are held (FirstAdministratorRoles in the foothold file): the
+	// administrator's roles and whatever else the development identities hold. Empty
+	// seeds the administrator's roles alone.
+	FirstAdministratorRoles AdministratorRoles
 	// Module is the application's module path, which the package's imports of the
 	// application's own packages start with.
 	Module string

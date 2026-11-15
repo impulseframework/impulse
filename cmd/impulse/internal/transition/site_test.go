@@ -105,7 +105,7 @@ export PORT=8090
 `
 	siteProcfile = `spanner: podman run --rm -p 127.0.0.1:${SPANNER_EMULATOR_PORT}:9010 gcr.io/cloud-spanner-emulator/emulator:1.5.56
 server: bash -c 'for i in {1..300}; do (echo > /dev/tcp/127.0.0.1/${SPANNER_EMULATOR_PORT}) >/dev/null 2>&1 && break || sleep 0.1; done; go run ./cmd/bootstrap && go run .'
-console: bash -c 'for i in {1..600}; do (echo > /dev/tcp/127.0.0.1/${PORT}) >/dev/null 2>&1 && break || sleep 0.5; done; cd web && bun install && bun run start:console'
+console: bash -c 'for i in {1..600}; do (echo > /dev/tcp/127.0.0.1/${PORT}) >/dev/null 2>&1 && break || sleep 0.5; done; cd web && bun install && API_PORT=${PORT} env -u PORT bun run start:console'
 `
 )
 
@@ -349,9 +349,9 @@ func TestSiteApplyPromotes(t *testing.T) {
 	procfile := read(t, a, "Procfile")
 	for _, want := range []string{
 		"console: bash -c 'for i in {1..300}; do (echo > /dev/tcp/127.0.0.1/${SPANNER_EMULATOR_PORT}) >/dev/null 2>&1 && break || sleep 0.1; done; go run ./cmd/bootstrap && APP_SERVICE_NAME=console PORT=8090 APP_DIST=apps/console/web/dist/console go run ./apps/console'\n",
-		"console-web: bash -c 'for i in {1..600}; do (echo > /dev/tcp/127.0.0.1/8090) >/dev/null 2>&1 && break || sleep 0.5; done; cd apps/console/web && bun install && PORT=8090 bun run start:console'\n",
+		"console-web: bash -c 'for i in {1..600}; do (echo > /dev/tcp/127.0.0.1/8090) >/dev/null 2>&1 && break || sleep 0.5; done; cd apps/console/web && bun install && API_PORT=8090 env -u PORT bun run start:console'\n",
 		"portal: bash -c 'for i in {1..300}; do (echo > /dev/tcp/127.0.0.1/8090) >/dev/null 2>&1 && break || sleep 0.1; done; APP_SERVICE_NAME=portal PORT=8091 APP_DIST=apps/portal/web/dist/portal go run ./apps/portal'\n",
-		"portal-web: bash -c 'for i in {1..600}; do (echo > /dev/tcp/127.0.0.1/8091) >/dev/null 2>&1 && break || sleep 0.5; done; cd apps/portal/web && bun install && PORT=8091 bun run start:portal'\n",
+		"portal-web: bash -c 'for i in {1..600}; do (echo > /dev/tcp/127.0.0.1/8091) >/dev/null 2>&1 && break || sleep 0.5; done; cd apps/portal/web && bun install && API_PORT=8091 env -u PORT bun run start:portal'\n",
 	} {
 		if !strings.Contains(procfile, want) {
 			t.Errorf("Procfile lacks %q:\n%s", want, procfile)
@@ -520,7 +520,7 @@ func TestSiteApplyAddsToSites(t *testing.T) {
 	if got := read(t, promoted, "cmd/generate/sharedgenerator/generator.go"); !strings.Contains(got, `GenerateTypescript("apps/kiosk/web/kiosk/src/app/core/service/shared"`) {
 		t.Errorf("sharedgenerator = %q", got)
 	}
-	if got := read(t, promoted, "Procfile"); !strings.Contains(got, "APP_SERVICE_NAME=kiosk PORT=8092 APP_DIST=apps/kiosk/web/dist/kiosk go run ./apps/kiosk'") || !strings.Contains(got, "kiosk-web: ") {
+	if got := read(t, promoted, "Procfile"); !strings.Contains(got, "APP_SERVICE_NAME=kiosk PORT=8092 APP_DIST=apps/kiosk/web/dist/kiosk go run ./apps/kiosk'") || !strings.Contains(got, "cd apps/kiosk/web && bun install && API_PORT=8092 env -u PORT bun run start:kiosk'") {
 		t.Errorf("Procfile = %q", got)
 	}
 	if got := read(t, promoted, "apps/kiosk/web/angular.json"); !strings.Contains(got, `"port": 4302`) {
@@ -680,4 +680,71 @@ func mustDiscover(t *testing.T, root string) *app.App {
 	}
 
 	return a
+}
+
+// Test_siteBrowserStart: a flat application's browser process is given the site's port
+// in the shape it has. The skeletons hand the proxy its target as API_PORT and take PORT
+// out of the process, since Angular's development server takes PORT for its own port; a
+// process file from before that keeps the bare command with PORT.
+func Test_siteBrowserStart(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		procfile string
+		want     string
+	}{
+		{
+			name:     "the skeleton's process: the port goes to the proxy and PORT stays out",
+			procfile: "console: bash -c 'cd web && bun install && API_PORT=${PORT} env -u PORT bun run start:console'\n",
+			want:     "console: bash -c 'cd web && bun install && API_PORT=8094 env -u PORT bun run start:console'\n",
+		},
+		{
+			name:     "a process from before API_PORT keeps its shape",
+			procfile: "console: bash -c 'cd web && bun install && bun run start:console'\n",
+			want:     "console: bash -c 'cd web && bun install && PORT=8094 bun run start:console'\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := siteBrowserStart(tt.procfile, 8094); got != tt.want {
+				t.Errorf("siteBrowserStart() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestSite_webProcess: a new site's browser process is the first site's with the new
+// site's directory, project and port, the port handed to the proxy among them.
+func TestSite_webProcess(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		web  string
+		want string
+	}{
+		{
+			name: "the proxy's port is the new site's",
+			web:  "console-web: bash -c 'for i in {1..600}; do (echo > /dev/tcp/127.0.0.1/8094) >/dev/null 2>&1 && break || sleep 0.5; done; cd apps/console/web && bun install && API_PORT=8094 env -u PORT bun run start:console'",
+			want: "portal-web: bash -c 'for i in {1..600}; do (echo > /dev/tcp/127.0.0.1/8095) >/dev/null 2>&1 && break || sleep 0.5; done; cd apps/portal/web && bun install && API_PORT=8095 env -u PORT bun run start:portal'",
+		},
+		{
+			name: "a process from before API_PORT keeps its shape",
+			web:  "console-web: bash -c 'for i in {1..600}; do (echo > /dev/tcp/127.0.0.1/8094) >/dev/null 2>&1 && break || sleep 0.5; done; cd apps/console/web && bun install && PORT=8094 bun run start:console'",
+			want: "portal-web: bash -c 'for i in {1..600}; do (echo > /dev/tcp/127.0.0.1/8095) >/dev/null 2>&1 && break || sleep 0.5; done; cd apps/portal/web && bun install && PORT=8095 bun run start:portal'",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := Site{Name: "portal"}.webProcess(tt.web, "apps/console/web", "apps/console", "apps/portal", "portal", 8094, 8095)
+			if got != tt.want {
+				t.Errorf("Site.webProcess() = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }

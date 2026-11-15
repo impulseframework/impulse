@@ -164,7 +164,7 @@ func SeedAdministrators(ctx context.Context, data *config.DataConfiguration) err
 	if err != nil {
 		return errors.Wrap(err, "staff.Auth.SeedAdministrator() with APP_STAFF_ADMINISTRATOR_PASSWORD")
 	}
-	global, _ := staff.AdministratorRoles()
+	global, _ := staff.FirstAdministratorRoles()
 	reportSeed(staff.Name, seeded, fmt.Sprintf("%s holding %v in the global partition", staff.Administrator, global))
 
 	return nil

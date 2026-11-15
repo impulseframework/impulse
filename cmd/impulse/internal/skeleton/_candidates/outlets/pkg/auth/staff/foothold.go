@@ -17,10 +17,19 @@ import (
 // bootstrap creates its own logins instead (cmd/bootstrap/users.json).
 const Administrator = "administrator"
 
-// AdministratorRoles are the roles the first administrator holds, by where they are held:
-// what the development identities hold (cmd/bootstrap/users.json), a domain role in every
-// tenant domain, so the foothold can do what the development logins can.
+// AdministratorRoles are the roles that count as an administrator's, by where they are
+// held: the ones whose holder can give a role back. A person removes one from themselves
+// only while another person holds one where it is held (identity.WithAdministratorRoles),
+// so nobody is the last to leave and the auth always has someone who manages its people.
+// A role that manages nothing of people is not among them, whoever holds it.
 func AdministratorRoles() (global, everyDomain []accesstypes.Role) {
+	return []accesstypes.Role{"Administrator"}, []accesstypes.Role{"TenantAdministrator"}
+}
+
+// FirstAdministratorRoles are the roles the first administrator is seeded with, by where
+// they are held: the administrator's roles and what else the development identities hold
+// (cmd/bootstrap/users.json), so the foothold can do what the development logins can.
+func FirstAdministratorRoles() (global, everyDomain []accesstypes.Role) {
 	return []accesstypes.Role{"Administrator", "FeatureAdministrator"}, []accesstypes.Role{"TenantAdministrator"}
 }
 
@@ -54,7 +63,7 @@ func (a *Auth) SeedAdministrator(ctx context.Context, password string) (bool, er
 // assignAdministrator writes the first administrator's memberships under username, each
 // where its roles are held; a membership that exists is left as it is.
 func (a *Auth) assignAdministrator(ctx context.Context, username string) error {
-	global, everyDomain := AdministratorRoles()
+	global, everyDomain := FirstAdministratorRoles()
 	manager := a.access.UserManager()
 	if len(global) > 0 {
 		if err := manager.AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), accesstypes.User(username), global...); err != nil {

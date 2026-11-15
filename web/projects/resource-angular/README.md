@@ -279,7 +279,7 @@ forgotten-password link, is the page's, composed around the component:
 <mat-card>
   <mat-card-header><mat-card-title>Lodestar</mat-card-title></mat-card-header>
   <mat-card-content>
-    <impulse-login-methods home="/dashboard" [labels]="{ google: 'the fleet directory' }" (signedIn)="go($event)" />
+    <impulse-login-methods home="/" [labels]="{ google: 'the fleet directory' }" (signedIn)="go($event)" />
     <p class="hint">Ask the flight desk for an account.</p>
   </mat-card-content>
 </mat-card>
@@ -307,8 +307,11 @@ A password sign-in posts through the client, which reads the list again first so
 live XSRF token even on a page left open past the cookie's life; the session established, the
 component checks it through `AuthService` (loading the digest, the domains and the feature flags)
 and emits `signedIn` with the router URL of the page to go to: the page the login guard turned away
-from (`AuthService.redirectUrl`, read once), else `home`. The page navigates there and starts what
-it starts on a sign-in. A redirect method sends the browser to the method's path, naming the same
+from (`AuthService.redirectUrl`, read once), else `home`, which is the root unless the page names
+another. An application with tenants leaves it the root, where `homeGuard` sends the person to
+the place they last worked in; a page of the place outside every tenant named there would land
+everyone who holds something in that place on it, wherever they last worked. The page navigates
+there and starts what it starts on a sign-in. A redirect method sends the browser to the method's path, naming the same
 page as the one to return to, resolved against the document's base; the server's callback brings
 the browser back there signed in, or back to the login page with `?code=` for a refusal or
 `?pending=` for a step that waits.

@@ -156,7 +156,7 @@ func (tn Tenancy) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Ch
 	if err := tn.editApp(a, ch); err != nil {
 		return nil, err
 	}
-	if err := tn.writeBrowser(a, g, ch); err != nil {
+	if err := tn.writeBrowser(a, site, ch); err != nil {
 		return nil, err
 	}
 

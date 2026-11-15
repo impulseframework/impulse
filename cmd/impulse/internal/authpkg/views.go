@@ -45,13 +45,17 @@ type view struct {
 	Outlets []*outletView
 	// Foothold is the form of the auth's first administrator the deployment seeds
 	// (Foothold), FootholdCreatesUser whether the membership form also creates the user
-	// row, AdministratorAuthored whether the spec names the roles, and
-	// AdministratorGlobal and AdministratorEveryDomain the role lists as Go literals.
-	Foothold                 string
-	FootholdCreatesUser      bool
-	AdministratorAuthored    bool
-	AdministratorGlobal      string
-	AdministratorEveryDomain string
+	// row, AdministratorAuthored whether the spec names the roles,
+	// AdministratorGlobal and AdministratorEveryDomain the roles that count as an
+	// administrator's as Go literals, and FirstAdministratorGlobal and
+	// FirstAdministratorEveryDomain the roles the first administrator is seeded with.
+	Foothold                      string
+	FootholdCreatesUser           bool
+	AdministratorAuthored         bool
+	AdministratorGlobal           string
+	AdministratorEveryDomain      string
+	FirstAdministratorGlobal      string
+	FirstAdministratorEveryDomain string
 	// Imports are the import paths the Auth file needs beyond the fixed ones.
 	Imports []string
 }
@@ -131,6 +135,12 @@ func newView(spec *Spec) *view {
 	v.AdministratorAuthored = len(spec.AdministratorRoles.Global)+len(spec.AdministratorRoles.EveryDomain) > 0
 	v.AdministratorGlobal = roleLiteral(spec.AdministratorRoles.Global)
 	v.AdministratorEveryDomain = roleLiteral(spec.AdministratorRoles.EveryDomain)
+	first := spec.FirstAdministratorRoles
+	if len(first.Global)+len(first.EveryDomain) == 0 {
+		first = spec.AdministratorRoles
+	}
+	v.FirstAdministratorGlobal = roleLiteral(first.Global)
+	v.FirstAdministratorEveryDomain = roleLiteral(first.EveryDomain)
 	seen := map[string]bool{}
 	for _, mv := range v.Methods {
 		var imp string

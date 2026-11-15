@@ -352,9 +352,9 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// The auth's identity client (pkg/identity, generated): the rules that manage the
 	// auth's people, over the engine that reads its memberships and the API of the session
 	// manager that signs them in, whose hasher makes the hash of a temporary password one
-	// of its methods sets. The client knows the auth's administrator roles
-	// (identity.WithAdministratorRoles), so a person who removes a role from themselves
-	// is judged by the rule on the last administrator.
+	// of its methods sets. The client knows the roles that count as an
+	// administrator's (identity.WithAdministratorRoles), so a person who removes a role
+	// from themselves is judged by the rule on the last administrator.
 	identityClient, err := staffidentity.NewClient(accessClient, authSession.API(), identity.WithAdministratorRoles(AdministratorRoles()))
 	if err != nil {
 		return nil, errors.Wrap(err, "staffidentity.NewClient()")

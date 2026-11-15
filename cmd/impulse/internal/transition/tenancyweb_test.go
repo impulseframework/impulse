@@ -6,10 +6,12 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/app"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/names"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 )
 
 // tenancyWithBrowser is the files of an untenanted application whose console's menu
-// file, configuration and routes are the base skeleton's, as rendered.
+// file, configuration, routes and sign-in page are the base skeleton's, as rendered.
 func tenancyWithBrowser(t *testing.T, edit func(files map[string]string)) map[string]string {
 	t.Helper()
 
@@ -17,6 +19,7 @@ func tenancyWithBrowser(t *testing.T, edit func(files map[string]string)) map[st
 	for _, rel := range boundWebFiles {
 		files["web/console/src/"+rel] = skeletonWeb(t, rel)
 	}
+	files["web/console/src/"+loginPageFile] = skeletonWeb(t, loginPageFile)
 	if edit != nil {
 		edit(files)
 	}
@@ -57,7 +60,7 @@ func wantContains(t *testing.T, a *app.App, rel string, want, notWant []string) 
 // TestTenancyBrowser pins the browser half of add tenancy over the base skeleton's
 // console: the tenant menus ahead of the others in the menu file, the feature flags entry
 // in the place outside every tenant, Configuration named in the frame's configuration,
-// and the routes in the tenant shape, the reference's.
+// the routes in the tenant shape, the reference's, and a sign-in arriving at the root.
 func TestTenancyBrowser(t *testing.T) {
 	t.Parallel()
 
@@ -96,11 +99,23 @@ func TestTenancyBrowser(t *testing.T) {
 		t.Errorf("routes mismatch (-want +got):\n%s", diff)
 	}
 
+	// The sign-in page is the base's but for the landing: the rest of it, the application's
+	// name among it, is as it was.
+	login := "web/console/src/" + loginPageFile
+	wantLogin := strings.Replace(skeletonWeb(t, loginPageFile), `home="/dashboard"`, `home="/"`, 1)
+	if diff := cmp.Diff(wantLogin, read(t, a, login)); diff != "" {
+		t.Errorf("sign-in page mismatch (-want +got):\n%s", diff)
+	}
+	if !strings.Contains(wantLogin, `<impulse-login-methods #methods home="/" (signedIn)="go($event)" />`) {
+		t.Errorf("the base skeleton's sign-in page no longer hands the sign-in component the dashboard:\n%s", wantLogin)
+	}
+
 	did := strings.Join(ch.Did, "\n")
 	for _, want := range []string{
 		"web/console/src/app/app.menus.ts: the tenant menus ahead of the others",
 		"web/console/src/app/app.config.ts: the frame names the place outside every tenant, Configuration with a gear",
 		"web/console/src/app/app.routes.ts: the routes in the tenant shape, as the reference's",
+		`web/console/src/app/components/login/login.component.html: a sign-in arrives at the root (home="/"), where the home guard sends the person to the place they last worked in`,
 	} {
 		if !strings.Contains(did, want) {
 			t.Errorf("Did lacks %q:\n%s", want, did)
@@ -134,6 +149,187 @@ func TestTenancyBrowserEdited(t *testing.T) {
 		if !strings.Contains(skipped, want) {
 			t.Errorf("Skipped lacks %q:\n%s", want, skipped)
 		}
+	}
+}
+
+// TestTenancyBrowserAuth pins the browser half for an application whose auth is not the
+// skeletons' placeholder, as impulse new --auth people renders the base: the copied
+// pages read the auth's own role resource, the routes are found as rendered and written
+// in the tenant shape, and the menus ask the library for the auth's pages and speak of
+// it. Nothing the step writes names the placeholder.
+func TestTenancyBrowserAuth(t *testing.T) {
+	t.Parallel()
+
+	a, ch := applyTenancy(t, "ServiceAreas", tenancyWithBrowser(t, func(files map[string]string) {
+		for _, rel := range boundWebFiles {
+			files["web/console/src/"+rel] = names.Rename(files["web/console/src/"+rel], skeleton.PlaceholderAuth, "people")
+		}
+	}))
+	src := "web/console/src/app/"
+	placeholder := []string{"Staff", "staff", "STAFF"}
+
+	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.ts", []string{
+		"import { PeopleServiceAreaRoles, ServiceAreaDirectories, ServiceAreas } from '@app/service/zz_gen_resources';",
+		"this.api.domain(params.tenant as Domain).peopleServiceAreaRoles.list()",
+	}, placeholder)
+	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.spec.ts", []string{
+		"PeopleServiceAreaRoles: { List: 'granted' },",
+		"case `${environment.apiUrl}/service-areas/acme/people-service-area-roles`:",
+	}, placeholder)
+	for _, f := range tenantWebFiles {
+		wantContains(t, a, "web/console/src/"+f.rel, nil, placeholder)
+	}
+
+	reference, err := referenceText(TenancyReferenceCandidate, appRoutesFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tn := Tenancy{Table: "ServiceAreas"}
+	wantRoutes := tn.inRecordWords(appRoutesFile, names.Rename(strings.Replace(reference, selfServiceSentence, outsideOnlySentence, 1), skeleton.PlaceholderAuth, "people"))
+	if diff := cmp.Diff(wantRoutes, read(t, a, src+"app.routes.ts")); diff != "" {
+		t.Errorf("routes mismatch (-want +got):\n%s", diff)
+	}
+	wantContains(t, a, src+"app.routes.ts", []string{
+		"// The people's accounts across the whole application",
+		"...identityRoutes(apiDescriptor, resourceMeta, { auth: 'People', scope: 'global' }),",
+		"...identityRoutes(apiDescriptor, resourceMeta, { auth: 'People', scope: 'domain' }).map(underTenant),",
+	}, placeholder)
+	wantContains(t, a, src+"app.menus.ts", []string{
+		"side of the People auth's generated management.",
+		"...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'People', scope: 'domain' }),",
+	}, placeholder)
+
+	if skipped := strings.Join(ch.Skipped, "\n"); strings.Contains(skipped, "web/console/") {
+		t.Errorf("Skipped speaks of the browser, which was as impulse new rendered it:\n%s", skipped)
+	}
+	if did := strings.Join(ch.Did, "\n"); !strings.Contains(did, "the people auth's people across the application") {
+		t.Errorf("Did does not name the people auth in the routes it wrote:\n%s", did)
+	}
+}
+
+// TestConsoleAuth pins whose people the console's pages are taken to be: the auth its
+// routes ask the library's pages of, else the one its menu file asks them of, else the
+// one the site signs its people in through, else the skeletons' placeholder.
+func TestConsoleAuth(t *testing.T) {
+	t.Parallel()
+
+	const (
+		source  = "web/console/src"
+		asks    = "...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Partners', scope: 'global' }),\n"
+		menuAsk = "...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' }),\n"
+	)
+	signsIn := &app.Site{Default: app.Outlet{Auth: &app.OutletAuth{ImportPath: "example.com/acme/beacon/pkg/auth/people"}}}
+	tests := []struct {
+		name  string
+		files map[string]string
+		site  *app.Site
+		want  string
+	}{
+		{
+			name:  "the auth the routes ask the library's pages of",
+			files: map[string]string{source + "/" + appRoutesFile: asks, source + "/" + appMenusFile: menuAsk},
+			site:  signsIn,
+			want:  "partners",
+		},
+		{
+			name:  "the auth the menu file asks them of, where the routes ask for none",
+			files: map[string]string{source + "/" + appRoutesFile: "// the application's own routes\n", source + "/" + appMenusFile: menuAsk},
+			site:  signsIn,
+			want:  "members",
+		},
+		{
+			name: "the auth the site signs its people in through, where neither file asks",
+			site: signsIn,
+			want: "people",
+		},
+		{
+			name: "the placeholder, where the site binds no auth",
+			site: &app.Site{},
+			want: skeleton.PlaceholderAuth,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			files := tenancyFiles()
+			for rel, text := range tt.files {
+				files[rel] = text
+			}
+			if got := consoleAuth(beacon(t, files), tt.site, source); got != tt.want {
+				t.Errorf("consoleAuth() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestTenancyBrowserSignIn pins what add tenancy does with a sign-in page that is not as
+// the base skeleton rendered it: one that arrives at the root already is left without a
+// word, and one that names another landing, binds it, or draws no sign-in component is
+// left as it is and told what to change.
+func TestTenancyBrowserSignIn(t *testing.T) {
+	t.Parallel()
+
+	const (
+		rel    = "web/console/src/" + loginPageFile
+		advice = `so it was left as it is: have a sign-in arrive at the root (home="/" on impulse-login-methods), where the home guard sends the person to the place they last worked in`
+	)
+	tests := []struct {
+		name string
+		page string
+		// skipped is what Skipped says of the page; empty where nothing is said.
+		skipped string
+	}{
+		{
+			name: "a page that arrives at the root already",
+			page: `<impulse-login-methods #methods home="/" [labels]="labels" (signedIn)="go($event)" />` + "\n",
+		},
+		{
+			name: "a page that names no landing arrives at the root, the component's own",
+			page: `<impulse-login-methods (signedIn)="go($event)" />` + "\n",
+		},
+		{
+			name:    "a page that names another landing",
+			page:    `<impulse-login-methods #methods home="/orders" (signedIn)="go($event)" />` + "\n",
+			skipped: rel + ` hands the sign-in component another landing than the skeleton rendered (home="/orders"), ` + advice,
+		},
+		{
+			name:    "the skeleton's landing on a component edited since",
+			page:    `<impulse-login-methods #methods home="/dashboard" [labels]="labels" (signedIn)="go($event)" />` + "\n",
+			skipped: rel + ` hands the sign-in component another landing than the skeleton rendered (home="/dashboard"), ` + advice,
+		},
+		{
+			name:    "a landing the page binds",
+			page:    `<impulse-login-methods #methods [home]="home" (signedIn)="go($event)" />` + "\n",
+			skipped: rel + ` hands the sign-in component another landing than the skeleton rendered ([home]="home"), ` + advice,
+		},
+		{
+			name:    "a page of the application's own",
+			page:    "<form>the application's own sign-in</form>\n",
+			skipped: rel + " draws no impulse-login-methods, " + advice,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a, ch := applyTenancy(t, "Tenants", tenancyWithBrowser(t, func(files map[string]string) {
+				files[rel] = tt.page
+			}))
+			if got := read(t, a, rel); got != tt.page {
+				t.Errorf("sign-in page = %q, want it left as %q", got, tt.page)
+			}
+			if did := strings.Join(ch.Did, "\n"); strings.Contains(did, loginPageFile) {
+				t.Errorf("Did speaks of the sign-in page:\n%s", did)
+			}
+			skipped := strings.Join(ch.Skipped, "\n")
+			switch {
+			case tt.skipped == "" && strings.Contains(skipped, loginPageFile):
+				t.Errorf("Skipped speaks of the sign-in page:\n%s", skipped)
+			case !strings.Contains(skipped, tt.skipped):
+				t.Errorf("Skipped lacks %q:\n%s", tt.skipped, skipped)
+			}
+		})
 	}
 }
 

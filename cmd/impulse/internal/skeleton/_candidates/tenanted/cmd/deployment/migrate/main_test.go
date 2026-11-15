@@ -427,7 +427,7 @@ func administratorSeeded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("access.UserManager.UserRoles(%s) error = %v", staff.Administrator, err)
 	}
-	global, everyDomain := staff.AdministratorRoles()
+	global, everyDomain := staff.FirstAdministratorRoles()
 	if got, want := sorted(roles[accesstypes.GlobalPolicyScope()]), sorted(global); !slices.Equal(got, want) {
 		t.Errorf("roles in the global partition = %v, want %v", got, want)
 	}

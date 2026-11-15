@@ -11,37 +11,46 @@ import (
 	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/app"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/names"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 )
 
 // The browser half of add tenancy: the tenant pages copied into the default browser
 // project in the record's words, the tenant menus in the menu file, the place outside
-// every tenant in the frame's configuration, and the routes in the tenant shape. The
+// every tenant in the frame's configuration, the routes in the tenant shape, and the
+// sign-in page's landing at the root. The
 // reference's record is Tenants; an application whose record is another (Clients,
 // ServiceAreas) gets every name the generator derives from the record, and every word
-// the screen shows, in its own record's words.
+// the screen shows, in its own record's words. The reference's auth is the skeletons'
+// placeholder (skeleton.PlaceholderAuth); everything taken from it is written for the
+// auth whose people the console's pages are, as impulse new renders a skeleton for an
+// auth of another name.
 
 // referenceTable is the tenant record table of the candidates the pages are copied from.
 const referenceTable = "Tenants"
 
 // writeBrowser lays the tenant pages into the default browser project and edits its menu
-// file, configuration and routes.
-func (tn Tenancy) writeBrowser(a *app.App, g *app.Generator, ch *Change) error {
-	source, ok, err := tn.browserSource(a, g, ch)
+// file, configuration, routes and sign-in page.
+func (tn Tenancy) writeBrowser(a *app.App, site *app.Site, ch *Change) error {
+	source, ok, err := tn.browserSource(a, site.Generator, ch)
 	if err != nil || !ok {
 		return err
 	}
-	if err := tn.copyTenantPages(a, source, ch); err != nil {
+	auth := consoleAuth(a, site, source)
+	if err := tn.copyTenantPages(a, source, auth, ch); err != nil {
 		return err
 	}
-	if err := tn.editMenus(a, source, ch); err != nil {
+	if err := tn.editMenus(a, source, auth, ch); err != nil {
 		return err
 	}
 	if err := tn.editFrameConfig(a, source, ch); err != nil {
 		return err
 	}
+	if err := tn.editRoutes(a, source, auth, ch); err != nil {
+		return err
+	}
 
-	return tn.editRoutes(a, source, ch)
+	return tn.editSignIn(a, source, ch)
 }
 
 // browserSource is the source root of the default browser project, the one the
@@ -70,9 +79,39 @@ func (tn Tenancy) browserSource(a *app.App, g *app.Generator, ch *Change) (sourc
 	return path.Join(w.Dir, project.SourceRoot), true, nil
 }
 
-// copyTenantPages lays the tenant pages (tenantWebFiles) into the browser project, in
-// the record's words.
-func (tn Tenancy) copyTenantPages(a *app.App, source string, ch *Change) error {
+// identityAuthRE reads the auth a menu file or routes file asks the library's pages of.
+var identityAuthRE = regexp.MustCompile(`\{ auth: '([A-Za-z0-9]+)', scope: 'global' \}`)
+
+// consoleAuth is the name of the auth whose people the console's pages are: the one its
+// routes or its menu file ask the library's pages of, else the one the site signs its
+// people in through, else the skeletons' placeholder.
+func consoleAuth(a *app.App, site *app.Site, source string) string {
+	for _, rel := range []string{appRoutesFile, appMenusFile} {
+		data, _, err := readFile(a, path.Join(source, rel))
+		if err != nil {
+			continue
+		}
+		if m := identityAuthRE.FindStringSubmatch(string(data)); m != nil {
+			return lowerFirst(m[1])
+		}
+	}
+	if site.Default.Auth != nil {
+		return authName(a, site.Default.Auth.ImportPath)
+	}
+
+	return skeleton.PlaceholderAuth
+}
+
+// forAuth is a reference's text written for the auth: its names of the placeholder auth
+// (StaffTenantRoles, staffTenantRoles, staff-tenant-roles, auth: 'Staff', the staff's
+// accounts) the auth's, as impulse new renders a skeleton for it.
+func forAuth(text, auth string) string {
+	return names.Rename(text, skeleton.PlaceholderAuth, auth)
+}
+
+// copyTenantPages lays the tenant pages (tenantWebFiles) into the browser project, for
+// the auth and in the record's words.
+func (tn Tenancy) copyTenantPages(a *app.App, source, auth string, ch *Change) error {
 	dst := path.Join(source, tenantSignInRoutesPath)
 	if _, err := os.Stat(a.Abs(dst)); err == nil {
 		ch.skipf("%s already exists and was left alone", dst)
@@ -88,7 +127,7 @@ func (tn Tenancy) copyTenantPages(a *app.App, source string, ch *Change) error {
 		if err != nil {
 			return errors.Wrap(err, "fs.ReadFile()")
 		}
-		if err := writeNew(a, path.Join(source, f.rel), tn.inRecordWords(f.rel, string(src))); err != nil {
+		if err := writeNew(a, path.Join(source, f.rel), tn.inRecordWords(f.rel, forAuth(string(src), auth))); err != nil {
 			return err
 		}
 	}
@@ -260,7 +299,7 @@ var (
 // record's menu (All, New…), People (the tenant's side of the auth's people) and the
 // record's own menu (Sign-in settings), each showing in its place only, as the
 // reference's menu file has them, with the imports they need and the dialog service.
-func (tn Tenancy) editMenus(a *app.App, source string, ch *Change) error {
+func (tn Tenancy) editMenus(a *app.App, source, auth string, ch *Change) error {
 	rel := path.Join(source, appMenusFile)
 	data, mode, err := readFile(a, rel)
 	if errors.Is(err, os.ErrNotExist) {
@@ -294,10 +333,11 @@ func (tn Tenancy) editMenus(a *app.App, source string, ch *Change) error {
 	if err != nil {
 		return err
 	}
-	menus, err := tenantMenus(reference, tn.authOf(text))
+	menus, err := tenantMenus(reference)
 	if err != nil {
 		return err
 	}
+	menus = forAuth(menus, auth)
 	menus = tn.inRecordWords(appMenusFile, menus)
 
 	edited := text[:opening[1]]
@@ -308,7 +348,7 @@ func (tn Tenancy) editMenus(a *app.App, source string, ch *Change) error {
 	}
 	edited += menus + body[ret[1]:]
 	edited = featureFlagsRE.ReplaceAllString(edited, "\n${1}run: () => actions.featureFlags(),\n${1}place: 'outside',\n${2}permission:")
-	edited = addImports(edited, importStatement.FindAllString(tn.inRecordWords(appMenusFile, reference), -1))
+	edited = addImports(edited, importStatement.FindAllString(tn.inRecordWords(appMenusFile, forAuth(reference, auth)), -1))
 	if err := os.WriteFile(a.Abs(rel), []byte(edited), mode); err != nil {
 		return errors.Wrap(err, "os.WriteFile()")
 	}
@@ -317,30 +357,16 @@ func (tn Tenancy) editMenus(a *app.App, source string, ch *Change) error {
 	return nil
 }
 
-// tenantMenus is the reference's tenant menus, the text of its menu array ahead of the
-// System menu, with the People menu asking for the application's auth.
-func tenantMenus(reference, auth string) (string, error) {
+// tenantMenus is the reference's tenant menus: the text of its menu array ahead of the
+// System menu.
+func tenantMenus(reference string) (string, error) {
 	ret := menuReturnRE.FindStringIndex(reference)
 	system := strings.Index(reference, "    {\n      label: 'System',")
 	if len(ret) < 2 || system < ret[1] {
 		return "", errors.New("the reference's menu file has no tenant menus ahead of its System menu")
 	}
-	menus := reference[ret[1]:system]
 
-	return strings.ReplaceAll(menus, "auth: 'Staff'", "auth: '"+auth+"'"), nil
-}
-
-// identityAuthRE reads the auth a menu file or routes file asks the library's pages of.
-var identityAuthRE = regexp.MustCompile(`\{ auth: '([A-Za-z0-9]+)', scope: 'global' \}`)
-
-// authOf is the auth whose people the file's pages are, the reference's where the file
-// asks for none.
-func (tn Tenancy) authOf(text string) string {
-	if m := identityAuthRE.FindStringSubmatch(text); m != nil {
-		return m[1]
-	}
-
-	return "Staff"
+	return reference[ret[1]:system], nil
 }
 
 // addImports adds each import statement the file lacks after its last one.
@@ -428,9 +454,9 @@ const (
 // editRoutes writes the routes in the tenant shape where they are as the base skeleton
 // rendered them: the home guard at the root, the refusal page, the place outside every
 // tenant ahead of the tenant segment (so the record's own page is reached), and the
-// segment with its guard, as the reference's routes are. Routes edited since are left,
-// and the brief says what to change.
-func (tn Tenancy) editRoutes(a *app.App, source string, ch *Change) error {
+// segment with its guard, as the reference's routes are, for the auth. Routes edited
+// since are left, and the brief says what to change.
+func (tn Tenancy) editRoutes(a *app.App, source, auth string, ch *Change) error {
 	rel := path.Join(source, appRoutesFile)
 	data, mode, err := readFile(a, rel)
 	if errors.Is(err, os.ErrNotExist) {
@@ -440,12 +466,11 @@ func (tn Tenancy) editRoutes(a *app.App, source string, ch *Change) error {
 		return err
 	}
 	text := string(data)
-	auth := tn.authOf(text)
 	base, err := referenceText(skeleton.Base, appRoutesFile)
 	if err != nil {
 		return err
 	}
-	if text != strings.ReplaceAll(base, "auth: 'Staff'", "auth: '"+auth+"'") {
+	if text != forAuth(base, auth) {
 		ch.skipf("%s was edited since the skeleton rendered it, so it was left as it is: put the routes in the tenant shape, as the brief says", rel)
 
 		return nil
@@ -457,12 +482,87 @@ func (tn Tenancy) editRoutes(a *app.App, source string, ch *Change) error {
 	if !strings.Contains(reference, selfServiceSentence) {
 		return errors.Newf("the reference's routes no longer say %q", selfServiceSentence)
 	}
-	reference = strings.Replace(reference, selfServiceSentence, outsideOnlySentence, 1)
-	reference = strings.ReplaceAll(reference, "auth: 'Staff'", "auth: '"+auth+"'")
+	reference = forAuth(strings.Replace(reference, selfServiceSentence, outsideOnlySentence, 1), auth)
 	if err := os.WriteFile(a.Abs(rel), []byte(tn.inRecordWords(appRoutesFile, reference)), mode); err != nil {
 		return errors.Wrap(err, "os.WriteFile()")
 	}
 	ch.didf("%s: the routes in the tenant shape, as the reference's: the home guard at the root, the refusal page, the place outside every %s (the dashboard, All %s, the %s auth's people across the application and the library's pages) ahead of the %s segment (%s, the generated DomainRoutePath) with its guard (the dashboard, the %s's people, Sign-in settings and the library's pages)", rel, tn.oneLower(), tn.manyLower(), auth, tn.oneLower(), tn.Segment()+"/:"+lowerFirst(tn.Record())+"ID", tn.oneLower())
 
 	return nil
+}
+
+// loginPageFile is the application's sign-in page, where the skeletons render it.
+const loginPageFile = "app/components/login/login.component.html"
+
+// The library's sign-in component on a sign-in page, and the page it is handed as where a
+// sign-in lands.
+var (
+	loginMethodsRE = regexp.MustCompile(`<impulse-login-methods\b[^>]*>`)
+	loginHomeRE    = regexp.MustCompile(`\s\[?home\]?="([^"]*)"`)
+)
+
+// rootLanding is what a sign-in page is told to do where add tenancy leaves it as it is.
+const rootLanding = `have a sign-in arrive at the root (home="/" on impulse-login-methods), where the home guard sends the person to the place they last worked in`
+
+// editSignIn has a sign-in arrive at the root where the application's sign-in page hands
+// the sign-in component the landing the base skeleton rendered, the dashboard. With
+// tenants the dashboard at the root is a page of the place outside every tenant, so
+// everyone who holds something there would land on it, wherever they last worked; at the
+// root the home guard the routes put there sends each person to the place they last
+// worked in. The component is written as the reference's page has it. A page that
+// arrives at the root already is left without a word; one that names another landing, or
+// draws no sign-in component, is left and told what to change.
+func (tn Tenancy) editSignIn(a *app.App, source string, ch *Change) error {
+	rel := path.Join(source, loginPageFile)
+	data, mode, err := readFile(a, rel)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	rendered, err := signInComponent(skeleton.Base)
+	if err != nil {
+		return err
+	}
+	reference, err := signInComponent(TenancyReferenceCandidate)
+	if err != nil {
+		return err
+	}
+	text := string(data)
+	component := loginMethodsRE.FindString(text)
+	if component == "" {
+		ch.skipf("%s draws no impulse-login-methods, so it was left as it is: %s", rel, rootLanding)
+
+		return nil
+	}
+	home := loginHomeRE.FindStringSubmatch(component)
+	if len(home) < 2 || home[1] == "/" {
+		return nil
+	}
+	if component != rendered {
+		ch.skipf("%s hands the sign-in component another landing than the skeleton rendered (%s), so it was left as it is: %s", rel, strings.TrimSpace(home[0]), rootLanding)
+
+		return nil
+	}
+	if err := os.WriteFile(a.Abs(rel), []byte(strings.Replace(text, component, reference, 1)), mode); err != nil {
+		return errors.Wrap(err, "os.WriteFile()")
+	}
+	ch.didf("%s: a sign-in arrives at the root (home=\"/\"), where the home guard sends the person to the place they last worked in; the dashboard it named is now a page of the place outside every %s", rel, tn.oneLower())
+
+	return nil
+}
+
+// signInComponent is the sign-in component as a candidate's sign-in page draws it.
+func signInComponent(candidate string) (string, error) {
+	page, err := referenceText(candidate, loginPageFile)
+	if err != nil {
+		return "", err
+	}
+	component := loginMethodsRE.FindString(page)
+	if component == "" {
+		return "", errors.Newf("the %s skeleton's sign-in page (%s) draws no impulse-login-methods", candidate, loginPageFile)
+	}
+
+	return component, nil
 }
