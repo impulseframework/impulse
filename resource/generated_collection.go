@@ -201,6 +201,16 @@ type CollectionResource struct {
 	// conditional grant puts a CASE in the ORDER BY or the WHERE.
 	Order     []accesstypes.Tag
 	QueryKeys []accesstypes.Tag
+
+	// RequiredTags are the fields a create of the resource must be given by the
+	// client, as wire tags: the column takes no NULL, and neither a column default
+	// nor the server fills it (no default_create_fn, no key, no field the server
+	// owns). A create that leaves one out is refused at commit, so deploy-time role
+	// validation (access.MigrateRoles) reads them to warn where a role's Create
+	// grants on the resource cover none of its grants' fields for one: no holder of
+	// that role alone can create a row. Each is a tag of the resource that carries
+	// Create.
+	RequiredTags []accesstypes.Tag
 }
 
 // TransitionData records a declared state transition on an RPC method
@@ -265,6 +275,13 @@ func (b *CollectionBuilder) SetMethodFormerName(scope accesstypes.PermissionScop
 // sort by with an index behind it (see CollectionResource).
 func (b *CollectionBuilder) SetResourceQueryKeys(scope accesstypes.PermissionScope, res accesstypes.Resource, order, queryKeys []accesstypes.Tag) {
 	b.g.setResourceQueryKeys(scope, res, order, queryKeys)
+}
+
+// SetResourceRequiredTags records the fields a create of res must be given by the
+// client within scope (see CollectionResource.RequiredTags). A tag that does not carry
+// Create by the time the data is read is left out of it: no grant could name it.
+func (b *CollectionBuilder) SetResourceRequiredTags(scope accesstypes.PermissionScope, res accesstypes.Resource, required []accesstypes.Tag) {
+	b.g.setResourceRequiredTags(scope, res, required)
 }
 
 // AddResource registers a single resource permission, allowing duplicate registrations
@@ -355,6 +372,8 @@ type GeneratedCollection struct {
 	parents         map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource
 	masking         map[accesstypes.PermissionScope]maskingMap
 	queryKeys       map[accesstypes.PermissionScope]map[accesstypes.Resource]queryKeys
+	// requiredTags are the fields a create of a resource must be given by the client.
+	requiredTags map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.Tag
 	// formerTags are the renamed fields' former wire names by tag, and formerNames
 	// the renamed methods' former names, each within scope.
 	formerTags  map[accesstypes.PermissionScope]formerTagMap
@@ -374,6 +393,7 @@ func newGeneratedCollection() *GeneratedCollection {
 		parents:         make(map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource, 2),
 		masking:         make(map[accesstypes.PermissionScope]maskingMap, 2),
 		queryKeys:       make(map[accesstypes.PermissionScope]map[accesstypes.Resource]queryKeys, 2),
+		requiredTags:    make(map[accesstypes.PermissionScope]map[accesstypes.Resource][]accesstypes.Tag, 2),
 		formerTags:      make(map[accesstypes.PermissionScope]formerTagMap, 2),
 		formerNames:     make(map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource, 2),
 	}
@@ -489,6 +509,13 @@ func (g *GeneratedCollection) addResourceDeclarations(res *CollectionResource) e
 		}
 		g.setResourceQueryKeys(res.Scope, res.Name, res.Order, res.QueryKeys)
 	}
+
+	for _, tag := range res.RequiredTags {
+		if !slices.Contains(g.tagStore[res.Scope][res.Name][tag], accesstypes.Create) {
+			return errors.Newf("resource %q requires %q on a create, which is not one of its tags that carry Create", res.Name, tag)
+		}
+	}
+	g.setResourceRequiredTags(res.Scope, res.Name, res.RequiredTags)
 
 	return nil
 }
@@ -608,6 +635,36 @@ func (g *GeneratedCollection) setResourceQueryKeys(scope accesstypes.PermissionS
 		g.queryKeys[scope] = make(map[accesstypes.Resource]queryKeys)
 	}
 	g.queryKeys[scope][res] = queryKeys{order: slices.Clone(order), keys: slices.Clone(keys)}
+}
+
+// setResourceRequiredTags records the fields a create of res must be given by the
+// client within scope.
+func (g *GeneratedCollection) setResourceRequiredTags(scope accesstypes.PermissionScope, res accesstypes.Resource, required []accesstypes.Tag) {
+	if len(required) == 0 {
+		return
+	}
+	if g.requiredTags[scope] == nil {
+		g.requiredTags[scope] = make(map[accesstypes.Resource][]accesstypes.Tag)
+	}
+	sorted := slices.Clone(required)
+	slices.Sort(sorted)
+	g.requiredTags[scope][res] = slices.Compact(sorted)
+}
+
+// RequiredOnCreate reports the fields a create of res must be given by the client
+// within scope, as wire tags, sorted: each takes no NULL, nothing but the client fills
+// it, and a grant names it for Create. Deploy-time role validation (access.MigrateRoles)
+// warns where a role may create the resource and may set none of its grants' fields for
+// one of them. Empty for a resource every create of which the server can complete.
+func (g *GeneratedCollection) RequiredOnCreate(scope accesstypes.PermissionScope, res accesstypes.Resource) []accesstypes.Tag {
+	var required []accesstypes.Tag
+	for _, tag := range g.requiredTags[scope][res] {
+		if slices.Contains(g.tagStore[scope][res][tag], accesstypes.Create) {
+			required = append(required, tag)
+		}
+	}
+
+	return required
 }
 
 // FieldMasking reports how the field's masked cells meet a sort or a filter
@@ -1203,6 +1260,7 @@ func collectionDataFrom(g *GeneratedCollection) CollectionData {
 			res.Order = slices.Clone(qk.order)
 			res.QueryKeys = slices.Clone(qk.keys)
 		}
+		res.RequiredTags = g.RequiredOnCreate(key.scope, key.name)
 
 		data.Resources = append(data.Resources, res)
 	}

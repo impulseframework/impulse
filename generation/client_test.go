@@ -510,7 +510,7 @@ func Test_removeGeneratedFiles(t *testing.T) {
 				written[filepath.Join(dir, name)] = struct{}{}
 			}
 
-			err := removeGeneratedFiles(dir, tt.method, written)
+			_, err := removeGeneratedFiles(dir, tt.method, written)
 			if (err != nil) != tt.wantError {
 				t.Fatalf("removeGeneratedFiles() error = %v, wantError %v", err, tt.wantError)
 			}

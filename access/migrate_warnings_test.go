@@ -306,3 +306,7 @@ func TestGrantWarning_String(t *testing.T) {
 		})
 	}
 }
+
+func (probeCollection) RequiredOnCreate(accesstypes.PermissionScope, accesstypes.Resource) []accesstypes.Tag {
+	return nil
+}

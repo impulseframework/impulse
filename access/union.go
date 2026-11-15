@@ -22,8 +22,8 @@ import (
 // sites' structs describe one table the same way. UnionCollection refuses collections
 // that disagree on a shared resource in anything it can read through the interface: the
 // permissions registered on it (the field set rides along, since List registers a field
-// resource per field), its scope, its immutability, its computed marking, and its method
-// target. The attribute vocabulary a shared resource declares is not enumerable through
+// resource per field), its scope, its immutability, its computed marking, its method
+// target, its concealing keys, and the fields a create of it must carry. The attribute vocabulary a shared resource declares is not enumerable through
 // the interface, so keeping it identical stays the declaring sites' business.
 func UnionCollection(collections ...PermissionCollection) (PermissionCollection, error) {
 	if len(collections) == 0 {
@@ -73,6 +73,7 @@ type registration struct {
 	targeted    bool
 	order       []accesstypes.Tag
 	keys        []accesstypes.Tag
+	required    []accesstypes.Tag
 }
 
 // registrationsOf reads every resource c, the collection at index in argument order,
@@ -101,6 +102,7 @@ func registrationsOf(index int, c PermissionCollection) map[accesstypes.Resource
 			targeted:    targeted,
 			order:       order,
 			keys:        keys,
+			required:    c.RequiredOnCreate(scope, res),
 		}
 	}
 
@@ -123,6 +125,8 @@ func (r *registration) disagreement(other *registration) (property, answers stri
 		return "method target", fmt.Sprintf("%s vs %s", describeTarget(r), describeTarget(other)), true
 	case !slices.Equal(r.order, other.order) || !slices.Equal(r.keys, other.keys):
 		return "concealing keys", fmt.Sprintf("%v/%v vs %v/%v", r.order, r.keys, other.order, other.keys), true
+	case !slices.Equal(r.required, other.required):
+		return "fields a create must carry", fmt.Sprintf("%v vs %v", r.required, other.required), true
 	default:
 		return "", "", false
 	}
@@ -219,4 +223,8 @@ func (u *unionCollection) MethodTarget(scope accesstypes.PermissionScope, method
 
 func (u *unionCollection) ConcealingKeys(scope accesstypes.PermissionScope, res accesstypes.Resource) (order, keys []accesstypes.Tag) {
 	return u.owner(res).ConcealingKeys(scope, res)
+}
+
+func (u *unionCollection) RequiredOnCreate(scope accesstypes.PermissionScope, res accesstypes.Resource) []accesstypes.Tag {
+	return u.owner(res).RequiredOnCreate(scope, res)
 }

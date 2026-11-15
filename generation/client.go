@@ -834,27 +834,28 @@ func isVowel(b byte) bool {
 // paths it did). A generated file is a .go, .ts, .dot or .json file; nothing else is
 // read or touched. It runs after the run has written everything, so a package compiling
 // against the tree during the run never misses a file. A directory that does not exist
-// holds nothing to remove.
-func removeGeneratedFiles(directory string, method generatedFileDeleteMethod, written map[string]struct{}) error {
+// holds nothing to remove. It answers the paths of the files it removed.
+func removeGeneratedFiles(directory string, method generatedFileDeleteMethod, written map[string]struct{}) ([]string, error) {
 	log.Printf("removing stale generated files in directory %q...", directory)
 	dir, err := os.Open(directory)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return errors.Wrap(err, "os.Open()")
+		return nil, errors.Wrap(err, "os.Open()")
 	}
 	defer dir.Close()
 
 	files, err := dir.Readdirnames(0)
 	if err != nil {
-		return errors.Wrap(err, "dir.Readdirnames()")
+		return nil, errors.Wrap(err, "dir.Readdirnames()")
 	}
 
 	if err := dir.Close(); err != nil {
-		return errors.Wrap(err, "dir.Close()")
+		return nil, errors.Wrap(err, "dir.Close()")
 	}
 
+	var removed []string
 	for _, f := range files {
 		if !strings.HasSuffix(f, ".go") && !strings.HasSuffix(f, ".ts") && !strings.HasSuffix(f, ".dot") && !strings.HasSuffix(f, ".json") {
 			continue
@@ -863,61 +864,41 @@ func removeGeneratedFiles(directory string, method generatedFileDeleteMethod, wr
 			continue
 		}
 
-		switch method {
-		case prefix:
-			if err := removeGeneratedFileByPrefix(directory, f); err != nil {
-				return errors.Wrap(err, "removeGeneratedFileByPrefix()")
-			}
-		case headerComment:
-			if err := removeGeneratedFileByHeaderComment(directory, f); err != nil {
-				return errors.Wrap(err, "removeGeneratedFileByHeaderComment()")
-			}
-		case methodFiles:
-			if err := removeGeneratedFileByName(directory, f, methodFileNames); err != nil {
-				return errors.Wrap(err, "removeGeneratedFileByName()")
-			}
+		stale, err := isStaleGeneratedFile(directory, f, method)
+		if err != nil {
+			return removed, err
 		}
+		if !stale {
+			continue
+		}
+		if err := os.Remove(filepath.Join(directory, f)); err != nil {
+			return removed, errors.Wrap(err, "os.Remove()")
+		}
+		removed = append(removed, filepath.Join(directory, f))
 	}
 
-	return nil
+	return removed, nil
 }
 
-// removeGeneratedFileByName removes the file when its name is one of names.
-func removeGeneratedFileByName(directory, file string, names []string) error {
-	if slices.Contains(names, file) {
-		if err := os.Remove(filepath.Join(directory, file)); err != nil {
-			return errors.Wrap(err, "os.Remove()")
+// isStaleGeneratedFile reports whether a file the run did not write is one the generator
+// owns in its directory, by the directory's method: named with the generated prefix,
+// opening with the generation header, or named as a method's file is.
+func isStaleGeneratedFile(directory, file string, method generatedFileDeleteMethod) (bool, error) {
+	switch method {
+	case prefix:
+		return strings.HasPrefix(file, genPrefix), nil
+	case headerComment:
+		content, err := os.ReadFile(filepath.Join(directory, file))
+		if err != nil {
+			return false, errors.Wrap(err, "os.ReadFile()")
 		}
+
+		return bytes.HasPrefix(content, []byte(generationHeader)), nil
+	case methodFiles:
+		return slices.Contains(methodFileNames, file), nil
+	default:
+		return false, nil
 	}
-
-	return nil
-}
-
-func removeGeneratedFileByPrefix(directory, file string) error {
-	if strings.HasPrefix(file, genPrefix) {
-		fp := filepath.Join(directory, file)
-		if err := os.Remove(fp); err != nil {
-			return errors.Wrap(err, "os.Remove()")
-		}
-	}
-
-	return nil
-}
-
-func removeGeneratedFileByHeaderComment(directory, file string) error {
-	fp := filepath.Join(directory, file)
-	content, err := os.ReadFile(fp)
-	if err != nil {
-		return errors.Wrap(err, "os.ReadFile()")
-	}
-
-	if bytes.HasPrefix(content, []byte(generationHeader)) {
-		if err := os.Remove(fp); err != nil {
-			return errors.Wrap(err, "os.Remove()")
-		}
-	}
-
-	return nil
 }
 
 func formatInterfaceTypes(types []string) string {

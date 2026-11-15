@@ -108,11 +108,14 @@ func generate(ctx context.Context, a *app.App, exec check.Execer, ch *Change, fa
 	if err := tidy(ctx, a, exec, ch); err != nil {
 		return err
 	}
-	out, err := exec.Run(ctx, a.Root, nil, "go", "generate", "./...")
+	out, removed, err := check.Generate(ctx, exec, a.Root)
 	if err != nil {
 		return errors.Newf("%s\n%s", failed, strings.TrimSpace(string(out)))
 	}
 	ch.didf("%s", did)
+	if removed != "" {
+		ch.didf("%s", check.RanAgain(removed))
+	}
 	for line := range strings.Lines(string(out)) {
 		if w, ok := strings.CutPrefix(strings.TrimRight(line, "\r\n"), WarningPrefix); ok {
 			ch.Warnings = append(ch.Warnings, w)
@@ -138,7 +141,7 @@ func generateFirst(ctx context.Context, a *app.App, exec check.Execer, ch *Chang
 	if out, err := exec.Run(ctx, a.Root, nil, "go", "mod", "tidy", "-e"); err != nil {
 		return errors.Newf("go mod tidy -e failed, so go.mod does not require what the change imports; fix the cause and run it, then go generate ./... and go mod tidy:\n%s", strings.TrimSpace(string(out)))
 	}
-	out, err := exec.Run(ctx, a.Root, nil, "go", "generate", "./...")
+	out, removed, err := check.Generate(ctx, exec, a.Root)
 	if err != nil {
 		return errors.Newf("%s\n%s", failed, strings.TrimSpace(string(out)))
 	}
@@ -154,6 +157,9 @@ func generateFirst(ctx context.Context, a *app.App, exec check.Execer, ch *Chang
 		ch.didf("%s", line)
 	}
 	ch.didf("%s", did)
+	if removed != "" {
+		ch.didf("%s", check.RanAgain(removed))
+	}
 	for line := range strings.Lines(string(out)) {
 		if w, ok := strings.CutPrefix(strings.TrimRight(line, "\r\n"), WarningPrefix); ok {
 			ch.Warnings = append(ch.Warnings, w)

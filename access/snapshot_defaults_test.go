@@ -661,3 +661,7 @@ func Test_snapshot_overlayInheritance(t *testing.T) {
 		t.Errorf("tenant1 overlays roles %v, want only Senior (the roles its rows change)", got)
 	}
 }
+
+func (defaultsCollection) RequiredOnCreate(accesstypes.PermissionScope, accesstypes.Resource) []accesstypes.Tag {
+	return nil
+}

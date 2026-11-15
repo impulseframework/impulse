@@ -305,3 +305,7 @@ func TestWarning_kinds(t *testing.T) {
 		}
 	}
 }
+
+func (concealingCollection) RequiredOnCreate(accesstypes.PermissionScope, accesstypes.Resource) []accesstypes.Tag {
+	return nil
+}

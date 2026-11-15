@@ -965,7 +965,10 @@ func (u *upgrader) tidy(ctx context.Context, a *app.App) error {
 // one that could not run at all is an error.
 func (u *upgrader) regenerate(ctx context.Context, a *app.App) (*outcome, error) {
 	fmt.Fprintf(u.out, "Running %s\n", generateCommand)
-	out, err := u.exec.Run(ctx, a.Root, nil, goCommand, "generate", "./...")
+	out, removed, err := check.Generate(ctx, u.exec, a.Root)
+	if removed != "" {
+		fmt.Fprintf(u.out, "  %s\n", check.RanAgain(removed))
+	}
 	if err != nil {
 		if exitCode(err) < 0 {
 			return nil, errors.Wrapf(err, "%s: %s", generateCommand, lastLine(out))

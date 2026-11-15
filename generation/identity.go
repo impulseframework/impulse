@@ -378,6 +378,7 @@ func (r *resourceGenerator) removeStaleIdentitySources(inst *identityInstance) e
 			if err := os.Remove(filepath.Join(dir.Dir(), name)); err != nil {
 				return errors.Wrap(err, "os.Remove()")
 			}
+			r.output.noteRemoved(filepath.Join(dir.Dir(), name))
 		}
 	}
 
@@ -407,6 +408,7 @@ func (r *resourceGenerator) settleIdentityTree() error {
 		if err := os.Remove(file); err != nil {
 			return errors.Wrap(err, "os.Remove()")
 		}
+		r.output.noteRemoved(file)
 		if dir := filepath.Dir(file); !slices.Contains(emptied, dir) {
 			emptied = append(emptied, dir)
 		}

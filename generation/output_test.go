@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -228,4 +229,81 @@ func listDir(t *testing.T, dir string) []string {
 	slices.Sort(names)
 
 	return names
+}
+
+// Test_generatedOutput_removedGoFiles proves what the run's closing notice is built from:
+// the sweep records the Go files it removed and nothing else it removed, a removal a
+// phase reports itself is recorded with them, and taking the record forgets it.
+func Test_generatedOutput_removedGoFiles(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	router := filepath.Join(root, "router")
+	web := filepath.Join(root, "web")
+	for dir, files := range map[string]map[string]string{
+		router: {genPrefix + "_user_surfaces.go": "old", genPrefix + "_routes.go": "old", genPrefix + "_release.json": "{}", "router.go": "hand-written"},
+		web:    {genPrefix + "_gone.ts": generationHeader + "\nold"},
+	} {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
+			t.Fatalf("os.MkdirAll() error = %v", err)
+		}
+		for name, content := range files {
+			if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+				t.Fatalf("os.WriteFile() error = %v", err)
+			}
+		}
+	}
+
+	output := &generatedOutput{}
+	output.registerOutput(router, prefix)
+	output.registerOutput(web, headerComment)
+	if err := output.writeGeneratedFile(filepath.Join(router, genPrefix+"_routes.go"), []byte("rewritten")); err != nil {
+		t.Fatalf("writeGeneratedFile() error = %v", err)
+	}
+	// A phase that removes a file itself, ahead of the sweep, reports it.
+	output.noteRemoved(filepath.Join(root, "identity", genPrefix+"_assignable_roles.go"), filepath.Join(root, "identity", "notes.txt"))
+	if err := output.removeStaleOutput(); err != nil {
+		t.Fatalf("removeStaleOutput() error = %v", err)
+	}
+
+	want := []string{
+		filepath.Join(root, "identity", genPrefix+"_assignable_roles.go"),
+		filepath.Join(router, genPrefix+"_user_surfaces.go"),
+	}
+	if diff := cmp.Diff(want, output.takeRemovedGo()); diff != "" {
+		t.Errorf("takeRemovedGo() mismatch (-want +got):\n%s", diff)
+	}
+	if again := output.takeRemovedGo(); len(again) != 0 {
+		t.Errorf("takeRemovedGo() a second time = %v, want the record forgotten", again)
+	}
+}
+
+// Test_removedFilesNotice pins when a run says it removed files and what it says: only a
+// run the go command started, and only when it removed a Go file, since only then does
+// the go command stop at a file it listed before the generator ran.
+func Test_removedFilesNotice(t *testing.T) {
+	t.Parallel()
+
+	removed := []string{"pkg/router/zz_gen_user_surfaces.go", "pkg/identity/crewhandlers/zz_gen_crew_sector_assignable_roles.go"}
+
+	if got := removedFilesNotice(nil, true); got != "" {
+		t.Errorf("removedFilesNotice() with nothing removed = %q, want none", got)
+	}
+	if got := removedFilesNotice(removed, false); got != "" {
+		t.Errorf("removedFilesNotice() for a run the go command did not start = %q, want none", got)
+	}
+
+	got := removedFilesNotice(removed, true)
+	for _, want := range []string{
+		"Removed 2 generated Go file(s) this run no longer writes:",
+		"\n  pkg/router/zz_gen_user_surfaces.go\n",
+		"\n  pkg/identity/crewhandlers/zz_gen_crew_sector_assignable_roles.go\n",
+		"The generation is complete.",
+		`"no such file or directory", exit status 1`,
+		"Run it once more",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("removedFilesNotice() = %q, want it to hold %q", got, want)
+		}
+	}
 }

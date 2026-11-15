@@ -591,8 +591,8 @@ func checkPolicy(ctx context.Context, client *access.Client) error {
 ```
 
 Every warning prints as one line. A consumer that wants the fields switches on
-the kind: `access.GrantWarning` and `access.ConcealingKeyWarning` come from the
-role file, and `*access.SkippedGrant`, `*access.ShadowedRole` and
+the kind: `access.GrantWarning`, `access.RequiredFieldWarning` and
+`access.ConcealingKeyWarning` come from the role file, and `*access.SkippedGrant`, `*access.ShadowedRole` and
 `*access.OrphanedMembership` from the store.
 
 ### Behavior
@@ -604,7 +604,7 @@ role file, and `*access.SkippedGrant`, `*access.ShadowedRole` and
 - A role whose file entry has no grants exists and holds nothing until a grant is authored
 - Validates resources, permissions, and conditions against the collection before the client starts, and refuses a grant on a resource whose scope is not its role's
 - Prevents update permissions on immutable resources
-- Warns, without rejecting, when a role holds a conditional Delete, Update, or targeted Execute on a row it can neither Read nor List, or a conditional List on a concealing field the resource sorts or filters by (see Warnings)
+- Warns, without rejecting, when a role holds a conditional Delete, Update, or targeted Execute on a row it can neither Read nor List, a Create on a resource without a field every create must be given, or a conditional List on a concealing field the resource sorts or filters by (see Warnings)
 - A release that introduces a default role under a custom role's name shadows the custom role, and a release that retires a default role leaves its memberships holding nothing; both are reported, and the store is left as it is
 
 **Note**: `CheckPolicy` writes nothing, so it is safe to run on every deploy and from any tool. A rollback's binary carries its own role file, and what the store holds that the older release cannot use is reported the same way.
@@ -629,7 +629,26 @@ author which role to change. Unconditional writes are not flagged: they reveal e
 only by succeeding, which is what the grant permits. The check is a heuristic. Holding
 Read does not close the channel when the Read condition is narrower than the write's.
 
-The second warning is about cost, not disclosure. A sort or filter on a conditionally
+The second warning is about a create that can never be completed. A create writes the
+fields the caller's Create grants name and no others, and the commit refuses a row whose
+NOT NULL column nothing filled. The generated collection names, for each resource, the
+fields a create must be given by the client: the column takes no NULL, no column default
+and no `default_create_fn` fills it, it is no key and no field the server owns, and a
+grant names it for Create. A role that holds Create on a resource, and none of whose
+Create grants there covers one of those fields, creates no row by itself: the page draws
+the create form from the grant, the person fills in everything they may, and the commit
+answers 409 with nothing they can act on.
+
+```
+Warning: role FlightLead: Create on Sorties is granted without launchedAt, which every create of Sorties must be given (the column takes no NULL and nothing fills it for the client): a create under this role alone is refused at commit, whatever the person submits. Grant Create on the field, give the column a default, or accept this warning where the same people hold another role that grants it.
+```
+
+The check reads every Create grant the role holds on the resource, whatever condition each
+is under, so it says that no create can succeed, never that some cannot. It is per role,
+like the first: two roles the same person holds can cover the field between them, which a
+role file cannot say, so the line is a warning and the release starts.
+
+The third warning is about cost, not disclosure. A sort or filter on a conditionally
 visible field runs over the visible projection, `CASE WHEN <condition> THEN column END`,
 so a masked cell is `NULL` wherever the query looks at it and nothing about a hidden value
 leaks through order or match. No index serves that expression: every such page sorts the

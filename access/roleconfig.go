@@ -61,6 +61,16 @@ type PermissionCollection interface {
 	// learns the declaration itself. Both are empty for a resource with no
 	// list.
 	ConcealingKeys(scope accesstypes.PermissionScope, res accesstypes.Resource) (order, keys []accesstypes.Tag)
+
+	// RequiredOnCreate reports the fields a create of a resource must be given
+	// by the client, as wire tags, sorted: the column takes no NULL, nothing
+	// but the client fills it (no column default, no function of the server's,
+	// no key), and a grant names the field for Create. A create that leaves
+	// one out is refused at commit, so a role that may create the resource and
+	// may set none of its grants' fields for one of them creates no row by
+	// itself (see RequiredFieldWarning). Empty for a resource every create of
+	// which the server can complete, and for a field resource.
+	RequiredOnCreate(scope accesstypes.PermissionScope, res accesstypes.Resource) []accesstypes.Tag
 }
 
 // RoleFile is the bytes of a role file: the release's default roles, authored
@@ -493,6 +503,7 @@ func expandAllRoleGrants(store PermissionCollection, roles []*Role, declared acc
 		}
 		sets = append(sets, set)
 		warnings = append(warnings, grantWarnings(store, r, declared, set)...)
+		warnings = append(warnings, requiredFieldWarnings(store, r, declared, set)...)
 		concealing, err := concealingKeyWarnings(store, r, declared, set)
 		if err != nil {
 			return nil, nil, err

@@ -215,6 +215,7 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 
 	r.collectBindingRegistrations(b)
 	r.collectWorkflowMemberRegistrations(b)
+	r.collectRequiredRegistrations(b)
 
 	data := b.Data()
 	if err := r.validateStateEnumTables(data); err != nil {
@@ -222,6 +223,41 @@ func (r *resourceGenerator) computeCollectionData() (resource.CollectionData, er
 	}
 
 	return data, nil
+}
+
+// collectRequiredRegistrations registers, for every table-backed resource, the fields
+// a create must be given by the client: required (the column takes no NULL and neither
+// a column default nor a default_create_fn fills it) and written through the create
+// request (no key, no field the server owns). The collection keeps the ones that carry
+// Create, so deploy-time role validation can name a role whose Create grants leave one
+// out. Like bindings, the fact describes the data model and is registered whatever
+// handlers exist.
+func (r *resourceGenerator) collectRequiredRegistrations(b *resource.CollectionBuilder) {
+	for _, res := range r.resources {
+		if required := requiredOnCreate(res); len(required) > 0 {
+			b.SetResourceRequiredTags(scopeOrGlobal(res.PermissionScope), accesstypes.Resource(r.pluralize(res.Name())), required)
+		}
+	}
+}
+
+// requiredOnCreate names, as wire tags, the fields of res a create must be given by the
+// client. A view takes no create, so it has none.
+func requiredOnCreate(res *resourceInfo) []accesstypes.Tag {
+	if res.IsVirtual {
+		return nil
+	}
+	var required []accesstypes.Tag
+	for _, field := range res.Fields {
+		// The create request carries no key and no field the server owns: its tag
+		// for those is "-".
+		name := reflect.StructTag(field.JSONTagForPatch()).Get(jsonTagKey)
+		if name == "-" || !field.IsRequired() {
+			continue
+		}
+		required = append(required, accesstypes.Tag(name))
+	}
+
+	return required
 }
 
 // collectBindingRegistrations registers every resource's compiled binding

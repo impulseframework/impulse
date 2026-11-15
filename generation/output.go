@@ -1,9 +1,12 @@
 package generation
 
 import (
+	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/go-playground/errors/v5"
@@ -22,6 +25,9 @@ type generatedOutput struct {
 	mu      sync.Mutex
 	targets []outputTarget
 	written map[string]struct{}
+	// removedGo holds the Go files the run removed because it no longer writes them,
+	// for the notice a run started by the go command ends with (removedFilesNotice).
+	removedGo []string
 }
 
 // outputTarget is a directory a run writes generated files into, with the rule naming
@@ -81,12 +87,73 @@ func (o *generatedOutput) removeStaleOutput() error {
 	o.mu.Unlock()
 
 	for _, target := range targets {
-		if err := removeGeneratedFiles(target.dir, target.method, written); err != nil {
+		removed, err := removeGeneratedFiles(target.dir, target.method, written)
+		o.noteRemoved(removed...)
+		if err != nil {
 			return errors.Wrap(err, "removeGeneratedFiles()")
 		}
 	}
 
 	return nil
+}
+
+// noteRemoved records files the run removed. The Go files among them are kept for the
+// run's closing notice.
+func (o *generatedOutput) noteRemoved(paths ...string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	for _, path := range paths {
+		if strings.HasSuffix(path, ".go") {
+			o.removedGo = append(o.removedGo, filepath.Clean(path))
+		}
+	}
+}
+
+// takeRemovedGo answers the Go files the run removed, sorted, and forgets them.
+func (o *generatedOutput) takeRemovedGo() []string {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	removed := o.removedGo
+	o.removedGo = nil
+	slices.Sort(removed)
+
+	return removed
+}
+
+// goGenerateFileEnv is the variable the go command sets for a directive it runs: the
+// name of the file that carries the directive.
+const goGenerateFileEnv = "GOFILE"
+
+// reportRemovedGo ends a run with the notice of the Go files it removed, when the go
+// command started the run and it removed any (removedFilesNotice).
+func (o *generatedOutput) reportRemovedGo() {
+	if notice := removedFilesNotice(o.takeRemovedGo(), os.Getenv(goGenerateFileEnv) != ""); notice != "" {
+		log.Print(notice)
+	}
+}
+
+// removedFilesNotice is what a run started by the go command says when it removed Go
+// files it no longer writes, and empty otherwise. The go command lists every package's
+// files before it runs the first directive and reads each file when it reaches it, so a
+// file a generator removed in a package the go command has not reached yet stops it with
+// its own "no such file or directory" and exit status 1, though the generation finished.
+// Nothing the generator does can keep the go command from that: the notice names the
+// files, says the generation is complete, and says what finishes the command.
+func removedFilesNotice(removed []string, startedByGoGenerate bool) string {
+	if len(removed) == 0 || !startedByGoGenerate {
+		return ""
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "Removed %d generated Go file(s) this run no longer writes:\n", len(removed))
+	for _, path := range removed {
+		fmt.Fprintf(&b, "  %s\n", path)
+	}
+	b.WriteString("The generation is complete. The go command listed these files before the generator ran, so a go generate that covers their packages stops at the first one it has not read yet (\"no such file or directory\", exit status 1). Run it once more: nothing is left to remove, and it finishes.")
+
+	return b.String()
 }
 
 // generatedTempPattern names the temporary file a generated file is written to before
