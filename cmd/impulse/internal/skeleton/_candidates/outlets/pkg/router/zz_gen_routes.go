@@ -140,7 +140,11 @@ type GeneratedHandlers interface {
 
 	SetStaffTenantUserEmail() http.HandlerFunc
 
+	SetStaffTenantUserName() http.HandlerFunc
+
 	SetStaffUserEmail() http.HandlerFunc
+
+	SetStaffUserName() http.HandlerFunc
 
 	StaffRoles() http.HandlerFunc
 
@@ -295,7 +299,11 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	r.Post("/console/api/tenants/{tenantID}/set-staff-tenant-user-email", domainGuard(h.SetStaffTenantUserEmail()))
 
+	r.Post("/console/api/tenants/{tenantID}/set-staff-tenant-user-name", domainGuard(h.SetStaffTenantUserName()))
+
 	r.Post("/console/api/set-staff-user-email", h.SetStaffUserEmail())
+
+	r.Post("/console/api/set-staff-user-name", h.SetStaffUserName())
 
 	staffRolesHandler := h.StaffRoles()
 	bounded.Get("/console/api/staff-roles", staffRolesHandler)
@@ -546,7 +554,11 @@ type GeneratedPortalHandlers interface {
 
 	SetMembersTenantUserEmail() http.HandlerFunc
 
+	SetMembersTenantUserName() http.HandlerFunc
+
 	SetMembersUserEmail() http.HandlerFunc
+
+	SetMembersUserName() http.HandlerFunc
 
 	UnlinkMembersSessionIdentity() http.HandlerFunc
 
@@ -745,7 +757,11 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 
 	r.Post("/portal/api/tenants/{tenantID}/set-members-tenant-user-email", domainGuard(h.SetMembersTenantUserEmail()))
 
+	r.Post("/portal/api/tenants/{tenantID}/set-members-tenant-user-name", domainGuard(h.SetMembersTenantUserName()))
+
 	r.Post("/portal/api/set-members-user-email", h.SetMembersUserEmail())
+
+	r.Post("/portal/api/set-members-user-name", h.SetMembersUserName())
 
 	r.Post("/portal/api/unlink-members-session-identity", h.UnlinkMembersSessionIdentity())
 

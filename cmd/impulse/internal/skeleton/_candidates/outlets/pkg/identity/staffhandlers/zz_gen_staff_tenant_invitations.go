@@ -23,6 +23,7 @@ func (h *Handlers) StaffTenantInvitations() http.HandlerFunc {
 		ID         impulse.UUID  `json:"id"         index:"true" perm:"-"`
 		Domain     string        `json:"domain"     index:"true"`
 		Email      string        `json:"email"      index:"true"`
+		Name       *string       `json:"name"`
 		RoleNames  []string      `json:"roleNames"`
 		InvitedBy  *impulse.UUID `json:"invitedBy"`
 		CreatedAt  time.Time     `json:"createdAt"  index:"true"`
@@ -83,6 +84,10 @@ func (h *Handlers) StaffTenantInvitations() http.HandlerFunc {
 					if !row.Masked("email") {
 						rmap["email"] = rec.Email
 					}
+				case "Name":
+					if !row.Masked("name") {
+						rmap["name"] = rec.Name
+					}
 				case "RoleNames":
 					if !row.Masked("roleNames") {
 						rmap["roleNames"] = rec.RoleNames
@@ -133,6 +138,7 @@ func (h *Handlers) StaffTenantInvitation() http.HandlerFunc {
 		ID         impulse.UUID  `json:"id"         index:"true" perm:"-"`
 		Domain     string        `json:"domain"`
 		Email      string        `json:"email"`
+		Name       *string       `json:"name"`
 		RoleNames  []string      `json:"roleNames"`
 		InvitedBy  *impulse.UUID `json:"invitedBy"`
 		CreatedAt  time.Time     `json:"createdAt"`
@@ -180,6 +186,10 @@ func (h *Handlers) StaffTenantInvitation() http.HandlerFunc {
 			case "Email":
 				if !row.Masked("email") {
 					rmap["email"] = rec.Email
+				}
+			case "Name":
+				if !row.Masked("name") {
+					rmap["name"] = rec.Name
 				}
 			case "RoleNames":
 				if !row.Masked("roleNames") {

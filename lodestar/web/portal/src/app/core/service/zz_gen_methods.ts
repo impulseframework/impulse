@@ -138,6 +138,17 @@ export interface SetMembersSectorUserEmail {
 /** The statuses SetMembersSectorUserEmail declares; the method chooses one per response. */
 export type SetMembersSectorUserEmailStatus = 204;
 
+export interface SetMembersSectorUserNameConfig {
+  userId: string | FieldPointer;
+  name?: string | FieldPointer;
+}
+export interface SetMembersSectorUserName {
+  userId: string;
+  name?: string;
+}
+/** The statuses SetMembersSectorUserName declares; the method chooses one per response. */
+export type SetMembersSectorUserNameStatus = 204;
+
 export interface SetMembersUserEmailConfig {
   userId: string | FieldPointer;
   email?: string | FieldPointer;
@@ -148,6 +159,17 @@ export interface SetMembersUserEmail {
 }
 /** The statuses SetMembersUserEmail declares; the method chooses one per response. */
 export type SetMembersUserEmailStatus = 204;
+
+export interface SetMembersUserNameConfig {
+  userId: string | FieldPointer;
+  name?: string | FieldPointer;
+}
+export interface SetMembersUserName {
+  userId: string;
+  name?: string;
+}
+/** The statuses SetMembersUserName declares; the method chooses one per response. */
+export type SetMembersUserNameStatus = 204;
 
 export interface StandDownMissionConfig {
   missionId: string | FieldPointer;
@@ -398,6 +420,16 @@ const methodMap: MethodMap = {
       { fieldName: 'email', displayType: 'string', optional: true },
     ],
   },
+  [Methods.SetMembersSectorUserName]: {
+    route: 'set-members-sector-user-name',
+    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'name', displayType: 'string', optional: true },
+    ],
+  },
   [Methods.SetMembersUserEmail]: {
     route: 'set-members-user-email',
     target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
@@ -406,6 +438,16 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'email', displayType: 'string', optional: true },
+    ],
+  },
+  [Methods.SetMembersUserName]: {
+    route: 'set-members-user-name',
+    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'name', displayType: 'string', optional: true },
     ],
   },
   [Methods.StandDownMission]: {

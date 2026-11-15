@@ -56,11 +56,12 @@ export const issuingDescriptor: ApiDescriptor = {
   },
 };
 
-/** The parts of a methods answer the account page reads: the password change and forgetting this browser. */
+/** The parts of a methods answer the account page reads: the password change, forgetting this browser and the person's name. */
 export const passwordMethods = {
   methods: [],
   changePassword: '/api/user/password/change',
   forgetBrowser: '/api/user/browser/forget',
+  changeName: '/api/user/name',
 };
 
 /** What the spec's server answers: the session, the digests by tenant ('' global), the tenant list. */
@@ -79,9 +80,11 @@ export function specTransport(server: SpecServer): ScriptedTransport {
     const url = new URL(request.url, 'http://spec.test');
     switch (url.pathname) {
       case '/api/user/session':
+        // Every read is an answer of its own, as a server's is: a spec that reads the
+        // session twice sees what a page sees at the keepalive.
         return {
           status: 200,
-          body: server.session ?? { authenticated: true, username: 'gale', email: 'gale@spec.example' },
+          body: { ...(server.session ?? { authenticated: true, username: 'gale', email: 'gale@spec.example' }) },
         };
       case '/api/user/methods':
         return { status: 200, body: server.methods ?? { methods: [] } };

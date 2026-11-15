@@ -50,7 +50,8 @@ type Client struct {
 // auth's people in (its API method): a password a method writes is hashed by that
 // Auth's password method. The options are the identity package's: the administrator
 // roles (identity.WithAdministratorRoles), which the rule on a person removing a role
-// from themselves reads.
+// from themselves reads, and one tenant per person (identity.WithOneTenantPerPerson),
+// which every role given in a tenant is then held to.
 func NewClient(controller access.Controller, sessions identity.SessionAPI, opts ...identity.Option) (*Client, error) {
 	manager, err := identity.New(AuthName, store{}, controller, sessions, opts...)
 	if err != nil {

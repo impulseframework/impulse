@@ -39,8 +39,12 @@ func (tenantAccounts) Meaning() string {
 	return "A person's account is one for the whole application, so a method a tenant runs on it reaches every tenant that holds the person and the application's own staff. The generated management leaves the rule to the role file: each tenant method that changes an account names a row of the tenant's list of people (`<Auth><Tenant>Users`), whose facts a grant's condition reads, `heldElsewhere` (the person also holds a role in another tenant, or in every tenant) and `heldGlobally` (the person holds a role of the whole application). Give a domain role each such method under a condition over the row, `heldElsewhere = false AND heldGlobally = false` where an account is a tenant's to change only while that tenant alone holds the person (the tenanted skeleton's rule), or the condition your application's rule is. A grant with no condition, or with one that reads the request or the clock alone, states no rule about the person, and each line under the check names one. Every conditional grant is then proven by a test case (`conditions-proven`)."
 }
 
-// accountUser ends the name of a method that acts on the person's account as a whole.
-const accountUser = "User"
+const (
+	// accountUser ends the name of a method that acts on the person's account as a whole.
+	accountUser = "User"
+	// accountSet opens the name of a method that writes one thing on the person's account.
+	accountSet = "Set"
+)
 
 // tenantAccountActs are the generated tenant methods that change a person's account, as
 // the generator names them around the auth and the tenant record: the whole
@@ -53,8 +57,9 @@ var tenantAccountActs = []struct{ before, after string }{
 	{"Enable", accountUser},
 	{"Delete", accountUser},
 	{"Rename", accountUser},
-	{"Set", "UserEmail"},
-	{"Set", "TemporaryPassword"},
+	{accountSet, "UserName"},
+	{accountSet, "UserEmail"},
+	{accountSet, "TemporaryPassword"},
 	{"Require", "PasswordChange"},
 	{"End", "UserSessions"},
 	{"Revoke", "UserTrustedDevices"},

@@ -312,7 +312,7 @@ func method(authn Authenticator, roles *signin.RoleReconciler, issuer, connectio
 
 			v := &signin.Verified{
 				Identity: &sessioninfo.Identity{
-					Method: sessioninfo.MethodOIDC, Connection: connection, Subject: id.Subject, Email: id.Email, EmailVerified: id.EmailVerified, Claims: rawClaims,
+					Method: sessioninfo.MethodOIDC, Connection: connection, Subject: id.Subject, Email: id.Email, EmailVerified: id.EmailVerified, Name: id.Name, Claims: rawClaims,
 					IDPAMR: id.AMR, SignInName: id.SignInName(), Organization: connection, Attestation: sessioninfo.AttestationOf(id.AMR, attesting),
 				},
 				ReturnURL: returnURL,

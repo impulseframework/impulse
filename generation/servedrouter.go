@@ -31,6 +31,14 @@ const (
 	// browser the second factor remembered for them (session.Auth.ForgetBrowser).
 	userForgetBrowserSuffix = "/user/browser/forget"
 	forgetBrowserHandler    = "ForgetBrowser"
+	// userNameSuffix is where a signed-in person's account page writes their own name
+	// (session.Auth.ChangeName).
+	userNameSuffix    = "/user/name"
+	changeNameHandler = "ChangeName"
+	// userLookSuffix is where a signed-in person's pages keep the look the person chose
+	// (session.Auth.ChangeLook).
+	userLookSuffix    = "/user/look"
+	changeLookHandler = "ChangeLook"
 	// The token page's routes under an issuing session outlet's prefix, and the device
 	// flow's public endpoints under a machine outlet's.
 	userTokensSuffix  = "/user/tokens"
@@ -594,6 +602,12 @@ type servedOutlet struct {
 	// ForgetBrowser is where the account page forgets the remembered browser, told to
 	// the browser beside the methods.
 	ForgetBrowser string
+	// ChangeName is where the account page writes the person's own name, told to the
+	// browser beside the methods.
+	ChangeName string
+	// ChangeLook is where the person's pages keep the look the person chose, told to
+	// the browser beside the methods.
+	ChangeLook string
 	// Invitation, Email and SignUp are the invitation, email address and sign-up
 	// routes the login page is told beside the methods: the invitation's sign-up with a
 	// password method, SignUp when the password method declares open sign-up (nil
@@ -1175,8 +1189,12 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		route(http.MethodPost, userPendingSuffix+"/code/verify", pendingVerifyCodeHandler, true),
 		route(http.MethodPost, userPendingSuffix+"/email", pendingEnrollEmailHandler, true),
 		route(http.MethodPost, userForgetBrowserSuffix, forgetBrowserHandler, true),
+		route(http.MethodPost, userNameSuffix, changeNameHandler, true),
+		route(http.MethodPost, userLookSuffix, changeLookHandler, true),
 	)
 	so.ForgetBrowser = prefix + userForgetBrowserSuffix
+	so.ChangeName = prefix + userNameSuffix
+	so.ChangeLook = prefix + userLookSuffix
 	guarded, validatedRoutes := servedMailRoutesOf(so, o, guarded, route)
 	so.OpenRoutes, so.GuardedRoutes, so.ValidatedRoutes = open, guarded, validatedRoutes
 	so.Routes = slices.Concat(open, guarded, validatedRoutes)
@@ -1590,6 +1608,12 @@ type {{ .SessionInterface }} interface {
 	// person, from their account page (session.Auth.ForgetBrowser); it validates the
 	// session itself.
 	ForgetBrowser() http.HandlerFunc
+	// ChangeName writes the signed-in person's own name, from their account page
+	// (session.Auth.ChangeName); it validates the session itself.
+	ChangeName() http.HandlerFunc
+	// ChangeLook keeps the look the signed-in person chose, so it follows them to
+	// every browser (session.Auth.ChangeLook); it validates the session itself.
+	ChangeLook() http.HandlerFunc
 {{- range .SessionHandlers }}
 	// {{ .Description }}.
 	{{ .Name }}() http.HandlerFunc
@@ -1814,6 +1838,8 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			ChangePassword: "{{ $outlet.ChangePassword }}",
 {{- end }}
 			ForgetBrowser: "{{ $outlet.ForgetBrowser }}",
+			ChangeName: "{{ $outlet.ChangeName }}",
+			ChangeLook: "{{ $outlet.ChangeLook }}",
 			Invitation: session.InvitationRoutes{Open: "{{ $outlet.Invitation.Open }}", Accept: "{{ $outlet.Invitation.Accept }}"{{ if $outlet.Invitation.SignUp }}, SignUp: "{{ $outlet.Invitation.SignUp }}"{{ end }}},
 			Email: session.EmailRoutes{Add: "{{ $outlet.Email.Add }}", Verify: "{{ $outlet.Email.Verify }}"},
 {{- if $outlet.SignUp }}

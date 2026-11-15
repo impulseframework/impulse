@@ -51,6 +51,8 @@ func TestAuth_Methods(t *testing.T) {
 				Pending:        PendingRoutes{Status: "/api/user/pending", Confirm: "/api/user/pending/confirm", Cancel: "/api/user/pending/cancel"},
 				ChangePassword: "/api/user/password",
 				ForgetBrowser:  "/api/user/browser/forget",
+				ChangeName:     "/api/user/name",
+				ChangeLook:     "/api/user/look",
 			},
 			want: map[string]any{
 				"methods": []any{
@@ -61,6 +63,8 @@ func TestAuth_Methods(t *testing.T) {
 				"pending":        map[string]any{"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel"},
 				"changePassword": "/api/user/password",
 				"forgetBrowser":  "/api/user/browser/forget",
+				"changeName":     "/api/user/name",
+				"changeLook":     "/api/user/look",
 			},
 		},
 		{
@@ -124,6 +128,8 @@ func TestAuth_MethodsRefused(t *testing.T) {
 		{name: "the password method without the password change route", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}}, want: "lists the password method with the password change route \"\""},
 		{name: "a password change route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "https://evil.example/password"}, want: "lists the password method with the password change route"},
 		{name: "a forget-this-browser route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password", ForgetBrowser: "https://evil.example/forget"}, want: "forget-this-browser route"},
+		{name: "a change-your-name route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password", ChangeName: "https://evil.example/name"}, want: "change-your-name route"},
+		{name: "a keep-your-look route off-site", list: &MethodList{Methods: []AdvertisedMethod{{Name: "password", Label: "x", Path: "/login"}}, ChangePassword: "/password", ChangeLook: "https://evil.example/look"}, want: "keep-your-look route"},
 		{name: "a password change route without the password method", list: &MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "x", Path: "/login"}}, ChangePassword: "/password"}, want: "lists no password method"},
 	}
 	for _, tt := range tests {

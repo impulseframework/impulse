@@ -19,6 +19,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/azure"
 	"github.com/impulseframework/impulse/session/google"
@@ -440,9 +441,12 @@ func seamRulesInvitedUsersOnly[Tx any](ctx context.Context, t *testing.T, be bac
 // sign-in is accepted only by the invited address".
 func seamRulesInvitationAddress[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newRulesApp(ctx, t, be, oneOrganization(signin.InvitedUsersOnly))
-	inv, err := a.api.Invite(ctx, &session.InvitationRequest{Email: "pat@lakeside.edu"})
+	inv, err := a.api.Invite(ctx, &session.InvitationRequest{Email: "pat@lakeside.edu", Name: "  Pat Invited "})
 	if err != nil {
 		t.Fatalf("Invite() error = %v", err)
+	}
+	if inv.Name != "Pat Invited" {
+		t.Errorf("Invite() name = %q, want the name without the space around it", inv.Name)
 	}
 	token := invitationToken(t, a.mail)
 
@@ -455,8 +459,8 @@ func seamRulesInvitationAddress[Tx any](ctx context.Context, t *testing.T, be ba
 	// address, no account created, the invitation still standing.
 	assertRedirect(t, a.googleSignIn(ctx, b, googleClaims("sub-kim", "kim@lakeside.edu")), "/login", url.Values{"code": {"invitation_address"}})
 	a.assertNoRow(ctx, t, b, "kim@lakeside.edu")
-	if standing := a.standingInvitations(ctx, t); len(standing) != 1 || standing[0].ID != inv.ID {
-		t.Errorf("standing invitations after the refused sign-in = %v, want the one invitation still standing", standing)
+	if standing := a.standingInvitations(ctx, t); len(standing) != 1 || standing[0].ID != inv.ID || standing[0].Name != "Pat Invited" {
+		t.Errorf("standing invitations after the refused sign-in = %v, want the one invitation still standing, with its name", standing)
 	}
 
 	// The invited address, in any letter case, accepts it: provisioned under the
@@ -465,6 +469,10 @@ func seamRulesInvitationAddress[Tx any](ctx context.Context, t *testing.T, be ba
 	signedInAs(ctx, t, b, "Pat@Lakeside.edu")
 	if standing := a.standingInvitations(ctx, t); len(standing) != 0 {
 		t.Errorf("standing invitations after the acceptance = %v, want none", standing)
+	}
+	// The directory asserted no name, so the new account takes the invitation's.
+	if got := b.authenticatedName(ctx); got != "Pat Invited" {
+		t.Errorf("the new account's name = %q, want the invitation's", got)
 	}
 
 	// A person signed in accepts by hand only an invitation to their own address: one
@@ -479,13 +487,20 @@ func seamRulesInvitationAddress[Tx any](ctx context.Context, t *testing.T, be ba
 	if standing := a.standingInvitations(ctx, t); len(standing) != 1 || standing[0].ID != other.ID {
 		t.Errorf("standing invitations after the refused acceptance = %v, want the other address's still standing", standing)
 	}
-	if _, err := a.api.Invite(ctx, &session.InvitationRequest{Email: "PAT@lakeside.edu"}); err != nil {
+	if _, err := a.api.Invite(ctx, &session.InvitationRequest{Email: "PAT@lakeside.edu", Name: "Patricia"}); err != nil {
 		t.Fatalf("Invite() error = %v", err)
 	}
 	b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": lastInvitationToken(t, a.mail)}, b.xsrfToken())
 	b.expect(ctx, http.StatusOK, http.MethodPost, "/invitation/accept", nil, b.xsrfToken())
 	if standing := a.standingInvitations(ctx, t); len(standing) != 1 || standing[0].ID != other.ID {
 		t.Errorf("standing invitations after the acceptance by hand = %v, want only the other address's", standing)
+	}
+	// The account holds a name, so the second invitation's is not written over it.
+	if got := b.authenticatedName(ctx); got != "Pat Invited" {
+		t.Errorf("the account's name after accepting a second invitation = %q, want the one it held", got)
+	}
+	if _, err := a.api.Invite(ctx, &session.InvitationRequest{Email: "long@lakeside.edu", Name: strings.Repeat("n", 201)}); !httpio.HasBadRequest(err) {
+		t.Errorf("Invite() with a name too long to keep: error = %v, want a bad request", err)
 	}
 }
 

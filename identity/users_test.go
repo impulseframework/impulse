@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/go-playground/errors/v5"
@@ -10,6 +11,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // Fixed ids: a user and two of their sessions.
@@ -60,6 +62,23 @@ func TestManager_CreateUser(t *testing.T) {
 			account:     NewAccount{Username: "dana", Email: ptr("  Dana Reyes <dana@example.com> "), Scope: globalScope, Roles: steward},
 			wantWrites:  []string{"insert user dana dana@example.com", "insert membership global/ dana Steward"},
 			wantChanged: 1,
+		},
+		{
+			name:        "a name is written without the space around it",
+			account:     NewAccount{Username: "dana", Name: ptr("  Dana Reyes "), Scope: globalScope, Roles: steward},
+			wantWrites:  []string{"insert user dana <none> name=Dana Reyes", "insert membership global/ dana Steward"},
+			wantChanged: 1,
+		},
+		{
+			name:        "a name of nothing but space is no name",
+			account:     NewAccount{Username: "dana", Name: ptr("   "), Scope: globalScope, Roles: steward},
+			wantWrites:  []string{"insert user dana <none>", "insert membership global/ dana Steward"},
+			wantChanged: 1,
+		},
+		{
+			name:    "a name too long to keep is refused, and nothing is written",
+			account: NewAccount{Username: "dana", Name: ptr(strings.Repeat("n", sessioninfo.MaxNameLength+1)), Scope: globalScope, Roles: steward},
+			wantErr: httpio.HasBadRequest,
 		},
 		{
 			name:        "the username is written without the space around it, and the membership under the same name",
@@ -247,6 +266,54 @@ func TestManager_EnableUser(t *testing.T) {
 	}
 	if diff := cmp.Diff([]string{"update user " + userID.String() + " disabled=false"}, store.writes); diff != "" {
 		t.Errorf("buffered writes (-want +got):\n%s", diff)
+	}
+}
+
+// TestManager_SetName pins a person's name written by an operator: without the space
+// around it, taken off by nil or by nothing but space, refused when it is too long, and
+// not found for a user that does not exist. Nothing follows a name: the one write is
+// the user's row.
+func TestManager_SetName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		user       impulse.UUID
+		person     *string
+		failOn     string
+		wantErr    func(error) bool
+		wantWrites []string
+	}{
+		{name: "a name is written without the space around it", user: userID, person: ptr("  Dana Reyes "), wantWrites: []string{"update user " + userID.String() + " name=Dana Reyes"}},
+		{name: "no name takes the one held off", user: userID, wantWrites: []string{"update user " + userID.String() + " name=<none>"}},
+		{name: "nothing but space takes the one held off", user: userID, person: ptr(" \t "), wantWrites: []string{"update user " + userID.String() + " name=<none>"}},
+		{name: "the longest name is kept", user: userID, person: ptr(strings.Repeat("n", sessioninfo.MaxNameLength)), wantWrites: []string{"update user " + userID.String() + " name=" + strings.Repeat("n", sessioninfo.MaxNameLength)}},
+		{name: "a name too long to keep is refused", user: userID, person: ptr(strings.Repeat("n", sessioninfo.MaxNameLength+1)), wantErr: httpio.HasBadRequest},
+		{name: "a user that does not exist is not found", user: createdID, person: ptr("Dana Reyes"), wantErr: httpio.HasNotFound},
+		{name: "a failed read fails the call", user: userID, person: ptr("Dana Reyes"), failOn: "Username", wantErr: func(err error) bool { return errors.Is(err, errStore) }},
+		{name: "a failed write fails the call", user: userID, person: ptr("Dana Reyes"), failOn: "UpdateUser", wantErr: func(err error) bool { return errors.Is(err, errStore) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &fakeStore{usernames: map[impulse.UUID]string{userID: "dana"}, failOn: tt.failOn}
+			m, _ := newManager(t, store, nil)
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return m.SetName(ctx, txn, tt.user, tt.person)
+			})
+			if tt.wantErr != nil {
+				if err == nil || !tt.wantErr(err) {
+					t.Fatalf("SetName() error = %v, want the refusal", err)
+				}
+			} else if err != nil {
+				t.Fatalf("SetName() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
+				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
+		})
 	}
 }
 

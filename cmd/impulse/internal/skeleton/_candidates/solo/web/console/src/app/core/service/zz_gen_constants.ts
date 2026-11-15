@@ -48,6 +48,7 @@ export const Methods = {
   RevokeStaffUserTrustedDevices: 'RevokeStaffUserTrustedDevices' as Method,
   SetStaffTemporaryPassword: 'SetStaffTemporaryPassword' as Method,
   SetStaffUserEmail: 'SetStaffUserEmail' as Method,
+  SetStaffUserName: 'SetStaffUserName' as Method,
   UnlinkStaffSessionIdentity: 'UnlinkStaffSessionIdentity' as Method,
   UnlockStaffSignIn: 'UnlockStaffSignIn' as Method,
   WithdrawStaffInvitation: 'WithdrawStaffInvitation' as Method,
@@ -168,6 +169,7 @@ export namespace StaffSessionMailLinks {
     id: 'id' as FieldName,
     invitedBy: 'invitedBy' as FieldName,
     kind: 'kind' as FieldName,
+    name: 'name' as FieldName,
     roleNames: 'roleNames' as FieldName,
     tenant: 'tenant' as FieldName,
     userId: 'userId' as FieldName,
@@ -180,6 +182,7 @@ export namespace StaffSessionMailLinks {
     id: 'StaffSessionMailLinks.id' as Resource,
     invitedBy: 'StaffSessionMailLinks.invitedBy' as Resource,
     kind: 'StaffSessionMailLinks.kind' as Resource,
+    name: 'StaffSessionMailLinks.name' as Resource,
     roleNames: 'StaffSessionMailLinks.roleNames' as Resource,
     tenant: 'StaffSessionMailLinks.tenant' as Resource,
     userId: 'StaffSessionMailLinks.userId' as Resource,
@@ -261,6 +264,7 @@ export namespace StaffSessionUsers {
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    name: 'name' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     username: 'username' as FieldName,
   };
@@ -271,6 +275,7 @@ export namespace StaffSessionUsers {
     emailVerifiedAt: 'StaffSessionUsers.emailVerifiedAt' as Resource,
     id: 'StaffSessionUsers.id' as Resource,
     lastSignInAt: 'StaffSessionUsers.lastSignInAt' as Resource,
+    name: 'StaffSessionUsers.name' as Resource,
     passwordChangeRequired: 'StaffSessionUsers.passwordChangeRequired' as Resource,
     username: 'StaffSessionUsers.username' as Resource,
   };
@@ -328,6 +333,7 @@ export namespace AssignStaffRole {
 export namespace CreateStaffUser {
   export const fieldName = {
     username: 'username' as FieldName,
+    name: 'name' as FieldName,
     email: 'email' as FieldName,
     password: 'password' as FieldName,
     roles: 'roles' as FieldName,
@@ -369,6 +375,7 @@ export namespace EndStaffUserSessions {
 export namespace InviteStaffUser {
   export const fieldName = {
     email: 'email' as FieldName,
+    name: 'name' as FieldName,
     roles: 'roles' as FieldName,
     domain: 'domain' as FieldName,
   };
@@ -419,6 +426,13 @@ export namespace SetStaffUserEmail {
   export const fieldName = {
     userId: 'userId' as FieldName,
     email: 'email' as FieldName,
+  };
+}
+
+export namespace SetStaffUserName {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+    name: 'name' as FieldName,
   };
 }
 

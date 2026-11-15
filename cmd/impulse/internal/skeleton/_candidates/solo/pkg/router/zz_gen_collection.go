@@ -128,6 +128,12 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "StaffSessionUsers",
 			},
 			{
+				Name:        "SetStaffUserName",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Target:      "StaffSessionUsers",
+			},
+			{
 				Name:        "StaffRoleGrants",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List},
@@ -202,6 +208,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "id"},
 					{Name: "invitedBy", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "kind", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "roleNames", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "tenant", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "userId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
@@ -269,6 +276,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "emailVerifiedAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "id"},
 					{Name: "lastSignInAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "passwordChangeRequired", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "username", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 				},

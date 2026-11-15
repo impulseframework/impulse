@@ -15,7 +15,7 @@ import (
 )
 
 // mailLinkColumns are the mail links table's columns.
-const mailLinkColumns = `Id, TokenHash, Kind, Email, UserId, Tenant, RoleNames, InvitedBy, CreatedAt, ExpiresAt, ConsumedAt`
+const mailLinkColumns = `Id, TokenHash, Kind, Email, UserId, Tenant, RoleNames, InvitedBy, CreatedAt, ExpiresAt, ConsumedAt, Name`
 
 // mailLinkRow is a mail link as the table holds it.
 type mailLinkRow struct {
@@ -30,6 +30,7 @@ type mailLinkRow struct {
 	CreatedAt  time.Time          `spanner:"CreatedAt"`
 	ExpiresAt  time.Time          `spanner:"ExpiresAt"`
 	ConsumedAt spanner.NullTime   `spanner:"ConsumedAt"`
+	Name       spanner.NullString `spanner:"Name"`
 }
 
 // newMailLinkRow renders l as the table holds it: created at the commit time and not
@@ -47,6 +48,9 @@ func newMailLinkRow(l *dbtype.MailLink) *mailLinkRow {
 	}
 	if l.InvitedBy.Valid {
 		r.InvitedBy = spanner.NullString{StringVal: l.InvitedBy.String(), Valid: true}
+	}
+	if l.Name != "" {
+		r.Name = spanner.NullString{StringVal: l.Name, Valid: true}
 	}
 
 	return r
@@ -70,6 +74,9 @@ func (r *mailLinkRow) link() (*dbtype.MailLink, error) {
 	}
 	if r.Tenant.Valid {
 		l.Tenant = r.Tenant.StringVal
+	}
+	if r.Name.Valid {
+		l.Name = r.Name.StringVal
 	}
 	if r.InvitedBy.Valid {
 		invitedBy, err := impulse.UUIDFromString(r.InvitedBy.StringVal)

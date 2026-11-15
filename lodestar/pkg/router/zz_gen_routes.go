@@ -396,15 +396,23 @@ type GeneratedHandlers interface {
 
 	SetCrewSectorUserEmail() http.HandlerFunc
 
+	SetCrewSectorUserName() http.HandlerFunc
+
 	SetCrewTemporaryPassword() http.HandlerFunc
 
 	SetCrewUserEmail() http.HandlerFunc
+
+	SetCrewUserName() http.HandlerFunc
 
 	SetFeature() http.HandlerFunc
 
 	SetMembersSectorUserEmail() http.HandlerFunc
 
+	SetMembersSectorUserName() http.HandlerFunc
+
 	SetMembersUserEmail() http.HandlerFunc
+
+	SetMembersUserName() http.HandlerFunc
 
 	SetSectorPilotClearance() http.HandlerFunc
 
@@ -1007,15 +1015,23 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	r.Post("/console/api/sectors/{sectorID}/set-crew-sector-user-email", domainGuard(h.SetCrewSectorUserEmail()))
 
+	r.Post("/console/api/sectors/{sectorID}/set-crew-sector-user-name", domainGuard(h.SetCrewSectorUserName()))
+
 	r.Post("/console/api/set-crew-temporary-password", h.SetCrewTemporaryPassword())
 
 	r.Post("/console/api/set-crew-user-email", h.SetCrewUserEmail())
+
+	r.Post("/console/api/set-crew-user-name", h.SetCrewUserName())
 
 	bounded.Post("/console/api/set-feature", h.SetFeature())
 
 	r.Post("/console/api/sectors/{sectorID}/set-members-sector-user-email", domainGuard(h.SetMembersSectorUserEmail()))
 
+	r.Post("/console/api/sectors/{sectorID}/set-members-sector-user-name", domainGuard(h.SetMembersSectorUserName()))
+
 	r.Post("/console/api/set-members-user-email", h.SetMembersUserEmail())
+
+	r.Post("/console/api/set-members-user-name", h.SetMembersUserName())
 
 	r.Post("/console/api/sectors/{sectorID}/set-sector-pilot-clearance", domainGuard(h.SetSectorPilotClearance()))
 
@@ -1292,7 +1308,11 @@ type GeneratedPortalHandlers interface {
 
 	SetMembersSectorUserEmail() http.HandlerFunc
 
+	SetMembersSectorUserName() http.HandlerFunc
+
 	SetMembersUserEmail() http.HandlerFunc
+
+	SetMembersUserName() http.HandlerFunc
 
 	StandDownMission() http.HandlerFunc
 
@@ -1501,7 +1521,11 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 
 	r.Post("/portal/api/sectors/{sectorID}/set-members-sector-user-email", domainGuard(h.SetMembersSectorUserEmail()))
 
+	r.Post("/portal/api/sectors/{sectorID}/set-members-sector-user-name", domainGuard(h.SetMembersSectorUserName()))
+
 	r.Post("/portal/api/set-members-user-email", h.SetMembersUserEmail())
+
+	r.Post("/portal/api/set-members-user-name", h.SetMembersUserName())
 
 	r.Post("/portal/api/sectors/{sectorID}/stand-down-mission", domainGuard(h.StandDownMission()))
 

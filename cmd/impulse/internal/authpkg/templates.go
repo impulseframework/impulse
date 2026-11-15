@@ -1423,7 +1423,7 @@ func Cast() (*cast.Cast, error) {
 }
 
 // SeedCast seeds the cast: a password-less user under each persona's login, with the
-// persona's address, seated in the roles the cast names, a global role in the global
+// persona's name and address, seated in the roles the cast names, a global role in the global
 // partition and a domain role in every tenant domain, as the first administrator's roles
 // are. A persona whose user exists is left as it is, so every deploy seeds the cast again
 // harmlessly and a persona added to the cast arrives at the next one. The memberships are
@@ -1455,6 +1455,9 @@ func (a *Auth) SeedCast(ctx context.Context) (int, error) {
 		req := &session.CreateUserRequest{Username: p.Login}
 		if p.Email != "" {
 			req.Email = &p.Email
+		}
+		if p.Name != "" {
+			req.Name = &p.Name
 		}
 		if _, err := a.handlers.API().CreateSessionUser(ctx, req); err != nil {
 			return created, errors.Wrapf(err, "session.AuthAPI.CreateSessionUser(): %s", p.Login)

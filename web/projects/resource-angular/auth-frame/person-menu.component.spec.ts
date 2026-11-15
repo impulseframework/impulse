@@ -21,13 +21,15 @@ interface Setup {
   methods?: Record<string, unknown>;
   descriptor?: ApiDescriptor;
   config?: Partial<FrameConfig>;
+  /** The session read's answer, where the spec's own is not the one wanted. */
+  session?: Record<string, unknown>;
 }
 
 describe('PersonMenuComponent', () => {
   let fixture: ComponentFixture<PersonMenuComponent>;
 
-  const open = async ({ methods = {}, descriptor = specDescriptor, config = {} }: Setup): Promise<void> => {
-    const transport = specTransport({ methods: { methods: [], ...methods } });
+  const open = async ({ methods = {}, descriptor = specDescriptor, config = {}, session }: Setup): Promise<void> => {
+    const transport = specTransport({ methods: { methods: [], ...methods }, ...(session ? { session } : {}) });
     await TestBed.configureTestingModule({
       imports: [PersonMenuComponent],
       providers: [provideFrameTesting(transport, config, [], descriptor)],
@@ -48,6 +50,59 @@ describe('PersonMenuComponent', () => {
     expect(button?.querySelector('.initial')?.textContent).toBe('G');
     expect(button?.querySelector('.name')?.textContent).toBe('gale');
     expect(button?.getAttribute('aria-label')).toBe('Signed in as gale. Your menu');
+  });
+
+  it("draws the person's name where they hold one, its initial, and says who is signed in by it", async () => {
+    await open({ session: { authenticated: true, username: 'gale', name: 'Rey Gale', email: 'gale@spec.example' } });
+    const button = (fixture.nativeElement as HTMLElement).querySelector('button.person');
+    expect(button?.querySelector('.initial')?.textContent).toBe('R');
+    expect(button?.querySelector('.name')?.textContent).toBe('Rey Gale');
+    expect(button?.getAttribute('aria-label')).toBe('Signed in as Rey Gale. Your menu');
+    expect(fixture.componentInstance.username()).toBe('gale');
+  });
+
+  it('draws a whole first character, whatever the name starts with', async () => {
+    for (const [name, initial] of [
+      ['\u{20BB7}田 Gale', '\u{20BB7}'],
+      ['e\u0301lan', 'E\u0301'],
+      ['\u{1F1E8}\u{1F1E6} Gale', '\u{1F1E8}\u{1F1E6}'],
+    ]) {
+      TestBed.resetTestingModule();
+      await open({ session: { authenticated: true, username: 'gale', name } });
+      expect(fixture.componentInstance.initial()).toBe(initial);
+    }
+  });
+
+  it('heads the menu with the name and puts the username under it, and with the username alone for a person without a name', async () => {
+    const who = (selector: string): string | undefined =>
+      document.querySelector(`.cdk-overlay-container .who ${selector}`)?.textContent ?? undefined;
+    const openMenu = async (): Promise<void> => {
+      (fixture.nativeElement as HTMLElement).querySelector<HTMLButtonElement>('button.person')?.click();
+      fixture.detectChanges();
+      await TestBed.inject(ApplicationRef).whenStable();
+    };
+    await open({ session: { authenticated: true, username: 'gale', name: 'Rey Gale', email: 'gale@spec.example' } });
+    await openMenu();
+    expect(who('.who-name')).toBe('Rey Gale');
+    expect(who('.who-login')).toBe('gale');
+    expect(who('.who-email')).toBe('gale@spec.example');
+
+    TestBed.resetTestingModule();
+    await open({ session: { authenticated: true, username: 'gale' } });
+    await openMenu();
+    expect(who('.who-name')).toBe('gale');
+    expect(who('.who-login')).toBeUndefined();
+  });
+
+  it('falls back to the username for a name that is empty', async () => {
+    await open({ session: { authenticated: true, username: 'gale', name: '' } });
+    expect(fixture.componentInstance.name()).toBe('gale');
+    expect(fixture.componentInstance.initial()).toBe('G');
+  });
+
+  it('offers the account page for the name alone, where the server serves its change', async () => {
+    await open({ methods: { changeName: passwordMethods.changeName } });
+    expect(labels()).toEqual([['Your account'], ['Appearance'], ['Sign out']]);
   });
 
   it('holds only Appearance and Sign out for a person with no account section and no tokens', async () => {

@@ -30,6 +30,7 @@ type membersSessionMailLinkRead struct {
 	ID         impulse.UUID  `json:"id"         perm:"-"`
 	Kind       string        `json:"kind"`
 	Email      string        `json:"email"`
+	Name       *string       `json:"name"`
 	UserID     *impulse.UUID `json:"userId"`
 	Tenant     *string       `json:"tenant"`
 	RoleNames  []string      `json:"roleNames"`
@@ -48,6 +49,7 @@ type membersSessionMailLinkWrite struct {
 	ID         impulse.UUID  `json:"-"`
 	Kind       string        `json:"kind"       sqltype:"STRING(16)"`
 	Email      string        `json:"email"`
+	Name       *string       `json:"name"`
 	UserID     *impulse.UUID `json:"userId"`
 	Tenant     *string       `json:"tenant"`
 	RoleNames  []string      `json:"roleNames"  nullable:"true"`
@@ -166,6 +168,7 @@ func (c *MembersSessionMailLinkColumns) All() *MembersSessionMailLinkColumns {
 		"ID",
 		"Kind",
 		"Email",
+		"Name",
 		"UserID",
 		"Tenant",
 		"RoleNames",
@@ -192,6 +195,12 @@ func (c *MembersSessionMailLinkColumns) Kind() *MembersSessionMailLinkColumns {
 
 func (c *MembersSessionMailLinkColumns) Email() *MembersSessionMailLinkColumns {
 	c.fields = append(c.fields, "Email")
+
+	return c
+}
+
+func (c *MembersSessionMailLinkColumns) Name() *MembersSessionMailLinkColumns {
+	c.fields = append(c.fields, "Name")
 
 	return c
 }
@@ -344,6 +353,10 @@ func (c *membersSessionMailLinkSort) Email() *MembersSessionMailLinkSort {
 	return c.addField("Email")
 }
 
+func (c *membersSessionMailLinkSort) Name() *MembersSessionMailLinkSort {
+	return c.addField("Name")
+}
+
 func (c *membersSessionMailLinkSort) UserID() *MembersSessionMailLinkSort {
 	return c.addField("UserID")
 }
@@ -489,6 +502,26 @@ func (p *MembersSessionMailLinkCreatePatch) Email() string {
 
 func (p *MembersSessionMailLinkCreatePatch) EmailIsSet() bool {
 	return p.patchSet.IsSet("Email")
+}
+
+func (p *MembersSessionMailLinkCreatePatch) SetName(v *string) *MembersSessionMailLinkCreatePatch {
+	if v != nil {
+		p.patchSet.Set("Name", v)
+	} else {
+		p.patchSet.Set("Name", nil)
+	}
+
+	return p
+}
+
+func (p *MembersSessionMailLinkCreatePatch) Name() *string {
+	v, _ := p.patchSet.Get("Name").(*string)
+
+	return v
+}
+
+func (p *MembersSessionMailLinkCreatePatch) NameIsSet() bool {
+	return p.patchSet.IsSet("Name")
 }
 
 func (p *MembersSessionMailLinkCreatePatch) SetUserID(v *impulse.UUID) *MembersSessionMailLinkCreatePatch {
@@ -741,6 +774,26 @@ func (p *MembersSessionMailLinkUpdatePatch) Email() string {
 
 func (p *MembersSessionMailLinkUpdatePatch) EmailIsSet() bool {
 	return p.patchSet.IsSet("Email")
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) SetName(v *string) *MembersSessionMailLinkUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("Name", v)
+	} else {
+		p.patchSet.Set("Name", nil)
+	}
+
+	return p
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) Name() *string {
+	v, _ := p.patchSet.Get("Name").(*string)
+
+	return v
+}
+
+func (p *MembersSessionMailLinkUpdatePatch) NameIsSet() bool {
+	return p.patchSet.IsSet("Name")
 }
 
 func (p *MembersSessionMailLinkUpdatePatch) SetUserID(v *impulse.UUID) *MembersSessionMailLinkUpdatePatch {

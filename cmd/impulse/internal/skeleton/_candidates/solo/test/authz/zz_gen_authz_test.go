@@ -519,6 +519,21 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusForbidden},
 		},
 		{
+			name:         "SetStaffUserName denied",
+			method:       http.MethodPost,
+			target:       "/api/set-staff-user-name",
+			body:         `{}`,
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "SetStaffUserName dry run denied",
+			method:       http.MethodPost,
+			target:       "/api/set-staff-user-name",
+			body:         `{}`,
+			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
 			name:         "UnlinkStaffSessionIdentity denied",
 			method:       http.MethodPost,
 			target:       "/api/unlink-staff-session-identity",

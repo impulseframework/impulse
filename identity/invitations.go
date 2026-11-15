@@ -20,6 +20,10 @@ import (
 type Invitation struct {
 	// Email is the address the invitation is mailed to.
 	Email string
+	// Name is the name the sender gives the person, nil for none. Whoever accepts the
+	// invitation takes it where their account holds no name: a new account that the
+	// sign-in asserts no name for, and an existing one without a name.
+	Name *string
 	// Domain is the tenant the roles are held in, nil for an invitation into the
 	// application: a role of the global scope is then held there, and a role of the
 	// domain kind in every tenant.
@@ -49,6 +53,12 @@ type Invitation struct {
 // global scope or in every tenant for an invitation into the application. The
 // request's caller is recorded as its sender where they are a user of the auth.
 //
+// Where a person belongs to one tenant (WithOneTenantPerPerson), an invitation into a
+// tenant is refused when a user already holds the address and holds a role in another
+// tenant and none outside the tenants: a Conflict that says the address has an account
+// and never where. An address no user holds is invited, and whoever accepts is held to
+// the rule then (AssignRole).
+//
 // Shared rule: the session library's Invite, which stores the row and mails the link in
 // its own storage and answers a failed send as an error.
 func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction, inv *Invitation, sent func(sent bool)) (impulse.UUID, error) {
@@ -63,7 +73,10 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 	if len(roles) == 0 {
 		return impulse.NilUUID, httpio.NewBadRequestMessage("at least one role is required: the roles are what the invitation gives")
 	}
-	req := &session.InvitationRequest{Email: email, Tenant: "", RoleNames: make([]string, 0, len(roles)), InvitedBy: impulse.NullUUID{UUID: impulse.NilUUID, Valid: false}}
+	req := &session.InvitationRequest{Email: email, Name: "", Tenant: "", RoleNames: make([]string, 0, len(roles)), InvitedBy: impulse.NullUUID{UUID: impulse.NilUUID, Valid: false}}
+	if inv.Name != nil {
+		req.Name = *inv.Name
+	}
 	scopes := []accesstypes.PolicyScope{accesstypes.GlobalPolicyScope(), accesstypes.EveryDomainPolicyScope()}
 	if inv.Domain != nil {
 		scope, err := Scope(inv.Domain, false)
@@ -97,6 +110,9 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 		return impulse.NilUUID, errors.Wrap(err, "identity.SessionAPI.PrepareInvitation()")
 	}
 	row := prepared.Row()
+	if err := m.refuseInvitedElsewhere(ctx, txn, inv.Domain, row.Email); err != nil {
+		return impulse.NilUUID, err
+	}
 	if err := m.store.InsertInvitation(ctx, txn, row); err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "identity.Store.InsertInvitation()")
 	}

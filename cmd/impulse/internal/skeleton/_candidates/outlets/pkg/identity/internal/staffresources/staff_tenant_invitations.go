@@ -14,7 +14,8 @@ type (
 	// Tenant: a row of StaffSessionMailLinks of the invitation kind that names
 	// the tenant, with the columns StaffSessionMailLink serves of it. Domain is the tenant the
 	// invitation seats a person in (the link's Tenant), and RoleNames the roles it gives
-	// there. The link itself is in the message alone and its hash is not a column.
+	// there, and Name the name its sender gave the person, where they gave one. The
+	// link itself is in the message alone and its hash is not a column.
 	//
 	// Pending is a fact about the row, under the name a grant's condition reads
 	// (pending): the invitation stands, neither accepted nor withdrawn (both consume it)
@@ -32,8 +33,9 @@ type (
 		// @primarykey
 		ID impulse.UUID `spanner:"Id" index:"true"`
 		// @domain
-		Domain string `spanner:"Domain" index:"true"`
-		Email  string `spanner:"Email"  index:"true"`
+		Domain string  `spanner:"Domain" index:"true"`
+		Email  string  `spanner:"Email"  index:"true"`
+		Name   *string `spanner:"Name"`
 		// @attribute(role)
 		RoleNames  []string      `spanner:"RoleNames"`
 		InvitedBy  *impulse.UUID `spanner:"InvitedBy"`
@@ -54,6 +56,7 @@ SELECT
   l.Id AS Id,
   l.Tenant AS Domain,
   l.Email AS Email,
+  l.Name AS Name,
   l.RoleNames AS RoleNames,
   l.InvitedBy AS InvitedBy,
   l.CreatedAt AS CreatedAt,

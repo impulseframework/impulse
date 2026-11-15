@@ -45,6 +45,7 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "EnableStaffTenantUser", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "DeleteStaffTenantUser", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "RenameStaffTenantUser", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "SetStaffTenantUserName", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "SetStaffTenantUserEmail", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "SetStaffTenantTemporaryPassword", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "RequireStaffTenantPasswordChange", "heldElsewhere = false AND heldGlobally = false")
@@ -66,7 +67,7 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	ids := map[string]string{}
 	for _, name := range []string{"nora", "sam", "gail"} {
 		status, body := tenantPost(ctx, member, north, "create-staff-tenant-user", map[string]any{
-			"username": name, "email": name + "@example.com", "password": "first-day-pass", "roles": []string{"TenantAdministrator"},
+			"username": name, "name": "  " + name + " of north ", "email": name + "@example.com", "password": "first-day-pass", "roles": []string{"TenantAdministrator"},
 		})
 		if status != http.StatusOK {
 			t.Fatalf("creating %s in %s: status %d: %s", name, north, status, body)
@@ -126,6 +127,11 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 			if row["username"] != name {
 				t.Errorf("%s: the %s of north's people answers %v, want the person with the fields the grant carries with no condition", name, where, row)
 			}
+			// The name the account was created with, without the space around it: shown
+			// for every person of the tenant, as the username is.
+			if row["name"] != name+" of north" {
+				t.Errorf("%s: the name in the %s = %v, want %q", name, where, row["name"], name+" of north")
+			}
 			if _, got := row["email"]; got != want {
 				t.Errorf("%s: the address in the %s is answered = %v, want %v: %v", name, where, got, want, row)
 			}
@@ -152,6 +158,9 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 		method string
 		body   func(name string) map[string]any
 	}{
+		{"set-staff-tenant-user-name", func(name string) map[string]any {
+			return map[string]any{"userId": ids[name], "name": name + " renamed"}
+		}},
 		{"set-staff-tenant-user-email", func(name string) map[string]any {
 			return map[string]any{"userId": ids[name], "email": name + ".new@example.com"}
 		}},
@@ -186,7 +195,7 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	people := tenantRows(ctx, t, member, north, "staff-tenant-users")
 	identities := tenantRows(ctx, t, member, north, "staff-tenant-identities")
 	for _, name := range []string{"sam", "gail"} {
-		if row := people[ids[name]]; row["username"] != name || row["disabled"] != false {
+		if row := people[ids[name]]; row["username"] != name || row["name"] != name+" of north" || row["disabled"] != false {
 			t.Errorf("%s after the refused calls = %v, want the account as it was", name, row)
 		}
 		if identities[links[name]] == nil {

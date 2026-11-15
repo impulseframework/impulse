@@ -40,6 +40,15 @@ CREATE TABLE %[1]sSessionUsers (
   Id                 STRING(36) NOT NULL,
   Username           STRING(MAX) NOT NULL,
   NormalizedUsername STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED,
+  -- The person's name, as people read it ("Gale Reyes"); null for none. It identifies
+  -- nobody: the username does. A directory's sign-in or an invitation fills it only
+  -- where the person holds none, so the person's own change stands.
+  Name               STRING(MAX),
+  -- The look the person chose for the pages: light or dark, and one of the palettes the
+  -- application offers, by its id; null for none chosen. The person's own pages write
+  -- it and nothing else does, so it follows them to every browser they sign in from.
+  LookScheme         STRING(MAX),
+  LookPalette        STRING(MAX),
   PasswordHash       STRING(MAX),
   Disabled           BOOL NOT NULL DEFAULT (FALSE),
   -- An operator set the password (a first password, a reset): the person changes it
@@ -50,6 +59,7 @@ CREATE TABLE %[1]sSessionUsers (
   CreatedAt          TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   LastSignInAt       TIMESTAMP OPTIONS (allow_commit_timestamp = true),
 %[4]s  CONSTRAINT CK_%[1]sSessionUsersId CHECK (REGEXP_CONTAINS(Id, %[3]s)),
+  CONSTRAINT CK_%[1]sSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark')),
 ) PRIMARY KEY(Id);
 
 CREATE UNIQUE INDEX %[1]sSessionUsersByNormalizedUsername ON %[1]sSessionUsers(NormalizedUsername);
@@ -60,7 +70,7 @@ CREATE UNIQUE NULL_FILTERED INDEX %[1]sSessionUsersByNormalizedEmail ON %[1]sSes
 -- role (a tenant's people, the roles held in a tenant): by the exact username a role
 -- membership names its person by, carrying the columns those lists show, so a page reads
 -- one index entry for each person and no row of the table.
-CREATE UNIQUE INDEX %[1]sSessionUsersByUsername ON %[1]sSessionUsers(Username) STORING (Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);
+CREATE UNIQUE INDEX %[1]sSessionUsersByUsername ON %[1]sSessionUsers(Username) STORING (Name, Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);
 `, p, who, guidCheck, emailColumns(usernameIsEmail))
 }
 
@@ -155,11 +165,11 @@ CREATE INDEX %[1]sSessionIdentitiesByUserId ON %[1]sSessionIdentities(UserId) ST
 -- method, its registration, and the provider's own amr claims). Not interleaved: an
 -- interleaved child's key must begin with the parent's, so the events reference their
 -- session through a cascading foreign key instead.
-`, p, who, guidCheck) + eventsUp(p, who) + tokensUp(p, who) + factorsUp(p, who)
+`, p, who, guidCheck) + eventsUp(p, who) + mailLinksUp(p, who) + tokensUp(p, who) + factorsUp(p, who)
 }
 
-// eventsUp creates the auth events, pending sign-ins, sign-in attempts and mail links tables, the
-// second part of the sessions migration; tokensUp follows it.
+// eventsUp creates the auth events, pending sign-ins and sign-in attempts tables, the
+// second part of the sessions migration; mailLinksUp follows it.
 func eventsUp(p, who string) string {
 	return fmt.Sprintf(`CREATE TABLE %[1]sSessionAuthEvents (
     SessionId  STRING(36) NOT NULL,
@@ -186,6 +196,7 @@ CREATE TABLE %[1]sSessionPendingSignIns (
     Subject               STRING(MAX) NOT NULL,
     Email                 STRING(MAX) NOT NULL,
     EmailVerified         BOOL NOT NULL,
+    Name                  STRING(MAX) NOT NULL,
     IdpAmr                ARRAY<STRING(MAX)>,
     Claims                BYTES(MAX),
     SignInName            STRING(MAX) NOT NULL,
@@ -224,8 +235,15 @@ CREATE TABLE %[1]sSessionSignInAttempts (
     UpdatedAt    TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
 
--- The mail links: the single-use links the auth mails. A row is one link: an invitation
--- to an address, carrying the tenant and the roles its acceptance seats and who sent it;
+`, p, who, guidCheck)
+}
+
+// mailLinksUp creates the mail links table, the next part of the sessions migration;
+// tokensUp follows it.
+func mailLinksUp(p, who string) string {
+	return fmt.Sprintf(`-- The mail links: the single-use links the auth mails. A row is one link: an invitation
+-- to an address, carrying the tenant and the roles its acceptance seats, the name its
+-- sender gave the person (Name, null for none) and who sent it;
 -- the verification of an address a signed-in person adds (UserId names the account,
 -- Email the address); or a sign-up a person starts by giving their address. The mail
 -- carries an opaque token and the row keeps its hash; the row is accepted only while it
@@ -238,6 +256,7 @@ CREATE TABLE %[1]sSessionMailLinks (
     TokenHash  BYTES(32) NOT NULL,
     Kind       STRING(16) NOT NULL,
     Email      STRING(MAX) NOT NULL,
+    Name       STRING(MAX),
     UserId     STRING(36),
     Tenant     STRING(MAX),
     RoleNames  ARRAY<STRING(MAX)>,
@@ -257,7 +276,7 @@ CREATE INDEX %[1]sSessionMailLinksByKind ON %[1]sSessionMailLinks(Kind, Consumed
 -- A tenant's links, newest first, with the columns a tenant's list of its invitations
 -- shows: a page of that list reads its own rows from the index and nothing else. A link
 -- that names no tenant is not in it.
-CREATE NULL_FILTERED INDEX %[1]sSessionMailLinksByTenant ON %[1]sSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);
+CREATE NULL_FILTERED INDEX %[1]sSessionMailLinksByTenant ON %[1]sSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);
 
 `, p, who, guidCheck)
 }

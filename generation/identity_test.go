@@ -333,6 +333,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/revoke_crew_user_trusted_devices.go",
 		"crewidentity/set_crew_temporary_password.go",
 		"crewidentity/set_crew_user_email.go",
+		"crewidentity/set_crew_user_name.go",
 		"crewidentity/store.go",
 		"crewidentity/unlink_crew_session_identity.go",
 		"crewidentity/unlock_crew_sign_in.go",
@@ -364,6 +365,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"membersidentity/end_members_user_sessions.go",
 		"membersidentity/rename_members_user.go",
 		"membersidentity/set_members_user_email.go",
+		"membersidentity/set_members_user_name.go",
 		"membersidentity/store.go",
 	}
 	if diff := cmp.Diff(want, identityTreeFiles(t, "pkg/identity")); diff != "" {
@@ -402,7 +404,7 @@ func Test_prepareIdentity(t *testing.T) {
 			"func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.ReadWriteTransaction] {", `return c.manager.InvitationAccepted("Crew")`,
 			"func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {", `return c.manager.DirectorySeated("Crew")`,
 		},
-		"crewidentity/store.go":                                  {"crewresources.NewCrewSessionImpersonationUpdatePatch(sessionID).SetEndedAt(&endedAt).SetEndReason(&reason)", `"SELECT PasswordHash IS NOT NULL FROM CrewSessionUsers WHERE Id = @id"`, `"SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)"`, "crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn)", "crewresources.NewCrewUserRoleQueryClause().User().Equal(username)", `"Kind":      string(sessionstorage.MailLinkInvitation),`, "txn.BufferMap(invitationWrite{id: row.ID}, columns)", "crewresources.NewCrewSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)"},
+		"crewidentity/store.go":                                  {"crewresources.NewCrewSessionImpersonationUpdatePatch(sessionID).SetEndedAt(&endedAt).SetEndReason(&reason)", `"SELECT PasswordHash IS NOT NULL FROM CrewSessionUsers WHERE Id = @id"`, `"SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)"`, `"SELECT Username FROM CrewSessionUsers WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL"`, "crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn)", "crewresources.NewCrewUserRoleQueryClause().User().Equal(username)", `"Kind":      string(sessionstorage.MailLinkInvitation),`, "txn.BufferMap(invitationWrite{id: row.ID}, columns)", "crewresources.NewCrewSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)"},
 		"internal/crewresources/crew_role_grants.go":             {`ResourceName string    ` + "`spanner:\"Resource\"`", "// @suppress(readHandler)"},
 		"internal/crewresources/crew_session_tokens.go":          {"CrewSessionToken struct {", "RevokedAt     *time.Time"},
 		"crewidentity/create_crew_user.go":                       {"Roles       []string", "Domain      *string", "EveryDomain bool", "client.manager.CreateUser(ctx, txn, account)"},
@@ -414,6 +416,10 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/withdraw_crew_invitation.go":               {"// @target(CrewSessionMailLink)", "client.manager.WithdrawInvitation(ctx, txn, m.InvitationID)"},
 		"crewidentity/disable_crew_user.go":                      {"// @rpc", "// @outlet(default)", "// @target(CrewSessionUser)", "func (m *DisableCrewUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {"},
 		"crewidentity/set_crew_user_email.go":                    {"// @target(CrewSessionUser)", "Email  *string", "client.manager.SetEmail(ctx, txn, m.UserID, m.Email)"},
+		"crewidentity/set_crew_user_name.go":                     {"type SetCrewUserName struct {", "// @target(CrewSessionUser)", "Name   *string", "// @answers(204)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
+		"membersidentity/set_members_user_name.go":               {"type SetMembersUserName struct {", "// @target(MembersSessionUser)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
+		"internal/crewresources/crew_session_users.go":           {"Name                   *string      `spanner:\"Name\"`"},
+		"internal/crewresources/crew_session_mail_links.go":      {"Name       *string       `spanner:\"Name\"`"},
 		"membersidentity/store.go":                               {"var _ identity.Store = store{}", "membersresources.NewMembersRoleQuery()", `"example.com/acme/beacon/pkg/identity/internal/membersresources"`, "the schema holds no table MembersSessionImpersonations", "the schema holds no table MembersSessionTokens", "the schema holds no table MembersSessionIdentities"},
 		// The handlers are constructed over the application with its live derivations,
 		// which they keep to publish with.
@@ -749,6 +755,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		"crewidentity/revoke_crew_ship_user_trusted_devices.go",
 		"crewidentity/set_crew_ship_temporary_password.go",
 		"crewidentity/set_crew_ship_user_email.go",
+		"crewidentity/set_crew_ship_user_name.go",
 		"crewidentity/unlink_crew_ship_session_identity.go",
 		"crewidentity/withdraw_crew_ship_invitation.go",
 		// The members' directory writes the roles, and their schema holds neither mail
@@ -760,6 +767,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		"membersidentity/end_members_ship_user_sessions.go",
 		"membersidentity/rename_members_ship_user.go",
 		"membersidentity/set_members_ship_user_email.go",
+		"membersidentity/set_members_ship_user_name.go",
 	}
 	var got []string
 	for _, file := range identityTreeFiles(t, "pkg/identity") {
@@ -779,6 +787,10 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		},
 		"crewidentity/set_crew_ship_temporary_password.go": {"type SetCrewShipTemporaryPassword struct {", "// @target(CrewShipUser)", guard},
 		"crewidentity/set_crew_ship_user_email.go":         {"type SetCrewShipUserEmail struct {", "// @target(CrewShipUser)", guard, "client.manager.SetEmail(ctx, txn, m.UserID, m.Email)"},
+		"crewidentity/set_crew_ship_user_name.go": {
+			"type SetCrewShipUserName struct {", "// @rpc\n// @permissionScope(domain)\n// @outlet(default)\n// @answers(204)", "// @target(CrewShipUser)",
+			"// It is a tenant's method: served under the address of one Ship, it names a", guard, "client.manager.SetName(ctx, txn, m.UserID, m.Name)",
+		},
 		"crewidentity/withdraw_crew_ship_invitation.go": {
 			"type WithdrawCrewShipInvitation struct {", "// @target(CrewShipInvitation)", "// @permissionScope(domain)", guard,
 			"row of CrewShipInvitation, the tenant's own list of invitations", "client.manager.WithdrawInvitation(ctx, txn, m.InvitationID)",

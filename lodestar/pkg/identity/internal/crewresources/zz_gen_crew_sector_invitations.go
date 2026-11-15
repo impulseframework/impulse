@@ -29,6 +29,7 @@ type crewSectorInvitationRead struct {
 	ID         impulse.UUID  `json:"id"         perm:"-"`
 	Domain     string        `json:"domain"`
 	Email      string        `json:"email"`
+	Name       *string       `json:"name"`
 	RoleNames  []string      `json:"roleNames"`
 	InvitedBy  *impulse.UUID `json:"invitedBy"`
 	CreatedAt  time.Time     `json:"createdAt"`
@@ -146,6 +147,7 @@ func (c *CrewSectorInvitationColumns) All() *CrewSectorInvitationColumns {
 		"ID",
 		"Domain",
 		"Email",
+		"Name",
 		"RoleNames",
 		"InvitedBy",
 		"CreatedAt",
@@ -171,6 +173,12 @@ func (c *CrewSectorInvitationColumns) Domain() *CrewSectorInvitationColumns {
 
 func (c *CrewSectorInvitationColumns) Email() *CrewSectorInvitationColumns {
 	c.fields = append(c.fields, "Email")
+
+	return c
+}
+
+func (c *CrewSectorInvitationColumns) Name() *CrewSectorInvitationColumns {
+	c.fields = append(c.fields, "Name")
 
 	return c
 }
@@ -319,6 +327,10 @@ func (c *crewSectorInvitationSort) Domain() *CrewSectorInvitationSort {
 
 func (c *crewSectorInvitationSort) Email() *CrewSectorInvitationSort {
 	return c.addField("Email")
+}
+
+func (c *crewSectorInvitationSort) Name() *CrewSectorInvitationSort {
+	return c.addField("Name")
 }
 
 func (c *crewSectorInvitationSort) RoleNames() *CrewSectorInvitationSort {

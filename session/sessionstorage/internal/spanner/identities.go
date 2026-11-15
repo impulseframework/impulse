@@ -300,8 +300,9 @@ func (s *SessionStorageDriver) InsertSessionIn(
 
 // newUserMutation renders a new user row and its insert mutation. The mutation writes
 // CreatedAt with the commit timestamp; the user carries it zero until a read reports it.
-// The address columns are written on the auth schema only, which has them, and Email
-// never on a store whose usernames are the addresses, where the database derives it.
+// The address columns and the name are written on the auth schema only, which has them,
+// and Email never on a store whose usernames are the addresses, where the database
+// derives it. The name is written as sessioninfo.CleanName leaves it.
 func (s *SessionStorageDriver) newUserMutation(insertUser *dbtype.InsertSessionUser) (*dbtype.SessionUser, *spanner.Mutation, error) {
 	id, err := impulse.NewUUID()
 	if err != nil {
@@ -309,6 +310,10 @@ func (s *SessionStorageDriver) newUserMutation(insertUser *dbtype.InsertSessionU
 	}
 	if err := dbtype.ValidateInsertUser(insertUser, s.usernameIsEmail); err != nil {
 		return nil, nil, errors.Wrap(err, "dbtype.ValidateInsertUser()")
+	}
+	name, err := sessioninfo.CleanName(insertUser.Name)
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "sessioninfo.CleanName()")
 	}
 	user := &dbtype.SessionUser{
 		ID: id, Username: insertUser.Username, PasswordHash: insertUser.PasswordHash, Disabled: insertUser.Disabled, PasswordChangeRequired: insertUser.PasswordChangeRequired,
@@ -331,6 +336,10 @@ func (s *SessionStorageDriver) newUserMutation(insertUser *dbtype.InsertSessionU
 		}
 		if insertUser.EmailVerified {
 			row["EmailVerifiedAt"] = spanner.CommitTimestamp
+		}
+		if name != nil {
+			row[nameColumn] = *name
+			user.Name = name
 		}
 	}
 

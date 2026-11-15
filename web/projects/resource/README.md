@@ -453,6 +453,24 @@ names the forget path as `forgetBrowser`, and `forgetBrowser()` posts there. The
 next sign-in from the browser asks for the code again; the other people it remembers keep
 theirs.
 
+A person's name, as people read it, is theirs to write from the account page too: the session
+read carries `name` when the person holds one, the list names the change path as
+`changeName`, and `changeName(name)` posts there, reading the list again first. It resolves
+`changed` with the name as the server keeps it (without the space around it; none when an
+empty name took it off), after which the page checks the session again to show it, or
+`refused` with the server's words (the name is too long, the session is an impersonation).
+The name is shown in place of the username, which stays what the person signs in under.
+
+The look a person chose, light or dark and one of the application's palettes, is kept with
+their account so that it follows them to every browser: the session read carries `look`
+(`{ scheme, palette }`, each half present where the person chose it) when the account holds
+one, the list names the path as `changeLook`, and `changeLook(look)` posts there, reading
+the list again first. The look replaces the one held as a whole, so a half left out is taken
+off. It resolves `changed` with the look as the server keeps it, or `refused` with the
+server's words (a scheme that is neither light nor dark, a palette id too long, an
+impersonated session). The server does not know an application's palettes: a page drops an
+id its application no longer offers.
+
 The server's mailed links all lead to the login page, each with its token in the URL, and the
 list names the routes they post to: `invitation` (`open`, `accept`, and `signUp` when the
 server offers a password method), `email` (`add`, `verify`) and `signUp` (`start`, `open`,
@@ -510,7 +528,7 @@ An Auth whose management is generated (`GenerateIdentity`) is named in the descr
 has one) and `sides`, one for each scope the outlet serves (`global` first, then `domain`),
 each with its `lists` (`users`, `roles`, `identities`, `invitations`, `sessions`,
 `signInAttempts`) and its `methods` (`create`, `invite`, `withdrawInvitation`, `assignRole`,
-`removeRole`, `disable`, `enable`, `delete`, `rename`, `setEmail`, `setTemporaryPassword`,
+`removeRole`, `disable`, `enable`, `delete`, `rename`, `setName`, `setEmail`, `setTemporaryPassword`,
 `requirePasswordChange`, `endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`,
 `endSession`, `unlockSignIn`) by the names the generator gave them. Every key but `users` is
 optional: the block names what the outlet serves and nothing else. The lists and the methods

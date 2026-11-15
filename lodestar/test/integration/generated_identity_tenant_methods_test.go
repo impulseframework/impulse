@@ -117,6 +117,7 @@ func TestGeneratedIdentitySectorAccountMethods(t *testing.T) {
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "DeleteCrewSectorUser", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RenameCrewSectorUser", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "SetCrewSectorUserEmail", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "SetCrewSectorUserName", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RequireCrewSectorPasswordChange", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RevokeCrewSectorUserTrustedDevices", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "EndCrewSectorUserSessions", "heldElsewhere = false AND heldGlobally = false")
@@ -138,6 +139,7 @@ func TestGeneratedIdentitySectorAccountMethods(t *testing.T) {
 	accountMethods := []string{
 		"DeleteCrewSectorUser", "DisableCrewSectorUser", "EnableCrewSectorUser", "EndCrewSectorUserSessions", "RenameCrewSectorUser",
 		"RequireCrewSectorPasswordChange", "RevokeCrewSectorUserTrustedDevices", "SetCrewSectorTemporaryPassword", "SetCrewSectorUserEmail",
+		"SetCrewSectorUserName",
 	}
 	// The row's Execute answer: the account methods on a person the sector holds alone,
 	// none of them on a person who holds a role outside it, and the method that gives a
@@ -176,6 +178,7 @@ func TestGeneratedIdentitySectorAccountMethods(t *testing.T) {
 		"require-crew-sector-password-change":     userBody,
 		"rename-crew-sector-user":                 func(name string) string { return fmt.Sprintf(`{"userId":%q,"username":"renamed"}`, w.ids[name]) },
 		"set-crew-sector-user-email":              func(name string) string { return fmt.Sprintf(`{"userId":%q,"email":"new@example.com"}`, w.ids[name]) },
+		"set-crew-sector-user-name":               func(name string) string { return fmt.Sprintf(`{"userId":%q,"name":"Somebody Else"}`, w.ids[name]) },
 	}
 	for method, body := range bodies {
 		t.Run(method+" is refused or not found where the person is not the sector's alone", func(t *testing.T) {
@@ -227,6 +230,31 @@ func TestGeneratedIdentitySectorAccountMethods(t *testing.T) {
 		assertStatus(t, status, http.StatusNoContent, body)
 		if got := readColumn[spanner.NullString](ctx, t, w.db, "CrewSessionUsers", spanner.Key{w.ids["ada"]}, "Email"); got.Valid {
 			t.Errorf("ada's address = %v, want none", got)
+		}
+	})
+	t.Run("the name is written without the space around it, refused when too long, and taken off", func(t *testing.T) {
+		name := func() spanner.NullString {
+			return readColumn[spanner.NullString](ctx, t, w.db, "CrewSessionUsers", spanner.Key{w.ids["ada"]}, "Name")
+		}
+		status, body := post("marshal", anvil, "set-crew-sector-user-name", fmt.Sprintf(`{"userId":%q,"name":"  Ada Example "}`, w.ids["ada"]))
+		assertStatus(t, status, http.StatusNoContent, body)
+		if got := name(); got.StringVal != "Ada Example" {
+			t.Errorf("ada's name = %v, want it written without the space around it", got)
+		}
+		// The sector's list of its people shows the name.
+		row := sectorList(t, w.h, "marshal", anvil, sectorPeoplePath)[w.ids["ada"]]
+		if got, _ := row["name"].(string); got != "Ada Example" {
+			t.Errorf("the sector's row of ada carries the name %v, want Ada Example", row["name"])
+		}
+		status, body = post("marshal", anvil, "set-crew-sector-user-name", fmt.Sprintf(`{"userId":%q,"name":%q}`, w.ids["ada"], strings.Repeat("n", 201)))
+		assertStatus(t, status, http.StatusBadRequest, body)
+		if got := name(); got.StringVal != "Ada Example" {
+			t.Errorf("ada's name = %v after a refused write, want it kept", got)
+		}
+		status, body = post("marshal", anvil, "set-crew-sector-user-name", userBody("ada"))
+		assertStatus(t, status, http.StatusNoContent, body)
+		if got := name(); got.Valid {
+			t.Errorf("ada's name = %v, want none", got)
 		}
 	})
 	t.Run("the sessions and the remembered browsers of a person the sector holds alone", func(t *testing.T) {

@@ -37,6 +37,12 @@ type MethodList struct {
 	// or none. The page shows the action only where the session says the browser is
 	// remembered for the person.
 	ForgetBrowser string
+	// ChangeName is the path of the Auth's ChangeName handler, where a signed-in
+	// person's account page writes their own name, or none.
+	ChangeName string
+	// ChangeLook is the path of the Auth's ChangeLook handler, where a signed-in
+	// person's pages keep the look the person chose, or none.
+	ChangeLook string
 	// Invitation are the paths of the invitation handlers (Invitation().Open(),
 	// Accept() and SignUp()), or none. Open and Accept go together; SignUp is named
 	// when the password method is listed and refused when it is not.
@@ -102,6 +108,8 @@ type methodsAnswer struct {
 	Pending        *pendingAnswer         `json:"pending,omitempty"`
 	ChangePassword string                 `json:"changePassword,omitempty"`
 	ForgetBrowser  string                 `json:"forgetBrowser,omitempty"`
+	ChangeName     string                 `json:"changeName,omitempty"`
+	ChangeLook     string                 `json:"changeLook,omitempty"`
 	// UsernameIsEmail says the password method's username is the email address, so
 	// the page asks for the address.
 	UsernameIsEmail bool              `json:"usernameIsEmail,omitempty"`
@@ -303,6 +311,8 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	answer.Pending = pendingAnswerOf(&list.Pending)
 	answer.ChangePassword = changePasswordPathOf(list, passwordListed)
 	answer.ForgetBrowser = forgetBrowserPathOf(list)
+	answer.ChangeName = changeNamePathOf(list)
+	answer.ChangeLook = changeLookPathOf(list)
 	answer.UsernameIsEmail = passwordListed && a.methods.usernameIsEmail()
 	answer.Invitation = invitationAnswerOf(list.Invitation, passwordListed)
 	answer.Email = emailAnswerOf(list.Email)
@@ -372,6 +382,26 @@ func changePasswordPathOf(list *MethodList, passwordListed bool) string {
 	}
 
 	return list.ChangePassword
+}
+
+// changeLookPathOf validates the keep-your-look route: none, or a canonical path.
+func changeLookPathOf(list *MethodList) string {
+	if list.ChangeLook != "" && !advertisedPath(list.ChangeLook) {
+		panic(fmt.Sprintf("session: Methods is given the keep-your-look route %q, which is not a canonical path in the application: "+
+			"give it the path its ChangeLook handler is mounted at, such as /api/user/look", list.ChangeLook))
+	}
+
+	return list.ChangeLook
+}
+
+// changeNamePathOf validates the change-your-name route: none, or a canonical path.
+func changeNamePathOf(list *MethodList) string {
+	if list.ChangeName != "" && !advertisedPath(list.ChangeName) {
+		panic(fmt.Sprintf("session: Methods is given the change-your-name route %q, which is not a canonical path in the application: "+
+			"give it the path its ChangeName handler is mounted at, such as /api/user/name", list.ChangeName))
+	}
+
+	return list.ChangeName
 }
 
 // forgetBrowserPathOf validates the forget-this-browser route: none, or a canonical path.

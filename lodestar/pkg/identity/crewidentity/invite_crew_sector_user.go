@@ -18,7 +18,8 @@ type (
 	// Crew auth: the tenant the request is made under, and no other. A link is
 	// mailed to the address, and whoever follows it and signs in, or signs up, is given
 	// the roles in the tenant. An invitation gives at least one role, and each must
-	// exist in the tenant.
+	// exist in the tenant. Name is the name the sender gives the person: whoever
+	// accepts the invitation takes it where their account holds none.
 	//
 	// The invitation is written in the transaction, beside whatever else it writes,
 	// and its message is sent once the transaction has committed, since a message
@@ -31,6 +32,7 @@ type (
 	// @outlet(default)
 	InviteCrewSectorUser struct {
 		Email string `validate:"required"`
+		Name  *string
 		// Roles are the roles the person is given, picked from the roles that exist in the
 		// tenant (CrewSectorRoles). A grant's condition reads each of them as
 		// new.role, so a role file can limit which roles the grant's holder hands out.
@@ -54,7 +56,7 @@ func (m *InviteCrewSectorUser) Execute(ctx context.Context, txn resource.ReadWri
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Manager.Tenant()")
 	}
-	invitation := &identity.Invitation{Email: m.Email}
+	invitation := &identity.Invitation{Email: m.Email, Name: m.Name}
 	for _, role := range m.Roles {
 		invitation.Roles = append(invitation.Roles, accesstypes.Role(role))
 	}

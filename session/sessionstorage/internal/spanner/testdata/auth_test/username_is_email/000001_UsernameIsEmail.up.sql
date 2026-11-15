@@ -11,4 +11,4 @@ ALTER TABLE SessionUsers DROP COLUMN Email;
 ALTER TABLE SessionUsers ADD COLUMN Email STRING(MAX) AS (Username) STORED;
 ALTER TABLE SessionUsers ADD COLUMN NormalizedEmail STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED;
 CREATE UNIQUE NULL_FILTERED INDEX SessionUsersByNormalizedEmail ON SessionUsers(NormalizedEmail);
-CREATE UNIQUE INDEX SessionUsersByUsername ON SessionUsers(Username) STORING (Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);
+CREATE UNIQUE INDEX SessionUsersByUsername ON SessionUsers(Username) STORING (Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt, Name);

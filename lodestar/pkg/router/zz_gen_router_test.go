@@ -102,6 +102,8 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/console/api/user/pending/code/verify", suffix: "/user/pending/code/verify", method: http.MethodPost, handler: "PendingVerifyCode", xsrf: true},
 		{url: "/console/api/user/pending/email", suffix: "/user/pending/email", method: http.MethodPost, handler: "PendingEnrollEmail", xsrf: true},
 		{url: "/console/api/user/browser/forget", suffix: "/user/browser/forget", method: http.MethodPost, handler: "ForgetBrowser", xsrf: true},
+		{url: "/console/api/user/name", suffix: "/user/name", method: http.MethodPost, handler: "ChangeName", xsrf: true},
+		{url: "/console/api/user/look", suffix: "/user/look", method: http.MethodPost, handler: "ChangeLook", xsrf: true},
 		{url: "/console/api/user/invitation", suffix: "/user/invitation", method: http.MethodPost, handler: "InvitationOpen", xsrf: true},
 		{url: "/console/api/user/invitation/sign-up", suffix: "/user/invitation/sign-up", method: http.MethodPost, handler: "InvitationSignUp", xsrf: true},
 		{url: "/console/api/user/sign-up", suffix: "/user/sign-up", method: http.MethodPost, handler: "SignUpStart", xsrf: true},
@@ -128,6 +130,8 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/portal/api/user/pending/code/verify", suffix: "/user/pending/code/verify", method: http.MethodPost, handler: "PortalPendingVerifyCode", xsrf: true},
 		{url: "/portal/api/user/pending/email", suffix: "/user/pending/email", method: http.MethodPost, handler: "PortalPendingEnrollEmail", xsrf: true},
 		{url: "/portal/api/user/browser/forget", suffix: "/user/browser/forget", method: http.MethodPost, handler: "PortalForgetBrowser", xsrf: true},
+		{url: "/portal/api/user/name", suffix: "/user/name", method: http.MethodPost, handler: "PortalChangeName", xsrf: true},
+		{url: "/portal/api/user/look", suffix: "/user/look", method: http.MethodPost, handler: "PortalChangeLook", xsrf: true},
 		{url: "/portal/api/user/invitation", suffix: "/user/invitation", method: http.MethodPost, handler: "PortalInvitationOpen", xsrf: true},
 		{url: "/portal/api/user/invitation/accept", suffix: "/user/invitation/accept", method: http.MethodPost, handler: "PortalInvitationAccept", xsrf: true, validated: true},
 		{url: "/portal/api/user/email", suffix: "/user/email", method: http.MethodPost, handler: "PortalEmailAdd", xsrf: true, validated: true},
@@ -619,10 +623,14 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/sectors/testDomain/scrap-ship", method: http.MethodPost},
 		foreign{url: "/droids/sectors/testDomain/set-crew-sector-temporary-password", method: http.MethodPost},
 		foreign{url: "/droids/sectors/testDomain/set-crew-sector-user-email", method: http.MethodPost},
+		foreign{url: "/droids/sectors/testDomain/set-crew-sector-user-name", method: http.MethodPost},
 		foreign{url: "/droids/set-crew-temporary-password", method: http.MethodPost},
 		foreign{url: "/droids/set-crew-user-email", method: http.MethodPost},
+		foreign{url: "/droids/set-crew-user-name", method: http.MethodPost},
 		foreign{url: "/droids/sectors/testDomain/set-members-sector-user-email", method: http.MethodPost},
+		foreign{url: "/droids/sectors/testDomain/set-members-sector-user-name", method: http.MethodPost},
 		foreign{url: "/droids/set-members-user-email", method: http.MethodPost},
+		foreign{url: "/droids/set-members-user-name", method: http.MethodPost},
 		foreign{url: "/droids/sectors/testDomain/set-sector-pilot-clearance", method: http.MethodPost},
 		foreign{url: "/droids/sectors/testDomain/stand-down-mission", method: http.MethodPost},
 		foreign{url: "/droids/sectors/testDomain/start-flight-test", method: http.MethodPost},
@@ -848,8 +856,10 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/sectors/testDomain/scrap-ship", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/testDomain/set-crew-sector-temporary-password", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/testDomain/set-crew-sector-user-email", method: http.MethodPost},
+		foreign{url: "/portal/api/sectors/testDomain/set-crew-sector-user-name", method: http.MethodPost},
 		foreign{url: "/portal/api/set-crew-temporary-password", method: http.MethodPost},
 		foreign{url: "/portal/api/set-crew-user-email", method: http.MethodPost},
+		foreign{url: "/portal/api/set-crew-user-name", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/testDomain/set-sector-pilot-clearance", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/testDomain/start-flight-test", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/testDomain/unlink-crew-sector-session-identity", method: http.MethodPost},
@@ -1529,6 +1539,14 @@ func (s *routerDefaultSessionStub) ForgetBrowser() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "ForgetBrowser")
 }
 
+func (s *routerDefaultSessionStub) ChangeName() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "ChangeName")
+}
+
+func (s *routerDefaultSessionStub) ChangeLook() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "ChangeLook")
+}
+
 func (s *routerDefaultSessionStub) InvitationOpen() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "InvitationOpen")
 }
@@ -1662,6 +1680,14 @@ func (s *routerPortalSessionStub) PendingEnrollEmail() http.HandlerFunc {
 
 func (s *routerPortalSessionStub) ForgetBrowser() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "ForgetBrowser")
+}
+
+func (s *routerPortalSessionStub) ChangeName() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "ChangeName")
+}
+
+func (s *routerPortalSessionStub) ChangeLook() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "ChangeLook")
 }
 
 func (s *routerPortalSessionStub) InvitationOpen() http.HandlerFunc {

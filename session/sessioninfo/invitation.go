@@ -19,6 +19,10 @@ type Invitation struct {
 	ID impulse.UUID
 	// Email is the address the invitation was mailed to.
 	Email string
+	// Name is the person's name as the inviter typed it, "" when they gave none. It is
+	// written on the account the acceptance creates when the sign-in asserts no name of
+	// its own, and on an existing account that holds none.
+	Name string
 	// Tenant is the tenant the invitation seats the person in, "" for the
 	// application's global surface.
 	Tenant string

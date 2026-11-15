@@ -631,6 +631,9 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 		{dir: inst.methods, name: fileStem("Revoke" + data.Token()), template: identityRevokeTokenTemplate, needs: []identityTable{identityTokens}},
 		{dir: inst.handlers, name: "handlers", template: identityHandlersTemplate},
 	}...)
+	// A person of any auth has a name: a directory asserts one, an inviter gives one,
+	// or it is written here.
+	files = append(files, identitySourceFile{dir: inst.methods, name: fileStem("Set" + inst.auth + "UserName"), template: identitySetUserNameTemplate, needs: []identityTable{identityUsers}})
 	// Only an auth that declares the password method has people who hold one.
 	if inst.password {
 		files = append(files,

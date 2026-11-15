@@ -493,19 +493,25 @@ func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationA
 	a.acceptInvitation = hook
 }
 
-// Authenticated answers {"authenticated", "username", "passwordChangeRequired",
-// "email", "emailVerified", "emailHint", "impersonation"}. A session whose user is
+// Authenticated answers {"authenticated", "username", "name", "look",
+// "passwordChangeRequired", "email", "emailVerified", "emailHint", "impersonation"}. A session whose user is
 // missing or disabled is reported as not authenticated. passwordChangeRequired is set
 // while the user must change a password an operator set (see "Users and the forced
 // password change" in the README): the session read is answered under the mark, so the
 // login page can show the change form. email is the user's address when they hold one,
 // with emailVerified saying whether they have proven it; emailHint, present when the
 // user holds no address, is the address a directory asserted at a sign-in, offered as
-// a prefill for the add-address step and trusted for nothing.
+// a prefill for the add-address step and trusted for nothing. name is the person's
+// name as people read it, present when the user holds one: what a page shows for the
+// person in place of the username, which stays what identifies them. look is the look
+// the person chose ({"scheme", "palette"}, each present where they chose it), present
+// when the user holds one: what their pages draw themselves in on every browser.
 func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 	type response struct {
 		Authenticated          bool                               `json:"authenticated"`
 		Username               string                             `json:"username"`
+		Name                   *string                            `json:"name,omitempty"`
+		Look                   *sessioninfo.Look                  `json:"look,omitempty"`
 		PasswordChangeRequired bool                               `json:"passwordChangeRequired"`
 		Email                  *string                            `json:"email,omitempty"`
 		EmailVerified          bool                               `json:"emailVerified"`
@@ -536,6 +542,8 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 		return httpio.NewEncoder(w).Ok(response{
 			Authenticated:          true,
 			Username:               sessioninfo.FromCtx(ctx).Username,
+			Name:                   user.Name,
+			Look:                   lookOf(user),
 			PasswordChangeRequired: user.PasswordChangeRequired,
 			Email:                  user.Email,
 			EmailVerified:          user.EmailVerified(),
@@ -544,6 +552,17 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 			BrowserRemembered:      imp == nil && user != nil && browserRemembered(ctx, user.ID),
 		})
 	}))
+}
+
+// lookOf is the look the user holds as the session read answers it: nil for none, so
+// the answer leaves it out.
+func lookOf(user *sessioninfo.UserInfo) *sessioninfo.Look {
+	if user == nil || user.Look.IsZero() {
+		return nil
+	}
+	look := user.Look
+
+	return &look
 }
 
 // Logout destroys the current session.

@@ -129,12 +129,14 @@ export namespace CompleteMission {
 
 export interface CreateCrewSectorUserConfig {
   username: string | FieldPointer;
+  name?: string | FieldPointer;
   email?: string | FieldPointer;
   password?: string | FieldPointer;
   roles: string[] | FieldPointer;
 }
 export interface CreateCrewSectorUser {
   username: string;
+  name?: string;
   email?: string;
   password?: string;
   roles: string[];
@@ -146,6 +148,7 @@ export interface CreateCrewSectorUserResult {
 
 export interface CreateCrewUserConfig {
   username: string | FieldPointer;
+  name?: string | FieldPointer;
   email?: string | FieldPointer;
   password?: string | FieldPointer;
   roles: string[] | FieldPointer;
@@ -154,6 +157,7 @@ export interface CreateCrewUserConfig {
 }
 export interface CreateCrewUser {
   username: string;
+  name?: string;
   email?: string;
   password?: string;
   roles: string[];
@@ -397,10 +401,12 @@ export namespace InspectShip {
 
 export interface InviteCrewSectorUserConfig {
   email: string | FieldPointer;
+  name?: string | FieldPointer;
   roles: string[] | FieldPointer;
 }
 export interface InviteCrewSectorUser {
   email: string;
+  name?: string;
   roles: string[];
 }
 /** The result InviteCrewSectorUser answers with. */
@@ -411,11 +417,13 @@ export interface InviteCrewSectorUserResult {
 
 export interface InviteCrewUserConfig {
   email: string | FieldPointer;
+  name?: string | FieldPointer;
   roles: string[] | FieldPointer;
   domain?: string | FieldPointer;
 }
 export interface InviteCrewUser {
   email: string;
+  name?: string;
   roles: string[];
   domain?: string;
 }
@@ -639,6 +647,17 @@ export interface SetCrewSectorUserEmail {
 /** The statuses SetCrewSectorUserEmail declares; the method chooses one per response. */
 export type SetCrewSectorUserEmailStatus = 204;
 
+export interface SetCrewSectorUserNameConfig {
+  userId: string | FieldPointer;
+  name?: string | FieldPointer;
+}
+export interface SetCrewSectorUserName {
+  userId: string;
+  name?: string;
+}
+/** The statuses SetCrewSectorUserName declares; the method chooses one per response. */
+export type SetCrewSectorUserNameStatus = 204;
+
 export interface SetCrewTemporaryPasswordConfig {
   userId: string | FieldPointer;
   password: string | FieldPointer;
@@ -661,6 +680,17 @@ export interface SetCrewUserEmail {
 /** The statuses SetCrewUserEmail declares; the method chooses one per response. */
 export type SetCrewUserEmailStatus = 204;
 
+export interface SetCrewUserNameConfig {
+  userId: string | FieldPointer;
+  name?: string | FieldPointer;
+}
+export interface SetCrewUserName {
+  userId: string;
+  name?: string;
+}
+/** The statuses SetCrewUserName declares; the method chooses one per response. */
+export type SetCrewUserNameStatus = 204;
+
 export interface SetMembersSectorUserEmailConfig {
   userId: string | FieldPointer;
   email?: string | FieldPointer;
@@ -672,6 +702,17 @@ export interface SetMembersSectorUserEmail {
 /** The statuses SetMembersSectorUserEmail declares; the method chooses one per response. */
 export type SetMembersSectorUserEmailStatus = 204;
 
+export interface SetMembersSectorUserNameConfig {
+  userId: string | FieldPointer;
+  name?: string | FieldPointer;
+}
+export interface SetMembersSectorUserName {
+  userId: string;
+  name?: string;
+}
+/** The statuses SetMembersSectorUserName declares; the method chooses one per response. */
+export type SetMembersSectorUserNameStatus = 204;
+
 export interface SetMembersUserEmailConfig {
   userId: string | FieldPointer;
   email?: string | FieldPointer;
@@ -682,6 +723,17 @@ export interface SetMembersUserEmail {
 }
 /** The statuses SetMembersUserEmail declares; the method chooses one per response. */
 export type SetMembersUserEmailStatus = 204;
+
+export interface SetMembersUserNameConfig {
+  userId: string | FieldPointer;
+  name?: string | FieldPointer;
+}
+export interface SetMembersUserName {
+  userId: string;
+  name?: string;
+}
+/** The statuses SetMembersUserName declares; the method chooses one per response. */
+export type SetMembersUserNameStatus = 204;
 
 export interface SetSectorPilotClearanceConfig {
   pilotId: string | FieldPointer;
@@ -952,6 +1004,7 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'username', displayType: 'string', required: true },
+      { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'email', displayType: 'string', optional: true },
       { fieldName: 'password', displayType: 'string', optional: true },
       { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.CrewSectorRoles, attribute: 'role' },
@@ -963,6 +1016,7 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'username', displayType: 'string', required: true },
+      { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'email', displayType: 'string', optional: true },
       { fieldName: 'password', displayType: 'string', optional: true, secret: true },
       { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
@@ -1195,6 +1249,7 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'email', displayType: 'string', required: true },
+      { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.CrewSectorRoles, attribute: 'role' },
     ],
   },
@@ -1204,6 +1259,7 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'email', displayType: 'string', required: true },
+      { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Sectors, optional: true },
     ],
@@ -1415,6 +1471,16 @@ const methodMap: MethodMap = {
       { fieldName: 'email', displayType: 'string', optional: true },
     ],
   },
+  [Methods.SetCrewSectorUserName]: {
+    route: 'set-crew-sector-user-name',
+    target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'name', displayType: 'string', optional: true },
+    ],
+  },
   [Methods.SetCrewTemporaryPassword]: {
     route: 'set-crew-temporary-password',
     target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
@@ -1435,6 +1501,16 @@ const methodMap: MethodMap = {
       { fieldName: 'email', displayType: 'string', optional: true },
     ],
   },
+  [Methods.SetCrewUserName]: {
+    route: 'set-crew-user-name',
+    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'name', displayType: 'string', optional: true },
+    ],
+  },
   [Methods.SetMembersSectorUserEmail]: {
     route: 'set-members-sector-user-email',
     target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
@@ -1445,6 +1521,16 @@ const methodMap: MethodMap = {
       { fieldName: 'email', displayType: 'string', optional: true },
     ],
   },
+  [Methods.SetMembersSectorUserName]: {
+    route: 'set-members-sector-user-name',
+    target: { resource: Resources.MembersSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'name', displayType: 'string', optional: true },
+    ],
+  },
   [Methods.SetMembersUserEmail]: {
     route: 'set-members-user-email',
     target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
@@ -1453,6 +1539,16 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'email', displayType: 'string', optional: true },
+    ],
+  },
+  [Methods.SetMembersUserName]: {
+    route: 'set-members-user-name',
+    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'name', displayType: 'string', optional: true },
     ],
   },
   [Methods.SetSectorPilotClearance]: {

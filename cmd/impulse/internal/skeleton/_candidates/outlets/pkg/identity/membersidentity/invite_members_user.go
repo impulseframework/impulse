@@ -18,7 +18,9 @@ type (
 	// mailed to it, and whoever follows the link and signs in, or signs up, is given
 	// the roles. An invitation gives at least one role: into a tenant (Domain), where
 	// every role is held there, or into the application, where a role of the global
-	// scope is held there and a role of the domain kind in every tenant.
+	// scope is held there and a role of the domain kind in every tenant. Name is the
+	// name the sender gives the person: whoever accepts the invitation takes it where
+	// their account holds none.
 	//
 	// The invitation is written in the transaction, beside whatever else it writes,
 	// and its message is sent once the transaction has committed, since a message
@@ -30,6 +32,7 @@ type (
 	// @outlet(portal)
 	InviteMembersUser struct {
 		Email string `validate:"required"`
+		Name  *string
 		// Roles are the roles the person is given. A grant's condition reads each of them as
 		// new.role, so a role file can limit which roles the grant's holder hands out.
 		//
@@ -49,7 +52,7 @@ type (
 // Execute buffers the invitation into the caller's transaction and registers the send
 // for after its commit.
 func (m *InviteMembersUser) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*InviteMembersUserResult, error) {
-	invitation := &identity.Invitation{Email: m.Email, Domain: m.Domain}
+	invitation := &identity.Invitation{Email: m.Email, Name: m.Name, Domain: m.Domain}
 	for _, role := range m.Roles {
 		invitation.Roles = append(invitation.Roles, accesstypes.Role(role))
 	}

@@ -15,7 +15,8 @@ type Method interface {
 		RequireStaffPasswordChange | RequireStaffTenantPasswordChange |
 		RevokeStaffSessionToken | RevokeStaffTenantUserTrustedDevices |
 		RevokeStaffUserTrustedDevices | SetStaffTemporaryPassword |
-		SetStaffTenantTemporaryPassword | SetStaffTenantUserEmail | SetStaffUserEmail |
-		UnlinkStaffSessionIdentity | UnlinkStaffTenantSessionIdentity | UnlockStaffSignIn |
-		WithdrawStaffInvitation | WithdrawStaffTenantInvitation
+		SetStaffTenantTemporaryPassword | SetStaffTenantUserEmail | SetStaffTenantUserName |
+		SetStaffUserEmail | SetStaffUserName | UnlinkStaffSessionIdentity |
+		UnlinkStaffTenantSessionIdentity | UnlockStaffSignIn | WithdrawStaffInvitation |
+		WithdrawStaffTenantInvitation
 }

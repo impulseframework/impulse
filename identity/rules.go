@@ -174,11 +174,22 @@ func (m *Manager) deleteWithLastRole(ctx context.Context, txn resource.ReadWrite
 // moveMemberships buffers the move of every membership held under one username to
 // another: the permission store names a person by username, so a person renamed keeps
 // their roles only if the rows follow the name. A membership the new name holds already
-// is left as it is. It answers whether anything moved, for the word to the engine.
+// is left as it is; where a person belongs to one tenant, a name that holds roles in
+// another is refused (refuseRenamedIntoSecondTenant). It answers whether anything
+// moved, for the word to the engine.
 func (m *Manager) moveMemberships(ctx context.Context, txn resource.ReadWriteTransaction, from, to string) (moved bool, err error) {
 	held, err := m.store.Memberships(ctx, txn, from)
 	if err != nil {
 		return false, errors.Wrap(err, "identity.Store.Memberships()")
+	}
+	if m.oneTenant != nil {
+		already, err := m.store.Memberships(ctx, txn, to)
+		if err != nil {
+			return false, errors.Wrap(err, "identity.Store.Memberships()")
+		}
+		if err := m.refuseRenamedIntoSecondTenant(held, already, to); err != nil {
+			return false, err
+		}
 	}
 	for _, key := range held {
 		if err := m.store.DeleteMembership(ctx, txn, &key); err != nil {

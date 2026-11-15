@@ -13,7 +13,8 @@ type Method interface {
 		EndMembersUserSessions | InviteMembersTenantUser | InviteMembersUser | RemoveMembersRole |
 		RemoveMembersTenantRole | RenameMembersTenantUser | RenameMembersUser |
 		RevokeMembersSessionToken | RevokeMembersTenantUserTrustedDevices |
-		RevokeMembersUserTrustedDevices | SetMembersTenantUserEmail | SetMembersUserEmail |
-		UnlinkMembersSessionIdentity | UnlinkMembersTenantSessionIdentity |
-		UnlockMembersSignIn | WithdrawMembersInvitation | WithdrawMembersTenantInvitation
+		RevokeMembersUserTrustedDevices | SetMembersTenantUserEmail | SetMembersTenantUserName |
+		SetMembersUserEmail | SetMembersUserName | UnlinkMembersSessionIdentity |
+		UnlinkMembersTenantSessionIdentity | UnlockMembersSignIn | WithdrawMembersInvitation |
+		WithdrawMembersTenantInvitation
 }

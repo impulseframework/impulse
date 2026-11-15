@@ -54,7 +54,10 @@ type MailLink struct {
 	RoleNames []string
 	// InvitedBy is the user who sent an invitation; null when unknown or for the other
 	// kinds.
-	InvitedBy  impulse.NullUUID
+	InvitedBy impulse.NullUUID
+	// Name is the invited person's name as the inviter typed it; "" for none and for
+	// the other kinds.
+	Name       string
 	CreatedAt  time.Time
 	ExpiresAt  time.Time
 	ConsumedAt *time.Time

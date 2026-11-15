@@ -174,11 +174,11 @@ func (s *SessionStorageDriver) UsernameIsEmail() bool {
 }
 
 // userSelectColumns are the user table's columns as the user reads select them: the
-// address columns only on the auth schema, which has them.
+// address columns, the name and the look only on the auth schema, which has them.
 func (s *SessionStorageDriver) userSelectColumns() string {
 	columns := "Id, Username, PasswordHash, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt"
 	if s.users {
-		columns += ", Email, EmailVerifiedAt"
+		columns += ", Email, EmailVerifiedAt, Name, LookScheme, LookPalette"
 	}
 
 	return columns

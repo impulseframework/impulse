@@ -66,6 +66,14 @@ func TestManager_Invite(t *testing.T) {
 			wantSent:   ptr(true),
 		},
 		{
+			name:       "an invitation carries the name its sender gives the person",
+			inv:        Invitation{Email: "pat@example.com", Name: ptr("  Pat Example "), Roles: []accesstypes.Role{"Steward"}},
+			caller:     "dana",
+			wantWrites: []string{row("pat@example.com", "", "Steward", userID.String()) + " name=Pat Example"},
+			wantMailed: []string{"pat@example.com"},
+			wantSent:   ptr(true),
+		},
+		{
 			name:       "an invitation into a tenant carries the tenant, and its roles are the tenant's",
 			inv:        Invitation{Email: "pat@example.com", Domain: ptr("alpha"), Roles: []accesstypes.Role{"Reader"}},
 			caller:     "dana",

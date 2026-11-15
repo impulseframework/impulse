@@ -29,6 +29,7 @@ type staffTenantUserRead struct {
 	ID                     impulse.UUID `json:"id"                     perm:"-"`
 	Domain                 string       `json:"domain"`
 	Username               string       `json:"username"`
+	Name                   *string      `json:"name"`
 	Email                  *string      `json:"email"`
 	EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
 	Disabled               bool         `json:"disabled"`
@@ -148,6 +149,7 @@ func (c *StaffTenantUserColumns) All() *StaffTenantUserColumns {
 		"ID",
 		"Domain",
 		"Username",
+		"Name",
 		"Email",
 		"EmailVerifiedAt",
 		"Disabled",
@@ -175,6 +177,12 @@ func (c *StaffTenantUserColumns) Domain() *StaffTenantUserColumns {
 
 func (c *StaffTenantUserColumns) Username() *StaffTenantUserColumns {
 	c.fields = append(c.fields, "Username")
+
+	return c
+}
+
+func (c *StaffTenantUserColumns) Name() *StaffTenantUserColumns {
+	c.fields = append(c.fields, "Name")
 
 	return c
 }
@@ -335,6 +343,10 @@ func (c *staffTenantUserSort) Domain() *StaffTenantUserSort {
 
 func (c *staffTenantUserSort) Username() *StaffTenantUserSort {
 	return c.addField("Username")
+}
+
+func (c *staffTenantUserSort) Name() *StaffTenantUserSort {
+	return c.addField("Name")
 }
 
 func (c *staffTenantUserSort) Email() *StaffTenantUserSort {

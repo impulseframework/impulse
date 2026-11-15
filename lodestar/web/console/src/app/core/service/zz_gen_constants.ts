@@ -146,10 +146,14 @@ export const Methods = {
   ScrapShip: 'ScrapShip' as Method,
   SetCrewSectorTemporaryPassword: 'SetCrewSectorTemporaryPassword' as Method,
   SetCrewSectorUserEmail: 'SetCrewSectorUserEmail' as Method,
+  SetCrewSectorUserName: 'SetCrewSectorUserName' as Method,
   SetCrewTemporaryPassword: 'SetCrewTemporaryPassword' as Method,
   SetCrewUserEmail: 'SetCrewUserEmail' as Method,
+  SetCrewUserName: 'SetCrewUserName' as Method,
   SetMembersSectorUserEmail: 'SetMembersSectorUserEmail' as Method,
+  SetMembersSectorUserName: 'SetMembersSectorUserName' as Method,
   SetMembersUserEmail: 'SetMembersUserEmail' as Method,
+  SetMembersUserName: 'SetMembersUserName' as Method,
   SetSectorPilotClearance: 'SetSectorPilotClearance' as Method,
   StandDownMission: 'StandDownMission' as Method,
   StartFlightTest: 'StartFlightTest' as Method,
@@ -364,6 +368,7 @@ export namespace CrewSectorInvitations {
     expiresAt: 'expiresAt' as FieldName,
     id: 'id' as FieldName,
     invitedBy: 'invitedBy' as FieldName,
+    name: 'name' as FieldName,
     pending: 'pending' as FieldName,
     roleNames: 'roleNames' as FieldName,
   };
@@ -375,6 +380,7 @@ export namespace CrewSectorInvitations {
     expiresAt: 'CrewSectorInvitations.expiresAt' as Resource,
     id: 'CrewSectorInvitations.id' as Resource,
     invitedBy: 'CrewSectorInvitations.invitedBy' as Resource,
+    name: 'CrewSectorInvitations.name' as Resource,
     pending: 'CrewSectorInvitations.pending' as Resource,
     roleNames: 'CrewSectorInvitations.roleNames' as Resource,
   };
@@ -421,6 +427,7 @@ export namespace CrewSectorUsers {
     heldGlobally: 'heldGlobally' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    name: 'name' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     username: 'username' as FieldName,
   };
@@ -434,6 +441,7 @@ export namespace CrewSectorUsers {
     heldGlobally: 'CrewSectorUsers.heldGlobally' as Resource,
     id: 'CrewSectorUsers.id' as Resource,
     lastSignInAt: 'CrewSectorUsers.lastSignInAt' as Resource,
+    name: 'CrewSectorUsers.name' as Resource,
     passwordChangeRequired: 'CrewSectorUsers.passwordChangeRequired' as Resource,
     username: 'CrewSectorUsers.username' as Resource,
   };
@@ -525,6 +533,7 @@ export namespace CrewSessionMailLinks {
     id: 'id' as FieldName,
     invitedBy: 'invitedBy' as FieldName,
     kind: 'kind' as FieldName,
+    name: 'name' as FieldName,
     roleNames: 'roleNames' as FieldName,
     tenant: 'tenant' as FieldName,
     userId: 'userId' as FieldName,
@@ -537,6 +546,7 @@ export namespace CrewSessionMailLinks {
     id: 'CrewSessionMailLinks.id' as Resource,
     invitedBy: 'CrewSessionMailLinks.invitedBy' as Resource,
     kind: 'CrewSessionMailLinks.kind' as Resource,
+    name: 'CrewSessionMailLinks.name' as Resource,
     roleNames: 'CrewSessionMailLinks.roleNames' as Resource,
     tenant: 'CrewSessionMailLinks.tenant' as Resource,
     userId: 'CrewSessionMailLinks.userId' as Resource,
@@ -618,6 +628,7 @@ export namespace CrewSessionUsers {
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    name: 'name' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     username: 'username' as FieldName,
   };
@@ -628,6 +639,7 @@ export namespace CrewSessionUsers {
     emailVerifiedAt: 'CrewSessionUsers.emailVerifiedAt' as Resource,
     id: 'CrewSessionUsers.id' as Resource,
     lastSignInAt: 'CrewSessionUsers.lastSignInAt' as Resource,
+    name: 'CrewSessionUsers.name' as Resource,
     passwordChangeRequired: 'CrewSessionUsers.passwordChangeRequired' as Resource,
     username: 'CrewSessionUsers.username' as Resource,
   };
@@ -852,6 +864,7 @@ export namespace MembersSectorInvitations {
     expiresAt: 'expiresAt' as FieldName,
     id: 'id' as FieldName,
     invitedBy: 'invitedBy' as FieldName,
+    name: 'name' as FieldName,
     pending: 'pending' as FieldName,
     roleNames: 'roleNames' as FieldName,
   };
@@ -863,6 +876,7 @@ export namespace MembersSectorInvitations {
     expiresAt: 'MembersSectorInvitations.expiresAt' as Resource,
     id: 'MembersSectorInvitations.id' as Resource,
     invitedBy: 'MembersSectorInvitations.invitedBy' as Resource,
+    name: 'MembersSectorInvitations.name' as Resource,
     pending: 'MembersSectorInvitations.pending' as Resource,
     roleNames: 'MembersSectorInvitations.roleNames' as Resource,
   };
@@ -898,6 +912,7 @@ export namespace MembersSectorUsers {
     heldGlobally: 'heldGlobally' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    name: 'name' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     username: 'username' as FieldName,
   };
@@ -911,6 +926,7 @@ export namespace MembersSectorUsers {
     heldGlobally: 'MembersSectorUsers.heldGlobally' as Resource,
     id: 'MembersSectorUsers.id' as Resource,
     lastSignInAt: 'MembersSectorUsers.lastSignInAt' as Resource,
+    name: 'MembersSectorUsers.name' as Resource,
     passwordChangeRequired: 'MembersSectorUsers.passwordChangeRequired' as Resource,
     username: 'MembersSectorUsers.username' as Resource,
   };
@@ -969,6 +985,7 @@ export namespace MembersSessionMailLinks {
     id: 'id' as FieldName,
     invitedBy: 'invitedBy' as FieldName,
     kind: 'kind' as FieldName,
+    name: 'name' as FieldName,
     roleNames: 'roleNames' as FieldName,
     tenant: 'tenant' as FieldName,
     userId: 'userId' as FieldName,
@@ -981,6 +998,7 @@ export namespace MembersSessionMailLinks {
     id: 'MembersSessionMailLinks.id' as Resource,
     invitedBy: 'MembersSessionMailLinks.invitedBy' as Resource,
     kind: 'MembersSessionMailLinks.kind' as Resource,
+    name: 'MembersSessionMailLinks.name' as Resource,
     roleNames: 'MembersSessionMailLinks.roleNames' as Resource,
     tenant: 'MembersSessionMailLinks.tenant' as Resource,
     userId: 'MembersSessionMailLinks.userId' as Resource,
@@ -1031,6 +1049,7 @@ export namespace MembersSessionUsers {
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    name: 'name' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     username: 'username' as FieldName,
   };
@@ -1041,6 +1060,7 @@ export namespace MembersSessionUsers {
     emailVerifiedAt: 'MembersSessionUsers.emailVerifiedAt' as Resource,
     id: 'MembersSessionUsers.id' as Resource,
     lastSignInAt: 'MembersSessionUsers.lastSignInAt' as Resource,
+    name: 'MembersSessionUsers.name' as Resource,
     passwordChangeRequired: 'MembersSessionUsers.passwordChangeRequired' as Resource,
     username: 'MembersSessionUsers.username' as Resource,
   };
@@ -1603,6 +1623,7 @@ export namespace CompleteMission {
 export namespace CreateCrewSectorUser {
   export const fieldName = {
     username: 'username' as FieldName,
+    name: 'name' as FieldName,
     email: 'email' as FieldName,
     password: 'password' as FieldName,
     roles: 'roles' as FieldName,
@@ -1612,6 +1633,7 @@ export namespace CreateCrewSectorUser {
 export namespace CreateCrewUser {
   export const fieldName = {
     username: 'username' as FieldName,
+    name: 'name' as FieldName,
     email: 'email' as FieldName,
     password: 'password' as FieldName,
     roles: 'roles' as FieldName,
@@ -1769,6 +1791,7 @@ export namespace InspectShip {
 export namespace InviteCrewSectorUser {
   export const fieldName = {
     email: 'email' as FieldName,
+    name: 'name' as FieldName,
     roles: 'roles' as FieldName,
   };
 }
@@ -1776,6 +1799,7 @@ export namespace InviteCrewSectorUser {
 export namespace InviteCrewUser {
   export const fieldName = {
     email: 'email' as FieldName,
+    name: 'name' as FieldName,
     roles: 'roles' as FieldName,
     domain: 'domain' as FieldName,
   };
@@ -1925,6 +1949,13 @@ export namespace SetCrewSectorUserEmail {
   };
 }
 
+export namespace SetCrewSectorUserName {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+    name: 'name' as FieldName,
+  };
+}
+
 export namespace SetCrewTemporaryPassword {
   export const fieldName = {
     userId: 'userId' as FieldName,
@@ -1939,6 +1970,13 @@ export namespace SetCrewUserEmail {
   };
 }
 
+export namespace SetCrewUserName {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+    name: 'name' as FieldName,
+  };
+}
+
 export namespace SetMembersSectorUserEmail {
   export const fieldName = {
     userId: 'userId' as FieldName,
@@ -1946,10 +1984,24 @@ export namespace SetMembersSectorUserEmail {
   };
 }
 
+export namespace SetMembersSectorUserName {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+    name: 'name' as FieldName,
+  };
+}
+
 export namespace SetMembersUserEmail {
   export const fieldName = {
     userId: 'userId' as FieldName,
     email: 'email' as FieldName,
+  };
+}
+
+export namespace SetMembersUserName {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+    name: 'name' as FieldName,
   };
 }
 

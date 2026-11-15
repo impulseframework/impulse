@@ -4,6 +4,15 @@ CREATE TABLE StaffSessionUsers (
   Id                 STRING(36) NOT NULL,
   Username           STRING(MAX) NOT NULL,
   NormalizedUsername STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED,
+  -- The person's name, as people read it ("Gale Reyes"); null for none. It identifies
+  -- nobody: the username does. A directory's sign-in or an invitation fills it only
+  -- where the person holds none, so the person's own change stands.
+  Name               STRING(MAX),
+  -- The look the person chose for the pages: light or dark, and one of the palettes the
+  -- application offers, by its id; null for none chosen. The person's own pages write
+  -- it and nothing else does, so it follows them to every browser they sign in from.
+  LookScheme         STRING(MAX),
+  LookPalette        STRING(MAX),
   PasswordHash       STRING(MAX),
   Disabled           BOOL NOT NULL DEFAULT (FALSE),
   -- An operator set the password (a first password, a reset): the person changes it
@@ -23,6 +32,7 @@ CREATE TABLE StaffSessionUsers (
   NormalizedEmail    STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Email)) STORED,
   EmailVerifiedAt    TIMESTAMP OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CK_StaffSessionUsersId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
+  CONSTRAINT CK_StaffSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark')),
 ) PRIMARY KEY(Id);
 
 CREATE UNIQUE INDEX StaffSessionUsersByNormalizedUsername ON StaffSessionUsers(NormalizedUsername);
@@ -33,4 +43,4 @@ CREATE UNIQUE NULL_FILTERED INDEX StaffSessionUsersByNormalizedEmail ON StaffSes
 -- role (a tenant's people, the roles held in a tenant): by the exact username a role
 -- membership names its person by, carrying the columns those lists show, so a page reads
 -- one index entry for each person and no row of the table.
-CREATE UNIQUE INDEX StaffSessionUsersByUsername ON StaffSessionUsers(Username) STORING (Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);
+CREATE UNIQUE INDEX StaffSessionUsersByUsername ON StaffSessionUsers(Username) STORING (Name, Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);

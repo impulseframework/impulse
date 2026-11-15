@@ -21,6 +21,7 @@ import (
 func (h *Handlers) CreateStaffTenantUser() http.HandlerFunc {
 	type request struct {
 		Username string   `json:"username"`
+		Name     *string  `json:"name"`
 		Email    *string  `json:"email"`
 		Password string   `json:"password"`
 		Roles    []string `json:"roles"`

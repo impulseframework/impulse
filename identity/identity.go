@@ -71,6 +71,10 @@ type Store interface {
 	// UserID reads the id of the user who holds a username, compared as the auth
 	// compares names at a sign-in; found is false where none does.
 	UserID(ctx context.Context, txn resource.ReadWriteTransaction, username string) (id impulse.UUID, found bool, err error)
+	// UserByVerifiedEmail answers the username of the user who has confirmed the
+	// address, compared as the table's unique index compares addresses; found is
+	// false when no user holds it, and when the one who does has not confirmed it.
+	UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTransaction, email string) (username string, found bool, err error)
 	// DeleteUser buffers the removal of a user row.
 	DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
 
@@ -167,6 +171,9 @@ type HeldImpersonation struct {
 // NewUser is a user row as InsertUser writes it.
 type NewUser struct {
 	Username string
+	// Name is the person's name as people read it, nil for none. It is written as
+	// given: the manager has held it to the rule of a name (sessioninfo.CleanName).
+	Name *string
 	// Email is the address the person is reached at, nil for none. It is written
 	// unverified.
 	Email *string
@@ -181,6 +188,13 @@ type UserChange struct {
 	// entered by hand, so the row is left unverified: the time the address it held was
 	// verified goes with it.
 	Email *EmailChange
+	// Name, where set, replaces the name the row holds.
+	Name *NameChange
+}
+
+// NameChange is the name a change writes on a user row: Name, nil for none.
+type NameChange struct {
+	Name *string
 }
 
 // EmailChange is the address a change writes on a user row: Address, nil for none.
@@ -210,6 +224,10 @@ type Manager struct {
 	// administrators are the roles whose holders administer the application and a
 	// tenant, nil where the application named none (WithAdministratorRoles).
 	administrators *administratorRoles
+	// oneTenant is set where a person belongs to one tenant (WithOneTenantPerPerson),
+	// and holds what the hooks of a sign-in have given so far; nil where a person may
+	// hold roles in several tenants.
+	oneTenant *signInTenants
 	// now is the application's clock, which the session library holds a deadline
 	// against (a token's expiry).
 	now func() time.Time
@@ -255,7 +273,7 @@ func New(auth string, store Store, controller access.Controller, sessions Sessio
 	if sessions == nil {
 		return nil, errors.New("identity.New(): the session API is nil; pass the API of the Auth that signs the auth's people in (session.Auth.API), whose hasher a password written here is checked by")
 	}
-	m := &Manager{auth: auth, store: store, access: controller, sessions: sessions, administrators: nil, now: time.Now}
+	m := &Manager{auth: auth, store: store, access: controller, sessions: sessions, administrators: nil, oneTenant: nil, now: time.Now}
 	for _, opt := range opts {
 		opt(m)
 	}

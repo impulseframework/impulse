@@ -70,6 +70,10 @@ type Driver[Tx any] interface {
 	// user holds no verified address yet and no other user holds email, and reports
 	// whether it wrote.
 	ClaimVerifiedEmailIn(ctx context.Context, tx Tx, userID impulse.UUID, email string) (bool, error)
+	// ClaimUserNameIn writes name on the user inside tx when the user holds none, and
+	// reports whether it wrote. A user inserted earlier in tx is not claimed for: its
+	// insert carries the name.
+	ClaimUserNameIn(ctx context.Context, tx Tx, userID impulse.UUID, name string) (bool, error)
 	// UserByEmailIn reads the user holding email inside tx, verified or not, matched
 	// without regard to case, or nil when there is none.
 	UserByEmailIn(ctx context.Context, tx Tx, email string) (*dbtype.User, error)
@@ -349,6 +353,9 @@ func claimInvitation[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sess
 		if _, err := d.ClaimVerifiedEmailIn(ctx, tx, req.UserID, req.Invitation.Email); err != nil {
 			return errors.Wrap(err, "Driver.ClaimVerifiedEmailIn()")
 		}
+		if err := claimInvitedName(ctx, d, tx, req.UserID, req.Invitation); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -477,6 +484,9 @@ func acceptInvitation[Tx any](
 		}
 		if _, err := d.ClaimVerifiedEmailIn(ctx, tx, userID, inv.Email); err != nil {
 			return errors.Wrap(err, "Driver.ClaimVerifiedEmailIn()")
+		}
+		if err := claimInvitedName(ctx, d, tx, userID, inv); err != nil {
+			return err
 		}
 		granted, err := grantConsumed(ctx, tx, userID, username, inv, accept)
 		if err != nil {
@@ -964,7 +974,9 @@ func provisionUser[Tx any](
 		return false, stop, err
 	}
 	req.Username = newUser.Username
-	insert := &dbtype.InsertSessionUser{Username: newUser.Username, PasswordHash: newUser.PasswordHash, Disabled: newUser.Disabled}
+	// The new account carries the name the sign-in asserts, since a row buffered in this
+	// transaction cannot be updated in it.
+	insert := &dbtype.InsertSessionUser{Username: newUser.Username, PasswordHash: newUser.PasswordHash, Disabled: newUser.Disabled, Name: keptName(req.Identity.Name)}
 	if !newUser.Disabled {
 		if live, err = consumeInvitation(ctx, d, tx, req, byInvitation); err != nil {
 			return false, nil, err
@@ -973,6 +985,10 @@ func provisionUser[Tx any](
 	if live {
 		if err := invitedAddress(ctx, d, tx, req, insert); err != nil {
 			return false, nil, err
+		}
+		// The inviter's name for the person stands where the sign-in asserted none.
+		if insert.Name == nil {
+			insert.Name = keptName(req.Invitation.Name)
 		}
 	}
 	id, err := d.InsertUserIn(ctx, tx, insert)
@@ -1035,6 +1051,31 @@ func invitedAddress[Tx any](ctx context.Context, d Driver[Tx], tx Tx, req *sessi
 	if holder == nil {
 		email := inv.Email
 		insert.Email, insert.EmailVerified = &email, true
+	}
+
+	return nil
+}
+
+// keptName is a name as a new user row takes it: nil for none, and for one the store
+// would refuse (too long to keep, or not one line of text), which is dropped so the
+// sign-in it came with stands.
+func keptName(name string) *string {
+	kept := sessioninfo.KeptName(name)
+	if kept == "" {
+		return nil
+	}
+
+	return &kept
+}
+
+// claimInvitedName writes the name an invitation carries on the existing user who
+// accepts it, inside the acceptance's transaction, when the user holds none.
+func claimInvitedName[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID impulse.UUID, inv *sessioninfo.Invitation) error {
+	if inv.Name == "" {
+		return nil
+	}
+	if _, err := d.ClaimUserNameIn(ctx, tx, userID, inv.Name); err != nil {
+		return errors.Wrap(err, "Driver.ClaimUserNameIn()")
 	}
 
 	return nil

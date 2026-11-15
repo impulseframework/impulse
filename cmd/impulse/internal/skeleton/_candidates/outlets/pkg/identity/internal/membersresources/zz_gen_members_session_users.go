@@ -29,6 +29,7 @@ func (MembersSessionUser) DefaultConfig() resource.Config {
 type membersSessionUserRead struct {
 	ID                     impulse.UUID `json:"id"                     perm:"-"`
 	Username               string       `json:"username"`
+	Name                   *string      `json:"name"`
 	Email                  *string      `json:"email"`
 	EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
 	Disabled               bool         `json:"disabled"`
@@ -45,6 +46,7 @@ var membersSessionUserReadSets resource.SetCache[MembersSessionUser, membersSess
 type membersSessionUserWrite struct {
 	ID                     impulse.UUID `json:"-"`
 	Username               string       `json:"username"`
+	Name                   *string      `json:"name"`
 	Email                  *string      `json:"email"`
 	EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
 	Disabled               bool         `json:"disabled"`
@@ -173,6 +175,7 @@ func (c *MembersSessionUserColumns) All() *MembersSessionUserColumns {
 	c.fields = []accesstypes.Field{
 		"ID",
 		"Username",
+		"Name",
 		"Email",
 		"EmailVerifiedAt",
 		"Disabled",
@@ -192,6 +195,12 @@ func (c *MembersSessionUserColumns) ID() *MembersSessionUserColumns {
 
 func (c *MembersSessionUserColumns) Username() *MembersSessionUserColumns {
 	c.fields = append(c.fields, "Username")
+
+	return c
+}
+
+func (c *MembersSessionUserColumns) Name() *MembersSessionUserColumns {
+	c.fields = append(c.fields, "Name")
 
 	return c
 }
@@ -326,6 +335,10 @@ func (c *membersSessionUserSort) Username() *MembersSessionUserSort {
 	return c.addField("Username")
 }
 
+func (c *membersSessionUserSort) Name() *MembersSessionUserSort {
+	return c.addField("Name")
+}
+
 func (c *membersSessionUserSort) Email() *MembersSessionUserSort {
 	return c.addField("Email")
 }
@@ -451,6 +464,26 @@ func (p *MembersSessionUserCreatePatch) Username() string {
 
 func (p *MembersSessionUserCreatePatch) UsernameIsSet() bool {
 	return p.patchSet.IsSet("Username")
+}
+
+func (p *MembersSessionUserCreatePatch) SetName(v *string) *MembersSessionUserCreatePatch {
+	if v != nil {
+		p.patchSet.Set("Name", v)
+	} else {
+		p.patchSet.Set("Name", nil)
+	}
+
+	return p
+}
+
+func (p *MembersSessionUserCreatePatch) Name() *string {
+	v, _ := p.patchSet.Get("Name").(*string)
+
+	return v
+}
+
+func (p *MembersSessionUserCreatePatch) NameIsSet() bool {
+	return p.patchSet.IsSet("Name")
 }
 
 func (p *MembersSessionUserCreatePatch) SetEmail(v *string) *MembersSessionUserCreatePatch {
@@ -667,6 +700,26 @@ func (p *MembersSessionUserUpdatePatch) Username() string {
 
 func (p *MembersSessionUserUpdatePatch) UsernameIsSet() bool {
 	return p.patchSet.IsSet("Username")
+}
+
+func (p *MembersSessionUserUpdatePatch) SetName(v *string) *MembersSessionUserUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("Name", v)
+	} else {
+		p.patchSet.Set("Name", nil)
+	}
+
+	return p
+}
+
+func (p *MembersSessionUserUpdatePatch) Name() *string {
+	v, _ := p.patchSet.Get("Name").(*string)
+
+	return v
+}
+
+func (p *MembersSessionUserUpdatePatch) NameIsSet() bool {
+	return p.patchSet.IsSet("Name")
 }
 
 func (p *MembersSessionUserUpdatePatch) SetEmail(v *string) *MembersSessionUserUpdatePatch {

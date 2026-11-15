@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -50,6 +51,7 @@ var (
 type memUser struct {
 	username string
 	email    string
+	name     string
 }
 
 // memStore is the committed state, the steps taken against it, and what the next
@@ -211,6 +213,9 @@ func (d *memDriver) InsertUserIn(_ context.Context, tx *memTx, user *dbtype.Inse
 	if user.Email != nil {
 		row.email = *user.Email
 	}
+	if user.Name != nil {
+		row.name = *user.Name
+	}
 	tx.buffer(func() { d.store.users[id] = row })
 
 	return id, nil
@@ -242,6 +247,15 @@ func (d *memDriver) ConsumeMailLinkIn(_ context.Context, tx *memTx, id impulse.U
 
 func (d *memDriver) ClaimVerifiedEmailIn(_ context.Context, tx *memTx, userID impulse.UUID, email string) (bool, error) {
 	tx.buffer(func() { d.store.users[userID].email = email })
+
+	return true, nil
+}
+
+func (d *memDriver) ClaimUserNameIn(_ context.Context, tx *memTx, userID impulse.UUID, name string) (bool, error) {
+	if d.store.users[userID].name != "" {
+		return false, nil
+	}
+	tx.buffer(func() { d.store.users[userID].name = name })
 
 	return true, nil
 }
@@ -794,4 +808,116 @@ func TestAcceptInvitation_inOneTransaction(t *testing.T) {
 			t.Errorf("steps with a dead invitation (-want +got):\n%s", diff)
 		}
 	})
+}
+
+// TestSignIn_theNameOfANewAccount holds what a new account's row carries as the
+// person's name: the name the sign-in asserted, else the one the invitation carried,
+// and none where a name is too long to keep.
+func TestSignIn_theNameOfANewAccount(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		asserted string
+		invited  string
+		want     string
+	}{
+		{name: "the directory's name is written with the account", asserted: "  Pat Example ", want: "Pat Example"},
+		{name: "the invitation's name stands where the sign-in asserts none", invited: "Patricia Example", want: "Patricia Example"},
+		{name: "the directory's name wins over the invitation's", asserted: "Pat Example", invited: "Patricia Example", want: "Pat Example"},
+		{name: "a sign-in and an invitation without a name leave the account without one"},
+		{name: "a name too long to keep is dropped and the sign-in stands", asserted: strings.Repeat("a", sessioninfo.MaxNameLength+1)},
+		{name: "a name too long to keep gives way to the invitation's", asserted: strings.Repeat("a", sessioninfo.MaxNameLength+1), invited: "Patricia Example", want: "Patricia Example"},
+		{name: "a name that is not one line of text is dropped and the sign-in stands", asserted: "Pat\x00Example"},
+		{name: "an invitation's name that is not one line of text is dropped too", invited: "Patricia\nExample"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newMemStore()
+			d := &memDriver{store: store}
+			hooks := &roleHooks{store: store}
+			rules := Rules[*memTx]{Standard: signin.InvitedUsersOnly, Policy: hooks.policy, Accept: hooks.accept, Seat: hooks.seat, Directories: declaredWithSeat}
+			inv := store.invite(stranger, "lakeside", "Member")
+			inv.Name = tt.invited
+			req := strangerRequest(inv)
+			req.Identity.Name = tt.asserted
+
+			if err := signInWith(t, d, req, rules); err != nil {
+				t.Fatalf("SignIn() error = %v", err)
+			}
+
+			_, user := store.userNamed(stranger)
+			if user == nil {
+				t.Fatal("no account was created")
+			}
+			if user.name != tt.want {
+				t.Errorf("the new account's name = %q, want %q", user.name, tt.want)
+			}
+		})
+	}
+}
+
+// TestAcceptInvitation_theInvitedName holds what an invitation's name does for an
+// account that already exists: it is written where the account holds none, and never
+// over a name the account holds.
+func TestAcceptInvitation_theInvitedName(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		held    string
+		invited string
+		want    string
+	}{
+		{name: "an account without a name takes the invitation's", invited: "Sam Example", want: "Sam Example"},
+		{name: "an account with a name keeps it", held: "Samantha Example", invited: "Sam Example", want: "Samantha Example"},
+		{name: "an invitation without a name writes none", held: "", invited: "", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run("by hand: "+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newMemStore()
+			d := &memDriver{store: store}
+			hooks := &roleHooks{store: store}
+			id := impulse.Must(impulse.NewUUID())
+			store.users[id] = &memUser{username: "sam", name: tt.held}
+			inv := store.invite("sam@lakeside.edu", "", "Admin")
+			inv.Name = tt.invited
+
+			if err := AcceptInvitation(t.Context(), d, id, "sam", "", inv, hooks.accept); err != nil {
+				t.Fatalf("AcceptInvitation() error = %v", err)
+			}
+			if got := store.users[id].name; got != tt.want {
+				t.Errorf("the account's name = %q, want %q", got, tt.want)
+			}
+		})
+		t.Run("at a sign-in: "+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := newMemStore()
+			d := &memDriver{store: store}
+			hooks := &roleHooks{store: store}
+			id := impulse.Must(impulse.NewUUID())
+			store.users[id] = &memUser{username: "sam", name: tt.held}
+			inv := store.invite("sam@lakeside.edu", "", "Admin")
+			inv.Name = tt.invited
+			req := &sessioninfo.NewSessionRequest{
+				Reason: sessioninfo.ReasonLogin, Username: "sam", UserID: id,
+				Identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: id.String(), Email: "sam@lakeside.edu", EmailVerified: true}, Invitation: inv,
+			}
+
+			if err := signInWith(t, d, req, Rules[*memTx]{Policy: hooks.policy, Accept: hooks.accept}); err != nil {
+				t.Fatalf("SignIn() error = %v", err)
+			}
+			if !inv.Accepted {
+				t.Fatal("the invitation was not accepted")
+			}
+			if got := store.users[id].name; got != tt.want {
+				t.Errorf("the account's name = %q, want %q", got, tt.want)
+			}
+		})
+	}
 }

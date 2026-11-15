@@ -259,6 +259,12 @@ type db interface {
 	VerifyUserEmail(ctx context.Context, id impulse.UUID, email string) error
 	// ClaimVerifiedEmail writes email on the user as verified when the user holds no verified address and no other user holds it, and reports whether it did.
 	ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, email string) (bool, error)
+	// SetUserName writes the person's name on the user, or takes it off (nil).
+	SetUserName(ctx context.Context, id impulse.UUID, name *string) error
+	// ClaimUserName writes name on the user when the user holds none, and reports whether it did.
+	ClaimUserName(ctx context.Context, id impulse.UUID, name string) (bool, error)
+	// SetUserLook writes the look the person chose on the user, replacing the one held as a whole.
+	SetUserLook(ctx context.Context, id impulse.UUID, look sessioninfo.Look) error
 	// ImpersonationEnabled reports whether an impersonation record table is configured.
 	ImpersonationEnabled() bool
 	// InsertImpersonatedSession inserts a session row and its impersonation record atomically,

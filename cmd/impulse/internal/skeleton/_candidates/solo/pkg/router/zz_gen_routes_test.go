@@ -486,6 +486,10 @@ func (s *generatedHandlersStub) SetStaffUserEmail() http.HandlerFunc {
 	return s.record("SetStaffUserEmail")
 }
 
+func (s *generatedHandlersStub) SetStaffUserName() http.HandlerFunc {
+	return s.record("SetStaffUserName")
+}
+
 func (s *generatedHandlersStub) StaffRoles() http.HandlerFunc {
 	return s.record("StaffRoles")
 }

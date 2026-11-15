@@ -29,6 +29,7 @@ type crewSectorUserRead struct {
 	ID                     impulse.UUID `json:"id"                     perm:"-"`
 	Domain                 string       `json:"domain"`
 	Username               string       `json:"username"`
+	Name                   *string      `json:"name"`
 	Email                  *string      `json:"email"`
 	EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
 	Disabled               bool         `json:"disabled"`
@@ -148,6 +149,7 @@ func (c *CrewSectorUserColumns) All() *CrewSectorUserColumns {
 		"ID",
 		"Domain",
 		"Username",
+		"Name",
 		"Email",
 		"EmailVerifiedAt",
 		"Disabled",
@@ -175,6 +177,12 @@ func (c *CrewSectorUserColumns) Domain() *CrewSectorUserColumns {
 
 func (c *CrewSectorUserColumns) Username() *CrewSectorUserColumns {
 	c.fields = append(c.fields, "Username")
+
+	return c
+}
+
+func (c *CrewSectorUserColumns) Name() *CrewSectorUserColumns {
+	c.fields = append(c.fields, "Name")
 
 	return c
 }
@@ -335,6 +343,10 @@ func (c *crewSectorUserSort) Domain() *CrewSectorUserSort {
 
 func (c *crewSectorUserSort) Username() *CrewSectorUserSort {
 	return c.addField("Username")
+}
+
+func (c *crewSectorUserSort) Name() *CrewSectorUserSort {
+	return c.addField("Name")
 }
 
 func (c *crewSectorUserSort) Email() *CrewSectorUserSort {

@@ -96,6 +96,7 @@ func (i *identityInstance) tenantMethodSources() []identitySourceFile {
 			method("Delete"+subject+"User", identityDeleteUserTemplate, identityUsers),
 			method("End"+subject+"UserSessions", identityEndUserSessionsTemplate, identitySessions),
 			method("Revoke"+subject+"UserTrustedDevices", identityRevokeTrustedDevicesTemplate, identityTrustedDevices),
+			method("Set"+subject+"UserName", identitySetUserNameTemplate, identityUsers),
 		)
 		if i.password {
 			files = append(files,

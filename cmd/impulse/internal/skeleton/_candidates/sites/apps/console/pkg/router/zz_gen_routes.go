@@ -127,7 +127,11 @@ type GeneratedHandlers interface {
 
 	SetStaffTenantUserEmail() http.HandlerFunc
 
+	SetStaffTenantUserName() http.HandlerFunc
+
 	SetStaffUserEmail() http.HandlerFunc
+
+	SetStaffUserName() http.HandlerFunc
 
 	StaffRoles() http.HandlerFunc
 
@@ -282,7 +286,11 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	r.Post("/api/tenants/{tenantID}/set-staff-tenant-user-email", domainGuard(h.SetStaffTenantUserEmail()))
 
+	r.Post("/api/tenants/{tenantID}/set-staff-tenant-user-name", domainGuard(h.SetStaffTenantUserName()))
+
 	r.Post("/api/set-staff-user-email", h.SetStaffUserEmail())
+
+	r.Post("/api/set-staff-user-name", h.SetStaffUserName())
 
 	staffRolesHandler := h.StaffRoles()
 	bounded.Get("/api/staff-roles", staffRolesHandler)

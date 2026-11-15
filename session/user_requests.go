@@ -11,6 +11,7 @@ type ChangeSessionUserPasswordRequest struct {
 // one an operator set: the user changes it before anything else is served (see the
 // README's "Users and the forced password change"); it needs a Password. Email is
 // the address the operator enters, unverified (see "Users and their email address").
+// Name is the person's name as people read it (see "A person's name").
 type CreateUserRequest struct {
 	Username               string  `json:"username"`
 	Password               *string `json:"password"`
@@ -20,4 +21,7 @@ type CreateUserRequest struct {
 	// reserves the address, and a link may be sent to it. Nil for none. When the
 	// username is the address (UsernameIsEmail) it is nil or the username.
 	Email *string `json:"email"`
+	// Name is the person's name as people read it, nil for none: kept without the
+	// space around it, and refused when longer than sessioninfo.MaxNameLength.
+	Name *string `json:"name"`
 }

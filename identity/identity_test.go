@@ -70,10 +70,12 @@ type fakeStore struct {
 	// impersonation records by session, true while one stands, and heldBy the sessions
 	// whose standing record names a username as its local actor.
 	usernames map[impulse.UUID]string
-	ended     map[impulse.UUID]bool
-	missing   map[impulse.UUID]bool
-	records   map[impulse.UUID]bool
-	heldBy    map[string][]impulse.UUID
+	// emails are the usernames of the users who have confirmed an address, by address.
+	emails  map[string]string
+	ended   map[impulse.UUID]bool
+	missing map[impulse.UUID]bool
+	records map[impulse.UUID]bool
+	heldBy  map[string][]impulse.UUID
 	// actsAsRole are the held records whose session acts as a role, and devices the
 	// unrevoked trusted devices of each user.
 	actsAsRole map[impulse.UUID]bool
@@ -115,7 +117,11 @@ func (f *fakeStore) InsertUser(_ context.Context, _ resource.ReadWriteTransactio
 	if user.Email != nil {
 		email = *user.Email
 	}
-	f.writes = append(f.writes, "insert user "+user.Username+" "+email)
+	line := "insert user " + user.Username + " " + email
+	if user.Name != nil {
+		line += " name=" + *user.Name
+	}
+	f.writes = append(f.writes, line)
 
 	return f.nextID, nil
 }
@@ -140,6 +146,13 @@ func (f *fakeStore) UpdateUser(_ context.Context, _ resource.ReadWriteTransactio
 			address = *change.Email.Address
 		}
 		line += " email=" + address
+	}
+	if change.Name != nil {
+		name := "<none>"
+		if change.Name.Name != nil {
+			name = *change.Name.Name
+		}
+		line += " name=" + name
 	}
 	f.writes = append(f.writes, line)
 
@@ -253,6 +266,15 @@ func (f *fakeStore) UserID(_ context.Context, _ resource.ReadWriteTransaction, u
 	return impulse.NilUUID, false, nil
 }
 
+func (f *fakeStore) UserByVerifiedEmail(_ context.Context, _ resource.ReadWriteTransaction, email string) (username string, found bool, err error) {
+	if err := f.fail("UserByVerifiedEmail"); err != nil {
+		return "", false, err
+	}
+	username, found = f.emails[email]
+
+	return username, found, nil
+}
+
 func (f *fakeStore) DeleteUser(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
 	if err := f.fail("DeleteUser"); err != nil {
 		return err
@@ -338,7 +360,11 @@ func (f *fakeStore) InsertInvitation(_ context.Context, _ resource.ReadWriteTran
 	if row.InvitedBy.Valid {
 		invitedBy = row.InvitedBy.String()
 	}
-	f.writes = append(f.writes, "insert invitation "+row.ID.String()+" "+row.Email+" tenant="+row.Tenant+" roles="+strings.Join(row.RoleNames, ",")+" by="+invitedBy)
+	line := "insert invitation " + row.ID.String() + " " + row.Email + " tenant=" + row.Tenant + " roles=" + strings.Join(row.RoleNames, ",") + " by=" + invitedBy
+	if row.Name != "" {
+		line += " name=" + row.Name
+	}
+	f.writes = append(f.writes, line)
 
 	return nil
 }
@@ -552,7 +578,10 @@ func (s fakeSessions) PrepareInvitation(_ context.Context, req *session.Invitati
 
 	return &fakePrepared{
 		mail: s.mail,
-		row:  session.InvitationRow{ID: s.mail.id, TokenHash: []byte("hash"), Email: req.Email, Tenant: req.Tenant, RoleNames: req.RoleNames, InvitedBy: req.InvitedBy, ExpiresAt: time.Time{}},
+		row: session.InvitationRow{
+			ID: s.mail.id, TokenHash: []byte("hash"), Email: req.Email, Name: strings.TrimSpace(req.Name), Tenant: req.Tenant, RoleNames: req.RoleNames, InvitedBy: req.InvitedBy,
+			ExpiresAt: time.Time{},
+		},
 	}, nil
 }
 

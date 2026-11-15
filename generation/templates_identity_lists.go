@@ -85,6 +85,7 @@ type (
 		// @domain
 		Domain                 string     ` + "`spanner:\"Domain\" index:\"true\"`" + `
 		Username               string     ` + "`spanner:\"Username\" index:\"true\"`" + `
+		Name                   *string    ` + "`spanner:\"Name\"`" + `
 		Email                  *string    ` + "`spanner:\"Email\"`" + `
 		EmailVerifiedAt        *time.Time ` + "`spanner:\"EmailVerifiedAt\"`" + `
 		Disabled               bool       ` + "`spanner:\"Disabled\"`" + `
@@ -107,6 +108,7 @@ SELECT
   u.Id AS Id,
   t.Domain AS Domain,
   u.Username AS Username,
+  u.Name AS Name,
   u.Email AS Email,
   u.EmailVerifiedAt AS EmailVerifiedAt,
   u.Disabled AS Disabled,
@@ -224,7 +226,8 @@ type (
 	// {{ .TenantName }}: a row of {{ .Tables.MailLinks }} of the invitation kind that names
 	// the tenant, with the columns {{ .MailLink }} serves of it. Domain is the tenant the
 	// invitation seats a person in (the link's Tenant), and RoleNames the roles it gives
-	// there. The link itself is in the message alone and its hash is not a column.
+	// there, and Name the name its sender gave the person, where they gave one. The
+	// link itself is in the message alone and its hash is not a column.
 	//
 	// Pending is a fact about the row, under the name a grant's condition reads
 	// (pending): the invitation stands, neither accepted nor withdrawn (both consume it)
@@ -244,6 +247,7 @@ type (
 		// @domain
 		Domain     string        ` + "`spanner:\"Domain\" index:\"true\"`" + `
 		Email      string        ` + "`spanner:\"Email\" index:\"true\"`" + `
+		Name       *string       ` + "`spanner:\"Name\"`" + `
 		// @attribute(role)
 		RoleNames  []string      ` + "`spanner:\"RoleNames\"`" + `
 		InvitedBy  *impulse.UUID ` + "`spanner:\"InvitedBy\"`" + `
@@ -264,6 +268,7 @@ SELECT
   l.Id AS Id,
   l.Tenant AS Domain,
   l.Email AS Email,
+  l.Name AS Name,
   l.RoleNames AS RoleNames,
   l.InvitedBy AS InvitedBy,
   l.CreatedAt AS CreatedAt,

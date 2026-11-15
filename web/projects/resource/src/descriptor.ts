@@ -238,6 +238,7 @@ export interface IdentityMethods {
   readonly enable?: string;
   readonly delete?: string;
   readonly rename?: string;
+  readonly setName?: string;
   readonly setEmail?: string;
   readonly setTemporaryPassword?: string;
   readonly requirePasswordChange?: string;

@@ -12,7 +12,8 @@ import (
 type (
 	// MembersSessionMailLink is one link the Members auth mailed: a row of
 	// MembersSessionMailLinks. Kind says what the link is for (invitation, verification
-	// or sign-up); an invitation carries the roles and the tenant it invites into. A
+	// or sign-up); an invitation carries the roles and the tenant it invites into, and
+	// the name its sender gave the person (Name), where they gave one. A
 	// link stands while it is neither consumed nor expired, and one that was followed
 	// and one that was revoked are both consumed. The link itself is in the message
 	// alone and its hash is not a field.
@@ -26,6 +27,7 @@ type (
 		ID         impulse.UUID  `spanner:"Id"`
 		Kind       string        `spanner:"Kind"`
 		Email      string        `spanner:"Email"`
+		Name       *string       `spanner:"Name"`
 		UserID     *impulse.UUID `spanner:"UserId"`
 		Tenant     *string       `spanner:"Tenant"`
 		RoleNames  []string      `spanner:"RoleNames"`

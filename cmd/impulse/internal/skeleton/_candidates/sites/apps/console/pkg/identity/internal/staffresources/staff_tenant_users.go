@@ -36,6 +36,7 @@ type (
 		// @domain
 		Domain                 string     `spanner:"Domain"                 index:"true"`
 		Username               string     `spanner:"Username"               index:"true"`
+		Name                   *string    `spanner:"Name"`
 		Email                  *string    `spanner:"Email"`
 		EmailVerifiedAt        *time.Time `spanner:"EmailVerifiedAt"`
 		Disabled               bool       `spanner:"Disabled"`
@@ -58,6 +59,7 @@ SELECT
   u.Id AS Id,
   t.Domain AS Domain,
   u.Username AS Username,
+  u.Name AS Name,
   u.Email AS Email,
   u.EmailVerifiedAt AS EmailVerifiedAt,
   u.Disabled AS Disabled,

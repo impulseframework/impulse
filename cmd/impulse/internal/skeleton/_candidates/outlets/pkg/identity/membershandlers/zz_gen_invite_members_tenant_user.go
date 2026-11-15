@@ -21,6 +21,7 @@ import (
 func (h *Handlers) InviteMembersTenantUser() http.HandlerFunc {
 	type request struct {
 		Email string   `json:"email"`
+		Name  *string  `json:"name"`
 		Roles []string `json:"roles"`
 	}
 

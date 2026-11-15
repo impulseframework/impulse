@@ -168,6 +168,7 @@ class SideBuilder {
     const password = methods.setTemporaryPassword !== undefined || methods.requirePasswordChange !== undefined;
     const fields: Named[] = [
       ['username', 'Username'],
+      ['name', 'Name'],
       ['email', 'Email'],
       ['disabled', 'Disabled'],
       ...(password ? ([['passwordChangeRequired', 'Must change password']] as Named[]) : []),
@@ -218,6 +219,7 @@ class SideBuilder {
     const fields: Named[] = this.tenant
       ? [
           ['email', 'Email'],
+          ['name', 'Name'],
           ['roleNames', 'Roles'],
           ['createdAt', 'Sent'],
           ['expiresAt', 'Expires'],
@@ -226,6 +228,7 @@ class SideBuilder {
       : [
           ['kind', 'Kind'],
           ['email', 'Email'],
+          ['name', 'Name'],
           ['tenant', words(this.identity.tenant ?? 'Tenant')],
           ['roleNames', 'Roles'],
           ['createdAt', 'Sent'],
@@ -455,7 +458,9 @@ class SideBuilder {
           : // The whole application's method takes the person's name, which the row fills.
             { label: 'Give a role', icon: 'badge', fill: (row) => ({ username: row['username'] }), labels: this.where() },
       ],
-      [methods.rename, { label: 'Rename', icon: 'edit' }],
+      // A person has two names: the one people read, and the username they sign in under.
+      [methods.setName, { label: 'Change the name', icon: 'person' }],
+      [methods.rename, { label: 'Change the username', icon: 'edit' }],
       [methods.setEmail, { label: 'Change the email address', icon: 'mail' }],
       [methods.setTemporaryPassword, { label: 'Set a temporary password', icon: 'password' }],
       [

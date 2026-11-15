@@ -29,6 +29,7 @@ func (StaffSessionUser) DefaultConfig() resource.Config {
 type staffSessionUserRead struct {
 	ID                     impulse.UUID `json:"id"                     perm:"-"`
 	Username               string       `json:"username"`
+	Name                   *string      `json:"name"`
 	Email                  *string      `json:"email"`
 	EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
 	Disabled               bool         `json:"disabled"`
@@ -45,6 +46,7 @@ var staffSessionUserReadSets resource.SetCache[StaffSessionUser, staffSessionUse
 type staffSessionUserWrite struct {
 	ID                     impulse.UUID `json:"-"`
 	Username               string       `json:"username"`
+	Name                   *string      `json:"name"`
 	Email                  *string      `json:"email"`
 	EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
 	Disabled               bool         `json:"disabled"`
@@ -173,6 +175,7 @@ func (c *StaffSessionUserColumns) All() *StaffSessionUserColumns {
 	c.fields = []accesstypes.Field{
 		"ID",
 		"Username",
+		"Name",
 		"Email",
 		"EmailVerifiedAt",
 		"Disabled",
@@ -192,6 +195,12 @@ func (c *StaffSessionUserColumns) ID() *StaffSessionUserColumns {
 
 func (c *StaffSessionUserColumns) Username() *StaffSessionUserColumns {
 	c.fields = append(c.fields, "Username")
+
+	return c
+}
+
+func (c *StaffSessionUserColumns) Name() *StaffSessionUserColumns {
+	c.fields = append(c.fields, "Name")
 
 	return c
 }
@@ -326,6 +335,10 @@ func (c *staffSessionUserSort) Username() *StaffSessionUserSort {
 	return c.addField("Username")
 }
 
+func (c *staffSessionUserSort) Name() *StaffSessionUserSort {
+	return c.addField("Name")
+}
+
 func (c *staffSessionUserSort) Email() *StaffSessionUserSort {
 	return c.addField("Email")
 }
@@ -451,6 +464,26 @@ func (p *StaffSessionUserCreatePatch) Username() string {
 
 func (p *StaffSessionUserCreatePatch) UsernameIsSet() bool {
 	return p.patchSet.IsSet("Username")
+}
+
+func (p *StaffSessionUserCreatePatch) SetName(v *string) *StaffSessionUserCreatePatch {
+	if v != nil {
+		p.patchSet.Set("Name", v)
+	} else {
+		p.patchSet.Set("Name", nil)
+	}
+
+	return p
+}
+
+func (p *StaffSessionUserCreatePatch) Name() *string {
+	v, _ := p.patchSet.Get("Name").(*string)
+
+	return v
+}
+
+func (p *StaffSessionUserCreatePatch) NameIsSet() bool {
+	return p.patchSet.IsSet("Name")
 }
 
 func (p *StaffSessionUserCreatePatch) SetEmail(v *string) *StaffSessionUserCreatePatch {
@@ -667,6 +700,26 @@ func (p *StaffSessionUserUpdatePatch) Username() string {
 
 func (p *StaffSessionUserUpdatePatch) UsernameIsSet() bool {
 	return p.patchSet.IsSet("Username")
+}
+
+func (p *StaffSessionUserUpdatePatch) SetName(v *string) *StaffSessionUserUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("Name", v)
+	} else {
+		p.patchSet.Set("Name", nil)
+	}
+
+	return p
+}
+
+func (p *StaffSessionUserUpdatePatch) Name() *string {
+	v, _ := p.patchSet.Get("Name").(*string)
+
+	return v
+}
+
+func (p *StaffSessionUserUpdatePatch) NameIsSet() bool {
+	return p.patchSet.IsSet("Name")
 }
 
 func (p *StaffSessionUserUpdatePatch) SetEmail(v *string) *StaffSessionUserUpdatePatch {

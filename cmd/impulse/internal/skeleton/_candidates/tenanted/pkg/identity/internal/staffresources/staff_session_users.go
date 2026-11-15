@@ -11,9 +11,10 @@ import (
 
 type (
 	// StaffSessionUser is one person who signs in through the Staff auth: a row of
-	// StaffSessionUsers, the session library's users table. The password hash is not a
-	// field, so it is never read or written here, and the normalized columns are the
-	// table's own.
+	// StaffSessionUsers, the session library's users table. Name is the person's name
+	// as people read it, which a page shows in place of the username where the person
+	// holds one; it identifies nobody. The password hash is not a field, so it is never
+	// read or written here, and the normalized columns are the table's own.
 	//
 	// @resource
 	// @suppress(patchHandler)
@@ -23,6 +24,7 @@ type (
 	StaffSessionUser struct {
 		ID                     impulse.UUID `spanner:"Id"`
 		Username               string       `spanner:"Username"`
+		Name                   *string      `spanner:"Name"`
 		Email                  *string      `spanner:"Email"`
 		EmailVerifiedAt        *time.Time   `spanner:"EmailVerifiedAt"`
 		Disabled               bool         `spanner:"Disabled"`

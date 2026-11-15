@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
@@ -51,7 +52,10 @@ type InsertSession struct {
 // Email is the user's email address, nil for none, and EmailVerifiedAt the database's
 // time at which the person proved they read it, nil while it is unverified; both are
 // nil on a store without the auth schema. An unverified address is trusted for
-// nothing: it may be sent a link, and that is all.
+// nothing: it may be sent a link, and that is all. Name is the person's name as people
+// read it ("Gale Reyes"), nil for none and on a store without the auth schema: what a
+// directory asserted at a sign-in, an inviter typed, or the person wrote themselves. It
+// identifies nobody: the username does.
 type SessionUser struct {
 	ID                     impulse.UUID     `spanner:"Id"                     db:"Id"`
 	Username               string           `spanner:"Username"               db:"Username"`
@@ -62,11 +66,31 @@ type SessionUser struct {
 	LastSignInAt           *time.Time       `spanner:"LastSignInAt"           db:"LastSignInAt"`
 	Email                  *string          `spanner:"Email"                  db:"Email"`
 	EmailVerifiedAt        *time.Time       `spanner:"EmailVerifiedAt"        db:"EmailVerifiedAt"`
+	Name                   *string          `spanner:"Name"                   db:"Name"`
+	LookScheme             *string          `spanner:"LookScheme"             db:"LookScheme"`
+	LookPalette            *string          `spanner:"LookPalette"            db:"LookPalette"`
 }
 
 // EmailVerified reports whether the user holds a verified address.
 func (u *SessionUser) EmailVerified() bool {
 	return u != nil && u.Email != nil && u.EmailVerifiedAt != nil
+}
+
+// Look is the look the person chose, the zero value for none: the two columns the row
+// keeps it in, each empty where the row holds null.
+func (u *SessionUser) Look() sessioninfo.Look {
+	var look sessioninfo.Look
+	if u == nil {
+		return look
+	}
+	if u.LookScheme != nil {
+		look.Scheme = *u.LookScheme
+	}
+	if u.LookPalette != nil {
+		look.Palette = *u.LookPalette
+	}
+
+	return look
 }
 
 // InsertSessionUser is the caller-supplied part of a new user row. The driver writes
@@ -75,7 +99,7 @@ func (u *SessionUser) EmailVerified() bool {
 // sign-up or an invitation the person completed by mail), in which case the driver
 // stamps EmailVerifiedAt with the commit time. On a store whose usernames are the
 // addresses (UsernameIsEmail) the address is the username and Email must be nil or
-// match it.
+// match it. Name, nil for none, is the person's name, written as CleanName leaves it.
 type InsertSessionUser struct {
 	Username               string           `spanner:"Username"               db:"Username"`
 	PasswordHash           *securehash.Hash `spanner:"PasswordHash"           db:"PasswordHash"`
@@ -83,6 +107,7 @@ type InsertSessionUser struct {
 	PasswordChangeRequired bool             `spanner:"PasswordChangeRequired" db:"PasswordChangeRequired"`
 	Email                  *string          `spanner:"Email"                  db:"Email"`
 	EmailVerified          bool             `spanner:"-"                      db:"-"`
+	Name                   *string          `spanner:"Name"                   db:"Name"`
 }
 
 // SessionIDColumn is the primary-key column of the custom session data table, referencing the session table's primary key.
@@ -104,9 +129,12 @@ func IsReservedCustomUserColumn(name string) bool {
 
 // ValidateInsertUser refuses a new user row the store cannot write: on a store whose
 // usernames are the addresses (usernameIsEmail), an Email that is not the username,
-// since the database derives the address from the username; and a verified mark
-// without an address.
+// since the database derives the address from the username; a verified mark
+// without an address; and a name CleanName refuses.
 func ValidateInsertUser(user *InsertSessionUser, usernameIsEmail bool) error {
+	if _, err := sessioninfo.CleanName(user.Name); err != nil {
+		return errors.Wrap(err, "sessioninfo.CleanName()")
+	}
 	switch {
 	case user.Email != nil && strings.TrimSpace(*user.Email) == "":
 		return httpio.NewBadRequestMessage("an email address, when given, is not empty")

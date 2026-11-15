@@ -24,16 +24,16 @@ const fields = (...names: string[]): ResourceMeta =>
   }) as ResourceMeta;
 
 const metas: Record<string, ResourceMeta> = {
-  CrewSessionUsers: fields('id', 'username', 'email', 'emailVerifiedAt', 'disabled', 'passwordChangeRequired', 'createdAt', 'lastSignInAt'),
+  CrewSessionUsers: fields('id', 'username', 'name', 'email', 'emailVerifiedAt', 'disabled', 'passwordChangeRequired', 'createdAt', 'lastSignInAt'),
   CrewUserRoles: fields('kind', 'axis', 'domain', 'role', 'user', 'createdAt'),
   CrewSessionIdentities: fields('id', 'userId', 'method', 'connection', 'emailAtLink', 'createdAt', 'lastUsedAt'),
-  CrewSessionMailLinks: fields('id', 'kind', 'email', 'tenant', 'roleNames', 'createdAt', 'expiresAt', 'consumedAt'),
+  CrewSessionMailLinks: fields('id', 'kind', 'email', 'name', 'tenant', 'roleNames', 'createdAt', 'expiresAt', 'consumedAt'),
   CrewSessions: fields('id', 'userId', 'username', 'expired', 'authenticatedAt', 'updatedAt'),
   CrewSessionSignInAttempts: fields('name', 'failures', 'lockedUntil', 'updatedAt'),
-  CrewSectorUsers: fields('id', 'domain', 'username', 'email', 'disabled', 'passwordChangeRequired', 'lastSignInAt', 'heldElsewhere', 'heldGlobally'),
+  CrewSectorUsers: fields('id', 'domain', 'username', 'name', 'email', 'disabled', 'passwordChangeRequired', 'lastSignInAt', 'heldElsewhere', 'heldGlobally'),
   CrewSectorUserRoles: fields('domain', 'userId', 'username', 'role', 'everyDomain', 'createdAt'),
   CrewSectorIdentities: fields('id', 'userId', 'username', 'method', 'connection', 'emailAtLink', 'createdAt', 'lastUsedAt'),
-  CrewSectorInvitations: fields('id', 'email', 'roleNames', 'createdAt', 'expiresAt', 'pending'),
+  CrewSectorInvitations: fields('id', 'email', 'name', 'roleNames', 'createdAt', 'expiresAt', 'pending'),
   // An Auth whose username is the address carries no email column, and whose directory admits its people no password.
   MembersSessionUsers: fields('id', 'username', 'disabled', 'passwordChangeRequired', 'lastSignInAt'),
   MembersUserRoles: fields('kind', 'axis', 'domain', 'role', 'user', 'createdAt'),
@@ -65,6 +65,7 @@ const crew: IdentityDescriptor = {
         enable: 'EnableCrewUser',
         delete: 'DeleteCrewUser',
         rename: 'RenameCrewUser',
+        setName: 'SetCrewUserName',
         setEmail: 'SetCrewUserEmail',
         setTemporaryPassword: 'SetCrewTemporaryPassword',
         requirePasswordChange: 'RequireCrewPasswordChange',
@@ -92,6 +93,7 @@ const crew: IdentityDescriptor = {
         disable: 'DisableCrewSectorUser',
         enable: 'EnableCrewSectorUser',
         delete: 'DeleteCrewSectorUser',
+        setName: 'SetCrewSectorUserName',
         unlinkIdentity: 'UnlinkCrewSectorSessionIdentity',
       },
     },
@@ -149,6 +151,7 @@ describe("identityPages, the whole application's side", () => {
   it('lists the accounts by the columns the schema carries and offers each method under plain words', () => {
     expect(columns(list(people))).toEqual([
       ['username', 'Username'],
+      ['name', 'Name'],
       ['email', 'Email'],
       ['disabled', 'Disabled'],
       ['passwordChangeRequired', 'Must change password'],
@@ -156,7 +159,8 @@ describe("identityPages, the whole application's side", () => {
     ]);
     expect(methodsOf(list(people).rowMethods)).toEqual([
       ['AssignCrewRole', 'Give a role'],
-      ['RenameCrewUser', 'Rename'],
+      ['SetCrewUserName', 'Change the name'],
+      ['RenameCrewUser', 'Change the username'],
       ['SetCrewUserEmail', 'Change the email address'],
       ['SetCrewTemporaryPassword', 'Set a temporary password'],
       ['RequireCrewPasswordChange', 'Require a new password'],
@@ -193,6 +197,7 @@ describe("identityPages, the whole application's side", () => {
     expect(section.label).toBe('Account');
     expect(section.children.map((child) => [child.name, child.label])).toEqual([
       ['username', 'Username'],
+      ['name', 'Name'],
       ['email', 'Email'],
       ['disabled', 'Disabled'],
       ['passwordChangeRequired', 'Must change password'],
@@ -244,7 +249,7 @@ describe("identityPages, the whole application's side", () => {
     const withdraw = presentation(list(invitations).rowMethods, 'WithdrawCrewInvitation');
     expect([withdraw.when?.({ consumedAt: null }), withdraw.when?.({ consumedAt: '2026-01-01T00:00:00Z' })]).toEqual([true, false]);
     expect(list(invitations).listMethods).toEqual([]);
-    expect(columns(list(invitations)).map(([, header]) => header)).toEqual(['Kind', 'Email', 'Sector', 'Roles', 'Sent', 'Expires', 'Used']);
+    expect(columns(list(invitations)).map(([, header]) => header)).toEqual(['Kind', 'Email', 'Name', 'Sector', 'Roles', 'Sent', 'Expires', 'Used']);
     expect(methodsOf(list(sessions).rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
     expect(columns(list(sessions)).map(([id]) => id)).toEqual(['username', 'authenticatedAt', 'updatedAt', 'expired']);
     expect(methodsOf(list(attempts).rowMethods)).toEqual([['UnlockCrewSignIn', 'Unlock']]);
@@ -266,9 +271,10 @@ describe("identityPages, a tenant's side", () => {
   it('names the tenant record in its words and leaves out what the side does not have', () => {
     expect(columns(list(people)).at(-1)).toEqual(['heldElsewhere', 'Also in another sector']);
     // No password method on this side of the description: no column for it.
-    expect(columns(list(people)).map(([id]) => id)).toEqual(['username', 'email', 'disabled', 'lastSignInAt', 'heldElsewhere']);
+    expect(columns(list(people)).map(([id]) => id)).toEqual(['username', 'name', 'email', 'disabled', 'lastSignInAt', 'heldElsewhere']);
     expect(methodsOf(list(people).rowMethods)).toEqual([
       ['AssignCrewSectorRole', 'Give a role'],
+      ['SetCrewSectorUserName', 'Change the name'],
       ['DisableCrewSectorUser', 'Disable'],
       ['EnableCrewSectorUser', 'Enable'],
       ['DeleteCrewSectorUser', 'Delete'],

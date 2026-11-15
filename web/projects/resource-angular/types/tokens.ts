@@ -252,6 +252,8 @@ export const DEFAULT_LOGIN_MESSAGES: Readonly<Record<string, string>> = {
   directory_only:
     'Your organization does not sign in with a password here. Please sign in the way your organization has set up.',
   invitation_only: 'Your organization signs people in by invitation. Ask your administrator to invite you.',
+  other_tenant:
+    'This account already belongs to another organization in this application, so it cannot join a second one.',
 };
 
 /**

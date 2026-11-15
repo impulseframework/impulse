@@ -34,12 +34,14 @@ export type AssignStaffTenantRoleStatus = 204;
 
 export interface CreateStaffTenantUserConfig {
   username: string | FieldPointer;
+  name?: string | FieldPointer;
   email?: string | FieldPointer;
   password: string | FieldPointer;
   roles: string[] | FieldPointer;
 }
 export interface CreateStaffTenantUser {
   username: string;
+  name?: string;
   email?: string;
   password: string;
   roles: string[];
@@ -51,6 +53,7 @@ export interface CreateStaffTenantUserResult {
 
 export interface CreateStaffUserConfig {
   username: string | FieldPointer;
+  name?: string | FieldPointer;
   email?: string | FieldPointer;
   password: string | FieldPointer;
   roles: string[] | FieldPointer;
@@ -59,6 +62,7 @@ export interface CreateStaffUserConfig {
 }
 export interface CreateStaffUser {
   username: string;
+  name?: string;
   email?: string;
   password: string;
   roles: string[];
@@ -153,10 +157,12 @@ export type EndStaffUserSessionsStatus = 204;
 
 export interface InviteStaffTenantUserConfig {
   email: string | FieldPointer;
+  name?: string | FieldPointer;
   roles: string[] | FieldPointer;
 }
 export interface InviteStaffTenantUser {
   email: string;
+  name?: string;
   roles: string[];
 }
 /** The result InviteStaffTenantUser answers with. */
@@ -167,11 +173,13 @@ export interface InviteStaffTenantUserResult {
 
 export interface InviteStaffUserConfig {
   email: string | FieldPointer;
+  name?: string | FieldPointer;
   roles: string[] | FieldPointer;
   domain?: string | FieldPointer;
 }
 export interface InviteStaffUser {
   email: string;
+  name?: string;
   roles: string[];
   domain?: string;
 }
@@ -307,6 +315,17 @@ export interface SetStaffTenantUserEmail {
 /** The statuses SetStaffTenantUserEmail declares; the method chooses one per response. */
 export type SetStaffTenantUserEmailStatus = 204;
 
+export interface SetStaffTenantUserNameConfig {
+  userId: string | FieldPointer;
+  name?: string | FieldPointer;
+}
+export interface SetStaffTenantUserName {
+  userId: string;
+  name?: string;
+}
+/** The statuses SetStaffTenantUserName declares; the method chooses one per response. */
+export type SetStaffTenantUserNameStatus = 204;
+
 export interface SetStaffUserEmailConfig {
   userId: string | FieldPointer;
   email?: string | FieldPointer;
@@ -317,6 +336,17 @@ export interface SetStaffUserEmail {
 }
 /** The statuses SetStaffUserEmail declares; the method chooses one per response. */
 export type SetStaffUserEmailStatus = 204;
+
+export interface SetStaffUserNameConfig {
+  userId: string | FieldPointer;
+  name?: string | FieldPointer;
+}
+export interface SetStaffUserName {
+  userId: string;
+  name?: string;
+}
+/** The statuses SetStaffUserName declares; the method chooses one per response. */
+export type SetStaffUserNameStatus = 204;
 
 export interface UnlinkStaffSessionIdentityConfig {
   identityId: string | FieldPointer;
@@ -476,6 +506,7 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'username', displayType: 'string', required: true },
+      { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'email', displayType: 'string', optional: true },
       { fieldName: 'password', displayType: 'string', required: true },
       { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.StaffTenantRoles, attribute: 'role' },
@@ -487,6 +518,7 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'username', displayType: 'string', required: true },
+      { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'email', displayType: 'string', optional: true },
       { fieldName: 'password', displayType: 'string', required: true, secret: true },
       { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
@@ -581,6 +613,7 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'email', displayType: 'string', required: true },
+      { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.StaffTenantRoles, attribute: 'role' },
     ],
   },
@@ -590,6 +623,7 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'email', displayType: 'string', required: true },
+      { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Tenants, optional: true },
     ],
@@ -710,6 +744,16 @@ const methodMap: MethodMap = {
       { fieldName: 'email', displayType: 'string', optional: true },
     ],
   },
+  [Methods.SetStaffTenantUserName]: {
+    route: 'set-staff-tenant-user-name',
+    target: { resource: Resources.StaffTenantUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'name', displayType: 'string', optional: true },
+    ],
+  },
   [Methods.SetStaffUserEmail]: {
     route: 'set-staff-user-email',
     target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
@@ -718,6 +762,16 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'email', displayType: 'string', optional: true },
+    ],
+  },
+  [Methods.SetStaffUserName]: {
+    route: 'set-staff-user-name',
+    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'name', displayType: 'string', optional: true },
     ],
   },
   [Methods.UnlinkStaffSessionIdentity]: {
