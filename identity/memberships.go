@@ -92,7 +92,7 @@ func (m *Manager) RemoveRole(ctx context.Context, txn resource.ReadWriteTransact
 // rules of RemoveRole, and has the permission engine told once the transaction has
 // committed. key is the membership, read as held by the caller.
 func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, username string, key *access.MembershipKey) error {
-	if callerIs(ctx, username) {
+	if m.callerIs(ctx, username) {
 		if err := m.refuseLastAdministrator(ctx, txn, scope, key); err != nil {
 			return err
 		}

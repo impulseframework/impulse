@@ -45,6 +45,26 @@ func CallerFrom(ctx context.Context) *Caller {
 	return &Caller{}
 }
 
+type authKey struct{}
+
+// WithAuth binds the request to the auth whose sessions its outlet serves, by the auth's
+// name (the auth package's Name). An outlet's generated routes bind it on every request
+// (live.Subscribing), so whatever answers for the request can tell the people of one auth
+// from another's: two auths over one database may each hold a person of the same username,
+// and they are two people.
+func WithAuth(ctx context.Context, auth string) context.Context {
+	return context.WithValue(ctx, authKey{}, auth)
+}
+
+// AuthFrom returns the name of the auth the request came through, as WithAuth bound it.
+// ok is false when nothing bound one: a request served outside an outlet's generated
+// routes, or a call made outside any request.
+func AuthFrom(ctx context.Context) (auth string, ok bool) {
+	auth, ok = ctx.Value(authKey{}).(string)
+
+	return auth, ok
+}
+
 // IsZero reports whether no frame stamped the caller.
 func (c *Caller) IsZero() bool {
 	return c == nil || c.Permissions == nil

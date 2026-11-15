@@ -19,12 +19,25 @@ import (
 // keeps a person from acting on themselves reads the name from there. A method an
 // application runs in a transaction of its own, outside any request, has no caller:
 // what it does is the application's act, and these rules let it through.
+//
+// A username names a person within one auth. An outlet that signs its people in through
+// one auth can serve the management of another's (generation.Manages), and there the
+// caller and the person acted on are two people even where their usernames are the same:
+// nobody on such an outlet is ever acting on themselves.
 
-// callerIs reports whether the request's caller is the person of the username, names
-// compared without case as the permission engine's callers are.
-func callerIs(ctx context.Context, username string) bool {
+// callerIs reports whether the request's caller is the person of the username in this
+// auth: the request came through this auth, and the names are equal, compared without
+// case as the permission engine's callers are. The auth a request came through is the
+// one its outlet's generated routes bound (resource.AuthFrom). A request bound to
+// another auth is another auth's person, whatever their name. A caller with no auth
+// bound, which no generated route produces, is judged by the name alone, so the rule
+// errs toward refusing.
+func (m *Manager) callerIs(ctx context.Context, username string) bool {
 	caller := resource.CallerFrom(ctx)
 	if caller.IsZero() {
+		return false
+	}
+	if auth, bound := resource.AuthFrom(ctx); bound && auth != m.auth {
 		return false
 	}
 
@@ -44,7 +57,7 @@ func (m *Manager) refuseOwnAccount(ctx context.Context, txn resource.ReadWriteTr
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.Username()")
 	}
-	if found && callerIs(ctx, username) {
+	if found && m.callerIs(ctx, username) {
 		return httpio.NewForbiddenMessagef("you cannot %s your own account", act)
 	}
 

@@ -202,6 +202,8 @@ type Token struct {
 // Manager applies the rules to one auth: over the store of its tables, with the
 // permission engine that reads its memberships.
 type Manager struct {
+	// auth is the auth's name, as its outlets' generated routes bind it to a request.
+	auth     string
 	store    Store
 	access   access.Controller
 	sessions SessionAPI
@@ -233,11 +235,17 @@ func WithAdministratorRoles(global, domain []accesstypes.Role) Option {
 	}
 }
 
-// New returns the manager of one auth. controller is the permission engine the auth's
+// New returns the manager of one auth. auth is the auth's name, the one its outlets'
+// generated routes bind to a request (the auth package's Name): the rules that keep a
+// person from acting on themselves take a caller for a person of this auth only when the
+// request came through it. controller is the permission engine the auth's
 // memberships are read by: the rule a membership's role is held to is its own
 // (access.UserManager.Membership), and it is told once a membership is committed.
 // sessions is the API of the session library's Auth that signs the auth's people in.
-func New(store Store, controller access.Controller, sessions SessionAPI, opts ...Option) (*Manager, error) {
+func New(auth string, store Store, controller access.Controller, sessions SessionAPI, opts ...Option) (*Manager, error) {
+	if auth == "" {
+		return nil, errors.New("identity.New(): the auth's name is empty; pass the auth package's Name, the name the auth's outlets bind to a request")
+	}
 	if store == nil {
 		return nil, errors.New("identity.New(): the store is nil")
 	}
@@ -247,7 +255,7 @@ func New(store Store, controller access.Controller, sessions SessionAPI, opts ..
 	if sessions == nil {
 		return nil, errors.New("identity.New(): the session API is nil; pass the API of the Auth that signs the auth's people in (session.Auth.API), whose hasher a password written here is checked by")
 	}
-	m := &Manager{store: store, access: controller, sessions: sessions, administrators: nil, now: time.Now}
+	m := &Manager{auth: auth, store: store, access: controller, sessions: sessions, administrators: nil, now: time.Now}
 	for _, opt := range opts {
 		opt(m)
 	}

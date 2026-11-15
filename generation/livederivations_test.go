@@ -466,6 +466,9 @@ func Test_identityDelegatesTemplate_liveDerivations(t *testing.T) {
 	})
 	for _, want := range []string{
 		"var _ crewhandlers.Deps = (*App)(nil)",
+		// The management is held to the auth package's own table prefix and name.
+		"var _ = map[bool]struct{}{false: {}, crew.TablePrefix == crewidentity.TablePrefix: {}}",
+		"var _ = map[bool]struct{}{false: {}, crew.Name == crewidentity.AuthName: {}}",
 		"func (a *App) AssignCrewRole() http.HandlerFunc {\n\treturn crewhandlers.New(a, liveDerivations).AssignCrewRole()\n}",
 		"func (a *App) CrewSessionUsers() http.HandlerFunc {\n\treturn crewhandlers.New(a, liveDerivations).CrewSessionUsers()\n}",
 	} {

@@ -34,6 +34,12 @@ func asCaller(ctx context.Context, user accesstypes.User) context.Context {
 	return resource.WithCaller(ctx, &resource.Caller{Permissions: callerPermissions{user: user}})
 }
 
+// asCallerThrough is the context of a request made by the user on an outlet of the auth:
+// the outlet's generated routes bind the auth's name, and the handler stamps the caller.
+func asCallerThrough(ctx context.Context, auth string, user accesstypes.User) context.Context {
+	return asCaller(resource.WithAuth(ctx, auth), user)
+}
+
 // administrators are the roles the tests name as the administrators': Steward in the
 // global scope and Warden in a tenant.
 var administrators = WithAdministratorRoles([]accesstypes.Role{"Steward"}, []accesstypes.Role{"Warden"})
@@ -333,5 +339,121 @@ func TestManager_moveMemberships(t *testing.T) {
 	}
 	if moved || len(store.writes) != 0 {
 		t.Errorf("a person who holds no role: moved = %t, writes = %v, want nothing", moved, store.writes)
+	}
+}
+
+// TestManager_callerOfAnotherAuth pins who the rules on acting on oneself take the caller
+// for. A username names a person within one auth, so a caller who came through another
+// auth, on an outlet that serves this auth's management, is nobody of this auth: with the
+// same username as the person acted on they disable the account, delete it, and remove
+// the last administrator's role, as any other caller may. A caller who came through this
+// auth is refused all three, and so is one whose request bound no auth at all, where the
+// name is all there is to judge by.
+func TestManager_callerOfAnotherAuth(t *testing.T) {
+	t.Parallel()
+
+	// dana is the one administrator and holds a second role, so the removal of the
+	// first leaves the account in place.
+	steward := access.NewMembershipKey(globalScope, "dana", "Steward")
+	reader := access.NewMembershipKey(globalScope, "dana", "Reader")
+	acts := []struct {
+		name       string
+		act        func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
+		wantWrites []string
+	}{
+		{
+			name: "disable",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.DisableUser(ctx, txn, userID)
+			},
+			wantWrites: []string{"update user " + userID.String() + " disabled=true"},
+		},
+		{
+			name: "delete",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.DeleteUser(ctx, txn, userID)
+			},
+			wantWrites: []string{"delete user " + userID.String(), "delete membership " + membershipText(&reader), "delete membership " + membershipText(&steward)},
+		},
+		{
+			name: "remove the last administrator's role",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.RemoveRole(ctx, txn, globalScope, "dana", "Steward")
+			},
+			wantWrites: []string{"delete membership " + membershipText(&steward)},
+		},
+	}
+	callers := []struct {
+		name string
+		ctx  func(context.Context) context.Context
+		// wantRefused is whether the caller is taken for the person acted on.
+		wantRefused bool
+	}{
+		{
+			name: "through the auth managed, the caller is the person",
+			ctx: func(ctx context.Context) context.Context {
+				return asCallerThrough(ctx, managedAuth, "dana")
+			},
+			wantRefused: true,
+		},
+		{
+			name: "through the auth managed, under another case",
+			ctx: func(ctx context.Context) context.Context {
+				return asCallerThrough(ctx, managedAuth, "DANA")
+			},
+			wantRefused: true,
+		},
+		{
+			name: "through another auth, the same username is another person",
+			ctx: func(ctx context.Context) context.Context {
+				return asCallerThrough(ctx, otherAuth, "dana")
+			},
+		},
+		{
+			name: "with no auth bound, the name is judged alone",
+			ctx: func(ctx context.Context) context.Context {
+				return asCaller(ctx, "dana")
+			},
+			wantRefused: true,
+		},
+		{
+			name: "through the auth managed, another person",
+			ctx: func(ctx context.Context) context.Context {
+				return asCallerThrough(ctx, managedAuth, "erin")
+			},
+		},
+	}
+	for _, caller := range callers {
+		for _, act := range acts {
+			t.Run(caller.name+": "+act.name, func(t *testing.T) {
+				t.Parallel()
+
+				store := &fakeStore{
+					usernames:   map[impulse.UUID]string{userID: "dana"},
+					memberships: map[access.MembershipKey]bool{steward: true, reader: true},
+				}
+				m, _ := newManager(t, store, engineRoles, administrators)
+
+				err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+					return act.act(caller.ctx(ctx), txn, m)
+				})
+				if caller.wantRefused {
+					if err == nil || !httpio.HasForbidden(err) {
+						t.Fatalf("error = %v, want the caller refused as the person acted on", err)
+					}
+					if len(store.writes) != 0 {
+						t.Errorf("buffered writes = %v, want none", store.writes)
+					}
+
+					return
+				}
+				if err != nil {
+					t.Fatalf("error = %v, want the act to go through", err)
+				}
+				if diff := cmp.Diff(act.wantWrites, store.writes); diff != "" {
+					t.Errorf("buffered writes (-want +got):\n%s", diff)
+				}
+			})
+		}
 	}
 }
