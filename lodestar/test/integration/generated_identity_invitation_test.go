@@ -95,7 +95,7 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{answer.ID}, "InvitedByUserId"); got.StringVal != governorID {
 		t.Errorf("the invitation's sender = %v, want the governor (%s)", got, governorID)
 	}
-	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{answer.ID}, "Tenant"); got.Valid {
+	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{answer.ID}, "TenantId"); got.Valid {
 		t.Errorf("the invitation's tenant = %v, want none: it is into the application", got)
 	}
 	status, body := hq.do(ctx, http.MethodGet, consoleAPI+"/crew-session-mail-links/"+answer.ID, nil)
@@ -137,7 +137,7 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 
 	// An invitation into a sector carries the sector.
 	sector := inviteCrew(ctx, t, hq, `{"email":"wingman@example.com","roles":["Pilot"],"domain":"`+anvil+`"}`)
-	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{sector.ID}, "Tenant"); got.StringVal != anvil {
+	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{sector.ID}, "TenantId"); got.StringVal != anvil {
 		t.Errorf("the sector invitation's tenant = %v, want anvil", got)
 	}
 

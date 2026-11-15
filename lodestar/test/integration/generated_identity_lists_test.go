@@ -458,7 +458,7 @@ func TestGeneratedIdentitySectorInvitations(t *testing.T) {
 			"RoleNames": []string{"Cadet"}, "CreatedAt": spanner.CommitTimestamp, "ExpiresAt": time.Now().Add(link.expires),
 		}
 		if link.tenant != nil {
-			row["Tenant"] = *link.tenant
+			row["TenantId"] = *link.tenant
 		}
 		if link.consumed {
 			row["ConsumedAt"] = spanner.CommitTimestamp

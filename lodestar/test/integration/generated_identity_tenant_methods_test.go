@@ -52,7 +52,7 @@ func crewHolds(t *testing.T, db *initiator.SpannerDB, username string) []string 
 	t.Helper()
 
 	return crewMemberships(t, db, spanner.Statement{
-		SQL:    "SELECT r.Kind, r.Domain, r.Role FROM CrewUserRoles r JOIN CrewSessionUsers u ON u.Id = r.UserId WHERE u.Username = @username",
+		SQL:    "SELECT r.Kind, r.DomainId, r.Role FROM CrewUserRoles r JOIN CrewSessionUsers u ON u.Id = r.UserId WHERE u.Username = @username",
 		Params: map[string]any{"username": username},
 	})
 }
@@ -64,7 +64,7 @@ func crewHeldBy(t *testing.T, db *initiator.SpannerDB, user string) []string {
 	t.Helper()
 
 	return crewMemberships(t, db, spanner.Statement{
-		SQL:    "SELECT Kind, Domain, Role FROM CrewUserRoles WHERE UserId = @user",
+		SQL:    "SELECT Kind, DomainId, Role FROM CrewUserRoles WHERE UserId = @user",
 		Params: map[string]any{"user": user},
 	})
 }

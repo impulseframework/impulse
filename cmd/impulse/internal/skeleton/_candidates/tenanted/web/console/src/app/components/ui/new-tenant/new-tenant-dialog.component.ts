@@ -10,6 +10,7 @@ import { injectApi } from '@app/api/api';
 import { apiDescriptor, CreateTenant, CreateTenantAnswer, createTenantRoute } from '@app/service/zz_gen_api';
 import { resourceMeta } from '@app/service/zz_gen_resources';
 import { ApiError } from '@impulseframework/resource';
+import { inSentence } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { resourcePage } from '@impulseframework/resource-angular/resource-route-generator';
 import { environment } from '@env';
@@ -121,6 +122,11 @@ export class NewTenantDialogComponent {
   }
 }
 
+/** The word with its article, as a sentence starts with it: "A tenant", "An outlet". */
+function withArticle(word: string): string {
+  return `${/^[aeiou]/i.test(word) ? 'An' : 'A'} ${word}`;
+}
+
 /**
  * The sentence a failed create is reported with. A name another tenant carries is the one
  * conflict the form can cause (the unique index on the name answers 409), so it is said
@@ -128,7 +134,7 @@ export class NewTenantDialogComponent {
  */
 function refusal(failure: unknown, name: string): string {
   if ((failure instanceof HttpErrorResponse || failure instanceof ApiError) && failure.status === 409) {
-    return `A tenant named ${name} already exists. Choose another name.`;
+    return `${withArticle(inSentence(apiDescriptor.domainRoute?.word?.one ?? 'Tenant'))} named ${name} already exists. Choose another name.`;
   }
   if (failure instanceof HttpErrorResponse) {
     const message: unknown = failure.error?.message;

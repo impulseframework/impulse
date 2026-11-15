@@ -103,7 +103,7 @@ func TestTenantDelete_aDeletedSectorTakesItsRolesAndInvitations(t *testing.T) {
 		spanner.Insert("MembersSessionUsers", []string{"Id", "Username", "CreatedAt"}, []any{drifterID, string(drifter), spanner.CommitTimestamp}),
 		spanner.Insert("MembersSessionUsers", []string{"Id", "Username", "CreatedAt"}, []any{commuterID, string(commuter), spanner.CommitTimestamp}),
 		spanner.InsertMap("MembersSessionMailLinks", map[string]any{
-			"Id": memberLink, "TokenHash": hash[:], "Kind": "invitation", "Email": "member@example.com", "Tenant": ember,
+			"Id": memberLink, "TokenHash": hash[:], "Kind": "invitation", "Email": "member@example.com", "TenantId": ember,
 			"RoleNames": []string{"ClientPortal"}, "CreatedAt": spanner.CommitTimestamp, "ExpiresAt": time.Now().Add(time.Hour),
 		}),
 	}); err != nil {

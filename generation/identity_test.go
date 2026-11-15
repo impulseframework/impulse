@@ -456,10 +456,10 @@ func Test_prepareIdentity(t *testing.T) {
 	if !strings.Contains(string(members), "func (c *Client) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {") {
 		t.Errorf("membersidentity/client.go lacks the Go call that buffers a membership:\n%s", members)
 	}
-	// The Go call gives a role to an account alone: it reads the account first, as the
-	// served role methods do, so an id no account holds is refused and nothing is written.
-	if !strings.Contains(string(members), "if err := c.manager.RequireUser(ctx, txn, userID); err != nil {") {
-		t.Errorf("membersidentity/client.go's AssignRole does not read the account before the membership:\n%s", members)
+	// The Go call reads no account, so a user created earlier in the same transaction,
+	// which the database cannot yet show, can be given a role.
+	if strings.Contains(string(members), "c.manager.RequireUser(") {
+		t.Errorf("membersidentity/client.go's AssignRole reads the account, which a user created in the same transaction is not yet:\n%s", members)
 	}
 
 	// An application with no tenant record has no tenant's methods, and the templates

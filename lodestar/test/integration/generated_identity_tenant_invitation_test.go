@@ -86,7 +86,7 @@ func TestGeneratedIdentitySectorInvitationsAndPassword(t *testing.T) {
 	if err := json.Unmarshal(body, &answer); err != nil || answer.ID == "" || !answer.Sent {
 		t.Fatalf("invite-crew-sector-user answered %s (%v), want the invitation's id and the word that its message went", body, err)
 	}
-	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{answer.ID}, "Tenant"); got.StringVal != anvil {
+	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{answer.ID}, "TenantId"); got.StringVal != anvil {
 		t.Errorf("the invitation's tenant = %v, want %s", got, anvil)
 	}
 	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{answer.ID}, "InvitedByUserId"); got.StringVal != marshalID {
