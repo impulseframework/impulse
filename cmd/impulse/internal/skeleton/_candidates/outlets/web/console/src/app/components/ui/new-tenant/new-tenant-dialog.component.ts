@@ -6,7 +6,7 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { Router } from '@angular/router';
 import { injectApi } from '@app/api/api';
-import { TenantsCreate } from '@app/service/zz_gen_api';
+import { apiDescriptor, TenantsCreate } from '@app/service/zz_gen_api';
 import { resourceMeta } from '@app/service/zz_gen_resources';
 import { ApiError } from '@impulseframework/resource';
 import { inSentence } from '@impulseframework/resource-angular/auth-frame';
