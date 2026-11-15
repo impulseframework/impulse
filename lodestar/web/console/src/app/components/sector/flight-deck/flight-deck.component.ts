@@ -16,7 +16,6 @@ import { methodMeta } from '@app/service/zz_gen_methods';
 import { MissionDocuments, Missions, Sorties, SortieExpenses } from '@app/service/zz_gen_resources';
 import { ApiError, Method, MethodHandle, MethodMeta, rowCapabilities } from '@impulseframework/resource';
 import { SectorService } from '../sector.service';
-import { StarChartComponent } from '../star-chart/star-chart.component';
 import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.component';
 
 /**
@@ -48,7 +47,6 @@ import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.compone
     MatSelectModule,
     MatTableModule,
     MatTimepickerModule,
-    StarChartComponent,
     WorkflowGraphComponent,
   ],
   templateUrl: './flight-deck.component.html',

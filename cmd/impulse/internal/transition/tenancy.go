@@ -17,7 +17,6 @@ import (
 
 	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/check"
-	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton"
 )
 
 // Tenancy makes a flat, untenanted application tenanted: the tenant record becomes a
@@ -26,7 +25,8 @@ import (
 // concealed, and emits the constructor of the tenant roster; the data level builds the
 // roster and starts it, and the app exposes it to the generated code. Which resources
 // become tenant-scoped, how existing rows are assigned, the bootstrap order, the tests,
-// the tenant segment in the browser's routes, and the tenant picker are the agent's.
+// the tenant segment in the browser's routes, and the tenant menus in its menu file are
+// the agent's.
 type Tenancy struct {
 	// Table is the tenant-record table, PascalCase and plural: Tenants. The domain route
 	// segment is its kebab-case form (tenants), and the resource struct its singular.
@@ -49,28 +49,42 @@ const (
 // TenancyReferenceCandidate is the embedded skeleton with tenancy wired.
 const TenancyReferenceCandidate = "tenanted"
 
-// tenantWebFiles are the reference candidate's tenant pieces, laid into the default browser
-// project beside the generated client: the service (the tenant the URL names, the session's
-// tenant list, and the digest scoped to it), the guard on the tenant segment that is the one
-// writer of the tenant, and the refusal page a URL naming a tenant the session cannot reach
-// lands on. The tenant segment in the routes, the header's picker, and the pages under the
-// segment are the agent's.
-var tenantWebFiles = []string{
-	"app/components/ui/sign-in/sign-in.routes.ts",
-	"app/components/ui/sign-in/tenant-sign-in.component.ts",
-	"app/components/ui/sign-in/tenant-sign-in.component.html",
-	"app/components/ui/sign-in/tenant-sign-in.component.scss",
-	"app/components/ui/sign-in/tenant-sign-in.component.spec.ts",
-	tenantServicePath,
-	"app/core/tenant/tenant.guard.ts",
-	"app/components/ui/tenant-refused/tenant-refused.component.ts",
-	"app/components/ui/tenant-refused/tenant-refused.component.html",
-	"app/components/ui/tenant-refused/tenant-refused.component.scss",
+// tenancyAdminCandidate is the embedded skeleton whose tenant record an administrator
+// alone creates (`@tenant`), as the record this transition writes: its New tenant dialog
+// creates through the record, with no create-your-tenant route.
+const tenancyAdminCandidate = "outlets"
+
+// tenantWebFile is one file a candidate's console carries, by its path under the
+// project's source root.
+type tenantWebFile struct {
+	candidate, rel string
 }
 
-// tenantServicePath is the tenant service inside the reference candidate's console,
-// relative to the project's source root.
-const tenantServicePath = "app/core/tenant/tenant.service.ts"
+// tenantWebFiles are the tenant pages, laid into the default browser project beside the
+// generated client: the tenant's sign-in page (who may enter the tenant: its declared
+// directories and whether they are the only way in) with its route and its page for the
+// menu file, the All tenants page's configuration (the library's list page over the
+// tenant record), and the New tenant dialog an administrator holding Create on the record
+// creates one through. The library's frame carries the rest: the tenant the URL names, the
+// guard on the tenant segment, the refusal page and the place switcher. The tenant segment
+// in the routes and the menus in the menu file are the agent's.
+var tenantWebFiles = []tenantWebFile{
+	{TenancyReferenceCandidate, tenantSignInRoutesPath},
+	{TenancyReferenceCandidate, "app/components/ui/sign-in/tenant-sign-in.component.ts"},
+	{TenancyReferenceCandidate, "app/components/ui/sign-in/tenant-sign-in.component.html"},
+	{TenancyReferenceCandidate, "app/components/ui/sign-in/tenant-sign-in.component.scss"},
+	{TenancyReferenceCandidate, "app/components/ui/sign-in/tenant-sign-in.component.spec.ts"},
+	{tenancyAdminCandidate, "app/configs/tenants.config.ts"},
+	{tenancyAdminCandidate, "app/components/ui/new-tenant/new-tenant-dialog.component.ts"},
+	{tenancyAdminCandidate, "app/components/ui/new-tenant/new-tenant-dialog.component.html"},
+	{tenancyAdminCandidate, "app/components/ui/new-tenant/new-tenant-dialog.component.scss"},
+	{tenancyAdminCandidate, "app/components/ui/new-tenant/new-tenant-dialog.component.spec.ts"},
+}
+
+// tenantSignInRoutesPath is the tenant's sign-in page's route inside the reference
+// candidate's console, relative to the project's source root: an application that has
+// it has the tenant pages already.
+const tenantSignInRoutesPath = "app/components/ui/sign-in/sign-in.routes.ts"
 
 var tableNameRE = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
 
@@ -142,7 +156,7 @@ func (tn Tenancy) Apply(ctx context.Context, a *app.App, exec check.Execer) (*Ch
 	if err := tn.editApp(a, ch); err != nil {
 		return nil, err
 	}
-	if err := tn.copyTenantService(a, g, ch); err != nil {
+	if err := tn.writeBrowser(a, g, ch); err != nil {
 		return nil, err
 	}
 
@@ -247,9 +261,11 @@ func (tn Tenancy) writeSeed(a *app.App, dir string, ch *Change) error {
 
 // writeRecord adds the tenant-record resource struct.
 func (tn Tenancy) writeRecord(a *app.App, resourceDir string, ch *Change) error {
-	rel := path.Join(resourceDir, strings.ToLower(tn.Table)+".go")
+	// The generator expects a resource in the file named for it in snake case
+	// (ServiceAreas in service_areas.go).
+	rel := path.Join(resourceDir, strcase.ToSnake(tn.Table)+".go")
 	if _, err := os.Stat(a.Abs(rel)); err == nil {
-		ch.skipf("%s already exists, so the %s resource struct was not written; make sure it is a global @resource annotated @tenant and @order, with a slug Id and a Name", rel, tn.Record())
+		ch.skipf("%s already exists, so the %s resource struct was not written; make sure it is a global @resource annotated @tenant and @order, with a slug Id and a Name marked @tenantName", rel, tn.Record())
 
 		return nil
 	}
@@ -290,7 +306,10 @@ type (
 	// @tenant
 	// @order(Name asc)
 	%[2]s struct {
-		ID   string `+"`spanner:\"Id\"`"+`
+		ID string `+"`spanner:\"Id\"`"+`
+		// Name is the tenant's name as its people know it: the session's tenant list
+		// carries it, so the place switcher shows it to them.
+		// @tenantName
 		Name string `+"`spanner:\"Name\"`"+`
 		// DirectoryOnly says the tenant's people enter through its directories only: a
 		// password does not reach the tenant. Set under the record's Update grant on the
@@ -710,53 +729,6 @@ func packageNameOf(a *app.App, dir string) string {
 	return path.Base(dir)
 }
 
-// copyTenantService lays the reference candidate's tenant service, tenant guard and
-// refusal page (tenantWebFiles) into the default browser project, beside the generated
-// client.
-func (tn Tenancy) copyTenantService(a *app.App, g *app.Generator, ch *Change) error {
-	target := defaultTarget(g)
-	if target == nil {
-		return nil
-	}
-	w, ok := a.WebAppFor(target.Dir)
-	if !ok {
-		return nil
-	}
-	projects, err := a.ReadAngular(w.Dir)
-	if err != nil {
-		return err
-	}
-	rel := strings.TrimPrefix(strings.TrimPrefix(target.Dir, w.Dir), "/")
-	project, ok := app.ProjectFor(projects, rel)
-	if !ok || project.SourceRoot == "" {
-		ch.skipf("%s/angular.json has no project rooted over %s, so the tenant service was not copied in; a browser app needs the tenant the URL names to scope its requests and digest by", w.Dir, rel)
-
-		return nil
-	}
-	dst := path.Join(w.Dir, project.SourceRoot, tenantServicePath)
-	if _, err := os.Stat(a.Abs(dst)); err == nil {
-		ch.skipf("%s already exists and was left alone", dst)
-
-		return nil
-	}
-	reference, err := skeleton.FS(TenancyReferenceCandidate)
-	if err != nil {
-		return err
-	}
-	for _, rel := range tenantWebFiles {
-		src, err := fs.ReadFile(reference, "web/console/src/"+rel)
-		if err != nil {
-			return errors.Wrap(err, "fs.ReadFile()")
-		}
-		if err := writeNew(a, path.Join(w.Dir, project.SourceRoot, rel), string(src)); err != nil {
-			return err
-		}
-	}
-	ch.didf("%s, tenant.guard.ts, components/ui/tenant-refused/ and components/ui/sign-in/: the tenant service (the tenant the URL names, the session's tenant list, and the digest scoped to it), the tenant guard on the tenant segment, the refusal page and the tenant's sign-in page (who may enter the tenant: its declared directories and whether they are the only way in, with its route and navigation item in sign-in.routes.ts) from the reference; the tenant segment in the routes, the header's tenant picker, and the pages under the segment, the sign-in page's route among them, are yours", dst)
-
-	return nil
-}
-
 // findDeclaringFile finds the non-test Go file under the module that declares the named
 // type, skipping generated files and browser workspaces.
 func findDeclaringFile(a *app.App, typeName string) (rel string, src []byte, mode os.FileMode, err error) {
@@ -878,8 +850,8 @@ func (tn Tenancy) Meaning() string {
 		"Tenant-scoped resources. Decide which existing resources belong to a tenant: give each a `TenantId` column referencing the tenant table (a migration, with a data step assigning existing rows to a tenant), annotate the struct `@permissionScope(domain)` and the column `// @domain`, then run `go generate ./...`. If none of the application's resources is tenant-scoped yet, add a first one so the option is observable from the first sign-in; the reference has one. `tenancy-wired` requires at least one.",
 		fmt.Sprintf("The test harnesses. The authorization suite's configurer builds the roster with `New%[1]sRoster` over the test client and adds the generated matrix's domain to it (`Add(\"testDomain\")`; the empty test schema holds no tenant row, and `Start` is not needed), and answers it as `%[2]s()`; the integration harness builds it over the test database with `live.NewFake()` as its signals and starts it once the dev seed is applied beside the schema, gives the member its assignments in its tenant (`DomainPolicyScope`), and waits for the engine's snapshot to show them.", rec, rosterAccessor),
 		"Integration tests: the administrator lists both tenants and reads a tenant's digest; the member lists one and gets not-found in the other and in an unknown tenant; the tenant list is global; a tenant created through the API is readable at once, without a restart.",
-		"The browser app mirrors the API's shape: the tenant segment (`tenants/:tenantID`, the generated `DomainRoutePath`) in the routes with the copied tenant guard on it (`canActivate`, and its leave hook on `canDeactivate`) and the refusal page ahead of it at `tenants/:tenantID/refused`, the dashboard and every tenant-scoped page under the segment, a tenant picker in the header that opens the same page under the chosen tenant (`TenantService.open`), and the pages reading permissions through the service, so the digest follows the tenant the URL names; the guard is the one writer of the tenant, and a URL naming a tenant the session cannot reach lands on the refusal page, in the server's words.",
-		fmt.Sprintf("The declaration. Grants: the tenant's administrator role (a domain role) gets Create (`method`, `connection`), Delete, List and Read on `%[1]s`, and the global administrator role's List, Read and Update on `%[2]s` gain `directoryOnly`, so the people who may change the declaration are the ones who hold it. The seed: a directory method the auth already has (a Google Workspace, a Microsoft Entra tenant) admits people only where a tenant declares it, so declare it on the development tenants in `schema/devseed` (`%[1]s` rows: the method's name and the connection its identities carry) or the people who sign in through it reach no tenant. The page: the copied sign-in page (`components/ui/sign-in`, `tenantSignInRoute()`) goes under the tenant segment beside the tenant's Users page; the login page's sentences for the rule's refusal codes (`no_tenant`, `connection_not_in_tenant`, `directory_only`) are the library's, in `@impulseframework/resource-angular`'s `LOGIN_MESSAGES`. A record created by its own people (`@tenant(creation: self-service)` or `both`) adds `signin.AdmitWithoutTenant()` to the policy, since a stranger signs in before holding a tenant, and the generated create route declares the creator's directory on the new tenant.", tn.DirectoryTable(), tn.Table),
+		fmt.Sprintf("The browser app mirrors the API's shape, in the library's frame (`provideFrame`, `@impulseframework/resource-angular/auth-frame`, which provides the %[1]s the URL names as every library page's tenant), and this command wrote it where the files were as the skeleton rendered them; the did and skipped lines say which. The routes: the %[2]s segment (`%[3]s/:%[4]sID`, the generated `DomainRoutePath`) with the library's `tenantGuard` on it, the refusal page ahead of it (`refusedRoute(DomainRoutePath)`), the place outside every %[1]s (`outsideGuard`) routed before the segment so the record's own page (`%[3]s/<id>`) is reached, and `homeGuard` at the root, with the dashboard, every %[1]s-scoped page and `frameRoutes()` under the segment and the pages of the place outside every %[1]s beside it, All %[5]s among them (`resourceRoutes(tenantsConfig, resourceMeta)`); routes edited since the skeleton rendered them were left, and take this shape by hand, as the tenanted skeleton's routes have it. The menu file: the %[6]s menu (All %[5]s, `resourcePage(tenantsConfig, resourceMeta)`, and New %[1]s…, an action opening the copied dialog in the place outside every %[1]s under Create on the record), People (the %[1]s's side of the auth's people, `identityMenuPages` with `scope: 'domain'`) and %[7]s (Sign-in settings, `tenantSignInPage`), each showing in its place only; a %[1]s-scoped page the routes gain goes in a menu of its own or one of these, and the menu file's test names a page the routes carry and no menu places. The configuration: the place outside every %[1]s is Configuration with a gear (`outside` in `provideFrame`), which the application may rename. The frame's place switcher shows itself once the session has %[5]s and opens the same page under the chosen one, and the tenant word on screen is the generator's, from the record. The dashboard is the application's: it shows the global digest in every place until it reads the %[1]s the page is open in (`TenantService`), as the tenanted skeleton's does.", tn.oneLower(), tn.oneLower(), tn.Segment(), lowerFirst(tn.Record()), tn.manyLower(), tn.many(), tn.one()),
+		fmt.Sprintf("The declaration. Grants: the tenant's administrator role (a domain role) gets Create (`method`, `connection`), Delete, List and Read on `%[1]s`, and the global administrator role's List, Read and Update on `%[2]s` gain `directoryOnly`, so the people who may change the declaration are the ones who hold it. The seed: a directory method the auth already has (a Google Workspace, a Microsoft Entra tenant) admits people only where a tenant declares it, so declare it on the development tenants in `schema/devseed` (`%[1]s` rows: the method's name and the connection its identities carry) or the people who sign in through it reach no tenant. The page: the copied sign-in page (`components/ui/sign-in`, `tenantSignInRoute()`) goes under the tenant segment beside the tenant's people, and its page (`tenantSignInPage`) in the menu file; the login page's sentences for the rule's refusal codes (`no_tenant`, `connection_not_in_tenant`, `directory_only`) are the library's, in `@impulseframework/resource-angular`'s `LOGIN_MESSAGES`. A record created by its own people (`@tenant(creation: self-service)` or `both`) adds `signin.AdmitWithoutTenant()` to the policy, since a stranger signs in before holding a tenant, and the generated create route declares the creator's directory on the new tenant.", tn.DirectoryTable(), tn.Table),
 	}
 	for i, item := range items {
 		fmt.Fprintf(&b, "%d. %s\n", i+1, item)

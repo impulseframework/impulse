@@ -38,10 +38,18 @@ export interface RequestOptions {
   absolute?: boolean;
 }
 
-/** The permission cache at one instant: digests by scope key, and the user's domains. */
+/** The permission cache at one instant: digests by scope key, and the user's domains with their names. */
 export interface PermissionsSnapshot {
   readonly digests: ReadonlyMap<string, PermissionDigest>;
   readonly domains: readonly Domain[];
+  /** Each listed domain's name, as the tenant list answers it; absent until loadDomains has run. */
+  readonly names?: ReadonlyMap<Domain, string>;
+}
+
+/** One tenant of the user-domains answer: the domain and its name (the domain itself where the record holds none). */
+export interface UserDomain {
+  readonly domain: Domain;
+  readonly name: string;
 }
 
 /** The digest cache key for a scope: the domain, or '' for the global scope. */
@@ -119,6 +127,14 @@ export class PermissionStore {
     return this.snapshot.get().domains;
   }
 
+  /**
+   * A listed domain's name, as the tenant record holds it, for a picker to show; the
+   * domain itself for one the list does not name or before loadDomains has run.
+   */
+  domainName(domain: Domain): string {
+    return this.snapshot.get().names?.get(domain) ?? domain;
+  }
+
   digest(domain?: Domain): PermissionDigest | undefined {
     return this.snapshot.get().digests.get(digestKey(domain));
   }
@@ -172,10 +188,12 @@ export class PermissionStore {
     return load;
   }
 
-  /** Loads the user's domain list from the generated user-domains endpoint. */
+  /** Loads the user's domain list, each domain with its name, from the generated user-domains endpoint. */
   async loadDomains(): Promise<readonly Domain[]> {
-    const domains = (await this.request<Domain[] | null>('GET', this.routes.domains)) ?? [];
-    this.snapshot.update((snapshot) => ({ ...snapshot, domains }));
+    const listed = (await this.request<UserDomain[] | null>('GET', this.routes.domains)) ?? [];
+    const domains = listed.map((entry) => entry.domain);
+    const names = new Map(listed.map((entry) => [entry.domain, entry.name] as const));
+    this.snapshot.update((snapshot) => ({ ...snapshot, domains, names }));
     return domains;
   }
 

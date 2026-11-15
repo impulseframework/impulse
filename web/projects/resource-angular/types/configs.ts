@@ -1,5 +1,6 @@
 import { Directive, input, Type } from '@angular/core';
 import { TooltipPosition } from '@angular/material/tooltip';
+import { IconName } from './icon-names';
 import { FieldName, Method, PermissionScope, Resource } from './permissions';
 import { NullBoolean } from './resource-meta';
 import { ConcatFn, defaultEmptyFieldValue } from './resource-types';
@@ -9,22 +10,21 @@ export interface FieldPointer {
   field: FieldName;
 }
 
-export interface MenuItem {
+/**
+ * How a config-driven page shows in the application's menus: its label and its icon.
+ * resourceRoutes makes the page from it at the page's route and carries it on the route,
+ * and resourcePage answers the same page for the menu file to place. The page needs the
+ * resource's List permission and sits behind the resource's feature flag unless these
+ * say otherwise. A config without one makes a page no menu reaches, such as one only a
+ * row link opens.
+ */
+export interface ConfigPage {
   label: string;
-  route?: string[];
-  children?: MenuItem[];
-  /**
-   * The permission the item's destination requires; a navigation that gates its items
-   * with `impulseHasPermission` hides the item when the session user lacks it. Resource
-   * routes fill it with the resource's List permission unless the config set one.
-   */
-  permission?: PermissionScope;
-  /**
-   * The feature flag the item's destination sits behind, by name (a member of the
-   * generated `Feature` union); a navigation that gates its items with `impulseFeature`
-   * hides the item while the flag is off. Resource routes fill it from the metadata's
-   * `feature` when the resource is gated.
-   */
+  /** A Material Icon, drawn before the label. */
+  icon?: IconName;
+  /** The permission the page needs, where it is not List on the resource; a list means any one of them. */
+  permission?: PermissionScope | readonly PermissionScope[];
+  /** The feature flag the page sits behind, where it is not the resource's. */
   feature?: string;
 }
 
@@ -733,29 +733,22 @@ export interface RPCBaseFormData {
 // Config is the base type that all configurations should start with
 export interface RootConfigOptions {
   routeData?: RootRouteData;
-  nav?: {
-    navItem: MenuItem;
-    group?: string;
-  };
+  /** How the page shows in the menus. */
+  page?: ConfigPage;
   parentConfig: ParentResourceConfig;
   relatedConfigs?: ChildResourceConfig[];
   rpcConfigs?: RPCConfig[];
 }
 export interface RootConfig {
   routeData: RootRouteData;
-  nav: {
-    navItem: MenuItem;
-    group?: string;
-  };
+  /** How the page shows in the menus. */
+  page?: ConfigPage;
   parentConfig: ParentResourceConfig;
   relatedConfigs: ChildResourceConfig[];
   rpcConfigs?: RPCConfig[];
 }
 export const rootConfigDefaults = {
   routeData: {} as RootRouteData,
-  nav: {
-    navItem: {} as MenuItem,
-  },
   parentConfig: {} as ParentResourceConfig,
   relatedConfigs: [] as ChildResourceConfig[],
   rpcConfigs: [] as RPCConfig[],

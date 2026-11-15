@@ -818,7 +818,13 @@ neither administers nor gets evidence from.
 browser the person asked to be remembered, so their next sign-in from any of them asks
 for the factor; a signed-in person forgets their own browser with
 `ForgetTrustedDevice`, which revokes the session user's device and takes their entry out
-of the cookie, leaving the browser remembered for anyone else it was. The email code itself has nothing to reset: a person who lost
+of the cookie, leaving the browser remembered for anyone else it was. `Auth.ForgetBrowser()`
+is the handler over it that a person's account page posts to: it validates the session
+itself, as the password change does, so it is routed beside it outside `ValidateSession`,
+and it refuses an impersonated session; the generated router mounts it at
+`/user/browser/forget` and names it in the methods list (`MethodList.ForgetBrowser`). The
+session read (`Authenticated`) says `browserRemembered: true` while the browser carries the
+person's remembered entry, so the page offers the action only then. The email code itself has nothing to reset: a person who lost
 their mailbox is given a new address by an operator (`SetSessionUserEmail`),
 unverified, and the next code proves it. Recovery codes are not offered. Live sessions
 are not touched by the reset; `DestroyUserSessions` ends them.

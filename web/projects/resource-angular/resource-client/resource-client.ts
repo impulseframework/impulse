@@ -19,6 +19,7 @@ import {
   provideEnvironmentInitializer,
   signal,
   Signal,
+  WritableSignal,
 } from '@angular/core';
 import { Router } from '@angular/router';
 import {
@@ -34,6 +35,7 @@ import {
   refusedForPasswordChange,
   releaseVersion,
   ResourceHandleBase,
+  setStoreReadHook,
   Store,
   Transport,
 } from '@impulseframework/resource';
@@ -197,13 +199,15 @@ export function provideResourceClient(
   return [
     {
       provide: RESOURCE_CLIENT,
-      useFactory: (): ClientBase =>
-        factory({
+      useFactory: (): ClientBase => {
+        trackStoreReads();
+        return factory({
           transport: httpClientTransport(inject(HttpClient), inject(UiCoreService)),
           onError: clientErrorHook(inject(Injector)),
           apiVersion: inject(API_VERSION),
           live: liveClientOptions(inject(HttpXsrfTokenExtractor, { optional: true })),
-        }),
+        });
+      },
     },
     { provide: ErrorHandler, useClass: ResourceErrorHandler },
     provideBrowserGlobalErrorListeners(),
@@ -331,9 +335,37 @@ function causeOf(error: unknown): unknown {
   return cause;
 }
 
+/** Each client store's version, the signal a read of the store registers (trackStoreReads). */
+const storeVersions = new WeakMap<Store<unknown>, WritableSignal<number>>();
+
+/**
+ * Makes every read of a client store an Angular dependency: a permission question
+ * (can(), grantedFields(), a handle's can()), a feature flag or the session read inside
+ * computed(), effect() or a template is asked again when its store changes, a permission
+ * digest loading included. provideResourceClient and provideResourceTesting call it, so
+ * nothing mirrors a store first. A resource() loader is untracked, so a permission answer
+ * a loader branches on belongs in the resource's params, where it is tracked.
+ */
+export function trackStoreReads(): void {
+  setStoreReadHook(readStore);
+}
+
+/** The store read hook: reads the store's version signal, made the first time the store is read. */
+function readStore(store: Store<unknown>): void {
+  let version = storeVersions.get(store);
+  if (version === undefined) {
+    const made = signal(0);
+    store.subscribe(() => made.update((n) => n + 1));
+    storeVersions.set(store, made);
+    version = made;
+  }
+  version();
+}
+
 /**
  * Mirrors a client Store into a signal. Call in an injection context; the
- * subscription ends with that context.
+ * subscription ends with that context. A store read inside reactive code needs no mirror
+ * (trackStoreReads); the mirror is for a signal to pass along or to read a value from.
  */
 export function storeSignal<T>(store: Store<T>): Signal<T> {
   const mirror = signal(store.get());

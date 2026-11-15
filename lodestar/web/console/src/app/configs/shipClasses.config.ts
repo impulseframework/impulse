@@ -8,7 +8,7 @@ import { field, listViewConfig, rootConfig, section } from '@impulseframework/re
 //
 // Demonstrates: order.required.
 export const shipClassesConfig = rootConfig({
-  nav: { navItem: { label: 'Ship Classes' }, group: 'Headquarters' },
+  page: { label: 'Ship classes', icon: 'category' },
   parentConfig: listViewConfig({
     title: 'Ship Classes',
     createTitle: 'Ship Class',

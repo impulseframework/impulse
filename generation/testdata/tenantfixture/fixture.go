@@ -345,4 +345,55 @@ type (
 		// @directoryConnection
 		Connection string `spanner:"Connection"`
 	}
+
+	// Lagoon is a tenant record whose people call one a service district
+	// (@tenant(label: ...)) and that marks its name column (@tenantName), which the
+	// session's tenant list carries.
+	//
+	// @resource
+	// @tenant(label: "Service district")
+	Lagoon struct {
+		ID string `spanner:"Id"`
+		// @tenantName
+		Name string `spanner:"Name"`
+	}
+
+	// Reef marks a name on a resource that is not the tenant record.
+	//
+	// @resource
+	Reef struct {
+		ID string `spanner:"Id"`
+		// @tenantName
+		Name string `spanner:"Name"`
+	}
+
+	// Atoll marks its name on a column that is not a string.
+	//
+	// @resource
+	// @tenant
+	Atoll struct {
+		ID string `spanner:"Id"`
+		// @tenantName
+		Rank int64 `spanner:"Rank"`
+	}
+
+	// Islet marks two name columns.
+	//
+	// @resource
+	// @tenant
+	Islet struct {
+		ID string `spanner:"Id"`
+		// @tenantName
+		Name string `spanner:"Name"`
+		// @tenantName
+		Title *string `spanner:"Title"`
+	}
+
+	// Shoal declares a label the screen cannot show as written.
+	//
+	// @resource
+	// @tenant(label: "Shoal's")
+	Shoal struct {
+		ID string `spanner:"Id"`
+	}
 )

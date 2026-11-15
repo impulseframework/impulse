@@ -86,7 +86,7 @@ function server() {
       case '/api/permission-digest':
         return { status: 200, body: { ShipClasses: { List: 'granted' } } };
       case '/api/user-domains':
-        return { status: 200, body: ['anvil'] };
+        return { status: 200, body: [{ domain: 'anvil', name: 'Anvil' }] };
       case '/api/live/token':
         return { status: 200, body: identity };
       case '/api/live/unsubscribe':

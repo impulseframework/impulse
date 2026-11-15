@@ -144,6 +144,7 @@ func TestWebWired(t *testing.T) {
 	const (
 		portalPeople = "apps/portal/web/portal/src/app/components/ui/people/people.component.ts"
 		portalRoutes = "apps/portal/web/portal/src/app/app.routes.ts"
+		portalMenus  = "apps/portal/web/portal/src/app/app.menus.ts"
 		portalConfig = "apps/portal/web/portal/src/app/app.config.ts"
 		portalAPI    = "apps/portal/web/portal/src/app/core/service/zz_gen_api.ts"
 		consoleLine  = "console: apps/console/web/console/src names 2 resource(s) its generated client exports, asks for the pages of the management of Staff, and names the staff auth's XSRF cookie (staff-xsrf)"
@@ -235,6 +236,19 @@ func TestWebWired(t *testing.T) {
 			wantSummary: "1 browser binding problem(s)",
 			wantDetails: []string{
 				portalRoutes + ":5: identityRoutes asks the library for the pages of the Members auth's management, which " + portalAPI + ", the portal outlet's API description, does not carry (it carries no auth's management), so the library refuses the request when the application loads, which no build sees; the portal outlet's program generates none (generation.GenerateIdentity): take the request out, or have the program generate the management and run go generate ./...",
+			},
+		},
+		{
+			name:  "a menu file places the pages of an auth the description does not carry",
+			files: bound(),
+			edit: func(files map[string]string) {
+				files[portalMenus] = "import { identityMenuPages } from '@impulseframework/resource-angular/identity-pages';\n\n" +
+					"export const menus: Menu[] = [\n  { label: 'People', groups: [{ entries: identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'global' }) }] },\n];\n"
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 browser binding problem(s)",
+			wantDetails: []string{
+				portalMenus + ":4: identityMenuPages asks the library for the pages of the Staff auth's management, which " + portalAPI + ", the portal outlet's API description, does not carry (it carries the management of Members), so the library refuses the request when the application loads, which no build sees; name an auth it carries (auth: 'Members'), as impulse add auth --outlet portal writes the site's routes",
 			},
 		},
 		{

@@ -1,11 +1,12 @@
 <h1>Welcome aboard, {{ auth.sessionInfo().username }}</h1>
 <p>
   Lodestar is the operations console of a frontier rescue and salvage service. Below is your service card: per resource,
-  what your posting in the open sector grants you — <b>granted</b>, <b>terms apply</b> (a conditional grant the server
-  narrows row by row), or nothing at all. Every deck consults this same digest before it asks the server for anything.
+  what your posting grants you in the place you are in — <b>granted</b>, <b>terms apply</b> (a conditional grant the
+  server narrows row by row), or nothing at all. Every deck consults this same digest before it asks the server for
+  anything.
 </p>
 
-<app-star-chart></app-star-chart>
+<app-pilot-card />
 
 @if (ledger.value().length) {
   <mat-card appearance="outlined" class="table-card">
@@ -42,7 +43,7 @@
 
 <mat-card appearance="outlined" class="card-badge">
   <mat-card-header>
-    <mat-card-title>Service card — {{ sector() || 'no sector' }}</mat-card-title>
+    <mat-card-title>Service card — {{ sectors.placeName() }}</mat-card-title>
     <mat-card-subtitle>
       The permission digest as a badge. A striped column is a permission your session mask has removed.
     </mat-card-subtitle>
@@ -93,30 +94,5 @@
         <span class="empty">{{ emptyMessage() }}</span>
       }
     </div>
-  </mat-card-content>
-</mat-card>
-
-<mat-card appearance="outlined" class="email-card">
-  <mat-card-header>
-    <mat-card-title>Your email address</mat-card-title>
-    <mat-card-subtitle
-      >The address the service uses to email you. It is confirmed once you open the link we send to
-      it.</mat-card-subtitle
-    >
-  </mat-card-header>
-  <mat-card-content>
-    <impulse-email-address />
-  </mat-card-content>
-</mat-card>
-
-<mat-card appearance="outlined" class="appearance-card">
-  <mat-card-header>
-    <mat-card-title>Appearance</mat-card-title>
-    <mat-card-subtitle
-      >Choose light or dark, and the colors you like. We remember the choice on this browser.</mat-card-subtitle
-    >
-  </mat-card-header>
-  <mat-card-content>
-    <impulse-theme-picker />
   </mat-card-content>
 </mat-card>

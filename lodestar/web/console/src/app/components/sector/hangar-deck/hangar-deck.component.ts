@@ -13,7 +13,6 @@ import { InspectShipResult } from '@app/service/zz_gen_methods';
 import { Workflows, RefitTasks, Refits, Ships } from '@app/service/zz_gen_resources';
 import { Method, rowCapabilities } from '@impulseframework/resource';
 import { SectorService } from '../sector.service';
-import { StarChartComponent } from '../star-chart/star-chart.component';
 import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.component';
 
 /**
@@ -39,7 +38,6 @@ import { WorkflowGraphComponent } from '../workflow-graph/workflow-graph.compone
     MatInputModule,
     MatSelectModule,
     MatSlideToggleModule,
-    StarChartComponent,
     WorkflowGraphComponent,
   ],
   templateUrl: './hangar-deck.component.html',

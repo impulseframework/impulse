@@ -105,11 +105,11 @@ templates, this README, and the tool's source.
   `/api/tenants/acme/staff-tenant-users`; the generated client exports the segment as
   `DomainRoutePath`), so a link to a tenant's page can be shared and a bookmark lands
   where it points, and global pages keep their routes. The tenant a page works in is a
-  consequence of its URL, never a choice: a guard on the tenant segment sets it before
-  the page loads, from the session's tenant list, and nothing else writes it. The
-  header's picker lists that same list and navigates to the same page under the chosen
-  tenant; a URL naming a tenant the session cannot reach lands on a refusal page that
-  shows the server's answer, never on another tenant.
+  consequence of its URL, never a choice: the library's guard on the tenant segment sets
+  it before the page loads, from the session's tenant list, and nothing else writes it.
+  The frame's place switcher lists that same list by the tenants' names and opens the
+  same page under the chosen tenant; a URL naming a tenant the session cannot reach lands
+  on a refusal page that shows the server's answer, never on another tenant.
 
   Who may create a tenant is declared on the record, apart from who may enter one:
   `@tenant` alone keeps it to an administrator (the record's create path under a Create
@@ -856,8 +856,9 @@ naming the auth whose Auth issues the outlet's tokens: the generated router comp
 token check in front of the outlet's routes and the device flow's two endpoints under its
 prefix, the auth's session outlet gains the token routes where a signed-in person issues,
 lists and revokes their application tokens and approves a command-line client, the
-console mounts the client library's token page and device page over those routes at
-`<mount>/tokens` and `<mount>/device` (the `outlets` skeleton carries both), the auth's
+console shows the token page over those routes through the library's frame (Your API keys
+in the person's menu, `<mount>/api-keys`) and mounts the client library's device page at
+`<mount>/device` (the `outlets` skeleton carries both), the auth's
 settings name the device page as its `DevicePage`, where a device authorization sends
 the client's person, and the console stays where it is. (An
 application that kept a hand-written router gains `ServesSessions()` or nothing, as
@@ -882,9 +883,18 @@ is built (a new `tenancy.go` plus a field and the start inserted into
 restart; the app exposes the roster and the roster's copy of the declarations to the
 generated code as `TenantRoster()` and `TenantDeclarations()` and hands the roster's
 `Domains` and the declarations to the session permissions (a new `tenancy.go` plus the
-`Configurer`, `App` and `UserPermissions` edits); and the reference's tenant service,
-tenant guard, refusal page and the tenant's sign-in page are copied into the browser
-app. The declaration rides along: the tenant table carries `DirectoryOnly` and a
+`Configurer`, `App` and `UserPermissions` edits); and the browser app takes the tenant's
+shape: the tenant pages are copied in (the tenant's sign-in page, the configuration of All
+tenants, the library's list page over the record, and the New tenant dialog), the menu
+file gains the tenant menus ahead of its others (Tenants with All tenants and New tenant…,
+People with the tenant's side of the auth's people, and Tenant with Sign-in settings), the
+frame's configuration names the place outside every tenant (Configuration, with a gear),
+and routes still as the skeleton rendered them are written in the tenant shape, while the
+library's frame carries the tenant the URL names, the guard, the refusal page and the
+place switcher. The record's name, marked `@tenantName`, is what the session's tenant
+list shows. A record of another name gets everything in its own words: with
+`--tenant-table ServiceAreas` the pages, the menus and the routes say service area, and
+every name the generator derives from the record is the record's. The declaration rides along: the tenant table carries `DirectoryOnly` and a
 `<Record>Directories` table beside it, the directories record joins the resource package
 (`@tenantDirectory`, tenant-scoped), both records track changes, each auth's `Settings`
 carry the reader and its `New` sets the library's sign-in rule over it
@@ -892,7 +902,7 @@ carry the reader and its `New` sets the library's sign-in rule over it
 data level's settings literal passes the reader in. Every edit whose anchor the
 application lacks is recorded in the brief as the agent's. Which resources become
 tenant-scoped and how their rows are assigned, the bootstrap order, the harnesses, the
-tests, the tenant segment in the routes, the tenant picker, the declaration's grants and
+tests, routes edited since the skeleton rendered them, the dashboard's tenant, the declaration's grants and
 the directories the development seed declares are the agent's, and `tenancy-wired`
 holds it to them.
 
@@ -1266,8 +1276,9 @@ nowhere, and the brief hands the agent what is left: what to gate (`@feature(<Co
 on a resource, a field or a method, or a read in Go or in the browser), the description to
 write in place of the stub, how a flag is flipped (the generated `SetFeature` method
 under the `FeatureAdministrator` role, which the development login holds), and that the
-header's Feature flags link opens the library's `FeatureFlagsDialog` (`openFeatureFlagsDialog`
-from `@impulseframework/resource-angular/feature-flags`, shown under List on `FeatureFlags`).
+menu file's Feature flags… entry opens the library's `FeatureFlagsDialog`
+(`actions.featureFlags`, which the frame hands the menu file, shown under List on
+`FeatureFlags`).
 
 ```sh
 impulse add feature cargo_manifest --agent

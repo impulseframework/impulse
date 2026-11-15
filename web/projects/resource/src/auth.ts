@@ -125,6 +125,12 @@ export interface LoginMethods {
    */
   readonly changePassword?: string;
   /**
+   * The path where a signed-in person forgets the browser the second factor remembered
+   * for them (`forgetBrowser()`); the session read says whether it is remembered.
+   * Absent on a server that does not serve it.
+   */
+  readonly forgetBrowser?: string;
+  /**
    * The password method's username is the person's email address: the form asks for the
    * address, and an account created from a mailed link takes no username of its own.
    * Absent, or false, where the username is a name of the person's choosing.
@@ -400,6 +406,7 @@ interface MethodsAnswer {
   methods?: Partial<LoginMethod>[] | null;
   pending?: Partial<PendingRoutes> | null;
   changePassword?: string | null;
+  forgetBrowser?: string | null;
   usernameIsEmail?: boolean | null;
   invitation?: InvitationAnswer | null;
   email?: Partial<EmailRoutes> | null;
@@ -749,6 +756,22 @@ export class AuthClient {
   }
 
   /**
+   * Forgets this browser as a trusted device of the signed-in person: reads the methods
+   * list again, then posts to the forget path it names. Their next sign-in from this
+   * browser asks for the second factor again; other people the browser remembers keep
+   * theirs. A browser that is not remembered for the person is forgotten all the same,
+   * as nothing. A server whose list names no forget path serves none, and the call
+   * throws saying so.
+   */
+  async forgetBrowser(): Promise<void> {
+    const list = await this.methods();
+    if (!list.forgetBrowser) {
+      throw new Error('this server names no forget-this-browser path in its methods list: it does not serve one');
+    }
+    await this.options.request<null>('POST', list.forgetBrowser, { absolute: true });
+  }
+
+  /**
    * Opens the invitation a mailed link carried: reads the methods list again, then posts
    * the token to the invitation's open route. The answer describes the invitation (the
    * address, the tenant, when it expires, whether an account with a password may be
@@ -1003,6 +1026,10 @@ export class AuthClient {
     const changePassword = answer?.changePassword;
     if (typeof changePassword === 'string' && changePassword !== '') {
       list.changePassword = changePassword;
+    }
+    const forgetBrowser = answer?.forgetBrowser;
+    if (typeof forgetBrowser === 'string' && forgetBrowser !== '') {
+      list.forgetBrowser = forgetBrowser;
     }
     if (answer?.usernameIsEmail === true) {
       list.usernameIsEmail = true;

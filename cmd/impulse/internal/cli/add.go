@@ -141,9 +141,9 @@ Feature union carries it. In the sites layout --site names the site whose resour
 package declares it.
 
 What the flag gates (@feature(<Constant>) on a resource, a field or a method, or a read of
-it in Go or in the browser) and the description are handed to the agent; the header's
-Feature flags link opens the dialog that flips it; the feature-flags check fails while the
-flag gates nothing and is read nowhere.`,
+it in Go or in the browser) and the description are handed to the agent; the menu file's
+Feature flags… entry opens the dialog that flips it; the feature-flags check fails while
+the flag gates nothing and is read nowhere.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runTransition(cmd, &f, transition_.AddFeature{Name: args[0], Site: site}, "")
@@ -343,12 +343,14 @@ signal and started where the configuration is built (a new file plus a field and
 start in DataConfiguration), so a tenant created on any instance is usable at once,
 without a restart; the app exposes the roster to the generated code as TenantRoster()
 and hands its Domains to the session permissions (a new file plus the Configurer, App
-and UserPermissions edits); and the reference's tenant service, tenant guard and refusal
-page are copied into the browser app.
+and UserPermissions edits); and the reference's tenant pages (the tenant's sign-in page,
+All tenants and the New tenant dialog) are copied into the browser app, whose frame
+carries the tenant the URL names, the guard and the place switcher.
 
 Which resources become tenant-scoped and how their rows are assigned, the bootstrap
 order, the harnesses, the tests, the tenant segment in the browser's routes, and the
-tenant picker are handed to the agent with the failing checks as the obligations.`,
+tenant menus in its menu file are handed to the agent with the failing checks as the
+obligations.`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runTransition(cmd, &f, transition_.Tenancy{Table: table}, transition_.TenancyReferenceCandidate)

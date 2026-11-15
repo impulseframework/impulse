@@ -14,7 +14,7 @@ import { listViewConfig, rootConfig } from '@impulseframework/resource-angular/t
 //
 // Demonstrates: list.keyless.
 export const standingOrdersConfig = rootConfig({
-  nav: { navItem: { label: 'Standing Orders' }, group: 'Headquarters' },
+  page: { label: 'Standing orders', icon: 'gavel' },
   parentConfig: listViewConfig({
     title: 'Standing Orders',
     primaryResource: Resources.StandingOrders,

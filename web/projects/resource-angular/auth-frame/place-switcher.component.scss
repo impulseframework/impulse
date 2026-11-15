@@ -1,0 +1,129 @@
+:host {
+  display: block;
+  min-width: 0;
+}
+
+// A box that reads as a control: "Tenant" over the open tenant's name, and a down arrow
+// when there is another to choose. With one tenant the box stays, without the arrow, so
+// the tenant is always named in the same place.
+.switcher {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 170px;
+  max-width: 280px;
+  height: 36px;
+  padding: 0 6px 0 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 6px;
+  background: var(--mat-sys-surface);
+  color: inherit;
+  font-family: Roboto, 'Helvetica Neue', sans-serif;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover,
+  &:focus-visible,
+  &[aria-expanded='true'] {
+    border-color: var(--mat-sys-outline);
+    background: var(--mat-sys-surface-container-highest);
+  }
+
+  &:focus-visible {
+    outline: 1px solid var(--mat-sys-primary);
+    outline-offset: -1px;
+  }
+
+  &.alone {
+    cursor: default;
+
+    &:hover {
+      border-color: var(--mat-sys-outline-variant);
+      background: var(--mat-sys-surface);
+    }
+  }
+}
+
+.lines {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.caption {
+  font-size: 10.5px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+@media (max-width: 599.98px) {
+  .switcher {
+    min-width: 0;
+  }
+}
+
+.kind,
+.chevron {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+// The find box sits inside the list's panel, above the first group.
+.find {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 2px 6px;
+  padding: 0 8px;
+  height: 30px;
+  border: 1px solid var(--mat-sys-outline-variant);
+  border-radius: 4px;
+  background: var(--mat-sys-surface);
+
+  &:focus-within {
+    border-color: var(--mat-sys-primary);
+  }
+
+  mat-icon {
+    width: 18px;
+    height: 18px;
+    font-size: 18px;
+    color: var(--mat-sys-on-surface-variant);
+  }
+
+  input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    outline: none;
+    background: none;
+    color: var(--mat-sys-on-surface);
+    font:
+      13px Roboto,
+      'Helvetica Neue',
+      sans-serif;
+  }
+}
+
+.none {
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--mat-sys-on-surface-variant);
+}

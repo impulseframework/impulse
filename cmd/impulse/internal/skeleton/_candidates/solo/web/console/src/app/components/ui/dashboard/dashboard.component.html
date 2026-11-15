@@ -10,70 +10,47 @@
     <mat-card-subtitle>Per resource: granted, conditional (terms apply), or nothing.</mat-card-subtitle>
   </mat-card-header>
   <mat-card-content>
-    <table class="card-table">
-      <thead>
-        <tr>
-          <th>Resource</th>
-          @for (permission of permissionNames; track permission) {
-            <th>{{ permission }}</th>
-          }
-        </tr>
-      </thead>
-      <tbody>
-        @for (row of rows(); track row.resource) {
+    <div class="table-scroll">
+      <table class="card-table">
+        <thead>
           <tr>
-            <td>{{ row.resource }}</td>
+            <th>Resource</th>
             @for (permission of permissionNames; track permission) {
-              <td class="state {{ row.states[permission] ?? 'absent' }}">
-                @switch (row.states[permission]) {
-                  @case ('granted') {
-                    ●
-                  }
-                  @case ('conditional') {
-                    ◐
-                  }
-                  @default {
-                    ·
-                  }
-                }
-              </td>
+              <th>{{ permission }}</th>
             }
           </tr>
-        } @empty {
-          <tr>
-            <td colspan="7" class="empty">
-              No resources yet. Add a table to schema/migrations and a struct to pkg/resources, then run
-              <code>go generate ./...</code>.
-            </td>
-          </tr>
-        }
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          @for (row of rows(); track row.resource) {
+            <tr>
+              <td>{{ row.resource }}</td>
+              @for (permission of permissionNames; track permission) {
+                <td class="state {{ row.states[permission] ?? 'absent' }}">
+                  @switch (row.states[permission]) {
+                    @case ('granted') {
+                      ●
+                    }
+                    @case ('conditional') {
+                      ◐
+                    }
+                    @default {
+                      ·
+                    }
+                  }
+                </td>
+              }
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="7" class="empty">
+                No resources yet. Add a table to schema/migrations and a struct to pkg/resources, then run
+                <code>go generate ./...</code>.
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
     <p class="legend">● granted &nbsp; ◐ conditional — terms apply, the server narrows per row &nbsp; · absent</p>
-  </mat-card-content>
-</mat-card>
-
-<mat-card appearance="outlined" class="email-card">
-  <mat-card-header>
-    <mat-card-title>Your email address</mat-card-title>
-    <mat-card-subtitle
-      >The address the application uses to email you. It is confirmed once you open the link we send to
-      it.</mat-card-subtitle
-    >
-  </mat-card-header>
-  <mat-card-content>
-    <impulse-email-address />
-  </mat-card-content>
-</mat-card>
-
-<mat-card appearance="outlined" class="appearance-card">
-  <mat-card-header>
-    <mat-card-title>Appearance</mat-card-title>
-    <mat-card-subtitle
-      >Choose light or dark, and the colors you like. We remember the choice on this browser.</mat-card-subtitle
-    >
-  </mat-card-header>
-  <mat-card-content>
-    <impulse-theme-picker />
   </mat-card-content>
 </mat-card>

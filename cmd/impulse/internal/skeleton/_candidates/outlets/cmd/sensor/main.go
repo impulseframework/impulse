@@ -12,7 +12,7 @@
 // The settings are the device's environment:
 //
 //	SENSOR_OUTLET  the devices outlet's URL as the router mounts it, https://app.example.com/devices
-//	SENSOR_TOKEN   an application token a staff login issued for the outlet on the console's Tokens page
+//	SENSOR_TOKEN   an application token a staff login issued for the outlet on the console's API keys page (Your API keys)
 //	SENSOR_TENANT  the tenant the readings belong to; north in development
 //	SENSOR_SOURCE  the name the readings carry for this device; the hostname when unset
 //

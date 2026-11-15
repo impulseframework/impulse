@@ -1,7 +1,7 @@
 package integration
 
 // This suite pins the reach-time admission on the served surface: a sector is in a
-// session's star chart only when the session holds a grant there and the sector's
+// session's chart (user-domains) only when the session holds a grant there and the sector's
 // declaration admits the way the session was established, and a direct request for a
 // sector the session may not enter answers as a sector that does not exist, the
 // concealed-sector guard's own refusal. The harness scripts the declarations, since no
@@ -101,7 +101,7 @@ func TestTenantAdmission_sectorDeclarationsDecideTheChart(t *testing.T) {
 			assertStatus(t, status, tt.wantStatus, body)
 			if tt.wantChart != nil {
 				var got []accesstypes.Domain
-				if err := json.Unmarshal(body, &got); err != nil {
+				if err := unmarshalDomains(body, &got); err != nil {
 					t.Fatalf("decoding the chart %s: %v", body, err)
 				}
 				if !slices.Equal(got, tt.wantChart) {

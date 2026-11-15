@@ -2,8 +2,8 @@ import { Routes } from '@angular/router';
 import { apiDescriptor } from '@app/service/zz_gen_api';
 import { resourceMeta } from '@app/service/zz_gen_resources';
 import { LoginAuthenticationGuard } from '@impulseframework/resource-angular/auth-authentication-guard';
+import { FrameComponent, frameRoutes } from '@impulseframework/resource-angular/auth-frame';
 import { identityRoutes } from '@impulseframework/resource-angular/identity-pages';
-import { UiComponent } from '@components/ui/ui.component';
 
 export const routes: Routes = [
   {
@@ -15,8 +15,9 @@ export const routes: Routes = [
     loadComponent: () => import('@impulseframework/resource-angular/auth-sign-out').then((comp) => comp.SignOutComponent),
   },
   {
+    // Every signed-in page sits in the library's frame (provideFrame in app.config.ts).
     path: '',
-    component: UiComponent,
+    component: FrameComponent,
     canActivate: [LoginAuthenticationGuard],
     children: [
       {
@@ -28,9 +29,11 @@ export const routes: Routes = [
       // sign-in identities and the sessions under it), the mailed links, the sessions and
       // the failed sign-ins. No page is written for them here: the generator describes the
       // management it writes for the auth (GenerateIdentity) in the API description, and
-      // the library builds the pages from it, each listed in the navigation behind the
-      // List grant on its resource, each row offering the methods the caller may run on it.
+      // the library builds the pages from it, each placed in the menus behind the List
+      // grant on its resource, each row offering the methods the caller may run on it.
       ...identityRoutes(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'global' }),
+      // The person's account and About pages: the library's.
+      ...frameRoutes(),
       { path: '**', redirectTo: 'dashboard' },
     ],
   },

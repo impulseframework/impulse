@@ -102,8 +102,8 @@ flip is recorded in `FeatureFlagChanges`. The App reads the table when it is bui
 digest and features route answer from one copy. `GET /api/features` lists what is on to anyone signed in. Flipping is the generated
 `SetFeature` method, held by the `FeatureAdministrator` role in the staff role file
 (Execute on `SetFeature`, List and Read on `FeatureFlags`), which the development `admin`
-login holds; the library's `FeatureFlagsDialog` calls it, opened from the Feature flags
-link in the header, shown to anyone holding List on `FeatureFlags`. A flag's
+login holds; the library's `FeatureFlagsDialog` calls it, opened from Feature flags… in
+the System menu, shown to anyone holding List on `FeatureFlags`. A flag's
 development state is its row in `schema/devseed/<n>_dev_feature_flags.up.sql`, which
 `impulse add feature` writes off (set it to TRUE to start development and the test
 environments with the feature on) and `impulse remove feature` deletes with the constant
@@ -196,8 +196,12 @@ form the Checks section and CI use; `bun ng test console` watches. The specs bes
 skeleton's components are the pattern for the application's own: the dashboard renders a
 permission digest over a scripted client from `@impulseframework/resource-angular/testing`
 (`provideResourceTesting` puts the generated client on a transport that records every
-request and answers from the test), and the login page, header, top bar, footer, and shell
-have creation specs with the same providers.
+request and answers from the test), and the menu file's spec holds every page the routes
+carry to a place in the menus (`unplacedPages`). The console sits in the library's frame
+(`provideFrame` in `app.config.ts`): the bar with the application's name and the menus of
+`app.menus.ts` (System: the staff's accounts and Feature flags…), Help ending with About,
+which carries the release, and the person's own menu (Your account, with the email address
+and Change your password; Appearance; Sign out); the frame is the library's, tested there.
 
 ## Live pages
 

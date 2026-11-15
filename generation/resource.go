@@ -35,6 +35,9 @@ type resourceGenerator struct {
 	// stand only while nothing is domain-scoped, where no route reads them.
 	domainRouteSegment string
 	domainRouteParam   string
+	// domainWord is what the application calls a tenant on screen (tenantWord), empty
+	// where the package declares no tenant record.
+	domainWord tenantWordData
 	// concealedDomains collapses "unauthorized" into "nonexistent" on every
 	// domain-naming surface (WithConcealedDomains): after the roster, the DomainGuard
 	// and the consolidated dispatcher ask the caller's foothold in the domain
@@ -700,6 +703,7 @@ func (r *resourceGenerator) buildUnifiedTypescriptGenerator(gc *resource.Generat
 	t.manualRegistrations = r.manualRegistrations
 	t.domainRouteSegment = r.domainRouteSegment
 	t.domainRouteParam = r.domainRouteParam
+	t.domainWord = r.domainWord
 
 	return t, nil
 }

@@ -1375,12 +1375,13 @@ func (s Site) copyWorkspace(a *app.App, from, to string, managed bool, ch *Chang
 }
 
 // dropIdentityPages takes the pages of the auths' generated management out of the copied
-// workspace's routes: the new site's program generates none, so its API description
-// names no such page. The projects are read again, since the copy renamed one.
+// workspace's routes and menu file: the new site's program generates none, so its API
+// description names no such page. The projects are read again, since the copy renamed
+// one.
 func (s Site) dropIdentityPages(a *app.App, webDir string, ch *Change) {
 	projects, err := a.ReadAngular(webDir)
 	if err != nil {
-		ch.skipf("%s: its projects could not be read (%v); take the identityRoutes spreads out of the %s site's routes, since its program generates no management", webDir, err, s.Name)
+		ch.skipf("%s: its projects could not be read (%v); take the identityRoutes spreads out of the %s site's routes and the identityMenuPages spreads out of its menu file, since its program generates no management", webDir, err, s.Name)
 
 		return
 	}
@@ -1389,25 +1390,31 @@ func (s Site) dropIdentityPages(a *app.App, webDir string, ch *Change) {
 		if source == "" {
 			source = path.Join(projects[i].Root, "src")
 		}
-		rel := path.Join(webDir, source, appRoutesFile)
-		data, mode, err := readFile(a, rel)
-		if err != nil {
-			continue // a project with no routes file names no page
+		for _, bound := range pagesFiles {
+			s.dropFrom(a, path.Join(webDir, source, bound.file), bound.call, ch)
 		}
-		edited, found := dropIdentityRoutes(string(data))
-		if strings.Contains(edited, "identityRoutes(") {
-			ch.skipf("%s: still calls identityRoutes where the tool does not rewrite it (a spread that shares its line with other code); take it out, since the %s site's program generates no management and its API description names no such page", rel, s.Name)
-		}
-		if !found {
-			continue
-		}
-		if err := os.WriteFile(a.Abs(rel), []byte(edited), mode); err != nil {
-			ch.skipf("%s: not rewritten (%v); take the identityRoutes spreads out of it, since the %s site's program generates no management", rel, err, s.Name)
-
-			continue
-		}
-		ch.didf("%s: without the pages of the auths' generated management (the identityRoutes spreads and what they alone used), which the %s site does not serve", rel, s.Name)
 	}
+}
+
+// dropFrom takes the spreads of call out of one file of the copy.
+func (s Site) dropFrom(a *app.App, rel, call string, ch *Change) {
+	data, mode, err := readFile(a, rel)
+	if err != nil {
+		return // a project with no such file names no page
+	}
+	edited, found := dropIdentityRoutes(string(data))
+	if strings.Contains(edited, call+"(") {
+		ch.skipf("%s: still calls %s where the tool does not rewrite it (a spread that shares its line with other code); take it out, since the %s site's program generates no management and its API description names no such page", rel, call, s.Name)
+	}
+	if !found {
+		return
+	}
+	if err := os.WriteFile(a.Abs(rel), []byte(edited), mode); err != nil {
+		ch.skipf("%s: not rewritten (%v); take the %s spreads out of it, since the %s site's program generates no management", rel, err, call, s.Name)
+
+		return
+	}
+	ch.didf("%s: without the pages of the auths' generated management (the %s spreads and what they alone used), which the %s site does not serve", rel, call, s.Name)
 }
 
 // writeCI rewrites the owned workflows from the code once the browser workspaces changed:

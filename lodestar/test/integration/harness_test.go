@@ -306,16 +306,17 @@ func (c *testConfigurer) MembersIdentity() *membersidentity.Client {
 }
 
 // TenantRoster is the application's tenant roster as production's DataConfiguration
-// starts it: the generated constructor over the test client, holding the seeded sectors.
-// A suite that passed none gets one holding the seed by Add, never read and never
-// started; the run-time tenant suite passes a started roster of its own, so a sector it
-// charts reaches the roster the way a served instance's does. The guard's foothold
-// question is the engine's, through UserPermissions.HasGrants.
+// starts it: the generated constructor over the test client, holding the seeded sectors
+// with their names, read once from the table as Start reads it (the session's tenant
+// list names each sector from this copy), and never started; the run-time tenant suite
+// passes a started roster of its own, so a sector it charts reaches the roster the way a
+// served instance's does. The guard's foothold question is the engine's, through
+// UserPermissions.HasGrants.
 func (c *testConfigurer) TenantRoster() *resource.TenantRoster {
 	if c.tenants == nil {
 		c.tenants = app.NewSectorRoster(c.ResourceClient())
-		for _, sector := range sectors {
-			c.tenants.Add(sector)
+		if err := c.tenants.Reload(context.Background()); err != nil {
+			panic(err)
 		}
 	}
 

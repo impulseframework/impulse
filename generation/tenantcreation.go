@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/ettle/strcase"
 	"github.com/go-playground/errors/v5"
@@ -39,8 +40,12 @@ const (
 	tenantCreationBoth tenantCreation = "both"
 )
 
-// tenantCreationArgKey is the annotation's named argument.
-const tenantCreationArgKey = "creation"
+// tenantCreationArgKey and tenantLabelArgKey are the annotation's named arguments: who
+// may create a tenant, and the word for one where it is not the record's name.
+const (
+	tenantCreationArgKey = "creation"
+	tenantLabelArgKey    = "label"
+)
 
 // tenantCreationShapes lists the shapes in the order the refusal names them.
 var tenantCreationShapes = []tenantCreation{tenantCreationAdministrator, tenantCreationSelfService, tenantCreationBoth}
@@ -66,32 +71,66 @@ func (c tenantCreation) String() string {
 	return string(c)
 }
 
-// parseTenantCreation reads @tenant's arguments: none, or creation: naming a shape. A
-// positional argument, an unknown key and an unknown shape are refused naming the
-// record and the shapes.
-func parseTenantCreation(name string, arg genlang.Arg) (tenantCreation, error) {
+// tenantArgs is what @tenant declares: the creation shape and the label.
+type tenantArgs struct {
+	creation tenantCreation
+	label    string
+}
+
+// parseTenantArgs reads @tenant's arguments: none, creation: naming a shape, and label:
+// naming the word for one tenant. A positional argument, an unknown key, an unknown
+// shape and a label the screen cannot show as written are refused naming the record.
+func parseTenantArgs(name string, arg genlang.Arg) (tenantArgs, error) {
+	args := tenantArgs{creation: tenantCreationAdministrator}
 	if arg.Count() == 0 {
-		return tenantCreationAdministrator, nil
+		return args, nil
 	}
-	invocations, err := arg.ParseInvocations(&genlang.ArgSpec{Keys: []string{tenantCreationArgKey}})
+	invocations, err := arg.ParseInvocations(&genlang.ArgSpec{Keys: []string{tenantCreationArgKey, tenantLabelArgKey}})
 	if err != nil {
-		return "", errors.Wrapf(err, "struct %s: @%s", name, tenantKeyword)
+		return tenantArgs{}, errors.Wrapf(err, "struct %s: @%s", name, tenantKeyword)
 	}
 	if len(invocations) != 1 {
-		return "", errors.Newf("struct %s: @%s may be declared once", name, tenantKeyword)
+		return tenantArgs{}, errors.Newf("struct %s: @%s may be declared once", name, tenantKeyword)
+	}
+	if label, ok := invocations[0].Named(tenantLabelArgKey); ok {
+		if !isScreenWord(label) {
+			return tenantArgs{}, errors.Newf("struct %s: @%s(%s: %s) is not a word the screen shows as written; a label is letters, digits, single spaces and hyphens, starting with a letter", name, tenantKeyword, tenantLabelArgKey, label)
+		}
+		args.label = label
 	}
 	value, ok := invocations[0].Named(tenantCreationArgKey)
 	if !ok {
-		return tenantCreationAdministrator, nil
+		return args, nil
 	}
-	shape := tenantCreation(value)
 	for _, known := range tenantCreationShapes {
-		if shape == known {
-			return shape, nil
+		if tenantCreation(value) == known {
+			args.creation = known
+
+			return args, nil
 		}
 	}
 
-	return "", errors.Newf("struct %s: @%s(%s: %s) names no creation shape; the shapes are %s (an administrator alone, the default), %s (the person who becomes its administrator) and %s", name, tenantKeyword, tenantCreationArgKey, value, tenantCreationAdministrator, tenantCreationSelfService, tenantCreationBoth)
+	return tenantArgs{}, errors.Newf("struct %s: @%s(%s: %s) names no creation shape; the shapes are %s (an administrator alone, the default), %s (the person who becomes its administrator) and %s", name, tenantKeyword, tenantCreationArgKey, value, tenantCreationAdministrator, tenantCreationSelfService, tenantCreationBoth)
+}
+
+// isScreenWord reports whether a label reads on screen as written: letters, digits,
+// single spaces and hyphens, starting with a letter and ending with no space.
+func isScreenWord(label string) bool {
+	if label == "" || strings.HasSuffix(label, " ") || strings.Contains(label, "  ") {
+		return false
+	}
+	for i, c := range label {
+		switch {
+		case unicode.IsLetter(c):
+		case i == 0:
+			return false
+		case unicode.IsDigit(c), c == ' ', c == '-':
+		default:
+			return false
+		}
+	}
+
+	return true
 }
 
 // tenantCreationRoute is the create-your-tenant route's segment under the outlet

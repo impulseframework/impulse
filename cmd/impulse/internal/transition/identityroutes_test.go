@@ -121,6 +121,66 @@ export const routes = [
 `,
 		},
 		{
+			name: "the base's menu file: the spread and the names it alone used go, the group stays",
+			text: `import { apiDescriptor } from '@app/service/zz_gen_api';
+import { Permissions, Resources } from '@app/service/zz_gen_constants';
+import { resourceMeta } from '@app/service/zz_gen_resources';
+import { FrameActions, Menu } from '@impulseframework/resource-angular/auth-frame';
+import { identityMenuPages } from '@impulseframework/resource-angular/identity-pages';
+
+export function appMenus(actions: FrameActions): Menu[] {
+  return [
+    {
+      label: 'System',
+      groups: [
+        {
+          entries: [
+            // The staff's accounts, their mailed links, sessions and failed sign-ins.
+            ...identityMenuPages(apiDescriptor, resourceMeta, { auth: 'Staff', scope: 'global' }),
+          ],
+        },
+        {
+          entries: [
+            {
+              label: 'Feature flags…',
+              run: () => actions.featureFlags(),
+              permission: { resource: Resources.FeatureFlags, permission: Permissions.List },
+            },
+          ],
+        },
+      ],
+    },
+  ];
+}
+`,
+			want: `import { Permissions, Resources } from '@app/service/zz_gen_constants';
+import { FrameActions, Menu } from '@impulseframework/resource-angular/auth-frame';
+
+export function appMenus(actions: FrameActions): Menu[] {
+  return [
+    {
+      label: 'System',
+      groups: [
+        {
+          entries: [
+          ],
+        },
+        {
+          entries: [
+            {
+              label: 'Feature flags…',
+              run: () => actions.featureFlags(),
+              permission: { resource: Resources.FeatureFlags, permission: Permissions.List },
+            },
+          ],
+        },
+      ],
+    },
+  ];
+}
+`,
+		},
+		{
 			name: "a spread that shares its line with other code is left for a person",
 			text: `import { identityRoutes } from '@impulseframework/resource-angular/identity-pages';
 

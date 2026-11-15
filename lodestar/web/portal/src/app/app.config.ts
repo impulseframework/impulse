@@ -7,6 +7,7 @@ import { provideServiceWorker } from '@angular/service-worker';
 import { createApi } from '@app/service/zz_gen_api';
 import { methodMeta } from '@app/service/zz_gen_methods';
 import { resourceMeta } from '@app/service/zz_gen_resources';
+import { provideFrame } from '@impulseframework/resource-angular/auth-frame';
 import { apiVersionInterceptor, provideResourceClient } from '@impulseframework/resource-angular/resource-client';
 import {
   API_URL,
@@ -51,6 +52,12 @@ export const appConfig: ApplicationConfig = {
     //
     // Demonstrates: client.login-redirect, client.uncaught-notice.
     provideResourceClient((options) => createApi({ baseUrl: environment.apiUrl, ...options })),
+    // The frame every signed-in page sits in, drawn by the library: the portal's name, the
+    // sector the page is in with the way to the client's other sectors, Help, and the
+    // person's own menu (Appearance and Sign out: the client signs in through their
+    // company's directory, so the account page holds nothing for them). The portal has no
+    // menus of its own. The sector the URL names is the tenant the library's pages work in.
+    provideFrame({ name: 'Lodestar Client Portal', home: 'tracker', menus: [] }),
     provideRouter(routes, withComponentInputBinding(), withRouterConfig({ paramsInheritanceStrategy: 'always' })),
     // The date adapter and the animations as standalone providers: the animations module,
     // imported through the module-to-providers bridge, carried the browser module's
@@ -73,7 +80,7 @@ export const appConfig: ApplicationConfig = {
     provideServiceWorker('ngsw-worker.js', { enabled: !isDevMode(), registrationStrategy: 'registerWhenStable:30000' }),
     provideAppUpdate(),
     // The look the person chose, light or dark, applied before the first page renders
-    // and remembered in the browser; the dashboard's Appearance card is where they
+    // and remembered in the browser; Appearance in the person's menu is where they
     // choose. The portal offers one palette (theme.scss), so no palette is named here.
     provideTheme(),
   ],

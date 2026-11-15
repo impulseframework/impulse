@@ -12,7 +12,7 @@
 // background_color) and index.html's theme-color carry the first palette's primary and
 // the page's colors as literals; keep them in step until they are rendered from one
 // brand declaration.
-// The portal offers one palette, so its picker offers light and dark alone; a second
+// The portal offers one palette, so Appearance in the person's menu offers light and dark alone; a second
 // entry here, and in provideTheme, is the whole of offering a choice of colors.
 @use '@angular/material' as mat;
 @use '@impulseframework/resource-angular/theme';

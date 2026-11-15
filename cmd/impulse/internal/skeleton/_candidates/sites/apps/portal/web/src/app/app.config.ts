@@ -7,6 +7,7 @@ import { provideServiceWorker } from '@angular/service-worker';
 import { createApi } from '@app/service/zz_gen_api';
 import { methodMeta } from '@app/service/zz_gen_methods';
 import { resourceMeta } from '@app/service/zz_gen_resources';
+import { provideFrame } from '@impulseframework/resource-angular/auth-frame';
 import { apiVersionInterceptor, provideResourceClient } from '@impulseframework/resource-angular/resource-client';
 import {
   API_URL,
@@ -22,6 +23,7 @@ import { provideAppUpdate } from '@impulseframework/resource-angular/ui-app-upda
 import { provideTheme } from '@impulseframework/resource-angular/ui-theme';
 import { firestoreChangeFeed } from '@impulseframework/resource-firestore';
 import { environment } from '@env';
+import { appMenus } from './app.menus';
 import { routes } from './app.routes';
 
 export const appConfig: ApplicationConfig = {
@@ -49,6 +51,18 @@ export const appConfig: ApplicationConfig = {
     // refusal a page reports in place raises none. The one HTTP interceptor, registered
     // below, adds the release header to the application's own HttpClient calls.
     provideResourceClient((options) => createApi({ baseUrl: environment.apiUrl, ...options })),
+    // The frame every signed-in page sits in, drawn by the library: the application's name,
+    // the place the page is in with the way to another (the place outside every tenant,
+    // Configuration, and each tenant by name), the menus of the menu file (app.menus.ts),
+    // Help, and the person's own menu. The tenant the URL names is the tenant the library's
+    // pages work in (the frame provides RESOURCE_DOMAIN from it): a tenant's people ask that
+    // tenant's digest and bind their requests to it.
+    provideFrame({
+      name: 'Sites Portal',
+      home: 'dashboard',
+      outside: { label: 'Configuration', icon: 'settings' },
+      menus: appMenus,
+    }),
     // The change feed the live pages listen through: the Firestore feed from its own
     // package, so the client stays free of the SDK. AuthService starts the client's live
     // session with it once the session is authenticated, fetching the tab's identity from
@@ -83,8 +97,8 @@ export const appConfig: ApplicationConfig = {
     provideServiceWorker('ngsw-worker.js', { enabled: !isDevMode(), registrationStrategy: 'registerWhenStable:30000' }),
     provideAppUpdate(),
     // The look the person chose, light or dark, applied before the first page renders
-    // and remembered in the browser; the dashboard's Appearance card is where they
-    // choose. The portal offers one palette (theme.scss), so no palette is named here.
+    // and remembered in the browser; Appearance in the person's menu is where they choose.
+    // The portal offers one palette (theme.scss), so no palette is named here.
     provideTheme(),
   ],
 };

@@ -2,7 +2,7 @@ import { inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, ActivatedRouteSnapshot, NavigationEnd, Router } from '@angular/router';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
-import { MenuItem, Resource, RESOURCE_DOMAIN } from '@impulseframework/resource-angular/types';
+import { Resource, RESOURCE_DOMAIN } from '@impulseframework/resource-angular/types';
 import { filter } from 'rxjs';
 
 /**
@@ -88,41 +88,4 @@ function routeParam(snapshot: ActivatedRouteSnapshot | undefined, param: string)
     }
   }
   return undefined;
-}
-
-export const generatedNavItems: MenuItem[] = [];
-export const generatedNavGroups: string[] = [];
-
-/**
- * Adds a navigation item to the generated nav items array.
- */
-export function addNavItem(
-  nav: {
-    navItem: MenuItem;
-    group?: string;
-  },
-  route: string,
-): void {
-  nav.navItem.route = [route];
-
-  if (!nav.group) {
-    generatedNavItems.push(nav.navItem);
-    return;
-  }
-
-  if (!generatedNavGroups.includes(nav.group)) {
-    generatedNavGroups.push(nav.group);
-  }
-
-  let groupItem = generatedNavItems.find((item) => item.label === nav.group);
-
-  if (!groupItem) {
-    groupItem = { label: nav.group, children: [] };
-    generatedNavItems.push(groupItem);
-  }
-
-  groupItem.children = groupItem.children || [];
-  groupItem.children.push(nav.navItem);
-
-  generatedNavItems.sort((a, b) => (a.label > b.label ? -1 : 1));
 }

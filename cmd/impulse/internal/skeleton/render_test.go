@@ -480,18 +480,19 @@ func TestRenderName(t *testing.T) {
 		},
 	}
 	// The web app manifest names the installed application in display form, the
-	// portal's with its suffix; the console's footer opens with the name, held in its
-	// component's field.
+	// portal's with its suffix; so does the name the frame draws, given to it in the
+	// application configuration.
 	consoleManifest := []string{`"name": "Beacon"`, `"short_name": "Beacon"`}
 	portalManifest := []string{`"name": "Beacon Portal"`, `"short_name": "Beacon Portal"`}
-	consoleFooter := []string{"  name = 'Beacon';\n"}
+	consoleFrame := []string{"name: 'Beacon',"}
+	portalFrame := []string{"name: 'Beacon Portal',"}
 	// The auth packages' Application constant is the name the mail an auth sends says.
 	authApplication := []string{"\tApplication = \"Beacon\"\n"}
 	oneWorkspace := map[string][]string{
-		"web/package.json":                                                 {`"name": "beacon-web"`},
-		"web/console/public/manifest.webmanifest":                          consoleManifest,
-		"web/console/src/app/components/shared/footer/footer.component.ts": consoleFooter,
-		"pkg/auth/staff/staff.go":                                          authApplication,
+		"web/package.json":                        {`"name": "beacon-web"`},
+		"web/console/public/manifest.webmanifest": consoleManifest,
+		"web/console/src/app/app.config.ts":       consoleFrame,
+		"pkg/auth/staff/staff.go":                 authApplication,
 	}
 	tests := []struct {
 		name      string
@@ -501,20 +502,22 @@ func TestRenderName(t *testing.T) {
 		{name: "solo", candidate: "solo", slots: oneWorkspace},
 		{name: "tenanted", candidate: "tenanted", slots: oneWorkspace},
 		{name: "outlets", candidate: "outlets", slots: map[string][]string{
-			"web/package.json":                                                 {`"name": "beacon-web"`},
-			"web/console/public/manifest.webmanifest":                          consoleManifest,
-			"web/portal/public/manifest.webmanifest":                           portalManifest,
-			"web/console/src/app/components/shared/footer/footer.component.ts": consoleFooter,
-			"pkg/auth/staff/staff.go":                                          authApplication,
-			"pkg/auth/members/members.go":                                      authApplication,
+			"web/package.json":                        {`"name": "beacon-web"`},
+			"web/console/public/manifest.webmanifest": consoleManifest,
+			"web/portal/public/manifest.webmanifest":  portalManifest,
+			"web/console/src/app/app.config.ts":       consoleFrame,
+			"web/portal/src/app/app.config.ts":        portalFrame,
+			"pkg/auth/staff/staff.go":                 authApplication,
+			"pkg/auth/members/members.go":             authApplication,
 		}},
 		{name: "sites", candidate: "sites", slots: map[string][]string{
-			"pkg/auth/staff/staff.go":                                               authApplication,
-			"apps/console/web/package.json":                                         {`"name": "beacon-console-web"`},
-			"apps/console/web/public/manifest.webmanifest":                          consoleManifest,
-			"apps/console/web/src/app/components/shared/footer/footer.component.ts": consoleFooter,
-			"apps/portal/web/package.json":                                          {`"name": "beacon-portal-web"`},
-			"apps/portal/web/public/manifest.webmanifest":                           portalManifest,
+			"pkg/auth/staff/staff.go":                      authApplication,
+			"apps/console/web/package.json":                {`"name": "beacon-console-web"`},
+			"apps/console/web/public/manifest.webmanifest": consoleManifest,
+			"apps/console/web/src/app/app.config.ts":       consoleFrame,
+			"apps/portal/web/package.json":                 {`"name": "beacon-portal-web"`},
+			"apps/portal/web/public/manifest.webmanifest":  portalManifest,
+			"apps/portal/web/src/app/app.config.ts":        portalFrame,
 		}},
 	}
 	for _, tt := range tests {

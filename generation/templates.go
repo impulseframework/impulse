@@ -872,8 +872,12 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) PermissionDigest() http.Handl
 // {{ if .DefaultServesSessions }}GET /{{ .RoutePrefix }}/user-domains{{ if .HasExtraSessionOutlets }} and, for each additional session-serving
 // outlet (ServesSessions), under that outlet's prefix{{ end }}{{ else }}GET /<prefix>/user-domains under each session-serving outlet's
 // prefix, and not under the default outlet's, which is declared Tokens{{ end }}.
+{{- if .TenantNames }}
+// Each tenant of the list carries its name from the application's tenant roster, which
+// reads the tenant record's name column, so the tenant's own people see it.
+{{- end }}
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) UserDomains() http.HandlerFunc {
-	return resource.UserDomainsHandler({{ .ReceiverName }}.UserPermissions)
+	return resource.UserDomainsHandler({{ .ReceiverName }}.UserPermissions{{ if .TenantNames }}, resource.WithDomainNames({{ .ReceiverName }}.TenantRoster()){{ end }})
 }
 `
 
@@ -1412,9 +1416,16 @@ var {{ GoCamel .Name }}Declaration = resource.TenantDeclarationColumns{
 // application hands resource.SessionPermissions as the tenant declarations, and the
 // generated {{ .Directories }} write paths reload it too.
 {{- end }}
+{{- if .NameColumn }}
+// It reads each {{ .RecordLower }}'s name ({{ .Name }}.{{ .NameField }}) beside its key, so the session's
+// tenant list names each tenant from the copy (resource.WithDomainNames).
+{{- end }}
 func New{{ .Name }}Roster(client resource.Client, opts ...resource.TenantRosterOption) *resource.TenantRoster {
 	{{- if .Declaration }}
 	opts = append([]resource.TenantRosterOption{resource.WithTenantDeclarations(&{{ GoCamel .Name }}Declaration)}, opts...)
+	{{- end }}
+	{{- if .NameColumn }}
+	opts = append([]resource.TenantRosterOption{resource.WithTenantNames({{ printf "%q" .NameColumn }})}, opts...)
 	{{- end }}
 
 	return resource.NewTenantRoster(client, {{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, opts...)
@@ -3378,7 +3389,7 @@ function defineApiDescriptor<T extends ApiDescriptor>(descriptor: T): T {
 /** The generated API as the @impulseframework/resource runtime addresses it. Routes carry no API prefix. */
 export const apiDescriptor = defineApiDescriptor({
 {{- if .HasDomainScoped }}
-  domainRoute: { segment: '{{ .DomainRouteSegment }}', param: '{{ .DomainRouteParam }}' },
+  domainRoute: { segment: '{{ .DomainRouteSegment }}', param: '{{ .DomainRouteParam }}'{{ if .DomainWord.One }}, word: { one: '{{ .DomainWord.One }}', many: '{{ .DomainWord.Many }}' }{{ end }} },
 {{- end }}
 {{- if .ConsolidatedRoute }}
   consolidatedRoute: '{{ .ConsolidatedRoute }}',

@@ -1,5 +1,5 @@
 import { provideHttpClient, withInterceptors, withXsrfConfiguration } from '@angular/common/http';
-import { ApplicationConfig, computed, inject, Injector, isDevMode, Signal } from '@angular/core';
+import { ApplicationConfig, isDevMode } from '@angular/core';
 import { provideNativeDateAdapter } from '@angular/material/core';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideRouter, withComponentInputBinding, withRouterConfig } from '@angular/router';
@@ -7,8 +7,7 @@ import { provideServiceWorker } from '@angular/service-worker';
 import { createApi } from '@app/service/zz_gen_api';
 import { methodMeta } from '@app/service/zz_gen_methods';
 import { resourceMeta } from '@app/service/zz_gen_resources';
-import { TenantService } from '@app/tenant/tenant.service';
-import { Domain } from '@impulseframework/resource';
+import { provideFrame } from '@impulseframework/resource-angular/auth-frame';
 import { apiVersionInterceptor, provideResourceClient } from '@impulseframework/resource-angular/resource-client';
 import {
   API_URL,
@@ -17,7 +16,6 @@ import {
   CHANGE_FEED,
   FRONTEND_LOGIN_PATH,
   METHOD_META,
-  RESOURCE_DOMAIN,
   RESOURCE_META,
   SESSION_PATH,
 } from '@impulseframework/resource-angular/types';
@@ -25,6 +23,7 @@ import { provideAppUpdate } from '@impulseframework/resource-angular/ui-app-upda
 import { provideTheme } from '@impulseframework/resource-angular/ui-theme';
 import { firestoreChangeFeed } from '@impulseframework/resource-firestore';
 import { environment } from '@env';
+import { appMenus } from './app.menus';
 import { routes } from './app.routes';
 
 export const appConfig: ApplicationConfig = {
@@ -33,18 +32,6 @@ export const appConfig: ApplicationConfig = {
     { provide: SESSION_PATH, useValue: 'user/session' },
     { provide: RESOURCE_META, useValue: resourceMeta },
     { provide: METHOD_META, useValue: methodMeta },
-    // The open tenant, the one the URL names, is the tenant the library's own pages work
-    // in: a tenant's people and invitations ask that tenant's digest and bind their
-    // requests to it. The tenant guard writes it before the library's guard asks. The
-    // service is resolved when the signal is first read, not when the token is built: the
-    // library's AuthService injects the token, and TenantService injects AuthService.
-    {
-      provide: RESOURCE_DOMAIN,
-      useFactory: (): Signal<Domain | undefined> => {
-        const injector = inject(Injector);
-        return computed(() => (injector.get(TenantService).current() || undefined) as Domain | undefined);
-      },
-    },
     { provide: BASE_URL, useValue: environment.baseUrl },
     { provide: API_URL, useValue: environment.apiUrl },
     // The release this build was made from, which the build defines (APP_VERSION: dev
@@ -64,6 +51,18 @@ export const appConfig: ApplicationConfig = {
     // refusal a page reports in place raises none. The one HTTP interceptor, registered
     // below, adds the release header to the application's own HttpClient calls.
     provideResourceClient((options) => createApi({ baseUrl: environment.apiUrl, ...options })),
+    // The frame every signed-in page sits in, drawn by the library: the application's name,
+    // the place the page is in with the way to another (the place outside every tenant,
+    // Configuration, and each tenant by name), the menus of the menu file (app.menus.ts),
+    // Help, and the person's own menu. The tenant the URL names is the tenant the library's
+    // pages work in (the frame provides RESOURCE_DOMAIN from it): a tenant's people ask that
+    // tenant's digest and bind their requests to it.
+    provideFrame({
+      name: 'Sites',
+      home: 'dashboard',
+      outside: { label: 'Configuration', icon: 'settings' },
+      menus: appMenus,
+    }),
     // The change feed the live pages listen through: the Firestore feed from its own
     // package, so the client stays free of the SDK. AuthService starts the client's live
     // session with it once the session is authenticated, fetching the tab's identity from
@@ -99,8 +98,8 @@ export const appConfig: ApplicationConfig = {
     provideAppUpdate(),
     // The look the person chose, light or dark and one of the palettes named here, the
     // ids of theme.scss's palette map in the same order, applied before the first page
-    // renders and remembered in the browser; the dashboard's Appearance card is where
-    // they choose.
+    // renders and remembered in the browser; Appearance in the person's menu is where they
+    // choose.
     provideTheme({
       palettes: [
         { id: 'blue', label: 'Blue' },

@@ -30,6 +30,12 @@ func tenantFixtureTables() map[string]*tableMetadata {
 		"Outlands":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk}},
 		"Provinces": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk}},
 		"Bastions":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk}},
+		// The name and the label: the record marking both, and each refused shape.
+		"Lagoons": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain}},
+		"Reefs":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain}},
+		"Atolls":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Rank": plain}},
+		"Islets":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain, "Title": nullable}},
+		"Shoals":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk}},
 		// The declaration's shapes: the record with its flag, the directories record,
 		// and each shape the annotations refuse.
 		"Harbors":           {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain, "DirectoryOnly": plain}},
@@ -76,6 +82,7 @@ func Test_resolveTenant(t *testing.T) {
 		structs    []string
 		wantTenant string
 		wantShape  tenantCreation
+		wantLabel  string
 		wantErr    string
 	}{
 		{
@@ -103,6 +110,18 @@ func Test_resolveTenant(t *testing.T) {
 			wantShape:  tenantCreationAdministrator,
 		},
 		{
+			name:       "label: names the word for one tenant",
+			structs:    []string{"Lagoon"},
+			wantTenant: "Lagoon",
+			wantShape:  tenantCreationAdministrator,
+			wantLabel:  "Service district",
+		},
+		{
+			name:    "a label the screen cannot show as written is refused",
+			structs: []string{"Shoal"},
+			wantErr: "struct Shoal: @tenant(label: Shoal's) is not a word the screen shows as written; a label is letters, digits, single spaces and hyphens, starting with a letter",
+		},
+		{
 			name:    "a creation shape the generator does not know is refused naming the three",
 			structs: []string{"Outland"},
 			wantErr: "struct Outland: @tenant(creation: nowhere) names no creation shape; the shapes are administrator (an administrator alone, the default), self-service (the person who becomes its administrator) and both",
@@ -115,7 +134,7 @@ func Test_resolveTenant(t *testing.T) {
 		{
 			name:    "an argument @tenant does not take is refused",
 			structs: []string{"Bastion"},
-			wantErr: `unknown argument "shape" in "shape: both" (accepted: creation)`,
+			wantErr: `unknown argument "shape" in "shape: both" (accepted: creation, label)`,
 		},
 		{
 			name:    "@tenant on a tenant-scoped resource is refused",
@@ -161,6 +180,9 @@ func Test_resolveTenant(t *testing.T) {
 				}
 				if res.IsTenant && res.TenantCreation != tt.wantShape {
 					t.Errorf("%s.TenantCreation = %q, want %q", res.Name(), res.TenantCreation, tt.wantShape)
+				}
+				if res.IsTenant && res.TenantLabel != tt.wantLabel {
+					t.Errorf("%s.TenantLabel = %q, want %q", res.Name(), res.TenantLabel, tt.wantLabel)
 				}
 			}
 		})
@@ -247,16 +269,28 @@ func Test_resolveTenantRecord(t *testing.T) {
 		methods     []*rpcMethodInfo
 		wantSegment string
 		wantParam   string
+		wantWord    tenantWordData
 		wantErr     string
 	}{
 		{
-			name: "the record names the segment pair",
+			name: "the record names the segment pair and the word",
 			resources: []*resourceInfo{
 				fixtureResource(t, tenantStructs, "Sector", func(res *resourceInfo) { res.IsTenant = true }),
 				fixtureResource(t, structs, "Vault", domainScoped),
 			},
 			wantSegment: "sectors",
 			wantParam:   "sectorID",
+			wantWord:    tenantWordData{One: "Sector", Many: "Sectors"},
+		},
+		{
+			name: "a label is the word, the segment pair stays the record's",
+			resources: []*resourceInfo{
+				fixtureResource(t, tenantStructs, "Sector", func(res *resourceInfo) { res.IsTenant, res.TenantLabel = true, "Service district" }),
+				fixtureResource(t, structs, "Vault", domainScoped),
+			},
+			wantSegment: "sectors",
+			wantParam:   "sectorID",
+			wantWord:    tenantWordData{One: "Service district", Many: "Service districts"},
 		},
 		{
 			name:        "nothing tenant-scoped and no record keeps the defaults",
@@ -319,6 +353,9 @@ func Test_resolveTenantRecord(t *testing.T) {
 			if r.domainRouteSegment != tt.wantSegment || r.domainRouteParam != tt.wantParam {
 				t.Errorf("segment pair = %q/%q, want %q/%q", r.domainRouteSegment, r.domainRouteParam, tt.wantSegment, tt.wantParam)
 			}
+			if r.domainWord != tt.wantWord {
+				t.Errorf("domainWord = %+v, want %+v", r.domainWord, tt.wantWord)
+			}
 		})
 	}
 }
@@ -350,6 +387,98 @@ func Test_tenantsTemplate(t *testing.T) {
 	} {
 		if !strings.Contains(string(out), want) {
 			t.Errorf("tenantsTemplate output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// Test_tenantsTemplate_names pins the roster constructor of a record that marks its
+// name: the roster reads the name column beside the key.
+func Test_tenantsTemplate_names(t *testing.T) {
+	t.Parallel()
+
+	c := &client{}
+	out, err := c.generateTemplateOutput("tenantsTemplate", tenantsTemplate, &tenantsData{
+		Source:      "resources",
+		Package:     "app",
+		Name:        "Lagoon",
+		Table:       "Lagoons",
+		KeyColumn:   "Id",
+		RecordLower: "lagoon",
+		NameColumn:  "Name",
+		NameField:   "Name",
+	})
+	if err != nil {
+		t.Fatalf("generateTemplateOutput() error = %v", err)
+	}
+	if _, err := format.Source(out); err != nil {
+		t.Fatalf("the rendered file does not parse: %v\n%s", err, out)
+	}
+	for _, want := range []string{
+		"// It reads each lagoon's name (Lagoon.Name) beside its key",
+		`opts = append([]resource.TenantRosterOption{resource.WithTenantNames("Name")}, opts...)`,
+	} {
+		if !strings.Contains(string(out), want) {
+			t.Errorf("tenantsTemplate output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// Test_tenantNameColumn pins the record's name mark: captured on the record, and refused
+// off it, on a column that is not a string, and twice.
+func Test_tenantNameColumn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		structs []string
+		wantErr string
+	}{
+		{name: "the record's name column is captured", structs: []string{"Lagoon"}},
+		{
+			name:    "@tenantName on a resource that is not the tenant record is refused",
+			structs: []string{"Lagoon", "Reef"},
+			wantErr: "struct Reef field Name: @tenantName on a resource that is not the tenant record; a tenant's name is the @tenant record's column",
+		},
+		{
+			name:    "@tenantName on a column that is not a string is refused",
+			structs: []string{"Atoll"},
+			wantErr: "struct Atoll field Rank: @tenantName on a int64 column; a tenant's name is a string or a nullable string (*string)",
+		},
+		{
+			name:    "@tenantName on a second column is refused naming the first",
+			structs: []string{"Islet"},
+			wantErr: "struct Islet field Title: @tenantName on a second column; field Name carries it already, and a tenant has one name",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r, err := declarationResources(t, tt.structs...)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %v, want it to contain %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if field := r.tenantRecord().TenantNameField; field == nil || field.Name() != "Name" {
+				t.Errorf("TenantNameField = %v, want Name", field)
+			}
+		})
+	}
+}
+
+// Test_screenWords pins a Go name spelled as the screen shows it.
+func Test_screenWords(t *testing.T) {
+	t.Parallel()
+
+	for name, want := range map[string]string{"Sector": "Sector", "ShipClass": "Ship class", "ShipClasses": "Ship classes", "": ""} {
+		if got := screenWords(name); got != want {
+			t.Errorf("screenWords(%q) = %q, want %q", name, got, want)
 		}
 	}
 }

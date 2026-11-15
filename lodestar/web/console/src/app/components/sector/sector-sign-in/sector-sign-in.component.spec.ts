@@ -57,7 +57,7 @@ function serverFor(digests: { global: PermissionDigest; anvil: PermissionDigest 
       case `${environment.apiUrl}/permission-digest`:
         return { status: 200, body: url.searchParams.get('domain') === 'anvil' ? digests.anvil : digests.global };
       case `${environment.apiUrl}/user-domains`:
-        return { status: 200, body: ['anvil'] };
+        return { status: 200, body: [{ domain: 'anvil', name: 'Anvil' }] };
       case `${environment.apiUrl}/features`:
         return { status: 200, body: { enabled: [] } };
       case `${environment.apiUrl}/sectors/anvil`:

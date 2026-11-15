@@ -44,7 +44,7 @@ import {
 //
 // Demonstrates: picker.paged, picker.whole, column.referenced-in, field.array, live.pages.
 export const shipsConfig = rootConfig({
-  nav: { navItem: { label: 'Ships (config page)' }, group: 'Sector Ops' },
+  page: { label: 'Ships', icon: 'rocket_launch' },
   routeData: { route: `${DomainRoutePath}/ships` },
   parentConfig: listViewConfig({
     title: 'Ships',

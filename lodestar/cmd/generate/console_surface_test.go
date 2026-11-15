@@ -45,7 +45,6 @@ func TestConsoleCarriesLibrarySurface(t *testing.T) {
 				"{ provide: IDLE_WARNING_DURATION, useValue: environment.idle.warningSeconds }",
 				"{ provide: IDLE_KEEPALIVE_DURATION, useValue: environment.idle.keepAliveSeconds }",
 				"provide: IDLE_LOGOUT_ACTION,",
-				"provide: LOGOUT_ACTION,",
 				"{ provide: FRONTEND_LOGIN_PATH, useValue: '/login' }",
 			},
 			absent: []string{"IDLE_TIMEOUT_REQUIRE_CONFIRMATION"},
@@ -61,10 +60,9 @@ func TestConsoleCarriesLibrarySurface(t *testing.T) {
 			want: []string{"idle: { sessionSeconds: 600, warningSeconds: 60, keepAliveSeconds: 30 }"},
 		},
 		{
-			name:   "the header offers no stay-signed-in button: the warning is the library's notice and any activity ends it",
-			file:   "app/components/shared/header/header.component.html",
-			want:   []string{`<span class="username">{{ auth.sessionInfo().username }}</span>`},
-			absent: []string{"stayLoggedIn", "idle."},
+			name: "the console draws no bar of its own and so no stay-signed-in button: every signed-in page sits in the library's frame",
+			file: "app/app.routes.ts",
+			want: []string{"component: FrameComponent,", "canActivate: [LoginAuthenticationGuard],"},
 		},
 		{
 			name:   "the notices stack at the top of the viewport, as the skeleton places them",
@@ -230,10 +228,10 @@ func TestConsoleHandsTheClientItsHooks(t *testing.T) {
 			},
 		},
 		{
-			name:   "the console's header links to the sign-out route and ends no session itself",
-			file:   "console/src/app/components/shared/header/header.component.html",
-			want:   []string{`<a mat-stroked-button routerLink="/logout">Logout</a>`},
-			absent: []string{"logout()"},
+			name:   "the frame's Sign out lands on that route: the console names no other sign-out path",
+			file:   "console/src/app/app.config.ts",
+			want:   []string{"provideFrame({"},
+			absent: []string{"FRONTEND_SIGN_OUT_PATH"},
 		},
 		{
 			name: "the flight deck reports the declared answer and the edit refusal in place",
@@ -272,8 +270,9 @@ func TestConsoleHandsTheClientItsHooks(t *testing.T) {
 // TestThemeChoiceSurface pins how the console and the portal offer the person's choice of
 // look: theme.scss hands its palettes to the library's palettes mixin under quoted ids,
 // app.config.ts names the same ids to provideTheme (the portal, with one palette, names
-// none), and the dashboard (the portal's tracker) composes the library's theme picker in
-// an Appearance card; nothing of the choice is stored on the server.
+// none), and the library's frame, which every signed-in page of both sits in, offers the
+// choice under Appearance in the person's menu: light or dark, and the colors where the
+// application names more than one palette; nothing of the choice is stored on the server.
 //
 // Demonstrates: webapp.theme-choice.
 func TestThemeChoiceSurface(t *testing.T) {
@@ -317,9 +316,9 @@ func TestThemeChoiceSurface(t *testing.T) {
 			},
 		},
 		{
-			name: "the dashboard composes the picker in its Appearance card",
-			file: "console/src/app/components/ui/dashboard/dashboard.component.html",
-			want: []string{"<mat-card-title>Appearance</mat-card-title>", "<impulse-theme-picker />"},
+			name: "the console's signed-in pages sit in the frame, whose person's menu offers the choice",
+			file: "console/src/app/app.routes.ts",
+			want: []string{"component: FrameComponent,"},
 		},
 		{
 			name: "the portal offers one palette and names none to provideTheme",
@@ -332,9 +331,9 @@ func TestThemeChoiceSurface(t *testing.T) {
 			want: []string{"import { provideTheme } from '@impulseframework/resource-angular/ui-theme';", "provideTheme(),"},
 		},
 		{
-			name: "the tracker composes the picker",
-			file: "portal/src/app/components/tracker/tracker.component.html",
-			want: []string{"<mat-card-title>Appearance</mat-card-title>", "<impulse-theme-picker />"},
+			name: "the portal's the same",
+			file: "portal/src/app/app.routes.ts",
+			want: []string{"component: FrameComponent,"},
 		},
 	}
 	for _, tt := range tests {

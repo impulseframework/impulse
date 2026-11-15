@@ -2,6 +2,11 @@
   margin-top: 16px;
 }
 
+// The table scrolls sideways inside its card on a narrow screen, rather than being cut off.
+.table-scroll {
+  overflow-x: auto;
+}
+
 .card-table {
   width: 100%;
   border-collapse: collapse;
@@ -32,7 +37,7 @@
   }
 
   .absent {
-    color: var(--mat-sys-outline);
+    color: var(--mat-sys-on-surface-variant);
   }
 
   .empty {
@@ -51,8 +56,4 @@
   font-size: 11px;
   color: var(--mat-sys-on-surface-variant);
   margin-left: 4px;
-}
-
-.appearance-card {
-  margin-top: 16px;
 }

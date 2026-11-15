@@ -27,6 +27,10 @@ const (
 	userInvitationSuffix = "/user/invitation"
 	userEmailSuffix      = "/user/email"
 	userSignUpSuffix     = "/user/sign-up"
+	// userForgetBrowserSuffix is where a signed-in person's account page forgets the
+	// browser the second factor remembered for them (session.Auth.ForgetBrowser).
+	userForgetBrowserSuffix = "/user/browser/forget"
+	forgetBrowserHandler    = "ForgetBrowser"
 	// The token page's routes under an issuing session outlet's prefix, and the device
 	// flow's public endpoints under a machine outlet's.
 	userTokensSuffix  = "/user/tokens"
@@ -587,6 +591,9 @@ type servedOutlet struct {
 	// ChangePassword is where the password change is mounted, told to the login page
 	// beside the methods; empty without a password method.
 	ChangePassword string
+	// ForgetBrowser is where the account page forgets the remembered browser, told to
+	// the browser beside the methods.
+	ForgetBrowser string
 	// Invitation, Email and SignUp are the invitation, email address and sign-up
 	// routes the login page is told beside the methods: the invitation's sign-up with a
 	// password method, SignUp when the password method declares open sign-up (nil
@@ -1167,7 +1174,9 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		route(http.MethodPost, userPendingSuffix+"/code", pendingSendCodeHandler, true),
 		route(http.MethodPost, userPendingSuffix+"/code/verify", pendingVerifyCodeHandler, true),
 		route(http.MethodPost, userPendingSuffix+"/email", pendingEnrollEmailHandler, true),
+		route(http.MethodPost, userForgetBrowserSuffix, forgetBrowserHandler, true),
 	)
+	so.ForgetBrowser = prefix + userForgetBrowserSuffix
 	guarded, validatedRoutes := servedMailRoutesOf(so, o, guarded, route)
 	so.OpenRoutes, so.GuardedRoutes, so.ValidatedRoutes = open, guarded, validatedRoutes
 	so.Routes = slices.Concat(open, guarded, validatedRoutes)
@@ -1577,6 +1586,10 @@ type {{ .SessionInterface }} interface {
 	PendingSendCode() http.HandlerFunc
 	PendingVerifyCode() http.HandlerFunc
 	PendingEnrollEmail() http.HandlerFunc
+	// ForgetBrowser forgets the browser the second factor remembered for the signed-in
+	// person, from their account page (session.Auth.ForgetBrowser); it validates the
+	// session itself.
+	ForgetBrowser() http.HandlerFunc
 {{- range .SessionHandlers }}
 	// {{ .Description }}.
 	{{ .Name }}() http.HandlerFunc
@@ -1800,6 +1813,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 {{- if $outlet.ChangePassword }}
 			ChangePassword: "{{ $outlet.ChangePassword }}",
 {{- end }}
+			ForgetBrowser: "{{ $outlet.ForgetBrowser }}",
 			Invitation: session.InvitationRoutes{Open: "{{ $outlet.Invitation.Open }}", Accept: "{{ $outlet.Invitation.Accept }}"{{ if $outlet.Invitation.SignUp }}, SignUp: "{{ $outlet.Invitation.SignUp }}"{{ end }}},
 			Email: session.EmailRoutes{Add: "{{ $outlet.Email.Add }}", Verify: "{{ $outlet.Email.Verify }}"},
 {{- if $outlet.SignUp }}

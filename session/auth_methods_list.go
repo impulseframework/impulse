@@ -32,6 +32,11 @@ type MethodList struct {
 	// operator set. It is required when the password method is listed, since every
 	// user an operator gives a password must change it, and refused when it is not.
 	ChangePassword string
+	// ForgetBrowser is the path of the Auth's ForgetBrowser handler, where a signed-in
+	// person's account page forgets the browser the second factor remembered for them,
+	// or none. The page shows the action only where the session says the browser is
+	// remembered for the person.
+	ForgetBrowser string
 	// Invitation are the paths of the invitation handlers (Invitation().Open(),
 	// Accept() and SignUp()), or none. Open and Accept go together; SignUp is named
 	// when the password method is listed and refused when it is not.
@@ -96,6 +101,7 @@ type methodsAnswer struct {
 	Methods        []signin.Advertisement `json:"methods"`
 	Pending        *pendingAnswer         `json:"pending,omitempty"`
 	ChangePassword string                 `json:"changePassword,omitempty"`
+	ForgetBrowser  string                 `json:"forgetBrowser,omitempty"`
 	// UsernameIsEmail says the password method's username is the email address, so
 	// the page asks for the address.
 	UsernameIsEmail bool              `json:"usernameIsEmail,omitempty"`
@@ -296,6 +302,7 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	passwordListed := seen[string(sessioninfo.MethodPassword)]
 	answer.Pending = pendingAnswerOf(&list.Pending)
 	answer.ChangePassword = changePasswordPathOf(list, passwordListed)
+	answer.ForgetBrowser = forgetBrowserPathOf(list)
 	answer.UsernameIsEmail = passwordListed && a.methods.usernameIsEmail()
 	answer.Invitation = invitationAnswerOf(list.Invitation, passwordListed)
 	answer.Email = emailAnswerOf(list.Email)
@@ -365,6 +372,16 @@ func changePasswordPathOf(list *MethodList, passwordListed bool) string {
 	}
 
 	return list.ChangePassword
+}
+
+// forgetBrowserPathOf validates the forget-this-browser route: none, or a canonical path.
+func forgetBrowserPathOf(list *MethodList) string {
+	if list.ForgetBrowser != "" && !advertisedPath(list.ForgetBrowser) {
+		panic(fmt.Sprintf("session: Methods is given the forget-this-browser route %q, which is not a canonical path in the application: "+
+			"give it the path its ForgetBrowser handler is mounted at, such as /api/user/browser/forget", list.ForgetBrowser))
+	}
+
+	return list.ForgetBrowser
 }
 
 // pendingAnswerOf validates the pending routes: none, or all three as canonical paths.

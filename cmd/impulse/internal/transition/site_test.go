@@ -411,6 +411,8 @@ func TestSiteApplyPromotesIdentityTree(t *testing.T) {
 	files["app/identity.go"] = "package app\n\nimport \"example.com/acme/beacon/pkg/identity/staffidentity\"\n\n// StaffIdentity hands the generated handlers the staff auth's management.\nfunc (a *App) StaffIdentity() *staffidentity.Client {\n\treturn nil\n}\n"
 	const routes = "web/console/src/app/app.routes.ts"
 	files[routes] = "import { identityRoutes } from '@impulseframework/resource-angular/identity-pages';\n\nexport const routes = [\n  // The staff's accounts.\n  ...identityRoutes(api, meta, { auth: 'Staff', scope: 'global' }),\n  { path: '**', redirectTo: 'dashboard' },\n];\n"
+	const menus = "web/console/src/app/app.menus.ts"
+	files[menus] = "import { identityMenuPages } from '@impulseframework/resource-angular/identity-pages';\n\nexport const appMenus = [\n  {\n    label: 'System',\n    groups: [\n      {\n        entries: [\n          // The staff's accounts.\n          ...identityMenuPages(api, meta, { auth: 'Staff', scope: 'global' }),\n        ],\n      },\n    ],\n  },\n];\n"
 	a := beacon(t, files)
 	ch, err := Site{Name: "portal", Existing: "console"}.Apply(t.Context(), a, &fakeExec{})
 	if err != nil {
@@ -431,6 +433,7 @@ func TestSiteApplyPromotesIdentityTree(t *testing.T) {
 		"apps/console/app/identity.go":                        `"example.com/acme/beacon/apps/console/pkg/identity/staffidentity"`,
 		"cmd/generate/consolegenerator/main.go":               `generation.GenerateIdentity("apps/console/pkg/identity")`,
 		"apps/console/web/console/src/app/app.routes.ts":      "...identityRoutes(api, meta, { auth: 'Staff', scope: 'global' }),",
+		"apps/console/web/console/src/app/app.menus.ts":       "...identityMenuPages(api, meta, { auth: 'Staff', scope: 'global' }),",
 	} {
 		if got := read(t, a, rel); !strings.Contains(got, want) {
 			t.Errorf("%s lacks %s:\n%s", rel, want, got)
@@ -453,10 +456,14 @@ func TestSiteApplyPromotesIdentityTree(t *testing.T) {
 	if got, want := read(t, a, "apps/portal/web/portal/src/app/app.routes.ts"), "export const routes = [\n  { path: '**', redirectTo: 'dashboard' },\n];\n"; got != want {
 		t.Errorf("the portal site's routes =\n%s\nwant\n%s", got, want)
 	}
+	if got, want := read(t, a, "apps/portal/web/portal/src/app/app.menus.ts"), "export const appMenus = [\n  {\n    label: 'System',\n    groups: [\n      {\n        entries: [\n        ],\n      },\n    ],\n  },\n];\n"; got != want {
+		t.Errorf("the portal site's menu file =\n%s\nwant\n%s", got, want)
+	}
 	did := strings.Join(ch.Did, "\n")
 	for _, want := range []string{
 		"apps/portal: the portal site serves none of the management of the auths' people: the console site's program generates it into apps/console/pkg/identity, an auth's package builds its identity client from that one tree, and the copy leaves out what names it (StaffIdentity)",
-		"apps/portal/web/portal/src/app/app.routes.ts: without the pages of the auths' generated management",
+		"apps/portal/web/portal/src/app/app.routes.ts: without the pages of the auths' generated management (the identityRoutes spreads",
+		"apps/portal/web/portal/src/app/app.menus.ts: without the pages of the auths' generated management (the identityMenuPages spreads",
 	} {
 		if !strings.Contains(did, want) {
 			t.Errorf("Did lacks %q:\n%s", want, did)

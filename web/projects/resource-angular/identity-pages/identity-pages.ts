@@ -1,6 +1,7 @@
 import { Route } from '@angular/router';
 import { ApiDescriptor, IdentityDescriptor, IdentitySideDescriptor, ScopeKind } from '@impulseframework/resource';
-import { resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
+import { Page } from '@impulseframework/resource-angular/auth-frame';
+import { resourcePage, resourceRoutes } from '@impulseframework/resource-angular/resource-route-generator';
 import {
   ChildResourceConfig,
   ColumnConfig,
@@ -48,12 +49,6 @@ export interface IdentityPagesOptions {
    */
   scope: ScopeKind;
   /**
-   * The navigation group the pages are listed in. By default the Auth's label and
-   * "accounts" for the whole application ("Crew accounts"), and the tenant record's
-   * name with the Auth's label for a tenant ("Sector crew").
-   */
-  group?: string;
-  /**
    * The route of a page, where the default is not the one wanted. A tenant's page
    * lives under the API's tenant segment, with the tenant parameter as the router
    * names it (`sectors/:sectorID/people`). By default a page's route is the Auth's
@@ -66,14 +61,36 @@ export interface IdentityPagesOptions {
 const heldInOneTenant = 'domain';
 const heldInEveryTenant = 'every';
 
+// The configurations made for each description and request, so the routes and the menu
+// file's pages of one request are the same pages (resourcePage answers one per config).
+const made = new WeakMap<ApiDescriptor, Map<string, RootConfig[]>>();
+
 /**
- * The page configurations of one side of an Auth's management, in navigation order: the
+ * The page configurations of one side of an Auth's management, in menu order: the
  * people, the invitations, and for the whole application the sessions and the failed
- * sign-ins. A page whose list the description does not name is left out. Refused, naming
+ * sign-ins, each with its label and icon. A page whose list the description does not
+ * name is left out. The same request answers the same configurations. Refused, naming
  * what is missing: an Auth the description does not carry, a side it does not carry,
  * and a tenant's side on an API with no tenant segment.
  */
 export function identityPages(
+  descriptor: ApiDescriptor,
+  resourceMeta: (resource: Resource) => ResourceMeta | undefined,
+  options: IdentityPagesOptions,
+): RootConfig[] {
+  const requests = made.get(descriptor) ?? new Map<string, RootConfig[]>();
+  made.set(descriptor, requests);
+  const key = JSON.stringify([options.auth, options.scope, options.routes ?? {}]);
+  const known = requests.get(key);
+  if (known) {
+    return known;
+  }
+  const configs = buildPages(descriptor, resourceMeta, options);
+  requests.set(key, configs);
+  return configs;
+}
+
+function buildPages(
   descriptor: ApiDescriptor,
   resourceMeta: (resource: Resource) => ResourceMeta | undefined,
   options: IdentityPagesOptions,
@@ -99,9 +116,9 @@ export function identityPages(
 
 /**
  * The routes of one side of an Auth's management: `identityPages` through
- * `resourceRoutes`, which lists each page in the navigation and guards it by the List
- * grant on its resource. A tenant's routes go where the application puts its tenant
- * pages; their paths carry the tenant segment already.
+ * `resourceRoutes`, which guards each page by the List grant on its resource and carries
+ * its page. A tenant's routes go where the application puts its tenant pages; their
+ * paths carry the tenant segment already.
  */
 export function identityRoutes(
   descriptor: ApiDescriptor,
@@ -111,6 +128,19 @@ export function identityRoutes(
   return identityPages(descriptor, resourceMeta, options).map((config) => resourceRoutes(config, resourceMeta));
 }
 
+/**
+ * The pages of one side of an Auth's management, for the application's menu file to
+ * place: the same pages the routes of the same request carry (identityRoutes), in menu
+ * order, each needing the List grant on its resource.
+ */
+export function identityMenuPages(
+  descriptor: ApiDescriptor,
+  resourceMeta: (resource: Resource) => ResourceMeta,
+  options: IdentityPagesOptions,
+): Page[] {
+  return identityPages(descriptor, resourceMeta, options).map((config) => resourcePage(config, resourceMeta));
+}
+
 /** A column or a row page field: the row's field and the words above it. */
 type Named = [field: string, words: string];
 
@@ -118,7 +148,6 @@ class SideBuilder {
   private readonly tenant: boolean;
   /** The tenant record in words, lowercase ("sector", "cost center"); "tenant" where the description names none. */
   private readonly tenantWord: string;
-  private readonly group: string;
   private readonly base: string;
 
   constructor(
@@ -130,9 +159,6 @@ class SideBuilder {
   ) {
     this.tenant = side.scope === 'domain';
     this.tenantWord = identity.tenant ? words(identity.tenant).toLowerCase() : 'tenant';
-    this.group =
-      options.group ??
-      (this.tenant ? `${words(identity.tenant ?? 'Tenant')} ${identity.label.toLowerCase()}` : `${identity.label} accounts`);
     this.base = this.tenant ? `${this.tenantSegment()}/${kebab(identity.auth)}` : kebab(identity.auth);
   }
 
@@ -157,7 +183,7 @@ class SideBuilder {
       (config): config is ChildResourceConfig => config !== undefined,
     );
     return rootConfig({
-      nav: { navItem: { label: this.tenant ? 'People' : 'Accounts' }, group: this.group },
+      page: this.tenant ? { label: 'People', icon: 'group' } : { label: 'Accounts', icon: 'manage_accounts' },
       routeData: { route: this.route('users', this.tenant ? 'people' : 'accounts'), hasViewRoute: true },
       parentConfig: listViewConfig({
         title: this.tenant ? 'People' : `${this.identity.label} accounts`,
@@ -207,7 +233,7 @@ class SideBuilder {
           ['consumedAt', 'Used'],
         ];
     return rootConfig({
-      nav: { navItem: { label: this.tenant ? 'Invitations' : 'Mailed links' }, group: this.group },
+      page: this.tenant ? { label: 'Invitations', icon: 'mail' } : { label: 'Mailed links', icon: 'forward_to_inbox' },
       routeData: { route: this.route('invitations', this.tenant ? 'invitations' : 'mailed-links'), hasViewRoute: false },
       parentConfig: listViewConfig({
         title: this.tenant ? 'Invitations' : `${this.identity.label} mailed links`,
@@ -241,7 +267,7 @@ class SideBuilder {
     }
     const resource = lists.sessions as Resource;
     return rootConfig({
-      nav: { navItem: { label: 'Sessions' }, group: this.group },
+      page: { label: 'Sessions', icon: 'devices' },
       routeData: { route: this.route('sessions', 'sessions'), hasViewRoute: false },
       parentConfig: listViewConfig({
         title: `${this.identity.label} sessions`,
@@ -263,7 +289,7 @@ class SideBuilder {
     }
     const resource = lists.signInAttempts as Resource;
     return rootConfig({
-      nav: { navItem: { label: 'Failed sign-ins' }, group: this.group },
+      page: { label: 'Failed sign-ins', icon: 'gpp_bad' },
       routeData: { route: this.route('signInAttempts', 'failed-sign-ins'), hasViewRoute: false },
       parentConfig: listViewConfig({
         title: `${this.identity.label} failed sign-ins`,

@@ -511,6 +511,10 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 		EmailVerified          bool                               `json:"emailVerified"`
 		EmailHint              string                             `json:"emailHint,omitempty"`
 		Impersonation          *basesession.ImpersonationResponse `json:"impersonation,omitempty"`
+		// BrowserRemembered says the browser carries a remembered entry of the second
+		// factor for the person, so their account page offers to forget it (ForgetBrowser).
+		// Never for an impersonated session, which may not forget it.
+		BrowserRemembered bool `json:"browserRemembered"`
 	}
 
 	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -537,6 +541,7 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 			EmailVerified:          user.EmailVerified(),
 			EmailHint:              a.emailHint(ctx, user),
 			Impersonation:          basesession.NewImpersonationResponse(imp),
+			BrowserRemembered:      imp == nil && user != nil && browserRemembered(ctx, user.ID),
 		})
 	}))
 }

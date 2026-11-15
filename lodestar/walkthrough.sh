@@ -214,16 +214,16 @@ r=$(curl -s -w '\n%{http_code}' "$PORTAL/user/methods"); assert_py "the portal t
 # ---- the two auths, and the crew's two ways in ----
 r=$(req client GET "$PORTAL/user/session"); assert_py "cleo is signed in through the directory" "$r" "rows['authenticated'] and rows['username']=='client'"
 r=$(req navigator GET "$API/user/session"); assert_py "the navigator is signed in on the console through the fleet's directory: a crew session like the password personas'" "$r" "rows['authenticated'] and rows['username']=='navigator'"
-r=$(req navigator GET "$API/user-domains"); assert_py "the navigator is on no manifest: his first sign-in created him seated where a declaring row names a default seat, Cinder's SectorCrew, and nowhere else (Anvil's and Bastion's rows name none)" "$r" "rows==['cinder']"
+r=$(req navigator GET "$API/user-domains"); assert_py "the navigator is on no manifest: his first sign-in created him seated where a declaring row names a default seat, Cinder's SectorCrew, and nowhere else (Anvil's and Bastion's rows name none)" "$r" "[d['domain'] for d in rows] == ['cinder']"
 r=$(req governor GET "$API/sectors/cinder/crew-sector-user-roles"); assert_py "Cinder's list of the roles held, read by headquarters, carries his SectorCrew, the row's default seat" "$r" "[h['role'] for h in rows if h['username']=='navigator']==['SectorCrew']"
 r=$(req client GET "$ANVIL/missions"); check "a client's session is a stranger to the console" 401 "$r"
 r=$(req marshal GET "$PORTAL/user-domains"); check "a crew session is a stranger to the portal" 401 "$r"
 
-# ---- the star chart: user-domains ----
+# ---- the sectors a session reaches, the place switcher's list: user-domains ----
 r=$(req cadet GET "$API/user-domains"); check "cadet's chart lights Anvil only" 200 "$r"
-assert_py "cadet's chart is [anvil]" "$r" "rows == ['anvil']"
-r=$(req archivist GET "$API/user-domains"); assert_py "archivist's chart lights all three" "$r" "rows == ['anvil','bastion','cinder']"
-r=$(req marshal GET "$API/sectors/cinder/missions"); check "Cinder is dark for the marshal: the concealed-sector guard answers 404 (opening the dark star lands the console on its refusal page, in these words)" 404 "$r"
+assert_py "cadet's chart is [anvil]" "$r" "[d['domain'] for d in rows] == ['anvil']"
+r=$(req archivist GET "$API/user-domains"); assert_py "archivist's chart lights all three" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder']"
+r=$(req marshal GET "$API/sectors/cinder/missions"); check "Cinder is dark for the marshal: the concealed-sector guard answers 404 (opening it by its URL lands the console on the frame's refusal page, in these words)" 404 "$r"
 
 # ---- flight deck: per-persona boards, paged from the descriptor ----
 r=$(req cadet GET "$ANVIL/missions?capabilities=Execute&limit=200"); check "cadet lists missions" 200 "$r"
@@ -650,7 +650,7 @@ fi
 # surveyor, who holds Create and Update on Sectors and SectorCrew in every sector, charts
 # sector Dawn through the consolidated patch, the key in the operation's path: the instance
 # that wrote adds Dawn to its roster after the commit and signals the tenants kind, so her
-# star chart lights Dawn and Dawn's wings answer her with no restart, no migrate job and no
+# chart lights Dawn and Dawn's wings answer her with no restart, no migrate job and no
 # new login; the marshal's chart does not light it and Dawn answers her as a sector that
 # does not exist; the client's portal, whose directory role is held in every sector, opens
 # Dawn at once, as the governor and the archivist see it with nothing written for them; and
@@ -660,7 +660,7 @@ fi
 # creation shape: the surveyor is Dawn's first administrator, as the pioneer is Ember's.
 # Demonstrates: tenancy.run-time-tenant, tenancy.creator-seat.
 DAWN=$API/sectors/dawn
-r=$(req surveyor GET "$API/user-domains"); assert_py "the surveyor's chart lights the three charted sectors: SectorCrew held in every sector" "$r" "rows == ['anvil','bastion','cinder']"
+r=$(req surveyor GET "$API/user-domains"); assert_py "the surveyor's chart lights the three charted sectors: SectorCrew held in every sector" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder']"
 r=$(req surveyor GET "$DAWN/wings"); check "Dawn is not on the chart yet: a sector that does not exist" 404 "$r"
 if [ -n "$SECOND_PID" ]; then
   login_second surveyor
@@ -669,23 +669,23 @@ fi
 r=$(req marshal PATCH "$API/resources" '[{"op":"add","path":"/sectors/dawn","value":{"name":"Dawn","region":"Outer frontier","established":"2226-10-02"}}]'); check "the marshal holds no Create on Sectors" 403 "$r"
 r=$(req surveyor PATCH "$API/resources" '[{"op":"add","path":"/sectors/dawn","value":{"name":"Dawn","region":"Outer frontier","established":"2226-10-02"}}]'); check "the surveyor charts sector Dawn (Create on Sectors; the key rides in the path)" 200 "$r"
 r=$(req surveyor GET "$API/sectors"); assert_py "the sector list carries Dawn, in name order" "$r" "[s['name'] for s in rows]==['Anvil','Bastion','Cinder','Dawn']"
-r=$(req surveyor GET "$API/user-domains"); assert_py "her star chart lights Dawn at once: no restart, no migrate job, no new login" "$r" "rows == ['anvil','bastion','cinder','dawn']"
+r=$(req surveyor GET "$API/user-domains"); assert_py "her chart lights Dawn at once: no restart, no migrate job, no new login" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn']"
 r=$(req surveyor GET "$DAWN/wings"); check "Dawn's wings answer her: SectorCrew, held in every sector, reached Dawn with nothing written" 200 "$r"
 assert_py "an empty wing list: Dawn is charted, not yet crewed" "$r" "rows == []"
 r=$(req surveyor PATCH "$API/resources" '[{"op":"patch","path":"/sectors/dawn","value":{"region":"Far frontier"}}]'); check "the surveyor corrects Dawn's region (Update on Sectors)" 200 "$r"
 r=$(req surveyor GET "$DAWN/crew-sector-user-roles"); check "the create path made the surveyor Dawn's marshal: Dawn's list of the roles held answers her" 200 "$r"
 assert_py "and carries her SectorMarshal" "$r" "'SectorMarshal' in [h['role'] for h in rows if h['username']=='surveyor']"
-r=$(req marshal GET "$API/user-domains"); assert_py "the marshal's chart does not light Dawn" "$r" "rows == ['anvil']"
+r=$(req marshal GET "$API/user-domains"); assert_py "the marshal's chart does not light Dawn" "$r" "[d['domain'] for d in rows] == ['anvil']"
 r=$(req marshal GET "$DAWN/wings"); check "Dawn's routes answer the marshal 404: a sector that does not exist for her" 404 "$r"
-r=$(req governor GET "$API/user-domains"); assert_py "the governor, marshal in every sector, sees Dawn" "$r" "rows == ['anvil','bastion','cinder','dawn']"
+r=$(req governor GET "$API/user-domains"); assert_py "the governor, marshal in every sector, sees Dawn" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn']"
 r=$(req governor GET "$DAWN/missions"); check "Dawn's flight deck answers the governor, empty" 200 "$r"
-r=$(req archivist GET "$API/user-domains"); assert_py "the archivist, held in every sector, sees Dawn" "$r" "rows == ['anvil','bastion','cinder','dawn']"
-r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Dawn at once: the directory's role is held in every sector" "$r" "rows == ['anvil','bastion','cinder','dawn']"
+r=$(req archivist GET "$API/user-domains"); assert_py "the archivist, held in every sector, sees Dawn" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn']"
+r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Dawn at once: the directory's role is held in every sector" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn']"
 r=$(req client GET "$PORTAL/sectors/dawn/missions"); check "Dawn's tracker opens for her, empty" 200 "$r"
 if [ -n "$SECOND_PID" ]; then
   tries=0; for i in $(seq 1 40); do tries=$i; r=$(req surveyor.2 GET "$API2/sectors/dawn/wings"); [ "${r##*$'\n'}" = 200 ] && break; sleep 0.25; done
   check "the second process serves Dawn at its next request: the tenants kind's signal, not the five-minute backstop (answered on try $tries)" 200 "$r"
-  r=$(req surveyor.2 GET "$API2/user-domains"); assert_py "and her chart there lights Dawn" "$r" "rows == ['anvil','bastion','cinder','dawn']"
+  r=$(req surveyor.2 GET "$API2/user-domains"); assert_py "and her chart there lights Dawn" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn']"
   kill "$SECOND_PID" 2>/dev/null; wait "$SECOND_PID" 2>/dev/null; SECOND_PID=
 fi
 
@@ -702,22 +702,22 @@ fi
 # Demonstrates: tenancy.self-service, auth.open-sign-up.
 EMBER=$API/sectors/ember
 r=$(req pioneer GET "$API/user/session"); assert_py "the pioneer is signed in through the sign-up registration: a crew session on no manifest" "$r" "rows['authenticated'] and rows['username']=='pioneer'"
-r=$(req pioneer GET "$API/user-domains"); assert_py "her chart is dark: a crew login holding nothing" "$r" "rows == []"
+r=$(req pioneer GET "$API/user-domains"); assert_py "her chart is dark: a crew login holding nothing" "$r" "[d['domain'] for d in rows] == []"
 r=$(req pioneer GET "$EMBER/missions"); check "Ember does not exist" 404 "$r"
 r=$(req marshal POST "$API/create-sector" '{"id":"ember","name":"Ember","region":"Near frontier","established":"2226-10-20"}'); check "the marshal holds Anvil and is refused: only a person holding no sector charts one here" 403 "$r"
 r=$(req governor POST "$API/create-sector" '{"id":"ember","name":"Ember","region":"Near frontier","established":"2226-10-20"}'); check "the governor, marshal in every sector, is refused too: an administrator of one sector never creates another here" 403 "$r"
 r=$(req pioneer POST "$API/create-sector" '{"id":"ember","region":"Near frontier","established":"2226-10-20"}'); check "a body without the name is refused her" 400 "$r"
 r=$(req pioneer POST "$API/create-sector" '{"id":"ember","name":"Ember","region":"Near frontier","established":"2226-10-20"}'); check "the pioneer charts sector Ember: the row, her marshal's seat and the roster in one call" 200 "$r"
 assert_py "answered its key" "$r" "rows['id']=='ember'"
-r=$(req pioneer GET "$API/user-domains"); assert_py "her chart lights Ember at once: seated as its marshal before the route answered" "$r" "rows == ['ember']"
+r=$(req pioneer GET "$API/user-domains"); assert_py "her chart lights Ember at once: seated as its marshal before the route answered" "$r" "[d['domain'] for d in rows] == ['ember']"
 r=$(req pioneer GET "$EMBER/missions"); check "Ember's flight deck answers her, empty" 200 "$r"
 assert_py "an empty flight deck: Ember is charted, not yet flown" "$r" "rows == []"
 r=$(req pioneer GET "$EMBER/sector-directories"); assert_py "Ember declares the directory she came through, written with the row: her Google session is admitted by it (tenancy.creator-directory)" "$r" "len(rows)==1 and rows[0]['method']=='google' and rows[0]['connection']"
 r=$(req pioneer POST "$API/create-sector" '{"id":"ember-two","name":"Ember Two","region":"Near frontier","established":"2226-10-21"}'); check "a second sector is refused her: one sector per person" 403 "$r"
 r=$(req surveyor GET "$API/sectors"); assert_py "the sector list carries Ember, in name order" "$r" "[s['name'] for s in rows]==['Anvil','Bastion','Cinder','Dawn','Ember']"
 r=$(req marshal GET "$EMBER/missions"); check "Ember's routes answer the marshal 404: a sector that does not exist for her" 404 "$r"
-r=$(req governor GET "$API/user-domains"); assert_py "the governor sees Ember with nothing written for him" "$r" "rows == ['anvil','bastion','cinder','dawn','ember']"
-r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Ember at once" "$r" "rows == ['anvil','bastion','cinder','dawn','ember']"
+r=$(req governor GET "$API/user-domains"); assert_py "the governor sees Ember with nothing written for him" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn','ember']"
+r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Ember at once" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn','ember']"
 
 # ---- who may enter a sector: the declaration ----
 # Who may enter a sector is the record's declaration, data of the application: the
@@ -740,7 +740,7 @@ r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Ember
 # does) and names it again, under Update on the row.
 # Demonstrates: tenancy.declaration, tenancy.directory-only, tenancy.default-seat.
 login rigger
-r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Anvil alone: Bastion admits its people through its directory only, and she came by password" "$r" "rows == ['anvil']"
+r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Anvil alone: Bastion admits its people through its directory only, and she came by password" "$r" "[d['domain'] for d in rows] == ['anvil']"
 r=$(req rigger GET "$API/sectors/bastion/wings"); check "Bastion answers her as a sector that does not exist" 404 "$r"
 r=$(req rigger GET "$ANVIL/wings"); check "Anvil's wings answer her" 200 "$r"
 rm -f "$S/bosun.jar"; curl -s -L -c "$S/bosun.jar" -b "$S/bosun.jar" -o /dev/null "$API/user/session"
@@ -748,25 +748,25 @@ r=$(curl -s -c "$S/bosun.jar" -b "$S/bosun.jar" -H "X-XSRF-TOKEN: $(xsrf bosun)"
 check "the bosun, whose only sector is Bastion, is refused at sign-in" 401 "$r"
 assert_py "naming the rule: directory_only" "$r" "rows['code']=='directory_only'"
 r=$(req governor POST "$API/assign-crew-role" '{"username":"navigator","role":"Pilot","everyDomain":true}'); check "the governor gives the navigator the Pilot role in every sector" 204 "$r"
-r=$(req navigator GET "$API/user-domains"); assert_py "the navigator, through the fleet's directory, which every sector declares, charts all three: Bastion admits him" "$r" "rows == ['anvil','bastion','cinder']"
+r=$(req navigator GET "$API/user-domains"); assert_py "the navigator, through the fleet's directory, which every sector declares, charts all three: Bastion admits him" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder']"
 r=$(req governor GET "$ANVIL/sector-directories"); assert_py "Anvil declares one directory: the fleet's Google Workspace, example" "$r" "[(d['method'],d['connection']) for d in rows]==[('google','example')]"
 ANVIL_DIRECTORY=$(body "$r" | py "print(rows[0]['id'])")
 r=$(req rigger PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/anvil/sector-directories/$ANVIL_DIRECTORY\"}]"); check "the rigger holds no Delete on SectorDirectories" 403 "$r"
 r=$(req governor PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/anvil/sector-directories/$ANVIL_DIRECTORY\"}]"); check "the governor, marshal in every sector, withdraws Anvil's directory" 200 "$r"
-r=$(req navigator GET "$API/user-domains"); assert_py "the navigator's chart loses Anvil at once: no sector of his declares the directory he came through there" "$r" "rows == ['bastion','cinder']"
+r=$(req navigator GET "$API/user-domains"); assert_py "the navigator's chart loses Anvil at once: no sector of his declares the directory he came through there" "$r" "[d['domain'] for d in rows] == ['bastion','cinder']"
 r=$(req navigator GET "$ANVIL/wings"); check "Anvil answers him as a sector that does not exist" 404 "$r"
-r=$(req governor GET "$API/user-domains"); assert_py "the governor keeps every sector: a global role" "$r" "rows == ['anvil','bastion','cinder','dawn','ember']"
+r=$(req governor GET "$API/user-domains"); assert_py "the governor keeps every sector: a global role" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn','ember']"
 r=$(req governor PATCH "$API/resources" '[{"op":"add","path":"/sectors/anvil/sector-directories","value":{"method":"google","connection":"example"}}]'); check "the governor declares the directory on Anvil again" 200 "$r"
-r=$(req navigator GET "$API/user-domains"); assert_py "and the navigator's chart lights Anvil again" "$r" "rows == ['anvil','bastion','cinder']"
+r=$(req navigator GET "$API/user-domains"); assert_py "and the navigator's chart lights Anvil again" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder']"
 r=$(req governor PATCH "$API/resources" '[{"op":"add","path":"/sectors/anvil/sector-directories","value":{"method":"google","connection":"example"}}]'); check "the same declaration twice is a conflict: one row per directory" 409 "$r"
 r=$(req governor PATCH "$API/resources" '[{"op":"patch","path":"/sectors/bastion","value":{"directoryOnly":false}}]'); check "headquarters opens Bastion to passwords (Update on Sectors, directoryOnly)" 200 "$r"
-r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Bastion at once" "$r" "rows == ['anvil','bastion']"
+r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Bastion at once" "$r" "[d['domain'] for d in rows] == ['anvil','bastion']"
 r=$(curl -s -c "$S/bosun.jar" -b "$S/bosun.jar" -H "X-XSRF-TOKEN: $(xsrf bosun)" -H 'Content-Type: application/json' -d '{"username":"bosun","password":"lodestar"}' -w '\n%{http_code}' "$API/user/password/login")
 check "and the bosun's password is taken, the sign-in waiting for its code" 200 "$r"
 second_factor bosun "$API" bosun@fleet.example "$LOG"
 r=$(req bosun GET "$API/user/session"); assert_py "and the bosun signs in" "$r" "rows['authenticated'] and rows['username']=='bosun'"
 r=$(req governor PATCH "$API/resources" '[{"op":"patch","path":"/sectors/bastion","value":{"directoryOnly":true}}]'); check "headquarters closes Bastion again" 200 "$r"
-r=$(req bosun GET "$API/user-domains"); assert_py "the bosun's chart goes dark: the session stands, and reaches no sector" "$r" "rows == []"
+r=$(req bosun GET "$API/user-domains"); assert_py "the bosun's chart goes dark: the session stands, and reaches no sector" "$r" "[d['domain'] for d in rows] == []"
 r=$(req governor GET "$API/sectors/cinder/sector-directories"); assert_py "Cinder's directory row names SectorCrew as its default seat" "$r" "[(d['method'],d['connection'],d.get('defaultSeat')) for d in rows]==[('google','example','SectorCrew')]"
 CINDER_DIRECTORY=$(body "$r" | py "print(rows[0]['id'])")
 r=$(req marshal PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/cinder/sector-directories/$CINDER_DIRECTORY\",\"value\":{\"defaultSeat\":null}}]"); check "Cinder does not exist for the marshal of Anvil: a patch into a sector the caller does not reach is answered as an unknown one" 400 "$r"
@@ -830,7 +830,7 @@ else
 fi
 
 # ---- portal ----
-r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists every sector, Dawn and Ember charted above among them: the directory's domain role is held in every sector" "$r" "rows == ['anvil','bastion','cinder','dawn','ember']"
+r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists every sector, Dawn and Ember charted above among them: the directory's domain role is held in every sector" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn','ember']"
 r=$(req client GET "$PORTAL/sectors/anvil/missions?capabilities=Execute&limit=200"); check "cleo tracks Halvard's missions" 200 "$r"
 assert_py "portal width excludes assignedSquadronId/notes/settlement" "$r" "rows and all('assignedSquadronId' not in m and 'settlement' not in m for m in rows)"
 assert_py "Stand down lights only on her company's open, claimed, or on-hold rows" "$r" "all(('StandDownMission' in m['zzCapabilities']['Execute']) == (m['statusId'] in ('open','claimed','on_hold')) for m in rows)"

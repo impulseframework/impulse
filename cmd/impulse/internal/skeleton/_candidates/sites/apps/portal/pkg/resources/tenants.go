@@ -18,7 +18,10 @@ type (
 	// @suppress(allHandlers)
 	// @suppress(allRoutes)
 	Tenant struct {
-		ID   string `spanner:"Id"`
+		ID string `spanner:"Id"`
+		// Name is the tenant's name as its people know it: the session's tenant list
+		// carries it, so the place switcher shows it to them.
+		// @tenantName
 		Name string `spanner:"Name"`
 	}
 )

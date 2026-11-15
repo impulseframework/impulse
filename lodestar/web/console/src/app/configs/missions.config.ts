@@ -50,7 +50,7 @@ import { enumeratedConfig, field, listViewConfig, rootConfig, section } from '@i
 //
 // Demonstrates: picker.config-driven, picker.paged, picker.whole, @enumerate.plain-column, @enumerate.key-view, picker.read-disabled, @rowsOf.same-row, list.server-paged, metadata.filterable, search.beside-filters, filter.written-dates.
 export const missionsConfig = rootConfig({
-  nav: { navItem: { label: 'Missions (config page)' }, group: 'Sector Ops' },
+  page: { label: 'Missions', icon: 'flag' },
   routeData: { route: `${DomainRoutePath}/missions` },
   parentConfig: listViewConfig({
     title: 'Missions',

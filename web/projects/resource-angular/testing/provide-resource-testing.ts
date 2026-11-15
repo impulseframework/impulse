@@ -2,7 +2,7 @@ import { EnvironmentProviders, Provider } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { ApiDescriptor, ClientBase, createClient, Transport } from '@impulseframework/resource';
 import { scriptedTransport, ScriptedTransport } from '@impulseframework/resource/testing';
-import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
+import { RESOURCE_CLIENT, trackStoreReads } from '@impulseframework/resource-angular/resource-client';
 
 /** What provideResourceTesting builds the client from. Both are optional. */
 export interface ResourceTestingOptions {
@@ -47,10 +47,13 @@ const emptyDescriptor: ApiDescriptor = {
  * The client's error hook and error handler are not provided: a spec that wants the 401
  * redirect or the uncaught-error notice under test uses provideResourceClient with its own
  * transport. A spec that reads a component's tenant sets RESOURCE_DOMAIN beside this.
+ * Store reads are tracked as in an application (trackStoreReads), so a permission answer
+ * inside a computed() follows a digest the spec loads.
  */
 export function provideResourceTesting(options: ResourceTestingOptions = {}): (Provider | EnvironmentProviders)[] {
   const transport = options.transport ?? scriptedTransport();
   const build =
     options.client ?? ((t: Transport): ClientBase => createClient(emptyDescriptor, { baseUrl: '/api', transport: t }));
+  trackStoreReads();
   return [{ provide: RESOURCE_CLIENT, useValue: build(transport) }, provideRouter([])];
 }

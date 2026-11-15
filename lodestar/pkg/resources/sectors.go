@@ -25,7 +25,7 @@ type (
 	// key cannot change on update.
 	//
 	// Sector itself is a GLOBAL resource: administering the sector list is a global
-	// concern. The star chart's dark sectors are the ones a login holds no grant in.
+	// concern. The place switcher lists only the sectors a login holds a grant in.
 	//
 	// Who may chart a sector is declared here, apart from who may enter one
 	// (@tenant(creation: ...)), and the record declares both ways: the surveyor's, Create
@@ -62,7 +62,10 @@ type (
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
 	Sector struct {
-		ID          string     `spanner:"Id"`
+		ID string `spanner:"Id"`
+		// Name is the sector's name as its crew know it: the session's sector list
+		// carries it, so the place switcher shows it to them.
+		// @tenantName
 		Name        string     `spanner:"Name"`
 		Region      string     `spanner:"Region"`
 		Established civil.Date `spanner:"Established"`

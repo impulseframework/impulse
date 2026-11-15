@@ -8,7 +8,6 @@ import { MatTableModule } from '@angular/material/table';
 import { DistressCalls as DistressCallFields, Permissions, Resources } from '@app/service/zz_gen_constants';
 import { DistressCalls } from '@app/service/zz_gen_resources';
 import { SectorService } from '../sector.service';
-import { StarChartComponent } from '../star-chart/star-chart.component';
 
 /**
  * The call log: incoming distress calls before they become missions, and the
@@ -21,7 +20,7 @@ import { StarChartComponent } from '../star-chart/star-chart.component';
  */
 @Component({
   selector: 'app-call-log',
-  imports: [FormsModule, MatButtonModule, MatCardModule, MatFormFieldModule, MatInputModule, MatTableModule, StarChartComponent],
+  imports: [FormsModule, MatButtonModule, MatCardModule, MatFormFieldModule, MatInputModule, MatTableModule],
   templateUrl: './call-log.component.html',
   styleUrl: './call-log.component.scss',
 })

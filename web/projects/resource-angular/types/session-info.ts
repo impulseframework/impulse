@@ -25,4 +25,10 @@ export interface SessionInfo {
    * step and trusted for nothing; present only while the person holds no address.
    */
   emailHint?: string;
+  /**
+   * The browser carries the second factor's remembered entry for the person, so their
+   * account page offers to forget it (`api.auth.forgetBrowser`). Never set on an
+   * impersonated session, which may not forget it.
+   */
+  browserRemembered?: boolean;
 }

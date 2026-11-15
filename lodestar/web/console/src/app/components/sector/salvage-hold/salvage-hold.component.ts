@@ -9,7 +9,6 @@ import { MatTableModule } from '@angular/material/table';
 import { Methods, Permissions, Resources } from '@app/service/zz_gen_constants';
 import { Consignments } from '@app/service/zz_gen_resources';
 import { SectorService } from '../sector.service';
-import { StarChartComponent } from '../star-chart/star-chart.component';
 
 /**
  * The salvage hold: cargo in bond until its owner claims it. Release is the plain
@@ -22,7 +21,7 @@ import { StarChartComponent } from '../star-chart/star-chart.component';
  */
 @Component({
   selector: 'app-salvage-hold',
-  imports: [DatePipe, FormsModule, MatButtonModule, MatCardModule, MatFormFieldModule, MatInputModule, MatTableModule, StarChartComponent],
+  imports: [DatePipe, FormsModule, MatButtonModule, MatCardModule, MatFormFieldModule, MatInputModule, MatTableModule],
   templateUrl: './salvage-hold.component.html',
   styleUrl: './salvage-hold.component.scss',
 })

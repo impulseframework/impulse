@@ -147,7 +147,7 @@ func TestClientPortal(t *testing.T) {
 		status, body := doRequestAs(t, h, clientUser, http.MethodGet, portalAPI+"/user-domains", "")
 		assertStatus(t, status, http.StatusOK, body)
 		var domains []accesstypes.Domain
-		if err := json.Unmarshal(body, &domains); err != nil {
+		if err := unmarshalDomains(body, &domains); err != nil {
 			t.Fatalf("decoding domains: %v", err)
 		}
 		if !slices.Equal(domains, sectors) {

@@ -29,7 +29,7 @@ interface EndImpersonationResponse {
  * "act as a role" mints one that operates as a role with subject still bound to the
  * actor. The mint route is hand-written and gated by the ViewAsUser and AssumeRole
  * Execute registrations; the session endpoint reports the record back, which the
- * header renders as the persistent banner.
+ * frame draws above its bar as the persistent banner (ImpersonationBannerComponent).
  *
  * Demonstrates: impersonation.view-as, impersonation.act-as-role, impersonation.end, impersonation.mask.
  */

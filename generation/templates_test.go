@@ -767,7 +767,15 @@ func Test_permissionsTemplate_sessionOutlets(t *testing.T) {
 				"GET /api/user-domains.",
 				"resource.WithFeatureGates(resources.FeatureGates(), a.FeatureSet()), resource.WithFormerNames(router.Collection())",
 			},
-			wantNotContains: []string{"additional session-serving"},
+			wantNotContains: []string{"additional session-serving", "WithDomainNames"},
+		},
+		{
+			name: "a record that marks its name has the tenant list named from the roster",
+			data: permissionsData{Package: "app", ApplicationName: "App", ReceiverName: "a", RoutePrefix: "api", DefaultServesSessions: true, ResourcePackage: "resources", RouterPackage: "router", TenantNames: true},
+			wantContains: []string{
+				"// Each tenant of the list carries its name from the application's tenant roster",
+				"return resource.UserDomainsHandler(a.UserPermissions, resource.WithDomainNames(a.TenantRoster()))",
+			},
 		},
 		{
 			name: "extra session outlets extend the comments",

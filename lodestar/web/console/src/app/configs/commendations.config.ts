@@ -6,10 +6,11 @@ import { enumeratedConfig, field, listViewConfig, rootConfig, section } from '@i
 // feature flag, and this config says nothing about the flag: the generated metadata
 // carries `feature: 'commendations'`, and resourceRoutes reads it, puts the library's
 // featureMatch guard on the page's route (so while the flag is off a URL to the desk
-// falls to the wildcard as an unknown URL does) and marks the navigation item with the
-// flag (so the topbar's *impulseFeature hides it). The permission digest hides the item too
-// while the flag is off, since the server leaves a gated-off resource out of it. Turn the
-// flag on in the header's Feature flags dialog as the adjutant and the desk is there, its
+// falls to the wildcard as an unknown URL does), and resourcePage carries the flag onto
+// the menu entry (so the frame leaves it out while the flag is off). The permission digest
+// hides the entry too while the flag is off, since the server leaves a gated-off resource
+// out of it. Turn the flag on in Feature flags (System, in Headquarters) as the adjutant
+// and the desk is there, its
 // three seeded citations newest first (the resource's @order).
 //
 // AwardedBy and AwardedAt are the server's (output_only): the metadata marks them read
@@ -18,7 +19,7 @@ import { enumeratedConfig, field, listViewConfig, rootConfig, section } from '@i
 //
 // Demonstrates: @feature.
 export const commendationsConfig = rootConfig({
-  nav: { navItem: { label: 'Commendations' }, group: 'Headquarters' },
+  page: { label: 'Commendations', icon: 'military_tech' },
   parentConfig: listViewConfig({
     title: 'Commendations',
     createTitle: 'Commendation',

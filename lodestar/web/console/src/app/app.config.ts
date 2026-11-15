@@ -1,5 +1,5 @@
 import { provideHttpClient, withInterceptors, withXsrfConfiguration } from '@angular/common/http';
-import { ApplicationConfig, computed, inject, Injector, isDevMode, Signal } from '@angular/core';
+import { ApplicationConfig, inject, Injector, isDevMode } from '@angular/core';
 import { provideNativeDateAdapter } from '@angular/material/core';
 import { provideAnimationsAsync } from '@angular/platform-browser/animations/async';
 import { provideRouter, withComponentInputBinding, withRouterConfig } from '@angular/router';
@@ -7,7 +7,6 @@ import { provideServiceWorker } from '@angular/service-worker';
 import { createApi } from '@app/service/zz_gen_api';
 import { methodMeta } from '@app/service/zz_gen_methods';
 import { resourceMeta } from '@app/service/zz_gen_resources';
-import { Domain } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { apiVersionInterceptor, provideResourceClient } from '@impulseframework/resource-angular/resource-client';
 import {
@@ -20,17 +19,17 @@ import {
   IDLE_LOGOUT_ACTION,
   IDLE_SESSION_DURATION,
   IDLE_WARNING_DURATION,
-  LOGOUT_ACTION,
   METHOD_META,
-  RESOURCE_DOMAIN,
   RESOURCE_META,
   SESSION_PATH,
 } from '@impulseframework/resource-angular/types';
 import { provideAppUpdate } from '@impulseframework/resource-angular/ui-app-update';
 import { provideTheme } from '@impulseframework/resource-angular/ui-theme';
 import { firestoreChangeFeed } from '@impulseframework/resource-firestore';
-import { SectorService } from '@components/sector/sector.service';
+import { provideFrame } from '@impulseframework/resource-angular/auth-frame';
+import { ImpersonationBannerComponent } from '@components/shared/impersonation-banner/impersonation-banner.component';
 import { environment } from '@env';
+import { appMenus } from './app.menus';
 import { routes } from './app.routes';
 
 export const appConfig: ApplicationConfig = {
@@ -39,31 +38,30 @@ export const appConfig: ApplicationConfig = {
     { provide: SESSION_PATH, useValue: 'user/session' },
     { provide: RESOURCE_META, useValue: resourceMeta },
     { provide: METHOD_META, useValue: methodMeta },
-    // The open sector, the one the URL names, is the tenant the library's config-driven
-    // pages work in: the Missions page and its pickers ask the sector's digest and bind
-    // their requests to it, exactly as the hand-written decks do through SectorService.
-    // The sector guard writes it before the library's own guard asks. The service is
-    // resolved when the signal is first read, not when the token is built: the
-    // library's AuthService injects the token, and SectorService injects AuthService.
-    {
-      provide: RESOURCE_DOMAIN,
-      useFactory: (): Signal<Domain | undefined> => {
-        const injector = inject(Injector);
-        return computed(() => (injector.get(SectorService).current() || undefined) as Domain | undefined);
-      },
-    },
+    // The frame every signed-in page sits in, drawn by the library: Lodestar's name, the
+    // place the page is in with the way to another (Headquarters, the place outside every
+    // sector, and each sector by name), the menus of the menu file (app.menus.ts), Help,
+    // and the person's own menu, with the impersonation banner above the bar while the
+    // session views through another person's eyes. The sector the URL names is the tenant
+    // the library's pages work in (the frame provides RESOURCE_DOMAIN from it), exactly as
+    // the hand-written decks do through SectorService.
+    //
+    // Demonstrates: frame.place-switcher.
+    provideFrame({
+      name: 'Lodestar',
+      home: 'dashboard',
+      outside: { label: 'Headquarters', icon: 'apartment' },
+      menus: appMenus,
+      banner: ImpersonationBannerComponent,
+    }),
     // The idle session is the application's to configure. The three durations come from
     // the build's environment (environment.ts shortens them for development); the warning
     // is the library's notice over the page, which any activity ends, so the console adds
     // no button for it; and the idle logout ends the
     // server session before the service moves to the login page, so the sign-out is real
     // and not a stale cookie; a session the server already ended answers 401 there, which
-    // is the same outcome. LOGOUT_ACTION, the hook the auth service runs after every
-    // logout, forgets the chart-all toggle, so the next session starts from its own
-    // constellation (the sector itself is the URL's, and the login page is outside the
-    // sector segment). Both hooks resolve their service when they run,
-    // not when the token is built: AuthService injects LOGOUT_ACTION, and SectorService
-    // injects AuthService.
+    // is the same outcome. The hook resolves the service when it runs, not when the token
+    // is built.
     //
     // Demonstrates: idle.configured.
     { provide: IDLE_SESSION_DURATION, useValue: environment.idle.sessionSeconds },
@@ -78,15 +76,6 @@ export const appConfig: ApplicationConfig = {
             .get(AuthService)
             .logout()
             .subscribe({ error: (): void => undefined });
-        };
-      },
-    },
-    {
-      provide: LOGOUT_ACTION,
-      useFactory: (): (() => void) => {
-        const injector = inject(Injector);
-        return (): void => {
-          injector.get(SectorService).setChartAll(false);
         };
       },
     },
@@ -158,8 +147,10 @@ export const appConfig: ApplicationConfig = {
     provideAppUpdate(),
     // The look the person chose, light or dark and one of the palettes named here, the
     // ids of theme.scss's palette map in the same order, applied before the first page
-    // renders and remembered in the browser; the dashboard's Appearance card is where
+    // renders and remembered in the browser; Appearance in the person's menu is where
     // they choose.
+    //
+    // Demonstrates: webapp.theme-choice.
     provideTheme({
       palettes: [
         { id: 'blue', label: 'Blue' },

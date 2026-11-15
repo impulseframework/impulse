@@ -782,6 +782,45 @@ func (p *AuthAPI[S, U, Tx]) ResetFactors(ctx context.Context, userID impulse.UUI
 	return nil
 }
 
+// ForgetBrowser is the handler a signed-in person's account page calls to forget this
+// browser as a trusted device of theirs (AuthAPI.ForgetTrustedDevice): their next sign-in
+// from it asks for the second factor again, and the other people the browser was
+// remembered for keep theirs. It validates the session itself, as the password change
+// does, so it is routed beside it, outside ValidateSession; an impersonated session is
+// refused. A browser that is not remembered for the person answers 200 too: there is
+// nothing to forget. The session read says whether there is (browserRemembered).
+func (a *Auth[S, U, Tx]) ForgetBrowser() http.HandlerFunc {
+	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		if _, validated := ctx.Value(sessioninfo.CtxUserInfo).(*sessioninfo.UserInfo); !validated {
+			var err error
+			if ctx, err = a.validate(ctx); err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
+		}
+		if err := sessioncore.RefuseImpersonated(ctx, a.baseSession, "ForgetBrowser", true); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if err := a.API().ForgetTrustedDevice(ctx, w); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
+	}))
+}
+
+// browserRemembered reports whether the browser of the request carries a remembered
+// entry for the user: what the session read tells the account page. It reads the
+// cookie StartSession read, not the device's row, so an entry whose device has since
+// lapsed still answers true; forgetting it is then harmless.
+func browserRemembered(ctx context.Context, userID impulse.UUID) bool {
+	_, ok := trustedHashFor(ctx, userID)
+
+	return ok
+}
+
 // ForgetTrustedDevice forgets the browser of the current request as a trusted device of
 // the session's user: their device is revoked and their entry taken out of the cookie,
 // so their next sign-in from it asks for the factor; the other people the browser was

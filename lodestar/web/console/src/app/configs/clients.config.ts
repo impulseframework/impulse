@@ -25,7 +25,7 @@ import { field, listViewConfig, nullBooleanConfig, rootConfig, section } from '@
 //
 // Demonstrates: nullboolean, column.icon, search.beside-filters, search.beside-filters.pii.
 export const clientsConfig = rootConfig({
-  nav: { navItem: { label: 'Clients' }, group: 'Headquarters' },
+  page: { label: 'Clients', icon: 'business' },
   parentConfig: listViewConfig({
     title: 'Clients',
     createTitle: 'Client',

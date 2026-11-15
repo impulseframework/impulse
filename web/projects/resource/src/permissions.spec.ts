@@ -3,7 +3,7 @@ import { CreatePermission, Domain, Permission, Resource } from './brands';
 import { createClient, ResourceHandle } from './client';
 import { ApiDescriptor } from './descriptor';
 import { PermissionDigest } from './digest';
-import { fieldPermissionStates, PermissionsSnapshot } from './permissions';
+import { fieldPermissionStates, PermissionsSnapshot, PermissionStore, Requester } from './permissions';
 
 const incidents = 'IncidentReports' as Resource;
 const memberships = 'TeamMemberships' as Resource;
@@ -139,5 +139,53 @@ describe('grantedFields', () => {
     expect(client.grantedFields(CreatePermission, incidents, alpha)).toEqual(['severity', 'summary']);
     expect(client.grantedFields(CreatePermission, incidents)).toBeUndefined();
     expect(client.grantedFields(CreatePermission, memberships)).toBeUndefined();
+  });
+});
+
+describe('the tenant list', () => {
+  // A requester that answers the user-domains route with the list and records each path.
+  const answering = (listed: unknown): { request: Requester; paths: string[] } => {
+    const paths: string[] = [];
+    const request = (async (_method: string, path: string) => {
+      paths.push(path);
+      return listed;
+    }) as Requester;
+    return { request, paths };
+  };
+
+  it('loads each domain with its name: domains() lists the ids, domainName() names each', async () => {
+    const { request, paths } = answering([
+      { domain: 'ridgeline', name: 'Ridgeline County' },
+      { domain: 'bighorn', name: 'bighorn' },
+    ]);
+    const store = new PermissionStore(request, { digest: 'permission-digest', domains: 'user-domains' });
+    expect(await store.loadDomains()).toEqual(['ridgeline' as Domain, 'bighorn' as Domain]);
+    expect(paths).toEqual(['user-domains']);
+    expect(store.domains()).toEqual(['ridgeline' as Domain, 'bighorn' as Domain]);
+    expect(store.domainName('ridgeline' as Domain)).toBe('Ridgeline County');
+    expect(store.domainName('bighorn' as Domain)).toBe('bighorn');
+  });
+
+  it('names a domain the list does not hold, and every domain before the list loads, by the domain itself', async () => {
+    const store = new PermissionStore(answering([{ domain: 'ridgeline', name: 'Ridgeline County' }]).request, {
+      digest: 'permission-digest',
+      domains: 'user-domains',
+    });
+    expect(store.domainName('ridgeline' as Domain)).toBe('ridgeline');
+    await store.loadDomains();
+    expect(store.domainName('elsewhere' as Domain)).toBe('elsewhere');
+  });
+
+  it('an empty answer, or none, lists nothing; clear() forgets the names', async () => {
+    const store = new PermissionStore(answering(null).request, { digest: 'permission-digest', domains: 'user-domains' });
+    expect(await store.loadDomains()).toEqual([]);
+    const named = new PermissionStore(answering([{ domain: 'ridgeline', name: 'Ridgeline County' }]).request, {
+      digest: 'permission-digest',
+      domains: 'user-domains',
+    });
+    await named.loadDomains();
+    named.clear();
+    expect(named.domains()).toEqual([]);
+    expect(named.domainName('ridgeline' as Domain)).toBe('ridgeline');
   });
 });

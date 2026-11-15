@@ -86,6 +86,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/api/user/pending/code", suffix: "/user/pending/code", method: http.MethodPost, handler: "PendingSendCode", xsrf: true},
 		{url: "/api/user/pending/code/verify", suffix: "/user/pending/code/verify", method: http.MethodPost, handler: "PendingVerifyCode", xsrf: true},
 		{url: "/api/user/pending/email", suffix: "/user/pending/email", method: http.MethodPost, handler: "PendingEnrollEmail", xsrf: true},
+		{url: "/api/user/browser/forget", suffix: "/user/browser/forget", method: http.MethodPost, handler: "ForgetBrowser", xsrf: true},
 		{url: "/api/user/invitation", suffix: "/user/invitation", method: http.MethodPost, handler: "InvitationOpen", xsrf: true},
 		{url: "/api/user/invitation/sign-up", suffix: "/user/invitation/sign-up", method: http.MethodPost, handler: "InvitationSignUp", xsrf: true},
 		{url: "/api/user/invitation/accept", suffix: "/user/invitation/accept", method: http.MethodPost, handler: "InvitationAccept", xsrf: true, validated: true},
@@ -743,6 +744,10 @@ func (s *routerDefaultSessionStub) PendingVerifyCode() http.HandlerFunc {
 
 func (s *routerDefaultSessionStub) PendingEnrollEmail() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PendingEnrollEmail")
+}
+
+func (s *routerDefaultSessionStub) ForgetBrowser() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "ForgetBrowser")
 }
 
 func (s *routerDefaultSessionStub) InvitationOpen() http.HandlerFunc {

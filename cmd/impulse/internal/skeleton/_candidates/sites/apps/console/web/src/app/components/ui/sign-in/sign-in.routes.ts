@@ -2,36 +2,27 @@ import { Type } from '@angular/core';
 import { Route } from '@angular/router';
 import { Permissions, Resources } from '@app/service/zz_gen_constants';
 import { DomainRoutePath } from '@app/service/zz_gen_resources';
-import { generatedNavItems } from '@impulseframework/resource-angular/resource-nav';
-import { MenuItem } from '@impulseframework/resource-angular/types';
+import { page, pageRoute } from '@impulseframework/resource-angular/auth-frame';
 import { TenantSignInComponent } from './tenant-sign-in.component';
 
-let cachedTenantSignInRoute: Route | undefined;
-
 /**
- * tenantSignInRoute wires the tenant's sign-in page, who may enter the tenant as its
- * declaration says, under the tenant segment. Its navigation item names the segment's
- * route parameter, which the top bar fills with the open tenant, and is asked of that
- * tenant's digest for the List grant on its directories, so it is drawn only inside a
- * tenant where the grant holds.
+ * The tenant's sign-in page as the menus know it: who may enter the tenant, as its
+ * declaration says. Its address names the tenant segment's parameter, so it is a tenant's
+ * page: the menus show it while a tenant is open, filled with that tenant, and only where
+ * that tenant's digest holds the List grant on its directories. The menu file places it
+ * (app.menus.ts); the route below carries the same page.
  */
-export const tenantSignInRoute = (): Route => {
-  if (cachedTenantSignInRoute) {
-    return cachedTenantSignInRoute;
-  }
+export const tenantSignInPage = page({
+  label: 'Sign-in settings',
+  icon: 'login',
+  route: [DomainRoutePath, 'sign-in'],
+  permission: { resource: Resources.TenantDirectories, permission: Permissions.List },
+});
 
-  const item: MenuItem = {
-    label: 'Sign-in',
-    route: [DomainRoutePath, 'sign-in'],
-    permission: { resource: Resources.TenantDirectories, permission: Permissions.List },
-  };
-  generatedNavItems.push(item);
-
-  cachedTenantSignInRoute = {
+/** tenantSignInRoute wires the tenant's sign-in page under the tenant segment. */
+export const tenantSignInRoute = (): Route =>
+  pageRoute(tenantSignInPage, {
     path: 'sign-in',
     loadComponent: (): Promise<Type<TenantSignInComponent>> =>
       import('./tenant-sign-in.component').then((comp) => comp.TenantSignInComponent),
-  };
-
-  return cachedTenantSignInRoute;
-};
+  });

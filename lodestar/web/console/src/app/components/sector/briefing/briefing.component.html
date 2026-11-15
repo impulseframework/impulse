@@ -5,8 +5,6 @@
   board in. Dry-run is refused on it with a 400: there is nothing to roll back.
 </p>
 
-<app-star-chart></app-star-chart>
-
 @if (!canCompile()) {
   <mat-card appearance="outlined" class="table-card">
     <p class="empty">Your posting in {{ sector() || 'this sector' }} does not include compiling a briefing.</p>

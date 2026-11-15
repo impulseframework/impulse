@@ -9,7 +9,7 @@ package integration
 // Ember's marshal through the crew's generated identity client (the engine answers the
 // membership before the route answers), adds Ember to the writing instance's roster and
 // signals the tenants kind.
-// Her star chart lights Ember and Ember's flight deck answers her at once; a second
+// Her chart lights Ember and Ember's flight deck answers her at once; a second
 // sector is refused her, as the route is refused the marshal and the governor, who hold
 // sectors already (an administrator of one sector never creates another here; the
 // surveyor's way is the record's own create path, run_time_tenant_test.go); the governor

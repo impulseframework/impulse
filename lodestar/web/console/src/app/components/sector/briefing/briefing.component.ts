@@ -9,7 +9,6 @@ import { Methods, Permissions } from '@app/service/zz_gen_constants';
 import { CompileBriefingResult } from '@app/service/zz_gen_methods';
 import { ApiError } from '@impulseframework/resource';
 import { SectorService } from '../sector.service';
-import { StarChartComponent } from '../star-chart/star-chart.component';
 
 /**
  * The sector briefing: the one method that runs outside a transaction. CompileBriefing
@@ -35,7 +34,6 @@ import { StarChartComponent } from '../star-chart/star-chart.component';
     MatFormFieldModule,
     MatSelectModule,
     MatSlideToggleModule,
-    StarChartComponent,
   ],
   templateUrl: './briefing.component.html',
   styleUrl: './briefing.component.scss',

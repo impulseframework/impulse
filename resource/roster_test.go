@@ -229,6 +229,36 @@ func TestTenantRoster_nil(t *testing.T) {
 	if err != nil || declaration != nil {
 		t.Errorf("Declarations() on a nil roster = %v, %v; want nil, nil", declaration, err)
 	}
+	if name := r.Name("alpha"); name != "" {
+		t.Errorf("Name() on a nil roster = %q, want \"\"", name)
+	}
+}
+
+// TestTenantNamesStatement pins the roster's read of the names: each key as text with
+// its name, a NULL name read as "", identifiers quoted as the package's other Spanner
+// statements quote them.
+func TestTenantNamesStatement(t *testing.T) {
+	t.Parallel()
+
+	want := "SELECT CAST(`Id` AS STRING) AS Domain, COALESCE(CAST(`Name` AS STRING), '') AS Name FROM `Stations`"
+	if got := tenantNamesStatement("Stations", "Id", "Name"); got != want {
+		t.Errorf("tenantNamesStatement() = %q, want %q", got, want)
+	}
+}
+
+// TestTenantRoster_Name_unread pins Name on a roster that has read nothing yet and on
+// one whose copy holds no names: both answer "", never a stale or invented name.
+func TestTenantRoster_Name_unread(t *testing.T) {
+	t.Parallel()
+
+	r := NewTenantRoster(nil, "Stations", "Id", WithTenantNames("Name"))
+	if name := r.Name("alpha"); name != "" {
+		t.Errorf("Name() before any read = %q, want \"\"", name)
+	}
+	r.Add("alpha")
+	if name := r.Name("alpha"); name != "" {
+		t.Errorf("Name() of a tenant added by hand = %q, want \"\"", name)
+	}
 }
 
 // dbTypeClient is a Client that answers its database type and nothing else: what a
