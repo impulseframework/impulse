@@ -87,14 +87,14 @@ func New(ctx context.Context, db *cloudspanner.Client, key string, collection ac
 	}
 	session.PasswordSignIn(s)
 	google.SignIn(s, "google", nil, &google.Config{RoleSync: %s})
-	s.SetDirectoryAdmission(settings.TenantDirectories, resource.SignInRoles(engine.UserManager()), identityClient.DirectorySeated())
+	s.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
 
 	return &Auth{session: s}, nil
 }
 
 func (a *Auth) Session() *Session { return a.session }
 `
-	admissionCall = "\ts.SetDirectoryAdmission(settings.TenantDirectories, resource.SignInRoles(engine.UserManager()), identityClient.DirectorySeated())\n"
+	admissionCall = "\ts.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())\n"
 	// seatRoles grants the tenant's administrator Update on the directories record with
 	// the default seat; noSeatRoles grants Update on the record without it.
 	seatRoles   = `{"roles": {"global": [], "domain": [{"name": "TenantAdministrator", "permissions": {"Create": [{"resource": "TenantDirectories", "fields": ["connection", "defaultSeat", "method"]}], "Update": [{"resource": "TenantDirectories", "fields": ["defaultSeat"]}]}}]}}` + "\n"
@@ -119,7 +119,7 @@ func admitted() map[string]string {
 // The findings the check writes, by the piece missing.
 const (
 	noSeatColumn = "TenantDirectory declares no column annotated @directoryDefaultSeat; the tenant directory record carries a nullable DefaultSeat column (STRING(64), annotated @directoryDefaultSeat; a migration adds it to the directories table), what a stranger the directory vouches for is seated with at their first sign-in, chosen by the tenant's administrator on the Sign-in page"
-	noAdmission  = "nothing in the %s auth calls SetDirectoryAdmission, and the application assigns its roles (no method is registered with RoleSync); the auth carries the generated directory reader in its Settings (TenantDirectories, NewTenantDirectoryReader) and sets SetDirectoryAdmission(settings.TenantDirectories, resource.SignInRoles(engine.UserManager()), identityClient.DirectorySeated()) beside its sign-in policy, with the hook of the identity client it builds from its generated management, so a stranger from a declared directory is created holding the row's role in one transaction or refused by invitation only (invitation_only) with no account, before the registration's account rule"
+	noAdmission  = "nothing in the %s auth calls SetDirectoryAdmission, and the application assigns its roles (no method is registered with RoleSync); the auth carries the generated directory reader in its Settings (TenantDirectories, NewTenantDirectoryReader) and sets SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated()) beside its sign-in policy, with the hook of the identity client it builds from its generated management, so a stranger from a declared directory is created holding the row's role in one transaction or refused by invitation only (invitation_only) with no account, before the registration's account rule"
 	noSeatGrant  = "grants Update on TenantDirectories with the field defaultSeat; the administrator role's grants on the directory record carry defaultSeat on Create, List and Read and gain Update on it, so the tenant's administrator chooses the default seat on the Sign-in page"
 )
 
@@ -312,7 +312,7 @@ func TestDirectoryAdmissionCandidates(t *testing.T) {
 	t.Parallel()
 
 	const (
-		candidateCall  = "\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, resource.SignInRoles(accessClient.UserManager()), identityClient.DirectorySeated())\n"
+		candidateCall  = "\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())\n"
 		candidateGrant = "\"resource\": \"TenantDirectories\",\n              \"fields\": [\n                \"defaultSeat\"\n              ]"
 	)
 
@@ -378,7 +378,7 @@ func TestDirectoryAdmissionMeaning(t *testing.T) {
 	t.Parallel()
 
 	meaning := directoryAdmission{}.Meaning()
-	for _, want := range []string{"`@tenantDirectory`", "`@directoryDefaultSeat`", "`authSession.SetDirectoryAdmission(settings.TenantDirectories, resource.SignInRoles(engine.UserManager()), identityClient.DirectorySeated())`", "`New<Record>DirectoryReader`", "gain Update on it"} {
+	for _, want := range []string{"`@tenantDirectory`", "`@directoryDefaultSeat`", "`authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())`", "`New<Record>DirectoryReader`", "gain Update on it"} {
 		if !strings.Contains(meaning, want) {
 			t.Errorf("Meaning() lacks %q", want)
 		}

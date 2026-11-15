@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
@@ -17,14 +18,13 @@ import (
 // In an application whose tenants own their people, a person belongs to one tenant: the
 // tenant that created or invited them manages the account, which it could not do for a
 // person another tenant holds too. The application says so with WithOneTenantPerPerson,
-// and every way a person comes to hold a role in a tenant is then held to it. Four of
-// them write their membership through AssignRole: a role given by hand, an account
-// created under a name that holds a role already, an invitation accepted, and a
-// directory's default role. The fifth is a rename, which moves a person's roles to the
-// new name: a name that already holds roles is refused where the two together would
-// span tenants (RenameUser). An invitation is refused when it is sent too (Invite),
-// where an account another tenant holds has confirmed the address, so the sender is
-// told and the invited person is not left with a link they cannot accept.
+// and every way a person comes to hold a role in a tenant is then held to it. All of
+// them write their membership through AssignRole: a role given by hand, an invitation
+// accepted, and a directory's default role. A role is held by an account, never by a
+// name, so an account that is created holds nothing, and a rename moves nothing. An
+// invitation is refused when it is sent too (Invite), where an account another tenant
+// holds has confirmed the address, so the sender is told and the invited person is not
+// left with a link they cannot accept.
 //
 // The application's own people are outside the rule: a person who holds a role for the
 // whole application or in every tenant is no tenant's to manage, whatever else they
@@ -62,21 +62,21 @@ func WithOneTenantPerPerson() Option {
 // (Store.Memberships), and, at a sign-in, as the hooks of the sign-in's transaction have
 // given so far (signInTenants). A membership held for the whole application or in every
 // tenant is not a tenant's and is never refused.
-func (m *Manager) refuseSecondTenant(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, username string) error {
+func (m *Manager) refuseSecondTenant(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID) error {
 	domain, inTenant := scope.Domain()
 	if m.oneTenant == nil || !inTenant {
 		return nil
 	}
-	held, err := m.store.Memberships(ctx, txn, username)
+	held, err := m.store.Memberships(ctx, txn, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.Memberships()")
 	}
 	if outsideTenants(held) {
 		return nil
 	}
-	if inAnotherTenant(held, scope) || !m.oneTenant.give(ctx, username, string(domain)) {
-		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedOtherTenant, httpio.NewConflictMessagef(
-			"%s already belongs to another tenant, and a person belongs to one tenant here: the role is not given", username,
+	if inAnotherTenant(held, scope) || !m.oneTenant.give(ctx, userID, string(domain)) {
+		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedOtherTenant, httpio.NewConflictMessage(
+			"this account already belongs to another tenant, and a person belongs to one tenant here: the role is not given",
 		))
 	}
 
@@ -97,14 +97,14 @@ func (m *Manager) refuseInvitedElsewhere(ctx context.Context, txn resource.ReadW
 	if m.oneTenant == nil || domain == nil {
 		return nil
 	}
-	username, found, err := m.store.UserByVerifiedEmail(ctx, txn, email)
+	userID, found, err := m.store.UserByVerifiedEmail(ctx, txn, email)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.UserByVerifiedEmail()")
 	}
 	if !found {
 		return nil
 	}
-	held, err := m.store.Memberships(ctx, txn, username)
+	held, err := m.store.Memberships(ctx, txn, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.Memberships()")
 	}
@@ -115,26 +115,6 @@ func (m *Manager) refuseInvitedElsewhere(ctx context.Context, txn resource.ReadW
 	}
 
 	return nil
-}
-
-// refuseRenamedIntoSecondTenant is the rule of one tenant per person on a rename, which
-// moves the roles a person holds to the new name: where the application declared it and
-// the new name holds roles already (given to the name before it had an account), the
-// two together may not span more tenants than the person was in, unless one of them is
-// held outside the tenants. moving is what the person holds and already what the new
-// name holds, both as committed.
-func (m *Manager) refuseRenamedIntoSecondTenant(moving, already []access.MembershipKey, name string) error {
-	if m.oneTenant == nil || len(already) == 0 {
-		return nil
-	}
-	together := append(append([]access.MembershipKey{}, moving...), already...)
-	if outsideTenants(together) || tenantCount(together) <= max(tenantCount(moving), 1) {
-		return nil
-	}
-
-	return sessioninfo.NewLoginRefusal(sessioninfo.RefusedOtherTenant, httpio.NewConflictMessagef(
-		"the name %s already holds roles in another tenant, and a person belongs to one tenant here: the username is not changed", name,
-	))
 }
 
 // refuseLeavingSeveralTenants is the rule of one tenant per person on a role being taken
@@ -156,9 +136,8 @@ func (m *Manager) refuseLeavingSeveralTenants(held []access.MembershipKey, remov
 		left = append(left, held[i])
 	}
 	if !outsideTenants(left) && tenantCount(left) > 1 {
-		return httpio.NewConflictMessagef(
-			"%s holds roles in more than one tenant, which only a person who also holds a role for the whole application or in every tenant may: take the roles in all but one tenant away first",
-			removed.User,
+		return httpio.NewConflictMessage(
+			"this account holds roles in more than one tenant, which only a person who also holds a role for the whole application or in every tenant may: take the roles in all but one tenant away first",
 		)
 	}
 
@@ -231,8 +210,8 @@ type signInTenants struct {
 
 // signInNote is what the hooks of one sign-in's transaction have given.
 type signInNote struct {
-	// tenant is the tenant each username was given a role in.
-	tenant map[string]string
+	// tenant is the tenant each account was given a role in, by the account's id.
+	tenant map[impulse.UUID]string
 	// stop ends the watch on the sign-in's context, which forgets the note of a
 	// transaction that did not commit.
 	stop func() bool
@@ -249,7 +228,7 @@ func (s *signInTenants) within(ctx context.Context, transaction any) context.Con
 	s.mu.Lock()
 	if _, open := s.notes[transaction]; !open && ctx.Err() == nil {
 		s.notes[transaction] = &signInNote{
-			tenant: map[string]string{},
+			tenant: map[impulse.UUID]string{},
 			stop:   context.AfterFunc(ctx, func() { s.forget(transaction) }),
 		}
 	}
@@ -258,13 +237,13 @@ func (s *signInTenants) within(ctx context.Context, transaction any) context.Con
 	return context.WithValue(ctx, signInTransaction{}, transaction)
 }
 
-// give notes that username is given a role in domain by the sign-in ctx belongs to, and
+// give notes that the account is given a role in domain by the sign-in ctx belongs to, and
 // reports false where the sign-in already gave the person a role in another tenant.
 // Outside a sign-in there is no note to keep: a transaction of the application's own
 // gives its roles in one tenant, as every generated method does. Nothing is noted for a
 // transaction whose note is forgotten already: it committed, or its sign-in's context
 // ended, and it writes nothing more.
-func (s *signInTenants) give(ctx context.Context, username, domain string) bool {
+func (s *signInTenants) give(ctx context.Context, userID impulse.UUID, domain string) bool {
 	transaction := ctx.Value(signInTransaction{})
 	if transaction == nil {
 		return true
@@ -276,10 +255,10 @@ func (s *signInTenants) give(ctx context.Context, username, domain string) bool 
 	if note == nil {
 		return true
 	}
-	if first, noted := note.tenant[username]; noted {
+	if first, noted := note.tenant[userID]; noted {
 		return first == domain
 	}
-	note.tenant[username] = domain
+	note.tenant[userID] = domain
 
 	return true
 }

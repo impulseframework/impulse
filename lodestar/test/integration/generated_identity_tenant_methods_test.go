@@ -44,16 +44,38 @@ import (
 	"google.golang.org/grpc/codes"
 )
 
-// crewHolds reads every role the crew's memberships hold for a username, each as
-// "kind/domain role", sorted.
+// crewHolds reads every role the person signed in under username holds in the crew's
+// memberships, each as "kind/domain role", sorted. A role is held by the id of an
+// account, so the roles are those held by the account that carries the username now: a
+// name no account carries holds nothing.
 func crewHolds(t *testing.T, db *initiator.SpannerDB, username string) []string {
 	t.Helper()
 
-	var held []string
-	iter := db.Single().Query(t.Context(), spanner.Statement{
-		SQL:    "SELECT Kind, Domain, Role FROM CrewUserRoles WHERE User = @user",
-		Params: map[string]any{"user": username},
+	return crewMemberships(t, db, spanner.Statement{
+		SQL:    "SELECT r.Kind, r.Domain, r.Role FROM CrewUserRoles r JOIN CrewSessionUsers u ON u.Id = r.UserId WHERE u.Username = @username",
+		Params: map[string]any{"username": username},
 	})
+}
+
+// crewHeldBy reads every role the crew's memberships hold under user exactly as the
+// table names the holder: the id of an account, whether or not the account still exists,
+// or a username, under which nothing is ever held.
+func crewHeldBy(t *testing.T, db *initiator.SpannerDB, user string) []string {
+	t.Helper()
+
+	return crewMemberships(t, db, spanner.Statement{
+		SQL:    "SELECT Kind, Domain, Role FROM CrewUserRoles WHERE UserId = @user",
+		Params: map[string]any{"user": user},
+	})
+}
+
+// crewMemberships reads the memberships the statement selects (kind, domain, role), each
+// as "kind/domain role", sorted.
+func crewMemberships(t *testing.T, db *initiator.SpannerDB, stmt spanner.Statement) []string {
+	t.Helper()
+
+	var held []string
+	iter := db.Single().Query(t.Context(), stmt)
 	defer iter.Stop()
 	if err := iter.Do(func(row *spanner.Row) error {
 		var kind, domain, role string
@@ -64,7 +86,7 @@ func crewHolds(t *testing.T, db *initiator.SpannerDB, username string) []string 
 
 		return nil
 	}); err != nil {
-		t.Fatalf("reading the roles %s holds: %v", username, err)
+		t.Fatalf("reading the crew's memberships (%v): %v", stmt.Params, err)
 	}
 	slices.Sort(held)
 
@@ -130,6 +152,7 @@ func TestGeneratedIdentitySectorAccountMethods(t *testing.T) {
 			return fmt.Errorf("CreateCrewUser(mara): %w", err)
 		}
 		w.ids["mara"] = created.ID.String()
+		knownAs(t, "mara", created.ID)
 
 		return nil
 	}); err != nil {
@@ -267,17 +290,30 @@ func TestGeneratedIdentitySectorAccountMethods(t *testing.T) {
 		status, body := post("marshal", anvil, "require-crew-sector-password-change", userBody("ada"))
 		assertStatus(t, status, http.StatusBadRequest, body)
 	})
-	t.Run("a rename moves the person's roles with the name", func(t *testing.T) {
+	// Restated for roles held by the account's id: the rename used to move the
+	// memberships to the new name. It now writes none: the person's roles are held by
+	// the id before and after, the renamed person still holds them, and neither name
+	// holds anything.
+	t.Run("a rename leaves the person's roles where they are, held by the account", func(t *testing.T) {
+		want := []string{"domain/" + anvil + " Cadet"}
+		if got := crewHeldBy(t, w.db, w.ids["ada"]); !slices.Equal(got, want) {
+			t.Fatalf("ada's account holds %v before the rename, want %v", got, want)
+		}
 		status, body := post("marshal", anvil, "rename-crew-sector-user", fmt.Sprintf(`{"userId":%q,"username":"adah"}`, w.ids["ada"]))
 		assertStatus(t, status, http.StatusNoContent, body)
 		if got := readColumn[string](ctx, t, w.db, "CrewSessionUsers", spanner.Key{w.ids["ada"]}, "Username"); got != "adah" {
 			t.Errorf("the account's username = %q, want adah", got)
 		}
-		if got, want := crewHolds(t, w.db, "adah"), []string{"domain/anvil Cadet"}; !slices.Equal(got, want) {
+		if got := crewHeldBy(t, w.db, w.ids["ada"]); !slices.Equal(got, want) {
+			t.Errorf("the account holds %v after the rename, want %v as before", got, want)
+		}
+		if got := crewHolds(t, w.db, "adah"); !slices.Equal(got, want) {
 			t.Errorf("adah holds %v, want %v", got, want)
 		}
-		if got := crewHolds(t, w.db, "ada"); len(got) != 0 {
-			t.Errorf("the old name still holds %v", got)
+		for _, name := range []string{"ada", "adah"} {
+			if got := crewHeldBy(t, w.db, name); len(got) != 0 {
+				t.Errorf("the username %s holds %v, want nothing: a role is held by the account's id", name, got)
+			}
 		}
 		// A name another person holds, in whatever sector, is refused.
 		status, body = post("marshal", anvil, "rename-crew-sector-user", fmt.Sprintf(`{"userId":%q,"username":"di"}`, w.ids["ada"]))
@@ -298,8 +334,8 @@ func TestGeneratedIdentitySectorAccountMethods(t *testing.T) {
 		if crewAccountExists(t, w.db, w.ids["ada"]) {
 			t.Error("the account is still there after the delete")
 		}
-		if got := crewHolds(t, w.db, "adah"); len(got) != 0 {
-			t.Errorf("the deleted person still holds %v", got)
+		if got := crewHeldBy(t, w.db, w.ids["ada"]); len(got) != 0 {
+			t.Errorf("the deleted person's account still holds %v", got)
 		}
 		status, body = post("marshal", anvil, "delete-crew-sector-user", userBody("ada"))
 		assertStatus(t, status, http.StatusNotFound, body)
@@ -328,6 +364,7 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 			return fmt.Errorf("CreateCrewUser(mara): %w", err)
 		}
 		w.ids["mara"] = created.ID.String()
+		knownAs(t, "mara", created.ID)
 
 		return nil
 	}); err != nil {
@@ -347,7 +384,7 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 	t.Run("a role is given in the request's sector and no other", func(t *testing.T) {
 		status, body := assign("marshal", anvil, "ada", "Pilot")
 		assertStatus(t, status, http.StatusNoContent, body)
-		if got, want := crewHolds(t, w.db, "ada"), []string{"domain/anvil Cadet", "domain/anvil Pilot"}; !slices.Equal(got, want) {
+		if got, want := crewHolds(t, w.db, "ada"), []string{"domain/" + anvil + " Cadet", "domain/" + anvil + " Pilot"}; !slices.Equal(got, want) {
 			t.Errorf("ada holds %v, want %v", got, want)
 		}
 		// A role the person holds there already is left as it is.
@@ -357,7 +394,7 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 		// grant reads the role asked for, not the person's row.
 		status, body = assign("marshal", anvil, "bo", "Cadet")
 		assertStatus(t, status, http.StatusNoContent, body)
-		if got, want := crewHolds(t, w.db, "bo"), []string{"domain/anvil Cadet", "domain/anvil Pilot", "domain/bastion Pilot"}; !slices.Equal(got, want) {
+		if got, want := crewHolds(t, w.db, "bo"), []string{"domain/" + anvil + " Cadet", "domain/" + anvil + " Pilot", "domain/" + bastion + " Pilot"}; !slices.Equal(got, want) {
 			t.Errorf("bo holds %v, want %v", got, want)
 		}
 	})
@@ -374,7 +411,7 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 		if !strings.Contains(string(body), "does not have Execute on [AssignCrewSectorRole]") {
 			t.Errorf("the cadet's refusal = %s", body)
 		}
-		if got, want := crewHolds(t, w.db, "ada"), []string{"domain/anvil Cadet", "domain/anvil Pilot"}; !slices.Equal(got, want) {
+		if got, want := crewHolds(t, w.db, "ada"), []string{"domain/" + anvil + " Cadet", "domain/" + anvil + " Pilot"}; !slices.Equal(got, want) {
 			t.Errorf("ada holds %v after the refused calls, want %v", got, want)
 		}
 	})
@@ -412,7 +449,7 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 	t.Run("a role is taken away where the sector gave it", func(t *testing.T) {
 		status, body := remove("marshal", anvil, "ada", "Pilot")
 		assertStatus(t, status, http.StatusNoContent, body)
-		if got, want := crewHolds(t, w.db, "ada"), []string{"domain/anvil Cadet"}; !slices.Equal(got, want) {
+		if got, want := crewHolds(t, w.db, "ada"), []string{"domain/" + anvil + " Cadet"}; !slices.Equal(got, want) {
 			t.Errorf("ada holds %v, want %v", got, want)
 		}
 		// The row is gone, so the same call finds nothing.
@@ -461,7 +498,7 @@ func TestGeneratedIdentitySectorRoleMethods(t *testing.T) {
 		status, body := post("marshal", anvil, "create-crew-sector-user", `{"username":"gus","email":"Gus <gus@example.com>","roles":["Cadet","Pilot"]}`)
 		assertStatus(t, status, http.StatusOK, body)
 		id := cell[string](t, decodeRow(t, body), "id")
-		if got, want := crewHolds(t, w.db, "gus"), []string{"domain/anvil Cadet", "domain/anvil Pilot"}; !slices.Equal(got, want) {
+		if got, want := crewHolds(t, w.db, "gus"), []string{"domain/" + anvil + " Cadet", "domain/" + anvil + " Pilot"}; !slices.Equal(got, want) {
 			t.Errorf("gus holds %v, want %v", got, want)
 		}
 		if got := readColumn[spanner.NullString](ctx, t, w.db, "CrewSessionUsers", spanner.Key{id}, "Email"); got.StringVal != "gus@example.com" {

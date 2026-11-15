@@ -22,7 +22,7 @@ import (
 func (a *App) DroidReports() http.HandlerFunc {
 	type droidReport struct {
 		ID         impulse.UUID     `json:"id"         index:"true" perm:"-"`
-		SectorID   string           `json:"sectorId"   index:"true"`
+		SectorID   impulse.UUID     `json:"sectorId"   index:"true"`
 		ShipID     impulse.UUID     `json:"shipId"     index:"true"`
 		Subsystem  string           `json:"subsystem"`
 		Reading    float64          `json:"reading"`

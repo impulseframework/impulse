@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
+	"github.com/impulseframework/impulse/session"
 )
 
 // TestPersonaMethod holds the persona method to its two states. With no provider
@@ -82,9 +84,14 @@ func TestPersonaMethod(t *testing.T) {
 
 // TestPersonaCast seeds the cast: a password-less crew login per persona, seated in the
 // roles the cast names where the role file holds them (Headquarters in the global
-// partition, SectorMarshal and Cadet in every sector), with the persona's address; a
-// second run finds every login and creates none, so every start seeds the cast again
-// harmlessly.
+// partition, SectorMarshal and Cadet in every sector), with the persona's address. The
+// roles are held by the id of each login's account, never by its name, and the id is the
+// one the seed chose for the login (session.SeedUserID): the seed writes the roles under
+// it first and creates the login under it last. So a run that stopped after a persona's
+// roles and before its login is repeated by the next run, which writes no second set of
+// roles; a second run finds every login and creates none, so every start seeds the cast
+// again harmlessly; and a login that exists is left as it is whatever it holds: the seed
+// gives a role to no account it did not create, one that holds nothing included.
 //
 // Demonstrates: auth.persona.
 func TestPersonaCast(t *testing.T) {
@@ -92,6 +99,16 @@ func TestPersonaCast(t *testing.T) {
 
 	ctx := t.Context()
 	s := newServed(ctx, t)
+	api := s.crew.Session().API()
+	manager := s.access.UserManager()
+
+	// What a run that stopped between the two writes leaves: the rookie's role under the
+	// id the seed chose, and no login.
+	everySector := accesstypes.EveryDomainPolicyScope()
+	rookieUser := accesstypes.User(session.SeedUserID(crew.Name, "rookie").String())
+	if err := manager.AddUserRoles(ctx, everySector, rookieUser, "Cadet"); err != nil {
+		t.Fatalf("AddUserRoles(rookie, Cadet) error = %v", err)
+	}
 
 	created, err := s.crew.SeedCast(ctx)
 	if err != nil {
@@ -100,8 +117,6 @@ func TestPersonaCast(t *testing.T) {
 	if created != 3 {
 		t.Errorf("SeedCast() created %d logins, want the cast's 3", created)
 	}
-	api := s.crew.Session().API()
-	manager := s.access.UserManager()
 	for _, tt := range []struct {
 		login string
 		scope accesstypes.PolicyScope
@@ -115,15 +130,25 @@ func TestPersonaCast(t *testing.T) {
 		if err != nil {
 			t.Fatalf("UserByUsername(%s) error = %v: the seed made no login", tt.login, err)
 		}
+		if want := session.SeedUserID(crew.Name, tt.login); user.ID != want {
+			t.Errorf("%s's account id = %s, want %s, the id the seed chose for the login", tt.login, user.ID, want)
+		}
 		if user.Email == nil || *user.Email != tt.login+"@example.com" {
 			t.Errorf("%s's address = %v, want the cast's", tt.login, user.Email)
 		}
-		roles, err := manager.UserRoles(ctx, accesstypes.User(tt.login), tt.scope)
+		roles, err := manager.UserRoles(ctx, accesstypes.User(user.ID.String()), tt.scope)
 		if err != nil {
 			t.Fatalf("UserRoles(%s) error = %v", tt.login, err)
 		}
 		if !strings.Contains(strings.Join(roleNames(roles), ","), tt.role) {
-			t.Errorf("%s holds %v, want %s", tt.login, roles, tt.role)
+			t.Errorf("%s's account holds %v, want %s", tt.login, roles, tt.role)
+		}
+		named, err := manager.UserRoles(ctx, accesstypes.User(tt.login), tt.scope)
+		if err != nil {
+			t.Fatalf("UserRoles(%s, by username) error = %v", tt.login, err)
+		}
+		if held := roleNames(named); len(held) != 0 {
+			t.Errorf("the username %s holds %v, want nothing: a role is held by the account's id", tt.login, held)
 		}
 	}
 
@@ -133,6 +158,67 @@ func TestPersonaCast(t *testing.T) {
 	}
 	if again != 0 {
 		t.Errorf("SeedCast() again created %d logins, want none", again)
+	}
+
+	// The run over the stopped one wrote the rookie's role once, not a second time.
+	roles, err := manager.UserRoles(ctx, rookieUser, everySector)
+	if err != nil {
+		t.Fatalf("UserRoles(rookie) error = %v", err)
+	}
+	if held := roleNames(roles); len(held) != 1 || held[0] != "Cadet" {
+		t.Errorf("the rookie's account holds %v after the run over a stopped one, want Cadet once", held)
+	}
+
+	// A login that exists and holds nothing is left holding nothing: the seed never
+	// gives a role to an account because of the name it carries.
+	if err := manager.DeleteUserRoles(ctx, everySector, rookieUser, "Cadet"); err != nil {
+		t.Fatalf("DeleteUserRoles(rookie, Cadet) error = %v", err)
+	}
+	over, err := s.crew.SeedCast(ctx)
+	if err != nil {
+		t.Fatalf("SeedCast() over a login that holds nothing error = %v", err)
+	}
+	if over != 0 {
+		t.Errorf("SeedCast() over a login that holds nothing created %d logins, want none: the rookie's exists", over)
+	}
+	held, err := manager.UserRoles(ctx, rookieUser)
+	if err != nil {
+		t.Fatalf("UserRoles(rookie) error = %v", err)
+	}
+	if names := roleNames(held); len(names) != 0 {
+		t.Errorf("the rookie's account holds %v after the seed ran over it, want nothing", names)
+	}
+
+	// A persona renamed since keeps the account the seed made for it: the next run finds
+	// the account by the id it chose, creates no second login under the old name, and
+	// writes no role again.
+	warden, err := api.UserByUsername(ctx, "warden")
+	if err != nil {
+		t.Fatalf("UserByUsername(warden) error = %v", err)
+	}
+	if err := api.ChangeSessionUserUsername(ctx, warden.ID, "warden-at-large"); err != nil {
+		t.Fatalf("ChangeSessionUserUsername(warden) error = %v", err)
+	}
+	wardenUser := accesstypes.User(warden.ID.String())
+	if err := manager.DeleteUserRoles(ctx, everySector, wardenUser, "SectorMarshal"); err != nil {
+		t.Fatalf("DeleteUserRoles(warden, SectorMarshal) error = %v", err)
+	}
+	renamed, err := s.crew.SeedCast(ctx)
+	if err != nil {
+		t.Fatalf("SeedCast() over a renamed persona error = %v", err)
+	}
+	if renamed != 0 {
+		t.Errorf("SeedCast() over a renamed persona created %d logins, want none: the warden's account exists under its new name", renamed)
+	}
+	if _, err := api.UserByUsername(ctx, "warden"); !httpio.HasNotFound(err) {
+		t.Errorf("UserByUsername(warden) error = %v after the seed ran over the renamed persona, want NotFound", err)
+	}
+	held, err = manager.UserRoles(ctx, wardenUser)
+	if err != nil {
+		t.Fatalf("UserRoles(warden) error = %v", err)
+	}
+	if names := roleNames(held); len(names) != 0 {
+		t.Errorf("the renamed warden's account holds %v after the seed ran over it, want nothing: a role taken away stays away", names)
 	}
 }
 

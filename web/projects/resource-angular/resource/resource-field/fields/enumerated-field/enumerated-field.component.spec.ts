@@ -250,6 +250,149 @@ describe('EnumeratedFieldComponent over a paged source', () => {
   });
 });
 
+// A picker the page gave no display of its own, as a method's dialog draws one from the
+// metadata alone. Over a record keyed by an id that says which field its rows are called
+// by (the tenant record's name), it lists and shows names; over any other source it shows
+// the key, which reads well where the key is the row's name.
+describe('EnumeratedFieldComponent with no display of its own', () => {
+  const methods = 'Methods' as Resource;
+  const sectors = 'Sectors' as Resource;
+  const roles = 'Roles' as Resource;
+  const source = (resource: Resource, route: string, keys: string[]): ApiDescriptor['resources'][string] => ({
+    resource,
+    property: route,
+    route,
+    scope: 'global',
+    consolidated: false,
+    keys,
+    operations: ['list', 'read'],
+    page: { default: 25, max: 200 },
+    order: [{ field: 'name', direction: 'asc' }],
+  });
+  const descriptor: ApiDescriptor = {
+    permissionDigestRoute: 'permission-digest',
+    userDomainsRoute: 'user-domains',
+    features: { route: 'features' },
+    methods: {},
+    resources: { [sectors]: source(sectors, 'sectors', ['id']), [roles]: source(roles, 'roles', ['name']) },
+  };
+  const picker = (fieldName: string, resource: Resource): FieldMeta => ({
+    fieldName,
+    displayType: 'enumerated',
+    required: false,
+    isIndex: false,
+    enumeratedResource: resource,
+  });
+  const metas: Record<string, ResourceMeta> = {
+    [methods]: { route: 'methods', fields: [picker('domain', sectors), picker('role', roles)] },
+    [sectors]: {
+      route: 'sectors',
+      nameField: 'name',
+      fields: [
+        { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true },
+        { fieldName: 'name', displayType: 'string', required: true, isIndex: true },
+      ],
+    },
+    [roles]: {
+      route: 'roles',
+      fields: [{ fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true }],
+    },
+  };
+  const anvil = 'a1111111-1111-4111-8111-111111111111';
+  const bastion = 'b2222222-2222-4222-8222-222222222222';
+  const rows: Record<string, Record<string, string>[]> = {
+    sectors: [
+      { id: anvil, name: 'Anvil' },
+      { id: bastion, name: 'Bastion' },
+    ],
+    roles: [{ name: 'Cadet' }, { name: 'Marshal' }],
+  };
+
+  let fixture: ComponentFixture<EnumeratedFieldComponent>;
+  let transport: ScriptedTransport;
+
+  const server = (request: TransportRequest): TransportResponse => {
+    const [, route, key] = request.url.split('?')[0].match(/^\/api\/([a-z]+)(?:\/(.+))?$/) ?? [];
+    const listed = rows[route ?? ''];
+    if (!listed) {
+      return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
+    }
+    if (key) {
+      const row = listed.find((candidate) => (candidate['id'] ?? candidate['name']) === key);
+      return row ? { status: 200, body: row } : { status: 404, body: { message: 'not found' } };
+    }
+    return { status: 200, body: listed, headers: { 'total-count': String(listed.length) } };
+  };
+
+  const settle = async (): Promise<void> => {
+    for (let i = 0; i < 10; i++) {
+      TestBed.tick();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    fixture.detectChanges();
+  };
+
+  /** The picker over one request field of the method, holding the value, as the dialog draws it: a label and nothing more. */
+  const pickerOver = async (fieldName: string, value: string): Promise<void> => {
+    transport = scriptedTransport(server);
+    await TestBed.configureTestingModule({
+      imports: [EnumeratedFieldComponent],
+      providers: [
+        provideResourceTesting({ transport, client: (t) => createClient(descriptor, { baseUrl: '/api', transport: t }) }),
+        { provide: RESOURCE_META, useValue: (resource: Resource): ResourceMeta => metas[resource] },
+        ResourceStore,
+      ],
+    }).compileComponents();
+    fixture = TestBed.createComponent(EnumeratedFieldComponent);
+    fixture.componentRef.setInput('meta', metas[methods]);
+    fixture.componentRef.setInput('fieldMeta', metas[methods].fields.find((candidate) => candidate.fieldName === fieldName));
+    fixture.componentRef.setInput('fieldConfig', field({ name: fieldName as FieldName, label: 'Picked' }));
+    fixture.componentRef.setInput('editMode', 'view');
+    fixture.componentRef.setInput('showField', true);
+    fixture.componentRef.setInput('form', new FormGroup({ [fieldName]: new FormControl<string | null>(value) }));
+    fixture.detectChanges();
+    await settle();
+  };
+
+  /** The picker's last request for a page of its source. */
+  const lastPage = (): string => {
+    const pages = transport.requests.filter((request) => /^\/api\/[a-z]+\?/.test(request.url));
+    const last = pages.at(-1);
+    return last ? `${last.method} ${last.url}` : '';
+  };
+
+  it('over the tenant record, shows the chosen tenant by its name and lists names', async () => {
+    await pickerOver('domain', anvil);
+    expect(fixture.componentInstance.singleEnumDisplayText()).toBe('Anvil');
+
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    // The name is asked for beside the key, though the page configured no display.
+    expect(lastPage()).toBe('GET /api/sectors?columns=id%2Cname&count=true');
+    expect(
+      (fixture.componentInstance.availableEnumOptions() ?? []).filter((option) => option.id !== null).map((option) => [option.id, option.display]),
+    ).toEqual([
+      [anvil, 'Anvil'],
+      [bastion, 'Bastion'],
+    ]);
+  });
+
+  it('over a source that names no field, shows the key', async () => {
+    await pickerOver('role', 'Cadet');
+    expect(fixture.componentInstance.singleEnumDisplayText()).toBe('Cadet');
+
+    fixture.componentRef.setInput('editMode', 'edit');
+    await settle();
+    expect(lastPage()).toBe('GET /api/roles?columns=name&count=true');
+    expect(
+      (fixture.componentInstance.availableEnumOptions() ?? []).filter((option) => option.id !== null).map((option) => [option.id, option.display]),
+    ).toEqual([
+      ['Cadet', 'Cadet'],
+      ['Marshal', 'Marshal'],
+    ]);
+  });
+});
+
 // A searchable picker over a paged source narrows on the server: by the box when the
 // source has search fields, by a prefix on the display field when it answers startswith,
 // and a source with neither is refused when the field is built. The requests are pinned

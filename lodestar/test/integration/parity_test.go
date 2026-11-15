@@ -6,6 +6,14 @@ package integration
 // world, so what a human sees logging into the running demo is exactly what the suites
 // pin; the demo product and the regression suite cannot drift apart.
 //
+// A persona is two names. Its username is what the suites say (doRequestAs(t, h,
+// "booking", ...)) and what a person types; the id of its account is how the permission
+// store names it, what a membership is held under, what a row condition's subject binds
+// to, and what the demo world's rows carry. The cast file gives every account a fixed
+// id, the bootstrap creates the account under it, and the suites read the same file
+// (account, memberAccount), so a request made as "booking" runs as the booking agent's
+// account.
+//
 // The engines validate the role files as they open and the store holds no row for a
 // default role, so provisioning is the memberships alone. The shared world is still built
 // ONCE, for the read-only suites, and every mutating suite gets its own seeded database
@@ -22,6 +30,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/spanner"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/access/spannerstore"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -32,27 +41,36 @@ import (
 )
 
 // demoRoles mirrors the bootstrap's per-persona role assignment shape: where each
-// membership is held, the global partition, every sector, or one sector at a time.
+// membership is held, the global partition, every sector, or one sector at a time, the
+// sector named by its name.
 type demoRoles struct {
-	Global      []accesstypes.Role                        `json:"global"`
-	EveryDomain []accesstypes.Role                        `json:"everyDomain"`
-	Domains     map[accesstypes.Domain][]accesstypes.Role `json:"domains"`
+	Global      []accesstypes.Role            `json:"global"`
+	EveryDomain []accesstypes.Role            `json:"everyDomain"`
+	Domains     map[string][]accesstypes.Role `json:"domains"`
 }
 
-// demoUser is one persona as cmd/bootstrap/users.json declares it.
+// demoUser is one persona as cmd/bootstrap/users.json declares it: ID is the fixed id
+// of its account, and User its username.
 type demoUser struct {
+	ID       impulse.UUID     `json:"id"`
 	User     accesstypes.User `json:"user"`
 	Password string           `json:"password"`
 	Roles    demoRoles        `json:"roles"`
 }
 
+// demoAccount is an identity of the file that has no password: a member of the portal,
+// whose roles are the directory's, or a service account with the roles it holds.
+type demoAccount struct {
+	ID    impulse.UUID     `json:"id"`
+	User  accesstypes.User `json:"user"`
+	Roles demoRoles        `json:"roles"`
+}
+
 // demoIdentities mirrors the bootstrap's identities file.
 type demoIdentities struct {
-	Users           []demoUser `json:"users"`
-	ServiceAccounts []struct {
-		User  accesstypes.User `json:"user"`
-		Roles demoRoles        `json:"roles"`
-	} `json:"serviceAccounts"`
+	Users           []demoUser    `json:"users"`
+	Members         []demoAccount `json:"members"`
+	ServiceAccounts []demoAccount `json:"serviceAccounts"`
 }
 
 // clientRoles is what the directory assigns Client Cleo: the groups APP_ROLES names in
@@ -75,6 +93,79 @@ func loadIdentities() (*demoIdentities, error) {
 	}
 
 	return &identities, nil
+}
+
+// The cast's fixed account ids by username, read once from the identities file: the
+// crew's (the personas and the service accounts, one users table) and the members'. The
+// two are apart because the same username in the two auths is two people (the crew's
+// surveyor and the Meridian Survey Office's contact).
+var (
+	castOnce       sync.Once
+	crewAccounts   map[accesstypes.User]impulse.UUID
+	memberAccounts map[accesstypes.User]impulse.UUID
+)
+
+func loadCast() {
+	castOnce.Do(func() {
+		identities, err := loadIdentities()
+		if err != nil {
+			panic(err)
+		}
+		crewAccounts, memberAccounts = map[accesstypes.User]impulse.UUID{}, map[accesstypes.User]impulse.UUID{}
+		for _, user := range identities.Users {
+			crewAccounts[user.User] = user.ID
+		}
+		for _, account := range identities.ServiceAccounts {
+			crewAccounts[account.User] = account.ID
+		}
+		for _, member := range identities.Members {
+			memberAccounts[member.User] = member.ID
+		}
+	})
+}
+
+// accountID is the fixed id of the account of a persona of the cast, named by its
+// username: a member's for a portal user, the crew's otherwise. ok is false for a name
+// the cast does not carry, a person a suite made up, who has no account.
+func accountID(username accesstypes.User) (id impulse.UUID, ok bool) {
+	loadCast()
+	if portalUsers[username] {
+		id, ok = memberAccounts[username]
+
+		return id, ok
+	}
+	id, ok = crewAccounts[username]
+
+	return id, ok
+}
+
+// account is a crew persona as the permission store names it: the id of its account, as
+// text. It is what a suite passes where the engine or a row names the person (ForUser,
+// AddUserRoles, the value of a column that records who), and it fails the test for a
+// name the cast does not carry.
+func account(t *testing.T, username accesstypes.User) accesstypes.User {
+	t.Helper()
+
+	loadCast()
+	id, ok := crewAccounts[username]
+	if !ok {
+		t.Fatalf("%s names no crew account under the username %q", usersPath, username)
+	}
+
+	return accesstypes.User(id.String())
+}
+
+// memberAccount is account for a member of the portal.
+func memberAccount(t *testing.T, username accesstypes.User) accesstypes.User {
+	t.Helper()
+
+	loadCast()
+	id, ok := memberAccounts[username]
+	if !ok {
+		t.Fatalf("%s names no member under the username %q", usersPath, username)
+	}
+
+	return accesstypes.User(id.String())
 }
 
 // demoUsers lists the personas the bootstrap creates logins for.
@@ -112,37 +203,85 @@ func openEngineWith(db *initiator.SpannerDB, prefix string, roles access.RoleFil
 }
 
 // provisionDemoAccess assigns the personas and the droid their roles in the crew store and
-// the client its directory roles in the members store, and waits for both snapshots. The
-// roles themselves are the engines' role files; nothing is written for them.
+// the client its directory roles in the members store, each held by the id of the
+// identity's account as the bootstrap and the directory's sync write them, and waits for
+// both snapshots. The roles themselves are the engines' role files; nothing is written
+// for them.
 func provisionDemoAccess(ctx context.Context, crewEngine, membersEngine *access.Client) error {
 	identities, err := loadIdentities()
 	if err != nil {
 		return err
 	}
+	var droid, client accesstypes.User
 	for _, user := range identities.Users {
-		if err := assignDemoRoles(ctx, crewEngine, user.User, user.Roles); err != nil {
+		if err := assignDemoRoles(ctx, crewEngine, accesstypes.User(user.ID.String()), user.Roles); err != nil {
 			return err
 		}
 	}
 	for _, account := range identities.ServiceAccounts {
-		if err := assignDemoRoles(ctx, crewEngine, account.User, account.Roles); err != nil {
+		held := accesstypes.User(account.ID.String())
+		if err := assignDemoRoles(ctx, crewEngine, held, account.Roles); err != nil {
 			return err
 		}
+		if account.User == droidUser {
+			droid = held
+		}
+	}
+	for _, member := range identities.Members {
+		if member.User == clientUser {
+			client = accesstypes.User(member.ID.String())
+		}
+	}
+	if droid == "" || client == "" {
+		return fmt.Errorf("%s names no service account %q or no member %q", usersPath, droidUser, clientUser)
 	}
 
-	if err := assignDemoRoles(ctx, membersEngine, clientUser, clientRoles); err != nil {
+	if err := assignDemoRoles(ctx, membersEngine, client, clientRoles); err != nil {
 		return err
 	}
 
-	if err := waitForDecision(ctx, crewEngine, droidUser, cinder, accesstypes.Execute, "IngestDroidReports"); err != nil {
+	if err := waitForDecision(ctx, crewEngine, droid, cinder, accesstypes.Execute, "IngestDroidReports"); err != nil {
 		return err
 	}
 
-	return waitForDecision(ctx, membersEngine, clientUser, cinder, accesstypes.Execute, "StandDownMission")
+	return waitForDecision(ctx, membersEngine, client, cinder, accesstypes.Execute, "StandDownMission")
+}
+
+// seedCastAccounts writes the cast's accounts into a database no auth is open over, each
+// under its fixed id as the bootstrap creates it: the personas' and the service
+// accounts' in the crew's users table, the members' in the members'. No password is
+// written, since nobody signs in to such a world; the rows are there so that what reads
+// an account by its id (the generated lists of an auth's people, a method that gives a
+// role to an account) finds the cast's as it does in a bootstrapped database.
+func seedCastAccounts(ctx context.Context, db *initiator.SpannerDB) error {
+	identities, err := loadIdentities()
+	if err != nil {
+		return err
+	}
+	insert := func(table string, id impulse.UUID, username accesstypes.User) *spanner.Mutation {
+		return spanner.InsertMap(table, map[string]any{"Id": id.String(), "Username": string(username), "CreatedAt": spanner.CommitTimestamp})
+	}
+	var accounts []*spanner.Mutation
+	for _, user := range identities.Users {
+		accounts = append(accounts, insert("CrewSessionUsers", user.ID, user.User))
+	}
+	for _, account := range identities.ServiceAccounts {
+		accounts = append(accounts, insert("CrewSessionUsers", account.ID, account.User))
+	}
+	for _, member := range identities.Members {
+		accounts = append(accounts, insert("MembersSessionUsers", member.ID, member.User))
+	}
+	if _, err := db.Apply(ctx, accounts); err != nil {
+		return fmt.Errorf("writing the cast's accounts: %w", err)
+	}
+
+	return nil
 }
 
 // assignDemoRoles writes the memberships where each is held: the global partition, every
-// sector, then one sector at a time.
+// sector, then one sector at a time, each seeded sector found by its name
+// (sectorsByName), as the bootstrap finds it in the roster. user is the account the roles
+// are held by: the id of the identity's account, as text.
 func assignDemoRoles(ctx context.Context, client *access.Client, user accesstypes.User, roles demoRoles) error {
 	if len(roles.Global) > 0 {
 		if err := client.UserManager().AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), user, roles.Global...); err != nil {
@@ -154,9 +293,13 @@ func assignDemoRoles(ctx context.Context, client *access.Client, user accesstype
 			return fmt.Errorf("AddUserRoles(%s, every domain): %w", user, err)
 		}
 	}
-	for domain, domainRoles := range roles.Domains {
+	for name, domainRoles := range roles.Domains {
+		domain, ok := sectorsByName[name]
+		if !ok {
+			return fmt.Errorf("AddUserRoles(%s): no seeded sector is named %q", user, name)
+		}
 		if err := client.UserManager().AddUserRoles(ctx, accesstypes.DomainPolicyScope(domain), user, domainRoles...); err != nil {
-			return fmt.Errorf("AddUserRoles(%s, %s): %w", user, domain, err)
+			return fmt.Errorf("AddUserRoles(%s, %s): %w", user, name, err)
 		}
 	}
 
@@ -221,6 +364,9 @@ func demoWorld(t *testing.T) (context.Context, *initiator.SpannerDB, http.Handle
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := seedCastAccounts(ctx, db); err != nil {
+		t.Fatal(err)
+	}
 	sharedWorld(t)
 
 	sharedMu.RLock()
@@ -272,6 +418,11 @@ func sharedWorld(t *testing.T) (*initiator.SpannerDB, http.Handler, *access.Clie
 			spanner.UpdateMap("Missions", map[string]any{"Id": missionCorvidID, "Deadline": time.Now().UTC().AddDate(0, 0, 1)}),
 		}); err != nil {
 			sharedErr = fmt.Errorf("holding the Corvid mission's deadline ahead: %w", err)
+
+			return
+		}
+		if err := seedCastAccounts(ctx, db); err != nil {
+			sharedErr = err
 
 			return
 		}

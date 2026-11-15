@@ -101,6 +101,9 @@ func (u *SessionUser) Look() sessioninfo.Look {
 // addresses (UsernameIsEmail) the address is the username and Email must be nil or
 // match it. Name, nil for none, is the person's name, written as CleanName leaves it.
 type InsertSessionUser struct {
+	// ID is the id the user is created under when the caller chose one; null has the
+	// driver generate it.
+	ID                     impulse.NullUUID `spanner:"-"                      db:"-"`
 	Username               string           `spanner:"Username"               db:"Username"`
 	PasswordHash           *securehash.Hash `spanner:"PasswordHash"           db:"PasswordHash"`
 	Disabled               bool             `spanner:"Disabled"               db:"Disabled"`

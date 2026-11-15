@@ -4,7 +4,41 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
 )
+
+func TestSessionData_User(t *testing.T) {
+	t.Parallel()
+
+	account := impulse.Must(impulse.UUIDFromString("a11ce000-0000-4000-8000-000000000001"))
+
+	tests := []struct {
+		name    string
+		session *SessionData
+		want    accesstypes.User
+	}{
+		{
+			name:    "a session of an account is named by the id of the account, whatever its username",
+			session: &SessionData{SessionInfo: &SessionInfo{Username: "alice@example.com"}, UserID: impulse.NullUUIDFromUUID(account)},
+			want:    "a11ce000-0000-4000-8000-000000000001",
+		},
+		{
+			name:    "a session that belongs to no account is named by its username",
+			session: &SessionData{SessionInfo: &SessionInfo{Username: "alice@example.com"}},
+			want:    "alice@example.com",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.session.User(); got != tt.want {
+				t.Errorf("User() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestSessionData_EstablishedBy(t *testing.T) {
 	t.Parallel()

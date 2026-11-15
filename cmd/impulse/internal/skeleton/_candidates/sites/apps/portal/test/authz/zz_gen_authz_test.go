@@ -56,9 +56,9 @@ type grants map[accesstypes.Permission]bool
 //
 // constructing the application around the test database with the scripted grants and
 // composing it through the generated router.NewTestRouter. For domain-scoped routes,
-// newTestHandler adds the suite's domain value "testDomain" to the test application's
-// tenant roster with Add (resource.TenantRoster.Add), since the empty schema holds no
-// tenant row; with concealed domains a case with no grants has no foothold and is
+// newTestHandler adds the suite's domain (the generated router's TestDomain) to the test
+// application's tenant roster with Add (resource.TenantRoster.Add), since the empty
+// schema holds no tenant row; with concealed domains a case with no grants has no foothold and is
 // answered as if the domain did not exist.
 func TestGeneratedAuthorizationMatrix(t *testing.T) {
 	t.Parallel()
@@ -75,48 +75,48 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 		{
 			name:         "Announcements denied",
 			method:       http.MethodGet,
-			target:       "/api/tenants/testDomain/announcements",
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements",
 			wantStatuses: []int{http.StatusNotFound},
 		},
 		{
 			name:         "Announcements granted",
 			grants:       grants{accesstypes.List: true},
 			method:       http.MethodGet,
-			target:       "/api/tenants/testDomain/announcements",
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
 			name:         "Announcement denied",
 			method:       http.MethodGet,
-			target:       "/api/tenants/testDomain/announcements/00000000-0000-0000-0000-000000000001",
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements/00000000-0000-0000-0000-000000000001",
 			wantStatuses: []int{http.StatusNotFound},
 		},
 		{
 			name:         "Announcement granted",
 			grants:       grants{accesstypes.Read: true},
 			method:       http.MethodGet,
-			target:       "/api/tenants/testDomain/announcements/00000000-0000-0000-0000-000000000001",
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements/00000000-0000-0000-0000-000000000001",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
 			name:         "PatchResources Announcement create denied",
 			method:       http.MethodPatch,
 			target:       "/api/resources",
-			body:         `[{"op":"add","path":"/tenants/testDomain/announcements","value":{}}]`,
+			body:         `[{"op":"add","path":"/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements","value":{}}]`,
 			wantStatuses: []int{http.StatusBadRequest},
 		},
 		{
 			name:         "PatchResources Announcement update denied",
 			method:       http.MethodPatch,
 			target:       "/api/resources",
-			body:         `[{"op":"patch","path":"/tenants/testDomain/announcements/00000000-0000-0000-0000-000000000001","value":{"kindId":"authz-test-value"}}]`,
+			body:         `[{"op":"patch","path":"/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements/00000000-0000-0000-0000-000000000001","value":{"kindId":"authz-test-value"}}]`,
 			wantStatuses: []int{http.StatusBadRequest},
 		},
 		{
 			name:         "PatchResources Announcement delete denied",
 			method:       http.MethodPatch,
 			target:       "/api/resources",
-			body:         `[{"op":"remove","path":"/tenants/testDomain/announcements/00000000-0000-0000-0000-000000000001"}]`,
+			body:         `[{"op":"remove","path":"/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements/00000000-0000-0000-0000-000000000001"}]`,
 			wantStatuses: []int{http.StatusBadRequest},
 		},
 		{

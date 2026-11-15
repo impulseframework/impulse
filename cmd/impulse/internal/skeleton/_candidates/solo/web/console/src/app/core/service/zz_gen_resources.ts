@@ -5,7 +5,7 @@ import { PermissionScope, PermissionScopes, Resources } from './zz_gen_constants
 export interface StaffRoles {
   kind: string;
   axis: string;
-  domain: string;
+  domainId: string;
   role: string;
   description?: string;
   updatedAt?: Date;
@@ -14,7 +14,7 @@ export interface StaffRoles {
 export interface StaffRoleGrants {
   kind: string;
   axis: string;
-  domain: string;
+  domainId: string;
   role: string;
   permission: string;
   resourceName: string;
@@ -60,9 +60,9 @@ export interface StaffSessionMailLinks {
   email?: string;
   name?: string;
   userId?: string;
-  tenant?: string;
+  tenantId?: string;
   roleNames?: string[];
-  invitedBy?: string;
+  invitedByUserId?: string;
   createdAt?: Date;
   expiresAt?: Date;
   consumedAt?: Date;
@@ -82,7 +82,7 @@ export interface StaffSessionTokens {
   userId?: string;
   outlet?: string;
   name?: string;
-  family?: string;
+  familyId?: string;
   clientId?: string;
   createdAt?: Date;
   expiresAt?: Date;
@@ -115,9 +115,9 @@ export interface StaffSessionUsers {
 export interface StaffUserRoles {
   kind: string;
   axis: string;
-  domain: string;
+  domainId: string;
   role: string;
-  user: string;
+  userId: string;
   createdAt?: Date;
 }
 
@@ -153,7 +153,7 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domain', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
@@ -169,7 +169,7 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domain', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'permission', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'resourceName', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: false },
@@ -240,9 +240,9 @@ const resourceMap = defineResourceMap({
       { fieldName: 'email', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.StaffSessionUsers },
-      { fieldName: 'tenant', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'tenantId', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'roleNames', displayType: 'string[]', required: false, isIndex: false },
-      { fieldName: 'invitedBy', displayType: 'uuid', required: false, isIndex: false },
+      { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
@@ -275,7 +275,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'userId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.StaffSessionUsers },
       { fieldName: 'outlet', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'family', displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'familyId', displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'clientId', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
@@ -327,9 +327,9 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domain', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'user', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
     ],
   },

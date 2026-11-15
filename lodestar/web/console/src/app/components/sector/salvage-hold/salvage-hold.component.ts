@@ -46,7 +46,8 @@ export class SalvageHoldComponent {
   clients = this.sectors.globalList((api) => api.clients);
   columns = ['bondCode', 'description', 'client', 'mass', 'expiresOn', 'releasedAt', 'actions'];
 
-  sector = this.sectors.current;
+  /** The open sector's name, as the session's sector list carries it. */
+  sectorName = this.sectors.placeName;
   canList = computed(() => this.sectors.can(Permissions.List, Resources.Consignments));
 
   minMass: number | null = null;

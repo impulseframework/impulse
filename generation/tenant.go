@@ -20,9 +20,13 @@ import (
 // declaration is captured, each refusal naming its rule, so nothing renders against a
 // record that cannot serve as one.
 
-// resolveTenant applies a table-backed struct's @tenant: the record is global, carries
-// one key, and that key is a string, the slug every tenant-scoped URL carries and the
-// generated write paths hand the roster as the domain. The scope must be resolved first.
+// resolveTenant applies a table-backed struct's @tenant: the record is global and carries
+// one key, an id the create path generates (impulse.UUID), whose text is the domain in
+// every tenant-scoped URL and what the generated write paths hand the roster. A key a
+// person types is refused: it is written into every row the tenant owns, so it could
+// never change with the tenant's name, and it could be used again by a later tenant,
+// which would inherit whatever still names it. The tenant's name is a field of the
+// record (@tenantName), free to change. The scope must be resolved first.
 func resolveTenant(res *resourceInfo, annotations genlang.StructAnnotations) error {
 	if !annotations.Struct.Has(tenantKeyword) {
 		return nil
@@ -37,8 +41,11 @@ func resolveTenant(res *resourceInfo, annotations genlang.StructAnnotations) err
 	if key == nil {
 		return errors.Newf("struct %s: @%s on a resource with no primary key; the tenant record has one key, the domain in every tenant-scoped URL", res.Name(), tenantKeyword)
 	}
-	if !isStringKinded(key.GoType()) {
-		return errors.Newf("struct %s: @%s on a resource whose key %s is %s; the tenant record's key is a string, the domain in every tenant-scoped URL", res.Name(), tenantKeyword, key.Name(), key.Type())
+	if key.Type() == impulseUUIDGoType && !res.PrimaryKeyIsGeneratedUUID() {
+		return errors.Newf("struct %s: @%s on a resource whose key %s is another record's (a foreign key, or the table is interleaved in a parent); the tenant record's key is an id its own create path generates, so a tenant's name can change and no key is used twice", res.Name(), tenantKeyword, key.Name())
+	}
+	if !res.PrimaryKeyIsGeneratedUUID() {
+		return errors.Newf("struct %s: @%s on a resource whose key %s is %s; the tenant record's key is an id the create path generates (%s), so a tenant's name can change and no key is used twice", res.Name(), tenantKeyword, key.Name(), key.Type(), impulseUUIDGoType)
 	}
 	args, err := parseTenantArgs(res.Name(), annotations.Struct.Get(tenantKeyword))
 	if err != nil {

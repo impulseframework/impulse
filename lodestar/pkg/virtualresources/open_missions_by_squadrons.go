@@ -25,9 +25,9 @@ type (
 		SquadronID   impulse.UUID `spanner:"SquadronId"   index:"true"` // @primarykey
 		SquadronName string       `spanner:"SquadronName" index:"true"`
 		// @domain
-		SectorID     string     `spanner:"SectorId"     index:"true"` // @primarykey
-		OpenMissions int64      `spanner:"OpenMissions"`
-		NextDeadline *time.Time `spanner:"NextDeadline"`
+		SectorID     impulse.UUID `spanner:"SectorId"     index:"true"` // @primarykey
+		OpenMissions int64        `spanner:"OpenMissions"`
+		NextDeadline *time.Time   `spanner:"NextDeadline"`
 	}
 )
 

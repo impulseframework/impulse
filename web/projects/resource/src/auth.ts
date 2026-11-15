@@ -83,8 +83,10 @@ export interface InvitationRoutes {
 export interface StandingInvitation {
   /** The address the invitation was mailed to. */
   readonly email: string;
-  /** The tenant the invitation seats the person in; empty for the application's global surface. */
-  readonly tenant: string;
+  /** The id of the tenant the invitation seats the person in; empty for the application's global surface. Never shown: the person reads `tenantName`. */
+  readonly tenantId: string;
+  /** What people call that tenant, as the application's tenant roster names it; empty for the global surface and where the server names none, and the page then names no tenant. */
+  readonly tenantName: string;
   /** When the invitation stops being accepted, as the server wrote it. */
   readonly expiresAt: string;
   /** An account created from the invitation has the address as its username; the person chooses one otherwise. */
@@ -161,8 +163,10 @@ export interface LoginMethods {
 export interface OpenedInvitation {
   /** The address the invitation was mailed to; the account that accepts it holds it, verified, unless it already holds a verified one. */
   readonly email: string;
-  /** The tenant the invitation seats the person in; empty for the application's global surface. */
-  readonly tenant: string;
+  /** The id of the tenant the invitation seats the person in; empty for the application's global surface. Never shown: the person reads `tenantName`. */
+  readonly tenantId: string;
+  /** What people call that tenant, as the application's tenant roster names it; empty for the global surface and where the server names none, and the page then names no tenant. */
+  readonly tenantName: string;
   /** When the invitation stops being accepted, as the server wrote it. */
   readonly expiresAt: string;
   /** The person may create an account with a password here (`signUpFromInvitation`); the server offers a password method. */
@@ -905,7 +909,8 @@ export class AuthClient {
     return {
       outcome: 'opened',
       email: stringOf(body.email),
-      tenant: stringOf(body.tenant),
+      tenantId: stringOf(body.tenantId),
+      tenantName: stringOf(body.tenantName),
       expiresAt: stringOf(body.expiresAt),
       signUp: body.signUp === true,
       usernameIsEmail: body.usernameIsEmail === true,
@@ -1232,7 +1237,8 @@ function standingOf(value: Partial<StandingInvitation> | null | undefined): Stan
   const methods = methodNamesOf(value.methods);
   return {
     email: stringOf(value.email),
-    tenant: stringOf(value.tenant),
+    tenantId: stringOf(value.tenantId),
+    tenantName: stringOf(value.tenantName),
     expiresAt: stringOf(value.expiresAt),
     usernameIsEmail: value.usernameIsEmail === true,
     ...(methods === undefined ? {} : { methods }),

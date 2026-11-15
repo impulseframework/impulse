@@ -6,7 +6,9 @@ type (
 	// ClientContact is a client company's login and the SECOND subject-value anchor:
 	// subject.client is the company the requesting user speaks for, so a portal grant can
 	// say client = subject.client on Missions. It is served on the portal outlet too, so
-	// Client Cleo's portal reads her own record (userId = subject) for its header.
+	// Client Cleo's portal reads her own record (userId = subject) for its header. UserId
+	// holds the id of the contact's account in the members auth, the id the portal's
+	// subject binds to.
 	//
 	// DisplayName has a token column under ClientContactsSearch, which stores ClientId:
 	// Client's @searchAlso(ClientContact.DisplayName) searches it from a client's box, and

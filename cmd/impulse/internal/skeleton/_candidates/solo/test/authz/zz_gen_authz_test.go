@@ -56,9 +56,9 @@ type grants map[accesstypes.Permission]bool
 //
 // constructing the application around the test database with the scripted grants and
 // composing it through the generated router.NewTestRouter. For domain-scoped routes,
-// newTestHandler adds the suite's domain value "testDomain" to the test application's
-// tenant roster with Add (resource.TenantRoster.Add), since the empty schema holds no
-// tenant row; with concealed domains a case with no grants has no foothold and is
+// newTestHandler adds the suite's domain (the generated router's TestDomain) to the test
+// application's tenant roster with Add (resource.TenantRoster.Add), since the empty
+// schema holds no tenant row; with concealed domains a case with no grants has no foothold and is
 // answered as if the domain did not exist.
 func TestGeneratedAuthorizationMatrix(t *testing.T) {
 	t.Parallel()

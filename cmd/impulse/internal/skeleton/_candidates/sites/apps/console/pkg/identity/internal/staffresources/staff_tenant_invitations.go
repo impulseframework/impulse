@@ -12,8 +12,8 @@ import (
 type (
 	// StaffTenantInvitation is one invitation the Staff auth mailed into one
 	// Tenant: a row of StaffSessionMailLinks of the invitation kind that names
-	// the tenant, with the columns StaffSessionMailLink serves of it. Domain is the tenant the
-	// invitation seats a person in (the link's Tenant), and RoleNames the roles it gives
+	// the tenant, with the columns StaffSessionMailLink serves of it. DomainId is the tenant the
+	// invitation seats a person in (the link's TenantId), and RoleNames the roles it gives
 	// there, and Name the name its sender gave the person, where they gave one. The
 	// link itself is in the message alone and its hash is not a column.
 	//
@@ -33,15 +33,15 @@ type (
 		// @primarykey
 		ID impulse.UUID `spanner:"Id" index:"true"`
 		// @domain
-		Domain string  `spanner:"Domain" index:"true"`
-		Email  string  `spanner:"Email"  index:"true"`
-		Name   *string `spanner:"Name"`
+		DomainID string  `spanner:"DomainId" index:"true"`
+		Email    string  `spanner:"Email"    index:"true"`
+		Name     *string `spanner:"Name"`
 		// @attribute(role)
-		RoleNames  []string      `spanner:"RoleNames"`
-		InvitedBy  *impulse.UUID `spanner:"InvitedBy"`
-		CreatedAt  time.Time     `spanner:"CreatedAt"  index:"true"`
-		ExpiresAt  time.Time     `spanner:"ExpiresAt"`
-		ConsumedAt *time.Time    `spanner:"ConsumedAt"`
+		RoleNames       []string      `spanner:"RoleNames"`
+		InvitedByUserID *impulse.UUID `spanner:"InvitedByUserId"`
+		CreatedAt       time.Time     `spanner:"CreatedAt"       index:"true"`
+		ExpiresAt       time.Time     `spanner:"ExpiresAt"`
+		ConsumedAt      *time.Time    `spanner:"ConsumedAt"`
 		// @attribute(pending)
 		Pending bool `spanner:"Pending" index:"true"`
 	}
@@ -54,17 +54,17 @@ type (
 const staffTenantInvitationQuery = `
 SELECT
   l.Id AS Id,
-  l.Tenant AS Domain,
+  l.TenantId AS DomainId,
   l.Email AS Email,
   l.Name AS Name,
   l.RoleNames AS RoleNames,
-  l.InvitedBy AS InvitedBy,
+  l.InvitedByUserId AS InvitedByUserId,
   l.CreatedAt AS CreatedAt,
   l.ExpiresAt AS ExpiresAt,
   l.ConsumedAt AS ConsumedAt,
   (l.ConsumedAt IS NULL AND l.ExpiresAt > CURRENT_TIMESTAMP()) AS Pending
 FROM StaffSessionMailLinks l
-WHERE l.Kind = 'invitation' AND l.Tenant IS NOT NULL
+WHERE l.Kind = 'invitation' AND l.TenantId IS NOT NULL
 `
 
 // Subquery is the query the rows are read from.

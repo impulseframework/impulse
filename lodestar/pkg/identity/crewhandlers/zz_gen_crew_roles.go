@@ -20,7 +20,7 @@ func (h *Handlers) CrewRoles() http.HandlerFunc {
 	type crewRole struct {
 		Kind        string    `json:"kind"        index:"true" perm:"-"`
 		Axis        string    `json:"axis"        perm:"-"`
-		Domain      string    `json:"domain"      perm:"-"`
+		DomainID    string    `json:"domainId"    perm:"-"`
 		Role        string    `json:"role"        perm:"-"`
 		Description string    `json:"description"`
 		UpdatedAt   time.Time `json:"updatedAt"`
@@ -73,9 +73,9 @@ func (h *Handlers) CrewRoles() http.HandlerFunc {
 					if !row.Masked("axis") {
 						rmap["axis"] = rec.Axis
 					}
-				case "Domain":
-					if !row.Masked("domain") {
-						rmap["domain"] = rec.Domain
+				case "DomainID":
+					if !row.Masked("domainId") {
+						rmap["domainId"] = rec.DomainID
 					}
 				case "Role":
 					if !row.Masked("role") {

@@ -32,7 +32,7 @@ type staffSessionTokenRead struct {
 	UserID        impulse.UUID  `json:"userId"`
 	Outlet        string        `json:"outlet"`
 	Name          *string       `json:"name"`
-	Family        *impulse.UUID `json:"family"`
+	FamilyID      *impulse.UUID `json:"familyId"`
 	ClientID      *string       `json:"clientId"`
 	CreatedAt     time.Time     `json:"createdAt"`
 	ExpiresAt     time.Time     `json:"expiresAt"`
@@ -52,7 +52,7 @@ type staffSessionTokenWrite struct {
 	UserID        impulse.UUID  `json:"userId"`
 	Outlet        string        `json:"outlet"`
 	Name          *string       `json:"name"`
-	Family        *impulse.UUID `json:"family"`
+	FamilyID      *impulse.UUID `json:"familyId"`
 	ClientID      *string       `json:"clientId"`
 	CreatedAt     time.Time     `json:"createdAt"`
 	ExpiresAt     time.Time     `json:"expiresAt"`
@@ -172,7 +172,7 @@ func (c *StaffSessionTokenColumns) All() *StaffSessionTokenColumns {
 		"UserID",
 		"Outlet",
 		"Name",
-		"Family",
+		"FamilyID",
 		"ClientID",
 		"CreatedAt",
 		"ExpiresAt",
@@ -214,8 +214,8 @@ func (c *StaffSessionTokenColumns) Name() *StaffSessionTokenColumns {
 	return c
 }
 
-func (c *StaffSessionTokenColumns) Family() *StaffSessionTokenColumns {
-	c.fields = append(c.fields, "Family")
+func (c *StaffSessionTokenColumns) FamilyID() *StaffSessionTokenColumns {
+	c.fields = append(c.fields, "FamilyID")
 
 	return c
 }
@@ -276,8 +276,8 @@ func (p StaffSessionTokenQueryPartialClause) UserID() StaffSessionTokenQueryIden
 	return StaffSessionTokenQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("UserID", p.partialClause, true)}
 }
 
-func (p StaffSessionTokenQueryPartialClause) Family() StaffSessionTokenQueryIdent[impulse.UUID] {
-	return StaffSessionTokenQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("Family", p.partialClause, true)}
+func (p StaffSessionTokenQueryPartialClause) FamilyID() StaffSessionTokenQueryIdent[impulse.UUID] {
+	return StaffSessionTokenQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("FamilyID", p.partialClause, true)}
 }
 
 type StaffSessionTokenQueryClause struct {
@@ -366,8 +366,8 @@ func (c *staffSessionTokenSort) Name() *StaffSessionTokenSort {
 	return c.addField("Name")
 }
 
-func (c *staffSessionTokenSort) Family() *StaffSessionTokenSort {
-	return c.addField("Family")
+func (c *staffSessionTokenSort) FamilyID() *StaffSessionTokenSort {
+	return c.addField("FamilyID")
 }
 
 func (c *staffSessionTokenSort) ClientID() *StaffSessionTokenSort {
@@ -549,24 +549,24 @@ func (p *StaffSessionTokenCreatePatch) NameIsSet() bool {
 	return p.patchSet.IsSet("Name")
 }
 
-func (p *StaffSessionTokenCreatePatch) SetFamily(v *impulse.UUID) *StaffSessionTokenCreatePatch {
+func (p *StaffSessionTokenCreatePatch) SetFamilyID(v *impulse.UUID) *StaffSessionTokenCreatePatch {
 	if v != nil {
-		p.patchSet.Set("Family", v)
+		p.patchSet.Set("FamilyID", v)
 	} else {
-		p.patchSet.Set("Family", nil)
+		p.patchSet.Set("FamilyID", nil)
 	}
 
 	return p
 }
 
-func (p *StaffSessionTokenCreatePatch) Family() *impulse.UUID {
-	v, _ := p.patchSet.Get("Family").(*impulse.UUID)
+func (p *StaffSessionTokenCreatePatch) FamilyID() *impulse.UUID {
+	v, _ := p.patchSet.Get("FamilyID").(*impulse.UUID)
 
 	return v
 }
 
-func (p *StaffSessionTokenCreatePatch) FamilyIsSet() bool {
-	return p.patchSet.IsSet("Family")
+func (p *StaffSessionTokenCreatePatch) FamilyIDIsSet() bool {
+	return p.patchSet.IsSet("FamilyID")
 }
 
 func (p *StaffSessionTokenCreatePatch) SetClientID(v *string) *StaffSessionTokenCreatePatch {
@@ -841,24 +841,24 @@ func (p *StaffSessionTokenUpdatePatch) NameIsSet() bool {
 	return p.patchSet.IsSet("Name")
 }
 
-func (p *StaffSessionTokenUpdatePatch) SetFamily(v *impulse.UUID) *StaffSessionTokenUpdatePatch {
+func (p *StaffSessionTokenUpdatePatch) SetFamilyID(v *impulse.UUID) *StaffSessionTokenUpdatePatch {
 	if v != nil {
-		p.patchSet.Set("Family", v)
+		p.patchSet.Set("FamilyID", v)
 	} else {
-		p.patchSet.Set("Family", nil)
+		p.patchSet.Set("FamilyID", nil)
 	}
 
 	return p
 }
 
-func (p *StaffSessionTokenUpdatePatch) Family() *impulse.UUID {
-	v, _ := p.patchSet.Get("Family").(*impulse.UUID)
+func (p *StaffSessionTokenUpdatePatch) FamilyID() *impulse.UUID {
+	v, _ := p.patchSet.Get("FamilyID").(*impulse.UUID)
 
 	return v
 }
 
-func (p *StaffSessionTokenUpdatePatch) FamilyIsSet() bool {
-	return p.patchSet.IsSet("Family")
+func (p *StaffSessionTokenUpdatePatch) FamilyIDIsSet() bool {
+	return p.patchSet.IsSet("FamilyID")
 }
 
 func (p *StaffSessionTokenUpdatePatch) SetClientID(v *string) *StaffSessionTokenUpdatePatch {

@@ -7,6 +7,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
@@ -151,6 +152,8 @@ func TestTenantDeclaration_Admits(t *testing.T) {
 func TestTenantPolicy(t *testing.T) {
 	t.Parallel()
 
+	// patID is the account of the person signing in: what the role store names them by.
+	patID := impulse.Must(impulse.UUIDFromString("9a700000-0000-4000-8000-000000000001"))
 	global := accesstypes.GlobalPolicyScope()
 	every := accesstypes.EveryDomainPolicyScope()
 	lakeside := accesstypes.DomainPolicyScope("lakeside")
@@ -323,12 +326,21 @@ func TestTenantPolicy(t *testing.T) {
 			roles := &fakeRoleManager{held: tt.held, heldErr: tt.heldErr}
 			reader := &fakeDeclarations{declared: tt.declared, err: tt.readErr}
 			policy := TenantPolicy(roles, reader.read, tt.opts...)
-			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "pat@lakeside.edu", Identity: tt.identity, RoleNames: tt.roleNames}
+			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, UserID: patID, Username: "pat@lakeside.edu", Identity: tt.identity, RoleNames: tt.roleNames}
 
 			decision, err := policy(t.Context(), fakeTx{}, req)
 
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("TenantPolicy() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			// The memberships are read under the id of the person's account, once, and
+			// never under the sign-in name; a method that synchronizes roles asks nothing.
+			wantAsked := []accesstypes.User{accesstypes.User(patID.String())}
+			if tt.roleNames != nil {
+				wantAsked = nil
+			}
+			if diff := cmp.Diff(wantAsked, roles.asked, cmpopts.EquateEmpty()); diff != "" {
+				t.Errorf("users the role store was asked for mismatch (-want +got):\n%s", diff)
 			}
 			if diff := cmp.Diff(tt.wantRead, reader.asked, cmpopts.EquateEmpty()); diff != "" {
 				t.Errorf("tenants read mismatch (-want +got):\n%s", diff)

@@ -3,10 +3,12 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"slices"
 	"testing"
 
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/session"
 )
 
@@ -27,30 +29,28 @@ func TestSelfService_aSignedInStrangerCreatesTheirTenant(t *testing.T) {
 	admin := signedIn(ctx, t, s, adminUser)
 	member := signedIn(ctx, t, s, memberUser)
 
-	const (
-		west        = "west"
-		westSegment = "/api/tenants/" + west + "/announcements"
-	)
-
-	// Before: the newcomer holds nothing, and the tenant does not exist.
+	// Before: the newcomer holds nothing.
 	if domains := userDomains(ctx, t, newcomer); len(domains) != 0 {
 		t.Fatalf("user-domains before = %v, want none", domains)
 	}
-	if status, body := admin.do(ctx, http.MethodGet, westSegment, nil); status != http.StatusNotFound {
-		t.Fatalf("GET %s before the tenant exists: status %d, want 404: %s", westSegment, status, body)
-	}
 
-	// The newcomer names their tenant and is answered its key.
-	status, body := newcomer.do(ctx, http.MethodPost, "/api/create-tenant", []byte(`{"id":"`+west+`","name":"West"}`))
+	// The newcomer names their tenant, by its name alone, and is answered the id the
+	// route generated for it.
+	status, body := newcomer.do(ctx, http.MethodPost, "/api/create-tenant", []byte(`{"name":"West"}`))
 	if status != http.StatusOK {
 		t.Fatalf("POST /api/create-tenant: status %d: %s", status, body)
 	}
 	var created struct {
 		ID string `json:"id"`
 	}
-	if err := json.Unmarshal(body, &created); err != nil || created.ID != west {
-		t.Fatalf("POST /api/create-tenant answered %s (err %v), want the key %q", body, err, west)
+	if err := json.Unmarshal(body, &created); err != nil {
+		t.Fatalf("POST /api/create-tenant answered %s: %v", body, err)
 	}
+	if _, err := impulse.UUIDFromString(created.ID); err != nil {
+		t.Fatalf("POST /api/create-tenant answered the key %q, want an id the route generated: %v", created.ID, err)
+	}
+	west := created.ID
+	westSegment := "/api/tenants/" + west + "/announcements"
 
 	// At once: the newcomer stands in the tenant (the seat is written and the engine
 	// answers it before the route answers), its segment serves them, and the
@@ -80,12 +80,12 @@ func TestSelfService_aSignedInStrangerCreatesTheirTenant(t *testing.T) {
 		body       string
 		wantStatus int
 	}{
-		{name: "the newcomer, holding a tenant now, is refused a second", browser: newcomer, body: `{"id":"west-again","name":"West again"}`, wantStatus: http.StatusForbidden},
-		{name: "the member of a tenant is refused", browser: member, body: `{"id":"east","name":"East"}`, wantStatus: http.StatusForbidden},
-		{name: "the administrator is refused: an administrator creates tenants through the record, never here", browser: admin, body: `{"id":"east","name":"East"}`, wantStatus: http.StatusForbidden},
-		{name: "a body without the name is refused", browser: another, body: `{"id":"east"}`, wantStatus: http.StatusBadRequest},
-		{name: "a body without the key is refused", browser: another, body: `{"name":"East"}`, wantStatus: http.StatusBadRequest},
-		{name: "a key a tenant holds already is refused", browser: another, body: `{"id":"` + north + `","name":"North"}`, wantStatus: http.StatusConflict},
+		{name: "the newcomer, holding a tenant now, is refused a second", browser: newcomer, body: `{"name":"West again"}`, wantStatus: http.StatusForbidden},
+		{name: "the member of a tenant is refused", browser: member, body: `{"name":"East"}`, wantStatus: http.StatusForbidden},
+		{name: "the administrator is refused: an administrator creates tenants through the record, never here", browser: admin, body: `{"name":"East"}`, wantStatus: http.StatusForbidden},
+		{name: "a body without the name is refused", browser: another, body: `{}`, wantStatus: http.StatusBadRequest},
+		{name: "a body that names a key is refused: the route generates it", browser: another, body: `{"id":"east","name":"East"}`, wantStatus: http.StatusBadRequest},
+		{name: "a name a tenant carries already is refused", browser: another, body: `{"name":"North"}`, wantStatus: http.StatusConflict},
 	}
 	for _, refusal := range refusals {
 		if status, body := refusal.browser.do(ctx, http.MethodPost, "/api/create-tenant", []byte(refusal.body)); status != refusal.wantStatus {
@@ -93,8 +93,9 @@ func TestSelfService_aSignedInStrangerCreatesTheirTenant(t *testing.T) {
 		}
 	}
 	// None of the refused bodies wrote a row, and the other stranger still holds nothing.
-	if status, body := admin.do(ctx, http.MethodGet, "/api/tenants/east/announcements", nil); status != http.StatusNotFound {
-		t.Errorf("GET /api/tenants/east/announcements after the refusals: status %d, want 404: %s", status, body)
+	names := slices.Sorted(maps.Values(tenantNames(ctx, t, admin)))
+	if !slices.Equal(names, []string{"North", "South", "West"}) {
+		t.Errorf("the administrator's tenants after the refusals = %v, want North, South and West alone", names)
 	}
 	if domains := userDomains(ctx, t, another); len(domains) != 0 {
 		t.Errorf("user-domains of the other stranger = %v, want none", domains)

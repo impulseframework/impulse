@@ -2,7 +2,6 @@
 package integration
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,10 +9,8 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
-	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/resource"
-	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // TestDryRun drives HoldMission and InspectShip under X-Dry-Run: the whole frame and
@@ -64,13 +61,7 @@ func TestDryRun(t *testing.T) {
 func doDryRunAs(t *testing.T, h http.Handler, user accesstypes.User, target, body string) (statusCode int, respBody []byte) {
 	t.Helper()
 
-	sessionID, err := impulse.NewUUID()
-	if err != nil {
-		t.Fatalf("impulse.NewUUID: %v", err)
-	}
-	ctx := context.WithValue(t.Context(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
-		SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: string(user)},
-	})
+	ctx := sessionContext(t, user)
 	req := httptest.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set(resource.DryRunHeader, "true")

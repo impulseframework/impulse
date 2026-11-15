@@ -26,7 +26,7 @@ func (StaffTenantUserRole) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; staffTenantUserRoleReadSets holds one Set per read operation.
 type staffTenantUserRoleRead struct {
-	Domain      string       `json:"domain"`
+	DomainID    string       `json:"domainId"`
 	UserID      impulse.UUID `json:"userId"      perm:"-"`
 	Username    string       `json:"username"`
 	Role        string       `json:"role"        perm:"-"`
@@ -152,7 +152,7 @@ func NewStaffTenantUserRoleColumns() *StaffTenantUserRoleColumns {
 
 func (c *StaffTenantUserRoleColumns) All() *StaffTenantUserRoleColumns {
 	c.fields = []accesstypes.Field{
-		"Domain",
+		"DomainID",
 		"UserID",
 		"Username",
 		"Role",
@@ -163,8 +163,8 @@ func (c *StaffTenantUserRoleColumns) All() *StaffTenantUserRoleColumns {
 	return c
 }
 
-func (c *StaffTenantUserRoleColumns) Domain() *StaffTenantUserRoleColumns {
-	c.fields = append(c.fields, "Domain")
+func (c *StaffTenantUserRoleColumns) DomainID() *StaffTenantUserRoleColumns {
+	c.fields = append(c.fields, "DomainID")
 
 	return c
 }
@@ -211,8 +211,8 @@ func (p StaffTenantUserRoleQueryPartialClause) Group(qc StaffTenantUserRoleQuery
 	return StaffTenantUserRoleQueryClause{clause: p.partialClause.Group(qc.clause)}
 }
 
-func (p StaffTenantUserRoleQueryPartialClause) Domain() StaffTenantUserRoleQueryIdent[string] {
-	return StaffTenantUserRoleQueryIdent[string]{Ident: resource.NewIdent[string]("Domain", p.partialClause, true)}
+func (p StaffTenantUserRoleQueryPartialClause) DomainID() StaffTenantUserRoleQueryIdent[string] {
+	return StaffTenantUserRoleQueryIdent[string]{Ident: resource.NewIdent[string]("DomainID", p.partialClause, true)}
 }
 
 func (p StaffTenantUserRoleQueryPartialClause) UserID() StaffTenantUserRoleQueryIdent[impulse.UUID] {
@@ -297,8 +297,8 @@ func (c *staffTenantUserRoleSort) addField(field string) *StaffTenantUserRoleSor
 	return &StaffTenantUserRoleSort{staffTenantUserRoleSort: c}
 }
 
-func (c *staffTenantUserRoleSort) Domain() *StaffTenantUserRoleSort {
-	return c.addField("Domain")
+func (c *staffTenantUserRoleSort) DomainID() *StaffTenantUserRoleSort {
+	return c.addField("DomainID")
 }
 
 func (c *staffTenantUserRoleSort) UserID() *StaffTenantUserRoleSort {

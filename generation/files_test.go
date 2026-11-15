@@ -412,7 +412,7 @@ func Test_fileRoutes(t *testing.T) {
 				return fileGenerator().resourceFileRoutes(res, "api")
 			},
 			want: []*generatedRoute{
-				{Method: "GET", Path: "/api/sectors/{sectorID}/logos/{logoID}/content", HandlerFunc: "LogoContent", HandlerType: fileHandler, DomainScoped: true, TestURL: "/api/sectors/testDomain/logos/testLogoID/content", TestParams: []routeTestParam{{Key: "sectorID", Value: "testDomain"}, {Key: "logoID", Value: "testLogoID"}}, Source: "Logo.StoreKey"},
+				{Method: "GET", Path: "/api/sectors/{sectorID}/logos/{logoID}/content", HandlerFunc: "LogoContent", HandlerType: fileHandler, DomainScoped: true, TestURL: "/api/sectors/7e57d0a1-0000-4000-8000-000000000000/logos/testLogoID/content", TestParams: []routeTestParam{{Key: "sectorID", Value: "7e57d0a1-0000-4000-8000-000000000000"}, {Key: "logoID", Value: "testLogoID"}}, Source: "Logo.StoreKey"},
 			},
 		},
 		{

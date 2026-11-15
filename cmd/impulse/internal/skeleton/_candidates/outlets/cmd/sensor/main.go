@@ -13,7 +13,7 @@
 //
 //	SENSOR_OUTLET  the devices outlet's URL as the router mounts it, https://app.example.com/devices
 //	SENSOR_TOKEN   an application token a staff login issued for the outlet on the console's API keys page (Your API keys)
-//	SENSOR_TENANT  the tenant the readings belong to; north in development
+//	SENSOR_TENANT  the id of the tenant the readings belong to; 11111111-1111-4111-8111-111111111111 (North) in development
 //	SENSOR_SOURCE  the name the readings carry for this device; the hostname when unset
 //
 // A person installs the first copy on a device from the release's assets or with
@@ -283,7 +283,8 @@ func follow(ctx context.Context, f *shipped.Follower, stdout, stderr io.Writer) 
 	return 0
 }
 
-// client calls the devices outlet for one tenant.
+// client calls the devices outlet for one tenant, named by its id as every
+// tenant-scoped path carries it.
 type client struct {
 	outlet string
 	tenant string

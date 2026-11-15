@@ -62,7 +62,7 @@ type (
 		ShipID       impulse.UUID `spanner:"ShipId"`                           // @primarykey
 		Subsystem    string       `spanner:"Subsystem"    allow_filter:"true"` // @primarykey
 		ShipName     string       `spanner:"ShipName"     allow_filter:"true"`
-		SectorID     string       `spanner:"SectorId"`
+		SectorID     impulse.UUID `spanner:"SectorId"`
 		WorstReading float64      `spanner:"WorstReading"`
 		RecordedAt   time.Time    `spanner:"RecordedAt"`
 		Recent       []Reading
@@ -163,7 +163,7 @@ func ReadSectorHazardBoard(ctx context.Context, shipID impulse.UUID, subsystem s
 // subsystem) in the sector, optionally narrowed to one ship and subsystem or to
 // the named ships, each row carrying its most recent readings newest first. Rows
 // come back in a stable order; the generated handler sorts and pages them.
-func worstReadings(ctx context.Context, client resource.Client, domain accesstypes.Domain, shipID *impulse.UUID, subsystem string, shipNames []string) ([]*SectorHazardBoard, error) {
+func worstReadings(ctx context.Context, client resource.Client, sector impulse.UUID, shipID *impulse.UUID, subsystem string, shipNames []string) ([]*SectorHazardBoard, error) {
 	// The taken ship-name conditions narrow the roster before any report is
 	// folded: a ship the caller did not ask about never enters the fold.
 	names := make(map[impulse.UUID]string)
@@ -179,11 +179,11 @@ func worstReadings(ctx context.Context, client resource.Client, domain accesstyp
 
 	query := resources.NewDroidReportQuery().
 		AddColumns(resources.NewDroidReportColumns().All()).
-		Where(resources.NewDroidReportQueryClause().SectorID().Equal(string(domain)))
+		Where(resources.NewDroidReportQueryClause().SectorID().Equal(sector))
 	if shipID != nil {
 		query = resources.NewDroidReportQuery().
 			AddColumns(resources.NewDroidReportColumns().All()).
-			Where(resources.NewDroidReportQueryClause().SectorID().Equal(string(domain)).And().ShipID().Equal(*shipID))
+			Where(resources.NewDroidReportQueryClause().SectorID().Equal(sector).And().ShipID().Equal(*shipID))
 	}
 
 	boards := make(map[[2]string]*SectorHazardBoard)

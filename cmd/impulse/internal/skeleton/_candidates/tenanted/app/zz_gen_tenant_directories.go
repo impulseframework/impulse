@@ -20,7 +20,7 @@ import (
 func (a *App) TenantDirectories() http.HandlerFunc {
 	type tenantDirectory struct {
 		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
-		TenantID    string       `json:"tenantId"    index:"true"`
+		TenantID    impulse.UUID `json:"tenantId"    index:"true"`
 		Method      string       `json:"method"      index:"true"`
 		Connection  string       `json:"connection"`
 		DefaultSeat *string      `json:"defaultSeat"`
@@ -110,7 +110,7 @@ func (a *App) TenantDirectories() http.HandlerFunc {
 func (a *App) TenantDirectory() http.HandlerFunc {
 	type response struct {
 		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
-		TenantID    string       `json:"tenantId"`
+		TenantID    impulse.UUID `json:"tenantId"`
 		Method      string       `json:"method"`
 		Connection  string       `json:"connection"`
 		DefaultSeat *string      `json:"defaultSeat"`

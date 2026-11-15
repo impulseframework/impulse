@@ -394,7 +394,7 @@ func Test_prepareIdentity(t *testing.T) {
 	// HTTP, and the roles table serving no route while the surface holds its name.
 	for file, lines := range map[string][]string{
 		"internal/membersresources/members_session_users.go": {"// @resource", "// @suppress(patchHandler)", "// @outlet(portal, default)", "MembersSessionUser struct {"},
-		"internal/crewresources/crew_user_roles.go":          {"// @suppress(readHandler)", "// @suppress(patchHandler)", "// @outlet(default)", "CrewUserRole struct {"},
+		"internal/crewresources/crew_user_roles.go":          {"// @suppress(readHandler)", "// @suppress(patchHandler)", "// @outlet(default)", "CrewUserRole struct {", "UserID is the person: the id of their account"},
 		"internal/crewresources/crew_roles.go":               {"// @suppress(readHandler)", "// @suppress(patchHandler)", "// @outlet(default)", "CrewRole struct {"},
 		"crewidentity/client.go": {
 			`const TablePrefix = "Crew"`, "func NewClient(controller access.Controller, sessions identity.SessionAPI, opts ...identity.Option) (*Client, error) {",
@@ -404,7 +404,7 @@ func Test_prepareIdentity(t *testing.T) {
 			"func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.ReadWriteTransaction] {", `return c.manager.InvitationAccepted("Crew")`,
 			"func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {", `return c.manager.DirectorySeated("Crew")`,
 		},
-		"crewidentity/store.go":                                  {"crewresources.NewCrewSessionImpersonationUpdatePatch(sessionID).SetEndedAt(&endedAt).SetEndReason(&reason)", `"SELECT PasswordHash IS NOT NULL FROM CrewSessionUsers WHERE Id = @id"`, `"SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)"`, `"SELECT Username FROM CrewSessionUsers WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL"`, "crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn)", "crewresources.NewCrewUserRoleQueryClause().User().Equal(username)", `"Kind":      string(sessionstorage.MailLinkInvitation),`, "txn.BufferMap(invitationWrite{id: row.ID}, columns)", "crewresources.NewCrewSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)"},
+		"crewidentity/store.go":                                  {"crewresources.NewCrewSessionImpersonationUpdatePatch(sessionID).SetEndedAt(&endedAt).SetEndReason(&reason)", `"SELECT PasswordHash IS NOT NULL FROM CrewSessionUsers WHERE Id = @id"`, `"SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)"`, "crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn)", `"SELECT Id FROM CrewSessionUsers WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL"`, "crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String())", `"Kind":      string(sessionstorage.MailLinkInvitation),`, "txn.BufferMap(invitationWrite{id: row.ID}, columns)", "crewresources.NewCrewSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)"},
 		"internal/crewresources/crew_role_grants.go":             {`ResourceName string    ` + "`spanner:\"Resource\"`", "// @suppress(readHandler)"},
 		"internal/crewresources/crew_session_tokens.go":          {"CrewSessionToken struct {", "RevokedAt     *time.Time"},
 		"crewidentity/create_crew_user.go":                       {"Roles       []string", "Domain      *string", "EveryDomain bool", "client.manager.CreateUser(ctx, txn, account)"},
@@ -419,8 +419,13 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/set_crew_user_name.go":                     {"type SetCrewUserName struct {", "// @target(CrewSessionUser)", "Name   *string", "// @answers(204)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
 		"membersidentity/set_members_user_name.go":               {"type SetMembersUserName struct {", "// @target(MembersSessionUser)", "client.manager.SetName(ctx, txn, m.UserID, m.Name)"},
 		"internal/crewresources/crew_session_users.go":           {"Name                   *string      `spanner:\"Name\"`"},
-		"internal/crewresources/crew_session_mail_links.go":      {"Name       *string       `spanner:\"Name\"`"},
-		"membersidentity/store.go":                               {"var _ identity.Store = store{}", "membersresources.NewMembersRoleQuery()", `"example.com/acme/beacon/pkg/identity/internal/membersresources"`, "the schema holds no table MembersSessionImpersonations", "the schema holds no table MembersSessionTokens", "the schema holds no table MembersSessionIdentities"},
+		"internal/crewresources/crew_session_mail_links.go":      {"Name            *string       `spanner:\"Name\"`"},
+		// A role is given to and taken from a person by the id of their account, and given
+		// to nobody an id names no user of.
+		"crewidentity/assign_crew_role.go":                      {"UserID impulse.UUID", "client.manager.RequireUser(ctx, txn, m.UserID)", "client.manager.AssignRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))"},
+		"crewidentity/remove_crew_role.go":                      {"UserID      impulse.UUID", "client.manager.RemoveRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))"},
+		"internal/crewresources/crew_session_impersonations.go": {"ActorUserID     *impulse.UUID `spanner:\"ActorUserId\"`"},
+		"membersidentity/store.go":                              {"var _ identity.Store = store{}", "membersresources.NewMembersRoleQuery()", `"example.com/acme/beacon/pkg/identity/internal/membersresources"`, "the schema holds no table MembersSessionImpersonations", "the schema holds no table MembersSessionTokens", "the schema holds no table MembersSessionIdentities"},
 		// The handlers are constructed over the application with its live derivations,
 		// which they keep to publish with.
 		"crewhandlers/handlers.go": {"CrewIdentity() *crewidentity.Client", `"example.com/acme/beacon/pkg/identity/crewidentity"`, "liveDerivations *live.Derivations", "func New(deps Deps, derivations *live.Derivations) *Handlers {", "return &Handlers{Deps: deps, liveDerivations: derivations}"},
@@ -448,8 +453,13 @@ func Test_prepareIdentity(t *testing.T) {
 			t.Errorf("membersidentity/client.go carries %s for an auth whose roles a directory writes:\n%s", hook, members)
 		}
 	}
-	if !strings.Contains(string(members), "func (c *Client) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, username string, role accesstypes.Role) error {") {
+	if !strings.Contains(string(members), "func (c *Client) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {") {
 		t.Errorf("membersidentity/client.go lacks the Go call that buffers a membership:\n%s", members)
+	}
+	// The Go call gives a role to an account alone: it reads the account first, as the
+	// served role methods do, so an id no account holds is refused and nothing is written.
+	if !strings.Contains(string(members), "if err := c.manager.RequireUser(ctx, txn, userID); err != nil {") {
+		t.Errorf("membersidentity/client.go's AssignRole does not read the account before the membership:\n%s", members)
 	}
 
 	// An application with no tenant record has no tenant's methods, and the templates
@@ -463,6 +473,63 @@ func Test_prepareIdentity(t *testing.T) {
 		for _, tenantOnly := range []string{"@permissionScope(domain)", "manager.Tenant(ctx)", "a tenant's method"} {
 			if strings.Contains(string(content), tenantOnly) {
 				t.Errorf("%s holds %q with no tenant record:\n%s", file, tenantOnly, content)
+			}
+		}
+	}
+}
+
+// Test_prepareIdentity_noMemberships pins the store of an auth whose schema holds no
+// memberships table. The store still stands for identity.Store, so what would read the
+// table is a stub with the interface's own signature: a person's memberships are asked
+// for by the id of their account there too, as in the store that reads the table.
+func Test_prepareIdentity_noMemberships(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	// The members auth keeps its users and sessions alone: the schema holds neither
+	// MembersUserRoles nor MembersRoles.
+	r := identityFixtureGenerator(t, slices.Concat(crewIdentityTables, []string{"MembersSessionUsers", "MembersSessions"})...)
+	if err := r.prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() error = %v", err)
+	}
+
+	for _, tt := range []struct {
+		file          string
+		want, wantNot []string
+	}{
+		{
+			file: "membersidentity/store.go",
+			want: []string{
+				"var _ identity.Store = store{}",
+				"the schema holds no table MembersUserRoles: the Members auth's memberships are not managed here",
+				"func (store) Memberships(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.MembershipKey, error) {",
+			},
+			wantNot: []string{
+				"func (store) Memberships(context.Context, resource.ReadWriteTransaction, string)",
+				"membersresources.NewMembersUserRoleQuery",
+			},
+		},
+		{
+			file: "crewidentity/store.go",
+			want: []string{
+				"var _ identity.Store = store{}",
+				"func (store) Memberships(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.MembershipKey, error) {",
+			},
+			wantNot: []string{"errNoMemberships"},
+		},
+	} {
+		content, err := os.ReadFile(filepath.Join("pkg", "identity", tt.file))
+		if err != nil {
+			t.Fatalf("os.ReadFile(%s) error = %v", tt.file, err)
+		}
+		for _, line := range tt.want {
+			if !strings.Contains(string(content), line) {
+				t.Errorf("%s lacks %q:\n%s", tt.file, line, content)
+			}
+		}
+		for _, line := range tt.wantNot {
+			if strings.Contains(string(content), line) {
+				t.Errorf("%s holds %q:\n%s", tt.file, line, content)
 			}
 		}
 	}
@@ -638,35 +705,35 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 			generationHeader, "package crewresources", "// @virtual", "// @permissionScope(domain)", "// @outlet(default)", "// @order(Username asc)",
 			"CrewShipUser struct {", "// @primarykey", "// @domain", "// @attribute(heldElsewhere)", "// @attribute(heldGlobally)",
 			"const crewShipUserQuery = `",
-			"WHERE o.User = u.Username AND o.Kind = 'every' AND o.Axis = ''\n  ) OR EXISTS (",
-			"WHERE o.User = u.Username AND o.Kind = 'domain' AND o.Axis = '' AND o.Domain != t.Domain\n  )) AS HeldElsewhere,",
-			"WHERE g.User = u.Username AND g.Kind = 'global'",
-			"SELECT s.Id AS Domain, m.User AS User\n  FROM CrewUserRoles@{FORCE_INDEX=_BASE_TABLE} m\n  CROSS JOIN Ships s",
-			"JOIN CrewSessionUsers u ON u.Username = t.User\n",
+			"WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''\n  ) OR EXISTS (",
+			"WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId\n  )) AS HeldElsewhere,",
+			"WHERE g.UserId = u.Id AND g.Kind = 'global'",
+			"SELECT s.Id AS DomainId, m.UserId AS UserId\n  FROM CrewUserRoles@{FORCE_INDEX=_BASE_TABLE} m\n  CROSS JOIN Ships s",
+			"JOIN CrewSessionUsers u ON u.Id = t.UserId\n",
 			"func (CrewShipUser) Subquery() (query string, params map[string]any) {",
 		},
 		"internal/crewresources/crew_ship_user_roles.go": {
 			"CrewShipUserRole struct {", "// @order(Username asc, Role asc)", "// @attribute(everyDomain)",
 			// The row is keyed by the account's id and the role, two columns the database looks up.
 			"// @primarykey\n\t\tUserID   impulse.UUID", "// @primarykey\n\t\t// @attribute(role)\n\t\tRole string",
-			"SELECT\n  t.Domain AS Domain,\n  u.Id AS UserId,",
+			"SELECT\n  t.DomainId AS DomainId,\n  u.Id AS UserId,",
 			"FROM CrewUserRoles m\n  WHERE m.Kind = 'domain' AND m.Axis = ''\n  UNION ALL",
 			"FROM CrewUserRoles@{FORCE_INDEX=_BASE_TABLE} m\n  CROSS JOIN Ships s\n  WHERE m.Kind = 'every' AND m.Axis = ''",
-			"WHERE d.Kind = 'domain' AND d.Axis = m.Axis AND d.Domain = s.Id AND d.Role = m.Role AND d.User = m.User",
-			"JOIN CrewSessionUsers u ON u.Username = t.User\n",
+			"WHERE d.Kind = 'domain' AND d.Axis = m.Axis AND d.DomainId = s.Id AND d.Role = m.Role AND d.UserId = m.UserId",
+			"JOIN CrewSessionUsers u ON u.Id = t.UserId\n",
 		},
 		"internal/crewresources/crew_ship_invitations.go": {
 			"CrewShipInvitation struct {", "// @order(CreatedAt desc)", "// @attribute(pending)",
-			"l.Tenant AS Domain",
+			"l.TenantId AS DomainId",
 			"FROM CrewSessionMailLinks l",
-			"WHERE l.Kind = 'invitation' AND l.Tenant IS NOT NULL",
+			"WHERE l.Kind = 'invitation' AND l.TenantId IS NOT NULL",
 		},
 		"internal/crewresources/crew_ship_identities.go": {
 			"CrewShipIdentity struct {", "// @order(CreatedAt desc)", "// @primarykey", "// @domain", "// @attribute(heldElsewhere)", "// @attribute(heldGlobally)",
 			"const crewShipIdentityQuery = `",
 			"i.Id AS Id", "u.Id AS UserId", "i.Tenant AS Tenant",
-			"WHERE o.User = u.Username AND o.Kind = 'domain' AND o.Axis = '' AND o.Domain != t.Domain\n  )) AS HeldElsewhere,",
-			"JOIN CrewSessionUsers u ON u.Username = t.User\nJOIN CrewSessionIdentities i ON i.UserId = u.Id",
+			"WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId\n  )) AS HeldElsewhere,",
+			"JOIN CrewSessionUsers u ON u.Id = t.UserId\nJOIN CrewSessionIdentities i ON i.UserId = u.Id",
 		},
 		"internal/membersresources/members_ship_users.go": {"// @outlet(portal, default)", "MembersShipUser struct {", "FROM MembersUserRoles m", "JOIN MembersSessionUsers u ON"},
 	} {

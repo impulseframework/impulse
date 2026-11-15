@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/civil"
+	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
@@ -229,21 +230,23 @@ func (c *Condition) IsSearch() bool {
 // shape an array query parameter binds: Spanner types IN UNNEST(@p) from the slice's
 // element type and refuses []any. The parser types every value by its column, so the
 // slice is []string for a STRING column, []int64 for INT64, and []*big.Rat for
-// NUMERIC, following paramValue. A body that pushes a taken filter down to its own
-// query binds the result as it is. An empty list, or one the values do not type
-// uniformly, is returned unchanged.
+// NUMERIC, following paramValue. A value that carries its own Spanner encoding binds
+// as what it encodes to, an id as its text: the client binds one such value and no
+// array of them. A body that pushes a taken filter down to its own query binds the
+// result as it is. An empty list, or one the values do not type uniformly, is
+// returned unchanged.
 func (c *Condition) TypedValues() any {
 	if len(c.Values) == 0 {
 		return c.Values
 	}
 
-	elem := reflect.TypeOf(paramValue(c.Values[0]))
+	elem := reflect.TypeOf(arrayElement(c.Values[0]))
 	if elem == nil {
 		return c.Values
 	}
 	typed := reflect.MakeSlice(reflect.SliceOf(elem), 0, len(c.Values))
 	for _, v := range c.Values {
-		value := paramValue(v)
+		value := arrayElement(v)
 		if reflect.TypeOf(value) != elem {
 			return c.Values
 		}
@@ -251,6 +254,25 @@ func (c *Condition) TypedValues() any {
 	}
 
 	return typed.Interface()
+}
+
+// arrayElement returns a list value as one element of an array query parameter. The
+// Spanner client asks a single value for its encoding and never the elements of a
+// slice, so a value with its own encoding (impulse.UUID, impulse.Duration) is handed
+// over as what it encodes to. A value whose encoding fails, or encodes to NULL, is
+// returned as nil, which no list types uniformly.
+func arrayElement(value any) any {
+	value = paramValue(value)
+	encoder, ok := value.(spanner.Encoder)
+	if !ok {
+		return value
+	}
+	encoded, err := encoder.EncodeSpanner()
+	if err != nil {
+		return nil
+	}
+
+	return encoded
 }
 
 // ConditionNode represents a simple condition in the AST.

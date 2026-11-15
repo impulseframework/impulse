@@ -25,7 +25,10 @@ const (
 type impersonateRequest struct {
 	// Kind is "user" or "role".
 	Kind string `json:"kind"`
-	// Principal is the user or role name.
+	// Principal is who or what the session operates as. For kind "user" it is the id of
+	// the account of the person to view as, which is how the permission store names a
+	// person; a username is not accepted, and the session library refuses a principal
+	// that is not an id (400). For kind "role" it is the role's name.
 	Principal string `json:"principal"`
 	// Mask lists the permissions the session keeps; empty means the kind's default —
 	// List and Read for a user, unrestricted for a role.
@@ -44,14 +47,16 @@ type impersonateResponse struct {
 }
 
 // Impersonate mints an impersonated session on behalf of the authenticated actor: a
-// "view as" session that operates as another user under a List, Read mask, or an
-// "act as" session that operates as a role. Authorization stays with the app — the
-// two manual Execute registrations (resources.ViewAsUser, resources.AssumeRole),
-// checked in the global scope and held by the Governor and the Marshal only; the
-// library refuses chaining (an impersonated session cannot mint another) and writes
-// the record atomically with the session. The response cookie replaces the actor's
-// session; the actor's own session is linked as the source. A view-as session carries
-// a two-hour hard cap (MaxDuration), which the banner counts down.
+// "view as" session that operates as another user, named by the id of their account,
+// under a List, Read mask, or an "act as" session that operates as a role. Authorization
+// stays with the app — the two manual Execute registrations (resources.ViewAsUser,
+// resources.AssumeRole), checked in the global scope and held by the Governor and the
+// Marshal only; the library refuses chaining (an impersonated session cannot mint
+// another) and writes the record atomically with the session, the actor by username and
+// by the id of their account, which it reads from the actor's own session. The response
+// cookie replaces the actor's session; the actor's own session is linked as the source.
+// A view-as session carries a two-hour hard cap (MaxDuration), which the banner counts
+// down.
 //
 // Demonstrates: impersonation.view-as, impersonation.act-as-role, impersonation.mask, impersonation.max-duration, @manualAddResource.execute, impersonation.identity-proof, impersonation.session-permissions.
 func (a *App) Impersonate() http.HandlerFunc {

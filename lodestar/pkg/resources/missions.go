@@ -16,8 +16,11 @@ type (
 	// happens inside an RPC body, and what each role may do to a mission in each state is
 	// a conditional grant on the uniform state binding.
 	//
-	// BookedBy is server-stamped from the session (output_only + default), so bookedBy =
-	// subject compares against a value the client can never forge. Settlement is written by
+	// BookedByUserID is server-stamped from the session (output_only + default), so bookedBy =
+	// subject compares against a value the client can never forge. It holds the id of the
+	// booker's account, which is what the permission store names a person by; BookedByName
+	// beside it is the booker's username as it was when the mission was booked, stamped
+	// the same way, and is what a page shows. Settlement is written by
 	// CompleteMission through the Paymaster role: no persona holds an Update on it, so the
 	// only writer is a body borrowing that role's checker. The attributes are the
 	// vocabulary of the grants: kind, hazard, fee (the masking target), deadline (the
@@ -83,7 +86,7 @@ type (
 	Mission struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		SectorID string `spanner:"SectorId"`
+		SectorID impulse.UUID `spanner:"SectorId"`
 		// @attribute(client)
 		// @enumerate(ClientRosters)
 		ClientID impulse.UUID `spanner:"ClientId"`
@@ -104,7 +107,8 @@ type (
 		// @attribute(requiredCert)
 		RequiredCertID *string `spanner:"RequiredCertId"`
 		// @attribute(bookedBy)
-		BookedBy string `spanner:"BookedBy" conditions:"output_only" default_create_fn:"currentUser"`
+		BookedByUserID string `spanner:"BookedByUserId"     conditions:"output_only" default_create_fn:"currentUser"`
+		BookedByName   string `spanner:"BookedByName" conditions:"output_only" default_create_fn:"currentUserName"`
 		// @attribute(assignedSquadron)
 		AssignedSquadronID impulse.NullUUID `spanner:"AssignedSquadronId"`
 		// @state(default: open)

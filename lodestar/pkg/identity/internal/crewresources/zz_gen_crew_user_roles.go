@@ -27,9 +27,9 @@ func (CrewUserRole) DefaultConfig() resource.Config {
 type crewUserRoleRead struct {
 	Kind      string    `json:"kind"      perm:"-"`
 	Axis      string    `json:"axis"      perm:"-"`
-	Domain    string    `json:"domain"    perm:"-"`
+	DomainID  string    `json:"domainId"  perm:"-"`
 	Role      string    `json:"role"      perm:"-"`
-	User      string    `json:"user"      perm:"-"`
+	UserID    string    `json:"userId"    perm:"-"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -41,9 +41,9 @@ var crewUserRoleReadSets resource.SetCache[CrewUserRole, crewUserRoleRead]
 type crewUserRoleWrite struct {
 	Kind      string    `json:"-"`
 	Axis      string    `json:"-"`
-	Domain    string    `json:"-"`
+	DomainID  string    `json:"-"`
 	Role      string    `json:"-"`
-	User      string    `json:"-"`
+	UserID    string    `json:"-"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -87,14 +87,14 @@ func (q *CrewUserRoleQuery) Axis() string {
 	return v
 }
 
-func (q *CrewUserRoleQuery) SetDomain(v string) *CrewUserRoleQuery {
-	q.qSet.SetKey("Domain", v)
+func (q *CrewUserRoleQuery) SetDomainID(v string) *CrewUserRoleQuery {
+	q.qSet.SetKey("DomainID", v)
 
 	return q
 }
 
-func (q *CrewUserRoleQuery) Domain() string {
-	v, _ := q.qSet.Key("Domain").(string)
+func (q *CrewUserRoleQuery) DomainID() string {
+	v, _ := q.qSet.Key("DomainID").(string)
 
 	return v
 }
@@ -111,14 +111,14 @@ func (q *CrewUserRoleQuery) Role() string {
 	return v
 }
 
-func (q *CrewUserRoleQuery) SetUser(v string) *CrewUserRoleQuery {
-	q.qSet.SetKey("User", v)
+func (q *CrewUserRoleQuery) SetUserID(v string) *CrewUserRoleQuery {
+	q.qSet.SetKey("UserID", v)
 
 	return q
 }
 
-func (q *CrewUserRoleQuery) User() string {
-	v, _ := q.qSet.Key("User").(string)
+func (q *CrewUserRoleQuery) UserID() string {
+	v, _ := q.qSet.Key("UserID").(string)
 
 	return v
 }
@@ -203,9 +203,9 @@ func (c *CrewUserRoleColumns) All() *CrewUserRoleColumns {
 	c.fields = []accesstypes.Field{
 		"Kind",
 		"Axis",
-		"Domain",
+		"DomainID",
 		"Role",
-		"User",
+		"UserID",
 		"CreatedAt",
 	}
 
@@ -224,8 +224,8 @@ func (c *CrewUserRoleColumns) Axis() *CrewUserRoleColumns {
 	return c
 }
 
-func (c *CrewUserRoleColumns) Domain() *CrewUserRoleColumns {
-	c.fields = append(c.fields, "Domain")
+func (c *CrewUserRoleColumns) DomainID() *CrewUserRoleColumns {
+	c.fields = append(c.fields, "DomainID")
 
 	return c
 }
@@ -236,8 +236,8 @@ func (c *CrewUserRoleColumns) Role() *CrewUserRoleColumns {
 	return c
 }
 
-func (c *CrewUserRoleColumns) User() *CrewUserRoleColumns {
-	c.fields = append(c.fields, "User")
+func (c *CrewUserRoleColumns) UserID() *CrewUserRoleColumns {
+	c.fields = append(c.fields, "UserID")
 
 	return c
 }
@@ -264,8 +264,8 @@ func (p CrewUserRoleQueryPartialClause) Kind() CrewUserRoleQueryIdent[string] {
 	return CrewUserRoleQueryIdent[string]{Ident: resource.NewIdent[string]("Kind", p.partialClause, true)}
 }
 
-func (p CrewUserRoleQueryPartialClause) User() CrewUserRoleQueryIdent[string] {
-	return CrewUserRoleQueryIdent[string]{Ident: resource.NewIdent[string]("User", p.partialClause, true)}
+func (p CrewUserRoleQueryPartialClause) UserID() CrewUserRoleQueryIdent[string] {
+	return CrewUserRoleQueryIdent[string]{Ident: resource.NewIdent[string]("UserID", p.partialClause, true)}
 }
 
 type CrewUserRoleQueryClause struct {
@@ -342,16 +342,16 @@ func (c *crewUserRoleSort) Axis() *CrewUserRoleSort {
 	return c.addField("Axis")
 }
 
-func (c *crewUserRoleSort) Domain() *CrewUserRoleSort {
-	return c.addField("Domain")
+func (c *crewUserRoleSort) DomainID() *CrewUserRoleSort {
+	return c.addField("DomainID")
 }
 
 func (c *crewUserRoleSort) Role() *CrewUserRoleSort {
 	return c.addField("Role")
 }
 
-func (c *crewUserRoleSort) User() *CrewUserRoleSort {
-	return c.addField("User")
+func (c *crewUserRoleSort) UserID() *CrewUserRoleSort {
+	return c.addField("UserID")
 }
 
 func (c *crewUserRoleSort) CreatedAt() *CrewUserRoleSort {
@@ -378,13 +378,13 @@ type CrewUserRoleCreatePatch struct {
 	patchSet *resource.PatchSet[CrewUserRole]
 }
 
-func NewCrewUserRoleCreatePatchFromPatchSet(kind string, axis string, domain string, role string, user string, patchSet *resource.PatchSet[CrewUserRole]) *CrewUserRoleCreatePatch {
+func NewCrewUserRoleCreatePatchFromPatchSet(kind string, axis string, domainID string, role string, userID string, patchSet *resource.PatchSet[CrewUserRole]) *CrewUserRoleCreatePatch {
 	patchSet.
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
-		SetKey("User", user).
+		SetKey("UserID", userID).
 		SetPatchType(resource.CreatePatchType)
 	patch := &CrewUserRoleCreatePatch{patchSet: patchSet}
 	patch.registerDefaultFuncs()
@@ -392,13 +392,13 @@ func NewCrewUserRoleCreatePatchFromPatchSet(kind string, axis string, domain str
 	return patch
 }
 
-func NewCrewUserRoleCreatePatch(kind string, axis string, domain string, role string, user string) *CrewUserRoleCreatePatch {
+func NewCrewUserRoleCreatePatch(kind string, axis string, domainID string, role string, userID string) *CrewUserRoleCreatePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[CrewUserRole]()).
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
-		SetKey("User", user).
+		SetKey("UserID", userID).
 		SetPatchType(resource.CreatePatchType)
 	patch := &CrewUserRoleCreatePatch{patchSet: patchSet}
 	patch.registerDefaultFuncs()
@@ -469,8 +469,8 @@ func (p *CrewUserRoleCreatePatch) Axis() string {
 	return v
 }
 
-func (p *CrewUserRoleCreatePatch) Domain() string {
-	v, _ := p.patchSet.Key("Domain").(string)
+func (p *CrewUserRoleCreatePatch) DomainID() string {
+	v, _ := p.patchSet.Key("DomainID").(string)
 
 	return v
 }
@@ -481,8 +481,8 @@ func (p *CrewUserRoleCreatePatch) Role() string {
 	return v
 }
 
-func (p *CrewUserRoleCreatePatch) User() string {
-	v, _ := p.patchSet.Key("User").(string)
+func (p *CrewUserRoleCreatePatch) UserID() string {
+	v, _ := p.patchSet.Key("UserID").(string)
 
 	return v
 }
@@ -512,13 +512,13 @@ type CrewUserRoleUpdatePatch struct {
 	patchSet *resource.PatchSet[CrewUserRole]
 }
 
-func NewCrewUserRoleUpdatePatchFromPatchSet(kind string, axis string, domain string, role string, user string, patchSet *resource.PatchSet[CrewUserRole]) *CrewUserRoleUpdatePatch {
+func NewCrewUserRoleUpdatePatchFromPatchSet(kind string, axis string, domainID string, role string, userID string, patchSet *resource.PatchSet[CrewUserRole]) *CrewUserRoleUpdatePatch {
 	patchSet.
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
-		SetKey("User", user).
+		SetKey("UserID", userID).
 		SetPatchType(resource.UpdatePatchType)
 
 	patch := &CrewUserRoleUpdatePatch{patchSet: patchSet}
@@ -527,13 +527,13 @@ func NewCrewUserRoleUpdatePatchFromPatchSet(kind string, axis string, domain str
 	return patch
 }
 
-func NewCrewUserRoleUpdatePatch(kind string, axis string, domain string, role string, user string) *CrewUserRoleUpdatePatch {
+func NewCrewUserRoleUpdatePatch(kind string, axis string, domainID string, role string, userID string) *CrewUserRoleUpdatePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[CrewUserRole]()).
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
-		SetKey("User", user).
+		SetKey("UserID", userID).
 		SetPatchType(resource.UpdatePatchType)
 
 	patch := &CrewUserRoleUpdatePatch{patchSet: patchSet}
@@ -609,8 +609,8 @@ func (p *CrewUserRoleUpdatePatch) Axis() string {
 	return v
 }
 
-func (p *CrewUserRoleUpdatePatch) Domain() string {
-	v, _ := p.patchSet.Key("Domain").(string)
+func (p *CrewUserRoleUpdatePatch) DomainID() string {
+	v, _ := p.patchSet.Key("DomainID").(string)
 
 	return v
 }
@@ -621,8 +621,8 @@ func (p *CrewUserRoleUpdatePatch) Role() string {
 	return v
 }
 
-func (p *CrewUserRoleUpdatePatch) User() string {
-	v, _ := p.patchSet.Key("User").(string)
+func (p *CrewUserRoleUpdatePatch) UserID() string {
+	v, _ := p.patchSet.Key("UserID").(string)
 
 	return v
 }
@@ -652,25 +652,25 @@ type CrewUserRoleDeletePatch struct {
 	patchSet *resource.PatchSet[CrewUserRole]
 }
 
-func NewCrewUserRoleDeletePatchFromPatchSet(kind string, axis string, domain string, role string, user string, patchSet *resource.PatchSet[CrewUserRole]) *CrewUserRoleDeletePatch {
+func NewCrewUserRoleDeletePatchFromPatchSet(kind string, axis string, domainID string, role string, userID string, patchSet *resource.PatchSet[CrewUserRole]) *CrewUserRoleDeletePatch {
 	patchSet.
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
-		SetKey("User", user).
+		SetKey("UserID", userID).
 		SetPatchType(resource.DeletePatchType)
 
 	return &CrewUserRoleDeletePatch{patchSet: patchSet}
 }
 
-func NewCrewUserRoleDeletePatch(kind string, axis string, domain string, role string, user string) *CrewUserRoleDeletePatch {
+func NewCrewUserRoleDeletePatch(kind string, axis string, domainID string, role string, userID string) *CrewUserRoleDeletePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[CrewUserRole]()).
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
-		SetKey("User", user).
+		SetKey("UserID", userID).
 		SetPatchType(resource.DeletePatchType)
 
 	return &CrewUserRoleDeletePatch{patchSet: patchSet}
@@ -708,8 +708,8 @@ func (p *CrewUserRoleDeletePatch) Axis() string {
 	return v
 }
 
-func (p *CrewUserRoleDeletePatch) Domain() string {
-	v, _ := p.patchSet.Key("Domain").(string)
+func (p *CrewUserRoleDeletePatch) DomainID() string {
+	v, _ := p.patchSet.Key("DomainID").(string)
 
 	return v
 }
@@ -720,8 +720,8 @@ func (p *CrewUserRoleDeletePatch) Role() string {
 	return v
 }
 
-func (p *CrewUserRoleDeletePatch) User() string {
-	v, _ := p.patchSet.Key("User").(string)
+func (p *CrewUserRoleDeletePatch) UserID() string {
+	v, _ := p.patchSet.Key("UserID").(string)
 
 	return v
 }

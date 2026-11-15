@@ -44,8 +44,10 @@ func TestPilotCardIsCallerScoped(t *testing.T) {
 				t.Fatalf("rows = %d, want %d: %s", len(rows), tt.wantRows, body)
 			}
 			row := rows[0]
-			if got := row["userId"]; got != string(tt.user) {
-				t.Errorf("userId = %v, want %v", got, tt.user)
+			// The card is keyed by the caller as the permission store names them: the
+			// id of the account the request ran as.
+			if got, want := row["userId"], string(account(t, tt.user)); got != want {
+				t.Errorf("userId = %v, want %v, the id of %s's account", got, want, tt.user)
 			}
 			if tt.wantClearance >= 0 && row["clearance"] != tt.wantClearance {
 				t.Errorf("clearance = %v, want %v", row["clearance"], tt.wantClearance)

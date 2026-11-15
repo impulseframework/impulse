@@ -1,5 +1,7 @@
 package resources
 
+import "github.com/impulseframework/impulse"
+
 type (
 	// Tenant is the tenant record (@tenant) as the portal declares it: the table the
 	// console serves, declared here too because a site's generator reads one package and
@@ -18,7 +20,7 @@ type (
 	// @suppress(allHandlers)
 	// @suppress(allRoutes)
 	Tenant struct {
-		ID string `spanner:"Id"`
+		ID impulse.UUID `spanner:"Id"`
 		// Name is the tenant's name as its people know it: the session's tenant list
 		// carries it, so the place switcher shows it to them.
 		// @tenantName

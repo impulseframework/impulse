@@ -26,16 +26,16 @@ func (StaffTenantInvitation) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; staffTenantInvitationReadSets holds one Set per read operation.
 type staffTenantInvitationRead struct {
-	ID         impulse.UUID  `json:"id"         perm:"-"`
-	Domain     string        `json:"domain"`
-	Email      string        `json:"email"`
-	Name       *string       `json:"name"`
-	RoleNames  []string      `json:"roleNames"`
-	InvitedBy  *impulse.UUID `json:"invitedBy"`
-	CreatedAt  time.Time     `json:"createdAt"`
-	ExpiresAt  time.Time     `json:"expiresAt"`
-	ConsumedAt *time.Time    `json:"consumedAt"`
-	Pending    bool          `json:"pending"`
+	ID              impulse.UUID  `json:"id"              perm:"-"`
+	DomainID        string        `json:"domainId"`
+	Email           string        `json:"email"`
+	Name            *string       `json:"name"`
+	RoleNames       []string      `json:"roleNames"`
+	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
+	CreatedAt       time.Time     `json:"createdAt"`
+	ExpiresAt       time.Time     `json:"expiresAt"`
+	ConsumedAt      *time.Time    `json:"consumedAt"`
+	Pending         bool          `json:"pending"`
 }
 
 var staffTenantInvitationReadSets resource.SetCache[StaffTenantInvitation, staffTenantInvitationRead]
@@ -145,11 +145,11 @@ func NewStaffTenantInvitationColumns() *StaffTenantInvitationColumns {
 func (c *StaffTenantInvitationColumns) All() *StaffTenantInvitationColumns {
 	c.fields = []accesstypes.Field{
 		"ID",
-		"Domain",
+		"DomainID",
 		"Email",
 		"Name",
 		"RoleNames",
-		"InvitedBy",
+		"InvitedByUserID",
 		"CreatedAt",
 		"ExpiresAt",
 		"ConsumedAt",
@@ -165,8 +165,8 @@ func (c *StaffTenantInvitationColumns) ID() *StaffTenantInvitationColumns {
 	return c
 }
 
-func (c *StaffTenantInvitationColumns) Domain() *StaffTenantInvitationColumns {
-	c.fields = append(c.fields, "Domain")
+func (c *StaffTenantInvitationColumns) DomainID() *StaffTenantInvitationColumns {
+	c.fields = append(c.fields, "DomainID")
 
 	return c
 }
@@ -189,8 +189,8 @@ func (c *StaffTenantInvitationColumns) RoleNames() *StaffTenantInvitationColumns
 	return c
 }
 
-func (c *StaffTenantInvitationColumns) InvitedBy() *StaffTenantInvitationColumns {
-	c.fields = append(c.fields, "InvitedBy")
+func (c *StaffTenantInvitationColumns) InvitedByUserID() *StaffTenantInvitationColumns {
+	c.fields = append(c.fields, "InvitedByUserID")
 
 	return c
 }
@@ -235,8 +235,8 @@ func (p StaffTenantInvitationQueryPartialClause) ID() StaffTenantInvitationQuery
 	return StaffTenantInvitationQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p StaffTenantInvitationQueryPartialClause) Domain() StaffTenantInvitationQueryIdent[string] {
-	return StaffTenantInvitationQueryIdent[string]{Ident: resource.NewIdent[string]("Domain", p.partialClause, true)}
+func (p StaffTenantInvitationQueryPartialClause) DomainID() StaffTenantInvitationQueryIdent[string] {
+	return StaffTenantInvitationQueryIdent[string]{Ident: resource.NewIdent[string]("DomainID", p.partialClause, true)}
 }
 
 func (p StaffTenantInvitationQueryPartialClause) Email() StaffTenantInvitationQueryIdent[string] {
@@ -321,8 +321,8 @@ func (c *staffTenantInvitationSort) ID() *StaffTenantInvitationSort {
 	return c.addField("ID")
 }
 
-func (c *staffTenantInvitationSort) Domain() *StaffTenantInvitationSort {
-	return c.addField("Domain")
+func (c *staffTenantInvitationSort) DomainID() *StaffTenantInvitationSort {
+	return c.addField("DomainID")
 }
 
 func (c *staffTenantInvitationSort) Email() *StaffTenantInvitationSort {
@@ -337,8 +337,8 @@ func (c *staffTenantInvitationSort) RoleNames() *StaffTenantInvitationSort {
 	return c.addField("RoleNames")
 }
 
-func (c *staffTenantInvitationSort) InvitedBy() *StaffTenantInvitationSort {
-	return c.addField("InvitedBy")
+func (c *staffTenantInvitationSort) InvitedByUserID() *StaffTenantInvitationSort {
+	return c.addField("InvitedByUserID")
 }
 
 func (c *staffTenantInvitationSort) CreatedAt() *StaffTenantInvitationSort {

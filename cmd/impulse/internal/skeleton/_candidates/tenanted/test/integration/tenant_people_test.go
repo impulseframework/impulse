@@ -77,11 +77,12 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 		ids[name] = created.ID
 	}
 	// A tenant's own method gives a role to a person the tenant already holds, so the
-	// role in south is given through the whole application's method, which names the tenant.
-	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"username":"sam","role":"TenantAdministrator","domain":"`+south+`"}`)); status != http.StatusNoContent {
+	// role in south is given through the whole application's method, which names the
+	// tenant, and the person by the id of their account as every method does.
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", []byte(`{"userId":"`+ids["sam"]+`","role":"TenantAdministrator","domain":"`+south+`"}`)); status != http.StatusNoContent {
 		t.Fatalf("giving sam a role in %s: status %d: %s", south, status, body)
 	}
-	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf("gail", "FeatureAdministrator", false)); status != http.StatusNoContent {
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(ids["gail"], "FeatureAdministrator", false)); status != http.StatusNoContent {
 		t.Fatalf("giving gail a role of the whole application: status %d: %s", status, body)
 	}
 	// sam is one of south's people now, as its administrator reads them; and south is

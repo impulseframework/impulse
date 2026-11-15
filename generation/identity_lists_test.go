@@ -30,9 +30,11 @@ func writeResourcesPackage(t *testing.T, dir string, files map[string]string) {
 	}
 }
 
-// shipTenantSource declares Ship the tenant record, in the grouped form the resources
-// packages use.
+// shipTenantSource declares Ship the tenant record, keyed by an id its create path
+// generates, in the grouped form the resources packages use.
 const shipTenantSource = `package resources
+
+import "github.com/impulseframework/impulse"
 
 type (
 	// Ship is the tenant record.
@@ -40,7 +42,7 @@ type (
 	// @resource
 	// @tenant
 	Ship struct {
-		ID string ` + "`spanner:\"Id\"`" + `
+		ID impulse.UUID ` + "`spanner:\"Id\"`" + `
 	}
 
 	// Dock is a table of the application's.
@@ -74,12 +76,14 @@ func Test_tenantRecordNameIn(t *testing.T) {
 			name: "a declaration of its own, the comment on the declaration, with a creation shape",
 			files: map[string]string{"sectors.go": `package resources
 
+import "github.com/impulseframework/impulse"
+
 // Sector is the tenant record.
 //
 // @resource
 // @tenant(creation: selfService)
 type Sector struct {
-	ID string
+	ID impulse.UUID
 }
 `},
 			want: "Sector",
@@ -88,9 +92,11 @@ type Sector struct {
 			name: "two annotations on one line",
 			files: map[string]string{"sectors.go": `package resources
 
+import "github.com/impulseframework/impulse"
+
 // @resource @tenant
 type Sector struct {
-	ID string
+	ID impulse.UUID
 }
 `},
 			want: "Sector",
@@ -124,11 +130,13 @@ type (
 			name: "a comment the scanner refuses is passed over",
 			files: map[string]string{"sectors.go": `package resources
 
+import "github.com/impulseframework/impulse"
+
 // @resource
 // @tenant
 // @noSuchAnnotation
 type Sector struct {
-	ID string
+	ID impulse.UUID
 }
 `},
 		},
@@ -136,15 +144,15 @@ type Sector struct {
 			name: "a test file and a file the build leaves out are not read",
 			files: map[string]string{
 				"docks.go":        "package resources\n\n// @resource\ntype Dock struct {\n\tID string\n}\n",
-				"sectors_test.go": "package resources\n\n// @resource\n// @tenant\ntype Sector struct {\n\tID string\n}\n",
-				"ignored.go":      "//go:build ignore\n\npackage resources\n\n// @resource\n// @tenant\ntype Region struct {\n\tID string\n}\n",
+				"sectors_test.go": "package resources\n\nimport \"github.com/impulseframework/impulse\"\n\n// @resource\n// @tenant\ntype Sector struct {\n\tID impulse.UUID\n}\n",
+				"ignored.go":      "//go:build ignore\n\npackage resources\n\nimport \"github.com/impulseframework/impulse\"\n\n// @resource\n// @tenant\ntype Region struct {\n\tID impulse.UUID\n}\n",
 			},
 		},
 		{
 			name: "two tenant records",
 			files: map[string]string{
 				"ships.go":   shipTenantSource,
-				"sectors.go": "package resources\n\n// @resource\n// @tenant\ntype Sector struct {\n\tID string\n}\n",
+				"sectors.go": "package resources\n\nimport \"github.com/impulseframework/impulse\"\n\n// @resource\n// @tenant\ntype Sector struct {\n\tID impulse.UUID\n}\n",
 			},
 			wantErr: "structs Sector and Ship each carry @tenant; an application has one tenant record",
 		},
@@ -188,10 +196,11 @@ type Sector struct {
 	})
 }
 
-// shipsTable is the tenant record's table as the schema holds it: one string key.
+// shipsTable is the tenant record's table as the schema holds it: one key, the
+// generated id, which the schema stores as its text in a STRING column.
 func shipsTable() *tableMetadata {
 	return &tableMetadata{PkCount: 1, Columns: map[string]columnMeta{
-		"Id":   {IsPrimaryKey: true, SpannerType: "STRING(64)"},
+		"Id":   {IsPrimaryKey: true, SpannerType: "STRING(36)"},
 		"Name": {SpannerType: "STRING(MAX)"},
 	}}
 }
@@ -237,9 +246,9 @@ func Test_identityInstance_refuseListNamesTaken(t *testing.T) {
 }
 
 // Test_readIdentityTenant pins the tenant record as the sources name it: the struct, its
-// table by the generator's plural, and the table's one string key off the schema; nil
-// for an application with none; and the refusals of a record the lists cannot be written
-// over.
+// table by the generator's plural, and the table's one key off the schema, a STRING
+// column holding the generated id's text; nil for an application with none; and the
+// refusals of a record the lists cannot be written over.
 func Test_readIdentityTenant(t *testing.T) {
 	t.Parallel()
 
@@ -251,7 +260,7 @@ func Test_readIdentityTenant(t *testing.T) {
 		wantErr string
 	}{
 		{name: "no tenant record", source: "package resources\n\n// @resource\ntype Dock struct {\n\tID string\n}\n"},
-		{name: "the record, its table and its key", source: shipTenantSource, table: shipsTable(), want: &identityTenant{name: "Ship", table: "Ships", key: "Id", outlets: []string{"default"}}},
+		{name: "the record, its table and its key", source: shipTenantSource, table: shipsTable(), want: &identityTenant{name: "Ship", table: "Ships", key: "Id", outlets: []string{"default"}, word: "ship"}},
 		{name: "a record whose table the schema does not hold", source: shipTenantSource, wantErr: "struct Ship is the tenant record (@tenant) and the schema holds no table Ships"},
 		{
 			name:   "a record keyed by two columns",
@@ -263,10 +272,10 @@ func Test_readIdentityTenant(t *testing.T) {
 			wantErr: "its table Ships has 2 key columns; the tenant record has one key",
 		},
 		{
-			name:    "a record whose key is no string",
+			name:    "a record whose key column is no STRING, so it holds no id's text",
 			source:  shipTenantSource,
 			table:   &tableMetadata{PkCount: 1, Columns: map[string]columnMeta{"Id": {IsPrimaryKey: true, SpannerType: "INT64"}}},
-			wantErr: "its key Ships.Id is INT64; the tenant record's key is a string",
+			wantErr: "its key Ships.Id is INT64; the tenant record's key is an id the create path generates, kept as its text, the domain in every tenant-scoped URL",
 		},
 	}
 	for _, tt := range tests {
@@ -445,7 +454,7 @@ func Test_identityTenantUsersTemplate_accountColumns(t *testing.T) {
 	if len(account) == 0 {
 		t.Fatal("no field found in identityUsersTemplate: the pattern no longer reads the template")
 	}
-	listed := columns(identityTenantUsersTemplate, "Domain", "HeldElsewhere", "HeldGlobally")
+	listed := columns(identityTenantUsersTemplate, "DomainID", "HeldElsewhere", "HeldGlobally")
 	if diff := cmp.Diff(account, listed); diff != "" {
 		t.Errorf("the people's list against the users declaration (-declaration +list):\n%s", diff)
 	}
@@ -546,12 +555,12 @@ func Test_tenantRecordIn_outlets(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			source := "package resources\n\ntype (\n\t// Ship is the tenant record.\n\t//\n\t// @resource\n\t// @tenant\n" + tt.outlet +
-				"\tShip struct {\n\t\tID string `spanner:\"Id\"`\n\t}\n)\n"
+			source := "package resources\n\nimport \"github.com/impulseframework/impulse\"\n\ntype (\n\t// Ship is the tenant record.\n\t//\n\t// @resource\n\t// @tenant\n" + tt.outlet +
+				"\tShip struct {\n\t\tID impulse.UUID `spanner:\"Id\"`\n\t}\n)\n"
 			dir := filepath.Join(t.TempDir(), "resources")
 			writeResourcesPackage(t, dir, map[string]string{"fixture.go": source})
 
-			name, outlets, err := tenantRecordIn(dir)
+			name, outlets, _, err := tenantRecordIn(dir)
 			if err != nil {
 				t.Fatalf("tenantRecordIn() error = %v", err)
 			}
@@ -562,6 +571,77 @@ func Test_tenantRecordIn_outlets(t *testing.T) {
 				t.Errorf("tenantRecordIn() outlets mismatch (-want +got):\n%s", diff)
 			}
 		})
+	}
+}
+
+// Test_tenantRecordIn_label pins the label the tenant record is read as declaring for one
+// tenant before the packages load, and the word a sentence says for a tenant from it:
+// the label where the record declares one, else the record's name in words.
+func Test_tenantRecordIn_label(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		record    string
+		tenant    string
+		wantLabel string
+		wantWord  string
+	}{
+		{name: "no label: the record's name in words", record: "Customer", tenant: "@tenant", wantWord: "customer"},
+		{name: "a record of two words", record: "ServiceArea", tenant: "@tenant(creation: both)", wantWord: "service area"},
+		{name: "a label beside a creation shape", record: "Tenant", tenant: `@tenant(creation: both, label: "Service district")`, wantLabel: "Service district", wantWord: "service district"},
+		{name: "a label that opens with an initialism keeps it", record: "Tenant", tenant: `@tenant(label: "HQ unit")`, wantLabel: "HQ unit", wantWord: "HQ unit"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			source := "package resources\n\nimport \"github.com/impulseframework/impulse\"\n\ntype (\n\t// " + tt.record + " is the tenant record.\n\t//\n\t// @resource\n\t// " + tt.tenant + "\n" +
+				"\t" + tt.record + " struct {\n\t\tID impulse.UUID `spanner:\"Id\"`\n\t}\n)\n"
+			dir := filepath.Join(t.TempDir(), "resources")
+			writeResourcesPackage(t, dir, map[string]string{"fixture.go": source})
+
+			name, _, label, err := tenantRecordIn(dir)
+			if err != nil {
+				t.Fatalf("tenantRecordIn() error = %v", err)
+			}
+			if name != tt.record || label != tt.wantLabel {
+				t.Fatalf("tenantRecordIn() = %q with the label %q, want %q with %q", name, label, tt.record, tt.wantLabel)
+			}
+			if got := sentenceWord(name, label); got != tt.wantWord {
+				t.Errorf("sentenceWord(%q, %q) = %q, want %q", name, label, got, tt.wantWord)
+			}
+		})
+	}
+}
+
+// Test_identitySourceData_TenantWord pins the word the generated client hands the
+// identity package for a tenant (identity.WithTenantWord): the tenant record's, and none
+// in an application with no tenant record, whose client passes no word.
+func Test_identitySourceData_TenantWord(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		tenant *identityTenant
+		want   string
+	}{
+		{name: "no tenant record"},
+		{name: "the record's word", tenant: &identityTenant{name: "Customer", table: "Customers", word: "customer"}, want: "customer"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			d := &identitySourceData{identityInstance: &identityInstance{auth: "People", tenant: tt.tenant}}
+			if got := d.TenantWord(); got != tt.want {
+				t.Errorf("TenantWord() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+	// The client's constructor passes the word first, so a caller's own option is the one kept.
+	if !strings.Contains(identityClientTemplate, "opts = append([]identity.Option{identity.WithTenantWord({{ printf \"%q\" .TenantWord }})}, opts...)") {
+		t.Error("identityClientTemplate no longer passes identity.WithTenantWord ahead of the caller's options")
 	}
 }
 

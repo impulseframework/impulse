@@ -1,4 +1,4 @@
-ALTER INDEX SessionMailLinksByTenant DROP STORED COLUMN Name;
+ALTER INDEX SessionMailLinksByTenantId DROP STORED COLUMN Name;
 ALTER TABLE SessionMailLinks DROP COLUMN Name;
 ALTER TABLE SessionPendingSignIns DROP COLUMN Name;
 ALTER INDEX SessionUsersByUsername DROP STORED COLUMN Name;

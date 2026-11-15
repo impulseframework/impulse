@@ -233,6 +233,10 @@ func (c *DataConfiguration) startTenants(ctx context.Context) error {
 	if err := c.tenants.Start(ctx); err != nil {
 		return errors.Wrap(err, "resource.TenantRoster.Start()")
 	}
+	// The invitation screen is read by a person not yet signed in, who can read no
+	// tenant record: the roster names the tenant an invitation seats them in, from its
+	// copy, so the screen says where they are invited and not the tenant's id.
+	c.staff.Session().SetTenantNames(c.tenants)
 
 	return nil
 }

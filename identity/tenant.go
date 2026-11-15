@@ -90,15 +90,11 @@ func (t *Tenant) AssignRole(ctx context.Context, txn resource.ReadWriteTransacti
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	username, found, err := t.manager.store.Username(ctx, txn, userID)
-	if err != nil {
-		return errors.Wrap(err, "identity.Store.Username()")
-	}
-	if !found {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	if err := t.manager.RequireUser(ctx, txn, userID); err != nil {
+		return err
 	}
 
-	return t.manager.AssignRole(ctx, txn, t.scope(), username, role)
+	return t.manager.AssignRole(ctx, txn, t.scope(), userID, role)
 }
 
 // RemoveRole buffers the removal of a role a person holds in the tenant, under the rules
@@ -125,22 +121,24 @@ func (t *Tenant) RemoveRole(ctx context.Context, txn resource.ReadWriteTransacti
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 	}
 
-	key := access.NewMembershipKey(t.scope(), accesstypes.User(username), role)
+	key := access.NewMembershipKey(t.scope(), User(userID), role)
 	own, err := t.manager.store.HasMembership(ctx, txn, &key)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.HasMembership()")
 	}
 	if own {
-		return t.manager.removeMembership(ctx, txn, t.scope(), username, &key)
+		return t.manager.removeMembership(ctx, txn, t.scope(), userID, &key)
 	}
 
-	every := access.NewMembershipKey(accesstypes.EveryDomainPolicyScope(), accesstypes.User(username), role)
+	every := access.NewMembershipKey(accesstypes.EveryDomainPolicyScope(), User(userID), role)
 	everywhere, err := t.manager.store.HasMembership(ctx, txn, &every)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.HasMembership()")
 	}
 	if everywhere {
-		return httpio.NewConflictMessagef("%s holds the role %s in every tenant, which is not one tenant's to take away", username, role)
+		word := t.manager.tenantWord
+
+		return httpio.NewConflictMessagef("%s holds the role %s in every %s, which is not one %s's to take away", username, role, word, word)
 	}
 
 	return nil

@@ -27,7 +27,7 @@ func (CrewSectorIdentity) DefaultConfig() resource.Config {
 // enforce; crewSectorIdentityReadSets holds one Set per read operation.
 type crewSectorIdentityRead struct {
 	ID            impulse.UUID `json:"id"            perm:"-"`
-	Domain        string       `json:"domain"`
+	DomainID      string       `json:"domainId"`
 	UserID        impulse.UUID `json:"userId"`
 	Username      string       `json:"username"`
 	Method        string       `json:"method"`
@@ -148,7 +148,7 @@ func NewCrewSectorIdentityColumns() *CrewSectorIdentityColumns {
 func (c *CrewSectorIdentityColumns) All() *CrewSectorIdentityColumns {
 	c.fields = []accesstypes.Field{
 		"ID",
-		"Domain",
+		"DomainID",
 		"UserID",
 		"Username",
 		"Method",
@@ -171,8 +171,8 @@ func (c *CrewSectorIdentityColumns) ID() *CrewSectorIdentityColumns {
 	return c
 }
 
-func (c *CrewSectorIdentityColumns) Domain() *CrewSectorIdentityColumns {
-	c.fields = append(c.fields, "Domain")
+func (c *CrewSectorIdentityColumns) DomainID() *CrewSectorIdentityColumns {
+	c.fields = append(c.fields, "DomainID")
 
 	return c
 }
@@ -259,8 +259,8 @@ func (p CrewSectorIdentityQueryPartialClause) ID() CrewSectorIdentityQueryIdent[
 	return CrewSectorIdentityQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p CrewSectorIdentityQueryPartialClause) Domain() CrewSectorIdentityQueryIdent[string] {
-	return CrewSectorIdentityQueryIdent[string]{Ident: resource.NewIdent[string]("Domain", p.partialClause, true)}
+func (p CrewSectorIdentityQueryPartialClause) DomainID() CrewSectorIdentityQueryIdent[string] {
+	return CrewSectorIdentityQueryIdent[string]{Ident: resource.NewIdent[string]("DomainID", p.partialClause, true)}
 }
 
 func (p CrewSectorIdentityQueryPartialClause) UserID() CrewSectorIdentityQueryIdent[impulse.UUID] {
@@ -357,8 +357,8 @@ func (c *crewSectorIdentitySort) ID() *CrewSectorIdentitySort {
 	return c.addField("ID")
 }
 
-func (c *crewSectorIdentitySort) Domain() *CrewSectorIdentitySort {
-	return c.addField("Domain")
+func (c *crewSectorIdentitySort) DomainID() *CrewSectorIdentitySort {
+	return c.addField("DomainID")
 }
 
 func (c *crewSectorIdentitySort) UserID() *CrewSectorIdentitySort {

@@ -18,8 +18,9 @@ type (
 	// moment, with no release and no migration. The table and the grants ship with the
 	// release either way; the flag decides whether the desk is there.
 	//
-	// AwardedBy and AwardedAt are the server's: the session's user and the commit
-	// timestamp, written at create and never by the wire. PilotId leads an index with
+	// AwardedByUserID, AwardedByName and AwardedAt are the server's: the id of the account of
+	// the session's user, their username as it was then (what a page shows), and the
+	// commit timestamp, written at create and never by the wire. PilotId leads an index with
 	// the award time, so the desk lists one pilot's citations in award order off the
 	// index, and the field is filterable in the browser.
 	//
@@ -30,10 +31,11 @@ type (
 	// @order(AwardedAt desc)
 	// @page(default: 25, max: 200)
 	Commendation struct {
-		ID        impulse.UUID `spanner:"Id"`
-		PilotID   impulse.UUID `spanner:"PilotId"`
-		Citation  string       `spanner:"Citation"`
-		AwardedBy string       `spanner:"AwardedBy" conditions:"output_only" default_create_fn:"currentUser"`
-		AwardedAt time.Time    `spanner:"AwardedAt" conditions:"output_only" default_create_fn:"resource.CommitTimestamp"`
+		ID              impulse.UUID `spanner:"Id"`
+		PilotID         impulse.UUID `spanner:"PilotId"`
+		Citation        string       `spanner:"Citation"`
+		AwardedByUserID string       `spanner:"AwardedByUserId"     conditions:"output_only" default_create_fn:"currentUser"`
+		AwardedByName   string       `spanner:"AwardedByName" conditions:"output_only" default_create_fn:"currentUserName"`
+		AwardedAt       time.Time    `spanner:"AwardedAt"     conditions:"output_only" default_create_fn:"resource.CommitTimestamp"`
 	}
 )

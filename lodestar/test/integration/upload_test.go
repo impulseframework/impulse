@@ -13,7 +13,6 @@ package integration
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -23,14 +22,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
 	"github.com/impulseframework/impulse/resource"
-	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // uploadFile is one file part of a scripted upload.
@@ -78,13 +75,7 @@ func multipartBody(t *testing.T, request string, files ...uploadFile) (body *byt
 func doUploadAs(t *testing.T, h http.Handler, user accesstypes.User, target string, body *bytes.Buffer, contentType string, dryRun bool) (statusCode int, respBody []byte) {
 	t.Helper()
 
-	sessionID, err := impulse.NewUUID()
-	if err != nil {
-		t.Fatalf("impulse.NewUUID: %v", err)
-	}
-	ctx := context.WithValue(t.Context(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
-		SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: string(user)},
-	})
+	ctx := sessionContext(t, user)
 	req := httptest.NewRequestWithContext(ctx, http.MethodPost, target, body)
 	req.Header.Set("Content-Type", contentType)
 	if dryRun {
@@ -175,8 +166,10 @@ func TestAttachMissionDocument(t *testing.T) {
 				if _, onWire := row["storeKey"]; onWire {
 					t.Errorf("row %v carries the store key", row)
 				}
-				if row["uploadedBy"] != string(tt.user) || row["missionId"] != tt.missionID {
-					t.Errorf("row = %v, want uploadedBy %s on mission %s", row, tt.user, tt.missionID)
+				// Who attached it: the id of the caller's account, with the caller's
+				// username beside it for people to read.
+				if row["uploadedByUserId"] != string(account(t, tt.user)) || row["uploadedByName"] != string(tt.user) || row["missionId"] != tt.missionID {
+					t.Errorf("row = %v, want uploadedBy the id of %s's account, uploadedByName %s, on mission %s", row, tt.user, tt.user, tt.missionID)
 				}
 			}
 			if status == http.StatusOK && !tt.dryRun {
@@ -220,7 +213,7 @@ func attachHaulerBrief(t *testing.T, h http.Handler) string {
 	if len(rows) != 1 {
 		t.Fatalf("rows = %v, want one", rows)
 	}
-	assertKeys(t, rows[0], []string{"id", "missionId", "title", "fileName", "contentType", "size", "uploadedBy", "uploadedAt", "provenance", "digest"})
+	assertKeys(t, rows[0], []string{"id", "missionId", "title", "fileName", "contentType", "size", "uploadedByUserId", "uploadedByName", "uploadedAt", "provenance", "digest"})
 
 	return cell[string](t, rows[0], "id")
 }
@@ -232,13 +225,7 @@ const haulerBrief = "Halvard hauler: crew of four, main drive lost"
 func fileRequestAs(t *testing.T, h http.Handler, user accesstypes.User, target string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 
-	sessionID, err := impulse.NewUUID()
-	if err != nil {
-		t.Fatalf("impulse.NewUUID: %v", err)
-	}
-	ctx := context.WithValue(t.Context(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
-		SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: string(user)},
-	})
+	ctx := sessionContext(t, user)
 	if portalUsers[user] {
 		ctx = auth.Bind(ctx, members.Name)
 	}
@@ -265,7 +252,7 @@ func TestMissionDocument_portalListing(t *testing.T) {
 	provesGrant(t, members.Roles(), "ClientPortal", "List", "MissionDocuments", "client = subject.client")
 	provesGrant(t, members.Roles(), "ClientPortal", "Read", "MissionDocuments", "client = subject.client")
 
-	portalStatus, portalBody := doRequestAs(t, h, "client", http.MethodGet, "/portal/api/sectors/anvil/mission-documents", "")
+	portalStatus, portalBody := doRequestAs(t, h, "client", http.MethodGet, "/portal/api/sectors/"+anvil+"/mission-documents", "")
 	assertStatus(t, portalStatus, http.StatusOK, portalBody)
 	portalRows := decodeRows(t, portalBody)
 	if len(portalRows) != 1 {

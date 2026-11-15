@@ -20,17 +20,18 @@ import (
 
 func (a *App) MissionDocuments() http.HandlerFunc {
 	type missionDocument struct {
-		ID          impulse.UUID                      `json:"id"          index:"true" perm:"-"`
-		MissionID   impulse.UUID                      `json:"missionId"   index:"true"`
-		Title       string                            `json:"title"`
-		FileName    string                            `json:"fileName"`
-		ContentType string                            `json:"contentType"`
-		Size        int64                             `json:"size"`
-		StoreKey    resource.Key[resources.Documents] `json:"-"`
-		UploadedBy  string                            `json:"uploadedBy"`
-		UploadedAt  time.Time                         `json:"uploadedAt"`
-		Provenance  *resources.Provenance             `json:"provenance"`
-		Digest      []byte                            `json:"digest"`
+		ID               impulse.UUID                      `json:"id"               index:"true" perm:"-"`
+		MissionID        impulse.UUID                      `json:"missionId"        index:"true"`
+		Title            string                            `json:"title"`
+		FileName         string                            `json:"fileName"`
+		ContentType      string                            `json:"contentType"`
+		Size             int64                             `json:"size"`
+		StoreKey         resource.Key[resources.Documents] `json:"-"`
+		UploadedByUserID string                            `json:"uploadedByUserId"`
+		UploadedByName   string                            `json:"uploadedByName"`
+		UploadedAt       time.Time                         `json:"uploadedAt"`
+		Provenance       *resources.Provenance             `json:"provenance"`
+		Digest           []byte                            `json:"digest"`
 	}
 
 	type response []map[string]any
@@ -97,9 +98,13 @@ func (a *App) MissionDocuments() http.HandlerFunc {
 					if !row.Masked("size") {
 						rmap["size"] = rec.Size
 					}
-				case "UploadedBy":
-					if !row.Masked("uploadedBy") {
-						rmap["uploadedBy"] = rec.UploadedBy
+				case "UploadedByUserID":
+					if !row.Masked("uploadedByUserId") {
+						rmap["uploadedByUserId"] = rec.UploadedByUserID
+					}
+				case "UploadedByName":
+					if !row.Masked("uploadedByName") {
+						rmap["uploadedByName"] = rec.UploadedByName
 					}
 				case "UploadedAt":
 					if !row.Masked("uploadedAt") {
@@ -136,17 +141,18 @@ func (a *App) MissionDocuments() http.HandlerFunc {
 
 func (a *App) MissionDocument() http.HandlerFunc {
 	type response struct {
-		ID          impulse.UUID                      `json:"id"          index:"true" perm:"-"`
-		MissionID   impulse.UUID                      `json:"missionId"`
-		Title       string                            `json:"title"`
-		FileName    string                            `json:"fileName"`
-		ContentType string                            `json:"contentType"`
-		Size        int64                             `json:"size"`
-		StoreKey    resource.Key[resources.Documents] `json:"-"`
-		UploadedBy  string                            `json:"uploadedBy"`
-		UploadedAt  time.Time                         `json:"uploadedAt"`
-		Provenance  *resources.Provenance             `json:"provenance"`
-		Digest      []byte                            `json:"digest"`
+		ID               impulse.UUID                      `json:"id"               index:"true" perm:"-"`
+		MissionID        impulse.UUID                      `json:"missionId"`
+		Title            string                            `json:"title"`
+		FileName         string                            `json:"fileName"`
+		ContentType      string                            `json:"contentType"`
+		Size             int64                             `json:"size"`
+		StoreKey         resource.Key[resources.Documents] `json:"-"`
+		UploadedByUserID string                            `json:"uploadedByUserId"`
+		UploadedByName   string                            `json:"uploadedByName"`
+		UploadedAt       time.Time                         `json:"uploadedAt"`
+		Provenance       *resources.Provenance             `json:"provenance"`
+		Digest           []byte                            `json:"digest"`
 	}
 
 	decoder := NewQueryDecoder[resources.MissionDocument, response](a, accesstypes.Read)
@@ -201,9 +207,13 @@ func (a *App) MissionDocument() http.HandlerFunc {
 				if !row.Masked("size") {
 					rmap["size"] = rec.Size
 				}
-			case "UploadedBy":
-				if !row.Masked("uploadedBy") {
-					rmap["uploadedBy"] = rec.UploadedBy
+			case "UploadedByUserID":
+				if !row.Masked("uploadedByUserId") {
+					rmap["uploadedByUserId"] = rec.UploadedByUserID
+				}
+			case "UploadedByName":
+				if !row.Masked("uploadedByName") {
+					rmap["uploadedByName"] = rec.UploadedByName
 				}
 			case "UploadedAt":
 				if !row.Masked("uploadedAt") {

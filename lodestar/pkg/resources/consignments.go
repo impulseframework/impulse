@@ -37,7 +37,7 @@ type (
 	Consignment struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		SectorID    string       `spanner:"SectorId"`
+		SectorID    impulse.UUID `spanner:"SectorId"`
 		ClientID    impulse.UUID `spanner:"ClientId"`
 		BondCode    string       `spanner:"BondCode"    conditions:"immutable"`
 		Description string       `spanner:"Description"`

@@ -23,12 +23,10 @@ import (
 )
 
 // testUser is the assumed identity every request carries; the suites script what it is
-// permitted to do per test via grants. testDomain is the generated matrix's one domain
-// value, which newTestHandler adds to the test application's tenant roster.
-const (
-	testUser   = "authz-user"
-	testDomain = "testDomain"
-)
+// permitted to do per test via grants. The generated matrix addresses one tenant, the
+// generated router's TestDomain, which newTestHandler adds to the test application's
+// tenant roster.
+const testUser = "authz-user"
 
 // fakeAccess scripts access.Controller's permission checks. Every Controller method
 // the pipeline does not consume panics through the embedded nil interface, keeping the
@@ -200,7 +198,7 @@ func newTestHandler(t *testing.T, db *initiator.SpannerDB, g grants) http.Handle
 	t.Helper()
 
 	roster := app.NewTenantRoster(resource.NewSpannerClient(db.Client))
-	roster.Add(testDomain)
+	roster.Add(router.TestDomain)
 	a := app.New(&testConfigurer{db: db, g: g, tenants: roster})
 	// The App reads its feature flags as it is built, so a suite that flips a flag
 	// before newTestHandler drives the App in that state; Start reports a copy that

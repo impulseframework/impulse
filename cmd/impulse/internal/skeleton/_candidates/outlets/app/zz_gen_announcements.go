@@ -20,7 +20,7 @@ import (
 func (a *App) Announcements() http.HandlerFunc {
 	type announcement struct {
 		ID       impulse.UUID `json:"id"       index:"true" perm:"-"`
-		TenantID string       `json:"tenantId" index:"true"`
+		TenantID impulse.UUID `json:"tenantId" index:"true"`
 		Title    string       `json:"title"    index:"true"`
 		Body     string       `json:"body"`
 	}
@@ -105,7 +105,7 @@ func (a *App) Announcements() http.HandlerFunc {
 func (a *App) Announcement() http.HandlerFunc {
 	type response struct {
 		ID       impulse.UUID `json:"id"       index:"true" perm:"-"`
-		TenantID string       `json:"tenantId"`
+		TenantID impulse.UUID `json:"tenantId"`
 		Title    string       `json:"title"`
 		Body     string       `json:"body"`
 	}

@@ -22,6 +22,8 @@ import (
 func TestArmedBodies(t *testing.T) {
 	t.Parallel()
 
+	// A refusal names the caller as the permission store does: by the id of the account.
+	leadAccount := account(t, "lead")
 	tests := []struct {
 		name       string
 		user       accesstypes.User
@@ -36,7 +38,7 @@ func TestArmedBodies(t *testing.T) {
 	}{
 		{name: "the marshal holds and the reason is recorded", user: "marshal", method: "hold-mission", body: `{"missionId":%q,"reason":"debris on the lane"}`, wantStatus: http.StatusOK, wantNote: "Hold: debris on the lane"},
 		{name: "the dispatcher holds a live mission and the reason is recorded", user: "dispatcher", method: "hold-mission", body: `{"missionId":%q,"reason":"weather"}`, wantStatus: http.StatusOK, wantNote: "Hold: weather"},
-		{name: "the flight lead may execute but not write the note", user: "lead", method: "hold-mission", body: `{"missionId":%q,"reason":"fuel"}`, wantStatus: http.StatusForbidden, wantRefusal: "user (lead) does not have (Update) on [Missions]"},
+		{name: "the flight lead may execute but not write the note", user: "lead", method: "hold-mission", body: `{"missionId":%q,"reason":"fuel"}`, wantStatus: http.StatusForbidden, wantRefusal: "user (" + string(leadAccount) + ") does not have (Update) on [Missions]"},
 		{name: "the marshal completes and the decision grants the note", user: "marshal", method: "complete-mission", body: `{"missionId":%q}`, wantStatus: http.StatusOK, wantNote: "Completed:"},
 		{name: "the flight lead completes without a note", user: "lead", method: "complete-mission", body: `{"missionId":%q}`, wantStatus: http.StatusOK},
 	}

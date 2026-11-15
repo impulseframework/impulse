@@ -268,6 +268,11 @@ func (c *DataConfiguration) startTenants(ctx context.Context) error {
 	if err := c.tenants.Start(ctx); err != nil {
 		return errors.Wrap(err, "resource.TenantRoster.Start()")
 	}
+	// The invitation screen is read by a person not yet signed in, who can read no
+	// tenant record: the roster names the tenant an invitation seats them in, from its
+	// copy, so the screen says where they are invited and not the tenant's id.
+	c.staff.Session().SetTenantNames(c.tenants)
+	c.members.Session().SetTenantNames(c.tenants)
 
 	return nil
 }
@@ -355,10 +360,11 @@ type dataConfig struct {
 	MembersDirectoryRedirectURL         string `env:"APP_MEMBERS_DIRECTORY_REDIRECT_URL"`
 
 	// MembersAdministrator is the sign-in name of the members auth's first administrator,
-	// as the directory presents it (the user principal name): the migrate command seeds
-	// the administrator role memberships under it while the auth's users table holds no
-	// rows, so the first person to sign in holds them. Named per environment by the
-	// placement; unset in development, where the bootstrap seeds the development members.
+	// as the directory presents it (the user principal name): while the auth's users
+	// table holds no rows the migrate command creates a user without a password under it,
+	// holding the administrator roles, and that person's first sign-in links to it. Named
+	// per environment by the placement; unset in development, where the bootstrap seeds
+	// the development members.
 	MembersAdministrator string `env:"APP_MEMBERS_ADMINISTRATOR"`
 }
 

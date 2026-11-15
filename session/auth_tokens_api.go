@@ -236,7 +236,7 @@ func (a *Auth[S, U, Tx]) mintPair() (access, refresh *sessionstorage.Token, pair
 			return nil, "", errors.Wrap(err, "impulse.NewUUID()")
 		}
 
-		return &sessionstorage.Token{ID: id, TokenHash: hash, Kind: kind, Family: impulse.NullUUIDFromUUID(family), ExpiresAt: now.Add(lifetime)}, secret, nil
+		return &sessionstorage.Token{ID: id, TokenHash: hash, Kind: kind, FamilyID: impulse.NullUUIDFromUUID(family), ExpiresAt: now.Add(lifetime)}, secret, nil
 	}
 	if access, pair.AccessToken, err = mint(sessionstorage.TokenAccess, a.settings.tokens.access); err != nil {
 		return nil, nil, nil, err

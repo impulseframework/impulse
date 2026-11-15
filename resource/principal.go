@@ -11,6 +11,21 @@ import (
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
+// roleSessionUser returns the person a session with a role principal answers for. A
+// session established to act as a role has no person of its own: it is its actor's,
+// named as the permission store names them (the id of the actor's account, or the name
+// of an actor from another application). Any other session whose principal is a role
+// was given the role by the application's resolver, and stays the session's own
+// person: its user, or the person viewed as when it views as someone.
+func roleSessionUser(ctx context.Context) accesstypes.User {
+	sess := sessioninfo.DataFromCtx(ctx)
+	if imp := sess.Impersonation; imp != nil && imp.Principal.IsRole() {
+		return imp.ActorUser()
+	}
+
+	return sess.User()
+}
+
 // SessionPermissions composes the request's UserPermissions from the session in
 // ctx. It picks the checker by the session's principal — forUser for a user
 // principal (an ordinary session, or an impersonated user), forRole for a role
@@ -45,10 +60,17 @@ import (
 // not a tenant (UserPermissions.Reaches). An application that keeps no
 // declarations passes nil, and every tenant admits every session.
 //
+// A person is named as the permission store names them: by the id of their
+// account (sessioninfo.SessionData.User), never by the username, which can
+// change and which two auths over one database can each hold. User() is that
+// id, a row condition's subject binds to it, and a column that records who did
+// something holds it.
+//
 // A role checker has no User(): a role is not anyone. For a role principal the
-// composed UserPermissions reports the session's effective identity — its
-// Username, which is the actor who established the session — so a row
-// condition's subject binds to the real person and nobody's identity is
+// composed UserPermissions reports the session's effective identity — the
+// actor who established a session that acts as a role, and otherwise the
+// session's own person, whom a resolver gave the role (roleSessionUser) — so a
+// row condition's subject binds to a real person and nobody's identity is
 // borrowed. An application that does not operate sessions as roles passes
 // RolePrincipalsUnsupported as forRole: a role principal then fails closed —
 // every check Denied, an empty digest, no footholds, no domains — with the
@@ -68,7 +90,7 @@ func SessionPermissions[U UserPermissionChecker, R RolePermissions](
 		if forRole != nil {
 			rolePerms = forRole(role)
 		}
-		effective := accesstypes.User(sessioninfo.FromCtx(ctx).Username)
+		effective := roleSessionUser(ctx)
 		if rolePerms == nil {
 			return Masked(unsupportedRolePermissions{user: effective, role: role}, mask)
 		}
@@ -81,7 +103,7 @@ func SessionPermissions[U UserPermissionChecker, R RolePermissions](
 
 	perms := rosterPermissions{UserPermissionChecker: checker, roster: roster}
 	if declarations != nil {
-		actor := accesstypes.User(sessioninfo.ActorFromCtx(ctx))
+		actor := sessioninfo.ActorUserFromCtx(ctx)
 		actorChecker := func() UserPermissionChecker {
 			// An ordinary session's actor is its user: the checker in hand answers for
 			// them. An impersonated or role-principal session is answered for by the

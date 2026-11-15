@@ -34,7 +34,7 @@ func TestImpersonationOperator(t *testing.T) {
 	// The marshal views as Cass: the minted session replaces the marshal's cookie.
 	maren := newBrowser(t, s, consoleAPI)
 	maren.signIn(ctx, "marshal")
-	status, body := maren.impersonate(ctx, `{"kind":"user","principal":"cadet","reason":"watch desk walkthrough"}`)
+	status, body := maren.impersonate(ctx, viewAs(t, "cadet", "watch desk walkthrough"))
 	assertStatus(t, status, http.StatusOK, body)
 	var minted struct {
 		SessionID string `json:"sessionId"`
@@ -63,8 +63,10 @@ func TestImpersonationOperator(t *testing.T) {
 		if found == nil {
 			t.Fatalf("watch desk = %v, want the session %s the marshal minted", entries, minted.SessionID)
 		}
+		// Both people read by username: the record names the cadet by the id of the
+		// account, and the desk answers the account's username, never the id.
 		if found.Actor != "marshal" || found.Principal != "cadet" || found.Kind != "user" {
-			t.Errorf("entry = %+v, want marshal viewing as cadet", found)
+			t.Errorf("entry = %+v, want marshal viewing as cadet, both by username", found)
 		}
 		// StartedAt is the database's commit time and ExpiresAt the mint route's own
 		// deadline, two hours from its clock a moment before the commit, so the

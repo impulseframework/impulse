@@ -595,7 +595,7 @@ func (au Auth) writePackage(a *app.App, src *authSource, spec *authpkg.Spec, ch 
 	case authpkg.FootholdPassword:
 		ch.skipf("%s/foothold.go: the first administrator the migrate command seeds while the auth's users table holds no rows, a user named administrator with a generated password; author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the first administrator is seeded with) with the role file, declare the password in the data level (%s, secret:\"generated\") and seed it from pkg/deploy SeedAdministrators", dir, au.variable("ADMINISTRATOR_PASSWORD"))
 	case authpkg.FootholdMembership:
-		ch.skipf("%s/foothold.go: the first administrator the migrate command seeds while the auth's users table holds no rows, the administrator role memberships under the sign-in name the placement names; author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the first administrator is seeded with) with the role file, declare the name in the data level (%s) and seed it from pkg/deploy SeedAdministrators", dir, au.variable("ADMINISTRATOR"))
+		ch.skipf("%s/foothold.go: the first administrator the migrate command seeds while the auth's users table holds no rows, a password-less user under the sign-in name the placement names, holding the first administrator's roles, which the person's first sign-in links to; author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the first administrator is seeded with) with the role file, declare the name in the data level (%s) and seed it from pkg/deploy SeedAdministrators", dir, au.variable("ADMINISTRATOR"))
 	}
 
 	return nil

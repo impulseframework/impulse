@@ -5,10 +5,12 @@ package integration
 // (@tenant(creation: both)) over two instances with the real engines, the shape a
 // deployment has. The pioneer, a crew login holding no role and no sector (the sign-up
 // registration's person, on no manifest), charts sector Ember through the generated
-// create-sector route: the route writes the row and, in the same transaction, makes her
-// Ember's marshal through the crew's generated identity client (the engine answers the
-// membership before the route answers), adds Ember to the writing instance's roster and
-// signals the tenants kind.
+// create-sector route, by the record's fields without its key: the route writes the row
+// under an id it generates, which its answer carries, and, in the same transaction, makes
+// her Ember's marshal through the crew's generated identity client (the engine answers
+// the membership before the route answers), adds Ember to the writing instance's roster
+// and signals the tenants kind. A body that names a key is refused, and so is a name a
+// sector carries already.
 // Her chart lights Ember and Ember's flight deck answers her at once; a second
 // sector is refused her, as the route is refused the marshal and the governor, who hold
 // sectors already (an administrator of one sector never creates another here; the
@@ -23,6 +25,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
@@ -38,15 +41,13 @@ const (
 	// holding nothing, whose one way to a sector is to chart her own.
 	pioneerUser accesstypes.User = "pioneer"
 
-	// ember is the sector the pioneer charts: a slug the schema's CHECK constraint accepts.
-	ember = "ember"
-
 	createSectorRoute = consoleAPI + "/create-sector"
 
-	// chartEmber is the create-sector body: the record's fields with its key.
-	chartEmber = `{"id":"ember","name":"Ember","region":"Near frontier","established":"2226-10-20"}`
+	// chartEmber is the create-sector body: the record's fields without its key, which
+	// the route generates.
+	chartEmber = `{"name":"Ember","region":"Near frontier","established":"2226-10-20"}`
 	// chartEmberAgain is a second sector of the pioneer's, refused: one sector per person.
-	chartEmberAgain = `{"id":"ember-two","name":"Ember Two","region":"Near frontier","established":"2226-10-21"}`
+	chartEmberAgain = `{"name":"Ember Two","region":"Near frontier","established":"2226-10-21"}`
 )
 
 // startSelfServiceInstance is an instance over the real crew engine, the way the served
@@ -67,18 +68,22 @@ func startSelfServiceInstance(t *testing.T, name string, db *initiator.SpannerDB
 	return &flagInstance{name: name, h: withHandWrittenRoutes(a)}
 }
 
-// assertCreatedKey pins the create-sector answer: the new sector's key.
-func assertCreatedKey(want string) func(t *testing.T, step string, body []byte) {
-	return func(t *testing.T, step string, body []byte) {
-		t.Helper()
+// createdKey reads the create-sector answer: the new sector's key, an id the route
+// generated.
+func createdKey(t *testing.T, step string, body []byte) string {
+	t.Helper()
 
-		var got struct {
-			ID string `json:"id"`
-		}
-		if err := json.Unmarshal(body, &got); err != nil || got.ID != want {
-			t.Errorf("%s: answered %s (err %v), want the key %q", step, body, err, want)
-		}
+	var got struct {
+		ID string `json:"id"`
 	}
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("%s: answered %s: %v", step, body, err)
+	}
+	if _, err := impulse.UUIDFromString(got.ID); err != nil {
+		t.Fatalf("%s: answered the key %q, want an id the route generated: %v", step, got.ID, err)
+	}
+
+	return got.ID
 }
 
 // TestSelfServiceSector_pioneerChartsHerOwn plays the scenario in order over two instances.
@@ -107,31 +112,46 @@ func TestSelfServiceSector_pioneerChartsHerOwn(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The pioneer's account, as the sign-up registration leaves it: a row of the crew's
+	// users table and nothing else. The seat the route gives her is held by its id.
+	makeCrewAccount(ctx, t, db, pioneerUser)
+
 	fake := live.NewFake()
 	first := startSelfServiceInstance(t, "the first instance", db, crewEngine, membersEngine, fake)
 	second := startSelfServiceInstance(t, "the second instance", db, crewEngine, membersEngine, fake)
 
-	charted := []accesstypes.Domain{anvil, bastion, cinder, ember}
-	steps := []flagStep{
+	// The steps before Ember exists, and the create, whose answer carries Ember's key:
+	// the id the route generated, which every later step addresses Ember by.
+	var ember string
+	charting := []flagStep{
 		{name: "before: the pioneer's chart is dark, a crew login holding nothing", on: first, user: pioneerUser, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains()},
-		{name: "before: Ember does not exist on the first instance", on: first, user: tenantGovernor, method: http.MethodGet, target: sectorPath(ember, "missions"), wantStatus: http.StatusNotFound},
-		{name: "before: nor on the second", on: second, user: tenantGovernor, method: http.MethodGet, target: sectorPath(ember, "missions"), wantStatus: http.StatusNotFound},
+		{name: "before: the sector list carries the three seeded sectors on the first instance", on: first, user: tenantSurveyor, method: http.MethodGet, target: sectorsRoute, wantStatus: http.StatusOK, check: assertSectorNames("Anvil", "Bastion", "Cinder")},
+		{name: "before: and the governor's chart on the second lights the same three", on: second, user: tenantGovernor, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(anvil, bastion, cinder)},
 		{name: "the marshal holds Anvil and is refused: only a person holding no sector charts one here", on: first, user: tenantMarshal, method: http.MethodPost, target: createSectorRoute, body: chartEmber, wantStatus: http.StatusForbidden},
 		{name: "the governor, marshal in every sector, is refused too: an administrator of one sector never creates another here", on: first, user: tenantGovernor, method: http.MethodPost, target: createSectorRoute, body: chartEmber, wantStatus: http.StatusForbidden},
-		{name: "a body without the name is refused the pioneer, and writes nothing", on: first, user: pioneerUser, method: http.MethodPost, target: createSectorRoute, body: `{"id":"ember","region":"Near frontier","established":"2226-10-20"}`, wantStatus: http.StatusBadRequest},
-		{name: "a key a sector holds already is refused her", on: first, user: pioneerUser, method: http.MethodPost, target: createSectorRoute, body: `{"id":"anvil","name":"Anvil","region":"Home","established":"2226-01-01"}`, wantStatus: http.StatusConflict},
+		{name: "a body without the name is refused the pioneer, and writes nothing", on: first, user: pioneerUser, method: http.MethodPost, target: createSectorRoute, body: `{"region":"Near frontier","established":"2226-10-20"}`, wantStatus: http.StatusBadRequest},
+		{name: "a body that names a key is refused her: the route generates it", on: first, user: pioneerUser, method: http.MethodPost, target: createSectorRoute, body: `{"id":"ember","name":"Ember","region":"Near frontier","established":"2226-10-20"}`, wantStatus: http.StatusBadRequest},
+		{name: "a name a sector carries already is refused her", on: first, user: pioneerUser, method: http.MethodPost, target: createSectorRoute, body: `{"name":"Anvil","region":"Home","established":"2226-01-01"}`, wantStatus: http.StatusConflict},
 		{name: "still dark after the refusals", on: first, user: pioneerUser, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains()},
+		{name: "and the refusals wrote no sector: the list is the seeded three", on: first, user: tenantSurveyor, method: http.MethodGet, target: sectorsRoute, wantStatus: http.StatusOK, check: assertSectorNames("Anvil", "Bastion", "Cinder")},
 		{
-			name: "the pioneer charts sector Ember: the row, her marshal's seat and the roster in one call, and one signal of the tenants kind", on: first, user: pioneerUser, method: http.MethodPost, target: createSectorRoute, body: chartEmber, wantStatus: http.StatusOK,
+			name: "the pioneer charts sector Ember: the row, her marshal's seat and the roster in one call, the answer carrying the id the route generated, and one signal of the tenants kind", on: first, user: pioneerUser, method: http.MethodPost, target: createSectorRoute, body: chartEmber, wantStatus: http.StatusOK,
 			check: func(t *testing.T, step string, body []byte) {
 				t.Helper()
-				assertCreatedKey(ember)(t, step, body)
+				ember = createdKey(t, step, body)
 				if got := fake.Signals(); !slices.Equal(got, []live.Kind{live.KindTenants}) {
 					t.Errorf("%s: signals = %v, want [%s]", step, got, live.KindTenants)
 				}
 			},
 		},
-		{name: "charted: her chart lights Ember at once, seated as its marshal before the route answered", on: first, user: pioneerUser, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(ember)},
+	}
+	for i := range charting {
+		runFlagStep(t, &charting[i])
+	}
+
+	charted := sortedDomains(anvil, bastion, cinder, accesstypes.Domain(ember))
+	steps := []flagStep{
+		{name: "charted: her chart lights Ember at once, seated as its marshal before the route answered", on: first, user: pioneerUser, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(accesstypes.Domain(ember))},
 		{name: "charted: Ember's flight deck answers her, empty", on: first, user: pioneerUser, method: http.MethodGet, target: sectorPath(ember, "missions"), wantStatus: http.StatusOK, check: assertNoRows},
 		{name: "charted: the sector list carries Ember, in name order", on: first, user: tenantSurveyor, method: http.MethodGet, target: sectorsRoute, wantStatus: http.StatusOK, check: assertSectorNames("Anvil", "Bastion", "Cinder", "Ember")},
 		{name: "a second sector is refused her: one sector per person", on: first, user: pioneerUser, method: http.MethodPost, target: createSectorRoute, body: chartEmberAgain, wantStatus: http.StatusForbidden},
@@ -141,7 +161,7 @@ func TestSelfServiceSector_pioneerChartsHerOwn(t *testing.T) {
 		{name: "the client's portal lists Ember at once: the directory's role is held in every sector", on: first, user: clientUser, method: http.MethodGet, target: portalUserDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(charted...)},
 		{name: "the surveyor's chart lights Ember too, SectorCrew held in every sector", on: first, user: tenantSurveyor, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(charted...)},
 		{name: "the second instance serves Ember at its next request: its roster reloaded on the tenants kind's signal", on: second, user: pioneerUser, method: http.MethodGet, target: sectorPath(ember, "missions"), wantStatus: http.StatusOK, settle: true, check: assertNoRows},
-		{name: "and her chart there lights Ember", on: second, user: pioneerUser, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(ember)},
+		{name: "and her chart there lights Ember", on: second, user: pioneerUser, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(accesstypes.Domain(ember))},
 		{name: "and the seeded sectors stay dark for her there: SectorMarshal is hers in Ember alone", on: second, user: pioneerUser, method: http.MethodGet, target: sectorPath(anvil, "missions"), wantStatus: http.StatusNotFound},
 	}
 	for i := range steps {

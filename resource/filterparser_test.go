@@ -728,6 +728,7 @@ func TestCondition_TypedValues(t *testing.T) {
 		{name: "strings bind as a STRING array", values: []any{"a", "b"}, want: []string{"a", "b"}},
 		{name: "integers bind as an INT64 array", values: []any{int64(1), int64(2)}, want: []int64{1, 2}},
 		{name: "decimals bind as a NUMERIC array", values: []any{decimal.NewFromInt(5), decimal.RequireFromString("2.5")}, want: []*big.Rat{big.NewRat(5, 1), big.NewRat(5, 2)}},
+		{name: "ids bind as a STRING array of their text", values: []any{typedValuesID(t, "11111111-1111-4111-8111-111111111111"), typedValuesID(t, "22222222-2222-4222-8222-222222222222")}, want: []string{"11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"}},
 		{name: "an empty list is returned unchanged", values: nil, want: []any(nil)},
 		{name: "a list the parser did not type uniformly is returned unchanged", values: []any{"a", int64(1)}, want: []any{"a", int64(1)}},
 	}
@@ -743,6 +744,18 @@ func TestCondition_TypedValues(t *testing.T) {
 			}
 		})
 	}
+}
+
+// typedValuesID parses an id the way the parser types a value on an id column.
+func typedValuesID(t *testing.T, text string) impulse.UUID {
+	t.Helper()
+
+	id, err := impulse.UUIDFromString(text)
+	if err != nil {
+		t.Fatalf("impulse.UUIDFromString(%q) error = %v", text, err)
+	}
+
+	return id
 }
 
 // todayISO and todayUS write today's date in UTC the way a date refusal's example does.

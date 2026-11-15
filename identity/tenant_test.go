@@ -28,7 +28,7 @@ func TestManager_Tenant(t *testing.T) {
 
 	m, _ := newManager(t, &fakeStore{}, engineRoles)
 
-	tenant, err := m.Tenant(inAlpha(t.Context(), "erin"))
+	tenant, err := m.Tenant(inAlpha(t.Context(), erin))
 	if err != nil {
 		t.Fatalf("Tenant() error = %v", err)
 	}
@@ -39,7 +39,7 @@ func TestManager_Tenant(t *testing.T) {
 	if _, err := m.Tenant(t.Context()); err == nil || !strings.Contains(err.Error(), "outside a request") {
 		t.Errorf("Tenant() outside a request: error = %v, want one that says so", err)
 	}
-	global := resource.WithCaller(t.Context(), &resource.Caller{Permissions: callerPermissions{user: "erin"}, Scope: accesstypes.GlobalScope()})
+	global := resource.WithCaller(t.Context(), &resource.Caller{Permissions: callerPermissions{user: erin}, Scope: accesstypes.GlobalScope()})
 	if _, err := m.Tenant(global); err == nil || !strings.Contains(err.Error(), "names no tenant") {
 		t.Errorf("Tenant() for a request of the whole application: error = %v, want one that says so", err)
 	}
@@ -80,7 +80,8 @@ func TestManager_TenantRoles(t *testing.T) {
 }
 
 // TestTenant_AssignRole pins a role given in a tenant: held in the request's tenant and
-// nowhere else, to a person named by id, under the engine's rule on the role.
+// nowhere else, to a person named by id, whose id the membership is held under, under
+// the engine's rule on the role.
 func TestTenant_AssignRole(t *testing.T) {
 	t.Parallel()
 
@@ -91,7 +92,7 @@ func TestTenant_AssignRole(t *testing.T) {
 		wantErr    func(error) bool
 		wantWrites []string
 	}{
-		{name: "the role is held in the request's tenant", user: userID, role: "Reader", wantWrites: []string{"insert membership domain/alpha dana Reader"}},
+		{name: "the role is held in the request's tenant", user: userID, role: "Reader", wantWrites: []string{"insert membership domain/alpha " + userID.String() + " Reader"}},
 		{name: "a role of the whole application is no role of a tenant", user: userID, role: "Steward", wantErr: httpio.HasNotFound},
 		{name: "a person that does not exist is not found", user: createdID, role: "Reader", wantErr: httpio.HasNotFound},
 	}
@@ -103,7 +104,7 @@ func TestTenant_AssignRole(t *testing.T) {
 			m, _ := newManager(t, store, engineRoles)
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				ctx = inAlpha(ctx, "erin")
+				ctx = inAlpha(ctx, erin)
 				tenant, err := m.Tenant(ctx)
 				if err != nil {
 					return err
@@ -126,9 +127,9 @@ func TestTenant_AssignRole(t *testing.T) {
 }
 
 // TestTenant_RemoveRole pins a role taken in a tenant: the tenant's own membership goes,
-// under the rules of the whole application's removal; a role held in every tenant alone
-// is not the tenant's to take; a role held in another tenant is untouched; and an empty
-// role is refused.
+// the one held under the id of the person's account, under the rules of the whole
+// application's removal; a role held in every tenant alone is not the tenant's to take;
+// a role held in another tenant is untouched; and an empty role is refused.
 func TestTenant_RemoveRole(t *testing.T) {
 	t.Parallel()
 
@@ -144,52 +145,55 @@ func TestTenant_RemoveRole(t *testing.T) {
 		memberships []access.MembershipKey
 		opts        []Option
 		wantErr     func(error) bool
+		// wantMessage is the sentence the refusal reads, where the case pins it.
+		wantMessage string
 		wantWrites  []string
 	}{
 		{
 			name:        "the tenant's own membership goes",
-			caller:      "erin",
+			caller:      erin,
 			role:        "Reader",
-			memberships: []access.MembershipKey{membership(alphaScope, "dana", "Reader"), membership(globalScope, "dana", "Steward")},
-			wantWrites:  []string{"delete membership domain/alpha dana Reader"},
+			memberships: []access.MembershipKey{membership(alphaScope, dana, "Reader"), membership(globalScope, dana, "Steward")},
+			wantWrites:  []string{"delete membership domain/alpha " + userID.String() + " Reader"},
 		},
 		{
 			name:        "a role held both ways: the tenant's own goes, the one held in every tenant stands",
-			caller:      "erin",
+			caller:      erin,
 			role:        "Reader",
-			memberships: []access.MembershipKey{membership(alphaScope, "dana", "Reader"), membership(everyScope, "dana", "Reader")},
-			wantWrites:  []string{"delete membership domain/alpha dana Reader"},
+			memberships: []access.MembershipKey{membership(alphaScope, dana, "Reader"), membership(everyScope, dana, "Reader")},
+			wantWrites:  []string{"delete membership domain/alpha " + userID.String() + " Reader"},
 		},
 		{
-			name:        "a role held in every tenant alone is not the tenant's to take",
-			caller:      "erin",
+			name:        "a role held in every tenant alone is not the tenant's to take, in a sentence that names the person by username",
+			caller:      erin,
 			role:        "Reader",
-			memberships: []access.MembershipKey{membership(everyScope, "dana", "Reader")},
+			memberships: []access.MembershipKey{membership(everyScope, dana, "Reader")},
 			wantErr:     httpio.HasConflict,
+			wantMessage: "dana holds the role Reader in every tenant, which is not one tenant's to take away",
 		},
 		{
 			name:        "a role held in another tenant is not this tenant's: nothing is written",
-			caller:      "erin",
+			caller:      erin,
 			role:        "Reader",
-			memberships: []access.MembershipKey{membership(betaScope, "dana", "Reader")},
+			memberships: []access.MembershipKey{membership(betaScope, dana, "Reader")},
 		},
 		{
 			name:        "the last role anywhere takes the account with it",
-			caller:      "erin",
+			caller:      erin,
 			role:        "Reader",
-			memberships: []access.MembershipKey{membership(alphaScope, "dana", "Reader")},
-			wantWrites:  []string{"delete user " + userID.String(), "delete membership domain/alpha dana Reader"},
+			memberships: []access.MembershipKey{membership(alphaScope, dana, "Reader")},
+			wantWrites:  []string{"delete user " + userID.String(), "delete membership domain/alpha " + userID.String() + " Reader"},
 		},
 		{
 			name:        "the tenant's last administrator keeps their own role",
-			caller:      "dana",
+			caller:      dana,
 			role:        "Warden",
-			memberships: []access.MembershipKey{membership(alphaScope, "dana", "Warden"), membership(alphaScope, "erin", "Reader")},
+			memberships: []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(alphaScope, erin, "Reader")},
 			opts:        []Option{administrators},
 			wantErr:     httpio.HasForbidden,
 		},
-		{name: "a person that does not exist is not found", caller: "erin", person: createdID, role: "Reader", wantErr: httpio.HasNotFound},
-		{name: "an empty role is refused", caller: "erin", wantErr: httpio.HasBadRequest},
+		{name: "a person that does not exist is not found", caller: erin, person: createdID, role: "Reader", wantErr: httpio.HasNotFound},
+		{name: "an empty role is refused", caller: erin, wantErr: httpio.HasBadRequest},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -219,6 +223,9 @@ func TestTenant_RemoveRole(t *testing.T) {
 				if err == nil || !tt.wantErr(err) {
 					t.Fatalf("RemoveRole() error = %v, want the refusal", err)
 				}
+				if got := httpio.Message(err); tt.wantMessage != "" && got != tt.wantMessage {
+					t.Errorf("the refusal reads %q, want %q", got, tt.wantMessage)
+				}
 			} else if err != nil {
 				t.Fatalf("RemoveRole() error = %v", err)
 			}
@@ -230,7 +237,7 @@ func TestTenant_RemoveRole(t *testing.T) {
 }
 
 // TestTenant_CreateUser pins a person created by a tenant: the roles are held in the
-// request's tenant, whatever scope the account names.
+// request's tenant, under the new user's id, whatever scope the account names.
 func TestTenant_CreateUser(t *testing.T) {
 	t.Parallel()
 
@@ -243,12 +250,12 @@ func TestTenant_CreateUser(t *testing.T) {
 		{
 			name:       "the roles are held in the request's tenant",
 			account:    NewAccount{Username: "pat", Roles: []accesstypes.Role{"Reader"}},
-			wantWrites: []string{"insert user pat <none>", "insert membership domain/alpha pat Reader"},
+			wantWrites: []string{"insert user pat <none>", "insert membership domain/alpha " + createdID.String() + " Reader"},
 		},
 		{
 			name:       "a scope the account names is not read",
 			account:    NewAccount{Username: "pat", Scope: everyScope, Roles: []accesstypes.Role{"Reader"}},
-			wantWrites: []string{"insert user pat <none>", "insert membership domain/alpha pat Reader"},
+			wantWrites: []string{"insert user pat <none>", "insert membership domain/alpha " + createdID.String() + " Reader"},
 		},
 		{
 			name:       "a role of the whole application is no role of a tenant",
@@ -267,7 +274,7 @@ func TestTenant_CreateUser(t *testing.T) {
 
 			var got impulse.UUID
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				ctx = inAlpha(ctx, "erin")
+				ctx = inAlpha(ctx, erin)
 				tenant, err := m.Tenant(ctx)
 				if err != nil {
 					return err
@@ -335,7 +342,7 @@ func TestTenant_Invite(t *testing.T) {
 			m := newInviter(t, store, mail)
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				ctx = inAlpha(ctx, "erin")
+				ctx = inAlpha(ctx, erin)
 				tenant, err := m.Tenant(ctx)
 				if err != nil {
 					return err

@@ -1,8 +1,8 @@
-<h1>Who may enter {{ sector.value()?.name || sectorID() }}</h1>
+<h1>Who may enter {{ sectorName() || 'this sector' }}</h1>
 <p>
   A sector declares who may enter it. A <strong>directory</strong> is a place people sign in from, outside this
   application: a Google Workspace, named by its domain (<code>example</code>, the fleet's), or a Microsoft Entra tenant, named
-  by its sector id. A person who signs in through a directory enters this sector only when the sector declares that
+  by its tenant id. A person who signs in through a directory enters this sector only when the sector declares that
   directory here; one domain is one directory, and a second directory is a second declaration. Passwords are this
   application's own way in, and every sector admits them unless it is <strong>directory only</strong>: then its people
   enter through its directories alone, and a password does not reach it. A person whose every sector is directory only

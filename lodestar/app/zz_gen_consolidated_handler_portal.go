@@ -23,7 +23,7 @@ import (
 func (a *App) PatchPortalResources() http.HandlerFunc {
 	type clientContactRequest struct {
 		ID          impulse.UUID `json:"-"`
-		UserID      string       `json:"userId"      sqltype:"STRING(320)"`
+		UserID      string       `json:"userId"      sqltype:"STRING(36)"`
 		ClientID    impulse.UUID `json:"clientId"`
 		DisplayName string       `json:"displayName"`
 	}
@@ -31,20 +31,21 @@ func (a *App) PatchPortalResources() http.HandlerFunc {
 
 	type distressCallRequest struct {
 		ID            impulse.UUID        `json:"-"`
-		SectorID      string              `json:"-"`
+		SectorID      impulse.UUID        `json:"-"`
 		Summary       string              `json:"summary"`
 		Severity      int64               `json:"severity"`
 		CallerContact *string             `json:"callerContact"`
 		Transcript    *string             `json:"transcript"`
 		CaseNumber    string              `json:"-"`
-		FiledBy       string              `json:"-"`
+		FiledByUserID string              `json:"-"`
+		FiledByName   string              `json:"-"`
 		Position      *resources.Position `json:"position"`
 	}
 	distressCallDecoder := NewDecoder[resources.DistressCall, distressCallRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type missionRequest struct {
 		ID                 impulse.UUID          `json:"-"`
-		SectorID           string                `json:"-"`
+		SectorID           impulse.UUID          `json:"-"`
 		ClientID           impulse.UUID          `json:"clientId"`
 		KindID             string                `json:"kindId"             sqltype:"STRING(64)"`
 		Title              string                `json:"title"`
@@ -54,7 +55,8 @@ func (a *App) PatchPortalResources() http.HandlerFunc {
 		Fee                decimal.Decimal       `json:"fee"                sqltype:"NUMERIC"`
 		Deadline           time.Time             `json:"deadline"`
 		RequiredCertID     *string               `json:"requiredCertId"     sqltype:"STRING(64)"`
-		BookedBy           string                `json:"-"`
+		BookedByUserID     string                `json:"-"`
+		BookedByName       string                `json:"-"`
 		AssignedSquadronID impulse.NullUUID      `json:"assignedSquadronId"`
 		StatusID           string                `json:"-"`
 		Notes              *string               `json:"notes"`
@@ -63,17 +65,18 @@ func (a *App) PatchPortalResources() http.HandlerFunc {
 	missionDecoder := NewDecoder[resources.Mission, missionRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type missionDocumentRequest struct {
-		ID          impulse.UUID                      `json:"-"`
-		MissionID   impulse.UUID                      `json:"missionId"`
-		Title       string                            `json:"title"`
-		FileName    string                            `json:"fileName"`
-		ContentType string                            `json:"contentType"`
-		Size        int64                             `json:"size"`
-		StoreKey    resource.Key[resources.Documents] `json:"-"`
-		UploadedBy  string                            `json:"uploadedBy"`
-		UploadedAt  time.Time                         `json:"uploadedAt"`
-		Provenance  *resources.Provenance             `json:"provenance"`
-		Digest      []byte                            `json:"digest"      sqltype:"BYTES(32)"`
+		ID               impulse.UUID                      `json:"-"`
+		MissionID        impulse.UUID                      `json:"missionId"`
+		Title            string                            `json:"title"`
+		FileName         string                            `json:"fileName"`
+		ContentType      string                            `json:"contentType"`
+		Size             int64                             `json:"size"`
+		StoreKey         resource.Key[resources.Documents] `json:"-"`
+		UploadedByUserID string                            `json:"uploadedByUserId" sqltype:"STRING(36)"`
+		UploadedByName   string                            `json:"-"`
+		UploadedAt       time.Time                         `json:"uploadedAt"`
+		Provenance       *resources.Provenance             `json:"provenance"`
+		Digest           []byte                            `json:"digest"           sqltype:"BYTES(32)"`
 	}
 	missionDocumentDecoder := NewDecoder[resources.MissionDocument, missionDocumentRequest](a, accesstypes.Update, accesstypes.Delete)
 

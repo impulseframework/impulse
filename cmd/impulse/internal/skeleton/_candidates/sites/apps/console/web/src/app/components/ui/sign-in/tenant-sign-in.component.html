@@ -1,4 +1,4 @@
-<h1>Who may enter {{ tenant.value()?.name || tenantID() }}</h1>
+<h1>Who may enter {{ tenantName() || 'this tenant' }}</h1>
 <p>
   A tenant declares who may enter it. A <strong>directory</strong> is a place people sign in from, outside this
   application: a Google Workspace, named by its domain (<code>acme.example</code>), or a Microsoft Entra tenant, named

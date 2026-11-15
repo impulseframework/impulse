@@ -3,7 +3,8 @@
 A tenant-scoped application on the Impulse Framework: the smallest one a person can
 sign in to. One site, one browser application,
 tenancy as data: the `Tenant` record (`@tenant`) over the `Tenants` table is the domain
-universe, tenant-scoped routes live under `/api/tenants/{tenantID}/`, the data level's
+universe, a tenant's key is an id the server generates while its name is a field its
+administrators change, tenant-scoped routes live under `/api/tenants/{tenantID}/`, the data level's
 tenant roster keeps the tenants current on every instance (a tenant created through the
 API is usable at once, without a restart), and tenant existence is concealed from logins
 that hold nothing there. `Announcement` is the first tenant-scoped resource — a login's tenant list
@@ -39,7 +40,7 @@ Who may create a tenant is declared on the record, apart from who may enter one.
 record declares both ways (`@tenant(creation: both)`): an administrator creates tenants
 through the record's create path, under the `Administrator` role's Create grant,
 and a person who signs in holding no tenant creates their own through the generated
-create-your-tenant route (`POST /api/create-tenant`), which writes the row, gives them
+create-your-tenant route (`POST /api/create-tenant`), which takes the tenant's name, writes the row under an id it generates and answers, gives them
 the roles the App names in `TenantAdministratorRoles` (`TenantAdministrator`) and
 hands the tenant to the roster, so their next request stands in it; a person who already
 holds a tenant is refused, an administrator of one tenant never creates another, and the
@@ -151,7 +152,8 @@ the connection a tenant declares) beside any Google account.
   tenants (tenancy is data), and adds the development logins from
   `cmd/bootstrap/users.json`, each with its memberships by where they are held: the
   administrator's domain role in every tenant domain (`everyDomain`), the member's in
-  north alone (`domains`), so concealment is observable. Its test runs each auth's role
+  North alone (`domains`, where a tenant is named by its name and the bootstrap finds
+  its id), so concealment is observable. Its test runs each auth's role
   file through the validation the engine performs when it opens (`access.ValidateRoles`)
   and pins the warnings the deploy would print as typed values, none expected: a warning
   is accepted by pinning it there, or the role is fixed.
@@ -230,7 +232,7 @@ generated handler applies the rest.
     cp .envrc.template .envrc && direnv allow
     overmind start -l spanner,firestore,server
 
-That starts fresh Spanner and Firestore emulators, bootstraps the database (schema, the `north` and `south` tenants,
+That starts fresh Spanner and Firestore emulators, bootstraps the database (schema, the North and South tenants,
 roles, the `admin`, `member` and `newcomer` logins with password `password`; `newcomer`
 holds no tenant and creates one from the dashboard), and serves the API on
 `$PORT` (:8092). The first run compiles and bootstraps before it listens; wait for

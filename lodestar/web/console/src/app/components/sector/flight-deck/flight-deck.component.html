@@ -11,7 +11,7 @@
   </mat-card>
 } @else if (!canList()) {
   <mat-card appearance="outlined" class="table-card">
-    <p class="empty">Your posting in {{ sector() || 'this sector' }} does not cover missions.</p>
+    <p class="empty">Your posting in {{ sectorName() || 'this sector' }} does not cover missions.</p>
   </mat-card>
 } @else {
   <div class="pager">
@@ -56,7 +56,7 @@
         </div>
       </button>
     } @empty {
-      <p class="empty">No missions on your board in {{ sector() }}.</p>
+      <p class="empty">No missions on your board in {{ sectorName() }}.</p>
     }
   </div>
 }
@@ -66,7 +66,7 @@
     <mat-card-header>
       <mat-card-title>{{ mission.title }}</mat-card-title>
       <mat-card-subtitle>
-        Booked by {{ mission.bookedBy || '—' }} · {{ mission.brief || 'no brief' }}
+        Booked by {{ mission.bookedByName || '—' }} · {{ mission.brief || 'no brief' }}
         @if (overdue(mission)) {
           · <span class="overdue">overdue</span>
         }
@@ -231,7 +231,7 @@
       @for (document of documentsOf(mission); track document.id) {
         <div class="sortie">
           <a [href]="documentUrl(document)" target="_blank">{{ document.title }} — {{ document.fileName }}</a>
-          ({{ document.size }} bytes, {{ document.contentType }}) uploaded by <b>{{ document.uploadedBy }}</b>
+          ({{ document.size }} bytes, {{ document.contentType }}) uploaded by <b>{{ document.uploadedByName }}</b>
           {{ document.uploadedAt | date: 'medium' }}
         </div>
       } @empty {
@@ -255,7 +255,7 @@
       @for (sortie of sortiesOf(mission); track sortie.id) {
         <div class="sortie">
           <div>
-            <b>{{ sortie.pilotUserId }}</b> launched {{ sortie.launchedAt | date: 'medium' }}
+            <b>{{ pilotName(sortie.pilotUserId) }}</b> launched {{ sortie.launchedAt | date: 'medium' }}
             @if (sortie.returnedAt) {
               · returned {{ sortie.returnedAt | date: 'medium' }}
             }

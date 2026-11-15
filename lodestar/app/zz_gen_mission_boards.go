@@ -21,7 +21,7 @@ import (
 func (a *App) MissionBoards() http.HandlerFunc {
 	type missionBoard struct {
 		ID           impulse.UUID `json:"id"           index:"true"        perm:"-"`
-		SectorID     string       `json:"sectorId"     index:"true"`
+		SectorID     impulse.UUID `json:"sectorId"     index:"true"`
 		Title        string       `json:"title"        index:"true"        search:"token=Title_Search;index=MissionsSearch;role=text;contains"`
 		ClientName   string       `json:"clientName"   index:"true"        search:"token=Name_Search;index=ClientsSearch;role=text;anchors=prefix,suffix;contains"`
 		SquadronName *string      `json:"squadronName" index:"true"`
@@ -131,7 +131,7 @@ func (a *App) MissionBoards() http.HandlerFunc {
 func (a *App) MissionBoard() http.HandlerFunc {
 	type response struct {
 		ID           impulse.UUID `json:"id"           index:"true"                                                                            perm:"-"`
-		SectorID     string       `json:"sectorId"`
+		SectorID     impulse.UUID `json:"sectorId"`
 		Title        string       `json:"title"        search:"token=Title_Search;index=MissionsSearch;role=text;contains"`
 		ClientName   string       `json:"clientName"   search:"token=Name_Search;index=ClientsSearch;role=text;anchors=prefix,suffix;contains"`
 		SquadronName *string      `json:"squadronName"`

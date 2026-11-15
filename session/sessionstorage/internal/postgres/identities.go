@@ -196,11 +196,15 @@ func (s *SessionStorageDriver) UserByUsernameIn(ctx context.Context, tx pgx.Tx, 
 	return &u, nil
 }
 
-// InsertUserIn writes a new user row inside tx and returns its ID.
+// InsertUserIn writes a new user row inside tx and returns its ID: the one the insert
+// names, or a generated one where it names none.
 func (s *SessionStorageDriver) InsertUserIn(ctx context.Context, tx pgx.Tx, user *dbtype.InsertSessionUser) (impulse.UUID, error) {
-	id, err := impulse.NewUUID()
-	if err != nil {
-		return impulse.NilUUID, errors.Wrap(err, "impulse.NewUUID()")
+	id := user.ID.UUID
+	if !user.ID.Valid {
+		var err error
+		if id, err = impulse.NewUUID(); err != nil {
+			return impulse.NilUUID, errors.Wrap(err, "impulse.NewUUID()")
+		}
 	}
 	query, args := s.userInsertStatement(id, user)
 	if _, err := tx.Exec(ctx, query, args...); err != nil {

@@ -79,7 +79,7 @@ const mailingList: LoginMethods = {
   email: emailRoutes,
   signUp: signUpRoutes,
 };
-const opened = { email: 'ensign@fleet.example', tenant: 'anvil', expiresAt: '2026-10-30T12:00:00Z', signUp: true, usernameIsEmail: true };
+const opened = { email: 'ensign@fleet.example', tenantId: '5d1c8e2a-7b3f-4a9e-b6d0-2c4f8a1e9b37', tenantName: 'Anvil', expiresAt: '2026-10-30T12:00:00Z', signUp: true, usernameIsEmail: true };
 const dead = { status: 404, body: { message: 'the link has expired or was already used' } };
 
 /** What the server answers each route with; a spec changes an entry to script a step's answer. */
@@ -942,7 +942,8 @@ describe('the mailed links in the list', () => {
   it('keeps the invitation the browser carries, as the block names it under standing, and names none where the block has none', async () => {
     const standing = {
       email: 'ensign@fleet.example',
-      tenant: 'anvil',
+      tenantId: '5d1c8e2a-7b3f-4a9e-b6d0-2c4f8a1e9b37',
+      tenantName: 'Anvil',
       expiresAt: '2026-10-30T12:00:00Z',
       usernameIsEmail: true,
     };
@@ -957,7 +958,8 @@ describe('the mailed links in the list', () => {
     ).auth;
     expect((await partial.methods()).invitation?.standing).toEqual({
       email: 'ensign@fleet.example',
-      tenant: '',
+      tenantId: '',
+      tenantName: '',
       expiresAt: '',
       usernameIsEmail: false,
     });
@@ -970,7 +972,8 @@ describe('the mailed links in the list', () => {
   it('keeps what the standing block says of the invited account, and nothing where the server did not say', async () => {
     const plain = {
       email: 'ensign@fleet.example',
-      tenant: 'anvil',
+      tenantId: '5d1c8e2a-7b3f-4a9e-b6d0-2c4f8a1e9b37',
+      tenantName: 'Anvil',
       expiresAt: '2026-10-30T12:00:00Z',
       usernameIsEmail: true,
       methods: ['google'],
@@ -989,7 +992,7 @@ describe('the mailed links in the list', () => {
   });
 
   it('keeps the registration names the standing invitation says could admit the address, strings only, and none where it names none', async () => {
-    const standing = { email: 'ensign@fleet.example', tenant: '', expiresAt: 'soon', usernameIsEmail: false };
+    const standing = { email: 'ensign@fleet.example', tenantId: '', tenantName: '', expiresAt: 'soon', usernameIsEmail: false };
     const named = authOver(
       server({
         methods: {
@@ -1068,7 +1071,8 @@ describe('an invitation', () => {
     expect(await auth.openInvitation('tok-1')).toEqual({
       outcome: 'opened',
       email: 'x@fleet.example',
-      tenant: '',
+      tenantId: '',
+      tenantName: '',
       expiresAt: 'soon',
       signUp: false,
       usernameIsEmail: false,

@@ -24,7 +24,9 @@ type roleWrite struct {
 // each place, held the memberships the user holds, and writes records every
 // AddUserRoles and DeleteUserRoles in the order they arrive, so a test can see what
 // the sync wrote, where, and in what order. heldErr fails UserRoles, resolveErr fails
-// ResolveRole, addErr fails AddUserRoles and removeErr fails DeleteUserRoles.
+// ResolveRole, addErr fails AddUserRoles and removeErr fails DeleteUserRoles. asked
+// records the user each UserRoles call named, so a test can see whom the store was
+// asked for.
 type fakeRoleManager struct {
 	roles      map[accesstypes.PolicyScope][]accesstypes.Role
 	held       accesstypes.RoleCollection
@@ -33,9 +35,11 @@ type fakeRoleManager struct {
 	addErr     error
 	removeErr  error
 	writes     []roleWrite
+	asked      []accesstypes.User
 }
 
-func (f *fakeRoleManager) UserRoles(_ context.Context, _ accesstypes.User, scopes ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error) {
+func (f *fakeRoleManager) UserRoles(_ context.Context, user accesstypes.User, scopes ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error) {
+	f.asked = append(f.asked, user)
 	if len(scopes) > 0 {
 		return nil, errors.Newf("the sync asks for every membership the user holds, not for %v", scopes)
 	}

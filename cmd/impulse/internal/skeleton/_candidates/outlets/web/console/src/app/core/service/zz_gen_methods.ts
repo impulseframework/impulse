@@ -7,13 +7,13 @@ export interface FieldPointer {
 }
 
 export interface AssignStaffRoleConfig {
-  username: string | FieldPointer;
+  userId: string | FieldPointer;
   role: string | FieldPointer;
   domain?: string | FieldPointer;
   everyDomain: boolean | FieldPointer;
 }
 export interface AssignStaffRole {
-  username: string;
+  userId: string;
   role: string;
   domain?: string;
   everyDomain: boolean;
@@ -190,13 +190,13 @@ export interface InviteStaffUserResult {
 }
 
 export interface RemoveStaffRoleConfig {
-  username: string | FieldPointer;
+  userId: string | FieldPointer;
   role: string | FieldPointer;
   domain?: string | FieldPointer;
   everyDomain: boolean | FieldPointer;
 }
 export interface RemoveStaffRole {
-  username: string;
+  userId: string;
   role: string;
   domain?: string;
   everyDomain: boolean;
@@ -484,7 +484,7 @@ const methodMap: MethodMap = {
     statuses: [204],
     dryRun: true,
     fields: [
-      { fieldName: 'username', displayType: 'string', required: true },
+      { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Tenants, optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
@@ -633,7 +633,7 @@ const methodMap: MethodMap = {
     statuses: [204],
     dryRun: true,
     fields: [
-      { fieldName: 'username', displayType: 'string', required: true },
+      { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },

@@ -15,22 +15,22 @@ import (
 )
 
 // mailLinkColumns are the mail links table's columns.
-const mailLinkColumns = `Id, TokenHash, Kind, Email, UserId, Tenant, RoleNames, InvitedBy, CreatedAt, ExpiresAt, ConsumedAt, Name`
+const mailLinkColumns = `Id, TokenHash, Kind, Email, UserId, TenantId, RoleNames, InvitedByUserId, CreatedAt, ExpiresAt, ConsumedAt, Name`
 
 // mailLinkRow is a mail link as the table holds it.
 type mailLinkRow struct {
-	ID         string             `spanner:"Id"`
-	TokenHash  []byte             `spanner:"TokenHash"`
-	Kind       string             `spanner:"Kind"`
-	Email      string             `spanner:"Email"`
-	UserID     spanner.NullString `spanner:"UserId"`
-	Tenant     spanner.NullString `spanner:"Tenant"`
-	RoleNames  []string           `spanner:"RoleNames"`
-	InvitedBy  spanner.NullString `spanner:"InvitedBy"`
-	CreatedAt  time.Time          `spanner:"CreatedAt"`
-	ExpiresAt  time.Time          `spanner:"ExpiresAt"`
-	ConsumedAt spanner.NullTime   `spanner:"ConsumedAt"`
-	Name       spanner.NullString `spanner:"Name"`
+	ID              string             `spanner:"Id"`
+	TokenHash       []byte             `spanner:"TokenHash"`
+	Kind            string             `spanner:"Kind"`
+	Email           string             `spanner:"Email"`
+	UserID          spanner.NullString `spanner:"UserId"`
+	TenantID        spanner.NullString `spanner:"TenantId"`
+	RoleNames       []string           `spanner:"RoleNames"`
+	InvitedByUserID spanner.NullString `spanner:"InvitedByUserId"`
+	CreatedAt       time.Time          `spanner:"CreatedAt"`
+	ExpiresAt       time.Time          `spanner:"ExpiresAt"`
+	ConsumedAt      spanner.NullTime   `spanner:"ConsumedAt"`
+	Name            spanner.NullString `spanner:"Name"`
 }
 
 // newMailLinkRow renders l as the table holds it: created at the commit time and not
@@ -43,11 +43,11 @@ func newMailLinkRow(l *dbtype.MailLink) *mailLinkRow {
 	if l.UserID.Valid {
 		r.UserID = spanner.NullString{StringVal: l.UserID.String(), Valid: true}
 	}
-	if l.Tenant != "" {
-		r.Tenant = spanner.NullString{StringVal: l.Tenant, Valid: true}
+	if l.TenantID != "" {
+		r.TenantID = spanner.NullString{StringVal: l.TenantID, Valid: true}
 	}
-	if l.InvitedBy.Valid {
-		r.InvitedBy = spanner.NullString{StringVal: l.InvitedBy.String(), Valid: true}
+	if l.InvitedByUserID.Valid {
+		r.InvitedByUserID = spanner.NullString{StringVal: l.InvitedByUserID.String(), Valid: true}
 	}
 	if l.Name != "" {
 		r.Name = spanner.NullString{StringVal: l.Name, Valid: true}
@@ -72,18 +72,18 @@ func (r *mailLinkRow) link() (*dbtype.MailLink, error) {
 		}
 		l.UserID = impulse.NullUUIDFromUUID(userID)
 	}
-	if r.Tenant.Valid {
-		l.Tenant = r.Tenant.StringVal
+	if r.TenantID.Valid {
+		l.TenantID = r.TenantID.StringVal
 	}
 	if r.Name.Valid {
 		l.Name = r.Name.StringVal
 	}
-	if r.InvitedBy.Valid {
-		invitedBy, err := impulse.UUIDFromString(r.InvitedBy.StringVal)
+	if r.InvitedByUserID.Valid {
+		invitedBy, err := impulse.UUIDFromString(r.InvitedByUserID.StringVal)
 		if err != nil {
 			return nil, errors.Wrap(err, "impulse.UUIDFromString()")
 		}
-		l.InvitedBy = impulse.NullUUIDFromUUID(invitedBy)
+		l.InvitedByUserID = impulse.NullUUIDFromUUID(invitedBy)
 	}
 	if r.ConsumedAt.Valid {
 		consumedAt := r.ConsumedAt.Time

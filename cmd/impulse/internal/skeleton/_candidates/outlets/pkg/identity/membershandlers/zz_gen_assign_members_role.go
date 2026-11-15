@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/identity/membersidentity"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/router"
@@ -19,10 +20,10 @@ import (
 
 func (h *Handlers) AssignMembersRole() http.HandlerFunc {
 	type request struct {
-		Username    string  `json:"username"`
-		Role        string  `json:"role"`
-		Domain      *string `json:"domain"`
-		EveryDomain bool    `json:"everyDomain"`
+		UserID      impulse.UUID `json:"userId"`
+		Role        string       `json:"role"`
+		Domain      *string      `json:"domain"`
+		EveryDomain bool         `json:"everyDomain"`
 	}
 
 	decoder := NewRPCDecoder[membersidentity.AssignMembersRole, request](h, accesstypes.Execute)

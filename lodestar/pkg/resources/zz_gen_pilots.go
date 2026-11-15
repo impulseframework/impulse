@@ -41,7 +41,7 @@ var pilotReadSets resource.SetCache[Pilot, pilotRead]
 // routes enforce; pilotWriteSets holds one Set per mutation.
 type pilotWrite struct {
 	ID          impulse.UUID    `json:"-"`
-	UserID      string          `json:"userId"      sqltype:"STRING(320)"`
+	UserID      string          `json:"userId"      sqltype:"STRING(36)"`
 	DisplayName string          `json:"displayName"`
 	Clearance   int64           `json:"clearance"`
 	FeeLimit    decimal.Decimal `json:"feeLimit"    sqltype:"NUMERIC"`

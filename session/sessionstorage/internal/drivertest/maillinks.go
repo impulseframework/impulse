@@ -46,7 +46,7 @@ func insertInvitation(ctx context.Context, t *testing.T, d AuthDriver, email, te
 	t.Helper()
 
 	link := newMailLink(dbtype.MailLinkInvitation, email, hash)
-	link.Tenant, link.RoleNames = tenant, roles
+	link.TenantID, link.RoleNames = tenant, roles
 	if err := d.InsertMailLink(ctx, link); err != nil {
 		t.Fatalf("InsertMailLink() error = %v", err)
 	}
@@ -56,7 +56,7 @@ func insertInvitation(ctx context.Context, t *testing.T, d AuthDriver, email, te
 
 // invitationOf is the invitation a sign-in carries for link.
 func invitationOf(link *dbtype.MailLink) *sessioninfo.Invitation {
-	return &sessioninfo.Invitation{ID: link.ID, Email: link.Email, Tenant: link.Tenant, RoleNames: link.RoleNames, InvitedBy: link.InvitedBy, ExpiresAt: link.ExpiresAt}
+	return &sessioninfo.Invitation{ID: link.ID, Email: link.Email, TenantID: link.TenantID, RoleNames: link.RoleNames, InvitedByUserID: link.InvitedByUserID, ExpiresAt: link.ExpiresAt}
 }
 
 // acceptances records what the invitation acceptor was handed, the way an application
@@ -77,7 +77,7 @@ func newAcceptances() *acceptances {
 // accepted:<address>, through the transaction it is handed, and asks to have the same
 // recorded in memory once that transaction has committed.
 func (a *acceptances) hook(ctx context.Context, tx HookTx, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (func(ctx context.Context), error) {
-	key, value := "accepted:"+inv.Email, userID.String()+" "+username+" "+inv.Tenant+" "+strings.Join(inv.RoleNames, ",")
+	key, value := "accepted:"+inv.Email, userID.String()+" "+username+" "+inv.TenantID+" "+strings.Join(inv.RoleNames, ",")
 	if err := tx.Record(ctx, key, value); err != nil {
 		return nil, errors.Wrap(err, "HookTx.Record()")
 	}
@@ -354,7 +354,7 @@ func testMailLinkRoundTrip(ctx context.Context, t *testing.T, h *AuthHarness) {
 	inviter := createUser(ctx, t, in.Driver, "admin@lakeside.edu")
 
 	invitation := newMailLink(dbtype.MailLinkInvitation, "new@lakeside.edu", tokenHash(1))
-	invitation.Tenant, invitation.RoleNames, invitation.InvitedBy = "lakeside", []string{"Teacher", "Coach"}, impulse.NullUUIDFromUUID(inviter.ID)
+	invitation.TenantID, invitation.RoleNames, invitation.InvitedByUserID = "lakeside", []string{"Teacher", "Coach"}, impulse.NullUUIDFromUUID(inviter.ID)
 	invitation.Name = "Noor Haddad"
 	verification := newMailLink(dbtype.MailLinkVerification, "pat.lee@lakeside.edu", tokenHash(2))
 	verification.UserID = impulse.NullUUIDFromUUID(user.ID)

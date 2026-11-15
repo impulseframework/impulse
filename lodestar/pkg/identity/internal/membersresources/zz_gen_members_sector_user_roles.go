@@ -26,7 +26,7 @@ func (MembersSectorUserRole) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; membersSectorUserRoleReadSets holds one Set per read operation.
 type membersSectorUserRoleRead struct {
-	Domain      string       `json:"domain"`
+	DomainID    string       `json:"domainId"`
 	UserID      impulse.UUID `json:"userId"      perm:"-"`
 	Username    string       `json:"username"`
 	Role        string       `json:"role"        perm:"-"`
@@ -152,7 +152,7 @@ func NewMembersSectorUserRoleColumns() *MembersSectorUserRoleColumns {
 
 func (c *MembersSectorUserRoleColumns) All() *MembersSectorUserRoleColumns {
 	c.fields = []accesstypes.Field{
-		"Domain",
+		"DomainID",
 		"UserID",
 		"Username",
 		"Role",
@@ -163,8 +163,8 @@ func (c *MembersSectorUserRoleColumns) All() *MembersSectorUserRoleColumns {
 	return c
 }
 
-func (c *MembersSectorUserRoleColumns) Domain() *MembersSectorUserRoleColumns {
-	c.fields = append(c.fields, "Domain")
+func (c *MembersSectorUserRoleColumns) DomainID() *MembersSectorUserRoleColumns {
+	c.fields = append(c.fields, "DomainID")
 
 	return c
 }
@@ -211,8 +211,8 @@ func (p MembersSectorUserRoleQueryPartialClause) Group(qc MembersSectorUserRoleQ
 	return MembersSectorUserRoleQueryClause{clause: p.partialClause.Group(qc.clause)}
 }
 
-func (p MembersSectorUserRoleQueryPartialClause) Domain() MembersSectorUserRoleQueryIdent[string] {
-	return MembersSectorUserRoleQueryIdent[string]{Ident: resource.NewIdent[string]("Domain", p.partialClause, true)}
+func (p MembersSectorUserRoleQueryPartialClause) DomainID() MembersSectorUserRoleQueryIdent[string] {
+	return MembersSectorUserRoleQueryIdent[string]{Ident: resource.NewIdent[string]("DomainID", p.partialClause, true)}
 }
 
 func (p MembersSectorUserRoleQueryPartialClause) UserID() MembersSectorUserRoleQueryIdent[impulse.UUID] {
@@ -297,8 +297,8 @@ func (c *membersSectorUserRoleSort) addField(field string) *MembersSectorUserRol
 	return &MembersSectorUserRoleSort{membersSectorUserRoleSort: c}
 }
 
-func (c *membersSectorUserRoleSort) Domain() *MembersSectorUserRoleSort {
-	return c.addField("Domain")
+func (c *membersSectorUserRoleSort) DomainID() *MembersSectorUserRoleSort {
+	return c.addField("DomainID")
 }
 
 func (c *membersSectorUserRoleSort) UserID() *MembersSectorUserRoleSort {

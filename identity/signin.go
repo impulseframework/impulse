@@ -7,7 +7,6 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
@@ -60,9 +59,9 @@ import (
 //
 // auth names the Auth in the log line a given role leaves.
 func (m *Manager) InvitationAccepted(auth string) session.InvitationAcceptedHook[*spanner.ReadWriteTransaction] {
-	return func(ctx context.Context, tx *spanner.ReadWriteTransaction, _ impulse.UUID, username string, inv *sessioninfo.Invitation) (func(ctx context.Context), error) {
+	return func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (func(ctx context.Context), error) {
 		txn := resource.NewSpannerReadWriteTransaction(tx)
-		if err := m.giveInvitedRoles(m.oneTenant.within(ctx, tx), txn, username, inv); err != nil {
+		if err := m.giveInvitedRoles(m.oneTenant.within(ctx, tx), txn, userID, username, inv); err != nil {
 			return nil, err
 		}
 
@@ -82,9 +81,9 @@ func (m *Manager) InvitationAccepted(auth string) session.InvitationAcceptedHook
 //
 // auth names the Auth in the log line a given role leaves.
 func (m *Manager) DirectorySeated(auth string) session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {
-	return func(ctx context.Context, tx *spanner.ReadWriteTransaction, _ impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
+	return func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
 		txn := resource.NewSpannerReadWriteTransaction(tx)
-		if err := m.giveDirectoryRoles(m.oneTenant.within(ctx, tx), txn, username, seats); err != nil {
+		if err := m.giveDirectoryRoles(m.oneTenant.within(ctx, tx), txn, userID, username, seats); err != nil {
 			return nil, err
 		}
 
@@ -98,13 +97,14 @@ func (m *Manager) DirectorySeated(auth string) session.DirectorySeatedHook[*span
 	}
 }
 
-// giveInvitedRoles buffers the memberships an accepted invitation gives the person.
-func (m *Manager) giveInvitedRoles(ctx context.Context, txn resource.ReadWriteTransaction, username string, inv *sessioninfo.Invitation) error {
+// giveInvitedRoles buffers the memberships an accepted invitation gives the person:
+// userID is who holds them, and username what an error reads.
+func (m *Manager) giveInvitedRoles(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	for _, name := range inv.RoleNames {
-		if err := m.giveInvitedRole(ctx, txn, username, inv, accesstypes.Role(name)); err != nil {
+		if err := m.giveInvitedRole(ctx, txn, userID, username, inv, accesstypes.Role(name)); err != nil {
 			return err
 		}
 	}
@@ -117,22 +117,22 @@ func (m *Manager) giveInvitedRoles(ctx context.Context, txn resource.ReadWriteTr
 // there and in every tenant otherwise. The membership write answers NotFound for a
 // role that does not exist where it is asked for, with nothing written, which is how
 // the kind is told.
-func (m *Manager) giveInvitedRole(ctx context.Context, txn resource.ReadWriteTransaction, username string, inv *sessioninfo.Invitation, role accesstypes.Role) error {
-	if inv.Tenant != "" {
-		if err := m.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(inv.Tenant)), username, role); err != nil {
-			return errors.Wrapf(err, "the invitation to %s gives %q the role %s in %s", inv.Email, username, role, inv.Tenant)
+func (m *Manager) giveInvitedRole(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation, role accesstypes.Role) error {
+	if inv.TenantID != "" {
+		if err := m.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(inv.TenantID)), userID, role); err != nil {
+			return errors.Wrapf(err, "the invitation to %s gives %q the role %s in %s", inv.Email, username, role, inv.TenantID)
 		}
 
 		return nil
 	}
-	err := m.AssignRole(ctx, txn, accesstypes.GlobalPolicyScope(), username, role)
+	err := m.AssignRole(ctx, txn, accesstypes.GlobalPolicyScope(), userID, role)
 	if err == nil {
 		return nil
 	}
 	if !httpio.HasNotFound(err) {
 		return errors.Wrapf(err, "the invitation to %s gives %q the role %s", inv.Email, username, role)
 	}
-	if err := m.AssignRole(ctx, txn, accesstypes.EveryDomainPolicyScope(), username, role); err != nil {
+	if err := m.AssignRole(ctx, txn, accesstypes.EveryDomainPolicyScope(), userID, role); err != nil {
 		return errors.Wrapf(err, "the invitation to %s gives %q the role %s, which exists neither globally nor in every tenant", inv.Email, username, role)
 	}
 
@@ -140,58 +140,17 @@ func (m *Manager) giveInvitedRole(ctx context.Context, txn resource.ReadWriteTra
 }
 
 // giveDirectoryRoles buffers the memberships the tenants' directory rows give a person
-// at their first sign-in, each a role in a tenant.
-func (m *Manager) giveDirectoryRoles(ctx context.Context, txn resource.ReadWriteTransaction, username string, seats []signin.DirectorySeat) error {
+// at their first sign-in, each a role in a tenant: userID is who holds them, and
+// username what an error reads.
+func (m *Manager) giveDirectoryRoles(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, seats []signin.DirectorySeat) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	for _, seat := range seats {
-		if err := m.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(seat.Tenant), username, seat.Role); err != nil {
+		if err := m.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(seat.Tenant), userID, seat.Role); err != nil {
 			return errors.Wrapf(err, "the directory's default role gives %q the role %s in %s", username, seat.Role, seat.Tenant)
 		}
 	}
 
 	return nil
-}
-
-// RolesFollowRename answers the session library's hook for a rename the library makes
-// itself (session.Auth.SetUserRenamed): where the sign-in name is the person's email
-// address, a verified new address renames the user, and the roles held under the old
-// name move to the new one, as RenameUser moves them for a rename an administrator
-// makes. The permission store names a person by username, so a person renamed keeps
-// their roles only if the memberships follow the name.
-//
-// The session library calls the hook once the transaction that renamed the user has
-// committed and hands it no transaction, so the memberships move through the engine:
-// in each place roles are held, they are given under the new name and then taken from
-// the old. The two writes are not one transaction. A failure midway is logged with
-// what moved, and the hook is safe to run again: giving a role already held changes
-// nothing.
-func RolesFollowRename(manager access.UserManager) session.UserRenamedHook {
-	return func(ctx context.Context, _ impulse.UUID, from, to string) error {
-		ctx, span := tracer.Start(ctx)
-		defer span.End()
-
-		held, err := manager.UserRoles(ctx, accesstypes.User(from))
-		if err != nil {
-			return errors.Wrap(err, "access.UserManager.UserRoles()")
-		}
-		for scope, roles := range held {
-			if len(roles) == 0 {
-				continue
-			}
-			if err := manager.AddUserRoles(ctx, scope, accesstypes.User(to), roles...); err != nil {
-				logger.FromCtx(ctx).Errorf("renaming %q to %q: the roles held in %v did not move; run the move again to recover them: %v", from, to, scope, err)
-
-				return errors.Wrap(err, "access.UserManager.AddUserRoles()")
-			}
-			if err := manager.DeleteUserRoles(ctx, scope, accesstypes.User(from), roles...); err != nil {
-				logger.FromCtx(ctx).Errorf("renaming %q to %q: the roles in %v are held under both names; run the move again to take them from the old one: %v", from, to, scope, err)
-
-				return errors.Wrap(err, "access.UserManager.DeleteUserRoles()")
-			}
-		}
-
-		return nil
-	}
 }

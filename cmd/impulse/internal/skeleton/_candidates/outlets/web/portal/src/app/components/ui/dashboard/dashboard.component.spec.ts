@@ -10,6 +10,9 @@ import { environment } from '@env';
 import { firstValueFrom } from 'rxjs';
 import { DashboardComponent } from './dashboard.component';
 
+/** The tenant the session holds: its key is an id, and the page shows its name. */
+const north = '11111111-1111-4111-8111-111111111111';
+
 /** What the server answers for one session: its tenants, the global digest, and each tenant's digest. */
 interface Grants {
   domains: { domain: string; name: string }[];
@@ -22,9 +25,9 @@ interface Grants {
  * are north's to list and read, and to update under a condition.
  */
 const member: Grants = {
-  domains: [{ domain: 'north', name: 'North' }],
+  domains: [{ domain: north, name: 'North' }],
   global: {},
-  tenants: { north: { Announcements: { List: 'granted', Read: 'granted', Update: 'conditional' } } },
+  tenants: { [north]: { Announcements: { List: 'granted', Read: 'granted', Update: 'conditional' } } },
 };
 
 /** A login that holds nothing anywhere. */
@@ -107,10 +110,10 @@ describe('DashboardComponent', () => {
     // The address and the look are the person's: the account page and the person's menu.
     expect(element.querySelector('impulse-email-address')).toBeNull();
     expect(element.querySelector('impulse-theme-picker')).toBeNull();
-    expect(element.querySelector('p strong')?.textContent).toBe('north');
+    expect(element.querySelector('p strong')?.textContent).toBe('North');
     const rows = Array.from(element.querySelectorAll('tbody tr'));
     const labels = rows.map((row) => row.querySelector('td')?.textContent?.replace(/\s+/g, ' ').trim());
-    expect(labels).toEqual(['Announcements north']);
+    expect(labels).toEqual(['Announcements North']);
     expect(states(rows[0])).toEqual(['granted', 'granted', 'absent', 'conditional', 'absent', 'absent']);
 
     const asked = transport.requests.map((request) => `${request.method} ${request.url}`);
@@ -119,7 +122,7 @@ describe('DashboardComponent', () => {
       `GET ${environment.apiUrl}/permission-digest`,
       `GET ${environment.apiUrl}/user-domains`,
       `GET ${environment.apiUrl}/features`,
-      `GET ${environment.apiUrl}/permission-digest?domain=north`,
+      `GET ${environment.apiUrl}/permission-digest?domain=${north}`,
     ]);
   });
 

@@ -29,7 +29,7 @@ func (Consignment) DefaultConfig() resource.Config {
 // enforce; consignmentReadSets holds one Set per read operation.
 type consignmentRead struct {
 	ID          impulse.UUID `json:"id"          perm:"-"`
-	SectorID    string       `json:"sectorId"`
+	SectorID    impulse.UUID `json:"sectorId"`
 	ClientID    impulse.UUID `json:"clientId"`
 	BondCode    string       `json:"bondCode"`
 	Description string       `json:"description"`
@@ -45,7 +45,7 @@ var consignmentReadSets resource.SetCache[Consignment, consignmentRead]
 // routes enforce; consignmentWriteSets holds one Set per mutation.
 type consignmentWrite struct {
 	ID          impulse.UUID `json:"-"`
-	SectorID    string       `json:"-"`
+	SectorID    impulse.UUID `json:"-"`
 	ClientID    impulse.UUID `json:"clientId"`
 	BondCode    string       `json:"bondCode"    immutable:"true"`
 	Description string       `json:"description"`
@@ -249,8 +249,8 @@ func (p ConsignmentQueryPartialClause) ID() ConsignmentQueryIdent[impulse.UUID] 
 	return ConsignmentQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p ConsignmentQueryPartialClause) SectorID() ConsignmentQueryIdent[string] {
-	return ConsignmentQueryIdent[string]{Ident: resource.NewIdent[string]("SectorID", p.partialClause, true)}
+func (p ConsignmentQueryPartialClause) SectorID() ConsignmentQueryIdent[impulse.UUID] {
+	return ConsignmentQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("SectorID", p.partialClause, true)}
 }
 
 func (p ConsignmentQueryPartialClause) ClientID() ConsignmentQueryIdent[impulse.UUID] {
@@ -458,14 +458,14 @@ func (p *ConsignmentCreatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *ConsignmentCreatePatch) SetSectorID(v string) *ConsignmentCreatePatch {
+func (p *ConsignmentCreatePatch) SetSectorID(v impulse.UUID) *ConsignmentCreatePatch {
 	p.patchSet.Set("SectorID", v)
 
 	return p
 }
 
-func (p *ConsignmentCreatePatch) SectorID() string {
-	v, _ := p.patchSet.Get("SectorID").(string)
+func (p *ConsignmentCreatePatch) SectorID() impulse.UUID {
+	v, _ := p.patchSet.Get("SectorID").(impulse.UUID)
 
 	return v
 }
@@ -666,14 +666,14 @@ func (p *ConsignmentUpdatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *ConsignmentUpdatePatch) SetSectorID(v string) *ConsignmentUpdatePatch {
+func (p *ConsignmentUpdatePatch) SetSectorID(v impulse.UUID) *ConsignmentUpdatePatch {
 	p.patchSet.Set("SectorID", v)
 
 	return p
 }
 
-func (p *ConsignmentUpdatePatch) SectorID() string {
-	v, _ := p.patchSet.Get("SectorID").(string)
+func (p *ConsignmentUpdatePatch) SectorID() impulse.UUID {
+	v, _ := p.patchSet.Get("SectorID").(impulse.UUID)
 
 	return v
 }

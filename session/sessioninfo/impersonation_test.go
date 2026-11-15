@@ -25,6 +25,11 @@ func TestImpersonationAccessors(t *testing.T) {
 	sessionID := impulse.Must(impulse.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))
 	sourceID := impulse.Must(impulse.UUIDFromString("7a1d5f6e-0c2b-4a3e-9d8f-1b2c3d4e5f60"))
 
+	// The accounts of alice and bob: what the permission store names each by.
+	aliceID := impulse.Must(impulse.UUIDFromString("a11ce000-0000-4000-8000-000000000001"))
+	bobID := impulse.Must(impulse.UUIDFromString("b0b00000-0000-4000-8000-000000000002"))
+	alice, bob := accesstypes.User(aliceID.String()), accesstypes.User(bobID.String())
+
 	userImp := &Impersonation{
 		SessionID: sessionID,
 		Actor:     "alice@example.com",
@@ -38,6 +43,22 @@ func TestImpersonationAccessors(t *testing.T) {
 		SourceSessionID: impulse.NullUUID{UUID: sourceID, Valid: true},
 		Principal:       accesstypes.RolePrincipal("PartnerViewer"),
 	}
+	// A session type whose users are accounts: alice, signed in here, as bob, and
+	// alice under a role. The record names her account, and bob by his.
+	accountImp := &Impersonation{
+		SessionID:       sessionID,
+		Actor:           "alice@example.com",
+		ActorID:         impulse.NullUUIDFromUUID(aliceID),
+		SourceSessionID: impulse.NullUUID{UUID: sourceID, Valid: true},
+		Principal:       accesstypes.UserPrincipal(bob),
+	}
+	accountRoleImp := &Impersonation{
+		SessionID:       sessionID,
+		Actor:           "alice@example.com",
+		ActorID:         impulse.NullUUIDFromUUID(aliceID),
+		SourceSessionID: impulse.NullUUID{UUID: sourceID, Valid: true},
+		Principal:       accesstypes.RolePrincipal("Editor"),
+	}
 
 	tests := []struct {
 		name          string
@@ -45,16 +66,30 @@ func TestImpersonationAccessors(t *testing.T) {
 		wantImp       *Impersonation
 		wantPrincipal accesstypes.Principal
 		wantActor     string
+		// wantActorUser is the real user behind the session as the permission store
+		// names them.
+		wantActorUser accesstypes.User
 		wantMask      accesstypes.PermissionMask
 		wantKind      string
 		wantName      string
 		wantAttrs     []Attribute
 	}{
 		{
-			name:          "normal session",
+			name:          "a session that belongs to no account is named by its username",
 			ctx:           ctxWithSession("alice@example.com", nil),
 			wantPrincipal: accesstypes.UserPrincipal("alice@example.com"),
 			wantActor:     "alice@example.com",
+			wantActorUser: "alice@example.com",
+		},
+		{
+			name: "a session of an account is named by the id of the account, and read by its username",
+			ctx: context.WithValue(context.Background(), CtxSessionInfo, &SessionData{
+				SessionInfo: &SessionInfo{ID: sessionID, Username: "alice@example.com"},
+				UserID:      impulse.NullUUIDFromUUID(aliceID),
+			}),
+			wantPrincipal: accesstypes.UserPrincipal(alice),
+			wantActor:     "alice@example.com",
+			wantActorUser: alice,
 		},
 		{
 			name: "a resolver's choice wins over the username",
@@ -64,6 +99,7 @@ func TestImpersonationAccessors(t *testing.T) {
 			}),
 			wantPrincipal: accesstypes.RolePrincipal("Editor"),
 			wantActor:     "alice@example.com",
+			wantActorUser: "alice@example.com",
 		},
 		{
 			name: "a resolver's choice wins over a user-principal impersonation",
@@ -75,6 +111,7 @@ func TestImpersonationAccessors(t *testing.T) {
 			wantImp:       userImp,
 			wantPrincipal: accesstypes.RolePrincipal("Editor"),
 			wantActor:     "alice@example.com",
+			wantActorUser: "alice@example.com",
 			wantMask:      accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read),
 			wantKind:      "User",
 			wantName:      "bob@partner.org",
@@ -92,6 +129,7 @@ func TestImpersonationAccessors(t *testing.T) {
 			wantImp:       userImp,
 			wantPrincipal: accesstypes.UserPrincipal("bob@partner.org"),
 			wantActor:     "alice@example.com",
+			wantActorUser: "alice@example.com",
 			wantMask:      accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read),
 			wantKind:      "User",
 			wantName:      "bob@partner.org",
@@ -104,11 +142,14 @@ func TestImpersonationAccessors(t *testing.T) {
 			},
 		},
 		{
+			// A foreign actor has no account here: the name the record carries is no
+			// account's id, and so holds nothing in this application.
 			name:          "impersonated role from another realm",
 			ctx:           ctxWithSession("alice@example.com", roleImp),
 			wantImp:       roleImp,
 			wantPrincipal: accesstypes.RolePrincipal("PartnerViewer"),
 			wantActor:     "alice@example.com",
+			wantActorUser: "alice@example.com",
 			wantKind:      "Role",
 			wantName:      "PartnerViewer",
 			wantAttrs: []Attribute{
@@ -118,6 +159,50 @@ func TestImpersonationAccessors(t *testing.T) {
 				{Key: AttrImpersonationMask, Value: "unrestricted"},
 				{Key: AttrImpersonationSessionID, Value: sessionID.String()},
 				{Key: AttrImpersonationActorRealm, Value: "admin-portal"},
+				{Key: AttrImpersonationSourceSessionID, Value: sourceID.String()},
+			},
+		},
+		{
+			name: "an account impersonated by an account: the subject is the impersonated account, the actor behind it the actor's",
+			ctx: context.WithValue(context.Background(), CtxSessionInfo, &SessionData{
+				SessionInfo:   &SessionInfo{ID: sessionID, Username: "bob@partner.org"},
+				UserID:        impulse.NullUUIDFromUUID(bobID),
+				Impersonation: accountImp,
+			}),
+			wantImp:       accountImp,
+			wantPrincipal: accesstypes.UserPrincipal(bob),
+			wantActor:     "alice@example.com",
+			wantActorUser: alice,
+			wantKind:      "User",
+			wantName:      bobID.String(),
+			wantAttrs: []Attribute{
+				{Key: AttrImpersonationActor, Value: "alice@example.com"},
+				{Key: AttrImpersonationPrincipalKind, Value: "User"},
+				{Key: AttrImpersonationPrincipal, Value: bobID.String()},
+				{Key: AttrImpersonationMask, Value: "unrestricted"},
+				{Key: AttrImpersonationSessionID, Value: sessionID.String()},
+				{Key: AttrImpersonationActorID, Value: aliceID.String()},
+				{Key: AttrImpersonationSourceSessionID, Value: sourceID.String()},
+			},
+		},
+		{
+			// The session belongs to no account, and carries the actor's username: the
+			// person behind it is still the actor's account, never that username.
+			name:          "an account under a role: the session belongs to no account, and the actor behind it is the actor's account",
+			ctx:           ctxWithSession("alice@example.com", accountRoleImp),
+			wantImp:       accountRoleImp,
+			wantPrincipal: accesstypes.RolePrincipal("Editor"),
+			wantActor:     "alice@example.com",
+			wantActorUser: alice,
+			wantKind:      "Role",
+			wantName:      "Editor",
+			wantAttrs: []Attribute{
+				{Key: AttrImpersonationActor, Value: "alice@example.com"},
+				{Key: AttrImpersonationPrincipalKind, Value: "Role"},
+				{Key: AttrImpersonationPrincipal, Value: "Editor"},
+				{Key: AttrImpersonationMask, Value: "unrestricted"},
+				{Key: AttrImpersonationSessionID, Value: sessionID.String()},
+				{Key: AttrImpersonationActorID, Value: aliceID.String()},
 				{Key: AttrImpersonationSourceSessionID, Value: sourceID.String()},
 			},
 		},
@@ -137,6 +222,9 @@ func TestImpersonationAccessors(t *testing.T) {
 			if got := ActorFromCtx(tt.ctx); got != tt.wantActor {
 				t.Errorf("ActorFromCtx() = %q, want %q", got, tt.wantActor)
 			}
+			if got := ActorUserFromCtx(tt.ctx); got != tt.wantActorUser {
+				t.Errorf("ActorUserFromCtx() = %q, want %q", got, tt.wantActorUser)
+			}
 			if got := MaskFromCtx(tt.ctx); got.String() != tt.wantMask.String() {
 				t.Errorf("MaskFromCtx() = %v, want %v", got, tt.wantMask)
 			}
@@ -148,6 +236,9 @@ func TestImpersonationAccessors(t *testing.T) {
 			}
 			if got := imp.PrincipalName(); got != tt.wantName {
 				t.Errorf("PrincipalName() = %q, want %q", got, tt.wantName)
+			}
+			if got := imp.ActorUser(); got != tt.wantActorUser {
+				t.Errorf("ActorUser() = %q, want %q", got, tt.wantActorUser)
 			}
 			if diff := cmp.Diff(tt.wantAttrs, imp.Attributes()); diff != "" {
 				t.Errorf("Attributes() mismatch (-want +got):\n%s", diff)
@@ -166,6 +257,18 @@ func TestImpersonationFromCtx_PanicsWithoutSession(t *testing.T) {
 	}()
 
 	ImpersonationFromCtx(context.Background())
+}
+
+func TestActorUserFromCtx_PanicsWithoutSession(t *testing.T) {
+	t.Parallel()
+
+	defer func() {
+		if r := recover(); r == nil {
+			t.Error("ActorUserFromCtx() did not panic without a session in the context")
+		}
+	}()
+
+	ActorUserFromCtx(context.Background())
 }
 
 func TestImpersonationFromRequest(t *testing.T) {

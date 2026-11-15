@@ -3,7 +3,7 @@
 -- refresh token of a device grant a command-line client obtained; the client holds an
 -- opaque secret and the row keeps its hash. A token acts as its user (UserId) on the one
 -- machine outlet it was issued for (Outlet) and is live while it is not revoked and not
--- expired. A device grant's tokens share a Family, and every successor a refresh
+-- expired. A device grant's tokens share a family (FamilyId), and every successor a refresh
 -- exchange issues joins it, so a rotated refresh token presented again revokes the
 -- family at once (RevokedReason 'reuse'). CreatedAt, LastUsedAt and RevokedAt take the
 -- transaction's time; ExpiresAt is the library's deadline, written as given.
@@ -17,7 +17,7 @@ CREATE TABLE "SessionTokens"
     "UserId" UUID NOT NULL,
     "Outlet" character varying NOT NULL,
     "Name" character varying,
-    "Family" UUID,
+    "FamilyId" UUID,
     "ClientId" character varying,
     "CreatedAt" timestamp with time zone NOT NULL,
     "ExpiresAt" timestamp with time zone NOT NULL,
@@ -32,7 +32,7 @@ CREATE TABLE "SessionTokens"
 
 CREATE UNIQUE INDEX "SessionTokens_TokenHash_idx" ON "SessionTokens" USING btree ("TokenHash");
 CREATE INDEX "SessionTokens_UserId_idx" ON "SessionTokens" USING btree ("UserId", "RevokedAt", "ExpiresAt");
-CREATE INDEX "SessionTokens_Family_idx" ON "SessionTokens" USING btree ("Family", "RevokedAt");
+CREATE INDEX "SessionTokens_FamilyId_idx" ON "SessionTokens" USING btree ("FamilyId", "RevokedAt");
 
 -- Device codes: the device authorizations command-line clients start (RFC 8628). The
 -- client holds the opaque device code and the row keeps its hash; the person is shown

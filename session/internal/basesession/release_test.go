@@ -25,6 +25,15 @@ func ordinarySession(id impulse.UUID, username string, updatedAt time.Time) *ses
 	return &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: id, Username: username, UpdatedAt: updatedAt}}
 }
 
+// accountSession is ordinarySession for a session type whose sessions belong to an
+// account: the row carries the account's id beside the username.
+func accountSession(id impulse.UUID, username string, account impulse.UUID, updatedAt time.Time) *sessioninfo.SessionData {
+	sess := ordinarySession(id, username, updatedAt)
+	sess.UserID = impulse.NullUUIDFromUUID(account)
+
+	return sess
+}
+
 func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 	t.Parallel()
 
@@ -33,6 +42,8 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 	source := impulse.NullUUID{UUID: sourceID, Valid: true}
 
 	otherID := impulse.Must(impulse.NewUUID())
+	// aliceID is alice's account, for the session type whose sessions belong to one.
+	aliceID := impulse.Must(impulse.NewUUID())
 	// onSession is a context carrying the validated, non-impersonated session the
 	// establishing call arrives on.
 	onSession := func(sess *sessioninfo.SessionData) context.Context {
@@ -55,10 +66,12 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 	}
 
 	tests := []struct {
-		name           string
-		ctx            context.Context
-		imp            *sessioninfo.Impersonation
-		prepare        func(storage *mock_sessionstorage.MockBaseStore, cookieHandler *mock_cookie.MockHandler)
+		name    string
+		ctx     context.Context
+		imp     *sessioninfo.Impersonation
+		prepare func(storage *mock_sessionstorage.MockBaseStore, cookieHandler *mock_cookie.MockHandler)
+		// wantActorID is the actor's account on the record of an established session.
+		wantActorID    impulse.NullUUID
 		wantBadRequest bool
 		wantForbidden  bool
 	}{
@@ -119,6 +132,24 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
 				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
 			},
+		},
+		{
+			name: "a local actor's record takes the actor's account from their source session, before it is written",
+			imp:  &sessioninfo.Impersonation{Actor: "alice", SourceSessionID: source, Principal: accesstypes.RolePrincipal("Editor")},
+			prepare: func(storage *mock_sessionstorage.MockBaseStore, cookieHandler *mock_cookie.MockHandler) {
+				storage.EXPECT().Session(gomock.Any(), sourceID).Return(accountSession(sourceID, "alice", aliceID, time.Now()), nil)
+				storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).
+					DoAndReturn(func(_ context.Context, _ *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
+						if want := impulse.NullUUIDFromUUID(aliceID); imp.ActorID != want || imp.ActorUser() != accesstypes.User(aliceID.String()) {
+							return impulse.NilUUID, errors.Newf("record written with ActorID = %v (ActorUser %q), want %v", imp.ActorID, imp.ActorUser(), want)
+						}
+
+						return sessionID, nil
+					})
+				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
+				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
+			},
+			wantActorID: impulse.NullUUIDFromUUID(aliceID),
 		},
 		{
 			name:           "a local actor without a source session is a bad request",
@@ -193,6 +224,11 @@ func TestBaseSession_StartImpersonatedSession_LocalActor(t *testing.T) {
 			if httpio.HasBadRequest(err) != tt.wantBadRequest || httpio.HasForbidden(err) != tt.wantForbidden {
 				t.Errorf("error = %v; want badRequest=%v forbidden=%v", err, tt.wantBadRequest, tt.wantForbidden)
 			}
+			// The actor's account is the source session's: null for a session type whose
+			// sessions belong to no account, and for a foreign actor, who has none here.
+			if err == nil && tt.imp.ActorID != tt.wantActorID {
+				t.Errorf("record ActorID = %v, want %v", tt.imp.ActorID, tt.wantActorID)
+			}
 		})
 	}
 }
@@ -266,6 +302,11 @@ func TestBaseSession_EndImpersonationAPI(t *testing.T) {
 	sessionID := impulse.Must(impulse.NewUUID())
 	sourceID := impulse.Must(impulse.NewUUID())
 	source := impulse.NullUUID{UUID: sourceID, Valid: true}
+	// The accounts of alice and of somebody else, for the session type whose sessions
+	// belong to one.
+	aliceID := impulse.Must(impulse.NewUUID())
+	otherID := impulse.Must(impulse.NewUUID())
+	alice := impulse.NullUUIDFromUUID(aliceID)
 
 	impersonated := func(imp *sessioninfo.Impersonation) *sessioninfo.SessionData {
 		imp.SessionID = sessionID
@@ -321,6 +362,45 @@ func TestBaseSession_EndImpersonationAPI(t *testing.T) {
 			prepare: func(storage *mock_sessionstorage.MockBaseStore, _ *mock_cookie.MockHandler) {
 				ended(storage)
 				storage.EXPECT().Session(gomock.Any(), sourceID).Return(ordinarySession(sourceID, "alicia", time.Now()), nil)
+			},
+			wantEvents: []sessioninfo.ImpersonationEventKind{sessioninfo.ImpersonationEnded},
+		},
+		{
+			name:    "an actor named by account returns to the source session of that account, under whatever username it now carries",
+			session: impersonated(&sessioninfo.Impersonation{Actor: "alice", ActorID: alice, SourceSessionID: source, Principal: accesstypes.RolePrincipal("Editor")}),
+			prepare: func(storage *mock_sessionstorage.MockBaseStore, cookieHandler *mock_cookie.MockHandler) {
+				ended(storage)
+				storage.EXPECT().Session(gomock.Any(), sourceID).Return(accountSession(sourceID, "alicia", aliceID, time.Now()), nil)
+				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sourceID).Return(cookie.NewValues())
+				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sourceID)
+			},
+			wantRestored: true,
+			wantEvents:   []sessioninfo.ImpersonationEventKind{sessioninfo.ImpersonationEnded},
+		},
+		{
+			name:    "a source session of another account cannot be returned to, though it carries the actor's username",
+			session: impersonated(&sessioninfo.Impersonation{Actor: "alice", ActorID: alice, SourceSessionID: source, Principal: accesstypes.RolePrincipal("Editor")}),
+			prepare: func(storage *mock_sessionstorage.MockBaseStore, _ *mock_cookie.MockHandler) {
+				ended(storage)
+				storage.EXPECT().Session(gomock.Any(), sourceID).Return(accountSession(sourceID, "alice", otherID, time.Now()), nil)
+			},
+			wantEvents: []sessioninfo.ImpersonationEventKind{sessioninfo.ImpersonationEnded},
+		},
+		{
+			name:    "an actor named by account cannot be returned to a source session that belongs to none",
+			session: impersonated(&sessioninfo.Impersonation{Actor: "alice", ActorID: alice, SourceSessionID: source, Principal: accesstypes.RolePrincipal("Editor")}),
+			prepare: func(storage *mock_sessionstorage.MockBaseStore, _ *mock_cookie.MockHandler) {
+				ended(storage)
+				storage.EXPECT().Session(gomock.Any(), sourceID).Return(ordinarySession(sourceID, "alice", time.Now()), nil)
+			},
+			wantEvents: []sessioninfo.ImpersonationEventKind{sessioninfo.ImpersonationEnded},
+		},
+		{
+			name:    "a record that names no account cannot be returned to a source session that belongs to one",
+			session: impersonated(&sessioninfo.Impersonation{Actor: "alice", SourceSessionID: source, Principal: accesstypes.RolePrincipal("Editor")}),
+			prepare: func(storage *mock_sessionstorage.MockBaseStore, _ *mock_cookie.MockHandler) {
+				ended(storage)
+				storage.EXPECT().Session(gomock.Any(), sourceID).Return(accountSession(sourceID, "alice", aliceID, time.Now()), nil)
 			},
 			wantEvents: []sessioninfo.ImpersonationEventKind{sessioninfo.ImpersonationEnded},
 		},

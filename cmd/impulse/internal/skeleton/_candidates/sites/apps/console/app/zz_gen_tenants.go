@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/resources"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/pkg/router"
@@ -18,9 +19,9 @@ import (
 
 func (a *App) Tenants() http.HandlerFunc {
 	type tenant struct {
-		ID            string `json:"id"            index:"true" perm:"-"`
-		Name          string `json:"name"          index:"true"`
-		DirectoryOnly bool   `json:"directoryOnly"`
+		ID            impulse.UUID `json:"id"            index:"true" perm:"-"`
+		Name          string       `json:"name"          index:"true"`
+		DirectoryOnly bool         `json:"directoryOnly"`
 	}
 
 	type response []map[string]any
@@ -97,9 +98,9 @@ func (a *App) Tenants() http.HandlerFunc {
 
 func (a *App) Tenant() http.HandlerFunc {
 	type response struct {
-		ID            string `json:"id"            index:"true" perm:"-"`
-		Name          string `json:"name"          index:"true"`
-		DirectoryOnly bool   `json:"directoryOnly"`
+		ID            impulse.UUID `json:"id"            index:"true" perm:"-"`
+		Name          string       `json:"name"          index:"true"`
+		DirectoryOnly bool         `json:"directoryOnly"`
 	}
 
 	decoder := NewQueryDecoder[resources.Tenant, response](a, accesstypes.Read)
@@ -108,7 +109,7 @@ func (a *App) Tenant() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		id := httpio.Param[string](r, router.TenantID)
+		id := httpio.Param[impulse.UUID](r, router.TenantID)
 
 		querySet, err := decoder.Decode(r, a.UserPermissions(r), accesstypes.GlobalScope())
 		if err != nil {

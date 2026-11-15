@@ -27,7 +27,7 @@ export const commendationsConfig = rootConfig({
     listColumns: [
       { id: Commendations.fieldName.pilotId, header: 'Pilot' },
       { id: Commendations.fieldName.citation },
-      { id: Commendations.fieldName.awardedBy, header: 'Awarded by' },
+      { id: Commendations.fieldName.awardedByName, header: 'Awarded by' },
       { id: Commendations.fieldName.awardedAt, header: 'Awarded' },
     ],
     elements: [
@@ -44,7 +44,7 @@ export const commendationsConfig = rootConfig({
             }),
           }),
           field({ name: Commendations.fieldName.citation, label: 'Citation', cols: 8 }),
-          field({ name: Commendations.fieldName.awardedBy, label: 'Awarded by', cols: 6 }),
+          field({ name: Commendations.fieldName.awardedByName, label: 'Awarded by', cols: 6 }),
           field({ name: Commendations.fieldName.awardedAt, label: 'Awarded', cols: 6 }),
         ],
       }),

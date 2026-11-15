@@ -23,7 +23,7 @@ import (
 func workflowGrants() grants {
 	return grants{
 		accesstypes.Create: withFields(missionsResource, "clientId", "kindId", "title", "hazard", "fee", "deadline"),
-		accesstypes.Read:   withFields(missionsResource, "statusId", "bookedBy", "title", "settlement", "assignedSquadronId"),
+		accesstypes.Read:   withFields(missionsResource, "statusId", "bookedByUserId", "title", "settlement", "assignedSquadronId"),
 		// HoldMission and CompleteMission write the notes AS THE CALLER (an armed
 		// body), so the walk needs the Update grant the routes would need.
 		accesstypes.Update: withFields(missionsResource, "notes", "settlement"),
@@ -56,9 +56,11 @@ func TestMissionWorkflow(t *testing.T) {
 		t.Fatalf("statusId on the wire: status = %d, want 400: %s", status, body)
 	}
 
-	// Create as a specific user: BookedBy is server-stamped from the session and the
-	// initial state comes from the @state default, never the client.
-	status, body = doRequestAs(t, h, "workflow-booker", http.MethodPatch, "/console/api/resources",
+	// Create as a specific user, the booking agent: BookedByUserID is server-stamped from the
+	// session with the id of her account, which is how the permission store names her,
+	// BookedByName with her username as a page shows it, and the initial state comes from
+	// the @state default, never the client.
+	status, body = doRequestAs(t, h, "booking", http.MethodPatch, "/console/api/resources",
 		fmt.Sprintf(`[{"op":"add","path":%q,"value":{"clientId":%q,"kindId":"rescue","title":"Drifting lifeboat","hazard":2,"fee":5000,"deadline":%q}}]`, opPath(anvil, "missions"), clientHalvardID, deadline(365)))
 	assertStatus(t, status, http.StatusOK, body)
 	ids, _ := decodeRow(t, body)["missions"].([]any)
@@ -67,8 +69,11 @@ func TestMissionWorkflow(t *testing.T) {
 	}
 	missionID, _ := ids[0].(string)
 
-	if got := readColumn[string](ctx, t, db, "Missions", spanner.Key{missionID}, "BookedBy"); got != "workflow-booker" {
-		t.Errorf("BookedBy = %q, want the session user", got)
+	if got, want := readColumn[string](ctx, t, db, "Missions", spanner.Key{missionID}, "BookedByUserId"), string(account(t, "booking")); got != want {
+		t.Errorf("BookedByUserID = %q, want %q, the id of the session user's account", got, want)
+	}
+	if got := readColumn[string](ctx, t, db, "Missions", spanner.Key{missionID}, "BookedByName"); got != "booking" {
+		t.Errorf("BookedByName = %q, want the session user's username", got)
 	}
 	if got := readColumn[string](ctx, t, db, "Missions", spanner.Key{missionID}, "StatusId"); got != "open" {
 		t.Errorf("StatusId = %q, want the @state default open", got)

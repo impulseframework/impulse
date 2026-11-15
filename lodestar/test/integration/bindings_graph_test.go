@@ -58,7 +58,7 @@ func TestBindingsGraphDrawsEveryBindingOnce(t *testing.T) {
 		// Bare bindings listed in their resource's box.
 		{name: "Mission lists assignedSquadron", line: `<tr><td align="left">assignedSquadron: AssignedSquadronId</td></tr>`},
 		{name: "Mission lists its bare state binding last", line: `<tr><td align="left">settlement: Settlement</td></tr><tr><td align="left">state: StatusId</td></tr></table>`},
-		{name: "Refit lists its bare state binding last", line: `<tr><td align="left">openedBy: OpenedBy</td></tr><tr><td align="left">state: StatusId</td></tr></table>`},
+		{name: "Refit lists its bare state binding last", line: `<tr><td align="left">openedBy: OpenedByUserId</td></tr><tr><td align="left">state: StatusId</td></tr></table>`},
 		{name: "Pilot lists both subject values", line: `<tr><td align="left">subject.clearance: Clearance</td></tr><tr><td align="left">subject.feeLimit: FeeLimit</td></tr>`},
 		{name: "SquadronMembership lists the bare squadrons set", line: `<tr><td align="left">subject.squadrons: SquadronId</td></tr>`},
 		{name: "Client lists insured and trusted", line: `<tr><td align="left">insured: Insured</td></tr><tr><td align="left">trusted: Trusted</td></tr>`},

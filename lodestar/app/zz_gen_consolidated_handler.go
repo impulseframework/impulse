@@ -25,24 +25,25 @@ import (
 func (a *App) PatchResources() http.HandlerFunc {
 	type clientContactRequest struct {
 		ID          impulse.UUID `json:"-"`
-		UserID      string       `json:"userId"      sqltype:"STRING(320)"`
+		UserID      string       `json:"userId"      sqltype:"STRING(36)"`
 		ClientID    impulse.UUID `json:"clientId"`
 		DisplayName string       `json:"displayName"`
 	}
 	clientContactDecoder := NewDecoder[resources.ClientContact, clientContactRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type commendationRequest struct {
-		ID        impulse.UUID `json:"-"`
-		PilotID   impulse.UUID `json:"pilotId"`
-		Citation  string       `json:"citation"`
-		AwardedBy string       `json:"-"`
-		AwardedAt time.Time    `json:"-"`
+		ID              impulse.UUID `json:"-"`
+		PilotID         impulse.UUID `json:"pilotId"`
+		Citation        string       `json:"citation"`
+		AwardedByUserID string       `json:"-"`
+		AwardedByName   string       `json:"-"`
+		AwardedAt       time.Time    `json:"-"`
 	}
 	commendationDecoder := NewDecoder[resources.Commendation, commendationRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type consignmentRequest struct {
 		ID          impulse.UUID `json:"-"`
-		SectorID    string       `json:"-"`
+		SectorID    impulse.UUID `json:"-"`
 		ClientID    impulse.UUID `json:"clientId"`
 		BondCode    string       `json:"bondCode"    immutable:"true"`
 		Description string       `json:"description"`
@@ -54,20 +55,21 @@ func (a *App) PatchResources() http.HandlerFunc {
 
 	type distressCallRequest struct {
 		ID            impulse.UUID        `json:"-"`
-		SectorID      string              `json:"-"`
+		SectorID      impulse.UUID        `json:"-"`
 		Summary       string              `json:"summary"`
 		Severity      int64               `json:"severity"`
 		CallerContact *string             `json:"callerContact"`
 		Transcript    *string             `json:"transcript"`
 		CaseNumber    string              `json:"-"`
-		FiledBy       string              `json:"-"`
+		FiledByUserID string              `json:"-"`
+		FiledByName   string              `json:"-"`
 		Position      *resources.Position `json:"position"`
 	}
 	distressCallDecoder := NewDecoder[resources.DistressCall, distressCallRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type missionRequest struct {
 		ID                 impulse.UUID          `json:"-"`
-		SectorID           string                `json:"-"`
+		SectorID           impulse.UUID          `json:"-"`
 		ClientID           impulse.UUID          `json:"clientId"`
 		KindID             string                `json:"kindId"             sqltype:"STRING(64)"`
 		Title              string                `json:"title"`
@@ -77,7 +79,8 @@ func (a *App) PatchResources() http.HandlerFunc {
 		Fee                decimal.Decimal       `json:"fee"                sqltype:"NUMERIC"`
 		Deadline           time.Time             `json:"deadline"`
 		RequiredCertID     *string               `json:"requiredCertId"     sqltype:"STRING(64)"`
-		BookedBy           string                `json:"-"`
+		BookedByUserID     string                `json:"-"`
+		BookedByName       string                `json:"-"`
 		AssignedSquadronID impulse.NullUUID      `json:"assignedSquadronId"`
 		StatusID           string                `json:"-"`
 		Notes              *string               `json:"notes"`
@@ -86,23 +89,24 @@ func (a *App) PatchResources() http.HandlerFunc {
 	missionDecoder := NewDecoder[resources.Mission, missionRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type missionDocumentRequest struct {
-		ID          impulse.UUID                      `json:"-"`
-		MissionID   impulse.UUID                      `json:"missionId"`
-		Title       string                            `json:"title"`
-		FileName    string                            `json:"fileName"`
-		ContentType string                            `json:"contentType"`
-		Size        int64                             `json:"size"`
-		StoreKey    resource.Key[resources.Documents] `json:"-"`
-		UploadedBy  string                            `json:"uploadedBy"`
-		UploadedAt  time.Time                         `json:"uploadedAt"`
-		Provenance  *resources.Provenance             `json:"provenance"`
-		Digest      []byte                            `json:"digest"      sqltype:"BYTES(32)"`
+		ID               impulse.UUID                      `json:"-"`
+		MissionID        impulse.UUID                      `json:"missionId"`
+		Title            string                            `json:"title"`
+		FileName         string                            `json:"fileName"`
+		ContentType      string                            `json:"contentType"`
+		Size             int64                             `json:"size"`
+		StoreKey         resource.Key[resources.Documents] `json:"-"`
+		UploadedByUserID string                            `json:"uploadedByUserId" sqltype:"STRING(36)"`
+		UploadedByName   string                            `json:"-"`
+		UploadedAt       time.Time                         `json:"uploadedAt"`
+		Provenance       *resources.Provenance             `json:"provenance"`
+		Digest           []byte                            `json:"digest"           sqltype:"BYTES(32)"`
 	}
 	missionDocumentDecoder := NewDecoder[resources.MissionDocument, missionDocumentRequest](a, accesstypes.Update, accesstypes.Delete)
 
 	type pilotRequest struct {
 		ID          impulse.UUID    `json:"-"`
-		UserID      string          `json:"userId"      sqltype:"STRING(320)"`
+		UserID      string          `json:"userId"      sqltype:"STRING(36)"`
 		DisplayName string          `json:"displayName"`
 		Clearance   int64           `json:"clearance"`
 		FeeLimit    decimal.Decimal `json:"feeLimit"    sqltype:"NUMERIC"`
@@ -116,13 +120,14 @@ func (a *App) PatchResources() http.HandlerFunc {
 	pilotCertificationDecoder := NewDecoder[resources.PilotCertification, pilotCertificationRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type refitRequest struct {
-		ID          impulse.UUID        `json:"-"`
-		ShipID      impulse.UUID        `json:"shipId"`
-		StatusID    string              `json:"-"`
-		Estimate    decimal.NullDecimal `json:"estimate" sqltype:"NUMERIC"`
-		InspectedAt *time.Time          `json:"-"`
-		OpenedBy    string              `json:"-"`
-		Notes       *string             `json:"notes"`
+		ID             impulse.UUID        `json:"-"`
+		ShipID         impulse.UUID        `json:"shipId"`
+		StatusID       string              `json:"-"`
+		Estimate       decimal.NullDecimal `json:"estimate" sqltype:"NUMERIC"`
+		InspectedAt    *time.Time          `json:"-"`
+		OpenedByUserID string              `json:"-"`
+		OpenedByName   string              `json:"-"`
+		Notes          *string             `json:"notes"`
 	}
 	refitDecoder := NewDecoder[resources.Refit, refitRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
@@ -137,17 +142,17 @@ func (a *App) PatchResources() http.HandlerFunc {
 	refitTaskDecoder := NewDecoder[resources.RefitTask, refitTaskRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type sectorRequest struct {
-		ID            string     `json:"-"`
-		Name          string     `json:"name"`
-		Region        string     `json:"region"`
-		Established   civil.Date `json:"established"`
-		DirectoryOnly bool       `json:"directoryOnly"`
+		ID            impulse.UUID `json:"-"`
+		Name          string       `json:"name"`
+		Region        string       `json:"region"`
+		Established   civil.Date   `json:"established"`
+		DirectoryOnly bool         `json:"directoryOnly"`
 	}
 	sectorDecoder := NewDecoder[resources.Sector, sectorRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type sectorDirectoryRequest struct {
 		ID          impulse.UUID `json:"-"`
-		SectorID    string       `json:"-"`
+		SectorID    impulse.UUID `json:"-"`
 		Method      string       `json:"method"      sqltype:"STRING(16)"`
 		Connection  string       `json:"connection"`
 		DefaultSeat *string      `json:"defaultSeat" sqltype:"STRING(64)"`
@@ -180,7 +185,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		ID          impulse.UUID `json:"-"`
 		MissionID   impulse.UUID `json:"missionId"`
 		ShipID      impulse.UUID `json:"shipId"`
-		PilotUserID string       `json:"pilotUserId" sqltype:"STRING(320)"`
+		PilotUserID string       `json:"pilotUserId" sqltype:"STRING(36)"`
 		LaunchedAt  time.Time    `json:"launchedAt"`
 		ReturnedAt  *time.Time   `json:"returnedAt"`
 		Debrief     *string      `json:"debrief"`
@@ -212,7 +217,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 
 	type wingRequest struct {
 		ID       impulse.UUID `json:"-"`
-		SectorID string       `json:"-"`
+		SectorID impulse.UUID `json:"-"`
 		Name     string       `json:"name"`
 	}
 	wingDecoder := NewDecoder[resources.Wing, wingRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
@@ -243,7 +248,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		tenantsWritten := false
 		// The Sectors this transaction creates with their creator's membership,
 		// which the answer waits on after the commit.
-		var created []string
+		var created []impulse.UUID
 
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer, each under the domain its
@@ -457,68 +462,52 @@ func (a *App) PatchResources() http.HandlerFunc {
 					}
 				case "sectors":
 					if op.PathDepth() <= 2 {
-						// The two operations that decide from whether their row is there run
-						// as the add or the patch they turn out to be: an add-or-skip is the
-						// add it is, with the create patch told to leave a row that is there
-						// alone, and a patch-or-add is a patch when its row is there and an
-						// add when it is not.
-						orSkip := false
-						switch op.Type {
-						case resource.OperationCreateOrSkip:
-							op, orSkip = op.AsCreate(), true
-						case resource.OperationUpdateOrCreate:
-							keyReq, err := op.ReqWithPattern("/{resource}/{id}", resource.RequireCreatePath())
-							if err != nil {
-								return errors.Wrap(err, "op.ReqWithPattern()")
-							}
-							key := resource.KeySet{}
-							key = key.Add("ID", httpio.Param[string](keyReq, "id"))
-							decided, err := sectorDecoder.DecideOperation(ctx, txn, op, userPermissions, accesstypes.GlobalScope(), key)
-							if err != nil {
-								return errors.Wrap(err, "sectorDecoder.DecideOperation()")
-							}
-							op = decided
-						}
 						patchSet, err := sectorDecoder.DecodeOperation(op, userPermissions, accesstypes.GlobalScope())
 						if err != nil {
 							return errors.Wrap(err, "sectorDecoder.DecodeOperation()")
 						}
 						tenantsWritten = true
 
-						req, err := op.ReqWithPattern("/{resource}/{id}", resource.RequireCreatePath())
+						req, err := op.ReqWithPattern("/{resource}/{id}")
 						if err != nil {
 							return errors.Wrap(err, "op.ReqWithPattern()")
 						}
 
 						switch op.Type {
 						case resource.OperationCreate:
-							id := httpio.Param[string](req, "id")
-							patch := resources.NewSectorCreatePatchFromPatchSet(id, patchSet)
-							if orSkip {
-								patch.OrSkip()
+							patch, err := resources.NewSectorCreatePatchFromPatchSet(patchSet)
+							if err != nil {
+								return errors.Wrap(err, "sectorCreatePatchFromPatchSet()")
 							}
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.SectorCreatePatch.Buffer()")
 							}
-							if patch.RowSkipped() {
-								// The row was there: nothing was created, so nobody is its creator.
-								continue
-							}
+							resp["sectors"] = append(resp["sectors"], patch.ID())
+							id := patch.ID()
 							for _, role := range roles {
-								if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id)), string(userPermissions.User()), role); err != nil {
+								if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id.String())), userPermissions.User(), role); err != nil {
 									return errors.Wrap(err, "the auth's identity client: AssignRole()")
 								}
 							}
 							created = append(created, id)
 						case resource.OperationUpdate:
-							id := httpio.Param[string](req, "id")
+							id := httpio.Param[impulse.UUID](req, "id")
 							if err := resources.NewSectorUpdatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.SectorUpdatePatch.Buffer()")
 							}
 						case resource.OperationDelete:
-							id := httpio.Param[string](req, "id")
+							id := httpio.Param[impulse.UUID](req, "id")
 							if err := resources.NewSectorDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.SectorDeletePatch.Buffer()")
+							}
+							// A tenant that goes takes what each auth holds for it, in this transaction:
+							// the roles people hold in it, the custom roles made in it and the
+							// invitations into it that still stand.
+							if err := a.CrewIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {
+								return errors.Wrap(err, "CrewIdentity().ClearTenant()")
+							}
+							if err := a.MembersIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {
+								return errors.Wrap(err, "MembersIdentity().ClearTenant()")
 							}
 						}
 
@@ -1038,9 +1027,9 @@ func (a *App) PatchResources() http.HandlerFunc {
 				logger.FromCtx(ctx).Errorf("tenants: rereading the roster after the commit failed; this instance reloads on the tenants signal or at its backstop: %v", err)
 			}
 		}
-		for _, domain := range created {
-			if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(domain)); err != nil {
-				logger.FromCtx(ctx).Errorf("sector %s: %v", domain, err)
+		for _, id := range created {
+			if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(id.String())); err != nil {
+				logger.FromCtx(ctx).Errorf("sector %s: %v", id, err)
 			}
 		}
 		if tenantsWritten {

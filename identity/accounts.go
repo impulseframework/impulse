@@ -14,16 +14,15 @@ import (
 )
 
 // RenameUser buffers a new username for a user, in the caller's transaction, and with
-// it everything that names the person by username: their live sessions, the standing
+// it what carries the name for people to read: their live sessions, and the standing
 // impersonation records they hold as actor (and the sessions of those that act as a
-// role, which carry the actor's own name), and every membership, since the permission
-// store names a person by username and a person renamed keeps their roles only if the
-// rows follow the name. A name another user holds is a Conflict; the same name in
-// another case is the person's own.
+// role, which carry the actor's own name). Nothing the person holds follows the name:
+// the permission store names a person by the id of their account, so the roles stay
+// where they are. A name another user holds is a Conflict; the same name in another
+// case is the person's own.
 //
 // Shared rule: the session library's ChangeSessionUserUsername, which renames the user,
-// the live sessions and the standing records in one transaction of its own; the
-// memberships follow through the hook the application sets for it (RolesFollowRename).
+// the live sessions and the standing records in one transaction of its own.
 func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -72,11 +71,6 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 			sessions = append(sessions, record.SessionID)
 		}
 	}
-	moved, err := m.moveMemberships(ctx, txn, old, name)
-	if err != nil {
-		return err
-	}
-
 	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: &name, Disabled: nil, PasswordChangeRequired: nil, Email: nil, Name: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
 	}
@@ -89,9 +83,6 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 		if err := m.store.RenameImpersonationActor(ctx, txn, record.SessionID, name); err != nil {
 			return errors.Wrap(err, "identity.Store.RenameImpersonationActor()")
 		}
-	}
-	if moved {
-		return m.policyChangesAtCommit(txn)
 	}
 
 	return nil
@@ -108,17 +99,17 @@ func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransact
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	username, found, err := m.store.Username(ctx, txn, userID)
+	_, found, err := m.store.Username(ctx, txn, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.Username()")
 	}
 	if !found {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 	}
-	if m.callerIs(ctx, username) {
+	if m.callerIs(ctx, userID) {
 		return httpio.NewForbiddenMessage("you cannot delete your own account")
 	}
-	held, err := m.store.Memberships(ctx, txn, username)
+	held, err := m.store.Memberships(ctx, txn, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.Memberships()")
 	}

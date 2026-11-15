@@ -64,7 +64,7 @@ func testSessionReadsRecord(_ context.Context, t *testing.T, h *Harness) {
 				ActorRealm:      strPtr("admin-portal"),
 				SourceSessionID: &SeededSource,
 				PrincipalKind:   dbtype.PrincipalKindUser,
-				PrincipalUser:   strPtr("bob@partner.org"),
+				PrincipalUserID: strPtr("bob@partner.org"),
 				Mask:            strPtr("List,Read"),
 				Reason:          strPtr("ticket JRN-1"),
 				StartedAt:       time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC),
@@ -93,13 +93,13 @@ func testSessionReadsRecord(_ context.Context, t *testing.T, h *Harness) {
 			cfg:          Config{Impersonation: true},
 			wantUsername: "carol@partner.org",
 			wantImpersonation: &dbtype.Impersonation{
-				SessionID:     SeededImpersonatedCarol,
-				ActorUsername: "alice@example.com",
-				PrincipalKind: dbtype.PrincipalKindUser,
-				PrincipalUser: strPtr("carol@partner.org"),
-				Mask:          strPtr(""),
-				StartedAt:     time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC),
-				ExpiresAt:     time.Date(2026, 8, 27, 11, 0, 0, 0, time.UTC),
+				SessionID:       SeededImpersonatedCarol,
+				ActorUsername:   "alice@example.com",
+				PrincipalKind:   dbtype.PrincipalKindUser,
+				PrincipalUserID: strPtr("carol@partner.org"),
+				Mask:            strPtr(""),
+				StartedAt:       time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC),
+				ExpiresAt:       time.Date(2026, 8, 27, 11, 0, 0, 0, time.UTC),
 			},
 		},
 		{
@@ -125,7 +125,7 @@ func testSessionReadsRecord(_ context.Context, t *testing.T, h *Harness) {
 				ActorRealm:      strPtr("admin-portal"),
 				SourceSessionID: &SeededSource,
 				PrincipalKind:   dbtype.PrincipalKindUser,
-				PrincipalUser:   strPtr("bob@partner.org"),
+				PrincipalUserID: strPtr("bob@partner.org"),
 				Mask:            strPtr("List,Read"),
 				Reason:          strPtr("ticket JRN-1"),
 				StartedAt:       time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC),
@@ -165,6 +165,9 @@ func testSessionReadsRecord(_ context.Context, t *testing.T, h *Harness) {
 
 func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) {
 	expires := time.Now().UTC().Add(time.Hour).Truncate(time.Microsecond)
+	// actorAccount is the account of a local actor: what the permission store names
+	// them by. A foreign actor has none here, and the column stays NULL.
+	actorAccount := impulse.Must(impulse.NewUUID())
 
 	tests := []struct {
 		name       string
@@ -187,7 +190,7 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 			},
 		},
 		{
-			name: "user principal with mask, reason, source session and per-call custom data",
+			name: "user principal with the actor's account, mask, reason, source session and per-call custom data",
 			cfg:  Config{Impersonation: true, CustomData: true},
 			req: &sessioninfo.NewSessionRequest{
 				Reason:     sessioninfo.ReasonImpersonation,
@@ -196,9 +199,10 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 			},
 			imp: &dbtype.InsertImpersonation{
 				ActorUsername:   "alice@example.com",
+				ActorUserID:     &actorAccount,
 				SourceSessionID: &SeededSource,
 				PrincipalKind:   dbtype.PrincipalKindUser,
-				PrincipalUser:   strPtr("bob@partner.org"),
+				PrincipalUserID: strPtr("bob@partner.org"),
 				Mask:            strPtr("List,Read"),
 				Reason:          strPtr("ticket JRN-2"),
 				ExpiresAt:       expires,
@@ -240,10 +244,11 @@ func testInsertImpersonatedSession(_ context.Context, t *testing.T, h *Harness) 
 			want := &dbtype.Impersonation{
 				SessionID:       id,
 				ActorUsername:   tt.imp.ActorUsername,
+				ActorUserID:     tt.imp.ActorUserID,
 				ActorRealm:      tt.imp.ActorRealm,
 				SourceSessionID: tt.imp.SourceSessionID,
 				PrincipalKind:   tt.imp.PrincipalKind,
-				PrincipalUser:   tt.imp.PrincipalUser,
+				PrincipalUserID: tt.imp.PrincipalUserID,
 				PrincipalRole:   tt.imp.PrincipalRole,
 				Mask:            tt.imp.Mask,
 				Reason:          tt.imp.Reason,

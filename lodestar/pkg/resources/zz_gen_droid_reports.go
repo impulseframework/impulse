@@ -29,7 +29,7 @@ func (DroidReport) DefaultConfig() resource.Config {
 // enforce; droidReportReadSets holds one Set per read operation.
 type droidReportRead struct {
 	ID         impulse.UUID     `json:"id"         perm:"-"`
-	SectorID   string           `json:"sectorId"`
+	SectorID   impulse.UUID     `json:"sectorId"`
 	ShipID     impulse.UUID     `json:"shipId"`
 	Subsystem  string           `json:"subsystem"`
 	Reading    float64          `json:"reading"`
@@ -44,7 +44,7 @@ var droidReportReadSets resource.SetCache[DroidReport, droidReportRead]
 // routes enforce; droidReportWriteSets holds one Set per mutation.
 type droidReportWrite struct {
 	ID         impulse.UUID     `json:"-"`
-	SectorID   string           `json:"-"`
+	SectorID   impulse.UUID     `json:"-"`
 	ShipID     impulse.UUID     `json:"shipId"`
 	Subsystem  string           `json:"subsystem"`
 	Reading    float64          `json:"reading"`
@@ -228,8 +228,8 @@ func (p DroidReportQueryPartialClause) ID() DroidReportQueryIdent[impulse.UUID] 
 	return DroidReportQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p DroidReportQueryPartialClause) SectorID() DroidReportQueryIdent[string] {
-	return DroidReportQueryIdent[string]{Ident: resource.NewIdent[string]("SectorID", p.partialClause, true)}
+func (p DroidReportQueryPartialClause) SectorID() DroidReportQueryIdent[impulse.UUID] {
+	return DroidReportQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("SectorID", p.partialClause, true)}
 }
 
 func (p DroidReportQueryPartialClause) ShipID() DroidReportQueryIdent[impulse.UUID] {
@@ -417,14 +417,14 @@ func (p *DroidReportCreatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *DroidReportCreatePatch) SetSectorID(v string) *DroidReportCreatePatch {
+func (p *DroidReportCreatePatch) SetSectorID(v impulse.UUID) *DroidReportCreatePatch {
 	p.patchSet.Set("SectorID", v)
 
 	return p
 }
 
-func (p *DroidReportCreatePatch) SectorID() string {
-	v, _ := p.patchSet.Get("SectorID").(string)
+func (p *DroidReportCreatePatch) SectorID() impulse.UUID {
+	v, _ := p.patchSet.Get("SectorID").(impulse.UUID)
 
 	return v
 }
@@ -609,14 +609,14 @@ func (p *DroidReportUpdatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *DroidReportUpdatePatch) SetSectorID(v string) *DroidReportUpdatePatch {
+func (p *DroidReportUpdatePatch) SetSectorID(v impulse.UUID) *DroidReportUpdatePatch {
 	p.patchSet.Set("SectorID", v)
 
 	return p
 }
 
-func (p *DroidReportUpdatePatch) SectorID() string {
-	v, _ := p.patchSet.Get("SectorID").(string)
+func (p *DroidReportUpdatePatch) SectorID() impulse.UUID {
+	v, _ := p.patchSet.Get("SectorID").(impulse.UUID)
 
 	return v
 }

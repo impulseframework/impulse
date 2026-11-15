@@ -15,6 +15,8 @@ type (
 	//
 	// Sortie has its own UUID key and an ordinary foreign key rather than being
 	// interleaved, so the second hop (SortieExpense) is a single-column foreign key.
+	// PilotUserId names the pilot who flies it by the id of their account, the value
+	// Pilots.UserId holds, so the pilot's record gives the name a page shows.
 	//
 	// LaunchedAt takes no NULL and nothing fills it, so a sortie's create must be given
 	// it: the generated collection names it, with the mission, the ship and the pilot,

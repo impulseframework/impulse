@@ -73,7 +73,7 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 	if len(roles) == 0 {
 		return impulse.NilUUID, httpio.NewBadRequestMessage("at least one role is required: the roles are what the invitation gives")
 	}
-	req := &session.InvitationRequest{Email: email, Name: "", Tenant: "", RoleNames: make([]string, 0, len(roles)), InvitedBy: impulse.NullUUID{UUID: impulse.NilUUID, Valid: false}}
+	req := &session.InvitationRequest{Email: email, Name: "", TenantID: "", RoleNames: make([]string, 0, len(roles)), InvitedByUserID: impulse.NullUUID{UUID: impulse.NilUUID, Valid: false}}
 	if inv.Name != nil {
 		req.Name = *inv.Name
 	}
@@ -83,7 +83,7 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 		if err != nil {
 			return impulse.NilUUID, err
 		}
-		req.Tenant, scopes = *inv.Domain, []accesstypes.PolicyScope{scope}
+		req.TenantID, scopes = *inv.Domain, []accesstypes.PolicyScope{scope}
 	}
 	for _, role := range roles {
 		exists, err := m.roleExistsIn(ctx, txn, role, scopes)
@@ -95,13 +95,18 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 		}
 		req.RoleNames = append(req.RoleNames, string(role))
 	}
+	// The caller is named by the id of their account. One who came through another
+	// auth is no user of this one, and the row names nobody: the column references this
+	// auth's users.
 	if caller := resource.CallerFrom(ctx); !caller.IsZero() {
-		id, found, err := m.store.UserID(ctx, txn, string(caller.Permissions.User()))
-		if err != nil {
-			return impulse.NilUUID, errors.Wrap(err, "identity.Store.UserID()")
-		}
-		if found {
-			req.InvitedBy = impulse.NullUUIDFromUUID(id)
+		if id, ok := UserID(caller.Permissions.User()); ok {
+			_, found, err := m.store.Username(ctx, txn, id)
+			if err != nil {
+				return impulse.NilUUID, errors.Wrap(err, "identity.Store.Username()")
+			}
+			if found {
+				req.InvitedByUserID = impulse.NullUUIDFromUUID(id)
+			}
 		}
 	}
 

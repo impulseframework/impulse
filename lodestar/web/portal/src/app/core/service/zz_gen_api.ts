@@ -55,10 +55,10 @@ export interface DistressCallsPatch {
 export type DistressCallsKey = [id: string];
 
 /** The primary key of MembersRoles, in route order. */
-export type MembersRolesKey = [kind: string, axis: string, domain: string, role: string];
+export type MembersRolesKey = [kind: string, axis: string, domainId: string, role: string];
 
 /** The primary key of MembersRoleGrants, in route order. */
-export type MembersRoleGrantsKey = [kind: string, axis: string, domain: string, role: string, permission: string, resourceName: string, field: string, condition: string];
+export type MembersRoleGrantsKey = [kind: string, axis: string, domainId: string, role: string, permission: string, resourceName: string, field: string, condition: string];
 
 /** The primary key of MembersSectorIdentities, in route order. */
 export type MembersSectorIdentitiesKey = [id: string];
@@ -94,7 +94,7 @@ export type MembersSessionTrustedDevicesKey = [id: string];
 export type MembersSessionUsersKey = [id: string];
 
 /** The primary key of MembersUserRoles, in route order. */
-export type MembersUserRolesKey = [kind: string, axis: string, domain: string, role: string, user: string];
+export type MembersUserRolesKey = [kind: string, axis: string, domainId: string, role: string, userId: string];
 
 /**
  * The fields a client may set when creating Missions. Server-owned fields are
@@ -139,7 +139,7 @@ export interface MissionDocumentsPatch {
   fileName?: string;
   contentType?: string;
   size?: number;
-  uploadedBy?: string;
+  uploadedByUserId?: string;
   uploadedAt?: Date;
   provenance?: MissionDocuments.Provenance | null;
   digest?: string;
@@ -213,7 +213,7 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'members-roles',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role'],
+      keys: ['kind', 'axis', 'domainId', 'role'],
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
@@ -224,7 +224,7 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'members-role-grants',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role', 'permission', 'resourceName', 'field', 'condition'],
+      keys: ['kind', 'axis', 'domainId', 'role', 'permission', 'resourceName', 'field', 'condition'],
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
@@ -356,10 +356,10 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'members-user-roles',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role', 'user'],
+      keys: ['kind', 'axis', 'domainId', 'role', 'userId'],
       operations: ['list'],
       page: { default: 25, max: 200 },
-      order: [{ field: 'user', direction: 'asc' }],
+      order: [{ field: 'userId', direction: 'asc' }],
     },
     [Resources.Missions]: {
       resource: Resources.Missions,
@@ -383,7 +383,7 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list', 'read', 'patch', 'remove', 'batch'],
       page: { default: 25, max: 200 },
       order: [{ field: 'uploadedAt', direction: 'desc' }],
-      patchable: ['missionId', 'title', 'fileName', 'contentType', 'size', 'uploadedBy', 'uploadedAt', 'provenance', 'digest'],
+      patchable: ['missionId', 'title', 'fileName', 'contentType', 'size', 'uploadedByUserId', 'uploadedAt', 'provenance', 'digest'],
       files: ['content'],
     },
     [Resources.BriefingTemplates]: {

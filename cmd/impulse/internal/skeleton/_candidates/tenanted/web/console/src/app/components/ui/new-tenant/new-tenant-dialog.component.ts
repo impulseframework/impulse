@@ -7,8 +7,9 @@ import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
 import { Router } from '@angular/router';
 import { injectApi } from '@app/api/api';
-import { apiDescriptor, CreateTenant, createTenantRoute } from '@app/service/zz_gen_api';
+import { apiDescriptor, CreateTenant, CreateTenantAnswer, createTenantRoute } from '@app/service/zz_gen_api';
 import { resourceMeta } from '@app/service/zz_gen_resources';
+import { ApiError } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { resourcePage } from '@impulseframework/resource-angular/resource-route-generator';
 import { environment } from '@env';
@@ -20,17 +21,13 @@ export interface NewTenantData {
   /**
    * The person names their own tenant and becomes its administrator: the self-service half
    * of the Tenant record's creation shape, for a session holding no tenant. Otherwise an
-   * administrator holding Create on Tenants creates the record, and nobody is seated in it.
+   * administrator holding Create on Tenants creates the record and is its first
+   * administrator.
    */
   readonly selfService: boolean;
 }
 
-/** What the create-your-tenant route answers: the new tenant's key. */
-interface Created {
-  id: string;
-}
-
-/** Opens the dialog; it closes with the new tenant's key, or with nothing when cancelled. */
+/** Opens the dialog; it closes with the new tenant's id, or with nothing when cancelled. */
 export function openNewTenantDialog(
   dialog: MatDialog,
   data: NewTenantData,
@@ -44,7 +41,9 @@ export function openNewTenantDialog(
 
 /**
  * The new-tenant dialog creates a Tenant record by either of the two paths its creation
- * shape (`@tenant(creation: both)`) keeps. The home page's card opens it for a person who
+ * shape (`@tenant(creation: both)`) keeps. It asks for the tenant's name alone: the
+ * tenant's key is an id the server generates and answers, which nobody types, and the
+ * name is a field its administrators change later. The home page's card opens it for a person who
  * signed in and holds no tenant: the generated create-your-tenant route (`POST
  * create-tenant`, the `createTenantRoute` constant the generated client exports) writes the
  * row, seats them as its administrator and hands the tenant to the roster, so their next
@@ -52,7 +51,8 @@ export function openNewTenantDialog(
  * where the guard on the tenant segment enters it. A person who already holds a tenant is
  * refused by the server, which the dialog reports in place. Tenants › New tenant… opens it
  * for an administrator holding Create on Tenants: the client's create on the record writes
- * the row, the roster serves it at once, and the dialog opens the record's page. The route
+ * the row and makes them its first administrator, the roster serves it at once, and the
+ * dialog opens the record's page. The route
  * is no resource or method of the client, so the self-service path posts with the
  * application's HttpClient. Either way the session's tenant list is read again first.
  */
@@ -70,12 +70,8 @@ export class NewTenantDialogComponent {
   private auth = inject(AuthService);
   private router = inject(Router);
 
-  /** The record's fields: the key, a slug the tenant-scoped URLs carry, and the name. */
+  /** What a person gives a new tenant: its name. */
   readonly form = new FormGroup({
-    id: new FormControl('', {
-      nonNullable: true,
-      validators: [Validators.required, Validators.pattern(/^[a-z0-9]+(-[a-z0-9]+)*$/)],
-    }),
     name: new FormControl('', { nonNullable: true, validators: [Validators.required] }),
   });
 
@@ -101,7 +97,7 @@ export class NewTenantDialogComponent {
           : ['/', ...resourcePage(tenantsConfig, resourceMeta).route, id],
       );
     } catch (failure) {
-      this.error.set(refusal(failure));
+      this.error.set(refusal(failure, body.name));
     } finally {
       this.busy.set(false);
     }
@@ -109,18 +105,31 @@ export class NewTenantDialogComponent {
 
   /** The self-service path: the generated route seats the person in their new tenant. */
   private async createOwn(body: CreateTenant): Promise<string> {
-    const created = await firstValueFrom(this.http.post<Created>(`${environment.apiUrl}/${createTenantRoute}`, body));
+    const created = await firstValueFrom(
+      this.http.post<CreateTenantAnswer>(`${environment.apiUrl}/${createTenantRoute}`, body),
+    );
     return created.id;
   }
 
   /** The administrator's path: the client's create on the record, under Create on Tenants. */
   private async createRecord(body: CreateTenant): Promise<string> {
-    return (await this.api.tenants.create(body)) ?? body.id;
+    const id = await this.api.tenants.create(body);
+    if (!id) {
+      throw new Error('The server did not answer the id of the new tenant.');
+    }
+    return id;
   }
 }
 
-/** The sentence a failed request is reported with: the server's message where it gave one. */
-function refusal(failure: unknown): string {
+/**
+ * The sentence a failed create is reported with. A name another tenant carries is the one
+ * conflict the form can cause (the unique index on the name answers 409), so it is said
+ * in the form's words; anything else is the server's message where it gave one.
+ */
+function refusal(failure: unknown, name: string): string {
+  if ((failure instanceof HttpErrorResponse || failure instanceof ApiError) && failure.status === 409) {
+    return `A tenant named ${name} already exists. Choose another name.`;
+  }
   if (failure instanceof HttpErrorResponse) {
     const message: unknown = failure.error?.message;
     return typeof message === 'string' && message ? message : failure.message;

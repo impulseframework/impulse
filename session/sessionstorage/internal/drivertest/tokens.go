@@ -52,7 +52,7 @@ func newFamily(userID impulse.UUID, accessHash, refreshHash []byte) (access, ref
 	access = newToken(dbtype.TokenAccess, userID, accessHash)
 	refresh = newToken(dbtype.TokenRefresh, userID, refreshHash)
 	for _, t := range []*dbtype.Token{access, refresh} {
-		t.Family, t.ClientID = family, corralClient
+		t.FamilyID, t.ClientID = family, corralClient
 	}
 
 	return access, refresh
@@ -275,8 +275,8 @@ func testRefreshExchange(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 	w.done()
 	for _, tok := range []*dbtype.Token{access2, refresh2} {
-		if tok.UserID != user.ID || tok.Outlet != droidsOutlet || tok.ClientID != corralClient || tok.Family != refresh1.Family {
-			t.Errorf("ExchangeRefreshToken() filled %s as user %s, outlet %q, client %q, family %v; want the old token's", tok.Kind, tok.UserID, tok.Outlet, tok.ClientID, tok.Family)
+		if tok.UserID != user.ID || tok.Outlet != droidsOutlet || tok.ClientID != corralClient || tok.FamilyID != refresh1.FamilyID {
+			t.Errorf("ExchangeRefreshToken() filled %s as user %s, outlet %q, client %q, family %v; want the old token's", tok.Kind, tok.UserID, tok.Outlet, tok.ClientID, tok.FamilyID)
 		}
 		got, err := in.Driver.TokenByHash(ctx, tok.TokenHash, time.Now())
 		if err != nil {
@@ -358,8 +358,8 @@ func testDeviceCodeLifecycle(ctx context.Context, t *testing.T, h *AuthHarness) 
 	deviceCodeApproval(ctx, t, h, in, code, user.ID)
 	consumed := deviceCodeRedemption(ctx, t, h, in, code, user.ID, access, refresh)
 	for _, tok := range []*dbtype.Token{access, refresh} {
-		if tok.UserID != user.ID || tok.Outlet != droidsOutlet || tok.ClientID != corralClient || !tok.Family.Valid {
-			t.Errorf("RedeemDeviceCode() filled %s as user %s, outlet %q, client %q, family %v; want the code's and the caller's family", tok.Kind, tok.UserID, tok.Outlet, tok.ClientID, tok.Family)
+		if tok.UserID != user.ID || tok.Outlet != droidsOutlet || tok.ClientID != corralClient || !tok.FamilyID.Valid {
+			t.Errorf("RedeemDeviceCode() filled %s as user %s, outlet %q, client %q, family %v; want the code's and the caller's family", tok.Kind, tok.UserID, tok.Outlet, tok.ClientID, tok.FamilyID)
 		}
 		live, err := in.Driver.TokenByHash(ctx, tok.TokenHash, time.Now())
 		if err != nil {

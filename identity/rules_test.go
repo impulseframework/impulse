@@ -12,9 +12,17 @@ import (
 	"github.com/impulseframework/impulse/resource"
 )
 
+// dana and erin are the two people of the tests as the permission store names them and
+// as a request's caller carries them: by the id of their account. Their usernames are
+// what the fake store's users table holds under the ids, for people to read.
+var (
+	dana = User(userID)
+	erin = User(otherUser)
+)
+
 // callerPermissions is the checker a generated handler stamps on the context, as far as
-// the rules read it: who the caller is. Every other method is the embedded nil
-// interface's, and panics if a rule reaches for it.
+// the rules read it: who the caller is, named as the permission store names a person.
+// Every other method is the embedded nil interface's, and panics if a rule reaches for it.
 type callerPermissions struct {
 	resource.UserPermissions
 	user accesstypes.User
@@ -45,8 +53,9 @@ func asCallerThrough(ctx context.Context, auth string, user accesstypes.User) co
 var administrators = WithAdministratorRoles([]accesstypes.Role{"Steward"}, []accesstypes.Role{"Warden"})
 
 // TestManager_DisableUser_ownAccount pins the rule that nobody disables themselves: the
-// request's caller is refused their own account, under whatever case the name is
-// written, and anyone else's goes through, as does a call outside any request.
+// request's caller is refused their own account, which is the one whose id the caller
+// carries; a caller of another id goes through, and so does one who carries the
+// account's username, which names nobody; a call outside any request goes through too.
 func TestManager_DisableUser_ownAccount(t *testing.T) {
 	t.Parallel()
 
@@ -56,9 +65,9 @@ func TestManager_DisableUser_ownAccount(t *testing.T) {
 		wantErr    func(error) bool
 		wantWrites []string
 	}{
-		{name: "the caller's own account is refused", caller: "dana", wantErr: httpio.HasForbidden},
-		{name: "the name is compared without case", caller: "DANA", wantErr: httpio.HasForbidden},
-		{name: "another person's account is disabled", caller: "erin", wantWrites: []string{"update user " + userID.String() + " disabled=true"}},
+		{name: "the caller's own account is refused: the caller carries the account's id", caller: dana, wantErr: httpio.HasForbidden},
+		{name: "a caller of another id is another person: the account is disabled", caller: erin, wantWrites: []string{"update user " + userID.String() + " disabled=true"}},
+		{name: "the account's username is not who a caller is", caller: "dana", wantWrites: []string{"update user " + userID.String() + " disabled=true"}},
 		{name: "a call outside any request is the application's act", wantWrites: []string{"update user " + userID.String() + " disabled=true"}},
 	}
 	for _, tt := range tests {
@@ -107,68 +116,68 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 	}{
 		{
 			name: "the last administrator of the application keeps the role",
-			opts: []Option{administrators}, caller: "dana", scope: globalScope, role: "Steward",
-			held:    []access.MembershipKey{membership(globalScope, "dana", "Steward"), membership(globalScope, "erin", "Reader")},
+			opts: []Option{administrators}, caller: dana, scope: globalScope, role: "Steward",
+			held:    []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, erin, "Reader")},
 			wantErr: httpio.HasForbidden,
 		},
 		{
 			name: "an administrator gives the role up once another holds it",
-			opts: []Option{administrators}, caller: "dana", scope: globalScope, role: "Steward",
-			held:        []access.MembershipKey{membership(globalScope, "dana", "Steward"), membership(globalScope, "erin", "Steward")},
+			opts: []Option{administrators}, caller: dana, scope: globalScope, role: "Steward",
+			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, erin, "Steward")},
 			wantRemoved: true,
 		},
 		{
 			name: "a role that is no administrator role goes",
-			opts: []Option{administrators}, caller: "dana", scope: globalScope, role: "Reader",
-			held:        []access.MembershipKey{membership(globalScope, "dana", "Reader"), membership(globalScope, "dana", "Steward")},
+			opts: []Option{administrators}, caller: dana, scope: globalScope, role: "Reader",
+			held:        []access.MembershipKey{membership(globalScope, dana, "Reader"), membership(globalScope, dana, "Steward")},
 			wantRemoved: true,
 		},
 		{
 			name: "the last administrator of a tenant keeps the role",
-			opts: []Option{administrators}, caller: "dana", scope: alphaScope, role: "Warden",
-			held:    []access.MembershipKey{membership(alphaScope, "dana", "Warden"), membership(accesstypes.DomainPolicyScope("beta"), "erin", "Warden")},
+			opts: []Option{administrators}, caller: dana, scope: alphaScope, role: "Warden",
+			held:    []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(accesstypes.DomainPolicyScope("beta"), erin, "Warden")},
 			wantErr: httpio.HasForbidden,
 		},
 		{
 			name: "a tenant's administrator leaves once another holds the role there",
-			opts: []Option{administrators}, caller: "dana", scope: alphaScope, role: "Warden",
-			held:        []access.MembershipKey{membership(alphaScope, "dana", "Warden"), membership(alphaScope, "erin", "Warden")},
+			opts: []Option{administrators}, caller: dana, scope: alphaScope, role: "Warden",
+			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(alphaScope, erin, "Warden")},
 			wantRemoved: true,
 		},
 		{
 			name: "a person who holds the role in every tenant is the tenant's administrator too",
-			opts: []Option{administrators}, caller: "dana", scope: alphaScope, role: "Warden",
-			held:        []access.MembershipKey{membership(alphaScope, "dana", "Warden"), membership(everyScope, "erin", "Warden")},
+			opts: []Option{administrators}, caller: dana, scope: alphaScope, role: "Warden",
+			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(everyScope, erin, "Warden")},
 			wantRemoved: true,
 		},
 		{
 			name: "the caller's own membership in every tenant keeps them the tenant's administrator",
-			opts: []Option{administrators}, caller: "dana", scope: alphaScope, role: "Warden",
-			held:        []access.MembershipKey{membership(alphaScope, "dana", "Warden"), membership(everyScope, "dana", "Warden")},
+			opts: []Option{administrators}, caller: dana, scope: alphaScope, role: "Warden",
+			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(everyScope, dana, "Warden")},
 			wantRemoved: true,
 		},
 		{
 			name: "a role held in every tenant is no administrator role of the application",
-			opts: []Option{administrators}, caller: "dana", scope: everyScope, role: "Warden",
-			held:        []access.MembershipKey{membership(everyScope, "dana", "Warden"), membership(globalScope, "dana", "Reader")},
+			opts: []Option{administrators}, caller: dana, scope: everyScope, role: "Warden",
+			held:        []access.MembershipKey{membership(everyScope, dana, "Warden"), membership(globalScope, dana, "Reader")},
 			wantRemoved: true,
 		},
 		{
 			name:   "without the administrator roles a person removes no role from themselves",
-			caller: "dana", scope: globalScope, role: "Reader",
-			held:    []access.MembershipKey{membership(globalScope, "dana", "Reader"), membership(globalScope, "dana", "Steward")},
+			caller: dana, scope: globalScope, role: "Reader",
+			held:    []access.MembershipKey{membership(globalScope, dana, "Reader"), membership(globalScope, dana, "Steward")},
 			wantErr: httpio.HasForbidden,
 		},
 		{
 			name: "the rule judges nobody but the caller: another person removes the last administrator's role",
-			opts: []Option{administrators}, caller: "erin", scope: globalScope, role: "Steward",
-			held:        []access.MembershipKey{membership(globalScope, "dana", "Steward"), membership(globalScope, "dana", "Reader")},
+			opts: []Option{administrators}, caller: erin, scope: globalScope, role: "Steward",
+			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, dana, "Reader")},
 			wantRemoved: true,
 		},
 		{
 			name: "a call outside any request is the application's act",
 			opts: []Option{administrators}, scope: globalScope, role: "Steward",
-			held:        []access.MembershipKey{membership(globalScope, "dana", "Steward"), membership(globalScope, "dana", "Reader")},
+			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, dana, "Reader")},
 			wantRemoved: true,
 		},
 	}
@@ -183,7 +192,7 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 			m, engine := newManager(t, store, engineRoles, tt.opts...)
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return m.RemoveRole(asCaller(ctx, tt.caller), txn, tt.scope, "dana", tt.role)
+				return m.RemoveRole(asCaller(ctx, tt.caller), txn, tt.scope, userID, tt.role)
 			})
 			if tt.wantErr != nil {
 				if err == nil || !tt.wantErr(err) {
@@ -195,7 +204,7 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 			var wantWrites []string
 			wantChanged := 0
 			if tt.wantRemoved {
-				removed := membership(tt.scope, "dana", tt.role)
+				removed := membership(tt.scope, dana, tt.role)
 				wantWrites, wantChanged = []string{"delete membership " + membershipText(&removed)}, 1
 			}
 			if diff := cmp.Diff(wantWrites, store.writes); diff != "" {
@@ -208,21 +217,71 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 	}
 }
 
+// TestManager_RemoveRole_lastAdministrator_sentence pins what the last administrator of
+// a tenant reads: the sentence says the tenant is theirs to keep, in the application's
+// word for a tenant, and does not print the tenant's key, an id nobody reads.
+func TestManager_RemoveRole_lastAdministrator_sentence(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		opts []Option
+		want string
+	}{
+		{
+			name: "an application that names no word says tenant",
+			opts: []Option{administrators},
+			want: "you are the last administrator of this tenant: give another person the role before you remove your own",
+		},
+		{
+			name: "an application whose tenants are customers says customer",
+			opts: []Option{administrators, WithTenantWord("customer")},
+			want: "you are the last administrator of this customer: give another person the role before you remove your own",
+		},
+		{
+			name: "an empty word leaves tenant",
+			opts: []Option{administrators, WithTenantWord("")},
+			want: "you are the last administrator of this tenant: give another person the role before you remove your own",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			const tenant = "0190a000-0000-7000-8000-000000000001"
+			scope := accesstypes.DomainPolicyScope(tenant)
+			store := &fakeStore{memberships: map[access.MembershipKey]bool{access.NewMembershipKey(scope, dana, "Warden"): true}}
+			m, _ := newManager(t, store, engineRoles, tt.opts...)
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return m.RemoveRole(asCaller(ctx, dana), txn, scope, userID, "Warden")
+			})
+			if !httpio.HasForbidden(err) {
+				t.Fatalf("RemoveRole() error = %v, want the refusal", err)
+			}
+			if got := httpio.Message(err); got != tt.want {
+				t.Errorf("the refusal reads %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestManager_RemoveRole_lastRole pins the rule on an account nothing admits: the
 // removal of a person's last role anywhere deletes the account in the same transaction,
 // its sessions ended and its identity links removed first, whoever removed the role; a
-// person who holds a role somewhere else stays, and a name no user holds has no account
+// person who holds a role somewhere else stays, and an id no user holds has no account
 // to delete.
 func TestManager_RemoveRole_lastRole(t *testing.T) {
 	t.Parallel()
 
-	steward := access.NewMembershipKey(globalScope, "dana", "Steward")
-	reader := access.NewMembershipKey(alphaScope, "dana", "Reader")
+	steward := access.NewMembershipKey(globalScope, dana, "Steward")
+	reader := access.NewMembershipKey(alphaScope, dana, "Reader")
+	removed := "delete membership global/ " + userID.String() + " Steward"
 	deleted := []string{
 		"end session " + sessionA.String(),
 		"delete identity " + identityA.String(),
 		"delete user " + userID.String(),
-		"delete membership global/ dana Steward",
+		removed,
 	}
 
 	tests := []struct {
@@ -236,7 +295,7 @@ func TestManager_RemoveRole_lastRole(t *testing.T) {
 	}{
 		{
 			name: "the last role anywhere takes the account with it",
-			held: []access.MembershipKey{steward}, account: true, caller: "erin",
+			held: []access.MembershipKey{steward}, account: true, caller: erin,
 			wantWrites: deleted,
 		},
 		{
@@ -246,17 +305,17 @@ func TestManager_RemoveRole_lastRole(t *testing.T) {
 		},
 		{
 			name: "a person who holds a role in a tenant stays",
-			held: []access.MembershipKey{steward, reader}, account: true, caller: "erin",
-			wantWrites: []string{"delete membership global/ dana Steward"},
+			held: []access.MembershipKey{steward, reader}, account: true, caller: erin,
+			wantWrites: []string{removed},
 		},
 		{
-			name:       "a name no user holds has no account to delete",
+			name:       "an id no user holds has no account to delete",
 			held:       []access.MembershipKey{steward},
-			wantWrites: []string{"delete membership global/ dana Steward"},
+			wantWrites: []string{removed},
 		},
 		{
 			name: "a failed delete fails the call",
-			held: []access.MembershipKey{steward}, account: true, caller: "erin",
+			held: []access.MembershipKey{steward}, account: true, caller: erin,
 			failOn: "DeleteUser", wantErr: true,
 			wantWrites: deleted[:2],
 		},
@@ -277,7 +336,7 @@ func TestManager_RemoveRole_lastRole(t *testing.T) {
 			m, _ := newManager(t, store, engineRoles, administrators)
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return m.RemoveRole(asCaller(ctx, tt.caller), txn, globalScope, "dana", "Steward")
+				return m.RemoveRole(asCaller(ctx, tt.caller), txn, globalScope, userID, "Steward")
 			})
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("RemoveRole() error = %v, wantErr %t", err, tt.wantErr)
@@ -289,73 +348,23 @@ func TestManager_RemoveRole_lastRole(t *testing.T) {
 	}
 }
 
-// TestManager_moveMemberships pins the rule a rename relies on: every membership held
-// under the old name is removed and written under the new one, wherever it is held, and
-// one the new name holds already is not written twice.
-func TestManager_moveMemberships(t *testing.T) {
-	t.Parallel()
-
-	store := &fakeStore{memberships: map[access.MembershipKey]bool{
-		access.NewMembershipKey(globalScope, "dana", "Steward"): true,
-		access.NewMembershipKey(alphaScope, "dana", "Reader"):   true,
-		access.NewMembershipKey(everyScope, "dana", "Reader"):   true,
-		access.NewMembershipKey(alphaScope, "dana.r", "Reader"): true,
-		access.NewMembershipKey(globalScope, "erin", "Steward"): true,
-	}}
-	m, _ := newManager(t, store, engineRoles)
-
-	var moved bool
-	if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		var err error
-		moved, err = m.moveMemberships(ctx, txn, "dana", "dana.r")
-
-		return err
-	}); err != nil {
-		t.Fatalf("moveMemberships() error = %v", err)
-	}
-	if !moved {
-		t.Error("moveMemberships() moved = false, want true")
-	}
-	want := []string{
-		"delete membership domain/alpha dana Reader",
-		"delete membership every/ dana Reader",
-		"delete membership global/ dana Steward",
-		"insert membership every/ dana.r Reader",
-		"insert membership global/ dana.r Steward",
-	}
-	if diff := cmp.Diff(want, store.writes); diff != "" {
-		t.Errorf("buffered writes (-want +got):\n%s", diff)
-	}
-
-	store = &fakeStore{memberships: map[access.MembershipKey]bool{}}
-	m, _ = newManager(t, store, engineRoles)
-	if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		var err error
-		moved, err = m.moveMemberships(ctx, txn, "dana", "dana.r")
-
-		return err
-	}); err != nil {
-		t.Fatalf("moveMemberships() error = %v", err)
-	}
-	if moved || len(store.writes) != 0 {
-		t.Errorf("a person who holds no role: moved = %t, writes = %v, want nothing", moved, store.writes)
-	}
-}
-
 // TestManager_callerOfAnotherAuth pins who the rules on acting on oneself take the caller
-// for. A username names a person within one auth, so a caller who came through another
-// auth, on an outlet that serves this auth's management, is nobody of this auth: with the
-// same username as the person acted on they disable the account, delete it, and remove
-// the last administrator's role, as any other caller may. A caller who came through this
-// auth is refused all three, and so is one whose request bound no auth at all, where the
-// name is all there is to judge by.
+// for: the person of the account whose id the caller carries, when the request came
+// through the auth managed. A caller who came through another auth, on an outlet that
+// serves this auth's management, is nobody of this auth: carrying the very id of the
+// person acted on they disable the account, delete it, and remove the last
+// administrator's role, as any other caller may. A caller who came through this auth
+// with that id is refused all three, and so is one whose request bound no auth at all,
+// where the id is all there is to judge by. A caller of another id is another person,
+// and so is one who carries the person's username: a name is what people read, and
+// names nobody to the rules.
 func TestManager_callerOfAnotherAuth(t *testing.T) {
 	t.Parallel()
 
 	// dana is the one administrator and holds a second role, so the removal of the
 	// first leaves the account in place.
-	steward := access.NewMembershipKey(globalScope, "dana", "Steward")
-	reader := access.NewMembershipKey(globalScope, "dana", "Reader")
+	steward := access.NewMembershipKey(globalScope, dana, "Steward")
+	reader := access.NewMembershipKey(globalScope, dana, "Reader")
 	acts := []struct {
 		name       string
 		act        func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
@@ -378,7 +387,7 @@ func TestManager_callerOfAnotherAuth(t *testing.T) {
 		{
 			name: "remove the last administrator's role",
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-				return m.RemoveRole(ctx, txn, globalScope, "dana", "Steward")
+				return m.RemoveRole(ctx, txn, globalScope, userID, "Steward")
 			},
 			wantWrites: []string{"delete membership " + membershipText(&steward)},
 		},
@@ -390,36 +399,35 @@ func TestManager_callerOfAnotherAuth(t *testing.T) {
 		wantRefused bool
 	}{
 		{
-			name: "through the auth managed, the caller is the person",
+			name: "through the auth managed, the caller of the account's id is the person",
+			ctx: func(ctx context.Context) context.Context {
+				return asCallerThrough(ctx, managedAuth, dana)
+			},
+			wantRefused: true,
+		},
+		{
+			name: "through another auth, the same id is another auth's person",
+			ctx: func(ctx context.Context) context.Context {
+				return asCallerThrough(ctx, otherAuth, dana)
+			},
+		},
+		{
+			name: "with no auth bound, the id is judged alone",
+			ctx: func(ctx context.Context) context.Context {
+				return asCaller(ctx, dana)
+			},
+			wantRefused: true,
+		},
+		{
+			name: "through the auth managed, another id is another person",
+			ctx: func(ctx context.Context) context.Context {
+				return asCallerThrough(ctx, managedAuth, erin)
+			},
+		},
+		{
+			name: "through the auth managed, the person's username is not the person",
 			ctx: func(ctx context.Context) context.Context {
 				return asCallerThrough(ctx, managedAuth, "dana")
-			},
-			wantRefused: true,
-		},
-		{
-			name: "through the auth managed, under another case",
-			ctx: func(ctx context.Context) context.Context {
-				return asCallerThrough(ctx, managedAuth, "DANA")
-			},
-			wantRefused: true,
-		},
-		{
-			name: "through another auth, the same username is another person",
-			ctx: func(ctx context.Context) context.Context {
-				return asCallerThrough(ctx, otherAuth, "dana")
-			},
-		},
-		{
-			name: "with no auth bound, the name is judged alone",
-			ctx: func(ctx context.Context) context.Context {
-				return asCaller(ctx, "dana")
-			},
-			wantRefused: true,
-		},
-		{
-			name: "through the auth managed, another person",
-			ctx: func(ctx context.Context) context.Context {
-				return asCallerThrough(ctx, managedAuth, "erin")
 			},
 		},
 	}

@@ -27,7 +27,7 @@ func (SquadronRoster) DefaultConfig() resource.Config {
 type squadronRosterRead struct {
 	SquadronID   impulse.UUID     `json:"squadronId"   perm:"-"`
 	UserID       string           `json:"userId"       perm:"-"`
-	SectorID     string           `json:"sectorId"`
+	SectorID     impulse.UUID     `json:"sectorId"`
 	SquadronName string           `json:"squadronName"`
 	PilotName    *string          `json:"pilotName"`
 	PilotID      impulse.NullUUID `json:"pilotId"`
@@ -218,8 +218,8 @@ func (p SquadronRosterQueryPartialClause) UserID() SquadronRosterQueryIdent[stri
 	return SquadronRosterQueryIdent[string]{Ident: resource.NewIdent[string]("UserID", p.partialClause, true)}
 }
 
-func (p SquadronRosterQueryPartialClause) SectorID() SquadronRosterQueryIdent[string] {
-	return SquadronRosterQueryIdent[string]{Ident: resource.NewIdent[string]("SectorID", p.partialClause, true)}
+func (p SquadronRosterQueryPartialClause) SectorID() SquadronRosterQueryIdent[impulse.UUID] {
+	return SquadronRosterQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("SectorID", p.partialClause, true)}
 }
 
 func (p SquadronRosterQueryPartialClause) SquadronName() SquadronRosterQueryIdent[string] {

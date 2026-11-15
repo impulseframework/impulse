@@ -36,8 +36,8 @@ func (m *Manager) RevokeToken(ctx context.Context, txn resource.ReadWriteTransac
 		return httpio.NewNotFoundMessage("no live token")
 	}
 	targets := []impulse.UUID{tokenID}
-	if token.Family != nil {
-		if targets, err = m.store.FamilyTokens(ctx, txn, *token.Family); err != nil {
+	if token.FamilyID != nil {
+		if targets, err = m.store.FamilyTokens(ctx, txn, *token.FamilyID); err != nil {
 			return errors.Wrap(err, "identity.Store.FamilyTokens()")
 		}
 	}

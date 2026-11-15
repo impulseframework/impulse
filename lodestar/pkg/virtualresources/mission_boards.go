@@ -46,14 +46,14 @@ type (
 		// @primarykey
 		ID impulse.UUID `spanner:"Id" index:"true"`
 		// @domain
-		SectorID     string    `spanner:"SectorId"     index:"true"`
-		Title        string    `spanner:"Title"        index:"true"        search:"Missions.Title"`
-		ClientName   string    `spanner:"ClientName"   index:"true"        search:"Clients.Name"`
-		SquadronName *string   `spanner:"SquadronName" index:"true"`
-		KindID       string    `spanner:"KindId"       index:"true"`
-		StatusID     string    `spanner:"StatusId"     index:"true"`
-		Deadline     time.Time `spanner:"Deadline"     index:"true"`
-		DaysLeft     int64     `spanner:"DaysLeft"     allow_filter:"true"`
+		SectorID     impulse.UUID `spanner:"SectorId"     index:"true"`
+		Title        string       `spanner:"Title"        index:"true"        search:"Missions.Title"`
+		ClientName   string       `spanner:"ClientName"   index:"true"        search:"Clients.Name"`
+		SquadronName *string      `spanner:"SquadronName" index:"true"`
+		KindID       string       `spanner:"KindId"       index:"true"`
+		StatusID     string       `spanner:"StatusId"     index:"true"`
+		Deadline     time.Time    `spanner:"Deadline"     index:"true"`
+		DaysLeft     int64        `spanner:"DaysLeft"     allow_filter:"true"`
 	}
 )
 

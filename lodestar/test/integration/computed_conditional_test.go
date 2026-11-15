@@ -57,7 +57,7 @@ func TestComputedConditionalGrant(t *testing.T) {
 	t.Run("the certification lapses at the instant", func(t *testing.T) {
 		t.Parallel()
 
-		checker := client.ForUser("hazards")
+		checker := client.ForUser(account(t, "hazards"))
 		before, err := checker.Check(ctx, accesstypes.EnvironmentAt(time.Date(2098, 12, 31, 23, 59, 0, 0, time.UTC)),
 			accesstypes.DomainScope(anvil), accesstypes.List, "SectorHazardBoards")
 		if err != nil {

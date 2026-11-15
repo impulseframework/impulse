@@ -11,7 +11,7 @@
   </mat-card>
 } @else if (!canList()) {
   <mat-card appearance="outlined" class="table-card">
-    <p class="empty">Your posting in {{ sector() || 'this sector' }} does not cover the hangar deck right now.</p>
+    <p class="empty">Your posting in {{ sectorName() || 'this sector' }} does not cover the hangar deck right now.</p>
   </mat-card>
 } @else {
   @if (refusal(); as refusal) {
@@ -45,7 +45,7 @@
     <mat-card-header>
       <mat-card-title>{{ shipName(refit.shipId) }}</mat-card-title>
       <mat-card-subtitle>
-        Opened by {{ refit.openedBy }} ·
+        Opened by {{ refit.openedByName }} ·
         {{ refit.inspectedAt ? 'inspected ' + (refit.inspectedAt | date: 'medium') : 'not yet inspected' }}
       </mat-card-subtitle>
     </mat-card-header>
@@ -139,7 +139,7 @@
 @if (canListShips()) {
   <mat-card appearance="outlined" class="table-card">
     <mat-card-header>
-      <mat-card-title>Ships in {{ sector() }}</mat-card-title>
+      <mat-card-title>Ships in {{ sectorName() }}</mat-card-title>
       <mat-card-subtitle>
         Hail is the first-class Touch: every field stays as it was, the timestamp bumps, and the ship's log records who
         hailed. The Pilot's grant excludes quarantined ships.

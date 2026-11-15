@@ -304,9 +304,13 @@ func (s *SessionStorageDriver) InsertSessionIn(
 // and Email never on a store whose usernames are the addresses, where the database
 // derives it. The name is written as sessioninfo.CleanName leaves it.
 func (s *SessionStorageDriver) newUserMutation(insertUser *dbtype.InsertSessionUser) (*dbtype.SessionUser, *spanner.Mutation, error) {
-	id, err := impulse.NewUUID()
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "impulse.NewUUID()")
+	id := insertUser.ID.UUID
+	if !insertUser.ID.Valid {
+		generated, err := impulse.NewUUID()
+		if err != nil {
+			return nil, nil, errors.Wrap(err, "impulse.NewUUID()")
+		}
+		id = generated
 	}
 	if err := dbtype.ValidateInsertUser(insertUser, s.usernameIsEmail); err != nil {
 		return nil, nil, errors.Wrap(err, "dbtype.ValidateInsertUser()")

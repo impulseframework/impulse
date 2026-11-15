@@ -21,7 +21,7 @@
         "global": [],
         "everyDomain": [],
         "domains": {
-          "north": [
+          "North": [
             "TenantAdministrator"
           ]
         }

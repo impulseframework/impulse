@@ -171,24 +171,24 @@ func generatedRouterTests() []*generatedRouterTest {
 			selfBounded: true,
 		},
 		{
-			url: "/api/tenants/testDomain/announcements", method: http.MethodGet,
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements", method: http.MethodGet,
 			handlerFunc: "Announcements",
-			parameters:  map[string]string{"tenantID": "testDomain"},
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
 		},
 		{
-			url: "/api/tenants/testDomain/announcements", method: http.MethodPost,
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements", method: http.MethodPost,
 			handlerFunc: "Announcements",
-			parameters:  map[string]string{"tenantID": "testDomain"},
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
 		},
 		{
-			url: "/api/tenants/testDomain/announcements/testAnnouncementID", method: http.MethodGet,
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements/testAnnouncementID", method: http.MethodGet,
 			handlerFunc: "Announcement",
-			parameters:  map[string]string{"tenantID": "testDomain", "announcementID": "testAnnouncementID"},
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "announcementID": "testAnnouncementID"},
 		},
 		{
-			url: "/api/tenants/testDomain/announcements/testAnnouncementID", method: http.MethodPost,
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/announcements/testAnnouncementID", method: http.MethodPost,
 			handlerFunc: "Announcement",
-			parameters:  map[string]string{"tenantID": "testDomain", "announcementID": "testAnnouncementID"},
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "announcementID": "testAnnouncementID"},
 		},
 		{
 			url: "/api/features", method: http.MethodGet,

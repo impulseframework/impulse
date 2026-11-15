@@ -89,9 +89,9 @@ type Ship struct { ... }
 | `@manualAddResourceSet` | `@resource` struct | comma list of `listHandler`, `readHandler`, `patchHandler`, or `allHandlers` | Declares that hand-written handlers register this resource's permission Sets for the given handler types; validated against the set of generated handlers. |
 | `@outlet` | `@resource`, `@virtual`, `@computed`, or `@rpc` struct; `accesstypes.Resource` constant carrying `@manualAddResource` | comma list of outlet names | Names the router outlets the struct's routes — or the constant's hand-written route — are registered under. Outlets are independent registration surfaces with their own route prefixes — the generator emits a `Generated<Name>Handlers` interface and `generated<Name>Routes` function per outlet, so the application composes different authentication and middleware around each (a browser app on one, a machine REST API on another). The default outlet is declared by `generation.GenerateRoutes` and carries the reserved name `default`; additional outlets are declared with `generation.WithRouterOutlet(name, routePrefix)`, and referencing an undeclared name is a generation error. An outlet serving browser sessions declares it (`WithRouterOutlet(name, prefix, Auth(pkg, flavor))` under the generated router, `ServesSessions()` under a hand-written one; section 8): the generated route tables register the permission-digest and user-domains routes under its prefix, and only a session-serving outlet may be the target of a `GenerateTypescript` call (`ForOutlet(name)`), which filters every emitted TypeScript file to that outlet's members — a client for a session-less outlet would have no permission channels and fail closed on every page, so it is a generation error. Without the annotation a struct is on the default outlet only; naming outlets replaces that default, so `@outlet(default, automation)` serves both while `@outlet(automation)` serves the automation outlet only. Consolidated resources get one consolidated patch dispatcher per outlet (`PatchResources`, `Patch<Name>Resources`), each bundling exactly that outlet's members. The generated router tests cover every outlet's routes and additionally prove isolation: a route's path under an outlet it is not attached to must 404. Example: [Consignment](../lodestar/pkg/resources/consignments.go). |
 | `@permissionScope` | `@resource`, `@virtual`, `@computed`, or `@rpc` struct | `global` or `domain` | Sets the permission scope used by all of the resource's registrations. Default: `global`. It also selects the domain the generated handlers evaluate permissions in: global-scoped handlers pass `accesstypes.GlobalDomain`, while domain-scoped handlers read it from a required `/<tenants>/{<tenant>ID}/` route segment pair between the route prefix and the resource path (pair-style, so domain values can never collide with resource or method route names). Both names derive from the package's `@tenant` record: the segment is the record's route name and the parameter its key's route parameter (`Sector` keyed by `ID` gives `/sectors/{sectorID}/`), and a tenant-scoped resource in a package with no `@tenant` record is refused. Domain-scoped routes are wrapped in the generated `DomainGuard`, which asks the application's tenant roster (`TenantRoster().Has`, section 16) and answers 404 for a domain the roster does not hold before the handler runs, and the same 404 for a tenant the session does not reach (`UserPermissions.Reaches`: the tenant's declaration does not admit the way the session was established, section 6). With `generation.WithConcealedDomains()` the guard asks the caller's foothold next (`UserPermissions.HasGrants` in the domain): a domain where the requesting user holds zero grants answers identically to a domain that does not exist (404 on routes, 400 in consolidated op paths), so refusals never confirm a tenant; any grant in the domain restores ordinary 403s (`access.Client.UserHasGrants` answers the foothold question from the in-memory snapshot, so the check stays legal inside the consolidated mutation transaction). Tenant identifiers must be a single URL-safe path segment and must never contain `:` (the character is reserved for access-defined markers; `accesstypes.GlobalDomain` is `access:global`); a URL domain is pure data, and `accesstypes.DomainScope` routes it to a tenant partition by construction, so no value can address the global partition. In the consolidated patch handler, a domain-scoped resource's operations carry the domain in the path exactly as the URL grammar does (`{"op":"patch","path":"/sectors/sector-alpha/berths/…"}`); global operations stay domainless, an unknown domain in an operation path is a 400, and cross-domain batches are legal (each operation is checked in its own partition; the batch is one transaction). Example: [Sector](../lodestar/pkg/resources/sectors.go). |
-| `@tenant` | `@resource` struct | none, or `creation: administrator`, `self-service` or `both` (section 16), and `label: "<word>"`: `@tenant(label: "Service district")` | The struct is the tenant record: the table whose rows are the tenants, one per package. Its route name is the segment tenant-scoped routes are served under and its key's route parameter is the domain parameter (`Sector` keyed by `ID` gives `/sectors/{sectorID}/…`); the generator emits `New<Record>Roster(client, opts...)` into the handler package, which builds the `resource.TenantRoster` the generated `DomainGuard` and the consolidated dispatcher ask (section 16); and the record's generated create and delete paths add and remove the tenant in the roster after their commit and signal the tenants kind, so a tenant created at run time is served by every instance without a restart or a release. The record must be global, table-backed, and keyed by one string column (the slug in every tenant-scoped URL): `@tenant` on a `@permissionScope(domain)` struct, on a compound key, on a key that is not a string, on a `@virtual`, `@computed` or `@rpc` struct, or on a second struct is refused naming the rule, and a tenant-scoped resource, view, computed resource or method in a package with no `@tenant` record is refused (`a tenant-scoped resource needs a tenant record; annotate it @tenant`). A key cannot change on update. The record names what the screen calls a tenant: the generated browser descriptor carries the word, one and many (`domainRoute.word`), for the frame's place switcher and menus, from the record's name in words (`Sector` reads "Sector" and "Sectors", `ShipClass` "Ship class" and "Ship classes"), or from `label:` where an application in production changes the word without renaming its tables; the plural is the generator's, as it spells the table. A label is letters, digits, single spaces and hyphens, starting with a letter; any other is refused. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
+| `@tenant` | `@resource` struct | none, or `creation: administrator`, `self-service` or `both` (section 16), and `label: "<word>"`: `@tenant(label: "Service district")` | The struct is the tenant record: the table whose rows are the tenants, one per package. Its route name is the segment tenant-scoped routes are served under and its key's route parameter is the domain parameter (`Sector` keyed by `ID` gives `/sectors/{sectorID}/…`); the generator emits `New<Record>Roster(client, opts...)` into the handler package, which builds the `resource.TenantRoster` the generated `DomainGuard` and the consolidated dispatcher ask (section 16); and the record's generated create and delete paths add and remove the tenant in the roster after their commit and signal the tenants kind, so a tenant created at run time is served by every instance without a restart or a release. The record must be global, table-backed, and keyed by one id its own create path generates (`ID impulse.UUID`, whose text is the domain in every tenant-scoped URL; what people call the tenant is its `@tenantName` column, changed like any field): `@tenant` on a `@permissionScope(domain)` struct, on a compound key, on a key that is not an id the create path generates (a typed string, a foreign key, an interleaved table), on a `@virtual`, `@computed` or `@rpc` struct, or on a second struct is refused naming the rule, and a tenant-scoped resource, view, computed resource or method in a package with no `@tenant` record is refused (`a tenant-scoped resource needs a tenant record; annotate it @tenant`). A key cannot change on update. The record names what the screen calls a tenant: the generated browser descriptor carries the word, one and many (`domainRoute.word`), for the frame's place switcher and menus, from the record's name in words (`Sector` reads "Sector" and "Sectors", `ShipClass` "Ship class" and "Ship classes"), or from `label:` where an application in production changes the word without renaming its tables; the plural is the generator's, as it spells the table. A label is letters, digits, single spaces and hyphens, starting with a letter; any other is refused. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
 | `@directoryOnly` | field of the `@tenant` record, a `bool` column | none | The tenant's people enter through its directories only: a password, or any sign-in that is not through a directory, does not reach a tenant whose flag is true. The flag is half of what the tenant record declares about who may enter a tenant (section 16); the other half is the directories record (`@tenantDirectory`), which the flag needs, since a tenant whose people enter through its directories only needs directories to enter through. Whoever holds the record's Update grant on the column sets it, and the record's change events are the audit. The generated create-your-tenant route (`@tenant(creation: ...)`) leaves it out of its body: a new tenant declares nothing beyond its creator's directory. Refused on a resource that is not the tenant record, on a column that is not a `bool`, and on a second column. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
-| `@tenantName` | field of the `@tenant` record, a `string` or `*string` column | none | The tenant's name as its people know it. The generated `New<Record>Roster` reads the column beside the key (`resource.WithTenantNames`), and the generated `UserDomains` handler names each tenant of the session's tenant list from the roster (`resource.WithDomainNames`), so a tenant's own people see its name in the place switcher without holding Read on the record, a global resource; without it the list names each tenant by its key. Refused on a resource that is not the tenant record, on a column that is not a string, and on a second column. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
+| `@tenantName` | field of the `@tenant` record, a `string` or `*string` column | none | The tenant's name as its people know it. The generated `New<Record>Roster` reads the column beside the key (`resource.WithTenantNames`), and the generated `UserDomains` handler names each tenant of the session's tenant list from the roster (`resource.WithDomainNames`), so a tenant's own people see its name in the place switcher without holding Read on the record, a global resource; without it the list names each tenant by its key. The generated browser metadata names the column on the record (`nameField`), so a picker over the tenant record lists tenants by name and the people pages name the tenant a role or an invitation is in. Refused on a resource that is not the tenant record, on a column that is not a string, and on a second column. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
 | `@tenantDirectory` | `@resource` struct, `@permissionScope(domain)` | none | The struct is the directories record: the tenant-scoped table whose rows are the directories a tenant admits its people through, one row per declaration (one domain, one directory by default; a second directory is a second row), each naming the sign-in method (`@directoryMethod`) and the connection (`@directoryConnection`). Its tenant is the bare `@domain` column, the tenant's key on the row itself, so a tenant's administrator declares its own directories under the record's Create and Delete grants, and the record's change events are the audit. With it the generated `New<Record>Roster` reads what each tenant declares beside its key (`resource.WithTenantDeclarations`), `New<Record>DeclarationReader` reads one tenant's declaration in the sign-in's transaction for `signin.TenantPolicy`, the record's write paths reload the roster after their commit and signal the tenants kind as the tenant record's do, and the create-your-tenant route declares the creator's directory on the new tenant. Refused on a global resource, on the tenant record itself, on a second struct, with a join-path `@domain`, and without either column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
 | `@directoryMethod` | field of the `@tenantDirectory` record, a `string` column | none | The column holds the sign-in method a directory is reached through, as `sessioninfo.AuthMethod` spells it: `google`, `azure` or `workos`. Refused off the directories record, on a column that is not a string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
 | `@directoryConnection` | field of the `@tenantDirectory` record, a `string` column | none | The column holds the connection a directory's identities carry, the value the session's first auth event records beside the method: a Google Workspace by its domain (the registration admitting any Workspace writes the account's domain), a Microsoft Entra tenant by its tenant id, a WorkOS connection by its id. Refused off the directories record, on a column that is not a string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
@@ -454,7 +454,7 @@ domain digests to `{}`, so the endpoint never confirms tenant existence under
 
 **User domains.** The payload is the sorted list of domains where the user holds at
 least one grant and that the session reaches, each with the tenant's name
-(`[{"domain": "north", "name": "North"}]`) — the place switcher's question, answered by
+(`[{"domain": "11111111-1111-4111-8111-111111111111", "name": "North"}]`) — the place switcher's question, answered by
 the library so no application hand-writes it. The name is the tenant roster's copy of the
 record's name column, the field the record marks `@tenantName` (section 1): the generated
 roster constructor passes `WithTenantNames` and the generated handler `WithDomainNames(roster)`
@@ -485,7 +485,11 @@ this package supplies the two pieces that must know about it:
   because a role is not anyone — and the composition supplies `User()` itself: the
   session's effective identity, which for a role principal is the actor who established
   it, so a row condition's `subject` binds to the real person and nobody's identity is
-  borrowed. An application that does not operate sessions as roles passes
+  borrowed. A person is named as the permission store names them, by the id of their
+  account (`sessioninfo.SessionData.User`), never by the username, which can change and
+  which two Auths over one database can each hold: `User()` is that id, `subject` binds
+  to it, and a column that records who did something (the anchor of a `@subjectSet`, a
+  `filedBy`) holds it. An application that does not operate sessions as roles passes
   `RolePrincipalsUnsupported` as `forRole`; a role principal then fails closed (every
   check Denied, empty digest, no domains) with the same `User()`. `Masked(perms, mask)`
   is the attenuation on its own: a permission the mask does not allow is Denied for every
@@ -514,10 +518,13 @@ this package supplies the two pieces that must know about it:
   that is not a tenant, and the two can never disagree. One composed value reads a
   tenant's declaration once, whatever is asked about the tenant after.
 - **`UserEvent(ctx)`** — the event source every generated write handler stamps onto
-  `DataChangeEvents` — names the actor first for an impersonated session:
-  `alice impersonating bob (session id)` and `alice as role PartnerViewer (session id)`,
-  unchanged (`bob (session id)`) otherwise. Every tracked data change carries evidence of
-  the real person with no regeneration.
+  `DataChangeEvents` — writes a person as their username with the id of their account,
+  and the session last: `bob (account id), session id`. It names the actor first for an
+  impersonated session: `alice (account id) impersonating bob (account id), session id`
+  and `alice (account id) as role PartnerViewer, session id`. A person with no account
+  here (an actor another application authenticated) is written by name alone. Every
+  tracked data change carries evidence of the real person with no regeneration, and a
+  rename changes nothing about who a change was made by.
 
 ## 7. RPC methods: what a method is for
 
@@ -907,8 +914,9 @@ without the required permission each must fail closed, and with exactly that per
 list or read must reach data access. The application hand-writes one function,
 `newTestHandler`, wiring its App to the scripted grants; Lodestar's is
 [test/authz/harness_test.go](../lodestar/test/authz/harness_test.go). For domain-scoped
-routes `newTestHandler` adds the suite's domain value `testDomain` to the test
-application's tenant roster with `Add`, since the empty schema holds no tenant row; under
+routes `newTestHandler` adds the suite's tenant, the generated router's `TestDomain`
+constant (an id's text, as a tenant's key is one), to the test application's tenant
+roster with `Add`, since the empty schema holds no tenant row; under
 concealed domains a case with no grants has no foothold and is answered as if the domain
 did not exist. The scripted grants
 are unconditional and the schema is empty, so the matrix pins the endpoint gate alone: a
@@ -2093,13 +2101,34 @@ The application declares one table as its tenant record with `@tenant` (section 
 the library keeps a copy of its keys on every instance: the roster.
 
 **The record.** `@tenant` goes on the global, table-backed `@resource` whose rows are the
-tenants; its one string key is the domain in every tenant-scoped URL. The record's route
+tenants; its one key is an id its create path generates (`impulse.UUID`), whose text is
+the domain in every tenant-scoped URL. The record's route
 name is the segment tenant-scoped routes are served under and its key's route parameter
 is the domain parameter: Lodestar's `Sector`, keyed by `ID`, puts the sector-scoped routes
 at `/console/api/sectors/{sectorID}/…` while `/console/api/sectors` lists the sectors. A
 tenant-scoped resource, view, computed resource or method in a package with no `@tenant`
 record is refused, so a tenanted application always has one, and a second `@tenant` is
 refused naming the first.
+
+**The key and the name.** A tenant's key is never a word a person types. It is written
+into every row the tenant owns (the `@domain` column, typed `impulse.UUID`, or `string`
+holding the id's text) and is the domain of every role held in the tenant, so it cannot
+change, and a key a person typed could be used again for another tenant after a delete.
+The generator therefore refuses a `@tenant` record keyed by anything but an id its own
+create path generates. What people call the tenant is the column the record marks
+`@tenantName`: an ordinary field, changed under the record's Update grant, and every
+instance's roster carries the new name after the write, so the place switcher and the
+session's tenant list show it at once. Whether two tenants may carry one name is the
+application's to say in its schema: a unique index on the name column refuses the second
+(409, as any duplicate of a unique value), and an application that allows it has no such
+index; the skeletons and `impulse add tenancy` write the index. A tenant is created with
+an `add` on the record's collection, with no key in its path
+(`{"op":"add","path":"/sectors","value":{"name":"Anvil"}}`), and the answer carries the
+id; an add that names a key is refused. What names a tenant by hand names it by its
+name: `TenantRoster.Named(name)` answers the one tenant that carries a name, and is an
+error for a name no tenant or more than one tenant carries, which is how a development
+bootstrap reads the tenants of its logins. The development seed inserts its tenants
+under fixed ids, so an application's suites name them.
 
 **The roster.** `resource.TenantRoster` is the set of the record's keys an instance
 holds, built by the generated constructor in the handler package,
@@ -2194,7 +2223,7 @@ declares falls to the method's rule (members, invited, open). The generator emit
 reading every tenant's declaration of one directory with its seat in the sign-in's own
 transaction, and the application hands it, with the seat hook, to each auth whose roles
 are the application's own:
-`authSession.SetDirectoryAdmission(settings.TenantDirectories, resource.SignInRoles(engine.UserManager()), identityClient.DirectorySeated())`.
+`authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())`.
 An auth whose directory names the roles (a registration that syncs them) sets no
 admission: its directory is the authority on who holds what, and a default seat would
 be overwritten at the next sign-in.
@@ -2224,13 +2253,29 @@ committed. A record served by session outlets bound to different auths is refuse
 generation, since the handler writes through one client, and so is a program that does
 not generate that auth's management (`GenerateIdentity`); a record served by no session
 auth (a hand-written router, a machine outlet alone) seats nobody.
+
+**Deleting a tenant.** The record's generated delete clears what each auth holds for the
+tenant in the transaction that deletes its row, through the generated identity client of
+every auth whose management the program generates (`<Auth>Identity().ClearTenant`,
+`identity.Manager.ClearTenant`): every membership held in the tenant, the custom roles
+made in it with their grants, and the invitations into it that still stand, which are
+withdrawn. A person who held roles in the tenant alone then holds none anywhere and is
+deleted with their identity links and sessions, by the rule on an account nothing admits
+(section 21, "The rules"); a person who holds a role anywhere else stays, and so does a
+role held in every tenant, which is no one tenant's. The permission engine is told once
+the delete has committed. The rows the tenant owns are the application's: a foreign key
+on a tenancy column refuses the delete while they remain. An application that deletes a
+tenant in a transaction of its own calls `ClearTenant` there, and a program that
+generates no auth's management removes the memberships itself.
+
 With the last-owner rule (section 21, "The rules") an operator creates a customer's
 tenant, gives a role to or invites its first administrator as a second owner, and leaves;
 an existing tenant gains no administrator after the fact.
 
-**Tests.** The generated authorization matrix drives domain-scoped routes with the domain
-value `testDomain`, and the application's `newTestHandler` adds it to the test
-application's roster with `Add`, since the empty schema holds no tenant row; under
+**Tests.** The generated authorization matrix drives domain-scoped routes with one
+tenant, the generated router's `TestDomain` constant (an id's text), and the
+application's `newTestHandler` adds it to the test application's roster with `Add`
+(`roster.Add(router.TestDomain)`), since the empty schema holds no tenant row; under
 concealed domains a case with no grants has no foothold and is answered as if the domain
 did not exist.
 
@@ -2509,8 +2554,8 @@ POST <prefix>/end-crew-session                {"sessionId"}                    E
 POST <prefix>/end-crew-session-impersonation  {"sessionId"}                    Execute on EndCrewSessionImpersonation, targeting CrewSessionImpersonations
 POST <prefix>/unlink-crew-session-identity    {"identityId"}                   Execute on UnlinkCrewSessionIdentity, targeting CrewSessionIdentities
 POST <prefix>/revoke-crew-session-token       {"tokenId"}                      Execute on RevokeCrewSessionToken, targeting CrewSessionTokens
-POST <prefix>/assign-crew-role                {"username","role","domain","everyDomain"}   Execute on AssignCrewRole
-POST <prefix>/remove-crew-role                {"username","role","domain","everyDomain"}   Execute on RemoveCrewRole
+POST <prefix>/assign-crew-role                {"userId","role","domain","everyDomain"}   Execute on AssignCrewRole
+POST <prefix>/remove-crew-role                {"userId","role","domain","everyDomain"}   Execute on RemoveCrewRole
 POST <prefix>/sectors/{sectorID}/create-crew-sector-user   {"username","name","email","password","roles"} → {"id"}   Execute on CreateCrewSectorUser
 POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","name","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
 POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationId"}     Execute on WithdrawCrewSectorInvitation, targeting CrewSectorInvitations
@@ -2567,7 +2612,7 @@ name would give a list the name of one of the tables' declarations (a record nam
   where the role is held there through a membership in every tenant alone, so it is not
   the tenant's to take away. A role held both ways is the tenant's own row.
 - `CrewSectorInvitations`, the tenant's invitations: the mail links of the
-  invitation kind that name the tenant, with `email`, `roleNames`, `invitedBy`,
+  invitation kind that name the tenant, with `email`, `roleNames`, `invitedByUserId`,
   `createdAt`, `expiresAt` and `consumedAt`. Two facts: `pending`, true while the
   invitation stands (not accepted, not withdrawn, not expired), and `role`, the roles
   it gives: a list, so a condition that reads it is judged once for each role and holds
@@ -2604,8 +2649,8 @@ database object: nothing is created in the schema and nothing is migrated. The g
 writes each view beside the tables it reads, with its query as a constant of the file,
 which reads the Auth's memberships, its users, identities or mail links, and the tenant
 record's table (a membership held in every tenant is a row in each). A membership names its
-person by username, and the join finds the account by that exact name, through the users
-table's index by username. The generator reads the tenant record before it loads the packages,
+person by the id of their account, and the join finds the account by the users table's
+key. The generator reads the tenant record before it loads the packages,
 off the syntax of the resources package and the schema, since the views are written
 before the load: a tenant record whose table the schema does not hold is refused there.
 A list is written only where the schema holds the tables it reads, so an Auth with no
@@ -2614,17 +2659,25 @@ identities list. The lists are published like any view
 (section 14): a role given, a person created or disabled, or an invitation written
 through the generated methods reaches the pages that have a tenant's list open.
 
-What a request of these lists reads, measured on Cloud Spanner over 1.07 million users in
-2,200 tenants (2026-11-13): the people's list, the roles held and the identities read the
-tenant's memberships and then one index entry for each person, and no row of the users
-table, because three indexes of the Auth's schema carry the columns the lists show (the
-users by username, the identities by user, the mail links by tenant, newest first). The
-database joins before it cuts the page, so the cost follows the size of the tenant and
-not of the page or of the application: a first page of people took 12 ms for a tenant of
-100, 20 ms for 500, 66 ms for 5,000 and 0.45 s for 50,000 on the smallest instance (100
-processing units), a count and a sort by any column the same, and a read of one person
-by key 3 ms at any size. The invitations read their own page from the index (26 rows at
-any size). Three costs are worth knowing. A filter on `heldElsewhere` or `heldGlobally`,
+What a request of these lists reads. The people's list, the roles held and the identities
+read the tenant's memberships and then the account of each person: one row of the users
+table, found by its key, since a membership names its person by the id of their account.
+The identities and the invitations are read from two indexes of the Auth's schema that
+carry the columns the lists show (the identities by user, the mail links by tenant, newest
+first). The database joins before it cuts the page, so the cost follows the size of the
+tenant and not of the page or of the application.
+
+The lists were measured on Cloud Spanner over 1.07 million users in 2,200 tenants on
+2026-11-15, on the smallest instance (100 processing units). A first page of people took
+12 ms for a tenant of 100, 18 ms for 500, 89 ms for 5,000 and 0.75 s for 50,000, and a
+count about the same; the roles held 10 ms, 34 ms, 0.1 s and 0.8 s; the identities 0.17 s
+for a tenant of 100 and 2 s for 50,000. Each reads the tenant's memberships and one
+account row per person: no request reads the users table whole, and the rows read are
+those of the tenant, at any size of the application. (Read through an index by username,
+when a membership named its person by username, the people took 0.45 s at 50,000 and the
+roles and identities longer.) The invitations read their own page from the index (26 rows
+at any size).
+Three costs are worth knowing. A filter on `heldElsewhere` or `heldGlobally`,
 or a grant on the list whose condition reads one and so holds every row to it, costs two
 index reads for each person of the tenant (seconds at 50,000 people; a condition on a
 field costs them for the page's rows alone). A row of the roles held is keyed by the
@@ -2632,8 +2685,8 @@ user's id and the role, two columns the database looks up, so a read of one row,
 check a method makes of the role it names, reads the one person's memberships (2 to 4 ms
 and three rows at 50,000 people; a key that joined the two in one value could not be
 looked up, and the same read joined the tenant's memberships, about a second there). And
-a schema applied by hand without those indexes serves the same lists by reading the
-users table whole.
+a schema applied by hand without those two indexes serves the identities and the
+invitations by reading their tables whole.
 
 **The roles a tenant picks from.** Where a tenant gives roles by hand, the generated
 management declares one more list per Auth, `CrewSectorRoles`: the roles that
@@ -2689,7 +2742,10 @@ name after the Auth's: `DisableCrewSectorUser` beside `DisableCrewUser`.
 - The rules are the whole application's, in the same code: nobody disables or deletes
   their own account, the tenant's last administrator keeps the role, a rename moves the
   roles, the last role a person holds anywhere takes the account with it, a create and an
-  invitation give at least one role.
+  invitation give at least one role. A refusal that speaks of a tenant says the
+  application's word for one, the tenant record's label or its name in words ("you are
+  the last administrator of this sector"): the generated client hands it to the rules
+  (`identity.WithTenantWord`).
 
 What a tenant may do to a person who also holds a role outside it, and which roles its
 administrator hands out, the role file says, in the conditions of the Execute grants: over
@@ -2816,7 +2872,7 @@ where it builds the client, so no Auth is open without them:
 
 ```go
 authSession.SetInvitationAccepted(identityClient.InvitationAccepted())
-authSession.SetDirectoryAdmission(settings.TenantDirectories, resource.SignInRoles(accessClient.UserManager()), identityClient.DirectorySeated())
+authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
 ```
 
 An invitation into a tenant gives its roles in that tenant; one into the application
@@ -2827,36 +2883,36 @@ told once the transaction has committed, before the sign-in policy decides. The 
 of an Auth whose roles a directory writes has neither hook: the directory's answer at
 every sign-in is that Auth's roles.
 
-One rename is the session library's own: where the sign-in name is the person's email
-address (`session.UsernameIsEmail`), a verified new address renames the user. The
-permission store names a person by username, so the roles must follow the name, as they
-do when an administrator renames a person through the management. The library reports
-the rename to a hook once its transaction has committed, and
-`identity.RolesFollowRename` answers it over the Auth's engine: each role is given under
-the new name and taken from the old, and the hook is safe to run again after a failure
-between the two.
-
-```go
-authSession.SetUserRenamed(identity.RolesFollowRename(accessClient.UserManager()))
-```
+A rename moves nothing the person holds, whoever makes it (an administrator through the
+management, or the session library where the sign-in name is the person's email address
+and a verified new address renames the user): the permission store names a person by the
+id of their account (`identity.User`), so every role stays where it is, and the username
+is what people read.
 
 **In a transaction of the application's.** A method is a struct with an `Execute`, so the
 application runs it wherever it holds a transaction, beside its own writes:
 
 ```go
 err := resourceClient.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-	sector := "anvil"
+	sector := anvil.String() // the tenant's id
 	created, err := (&crewidentity.CreateCrewUser{Username: "ada", Roles: []string{"Dispatcher"}, Domain: &sector}).Execute(ctx, txn, a.CrewIdentity())
 	if err != nil {
 		return err
 	}
-	if err := (&crewidentity.AssignCrewRole{Username: "ada", Role: "CrewCommon"}).Execute(ctx, txn, a.CrewIdentity()); err != nil {
+	// A further role for the person just created, by the client's own call: it looks
+	// nobody up, and the new user is not readable until the commit.
+	if err := a.CrewIdentity().AssignRole(ctx, txn, accesstypes.GlobalPolicyScope(), identity.User(created.ID), "CrewCommon"); err != nil {
 		return err
 	}
 
 	return recordHire(ctx, txn, created.ID) // the application's own rows, in the same commit
 })
 ```
+
+The served method that gives a role (`AssignCrewRole`) names a person a request gave it,
+so it reads the user first and answers 404 for an id no user holds; run in the transaction
+that creates the user it would not find it, which is why the example gives the further
+role through the client.
 
 A person is created holding a role: `Roles` names at least one, all held in one place
 (the global scope, the one tenant `Domain` names, or every tenant with `EveryDomain`),
@@ -2865,8 +2921,9 @@ without a role is refused, since an account that holds no role anywhere is not k
 role held somewhere else is one more `AssignCrewRole` beside it, as above.
 
 Nothing is written until the commit, so a method does not read what an earlier method of
-the same transaction buffered: the role method takes the username, not the new id, and
-one identity link is removed per user per transaction.
+the same transaction buffered: a role is given to a person who has an account already
+(a person new to the application is created holding their roles), and one identity link
+is removed per user per transaction.
 
 **Limits.** It runs on Spanner. A rule reads the rows as committed: a method does not see
 what an earlier method of the same transaction buffered, so the rule on a person's last
@@ -2889,14 +2946,15 @@ own, outside any request, has no caller and is the application's act):
   links and sessions, in the same transaction and whoever removed the role: an account
   nothing admits is not kept.
 
-A username names a person within one Auth, so the first two rules take the caller for the
-person acted on only where the request came through the Auth being managed. An outlet's
+A caller is named by the id of their account, as the permission store names anyone, and
+the first two rules take the caller for the person acted on only where the request came
+through the Auth being managed. An outlet's
 routes bind the name of the Auth that signs its people in to every request
 (`live.Subscribing(crew.Name)`, read back with `resource.AuthFrom`), and the client holds
 the name it was generated for (`crewidentity.AuthName`, which the application's generated
 handlers hold equal to the auth package's `Name` at compile time). On an outlet that
-serves another Auth's management (`Manages`), a console person and a member may carry one
-username and are two people: there nobody is refused as acting on themselves.
+serves another Auth's management (`Manages`), the caller is another Auth's person, whose
+id is no account of the one being managed: there nobody is refused as acting on themselves.
 
 **One tenant per person.** In an application whose tenants own their people, a person
 belongs to one tenant: the tenant that created or invited them manages the account, which
@@ -2904,12 +2962,11 @@ it cannot do for a person another tenant holds too. The application says so wher
 builds the client, beside its administrator roles (`identity.WithOneTenantPerPerson()`),
 and every way a person comes to hold a role in a tenant is then held to it:
 
-- A role in a tenant given by hand, and an account created in a tenant under a name
-  that holds a role already, are refused (409) for a person who holds a role in another
-  tenant.
-- A rename moves a person's roles to the new name, so a name that already holds roles
-  (given to it before it had an account) is refused (409) where the two together would
-  span more tenants than the person was in.
+- A role in a tenant given by hand is refused (409) for a person who holds a role in
+  another tenant.
+- A role is held by an account and never by a name, so an account that is created holds
+  nothing until a role is given to it and a rename moves no role: neither brings a person
+  into a second tenant.
 - An invitation into a tenant is refused when it is sent (409) where a user has
   confirmed the address and holds a role in another tenant, so the sender is told and
   nobody is mailed a link they cannot accept. An address counts once its holder has
@@ -2940,13 +2997,10 @@ holds outside the tenants is not taken away while they hold roles in more than o
 The rule reads what is committed, as the other rules do: one transaction of the
 application's own gives a person roles in one tenant. A person who already holds roles
 in two tenants when the option is turned on is given no further role in a tenant until
-they are down to one. Two writers are outside it. A directory's role sync gives and
-takes roles for the whole application and in every tenant alone, on the directory's
-word. And where the sign-in name is the person's address, the session library renames
-the user itself when a new address is confirmed, and the roles follow once that has
-committed (`identity.RolesFollowRename`): that move merges what the new name already
-held. Without the option a person may hold roles in any number of tenants, as in the
-skeletons and in Lodestar.
+they are down to one. One writer is outside it: a directory's role sync gives and takes
+roles for the whole application and in every tenant alone, on the directory's word.
+Without the option a person may hold roles in any number of tenants, as in the skeletons
+and in Lodestar.
 
 **The pages.** No application writes a page for an Auth's management. The generated API
 description (`zz_gen_api.ts`) carries an `identity` block beside its resources and

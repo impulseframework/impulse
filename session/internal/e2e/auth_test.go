@@ -294,10 +294,18 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserD
 
 					return
 				}
-				_, err := api.StartImpersonatedSession(r.Context(), w, &session.ImpersonationRequest{
+				// The body names the person as a page does, by username; a user principal
+				// names them as the permission store does, by the id of their account.
+				user, err := api.UserByUsername(r.Context(), body.User)
+				if err != nil {
+					_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
+
+					return
+				}
+				_, err = api.StartImpersonatedSession(r.Context(), w, &session.ImpersonationRequest{
 					Actor:           sessioninfo.FromCtx(r.Context()).Username,
 					SourceSessionID: impulse.NullUUIDFromUUID(sessioninfo.IDFromRequest(r)),
-					Principal:       accesstypes.UserPrincipal(accesstypes.User(body.User)),
+					Principal:       accesstypes.UserPrincipal(accesstypes.User(user.ID.String())),
 				})
 				if err != nil {
 					_ = httpio.NewEncoder(w).ClientMessage(r.Context(), err)
@@ -1235,6 +1243,15 @@ func seamDisabledAndImpersonation[Tx any](ctx context.Context, t *testing.T, a *
 		t.Errorf("impersonated session = %+v, want user %s", v, bob)
 	}
 	assertEventsSeen(t, v, "impersonation:pat@lakeside.edu")
+	// The record names both people as the permission store does, by the id of the
+	// account: the actor from the session they started it on, the principal as asked.
+	imps, err := a.api.ActiveImpersonations(ctx, nil)
+	if err != nil || len(imps) != 1 {
+		t.Fatalf("ActiveImpersonations() = %v, %v, want the one impersonation", imps, err)
+	}
+	if imp := imps[0]; imp.Actor != "pat@lakeside.edu" || imp.ActorUser() != accesstypes.User(pat.String()) || imp.Principal != accesstypes.UserPrincipal(accesstypes.User(bob.String())) {
+		t.Errorf("impersonation = actor %q (%s) as %s, want pat@lakeside.edu (%s) as the user %s", imp.Actor, imp.ActorUser(), imp.Principal, pat, bob)
+	}
 
 	a.db.disableUser(ctx, t, pat)
 	tab.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)

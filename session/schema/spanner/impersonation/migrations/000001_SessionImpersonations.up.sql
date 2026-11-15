@@ -1,10 +1,11 @@
 CREATE TABLE SessionImpersonations (
     SessionId        STRING(36) NOT NULL,
     ActorUsername    STRING(MAX) NOT NULL,
+    ActorUserId      STRING(36),
     ActorRealm       STRING(MAX),
     SourceSessionId  STRING(36),
     PrincipalKind    STRING(16) NOT NULL,
-    PrincipalUser    STRING(MAX),
+    PrincipalUserId  STRING(MAX),
     PrincipalRole    STRING(MAX),
     Mask             STRING(MAX),
     Reason           STRING(MAX),
@@ -20,6 +21,6 @@ CREATE INDEX SessionImpersonations_ActorUsername_idx
     ON SessionImpersonations
     (ActorUsername, StartedAt DESC);
 
-CREATE INDEX SessionImpersonations_PrincipalUser_idx
+CREATE INDEX SessionImpersonations_PrincipalUserId_idx
     ON SessionImpersonations
-    (PrincipalUser, StartedAt DESC);
+    (PrincipalUserId, StartedAt DESC);

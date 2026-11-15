@@ -204,8 +204,8 @@ func TestCompleteMission_asPaymaster(t *testing.T) {
 		t.Errorf("Settlement = %v, want 13500 (fee 15000 less 1500 of expenses)", settled)
 	}
 	source, keys := latestChangeEventTouching(t, db, "Missions", missionConvoyID, "Settlement")
-	if !strings.HasPrefix(source, "lead as role Paymaster (") {
-		t.Errorf("settlement event source = %q, want 'lead as role Paymaster (...)'", source)
+	if want := fmt.Sprintf("lead (%s) as role Paymaster, session ", account(t, "lead")); !strings.HasPrefix(source, want) {
+		t.Errorf("settlement event source = %q, want it to begin %q: the lead by username and account id, the role, the session", source, want)
 	}
 	if len(keys) != 1 || keys[0] != "Settlement" {
 		t.Errorf("settlement event changed %v, want exactly [Settlement]", keys)

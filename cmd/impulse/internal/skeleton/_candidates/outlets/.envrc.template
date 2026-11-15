@@ -77,10 +77,11 @@ export APP_MEMBERS_DIRECTORY_ADMINISTERED_TENANTS=
 # export APP_MEMBERS_DIRECTORY_CLIENT_ID=
 # export APP_MEMBERS_DIRECTORY_CLIENT_SECRET=
 export APP_MEMBERS_DIRECTORY_REDIRECT_URL=http://127.0.0.1:4303/portal/api/user/directory/callback
-# APP_MEMBERS_ADMINISTRATOR is the sign-in name of the members auth's first administrator,
-# which the migrate command seeds the administrator role memberships under while the auth
-# has no users; a deployment names it per environment, and the bootstrap seeds the
-# development members instead, so it stays unset here.
+# APP_MEMBERS_ADMINISTRATOR is the sign-in name of the members auth's first administrator:
+# while the auth has no users the migrate command creates a user without a password under
+# it, holding the administrator roles, which that person's first sign-in links to. A
+# deployment names it per environment, and the bootstrap seeds the development members
+# instead, so it stays unset here.
 # export APP_MEMBERS_ADMINISTRATOR=
 
 # --- site: the served site ---
@@ -93,11 +94,11 @@ export PORT=8093
 # against the development stack (go run ./cmd/sensor list). SENSOR_OUTLET is the devices
 # outlet's URL as the router mounts it; SENSOR_TOKEN an application token a staff login
 # issued for the outlet on the console's Tokens page (/console/tokens); SENSOR_TENANT the
-# tenant the readings belong to; SENSOR_SOURCE the name the readings carry for the
-# device, the hostname when unset.
+# id of the tenant the readings belong to (North's in development); SENSOR_SOURCE the
+# name the readings carry for the device, the hostname when unset.
 # export SENSOR_OUTLET=http://127.0.0.1:8093/devices
 # export SENSOR_TOKEN=
-# export SENSOR_TENANT=north
+# export SENSOR_TENANT=11111111-1111-4111-8111-111111111111
 # export SENSOR_SOURCE=
 
 # --- local development only: the emulators the Procfile starts ---

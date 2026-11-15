@@ -13,6 +13,12 @@
 // with the binary and are validated when the auth opens, and the role check only reports
 // what the store holds that the release cannot use.
 //
+// The cast has fixed account ids. The permission store names a person by the id of their
+// account, and so does every row of the demo world that says whose it is or who wrote it
+// (schema/devseed), so each account is created under the id the cast file gives it
+// (session.CreateUserRequest.ID) and holds its roles under that id: a development
+// database reads the same on every machine.
+//
 // Demonstrates: bootstrap.target, bootstrap.reset.
 package main
 
@@ -33,6 +39,7 @@ import (
 	instanceadmin "cloud.google.com/go/spanner/admin/instance/apiv1"
 	"cloud.google.com/go/spanner/admin/instance/apiv1/instancepb"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
@@ -40,15 +47,18 @@ import (
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
 	"github.com/impulseframework/impulse/lodestar/pkg/config"
 	"github.com/impulseframework/impulse/lodestar/pkg/deploy"
+	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"google.golang.org/grpc/codes"
 )
 
 // usersPath is the committed demo cast: the crew personas with plaintext passwords and
-// their role assignments, and the service accounts the droids outlet's tokens bind
-// requests to. The plaintext passwords are deliberate: these are fictional demo
-// credentials for an application that is never published, whether its database is the
-// emulator or a private test instance, and the README says so.
+// their role assignments, the members the demo world's rows name (the portal's people,
+// who sign in through the directory and so get no password here), and the service
+// accounts the droids outlet's tokens bind requests to, each with the fixed id its
+// account is created under. The plaintext passwords are deliberate: these are fictional
+// demo credentials for an application that is never published, whether its database is
+// the emulator or a private test instance, and the README says so.
 const usersPath = "cmd/bootstrap/users.json"
 
 // target is where the bootstrap's database lives.
@@ -62,6 +72,13 @@ const (
 // devIdentities is the file's shape.
 type devIdentities struct {
 	Users []devUser `json:"users"`
+	// Members are the portal's people whom a row of the demo world names: the contact a
+	// client company's record belongs to, the client who filed a distress call. The
+	// directory proves who they are and names their roles at every sign-in (under the
+	// skipAuth build tag, APP_USERNAME and APP_ROLES do), so a member here is an account
+	// without a password and without roles, under the name the directory presents, which
+	// the member's first sign-in links to.
+	Members []devMember `json:"members"`
 	// ServiceAccounts are machine identities: they hold roles like any user but get no
 	// login. The droids outlet's token check binds requests to them through the
 	// application token Start seeds from the configured key.
@@ -71,26 +88,42 @@ type devIdentities struct {
 // devRoles is an identity's role assignments by where each is held: the global
 // partition, every sector, and one sector at a time, each its own key, mirroring
 // accesstypes.PolicyScope. A role held in every sector reaches a sector created after
-// the bootstrap too.
+// the bootstrap too. A single sector is named by its name, since its key is an id
+// nobody types: the bootstrap finds the sector that carries the name
+// (resource.TenantRoster.Named) and refuses a name no sector or more than one sector
+// carries.
 type devRoles struct {
-	Global      []accesstypes.Role                        `json:"global"`
-	EveryDomain []accesstypes.Role                        `json:"everyDomain"`
-	Domains     map[accesstypes.Domain][]accesstypes.Role `json:"domains"`
+	Global      []accesstypes.Role            `json:"global"`
+	EveryDomain []accesstypes.Role            `json:"everyDomain"`
+	Domains     map[string][]accesstypes.Role `json:"domains"`
 }
 
-// devUser is one persona: a crew login and its roles.
+// devUser is one persona: a crew login and its roles. ID is the fixed id its account is
+// created under, which is how the permission store names the persona and what the demo
+// world's rows carry for them; User is its username, which is what people read and type.
 type devUser struct {
-	User     accesstypes.User `json:"user"`
-	Password string           `json:"password"`
-	Roles    devRoles         `json:"roles"`
+	ID       impulse.UUID `json:"id"`
+	User     string       `json:"user"`
+	Password string       `json:"password"`
+	Roles    devRoles     `json:"roles"`
 }
 
-// devServiceAccount is one machine identity: role assignments without a login.
+// devMember is one of the portal's people the demo world names: ID is the fixed id of
+// the account, and User the username the directory will present for them.
+type devMember struct {
+	ID   impulse.UUID `json:"id"`
+	User string       `json:"user"`
+}
+
+// devServiceAccount is one machine identity: an account without a password, under its
+// fixed id, and the roles it holds. The server finds the account by its username when
+// it seeds the account's token (crew.Handlers.SeedToken).
 //
 // Demonstrates: outlet.tokens.
 type devServiceAccount struct {
-	User  accesstypes.User `json:"user"`
-	Roles devRoles         `json:"roles"`
+	ID    impulse.UUID `json:"id"`
+	User  string       `json:"user"`
+	Roles devRoles     `json:"roles"`
 }
 
 func main() {
@@ -160,7 +193,7 @@ func run(ctx context.Context, reset bool) error {
 	// Each auth's default roles are the binary's, validated when the auth opened; the
 	// check reports the role file's warnings and anything the store holds that this
 	// release cannot use. The members roles say what a client may do; who holds them is
-	// the directory's business (RoleSync), so no member is seeded here, and in
+	// the directory's business (RoleSync), so no member's role is seeded here, and in
 	// development APP_ROLES names the groups every simulated login is in.
 	if err := deploy.CheckRoles(ctx, data.Crew().Access(), crew.Name); err != nil {
 		return errors.Wrap(err, "deploy.CheckRoles(crew)")
@@ -269,8 +302,11 @@ func resetData(ctx context.Context, settings config.DatabaseSettings) error {
 	return nil
 }
 
-// seedIdentities creates the development logins as session users and assigns their
-// roles.
+// seedIdentities creates the cast's accounts, each under the fixed id the file gives it,
+// and assigns the roles each holds under that id: the crew logins with their passwords,
+// the members without one (their roles are the directory's, written at their sign-in),
+// and the service accounts without one. The account comes first: a role is held by an
+// account.
 func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 	raw, err := os.ReadFile(usersPath)
 	if err != nil {
@@ -281,23 +317,36 @@ func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 		return errors.Wrapf(err, "json.Unmarshal(%q)", usersPath)
 	}
 
+	crewAPI := data.Crew().Session().API()
 	for _, user := range identities.Users {
-		if _, err := data.Crew().Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{
-			Username: string(user.User),
-			Password: &user.Password,
-		}); err != nil {
-			return errors.Wrapf(err, "session.AuthAPI.CreateSessionUser(): user %s", user.User)
+		id, err := createAccount(ctx, crewAPI, &session.CreateUserRequest{Username: user.User, Password: &user.Password}, user.ID)
+		if err != nil {
+			return err
 		}
-		fmt.Printf("Created login %s\n", user.User)
+		fmt.Printf("Created login %s (%s)\n", user.User, id)
 
-		if err := assignRoles(ctx, data.UserManager(), user.User, user.Roles); err != nil {
+		if err := assignRoles(ctx, data.UserManager(), data.TenantRoster(), user.User, accesstypes.User(id.String()), user.Roles); err != nil {
 			return err
 		}
 	}
 
+	membersAPI := data.Members().Session().API()
+	for _, member := range identities.Members {
+		id, err := createAccount(ctx, membersAPI, &session.CreateUserRequest{Username: member.User}, member.ID)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Created member %s (%s)\n", member.User, id)
+	}
+
 	for _, account := range identities.ServiceAccounts {
-		fmt.Printf("Seeding service account %s\n", account.User)
-		if err := assignRoles(ctx, data.UserManager(), account.User, account.Roles); err != nil {
+		id, err := createAccount(ctx, crewAPI, &session.CreateUserRequest{Username: account.User}, account.ID)
+		if err != nil {
+			return err
+		}
+		fmt.Printf("Created service account %s (%s)\n", account.User, id)
+
+		if err := assignRoles(ctx, data.UserManager(), data.TenantRoster(), account.User, accesstypes.User(id.String()), account.Roles); err != nil {
 			return err
 		}
 	}
@@ -305,27 +354,55 @@ func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 	return nil
 }
 
+// accountCreator is the part of an auth's session API the bootstrap creates accounts
+// through; the crew's and the members' both answer it.
+type accountCreator interface {
+	CreateSessionUser(ctx context.Context, req *session.CreateUserRequest, customData ...*session.NoCustomData) (impulse.UUID, error)
+}
+
+// createAccount creates one account of the cast under its fixed id and answers the id.
+// An entry without one is refused: the demo world's rows name the cast by these ids, so
+// an account under a generated id would be one no row belongs to.
+func createAccount(ctx context.Context, api accountCreator, req *session.CreateUserRequest, id impulse.UUID) (impulse.UUID, error) {
+	if id.IsNil() {
+		return impulse.NilUUID, errors.Newf("%s: %s carries no id: every account of the cast is created under a fixed id, which the demo world's rows name it by", usersPath, req.Username)
+	}
+	req.ID = impulse.NullUUIDFromUUID(id)
+	created, err := api.CreateSessionUser(ctx, req)
+	if err != nil {
+		return impulse.NilUUID, errors.Wrapf(err, "session.AuthAPI.CreateSessionUser(): %s", req.Username)
+	}
+
+	return created, nil
+}
+
 // assignRoles writes the identity's memberships where each is held: the global partition
-// first, then every sector, then each sector in sorted order.
-func assignRoles(ctx context.Context, manager access.UserManager, user accesstypes.User, roles devRoles) error {
+// first, then every sector, then each single sector in the order of the names, each
+// found by its name in the roster. user is the account the roles are held by, the id of
+// the identity's account, and login its username, which the lines printed read.
+func assignRoles(ctx context.Context, manager access.UserManager, sectors *resource.TenantRoster, login string, user accesstypes.User, roles devRoles) error {
 	if len(roles.Global) > 0 {
 		if err := manager.AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), user, roles.Global...); err != nil {
-			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in the global scope", user)
+			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in the global scope", login)
 		}
-		fmt.Printf("Assigned %v to %s in the global scope\n", roles.Global, user)
+		fmt.Printf("Assigned %v to %s in the global scope\n", roles.Global, login)
 	}
 	if len(roles.EveryDomain) > 0 {
 		if err := manager.AddUserRoles(ctx, accesstypes.EveryDomainPolicyScope(), user, roles.EveryDomain...); err != nil {
-			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in every domain", user)
+			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in every domain", login)
 		}
-		fmt.Printf("Assigned %v to %s in every domain\n", roles.EveryDomain, user)
+		fmt.Printf("Assigned %v to %s in every domain\n", roles.EveryDomain, login)
 	}
-	for _, domain := range slices.Sorted(maps.Keys(roles.Domains)) {
-		domainRoles := roles.Domains[domain]
-		if err := manager.AddUserRoles(ctx, accesstypes.DomainPolicyScope(domain), user, domainRoles...); err != nil {
-			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in domain %s", user, domain)
+	for _, name := range slices.Sorted(maps.Keys(roles.Domains)) {
+		domain, err := sectors.Named(name)
+		if err != nil {
+			return errors.Wrapf(err, "resource.TenantRoster.Named(): user %s", login)
 		}
-		fmt.Printf("Assigned %v to %s in domain %s\n", domainRoles, user, domain)
+		domainRoles := roles.Domains[name]
+		if err := manager.AddUserRoles(ctx, accesstypes.DomainPolicyScope(domain), user, domainRoles...); err != nil {
+			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in the sector %s (%s)", login, name, domain)
+		}
+		fmt.Printf("Assigned %v to %s in the sector %s (%s)\n", domainRoles, login, name, domain)
 	}
 
 	return nil

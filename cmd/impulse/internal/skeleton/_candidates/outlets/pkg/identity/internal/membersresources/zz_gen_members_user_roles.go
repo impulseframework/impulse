@@ -27,9 +27,9 @@ func (MembersUserRole) DefaultConfig() resource.Config {
 type membersUserRoleRead struct {
 	Kind      string    `json:"kind"      perm:"-"`
 	Axis      string    `json:"axis"      perm:"-"`
-	Domain    string    `json:"domain"    perm:"-"`
+	DomainID  string    `json:"domainId"  perm:"-"`
 	Role      string    `json:"role"      perm:"-"`
-	User      string    `json:"user"      perm:"-"`
+	UserID    string    `json:"userId"    perm:"-"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -41,9 +41,9 @@ var membersUserRoleReadSets resource.SetCache[MembersUserRole, membersUserRoleRe
 type membersUserRoleWrite struct {
 	Kind      string    `json:"-"`
 	Axis      string    `json:"-"`
-	Domain    string    `json:"-"`
+	DomainID  string    `json:"-"`
 	Role      string    `json:"-"`
-	User      string    `json:"-"`
+	UserID    string    `json:"-"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
@@ -87,14 +87,14 @@ func (q *MembersUserRoleQuery) Axis() string {
 	return v
 }
 
-func (q *MembersUserRoleQuery) SetDomain(v string) *MembersUserRoleQuery {
-	q.qSet.SetKey("Domain", v)
+func (q *MembersUserRoleQuery) SetDomainID(v string) *MembersUserRoleQuery {
+	q.qSet.SetKey("DomainID", v)
 
 	return q
 }
 
-func (q *MembersUserRoleQuery) Domain() string {
-	v, _ := q.qSet.Key("Domain").(string)
+func (q *MembersUserRoleQuery) DomainID() string {
+	v, _ := q.qSet.Key("DomainID").(string)
 
 	return v
 }
@@ -111,14 +111,14 @@ func (q *MembersUserRoleQuery) Role() string {
 	return v
 }
 
-func (q *MembersUserRoleQuery) SetUser(v string) *MembersUserRoleQuery {
-	q.qSet.SetKey("User", v)
+func (q *MembersUserRoleQuery) SetUserID(v string) *MembersUserRoleQuery {
+	q.qSet.SetKey("UserID", v)
 
 	return q
 }
 
-func (q *MembersUserRoleQuery) User() string {
-	v, _ := q.qSet.Key("User").(string)
+func (q *MembersUserRoleQuery) UserID() string {
+	v, _ := q.qSet.Key("UserID").(string)
 
 	return v
 }
@@ -203,9 +203,9 @@ func (c *MembersUserRoleColumns) All() *MembersUserRoleColumns {
 	c.fields = []accesstypes.Field{
 		"Kind",
 		"Axis",
-		"Domain",
+		"DomainID",
 		"Role",
-		"User",
+		"UserID",
 		"CreatedAt",
 	}
 
@@ -224,8 +224,8 @@ func (c *MembersUserRoleColumns) Axis() *MembersUserRoleColumns {
 	return c
 }
 
-func (c *MembersUserRoleColumns) Domain() *MembersUserRoleColumns {
-	c.fields = append(c.fields, "Domain")
+func (c *MembersUserRoleColumns) DomainID() *MembersUserRoleColumns {
+	c.fields = append(c.fields, "DomainID")
 
 	return c
 }
@@ -236,8 +236,8 @@ func (c *MembersUserRoleColumns) Role() *MembersUserRoleColumns {
 	return c
 }
 
-func (c *MembersUserRoleColumns) User() *MembersUserRoleColumns {
-	c.fields = append(c.fields, "User")
+func (c *MembersUserRoleColumns) UserID() *MembersUserRoleColumns {
+	c.fields = append(c.fields, "UserID")
 
 	return c
 }
@@ -264,8 +264,8 @@ func (p MembersUserRoleQueryPartialClause) Kind() MembersUserRoleQueryIdent[stri
 	return MembersUserRoleQueryIdent[string]{Ident: resource.NewIdent[string]("Kind", p.partialClause, true)}
 }
 
-func (p MembersUserRoleQueryPartialClause) User() MembersUserRoleQueryIdent[string] {
-	return MembersUserRoleQueryIdent[string]{Ident: resource.NewIdent[string]("User", p.partialClause, true)}
+func (p MembersUserRoleQueryPartialClause) UserID() MembersUserRoleQueryIdent[string] {
+	return MembersUserRoleQueryIdent[string]{Ident: resource.NewIdent[string]("UserID", p.partialClause, true)}
 }
 
 type MembersUserRoleQueryClause struct {
@@ -342,16 +342,16 @@ func (c *membersUserRoleSort) Axis() *MembersUserRoleSort {
 	return c.addField("Axis")
 }
 
-func (c *membersUserRoleSort) Domain() *MembersUserRoleSort {
-	return c.addField("Domain")
+func (c *membersUserRoleSort) DomainID() *MembersUserRoleSort {
+	return c.addField("DomainID")
 }
 
 func (c *membersUserRoleSort) Role() *MembersUserRoleSort {
 	return c.addField("Role")
 }
 
-func (c *membersUserRoleSort) User() *MembersUserRoleSort {
-	return c.addField("User")
+func (c *membersUserRoleSort) UserID() *MembersUserRoleSort {
+	return c.addField("UserID")
 }
 
 func (c *membersUserRoleSort) CreatedAt() *MembersUserRoleSort {
@@ -378,13 +378,13 @@ type MembersUserRoleCreatePatch struct {
 	patchSet *resource.PatchSet[MembersUserRole]
 }
 
-func NewMembersUserRoleCreatePatchFromPatchSet(kind string, axis string, domain string, role string, user string, patchSet *resource.PatchSet[MembersUserRole]) *MembersUserRoleCreatePatch {
+func NewMembersUserRoleCreatePatchFromPatchSet(kind string, axis string, domainID string, role string, userID string, patchSet *resource.PatchSet[MembersUserRole]) *MembersUserRoleCreatePatch {
 	patchSet.
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
-		SetKey("User", user).
+		SetKey("UserID", userID).
 		SetPatchType(resource.CreatePatchType)
 	patch := &MembersUserRoleCreatePatch{patchSet: patchSet}
 	patch.registerDefaultFuncs()
@@ -392,13 +392,13 @@ func NewMembersUserRoleCreatePatchFromPatchSet(kind string, axis string, domain 
 	return patch
 }
 
-func NewMembersUserRoleCreatePatch(kind string, axis string, domain string, role string, user string) *MembersUserRoleCreatePatch {
+func NewMembersUserRoleCreatePatch(kind string, axis string, domainID string, role string, userID string) *MembersUserRoleCreatePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[MembersUserRole]()).
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
-		SetKey("User", user).
+		SetKey("UserID", userID).
 		SetPatchType(resource.CreatePatchType)
 	patch := &MembersUserRoleCreatePatch{patchSet: patchSet}
 	patch.registerDefaultFuncs()
@@ -469,8 +469,8 @@ func (p *MembersUserRoleCreatePatch) Axis() string {
 	return v
 }
 
-func (p *MembersUserRoleCreatePatch) Domain() string {
-	v, _ := p.patchSet.Key("Domain").(string)
+func (p *MembersUserRoleCreatePatch) DomainID() string {
+	v, _ := p.patchSet.Key("DomainID").(string)
 
 	return v
 }
@@ -481,8 +481,8 @@ func (p *MembersUserRoleCreatePatch) Role() string {
 	return v
 }
 
-func (p *MembersUserRoleCreatePatch) User() string {
-	v, _ := p.patchSet.Key("User").(string)
+func (p *MembersUserRoleCreatePatch) UserID() string {
+	v, _ := p.patchSet.Key("UserID").(string)
 
 	return v
 }
@@ -512,13 +512,13 @@ type MembersUserRoleUpdatePatch struct {
 	patchSet *resource.PatchSet[MembersUserRole]
 }
 
-func NewMembersUserRoleUpdatePatchFromPatchSet(kind string, axis string, domain string, role string, user string, patchSet *resource.PatchSet[MembersUserRole]) *MembersUserRoleUpdatePatch {
+func NewMembersUserRoleUpdatePatchFromPatchSet(kind string, axis string, domainID string, role string, userID string, patchSet *resource.PatchSet[MembersUserRole]) *MembersUserRoleUpdatePatch {
 	patchSet.
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
-		SetKey("User", user).
+		SetKey("UserID", userID).
 		SetPatchType(resource.UpdatePatchType)
 
 	patch := &MembersUserRoleUpdatePatch{patchSet: patchSet}
@@ -527,13 +527,13 @@ func NewMembersUserRoleUpdatePatchFromPatchSet(kind string, axis string, domain 
 	return patch
 }
 
-func NewMembersUserRoleUpdatePatch(kind string, axis string, domain string, role string, user string) *MembersUserRoleUpdatePatch {
+func NewMembersUserRoleUpdatePatch(kind string, axis string, domainID string, role string, userID string) *MembersUserRoleUpdatePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[MembersUserRole]()).
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
-		SetKey("User", user).
+		SetKey("UserID", userID).
 		SetPatchType(resource.UpdatePatchType)
 
 	patch := &MembersUserRoleUpdatePatch{patchSet: patchSet}
@@ -609,8 +609,8 @@ func (p *MembersUserRoleUpdatePatch) Axis() string {
 	return v
 }
 
-func (p *MembersUserRoleUpdatePatch) Domain() string {
-	v, _ := p.patchSet.Key("Domain").(string)
+func (p *MembersUserRoleUpdatePatch) DomainID() string {
+	v, _ := p.patchSet.Key("DomainID").(string)
 
 	return v
 }
@@ -621,8 +621,8 @@ func (p *MembersUserRoleUpdatePatch) Role() string {
 	return v
 }
 
-func (p *MembersUserRoleUpdatePatch) User() string {
-	v, _ := p.patchSet.Key("User").(string)
+func (p *MembersUserRoleUpdatePatch) UserID() string {
+	v, _ := p.patchSet.Key("UserID").(string)
 
 	return v
 }
@@ -652,25 +652,25 @@ type MembersUserRoleDeletePatch struct {
 	patchSet *resource.PatchSet[MembersUserRole]
 }
 
-func NewMembersUserRoleDeletePatchFromPatchSet(kind string, axis string, domain string, role string, user string, patchSet *resource.PatchSet[MembersUserRole]) *MembersUserRoleDeletePatch {
+func NewMembersUserRoleDeletePatchFromPatchSet(kind string, axis string, domainID string, role string, userID string, patchSet *resource.PatchSet[MembersUserRole]) *MembersUserRoleDeletePatch {
 	patchSet.
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
-		SetKey("User", user).
+		SetKey("UserID", userID).
 		SetPatchType(resource.DeletePatchType)
 
 	return &MembersUserRoleDeletePatch{patchSet: patchSet}
 }
 
-func NewMembersUserRoleDeletePatch(kind string, axis string, domain string, role string, user string) *MembersUserRoleDeletePatch {
+func NewMembersUserRoleDeletePatch(kind string, axis string, domainID string, role string, userID string) *MembersUserRoleDeletePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[MembersUserRole]()).
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
-		SetKey("User", user).
+		SetKey("UserID", userID).
 		SetPatchType(resource.DeletePatchType)
 
 	return &MembersUserRoleDeletePatch{patchSet: patchSet}
@@ -708,8 +708,8 @@ func (p *MembersUserRoleDeletePatch) Axis() string {
 	return v
 }
 
-func (p *MembersUserRoleDeletePatch) Domain() string {
-	v, _ := p.patchSet.Key("Domain").(string)
+func (p *MembersUserRoleDeletePatch) DomainID() string {
+	v, _ := p.patchSet.Key("DomainID").(string)
 
 	return v
 }
@@ -720,8 +720,8 @@ func (p *MembersUserRoleDeletePatch) Role() string {
 	return v
 }
 
-func (p *MembersUserRoleDeletePatch) User() string {
-	v, _ := p.patchSet.Key("User").(string)
+func (p *MembersUserRoleDeletePatch) UserID() string {
+	v, _ := p.patchSet.Key("UserID").(string)
 
 	return v
 }

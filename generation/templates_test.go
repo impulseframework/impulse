@@ -4,6 +4,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/impulseframework/impulse"
 )
 
 // fileTemplates returns every file-level template by name: templates whose
@@ -351,10 +353,18 @@ func Test_routesTemplate_testRouter(t *testing.T) {
 		`func NewTestRouter(h GeneratedHandlers{{ template "testRouterAuthParams" . }}) *chi.Mux {`,
 		"r.Use(httpio.WithParams)",
 		"generatedRoutes(r, h{{ if .AuthParam }}, auth{{ end }})",
+		// The tenant the generated tests address is handed to the harness that must
+		// hold it in its roster, never copied by hand.
+		`const TestDomain = "{{ .DomainTestValue }}"`,
 	} {
 		if !strings.Contains(routesTemplate, want) {
 			t.Errorf("routesTemplate missing %q", want)
 		}
+	}
+	// The value is an id's text: a tenant's key is an id, and a tenancy column typed as
+	// one takes nothing else.
+	if _, err := impulse.UUIDFromString(domainTestValue); err != nil {
+		t.Errorf("domainTestValue = %q, want an id's text: %v", domainTestValue, err)
 	}
 }
 

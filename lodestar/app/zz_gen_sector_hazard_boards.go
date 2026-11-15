@@ -30,7 +30,7 @@ func (a *App) SectorHazardBoards() http.HandlerFunc {
 		ShipID       impulse.UUID `json:"shipId"       perm:"-"`
 		Subsystem    string       `json:"subsystem"    allow_filter:"true" perm:"-"        search:"memory"`
 		ShipName     string       `json:"shipName"     allow_filter:"true" search:"memory"`
-		SectorID     string       `json:"sectorId"`
+		SectorID     impulse.UUID `json:"sectorId"`
 		WorstReading float64      `json:"worstReading"`
 		RecordedAt   time.Time    `json:"recordedAt"`
 		Recent       []reading    `json:"recent"`
@@ -45,7 +45,7 @@ func (a *App) SectorHazardBoards() http.HandlerFunc {
 			ShipID       impulse.UUID
 			Subsystem    string
 			ShipName     string
-			SectorID     string
+			SectorID     impulse.UUID
 			WorstReading float64
 			RecordedAt   time.Time
 			Recent       []computedresources.Reading
@@ -138,7 +138,7 @@ func (a *App) SectorHazardBoard() http.HandlerFunc {
 		ShipID       impulse.UUID `json:"shipId"       perm:"-"`
 		Subsystem    string       `json:"subsystem"    perm:"-"`
 		ShipName     string       `json:"shipName"`
-		SectorID     string       `json:"sectorId"`
+		SectorID     impulse.UUID `json:"sectorId"`
 		WorstReading float64      `json:"worstReading"`
 		RecordedAt   time.Time    `json:"recordedAt"`
 		Recent       []reading    `json:"recent"`
@@ -151,7 +151,7 @@ func (a *App) SectorHazardBoard() http.HandlerFunc {
 			ShipID       impulse.UUID
 			Subsystem    string
 			ShipName     string
-			SectorID     string
+			SectorID     impulse.UUID
 			WorstReading float64
 			RecordedAt   time.Time
 			Recent       []computedresources.Reading

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
@@ -11,12 +12,33 @@ import (
 	"github.com/impulseframework/impulse/tracer"
 )
 
+// User answers a person as the permission store names them: the id of their account,
+// as text. A username can change, and two auths over one database can each hold the
+// same one; an account's id does neither, so a membership, a session's principal and
+// the subject of a row condition all carry it, and the username is what people read.
+func User(userID impulse.UUID) accesstypes.User {
+	return accesstypes.User(userID.String())
+}
+
+// UserID answers the account a permission store's user names; ok is false for a user
+// that is no account's id (the actor of a session that acts as a role from another
+// application, who has no account here).
+func UserID(user accesstypes.User) (userID impulse.UUID, ok bool) {
+	id, err := impulse.UUIDFromString(string(user))
+	if err != nil {
+		return impulse.NilUUID, false
+	}
+
+	return id, true
+}
+
 // AssignRole buffers the membership that says the person holds the role in the scope,
 // in the caller's transaction, and has the permission engine told once the transaction
 // has committed, so the person's next request is served with the role. The person is
-// named by username, the engine's name for them, and is not looked up: a user created
-// earlier in the same transaction is not readable until the commit, and the caller holds
-// the username. A membership the person holds already is left as it is.
+// named by the id of their account, the engine's name for them (User), and is not
+// looked up: a user created earlier in the same transaction is not readable until the
+// commit, and the caller holds the id. A membership the person holds already is left
+// as it is.
 //
 // "Holds already" is what the database has committed and what this transaction's own
 // patches have written: the store writes the row as a create-unless-there (the generated
@@ -28,20 +50,23 @@ import (
 // default role the accepted invitation names too out of the directory hook's hands.
 //
 // The rule is the permission engine's (access.UserManager.Membership): the role exists
-// in the scope under exactly this spelling, and the username is not empty. A role of the
-// release's role file is known to the engine; a custom role is read from the auth's
-// roles table in the caller's transaction, so a role deleted beside the membership fails
-// one of the two.
+// in the scope under exactly this spelling, and the person is somebody (the nil id is
+// refused). A role of the release's role file is known
+// to the engine; a custom role is read from the auth's roles table in the caller's
+// transaction, so a role deleted beside the membership fails one of the two.
 //
 // Where a person belongs to one tenant (WithOneTenantPerPerson), a role in a tenant is
 // refused for a person who holds a role in another one, as a Conflict that never says
 // which (refuseSecondTenant). A role for the whole application or in every tenant is
 // given whatever the person holds, and its holder is given a role in any tenant.
-func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, username string, role accesstypes.Role) error {
+func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	key, err := m.access.UserManager().Membership(ctx, scope, accesstypes.User(username), role, func(ctx context.Context, key access.RoleKey) (bool, error) {
+	if userID.IsNil() {
+		return httpio.NewBadRequestMessage("a role is given to a person: the user id is empty")
+	}
+	key, err := m.access.UserManager().Membership(ctx, scope, User(userID), role, func(ctx context.Context, key access.RoleKey) (bool, error) {
 		held, err := m.store.HasRole(ctx, txn, &key)
 		if err != nil {
 			return false, errors.Wrap(err, "identity.Store.HasRole()")
@@ -52,7 +77,7 @@ func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransact
 	if err != nil {
 		return errors.Wrap(err, "access.UserManager.Membership()")
 	}
-	if err := m.refuseSecondTenant(ctx, txn, scope, username); err != nil {
+	if err := m.refuseSecondTenant(ctx, txn, scope, userID); err != nil {
 		return err
 	}
 	inserted, err := m.store.InsertMembership(ctx, txn, &key)
@@ -67,9 +92,10 @@ func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransact
 }
 
 // RemoveRole buffers the removal of the person's membership of the role in the scope,
-// and has the permission engine told once the transaction has committed. A membership
-// the person does not hold is no error, and the role need not exist any more: a
-// membership of a role since deleted is removed like any other.
+// and has the permission engine told once the transaction has committed. The person is
+// named by the id of their account. A membership the person does not hold is no error,
+// and the role need not exist any more: a membership of a role since deleted is removed
+// like any other.
 //
 // Two rules of the user management are held here. A person who removes a role from
 // themselves is held to the rule on the last administrator (refuseLastAdministrator).
@@ -83,11 +109,11 @@ func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransact
 // one transaction does not see the first, as no read sees a buffered write, so the
 // account is deleted only when one call removes the last role. Remove one role of a
 // person per transaction.
-func (m *Manager) RemoveRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, username string, role accesstypes.Role) error {
+func (m *Manager) RemoveRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	key := access.NewMembershipKey(scope, accesstypes.User(username), role)
+	key := access.NewMembershipKey(scope, User(userID), role)
 	held, err := m.store.HasMembership(ctx, txn, &key)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.HasMembership()")
@@ -96,26 +122,26 @@ func (m *Manager) RemoveRole(ctx context.Context, txn resource.ReadWriteTransact
 		return nil
 	}
 
-	return m.removeMembership(ctx, txn, scope, username, &key)
+	return m.removeMembership(ctx, txn, scope, userID, &key)
 }
 
 // removeMembership buffers the removal of a membership the person holds, under the two
 // rules of RemoveRole, and has the permission engine told once the transaction has
 // committed. key is the membership, read as held by the caller.
-func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, username string, key *access.MembershipKey) error {
-	if m.callerIs(ctx, username) {
+func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, key *access.MembershipKey) error {
+	if m.callerIs(ctx, userID) {
 		if err := m.refuseLastAdministrator(ctx, txn, scope, key); err != nil {
 			return err
 		}
 	}
-	all, err := m.store.Memberships(ctx, txn, username)
+	all, err := m.store.Memberships(ctx, txn, userID)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.Memberships()")
 	}
 	if err := m.refuseLeavingSeveralTenants(all, key); err != nil {
 		return err
 	}
-	if err := m.deleteWithLastRole(ctx, txn, username, all, key); err != nil {
+	if err := m.deleteWithLastRole(ctx, txn, userID, all, key); err != nil {
 		return err
 	}
 	if err := m.store.DeleteMembership(ctx, txn, key); err != nil {

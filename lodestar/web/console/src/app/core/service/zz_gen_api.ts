@@ -94,10 +94,10 @@ export interface ConsignmentsPatch {
 export type ConsignmentsKey = [id: string];
 
 /** The primary key of CrewRoles, in route order. */
-export type CrewRolesKey = [kind: string, axis: string, domain: string, role: string];
+export type CrewRolesKey = [kind: string, axis: string, domainId: string, role: string];
 
 /** The primary key of CrewRoleGrants, in route order. */
-export type CrewRoleGrantsKey = [kind: string, axis: string, domain: string, role: string, permission: string, resourceName: string, field: string, condition: string];
+export type CrewRoleGrantsKey = [kind: string, axis: string, domainId: string, role: string, permission: string, resourceName: string, field: string, condition: string];
 
 /** The primary key of CrewSectorIdentities, in route order. */
 export type CrewSectorIdentitiesKey = [id: string];
@@ -139,7 +139,7 @@ export type CrewSessionTrustedDevicesKey = [id: string];
 export type CrewSessionUsersKey = [id: string];
 
 /** The primary key of CrewUserRoles, in route order. */
-export type CrewUserRolesKey = [kind: string, axis: string, domain: string, role: string, user: string];
+export type CrewUserRolesKey = [kind: string, axis: string, domainId: string, role: string, userId: string];
 
 /**
  * The fields a client may set when creating DistressCalls. Server-owned fields are
@@ -183,10 +183,10 @@ export interface HangarsPatch {
 export type HangarsKey = [id: string];
 
 /** The primary key of MembersRoles, in route order. */
-export type MembersRolesKey = [kind: string, axis: string, domain: string, role: string];
+export type MembersRolesKey = [kind: string, axis: string, domainId: string, role: string];
 
 /** The primary key of MembersRoleGrants, in route order. */
-export type MembersRoleGrantsKey = [kind: string, axis: string, domain: string, role: string, permission: string, resourceName: string, field: string, condition: string];
+export type MembersRoleGrantsKey = [kind: string, axis: string, domainId: string, role: string, permission: string, resourceName: string, field: string, condition: string];
 
 /** The primary key of MembersSectorIdentities, in route order. */
 export type MembersSectorIdentitiesKey = [id: string];
@@ -222,7 +222,7 @@ export type MembersSessionTrustedDevicesKey = [id: string];
 export type MembersSessionUsersKey = [id: string];
 
 /** The primary key of MembersUserRoles, in route order. */
-export type MembersUserRolesKey = [kind: string, axis: string, domain: string, role: string, user: string];
+export type MembersUserRolesKey = [kind: string, axis: string, domainId: string, role: string, userId: string];
 
 /**
  * The fields a client may set when creating Missions. Server-owned fields are
@@ -270,7 +270,7 @@ export interface MissionDocumentsPatch {
   fileName?: string;
   contentType?: string;
   size?: number;
-  uploadedBy?: string;
+  uploadedByUserId?: string;
   uploadedAt?: Date;
   provenance?: MissionDocuments.Provenance | null;
   digest?: string;
@@ -360,7 +360,6 @@ export type RefitTasksKey = [refitId: string, taskNumber: number];
  * absent; a server-generated key is absent, a client-assigned key is required.
  */
 export interface SectorsCreate {
-  id: string;
   name: string;
   region: string;
   established: Date;
@@ -640,7 +639,7 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'crew-roles',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role'],
+      keys: ['kind', 'axis', 'domainId', 'role'],
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
@@ -651,7 +650,7 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'crew-role-grants',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role', 'permission', 'resourceName', 'field', 'condition'],
+      keys: ['kind', 'axis', 'domainId', 'role', 'permission', 'resourceName', 'field', 'condition'],
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
@@ -805,10 +804,10 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'crew-user-roles',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role', 'user'],
+      keys: ['kind', 'axis', 'domainId', 'role', 'userId'],
       operations: ['list'],
       page: { default: 25, max: 200 },
-      order: [{ field: 'user', direction: 'asc' }],
+      order: [{ field: 'userId', direction: 'asc' }],
     },
     [Resources.DistressCalls]: {
       resource: Resources.DistressCalls,
@@ -851,7 +850,7 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'members-roles',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role'],
+      keys: ['kind', 'axis', 'domainId', 'role'],
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
@@ -862,7 +861,7 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'members-role-grants',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role', 'permission', 'resourceName', 'field', 'condition'],
+      keys: ['kind', 'axis', 'domainId', 'role', 'permission', 'resourceName', 'field', 'condition'],
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
@@ -994,10 +993,10 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'members-user-roles',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role', 'user'],
+      keys: ['kind', 'axis', 'domainId', 'role', 'userId'],
       operations: ['list'],
       page: { default: 25, max: 200 },
-      order: [{ field: 'user', direction: 'asc' }],
+      order: [{ field: 'userId', direction: 'asc' }],
     },
     [Resources.Missions]: {
       resource: Resources.Missions,
@@ -1032,7 +1031,7 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list', 'read', 'patch', 'remove', 'batch'],
       page: { default: 25, max: 200 },
       order: [{ field: 'uploadedAt', direction: 'desc' }],
-      patchable: ['missionId', 'title', 'fileName', 'contentType', 'size', 'uploadedBy', 'uploadedAt', 'provenance', 'digest'],
+      patchable: ['missionId', 'title', 'fileName', 'contentType', 'size', 'uploadedByUserId', 'uploadedAt', 'provenance', 'digest'],
       files: ['content'],
     },
     [Resources.OpenMissionsBySquadrons]: {
@@ -1113,7 +1112,7 @@ export const apiDescriptor = defineApiDescriptor({
       scope: 'global',
       consolidated: true,
       keys: ['id'],
-      operations: ['list', 'read', 'create', 'patch', 'remove', 'batch', 'patchOrAdd', 'addOrSkip'],
+      operations: ['list', 'read', 'create', 'patch', 'remove', 'batch'],
       page: { default: 25, max: 200 },
       order: [{ field: 'name', direction: 'asc' }],
       patchable: ['name', 'region', 'established', 'directoryOnly'],
@@ -1408,6 +1407,7 @@ export const apiDescriptor = defineApiDescriptor({
       auth: 'Crew',
       label: 'Crew',
       tenant: 'Sector',
+      tenantResource: Resources.Sectors,
       sides: [
         {
           scope: 'global',
@@ -1425,6 +1425,7 @@ export const apiDescriptor = defineApiDescriptor({
       auth: 'Members',
       label: 'Members',
       tenant: 'Sector',
+      tenantResource: Resources.Sectors,
       sides: [
         {
           scope: 'global',
@@ -1453,15 +1454,18 @@ export const apiDescriptor = defineApiDescriptor({
  * The create-your-sector route (@tenant(creation: both)): POST create-sector under the API
  * prefix, with the body below, through the application's HTTP client. A signed-in person who holds
  * no sector creates one and becomes its administrator; a person who already holds one is
- * refused (403). The answer carries the new sector's key.
+ * refused (403). The route generates the new sector's id and answers it.
  */
 export const createSectorRoute = 'create-sector';
-/** The body the create-your-sector route takes: the Sector record's fields with its key. */
+/** The body the create-your-sector route takes: the Sector record's fields, without its id. */
 export interface CreateSector {
-  id: string;
   name: string;
   region: string;
   established: Date;
+}
+/** The answer of the create-your-sector route: the id of the sector it created, the domain of its addresses. */
+export interface CreateSectorAnswer {
+  id: string;
 }
 
 /** Handles for the global scope, available on the client root. */
@@ -1494,7 +1498,7 @@ export interface GlobalApi {
   membersUserRoles: ResourceHandle<MembersUserRoles, MembersUserRolesKey, 'list'>;
   pilots: ResourceHandle<Pilots, PilotsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', PilotsCreate, PilotsPatch>;
   pilotCertifications: ResourceHandle<PilotCertifications, PilotCertificationsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch' | 'patchOrAdd' | 'addOrSkip', PilotCertificationsCreate, PilotCertificationsPatch>;
-  sectors: ResourceHandle<Sectors, SectorsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch' | 'patchOrAdd' | 'addOrSkip', SectorsCreate, SectorsPatch>;
+  sectors: ResourceHandle<Sectors, SectorsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', SectorsCreate, SectorsPatch>;
   shipClasses: ResourceHandle<ShipClasses, ShipClassesKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', ShipClassesCreate, ShipClassesPatch>;
   briefingTemplates: ResourceHandle<BriefingTemplates, BriefingTemplatesKey, 'list'>;
   pilotCards: ResourceHandle<PilotCards, PilotCardsKey, 'list'>;

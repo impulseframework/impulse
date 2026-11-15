@@ -24,8 +24,8 @@ type Tables struct {
 	Roles      string
 	UserRoles  string
 	RoleGrants string
-	// UserRolesByUser is the index on the memberships that leads with the user.
-	UserRolesByUser string
+	// UserRolesByUserID is the index on the memberships that leads with the user.
+	UserRolesByUserID string
 }
 
 // TablesWithPrefix answers the names of the policy store kept under prefix and store:
@@ -44,9 +44,9 @@ func TablesWithPrefix(prefix, store string) (Tables, error) {
 	base := prefix + store
 
 	return Tables{
-		Roles:           base + "Roles",
-		UserRoles:       base + "UserRoles",
-		RoleGrants:      base + "RoleGrants",
-		UserRolesByUser: base + "UserRolesByUser",
+		Roles:             base + "Roles",
+		UserRoles:         base + "UserRoles",
+		RoleGrants:        base + "RoleGrants",
+		UserRolesByUserID: base + "UserRolesByUserId",
 	}, nil
 }

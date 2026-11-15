@@ -76,7 +76,7 @@ func TestUserDomainsNames(t *testing.T) {
 	if err := json.Unmarshal(body, &got); err != nil {
 		t.Fatalf("unmarshaling domains %s: %v", body, err)
 	}
-	want := []listed{{"anvil", "Anvil"}, {"bastion", "Bastion"}, {"cinder", "Cinder"}}
+	want := []listed{{anvil, "Anvil"}, {bastion, "Bastion"}, {cinder, "Cinder"}}
 	if !slices.Equal(got, want) {
 		t.Errorf("domains = %v, want %v", got, want)
 	}

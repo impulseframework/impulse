@@ -15,7 +15,7 @@ import (
 )
 
 // tokenColumns are the tokens table's columns.
-const tokenColumns = `Id, TokenHash, Kind, UserId, Outlet, Name, Family, ClientId, CreatedAt, ExpiresAt, LastUsedAt, RevokedAt, RevokedReason`
+const tokenColumns = `Id, TokenHash, Kind, UserId, Outlet, Name, FamilyId, ClientId, CreatedAt, ExpiresAt, LastUsedAt, RevokedAt, RevokedReason`
 
 // tokenRow is a token as the table holds it.
 type tokenRow struct {
@@ -25,7 +25,7 @@ type tokenRow struct {
 	UserID        string             `spanner:"UserId"`
 	Outlet        string             `spanner:"Outlet"`
 	Name          spanner.NullString `spanner:"Name"`
-	Family        spanner.NullString `spanner:"Family"`
+	FamilyID      spanner.NullString `spanner:"FamilyId"`
 	ClientID      spanner.NullString `spanner:"ClientId"`
 	CreatedAt     time.Time          `spanner:"CreatedAt"`
 	ExpiresAt     time.Time          `spanner:"ExpiresAt"`
@@ -44,8 +44,8 @@ func newTokenRow(t *dbtype.Token) *tokenRow {
 	if t.Name != "" {
 		r.Name = spanner.NullString{StringVal: t.Name, Valid: true}
 	}
-	if t.Family.Valid {
-		r.Family = spanner.NullString{StringVal: t.Family.String(), Valid: true}
+	if t.FamilyID.Valid {
+		r.FamilyID = spanner.NullString{StringVal: t.FamilyID.String(), Valid: true}
 	}
 	if t.ClientID != "" {
 		r.ClientID = spanner.NullString{StringVal: t.ClientID, Valid: true}
@@ -68,12 +68,12 @@ func (r *tokenRow) token() (*dbtype.Token, error) {
 		Name: r.Name.StringVal, ClientID: r.ClientID.StringVal, CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt,
 		RevokedReason: dbtype.TokenRevocation(r.RevokedReason.StringVal),
 	}
-	if r.Family.Valid {
-		family, err := impulse.UUIDFromString(r.Family.StringVal)
+	if r.FamilyID.Valid {
+		family, err := impulse.UUIDFromString(r.FamilyID.StringVal)
 		if err != nil {
 			return nil, errors.Wrap(err, "impulse.UUIDFromString()")
 		}
-		t.Family = impulse.NullUUIDFromUUID(family)
+		t.FamilyID = impulse.NullUUIDFromUUID(family)
 	}
 	if r.LastUsedAt.Valid {
 		lastUsedAt := r.LastUsedAt.Time
@@ -286,8 +286,8 @@ func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id i
 			return errTokenNotLive
 		}
 		column, value := idColumn, id.String()
-		if t := tokens[0]; t.Family.Valid {
-			column, value = "Family", t.Family.String()
+		if t := tokens[0]; t.FamilyID.Valid {
+			column, value = "FamilyId", t.FamilyID.String()
 		}
 		if _, err := s.revokeIn(ctx, txn, column, value, reason); err != nil {
 			return err
@@ -343,10 +343,10 @@ func (s *SessionStorageDriver) ExchangeRefreshToken(ctx context.Context, tokenHa
 			return errTokenNotLive
 		}
 		if old.RevokedAt != nil {
-			if old.RevokedReason != dbtype.TokenRevokedRotated || !old.Family.Valid {
+			if old.RevokedReason != dbtype.TokenRevokedRotated || !old.FamilyID.Valid {
 				return errTokenNotLive
 			}
-			if _, err := s.revokeIn(ctx, txn, "Family", old.Family.String(), dbtype.TokenRevokedReuse); err != nil {
+			if _, err := s.revokeIn(ctx, txn, "FamilyId", old.FamilyID.String(), dbtype.TokenRevokedReuse); err != nil {
 				return err
 			}
 			reused = true
@@ -356,8 +356,8 @@ func (s *SessionStorageDriver) ExchangeRefreshToken(ctx context.Context, tokenHa
 		// The rotation revokes the pair presented: the refresh token and, with it,
 		// every live token of its family, so one pair is live per family.
 		column, key := idColumn, old.ID.String()
-		if old.Family.Valid {
-			column, key = "Family", old.Family.String()
+		if old.FamilyID.Valid {
+			column, key = "FamilyId", old.FamilyID.String()
 		}
 		n, err := s.revokeIn(ctx, txn, column, key, dbtype.TokenRevokedRotated)
 		if err != nil {
@@ -367,7 +367,7 @@ func (s *SessionStorageDriver) ExchangeRefreshToken(ctx context.Context, tokenHa
 			return errTokenNotLive
 		}
 		for _, t := range []*dbtype.Token{access, refresh} {
-			t.UserID, t.Outlet, t.ClientID, t.Family = old.UserID, old.Outlet, old.ClientID, old.Family
+			t.UserID, t.Outlet, t.ClientID, t.FamilyID = old.UserID, old.Outlet, old.ClientID, old.FamilyID
 		}
 		mutations, err := s.tokenMutations(access, refresh)
 		if err != nil {

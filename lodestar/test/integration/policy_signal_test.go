@@ -169,7 +169,7 @@ func TestPolicySignal_roleReachesSecondInstance(t *testing.T) {
 	if err := provisionDemoAccess(ctx, writer, membersEngine); err != nil {
 		t.Fatal(err)
 	}
-	if err := waitForDecision(ctx, follower, policyMarshal, anvil, accesstypes.Execute, "AssignCrewSectorRole"); err != nil {
+	if err := waitForDecision(ctx, follower, account(t, policyMarshal), anvil, accesstypes.Execute, "AssignCrewSectorRole"); err != nil {
 		t.Fatalf("the follower never learned the marshal's authority over the sector's roles from the writer's signals: %v", err)
 	}
 	cadet := seedCrewAccounts(ctx, t, db)[policyCadet]

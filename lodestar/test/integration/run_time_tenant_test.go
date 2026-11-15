@@ -6,25 +6,28 @@ package integration
 // provisioned from the shipped role files, one in-memory live service (live.Fake, which
 // fans a signal out to every subscription) and a started roster per instance, the shape a
 // deployment has. The surveyor, who holds Create and Update on Sectors and SectorCrew in
-// every sector, charts sector Dawn through the first instance's consolidated patch: the
-// instance that wrote makes her Dawn's marshal in the transaction that writes the sector
-// (SectorMarshal, the role SectorAdministratorRoles names: the creator of a sector is
-// its first administrator), adds Dawn to its roster after the commit and signals the
-// tenants kind, her chart lights
-// Dawn and Dawn's wings answer her; the marshal's chart does not light it and Dawn's
-// routes answer her 404, a sector that does not exist for her; the portal's client, whose
-// directory role is held in every sector, opens Dawn's portal at once, as the governor
-// and the archivist see Dawn with nothing written for them; and the second instance
-// serves Dawn at its next request, its roster reloaded on the signal. The steps run in
-// order, each named in its failure, since every one reads what the ones before it wrote.
-// The walkthrough plays the same scenario against the Firestore emulator with a second
-// server process.
+// every sector, charts sector Dawn through the first instance's consolidated patch, by
+// its fields alone: the create path generates Dawn's key, an id, and answers it, and an
+// add that names a key in its path is refused. The instance that wrote makes her Dawn's
+// marshal in the transaction that writes the sector (SectorMarshal, the role
+// SectorAdministratorRoles names: the creator of a sector is its first administrator),
+// adds Dawn to its roster after the commit and signals the tenants kind, her chart lights
+// Dawn and Dawn's wings answer her; a second sector named Dawn is refused by the unique
+// index on the name; the marshal's chart does not light it and Dawn's routes answer her
+// 404, a sector that does not exist for her; the portal's client, whose directory role is
+// held in every sector, opens Dawn's portal at once, as the governor and the archivist
+// see Dawn with nothing written for them; and the second instance serves Dawn at its next
+// request, its roster reloaded on the signal. The steps run in order, each named in its
+// failure, since every one reads what the ones before it wrote. The walkthrough plays the
+// same scenario against the Firestore emulator with a second server process.
 
 import (
+	"encoding/json"
 	"net/http"
 	"slices"
 	"testing"
 
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
@@ -44,20 +47,44 @@ const (
 	tenantGovernor  accesstypes.User = "governor"
 	tenantArchivist accesstypes.User = "archivist"
 
-	// dawn is the sector the surveyor charts: a slug the schema's CHECK constraint accepts.
-	dawn = "dawn"
-
 	userDomainsRoute       = consoleAPI + "/user-domains"
 	portalUserDomainsRoute = portalAPI + "/user-domains"
 	sectorsRoute           = consoleAPI + "/sectors"
 	resourcesRoute         = consoleAPI + "/resources"
 
-	// chartDawn is the consolidated patch that creates the sector: the key rides in the
-	// operation's path, since Sectors supplies its own slug.
-	chartDawn = `[{"op":"add","path":"/sectors/dawn","value":{"name":"Dawn","region":"Outer frontier","established":"2226-10-02"}}]`
-	// surveyDawn corrects the sector after it is charted: Update on Sectors.
-	surveyDawn = `[{"op":"patch","path":"/sectors/dawn","value":{"region":"Far frontier"}}]`
+	// chartDawn is the consolidated patch that creates the sector, by its fields alone:
+	// the create path generates the key and answers it.
+	chartDawn = `[{"op":"add","path":"/sectors","value":{"name":"Dawn","region":"Outer frontier","established":"2226-10-02"}}]`
+	// chartDawnUnderAKey names a key in the operation's path, which the create path
+	// refuses: nobody types a sector's key.
+	chartDawnUnderAKey = `[{"op":"add","path":"/sectors/dawn","value":{"name":"Dawn","region":"Outer frontier","established":"2226-10-02"}}]`
 )
+
+// createdSector reads the consolidated patch's answer to a sector's create: the one id
+// the create path generated.
+func createdSector(t *testing.T, step string, body []byte) string {
+	t.Helper()
+
+	var created struct {
+		Sectors []string `json:"sectors"`
+	}
+	if err := json.Unmarshal(body, &created); err != nil || len(created.Sectors) != 1 {
+		t.Fatalf("%s: answered %s (err %v), want the one new sector's id", step, body, err)
+	}
+	if _, err := impulse.UUIDFromString(created.Sectors[0]); err != nil {
+		t.Fatalf("%s: the new sector's key is %q, want an id the create path generated: %v", step, created.Sectors[0], err)
+	}
+
+	return created.Sectors[0]
+}
+
+// sortedDomains lists the domains in the order the user-domains route lists them: by
+// the domain, which is a sector's id.
+func sortedDomains(domains ...accesstypes.Domain) []accesstypes.Domain {
+	slices.Sort(domains)
+
+	return domains
+}
 
 // startTenantInstance builds an App over the database, the real engines, the shared live
 // service, a roster of its own started over that service, as a served instance's data
@@ -165,30 +192,45 @@ func TestRunTimeTenant_chartedSectorReachesSecondInstance(t *testing.T) {
 		t.Fatalf("rosters subscribed to the %s kind = %d, want 2: Start follows the signals", live.KindTenants, got)
 	}
 
-	// Dawn's list of the roles held, and what it carries for its creator.
-	dawnRolesHeld := sectorPath(dawn, sectorRolesPath+"?limit=200")
 	heldAsMarshal := func(t *testing.T, step string, body []byte) {
 		t.Helper()
 		assertRolesHeld(t, step, body, tenantSurveyor, string(marshalRole), "SectorCrew")
 	}
 
+	// The steps before Dawn exists, and the create, whose answer carries Dawn's key: the
+	// id the create path generated, which every later step addresses Dawn by.
 	seeded := []accesstypes.Domain{anvil, bastion, cinder}
-	charted := []accesstypes.Domain{anvil, bastion, cinder, dawn}
-	steps := []flagStep{
+	var dawn string
+	charting := []flagStep{
 		{name: "before: the surveyor's chart lights the three seeded sectors, SectorCrew held in every one", on: first, user: tenantSurveyor, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(seeded...)},
-		{name: "before: Dawn does not exist on the first instance", on: first, user: tenantSurveyor, method: http.MethodGet, target: sectorPath(dawn, "wings"), wantStatus: http.StatusNotFound},
-		{name: "before: nor on the second", on: second, user: tenantSurveyor, method: http.MethodGet, target: sectorPath(dawn, "wings"), wantStatus: http.StatusNotFound},
+		{name: "before: the sector list carries the three seeded sectors on the first instance", on: first, user: tenantSurveyor, method: http.MethodGet, target: sectorsRoute, wantStatus: http.StatusOK, check: assertSectorNames("Anvil", "Bastion", "Cinder")},
+		{name: "before: and her chart on the second lights the same three", on: second, user: tenantSurveyor, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(seeded...)},
 		{name: "the marshal holds no Create on Sectors", on: first, user: tenantMarshal, method: http.MethodPatch, target: resourcesRoute, body: chartDawn, wantStatus: http.StatusForbidden},
+		{name: "a key in the path is refused the surveyor: the create path generates a sector's key", on: first, user: tenantSurveyor, method: http.MethodPatch, target: resourcesRoute, body: chartDawnUnderAKey, wantStatus: http.StatusBadRequest},
+		{name: "the refused create wrote nothing: the sector list is the seeded three", on: first, user: tenantSurveyor, method: http.MethodGet, target: sectorsRoute, wantStatus: http.StatusOK, check: assertSectorNames("Anvil", "Bastion", "Cinder")},
 		{
-			name: "the surveyor charts sector Dawn: Create on Sectors, the key in the path, and one signal of the tenants kind", on: first, user: tenantSurveyor, method: http.MethodPatch, target: resourcesRoute, body: chartDawn, wantStatus: http.StatusOK,
-			check: func(t *testing.T, step string, _ []byte) {
+			name: "the surveyor charts sector Dawn: Create on Sectors, by its fields alone, the answer carrying the id the create generated, and one signal of the tenants kind", on: first, user: tenantSurveyor, method: http.MethodPatch, target: resourcesRoute, body: chartDawn, wantStatus: http.StatusOK,
+			check: func(t *testing.T, step string, body []byte) {
 				t.Helper()
+				dawn = createdSector(t, step, body)
 				if got := fake.Signals(); !slices.Equal(got, []live.Kind{live.KindTenants}) {
 					t.Errorf("%s: signals = %v, want [%s]", step, got, live.KindTenants)
 				}
 			},
 		},
+	}
+	for i := range charting {
+		runFlagStep(t, &charting[i])
+	}
+
+	// Dawn's list of the roles held, which carries its creator; the correction of the
+	// sector after it is charted, Update on Sectors; and the chart that lights Dawn.
+	dawnRolesHeld := sectorPath(dawn, sectorRolesPath+"?limit=200")
+	surveyDawn := `[{"op":"patch","path":"/sectors/` + dawn + `","value":{"region":"Far frontier"}}]`
+	charted := sortedDomains(anvil, bastion, cinder, accesstypes.Domain(dawn))
+	steps := []flagStep{
 		{name: "charted: the sector list carries Dawn, in name order", on: first, user: tenantSurveyor, method: http.MethodGet, target: sectorsRoute, wantStatus: http.StatusOK, check: assertSectorNames("Anvil", "Bastion", "Cinder", "Dawn")},
+		{name: "a second sector named Dawn is refused: the unique index on the name", on: first, user: tenantSurveyor, method: http.MethodPatch, target: resourcesRoute, body: chartDawn, wantStatus: http.StatusConflict},
 		{name: "charted: her chart lights Dawn with no restart, no migrate job and no new login", on: first, user: tenantSurveyor, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(charted...)},
 		{name: "charted: Dawn's wings answer her on the instance that wrote, an empty list", on: first, user: tenantSurveyor, method: http.MethodGet, target: sectorPath(dawn, "wings"), wantStatus: http.StatusOK, check: assertNoRows},
 		{name: "charted: the surveyor corrects Dawn's region, Update on Sectors", on: first, user: tenantSurveyor, method: http.MethodPatch, target: resourcesRoute, body: surveyDawn, wantStatus: http.StatusOK},

@@ -26,9 +26,9 @@ type (
 	Announcement struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		TenantID string `spanner:"TenantId"`
-		KindID   string `spanner:"KindId"`
-		Title    string `spanner:"Title"`
-		Body     string `spanner:"Body"`
+		TenantID impulse.UUID `spanner:"TenantId"`
+		KindID   string       `spanner:"KindId"`
+		Title    string       `spanner:"Title"`
+		Body     string       `spanner:"Body"`
 	}
 )

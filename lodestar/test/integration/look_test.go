@@ -66,7 +66,7 @@ func TestLookFollowsThePerson(t *testing.T) {
 	// The marshal views as the cadet: the look is the cadet's own to choose.
 	marshal := newBrowser(t, s, consoleAPI)
 	marshal.signIn(ctx, "marshal")
-	status, body = marshal.impersonate(ctx, `{"kind":"user","principal":"cadet","reason":"walkthrough"}`)
+	status, body = marshal.impersonate(ctx, viewAs(t, "cadet", "walkthrough"))
 	assertStatus(t, status, http.StatusOK, body)
 	status, body = marshal.do(ctx, http.MethodPost, consoleAPI+"/user/look", []byte(`{"scheme":"light"}`))
 	assertStatus(t, status, http.StatusForbidden, body)

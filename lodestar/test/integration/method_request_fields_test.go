@@ -190,6 +190,9 @@ func newRequestFieldWorld(t *testing.T) *identityWorld {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = membersEngine.Close() })
+	if err := seedCastAccounts(ctx, db); err != nil {
+		t.Fatal(err)
+	}
 	if err := provisionDemoAccess(ctx, crewEngine, membersEngine); err != nil {
 		t.Fatal(err)
 	}
@@ -221,14 +224,16 @@ func newRequestFieldWorld(t *testing.T) *identityWorld {
 	return &identityWorld{db: db, app: a, h: withHandWrittenRoutes(a), engine: crewEngine}
 }
 
-// crewRolesOf reads the global roles the crew's memberships hold for a username.
+// crewRolesOf reads the global roles the person signed in under username holds in the
+// crew's memberships: those held by the id of the account that carries the username. A
+// name no account carries holds nothing.
 func crewRolesOf(t *testing.T, w *identityWorld, username string) []string {
 	t.Helper()
 
 	var roles []string
 	iter := w.db.Single().Query(t.Context(), spanner.Statement{
-		SQL:    "SELECT Role FROM CrewUserRoles WHERE User = @user AND Kind = 'global' ORDER BY Role",
-		Params: map[string]any{"user": username},
+		SQL:    "SELECT r.Role FROM CrewUserRoles r JOIN CrewSessionUsers u ON u.Id = r.UserId WHERE u.Username = @username AND r.Kind = 'global' ORDER BY r.Role",
+		Params: map[string]any{"username": username},
 	})
 	defer iter.Stop()
 	if err := iter.Do(func(row *spanner.Row) error {
@@ -271,7 +276,7 @@ func TestMethodRequestFieldsNoTarget(t *testing.T) {
 	}
 	for _, tt := range fires {
 		t.Run(tt.name, func(t *testing.T) {
-			status, body := doRequestAs(t, w.h, tt.user, http.MethodPost, consoleAPI+"/assign-crew-role", fmt.Sprintf(`{"username":"veteran","role":%q}`, tt.role))
+			status, body := doRequestAs(t, w.h, tt.user, http.MethodPost, consoleAPI+"/assign-crew-role", fmt.Sprintf(`{"userId":%q,"role":%q}`, account(t, "veteran"), tt.role))
 			assertStatus(t, status, tt.wantStatus, body)
 			if tt.wantBody != "" && !strings.Contains(string(body), tt.wantBody) {
 				t.Errorf("the answer %s lacks %q", body, tt.wantBody)
@@ -448,7 +453,7 @@ func TestMethodRequestFieldsValues(t *testing.T) {
 
 	// A string field left out of the request is the empty string, a value: the
 	// condition judges it, and the body is what refuses it.
-	status, body := doRequestAs(t, w.h, fieldDelegate, http.MethodPost, consoleAPI+"/assign-crew-role", `{"username":"veteran"}`)
+	status, body := doRequestAs(t, w.h, fieldDelegate, http.MethodPost, consoleAPI+"/assign-crew-role", fmt.Sprintf(`{"userId":%q}`, account(t, "veteran")))
 	t.Logf("assign-crew-role with no role: status %d: %s", status, body)
 	if status == http.StatusForbidden {
 		t.Errorf("a role left out was refused by the grant; the empty string is not the role the condition names")

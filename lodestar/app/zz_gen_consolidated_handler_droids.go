@@ -24,7 +24,7 @@ import (
 func (a *App) PatchDroidsResources() http.HandlerFunc {
 	type consignmentRequest struct {
 		ID          impulse.UUID `json:"-"`
-		SectorID    string       `json:"-"`
+		SectorID    impulse.UUID `json:"-"`
 		ClientID    impulse.UUID `json:"clientId"`
 		BondCode    string       `json:"bondCode"    immutable:"true"`
 		Description string       `json:"description"`
@@ -36,7 +36,7 @@ func (a *App) PatchDroidsResources() http.HandlerFunc {
 
 	type droidReportRequest struct {
 		ID         impulse.UUID     `json:"-"`
-		SectorID   string           `json:"-"`
+		SectorID   impulse.UUID     `json:"-"`
 		ShipID     impulse.UUID     `json:"shipId"`
 		Subsystem  string           `json:"subsystem"`
 		Reading    float64          `json:"reading"`

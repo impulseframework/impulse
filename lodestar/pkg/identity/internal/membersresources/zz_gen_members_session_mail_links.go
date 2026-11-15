@@ -27,17 +27,17 @@ func (MembersSessionMailLink) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; membersSessionMailLinkReadSets holds one Set per read operation.
 type membersSessionMailLinkRead struct {
-	ID         impulse.UUID  `json:"id"         perm:"-"`
-	Kind       string        `json:"kind"`
-	Email      string        `json:"email"`
-	Name       *string       `json:"name"`
-	UserID     *impulse.UUID `json:"userId"`
-	Tenant     *string       `json:"tenant"`
-	RoleNames  []string      `json:"roleNames"`
-	InvitedBy  *impulse.UUID `json:"invitedBy"`
-	CreatedAt  time.Time     `json:"createdAt"`
-	ExpiresAt  time.Time     `json:"expiresAt"`
-	ConsumedAt *time.Time    `json:"consumedAt"`
+	ID              impulse.UUID  `json:"id"              perm:"-"`
+	Kind            string        `json:"kind"`
+	Email           string        `json:"email"`
+	Name            *string       `json:"name"`
+	UserID          *impulse.UUID `json:"userId"`
+	TenantID        *string       `json:"tenantId"`
+	RoleNames       []string      `json:"roleNames"`
+	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
+	CreatedAt       time.Time     `json:"createdAt"`
+	ExpiresAt       time.Time     `json:"expiresAt"`
+	ConsumedAt      *time.Time    `json:"consumedAt"`
 }
 
 var membersSessionMailLinkReadSets resource.SetCache[MembersSessionMailLink, membersSessionMailLinkRead]
@@ -46,17 +46,17 @@ var membersSessionMailLinkReadSets resource.SetCache[MembersSessionMailLink, mem
 // accept on a mutation, so a patch armed with Enforce meets the field permissions the
 // routes enforce; membersSessionMailLinkWriteSets holds one Set per mutation.
 type membersSessionMailLinkWrite struct {
-	ID         impulse.UUID  `json:"-"`
-	Kind       string        `json:"kind"       sqltype:"STRING(16)"`
-	Email      string        `json:"email"`
-	Name       *string       `json:"name"`
-	UserID     *impulse.UUID `json:"userId"`
-	Tenant     *string       `json:"tenant"`
-	RoleNames  []string      `json:"roleNames"  nullable:"true"`
-	InvitedBy  *impulse.UUID `json:"invitedBy"`
-	CreatedAt  time.Time     `json:"createdAt"`
-	ExpiresAt  time.Time     `json:"expiresAt"`
-	ConsumedAt *time.Time    `json:"consumedAt"`
+	ID              impulse.UUID  `json:"-"`
+	Kind            string        `json:"kind"            sqltype:"STRING(16)"`
+	Email           string        `json:"email"`
+	Name            *string       `json:"name"`
+	UserID          *impulse.UUID `json:"userId"`
+	TenantID        *string       `json:"tenantId"`
+	RoleNames       []string      `json:"roleNames"       nullable:"true"`
+	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
+	CreatedAt       time.Time     `json:"createdAt"`
+	ExpiresAt       time.Time     `json:"expiresAt"`
+	ConsumedAt      *time.Time    `json:"consumedAt"`
 }
 
 var membersSessionMailLinkWriteSets resource.SetCache[MembersSessionMailLink, membersSessionMailLinkWrite]
@@ -170,9 +170,9 @@ func (c *MembersSessionMailLinkColumns) All() *MembersSessionMailLinkColumns {
 		"Email",
 		"Name",
 		"UserID",
-		"Tenant",
+		"TenantID",
 		"RoleNames",
-		"InvitedBy",
+		"InvitedByUserID",
 		"CreatedAt",
 		"ExpiresAt",
 		"ConsumedAt",
@@ -211,8 +211,8 @@ func (c *MembersSessionMailLinkColumns) UserID() *MembersSessionMailLinkColumns 
 	return c
 }
 
-func (c *MembersSessionMailLinkColumns) Tenant() *MembersSessionMailLinkColumns {
-	c.fields = append(c.fields, "Tenant")
+func (c *MembersSessionMailLinkColumns) TenantID() *MembersSessionMailLinkColumns {
+	c.fields = append(c.fields, "TenantID")
 
 	return c
 }
@@ -223,8 +223,8 @@ func (c *MembersSessionMailLinkColumns) RoleNames() *MembersSessionMailLinkColum
 	return c
 }
 
-func (c *MembersSessionMailLinkColumns) InvitedBy() *MembersSessionMailLinkColumns {
-	c.fields = append(c.fields, "InvitedBy")
+func (c *MembersSessionMailLinkColumns) InvitedByUserID() *MembersSessionMailLinkColumns {
+	c.fields = append(c.fields, "InvitedByUserID")
 
 	return c
 }
@@ -271,8 +271,8 @@ func (p MembersSessionMailLinkQueryPartialClause) UserID() MembersSessionMailLin
 	return MembersSessionMailLinkQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("UserID", p.partialClause, true)}
 }
 
-func (p MembersSessionMailLinkQueryPartialClause) Tenant() MembersSessionMailLinkQueryIdent[string] {
-	return MembersSessionMailLinkQueryIdent[string]{Ident: resource.NewIdent[string]("Tenant", p.partialClause, true)}
+func (p MembersSessionMailLinkQueryPartialClause) TenantID() MembersSessionMailLinkQueryIdent[string] {
+	return MembersSessionMailLinkQueryIdent[string]{Ident: resource.NewIdent[string]("TenantID", p.partialClause, true)}
 }
 
 type MembersSessionMailLinkQueryClause struct {
@@ -361,16 +361,16 @@ func (c *membersSessionMailLinkSort) UserID() *MembersSessionMailLinkSort {
 	return c.addField("UserID")
 }
 
-func (c *membersSessionMailLinkSort) Tenant() *MembersSessionMailLinkSort {
-	return c.addField("Tenant")
+func (c *membersSessionMailLinkSort) TenantID() *MembersSessionMailLinkSort {
+	return c.addField("TenantID")
 }
 
 func (c *membersSessionMailLinkSort) RoleNames() *MembersSessionMailLinkSort {
 	return c.addField("RoleNames")
 }
 
-func (c *membersSessionMailLinkSort) InvitedBy() *MembersSessionMailLinkSort {
-	return c.addField("InvitedBy")
+func (c *membersSessionMailLinkSort) InvitedByUserID() *MembersSessionMailLinkSort {
+	return c.addField("InvitedByUserID")
 }
 
 func (c *membersSessionMailLinkSort) CreatedAt() *MembersSessionMailLinkSort {
@@ -544,24 +544,24 @@ func (p *MembersSessionMailLinkCreatePatch) UserIDIsSet() bool {
 	return p.patchSet.IsSet("UserID")
 }
 
-func (p *MembersSessionMailLinkCreatePatch) SetTenant(v *string) *MembersSessionMailLinkCreatePatch {
+func (p *MembersSessionMailLinkCreatePatch) SetTenantID(v *string) *MembersSessionMailLinkCreatePatch {
 	if v != nil {
-		p.patchSet.Set("Tenant", v)
+		p.patchSet.Set("TenantID", v)
 	} else {
-		p.patchSet.Set("Tenant", nil)
+		p.patchSet.Set("TenantID", nil)
 	}
 
 	return p
 }
 
-func (p *MembersSessionMailLinkCreatePatch) Tenant() *string {
-	v, _ := p.patchSet.Get("Tenant").(*string)
+func (p *MembersSessionMailLinkCreatePatch) TenantID() *string {
+	v, _ := p.patchSet.Get("TenantID").(*string)
 
 	return v
 }
 
-func (p *MembersSessionMailLinkCreatePatch) TenantIsSet() bool {
-	return p.patchSet.IsSet("Tenant")
+func (p *MembersSessionMailLinkCreatePatch) TenantIDIsSet() bool {
+	return p.patchSet.IsSet("TenantID")
 }
 
 func (p *MembersSessionMailLinkCreatePatch) SetRoleNames(v []string) *MembersSessionMailLinkCreatePatch {
@@ -580,24 +580,24 @@ func (p *MembersSessionMailLinkCreatePatch) RoleNamesIsSet() bool {
 	return p.patchSet.IsSet("RoleNames")
 }
 
-func (p *MembersSessionMailLinkCreatePatch) SetInvitedBy(v *impulse.UUID) *MembersSessionMailLinkCreatePatch {
+func (p *MembersSessionMailLinkCreatePatch) SetInvitedByUserID(v *impulse.UUID) *MembersSessionMailLinkCreatePatch {
 	if v != nil {
-		p.patchSet.Set("InvitedBy", v)
+		p.patchSet.Set("InvitedByUserID", v)
 	} else {
-		p.patchSet.Set("InvitedBy", nil)
+		p.patchSet.Set("InvitedByUserID", nil)
 	}
 
 	return p
 }
 
-func (p *MembersSessionMailLinkCreatePatch) InvitedBy() *impulse.UUID {
-	v, _ := p.patchSet.Get("InvitedBy").(*impulse.UUID)
+func (p *MembersSessionMailLinkCreatePatch) InvitedByUserID() *impulse.UUID {
+	v, _ := p.patchSet.Get("InvitedByUserID").(*impulse.UUID)
 
 	return v
 }
 
-func (p *MembersSessionMailLinkCreatePatch) InvitedByIsSet() bool {
-	return p.patchSet.IsSet("InvitedBy")
+func (p *MembersSessionMailLinkCreatePatch) InvitedByUserIDIsSet() bool {
+	return p.patchSet.IsSet("InvitedByUserID")
 }
 
 func (p *MembersSessionMailLinkCreatePatch) SetCreatedAt(v time.Time) *MembersSessionMailLinkCreatePatch {
@@ -816,24 +816,24 @@ func (p *MembersSessionMailLinkUpdatePatch) UserIDIsSet() bool {
 	return p.patchSet.IsSet("UserID")
 }
 
-func (p *MembersSessionMailLinkUpdatePatch) SetTenant(v *string) *MembersSessionMailLinkUpdatePatch {
+func (p *MembersSessionMailLinkUpdatePatch) SetTenantID(v *string) *MembersSessionMailLinkUpdatePatch {
 	if v != nil {
-		p.patchSet.Set("Tenant", v)
+		p.patchSet.Set("TenantID", v)
 	} else {
-		p.patchSet.Set("Tenant", nil)
+		p.patchSet.Set("TenantID", nil)
 	}
 
 	return p
 }
 
-func (p *MembersSessionMailLinkUpdatePatch) Tenant() *string {
-	v, _ := p.patchSet.Get("Tenant").(*string)
+func (p *MembersSessionMailLinkUpdatePatch) TenantID() *string {
+	v, _ := p.patchSet.Get("TenantID").(*string)
 
 	return v
 }
 
-func (p *MembersSessionMailLinkUpdatePatch) TenantIsSet() bool {
-	return p.patchSet.IsSet("Tenant")
+func (p *MembersSessionMailLinkUpdatePatch) TenantIDIsSet() bool {
+	return p.patchSet.IsSet("TenantID")
 }
 
 func (p *MembersSessionMailLinkUpdatePatch) SetRoleNames(v []string) *MembersSessionMailLinkUpdatePatch {
@@ -852,24 +852,24 @@ func (p *MembersSessionMailLinkUpdatePatch) RoleNamesIsSet() bool {
 	return p.patchSet.IsSet("RoleNames")
 }
 
-func (p *MembersSessionMailLinkUpdatePatch) SetInvitedBy(v *impulse.UUID) *MembersSessionMailLinkUpdatePatch {
+func (p *MembersSessionMailLinkUpdatePatch) SetInvitedByUserID(v *impulse.UUID) *MembersSessionMailLinkUpdatePatch {
 	if v != nil {
-		p.patchSet.Set("InvitedBy", v)
+		p.patchSet.Set("InvitedByUserID", v)
 	} else {
-		p.patchSet.Set("InvitedBy", nil)
+		p.patchSet.Set("InvitedByUserID", nil)
 	}
 
 	return p
 }
 
-func (p *MembersSessionMailLinkUpdatePatch) InvitedBy() *impulse.UUID {
-	v, _ := p.patchSet.Get("InvitedBy").(*impulse.UUID)
+func (p *MembersSessionMailLinkUpdatePatch) InvitedByUserID() *impulse.UUID {
+	v, _ := p.patchSet.Get("InvitedByUserID").(*impulse.UUID)
 
 	return v
 }
 
-func (p *MembersSessionMailLinkUpdatePatch) InvitedByIsSet() bool {
-	return p.patchSet.IsSet("InvitedBy")
+func (p *MembersSessionMailLinkUpdatePatch) InvitedByUserIDIsSet() bool {
+	return p.patchSet.IsSet("InvitedByUserID")
 }
 
 func (p *MembersSessionMailLinkUpdatePatch) SetCreatedAt(v time.Time) *MembersSessionMailLinkUpdatePatch {

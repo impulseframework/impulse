@@ -2,6 +2,7 @@ package resources
 
 import (
 	"cloud.google.com/go/civil"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -19,10 +20,20 @@ type (
 	// a role held in every sector reaches the new sector with nothing written for it.
 	// Charting a sector is a data change, not a release, a migration or a new login.
 	//
-	// The primary key is a human-readable slug, not a UUID: sector identifiers appear in
-	// every sector-scoped URL and in role provisioning, and the schema enforces the slug
-	// shape with a CHECK constraint. Creating a sector therefore supplies its key, and the
-	// key cannot change on update.
+	// The primary key is an id the create path generates, as every record's is, and the
+	// generator refuses any other key on the tenant record: the id is written into every
+	// row the sector owns and is the domain of every role held in it, so it never changes
+	// and is never used twice. What people call the sector is its name, an ordinary field
+	// whoever holds the record's Update grant changes; the unique index on the name
+	// (schema/migrations) is what keeps two sectors from carrying one name, and an
+	// application that allows that drops the index.
+	//
+	// A sector that is deleted leaves nothing of itself behind: the generated delete path
+	// removes, in the transaction that deletes the row, the roles people held in the
+	// sector, the custom roles made in it and the invitations into it that still stood,
+	// in the crew's tables and the members' alike (each auth's generated identity client,
+	// ClearTenant), and a person who held roles in that sector alone goes with it. No
+	// role Lodestar ships holds Delete on Sectors; the suite gives one to prove it.
 	//
 	// Sector itself is a GLOBAL resource: administering the sector list is a global
 	// concern. The place switcher lists only the sectors a login holds a grant in.
@@ -55,14 +66,14 @@ type (
 	// once. The record's change events (DataChangeEvents, Config) are the audit of every
 	// edit.
 	//
-	// Demonstrates: tenancy.tenant-record, tenancy.run-time-tenant, tenancy.concealed, tenancy.self-service, tenancy.declaration, tenancy.directory-only, tenancy.creator-directory, @order, @page.
+	// Demonstrates: tenancy.tenant-record, tenancy.run-time-tenant, tenancy.deleted-tenant, tenancy.concealed, tenancy.self-service, tenancy.declaration, tenancy.directory-only, tenancy.creator-directory, @order, @page.
 	//
 	// @resource
 	// @tenant(creation: both)
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
 	Sector struct {
-		ID string `spanner:"Id"`
+		ID impulse.UUID `spanner:"Id"`
 		// Name is the sector's name as its crew know it: the session's sector list
 		// carries it, so the place switcher shows it to them.
 		// @tenantName

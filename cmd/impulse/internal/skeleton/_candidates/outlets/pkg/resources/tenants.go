@@ -1,6 +1,9 @@
 package resources
 
-import "github.com/impulseframework/impulse/resource"
+import (
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/resource"
+)
 
 type (
 	// Tenant is the tenant record (@tenant): the global resource whose rows are the
@@ -18,9 +21,13 @@ type (
 	// session came through (resource.SessionPermissions). The roles need no row per
 	// tenant: a domain role is held in every tenant domain.
 	//
-	// The primary key is a human-readable slug, not a UUID: tenant identifiers appear
-	// in every tenant-scoped URL and in role provisioning, and the schema enforces the
-	// slug shape with a CHECK constraint. Creating a tenant therefore supplies its key.
+	// The primary key is an id the create path generates, as every record's is, and the
+	// generator refuses any other key on the tenant record: the id is written into
+	// every row the tenant owns and is the domain of every role held in it, so it never
+	// changes and is never used twice. What people call the tenant is its name, an
+	// ordinary field its administrators change; the unique index on the name
+	// (schema/migrations) is what keeps two tenants from carrying one name, and an
+	// application that allows that drops the index.
 	//
 	// Tenant itself is a GLOBAL resource — administering the tenant list is a global
 	// concern. Its list comes in name order (@order) when the request names no sort.
@@ -40,7 +47,7 @@ type (
 	// @tenant
 	// @order(Name asc)
 	Tenant struct {
-		ID string `spanner:"Id"`
+		ID impulse.UUID `spanner:"Id"`
 		// Name is the tenant's name as its people know it: the session's tenant list
 		// carries it, so the place switcher shows it to them.
 		// @tenantName

@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/securehash"
@@ -130,7 +131,7 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (impulse.UUID, error) {
 		id, err := a.storage.SignIn(ctx, req, sessionstorage.SignInRules[Tx]{
 			Account: rule, Standard: standard, Policy: a.policy, Accept: a.acceptInvitation,
-			Directories: a.directories, Roles: a.directoryRoles, Seat: a.directorySeated, TrustedDevice: a.trustedDeviceOf,
+			Directories: a.directories, Seat: a.directorySeated, TrustedDevice: a.trustedDeviceOf,
 		})
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.SignIn()")
@@ -249,7 +250,7 @@ func (a *Auth[S, U, Tx]) afterInsert(ctx context.Context, at *signInAttempt, req
 	if !ok || m.SyncRoles == nil {
 		return nil
 	}
-	if err := m.SyncRoles(ctx, req.Username, at.roleNames); err != nil {
+	if err := m.SyncRoles(ctx, accesstypes.User(req.UserID.String()), at.roleNames); err != nil {
 		return errors.Wrap(err, "role synchronization")
 	}
 

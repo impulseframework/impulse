@@ -842,7 +842,7 @@ func testDestroyUserSessions(ctx context.Context, t *testing.T, h *AuthHarness) 
 	janeOwn := start(jane, jane.Username)
 	janeRenamed := start(jane, "jane-old@lakeside.edu")
 	borrowedName := start(other, jane.Username)
-	ofJane := impersonate("admin@lakeside.edu", accesstypes.UserPrincipal(accesstypes.User(jane.Username)), jane.ID, jane.Username)
+	ofJane := impersonate("admin@lakeside.edu", accesstypes.UserPrincipal(accesstypes.User(jane.ID.String())), jane.ID, jane.Username)
 	byJane := impersonate(jane.Username, accesstypes.RolePrincipal("Viewer"), impulse.NilUUID, jane.Username)
 
 	if err := in.Driver.DestroyUserSessions(ctx, jane.ID); err != nil {

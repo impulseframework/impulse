@@ -132,8 +132,11 @@ type invitationAnswer struct {
 // block of a methods answer reports it: what Invitation().Open() answered when the
 // page opened it, less what the block already says.
 type standingInvitationAnswer struct {
-	Email           string    `json:"email"`
-	Tenant          string    `json:"tenant"`
+	Email string `json:"email"`
+	// TenantID and TenantName are the tenant the invitation seats the person in and
+	// what people call it, as Invitation().Open() answers them.
+	TenantID        string    `json:"tenantId,omitempty"`
+	TenantName      string    `json:"tenantName,omitempty"`
 	ExpiresAt       time.Time `json:"expiresAt"`
 	UsernameIsEmail bool      `json:"usernameIsEmail"`
 	// Methods are the names of the listed external registrations that could admit the
@@ -246,7 +249,8 @@ func (a *Auth[S, U, Tx]) standingInvitation(ctx context.Context, r *http.Request
 	}
 
 	return &standingInvitationAnswer{
-		Email: inv.Email, Tenant: inv.Tenant, ExpiresAt: inv.ExpiresAt, UsernameIsEmail: a.registered().usernameIsEmail(), Methods: a.admittingMethodNames(inv.Email),
+		Email: inv.Email, TenantID: inv.TenantID, TenantName: a.tenantName(inv.TenantID), ExpiresAt: inv.ExpiresAt,
+		UsernameIsEmail: a.registered().usernameIsEmail(), Methods: a.admittingMethodNames(inv.Email),
 		AccountExists: exists, HasPassword: hasPassword,
 	}, nil
 }

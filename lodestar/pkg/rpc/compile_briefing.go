@@ -74,9 +74,15 @@ const sectorHazardBoards accesstypes.Resource = "SectorHazardBoards"
 // Execute runs outside a transaction, against the client, as the caller.
 func (m *CompileBriefing) Execute(ctx context.Context, client resource.Client, _ *Client) (*Briefing, error) {
 	caller := resource.CallerFrom(ctx)
-	sector, ok := caller.Scope.Domain()
+	domain, ok := caller.Scope.Domain()
 	if !ok {
 		return nil, errors.New("CompileBriefing is sector-scoped but was checked in the global scope")
+	}
+	// A sector's key is an id, so the domain the call was checked in is an id's text:
+	// the value the sector's rows carry in their tenancy column.
+	sector, err := impulse.UUIDFromString(string(domain))
+	if err != nil {
+		return nil, errors.Wrapf(err, "impulse.UUIDFromString(): the sector %s", domain)
 	}
 	templateID := m.TemplateID
 	if templateID == "" {
@@ -87,13 +93,13 @@ func (m *CompileBriefing) Execute(ctx context.Context, client resource.Client, _
 		return nil, httpio.NewBadRequestMessagef("templateId %q is not a briefing template", m.TemplateID)
 	}
 	now := time.Now().UTC()
-	briefing := &Briefing{Sector: string(sector), Template: template.Name, CompiledAt: now, FeesOutstanding: decimal.Zero}
+	briefing := &Briefing{Sector: string(domain), Template: template.Name, CompiledAt: now, FeesOutstanding: decimal.Zero}
 
 	// The armed read marks a masked fee on the row envelope by its wire name, the same
 	// way the generated list handler does, so a redaction is read from the row itself.
 	missions := resources.NewMissionQuery().
 		AddColumns(resources.NewMissionColumns().ID().Hazard().Fee().Deadline().StatusID()).
-		Where(resources.NewMissionQueryClause().SectorID().Equal(string(sector))).
+		Where(resources.NewMissionQueryClause().SectorID().Equal(sector)).
 		Enforce(caller)
 	for row, err := range missions.List(ctx, client) {
 		if err != nil {
@@ -141,7 +147,7 @@ func (m *CompileBriefing) Execute(ctx context.Context, client resource.Client, _
 
 // worstReadings folds the sector's telemetry to the worst reading per ship and subsystem,
 // the same fold the hazard board renders.
-func worstReadings(ctx context.Context, client resource.Client, sector accesstypes.Domain) ([]HazardLine, error) {
+func worstReadings(ctx context.Context, client resource.Client, sector impulse.UUID) ([]HazardLine, error) {
 	names := make(map[impulse.UUID]string)
 	for row, err := range resources.NewShipQuery().AddColumns(resources.NewShipColumns().ID().Name()).List(ctx, client) {
 		if err != nil {
@@ -153,7 +159,7 @@ func worstReadings(ctx context.Context, client resource.Client, sector accesstyp
 	var order [][2]string
 	reports := resources.NewDroidReportQuery().
 		AddColumns(resources.NewDroidReportColumns().All()).
-		Where(resources.NewDroidReportQueryClause().SectorID().Equal(string(sector)))
+		Where(resources.NewDroidReportQueryClause().SectorID().Equal(sector))
 	for row, err := range reports.List(ctx, client) {
 		if err != nil {
 			return nil, errors.Wrap(err, "resources.DroidReportQuery.List()")

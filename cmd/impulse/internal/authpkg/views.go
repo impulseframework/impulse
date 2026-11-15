@@ -26,7 +26,7 @@ type view struct {
 	Application string
 	// OpenSignUp reports a password method whose strangers sign up from a mailed link,
 	// and UsernameIsEmail one whose sign-in name is the address, so a verified change
-	// of address renames the user and the roles follow.
+	// of address renames the user; the roles are held by the account's id and stay.
 	OpenSignUp      bool
 	UsernameIsEmail bool
 	// RolesSynced reports an auth with a registration whose directory writes the roles
@@ -44,13 +44,11 @@ type view struct {
 	// helpers.
 	Outlets []*outletView
 	// Foothold is the form of the auth's first administrator the deployment seeds
-	// (Foothold), FootholdCreatesUser whether the membership form also creates the user
-	// row, AdministratorAuthored whether the spec names the roles,
+	// (Foothold), AdministratorAuthored whether the spec names the roles,
 	// AdministratorGlobal and AdministratorEveryDomain the roles that count as an
 	// administrator's as Go literals, and FirstAdministratorGlobal and
 	// FirstAdministratorEveryDomain the roles the first administrator is seeded with.
 	Foothold                      string
-	FootholdCreatesUser           bool
 	AdministratorAuthored         bool
 	AdministratorGlobal           string
 	AdministratorEveryDomain      string
@@ -74,6 +72,9 @@ type methodView struct {
 	// Auth is the auth's name and AuthPascal its table prefix.
 	Auth       string
 	AuthPascal string
+	// Foothold is the form of the auth's first administrator (Foothold), which the
+	// persona cast's seed keeps its accounts apart from.
+	Foothold string
 	// Field is the Handlers field holding the method (directory, entraOne).
 	Field string
 	// Type is the method's Go type (*azure.Method).
@@ -131,7 +132,6 @@ func newView(spec *Spec) *view {
 		v.Outlets = append(v.Outlets, &outletView{Name: outlet, Pascal: names.Pascal(outlet)})
 	}
 	v.Foothold = Foothold(spec)
-	v.FootholdCreatesUser = v.Foothold == FootholdMembership && !provisions(spec)
 	v.AdministratorAuthored = len(spec.AdministratorRoles.Global)+len(spec.AdministratorRoles.EveryDomain) > 0
 	v.AdministratorGlobal = roleLiteral(spec.AdministratorRoles.Global)
 	v.AdministratorEveryDomain = roleLiteral(spec.AdministratorRoles.EveryDomain)
@@ -160,13 +160,12 @@ func newView(spec *Spec) *view {
 	// The sign-in rule every auth sets (requireSecondFactor) names the library's decision
 	// and the factor's method.
 	v.Imports = append(v.Imports, "github.com/impulseframework/impulse/session/sessioninfo", signinImport)
-	// The auth's identity client, its option naming the administrator roles, and the hook
-	// a rename by the session library is reported to (identity.RolesFollowRename).
+	// The auth's identity client, and its option naming the administrator roles.
 	if spec.IdentityDir != "" {
 		v.IdentityPackage = path.Join(spec.Module, spec.IdentityDir, spec.Name+"identity")
 		v.Imports = append(v.Imports, v.IdentityPackage)
 	}
-	if v.UsernameIsEmail || (v.IdentityPackage != "" && v.Foothold != "") {
+	if v.IdentityPackage != "" && v.Foothold != "" {
 		v.Imports = append(v.Imports, "github.com/impulseframework/impulse/identity")
 	}
 
@@ -185,9 +184,11 @@ func Application(spec *Spec) string {
 
 // The forms of the first administrator the deployment seeds while the auth's users table
 // holds no rows: a user named administrator with the password the stack generates, for an
-// auth with a password method; the administrator role memberships under the sign-in name
-// the placement names, for an auth whose directory methods leave role membership to the
-// application. An auth whose directory methods all follow the directory's roles needs none.
+// auth with a password method; a user without a password under the sign-in name the
+// placement names, which that person's first sign-in links to, for an auth whose directory
+// methods leave role membership to the application. Either holds the administrator roles
+// from the seed, by the id of its account. An auth whose directory methods all follow the
+// directory's roles needs none.
 const (
 	FootholdPassword   = "password"
 	FootholdMembership = "membership"
@@ -214,20 +215,6 @@ func Foothold(spec *Spec) string {
 	return ""
 }
 
-// provisions reports whether any directory method creates a user at a first sign-in
-// (members of the directory, open sign-up); invited users only alone means the first
-// administrator's user row is created beforehand.
-func provisions(spec *Spec) bool {
-	for i := range spec.Methods {
-		m := &spec.Methods[i]
-		if m.Directory() && m.accounts() != AccountsInvited {
-			return true
-		}
-	}
-
-	return false
-}
-
 // roleLiteral is the roles as a Go slice literal, nil for none.
 func roleLiteral(roles []string) string {
 	if len(roles) == 0 {
@@ -244,6 +231,7 @@ func roleLiteral(roles []string) string {
 func newMethodView(spec *Spec, m *Method) *methodView {
 	mv := &methodView{Method: m, Auth: spec.Name, AuthPascal: names.Pascal(spec.Name), Fields: m.Fields(), SlotKind: m.slot(), SlotWords: slotWords(m), module: spec.Module}
 	mv.Field = lowerFirst(m.Pascal())
+	mv.Foothold = Foothold(spec)
 	for i := range mv.Fields {
 		mv.Variables = append(mv.Variables, m.Variable(spec.Name, &mv.Fields[i]))
 	}

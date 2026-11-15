@@ -7,7 +7,9 @@ import (
 	"context"
 	"iter"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -24,8 +26,8 @@ func (Tenant) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; tenantReadSets holds one Set per read operation.
 type tenantRead struct {
-	ID   string `json:"id"   perm:"-"`
-	Name string `json:"name"`
+	ID   impulse.UUID `json:"id"   perm:"-"`
+	Name string       `json:"name"`
 }
 
 var tenantReadSets resource.SetCache[Tenant, tenantRead]
@@ -34,8 +36,8 @@ var tenantReadSets resource.SetCache[Tenant, tenantRead]
 // accept on a mutation, so a patch armed with Enforce meets the field permissions the
 // routes enforce; tenantWriteSets holds one Set per mutation.
 type tenantWrite struct {
-	ID   string `json:"-"`
-	Name string `json:"name"`
+	ID   impulse.UUID `json:"-"`
+	Name string       `json:"name"`
 }
 
 var tenantWriteSets resource.SetCache[Tenant, tenantWrite]
@@ -54,14 +56,14 @@ func NewTenantQueryFromQuerySet(qSet *resource.QuerySet[Tenant]) *TenantQuery {
 	return &TenantQuery{qSet: qSet}
 }
 
-func (q *TenantQuery) SetID(v string) *TenantQuery {
+func (q *TenantQuery) SetID(v impulse.UUID) *TenantQuery {
 	q.qSet.SetKey("ID", v)
 
 	return q
 }
 
-func (q *TenantQuery) ID() string {
-	v, _ := q.qSet.Key("ID").(string)
+func (q *TenantQuery) ID() impulse.UUID {
+	v, _ := q.qSet.Key("ID").(impulse.UUID)
 
 	return v
 }
@@ -187,8 +189,8 @@ func (p TenantQueryPartialClause) Group(qc TenantQueryClause) TenantQueryClause 
 	return TenantQueryClause{clause: p.partialClause.Group(qc.clause)}
 }
 
-func (p TenantQueryPartialClause) ID() TenantQueryIdent[string] {
-	return TenantQueryIdent[string]{Ident: resource.NewIdent[string]("ID", p.partialClause, true)}
+func (p TenantQueryPartialClause) ID() TenantQueryIdent[impulse.UUID] {
+	return TenantQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
 func (p TenantQueryPartialClause) Name() TenantQueryIdent[string] {
@@ -289,24 +291,34 @@ type TenantCreatePatch struct {
 	patchSet *resource.PatchSet[Tenant]
 }
 
-func NewTenantCreatePatchFromPatchSet(id string, patchSet *resource.PatchSet[Tenant]) *TenantCreatePatch {
+func NewTenantCreatePatchFromPatchSet(patchSet *resource.PatchSet[Tenant]) (*TenantCreatePatch, error) {
+	id, err := impulse.NewUUID()
+	if err != nil {
+		return nil, errors.Wrap(err, "impulse.NewUUID()")
+	}
+
 	patchSet.
 		SetKey("ID", id).
 		SetPatchType(resource.CreatePatchType)
 	patch := &TenantCreatePatch{patchSet: patchSet}
 	patch.registerDefaultFuncs()
 
-	return patch
+	return patch, nil
 }
 
-func NewTenantCreatePatch(id string) *TenantCreatePatch {
+func NewTenantCreatePatch() (*TenantCreatePatch, error) {
+	id, err := impulse.NewUUID()
+	if err != nil {
+		return nil, errors.Wrap(err, "impulse.NewUUID()")
+	}
+
 	patchSet := resource.NewPatchSet(resource.NewMetadata[Tenant]()).
 		SetKey("ID", id).
 		SetPatchType(resource.CreatePatchType)
 	patch := &TenantCreatePatch{patchSet: patchSet}
 	patch.registerDefaultFuncs()
 
-	return patch
+	return patch, nil
 }
 
 func (p *TenantCreatePatch) FromStruct(s any) error {
@@ -337,31 +349,11 @@ func (p *TenantCreatePatch) Enforce(caller *resource.Caller) *TenantCreatePatch 
 	return p
 }
 
-// OrSkip turns the create into create-unless-there. Apply and Buffer look for the
-// row by its key inside the transaction: when it is not there the create runs as
-// it is, and when it is there nothing is done at all, so the row keeps every
-// value it holds and no default, validation, or change record runs. A row an
-// earlier patch of the same transaction wrote counts as there. An armed patch is
-// checked for Create before the row is looked for. RowSkipped says afterwards
-// which it was.
-func (p *TenantCreatePatch) OrSkip() *TenantCreatePatch {
-	p.patchSet.OrSkip()
-
-	return p
-}
-
-// RowSkipped reports whether the last Apply or Buffer of an OrSkip patch found the
-// row there and left it as it is. It is false when the patch created the row, on a
-// patch that is not an OrSkip, and before the patch has run.
-func (p *TenantCreatePatch) RowSkipped() bool {
-	return p.patchSet.Outcome() == resource.OutcomeSkipped
-}
-
 func (p *TenantCreatePatch) registerDefaultFuncs() {
 }
 
-func (p *TenantCreatePatch) ID() string {
-	v, _ := p.patchSet.Key("ID").(string)
+func (p *TenantCreatePatch) ID() impulse.UUID {
+	v, _ := p.patchSet.Key("ID").(impulse.UUID)
 
 	return v
 }
@@ -391,7 +383,7 @@ type TenantUpdatePatch struct {
 	patchSet *resource.PatchSet[Tenant]
 }
 
-func NewTenantUpdatePatchFromPatchSet(id string, patchSet *resource.PatchSet[Tenant]) *TenantUpdatePatch {
+func NewTenantUpdatePatchFromPatchSet(id impulse.UUID, patchSet *resource.PatchSet[Tenant]) *TenantUpdatePatch {
 	patchSet.
 		SetKey("ID", id).
 		SetPatchType(resource.UpdatePatchType)
@@ -402,7 +394,7 @@ func NewTenantUpdatePatchFromPatchSet(id string, patchSet *resource.PatchSet[Ten
 	return patch
 }
 
-func NewTenantUpdatePatch(id string) *TenantUpdatePatch {
+func NewTenantUpdatePatch(id impulse.UUID) *TenantUpdatePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[Tenant]()).
 		SetKey("ID", id).
 		SetPatchType(resource.UpdatePatchType)
@@ -468,8 +460,8 @@ func (p *TenantUpdatePatch) RowCreated() bool {
 func (p *TenantUpdatePatch) registerDefaultFuncs() {
 }
 
-func (p *TenantUpdatePatch) ID() string {
-	v, _ := p.patchSet.Key("ID").(string)
+func (p *TenantUpdatePatch) ID() impulse.UUID {
+	v, _ := p.patchSet.Key("ID").(impulse.UUID)
 
 	return v
 }
@@ -499,7 +491,7 @@ type TenantDeletePatch struct {
 	patchSet *resource.PatchSet[Tenant]
 }
 
-func NewTenantDeletePatchFromPatchSet(id string, patchSet *resource.PatchSet[Tenant]) *TenantDeletePatch {
+func NewTenantDeletePatchFromPatchSet(id impulse.UUID, patchSet *resource.PatchSet[Tenant]) *TenantDeletePatch {
 	patchSet.
 		SetKey("ID", id).
 		SetPatchType(resource.DeletePatchType)
@@ -507,7 +499,7 @@ func NewTenantDeletePatchFromPatchSet(id string, patchSet *resource.PatchSet[Ten
 	return &TenantDeletePatch{patchSet: patchSet}
 }
 
-func NewTenantDeletePatch(id string) *TenantDeletePatch {
+func NewTenantDeletePatch(id impulse.UUID) *TenantDeletePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[Tenant]()).
 		SetKey("ID", id).
 		SetPatchType(resource.DeletePatchType)
@@ -535,8 +527,8 @@ func (p *TenantDeletePatch) Enforce(caller *resource.Caller) *TenantDeletePatch 
 	return p
 }
 
-func (p *TenantDeletePatch) ID() string {
-	v, _ := p.patchSet.Key("ID").(string)
+func (p *TenantDeletePatch) ID() impulse.UUID {
+	v, _ := p.patchSet.Key("ID").(impulse.UUID)
 
 	return v
 }

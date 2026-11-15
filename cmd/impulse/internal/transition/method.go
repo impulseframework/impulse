@@ -331,14 +331,6 @@ func (m *Method) editAuth(a *app.App, auth *app.Auth, spec *authpkg.Method, ch *
 		registration = fmt.Sprintf("\thandlers.%s, err = register%s(authSession, accessClient, settings)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", field, spec.Pascal())
 	case spec.Directory():
 		registration = fmt.Sprintf("\thandlers.%s = register%s(authSession, accessClient, settings)\n", field, spec.Pascal())
-	case spec.UsernameIsEmail:
-		registration += "\t// The sign-in name is the address, so a verified change of address renames the user,\n\t// and the roles held under the old name follow it.\n\tauthSession.SetUserRenamed(identity.RolesFollowRename(accessClient.UserManager()))\n"
-	}
-	if spec.UsernameIsEmail && !spec.Fallible() && !spec.Directory() {
-		// The rename hook is the identity package's.
-		if edited, err = app.AddImport(rel, edited, identityImportPath); err != nil {
-			return err
-		}
 	}
 	listed := ""
 	if here := hereRE.FindSubmatchIndex(edited); here != nil {
@@ -354,11 +346,7 @@ func (m *Method) editAuth(a *app.App, auth *app.Auth, spec *authpkg.Method, ch *
 	if err := os.WriteFile(a.Abs(rel), edited, mode); err != nil {
 		return errors.Wrap(err, "os.WriteFile()")
 	}
-	renamed := ""
-	if spec.UsernameIsEmail && loc != nil {
-		renamed = ", and a verified change of address renames the user with its roles (SetUserRenamed over identity.RolesFollowRename)"
-	}
-	ch.didf("%s: Handlers holds the %s method (%s %s), New registers it (register%s)%s%s%s", rel, spec.Name, field, typ, spec.Pascal(), settingsNote(spec), listed, renamed)
+	ch.didf("%s: Handlers holds the %s method (%s %s), New registers it (register%s)%s%s", rel, spec.Name, field, typ, spec.Pascal(), settingsNote(spec), listed)
 
 	return nil
 }
@@ -647,7 +635,7 @@ func (m *Method) Meaning() string {
 			items = append(items, passwordSignUpItem(m.Auth))
 		}
 		if spec.UsernameIsEmail {
-			items = append(items, fmt.Sprintf("Mind the sign-in name. The %s auth's password method takes the person's email address as the username (`session.UsernameIsEmail()`, and `.UsernameIsEmail()` on the declaration), so the generated management derives the address from the username and carries no method that renames a user or sets an address by hand; the session library renames the user when a verified change of address completes, and the roles follow the name (`SetUserRenamed` over `identity.RolesFollowRename`, which New now sets); the development logins and the first administrator are addresses.", m.Auth))
+			items = append(items, fmt.Sprintf("Mind the sign-in name. The %s auth's password method takes the person's email address as the username (`session.UsernameIsEmail()`, and `.UsernameIsEmail()` on the declaration), so the generated management derives the address from the username and carries no method that renames a user or sets an address by hand; the session library renames the user when a verified change of address completes, and the roles, which are held by the id of the account, stay as they are; the development logins and the first administrator are addresses.", m.Auth))
 		}
 	}
 	for i, item := range items {

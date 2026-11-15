@@ -30,7 +30,8 @@ export class CallLogComponent {
   calls = this.sectors.sectorList((sector) => sector.distressCalls);
   columns = ['caseNumber', 'summary', 'severity', 'callerContact', 'filedBy'];
 
-  sector = this.sectors.current;
+  /** The open sector's name, as the session's sector list carries it. */
+  sectorName = this.sectors.placeName;
   canList = computed(() => this.sectors.can(Permissions.List, Resources.DistressCalls));
   canFile = computed(() => this.sectors.can(Permissions.Create, Resources.DistressCalls));
   readonly fields = { ...DistressCallFields.fieldName, ...DistressCallFields.piiFieldName };

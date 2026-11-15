@@ -134,9 +134,9 @@ CREATE TABLE MembersSessionMailLinks (
     Email      STRING(MAX) NOT NULL,
     Name       STRING(MAX),
     UserId     STRING(36),
-    Tenant     STRING(MAX),
+    TenantId   STRING(MAX),
     RoleNames  ARRAY<STRING(MAX)>,
-    InvitedBy  STRING(36),
+    InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
@@ -152,7 +152,7 @@ CREATE INDEX MembersSessionMailLinksByKind ON MembersSessionMailLinks(Kind, Cons
 -- A tenant's links, newest first, with the columns a tenant's list of its invitations
 -- shows: a page of that list reads its own rows from the index and nothing else. A link
 -- that names no tenant is not in it.
-CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenant ON MembersSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);
+CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenantId ON MembersSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);
 
 -- The tokens: the bearer credentials of the machine outlets whose tokens the members auth
 -- issues. A row is one credential: an application token a person issued to a program of
@@ -160,7 +160,7 @@ CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenant ON MembersSessionMail
 -- obtained with a person's approval; the client holds an opaque secret and the row keeps
 -- its hash. A token acts as its user (UserId) on the one machine outlet it was issued
 -- for (Outlet) and is live while it is not revoked and not expired. A device grant's
--- tokens share a Family, and every successor a refresh exchange issues joins it, so a
+-- tokens share a family (FamilyId), and every successor a refresh exchange issues joins it, so a
 -- rotated refresh token presented again revokes the family at once (RevokedReason
 -- 'reuse'). CreatedAt, LastUsedAt and RevokedAt take the commit time; ExpiresAt is the
 -- library's deadline, written as given. A token goes with its user.
@@ -171,7 +171,7 @@ CREATE TABLE MembersSessionTokens (
     UserId        STRING(36) NOT NULL,
     Outlet        STRING(MAX) NOT NULL,
     Name          STRING(MAX),
-    Family        STRING(36),
+    FamilyId      STRING(36),
     ClientId      STRING(MAX),
     CreatedAt     TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt     TIMESTAMP NOT NULL,
@@ -188,7 +188,7 @@ CREATE UNIQUE INDEX MembersSessionTokensByTokenHash ON MembersSessionTokens(Toke
 
 CREATE INDEX MembersSessionTokensByUser ON MembersSessionTokens(UserId, RevokedAt, ExpiresAt);
 
-CREATE INDEX MembersSessionTokensByFamily ON MembersSessionTokens(Family, RevokedAt);
+CREATE INDEX MembersSessionTokensByFamilyId ON MembersSessionTokens(FamilyId, RevokedAt);
 
 -- The device codes: the device authorizations command-line clients start for a machine
 -- outlet whose tokens the members auth issues (RFC 8628). The client holds the opaque

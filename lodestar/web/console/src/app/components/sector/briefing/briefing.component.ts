@@ -41,7 +41,8 @@ import { SectorService } from '../sector.service';
 export class BriefingComponent {
   sectors = inject(SectorService);
 
-  sector = this.sectors.current;
+  /** The open sector's name, as the session's sector list carries it. */
+  sectorName = this.sectors.placeName;
   canCompile = computed(() => this.sectors.can(Permissions.Execute, Methods.CompileBriefing));
   includeHazards = signal(true);
   // The catalog the picker lists, through the generated handle for the resource the

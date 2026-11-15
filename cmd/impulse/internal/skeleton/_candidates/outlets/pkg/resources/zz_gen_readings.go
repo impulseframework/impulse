@@ -28,7 +28,7 @@ func (Reading) DefaultConfig() resource.Config {
 // enforce; readingReadSets holds one Set per read operation.
 type readingRead struct {
 	ID         impulse.UUID `json:"id"         perm:"-"`
-	TenantID   string       `json:"tenantId"`
+	TenantID   impulse.UUID `json:"tenantId"`
 	Source     string       `json:"source"`
 	Value      float64      `json:"value"`
 	RecordedAt time.Time    `json:"recordedAt"`
@@ -41,7 +41,7 @@ var readingReadSets resource.SetCache[Reading, readingRead]
 // routes enforce; readingWriteSets holds one Set per mutation.
 type readingWrite struct {
 	ID         impulse.UUID `json:"-"`
-	TenantID   string       `json:"-"`
+	TenantID   impulse.UUID `json:"-"`
 	Source     string       `json:"source"`
 	Value      float64      `json:"value"`
 	RecordedAt time.Time    `json:"recordedAt"`
@@ -209,8 +209,8 @@ func (p ReadingQueryPartialClause) ID() ReadingQueryIdent[impulse.UUID] {
 	return ReadingQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p ReadingQueryPartialClause) TenantID() ReadingQueryIdent[string] {
-	return ReadingQueryIdent[string]{Ident: resource.NewIdent[string]("TenantID", p.partialClause, true)}
+func (p ReadingQueryPartialClause) TenantID() ReadingQueryIdent[impulse.UUID] {
+	return ReadingQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("TenantID", p.partialClause, true)}
 }
 
 func (p ReadingQueryPartialClause) RecordedAt() ReadingQueryIdent[time.Time] {
@@ -390,14 +390,14 @@ func (p *ReadingCreatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *ReadingCreatePatch) SetTenantID(v string) *ReadingCreatePatch {
+func (p *ReadingCreatePatch) SetTenantID(v impulse.UUID) *ReadingCreatePatch {
 	p.patchSet.Set("TenantID", v)
 
 	return p
 }
 
-func (p *ReadingCreatePatch) TenantID() string {
-	v, _ := p.patchSet.Get("TenantID").(string)
+func (p *ReadingCreatePatch) TenantID() impulse.UUID {
+	v, _ := p.patchSet.Get("TenantID").(impulse.UUID)
 
 	return v
 }
@@ -546,14 +546,14 @@ func (p *ReadingUpdatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *ReadingUpdatePatch) SetTenantID(v string) *ReadingUpdatePatch {
+func (p *ReadingUpdatePatch) SetTenantID(v impulse.UUID) *ReadingUpdatePatch {
 	p.patchSet.Set("TenantID", v)
 
 	return p
 }
 
-func (p *ReadingUpdatePatch) TenantID() string {
-	v, _ := p.patchSet.Get("TenantID").(string)
+func (p *ReadingUpdatePatch) TenantID() impulse.UUID {
+	v, _ := p.patchSet.Get("TenantID").(impulse.UUID)
 
 	return v
 }

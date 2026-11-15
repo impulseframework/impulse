@@ -3,7 +3,7 @@
 -- refresh token of a device grant a command-line client obtained; the client holds an
 -- opaque secret and the row keeps its hash. A token acts as its user (UserId) on the one
 -- machine outlet it was issued for (Outlet) and is live while it is not revoked and not
--- expired. A device grant's tokens share a Family, and every successor a refresh
+-- expired. A device grant's tokens share a family (FamilyId), and every successor a refresh
 -- exchange issues joins it, so a rotated refresh token presented again revokes the
 -- family at once (RevokedReason 'reuse'). CreatedAt, LastUsedAt and RevokedAt take the
 -- commit time; ExpiresAt is the library's deadline, written as given.
@@ -14,7 +14,7 @@ CREATE TABLE SessionTokens (
     UserId        STRING(36) NOT NULL,
     Outlet        STRING(MAX) NOT NULL,
     Name          STRING(MAX),
-    Family        STRING(36),
+    FamilyId      STRING(36),
     ClientId      STRING(MAX),
     CreatedAt     TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt     TIMESTAMP NOT NULL,
@@ -29,7 +29,7 @@ CREATE TABLE SessionTokens (
 
 CREATE UNIQUE INDEX SessionTokensByTokenHash ON SessionTokens(TokenHash);
 CREATE INDEX SessionTokensByUser ON SessionTokens(UserId, RevokedAt, ExpiresAt);
-CREATE INDEX SessionTokensByFamily ON SessionTokens(Family, RevokedAt);
+CREATE INDEX SessionTokensByFamilyId ON SessionTokens(FamilyId, RevokedAt);
 
 -- Device codes: the device authorizations command-line clients start (RFC 8628). The
 -- client holds the opaque device code and the row keeps its hash; the person is shown

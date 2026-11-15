@@ -21,9 +21,9 @@ type (
 	Reading struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		TenantID   string    `spanner:"TenantId"`
-		Source     string    `spanner:"Source"`
-		Value      float64   `spanner:"Value"`
-		RecordedAt time.Time `spanner:"RecordedAt"`
+		TenantID   impulse.UUID `spanner:"TenantId"`
+		Source     string       `spanner:"Source"`
+		Value      float64      `spanner:"Value"`
+		RecordedAt time.Time    `spanner:"RecordedAt"`
 	}
 )

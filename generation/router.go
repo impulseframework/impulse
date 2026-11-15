@@ -16,8 +16,10 @@ import (
 	"github.com/impulseframework/impulse/resource/live"
 )
 
-// domainTestValue is the domain route parameter value used in generated router tests.
-const domainTestValue = "testDomain"
+// domainTestValue is the domain route parameter value used in generated router tests: a
+// tenant's key is an id, so the value is an id's text, which a tenancy column of
+// either kind takes (impulse.UUID, or a string holding the id).
+const domainTestValue = "7e57d0a1-0000-4000-8000-000000000000"
 
 func (r *resourceGenerator) runRouteGeneration() error {
 	begin := time.Now()
@@ -123,6 +125,7 @@ func (r *resourceGenerator) runRouteGeneration() error {
 		ServesSessions:         defaultOutlet.ServesSessions,
 		StubDomainGuard:        stubDomainGuard,
 		DomainRouteParam:       r.domainRouteParam,
+		DomainTestValue:        domainTestValue,
 		RoutePrefix:            r.routePrefix,
 		ConsolidatedRoute:      r.ConsolidatedRoute,
 		ExtraOutlets:           extraOutlets,

@@ -46,7 +46,7 @@ export const missionDocumentsConfig = rootConfig({
           field({ name: MissionDocuments.fieldName.fileName, label: 'File name', cols: 4 }),
           field({ name: MissionDocuments.fieldName.contentType, label: 'Content type', cols: 4 }),
           field({ name: MissionDocuments.fieldName.size, label: 'Size', cols: 4 }),
-          field({ name: MissionDocuments.fieldName.uploadedBy, label: 'Uploaded by', cols: 6 }),
+          field({ name: MissionDocuments.fieldName.uploadedByName, label: 'Uploaded by', cols: 6 }),
           field({ name: MissionDocuments.fieldName.uploadedAt, label: 'Uploaded at', cols: 6 }),
           field({ name: MissionDocuments.fieldName.digest, label: 'Digest', cols: 6 }),
           field({ name: MissionDocuments.fieldName.provenance, label: 'Provenance', cols: 6 }),

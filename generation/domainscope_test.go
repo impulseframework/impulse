@@ -62,7 +62,7 @@ func Test_resourceGenerator_routeBasePaths(t *testing.T) {
 			resourceName: "Widget",
 			domainScoped: true,
 			wantPath:     "/api/domains/{domain}/widgets",
-			wantTestURL:  "/api/domains/testDomain/widgets",
+			wantTestURL:  "/api/domains/7e57d0a1-0000-4000-8000-000000000000/widgets",
 		},
 		{
 			name:          "the tenant record names the segment pair",
@@ -71,7 +71,7 @@ func Test_resourceGenerator_routeBasePaths(t *testing.T) {
 			domainSegment: "organizations",
 			domainParam:   "organizationID",
 			wantPath:      "/api/organizations/{organizationID}/widgets",
-			wantTestURL:   "/api/organizations/testDomain/widgets",
+			wantTestURL:   "/api/organizations/7e57d0a1-0000-4000-8000-000000000000/widgets",
 		},
 	}
 
@@ -157,7 +157,7 @@ func Test_generatedRoute_prependDomainTestParam(t *testing.T) {
 			paramKey:     "domain",
 			params:       []routeTestParam{{Key: "widgetID", Value: "testWidgetID"}},
 			want: []routeTestParam{
-				{Key: "domain", Value: "testDomain"},
+				{Key: "domain", Value: "7e57d0a1-0000-4000-8000-000000000000"},
 				{Key: "widgetID", Value: "testWidgetID"},
 			},
 		},
@@ -165,7 +165,7 @@ func Test_generatedRoute_prependDomainTestParam(t *testing.T) {
 			name:         "domain scope on a paramless route with a custom param name",
 			domainScoped: true,
 			paramKey:     "organizationID",
-			want:         []routeTestParam{{Key: "organizationID", Value: "testDomain"}},
+			want:         []routeTestParam{{Key: "organizationID", Value: "7e57d0a1-0000-4000-8000-000000000000"}},
 		},
 	}
 
@@ -705,7 +705,7 @@ func Test_consolidatedTemplate_domainDispatch(t *testing.T) {
 					Seated:          true,
 				},
 				HasTenant:           true,
-				Seat:                &tenantSeatData{Record: "Sector", RecordLower: "sector", KeyType: "string", Auth: "Staff", IdentityAccessor: "StaffIdentity", RolesAccessor: "SectorAdministratorRoles"},
+				Seat:                &tenantSeatData{Record: "Sector", RecordLower: "sector", KeyType: "impulse.UUID", Auth: "Staff", IdentityAccessor: "StaffIdentity", RolesAccessor: "SectorAdministratorRoles"},
 				DomainCases:         []consolidatedCaseData{domainCase},
 				DomainRouteSegment:  "sectors",
 				DomainPatternPrefix: "/sectors/{sectorID}",
@@ -718,17 +718,25 @@ func Test_consolidatedTemplate_domainDispatch(t *testing.T) {
 			wantContains: []string{
 				"roles := a.SectorAdministratorRoles()",
 				"identity := a.StaffIdentity()",
-				"var created []string",
+				"var created []impulse.UUID",
 				"created = nil",
-				// A tenant an add-or-skip found there was created by nobody now.
-				"if patch.RowSkipped() {",
-				// The creator's roles, in the transaction that writes the row.
-				"if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id)), string(userPermissions.User()), role); err != nil {",
+				// The create generates the id, which the answer carries: the caller names
+				// none.
+				"patch, err := resources.NewSectorCreatePatchFromPatchSet(patchSet)",
+				`resp["sectors"] = append(resp["sectors"], patch.ID())`,
+				"id := patch.ID()",
+				// The creator's roles, in the transaction that writes the row, under the
+				// generated id, whose text is the tenant's domain.
+				"if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id.String())), userPermissions.User(), role); err != nil {",
 				"created = append(created, id)",
-				"for _, domain := range created {",
-				"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(domain)); err != nil {",
+				"for _, id := range created {",
+				"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(id.String())); err != nil {",
+				`logger.FromCtx(ctx).Errorf("sector %s: %v", id, err)`,
 				"return httpio.NewEncoder(w).ClientMessage(ctx, err)",
 			},
+			// No tenant's create takes its key from the caller, so no row it meets is
+			// there already: nothing is skipped, and no key is converted as a string.
+			wantNotContains: []string{"NewSectorCreatePatchFromPatchSet(id, patchSet)", "RowSkipped", "accesstypes.Domain(id))", "accesstypes.Domain(domain))"},
 		},
 		{
 			name: "concealed domains ask the roster, the session's reach, then the caller's foothold",
@@ -805,6 +813,22 @@ func Test_consolidatedTemplate_domainDispatch(t *testing.T) {
 				answer := strings.Index(rendered, "return httpio.NewEncoder(w).Ok(resp)")
 				if given < 0 || given >= commit || commit >= reload || reload >= seat || seat >= signal || signal >= answer {
 					t.Errorf("order: membership %d, commit %d, roster %d, wait %d, signal %d, answer %d; want ascending:\n%s", given, commit, reload, seat, signal, answer, out)
+				}
+				// The membership is the create's own: after the record's row is buffered
+				// and its generated id read, before the update's case of the same arm.
+				_, arm, found := strings.Cut(rendered, "resources.NewSectorCreatePatchFromPatchSet(patchSet)")
+				if !found {
+					t.Fatalf("the record's create is not rendered:\n%s", out)
+				}
+				row := strings.Index(arm, "patch.Buffer(ctx, txn, eventSource)")
+				generated := strings.Index(arm, "id := patch.ID()")
+				membership := strings.Index(arm, "identity.AssignRole(ctx, txn,")
+				update := strings.Index(arm, "case resource.OperationUpdate:")
+				if row < 0 || row >= generated || generated >= membership || membership >= update {
+					t.Errorf("order after the record's create: row %d, generated id %d, membership %d, update %d; want the membership in the record's create, under the id the row was buffered with:\n%s", row, generated, membership, update, out)
+				}
+				if count := strings.Count(rendered, "identity.AssignRole(ctx, txn,"); count != 1 {
+					t.Errorf("the dispatcher writes a membership in %d places, want the record's create alone:\n%s", count, out)
 				}
 			}
 		})

@@ -21,10 +21,10 @@ export interface AnnouncementsPatch {
 export type AnnouncementsKey = [id: string];
 
 /** The primary key of StaffRoles, in route order. */
-export type StaffRolesKey = [kind: string, axis: string, domain: string, role: string];
+export type StaffRolesKey = [kind: string, axis: string, domainId: string, role: string];
 
 /** The primary key of StaffRoleGrants, in route order. */
-export type StaffRoleGrantsKey = [kind: string, axis: string, domain: string, role: string, permission: string, resourceName: string, field: string, condition: string];
+export type StaffRoleGrantsKey = [kind: string, axis: string, domainId: string, role: string, permission: string, resourceName: string, field: string, condition: string];
 
 /** The primary key of StaffSessions, in route order. */
 export type StaffSessionsKey = [id: string];
@@ -63,14 +63,13 @@ export type StaffTenantUsersKey = [id: string];
 export type StaffTenantUserRolesKey = [userId: string, role: string];
 
 /** The primary key of StaffUserRoles, in route order. */
-export type StaffUserRolesKey = [kind: string, axis: string, domain: string, role: string, user: string];
+export type StaffUserRolesKey = [kind: string, axis: string, domainId: string, role: string, userId: string];
 
 /**
  * The fields a client may set when creating Tenants. Server-owned fields are
  * absent; a server-generated key is absent, a client-assigned key is required.
  */
 export interface TenantsCreate {
-  id: string;
   name: string;
   directoryOnly?: boolean;
 }
@@ -143,7 +142,7 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'staff-roles',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role'],
+      keys: ['kind', 'axis', 'domainId', 'role'],
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
@@ -154,7 +153,7 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'staff-role-grants',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role', 'permission', 'resourceName', 'field', 'condition'],
+      keys: ['kind', 'axis', 'domainId', 'role', 'permission', 'resourceName', 'field', 'condition'],
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
@@ -297,10 +296,10 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'staff-user-roles',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role', 'user'],
+      keys: ['kind', 'axis', 'domainId', 'role', 'userId'],
       operations: ['list'],
       page: { default: 25, max: 200 },
-      order: [{ field: 'user', direction: 'asc' }],
+      order: [{ field: 'userId', direction: 'asc' }],
     },
     [Resources.Tenants]: {
       resource: Resources.Tenants,
@@ -309,7 +308,7 @@ export const apiDescriptor = defineApiDescriptor({
       scope: 'global',
       consolidated: true,
       keys: ['id'],
-      operations: ['list', 'read', 'create', 'patch', 'remove', 'batch', 'patchOrAdd', 'addOrSkip'],
+      operations: ['list', 'read', 'create', 'patch', 'remove', 'batch'],
       page: { default: 50 },
       order: [{ field: 'name', direction: 'asc' }],
       patchable: ['name', 'directoryOnly'],
@@ -392,6 +391,7 @@ export const apiDescriptor = defineApiDescriptor({
       auth: 'Staff',
       label: 'Staff',
       tenant: 'Tenant',
+      tenantResource: Resources.Tenants,
       sides: [
         {
           scope: 'global',
@@ -412,13 +412,16 @@ export const apiDescriptor = defineApiDescriptor({
  * The create-your-tenant route (@tenant(creation: both)): POST create-tenant under the API
  * prefix, with the body below, through the application's HTTP client. A signed-in person who holds
  * no tenant creates one and becomes its administrator; a person who already holds one is
- * refused (403). The answer carries the new tenant's key.
+ * refused (403). The route generates the new tenant's id and answers it.
  */
 export const createTenantRoute = 'create-tenant';
-/** The body the create-your-tenant route takes: the Tenant record's fields with its key. */
+/** The body the create-your-tenant route takes: the Tenant record's fields, without its id. */
 export interface CreateTenant {
-  id: string;
   name: string;
+}
+/** The answer of the create-your-tenant route: the id of the tenant it created, the domain of its addresses. */
+export interface CreateTenantAnswer {
+  id: string;
 }
 
 /** Handles for the global scope, available on the client root. */
@@ -434,7 +437,7 @@ export interface GlobalApi {
   staffSessionTrustedDevices: ResourceHandle<StaffSessionTrustedDevices, StaffSessionTrustedDevicesKey, 'list' | 'read'>;
   staffSessionUsers: ResourceHandle<StaffSessionUsers, StaffSessionUsersKey, 'list' | 'read'>;
   staffUserRoles: ResourceHandle<StaffUserRoles, StaffUserRolesKey, 'list'>;
-  tenants: ResourceHandle<Tenants, TenantsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch' | 'patchOrAdd' | 'addOrSkip', TenantsCreate, TenantsPatch>;
+  tenants: ResourceHandle<Tenants, TenantsKey, 'list' | 'read' | 'create' | 'patch' | 'remove' | 'batch', TenantsCreate, TenantsPatch>;
   featureFlags: ResourceHandle<FeatureFlags, FeatureFlagsKey, 'list' | 'read'>;
   assignStaffRole: MethodHandle<AssignStaffRole>;
   createStaffUser: MethodHandle<CreateStaffUser, CreateStaffUserResult>;

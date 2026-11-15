@@ -34,10 +34,10 @@ type (
 		// @primarykey
 		PilotID impulse.UUID `spanner:"PilotId" index:"true"`
 		// @domain
-		SectorID    string `spanner:"SectorId"    index:"true"`
-		DisplayName string `spanner:"DisplayName" index:"true"`
-		Squadrons   int64  `spanner:"Squadrons"`
-		Clearance   int64  `spanner:"Clearance"`
+		SectorID    impulse.UUID `spanner:"SectorId"    index:"true"`
+		DisplayName string       `spanner:"DisplayName" index:"true"`
+		Squadrons   int64        `spanner:"Squadrons"`
+		Clearance   int64        `spanner:"Clearance"`
 		// @attribute(fliesElsewhere)
 		FliesElsewhere bool `spanner:"FliesElsewhere"`
 	}

@@ -63,8 +63,15 @@ func TestParse(t *testing.T) {
 	}
 }
 
+// The development tenants as the sensor names them: a tenant's key is an id, and
+// schema/devseed fixes the two.
+const (
+	north = "11111111-1111-4111-8111-111111111111"
+	south = "22222222-2222-4222-8222-222222222222"
+)
+
 // TestPostBody pins the consolidated patch a post sends: one add under the tenant's
-// readings, carrying the reading's create properties.
+// readings, the tenant named by its id, carrying the reading's create properties.
 func TestPostBody(t *testing.T) {
 	t.Parallel()
 
@@ -76,15 +83,15 @@ func TestPostBody(t *testing.T) {
 	}{
 		{
 			name:    "one reading under the tenant",
-			tenant:  "north",
+			tenant:  north,
 			reading: newReading{Source: "pump-7", Value: 21.5, RecordedAt: time.Date(2026, time.October, 27, 12, 0, 0, 0, time.UTC)},
-			want:    `[{"op":"add","path":"/tenants/north/readings","value":{"source":"pump-7","value":21.5,"recordedAt":"2026-10-27T12:00:00Z"}}]`,
+			want:    `[{"op":"add","path":"/tenants/` + north + `/readings","value":{"source":"pump-7","value":21.5,"recordedAt":"2026-10-27T12:00:00Z"}}]`,
 		},
 		{
 			name:    "a whole-number value",
-			tenant:  "south",
+			tenant:  south,
 			reading: newReading{Source: "gate", Value: 3, RecordedAt: time.Date(2026, time.October, 27, 12, 0, 0, 0, time.UTC)},
-			want:    `[{"op":"add","path":"/tenants/south/readings","value":{"source":"gate","value":3,"recordedAt":"2026-10-27T12:00:00Z"}}]`,
+			want:    `[{"op":"add","path":"/tenants/` + south + `/readings","value":{"source":"gate","value":3,"recordedAt":"2026-10-27T12:00:00Z"}}]`,
 		},
 	}
 	for _, tt := range tests {

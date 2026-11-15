@@ -301,8 +301,8 @@ func method(authn Authenticator, groups *groupSync, workspaces WorkspaceSet) *si
 		},
 	}
 	if groups != nil {
-		m.SyncRoles = func(ctx context.Context, username string, roleNames []string) error {
-			return groups.roles.RequireRoles(ctx, accesstypes.User(username), roleNames)
+		m.SyncRoles = func(ctx context.Context, user accesstypes.User, roleNames []string) error {
+			return groups.roles.RequireRoles(ctx, user, roleNames)
 		}
 		m.RecognizesRoles = func(ctx context.Context, roleNames []string) (bool, error) {
 			return groups.roles.RecognizesAny(ctx, roleNames)

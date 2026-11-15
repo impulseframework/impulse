@@ -11,7 +11,9 @@
     font-size: 0.75rem;
     letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: #a5640a;
+    // The theme's own muted text: the amber the bar carries does not hold its contrast
+    // on the tinted ground at this size.
+    color: var(--mat-sys-on-surface-variant);
     white-space: nowrap;
   }
 

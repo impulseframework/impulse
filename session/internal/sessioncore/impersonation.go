@@ -34,8 +34,10 @@ type ImpersonationRequest struct {
 	SourceSessionID impulse.NullUUID
 	// Principal is the authorization subject the session evaluates against:
 	// accesstypes.UserPrincipal for an impersonated user, or accesstypes.RolePrincipal
-	// for a role. Required. How a user principal becomes the session's identity depends
-	// on the session type — see StartImpersonatedSession on each API.
+	// for a role. Required. A user principal names the person as the permission store
+	// does: by the id of their account for a session type whose users are accounts
+	// (Auth), by the username for one that keeps none. How it becomes the session's
+	// identity depends on the session type — see StartImpersonatedSession on each API.
 	Principal accesstypes.Principal
 	// Mask attenuates the session to the listed permissions; the zero mask
 	// (accesstypes.AllowAll()) leaves it unrestricted, and
@@ -62,6 +64,11 @@ type IdentityResolver struct {
 	// name never means two users in one session table. Nil when the store has no
 	// username-keyed users.
 	Actor func(ctx context.Context, actor string) error
+	// Accounts reports a store whose people are accounts, named by id in the
+	// permission store: there a text that reads as an id is an account's, so an actor
+	// from another application whose name reads as one is refused, whatever the
+	// principal (refuseActorNamedAsAccount).
+	Accounts bool
 }
 
 // IdentityAsGiven is the resolver for session types with no username-keyed local user
@@ -101,12 +108,20 @@ func StartImpersonatedSession[T any](
 		return impulse.NilUUID, err
 	}
 
+	// A person is named by the id of their account in one text alone, the one every
+	// membership is held under: the record keeps that text, whatever form of the id the
+	// request gave.
+	principal := req.Principal
+	if _, ok := principal.User(); ok && resolve.Accounts {
+		principal = accesstypes.UserPrincipal(accesstypes.User(userID.String()))
+	}
+
 	now := time.Now()
 	imp := &sessioninfo.Impersonation{
 		Actor:           req.Actor,
 		ActorRealm:      req.ActorRealm,
 		SourceSessionID: req.SourceSessionID,
-		Principal:       req.Principal,
+		Principal:       principal,
 		Mask:            req.Mask,
 		Reason:          req.Reason,
 		StartedAt:       now,
@@ -140,6 +155,11 @@ func StartImpersonatedSession[T any](
 // with the zero UUID for a role principal (once the type's guard allows a foreign
 // actor's name), or the type's answer for a user principal.
 func impersonatedIdentity(ctx context.Context, req *ImpersonationRequest, resolve IdentityResolver) (username string, userID impulse.UUID, err error) {
+	if resolve.Accounts && req.ActorRealm != "" {
+		if err := refuseActorNamedAsAccount(req.Actor); err != nil {
+			return "", impulse.NilUUID, err
+		}
+	}
 	if role, ok := req.Principal.Role(); ok {
 		if role == "" {
 			return "", impulse.NilUUID, httpio.NewBadRequestMessage("impersonation requires a role name for a role principal")
@@ -164,6 +184,7 @@ func impersonatedIdentity(ctx context.Context, req *ImpersonationRequest, resolv
 // UserStore is the user lookup the identity resolver and the session user check
 // need: the Auth store and the legacy password store both have it.
 type UserStore interface {
+	User(ctx context.Context, id impulse.UUID) (*sessionstorage.SessionUser, error)
 	UserByUserName(ctx context.Context, username string) (*sessionstorage.SessionUser, error)
 }
 
@@ -178,15 +199,37 @@ func UserIdentity(storage UserStore) IdentityResolver {
 		Actor: func(ctx context.Context, actor string) error {
 			return refuseShadowedActor(ctx, storage, actor)
 		},
+		Accounts: true,
 	}
 }
 
-// impersonatedUser returns a user principal's SessionUsers username and ID. A
-// missing user is an error, and a disabled one is refused.
+// refuseActorNamedAsAccount refuses an actor from another application whose name reads
+// as the id of an account. The permission store names a person of this application by
+// the id of their account and an actor from elsewhere by the name the record carries
+// (Impersonation.ActorUser), so a name that reads as an id would be taken for the
+// account of that id wherever the actor is asked about: the row conditions of a session
+// that acts as a role, and the question whether the person behind a session is staff.
+// Every form the id parser reads is refused, not the canonical one alone.
+func refuseActorNamedAsAccount(actor string) error {
+	if _, err := impulse.UUIDFromString(actor); err == nil {
+		return httpio.NewBadRequestMessagef("the actor %q reads as the id of an account of this application: an actor from another application is named by a name that is not an id", actor)
+	}
+
+	return nil
+}
+
+// impersonatedUser returns a user principal's SessionUsers username and ID. The
+// principal names the user by the id of their account, as the permission store does: a
+// principal that is no id names nobody. A missing user is an error, and a disabled one
+// is refused.
 func impersonatedUser(ctx context.Context, storage UserStore, user accesstypes.User) (string, impulse.UUID, error) {
-	record, err := storage.UserByUserName(ctx, string(user))
+	id, err := impulse.UUIDFromString(string(user))
 	if err != nil {
-		return "", impulse.NilUUID, errors.Wrap(err, "UserStore.UserByUserName()")
+		return "", impulse.NilUUID, httpio.NewBadRequestMessageWithErrorf(err, "a user principal names the person by the id of their account, and %q is not one", string(user))
+	}
+	record, err := storage.User(ctx, id)
+	if err != nil {
+		return "", impulse.NilUUID, errors.Wrap(err, "UserStore.User()")
 	}
 	if record.Disabled {
 		return "", impulse.NilUUID, httpio.NewUnauthorizedMessage("User disabled")

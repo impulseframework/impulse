@@ -29,9 +29,9 @@ type (
 		// @primarykey
 		UserID string `spanner:"UserId" index:"true"`
 		// @domain
-		SectorID     string  `spanner:"SectorId"     index:"true"`
-		SquadronName string  `spanner:"SquadronName" index:"true"`
-		PilotName    *string `spanner:"PilotName"    index:"true"`
+		SectorID     impulse.UUID `spanner:"SectorId"     index:"true"`
+		SquadronName string       `spanner:"SquadronName" index:"true"`
+		PilotName    *string      `spanner:"PilotName"    index:"true"`
 		// @enumerate(Pilots)
 		PilotID impulse.NullUUID `spanner:"PilotId"`
 	}

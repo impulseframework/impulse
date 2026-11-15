@@ -29,12 +29,12 @@ func patchAs(t *testing.T, h http.Handler, user accesstypes.User, body string) (
 
 // removeOp is the consolidated delete of one mission document.
 func removeOp(id string) string {
-	return fmt.Sprintf(`[{"op":"remove","path":"/sectors/anvil/mission-documents/%s"}]`, id)
+	return fmt.Sprintf(`[{"op":"remove","path":"/sectors/%s/mission-documents/%s"}]`, anvil, id)
 }
 
 // retitleOp is the consolidated update of one mission document's title.
 func retitleOp(id, title string) string {
-	return fmt.Sprintf(`[{"op":"patch","path":"/sectors/anvil/mission-documents/%s","value":{"title":%q}}]`, id, title)
+	return fmt.Sprintf(`[{"op":"patch","path":"/sectors/%s/mission-documents/%s","value":{"title":%q}}]`, anvil, id, title)
 }
 
 // TestMissionDocument_release pins the release: the object a row held leaves the store

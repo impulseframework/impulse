@@ -22,7 +22,7 @@ func (a *App) OpenMissionsBySquadrons() http.HandlerFunc {
 	type openMissionsBySquadron struct {
 		SquadronID   impulse.UUID `json:"squadronId"   index:"true" perm:"-"`
 		SquadronName string       `json:"squadronName" index:"true"`
-		SectorID     string       `json:"sectorId"     index:"true" perm:"-"`
+		SectorID     impulse.UUID `json:"sectorId"     index:"true" perm:"-"`
 		OpenMissions int64        `json:"openMissions"`
 		NextDeadline *time.Time   `json:"nextDeadline"`
 	}
@@ -112,7 +112,7 @@ func (a *App) OpenMissionsBySquadron() http.HandlerFunc {
 	type response struct {
 		SquadronID   impulse.UUID `json:"squadronId"   index:"true" perm:"-"`
 		SquadronName string       `json:"squadronName"`
-		SectorID     string       `json:"sectorId"     index:"true" perm:"-"`
+		SectorID     impulse.UUID `json:"sectorId"     index:"true" perm:"-"`
 		OpenMissions int64        `json:"openMissions"`
 		NextDeadline *time.Time   `json:"nextDeadline"`
 	}
@@ -124,7 +124,7 @@ func (a *App) OpenMissionsBySquadron() http.HandlerFunc {
 		defer span.End()
 
 		squadronID := httpio.Param[impulse.UUID](r, router.OpenMissionsBySquadronSquadronID)
-		sectorID := httpio.Param[string](r, router.OpenMissionsBySquadronSectorID)
+		sectorID := httpio.Param[impulse.UUID](r, router.OpenMissionsBySquadronSectorID)
 
 		domain := httpio.Param[accesstypes.Domain](r, router.Domain)
 		querySet, err := decoder.Decode(r, a.UserPermissions(r), accesstypes.DomainScope(domain))

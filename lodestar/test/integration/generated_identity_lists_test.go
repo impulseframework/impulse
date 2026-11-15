@@ -15,8 +15,10 @@ package integration
 // sector's own crew: the rows of CrewSectorUserRoles whose role the sector itself gave
 // (everyDomain = false).
 //
-// The seed's crew are personas with no account in this world, so the test creates its
-// own people with the generated methods, each holding what its name says:
+// The seed's crew are personas with no account in this world: each holds its roles by
+// the id users.json gives it, and no row of the users table carries that id, so no list
+// of people shows a persona. The test creates its own people with the generated methods,
+// each holding what its name says:
 //
 //	ada   Cadet at Anvil, and nowhere else
 //	bo    Pilot at Anvil and at Bastion
@@ -37,6 +39,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewidentity"
 	"github.com/impulseframework/impulse/resource"
@@ -59,7 +62,7 @@ type tenantListsWorld struct {
 func newTenantListsWorld(t *testing.T) *tenantListsWorld {
 	t.Helper()
 	ctx := t.Context()
-	w := &tenantListsWorld{identityWorld: newIdentityWorld(t), ids: make(map[string]string)}
+	w := &tenantListsWorld{identityWorld: buildIdentityWorld(t, false), ids: make(map[string]string)}
 
 	anvilSector, bastionSector := anvil, bastion
 	type hold struct {
@@ -81,7 +84,10 @@ func newTenantListsWorld(t *testing.T) *tenantListsWorld {
 		{name: "fay", email: "fay@example.com", first: hold{role: "Cadet", domain: &anvilSector}, more: []hold{{role: "CrewCommon"}}},
 	}
 	// One transaction, as an application seats its people beside its own rows: a person
-	// is created holding a role, and the other roles are assigned by username.
+	// is created holding a role, and the other roles are given to the account the create
+	// made, by its id, through the identity client's AssignRole, which serves an account
+	// of its own transaction. The harness is told whose account each is, so a request
+	// made as the person runs as it.
 	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		for _, p := range people {
 			email := p.email
@@ -90,9 +96,14 @@ func newTenantListsWorld(t *testing.T) *tenantListsWorld {
 				return fmt.Errorf("CreateCrewUser(%s): %w", p.name, err)
 			}
 			w.ids[p.name] = created.ID.String()
+			knownAs(t, accesstypes.User(p.name), created.ID)
 			for _, h := range p.more {
-				if err := (&crewidentity.AssignCrewRole{Username: p.name, Role: h.role, Domain: h.domain, EveryDomain: h.everyDomain}).Execute(ctx, txn, w.app.CrewIdentity()); err != nil {
-					return fmt.Errorf("AssignCrewRole(%s, %s): %w", p.name, h.role, err)
+				scope, err := identity.Scope(h.domain, h.everyDomain)
+				if err != nil {
+					return fmt.Errorf("identity.Scope(%s, %s): %w", p.name, h.role, err)
+				}
+				if err := w.app.CrewIdentity().AssignRole(ctx, txn, scope, userOf(created.ID), accesstypes.Role(h.role)); err != nil {
+					return fmt.Errorf("crewidentity.Client.AssignRole(%s, %s): %w", p.name, h.role, err)
 				}
 			}
 		}

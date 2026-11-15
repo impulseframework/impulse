@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -18,7 +19,9 @@ import (
 const ImpersonationID httpio.ParamType = "impersonationID"
 
 // activeImpersonation is one live view-as or act-as-role session as the watch desk lists
-// it: who established it, as whom, why, and when it expires.
+// it: who established it, as whom, why, and when it expires. Both people are named by
+// username, which is what a person reads: Principal is the role's name, or the username
+// of the person viewed as, never the id of the account the record names them by.
 type activeImpersonation struct {
 	SessionID impulse.UUID `json:"sessionId"`
 	Actor     string       `json:"actor"`
@@ -49,7 +52,11 @@ func (a *App) ActiveImpersonations() http.HandlerFunc {
 
 		out := make([]activeImpersonation, 0, len(imps))
 		for _, imp := range imps {
-			out = append(out, describe(imp))
+			described, err := a.describe(ctx, imp)
+			if err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
+			out = append(out, described)
 		}
 
 		return httpio.NewEncoder(w).Ok(out)
@@ -94,8 +101,10 @@ func (a *App) checkWatchDesk(r *http.Request) error {
 	return nil
 }
 
-// describe flattens the library's record for the wire.
-func describe(imp *sessioninfo.Impersonation) activeImpersonation {
+// describe flattens the library's record for the wire. The record names the person
+// viewed as by the id of their account, so their username is read from the account; an
+// account deleted since the session began has no name left, and the entry carries none.
+func (a *App) describe(ctx context.Context, imp *sessioninfo.Impersonation) (activeImpersonation, error) {
 	out := activeImpersonation{
 		SessionID: imp.SessionID,
 		Actor:     imp.Actor,
@@ -105,9 +114,25 @@ func describe(imp *sessioninfo.Impersonation) activeImpersonation {
 	}
 	if role, ok := imp.Principal.Role(); ok {
 		out.Kind, out.Principal = kindRole, string(role)
-	} else if user, ok := imp.Principal.User(); ok {
-		out.Kind, out.Principal = kindUser, string(user)
+
+		return out, nil
+	}
+	user, ok := imp.Principal.User()
+	if !ok {
+		return out, nil
+	}
+	out.Kind = kindUser
+	id, err := impulse.UUIDFromString(string(user))
+	if err != nil {
+		return out, errors.Wrapf(err, "the impersonation record of session %s names a user who is no account", imp.SessionID)
+	}
+	account, err := a.API().User(ctx, id)
+	switch {
+	case err == nil:
+		out.Principal = account.Username
+	case !httpio.HasNotFound(err):
+		return out, errors.Wrap(err, "session.AuthAPI.User()")
 	}
 
-	return out
+	return out, nil
 }

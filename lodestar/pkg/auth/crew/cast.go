@@ -5,6 +5,7 @@ import (
 	_ "embed" // the cast rides in the binary
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cast"
@@ -38,13 +39,16 @@ func Cast() (*cast.Cast, error) {
 // SeedCast seeds the cast: a password-less crew login under each persona's login, with
 // the persona's name and address, seated in the roles the cast names, a global role in the global
 // partition and a domain role in every sector, as the administrator roles are. A persona
-// whose login exists is left as it is, so every start seeds the cast again harmlessly and
-// a persona added to the cast arrives at the next one. The memberships are written first,
-// since writing one that exists is a no-op, then the login: a run that fails between the
-// two leaves no login, so the next start finishes the job; a login another instance made
-// meanwhile is found and left. The persona sign-in links the provider's identity to the
-// login of the same name at the first sign-in (invited users only), so a persona the seed
-// never made is refused there. It answers how many logins it created.
+// whose login exists is left as it is, whatever it holds, so every start seeds the cast
+// again harmlessly and a persona added to the cast arrives at the next one. A role is
+// held by the id of an account, which is how the permission store names a person, so the
+// seed chooses the id of a persona's account (session.SeedUserID, the same on every run
+// and in every instance), writes the roles under it, and creates the login under it
+// last: a run that stops between the two is repeated at the next start, a login another
+// instance made meanwhile carries the same id and the same roles, and the seed never
+// gives a role to an account it did not create. The persona sign-in links the provider's
+// identity to the login of the same name at the first sign-in (invited users only), so a
+// persona the seed never made is refused there. It answers how many logins it created.
 func (a *Auth) SeedCast(ctx context.Context) (int, error) {
 	cast, err := Cast()
 	if err != nil {
@@ -58,15 +62,18 @@ func (a *Auth) SeedCast(ctx context.Context) (int, error) {
 	created := 0
 	for i := range cast.Personas {
 		p := &cast.Personas[i]
-		if _, err := api.UserByUsername(ctx, p.Login); err == nil {
-			continue
-		} else if !httpio.HasNotFound(err) {
-			return created, errors.Wrapf(err, "session.AuthAPI.UserByUsername(): %s", p.Login)
-		}
-		if err := a.seatPersona(ctx, roles, p); err != nil {
+		id := session.SeedUserID(Name, p.Login)
+		seeded, err := a.personaSeeded(ctx, p.Login, id)
+		if err != nil {
 			return created, err
 		}
-		req := &session.CreateUserRequest{Username: p.Login}
+		if seeded {
+			continue
+		}
+		if err := a.seatPersona(ctx, roles, p, id); err != nil {
+			return created, err
+		}
+		req := &session.CreateUserRequest{ID: impulse.NullUUIDFromUUID(id), Username: p.Login}
 		if p.Email != "" {
 			req.Email = &p.Email
 		}
@@ -74,11 +81,14 @@ func (a *Auth) SeedCast(ctx context.Context) (int, error) {
 			req.Name = &p.Name
 		}
 		if _, err := api.CreateSessionUser(ctx, req); err != nil {
-			if _, found := api.UserByUsername(ctx, p.Login); found == nil {
-				continue
+			// Another instance may have made the login between the read and the create,
+			// under the same id and with the same roles: the persona is seeded. A
+			// failure for any other reason is the seed's.
+			if _, found := api.UserByUsername(ctx, p.Login); found != nil {
+				return created, errors.Wrapf(err, "session.AuthAPI.CreateSessionUser(): %s", p.Login)
 			}
 
-			return created, errors.Wrapf(err, "session.AuthAPI.CreateSessionUser(): %s", p.Login)
+			continue
 		}
 		created++
 	}
@@ -86,10 +96,30 @@ func (a *Auth) SeedCast(ctx context.Context) (int, error) {
 	return created, nil
 }
 
-// seatPersona writes a persona's memberships, each role where the role file holds it: a
-// global role in the global partition, a domain role in every sector. A role the file
-// does not define is refused, since the seed names nothing the release does not.
-func (a *Auth) seatPersona(ctx context.Context, roles *access.RoleConfig, p *cast.Persona) error {
+// personaSeeded reports whether a persona needs no seeding: a login holds its name, or
+// the account the seed made for it exists under another name (a persona renamed since,
+// which keeps the id the seed chose). Either is left as it is.
+func (a *Auth) personaSeeded(ctx context.Context, login string, id impulse.UUID) (bool, error) {
+	api := a.handlers.API()
+	if _, err := api.UserByUsername(ctx, login); err == nil {
+		return true, nil
+	} else if !httpio.HasNotFound(err) {
+		return false, errors.Wrapf(err, "session.AuthAPI.UserByUsername(): %s", login)
+	}
+	if _, err := api.User(ctx, id); err == nil {
+		return true, nil
+	} else if !httpio.HasNotFound(err) {
+		return false, errors.Wrapf(err, "session.AuthAPI.User(): the account the seed chose for %s", login)
+	}
+
+	return false, nil
+}
+
+// seatPersona writes a persona's memberships, held by the id of its login's account,
+// each role where the role file holds it: a global role in the global partition, a
+// domain role in every sector. A role the file does not define is refused, since the
+// seed names nothing the release does not.
+func (a *Auth) seatPersona(ctx context.Context, roles *access.RoleConfig, p *cast.Persona, userID impulse.UUID) error {
 	var global, everyDomain []accesstypes.Role
 	for _, name := range p.Roles {
 		role := accesstypes.Role(name)
@@ -103,13 +133,14 @@ func (a *Auth) seatPersona(ctx context.Context, roles *access.RoleConfig, p *cas
 		}
 	}
 	manager := a.access.UserManager()
+	user := accesstypes.User(userID.String())
 	if len(global) > 0 {
-		if err := manager.AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), accesstypes.User(p.Login), global...); err != nil {
+		if err := manager.AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), user, global...); err != nil {
 			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): %s in the global partition", p.Login)
 		}
 	}
 	if len(everyDomain) > 0 {
-		if err := manager.AddUserRoles(ctx, accesstypes.EveryDomainPolicyScope(), accesstypes.User(p.Login), everyDomain...); err != nil {
+		if err := manager.AddUserRoles(ctx, accesstypes.EveryDomainPolicyScope(), user, everyDomain...); err != nil {
 			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): %s in every sector", p.Login)
 		}
 	}

@@ -13,10 +13,13 @@ import { environment } from '@env';
 import { firstValueFrom } from 'rxjs';
 import { NewTenantData, NewTenantDialogComponent } from './new-tenant-dialog.component';
 
+/** The id the server generates for the tenant the spec creates. */
+const west = '7d3f2a10-5b6c-4d7e-8f90-a1b2c3d4e5f6';
+
 /**
  * The server as the spec plays it through the client's transport: a session holding the
  * tenants listed, with an empty digest everywhere, and the consolidated route the record's
- * create goes through, answering the new key. The self-service post goes through
+ * create goes through, answering the id it generated. The self-service post goes through
  * HttpClient, which the testing controller answers below.
  */
 function server(domains: () => { domain: string; name: string }[]): (request: TransportRequest) => TransportResponse {
@@ -32,7 +35,7 @@ function server(domains: () => { domain: string; name: string }[]): (request: Tr
       case `GET ${environment.apiUrl}/features`:
         return { status: 200, body: { enabled: [] } };
       case `PATCH ${environment.apiUrl}/resources`:
-        return { status: 200, body: { tenants: ['west'] } };
+        return { status: 200, body: { tenants: [west] } };
       default:
         return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
     }
@@ -69,7 +72,7 @@ describe('NewTenantDialogComponent', () => {
 
   afterEach(() => http.verify());
 
-  it('renders the form for a session holding no tenant, submittable once the key and the name are filled', async () => {
+  it('renders the form for a session holding no tenant, submittable once the name is filled', async () => {
     await render({ selfService: true });
     const element: HTMLElement = fixture.nativeElement;
     expect(element.querySelector('h2')?.textContent).toContain('Create your tenant');
@@ -77,12 +80,10 @@ describe('NewTenantDialogComponent', () => {
     const submit = element.querySelector<HTMLButtonElement>('button[type="submit"]');
     expect(submit?.disabled).toBe(true);
 
-    fixture.componentInstance.form.setValue({ id: 'West', name: 'West' });
-    fixture.detectChanges();
-    expect(fixture.componentInstance.form.controls.id.hasError('pattern')).toBe(true);
-    expect(submit?.disabled).toBe(true);
+    // The name is all a person gives: the form asks for no key.
+    expect(element.querySelectorAll('input').length).toBe(1);
 
-    fixture.componentInstance.form.setValue({ id: 'west', name: 'West' });
+    fixture.componentInstance.form.setValue({ name: 'West' });
     fixture.detectChanges();
     expect(submit?.disabled).toBe(false);
   });
@@ -90,29 +91,29 @@ describe('NewTenantDialogComponent', () => {
   it('posts the record to the generated route, reloads what the session holds and opens the dashboard under the new tenant', async () => {
     await render({ selfService: true });
     const navigated = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
-    fixture.componentInstance.form.setValue({ id: 'west', name: 'West' });
+    fixture.componentInstance.form.setValue({ name: 'West' });
     const pending = fixture.componentInstance.create();
 
     const request = http.expectOne(`${environment.apiUrl}/${createTenantRoute}`);
     expect(request.request.method).toBe('POST');
-    expect(request.request.body).toEqual({ id: 'west', name: 'West' });
-    // The server has the tenant now: the reload lists it.
-    domains = [{ domain: 'west', name: 'West' }];
-    request.flush({ id: 'west' });
+    expect(request.request.body).toEqual({ name: 'West' });
+    // The server has the tenant now, under the id it generated: the reload lists it.
+    domains = [{ domain: west, name: 'West' }];
+    request.flush({ id: west });
     await pending;
 
-    expect(TestBed.inject(AuthService).domains()).toEqual(['west']);
+    expect(TestBed.inject(AuthService).domains()).toEqual([west]);
     // The guard on the tenant segment is the tenant's one writer: the dialog only navigates there.
     expect(TestBed.inject(TenantService).current()).toBe('');
-    expect(closed).toEqual(['west']);
-    expect(navigated).toHaveBeenCalledWith(['/', apiDescriptor.domainRoute.segment, 'west', 'dashboard']);
+    expect(closed).toEqual([west]);
+    expect(navigated).toHaveBeenCalledWith(['/', apiDescriptor.domainRoute.segment, west, 'dashboard']);
     expect(fixture.componentInstance.error()).toBe('');
   });
 
   it("reports the server's refusal in place and stays open", async () => {
     await render({ selfService: true });
     const navigated = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
-    fixture.componentInstance.form.setValue({ id: 'west', name: 'West' });
+    fixture.componentInstance.form.setValue({ name: 'West' });
     const pending = fixture.componentInstance.create();
 
     http
@@ -134,18 +135,42 @@ describe('NewTenantDialogComponent', () => {
     expect(navigated).not.toHaveBeenCalled();
   });
 
+  it('says a name another tenant carries is taken, in place, and stays open', async () => {
+    await render({ selfService: true });
+    const navigated = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+    fixture.componentInstance.form.setValue({ name: 'West' });
+    const pending = fixture.componentInstance.create();
+
+    // The server answers 409 in the words of its tables; the dialog says what the person can act on.
+    http
+      .expectOne(`${environment.apiUrl}/${createTenantRoute}`)
+      .flush(
+        { message: 'Tenants, StaffUserRoles: a record with this key or a unique value already exists.' },
+        { status: 409, statusText: 'Conflict' },
+      );
+    await pending;
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.error()).toBe('A tenant named West already exists. Choose another name.');
+    expect((fixture.nativeElement as HTMLElement).querySelector('.refusal')?.textContent).toContain(
+      'A tenant named West already exists',
+    );
+    expect(closed).toEqual([]);
+    expect(navigated).not.toHaveBeenCalled();
+  });
+
   it("creates the record through the client for an administrator and opens the record's page", async () => {
     await render({ selfService: false });
     const navigated = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
     expect((fixture.nativeElement as HTMLElement).querySelector('h2')?.textContent).toContain('New tenant');
-    fixture.componentInstance.form.setValue({ id: 'west', name: 'West' });
+    fixture.componentInstance.form.setValue({ name: 'West' });
     await fixture.componentInstance.create();
 
     const created = transport.requests.find((request) => request.method === 'PATCH');
     expect(created?.url).toBe(`${environment.apiUrl}/resources`);
-    // The key travels in the operation's path, the rest in its value.
-    expect(created?.body).toEqual([{ op: 'add', path: '/tenants/west', value: { name: 'West' } }]);
-    expect(closed).toEqual(['west']);
-    expect(navigated).toHaveBeenCalledWith(['/', 'tenants', 'west']);
+    // The create names no key: the server generates the id and answers it.
+    expect(created?.body).toEqual([{ op: 'add', path: '/tenants', value: { name: 'West' } }]);
+    expect(closed).toEqual([west]);
+    expect(navigated).toHaveBeenCalledWith(['/', 'tenants', west]);
   });
 });

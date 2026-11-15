@@ -14,7 +14,7 @@ type (
 	// them: a row for each person who holds a role in the tenant or in every tenant, with
 	// the columns of StaffSessionUser. A person is one account for the whole application, so
 	// the same person is a row in each tenant they hold a role in: the account's id is the
-	// key of a row within its tenant, and Domain, the tenant, holds the row to it.
+	// key of a row within its tenant, and DomainId, the tenant, holds the row to it.
 	//
 	// Two columns are facts about the person that no table holds, each under the name a
 	// grant's condition reads. HeldElsewhere (heldElsewhere) says the person also holds a
@@ -34,7 +34,7 @@ type (
 		// @primarykey
 		ID impulse.UUID `spanner:"Id" index:"true"`
 		// @domain
-		Domain                 string     `spanner:"Domain"                 index:"true"`
+		DomainID               string     `spanner:"DomainId"               index:"true"`
 		Username               string     `spanner:"Username"               index:"true"`
 		Name                   *string    `spanner:"Name"`
 		Email                  *string    `spanner:"Email"`
@@ -52,12 +52,12 @@ type (
 
 // staffTenantUserQuery selects the people of every tenant: who holds a role in a
 // tenant (StaffUserRoles, one tenant's memberships, and the memberships held in
-// every tenant once per row of Tenants), joined to the account by the exact
-// username a membership names its person by.
+// every tenant once per row of Tenants), joined to the account by the id a
+// membership names its person by.
 const staffTenantUserQuery = `
 SELECT
   u.Id AS Id,
-  t.Domain AS Domain,
+  t.DomainId AS DomainId,
   u.Username AS Username,
   u.Name AS Name,
   u.Email AS Email,
@@ -68,26 +68,26 @@ SELECT
   u.LastSignInAt AS LastSignInAt,
   (EXISTS (
     SELECT 1 FROM StaffUserRoles o
-    WHERE o.User = u.Username AND o.Kind = 'every' AND o.Axis = ''
+    WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
   ) OR EXISTS (
     SELECT 1 FROM StaffUserRoles o
-    WHERE o.User = u.Username AND o.Kind = 'domain' AND o.Axis = '' AND o.Domain != t.Domain
+    WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
   )) AS HeldElsewhere,
   EXISTS (
     SELECT 1 FROM StaffUserRoles g
-    WHERE g.User = u.Username AND g.Kind = 'global'
+    WHERE g.UserId = u.Id AND g.Kind = 'global'
   ) AS HeldGlobally
 FROM (
-  SELECT m.Domain AS Domain, m.User AS User
+  SELECT m.DomainId AS DomainId, m.UserId AS UserId
   FROM StaffUserRoles m
   WHERE m.Kind = 'domain' AND m.Axis = ''
   UNION DISTINCT
-  SELECT s.Id AS Domain, m.User AS User
+  SELECT s.Id AS DomainId, m.UserId AS UserId
   FROM StaffUserRoles@{FORCE_INDEX=_BASE_TABLE} m
   CROSS JOIN Tenants s
   WHERE m.Kind = 'every' AND m.Axis = ''
 ) t
-JOIN StaffSessionUsers u ON u.Username = t.User
+JOIN StaffSessionUsers u ON u.Id = t.UserId
 `
 
 // Subquery is the query the rows are read from.

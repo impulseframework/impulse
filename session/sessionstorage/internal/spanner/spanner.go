@@ -106,7 +106,7 @@ func (s *SessionStorageDriver) usernameIndex() string {
 
 // exactUsernameIndex is the unique index on the user table's username as written, named
 // after the table as the shipped DDL names it (<UserTable>ByUsername): the index a list
-// of people reads an account through when it starts from who holds a role.
+// of people in the order of their usernames can be read from.
 func (s *SessionStorageDriver) exactUsernameIndex() string {
 	return s.userTableName + "ByUsername"
 }

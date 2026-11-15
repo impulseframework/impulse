@@ -90,7 +90,7 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 	if held := rolesHeldInSector(ctx, t, governor, cinder, navigatorUser); !slices.Equal(held, []string{"SectorCrew"}) {
 		t.Fatalf("the navigator's roles at Cinder = %v, want SectorCrew alone, given by the directory's default seat", held)
 	}
-	pilot := jsonBody(t, map[string]any{"username": navigatorUser, "role": "Pilot", "everyDomain": true})
+	pilot := jsonBody(t, map[string]any{"userId": crewAccountID(ctx, t, governor, navigatorUser), "role": "Pilot", "everyDomain": true})
 	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), pilot); status != http.StatusNoContent {
 		t.Fatalf("giving the navigator the Pilot role in every sector: status %d: %s", status, body)
 	}

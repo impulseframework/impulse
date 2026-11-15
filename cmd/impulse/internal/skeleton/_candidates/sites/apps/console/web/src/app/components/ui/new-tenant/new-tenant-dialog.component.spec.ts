@@ -10,10 +10,13 @@ import { environment } from '@env';
 import { firstValueFrom } from 'rxjs';
 import { NewTenantDialogComponent } from './new-tenant-dialog.component';
 
+/** The id the server generates for the tenant the spec creates. */
+const west = '7d3f2a10-5b6c-4d7e-8f90-a1b2c3d4e5f6';
+
 /**
  * The server as the spec plays it: an administrator's session with an empty digest, and
- * the consolidated route the record's create goes through, answering the new key or, when
- * the key is taken, the server's refusal.
+ * the consolidated route the record's create goes through, answering the id it generated
+ * or, when another tenant carries the name, the server's refusal.
  */
 function server(taken: () => boolean): (request: TransportRequest) => TransportResponse {
   return (request) => {
@@ -29,8 +32,8 @@ function server(taken: () => boolean): (request: TransportRequest) => TransportR
         return { status: 200, body: { enabled: [] } };
       case `PATCH ${environment.apiUrl}/resources`:
         return taken()
-          ? { status: 409, body: { message: 'a tenant west already exists' } }
-          : { status: 200, body: { tenants: ['west'] } };
+          ? { status: 409, body: { message: 'Tenants: a record with this key or a unique value already exists.' } }
+          : { status: 200, body: { tenants: [west] } };
       default:
         return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
     }
@@ -59,44 +62,45 @@ describe('NewTenantDialogComponent', () => {
     fixture.detectChanges();
   });
 
-  it('is submittable once the key and the name are filled', () => {
+  it('is submittable once the name is filled', () => {
     const element: HTMLElement = fixture.nativeElement;
     expect(element.querySelector('h2')?.textContent).toContain('New tenant');
     const submit = element.querySelector<HTMLButtonElement>('button[type="submit"]');
     expect(submit?.disabled).toBe(true);
 
-    fixture.componentInstance.form.setValue({ id: 'West', name: 'West' });
-    fixture.detectChanges();
-    expect(fixture.componentInstance.form.controls.id.hasError('pattern')).toBe(true);
-    expect(submit?.disabled).toBe(true);
+    // The name is all a person gives: the form asks for no key.
+    expect(element.querySelectorAll('input').length).toBe(1);
 
-    fixture.componentInstance.form.setValue({ id: 'west', name: 'West' });
+    fixture.componentInstance.form.setValue({ name: 'West' });
     fixture.detectChanges();
     expect(submit?.disabled).toBe(false);
   });
 
   it("creates the record through the client and opens the record's page", async () => {
     const navigated = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
-    fixture.componentInstance.form.setValue({ id: 'west', name: 'West' });
+    fixture.componentInstance.form.setValue({ name: 'West' });
     await fixture.componentInstance.create();
 
     const created = transport.requests.find((request) => request.method === 'PATCH');
     expect(created?.url).toBe(`${environment.apiUrl}/resources`);
-    // The key travels in the operation's path, the rest in its value.
-    expect(created?.body).toEqual([{ op: 'add', path: '/tenants/west', value: { name: 'West' } }]);
-    expect(closed).toEqual(['west']);
-    expect(navigated).toHaveBeenCalledWith(['/', 'tenants', 'west']);
+    // The create names no key: the server generates the id and answers it.
+    expect(created?.body).toEqual([{ op: 'add', path: '/tenants', value: { name: 'West' } }]);
+    expect(closed).toEqual([west]);
+    expect(navigated).toHaveBeenCalledWith(['/', 'tenants', west]);
   });
 
-  it("reports the server's refusal in place and stays open", async () => {
+  it('says a name another tenant carries is taken, in place, and stays open', async () => {
     const navigated = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
     taken = true;
-    fixture.componentInstance.form.setValue({ id: 'west', name: 'West' });
+    fixture.componentInstance.form.setValue({ name: 'West' });
     await fixture.componentInstance.create();
     fixture.detectChanges();
 
-    expect(fixture.componentInstance.error()).toBe('a tenant west already exists');
-    expect((fixture.nativeElement as HTMLElement).querySelector('.refusal')?.textContent).toContain('already exists');
+    // The server answers 409 in the words of its tables; the dialog says what the person can act on.
+    expect(fixture.componentInstance.error()).toBe('A tenant named West already exists. Choose another name.');
+    expect((fixture.nativeElement as HTMLElement).querySelector('.refusal')?.textContent).toContain(
+      'A tenant named West already exists',
+    );
     expect(closed).toEqual([]);
     expect(navigated).not.toHaveBeenCalled();
   });

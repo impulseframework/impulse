@@ -124,8 +124,10 @@ func bindActorToSession(ctx context.Context, imp *sessioninfo.Impersonation) err
 // verifyLocalActor proves a local actor's claim. An actor with no ActorRealm is an
 // user of this application, so the request must name the actor's own session in
 // this store as SourceSessionID, and that session must be live, not itself impersonated,
-// and carry the actor's username. A foreign actor (ActorRealm set) was authenticated
-// elsewhere and has nothing here to check.
+// and carry the actor's username. The record then takes the actor's account from that
+// session (Impersonation.ActorID), which is what the permission store names the actor
+// by; a session type whose sessions belong to no account leaves it null. A foreign
+// actor (ActorRealm set) was authenticated elsewhere and has nothing here to check.
 func (s *BaseSession) verifyLocalActor(ctx context.Context, imp *sessioninfo.Impersonation) error {
 	if !imp.IsLocalActor() {
 		return nil
@@ -141,6 +143,7 @@ func (s *BaseSession) verifyLocalActor(ctx context.Context, imp *sessioninfo.Imp
 	if !s.live(src) || src.Impersonation != nil || src.Username != imp.Actor {
 		return httpio.NewForbiddenMessagef("session %s is not a live session of %q in this application", src.ID, imp.Actor)
 	}
+	imp.ActorID = src.UserID
 
 	return nil
 }
@@ -216,8 +219,9 @@ func (s *BaseSession) EndImpersonationAPI(ctx context.Context, w http.ResponseWr
 }
 
 // restorableSource loads a local actor's own session and reports whether they can be
-// returned to it: it is live, not itself impersonated, and still carries the actor's
-// username. A foreign actor's session lives in another application.
+// returned to it: it is live, not itself impersonated, and still the actor's, by the
+// account the record names or, for a session type whose sessions belong to no account,
+// by the username. A foreign actor's session lives in another application.
 func (s *BaseSession) restorableSource(ctx context.Context, imp *sessioninfo.Impersonation) (*sessioninfo.SessionData, bool) {
 	if !imp.IsLocalActor() || !imp.SourceSessionID.Valid {
 		return nil, false
@@ -231,7 +235,14 @@ func (s *BaseSession) restorableSource(ctx context.Context, imp *sessioninfo.Imp
 
 		return nil, false
 	}
-	if !s.live(src) || src.Impersonation != nil || src.Username != imp.Actor {
+	if !s.live(src) || src.Impersonation != nil {
+		return nil, false
+	}
+	if imp.ActorID.Valid || src.UserID.Valid {
+		if imp.ActorID != src.UserID {
+			return nil, false
+		}
+	} else if src.Username != imp.Actor {
 		return nil, false
 	}
 

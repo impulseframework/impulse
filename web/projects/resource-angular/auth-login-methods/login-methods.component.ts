@@ -137,7 +137,7 @@ export interface Landing {
  *
  * The mailed links the server sends all lead here, each with its token in the URL. An
  * invitation (`?invitation=`) is opened through the client on arrival and the card becomes
- * the invitation screen: "You're invited to <tenant>" and the address, over every way that
+ * the invitation screen: "You're invited to <the tenant's name>" and the address, over every way that
  * can accept this invitation for that address and none that cannot (`invitationPaths`). The
  * browser now carries the invitation, so the sign-in that follows accepts it and seats the
  * person with the roles it carried. A directory registration the server says could admit
@@ -431,7 +431,8 @@ export class LoginMethodsComponent implements OnInit {
 
   /** The invitation screen's heading: where the person is invited. */
   invitationTitle(invitation: OpenedInvitation): string {
-    return invitation.tenant === '' ? "You're invited" : `You're invited to ${invitation.tenant}`;
+    // The tenant's id says nothing to the person reading: the name, or no tenant at all.
+    return invitation.tenantName === '' ? "You're invited" : `You're invited to ${invitation.tenantName}`;
   }
 
   /**
@@ -882,7 +883,8 @@ export class LoginMethodsComponent implements OnInit {
     }
     await this.keepInvitation({
       email: result.email,
-      tenant: result.tenant,
+      tenantId: result.tenantId,
+      tenantName: result.tenantName,
       expiresAt: result.expiresAt,
       signUp: result.signUp,
       usernameIsEmail: result.usernameIsEmail,
@@ -907,7 +909,8 @@ export class LoginMethodsComponent implements OnInit {
     }
     return {
       email: standing.email,
-      tenant: standing.tenant,
+      tenantId: standing.tenantId,
+      tenantName: standing.tenantName,
       expiresAt: standing.expiresAt,
       signUp: block.signUp !== undefined,
       usernameIsEmail: standing.usernameIsEmail,

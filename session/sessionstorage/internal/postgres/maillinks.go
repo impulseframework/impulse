@@ -16,22 +16,22 @@ import (
 )
 
 // mailLinkColumns are the mail links table's columns, in mailLinkRow's order.
-const mailLinkColumns = `"Id", "TokenHash", "Kind", "Email", "UserId", "Tenant", "RoleNames", "InvitedBy", "CreatedAt", "ExpiresAt", "ConsumedAt", "Name"`
+const mailLinkColumns = `"Id", "TokenHash", "Kind", "Email", "UserId", "TenantId", "RoleNames", "InvitedByUserId", "CreatedAt", "ExpiresAt", "ConsumedAt", "Name"`
 
 // mailLinkRow is a mail link as the table holds it.
 type mailLinkRow struct {
-	ID         impulse.UUID  `db:"Id"`
-	TokenHash  []byte        `db:"TokenHash"`
-	Kind       string        `db:"Kind"`
-	Email      string        `db:"Email"`
-	UserID     *impulse.UUID `db:"UserId"`
-	Tenant     *string       `db:"Tenant"`
-	RoleNames  []string      `db:"RoleNames"`
-	InvitedBy  *impulse.UUID `db:"InvitedBy"`
-	CreatedAt  time.Time     `db:"CreatedAt"`
-	ExpiresAt  time.Time     `db:"ExpiresAt"`
-	ConsumedAt *time.Time    `db:"ConsumedAt"`
-	Name       *string       `db:"Name"`
+	ID              impulse.UUID  `db:"Id"`
+	TokenHash       []byte        `db:"TokenHash"`
+	Kind            string        `db:"Kind"`
+	Email           string        `db:"Email"`
+	UserID          *impulse.UUID `db:"UserId"`
+	TenantID        *string       `db:"TenantId"`
+	RoleNames       []string      `db:"RoleNames"`
+	InvitedByUserID *impulse.UUID `db:"InvitedByUserId"`
+	CreatedAt       time.Time     `db:"CreatedAt"`
+	ExpiresAt       time.Time     `db:"ExpiresAt"`
+	ConsumedAt      *time.Time    `db:"ConsumedAt"`
+	Name            *string       `db:"Name"`
 }
 
 func (r *mailLinkRow) link() *dbtype.MailLink {
@@ -42,11 +42,11 @@ func (r *mailLinkRow) link() *dbtype.MailLink {
 	if r.UserID != nil {
 		l.UserID = impulse.NullUUIDFromUUID(*r.UserID)
 	}
-	if r.Tenant != nil {
-		l.Tenant = *r.Tenant
+	if r.TenantID != nil {
+		l.TenantID = *r.TenantID
 	}
-	if r.InvitedBy != nil {
-		l.InvitedBy = impulse.NullUUIDFromUUID(*r.InvitedBy)
+	if r.InvitedByUserID != nil {
+		l.InvitedByUserID = impulse.NullUUIDFromUUID(*r.InvitedByUserID)
 	}
 	if r.Name != nil {
 		l.Name = *r.Name
@@ -72,11 +72,11 @@ func (s *SessionStorageDriver) InsertMailLink(ctx context.Context, l *dbtype.Mai
 	if l.UserID.Valid {
 		userID = &l.UserID.UUID
 	}
-	if l.InvitedBy.Valid {
-		invitedBy = &l.InvitedBy.UUID
+	if l.InvitedByUserID.Valid {
+		invitedBy = &l.InvitedByUserID.UUID
 	}
 	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, NULL, $10)`, s.mailLinksTable(), mailLinkColumns)
-	args := []any{l.ID, l.TokenHash, string(l.Kind), l.Email, userID, dbtype.OptionalString(l.Tenant), l.RoleNames, invitedBy, l.ExpiresAt, dbtype.OptionalString(l.Name)}
+	args := []any{l.ID, l.TokenHash, string(l.Kind), l.Email, userID, dbtype.OptionalString(l.TenantID), l.RoleNames, invitedBy, l.ExpiresAt, dbtype.OptionalString(l.Name)}
 	if _, err := s.conn.Exec(ctx, query, args...); err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
 	}

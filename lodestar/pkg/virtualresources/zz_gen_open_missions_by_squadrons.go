@@ -28,7 +28,7 @@ func (OpenMissionsBySquadron) DefaultConfig() resource.Config {
 type openMissionsBySquadronRead struct {
 	SquadronID   impulse.UUID `json:"squadronId"   perm:"-"`
 	SquadronName string       `json:"squadronName"`
-	SectorID     string       `json:"sectorId"     perm:"-"`
+	SectorID     impulse.UUID `json:"sectorId"     perm:"-"`
 	OpenMissions int64        `json:"openMissions"`
 	NextDeadline *time.Time   `json:"nextDeadline"`
 }
@@ -61,14 +61,14 @@ func (q *OpenMissionsBySquadronQuery) SquadronID() impulse.UUID {
 	return v
 }
 
-func (q *OpenMissionsBySquadronQuery) SetSectorID(v string) *OpenMissionsBySquadronQuery {
+func (q *OpenMissionsBySquadronQuery) SetSectorID(v impulse.UUID) *OpenMissionsBySquadronQuery {
 	q.qSet.SetKey("SectorID", v)
 
 	return q
 }
 
-func (q *OpenMissionsBySquadronQuery) SectorID() string {
-	v, _ := q.qSet.Key("SectorID").(string)
+func (q *OpenMissionsBySquadronQuery) SectorID() impulse.UUID {
+	v, _ := q.qSet.Key("SectorID").(impulse.UUID)
 
 	return v
 }
@@ -211,8 +211,8 @@ func (p OpenMissionsBySquadronQueryPartialClause) SquadronName() OpenMissionsByS
 	return OpenMissionsBySquadronQueryIdent[string]{Ident: resource.NewIdent[string]("SquadronName", p.partialClause, true)}
 }
 
-func (p OpenMissionsBySquadronQueryPartialClause) SectorID() OpenMissionsBySquadronQueryIdent[string] {
-	return OpenMissionsBySquadronQueryIdent[string]{Ident: resource.NewIdent[string]("SectorID", p.partialClause, true)}
+func (p OpenMissionsBySquadronQueryPartialClause) SectorID() OpenMissionsBySquadronQueryIdent[impulse.UUID] {
+	return OpenMissionsBySquadronQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("SectorID", p.partialClause, true)}
 }
 
 type OpenMissionsBySquadronQueryClause struct {

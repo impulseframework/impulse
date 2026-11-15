@@ -37,17 +37,18 @@ func (MissionDocument) FileKeys() []resource.FileKey {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; missionDocumentReadSets holds one Set per read operation.
 type missionDocumentRead struct {
-	ID          impulse.UUID            `json:"id"          perm:"-"`
-	MissionID   impulse.UUID            `json:"missionId"`
-	Title       string                  `json:"title"`
-	FileName    string                  `json:"fileName"`
-	ContentType string                  `json:"contentType"`
-	Size        int64                   `json:"size"`
-	StoreKey    resource.Key[Documents] `json:"-"`
-	UploadedBy  string                  `json:"uploadedBy"`
-	UploadedAt  time.Time               `json:"uploadedAt"`
-	Provenance  *Provenance             `json:"provenance"`
-	Digest      []byte                  `json:"digest"`
+	ID               impulse.UUID            `json:"id"               perm:"-"`
+	MissionID        impulse.UUID            `json:"missionId"`
+	Title            string                  `json:"title"`
+	FileName         string                  `json:"fileName"`
+	ContentType      string                  `json:"contentType"`
+	Size             int64                   `json:"size"`
+	StoreKey         resource.Key[Documents] `json:"-"`
+	UploadedByUserID string                  `json:"uploadedByUserId"`
+	UploadedByName   string                  `json:"uploadedByName"`
+	UploadedAt       time.Time               `json:"uploadedAt"`
+	Provenance       *Provenance             `json:"provenance"`
+	Digest           []byte                  `json:"digest"`
 }
 
 var missionDocumentReadSets resource.SetCache[MissionDocument, missionDocumentRead]
@@ -56,17 +57,18 @@ var missionDocumentReadSets resource.SetCache[MissionDocument, missionDocumentRe
 // accept on a mutation, so a patch armed with Enforce meets the field permissions the
 // routes enforce; missionDocumentWriteSets holds one Set per mutation.
 type missionDocumentWrite struct {
-	ID          impulse.UUID            `json:"-"`
-	MissionID   impulse.UUID            `json:"missionId"`
-	Title       string                  `json:"title"`
-	FileName    string                  `json:"fileName"`
-	ContentType string                  `json:"contentType"`
-	Size        int64                   `json:"size"`
-	StoreKey    resource.Key[Documents] `json:"-"`
-	UploadedBy  string                  `json:"uploadedBy"`
-	UploadedAt  time.Time               `json:"uploadedAt"`
-	Provenance  *Provenance             `json:"provenance"`
-	Digest      []byte                  `json:"digest"      sqltype:"BYTES(32)"`
+	ID               impulse.UUID            `json:"-"`
+	MissionID        impulse.UUID            `json:"missionId"`
+	Title            string                  `json:"title"`
+	FileName         string                  `json:"fileName"`
+	ContentType      string                  `json:"contentType"`
+	Size             int64                   `json:"size"`
+	StoreKey         resource.Key[Documents] `json:"-"`
+	UploadedByUserID string                  `json:"uploadedByUserId" sqltype:"STRING(36)"`
+	UploadedByName   string                  `json:"-"`
+	UploadedAt       time.Time               `json:"uploadedAt"`
+	Provenance       *Provenance             `json:"provenance"`
+	Digest           []byte                  `json:"digest"           sqltype:"BYTES(32)"`
 }
 
 var missionDocumentWriteSets resource.SetCache[MissionDocument, missionDocumentWrite]
@@ -182,7 +184,8 @@ func (c *MissionDocumentColumns) All() *MissionDocumentColumns {
 		"ContentType",
 		"Size",
 		"StoreKey",
-		"UploadedBy",
+		"UploadedByUserID",
+		"UploadedByName",
 		"UploadedAt",
 		"Provenance",
 		"Digest",
@@ -233,8 +236,14 @@ func (c *MissionDocumentColumns) StoreKey() *MissionDocumentColumns {
 	return c
 }
 
-func (c *MissionDocumentColumns) UploadedBy() *MissionDocumentColumns {
-	c.fields = append(c.fields, "UploadedBy")
+func (c *MissionDocumentColumns) UploadedByUserID() *MissionDocumentColumns {
+	c.fields = append(c.fields, "UploadedByUserID")
+
+	return c
+}
+
+func (c *MissionDocumentColumns) UploadedByName() *MissionDocumentColumns {
+	c.fields = append(c.fields, "UploadedByName")
 
 	return c
 }
@@ -371,8 +380,12 @@ func (c *missionDocumentSort) StoreKey() *MissionDocumentSort {
 	return c.addField("StoreKey")
 }
 
-func (c *missionDocumentSort) UploadedBy() *MissionDocumentSort {
-	return c.addField("UploadedBy")
+func (c *missionDocumentSort) UploadedByUserID() *MissionDocumentSort {
+	return c.addField("UploadedByUserID")
+}
+
+func (c *missionDocumentSort) UploadedByName() *MissionDocumentSort {
+	return c.addField("UploadedByName")
 }
 
 func (c *missionDocumentSort) UploadedAt() *MissionDocumentSort {
@@ -570,20 +583,36 @@ func (p *MissionDocumentCreatePatch) StoreKeyIsSet() bool {
 	return p.patchSet.IsSet("StoreKey")
 }
 
-func (p *MissionDocumentCreatePatch) SetUploadedBy(v string) *MissionDocumentCreatePatch {
-	p.patchSet.Set("UploadedBy", v)
+func (p *MissionDocumentCreatePatch) SetUploadedByUserID(v string) *MissionDocumentCreatePatch {
+	p.patchSet.Set("UploadedByUserID", v)
 
 	return p
 }
 
-func (p *MissionDocumentCreatePatch) UploadedBy() string {
-	v, _ := p.patchSet.Get("UploadedBy").(string)
+func (p *MissionDocumentCreatePatch) UploadedByUserID() string {
+	v, _ := p.patchSet.Get("UploadedByUserID").(string)
 
 	return v
 }
 
-func (p *MissionDocumentCreatePatch) UploadedByIsSet() bool {
-	return p.patchSet.IsSet("UploadedBy")
+func (p *MissionDocumentCreatePatch) UploadedByUserIDIsSet() bool {
+	return p.patchSet.IsSet("UploadedByUserID")
+}
+
+func (p *MissionDocumentCreatePatch) SetUploadedByName(v string) *MissionDocumentCreatePatch {
+	p.patchSet.Set("UploadedByName", v)
+
+	return p
+}
+
+func (p *MissionDocumentCreatePatch) UploadedByName() string {
+	v, _ := p.patchSet.Get("UploadedByName").(string)
+
+	return v
+}
+
+func (p *MissionDocumentCreatePatch) UploadedByNameIsSet() bool {
+	return p.patchSet.IsSet("UploadedByName")
 }
 
 func (p *MissionDocumentCreatePatch) SetUploadedAt(v time.Time) *MissionDocumentCreatePatch {
@@ -826,20 +855,36 @@ func (p *MissionDocumentUpdatePatch) StoreKeyIsSet() bool {
 	return p.patchSet.IsSet("StoreKey")
 }
 
-func (p *MissionDocumentUpdatePatch) SetUploadedBy(v string) *MissionDocumentUpdatePatch {
-	p.patchSet.Set("UploadedBy", v)
+func (p *MissionDocumentUpdatePatch) SetUploadedByUserID(v string) *MissionDocumentUpdatePatch {
+	p.patchSet.Set("UploadedByUserID", v)
 
 	return p
 }
 
-func (p *MissionDocumentUpdatePatch) UploadedBy() string {
-	v, _ := p.patchSet.Get("UploadedBy").(string)
+func (p *MissionDocumentUpdatePatch) UploadedByUserID() string {
+	v, _ := p.patchSet.Get("UploadedByUserID").(string)
 
 	return v
 }
 
-func (p *MissionDocumentUpdatePatch) UploadedByIsSet() bool {
-	return p.patchSet.IsSet("UploadedBy")
+func (p *MissionDocumentUpdatePatch) UploadedByUserIDIsSet() bool {
+	return p.patchSet.IsSet("UploadedByUserID")
+}
+
+func (p *MissionDocumentUpdatePatch) SetUploadedByName(v string) *MissionDocumentUpdatePatch {
+	p.patchSet.Set("UploadedByName", v)
+
+	return p
+}
+
+func (p *MissionDocumentUpdatePatch) UploadedByName() string {
+	v, _ := p.patchSet.Get("UploadedByName").(string)
+
+	return v
+}
+
+func (p *MissionDocumentUpdatePatch) UploadedByNameIsSet() bool {
+	return p.patchSet.IsSet("UploadedByName")
 }
 
 func (p *MissionDocumentUpdatePatch) SetUploadedAt(v time.Time) *MissionDocumentUpdatePatch {

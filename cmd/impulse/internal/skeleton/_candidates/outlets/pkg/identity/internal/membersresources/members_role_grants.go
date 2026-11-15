@@ -24,7 +24,7 @@ type (
 	MembersRoleGrant struct {
 		Kind         string    `spanner:"Kind"`
 		Axis         string    `spanner:"Axis"`
-		Domain       string    `spanner:"Domain"`
+		DomainID     string    `spanner:"DomainId"`
 		Role         string    `spanner:"Role"`
 		Permission   string    `spanner:"Permission"`
 		ResourceName string    `spanner:"Resource"`

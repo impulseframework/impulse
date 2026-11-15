@@ -203,6 +203,11 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 		return nil, err
 	}
 	conf.members = membersAuth
+	// The invitation screen is read by a person not yet signed in, who can read no
+	// tenant record: the roster names the tenant an invitation seats them in, from its
+	// copy, so the screen says where they are invited and not the tenant's id.
+	crewAuth.Session().SetTenantNames(tenants)
+	membersAuth.Session().SetTenantNames(tenants)
 
 	return conf, nil
 }

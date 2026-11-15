@@ -31,7 +31,7 @@ import (
 
 // scale is one preset of the synthetic world's size.
 type scale struct {
-	sectors           int // synthetic sectors, added beside anvil, bastion, and cinder
+	sectors           int // synthetic sectors, added beside Anvil, Bastion, and Cinder
 	wingsPerSector    int
 	squadronsPerWing  int
 	usersPerSquadron  int
@@ -48,8 +48,14 @@ var scales = map[string]scale{
 
 // The seeded rows the synthetic world attaches to.
 const (
-	anvil          = "anvil"
-	forgeWingID    = "40000000-0000-4000-8000-000000000001"
+	anvilID     = "a1111111-1111-4111-8111-111111111111"
+	forgeWingID = "40000000-0000-4000-8000-000000000001"
+	// The booking agent of the cast books every synthetic mission: BookedByUserID holds the
+	// id of her account (cmd/bootstrap/users.json), which is how the permission store
+	// names a person, and BookedByName her username, which is what a page shows.
+	bookingAgentID   = "f0000000-0000-4000-8000-000000000009"
+	bookingAgentName = "booking"
+
 	rowsPerCommit  = 1000
 	sortieEvery    = 5 // one sortie per this many missions
 	reportsPerShip = 2
@@ -240,15 +246,36 @@ type world struct {
 // sectorIDs lists every sector the world spans: Anvil first, then the synthetic ones.
 func (w *world) sectorIDs() []string {
 	ids := make([]string, 0, w.s.sectors+1)
-	ids = append(ids, anvil)
+	ids = append(ids, anvilID)
 	for i := range w.s.sectors {
-		ids = append(ids, fmt.Sprintf("vol-%03d", i))
+		ids = append(ids, syntheticSectorID(i))
 	}
 
 	return ids
 }
 
+// sectorNames lists the sectors' names in the order of sectorIDs: a sector's key is an
+// id, so the rows that name a sector in their own text name it by this.
+func (w *world) sectorNames() []string {
+	names := make([]string, 0, w.s.sectors+1)
+	names = append(names, "Anvil")
+	for i := range w.s.sectors {
+		names = append(names, sectorName(i))
+	}
+
+	return names
+}
+
+// sectorName is a synthetic sector's name, unique as the Sectors table requires.
+func sectorName(i int) string {
+	return fmt.Sprintf("Volume sector %03d", i)
+}
+
 // Identifier schemes: valid UUIDs under a hex prefix the seed never uses.
+func syntheticSectorID(i int) string {
+	return fmt.Sprintf("e9000000-0000-4000-8000-%012d", i)
+}
+
 func wingID(sector, i int) string {
 	return fmt.Sprintf("e1000000-0000-4000-8000-%06d%06d", sector, i)
 }
@@ -281,8 +308,11 @@ func reportID(sector, i int) string {
 	return fmt.Sprintf("e8000000-0000-4000-8000-%04d%08d", sector, i)
 }
 
+// userID names a synthetic pilot the way every row names a person: by an account id.
+// Nobody signs in as one, so no account stands behind it; the id only has the shape the
+// columns that anchor a person hold (SquadronMemberships.UserId, Sorties.PilotUserId).
 func userID(sector, i int) string {
-	return fmt.Sprintf("vol-user-%03d-%05d", sector, i)
+	return fmt.Sprintf("ea000000-0000-4000-8000-%04d%08d", sector, i)
 }
 
 // wingIDs lists a sector's wings: Anvil keeps Forge Wing and gains the rest.
@@ -324,7 +354,7 @@ func (w *world) shipIDs(sector int) []string {
 func (w *world) sectors(ctx context.Context) error {
 	for i, id := range w.sectorIDs()[1:] {
 		m := spanner.InsertMap("Sectors", map[string]any{
-			colID: id, colName: fmt.Sprintf("Volume sector %03d", i), "Region": "Synthetic reach",
+			colID: id, colName: sectorName(i), "Region": "Synthetic reach",
 			"Established": civil.Date{Year: 2200 + i%50, Month: time.January, Day: 1},
 		})
 		if err := w.loader.add(ctx, m); err != nil {
@@ -336,12 +366,13 @@ func (w *world) sectors(ctx context.Context) error {
 }
 
 func (w *world) wings(ctx context.Context) error {
+	names := w.sectorNames()
 	for sector, sectorID := range w.sectorIDs() {
 		for i, id := range w.wingIDs(sector) {
 			if id == forgeWingID {
 				continue
 			}
-			m := spanner.InsertMap("Wings", map[string]any{colID: id, colSectorID: sectorID, colName: fmt.Sprintf("Wing %d of %s", i, sectorID)})
+			m := spanner.InsertMap("Wings", map[string]any{colID: id, colSectorID: sectorID, colName: fmt.Sprintf("Wing %d of %s", i, names[sector])})
 			if err := w.loader.add(ctx, m); err != nil {
 				return err
 			}
@@ -442,6 +473,7 @@ func (w *world) ships(ctx context.Context) error {
 // every other one.
 func (w *world) missions(ctx context.Context) error {
 	now := time.Now().UTC()
+	names := w.sectorNames()
 	for sector, sectorID := range w.sectorIDs() {
 		squadrons := w.squadronIDs(sector)
 		if sector == 0 {
@@ -452,9 +484,9 @@ func (w *world) missions(ctx context.Context) error {
 			status := statuses[i%len(statuses)]
 			row := map[string]any{
 				colID: missionID(sector, i), colSectorID: sectorID, "ClientId": clientID(i % w.s.clients), "KindId": kinds[i%len(kinds)],
-				"Title": fmt.Sprintf("Volume mission %d in %s", i, sectorID), "Hazard": int64(1 + i%5),
+				"Title": fmt.Sprintf("Volume mission %d in %s", i, names[sector]), "Hazard": int64(1 + i%5),
 				"Fee": big.NewRat(int64(1000+(i*7919)%99000), 1), "Deadline": now.Add(time.Duration(i%daySpread-daySpread/2) * 24 * time.Hour),
-				"BookedBy": "booking", "StatusId": status,
+				"BookedByUserId": bookingAgentID, "BookedByName": bookingAgentName, "StatusId": status,
 			}
 			if i%certifiedEvery == 0 {
 				row["RequiredCertId"] = certs[i%len(certs)]

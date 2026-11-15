@@ -13,8 +13,9 @@ type (
 	// CrewSessionImpersonation is the record of one session of the Crew auth that
 	// was established as someone or something else: a row of
 	// CrewSessionImpersonations, keyed by the session and kept after it as evidence.
-	// The actor is who established it (ActorRealm is empty for a person of this auth),
-	// the principal the user or the role it acts as, and Mask the permissions it is
+	// The actor is who established it (ActorRealm is empty for a person of this auth,
+	// whose account ActorUserID names), the principal the role it acts as or the user,
+	// named by the id of their account, and Mask the permissions it is
 	// held to (none set is unrestricted). The record is the authority on whether the
 	// session still stands: one that has ended (EndedAt) is refused whatever its
 	// session row says.
@@ -27,10 +28,11 @@ type (
 	CrewSessionImpersonation struct {
 		SessionID       impulse.UUID  `spanner:"SessionId"`
 		ActorUsername   string        `spanner:"ActorUsername"`
+		ActorUserID     *impulse.UUID `spanner:"ActorUserId"`
 		ActorRealm      *string       `spanner:"ActorRealm"`
 		SourceSessionID *impulse.UUID `spanner:"SourceSessionId"`
 		PrincipalKind   string        `spanner:"PrincipalKind"`
-		PrincipalUser   *string       `spanner:"PrincipalUser"`
+		PrincipalUserID *string       `spanner:"PrincipalUserId"`
 		PrincipalRole   *string       `spanner:"PrincipalRole"`
 		Mask            *string       `spanner:"Mask"`
 		Reason          *string       `spanner:"Reason"`

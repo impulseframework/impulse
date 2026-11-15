@@ -15,7 +15,7 @@ import (
 )
 
 // tokenColumns are the tokens table's columns, in tokenRow's order.
-const tokenColumns = `"Id", "TokenHash", "Kind", "UserId", "Outlet", "Name", "Family", "ClientId", "CreatedAt", "ExpiresAt", "LastUsedAt", "RevokedAt", "RevokedReason"`
+const tokenColumns = `"Id", "TokenHash", "Kind", "UserId", "Outlet", "Name", "FamilyId", "ClientId", "CreatedAt", "ExpiresAt", "LastUsedAt", "RevokedAt", "RevokedReason"`
 
 // tokenRow is a token as the table holds it.
 type tokenRow struct {
@@ -25,7 +25,7 @@ type tokenRow struct {
 	UserID        impulse.UUID  `db:"UserId"`
 	Outlet        string        `db:"Outlet"`
 	Name          *string       `db:"Name"`
-	Family        *impulse.UUID `db:"Family"`
+	FamilyID      *impulse.UUID `db:"FamilyId"`
 	ClientID      *string       `db:"ClientId"`
 	CreatedAt     time.Time     `db:"CreatedAt"`
 	ExpiresAt     time.Time     `db:"ExpiresAt"`
@@ -42,8 +42,8 @@ func (r *tokenRow) token() *dbtype.Token {
 	if r.Name != nil {
 		t.Name = *r.Name
 	}
-	if r.Family != nil {
-		t.Family = impulse.NullUUIDFromUUID(*r.Family)
+	if r.FamilyID != nil {
+		t.FamilyID = impulse.NullUUIDFromUUID(*r.FamilyID)
 	}
 	if r.ClientID != nil {
 		t.ClientID = *r.ClientID
@@ -92,8 +92,8 @@ func (s *SessionStorageDriver) insertTokens(ctx context.Context, q execer, token
 			return errors.Wrap(err, "dbtype.TokenKind.Validate()")
 		}
 		var family *impulse.UUID
-		if t.Family.Valid {
-			family = &t.Family.UUID
+		if t.FamilyID.Valid {
+			family = &t.FamilyID.UUID
 		}
 		if _, err := q.Exec(ctx, query, t.ID, t.TokenHash, string(t.Kind), t.UserID, t.Outlet, dbtype.OptionalString(t.Name), family, dbtype.OptionalString(t.ClientID), t.ExpiresAt); err != nil {
 			return errors.Wrap(err, "Exec()")
@@ -199,8 +199,8 @@ func (s *SessionStorageDriver) RevokeUserToken(ctx context.Context, userID, id i
 			return httpio.NewNotFoundMessage("no live token")
 		}
 		column, value := `"Id"`, any(id)
-		if t := tokens[0]; t.Family.Valid {
-			column, value = `"Family"`, any(t.Family.UUID)
+		if t := tokens[0]; t.FamilyID.Valid {
+			column, value = `"FamilyId"`, any(t.FamilyID.UUID)
 		}
 		if err := s.revokeIn(ctx, tx, column, value, reason); err != nil {
 			return err
@@ -246,10 +246,10 @@ func (s *SessionStorageDriver) ExchangeRefreshToken(ctx context.Context, tokenHa
 		}
 		old := tokens[0]
 		if old.RevokedAt != nil {
-			if old.RevokedReason != dbtype.TokenRevokedRotated || !old.Family.Valid {
+			if old.RevokedReason != dbtype.TokenRevokedRotated || !old.FamilyID.Valid {
 				return httpio.NewNotFoundMessage("no live refresh token")
 			}
-			if err := s.revokeIn(ctx, tx, `"Family"`, old.Family.UUID, dbtype.TokenRevokedReuse); err != nil {
+			if err := s.revokeIn(ctx, tx, `"FamilyId"`, old.FamilyID.UUID, dbtype.TokenRevokedReuse); err != nil {
 				return err
 			}
 			reused = true
@@ -259,14 +259,14 @@ func (s *SessionStorageDriver) ExchangeRefreshToken(ctx context.Context, tokenHa
 		// The rotation revokes the pair presented: the refresh token and, with it,
 		// every live token of its family, so one pair is live per family.
 		column, key := `"Id"`, old.ID
-		if old.Family.Valid {
-			column, key = `"Family"`, old.Family.UUID
+		if old.FamilyID.Valid {
+			column, key = `"FamilyId"`, old.FamilyID.UUID
 		}
 		if err := s.revokeIn(ctx, tx, column, key, dbtype.TokenRevokedRotated); err != nil {
 			return err
 		}
 		for _, t := range []*dbtype.Token{access, refresh} {
-			t.UserID, t.Outlet, t.ClientID, t.Family = old.UserID, old.Outlet, old.ClientID, old.Family
+			t.UserID, t.Outlet, t.ClientID, t.FamilyID = old.UserID, old.Outlet, old.ClientID, old.FamilyID
 		}
 
 		return s.insertTokens(ctx, tx, access, refresh)

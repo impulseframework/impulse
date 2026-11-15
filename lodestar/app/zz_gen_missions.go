@@ -22,7 +22,7 @@ import (
 func (a *App) Missions() http.HandlerFunc {
 	type mission struct {
 		ID                 impulse.UUID          `json:"id"                 index:"true"                                                        perm:"-"`
-		SectorID           string                `json:"sectorId"           index:"true"`
+		SectorID           impulse.UUID          `json:"sectorId"           index:"true"`
 		ClientID           impulse.UUID          `json:"clientId"           index:"true"`
 		KindID             string                `json:"kindId"             index:"true"`
 		Title              string                `json:"title"              search:"token=Title_Search;index=MissionsSearch;role=text;contains"`
@@ -32,7 +32,8 @@ func (a *App) Missions() http.HandlerFunc {
 		Fee                decimal.Decimal       `json:"fee"                allow_filter:"true"`
 		Deadline           time.Time             `json:"deadline"           index:"true"                                                        masking:"positional" search:"token=Deadline_Search;index=MissionsSearch;role=date;contains;zone=UTC"`
 		RequiredCertID     *string               `json:"requiredCertId"     index:"true"`
-		BookedBy           string                `json:"bookedBy"`
+		BookedByUserID     string                `json:"bookedByUserId"`
+		BookedByName       string                `json:"bookedByName"`
 		AssignedSquadronID impulse.NullUUID      `json:"assignedSquadronId" index:"true"`
 		StatusID           string                `json:"statusId"           index:"true"`
 		Notes              *string               `json:"notes"`
@@ -123,9 +124,13 @@ func (a *App) Missions() http.HandlerFunc {
 					if !row.Masked("requiredCertId") {
 						rmap["requiredCertId"] = rec.RequiredCertID
 					}
-				case "BookedBy":
-					if !row.Masked("bookedBy") {
-						rmap["bookedBy"] = rec.BookedBy
+				case "BookedByUserID":
+					if !row.Masked("bookedByUserId") {
+						rmap["bookedByUserId"] = rec.BookedByUserID
+					}
+				case "BookedByName":
+					if !row.Masked("bookedByName") {
+						rmap["bookedByName"] = rec.BookedByName
 					}
 				case "AssignedSquadronID":
 					if !row.Masked("assignedSquadronId") {
@@ -167,7 +172,7 @@ func (a *App) Missions() http.HandlerFunc {
 func (a *App) Mission() http.HandlerFunc {
 	type response struct {
 		ID                 impulse.UUID          `json:"id"                 index:"true"                                                        perm:"-"`
-		SectorID           string                `json:"sectorId"`
+		SectorID           impulse.UUID          `json:"sectorId"`
 		ClientID           impulse.UUID          `json:"clientId"`
 		KindID             string                `json:"kindId"`
 		Title              string                `json:"title"              search:"token=Title_Search;index=MissionsSearch;role=text;contains"`
@@ -177,7 +182,8 @@ func (a *App) Mission() http.HandlerFunc {
 		Fee                decimal.Decimal       `json:"fee"`
 		Deadline           time.Time             `json:"deadline"           masking:"positional"                                                search:"token=Deadline_Search;index=MissionsSearch;role=date;contains;zone=UTC"`
 		RequiredCertID     *string               `json:"requiredCertId"`
-		BookedBy           string                `json:"bookedBy"`
+		BookedByUserID     string                `json:"bookedByUserId"`
+		BookedByName       string                `json:"bookedByName"`
 		AssignedSquadronID impulse.NullUUID      `json:"assignedSquadronId"`
 		StatusID           string                `json:"statusId"`
 		Notes              *string               `json:"notes"`
@@ -256,9 +262,13 @@ func (a *App) Mission() http.HandlerFunc {
 				if !row.Masked("requiredCertId") {
 					rmap["requiredCertId"] = rec.RequiredCertID
 				}
-			case "BookedBy":
-				if !row.Masked("bookedBy") {
-					rmap["bookedBy"] = rec.BookedBy
+			case "BookedByUserID":
+				if !row.Masked("bookedByUserId") {
+					rmap["bookedByUserId"] = rec.BookedByUserID
+				}
+			case "BookedByName":
+				if !row.Masked("bookedByName") {
+					rmap["bookedByName"] = rec.BookedByName
 				}
 			case "AssignedSquadronID":
 				if !row.Masked("assignedSquadronId") {

@@ -21,7 +21,7 @@ import (
 func (a *App) PatchPortalResources() http.HandlerFunc {
 	type announcementRequest struct {
 		ID       impulse.UUID `json:"-"`
-		TenantID string       `json:"-"`
+		TenantID impulse.UUID `json:"-"`
 		Title    string       `json:"title"`
 		Body     string       `json:"body"`
 	}

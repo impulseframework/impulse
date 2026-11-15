@@ -85,9 +85,12 @@ export class FlightDeckComponent {
   squadrons = this.sectors.sectorList((sector) => sector.squadrons);
   ships = this.sectors.sectorList((sector) => sector.ships);
   clients = this.sectors.globalList((api) => api.clients);
-  pilots = this.sectors.globalList((api) => api.pilots);
+  // The registry whole: the launch picker offers every pilot, and a sortie names its pilot
+  // by the id of their account, which the registry gives the name for.
+  pilots = this.sectors.globalList((api) => api.pilots, { limit: 'all' });
 
-  sector = this.sectors.current;
+  /** The open sector's name, as the session's sector list carries it. */
+  sectorName = this.sectors.placeName;
   canList = computed(() => this.sectors.can(Permissions.List, Resources.Missions));
   canBook = computed(() => this.sectors.can(Permissions.Create, Resources.Missions));
   bookableFields = computed(() => this.sectors.grantedFields(Permissions.Create, Resources.Missions));
@@ -293,6 +296,11 @@ export class FlightDeckComponent {
   canBookField(field: string): boolean {
     const fields = this.bookableFields();
     return fields === undefined || fields.includes(field);
+  }
+
+  /** The name of the pilot a sortie names by the id of their account. */
+  pilotName(userId: string | undefined): string {
+    return this.pilots.value().find((p) => p.userId === userId)?.displayName ?? 'not in the registry';
   }
 
   sortiesOf(mission: Missions): Sorties[] {

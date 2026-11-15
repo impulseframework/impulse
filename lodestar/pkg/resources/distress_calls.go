@@ -25,8 +25,10 @@ type (
 	// TS metadata) and nullable, since the Cadet's partial-width Create grant (summary,
 	// severity) files calls without it, so the column must accept the narrowed create;
 	// Transcript is input_only (accepted on mutations, never serialized back); CaseNumber
-	// is output_only with a server-issued DC- default; FiledBy is output_only, stamped
-	// from the session, and the attribute the portal's filedBy = subject grant reads.
+	// is output_only with a server-issued DC- default; FiledByUserID is output_only, stamped
+	// from the session, and the attribute the portal's filedBy = subject grant reads. It
+	// holds the id of the filer's account, and FiledByName beside it the filer's username
+	// as it was when the call was filed, which is what a page shows.
 	//
 	// Served on the portal outlet too: Client Cleo files calls through a three-field form,
 	// the one PII field an external user writes. Position is where the call was made, a
@@ -42,14 +44,15 @@ type (
 	DistressCall struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		SectorID      string  `spanner:"SectorId"`
-		Summary       string  `spanner:"Summary"`
-		Severity      int64   `spanner:"Severity"`
-		CallerContact *string `spanner:"CallerContact" conditions:"pii"`
-		Transcript    *string `spanner:"Transcript"    conditions:"input_only"`
-		CaseNumber    string  `spanner:"CaseNumber"    conditions:"output_only" default_create_fn:"defaultCaseNumber"`
+		SectorID      impulse.UUID `spanner:"SectorId"`
+		Summary       string       `spanner:"Summary"`
+		Severity      int64        `spanner:"Severity"`
+		CallerContact *string      `spanner:"CallerContact" conditions:"pii"`
+		Transcript    *string      `spanner:"Transcript"    conditions:"input_only"`
+		CaseNumber    string       `spanner:"CaseNumber"    conditions:"output_only" default_create_fn:"defaultCaseNumber"`
 		// @attribute(filedBy)
-		FiledBy string `spanner:"FiledBy" conditions:"output_only" default_create_fn:"currentUser"`
+		FiledByUserID string `spanner:"FiledByUserId"     conditions:"output_only" default_create_fn:"currentUser"`
+		FiledByName   string `spanner:"FiledByName" conditions:"output_only" default_create_fn:"currentUserName"`
 		// Position is nullable: a call relayed by voice may name no point.
 		Position *Position `spanner:"Position"`
 	}

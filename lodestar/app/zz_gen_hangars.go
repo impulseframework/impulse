@@ -22,7 +22,7 @@ import (
 func (a *App) Hangars() http.HandlerFunc {
 	type hangar struct {
 		ID       impulse.UUID `json:"id"       index:"true" perm:"-"`
-		SectorID string       `json:"sectorId" index:"true"`
+		SectorID impulse.UUID `json:"sectorId" index:"true"`
 		Name     string       `json:"name"     index:"true" search:"lower=Name_Lower"`
 		Zone     string       `json:"zone"`
 	}
@@ -107,7 +107,7 @@ func (a *App) Hangars() http.HandlerFunc {
 func (a *App) Hangar() http.HandlerFunc {
 	type response struct {
 		ID       impulse.UUID `json:"id"       index:"true"              perm:"-"`
-		SectorID string       `json:"sectorId"`
+		SectorID impulse.UUID `json:"sectorId"`
 		Name     string       `json:"name"     search:"lower=Name_Lower"`
 		Zone     string       `json:"zone"`
 	}
@@ -170,7 +170,7 @@ func (a *App) Hangar() http.HandlerFunc {
 func (a *App) PatchHangars() http.HandlerFunc {
 	type request struct {
 		ID       impulse.UUID `json:"-"`
-		SectorID string       `json:"-"`
+		SectorID impulse.UUID `json:"-"`
 		Name     string       `json:"name"`
 		Zone     string       `json:"zone"`
 	}

@@ -118,18 +118,18 @@ func TestDDL_keys(t *testing.T) {
 		{name: "roles", stmt: 0, want: []string{
 			"Kind STRING(16) NOT NULL", "Axis STRING(128) NOT NULL", "Description STRING(MAX) NOT NULL",
 			"CONSTRAINT AccessRolesKind CHECK (Kind IN ('global', 'domain', 'every'))",
-			"PRIMARY KEY (Kind, Axis, Domain, Role)",
+			"PRIMARY KEY (Kind, Axis, DomainId, Role)",
 		}},
 		{name: "user roles stand alone", stmt: 1, want: []string{
 			"Kind STRING(16) NOT NULL", "Axis STRING(128) NOT NULL",
 			"CONSTRAINT AccessUserRolesKind CHECK (Kind IN ('global', 'domain', 'every'))",
-			"PRIMARY KEY (Kind, Axis, Domain, Role, User)",
+			"PRIMARY KEY (Kind, Axis, DomainId, Role, UserId)",
 		}},
-		{name: "user roles by user", stmt: 2, want: []string{"CREATE INDEX AccessUserRolesByUser ON AccessUserRoles (User, Kind, Axis, Domain)"}},
+		{name: "user roles by user", stmt: 2, want: []string{"CREATE INDEX AccessUserRolesByUserId ON AccessUserRoles (UserId, Kind, Axis, DomainId)"}},
 		{name: "role grants interleaved in roles", stmt: 3, want: []string{
 			"Kind STRING(16) NOT NULL", "Axis STRING(128) NOT NULL",
 			"CONSTRAINT AccessRoleGrantsKind CHECK (Kind IN ('global', 'domain', 'every'))",
-			"PRIMARY KEY (Kind, Axis, Domain, Role, Permission, Resource, Field, Condition)",
+			"PRIMARY KEY (Kind, Axis, DomainId, Role, Permission, Resource, Field, Condition)",
 			"INTERLEAVE IN PARENT AccessRoles ON DELETE CASCADE",
 		}},
 	}

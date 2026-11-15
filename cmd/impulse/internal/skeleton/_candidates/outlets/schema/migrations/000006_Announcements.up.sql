@@ -1,6 +1,6 @@
 CREATE TABLE Announcements (
   Id STRING(36) NOT NULL,
-  TenantId STRING(64) NOT NULL,
+  TenantId STRING(36) NOT NULL,
   Title STRING(MAX) NOT NULL,
   Body STRING(MAX) NOT NULL,
 

@@ -8,13 +8,13 @@
     {
       "user": "member",
       "password": "password",
-      "roles": { "global": [], "everyDomain": [], "domains": { "north": ["TenantAdministrator", "DeviceOperator"] } }
+      "roles": { "global": [], "everyDomain": [], "domains": { "North": ["TenantAdministrator", "DeviceOperator"] } }
     }
   ],
   "members": [
     {
       "user": "client",
-      "roles": { "global": [], "everyDomain": [], "domains": { "north": ["TenantAdministrator"] } }
+      "roles": { "global": [], "everyDomain": [], "domains": { "North": ["TenantAdministrator"] } }
     }
   ]
 }

@@ -36,12 +36,13 @@ func ptr[T any](v T) *T {
 }
 
 // TestManager_CreateUser pins the rule on a new user: a username, an address written
-// bare or refused, at least one role, each written as a membership beside the row in
-// the same transaction, and the id of the buffered row answered.
+// bare or refused, at least one role, each written as a membership under the new user's
+// id beside the row in the same transaction, and the id of the buffered row answered.
 func TestManager_CreateUser(t *testing.T) {
 	t.Parallel()
 
 	steward := []accesstypes.Role{"Steward"}
+	id := createdID.String()
 
 	tests := []struct {
 		name        string
@@ -54,25 +55,25 @@ func TestManager_CreateUser(t *testing.T) {
 		{
 			name:        "a user without an address, holding a global role",
 			account:     NewAccount{Username: "dana", Scope: globalScope, Roles: steward},
-			wantWrites:  []string{"insert user dana <none>", "insert membership global/ dana Steward"},
+			wantWrites:  []string{"insert user dana <none>", "insert membership global/ " + id + " Steward"},
 			wantChanged: 1,
 		},
 		{
 			name:        "an address is written bare",
 			account:     NewAccount{Username: "dana", Email: ptr("  Dana Reyes <dana@example.com> "), Scope: globalScope, Roles: steward},
-			wantWrites:  []string{"insert user dana dana@example.com", "insert membership global/ dana Steward"},
+			wantWrites:  []string{"insert user dana dana@example.com", "insert membership global/ " + id + " Steward"},
 			wantChanged: 1,
 		},
 		{
 			name:        "a name is written without the space around it",
 			account:     NewAccount{Username: "dana", Name: ptr("  Dana Reyes "), Scope: globalScope, Roles: steward},
-			wantWrites:  []string{"insert user dana <none> name=Dana Reyes", "insert membership global/ dana Steward"},
+			wantWrites:  []string{"insert user dana <none> name=Dana Reyes", "insert membership global/ " + id + " Steward"},
 			wantChanged: 1,
 		},
 		{
 			name:        "a name of nothing but space is no name",
 			account:     NewAccount{Username: "dana", Name: ptr("   "), Scope: globalScope, Roles: steward},
-			wantWrites:  []string{"insert user dana <none>", "insert membership global/ dana Steward"},
+			wantWrites:  []string{"insert user dana <none>", "insert membership global/ " + id + " Steward"},
 			wantChanged: 1,
 		},
 		{
@@ -81,21 +82,21 @@ func TestManager_CreateUser(t *testing.T) {
 			wantErr: httpio.HasBadRequest,
 		},
 		{
-			name:        "the username is written without the space around it, and the membership under the same name",
+			name:        "the username is written without the space around it, and the membership under the id, whatever the name",
 			account:     NewAccount{Username: "  dana ", Scope: alphaScope, Roles: []accesstypes.Role{"Reader"}},
-			wantWrites:  []string{"insert user dana <none>", "insert membership domain/alpha dana Reader"},
+			wantWrites:  []string{"insert user dana <none>", "insert membership domain/alpha " + id + " Reader"},
 			wantChanged: 1,
 		},
 		{
 			name:        "a role held in every domain",
 			account:     NewAccount{Username: "dana", Scope: everyScope, Roles: []accesstypes.Role{"Reader"}},
-			wantWrites:  []string{"insert user dana <none>", "insert membership every/ dana Reader"},
+			wantWrites:  []string{"insert user dana <none>", "insert membership every/ " + id + " Reader"},
 			wantChanged: 1,
 		},
 		{
 			name:        "a role named twice is one membership",
 			account:     NewAccount{Username: "dana", Scope: globalScope, Roles: []accesstypes.Role{"Steward", "Steward"}},
-			wantWrites:  []string{"insert user dana <none>", "insert membership global/ dana Steward"},
+			wantWrites:  []string{"insert user dana <none>", "insert membership global/ " + id + " Steward"},
 			wantChanged: 1,
 		},
 		{
@@ -357,6 +358,47 @@ func TestManager_SetEmail(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestManager_RequireUser pins the question a method asks before it gives a role to a
+// person a request names: a user of the auth holds the id, or the answer is NotFound;
+// a failed read is the failure, and no refusal of the person.
+func TestManager_RequireUser(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		user    impulse.UUID
+		failOn  string
+		wantErr func(error) bool
+	}{
+		{name: "an id a user of the auth holds", user: userID},
+		{name: "an id no user holds is not found", user: createdID, wantErr: httpio.HasNotFound},
+		{name: "the nil id is not found", user: impulse.NilUUID, wantErr: httpio.HasNotFound},
+		{name: "a failed read fails the call, and is no refusal of the person", user: userID, failOn: "Username", wantErr: func(err error) bool { return errors.Is(err, errStore) && !httpio.HasNotFound(err) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &fakeStore{usernames: map[impulse.UUID]string{userID: "dana"}, failOn: tt.failOn}
+			m, _ := newManager(t, store, nil)
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return m.RequireUser(ctx, txn, tt.user)
+			})
+			if tt.wantErr != nil {
+				if err == nil || !tt.wantErr(err) {
+					t.Fatalf("RequireUser() error = %v, want the refusal", err)
+				}
+			} else if err != nil {
+				t.Fatalf("RequireUser() error = %v", err)
+			}
+			if len(store.writes) != 0 {
+				t.Errorf("buffered writes = %v, want none: the question writes nothing", store.writes)
 			}
 		})
 	}

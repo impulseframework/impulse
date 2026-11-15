@@ -27,7 +27,7 @@ func (MembersSectorUser) DefaultConfig() resource.Config {
 // enforce; membersSectorUserReadSets holds one Set per read operation.
 type membersSectorUserRead struct {
 	ID                     impulse.UUID `json:"id"                     perm:"-"`
-	Domain                 string       `json:"domain"`
+	DomainID               string       `json:"domainId"`
 	Username               string       `json:"username"`
 	Name                   *string      `json:"name"`
 	Email                  *string      `json:"email"`
@@ -147,7 +147,7 @@ func NewMembersSectorUserColumns() *MembersSectorUserColumns {
 func (c *MembersSectorUserColumns) All() *MembersSectorUserColumns {
 	c.fields = []accesstypes.Field{
 		"ID",
-		"Domain",
+		"DomainID",
 		"Username",
 		"Name",
 		"Email",
@@ -169,8 +169,8 @@ func (c *MembersSectorUserColumns) ID() *MembersSectorUserColumns {
 	return c
 }
 
-func (c *MembersSectorUserColumns) Domain() *MembersSectorUserColumns {
-	c.fields = append(c.fields, "Domain")
+func (c *MembersSectorUserColumns) DomainID() *MembersSectorUserColumns {
+	c.fields = append(c.fields, "DomainID")
 
 	return c
 }
@@ -251,8 +251,8 @@ func (p MembersSectorUserQueryPartialClause) ID() MembersSectorUserQueryIdent[im
 	return MembersSectorUserQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p MembersSectorUserQueryPartialClause) Domain() MembersSectorUserQueryIdent[string] {
-	return MembersSectorUserQueryIdent[string]{Ident: resource.NewIdent[string]("Domain", p.partialClause, true)}
+func (p MembersSectorUserQueryPartialClause) DomainID() MembersSectorUserQueryIdent[string] {
+	return MembersSectorUserQueryIdent[string]{Ident: resource.NewIdent[string]("DomainID", p.partialClause, true)}
 }
 
 func (p MembersSectorUserQueryPartialClause) Username() MembersSectorUserQueryIdent[string] {
@@ -337,8 +337,8 @@ func (c *membersSectorUserSort) ID() *MembersSectorUserSort {
 	return c.addField("ID")
 }
 
-func (c *membersSectorUserSort) Domain() *MembersSectorUserSort {
-	return c.addField("Domain")
+func (c *membersSectorUserSort) DomainID() *MembersSectorUserSort {
+	return c.addField("DomainID")
 }
 
 func (c *membersSectorUserSort) Username() *MembersSectorUserSort {

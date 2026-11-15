@@ -162,13 +162,11 @@ type AuthConfig struct {
 
 // DirectoryAdmission is what an instance's SignIn runs a declared directory's first
 // sign-in with: Directories reads the tenants' declarations of the directory, which
-// the harness adapts to the driver's transaction; Roles is the role store the
-// person's memberships are read from, nil for none; Seat seats the person with the
+// the harness adapts to the driver's transaction; Seat seats the person with the
 // default seats the declarations name, inside the transaction that provisions them,
 // which the harness adapts to the driver's transaction, nil for none.
 type DirectoryAdmission struct {
 	Directories func(ctx context.Context, tx HookTx, directory signin.Directory) ([]signin.DeclaredDirectory, error)
-	Roles       signin.UserRoleManager
 	Seat        func(ctx context.Context, tx HookTx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (committed func(ctx context.Context), err error)
 }
 
@@ -236,7 +234,6 @@ func NewSignIn[Tx any](
 	}
 	var (
 		directories signin.DirectoryReader[Tx]
-		roles       signin.UserRoleManager
 		seat        signinflow.DirectorySeater[Tx]
 	)
 	if cfg.Admission != nil {
@@ -244,7 +241,6 @@ func NewSignIn[Tx any](
 		directories = func(ctx context.Context, tx Tx, directory signin.Directory) ([]signin.DeclaredDirectory, error) {
 			return lookup(ctx, adapt(tx), directory)
 		}
-		roles = cfg.Admission.Roles
 		if seater := cfg.Admission.Seat; seater != nil {
 			seat = func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
 				return seater(ctx, adapt(tx), userID, username, seats)
@@ -257,7 +253,7 @@ func NewSignIn[Tx any](
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "impulse.NewUUID()")
 		}
-		rules := signinflow.Rules[Tx]{Account: rule, Standard: cfg.Accounts, Policy: policy, Accept: accept, Directories: directories, Roles: roles, Seat: seat}
+		rules := signinflow.Rules[Tx]{Account: rule, Standard: cfg.Accounts, Policy: policy, Accept: accept, Directories: directories, Seat: seat}
 		if err := signinflow.SignIn(ctx, d, id, insert, req, rules); err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
 		}
@@ -433,7 +429,7 @@ func testLegacySchemaUnchanged(ctx context.Context, t *testing.T, h *AuthHarness
 	}
 	impID, err := in.Driver.InsertImpersonatedSession(ctx, newInsertSession(user.Username),
 		&sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: user.Username, UserID: user.ID},
-		&dbtype.InsertImpersonation{ActorUsername: "actor", PrincipalKind: dbtype.PrincipalKindUser, PrincipalUser: strPtr(user.Username), ExpiresAt: time.Now().Add(time.Hour)})
+		&dbtype.InsertImpersonation{ActorUsername: "actor", PrincipalKind: dbtype.PrincipalKindUser, PrincipalUserID: strPtr(user.Username), ExpiresAt: time.Now().Add(time.Hour)})
 	if err != nil {
 		t.Fatalf("InsertImpersonatedSession() on the legacy schema error = %v", err)
 	}
@@ -625,7 +621,7 @@ func testImpersonatedSessionUser(ctx context.Context, t *testing.T, h *AuthHarne
 	}{
 		{
 			name:       "a user principal's session belongs to the impersonated user",
-			principal:  accesstypes.UserPrincipal(accesstypes.User(user.Username)),
+			principal:  accesstypes.UserPrincipal(accesstypes.User(user.ID.String())),
 			userID:     user.ID,
 			wantUserID: impulse.NullUUIDFromUUID(user.ID),
 		},

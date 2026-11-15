@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"cloud.google.com/go/civil"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
@@ -19,11 +20,11 @@ import (
 
 func (a *App) Sectors() http.HandlerFunc {
 	type sector struct {
-		ID            string     `json:"id"            index:"true" perm:"-"`
-		Name          string     `json:"name"          index:"true"`
-		Region        string     `json:"region"`
-		Established   civil.Date `json:"established"`
-		DirectoryOnly bool       `json:"directoryOnly"`
+		ID            impulse.UUID `json:"id"            index:"true" perm:"-"`
+		Name          string       `json:"name"          index:"true"`
+		Region        string       `json:"region"`
+		Established   civil.Date   `json:"established"`
+		DirectoryOnly bool         `json:"directoryOnly"`
 	}
 
 	type response []map[string]any
@@ -108,11 +109,11 @@ func (a *App) Sectors() http.HandlerFunc {
 
 func (a *App) Sector() http.HandlerFunc {
 	type response struct {
-		ID            string     `json:"id"            index:"true" perm:"-"`
-		Name          string     `json:"name"          index:"true"`
-		Region        string     `json:"region"`
-		Established   civil.Date `json:"established"`
-		DirectoryOnly bool       `json:"directoryOnly"`
+		ID            impulse.UUID `json:"id"            index:"true" perm:"-"`
+		Name          string       `json:"name"          index:"true"`
+		Region        string       `json:"region"`
+		Established   civil.Date   `json:"established"`
+		DirectoryOnly bool         `json:"directoryOnly"`
 	}
 
 	decoder := NewQueryDecoder[resources.Sector, response](a, accesstypes.Read)
@@ -121,7 +122,7 @@ func (a *App) Sector() http.HandlerFunc {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
-		id := httpio.Param[string](r, router.SectorID)
+		id := httpio.Param[impulse.UUID](r, router.SectorID)
 
 		querySet, err := decoder.Decode(r, a.UserPermissions(r), accesstypes.GlobalScope())
 		if err != nil {

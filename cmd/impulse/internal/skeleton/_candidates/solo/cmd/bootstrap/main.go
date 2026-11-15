@@ -44,11 +44,13 @@ type devRoles struct {
 	Domains     map[accesstypes.Domain][]accesstypes.Role `json:"domains"`
 }
 
-// devUser is one development login.
+// devUser is one development login: User is its username. The roles are held by the id
+// of the account the bootstrap creates under it, which is how the permission store names
+// a person.
 type devUser struct {
-	User     accesstypes.User `json:"user"`
-	Password string           `json:"password"`
-	Roles    devRoles         `json:"roles"`
+	User     string   `json:"user"`
+	Password string   `json:"password"`
+	Roles    devRoles `json:"roles"`
 }
 
 func main() {
@@ -140,15 +142,16 @@ func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 	}
 
 	for _, user := range identities.Users {
-		if _, err := data.Staff().Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{
-			Username: string(user.User),
+		id, err := data.Staff().Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{
+			Username: user.User,
 			Password: &user.Password,
-		}); err != nil {
+		})
+		if err != nil {
 			return errors.Wrapf(err, "session.AuthAPI.CreateSessionUser(): user %s", user.User)
 		}
 		fmt.Printf("Created login %s\n", user.User)
 
-		if err := assignRoles(ctx, data.UserManager(), user.User, user.Roles); err != nil {
+		if err := assignRoles(ctx, data.UserManager(), user.User, accesstypes.User(id.String()), user.Roles); err != nil {
 			return err
 		}
 	}
@@ -157,26 +160,28 @@ func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 }
 
 // assignRoles writes the identity's memberships where each is held: the global partition
-// first, then every tenant domain, then each single domain in sorted order.
-func assignRoles(ctx context.Context, manager access.UserManager, user accesstypes.User, roles devRoles) error {
+// first, then every tenant domain, then each single domain in sorted order. user is the
+// account the roles are held by, the id of the login's user, and login its username,
+// which the lines printed read.
+func assignRoles(ctx context.Context, manager access.UserManager, login string, user accesstypes.User, roles devRoles) error {
 	if len(roles.Global) > 0 {
 		if err := manager.AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), user, roles.Global...); err != nil {
-			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in the global partition", user)
+			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in the global partition", login)
 		}
-		fmt.Printf("Assigned %v to %s in the global partition\n", roles.Global, user)
+		fmt.Printf("Assigned %v to %s in the global partition\n", roles.Global, login)
 	}
 	if len(roles.EveryDomain) > 0 {
 		if err := manager.AddUserRoles(ctx, accesstypes.EveryDomainPolicyScope(), user, roles.EveryDomain...); err != nil {
-			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in every domain", user)
+			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in every domain", login)
 		}
-		fmt.Printf("Assigned %v to %s in every domain\n", roles.EveryDomain, user)
+		fmt.Printf("Assigned %v to %s in every domain\n", roles.EveryDomain, login)
 	}
 	for _, domain := range slices.Sorted(maps.Keys(roles.Domains)) {
 		domainRoles := roles.Domains[domain]
 		if err := manager.AddUserRoles(ctx, accesstypes.DomainPolicyScope(domain), user, domainRoles...); err != nil {
-			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in domain %s", user, domain)
+			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in domain %s", login, domain)
 		}
-		fmt.Printf("Assigned %v to %s in domain %s\n", domainRoles, user, domain)
+		fmt.Printf("Assigned %v to %s in domain %s\n", domainRoles, login, domain)
 	}
 
 	return nil

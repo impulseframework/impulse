@@ -29,6 +29,8 @@ func TestGeneratedIdentityPersonOfAnotherAuth(t *testing.T) {
 	status, body := doRequestAs(t, h, "governor", http.MethodPost, consoleAPI+"/create-crew-user", `{"username":"`+string(twin)+`","roles":["Headquarters"]}`)
 	assertStatus(t, status, http.StatusOK, body)
 	crewID := cell[string](t, decodeRow(t, body), "id")
+	// A request made as the twin runs as the crew account: the session carries its id.
+	knownAs(t, twin, impulse.Must(impulse.UUIDFromString(crewID)))
 
 	// The member of the same username: a row of the members' own users table, as the
 	// directory's sign-in writes one.

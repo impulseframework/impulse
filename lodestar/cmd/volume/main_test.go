@@ -35,6 +35,9 @@ func TestWorldSizing(t *testing.T) {
 			if got := len(w.sectorIDs()); got != tt.wantSectors {
 				t.Errorf("sectorIDs() = %d sectors, want %d", got, tt.wantSectors)
 			}
+			if got := len(w.sectorNames()); got != tt.wantSectors {
+				t.Errorf("sectorNames() = %d names, want %d: one for each sector", got, tt.wantSectors)
+			}
 			if got := len(w.squadronIDs(1)); got != tt.wantSquadrons {
 				t.Errorf("squadronIDs(1) = %d, want %d", got, tt.wantSquadrons)
 			}
@@ -55,6 +58,7 @@ func TestIdentifierSchemes(t *testing.T) {
 		name string
 		id   string
 	}{
+		{name: "sector", id: syntheticSectorID(3)},
 		{name: "wing", id: wingID(3, 1)},
 		{name: "squadron", id: squadronID(3, 1, 2)},
 		{name: "client", id: clientID(7)},
@@ -63,6 +67,7 @@ func TestIdentifierSchemes(t *testing.T) {
 		{name: "mission", id: missionID(3, 9999)},
 		{name: "sortie", id: sortieID(3, 9995)},
 		{name: "report", id: reportID(3, 199)},
+		{name: "user", id: userID(3, 42)},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -11,6 +11,7 @@ import {
   iconCellKey,
   listViewConfig,
   ListViewConfigOptions,
+  multiColumnConfig,
   RESOURCE_DOMAIN,
   RESOURCE_META,
   rootConfig,
@@ -56,6 +57,9 @@ const metas: Record<string, ResourceMeta> = {
       field('limitStatus'),
       field('activeLearners', { displayType: 'number' }),
       field('partnerLimit', { displayType: 'number' }),
+      field('clientId', { isIndex: true, filterable: 'always' }),
+      field('homePort', { isIndex: true, filterable: 'always' }),
+      field('registry', { isIndex: true, filterable: 'always' }),
     ],
   } as ResourceMeta,
   [calls]: {
@@ -96,9 +100,13 @@ describe('ResourceListComponent', () => {
   let fixture: ComponentFixture<ResourceListComponent>;
   let transport: ScriptedTransport;
 
-  const create = async (options: Omit<ListViewConfigOptions, 'elements'>, rows: Record<string, unknown>[] = []): Promise<void> => {
+  const create = async (
+    options: Omit<ListViewConfigOptions, 'elements'>,
+    rows: Record<string, unknown>[] = [],
+    server?: (request: TransportRequest) => TransportResponse,
+  ): Promise<void> => {
     const config = listViewConfig({ elements: [], ...options });
-    transport = scriptedTransport({ status: 200, body: rows, headers: { 'total-count': String(rows.length) } });
+    transport = scriptedTransport(server ?? { status: 200, body: rows, headers: { 'total-count': String(rows.length) } });
     await TestBed.configureTestingModule({
       imports: [ResourceListComponent],
       providers: [
@@ -205,6 +213,59 @@ describe('ResourceListComponent', () => {
       );
       expect(cells).toEqual(['Kestrel', '60, 60, 30', '32 B', '9/21/2026']);
       expect((fixture.nativeElement as HTMLElement).textContent).not.toContain(digest32);
+    });
+  });
+
+  describe('names a related record in a column', () => {
+    it('reads the related rows by the keys on the page, shows their field, and says what the page gives for a row with none', async () => {
+      const rows = [
+        { id: 's-1', name: 'Kestrel', clientId: 'c-1' },
+        { id: 's-2', name: 'Vega', clientId: '' },
+        { id: 's-3', name: 'Dishner', clientId: 'c-9' },
+      ];
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [
+            { id: 'name' as FieldName },
+            multiColumnConfig({
+              id: 'clientId' as FieldName,
+              header: 'Client',
+              additionalIds: [{ resource: clients, id: 'id' as FieldName, field: 'name' as FieldName }],
+              concatFn: 'hyphen-concat',
+              // A ship with no client says so; one whose client is not among the rows read shows the key it carries.
+              fallback: (row: Record<string, unknown>) => (row['clientId'] ? `Client ${String(row['clientId'])}` : 'Nobody'),
+              // The field holds a key: a filter over the column would be asked for an id.
+              filterable: false,
+            }),
+            { id: 'homePort' as FieldName, header: 'Home port' },
+            { id: 'registry' as FieldName, header: 'Registry', filterable: false },
+          ],
+        },
+        rows,
+        (request) =>
+          request.url.split('?')[0] === '/api/clients'
+            ? { status: 200, body: [{ id: 'c-1', name: 'Corvid Lines' }], headers: { 'total-count': '1' } }
+            : { status: 200, body: rows, headers: { 'total-count': String(rows.length) } },
+      );
+      fixture.detectChanges();
+      await settle();
+      for (let i = 0; i < 20; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      fixture.detectChanges();
+      // The clients are asked for by the keys the page's rows carry, an empty one left out.
+      const related = transport.requests.filter((request) => request.url.split('?')[0] === '/api/clients').map((request) => decodeURIComponent(request.url));
+      expect(related.length).toBe(1);
+      expect(related[0]).toContain('c-1');
+      expect(related[0]).toContain('c-9');
+      expect(fixture.componentInstance.processedRowData().map((row) => row['clientId'])).toEqual(['Corvid Lines', 'Nobody', 'Client c-9']);
+      // A column that opts out of its filter draws none, on a field the server filters:
+      // the related-record column and a plain one alike. A column that says nothing draws it.
+      const filters = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('th'))
+        .filter((th) => th.querySelector('.col-header'))
+        .map((th) => `${th.querySelector('.col-header')?.textContent?.trim()}: ${th.querySelector('button.filter-trigger') ? 'filter' : 'none'}`);
+      expect(filters).toEqual(['Name: none', 'Client: none', 'Home port: filter', 'Registry: none']);
     });
   });
 

@@ -21,7 +21,7 @@ import (
 func (a *App) PatchResources() http.HandlerFunc {
 	type announcementRequest struct {
 		ID       impulse.UUID `json:"-"`
-		TenantID string       `json:"-"`
+		TenantID impulse.UUID `json:"-"`
 		KindID   string       `json:"kindId" sqltype:"STRING(64)"`
 		Title    string       `json:"title"`
 		Body     string       `json:"body"`

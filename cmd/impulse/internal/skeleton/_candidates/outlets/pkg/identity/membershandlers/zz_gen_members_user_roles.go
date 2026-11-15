@@ -20,16 +20,16 @@ func (h *Handlers) MembersUserRoles() http.HandlerFunc {
 	type membersUserRole struct {
 		Kind      string    `json:"kind"      index:"true" perm:"-"`
 		Axis      string    `json:"axis"      perm:"-"`
-		Domain    string    `json:"domain"    perm:"-"`
+		DomainID  string    `json:"domainId"  perm:"-"`
 		Role      string    `json:"role"      perm:"-"`
-		User      string    `json:"user"      index:"true" perm:"-"`
+		UserID    string    `json:"userId"    index:"true" perm:"-"`
 		CreatedAt time.Time `json:"createdAt"`
 	}
 
 	type response []map[string]any
 
 	decoder := NewQueryDecoder[membersresources.MembersUserRole, membersUserRole](h, accesstypes.List).
-		WithPaging(resource.Paging{Order: []resource.SortField{{Field: "User", Direction: resource.SortAscending}}, DefaultLimit: 25, MaxLimit: 200})
+		WithPaging(resource.Paging{Order: []resource.SortField{{Field: "UserID", Direction: resource.SortAscending}}, DefaultLimit: 25, MaxLimit: 200})
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -73,17 +73,17 @@ func (h *Handlers) MembersUserRoles() http.HandlerFunc {
 					if !row.Masked("axis") {
 						rmap["axis"] = rec.Axis
 					}
-				case "Domain":
-					if !row.Masked("domain") {
-						rmap["domain"] = rec.Domain
+				case "DomainID":
+					if !row.Masked("domainId") {
+						rmap["domainId"] = rec.DomainID
 					}
 				case "Role":
 					if !row.Masked("role") {
 						rmap["role"] = rec.Role
 					}
-				case "User":
-					if !row.Masked("user") {
-						rmap["user"] = rec.User
+				case "UserID":
+					if !row.Masked("userId") {
+						rmap["userId"] = rec.UserID
 					}
 				case "CreatedAt":
 					if !row.Masked("createdAt") {

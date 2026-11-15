@@ -37,16 +37,19 @@ const (
 	migrationsSource = "file://../../schema/migrations"
 	devSeedSource    = "file://../../schema/devseed"
 
-	// The development tenants, matching schema/devseed.
-	north = "north"
-	south = "south"
+	// The development tenants, matching schema/devseed: a tenant's key is an id, and
+	// the seed gives the two fixed ones.
+	north = "11111111-1111-4111-8111-111111111111"
+	south = "22222222-2222-4222-8222-222222222222"
 
-	// The development identities the served suites act as: the staff logins admin
-	// (Administrator, and TenantAdministrator in every tenant) and member
-	// (TenantAdministrator and DeviceOperator in north only, so a token of theirs
-	// reads the readings there through the devices outlet); and the portal's client, a
-	// member of the members auth who signs in through the simulated directory and holds
-	// TenantAdministrator in north.
+	// The development identities the served suites act as, by the usernames they sign
+	// in with: the staff logins admin (Administrator, and TenantAdministrator in every
+	// tenant) and member (TenantAdministrator and DeviceOperator in north only, so a
+	// token of theirs reads the readings there through the devices outlet); and the
+	// portal's client, a member of the members auth who signs in through the simulated
+	// directory and holds TenantAdministrator in north. The roles are held by the ids of
+	// their accounts (served.adminID, served.memberID, served.clientID), which is how a
+	// permission store names a person.
 	adminUser     = "admin"
 	memberUser    = "member"
 	clientUser    = "client"
@@ -142,6 +145,11 @@ type served struct {
 	// access is the staff auth's engine, members the members auth's.
 	access  *access.Client
 	members *access.Client
+	// adminID and memberID are the ids of the staff logins' accounts, and clientID the
+	// id of the portal's client's account in the members auth: what each auth's
+	// permission store holds their roles under and what the methods of the auth's
+	// generated management name them by. The usernames are what they sign in with.
+	adminID, memberID, clientID string
 	// db is the test database, for the suites that read a table directly.
 	db *initiator.SpannerDB
 	// mail is the recorder the staff auth sends its mail to, where a suite reads the
@@ -157,7 +165,8 @@ type served struct {
 
 // newServed provisions the database the way the deployment does (the schema and the
 // development tenants, then each auth opened over it with its embedded role file validated
-// against the collection), creates the development identities, and serves the full router.
+// against the collection), creates the development identities as the bootstrap does (each
+// user, then its roles, held by the id of the user's account), and serves the full router.
 // The server is allocated before the members auth so the auth's directory callback can
 // name the server's own address.
 func newServed(ctx context.Context, t *testing.T) *served {
@@ -233,23 +242,37 @@ func newServed(ctx context.Context, t *testing.T) *served {
 		}
 	})
 	membersAccess := membersAuth.Access()
-	// The portal's client is a member: no login to create, since the directory presents
-	// the name; only a membership, in the members store.
-	if err := membersAccess.UserManager().AddUserRoles(ctx, accesstypes.DomainPolicyScope(north), clientUser, "TenantAdministrator"); err != nil {
+	// The portal's client is a member: the directory proves who they are, so they hold
+	// no password here. A role is held by an account, so the client is created as the
+	// bootstrap creates a member: a user without a password under the name the directory
+	// will present, which their first sign-in links to, and then the membership, held by
+	// the id of that user's account, in the members store.
+	client, err := membersAuth.Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: clientUser})
+	if err != nil {
+		t.Fatalf("CreateSessionUser(%s) in the members auth error = %v", clientUser, err)
+	}
+	clientID := client.String()
+	if err := membersAccess.UserManager().AddUserRoles(ctx, accesstypes.DomainPolicyScope(north), accesstypes.User(clientID), "TenantAdministrator"); err != nil {
 		t.Fatalf("AddUserRoles(%s, north) error = %v", clientUser, err)
 	}
 
+	// The staff logins, each user first: a role is held by an account, and the
+	// permission store names a person by the id of theirs, never by the username.
 	passwordAuth := staffAuth.Session()
 	password := adminPassword
-	for _, user := range []string{adminUser, memberUser} {
-		if _, err := passwordAuth.API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: user, Password: &password}); err != nil {
-			t.Fatalf("CreateSessionUser(%s) error = %v", user, err)
+	ids := make(map[string]string, 2)
+	for _, login := range []string{adminUser, memberUser} {
+		id, err := passwordAuth.API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: login, Password: &password})
+		if err != nil {
+			t.Fatalf("CreateSessionUser(%s) error = %v", login, err)
 		}
+		ids[login] = id.String()
 	}
-	// The memberships as the bootstrap identities hold them: the administrator's domain
-	// role in every tenant domain, one membership, the others in north alone.
+	// The memberships as the bootstrap identities hold them, under the ids of the
+	// accounts: the administrator's domain role in every tenant domain, one membership,
+	// the others in north alone.
 	assignments := []struct {
-		user  accesstypes.User
+		login string
 		scope accesstypes.PolicyScope
 		role  accesstypes.Role
 	}{
@@ -259,15 +282,15 @@ func newServed(ctx context.Context, t *testing.T) *served {
 		{memberUser, accesstypes.DomainPolicyScope(north), "DeviceOperator"},
 	}
 	for _, a := range assignments {
-		if err := accessClient.UserManager().AddUserRoles(ctx, a.scope, a.user, a.role); err != nil {
-			t.Fatalf("AddUserRoles(%s, %v) error = %v", a.user, a.scope, err)
+		if err := accessClient.UserManager().AddUserRoles(ctx, a.scope, accesstypes.User(ids[a.login]), a.role); err != nil {
+			t.Fatalf("AddUserRoles(%s, %v) error = %v", a.login, a.scope, err)
 		}
 	}
 
 	// The snapshot swap is asynchronous: wait until the last-provisioned assignment is
 	// visible to the engine before serving.
-	waitForDomains(ctx, t, accessClient, memberUser, []accesstypes.Domain{north})
-	waitForDomains(ctx, t, membersAccess, clientUser, []accesstypes.Domain{north})
+	waitForDomains(ctx, t, accessClient, accesstypes.User(ids[memberUser]), []accesstypes.Domain{north})
+	waitForDomains(ctx, t, membersAccess, accesstypes.User(clientID), []accesstypes.Domain{north})
 
 	a := app.New(&servedConfigurer{db: db, auth: staffAuth, members: membersAuth, live: svc, tenants: roster})
 	// The App reads its feature flags as it is built; Start reports a copy that could
@@ -278,13 +301,13 @@ func newServed(ctx context.Context, t *testing.T) *served {
 	server.Config.Handler = router.New(a, router.Hooks{})
 	server.Start()
 
-	return &served{server: server, access: accessClient, members: membersAccess, db: db, mail: sent, trusted: map[string]*http.Cookie{}}
+	return &served{server: server, access: accessClient, members: membersAccess, adminID: ids[adminUser], memberID: ids[memberUser], clientID: clientID, db: db, mail: sent, trusted: map[string]*http.Cookie{}}
 }
 
 // waitForDomains blocks until the engine's snapshot reports the user's footholds in
 // exactly the expected tenants, asked the way the served stack asks (the development
-// roster filtered by UserHasGrants): the store writes signal a reload, but the swap is
-// asynchronous.
+// roster filtered by UserHasGrants, the user named by the id of their account): the
+// store writes signal a reload, but the swap is asynchronous.
 func waitForDomains(ctx context.Context, t *testing.T, client *access.Client, user accesstypes.User, want []accesstypes.Domain) {
 	t.Helper()
 
@@ -301,7 +324,8 @@ func waitForDomains(ctx context.Context, t *testing.T, client *access.Client, us
 	}
 }
 
-// footholds lists the development tenants where the user holds at least one grant.
+// footholds lists the development tenants where the user, named by the id of their
+// account, holds at least one grant.
 func footholds(ctx context.Context, client *access.Client, user accesstypes.User) ([]accesstypes.Domain, error) {
 	var domains []accesstypes.Domain
 	for _, domain := range []accesstypes.Domain{north, south} {

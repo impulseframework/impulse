@@ -3,7 +3,6 @@ package identity
 import (
 	"context"
 	"slices"
-	"strings"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -16,23 +15,23 @@ import (
 
 // The rules that judge who is asking. A generated handler stamps the caller of the
 // request on the context before the method runs (resource.CallerFrom), and a rule that
-// keeps a person from acting on themselves reads the name from there. A method an
+// keeps a person from acting on themselves reads who that is from there. A method an
 // application runs in a transaction of its own, outside any request, has no caller:
 // what it does is the application's act, and these rules let it through.
 //
-// A username names a person within one auth. An outlet that signs its people in through
-// one auth can serve the management of another's (generation.Manages), and there the
-// caller and the person acted on are two people even where their usernames are the same:
-// nobody on such an outlet is ever acting on themselves.
+// A caller is named as the permission store names a person, by the id of their account
+// (User), and no two accounts share an id, in one auth or across two. An outlet that
+// signs its people in through one auth can serve the management of another's
+// (generation.Manages): the caller there is another auth's person, whose id is no
+// account of this one, so nobody on such an outlet is ever acting on themselves.
 
-// callerIs reports whether the request's caller is the person of the username in this
-// auth: the request came through this auth, and the names are equal, compared without
-// case as the permission engine's callers are. The auth a request came through is the
-// one its outlet's generated routes bound (resource.AuthFrom). A request bound to
-// another auth is another auth's person, whatever their name. A caller with no auth
-// bound, which no generated route produces, is judged by the name alone, so the rule
-// errs toward refusing.
-func (m *Manager) callerIs(ctx context.Context, username string) bool {
+// callerIs reports whether the request's caller is the person of the account in this
+// auth: the request came through this auth, and the caller's id is the account's. The
+// auth a request came through is the one its outlet's generated routes bound
+// (resource.AuthFrom). A request bound to another auth is another auth's person. A
+// caller with no auth bound, which no generated route produces, is judged by the id
+// alone, so the rule errs toward refusing.
+func (m *Manager) callerIs(ctx context.Context, userID impulse.UUID) bool {
 	caller := resource.CallerFrom(ctx)
 	if caller.IsZero() {
 		return false
@@ -41,23 +40,14 @@ func (m *Manager) callerIs(ctx context.Context, username string) bool {
 		return false
 	}
 
-	return sameUser(string(caller.Permissions.User()), username)
-}
-
-// sameUser compares two usernames as one person's.
-func sameUser(a, b string) bool {
-	return strings.EqualFold(a, b)
+	return caller.Permissions.User() == User(userID)
 }
 
 // refuseOwnAccount refuses an act on the caller's own account: nobody disables or
 // deletes themselves, since the one who did could not undo it. act names what was
 // asked ("disable", "delete").
-func (m *Manager) refuseOwnAccount(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, act string) error {
-	username, found, err := m.store.Username(ctx, txn, userID)
-	if err != nil {
-		return errors.Wrap(err, "identity.Store.Username()")
-	}
-	if found && m.callerIs(ctx, username) {
+func (m *Manager) refuseOwnAccount(ctx context.Context, userID impulse.UUID, act string) error {
+	if m.callerIs(ctx, userID) {
 		return httpio.NewForbiddenMessagef("you cannot %s your own account", act)
 	}
 
@@ -77,7 +67,7 @@ func (m *Manager) refuseLastAdministrator(ctx context.Context, txn resource.Read
 	if m.administrators == nil {
 		return httpio.NewForbiddenMessage("you cannot remove a role from yourself")
 	}
-	domain, inDomain := scope.Domain()
+	_, inDomain := scope.Domain()
 	var (
 		roles  []accesstypes.Role
 		scopes []accesstypes.PolicyScope
@@ -101,7 +91,7 @@ func (m *Manager) refuseLastAdministrator(ctx context.Context, txn resource.Read
 				return errors.Wrap(err, "identity.Store.RoleHolders()")
 			}
 			for _, holder := range holders {
-				if !sameUser(string(holder), string(key.User)) {
+				if holder != key.User {
 					return nil
 				}
 				// The person's own membership of the same role in every tenant
@@ -113,7 +103,9 @@ func (m *Manager) refuseLastAdministrator(ctx context.Context, txn resource.Read
 		}
 	}
 	if inDomain {
-		return httpio.NewForbiddenMessagef("you are the last administrator of %s: give another person the role before you remove your own", domain)
+		// The tenant's key is an id nobody reads, so the sentence does not print it; it
+		// says the application's word for a tenant.
+		return httpio.NewForbiddenMessagef("you are the last administrator of this %s: give another person the role before you remove your own", m.tenantWord)
 	}
 
 	return httpio.NewForbiddenMessage("you are the last administrator: give another person the role before you remove your own")
@@ -151,14 +143,14 @@ func (m *Manager) deleteAccount(ctx context.Context, txn resource.ReadWriteTrans
 // a directory's open rule the next sign-in creates the row again, and under password
 // sign-up the person signs up again; a person who holds a role somewhere stays. held
 // is every membership the person held before the removal, and removed the one that
-// goes. A username no user holds has no account to delete.
-func (m *Manager) deleteWithLastRole(ctx context.Context, txn resource.ReadWriteTransaction, username string, held []access.MembershipKey, removed *access.MembershipKey) error {
+// goes. An id no user holds has no account to delete.
+func (m *Manager) deleteWithLastRole(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, held []access.MembershipKey, removed *access.MembershipKey) error {
 	if slices.ContainsFunc(held, func(key access.MembershipKey) bool { return key != *removed }) {
 		return nil
 	}
-	userID, found, err := m.store.UserID(ctx, txn, username)
+	username, found, err := m.store.Username(ctx, txn, userID)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.UserID()")
+		return errors.Wrap(err, "identity.Store.Username()")
 	}
 	if !found {
 		return nil
@@ -166,44 +158,7 @@ func (m *Manager) deleteWithLastRole(ctx context.Context, txn resource.ReadWrite
 	if err := m.deleteAccount(ctx, txn, userID); err != nil {
 		return err
 	}
-	logger.FromCtx(ctx).Infof("identity: %q holds no role anywhere after the removal of %s, so the account is deleted with its identity links and sessions", username, removed.Role)
+	logger.FromCtx(ctx).Infof("identity: %q (%s) holds no role anywhere after the removal of %s, so the account is deleted with its identity links and sessions", username, userID, removed.Role)
 
 	return nil
-}
-
-// moveMemberships buffers the move of every membership held under one username to
-// another: the permission store names a person by username, so a person renamed keeps
-// their roles only if the rows follow the name. A membership the new name holds already
-// is left as it is; where a person belongs to one tenant, a name that holds roles in
-// another is refused (refuseRenamedIntoSecondTenant). It answers whether anything
-// moved, for the word to the engine.
-func (m *Manager) moveMemberships(ctx context.Context, txn resource.ReadWriteTransaction, from, to string) (moved bool, err error) {
-	held, err := m.store.Memberships(ctx, txn, from)
-	if err != nil {
-		return false, errors.Wrap(err, "identity.Store.Memberships()")
-	}
-	if m.oneTenant != nil {
-		already, err := m.store.Memberships(ctx, txn, to)
-		if err != nil {
-			return false, errors.Wrap(err, "identity.Store.Memberships()")
-		}
-		if err := m.refuseRenamedIntoSecondTenant(held, already, to); err != nil {
-			return false, err
-		}
-	}
-	for _, key := range held {
-		if err := m.store.DeleteMembership(ctx, txn, &key); err != nil {
-			return false, errors.Wrap(err, "identity.Store.DeleteMembership()")
-		}
-	}
-	// A membership the new name holds already is left as it is: the store's write is a
-	// create-unless-there.
-	for _, key := range held {
-		key.User = accesstypes.User(to)
-		if _, err := m.store.InsertMembership(ctx, txn, &key); err != nil {
-			return false, errors.Wrap(err, "identity.Store.InsertMembership()")
-		}
-	}
-
-	return len(held) > 0, nil
 }

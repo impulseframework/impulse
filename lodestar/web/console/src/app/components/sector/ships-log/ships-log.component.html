@@ -10,7 +10,7 @@
   </mat-card>
 } @else if (!canList()) {
   <mat-card appearance="outlined" class="table-card">
-    <p class="empty">Your posting in {{ sector() || 'this sector' }} does not cover the ship's log.</p>
+    <p class="empty">Your posting in {{ sectorName() || 'this sector' }} does not cover the ship's log.</p>
   </mat-card>
 } @else {
   <mat-card appearance="outlined" class="table-card">
@@ -44,7 +44,7 @@
       <tr mat-row *matRowDef="let row; columns: columns"></tr>
     </table>
     @if (!entries.value().length) {
-      <p class="empty">No log entries yet in {{ sector() }} — move a mission or hail a ship and come back.</p>
+      <p class="empty">No log entries yet in {{ sectorName() }} — move a mission or hail a ship and come back.</p>
     }
   </mat-card>
 }

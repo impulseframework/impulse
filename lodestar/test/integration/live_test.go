@@ -34,9 +34,16 @@ const (
 )
 
 // principalID is a console user's live principal id: the console's sessions come from
-// the crew auth, so the id is the auth's name and the user name joined by the separator
-// (crew|live-harbormaster), the uid of the user's change set and browser identity.
+// the crew auth, so the id is the auth's name and the person as the permission store
+// names them joined by the separator, the uid of the person's change set and browser
+// identity. A persona of the cast is named by the id of its account
+// (crew|f0000000-0000-4000-8000-000000000024); a person a suite made up, who has no
+// account, by the username (crew|live-harbormaster).
 func principalID(user accesstypes.User) string {
+	if id, ok := accountID(user); ok {
+		return crew.Name + live.AuthSeparator + id.String()
+	}
+
 	return crew.Name + live.AuthSeparator + string(user)
 }
 

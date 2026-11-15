@@ -27,7 +27,7 @@ func (Announcement) DefaultConfig() resource.Config {
 // enforce; announcementReadSets holds one Set per read operation.
 type announcementRead struct {
 	ID       impulse.UUID `json:"id"       perm:"-"`
-	TenantID string       `json:"tenantId"`
+	TenantID impulse.UUID `json:"tenantId"`
 	Title    string       `json:"title"`
 	Body     string       `json:"body"`
 }
@@ -39,7 +39,7 @@ var announcementReadSets resource.SetCache[Announcement, announcementRead]
 // routes enforce; announcementWriteSets holds one Set per mutation.
 type announcementWrite struct {
 	ID       impulse.UUID `json:"-"`
-	TenantID string       `json:"-"`
+	TenantID impulse.UUID `json:"-"`
 	Title    string       `json:"title"`
 	Body     string       `json:"body"`
 }
@@ -199,8 +199,8 @@ func (p AnnouncementQueryPartialClause) ID() AnnouncementQueryIdent[impulse.UUID
 	return AnnouncementQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p AnnouncementQueryPartialClause) TenantID() AnnouncementQueryIdent[string] {
-	return AnnouncementQueryIdent[string]{Ident: resource.NewIdent[string]("TenantID", p.partialClause, true)}
+func (p AnnouncementQueryPartialClause) TenantID() AnnouncementQueryIdent[impulse.UUID] {
+	return AnnouncementQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("TenantID", p.partialClause, true)}
 }
 
 func (p AnnouncementQueryPartialClause) Title() AnnouncementQueryIdent[string] {
@@ -376,14 +376,14 @@ func (p *AnnouncementCreatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *AnnouncementCreatePatch) SetTenantID(v string) *AnnouncementCreatePatch {
+func (p *AnnouncementCreatePatch) SetTenantID(v impulse.UUID) *AnnouncementCreatePatch {
 	p.patchSet.Set("TenantID", v)
 
 	return p
 }
 
-func (p *AnnouncementCreatePatch) TenantID() string {
-	v, _ := p.patchSet.Get("TenantID").(string)
+func (p *AnnouncementCreatePatch) TenantID() impulse.UUID {
+	v, _ := p.patchSet.Get("TenantID").(impulse.UUID)
 
 	return v
 }
@@ -516,14 +516,14 @@ func (p *AnnouncementUpdatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *AnnouncementUpdatePatch) SetTenantID(v string) *AnnouncementUpdatePatch {
+func (p *AnnouncementUpdatePatch) SetTenantID(v impulse.UUID) *AnnouncementUpdatePatch {
 	p.patchSet.Set("TenantID", v)
 
 	return p
 }
 
-func (p *AnnouncementUpdatePatch) TenantID() string {
-	v, _ := p.patchSet.Get("TenantID").(string)
+func (p *AnnouncementUpdatePatch) TenantID() impulse.UUID {
+	v, _ := p.patchSet.Get("TenantID").(impulse.UUID)
 
 	return v
 }

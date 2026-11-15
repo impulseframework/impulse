@@ -49,11 +49,12 @@ func Test_identityOn(t *testing.T) {
 				"CrewSectorUsers", "CrewSectorUserRoles", "CrewSectorInvitations",
 				"DisableCrewUser", "EndCrewSession", "EndCrewUserSessions", "UnlockCrewSignIn", "UnlinkCrewSessionIdentity", "CreateCrewUser",
 				"DisableCrewSectorUser", "AssignCrewSectorRole", "RemoveCrewSectorRole", "RevokeCrewSectorUserTrustedDevices",
-				// Served by the outlet and no part of the auth's management.
-				"Ships", "HailShip",
+				// Served by the outlet and no part of the auth's management; the tenant record
+				// is named, since a page reads a tenant's name from it.
+				"Ships", "HailShip", "Sectors",
 			},
 			want: []*tsAPIIdentity{{
-				Auth: "Crew", Label: "Crew", Tenant: "Sector",
+				Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
 				Sides: []*tsAPIIdentitySide{
 					{
 						Scope: accesstypes.GlobalPermissionScope,
@@ -93,7 +94,7 @@ func Test_identityOn(t *testing.T) {
 			}},
 		},
 		{
-			name:      "a side whose people the outlet does not serve is left out",
+			name:      "a side whose people the outlet does not serve is left out, and a tenant record it does not serve is not named",
 			outlet:    "console",
 			instances: []*identityInstance{crew},
 			served:    []string{"CrewSessionUsers", "CrewSectorUserRoles", "DisableCrewSectorUser"},
@@ -137,7 +138,7 @@ func Test_typescriptAPITemplate_identity(t *testing.T) {
 	t.Parallel()
 
 	data := &tsAPIData{Identity: []*tsAPIIdentity{{
-		Auth: "Crew", Label: "Crew", Tenant: "Sector",
+		Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
 		Sides: []*tsAPIIdentitySide{
 			{
 				Scope:   accesstypes.GlobalPermissionScope,
@@ -153,7 +154,7 @@ func Test_typescriptAPITemplate_identity(t *testing.T) {
 		t.Fatalf("generateTemplateOutput() error = %v", err)
 	}
 	for _, want := range []string{
-		"  identity: [\n    {\n      auth: 'Crew',\n      label: 'Crew',\n      tenant: 'Sector',\n      sides: [",
+		"  identity: [\n    {\n      auth: 'Crew',\n      label: 'Crew',\n      tenant: 'Sector',\n      tenantResource: Resources.Sectors,\n      sides: [",
 		"          scope: 'global',\n          lists: { users: Resources.CrewSessionUsers, sessions: Resources.CrewSessions },\n          methods: { disable: Methods.DisableCrewUser },",
 		"          scope: 'domain',\n          lists: { users: Resources.CrewSectorUsers },\n          methods: {  },",
 	} {

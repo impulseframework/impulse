@@ -470,12 +470,12 @@ func TestPaging_visibleProjection(t *testing.T) {
 		},
 		{
 			name: "isnull on the fee returns the masked rows", user: "archivist",
-			target: sectorPath(anvil, "missions?filter=sectorId:eq:anvil,fee:isnull"), wantStatus: http.StatusOK,
+			target: sectorPath(anvil, "missions?filter=sectorId:eq:"+anvil+",fee:isnull"), wantStatus: http.StatusOK,
 			wantIDs: []string{failedTow, stoodDown, failedSled, stoodDownCore},
 		},
 		{
 			name: "isnotnull on the fee returns the visible rows", user: "archivist",
-			target: sectorPath(anvil, "missions?filter=sectorId:eq:anvil,fee:isnotnull"), wantStatus: http.StatusOK,
+			target: sectorPath(anvil, "missions?filter=sectorId:eq:"+anvil+",fee:isnotnull"), wantStatus: http.StatusOK,
 			wantIDs: []string{completedPod, completedMiners, completedSpars},
 		},
 		{
@@ -499,17 +499,17 @@ func TestPaging_visibleProjection(t *testing.T) {
 		{name: "the marshal's unconditional fee sorts", user: "marshal", target: sectorPath(anvil, "missions?sort=fee"), wantStatus: http.StatusOK},
 		{
 			name: "a fee compares as a number: the fractional literal matches the seeded convoy fee", user: "marshal",
-			target: sectorPath(anvil, "missions?filter=sectorId:eq:anvil,fee:eq:15000.00"), wantStatus: http.StatusOK,
+			target: sectorPath(anvil, "missions?filter=sectorId:eq:"+anvil+",fee:eq:15000.00"), wantStatus: http.StatusOK,
 			wantIDs: []string{"80000000-0000-4000-8000-000000000003"},
 		},
 		{
 			name: "and a threshold only the pod clears", user: "marshal",
-			target: sectorPath(anvil, "missions?filter=sectorId:eq:anvil,fee:gt:30000"), wantStatus: http.StatusOK,
+			target: sectorPath(anvil, "missions?filter=sectorId:eq:"+anvil+",fee:gt:30000"), wantStatus: http.StatusOK,
 			wantIDs: []string{completedPod},
 		},
 		{
 			name: "a value that is not a number is refused at decode", user: "marshal",
-			target: sectorPath(anvil, "missions?filter=sectorId:eq:anvil,fee:gt:abc"), wantStatus: http.StatusBadRequest,
+			target: sectorPath(anvil, "missions?filter=sectorId:eq:"+anvil+",fee:gt:abc"), wantStatus: http.StatusBadRequest,
 		},
 	}
 

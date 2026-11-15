@@ -26,7 +26,7 @@ func (MembersTenantUserRole) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; membersTenantUserRoleReadSets holds one Set per read operation.
 type membersTenantUserRoleRead struct {
-	Domain      string       `json:"domain"`
+	DomainID    string       `json:"domainId"`
 	UserID      impulse.UUID `json:"userId"      perm:"-"`
 	Username    string       `json:"username"`
 	Role        string       `json:"role"        perm:"-"`
@@ -152,7 +152,7 @@ func NewMembersTenantUserRoleColumns() *MembersTenantUserRoleColumns {
 
 func (c *MembersTenantUserRoleColumns) All() *MembersTenantUserRoleColumns {
 	c.fields = []accesstypes.Field{
-		"Domain",
+		"DomainID",
 		"UserID",
 		"Username",
 		"Role",
@@ -163,8 +163,8 @@ func (c *MembersTenantUserRoleColumns) All() *MembersTenantUserRoleColumns {
 	return c
 }
 
-func (c *MembersTenantUserRoleColumns) Domain() *MembersTenantUserRoleColumns {
-	c.fields = append(c.fields, "Domain")
+func (c *MembersTenantUserRoleColumns) DomainID() *MembersTenantUserRoleColumns {
+	c.fields = append(c.fields, "DomainID")
 
 	return c
 }
@@ -211,8 +211,8 @@ func (p MembersTenantUserRoleQueryPartialClause) Group(qc MembersTenantUserRoleQ
 	return MembersTenantUserRoleQueryClause{clause: p.partialClause.Group(qc.clause)}
 }
 
-func (p MembersTenantUserRoleQueryPartialClause) Domain() MembersTenantUserRoleQueryIdent[string] {
-	return MembersTenantUserRoleQueryIdent[string]{Ident: resource.NewIdent[string]("Domain", p.partialClause, true)}
+func (p MembersTenantUserRoleQueryPartialClause) DomainID() MembersTenantUserRoleQueryIdent[string] {
+	return MembersTenantUserRoleQueryIdent[string]{Ident: resource.NewIdent[string]("DomainID", p.partialClause, true)}
 }
 
 func (p MembersTenantUserRoleQueryPartialClause) UserID() MembersTenantUserRoleQueryIdent[impulse.UUID] {
@@ -297,8 +297,8 @@ func (c *membersTenantUserRoleSort) addField(field string) *MembersTenantUserRol
 	return &MembersTenantUserRoleSort{membersTenantUserRoleSort: c}
 }
 
-func (c *membersTenantUserRoleSort) Domain() *MembersTenantUserRoleSort {
-	return c.addField("Domain")
+func (c *membersTenantUserRoleSort) DomainID() *MembersTenantUserRoleSort {
+	return c.addField("DomainID")
 }
 
 func (c *membersTenantUserRoleSort) UserID() *MembersTenantUserRoleSort {

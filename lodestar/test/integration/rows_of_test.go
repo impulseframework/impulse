@@ -69,14 +69,14 @@ func TestRowsOfViews(t *testing.T) {
 			target: sectorPath(anvil, "squadron-rosters?filter=squadronId:eq:"+squadronHammerID+"&columns=squadronId,userId,squadronName,pilotName,pilotId"), wantStatus: http.StatusOK, wantRows: 4,
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
-				rows := rowsByID(t, decodeRows(t, respBody), "userId")
-				if got := rows["lead"]["pilotName"]; got != "Flight Lead Lior" {
+				lead := rowsByID(t, decodeRows(t, respBody), "userId")[string(account(t, "lead"))]
+				if got := lead["pilotName"]; got != "Flight Lead Lior" {
 					t.Errorf("lead pilotName = %v, want Flight Lead Lior", got)
 				}
-				if got := rows["lead"]["pilotId"]; got != pilotLeadID {
+				if got := lead["pilotId"]; got != pilotLeadID {
 					t.Errorf("lead pilotId = %v, want %s", got, pilotLeadID)
 				}
-				if got := rows["lead"]["squadronId"]; got != squadronHammerID {
+				if got := lead["squadronId"]; got != squadronHammerID {
 					t.Errorf("lead squadronId = %v, want %s", got, squadronHammerID)
 				}
 			},
@@ -85,7 +85,7 @@ func TestRowsOfViews(t *testing.T) {
 			// The dispatcher flies with Hammer and Tongs at Anvil and Portcullis at
 			// Bastion; the Anvil partition lists the two.
 			name: "the marshal lists the dispatcher's assignments in Anvil", user: "marshal",
-			target: sectorPath(anvil, "pilot-assignments?filter=userId:eq:dispatcher&columns=squadronId,userId,squadronName,wingName"), wantStatus: http.StatusOK, wantRows: 2,
+			target: sectorPath(anvil, "pilot-assignments?filter=userId:eq:"+string(account(t, "dispatcher"))+"&columns=squadronId,userId,squadronName,wingName"), wantStatus: http.StatusOK, wantRows: 2,
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
 				rows := rowsByID(t, decodeRows(t, respBody), "squadronId")
@@ -148,9 +148,11 @@ func TestRowsOfWrites(t *testing.T) {
 		accesstypes.Delete: {"SquadronMemberships"},
 	})
 
-	membership := opPath(anvil, "squadron-memberships/"+squadronTongsID+"/cadet")
+	// A squadron's member is named by the id of their account, in the path and the filter.
+	cadet := string(account(t, "cadet"))
+	membership := opPath(anvil, "squadron-memberships/"+squadronTongsID+"/"+cadet)
 	roster := sectorPath(anvil, "squadron-rosters?filter=squadronId:eq:"+squadronTongsID+"&columns=squadronId,userId,pilotName")
-	assignments := sectorPath(anvil, "pilot-assignments?filter=userId:eq:cadet&columns=squadronId,userId,squadronName,wingName")
+	assignments := sectorPath(anvil, "pilot-assignments?filter=userId:eq:"+cadet+"&columns=squadronId,userId,squadronName,wingName")
 
 	steps := []struct {
 		name       string
@@ -171,7 +173,7 @@ func TestRowsOfWrites(t *testing.T) {
 			name: "the new row shows up in the roster on the next list", method: http.MethodGet, target: roster, wantStatus: http.StatusOK, wantRows: 3,
 			check: func(t *testing.T, respBody []byte) {
 				t.Helper()
-				if got := rowsByID(t, decodeRows(t, respBody), "userId")["cadet"]["pilotName"]; got != "Cadet Cass" {
+				if got := rowsByID(t, decodeRows(t, respBody), "userId")[cadet]["pilotName"]; got != "Cadet Cass" {
 					t.Errorf("cadet pilotName = %v, want Cadet Cass", got)
 				}
 			},

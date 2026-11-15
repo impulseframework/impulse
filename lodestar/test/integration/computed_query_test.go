@@ -213,7 +213,7 @@ func TestLedgerPushdown(t *testing.T) {
 		{name: "the declared order: fees outstanding, highest first", target: "/console/api/service-ledgers", wantStatus: http.StatusOK, wantSectors: []string{anvil, bastion, cinder}},
 		{name: "a requested sort, pushed into the statement", target: "/console/api/service-ledgers?sort=name:desc", wantStatus: http.StatusOK, wantSectors: []string{cinder, bastion, anvil}},
 		{name: "a filter on a filterable column, pushed down", target: "/console/api/service-ledgers?filter=name:eq:Bastion", wantStatus: http.StatusOK, wantSectors: []string{bastion}},
-		{name: "an IN filter, pushed down", target: "/console/api/service-ledgers?filter=sectorId:in:(anvil,cinder)&sort=sectorId", wantStatus: http.StatusOK, wantSectors: []string{anvil, cinder}},
+		{name: "an IN filter, pushed down", target: "/console/api/service-ledgers?filter=sectorId:in:(" + anvil + "," + cinder + ")&sort=sectorId", wantStatus: http.StatusOK, wantSectors: []string{anvil, cinder}},
 		{name: "a page with a count degrades to the fold and still counts", target: "/console/api/service-ledgers?limit=1&count=true", wantStatus: http.StatusOK, wantSectors: []string{anvil}, wantTotal: "3", wantLink: true},
 		{name: "a filter on a column without allow_filter is refused at decode", target: "/console/api/service-ledgers?filter=settlements:gt:1", wantStatus: http.StatusBadRequest},
 		{name: "a malformed filter is refused at decode", target: "/console/api/service-ledgers?filter=name:between:a", wantStatus: http.StatusBadRequest},

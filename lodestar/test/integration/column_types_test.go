@@ -210,7 +210,7 @@ func TestMissionDocumentProvenance_derivedObject(t *testing.T) {
 
 	// The portal, the second TypeScript target, lists the same object under the client's
 	// grant, which names provenance beside the fields it always had.
-	portalStatus, portalBody := doRequestAs(t, h, "client", http.MethodGet, "/portal/api/sectors/anvil/mission-documents", "")
+	portalStatus, portalBody := doRequestAs(t, h, "client", http.MethodGet, "/portal/api/sectors/"+anvil+"/mission-documents", "")
 	assertStatus(t, portalStatus, http.StatusOK, portalBody)
 	portalRows := decodeRows(t, portalBody)
 	if len(portalRows) != 1 {

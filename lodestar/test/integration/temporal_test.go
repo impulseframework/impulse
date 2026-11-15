@@ -328,7 +328,7 @@ func TestLocalZoneMustBeWired(t *testing.T) {
 
 	ctx := t.Context()
 	_, _, client := sharedWorld(t)
-	checker := client.ForUser("dock")
+	checker := client.ForUser(account(t, "dock"))
 
 	if _, err := checker.Check(ctx, accesstypes.EnvironmentAt(time.Now()), accesstypes.DomainScope(anvil), accesstypes.List, "Refits"); err == nil {
 		t.Fatal("Check() with no zone succeeded; want a loud error for an unresolvable local")

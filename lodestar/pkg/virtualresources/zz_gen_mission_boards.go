@@ -27,7 +27,7 @@ func (MissionBoard) DefaultConfig() resource.Config {
 // enforce; missionBoardReadSets holds one Set per read operation.
 type missionBoardRead struct {
 	ID           impulse.UUID `json:"id"           perm:"-"`
-	SectorID     string       `json:"sectorId"`
+	SectorID     impulse.UUID `json:"sectorId"`
 	Title        string       `json:"title"`
 	ClientName   string       `json:"clientName"`
 	SquadronName *string      `json:"squadronName"`
@@ -227,8 +227,8 @@ func (p MissionBoardQueryPartialClause) ID() MissionBoardQueryIdent[impulse.UUID
 	return MissionBoardQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p MissionBoardQueryPartialClause) SectorID() MissionBoardQueryIdent[string] {
-	return MissionBoardQueryIdent[string]{Ident: resource.NewIdent[string]("SectorID", p.partialClause, true)}
+func (p MissionBoardQueryPartialClause) SectorID() MissionBoardQueryIdent[impulse.UUID] {
+	return MissionBoardQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("SectorID", p.partialClause, true)}
 }
 
 func (p MissionBoardQueryPartialClause) Title() MissionBoardTitleQueryIdent {

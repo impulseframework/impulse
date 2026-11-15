@@ -27,8 +27,8 @@ type (
 	Hangar struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		SectorID string `spanner:"SectorId"`
-		Name     string `spanner:"Name"`
-		Zone     string `spanner:"Zone"`
+		SectorID impulse.UUID `spanner:"SectorId"`
+		Name     string       `spanner:"Name"`
+		Zone     string       `spanner:"Zone"`
 	}
 )

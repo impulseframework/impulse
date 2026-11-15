@@ -5,10 +5,10 @@ import { StaffRoles, StaffRoleGrants, StaffSessions, StaffSessionAuthEvents, Sta
 import { AssignStaffRole, CreateStaffUser, CreateStaffUserResult, DeleteStaffUser, DisableStaffUser, EnableStaffUser, EndStaffSession, EndStaffUserSessions, InviteStaffUser, InviteStaffUserResult, RemoveStaffRole, RenameStaffUser, RequireStaffPasswordChange, RevokeStaffSessionToken, RevokeStaffUserTrustedDevices, SetStaffTemporaryPassword, SetStaffUserEmail, SetStaffUserName, UnlinkStaffSessionIdentity, UnlockStaffSignIn, WithdrawStaffInvitation, SetFeature, SetFeatureResult } from './zz_gen_methods';
 
 /** The primary key of StaffRoles, in route order. */
-export type StaffRolesKey = [kind: string, axis: string, domain: string, role: string];
+export type StaffRolesKey = [kind: string, axis: string, domainId: string, role: string];
 
 /** The primary key of StaffRoleGrants, in route order. */
-export type StaffRoleGrantsKey = [kind: string, axis: string, domain: string, role: string, permission: string, resourceName: string, field: string, condition: string];
+export type StaffRoleGrantsKey = [kind: string, axis: string, domainId: string, role: string, permission: string, resourceName: string, field: string, condition: string];
 
 /** The primary key of StaffSessions, in route order. */
 export type StaffSessionsKey = [id: string];
@@ -35,7 +35,7 @@ export type StaffSessionTrustedDevicesKey = [id: string];
 export type StaffSessionUsersKey = [id: string];
 
 /** The primary key of StaffUserRoles, in route order. */
-export type StaffUserRolesKey = [kind: string, axis: string, domain: string, role: string, user: string];
+export type StaffUserRolesKey = [kind: string, axis: string, domainId: string, role: string, userId: string];
 
 /** The primary key of FeatureFlags, in route order. */
 export type FeatureFlagsKey = [name: string];
@@ -63,7 +63,7 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'staff-roles',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role'],
+      keys: ['kind', 'axis', 'domainId', 'role'],
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
@@ -74,7 +74,7 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'staff-role-grants',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role', 'permission', 'resourceName', 'field', 'condition'],
+      keys: ['kind', 'axis', 'domainId', 'role', 'permission', 'resourceName', 'field', 'condition'],
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
@@ -173,10 +173,10 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'staff-user-roles',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role', 'user'],
+      keys: ['kind', 'axis', 'domainId', 'role', 'userId'],
       operations: ['list'],
       page: { default: 25, max: 200 },
-      order: [{ field: 'user', direction: 'asc' }],
+      order: [{ field: 'userId', direction: 'asc' }],
     },
     [Resources.FeatureFlags]: {
       resource: Resources.FeatureFlags,

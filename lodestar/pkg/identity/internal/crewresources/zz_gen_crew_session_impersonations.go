@@ -29,10 +29,11 @@ func (CrewSessionImpersonation) DefaultConfig() resource.Config {
 type crewSessionImpersonationRead struct {
 	SessionID       impulse.UUID  `json:"sessionId"       perm:"-"`
 	ActorUsername   string        `json:"actorUsername"`
+	ActorUserID     *impulse.UUID `json:"actorUserId"`
 	ActorRealm      *string       `json:"actorRealm"`
 	SourceSessionID *impulse.UUID `json:"sourceSessionId"`
 	PrincipalKind   string        `json:"principalKind"`
-	PrincipalUser   *string       `json:"principalUser"`
+	PrincipalUserID *string       `json:"principalUserId"`
 	PrincipalRole   *string       `json:"principalRole"`
 	Mask            *string       `json:"mask"`
 	Reason          *string       `json:"reason"`
@@ -50,10 +51,11 @@ var crewSessionImpersonationReadSets resource.SetCache[CrewSessionImpersonation,
 type crewSessionImpersonationWrite struct {
 	SessionID       impulse.UUID  `json:"-"`
 	ActorUsername   string        `json:"actorUsername"`
+	ActorUserID     *impulse.UUID `json:"actorUserId"`
 	ActorRealm      *string       `json:"actorRealm"`
 	SourceSessionID *impulse.UUID `json:"sourceSessionId"`
 	PrincipalKind   string        `json:"principalKind"   sqltype:"STRING(16)"`
-	PrincipalUser   *string       `json:"principalUser"`
+	PrincipalUserID *string       `json:"principalUserId"`
 	PrincipalRole   *string       `json:"principalRole"`
 	Mask            *string       `json:"mask"`
 	Reason          *string       `json:"reason"`
@@ -171,10 +173,11 @@ func (c *CrewSessionImpersonationColumns) All() *CrewSessionImpersonationColumns
 	c.fields = []accesstypes.Field{
 		"SessionID",
 		"ActorUsername",
+		"ActorUserID",
 		"ActorRealm",
 		"SourceSessionID",
 		"PrincipalKind",
-		"PrincipalUser",
+		"PrincipalUserID",
 		"PrincipalRole",
 		"Mask",
 		"Reason",
@@ -199,6 +202,12 @@ func (c *CrewSessionImpersonationColumns) ActorUsername() *CrewSessionImpersonat
 	return c
 }
 
+func (c *CrewSessionImpersonationColumns) ActorUserID() *CrewSessionImpersonationColumns {
+	c.fields = append(c.fields, "ActorUserID")
+
+	return c
+}
+
 func (c *CrewSessionImpersonationColumns) ActorRealm() *CrewSessionImpersonationColumns {
 	c.fields = append(c.fields, "ActorRealm")
 
@@ -217,8 +226,8 @@ func (c *CrewSessionImpersonationColumns) PrincipalKind() *CrewSessionImpersonat
 	return c
 }
 
-func (c *CrewSessionImpersonationColumns) PrincipalUser() *CrewSessionImpersonationColumns {
-	c.fields = append(c.fields, "PrincipalUser")
+func (c *CrewSessionImpersonationColumns) PrincipalUserID() *CrewSessionImpersonationColumns {
+	c.fields = append(c.fields, "PrincipalUserID")
 
 	return c
 }
@@ -285,8 +294,8 @@ func (p CrewSessionImpersonationQueryPartialClause) ActorUsername() CrewSessionI
 	return CrewSessionImpersonationQueryIdent[string]{Ident: resource.NewIdent[string]("ActorUsername", p.partialClause, true)}
 }
 
-func (p CrewSessionImpersonationQueryPartialClause) PrincipalUser() CrewSessionImpersonationQueryIdent[string] {
-	return CrewSessionImpersonationQueryIdent[string]{Ident: resource.NewIdent[string]("PrincipalUser", p.partialClause, true)}
+func (p CrewSessionImpersonationQueryPartialClause) PrincipalUserID() CrewSessionImpersonationQueryIdent[string] {
+	return CrewSessionImpersonationQueryIdent[string]{Ident: resource.NewIdent[string]("PrincipalUserID", p.partialClause, true)}
 }
 
 type CrewSessionImpersonationQueryClause struct {
@@ -363,6 +372,10 @@ func (c *crewSessionImpersonationSort) ActorUsername() *CrewSessionImpersonation
 	return c.addField("ActorUsername")
 }
 
+func (c *crewSessionImpersonationSort) ActorUserID() *CrewSessionImpersonationSort {
+	return c.addField("ActorUserID")
+}
+
 func (c *crewSessionImpersonationSort) ActorRealm() *CrewSessionImpersonationSort {
 	return c.addField("ActorRealm")
 }
@@ -375,8 +388,8 @@ func (c *crewSessionImpersonationSort) PrincipalKind() *CrewSessionImpersonation
 	return c.addField("PrincipalKind")
 }
 
-func (c *crewSessionImpersonationSort) PrincipalUser() *CrewSessionImpersonationSort {
-	return c.addField("PrincipalUser")
+func (c *crewSessionImpersonationSort) PrincipalUserID() *CrewSessionImpersonationSort {
+	return c.addField("PrincipalUserID")
 }
 
 func (c *crewSessionImpersonationSort) PrincipalRole() *CrewSessionImpersonationSort {
@@ -510,6 +523,26 @@ func (p *CrewSessionImpersonationCreatePatch) ActorUsernameIsSet() bool {
 	return p.patchSet.IsSet("ActorUsername")
 }
 
+func (p *CrewSessionImpersonationCreatePatch) SetActorUserID(v *impulse.UUID) *CrewSessionImpersonationCreatePatch {
+	if v != nil {
+		p.patchSet.Set("ActorUserID", v)
+	} else {
+		p.patchSet.Set("ActorUserID", nil)
+	}
+
+	return p
+}
+
+func (p *CrewSessionImpersonationCreatePatch) ActorUserID() *impulse.UUID {
+	v, _ := p.patchSet.Get("ActorUserID").(*impulse.UUID)
+
+	return v
+}
+
+func (p *CrewSessionImpersonationCreatePatch) ActorUserIDIsSet() bool {
+	return p.patchSet.IsSet("ActorUserID")
+}
+
 func (p *CrewSessionImpersonationCreatePatch) SetActorRealm(v *string) *CrewSessionImpersonationCreatePatch {
 	if v != nil {
 		p.patchSet.Set("ActorRealm", v)
@@ -566,24 +599,24 @@ func (p *CrewSessionImpersonationCreatePatch) PrincipalKindIsSet() bool {
 	return p.patchSet.IsSet("PrincipalKind")
 }
 
-func (p *CrewSessionImpersonationCreatePatch) SetPrincipalUser(v *string) *CrewSessionImpersonationCreatePatch {
+func (p *CrewSessionImpersonationCreatePatch) SetPrincipalUserID(v *string) *CrewSessionImpersonationCreatePatch {
 	if v != nil {
-		p.patchSet.Set("PrincipalUser", v)
+		p.patchSet.Set("PrincipalUserID", v)
 	} else {
-		p.patchSet.Set("PrincipalUser", nil)
+		p.patchSet.Set("PrincipalUserID", nil)
 	}
 
 	return p
 }
 
-func (p *CrewSessionImpersonationCreatePatch) PrincipalUser() *string {
-	v, _ := p.patchSet.Get("PrincipalUser").(*string)
+func (p *CrewSessionImpersonationCreatePatch) PrincipalUserID() *string {
+	v, _ := p.patchSet.Get("PrincipalUserID").(*string)
 
 	return v
 }
 
-func (p *CrewSessionImpersonationCreatePatch) PrincipalUserIsSet() bool {
-	return p.patchSet.IsSet("PrincipalUser")
+func (p *CrewSessionImpersonationCreatePatch) PrincipalUserIDIsSet() bool {
+	return p.patchSet.IsSet("PrincipalUserID")
 }
 
 func (p *CrewSessionImpersonationCreatePatch) SetPrincipalRole(v *string) *CrewSessionImpersonationCreatePatch {
@@ -826,6 +859,26 @@ func (p *CrewSessionImpersonationUpdatePatch) ActorUsernameIsSet() bool {
 	return p.patchSet.IsSet("ActorUsername")
 }
 
+func (p *CrewSessionImpersonationUpdatePatch) SetActorUserID(v *impulse.UUID) *CrewSessionImpersonationUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("ActorUserID", v)
+	} else {
+		p.patchSet.Set("ActorUserID", nil)
+	}
+
+	return p
+}
+
+func (p *CrewSessionImpersonationUpdatePatch) ActorUserID() *impulse.UUID {
+	v, _ := p.patchSet.Get("ActorUserID").(*impulse.UUID)
+
+	return v
+}
+
+func (p *CrewSessionImpersonationUpdatePatch) ActorUserIDIsSet() bool {
+	return p.patchSet.IsSet("ActorUserID")
+}
+
 func (p *CrewSessionImpersonationUpdatePatch) SetActorRealm(v *string) *CrewSessionImpersonationUpdatePatch {
 	if v != nil {
 		p.patchSet.Set("ActorRealm", v)
@@ -882,24 +935,24 @@ func (p *CrewSessionImpersonationUpdatePatch) PrincipalKindIsSet() bool {
 	return p.patchSet.IsSet("PrincipalKind")
 }
 
-func (p *CrewSessionImpersonationUpdatePatch) SetPrincipalUser(v *string) *CrewSessionImpersonationUpdatePatch {
+func (p *CrewSessionImpersonationUpdatePatch) SetPrincipalUserID(v *string) *CrewSessionImpersonationUpdatePatch {
 	if v != nil {
-		p.patchSet.Set("PrincipalUser", v)
+		p.patchSet.Set("PrincipalUserID", v)
 	} else {
-		p.patchSet.Set("PrincipalUser", nil)
+		p.patchSet.Set("PrincipalUserID", nil)
 	}
 
 	return p
 }
 
-func (p *CrewSessionImpersonationUpdatePatch) PrincipalUser() *string {
-	v, _ := p.patchSet.Get("PrincipalUser").(*string)
+func (p *CrewSessionImpersonationUpdatePatch) PrincipalUserID() *string {
+	v, _ := p.patchSet.Get("PrincipalUserID").(*string)
 
 	return v
 }
 
-func (p *CrewSessionImpersonationUpdatePatch) PrincipalUserIsSet() bool {
-	return p.patchSet.IsSet("PrincipalUser")
+func (p *CrewSessionImpersonationUpdatePatch) PrincipalUserIDIsSet() bool {
+	return p.patchSet.IsSet("PrincipalUserID")
 }
 
 func (p *CrewSessionImpersonationUpdatePatch) SetPrincipalRole(v *string) *CrewSessionImpersonationUpdatePatch {

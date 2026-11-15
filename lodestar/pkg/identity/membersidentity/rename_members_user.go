@@ -12,9 +12,10 @@ import (
 )
 
 // RenameMembersUser gives a person of the Members auth a new username, and
-// takes everything that names them with it, in one transaction: the sessions they
-// hold, the impersonations they established, and every role, which the permission
-// store keeps by username. A name another user holds is refused.
+// takes what carries the name for people to read with it, in one transaction: the
+// sessions they hold and the impersonations they established. The roles stay where they
+// are: the permission store names a person by the id of their account. A name another
+// user holds is refused.
 //
 // @rpc
 // @outlet(portal, default)

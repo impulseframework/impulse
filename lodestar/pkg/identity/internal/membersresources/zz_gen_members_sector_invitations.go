@@ -26,16 +26,16 @@ func (MembersSectorInvitation) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; membersSectorInvitationReadSets holds one Set per read operation.
 type membersSectorInvitationRead struct {
-	ID         impulse.UUID  `json:"id"         perm:"-"`
-	Domain     string        `json:"domain"`
-	Email      string        `json:"email"`
-	Name       *string       `json:"name"`
-	RoleNames  []string      `json:"roleNames"`
-	InvitedBy  *impulse.UUID `json:"invitedBy"`
-	CreatedAt  time.Time     `json:"createdAt"`
-	ExpiresAt  time.Time     `json:"expiresAt"`
-	ConsumedAt *time.Time    `json:"consumedAt"`
-	Pending    bool          `json:"pending"`
+	ID              impulse.UUID  `json:"id"              perm:"-"`
+	DomainID        string        `json:"domainId"`
+	Email           string        `json:"email"`
+	Name            *string       `json:"name"`
+	RoleNames       []string      `json:"roleNames"`
+	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
+	CreatedAt       time.Time     `json:"createdAt"`
+	ExpiresAt       time.Time     `json:"expiresAt"`
+	ConsumedAt      *time.Time    `json:"consumedAt"`
+	Pending         bool          `json:"pending"`
 }
 
 var membersSectorInvitationReadSets resource.SetCache[MembersSectorInvitation, membersSectorInvitationRead]
@@ -145,11 +145,11 @@ func NewMembersSectorInvitationColumns() *MembersSectorInvitationColumns {
 func (c *MembersSectorInvitationColumns) All() *MembersSectorInvitationColumns {
 	c.fields = []accesstypes.Field{
 		"ID",
-		"Domain",
+		"DomainID",
 		"Email",
 		"Name",
 		"RoleNames",
-		"InvitedBy",
+		"InvitedByUserID",
 		"CreatedAt",
 		"ExpiresAt",
 		"ConsumedAt",
@@ -165,8 +165,8 @@ func (c *MembersSectorInvitationColumns) ID() *MembersSectorInvitationColumns {
 	return c
 }
 
-func (c *MembersSectorInvitationColumns) Domain() *MembersSectorInvitationColumns {
-	c.fields = append(c.fields, "Domain")
+func (c *MembersSectorInvitationColumns) DomainID() *MembersSectorInvitationColumns {
+	c.fields = append(c.fields, "DomainID")
 
 	return c
 }
@@ -189,8 +189,8 @@ func (c *MembersSectorInvitationColumns) RoleNames() *MembersSectorInvitationCol
 	return c
 }
 
-func (c *MembersSectorInvitationColumns) InvitedBy() *MembersSectorInvitationColumns {
-	c.fields = append(c.fields, "InvitedBy")
+func (c *MembersSectorInvitationColumns) InvitedByUserID() *MembersSectorInvitationColumns {
+	c.fields = append(c.fields, "InvitedByUserID")
 
 	return c
 }
@@ -235,8 +235,8 @@ func (p MembersSectorInvitationQueryPartialClause) ID() MembersSectorInvitationQ
 	return MembersSectorInvitationQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p MembersSectorInvitationQueryPartialClause) Domain() MembersSectorInvitationQueryIdent[string] {
-	return MembersSectorInvitationQueryIdent[string]{Ident: resource.NewIdent[string]("Domain", p.partialClause, true)}
+func (p MembersSectorInvitationQueryPartialClause) DomainID() MembersSectorInvitationQueryIdent[string] {
+	return MembersSectorInvitationQueryIdent[string]{Ident: resource.NewIdent[string]("DomainID", p.partialClause, true)}
 }
 
 func (p MembersSectorInvitationQueryPartialClause) Email() MembersSectorInvitationQueryIdent[string] {
@@ -321,8 +321,8 @@ func (c *membersSectorInvitationSort) ID() *MembersSectorInvitationSort {
 	return c.addField("ID")
 }
 
-func (c *membersSectorInvitationSort) Domain() *MembersSectorInvitationSort {
-	return c.addField("Domain")
+func (c *membersSectorInvitationSort) DomainID() *MembersSectorInvitationSort {
+	return c.addField("DomainID")
 }
 
 func (c *membersSectorInvitationSort) Email() *MembersSectorInvitationSort {
@@ -337,8 +337,8 @@ func (c *membersSectorInvitationSort) RoleNames() *MembersSectorInvitationSort {
 	return c.addField("RoleNames")
 }
 
-func (c *membersSectorInvitationSort) InvitedBy() *MembersSectorInvitationSort {
-	return c.addField("InvitedBy")
+func (c *membersSectorInvitationSort) InvitedByUserID() *MembersSectorInvitationSort {
+	return c.addField("InvitedByUserID")
 }
 
 func (c *membersSectorInvitationSort) CreatedAt() *MembersSectorInvitationSort {

@@ -22,7 +22,7 @@ type (
 	MembersRole struct {
 		Kind        string    `spanner:"Kind"`
 		Axis        string    `spanner:"Axis"`
-		Domain      string    `spanner:"Domain"`
+		DomainID    string    `spanner:"DomainId"`
 		Role        string    `spanner:"Role"`
 		Description string    `spanner:"Description"`
 		UpdatedAt   time.Time `spanner:"UpdatedAt"`

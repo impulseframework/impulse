@@ -83,7 +83,7 @@ func testDatabaseTimeOnInsert(ctx context.Context, t *testing.T, h *Harness) {
 	assertSameTime(t, "Session().UpdatedAt", sess.UpdatedAt, sess.CreatedAt)
 
 	// An impersonated session's record starts when its row is created.
-	imp := &dbtype.InsertImpersonation{ActorUsername: "pat@lakeside.edu", PrincipalKind: dbtype.PrincipalKindUser, PrincipalUser: strPtr("sam@lakeside.edu"), ExpiresAt: time.Now().Add(time.Hour)}
+	imp := &dbtype.InsertImpersonation{ActorUsername: "pat@lakeside.edu", PrincipalKind: dbtype.PrincipalKindUser, PrincipalUserID: strPtr("sam@lakeside.edu"), ExpiresAt: time.Now().Add(time.Hour)}
 	w = startWindow(h.ClockLead)
 	impID, err := c.InsertImpersonatedSession(ctx, &dbtype.InsertSession{Username: "sam@lakeside.edu"}, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "sam@lakeside.edu"}, imp)
 	w.done()
@@ -136,7 +136,7 @@ func testDatabaseTimeOnDestroyAll(ctx context.Context, t *testing.T, h *Harness)
 		return id
 	}
 	first, second := start(name), start(name)
-	imp := &dbtype.InsertImpersonation{ActorUsername: name, PrincipalKind: dbtype.PrincipalKindUser, PrincipalUser: strPtr("sam@lakeside.edu"), ExpiresAt: time.Now().Add(time.Hour)}
+	imp := &dbtype.InsertImpersonation{ActorUsername: name, PrincipalKind: dbtype.PrincipalKindUser, PrincipalUserID: strPtr("sam@lakeside.edu"), ExpiresAt: time.Now().Add(time.Hour)}
 	held, err := c.InsertImpersonatedSession(ctx, &dbtype.InsertSession{Username: "sam@lakeside.edu"}, &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: "sam@lakeside.edu"}, imp)
 	if err != nil {
 		t.Fatalf("InsertImpersonatedSession() error = %v", err)
@@ -257,7 +257,7 @@ func testDatabaseTimeOnRevocation(ctx context.Context, t *testing.T, h *AuthHarn
 		return id
 	}
 	first, second := start(pat), start(pat)
-	imp := dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: pat.Username, Principal: accesstypes.UserPrincipal(accesstypes.User(sam.Username)), ExpiresAt: time.Now().Add(time.Hour)})
+	imp := dbtype.NewInsertImpersonation(&sessioninfo.Impersonation{Actor: pat.Username, Principal: accesstypes.UserPrincipal(accesstypes.User(sam.ID.String())), ExpiresAt: time.Now().Add(time.Hour)})
 	held, err := in.Driver.InsertImpersonatedSession(ctx, newInsertSession(sam.Username), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: sam.Username, UserID: sam.ID}, imp)
 	if err != nil {
 		t.Fatalf("InsertImpersonatedSession() error = %v", err)

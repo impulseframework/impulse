@@ -20,7 +20,7 @@ import (
 
 func (h *Handlers) CrewSectorUserRoles() http.HandlerFunc {
 	type crewSectorUserRole struct {
-		Domain      string       `json:"domain"      index:"true"`
+		DomainID    string       `json:"domainId"    index:"true"`
 		UserID      impulse.UUID `json:"userId"      index:"true" perm:"-"`
 		Username    string       `json:"username"    index:"true"`
 		Role        string       `json:"role"        index:"true" perm:"-"`
@@ -68,9 +68,9 @@ func (h *Handlers) CrewSectorUserRoles() http.HandlerFunc {
 			rmap := make(map[string]any)
 			for _, field := range querySet.Fields() {
 				switch string(field) {
-				case "Domain":
-					if !row.Masked("domain") {
-						rmap["domain"] = rec.Domain
+				case "DomainID":
+					if !row.Masked("domainId") {
+						rmap["domainId"] = rec.DomainID
 					}
 				case "UserID":
 					if !row.Masked("userId") {
@@ -115,7 +115,7 @@ func (h *Handlers) CrewSectorUserRoles() http.HandlerFunc {
 
 func (h *Handlers) CrewSectorUserRole() http.HandlerFunc {
 	type response struct {
-		Domain      string       `json:"domain"`
+		DomainID    string       `json:"domainId"`
 		UserID      impulse.UUID `json:"userId"      index:"true" perm:"-"`
 		Username    string       `json:"username"`
 		Role        string       `json:"role"        index:"true" perm:"-"`
@@ -152,9 +152,9 @@ func (h *Handlers) CrewSectorUserRole() http.HandlerFunc {
 		rmap := make(map[string]any)
 		for _, field := range querySet.Fields() {
 			switch string(field) {
-			case "Domain":
-				if !row.Masked("domain") {
-					rmap["domain"] = rec.Domain
+			case "DomainID":
+				if !row.Masked("domainId") {
+					rmap["domainId"] = rec.DomainID
 				}
 			case "UserID":
 				if !row.Masked("userId") {

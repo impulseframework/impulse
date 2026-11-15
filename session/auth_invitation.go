@@ -89,7 +89,7 @@ func (a *Auth[S, U, Tx]) invitationOf(ctx context.Context) (*sessioninfo.Invitat
 // invitationOf renders a mail link row as the invitation a sign-in carries.
 func invitationOf(link *sessionstorage.MailLink) *sessioninfo.Invitation {
 	return &sessioninfo.Invitation{
-		ID: link.ID, Email: link.Email, Name: link.Name, Tenant: link.Tenant, RoleNames: link.RoleNames, InvitedBy: link.InvitedBy, CreatedAt: link.CreatedAt,
+		ID: link.ID, Email: link.Email, Name: link.Name, TenantID: link.TenantID, RoleNames: link.RoleNames, InvitedByUserID: link.InvitedByUserID, CreatedAt: link.CreatedAt,
 		ExpiresAt: link.ExpiresAt,
 	}
 }
@@ -154,8 +154,12 @@ func (a *Auth[S, U, Tx]) Invitation() *InvitationHandlers {
 // invitationOpen is Invitation().Open().
 func (a *Auth[S, U, Tx]) invitationOpen() http.HandlerFunc {
 	type response struct {
-		Email           string    `json:"email"`
-		Tenant          string    `json:"tenant,omitempty"`
+		Email string `json:"email"`
+		// TenantID is the tenant the invitation seats the person in, and TenantName what
+		// people call it (SetTenantNames); both absent for the application's global
+		// surface, and the name absent where no namer knows the tenant.
+		TenantID        string    `json:"tenantId,omitempty"`
+		TenantName      string    `json:"tenantName,omitempty"`
 		ExpiresAt       time.Time `json:"expiresAt"`
 		SignUp          bool      `json:"signUp"`
 		UsernameIsEmail bool      `json:"usernameIsEmail"`
@@ -191,7 +195,7 @@ func (a *Auth[S, U, Tx]) invitationOpen() http.HandlerFunc {
 		}
 
 		return httpio.NewEncoder(w).Ok(response{
-			Email: link.Email, Tenant: link.Tenant, ExpiresAt: link.ExpiresAt, SignUp: methods.passwordRegistered(), UsernameIsEmail: methods.usernameIsEmail(),
+			Email: link.Email, TenantID: link.TenantID, TenantName: a.tenantName(link.TenantID), ExpiresAt: link.ExpiresAt, SignUp: methods.passwordRegistered(), UsernameIsEmail: methods.usernameIsEmail(),
 			Methods: a.admittingMethodNames(link.Email), AccountExists: exists, HasPassword: hasPassword,
 		})
 	})
@@ -382,14 +386,14 @@ type InvitationRequest struct {
 	// acceptance creates carries it unless the sign-in asserts a name of its own, and
 	// an existing account that holds none takes it.
 	Name string
-	// Tenant is the tenant the invitation seats the person in, "" for the
+	// TenantID is the tenant the invitation seats the person in, "" for the
 	// application's global surface.
-	Tenant string
+	TenantID string
 	// RoleNames are the roles the acceptance grants, as the application's hook
 	// understands them.
 	RoleNames []string
-	// InvitedBy is the user sending the invitation, null when unknown.
-	InvitedBy impulse.NullUUID
+	// InvitedByUserID is the user sending the invitation, null when unknown.
+	InvitedByUserID impulse.NullUUID
 }
 
 // Invite sends an invitation to req.Email: a link to the login page that stands for
@@ -420,7 +424,7 @@ func (p *AuthAPI[S, U, Tx]) Invite(ctx context.Context, req *InvitationRequest) 
 	}
 	lifetime := m.settings.InvitationTimeout
 	link := &sessionstorage.MailLink{
-		TokenHash: hash, Kind: sessionstorage.MailLinkInvitation, Email: email, Name: name, Tenant: req.Tenant, RoleNames: req.RoleNames, InvitedBy: req.InvitedBy,
+		TokenHash: hash, Kind: sessionstorage.MailLinkInvitation, Email: email, Name: name, TenantID: req.TenantID, RoleNames: req.RoleNames, InvitedByUserID: req.InvitedByUserID,
 		ExpiresAt: time.Now().Add(lifetime),
 	}
 	if err := p.auth.storage.InsertMailLink(ctx, link); err != nil {
@@ -485,8 +489,8 @@ func (a *Auth[S, U, Tx]) sendInvitation(ctx context.Context, m *mailSettings, id
 // (Tables.MailLinks), for a caller that writes it in a transaction of its own. The
 // caller writes every field to the column of its name (TokenHash as the bytes they
 // are), Kind as sessionstorage.MailLinkInvitation, CreatedAt as the commit time, and
-// leaves UserId and ConsumedAt null; Tenant is null for the application's global
-// surface (""), and InvitedBy null when unknown. The row is what the sign-in reads
+// leaves UserId and ConsumedAt null; TenantId is null for the application's global
+// surface (""), and InvitedByUserID null when unknown. The row is what the sign-in reads
 // when the link is followed, so a row written otherwise is an invitation nobody can
 // accept.
 type InvitationRow struct {
@@ -500,12 +504,12 @@ type InvitationRow struct {
 	// Name is the invited person's name as the inviter gave it, without the space
 	// around it; "" for none.
 	Name string
-	// Tenant is the tenant the acceptance seats the person in, "" for the
+	// TenantID is the tenant the acceptance seats the person in, "" for the
 	// application's global surface, and RoleNames the roles it grants.
-	Tenant    string
+	TenantID  string
 	RoleNames []string
-	// InvitedBy is the user who sent the invitation, null when unknown.
-	InvitedBy impulse.NullUUID
+	// InvitedByUserID is the user who sent the invitation, null when unknown.
+	InvitedByUserID impulse.NullUUID
 	// ExpiresAt is when the link stops being accepted.
 	ExpiresAt time.Time
 }
@@ -580,7 +584,7 @@ func (p *AuthAPI[S, U, Tx]) PrepareInvitation(ctx context.Context, req *Invitati
 
 	return &preparedInvitation{
 		row: InvitationRow{
-			ID: id, TokenHash: hash, Email: email, Name: name, Tenant: req.Tenant, RoleNames: slices.Clone(req.RoleNames), InvitedBy: req.InvitedBy,
+			ID: id, TokenHash: hash, Email: email, Name: name, TenantID: req.TenantID, RoleNames: slices.Clone(req.RoleNames), InvitedByUserID: req.InvitedByUserID,
 			ExpiresAt: time.Now().Add(lifetime),
 		},
 		send: func(ctx context.Context) error {

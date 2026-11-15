@@ -81,12 +81,21 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 		ids[name] = created.ID
 	}
 	// A tenant's own method gives a role to a person the tenant already holds, so the
-	// role in south is given through the whole application's method, which names the tenant.
-	if status, body := admin.do(ctx, http.MethodPost, consoleAPI+"/assign-staff-role", []byte(`{"username":"sam","role":"TenantAdministrator","domain":"`+south+`"}`)); status != http.StatusNoContent {
+	// role in south is given through the whole application's method, which names the
+	// tenant, and the person by the id of their account as every method does.
+	if status, body := admin.do(ctx, http.MethodPost, consoleAPI+"/assign-staff-role", []byte(`{"userId":"`+ids["sam"]+`","role":"TenantAdministrator","domain":"`+south+`"}`)); status != http.StatusNoContent {
 		t.Fatalf("giving sam a role in %s: status %d: %s", south, status, body)
 	}
-	if status, body := admin.do(ctx, http.MethodPost, consoleAPI+"/assign-staff-role", []byte(`{"username":"gail","role":"FeatureAdministrator"}`)); status != http.StatusNoContent {
+	if status, body := admin.do(ctx, http.MethodPost, consoleAPI+"/assign-staff-role", []byte(`{"userId":"`+ids["gail"]+`","role":"FeatureAdministrator"}`)); status != http.StatusNoContent {
 		t.Fatalf("giving gail a role of the whole application: status %d: %s", status, body)
+	}
+	// A role is held by an account: an id no user holds is given nothing.
+	nobody, err := impulse.NewUUID()
+	if err != nil {
+		t.Fatalf("impulse.NewUUID() error = %v", err)
+	}
+	if status, body := admin.do(ctx, http.MethodPost, consoleAPI+"/assign-staff-role", []byte(`{"userId":"`+nobody.String()+`","role":"FeatureAdministrator"}`)); status != http.StatusNotFound {
+		t.Errorf("giving a role to an id no user holds: status %d, want 404: %s", status, body)
 	}
 	// sam is one of south's people now, as its administrator reads them; and south is
 	// no tenant north's administrator reaches: holding nothing there, they are answered
@@ -217,12 +226,16 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 
 	// A role held in every tenant is not one tenant's to take. The application's
 	// administrator holds TenantAdministrator in every tenant: one membership, which
-	// north's list of the roles held shows and north does not own.
+	// north's list of the roles held shows, under the id of the administrator's account
+	// beside the name, and north does not own.
 	adminID := ""
 	for _, row := range tenantRows(ctx, t, member, north, "staff-tenant-user-roles") {
 		if row["username"] == adminUser {
 			adminID, _ = row["userId"].(string)
 		}
+	}
+	if adminID != s.adminID {
+		t.Errorf("the administrator in north's list of the roles held is the account %q, want %q: the membership is held by the account's id", adminID, s.adminID)
 	}
 	if status, body := tenantPost(ctx, member, north, "remove-staff-tenant-role", map[string]any{"userId": adminID, "role": "TenantAdministrator"}); status != http.StatusForbidden {
 		t.Errorf("north taking a role held in every tenant: status %d, want 403: %s", status, body)

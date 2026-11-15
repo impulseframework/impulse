@@ -11,6 +11,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
@@ -30,7 +31,9 @@ func withAuth(ctx context.Context, auth string) context.Context {
 }
 
 // withUser seeds the session identity the way the session middleware would, with no
-// auth bound: what a request carries before the outlet's Subscribing runs.
+// auth bound: what a request carries before the outlet's Subscribing runs. The session
+// belongs to no account, so its person is named by the username (withAccountSession
+// seeds one that does).
 func withUser(ctx context.Context, user string) context.Context {
 	return context.WithValue(ctx, sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
 		SessionInfo: &sessioninfo.SessionInfo{Username: user},
@@ -40,6 +43,16 @@ func withUser(ctx context.Context, user string) context.Context {
 // withSession seeds the session identity behind an outlet bound to auth.
 func withSession(ctx context.Context, auth, user string) context.Context {
 	return withUser(withAuth(ctx, auth), user)
+}
+
+// withAccountSession seeds the session of a user of the auth, behind an outlet bound to
+// it: the session belongs to the account, whose id names the person, and carries the
+// username for people to read.
+func withAccountSession(ctx context.Context, auth, user string, account impulse.UUID) context.Context {
+	return context.WithValue(withAuth(ctx, auth), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
+		SessionInfo: &sessioninfo.SessionInfo{Username: user},
+		UserID:      impulse.NullUUIDFromUUID(account),
+	})
 }
 
 // withRoleSession seeds a session established as a role by actor, behind an outlet bound
@@ -517,6 +530,50 @@ func TestPrincipalID(t *testing.T) {
 			}
 			if refused := httpio.Message(err) != ""; refused != tt.wantRefusal {
 				t.Errorf("PrincipalID() client message = %q, want one: %v", httpio.Message(err), tt.wantRefusal)
+			}
+		})
+	}
+}
+
+// TestPrincipalID_account pins the principal id of an auth's user: the auth, then the
+// person as the permission store names them, by the id of their account and never by
+// the username. A person renamed keeps their id, and so their subscriptions; two
+// accounts that share a username are two principal ids, in one auth as across two; and
+// a session in which an actor views the application as a user is the account viewed.
+func TestPrincipalID_account(t *testing.T) {
+	t.Parallel()
+
+	mechanic := impulse.Must(impulse.UUIDFromString("0b5e0000-0000-4000-8000-000000000001"))
+	other := impulse.Must(impulse.UUIDFromString("0b5e0000-0000-4000-8000-000000000002"))
+	viewAs := context.WithValue(withAuth(context.Background(), crewAuth), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
+		SessionInfo: &sessioninfo.SessionInfo{Username: "mechanic"},
+		UserID:      impulse.NullUUIDFromUUID(mechanic),
+		Impersonation: &sessioninfo.Impersonation{
+			Actor: "alice", ActorID: impulse.NullUUIDFromUUID(other), Principal: accesstypes.UserPrincipal(accesstypes.User(mechanic.String())),
+		},
+	})
+
+	tests := []struct {
+		name string
+		ctx  context.Context
+		want string
+	}{
+		{name: "a user of an auth is the id of their account, qualified by the auth", ctx: withAccountSession(context.Background(), crewAuth, "mechanic", mechanic), want: "crew|0b5e0000-0000-4000-8000-000000000001"},
+		{name: "the person renamed keeps the id", ctx: withAccountSession(context.Background(), crewAuth, "mechanic.r", mechanic), want: "crew|0b5e0000-0000-4000-8000-000000000001"},
+		{name: "another account under the same username is another id", ctx: withAccountSession(context.Background(), crewAuth, "mechanic", other), want: "crew|0b5e0000-0000-4000-8000-000000000002"},
+		{name: "the same username in another auth is that auth's account", ctx: withAccountSession(context.Background(), membersAuth, "mechanic", other), want: "members|0b5e0000-0000-4000-8000-000000000002"},
+		{name: "a session that views the application as a user is the account viewed", ctx: viewAs, want: "crew|0b5e0000-0000-4000-8000-000000000001"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := PrincipalID(tt.ctx)
+			if err != nil {
+				t.Fatalf("PrincipalID() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("PrincipalID() = %q, want %q", got, tt.want)
 			}
 		})
 	}

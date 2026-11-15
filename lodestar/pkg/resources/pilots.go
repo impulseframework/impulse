@@ -11,7 +11,11 @@ type (
 	// subject.clearance is the pilot's hazard clearance (hazard <= subject.clearance) and
 	// subject.feeLimit the fee they may book without sign-off (new.fee <=
 	// subject.feeLimit). The database enforces one row per user; a user with no Pilot row
-	// fails such conditions closed.
+	// fails such conditions closed. UserId holds the id of the pilot's crew account, which
+	// is what the permission store names a person by and what a condition's subject binds
+	// to; the record's own DisplayName is what a page shows. Whoever adds a pilot picks the
+	// account from the crew's accounts by its username (@enumerate), since nobody types an
+	// id.
 	//
 	// The roster declares a default page but no maximum, so limit=all is legal on it and
 	// the client's all() has a home.
@@ -25,6 +29,7 @@ type (
 		ID impulse.UUID `spanner:"Id"`
 		// @subjectValue(clearance, value: Clearance)
 		// @subjectValue(feeLimit, value: FeeLimit)
+		// @enumerate(CrewSessionUsers)
 		UserID      string          `spanner:"UserId"`
 		DisplayName string          `spanner:"DisplayName"`
 		Clearance   int64           `spanner:"Clearance"`

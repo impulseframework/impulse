@@ -50,7 +50,7 @@ func TestClientPortal(t *testing.T) {
 			t.Errorf("rows = %v, want Halvard's %v", got, want)
 		}
 		for _, row := range rows {
-			for _, hidden := range []string{"assignedSquadronId", "notes", "settlement", "bookedBy"} {
+			for _, hidden := range []string{"assignedSquadronId", "notes", "settlement", "bookedByUserId"} {
 				if _, ok := row[hidden]; ok {
 					t.Errorf("portal row %v carries %s, outside the portal grant's width", row["id"], hidden)
 				}

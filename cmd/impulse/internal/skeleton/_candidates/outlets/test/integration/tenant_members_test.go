@@ -28,7 +28,8 @@ import (
 //
 // The members sign in through a directory and hold no password, so the test writes the
 // accounts and their identity links as a directory sign-in writes them, and gives the
-// roles through the engine: nora holds a role in north alone, sam in north and in south,
+// roles through the engine, each held by the id of the member's account, which is how
+// the store names a person: nora holds a role in north alone, sam in north and in south,
 // eve in every tenant. The client is north's administrator and nothing else.
 func TestTenantMembers_aTenantAdministratorActsOnTheTenantsOwnMembersAlone(t *testing.T) {
 	t.Parallel()
@@ -86,7 +87,7 @@ func TestTenantMembers_aTenantAdministratorActsOnTheTenantsOwnMembersAlone(t *te
 		t.Fatalf("writing the members and their identity links: %v", err)
 	}
 	for _, held := range []struct {
-		name  accesstypes.User
+		name  string
 		scope accesstypes.PolicyScope
 	}{
 		{"nora", accesstypes.DomainPolicyScope(north)},
@@ -94,7 +95,7 @@ func TestTenantMembers_aTenantAdministratorActsOnTheTenantsOwnMembersAlone(t *te
 		{"sam", accesstypes.DomainPolicyScope(south)},
 		{"eve", accesstypes.EveryDomainPolicyScope()},
 	} {
-		if err := s.members.UserManager().AddUserRoles(ctx, held.scope, held.name, "TenantAdministrator"); err != nil {
+		if err := s.members.UserManager().AddUserRoles(ctx, held.scope, accesstypes.User(ids[held.name]), "TenantAdministrator"); err != nil {
 			t.Fatalf("AddUserRoles(%s, %v) error = %v", held.name, held.scope, err)
 		}
 	}
