@@ -13,7 +13,7 @@
 //
 //	DROID_OUTLET    the droids outlet's URL as the router mounts it, https://lodestar.example.com/droids
 //	DROID_TOKEN     the droid account's token: the key the server seeds as its application token (APP_DROIDS_API_KEY), or a token a crew member issued
-//	DROID_SECTOR    the sector the ship is in: anvil
+//	DROID_SECTOR    the sector the ship is in, by id: a1111111-1111-4111-8111-111111111111 is Anvil
 //	DROID_SHIP      the ship the droid rides, by id: 70000000-0000-4000-8000-000000000003 is the Lantern
 //	DROID_FIRMWARE  the firmware the frame names; 7.2 when unset
 //

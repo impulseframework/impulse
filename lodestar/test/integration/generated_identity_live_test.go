@@ -105,6 +105,8 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	username := "dana-" + identitySuffix()
 	status, body := doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/create-crew-user", `{"username":"`+username+`","roles":["CrewCommon"]}`)
 	assertStatus(t, status, http.StatusOK, body)
+	// The methods that give a role name the person by the id of the account the create made.
+	danaID := cell[string](t, decodeRow(t, body), "id")
 	if got := wholeChanges(fake.Publishes()); !slices.Equal(got, lists) {
 		t.Fatalf("derived changes after the create = %v, want %v", got, lists)
 	}
@@ -124,7 +126,7 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	r := chi.NewRouter()
 	r.Use(httpio.WithParams)
 	r.Post("/assign-crew-role", crewhandlers.New(w.app, derivations()).AssignCrewRole())
-	status, body = doRequestAs(t, r, "governor", http.MethodPost, "/assign-crew-role", `{"username":"`+username+`","role":"Cadet","domain":"`+anvil+`"}`)
+	status, body = doRequestAs(t, r, "governor", http.MethodPost, "/assign-crew-role", `{"userId":"`+danaID+`","role":"Cadet","domain":"`+anvil+`"}`)
 	assertStatus(t, status, http.StatusNoContent, body)
 	if got, want := wholeChanges(fake.Publishes()[before:]), []live.WholeChange{{Resource: crewSeatBoard, AllDomains: true}}; !slices.Equal(got, want) {
 		t.Errorf("derived changes through the fixture's handlers = %v, want %v", got, want)
@@ -138,7 +140,7 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 	// The application's own route again: the commit writes the one membership, and the
 	// sector's lists that read the memberships are told.
 	before = len(fake.Publishes())
-	status, body = doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/assign-crew-role", `{"username":"`+username+`","role":"Cadet","domain":"`+bastion+`"}`)
+	status, body = doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/assign-crew-role", `{"userId":"`+danaID+`","role":"Cadet","domain":"`+bastion+`"}`)
 	assertStatus(t, status, http.StatusNoContent, body)
 	publishes := fake.Publishes()
 	if len(publishes) != before+1 {

@@ -21,7 +21,9 @@ import (
 // the role up as its last holder and give it up once they hold it in every tenant again;
 // and once the member holds Administrator beside them, they give that up too. So an
 // operator creates a customer's tenant, makes its first administrator and leaves, and
-// neither the application nor a tenant is left with nobody to give the next role.
+// neither the application nor a tenant is left with nobody to give the next role. Every
+// method names its person by the id of their account, and the rule knows the caller by
+// theirs.
 func TestLastOwner_anAdministratorLeavesOnceAnotherRemains(t *testing.T) {
 	t.Parallel()
 
@@ -31,74 +33,71 @@ func TestLastOwner_anAdministratorLeavesOnceAnotherRemains(t *testing.T) {
 	adminID := staffUserID(ctx, t, admin, adminUser)
 
 	// The last holder of the application's administrator role is refused, in the rule's words.
-	status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminUser, "Administrator", false))
+	status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminID, "Administrator", false))
 	if status != http.StatusForbidden || !strings.Contains(string(body), "you are the last administrator: give another person the role before you remove your own") {
 		t.Fatalf("the administrator giving up Administrator as its one holder: status %d, want 403 naming the rule: %s", status, body)
 	}
-	if roles := globalRolesOf(ctx, t, admin, adminUser); !slices.Contains(roles, "Administrator") {
+	if roles := globalRolesOf(ctx, t, admin, adminID); !slices.Contains(roles, "Administrator") {
 		t.Fatalf("the administrator's roles after the refusal = %v, want Administrator kept", roles)
 	}
 
 	// A person who holds FeatureAdministrator alone turns flags on and off and manages
 	// nobody, so they are no administrator left behind: with the member holding it, the
 	// administrator is still the last one and is refused as before.
-	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(memberUser, "FeatureAdministrator", false)); status != http.StatusNoContent {
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(s.memberID, "FeatureAdministrator", false)); status != http.StatusNoContent {
 		t.Fatalf("giving the member FeatureAdministrator: status %d: %s", status, body)
 	}
-	status, body = admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminUser, "Administrator", false))
+	status, body = admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminID, "Administrator", false))
 	if status != http.StatusForbidden || !strings.Contains(string(body), "you are the last administrator: give another person the role before you remove your own") {
 		t.Fatalf("the administrator giving up Administrator while the member holds FeatureAdministrator alone: status %d, want 403 naming the rule: %s", status, body)
 	}
-	if roles := globalRolesOf(ctx, t, admin, adminUser); !slices.Contains(roles, "Administrator") {
+	if roles := globalRolesOf(ctx, t, admin, adminID); !slices.Contains(roles, "Administrator") {
 		t.Fatalf("the administrator's roles after the second refusal = %v, want Administrator kept", roles)
 	}
 
 	// A role that is no administrator role where it is held goes freely:
 	// TenantAdministrator held in every tenant is no role of the whole application.
-	if status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminUser, "TenantAdministrator", true)); status != http.StatusNoContent {
+	if status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminID, "TenantAdministrator", true)); status != http.StatusNoContent {
 		t.Fatalf("the administrator giving up TenantAdministrator held in every tenant: status %d, want 204: %s", status, body)
 	}
 
 	// In a tenant: the create path made the creator west's administrator, and with no
 	// holder in every tenant left, they are its last one, refused in the tenant's words;
 	// holding the role in every tenant again, they give up west's own.
-	const west = "west"
-	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"add","path":"/tenants/`+west+`","value":{"name":"West"}}]`)); status != http.StatusOK {
-		t.Fatalf("creating %s: status %d: %s", west, status, body)
-	}
+	west := createTenant(ctx, t, admin, "West")
 	if roles := tenantRolesOf(ctx, t, admin, west, adminUser); !slices.Contains(roles, "TenantAdministrator") {
-		t.Fatalf("the administrator's roles in %s = %v, want TenantAdministrator: the create path gives the creator the role", west, roles)
+		t.Fatalf("the administrator's roles in West = %v, want TenantAdministrator: the create path gives the creator the role", roles)
 	}
 	westRole := "/api/tenants/" + west + "/remove-staff-tenant-role"
 	status, body = admin.do(ctx, http.MethodPost, westRole, tenantRoleOf(adminID, "TenantAdministrator"))
-	if status != http.StatusForbidden || !strings.Contains(string(body), "you are the last administrator of "+west+": give another person the role before you remove your own") {
-		t.Fatalf("the administrator giving up %s's role as its one holder: status %d, want 403 naming the rule: %s", west, status, body)
+	if status != http.StatusForbidden || !strings.Contains(string(body), "you are the last administrator of this tenant: give another person the role before you remove your own") {
+		t.Fatalf("the administrator giving up West's role as its one holder: status %d, want 403 naming the rule: %s", status, body)
 	}
-	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(adminUser, "TenantAdministrator", true)); status != http.StatusNoContent {
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(adminID, "TenantAdministrator", true)); status != http.StatusNoContent {
 		t.Fatalf("the administrator taking TenantAdministrator in every tenant again: status %d: %s", status, body)
 	}
 	if status, body := admin.do(ctx, http.MethodPost, westRole, tenantRoleOf(adminID, "TenantAdministrator")); status != http.StatusNoContent {
-		t.Fatalf("the administrator giving up %s's role while holding it in every tenant: status %d, want 204: %s", west, status, body)
+		t.Fatalf("the administrator giving up West's role while holding it in every tenant: status %d, want 204: %s", status, body)
 	}
 
 	// Another holder given the role, the administrator gives it up.
-	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(memberUser, "Administrator", false)); status != http.StatusNoContent {
+	if status, body := admin.do(ctx, http.MethodPost, "/api/assign-staff-role", roleOf(s.memberID, "Administrator", false)); status != http.StatusNoContent {
 		t.Fatalf("giving the member Administrator: status %d: %s", status, body)
 	}
-	if status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminUser, "Administrator", false)); status != http.StatusNoContent {
+	if status, body := admin.do(ctx, http.MethodPost, "/api/remove-staff-role", roleOf(adminID, "Administrator", false)); status != http.StatusNoContent {
 		t.Fatalf("the administrator giving up Administrator once the member holds it: status %d, want 204: %s", status, body)
 	}
 	member := signedIn(ctx, t, s, memberUser)
-	if roles := globalRolesOf(ctx, t, member, adminUser); slices.Contains(roles, "Administrator") {
+	if roles := globalRolesOf(ctx, t, member, adminID); slices.Contains(roles, "Administrator") {
 		t.Errorf("the administrator's roles once they gave it up = %v, want Administrator gone", roles)
 	}
 }
 
 // roleOf is the body of the methods that give and take a role for the whole application:
-// the person by name and the role, held for the whole application or, with everyTenant,
-// in every tenant.
-func roleOf(username, role string, everyTenant bool) []byte {
-	body, err := json.Marshal(map[string]any{"username": username, "role": role, "everyDomain": everyTenant})
+// the person by the id of their account and the role, held for the whole application or,
+// with everyTenant, in every tenant.
+func roleOf(userID, role string, everyTenant bool) []byte {
+	body, err := json.Marshal(map[string]any{"userId": userID, "role": role, "everyDomain": everyTenant})
 	if err != nil {
 		panic(err)
 	}
@@ -143,9 +142,10 @@ func staffUserID(ctx context.Context, t *testing.T, b *browser, username string)
 	return ""
 }
 
-// globalRolesOf reads the roles the user holds for the whole application, from the list
-// of the roles held as it answers the browser b.
-func globalRolesOf(ctx context.Context, t *testing.T, b *browser, username string) []string {
+// globalRolesOf reads the roles the person holds for the whole application, from the
+// list of the roles held as it answers the browser b: the list is the permission store's
+// memberships, whose user is the id of the person's account.
+func globalRolesOf(ctx context.Context, t *testing.T, b *browser, userID string) []string {
 	t.Helper()
 
 	status, body := b.do(ctx, http.MethodGet, "/api/staff-user-roles?limit=200", nil)
@@ -153,16 +153,16 @@ func globalRolesOf(ctx context.Context, t *testing.T, b *browser, username strin
 		t.Fatalf("GET /api/staff-user-roles: status %d: %s", status, body)
 	}
 	var rows []struct {
-		Kind string `json:"kind"`
-		Role string `json:"role"`
-		User string `json:"user"`
+		Kind   string `json:"kind"`
+		Role   string `json:"role"`
+		UserID string `json:"userId"`
 	}
 	if err := json.Unmarshal(body, &rows); err != nil {
 		t.Fatalf("the roles held are not a list: %v: %s", err, body)
 	}
 	var roles []string
 	for _, row := range rows {
-		if row.User == username && row.Kind == "global" {
+		if row.UserID == userID && row.Kind == "global" {
 			roles = append(roles, row.Role)
 		}
 	}

@@ -27,11 +27,12 @@ func (Commendation) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; commendationReadSets holds one Set per read operation.
 type commendationRead struct {
-	ID        impulse.UUID `json:"id"        perm:"-"`
-	PilotID   impulse.UUID `json:"pilotId"`
-	Citation  string       `json:"citation"`
-	AwardedBy string       `json:"awardedBy"`
-	AwardedAt time.Time    `json:"awardedAt"`
+	ID              impulse.UUID `json:"id"              perm:"-"`
+	PilotID         impulse.UUID `json:"pilotId"`
+	Citation        string       `json:"citation"`
+	AwardedByUserID string       `json:"awardedByUserId"`
+	AwardedByName   string       `json:"awardedByName"`
+	AwardedAt       time.Time    `json:"awardedAt"`
 }
 
 var commendationReadSets resource.SetCache[Commendation, commendationRead]
@@ -40,11 +41,12 @@ var commendationReadSets resource.SetCache[Commendation, commendationRead]
 // accept on a mutation, so a patch armed with Enforce meets the field permissions the
 // routes enforce; commendationWriteSets holds one Set per mutation.
 type commendationWrite struct {
-	ID        impulse.UUID `json:"-"`
-	PilotID   impulse.UUID `json:"pilotId"`
-	Citation  string       `json:"citation"`
-	AwardedBy string       `json:"-"`
-	AwardedAt time.Time    `json:"-"`
+	ID              impulse.UUID `json:"-"`
+	PilotID         impulse.UUID `json:"pilotId"`
+	Citation        string       `json:"citation"`
+	AwardedByUserID string       `json:"-"`
+	AwardedByName   string       `json:"-"`
+	AwardedAt       time.Time    `json:"-"`
 }
 
 var commendationWriteSets resource.SetCache[Commendation, commendationWrite]
@@ -156,7 +158,8 @@ func (c *CommendationColumns) All() *CommendationColumns {
 		"ID",
 		"PilotID",
 		"Citation",
-		"AwardedBy",
+		"AwardedByUserID",
+		"AwardedByName",
 		"AwardedAt",
 	}
 
@@ -181,8 +184,14 @@ func (c *CommendationColumns) Citation() *CommendationColumns {
 	return c
 }
 
-func (c *CommendationColumns) AwardedBy() *CommendationColumns {
-	c.fields = append(c.fields, "AwardedBy")
+func (c *CommendationColumns) AwardedByUserID() *CommendationColumns {
+	c.fields = append(c.fields, "AwardedByUserID")
+
+	return c
+}
+
+func (c *CommendationColumns) AwardedByName() *CommendationColumns {
+	c.fields = append(c.fields, "AwardedByName")
 
 	return c
 }
@@ -291,8 +300,12 @@ func (c *commendationSort) Citation() *CommendationSort {
 	return c.addField("Citation")
 }
 
-func (c *commendationSort) AwardedBy() *CommendationSort {
-	return c.addField("AwardedBy")
+func (c *commendationSort) AwardedByUserID() *CommendationSort {
+	return c.addField("AwardedByUserID")
+}
+
+func (c *commendationSort) AwardedByName() *CommendationSort {
+	return c.addField("AwardedByName")
 }
 
 func (c *commendationSort) AwardedAt() *CommendationSort {
@@ -378,7 +391,8 @@ func (p *CommendationCreatePatch) Enforce(caller *resource.Caller) *Commendation
 }
 
 func (p *CommendationCreatePatch) registerDefaultFuncs() {
-	p.patchSet.RegisterDefaultCreateFunc("AwardedBy", currentUser)
+	p.patchSet.RegisterDefaultCreateFunc("AwardedByUserID", currentUser)
+	p.patchSet.RegisterDefaultCreateFunc("AwardedByName", currentUserName)
 	p.patchSet.RegisterDefaultCreateFunc("AwardedAt", resource.CommitTimestamp)
 }
 
@@ -420,20 +434,36 @@ func (p *CommendationCreatePatch) CitationIsSet() bool {
 	return p.patchSet.IsSet("Citation")
 }
 
-func (p *CommendationCreatePatch) SetAwardedBy(v string) *CommendationCreatePatch {
-	p.patchSet.Set("AwardedBy", v)
+func (p *CommendationCreatePatch) SetAwardedByUserID(v string) *CommendationCreatePatch {
+	p.patchSet.Set("AwardedByUserID", v)
 
 	return p
 }
 
-func (p *CommendationCreatePatch) AwardedBy() string {
-	v, _ := p.patchSet.Get("AwardedBy").(string)
+func (p *CommendationCreatePatch) AwardedByUserID() string {
+	v, _ := p.patchSet.Get("AwardedByUserID").(string)
 
 	return v
 }
 
-func (p *CommendationCreatePatch) AwardedByIsSet() bool {
-	return p.patchSet.IsSet("AwardedBy")
+func (p *CommendationCreatePatch) AwardedByUserIDIsSet() bool {
+	return p.patchSet.IsSet("AwardedByUserID")
+}
+
+func (p *CommendationCreatePatch) SetAwardedByName(v string) *CommendationCreatePatch {
+	p.patchSet.Set("AwardedByName", v)
+
+	return p
+}
+
+func (p *CommendationCreatePatch) AwardedByName() string {
+	v, _ := p.patchSet.Get("AwardedByName").(string)
+
+	return v
+}
+
+func (p *CommendationCreatePatch) AwardedByNameIsSet() bool {
+	return p.patchSet.IsSet("AwardedByName")
 }
 
 func (p *CommendationCreatePatch) SetAwardedAt(v time.Time) *CommendationCreatePatch {
@@ -576,20 +606,36 @@ func (p *CommendationUpdatePatch) CitationIsSet() bool {
 	return p.patchSet.IsSet("Citation")
 }
 
-func (p *CommendationUpdatePatch) SetAwardedBy(v string) *CommendationUpdatePatch {
-	p.patchSet.Set("AwardedBy", v)
+func (p *CommendationUpdatePatch) SetAwardedByUserID(v string) *CommendationUpdatePatch {
+	p.patchSet.Set("AwardedByUserID", v)
 
 	return p
 }
 
-func (p *CommendationUpdatePatch) AwardedBy() string {
-	v, _ := p.patchSet.Get("AwardedBy").(string)
+func (p *CommendationUpdatePatch) AwardedByUserID() string {
+	v, _ := p.patchSet.Get("AwardedByUserID").(string)
 
 	return v
 }
 
-func (p *CommendationUpdatePatch) AwardedByIsSet() bool {
-	return p.patchSet.IsSet("AwardedBy")
+func (p *CommendationUpdatePatch) AwardedByUserIDIsSet() bool {
+	return p.patchSet.IsSet("AwardedByUserID")
+}
+
+func (p *CommendationUpdatePatch) SetAwardedByName(v string) *CommendationUpdatePatch {
+	p.patchSet.Set("AwardedByName", v)
+
+	return p
+}
+
+func (p *CommendationUpdatePatch) AwardedByName() string {
+	v, _ := p.patchSet.Get("AwardedByName").(string)
+
+	return v
+}
+
+func (p *CommendationUpdatePatch) AwardedByNameIsSet() bool {
+	return p.patchSet.IsSet("AwardedByName")
 }
 
 func (p *CommendationUpdatePatch) SetAwardedAt(v time.Time) *CommendationUpdatePatch {

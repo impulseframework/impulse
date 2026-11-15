@@ -20,13 +20,14 @@ import (
 func (a *App) DistressCalls() http.HandlerFunc {
 	type distressCall struct {
 		ID            impulse.UUID        `json:"id"            index:"true" perm:"-"`
-		SectorID      string              `json:"sectorId"      index:"true"`
+		SectorID      impulse.UUID        `json:"sectorId"      index:"true"`
 		Summary       string              `json:"summary"`
 		Severity      int64               `json:"severity"      index:"true"`
 		CallerContact *string             `json:"callerContact" pii:"true"`
 		Transcript    *string             `json:"-"`
 		CaseNumber    string              `json:"caseNumber"    index:"true"`
-		FiledBy       string              `json:"filedBy"`
+		FiledByUserID string              `json:"filedByUserId"`
+		FiledByName   string              `json:"filedByName"`
 		Position      *resources.Position `json:"position"`
 	}
 
@@ -94,9 +95,13 @@ func (a *App) DistressCalls() http.HandlerFunc {
 					if !row.Masked("caseNumber") {
 						rmap["caseNumber"] = rec.CaseNumber
 					}
-				case "FiledBy":
-					if !row.Masked("filedBy") {
-						rmap["filedBy"] = rec.FiledBy
+				case "FiledByUserID":
+					if !row.Masked("filedByUserId") {
+						rmap["filedByUserId"] = rec.FiledByUserID
+					}
+				case "FiledByName":
+					if !row.Masked("filedByName") {
+						rmap["filedByName"] = rec.FiledByName
 					}
 				case "Position":
 					if !row.Masked("position") {
@@ -126,13 +131,14 @@ func (a *App) DistressCalls() http.HandlerFunc {
 func (a *App) DistressCall() http.HandlerFunc {
 	type response struct {
 		ID            impulse.UUID        `json:"id"            index:"true" perm:"-"`
-		SectorID      string              `json:"sectorId"`
+		SectorID      impulse.UUID        `json:"sectorId"`
 		Summary       string              `json:"summary"`
 		Severity      int64               `json:"severity"`
 		CallerContact *string             `json:"callerContact" pii:"true"`
 		Transcript    *string             `json:"-"`
 		CaseNumber    string              `json:"caseNumber"    index:"true"`
-		FiledBy       string              `json:"filedBy"`
+		FiledByUserID string              `json:"filedByUserId"`
+		FiledByName   string              `json:"filedByName"`
 		Position      *resources.Position `json:"position"`
 	}
 
@@ -188,9 +194,13 @@ func (a *App) DistressCall() http.HandlerFunc {
 				if !row.Masked("caseNumber") {
 					rmap["caseNumber"] = rec.CaseNumber
 				}
-			case "FiledBy":
-				if !row.Masked("filedBy") {
-					rmap["filedBy"] = rec.FiledBy
+			case "FiledByUserID":
+				if !row.Masked("filedByUserId") {
+					rmap["filedByUserId"] = rec.FiledByUserID
+				}
+			case "FiledByName":
+				if !row.Masked("filedByName") {
+					rmap["filedByName"] = rec.FiledByName
 				}
 			case "Position":
 				if !row.Masked("position") {

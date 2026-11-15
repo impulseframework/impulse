@@ -6,7 +6,8 @@ type (
 	// (requiredCert IN subject.certifications). A certification is earned once and valid
 	// in every sector, so the anchor is deliberately global and its subject subquery
 	// deliberately unfiltered: the shared pattern, the opposite of SquadronMembership's
-	// per-sector one.
+	// per-sector one. UserId holds the id of the pilot's account, which is what the
+	// permission store names a person by.
 	//
 	// Compound primary key (UserId, CertificationId); creates supply both parts.
 	//

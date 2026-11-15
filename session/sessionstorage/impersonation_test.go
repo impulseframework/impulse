@@ -146,11 +146,11 @@ func Test_sessionStorage_CreateImpersonatedSession(t *testing.T) {
 							return impulse.NilUUID, errors.Newf("unexpected session %+v / request %+v", session, req)
 						}
 						want := &dbtype.InsertImpersonation{
-							ActorUsername: "alice",
-							PrincipalKind: dbtype.PrincipalKindUser,
-							PrincipalUser: strPtr("bob"),
-							Mask:          strPtr("List,Read"),
-							ExpiresAt:     expires,
+							ActorUsername:   "alice",
+							PrincipalKind:   dbtype.PrincipalKindUser,
+							PrincipalUserID: strPtr("bob"),
+							Mask:            strPtr("List,Read"),
+							ExpiresAt:       expires,
 						}
 						if diff := cmp.Diff(want, imp); diff != "" {
 							return impulse.NilUUID, errors.New("unexpected InsertImpersonation: " + diff)

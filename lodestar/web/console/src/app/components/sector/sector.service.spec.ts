@@ -39,6 +39,10 @@ function globalDigest(): PermissionDigest {
   return digest;
 }
 
+/** The two sectors' ids: a sector's key is an id its create generates, and the name is a field. */
+const anvilID = 'a1111111-1111-4111-8111-111111111111';
+const bastionID = 'b2222222-2222-4222-8222-222222222222';
+
 /** The server as the spec plays it: the session, the digests, two lit sectors, and the pilot cards. */
 function server(request: TransportRequest): TransportResponse {
   const url = new URL(request.url, 'http://lodestar.test');
@@ -54,8 +58,8 @@ function server(request: TransportRequest): TransportResponse {
       return {
         status: 200,
         body: [
-          { domain: 'anvil', name: 'Anvil' },
-          { domain: 'bastion', name: 'Bastion' },
+          { domain: anvilID, name: 'Anvil' },
+          { domain: bastionID, name: 'Bastion' },
         ],
       };
     case `${environment.apiUrl}/pilot-cards`:
@@ -133,8 +137,8 @@ describe('SectorService global readers', () => {
         // The same digests again, and another sector entered and its digest landed.
         await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.refresh();
         await settle(() => false, 5);
-        TestBed.inject(TenantService).enter('bastion');
-        await settle(() => sectors.current() === 'bastion' && sectors.can(Permissions.List, Resources.Missions));
+        TestBed.inject(TenantService).enter(bastionID);
+        await settle(() => sectors.current() === bastionID && sectors.can(Permissions.List, Resources.Missions));
         await settle(() => false, 5);
         expect(pilotCardReads()).toBe(1);
         expect(cards.status()).toBe('resolved');

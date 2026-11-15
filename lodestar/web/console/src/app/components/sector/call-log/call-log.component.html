@@ -11,7 +11,7 @@
   </mat-card>
 } @else if (!canList()) {
   <mat-card appearance="outlined" class="table-card">
-    <p class="empty">Your posting in {{ sector() || 'this sector' }} does not cover the call log.</p>
+    <p class="empty">Your posting in {{ sectorName() || 'this sector' }} does not cover the call log.</p>
   </mat-card>
 } @else {
   <mat-card appearance="outlined" class="table-card">
@@ -34,13 +34,13 @@
       </ng-container>
       <ng-container matColumnDef="filedBy">
         <th mat-header-cell *matHeaderCellDef>Filed by</th>
-        <td mat-cell *matCellDef="let call">{{ call.filedBy || '—' }}</td>
+        <td mat-cell *matCellDef="let call">{{ call.filedByName || '—' }}</td>
       </ng-container>
       <tr mat-header-row *matHeaderRowDef="columns"></tr>
       <tr mat-row *matRowDef="let row; columns: columns"></tr>
     </table>
     @if (!calls.value().length) {
-      <p class="empty">No calls visible in {{ sector() }} for your posting.</p>
+      <p class="empty">No calls visible in {{ sectorName() }} for your posting.</p>
     }
   </mat-card>
 }

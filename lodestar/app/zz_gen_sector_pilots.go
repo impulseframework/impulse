@@ -20,7 +20,7 @@ import (
 func (a *App) SectorPilots() http.HandlerFunc {
 	type sectorPilot struct {
 		PilotID        impulse.UUID `json:"pilotId"        index:"true" perm:"-"`
-		SectorID       string       `json:"sectorId"       index:"true"`
+		SectorID       impulse.UUID `json:"sectorId"       index:"true"`
 		DisplayName    string       `json:"displayName"    index:"true"`
 		Squadrons      int64        `json:"squadrons"`
 		Clearance      int64        `json:"clearance"`
@@ -115,7 +115,7 @@ func (a *App) SectorPilots() http.HandlerFunc {
 func (a *App) SectorPilot() http.HandlerFunc {
 	type response struct {
 		PilotID        impulse.UUID `json:"pilotId"        index:"true" perm:"-"`
-		SectorID       string       `json:"sectorId"`
+		SectorID       impulse.UUID `json:"sectorId"`
 		DisplayName    string       `json:"displayName"`
 		Squadrons      int64        `json:"squadrons"`
 		Clearance      int64        `json:"clearance"`

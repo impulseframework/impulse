@@ -95,6 +95,16 @@ export class TenantSignInComponent {
       params.readable ? this.api.tenants.read([params.tenant]) : Promise.resolve(undefined),
   });
 
+  /**
+   * The tenant's name: the record's where the role reads it, else the name the session's
+   * tenant list carries, which the tenant's own administrator, who cannot read the
+   * record, still has. A tenant's key is an id nobody reads.
+   */
+  tenantName = computed(() => {
+    this.permissions();
+    return this.tenant.value()?.name || this.api.permissions.domainName(this.tenantID() as Domain);
+  });
+
   /** The directories the tenant declares, listed under the tenant where the digest grants List. */
   directories = resource({
     params: () => ({ tenant: this.tenantID(), listed: this.canList() }),

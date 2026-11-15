@@ -57,7 +57,8 @@ export class HangarDeckComponent {
   tasks = this.sectors.sectorList((sector) => sector.refitTasks, { capabilities: ['Update'] });
   ships = this.sectors.sectorList((sector) => sector.ships, { capabilities: ['Execute'] });
 
-  sector = this.sectors.current;
+  /** The open sector's name, as the session's sector list carries it. */
+  sectorName = this.sectors.placeName;
   canList = computed(() => this.sectors.can(Permissions.List, Resources.Refits));
   canOpen = computed(() => this.sectors.can(Permissions.Create, Resources.Refits));
   canListShips = computed(() => this.sectors.can(Permissions.List, Resources.Ships));

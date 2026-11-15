@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewidentity"
@@ -19,10 +20,10 @@ import (
 
 func (h *Handlers) RemoveCrewRole() http.HandlerFunc {
 	type request struct {
-		Username    string  `json:"username"`
-		Role        string  `json:"role"`
-		Domain      *string `json:"domain"`
-		EveryDomain bool    `json:"everyDomain"`
+		UserID      impulse.UUID `json:"userId"`
+		Role        string       `json:"role"`
+		Domain      *string      `json:"domain"`
+		EveryDomain bool         `json:"everyDomain"`
 	}
 
 	decoder := NewRPCDecoder[crewidentity.RemoveCrewRole, request](h, accesstypes.Execute)

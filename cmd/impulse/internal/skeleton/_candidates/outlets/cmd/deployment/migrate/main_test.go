@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -14,11 +15,14 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/auth/members"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/auth/staff"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/config"
 	initiator "github.com/impulseframework/impulse/db"
+	"github.com/impulseframework/impulse/session"
 )
 
 // The emulator's own project and instance: db-initiator creates the instance when the
@@ -39,7 +43,7 @@ const serviceName = "migrate-test"
 
 // The foothold's settings, as a deployment supplies them: the password the staff auth's
 // first administrator is seeded with, the stack's generated secret, and the sign-in name
-// the members auth's first administrator holds the roles under, which the placement names.
+// the members auth's first administrator is created under, which the placement names.
 const (
 	administratorPassword = "a-generated-password"
 	membersAdministrator  = "first.administrator@example.com"
@@ -112,28 +116,7 @@ func stopFirestore(ctx context.Context, f *initiator.FirestoreContainer) {
 // cases run one at a time, from the module root, where the migrations are read from as
 // they are in the image.
 func TestExecute(t *testing.T) {
-	ctx := context.Background()
-	t.Chdir(filepath.Join("..", "..", ".."))
-	host, err := container.Host(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	port, err := container.MappedPort(ctx, "9010/tcp")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("SPANNER_EMULATOR_HOST", host+":"+port.Port())
-	t.Setenv("GOOGLE_CLOUD_SPANNER_PROJECT", containerProjectID)
-	t.Setenv("GOOGLE_CLOUD_SPANNER_INSTANCE_ID", containerInstanceID)
-	// The migration run opens the data level, which reads the core level's service name
-	// and opens the live service, required, over the Firestore emulator.
-	t.Setenv("APP_SERVICE_NAME", serviceName)
-	t.Setenv("APP_PUBLIC_URL", "http://outlets.test")
-	t.Setenv("FIRESTORE_EMULATOR_HOST", firestoreEmulator.Host())
-	// The data level constructs the members auth, whose directory method validates its
-	// organization slot at registration whether or not the directory is simulated, so the
-	// tenant id is a well-formed placeholder that is nobody's.
-	t.Setenv("APP_MEMBERS_DIRECTORY_TENANT_ID", "00000000-0000-0000-0000-000000000000")
+	emulators(t)
 	// The foothold's settings, which a case may override.
 	t.Setenv("APP_STAFF_ADMINISTRATOR_PASSWORD", administratorPassword)
 	t.Setenv("APP_MEMBERS_ADMINISTRATOR", membersAdministrator)
@@ -335,6 +318,355 @@ func TestExecute(t *testing.T) {
 	}
 }
 
+// TestSeedAdministrator proves the foothold's rule for each auth, each case on a migrated
+// database of its own, by what the seed reports and what it leaves. The seed runs only
+// while the auth's users table is empty, and it is two writes: the administrator's roles
+// first, which the auth's permission store holds under an id the seed derives
+// (session.SeedUserID, the same on every run), then the user, created under that id. The
+// user's row is what says the seed is done: a run that stopped between the two left the
+// table empty, and the next run writes the same memberships again, each left as it is,
+// and creates the user. Once the table holds a user nothing is seeded, whoever that user
+// is and whatever it holds: a user under the administrator's name whom the seed did not
+// create is given no role. The staff auth's first administrator is created with the
+// password the seed is handed; the members auth's, whose people the directory signs in,
+// is a user without a password under the sign-in name the seed is handed, which the
+// person's first sign-in links to. The data level reads its target from the environment,
+// so the cases run one at a time.
+func TestSeedAdministrator(t *testing.T) {
+	emulators(t)
+	// The seeds are handed the password and the sign-in name; the settings are the
+	// deployment's, which the data level reads as it opens.
+	t.Setenv("APP_STAFF_ADMINISTRATOR_PASSWORD", administratorPassword)
+	t.Setenv("APP_MEMBERS_ADMINISTRATOR", membersAdministrator)
+
+	tests := []struct {
+		name string
+		// prepare readies the auth's users table and its permission store before the run;
+		// nil leaves both empty.
+		prepare func(t *testing.T, f *foothold)
+		// wantSeeded is what the run reports.
+		wantSeeded bool
+		// wantAdministrator says the run leaves the first administrator: the one user of
+		// the table, under the id the seed derives, which holds the administrator's roles.
+		// False, that the run leaves the users it found and no other, none of them holding
+		// a role, and the administrator's roles held by nobody.
+		wantAdministrator bool
+	}{
+		{
+			name:              "an empty users table: the roles are held under the id the seed derives and the user is created under it",
+			wantSeeded:        true,
+			wantAdministrator: true,
+		},
+		{
+			name:              "a second run seeds nothing: the administrator keeps the account and the roles the first gave",
+			prepare:           seededOnce,
+			wantAdministrator: true,
+		},
+		{
+			name:              "a run that stopped after the roles and before the user: the next run creates the user and each role is held once",
+			prepare:           stoppedBeforeTheUser,
+			wantSeeded:        true,
+			wantAdministrator: true,
+		},
+		{
+			name:    "a user under the administrator's name who holds no role, in a table that is not empty: nothing is seeded and the user is given no role",
+			prepare: someoneUnderTheName,
+		},
+		{
+			name:    "other users and no user under the administrator's name: nothing is seeded",
+			prepare: someoneElse,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := database(t)
+			t.Setenv("GOOGLE_CLOUD_SPANNER_DATABASE_NAME", path.Base(db.DatabaseName()))
+			migrated(t, db)
+			for _, f := range footholds(openData(t)) {
+				if tt.prepare != nil {
+					tt.prepare(t, f)
+				}
+				before := f.accounts(t)
+
+				seeded, err := f.seed(t.Context(), f.setting)
+				if err != nil {
+					t.Fatalf("%s.Auth.SeedAdministrator() error = %v", f.auth, err)
+				}
+				if seeded != tt.wantSeeded {
+					t.Errorf("%s.Auth.SeedAdministrator() = %v, want %v", f.auth, seeded, tt.wantSeeded)
+				}
+
+				if tt.wantAdministrator {
+					f.administratorAlone(t)
+
+					continue
+				}
+				f.nothingSeeded(t, before)
+			}
+		})
+	}
+}
+
+// emulators points the test at the package's emulators the way a deployment's job finds
+// its databases, in the environment, with the settings the data level reads as it opens,
+// and moves the test to the module root, where the migrations are read from as they are
+// in the image.
+func emulators(t *testing.T) {
+	t.Helper()
+
+	ctx := context.Background()
+	t.Chdir(filepath.Join("..", "..", ".."))
+	host, err := container.Host(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := container.MappedPort(ctx, "9010/tcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SPANNER_EMULATOR_HOST", host+":"+port.Port())
+	t.Setenv("GOOGLE_CLOUD_SPANNER_PROJECT", containerProjectID)
+	t.Setenv("GOOGLE_CLOUD_SPANNER_INSTANCE_ID", containerInstanceID)
+	// The migration run opens the data level, which reads the core level's service name
+	// and opens the live service, required, over the Firestore emulator.
+	t.Setenv("APP_SERVICE_NAME", serviceName)
+	t.Setenv("APP_PUBLIC_URL", "http://outlets.test")
+	t.Setenv("FIRESTORE_EMULATOR_HOST", firestoreEmulator.Host())
+	// The data level constructs the members auth, whose directory method validates its
+	// organization slot at registration whether or not the directory is simulated, so the
+	// tenant id is a well-formed placeholder that is nobody's.
+	t.Setenv("APP_MEMBERS_DIRECTORY_TENANT_ID", "00000000-0000-0000-0000-000000000000")
+}
+
+// sessionAPI is an auth's session manager as the cases ask it about the auth's users:
+// both auths' session managers answer through the same API.
+type sessionAPI = session.AuthAPI[session.NoCustomData, session.NoCustomData, *spanner.ReadWriteTransaction]
+
+// foothold is one auth's first administrator as the cases drive it: the name its user is
+// created under; the password the seed creates the user with, nil where a directory
+// signs the auth's people in, whose first administrator is a user without one; the
+// auth's seed with the setting a deployment hands it (the staff auth's the
+// administrator's password, the members auth's the first administrator's sign-in name);
+// the auth's users and its permission store; and the administrator's roles by where
+// they are held.
+type foothold struct {
+	auth                string
+	username            string
+	password            *string
+	seed                func(ctx context.Context, setting string) (bool, error)
+	setting             string
+	users               *sessionAPI
+	manager             access.UserManager
+	global, everyDomain []accesstypes.Role
+}
+
+// footholds are the auths' first administrators over the case's data level: the staff
+// auth's, created with the configured password, and the members auth's, created without
+// one under the sign-in name the placement names.
+func footholds(data *config.DataConfiguration) []*foothold {
+	password := administratorPassword
+	staffGlobal, staffEveryDomain := staff.FirstAdministratorRoles()
+	membersGlobal, membersEveryDomain := members.FirstAdministratorRoles()
+
+	return []*foothold{
+		{
+			auth: staff.Name, username: staff.Administrator, password: &password,
+			seed: data.Staff().SeedAdministrator, setting: administratorPassword,
+			users: data.Staff().Session().API(), manager: data.Staff().Access().UserManager(),
+			global: staffGlobal, everyDomain: staffEveryDomain,
+		},
+		{
+			auth: members.Name, username: membersAdministrator,
+			seed: data.Members().SeedAdministrator, setting: membersAdministrator,
+			users: data.Members().Session().API(), manager: data.Members().Access().UserManager(),
+			global: membersGlobal, everyDomain: membersEveryDomain,
+		},
+	}
+}
+
+// seededOnce is a run before the case's own that seeded the auth's administrator.
+func seededOnce(t *testing.T, f *foothold) {
+	t.Helper()
+
+	seeded, err := f.seed(t.Context(), f.setting)
+	if err != nil || !seeded {
+		t.Fatalf("the first %s.Auth.SeedAdministrator() = %v, %v, want the administrator seeded", f.auth, seeded, err)
+	}
+}
+
+// stoppedBeforeTheUser stands for a run that stopped between the seed's two writes: the
+// administrator's memberships are held in the auth's permission store under the id the
+// seed derives, each where its roles are held, written as the seed writes them, and the
+// auth's users table is empty.
+func stoppedBeforeTheUser(t *testing.T, f *foothold) {
+	t.Helper()
+
+	user := accesstypes.User(f.seedID().String())
+	if len(f.global) > 0 {
+		if err := f.manager.AddUserRoles(t.Context(), accesstypes.GlobalPolicyScope(), user, f.global...); err != nil {
+			t.Fatalf("access.UserManager.AddUserRoles(%s) in the global partition of the %s store error = %v", user, f.auth, err)
+		}
+	}
+	if len(f.everyDomain) > 0 {
+		if err := f.manager.AddUserRoles(t.Context(), accesstypes.EveryDomainPolicyScope(), user, f.everyDomain...); err != nil {
+			t.Fatalf("access.UserManager.AddUserRoles(%s) in every domain of the %s store error = %v", user, f.auth, err)
+		}
+	}
+}
+
+// someoneUnderTheName gives the auth one user under its first administrator's name whom
+// the seed did not create, as a stranger's sign-up, an operator's entry or a directory
+// sign-in leaves one: an account under an id of its own, the staff auth's with a password
+// and the members auth's without one, that holds no role anywhere.
+func someoneUnderTheName(t *testing.T, f *foothold) {
+	t.Helper()
+
+	if _, err := f.users.CreateSessionUser(t.Context(), &session.CreateUserRequest{Username: f.username, Password: f.password}); err != nil {
+		t.Fatalf("session.AuthAPI.CreateSessionUser(%s) in the %s auth error = %v", f.username, f.auth, err)
+	}
+}
+
+// someoneElse gives the auth one user who is not under its first administrator's name.
+func someoneElse(t *testing.T, f *foothold) {
+	t.Helper()
+
+	if _, err := f.users.CreateSessionUser(t.Context(), &session.CreateUserRequest{Username: "someone"}); err != nil {
+		t.Fatalf("session.AuthAPI.CreateSessionUser(someone) in the %s auth error = %v", f.auth, err)
+	}
+}
+
+// seedID is the id the auth's seed creates its first administrator under, which it
+// derives from the auth's name and the administrator's: the same on every run.
+func (f *foothold) seedID() impulse.UUID {
+	return session.SeedUserID(f.auth, f.username)
+}
+
+// accounts are the auth's users: the name of each by the id of its account.
+func (f *foothold) accounts(t *testing.T) map[impulse.UUID]string {
+	t.Helper()
+
+	users, err := f.users.Users(t.Context())
+	if err != nil {
+		t.Fatalf("session.AuthAPI.Users() of the %s auth error = %v", f.auth, err)
+	}
+	byID := make(map[impulse.UUID]string, len(users))
+	for _, user := range users {
+		byID[user.ID] = user.Username
+	}
+
+	return byID
+}
+
+// hasPassword reports whether the auth's user under the id holds a password.
+func (f *foothold) hasPassword(t *testing.T, id impulse.UUID) bool {
+	t.Helper()
+
+	user, err := f.users.User(t.Context(), id)
+	if err != nil {
+		t.Fatalf("session.AuthAPI.User(%s) of the %s auth error = %v", id, f.auth, err)
+	}
+
+	return user.PasswordHash != nil
+}
+
+// administratorAlone checks what the auth's seed leaves: the auth's users table holds
+// the first administrator alone, under the id the seed derives, without a password where
+// the directory signs the auth's people in, and the auth's permission store holds the
+// administrator's roles under that id.
+func (f *foothold) administratorAlone(t *testing.T) {
+	t.Helper()
+
+	id := f.seedID()
+	if got, want := f.accounts(t), map[impulse.UUID]string{id: f.username}; !maps.Equal(got, want) {
+		t.Errorf("the %s auth's users table after the run = %v, want %v: %s alone, under the id the seed derives", f.auth, got, want, f.username)
+	} else if f.password == nil && f.hasPassword(t, id) {
+		t.Errorf("%s holds a password in the %s auth, want none: the directory signs the auth's people in", f.username, f.auth)
+	}
+	f.holdsAdministratorRoles(t, id)
+}
+
+// nothingSeeded checks what a run that seeds nothing leaves: the auth's users table as
+// the run found it, the same accounts under the same names and no other; none of them
+// holding a role anywhere, whatever its name; nothing held under the id the seed derives
+// or under the administrator's username; and the administrator's roles held by nobody.
+func (f *foothold) nothingSeeded(t *testing.T, before map[impulse.UUID]string) {
+	t.Helper()
+
+	after := f.accounts(t)
+	if !maps.Equal(after, before) {
+		t.Errorf("the %s auth's users table after the run = %v, want %v: the users the run found and no other", f.auth, after, before)
+	}
+	for id, name := range after {
+		f.holdsNoRole(t, accesstypes.User(id.String()), "the account of "+name+", which the seed did not create")
+	}
+	f.holdsNoRole(t, accesstypes.User(f.seedID().String()), "the id the seed derives, which no user is under")
+	f.holdsNoRole(t, accesstypes.User(f.username), "the administrator's username: a role is held by the account")
+	f.heldBy(t, accesstypes.GlobalPolicyScope(), f.global)
+	f.heldBy(t, accesstypes.EveryDomainPolicyScope(), f.everyDomain)
+}
+
+// holdsAdministratorRoles checks the auth's permission store holds the administrator's
+// roles under the id of the account, each where it is held and each held by that account
+// alone, nothing anywhere else under the id, and nothing under the administrator's
+// username: a membership names its person by the id of their account, and one written
+// under a name is held by nobody.
+func (f *foothold) holdsAdministratorRoles(t *testing.T, id impulse.UUID) {
+	t.Helper()
+
+	user := accesstypes.User(id.String())
+	roles, err := f.manager.UserRoles(t.Context(), user)
+	if err != nil {
+		t.Fatalf("access.UserManager.UserRoles(%s) in the %s store error = %v", id, f.auth, err)
+	}
+	if got, want := sorted(roles[accesstypes.GlobalPolicyScope()]), sorted(f.global); !slices.Equal(got, want) {
+		t.Errorf("the %s auth's roles in the global partition = %v, want %v", f.auth, got, want)
+	}
+	if got, want := sorted(roles[accesstypes.EveryDomainPolicyScope()]), sorted(f.everyDomain); !slices.Equal(got, want) {
+		t.Errorf("the %s auth's roles in every domain = %v, want %v", f.auth, got, want)
+	}
+	delete(roles, accesstypes.GlobalPolicyScope())
+	delete(roles, accesstypes.EveryDomainPolicyScope())
+	for scope, held := range roles {
+		t.Errorf("the %s auth's roles held under the id of the account in %v = %v, want none: the administrator's roles are held in the global partition and in every domain", f.auth, scope, held)
+	}
+	f.heldBy(t, accesstypes.GlobalPolicyScope(), f.global, user)
+	f.heldBy(t, accesstypes.EveryDomainPolicyScope(), f.everyDomain, user)
+	f.holdsNoRole(t, accesstypes.User(f.username), "the administrator's username: a role is held by the account")
+}
+
+// heldBy checks who holds each of the roles where they are held in the auth's
+// permission store: the users given and no other, so a second set of memberships under
+// another id fails it; nobody, when none is given.
+func (f *foothold) heldBy(t *testing.T, scope accesstypes.PolicyScope, roles []accesstypes.Role, want ...accesstypes.User) {
+	t.Helper()
+
+	for _, role := range roles {
+		got, err := f.manager.RoleUsers(t.Context(), scope, role)
+		if err != nil {
+			t.Fatalf("access.UserManager.RoleUsers(%v, %s) in the %s store error = %v", scope, role, f.auth, err)
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("the users who hold the %s auth's %s (%v) = %v, want %v", f.auth, role, scope, got, want)
+		}
+	}
+}
+
+// holdsNoRole checks the auth's permission store holds no role under the user anywhere;
+// whose says who the user is, for the failure.
+func (f *foothold) holdsNoRole(t *testing.T, user accesstypes.User, whose string) {
+	t.Helper()
+
+	roles, err := f.manager.UserRoles(t.Context(), user)
+	if err != nil {
+		t.Fatalf("access.UserManager.UserRoles(%s) in the %s store error = %v", user, f.auth, err)
+	}
+	for scope, held := range roles {
+		if len(held) > 0 {
+			t.Errorf("the %s auth's roles held under %s (%s) in %v = %v, want none", f.auth, user, whose, scope, held)
+		}
+	}
+}
+
 // database creates a fresh database for the case and drops it when the case ends.
 func database(t *testing.T) *initiator.SpannerDB {
 	t.Helper()
@@ -389,7 +721,9 @@ func withUser(t *testing.T, db *initiator.SpannerDB) {
 }
 
 // seededThenEmptied runs the migration once, which seeds the administrator, then deletes
-// the administrator: a users table every user has left.
+// the administrator: a users table every user has left. The administrator's memberships
+// stay in the permission store, under the id the seed derives, so the next run finds
+// them, leaves each as it is and creates the user under that id again.
 func seededThenEmptied(t *testing.T, _ *initiator.SpannerDB) {
 	t.Helper()
 
@@ -428,34 +762,19 @@ func openData(t *testing.T) *config.DataConfiguration {
 }
 
 // administratorSeeded checks the foothold: the staff auth's administrator signs in with
-// the configured password and holds the administrator's roles, and the members auth's first
-// administrator holds the domain role in every domain.
+// the configured password, and each auth's first administrator, the members auth's under
+// the sign-in name the placement names, is the one user of the auth's table, under the
+// id the auth's seed derives, which holds the administrator's roles in the auth's
+// permission store.
 func administratorSeeded(t *testing.T) {
 	t.Helper()
 
 	data := openData(t)
-	ctx := t.Context()
-	if _, err := data.Staff().Session().API().ValidateCredentials(ctx, staff.Administrator, administratorPassword); err != nil {
+	if _, err := data.Staff().Session().API().ValidateCredentials(t.Context(), staff.Administrator, administratorPassword); err != nil {
 		t.Errorf("session.AuthAPI.ValidateCredentials(%s) error = %v", staff.Administrator, err)
 	}
-	roles, err := data.UserManager().UserRoles(ctx, staff.Administrator)
-	if err != nil {
-		t.Fatalf("access.UserManager.UserRoles(%s) error = %v", staff.Administrator, err)
-	}
-	global, everyDomain := staff.FirstAdministratorRoles()
-	if got, want := sorted(roles[accesstypes.GlobalPolicyScope()]), sorted(global); !slices.Equal(got, want) {
-		t.Errorf("roles in the global partition = %v, want %v", got, want)
-	}
-	if got, want := sorted(roles[accesstypes.EveryDomainPolicyScope()]), sorted(everyDomain); !slices.Equal(got, want) {
-		t.Errorf("roles in every domain = %v, want %v", got, want)
-	}
-	memberRoles, err := data.Members().Access().UserManager().UserRoles(ctx, membersAdministrator)
-	if err != nil {
-		t.Fatalf("access.UserManager.UserRoles(%s) error = %v", membersAdministrator, err)
-	}
-	_, membersEveryDomain := members.FirstAdministratorRoles()
-	if got, want := sorted(memberRoles[accesstypes.EveryDomainPolicyScope()]), sorted(membersEveryDomain); !slices.Equal(got, want) {
-		t.Errorf("the members auth's roles in every domain = %v, want %v", got, want)
+	for _, f := range footholds(data) {
+		f.administratorAlone(t)
 	}
 }
 

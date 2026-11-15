@@ -9,6 +9,7 @@ import { firstValueFrom } from 'rxjs';
 export interface ImpersonationRecord {
   actor: string;
   principalKind: 'User' | 'Role';
+  /** The role's name, or the id of the account of the person viewed as. */
   principal: string;
   mask?: string[];
   reason?: string;
@@ -68,9 +69,12 @@ export class ImpersonationService {
       };
     }
     const mask = record.mask?.length ? `${record.mask.join(', ')} only` : 'unrestricted';
+    // The record names the person viewed as by the id of their account. The minted
+    // session is theirs, so the session's own username is the name a person reads.
+    const viewed = (this.auth.sessionInfo() as SessionResponse).username;
     return {
       kind: 'User' as const,
-      text: `Viewing as ${record.principal}, ${mask}. You are ${record.actor}.`,
+      text: `Viewing as ${viewed}, ${mask}. You are ${record.actor}.`,
       remaining,
     };
   });
@@ -96,9 +100,9 @@ export class ImpersonationService {
     return !!mask?.length && !mask.includes(permission);
   }
 
-  /** Mints a read-only session as another user and reloads the console as them. */
-  async viewAs(user: string): Promise<void> {
-    await this.mint({ kind: 'user', principal: user, reason: 'crew roster: view as' });
+  /** Mints a read-only session as another person, named by the id of their account, and reloads the console as them. */
+  async viewAs(userId: string): Promise<void> {
+    await this.mint({ kind: 'user', principal: userId, reason: 'crew roster: view as' });
   }
 
   /** Mints a session that acts as a role and reloads the console under it. */

@@ -27,7 +27,7 @@ func (CrewRole) DefaultConfig() resource.Config {
 type crewRoleRead struct {
 	Kind        string    `json:"kind"        perm:"-"`
 	Axis        string    `json:"axis"        perm:"-"`
-	Domain      string    `json:"domain"      perm:"-"`
+	DomainID    string    `json:"domainId"    perm:"-"`
 	Role        string    `json:"role"        perm:"-"`
 	Description string    `json:"description"`
 	UpdatedAt   time.Time `json:"updatedAt"`
@@ -41,7 +41,7 @@ var crewRoleReadSets resource.SetCache[CrewRole, crewRoleRead]
 type crewRoleWrite struct {
 	Kind        string    `json:"-"`
 	Axis        string    `json:"-"`
-	Domain      string    `json:"-"`
+	DomainID    string    `json:"-"`
 	Role        string    `json:"-"`
 	Description string    `json:"description"`
 	UpdatedAt   time.Time `json:"updatedAt"`
@@ -87,14 +87,14 @@ func (q *CrewRoleQuery) Axis() string {
 	return v
 }
 
-func (q *CrewRoleQuery) SetDomain(v string) *CrewRoleQuery {
-	q.qSet.SetKey("Domain", v)
+func (q *CrewRoleQuery) SetDomainID(v string) *CrewRoleQuery {
+	q.qSet.SetKey("DomainID", v)
 
 	return q
 }
 
-func (q *CrewRoleQuery) Domain() string {
-	v, _ := q.qSet.Key("Domain").(string)
+func (q *CrewRoleQuery) DomainID() string {
+	v, _ := q.qSet.Key("DomainID").(string)
 
 	return v
 }
@@ -191,7 +191,7 @@ func (c *CrewRoleColumns) All() *CrewRoleColumns {
 	c.fields = []accesstypes.Field{
 		"Kind",
 		"Axis",
-		"Domain",
+		"DomainID",
 		"Role",
 		"Description",
 		"UpdatedAt",
@@ -212,8 +212,8 @@ func (c *CrewRoleColumns) Axis() *CrewRoleColumns {
 	return c
 }
 
-func (c *CrewRoleColumns) Domain() *CrewRoleColumns {
-	c.fields = append(c.fields, "Domain")
+func (c *CrewRoleColumns) DomainID() *CrewRoleColumns {
+	c.fields = append(c.fields, "DomainID")
 
 	return c
 }
@@ -326,8 +326,8 @@ func (c *crewRoleSort) Axis() *CrewRoleSort {
 	return c.addField("Axis")
 }
 
-func (c *crewRoleSort) Domain() *CrewRoleSort {
-	return c.addField("Domain")
+func (c *crewRoleSort) DomainID() *CrewRoleSort {
+	return c.addField("DomainID")
 }
 
 func (c *crewRoleSort) Role() *CrewRoleSort {
@@ -362,11 +362,11 @@ type CrewRoleCreatePatch struct {
 	patchSet *resource.PatchSet[CrewRole]
 }
 
-func NewCrewRoleCreatePatchFromPatchSet(kind string, axis string, domain string, role string, patchSet *resource.PatchSet[CrewRole]) *CrewRoleCreatePatch {
+func NewCrewRoleCreatePatchFromPatchSet(kind string, axis string, domainID string, role string, patchSet *resource.PatchSet[CrewRole]) *CrewRoleCreatePatch {
 	patchSet.
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetPatchType(resource.CreatePatchType)
 	patch := &CrewRoleCreatePatch{patchSet: patchSet}
@@ -375,11 +375,11 @@ func NewCrewRoleCreatePatchFromPatchSet(kind string, axis string, domain string,
 	return patch
 }
 
-func NewCrewRoleCreatePatch(kind string, axis string, domain string, role string) *CrewRoleCreatePatch {
+func NewCrewRoleCreatePatch(kind string, axis string, domainID string, role string) *CrewRoleCreatePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[CrewRole]()).
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetPatchType(resource.CreatePatchType)
 	patch := &CrewRoleCreatePatch{patchSet: patchSet}
@@ -451,8 +451,8 @@ func (p *CrewRoleCreatePatch) Axis() string {
 	return v
 }
 
-func (p *CrewRoleCreatePatch) Domain() string {
-	v, _ := p.patchSet.Key("Domain").(string)
+func (p *CrewRoleCreatePatch) DomainID() string {
+	v, _ := p.patchSet.Key("DomainID").(string)
 
 	return v
 }
@@ -504,11 +504,11 @@ type CrewRoleUpdatePatch struct {
 	patchSet *resource.PatchSet[CrewRole]
 }
 
-func NewCrewRoleUpdatePatchFromPatchSet(kind string, axis string, domain string, role string, patchSet *resource.PatchSet[CrewRole]) *CrewRoleUpdatePatch {
+func NewCrewRoleUpdatePatchFromPatchSet(kind string, axis string, domainID string, role string, patchSet *resource.PatchSet[CrewRole]) *CrewRoleUpdatePatch {
 	patchSet.
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetPatchType(resource.UpdatePatchType)
 
@@ -518,11 +518,11 @@ func NewCrewRoleUpdatePatchFromPatchSet(kind string, axis string, domain string,
 	return patch
 }
 
-func NewCrewRoleUpdatePatch(kind string, axis string, domain string, role string) *CrewRoleUpdatePatch {
+func NewCrewRoleUpdatePatch(kind string, axis string, domainID string, role string) *CrewRoleUpdatePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[CrewRole]()).
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetPatchType(resource.UpdatePatchType)
 
@@ -599,8 +599,8 @@ func (p *CrewRoleUpdatePatch) Axis() string {
 	return v
 }
 
-func (p *CrewRoleUpdatePatch) Domain() string {
-	v, _ := p.patchSet.Key("Domain").(string)
+func (p *CrewRoleUpdatePatch) DomainID() string {
+	v, _ := p.patchSet.Key("DomainID").(string)
 
 	return v
 }
@@ -652,22 +652,22 @@ type CrewRoleDeletePatch struct {
 	patchSet *resource.PatchSet[CrewRole]
 }
 
-func NewCrewRoleDeletePatchFromPatchSet(kind string, axis string, domain string, role string, patchSet *resource.PatchSet[CrewRole]) *CrewRoleDeletePatch {
+func NewCrewRoleDeletePatchFromPatchSet(kind string, axis string, domainID string, role string, patchSet *resource.PatchSet[CrewRole]) *CrewRoleDeletePatch {
 	patchSet.
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetPatchType(resource.DeletePatchType)
 
 	return &CrewRoleDeletePatch{patchSet: patchSet}
 }
 
-func NewCrewRoleDeletePatch(kind string, axis string, domain string, role string) *CrewRoleDeletePatch {
+func NewCrewRoleDeletePatch(kind string, axis string, domainID string, role string) *CrewRoleDeletePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[CrewRole]()).
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetPatchType(resource.DeletePatchType)
 
@@ -706,8 +706,8 @@ func (p *CrewRoleDeletePatch) Axis() string {
 	return v
 }
 
-func (p *CrewRoleDeletePatch) Domain() string {
-	v, _ := p.patchSet.Key("Domain").(string)
+func (p *CrewRoleDeletePatch) DomainID() string {
+	v, _ := p.patchSet.Key("DomainID").(string)
 
 	return v
 }

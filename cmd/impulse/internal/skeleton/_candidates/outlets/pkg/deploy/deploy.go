@@ -157,12 +157,13 @@ func CheckRoles(ctx context.Context, client *access.Client, name string) error {
 // no rows, the foothold a deployed environment starts from, and prints what it did. The
 // staff auth, whose people sign in with a password, gets the administrator user with the
 // password the stack generates (APP_STAFF_ADMINISTRATOR_PASSWORD); the members auth, whose
-// people the directory provisions and whose roles the application assigns, gets the
-// administrator role memberships under the sign-in name the placement names
-// (APP_MEMBERS_ADMINISTRATOR). It runs after the role check, so the memberships name roles
-// the release ships, and seeds nothing while a user exists: every user after the first
-// comes from the administration surface, and the development bootstrap creates its own
-// logins and members instead.
+// people the directory provisions and whose roles the application assigns, gets a user
+// without a password under the sign-in name the placement names
+// (APP_MEMBERS_ADMINISTRATOR), which that person's first sign-in through the directory
+// links to. Each holds its administrator roles from the seed, by the id of its account. It
+// runs after the role check, so the memberships name roles the release ships, and seeds
+// nothing while a user exists: every user after the first comes from the administration
+// surface, and the development bootstrap creates its own logins and members instead.
 func SeedAdministrators(ctx context.Context, data *config.DataConfiguration) error {
 	seeded, err := data.Staff().SeedAdministrator(ctx, data.StaffAdministratorPassword())
 	if err != nil {
@@ -176,7 +177,7 @@ func SeedAdministrators(ctx context.Context, data *config.DataConfiguration) err
 		return errors.Wrap(err, "members.Auth.SeedAdministrator() with APP_MEMBERS_ADMINISTRATOR")
 	}
 	_, everyDomain = members.FirstAdministratorRoles()
-	reportSeed(members.Name, seeded, fmt.Sprintf("%v in every domain under %s, who holds them at the first sign-in", everyDomain, data.MembersAdministrator()))
+	reportSeed(members.Name, seeded, fmt.Sprintf("%s, a user without a password holding %v in every domain, whose first sign-in through the directory links to it", data.MembersAdministrator(), everyDomain))
 
 	return nil
 }

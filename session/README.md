@@ -214,12 +214,12 @@ DML what a later rule must read.
     organization.
 
   In a tenanted application the **tenants' declarations decide a stranger first**.
-  With `auth.SetDirectoryAdmission(directoryLookup, userManager, seatHook)` (see "The
+  With `auth.SetDirectoryAdmission(directoryLookup, seatHook)` (see "The
   tenant policy"), a person no user was created for, from a directory some tenant
   declares, is decided by that tenant's declaration before the registration's rule is
-  reached. A person who already holds a membership under the sign-in name in a
-  declaring tenant, or as the application's staff, is that tenant's person, seated
-  ahead of their first sign-in, and is provisioned under the sign-in name. A
+  reached. A person the application gave a role ahead of their first sign-in is not
+  such a person: a role is held by an account, so they have a user under the sign-in
+  name, and the sign-in links to it before the tenants are asked. A
   declaration naming a **default seat** admits a stranger, who is provisioned and
   seated with it in every tenant naming one, through the hook, in the transaction
   that creates the account. A seat the invitation the sign-in consumes names too (the
@@ -346,7 +346,8 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
 
 - **The person's memberships**, read through `userManager`, the access library's user
   manager (`signin.UserRoleManager`, the same store role synchronization reconciles
-  through). The person's tenants are the domains where they hold a role; a role held in
+  through). The store names a person by the id of their account, and the policy asks
+  it for the user the sign-in resolved to. The person's tenants are the domains where they hold a role; a role held in
   the global partition or in every tenant domain makes the person the application's own
   staff.
 - **Each tenant's declaration**, read through `tenantDeclaration`, a
@@ -362,18 +363,17 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
 - **A first sign-in through a directory by a person no user was created for** is
   decided before the policy, by the account rules, and in a tenanted application by
   the tenants' declarations first, through
-  `auth.SetDirectoryAdmission(directoryLookup, userManager, seatHook)`.
+  `auth.SetDirectoryAdmission(directoryLookup, seatHook)`.
   `directoryLookup`, a `signin.DirectoryReader[Tx]`, reads every tenant's declaration
   of the directory the identity came through, each with its **default seat**
   (`signin.DeclaredDirectory`: the tenant and the role, `""` for none), in the
-  sign-in's first transaction; `userManager` is the role store above, read for the
-  memberships the person already holds; `seatHook`, a `session.DirectorySeatedHook[Tx]`,
+  sign-in's first transaction; `seatHook`, a `session.DirectorySeatedHook[Tx]`,
   seats the person with the seats the declarations name (`signin.DirectorySeat`),
   inside the transaction that creates the user, which it is handed, so the account is
   made and seated together or neither is, under the contract the invitation hook has
   (see "Invitations"). A declared directory belongs to its tenant. A person
-  who already holds a role in a declaring tenant, or as staff, is admitted as that
-  tenant's person, seated ahead of their first sign-in. A default seat admits and
+  given a role ahead of their first sign-in has the account the role is held by,
+  and the sign-in links to it before the tenants are asked. A default seat admits and
   seats a stranger, so rule 3 below then finds the membership. A stranger who
   carries an invitation into the tenant that names the default seat's role is given
   it once, by the invitation hook: the two hooks write in one transaction and neither
@@ -580,7 +580,7 @@ the password method is listed.
   "changePassword": "/api/user/password",
   "usernameIsEmail": true,
   "invitation": {"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
-                 "standing": {"email": "pat@lakeside.edu", "tenant": "", "expiresAt": "2026-10-31T20:00:00Z", "usernameIsEmail": false, "methods": ["workos"],
+                 "standing": {"email": "pat@lakeside.edu", "expiresAt": "2026-10-31T20:00:00Z", "usernameIsEmail": false, "methods": ["workos"],
                               "accountExists": false, "hasPassword": false}},
   "email": {"add": "/api/user/email", "verify": "/api/user/email/verify"},
   "signUp": {"start": "/api/user/sign-up", "open": "/api/user/sign-up/open", "complete": "/api/user/sign-up/complete"}
@@ -929,7 +929,7 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | --- | --- |
 | `Users(ctx)` | Every user, by username. |
 | `User(ctx, id)`, `UserByUsername(ctx, username)` | One user; the username is matched without regard to case. |
-| `CreateSessionUser(ctx, &CreateUserRequest{Username, Password, Disabled, PasswordChangeRequired, Email})` | A user, password-less when `Password` is nil. `PasswordChangeRequired` marks a password an operator set (needs a `Password`). |
+| `CreateSessionUser(ctx, &CreateUserRequest{Username, Password, Disabled, PasswordChangeRequired, Email})` | A user, password-less when `Password` is nil. `PasswordChangeRequired` marks a password an operator set (needs a `Password`). The library generates the user's id; a seed that must know the id before the user exists sets `ID` (Go callers only, never read from a request body; the nil id is refused): one that names its people in rows of its own, so a development database reads the same on every machine, and one that gives a user its roles (`SeedUserID`, below). |
 | `ChangeSessionUserUsername(ctx, id, username)` | Renames the user and its live sessions. |
 | `ChangeSessionUserPassword(ctx, w, id, &ChangeSessionUserPasswordRequest{OldPassword, NewPassword})` | The user's own change: the old password must match and the new one differ. Clears the mark, destroys the sessions and continues in a new one. `PasswordMethod.ChangeUserPassword()` is this over HTTP. |
 | `SetSessionUserPassword(ctx, id, password)` | A password the user chose through a flow of the application's own that proved who they are (a reset link, an enrollment). Clears the mark, destroys the sessions. |
@@ -939,8 +939,19 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `Identities(ctx, id)`, `UnlinkIdentity(ctx, identityID)` | The user's identity links; unlinking a password-less user's last link is refused (Conflict). |
 | `UserByEmail(ctx, email)`, `SetSessionUserEmail(ctx, id, email)` | The user holding an address, verified or not; an operator's entry of an address, unverified, or its removal (nil). See "Users and their email address". |
 | `SetSessionUserName(ctx, id, name)` | An operator's entry of the person's name, or its removal (nil). See "A person's name". |
-| `Invite(ctx, &InvitationRequest{Email, Name, Tenant, RoleNames, InvitedBy})`, `Invitations(ctx)`, `RevokeInvitation(ctx, id)` | An invitation mailed to an address; the invitations that stand; one withdrawn. See "Invitations". |
+| `Invite(ctx, &InvitationRequest{Email, Name, Tenant, RoleNames, InvitedByUserID})`, `Invitations(ctx)`, `RevokeInvitation(ctx, id)` | An invitation mailed to an address; the invitations that stand; one withdrawn. See "Invitations". |
 | `PrepareInvitation(ctx, &InvitationRequest{…})` | An invitation checked and made, and neither stored nor mailed: `Row()` is the mail links row for a caller that stores it in a transaction of its own (`InvitationRow`, whose comment says how each column is written), and `Send(ctx)` mails the link once that transaction has committed; a message that could not be sent withdraws the invitation. The token, the message and the sender stay in the library. `Invite` is the two in the Auth's own storage. |
+
+**A seed that gives a user its roles.** A role is held by the id of an account, so a
+seed needs the id before the user exists. `session.SeedUserID(auth, username)` is that
+id, the same on every run: the seed writes the roles under it first and creates the user
+under it last (`CreateUserRequest.ID`). The user's row then says the seed is done. A run
+that stopped before it is repeated whole by the next one, which writes the same
+memberships again and creates the user. A seed that created the user first would have to
+give the roles, after a stopped run, to a user it found under a name, and a name is
+something anyone may come to hold. The generated seed of an auth's first administrator
+and the persona cast's seed work this way, and seed nothing for a user that exists,
+whatever it holds.
 
 **The forced password change.** A password an operator set, at creation
 (`PasswordChangeRequired`) or by a reset, is temporary: the user changes it before
@@ -1015,9 +1026,10 @@ matching shape:
   sign-up's username is the address, renaming a user is refused
   (`ChangeSessionUserUsername`: Conflict) as is an operator's entry of an address, and
   a person who verifies a new address is renamed to it with their live sessions, as
-  the rename does; an application that keys anything by the username, role
-  memberships above all, is told of that rename through `auth.SetUserRenamed(func(ctx,
-  userID, from, to) error)` and moves what it holds. The store is told the shape when
+  the rename does; an application that keys anything of its own by the username is
+  told of that rename through `auth.SetUserRenamed(func(ctx, userID, from, to) error)`
+  and moves what it holds. Role memberships are not such a thing: the permission store
+  names a person by the id of their account, which a rename leaves alone. The store is told the shape when
   the method registers. The users
   table is created with the address columns generated from the username, in place of
   the migration's first two statements:
@@ -1128,13 +1140,13 @@ address, and a sign-up with a password, accept by the link: the person proved th
 read the mailbox, and the account takes the address.
 
 - **Sending**: `auth.API().Invite(ctx, &session.InvitationRequest{Email, Name, Tenant,
-  RoleNames, InvitedBy})` stores the invitation and mails the link; `Name`, optional, is
+  RoleNames, InvitedByUserID})` stores the invitation and mails the link; `Name`, optional, is
   the name the sender gives the person (see "A person's name"). The invitation stands for
   `MailSettings.InvitationTimeout` (seven days). `Invitations(ctx)` lists those that
   stand; `RevokeInvitation(ctx, id)` withdraws one. The tenant and the roles are the
   application's, opaque to the library.
 - **Opening**: the login page, sent to with `?invitation=<token>`, posts the token to
-  `Invitation().Open()`, which answers `{"email", "tenant", "expiresAt", "signUp",
+  `Invitation().Open()`, which answers `{"email", "tenantId", "tenantName", "expiresAt", "signUp",
   "usernameIsEmail", "methods", "accountExists", "hasPassword"}` and sets an encrypted cookie holding the token, so the
   sign-in that follows carries the invitation, an external round trip included. The
   page then offers the sign-in methods, and, when `signUp` is true (the password method
@@ -1144,7 +1156,13 @@ read the mailbox, and the account takes the address.
   among them), so the page hides the buttons that would refuse the invitee; `accountExists`
   and `hasPassword` say whether an account already holds the address and signs in with
   a password, so the page offers that account's password form, and offers to create an
-  account only where none holds the address. While the cookie names an invitation that
+  account only where none holds the address. `tenantId` is the tenant the invitation
+  seats the person in, and `tenantName` what people call it: the person reading the
+  screen is not signed in and can read no tenant record, and a tenant's id says nothing
+  to them, so the application hands each Auth its tenant roster
+  (`SetTenantNames(roster)`, after NewAuth and before serving), which names the tenant
+  from its copy with no read. Without one, or for a tenant it does not know, the name is
+  absent and the screen names no tenant. While the cookie names an invitation that
   stands, the methods listing (`auth.Methods`) reports it as `invitation.standing`, so
   the page shows the invitation again when it comes back without the token, as after a
   refused external sign-in; see "What the login page is told".
@@ -2348,11 +2366,12 @@ The establishing call runs in the *target* application's session API, typically 
 server-to-server handoff (an admin application minting a session in a partner portal):
 
 ```go
-// Support views bob's portal, read-only, for an hour at most.
+// Support views bob's portal, read-only, for an hour at most. A user principal names
+// the person as the permission store does, by the id of their account.
 id, err := auth.API().StartImpersonatedSession(ctx, w, &session.ImpersonationRequest{
     Actor:      "alice@example.com",
     ActorRealm: "admin-portal",
-    Principal:  accesstypes.UserPrincipal("bob@partner.org"),
+    Principal:  accesstypes.UserPrincipal(accesstypes.User(bob.ID.String())),
     Mask:       accesstypes.MaskPermissions(accesstypes.List, accesstypes.Read),
     Reason:     "ticket JRN-123",
 })
@@ -2401,6 +2420,18 @@ A role principal's session is always the actor's: nobody's identity is borrowed.
 | Auth | The `SessionUsers` record's username; the session belongs to that user and records an `impersonation` auth event naming the actor | The record's ID | A missing or disabled user |
 | Preauth | The name as given | Zero | — (trust-the-caller, as `Login` is) |
 
+On an `Auth` the user principal is the id of the person's account, and the record keeps
+it in the one text every membership is held under, whatever form of the id the request
+gave.
+
+A name and an id are kept apart. The permission store names an account by its id and a
+session with no account (a `Preauth` session, an actor from another application) by its
+name, so a name must never read as an id where the two are asked of one store. An `Auth`
+refuses a foreign actor whose name parses as an id. `Preauth` trusts its caller and takes
+any name, so an application that runs a `Preauth` session type beside an `Auth` over one
+permission store keeps the rule itself: the names it hands `Preauth` must not read as
+ids.
+
 On an `Auth` session an impersonation carries no identity of its own: no identity is
 linked, no roles are synchronized, and the custom session data resolver receives
 `ReasonImpersonation` with no claims. A provider-initiated logout reaches it through the
@@ -2417,6 +2448,8 @@ means in this application's session table:
 | --- | --- | --- |
 | Who | A user of this application, logged in here | Authenticated by another application or IdP |
 | `SourceSessionID` | Required and verified: the actor's own live, non-impersonated session here, carrying their username. Defaults to the request's own session when the call arrives on one | Optional; the session in the source application, for correlation |
+| The actor's account | The record carries its id (`Impersonation.ActorID`, the table's `ActorUserId` column), read from the source session: the permission store names the actor by it (`ActorUser`), so the actor's own roles are found under it and a row condition's `subject` binds to it in a role principal's session | None here: `ActorID` is null, the permission store names the actor by the name the record carries, and the actor holds nothing in this application |
+| The actor's name | The username of the source session | Any name that does not read as the id of an account: an Auth refuses a foreign actor whose name parses as one (400, in every form the id parser reads), since a text that reads as an id names an account here |
 | A role principal's session | The actor's own session, narrowed to the role | A session under a borrowed name |
 | Kept alive | The source session's activity is refreshed with the impersonated session's, so `EndImpersonation` can return to it | — |
 | Deactivating or renaming the user named `Actor` | Includes the role session and every impersonation the actor holds (see *One name, one user*) | Never touches the role session |
@@ -2431,8 +2464,9 @@ Every validated request exposes the record without branching on whether the sess
 impersonated:
 
 ```go
-principal := sessioninfo.PrincipalFromCtx(ctx) // UserPrincipal(username) for an ordinary session
-actor     := sessioninfo.ActorFromCtx(ctx)     // == Username unless impersonated
+principal := sessioninfo.PrincipalFromCtx(ctx) // UserPrincipal(the id of the account) for an ordinary session
+actor     := sessioninfo.ActorFromCtx(ctx)     // == Username unless impersonated: what people read
+who       := sessioninfo.ActorUserFromCtx(ctx) // the same person as the permission store names them: the id of their account
 mask      := sessioninfo.MaskFromCtx(ctx)      // unrestricted unless impersonated
 imp, ok   := sessioninfo.ImpersonationFromCtx(ctx)
 ```

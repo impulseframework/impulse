@@ -133,11 +133,13 @@ func TestExpenseManifest_renderedFile(t *testing.T) {
 			for _, record := range records[1:] {
 				lines[record[3]] = record
 			}
-			if got := lines["tow_gear"]; len(got) == 0 || got[0] != sortiePodID || got[1] != "veteran" || got[4] != "1500" || got[5] != "Grapple replacement" {
-				t.Errorf("tow gear line = %v, want the recovery sortie flown by veteran, 1500, its note", got)
+			// The pilot is written by name, from the pilot's record: the sortie names
+			// its pilot by the id of an account, which no sheet shows.
+			if got := lines["tow_gear"]; len(got) == 0 || got[0] != sortiePodID || got[1] != "Veteran Vela" || got[4] != "1500" || got[5] != "Grapple replacement" {
+				t.Errorf("tow gear line = %v, want the recovery sortie flown by Veteran Vela, 1500, its note", got)
 			}
-			if got := lines["fuel"]; len(got) == 0 || got[0] != sortiePodStandbyID || got[1] != "lead" || got[4] != "300" || got[5] != "" {
-				t.Errorf("fuel line = %v, want the standby sortie flown by lead, 300, no note", got)
+			if got := lines["fuel"]; len(got) == 0 || got[0] != sortiePodStandbyID || got[1] != "Flight Lead Lior" || got[4] != "300" || got[5] != "" {
+				t.Errorf("fuel line = %v, want the standby sortie flown by Flight Lead Lior, 300, no note", got)
 			}
 		})
 	}

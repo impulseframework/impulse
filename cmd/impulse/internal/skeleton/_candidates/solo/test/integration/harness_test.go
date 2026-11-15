@@ -96,8 +96,8 @@ func (c *servedConfigurer) LiveOrigins() []string {
 type served struct {
 	server *httptest.Server
 	access *access.Client
-	// adminID is the development login's user id, for the methods of the auth's generated
-	// management.
+	// adminID is the development login's user id: what the methods of the auth's generated
+	// management name the login by, and what the permission store holds its role under.
 	adminID string
 	// mail is the recorder the staff auth sends its mail to, where a suite reads the
 	// sign-in code a sign-in waits for.
@@ -112,7 +112,8 @@ type served struct {
 
 // newServed provisions the database the way the deployment does (the schema, then the
 // auth opened over it with its embedded role file validated against the collection),
-// creates the development login, and serves the full router.
+// creates the development login as the bootstrap does (the user, then its role, held by
+// the id of the user's account), and serves the full router.
 func newServed(ctx context.Context, t *testing.T) *served {
 	t.Helper()
 
@@ -143,8 +144,10 @@ func newServed(ctx context.Context, t *testing.T) *served {
 	if err != nil {
 		t.Fatalf("CreateSessionUser() error = %v", err)
 	}
-	if err := accessClient.UserManager().AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), adminUser, "Administrator"); err != nil {
-		t.Fatalf("AddUserRoles() error = %v", err)
+	// The role is held by the login's account: the permission store names a person by the
+	// id of their account, never by the username, which is only what people read.
+	if err := accessClient.UserManager().AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), accesstypes.User(adminID.String()), "Administrator"); err != nil {
+		t.Fatalf("AddUserRoles(%s) error = %v", adminUser, err)
 	}
 
 	a := app.New(&servedConfigurer{db: db, auth: auth, live: svc})

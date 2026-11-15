@@ -194,6 +194,7 @@ func (tn Tenancy) recordRenames() []recordRename {
 		{regexp.MustCompile(`\.tenants\b`), "." + t},
 		{regexp.MustCompile(`\{ tenants: `), "{ " + t + ": "},
 		{regexp.MustCompile(`\btenants/`), kt + "/"},
+		{regexp.MustCompile(`'/tenants'`), "'/" + kt + "'"},
 		{regexp.MustCompile(`\btenantID\b`), r + "ID"},
 		{regexp.MustCompile(`\btenantId\b`), r + "Id"},
 	}

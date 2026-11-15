@@ -27,7 +27,7 @@ func (MembersRoleGrant) DefaultConfig() resource.Config {
 type membersRoleGrantRead struct {
 	Kind         string    `json:"kind"         perm:"-"`
 	Axis         string    `json:"axis"         perm:"-"`
-	Domain       string    `json:"domain"       perm:"-"`
+	DomainID     string    `json:"domainId"     perm:"-"`
 	Role         string    `json:"role"         perm:"-"`
 	Permission   string    `json:"permission"   perm:"-"`
 	ResourceName string    `json:"resourceName" perm:"-"`
@@ -44,7 +44,7 @@ var membersRoleGrantReadSets resource.SetCache[MembersRoleGrant, membersRoleGran
 type membersRoleGrantWrite struct {
 	Kind         string    `json:"-"`
 	Axis         string    `json:"-"`
-	Domain       string    `json:"-"`
+	DomainID     string    `json:"-"`
 	Role         string    `json:"-"`
 	Permission   string    `json:"-"`
 	ResourceName string    `json:"-"`
@@ -93,14 +93,14 @@ func (q *MembersRoleGrantQuery) Axis() string {
 	return v
 }
 
-func (q *MembersRoleGrantQuery) SetDomain(v string) *MembersRoleGrantQuery {
-	q.qSet.SetKey("Domain", v)
+func (q *MembersRoleGrantQuery) SetDomainID(v string) *MembersRoleGrantQuery {
+	q.qSet.SetKey("DomainID", v)
 
 	return q
 }
 
-func (q *MembersRoleGrantQuery) Domain() string {
-	v, _ := q.qSet.Key("Domain").(string)
+func (q *MembersRoleGrantQuery) DomainID() string {
+	v, _ := q.qSet.Key("DomainID").(string)
 
 	return v
 }
@@ -245,7 +245,7 @@ func (c *MembersRoleGrantColumns) All() *MembersRoleGrantColumns {
 	c.fields = []accesstypes.Field{
 		"Kind",
 		"Axis",
-		"Domain",
+		"DomainID",
 		"Role",
 		"Permission",
 		"ResourceName",
@@ -269,8 +269,8 @@ func (c *MembersRoleGrantColumns) Axis() *MembersRoleGrantColumns {
 	return c
 }
 
-func (c *MembersRoleGrantColumns) Domain() *MembersRoleGrantColumns {
-	c.fields = append(c.fields, "Domain")
+func (c *MembersRoleGrantColumns) DomainID() *MembersRoleGrantColumns {
+	c.fields = append(c.fields, "DomainID")
 
 	return c
 }
@@ -401,8 +401,8 @@ func (c *membersRoleGrantSort) Axis() *MembersRoleGrantSort {
 	return c.addField("Axis")
 }
 
-func (c *membersRoleGrantSort) Domain() *MembersRoleGrantSort {
-	return c.addField("Domain")
+func (c *membersRoleGrantSort) DomainID() *MembersRoleGrantSort {
+	return c.addField("DomainID")
 }
 
 func (c *membersRoleGrantSort) Role() *MembersRoleGrantSort {
@@ -449,11 +449,11 @@ type MembersRoleGrantCreatePatch struct {
 	patchSet *resource.PatchSet[MembersRoleGrant]
 }
 
-func NewMembersRoleGrantCreatePatchFromPatchSet(kind string, axis string, domain string, role string, permission string, resourceName string, field string, condition string, patchSet *resource.PatchSet[MembersRoleGrant]) *MembersRoleGrantCreatePatch {
+func NewMembersRoleGrantCreatePatchFromPatchSet(kind string, axis string, domainID string, role string, permission string, resourceName string, field string, condition string, patchSet *resource.PatchSet[MembersRoleGrant]) *MembersRoleGrantCreatePatch {
 	patchSet.
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetKey("Permission", permission).
 		SetKey("ResourceName", resourceName).
@@ -466,11 +466,11 @@ func NewMembersRoleGrantCreatePatchFromPatchSet(kind string, axis string, domain
 	return patch
 }
 
-func NewMembersRoleGrantCreatePatch(kind string, axis string, domain string, role string, permission string, resourceName string, field string, condition string) *MembersRoleGrantCreatePatch {
+func NewMembersRoleGrantCreatePatch(kind string, axis string, domainID string, role string, permission string, resourceName string, field string, condition string) *MembersRoleGrantCreatePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[MembersRoleGrant]()).
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetKey("Permission", permission).
 		SetKey("ResourceName", resourceName).
@@ -546,8 +546,8 @@ func (p *MembersRoleGrantCreatePatch) Axis() string {
 	return v
 }
 
-func (p *MembersRoleGrantCreatePatch) Domain() string {
-	v, _ := p.patchSet.Key("Domain").(string)
+func (p *MembersRoleGrantCreatePatch) DomainID() string {
+	v, _ := p.patchSet.Key("DomainID").(string)
 
 	return v
 }
@@ -607,11 +607,11 @@ type MembersRoleGrantUpdatePatch struct {
 	patchSet *resource.PatchSet[MembersRoleGrant]
 }
 
-func NewMembersRoleGrantUpdatePatchFromPatchSet(kind string, axis string, domain string, role string, permission string, resourceName string, field string, condition string, patchSet *resource.PatchSet[MembersRoleGrant]) *MembersRoleGrantUpdatePatch {
+func NewMembersRoleGrantUpdatePatchFromPatchSet(kind string, axis string, domainID string, role string, permission string, resourceName string, field string, condition string, patchSet *resource.PatchSet[MembersRoleGrant]) *MembersRoleGrantUpdatePatch {
 	patchSet.
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetKey("Permission", permission).
 		SetKey("ResourceName", resourceName).
@@ -625,11 +625,11 @@ func NewMembersRoleGrantUpdatePatchFromPatchSet(kind string, axis string, domain
 	return patch
 }
 
-func NewMembersRoleGrantUpdatePatch(kind string, axis string, domain string, role string, permission string, resourceName string, field string, condition string) *MembersRoleGrantUpdatePatch {
+func NewMembersRoleGrantUpdatePatch(kind string, axis string, domainID string, role string, permission string, resourceName string, field string, condition string) *MembersRoleGrantUpdatePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[MembersRoleGrant]()).
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetKey("Permission", permission).
 		SetKey("ResourceName", resourceName).
@@ -710,8 +710,8 @@ func (p *MembersRoleGrantUpdatePatch) Axis() string {
 	return v
 }
 
-func (p *MembersRoleGrantUpdatePatch) Domain() string {
-	v, _ := p.patchSet.Key("Domain").(string)
+func (p *MembersRoleGrantUpdatePatch) DomainID() string {
+	v, _ := p.patchSet.Key("DomainID").(string)
 
 	return v
 }
@@ -771,11 +771,11 @@ type MembersRoleGrantDeletePatch struct {
 	patchSet *resource.PatchSet[MembersRoleGrant]
 }
 
-func NewMembersRoleGrantDeletePatchFromPatchSet(kind string, axis string, domain string, role string, permission string, resourceName string, field string, condition string, patchSet *resource.PatchSet[MembersRoleGrant]) *MembersRoleGrantDeletePatch {
+func NewMembersRoleGrantDeletePatchFromPatchSet(kind string, axis string, domainID string, role string, permission string, resourceName string, field string, condition string, patchSet *resource.PatchSet[MembersRoleGrant]) *MembersRoleGrantDeletePatch {
 	patchSet.
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetKey("Permission", permission).
 		SetKey("ResourceName", resourceName).
@@ -786,11 +786,11 @@ func NewMembersRoleGrantDeletePatchFromPatchSet(kind string, axis string, domain
 	return &MembersRoleGrantDeletePatch{patchSet: patchSet}
 }
 
-func NewMembersRoleGrantDeletePatch(kind string, axis string, domain string, role string, permission string, resourceName string, field string, condition string) *MembersRoleGrantDeletePatch {
+func NewMembersRoleGrantDeletePatch(kind string, axis string, domainID string, role string, permission string, resourceName string, field string, condition string) *MembersRoleGrantDeletePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[MembersRoleGrant]()).
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetKey("Permission", permission).
 		SetKey("ResourceName", resourceName).
@@ -833,8 +833,8 @@ func (p *MembersRoleGrantDeletePatch) Axis() string {
 	return v
 }
 
-func (p *MembersRoleGrantDeletePatch) Domain() string {
-	v, _ := p.patchSet.Key("Domain").(string)
+func (p *MembersRoleGrantDeletePatch) DomainID() string {
+	v, _ := p.patchSet.Key("DomainID").(string)
 
 	return v
 }

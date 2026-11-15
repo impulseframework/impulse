@@ -37,8 +37,10 @@ That starts a fresh Spanner emulator and a fresh Firestore emulator (the live se
 live pages' subscription record and change sets, [below](#live-pages), and the signals
 document the instances notify each other through,
 [further below](#one-channel-between-instances); Firestore needs no schema, so the
-bootstrap leaves it alone), bootstraps the database (schema, the demo world, the
-personas, the droid account; the roles need no step, since each auth's role file rides in
+bootstrap leaves it alone), bootstraps the database (schema, the demo world, and the
+cast's accounts, each created under the fixed id `cmd/bootstrap/users.json` gives it:
+the personas, the clients the demo world's rows name, and the droid service account; the
+roles need no step, since each auth's role file rides in
 the binary and the bootstrap only checks the store against it; a database that already
 holds data is refused unless the bootstrap runs with `-reset`, which empties the data and
 seeds it again without touching the schema), serves the application on :8090, and runs
@@ -206,9 +208,9 @@ the token check, so a copy on a droid fetches its next release where it already 
 its telemetry. A person installs the first copy from the release's assets or with `go
 install github.com/impulseframework/impulse/lodestar/cmd/droid@<release>`. Given the
 outlet's URL, the droid account's token (the key the server seeds as its application
-token, `APP_DROIDS_API_KEY`, or a token a crew member issued), the sector and the ship
-(`DROID_OUTLET`, `DROID_TOKEN`, `DROID_SECTOR`, `DROID_SHIP`; `DROID_FIRMWARE` names the
-firmware in the frame), `droid reactor 0.55` sends one reading through
+token, `APP_DROIDS_API_KEY`, or a token a crew member issued), the sector and the ship,
+each by its id (`DROID_OUTLET`, `DROID_TOKEN`, `DROID_SECTOR`, `DROID_SHIP`;
+`DROID_FIRMWARE` names the firmware in the frame), `droid reactor 0.55` sends one reading through
 `IngestDroidReports`, the frame written as the firmware's own JSON, and then the copy
 reads the server's release from the answer (`X-Api-Version`): newer than its own, it
 fetches that release's file with the token it carries, verifies the checksum, swaps the
@@ -241,13 +243,16 @@ token route hands the browser too. So with the stack running and `.envrc` loaded
       "http://$FIRESTORE_EMULATOR_HOST/v1/projects/live-emulator/databases/(default)/documents/subscriptions"
 
 lists every live subscription (`principal`, `tab`, `resource`, `key` for a row or
-`domain` for a list, `expiry`), and `.../documents/users/crew%7Charbormaster/changes`
+`domain` for a list, `expiry`), and
+`.../documents/users/crew%7Cf0000000-0000-4000-8000-000000000024/changes`
 lists the documents written into Hollis's set: a `row` document for the ship she had open
 and a `list` document for the fleet board in Anvil, each with its server timestamp `at`,
-which is the version (`_v`) her page asks again by. The set's uid is `crew|harbormaster`,
-the crew auth's name and her user name joined by `|` (written `%7C` in the URL), so a
-person of the same name signing in through the portal's members auth has a set of their
-own. The pilot watching Bastion's fleet gets no document for an Anvil refit, and a
+which is the version (`_v`) her page asks again by. The set's uid is
+`crew|f0000000-0000-4000-8000-000000000024`, the crew auth's name and the id of her
+account joined by `|` (written `%7C` in the URL): the id is how the permission store
+names a person, so a change of username leaves her set and her subscriptions where they
+are, and an account of the portal's members auth has a set of its own whatever its
+username. The pilot watching Bastion's fleet gets no document for an Anvil refit, and a
 persona without List on Ships (the cadet) is never subscribed: the refused request
 answers 403 as it always did and writes no record. The walkthrough plays this scenario
 by curl (its "live pages" section), and
@@ -448,7 +453,9 @@ heartbeat for the policy. Nothing polls between instances and no instance connec
 another.
 
 To see the policy kind: sign in as `marshal` and seat `cadet` as a harbormaster at Anvil
-(`POST /console/api/sectors/anvil/roles/Harbormaster/users` with `{"users":["cadet"]}`);
+(`POST /console/api/sectors/{sectorID}/roles/Harbormaster/users` with `{"users":["cadet"]}`,
+the segment's value Anvil's id, `a1111111-1111-4111-8111-111111111111` in the development
+seed);
 a second server process built from the tree (the walkthrough starts one on
 `LODESTAR_SECOND_PORT` for the flags and keeps it for this) serves the cadet the fleet
 board at its next request, with no restart and without waiting for its heartbeat; unseat
@@ -456,16 +463,29 @@ her (`DELETE` on the same route) and it refuses again.
 
 To see the tenants kind: sign in as `surveyor` and chart a sector (`PATCH
 /console/api/resources` with
-`[{"op":"add","path":"/sectors/dawn","value":{"name":"Dawn","region":"Outer frontier","established":"2226-10-02"}}]`).
+`[{"op":"add","path":"/sectors","value":{"name":"Dawn","region":"Outer frontier","established":"2226-10-02"}}]`).
+The body carries the sector's fields and no key: a sector's key is an id the create path
+generates, the answer carries it (`{"sectors":["<Dawn's id>"]}`), and an add that names a
+key in its path is refused with 400. A second sector named Dawn is refused with 409 by the
+unique index on the name.
 `Sectors` is the tenant record (`@tenant`): the data configuration builds the roster with
 the generated `NewSectorRoster` over the live service and starts it beside the engines
 (`pkg/config/data.go`), the generated create path adds Dawn to the writing instance's
 roster after the commit and signals the kind, and the second process serves
-`/console/api/sectors/dawn/...` at its next request, the roster's own five-minute reread
+`/console/api/sectors/<Dawn's id>/...` at its next request, the roster's own five-minute reread
 left as the backstop. Nothing is written to the permission store: the surveyor's
 `SectorCrew`, the governor's `SectorMarshal`, the archivist's role and the client's
 directory role are each held in every sector, so Dawn lights on their charts with nothing
 written for it.
+
+A sector that is deleted leaves nothing behind
+([`tenancy.deleted-tenant`](pkg/resources/sectors.go)): the generated delete path removes,
+in the transaction that deletes the row, the roles people held in the sector, the custom
+roles made in it and the invitations into it that still stood, in the crew's tables and
+the members' alike, and a person who held roles in that sector alone goes with it, while
+one who holds a role elsewhere stays. No role Lodestar ships holds Delete on `Sectors`;
+the suite gives the governor one to prove it
+(`test/integration/tenant_delete_skipauth_test.go`).
 
 How it is wired:
 
@@ -562,7 +582,8 @@ project the application credentials reach.
    `GOOGLE_CLOUD_SPANNER_DATABASE_NAME` at the instance.
 3. `go run -tags skipAuth ./cmd/bootstrap` creates the database, applies the schema, seeds
    the world, checks both auths' policy stores against their role files, and creates the
-   personas. Schema changes on a real instance are slow and counted against its limits,
+   cast's accounts under their fixed ids with the roles each holds. Schema changes on a
+   real instance are slow and counted against its limits,
    which is why the schema is one migration (`000001_Baseline` applies in about two minutes
    on an Enterprise instance, where the sixty files it folds took more than thirteen,
    measured 2026-11-02), and this runs once per database; every later session starts with
@@ -639,7 +660,11 @@ the same table under the same cookie. A password persona's roles are the applica
 (`pkg/auth/crew/roles.json`, embedded in the binary and validated against the generated
 permission collection when the auth opens, so a release whose roles are wrong does not
 start; the store holds no row for them, and the bootstrap assigns the memberships from
-`cmd/bootstrap/users.json`, a role held in every sector as one membership). A person the
+`cmd/bootstrap/users.json`, a role held in every sector as one membership and a role held
+in one sector under the sector's name, which the bootstrap finds the id of; a role is
+held by an account, under the account's id, so the bootstrap creates each persona's
+account first, under the `id` the file gives it, and assigns the roles under that id).
+A person the
 directory admits is provisioned under the verified email at their first sign-in, a login
 on no manifest (a verified email that is a password persona's login links the identity to
 that persona once their password confirms it), and their roles are the directory's groups,
@@ -650,8 +675,12 @@ spelling (`crew-pilot@` names `Pilot`). The clients sign in through their compan
 Google directory at `/portal/api/user/directory/login`; their roles are the directory's
 groups (`google.RoleSync`), reconciled at every login and never assigned in the
 application, a global role held in the global partition and a domain role in every
-sector; `pkg/auth/members/roles.json` only says what a role may do, in the lowercase
-names Google groups carry. The deploy's migrate step and the bootstrap print what each store
+sector, each under the id of the client's account; `pkg/auth/members/roles.json` only
+says what a role may do, in the lowercase names Google groups carry. A client's account
+is made by their first sign-in; the bootstrap makes the accounts of the clients the demo
+world's rows name ahead of that (the file's `members`: no password, no roles, a fixed
+id), and the first sign-in through the directory finds the account under the directory's
+sign-in name and links to it. The deploy's migrate step and the bootstrap print what each store
 holds that the release cannot use. Each auth is a package (`pkg/auth/crew`,
 `pkg/auth/members`) with its own session tables, permission store, role file, and XSRF
 cookie (`crew-xsrf`, `members-xsrf`), and each outlet binds to one. The crew's memberships
@@ -663,6 +692,37 @@ the directory's, reconciled at every login, and the members' management has no m
 that writes them. A crew login an operator creates with a password, or gives a temporary
 one, carries the forced password change, which the login page serves before anything
 else.
+
+A person is named by the id of their account, never by their username. The id (the key
+of the auth's users table, as text) is what the permission store holds every membership
+under and what a row condition's `subject` binds to; the username is what people read
+and type, and it may change without anything moving. So every column that anchors a
+person holds the id (`Pilots.UserId`, `ClientContacts.UserId`,
+`PilotCertifications.UserId`, `SquadronMemberships.UserId`, `Sorties.PilotUserId`), and
+so does every column that records who did something (`Missions.BookedByUserID`,
+`DistressCalls.FiledByUserID`, `Refits.OpenedByUserID`, `Commendations.AwardedByUserID`,
+`MissionDocuments.UploadedByUserID`), which the server stamps from the session with the
+identity the request's permission check ran as (`resources.CurrentUser` in
+`pkg/resources/resources.go`), so `bookedBy = subject` holds for a row's author. No page
+shows an account id. Beside each column that records who sits a name column
+(`BookedByName`, `FiledByName`, `OpenedByName`, `AwardedByName`, `UploadedByName`): the
+person's username as it was when the row was written (`resources.CurrentUserName`),
+written by the server alone and granted for reading wherever the column beside it is. A
+record that anchors a person carries its own name (`Pilots.DisplayName`,
+`ClientContacts.DisplayName`), and the purser's expense sheet names a sortie's pilot from
+the pilot's record. A method that gives or takes a role names the person by `userId`
+(`assign-crew-role`, `remove-crew-role`, and the sector's pair), and a role is given to
+an account: an id no account holds is refused. The ship's log and the client statement
+sign each change with the username, the account id and the session
+(`booking (f0000000-…), session …`), the actor first when a session operates as someone
+else or as a role (`marshal (…) impersonating cadet (…), session …`,
+`governor (…) as role Dispatcher, session …`). The demo cast has fixed account ids so
+that the seed can say whose a row is: `cmd/bootstrap/users.json` gives every account an
+`id`, one prefix for each users table (`f0000000-0000-4000-8000-0000000000NN` for the
+crew's accounts, numbered in the file's order with the droid service account last;
+`f1000000-…` for the members'), the bootstrap creates each account under its id
+(`session.CreateUserRequest.ID`), and `schema/devseed` carries the same ids, so a
+development database reads the same on every machine.
 
 The generator also writes each auth's management as code the application owns
 (`generation.GenerateIdentity("pkg/identity")` in the generator program). Per auth it
@@ -773,7 +833,19 @@ tenancy.creator-directory, tenancy.default-seat, tenancy.creator-seat.
 ## The personas
 
 All crew passwords are `lodestar`; the login is the job word. The login page is the crew
-manifest: pick a card, sign in, switch, never more than two clicks.
+manifest: pick a card, sign in, switch, never more than two clicks. The login is the
+persona's username; the id of its account is in `cmd/bootstrap/users.json`, and it is
+the id, not the login, that a role method, a view-as session and the rows of the demo
+world name the persona by. On the pages nobody types an id: the roster's "view as" lists
+the sector's people by username, and a record that names an account declares a picker
+over the auth's people (`@enumerate(CrewSessionUsers)` on a pilot's account, the crew's
+accounts; `@enumerate(CrewSectorUsers)` on a squadron member, the sector's people), which
+whoever may add the record may list. The marshal views the console as the cadet with
+`POST /console/api/impersonate` and
+`{"kind":"user","principal":"f0000000-0000-4000-8000-000000000003"}`, the id of the
+cadet's account (a username there is refused, 400); the session route and the governor's
+watch desk then name the cadet by username; and
+`{"kind":"role","principal":"Dispatcher"}` operates the session as a role.
 
 | Login | Who | What their view proves |
 | --- | --- | --- |
@@ -802,11 +874,11 @@ manifest: pick a card, sign in, switch, never more than two clicks.
 | `harbormaster` | Harbormaster Hollis, Anvil | List and Read on Ships, nothing else of her own: the live fleet board. Her list and the ship she has open are subscribed when they are read, the engineer's refit (or a hail) lands on both without a reload, a board left and reopened inside five minutes is the browser's own, and the pilot watching Bastion's fleet and the cadet, who holds no List on Ships, receive nothing. Demonstrates: live.pages. |
 | `adjutant` | Adjutant Alba, headquarters | The commendations desk, the one resource behind a feature flag, and the key that turns it: `FeatureAdministrator` (List and Read on `FeatureFlags`, Execute on `SetFeature`, global) beside `Adjutant` (List, Read and Create on `Commendations`). Off, the desk's routes answer the router's own 404, the digest leaves the desk and the card's `commendations` field out, and the field named in a request is unknown; she turns the flag on through `SetFeature`, the desk answers, Pax's card counts his citations, and a second server process serves the desk at its next request with no restart; off again, both refuse. Demonstrates: @feature, @feature.field. |
 | `surveyor` | Surveyor Shen, headquarters | Charts new sectors: `Surveyor` (Create and Update on `Sectors`, global) beside `SectorCrew` held in every sector. `Sectors` is the tenant record (`@tenant`) and every instance holds a roster of it: when she charts Dawn through the consolidated patch, the instance that wrote adds Dawn to its roster after the commit and signals the tenants kind, so her place switcher lists Dawn and Dawn's wings answer her at once, with no restart, no migrate job and no new login; the marshal's does not list it and Dawn answers her as a sector that does not exist; the client's portal, the governor and the archivist, all held in every sector, see Dawn with nothing written for them; and a second server process serves Dawn at its next request. Demonstrates: tenancy.run-time-tenant. |
-| `pioneer` | Pioneer Pia, on no manifest | Signs up with any Google account (the crew auth's `sign-up` registration: open sign-up, no roles, the application the authority), a crew login holding nothing, and charts her own sector through the generated `create-sector` route: `Sectors` declares who may chart one apart from who may enter one (`@tenant(creation: both)`), so the route writes Ember, seats her as its marshal (`SectorMarshal`, the roles `SectorAdministratorRoles` names) and hands it to the roster in one call, and her chart lights Ember at once; a second sector is refused her, as the route is refused the marshal and the governor, who hold sectors already. Sign in first, then name the sector. Demonstrates: tenancy.self-service, auth.open-sign-up. |
+| `pioneer` | Pioneer Pia, on no manifest | Signs up with any Google account (the crew auth's `sign-up` registration: open sign-up, no roles, the application the authority), a crew login holding nothing, and charts her own sector through the generated `create-sector` route: `Sectors` declares who may chart one apart from who may enter one (`@tenant(creation: both)`), so the route, given the sector's fields and no key, writes Ember under an id it generates and answers, seats her as its marshal (`SectorMarshal`, the roles `SectorAdministratorRoles` names) and hands it to the roster in one call, and her chart lights Ember at once; a second sector is refused her, as the route is refused the marshal and the governor, who hold sectors already. Sign in first, then name the sector. Demonstrates: tenancy.self-service, auth.open-sign-up. |
 | `rigger` | Rigger Rook, Anvil and Bastion, no global role | `SectorCrew` in Anvil and in Bastion, by password, and nothing global: Bastion admits its people through its directory only (`Sector.DirectoryOnly`), so her chart lights Anvil alone and Bastion answers her as a sector that does not exist, until headquarters opens Bastion to passwords and her chart lights it at once. Demonstrates: tenancy.directory-only. |
 | `bosun` | Bosun Bram, Bastion only | `SectorCrew` in Bastion alone, by password: every sector of his is directory only, so his sign-in is refused naming the rule (`directory_only`), and admitted once headquarters opens Bastion. Demonstrates: tenancy.directory-only. |
 | `client` | Client Cleo, portal only | Signs in through her company's directory, whose groups are her roles; the second browser app over the second TypeScript target; `client = subject.client` from the ClientContact anchor; a conditional Execute fired from a portal session; a PII field an external user writes; the portal-only client statement. Demonstrates: auth.directory-roles, auth.skipauth-directory, typescript.second-target, outlet.session, @subjectValue.second-anchor, @manualAddResource.outlet. |
-| `droid-r7` | R7, service account, no login | The droids outlet, behind the crew auth's bearer tokens (its configured key is seeded as its application token): telemetry with no human route, one reading per call, each carrying the firmware's raw frame, a type declared in the droid link's own package whose generated methods the generator writes there (`WithTypes`); releases through the shared method under its own read grant; the program the release ships to the droids (`cmd/droid`), which sends one frame and upgrades itself from the outlet. Demonstrates: outlet.tokens, outlet.exclusive, machine-identity, rpc.row-free, typescript.types-package, outlet.programs. |
+| `droid-r7` | R7, service account, no login | The droids outlet, behind the crew auth's bearer tokens (the bootstrap creates its account, without a password, and gives it its roles; the server finds the account by its username at start and seeds its configured key as its application token): telemetry with no human route, one reading per call, each carrying the firmware's raw frame, a type declared in the droid link's own package whose generated methods the generator writes there (`WithTypes`); releases through the shared method under its own read grant; the program the release ships to the droids (`cmd/droid`), which sends one frame and upgrades itself from the outlet. Demonstrates: outlet.tokens, outlet.exclusive, machine-identity, rpc.row-free, typescript.types-package, outlet.programs. |
 
 ## Where things live
 
@@ -861,10 +933,15 @@ manifest: pick a card, sign in, switch, never more than two clicks.
 - `pkg/auth/crew` and `pkg/auth/members`: the two populations, each with its
   `roles.json`, every grant in §7 per auth, embedded in the binary; `pkg/auth/signal.go`:
   the policy signal both engines take, over the live service;
-  `cmd/bootstrap/users.json`: the personas and the droid.
+  `cmd/bootstrap/users.json`: the cast, each with the fixed `id` its account is created
+  under: the personas (`users`, with their passwords and roles), the clients the demo
+  world's rows name (`members`, who sign in through the directory and so carry neither),
+  and the droid (`serviceAccounts`, its roles and no password).
 - `schema/migrations` and `schema/devseed`: the schema and the world the suites and the
   demo share; one mission's deadline is written as bootstrap time plus three minutes so the
-  overseer's grant flips during a live walkthrough.
+  overseer's grant flips during a live walkthrough. The seed names every person by the
+  cast's fixed account ids, with the username beside each column that records who did
+  something (the header of `000002_demo_world.up.sql` lists which id is whose).
 - `web/`: one bun workspace, two Angular applications: `console/` (default outlet) and
   `portal/` (portal outlet), each over its own generated TypeScript client; the workspace's
   checks are `bun run build && bun run lint && bun run test`; the repository's CI runs all
@@ -875,8 +952,9 @@ manifest: pick a card, sign in, switch, never more than two clicks.
   portal's login, menu file and tracker, over a scripted client from
   `@impulseframework/resource-angular/testing`). The console mirrors the API's shape: every
   sector-scoped page lives under the sector segment, `/sectors/{sectorID}/...` (the
-  generated `DomainRoutePath`; the decks at `/sectors/anvil/flight-deck`, the config-driven
-  pages at `/sectors/anvil/missions`, the sector's crew at `/sectors/anvil/users`), so a
+  generated `DomainRoutePath`, the segment's value the sector's id; the decks at
+  `/sectors/{sectorID}/flight-deck`, the config-driven pages at
+  `/sectors/{sectorID}/missions`, the sector's crew at `/sectors/{sectorID}/users`), so a
   link to a deck can be shared and a bookmark lands where it points, and the global pages
   keep their routes. Every signed-in page sits in the library's frame
   ([`app.config.ts`](web/console/src/app/app.config.ts) provides it; the menus are the
@@ -889,12 +967,12 @@ manifest: pick a card, sign in, switch, never more than two clicks.
   switcher sets no sector either: between sectors it opens the page it is on under the
   chosen sector's URL, and Headquarters, or a sector opened from it, opens on its first
   page. A URL naming a sector the session cannot reach, a pasted link or a bookmark, lands
-  on the frame's refusal page under that sector's URL (`/sectors/cinder/refused`), which
+  on the frame's refusal page under that sector's URL (`/sectors/{sectorID}/refused`), which
   asks the server what a page there would have asked and shows the answer in the server's
   words, the concealing 404, and never switches to another sector. The guard rewrites no
   URL: the library's
   config-driven pages build their row links and after-create navigation under the page's
-  sector (`/sectors/anvil/missions/…`), so a row link is the row's real URL and opens in a
+  sector (`/sectors/{sectorID}/missions/…`), so a row link is the row's real URL and opens in a
   new tab where it points. Two consumers page on the server: the
   hand-written flight deck, and the library's config-driven list on the
   [Missions page](web/console/src/app/configs/missions.config.ts)

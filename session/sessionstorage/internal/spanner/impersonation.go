@@ -41,7 +41,7 @@ const (
 // impersonationColumns are the record's columns after the SessionId marker, in
 // the order the session query selects and Session reads them.
 var impersonationColumns = []string{
-	"ActorUsername", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUser", "PrincipalRole",
+	"ActorUsername", "ActorUserId", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUserId", "PrincipalRole",
 	"Mask", "Reason", "StartedAt", "ExpiresAt", endedAtColumn, endReasonColumn,
 }
 
@@ -78,12 +78,12 @@ func readImpersonation(row *spanner.Row, idx int, sessionID impulse.UUID) (*dbty
 	}
 
 	var (
-		actorRealm, sourceSessionID, principalUser, principalRole, mask, reason, endReason spanner.NullString
-		endedAt                                                                            spanner.NullTime
+		actorUserID, actorRealm, sourceSessionID, principalUser, principalRole, mask, reason, endReason spanner.NullString
+		endedAt                                                                                         spanner.NullTime
 	)
 	imp := &dbtype.Impersonation{SessionID: sessionID}
 	dests := []any{
-		&imp.ActorUsername, &actorRealm, &sourceSessionID, &imp.PrincipalKind, &principalUser, &principalRole,
+		&imp.ActorUsername, &actorUserID, &actorRealm, &sourceSessionID, &imp.PrincipalKind, &principalUser, &principalRole,
 		&mask, &reason, &imp.StartedAt, &imp.ExpiresAt, &endedAt, &endReason,
 	}
 	for i, dest := range dests {
@@ -94,11 +94,18 @@ func readImpersonation(row *spanner.Row, idx int, sessionID impulse.UUID) (*dbty
 	}
 
 	imp.ActorRealm = nullStringPtr(actorRealm)
-	imp.PrincipalUser = nullStringPtr(principalUser)
+	imp.PrincipalUserID = nullStringPtr(principalUser)
 	imp.PrincipalRole = nullStringPtr(principalRole)
 	imp.Mask = nullStringPtr(mask)
 	imp.Reason = nullStringPtr(reason)
 	imp.EndReason = nullStringPtr(endReason)
+	if actorUserID.Valid {
+		id, err := impulse.UUIDFromString(actorUserID.StringVal)
+		if err != nil {
+			return nil, errors.Wrap(err, "impulse.UUIDFromString()")
+		}
+		imp.ActorUserID = &id
+	}
 	if sourceSessionID.Valid {
 		id, err := impulse.UUIDFromString(sourceSessionID.StringVal)
 		if err != nil {
@@ -150,7 +157,10 @@ func (s *SessionStorageDriver) InsertImpersonatedSession(
 // impersonationRow renders the full impersonation record row for a new session,
 // started at the commit time.
 func impersonationRow(id impulse.UUID, imp *dbtype.InsertImpersonation) map[string]any {
-	var sourceSessionID spanner.NullString
+	var actorUserID, sourceSessionID spanner.NullString
+	if imp.ActorUserID != nil {
+		actorUserID = spanner.NullString{StringVal: imp.ActorUserID.String(), Valid: true}
+	}
 	if imp.SourceSessionID != nil {
 		sourceSessionID = spanner.NullString{StringVal: imp.SourceSessionID.String(), Valid: true}
 	}
@@ -158,10 +168,11 @@ func impersonationRow(id impulse.UUID, imp *dbtype.InsertImpersonation) map[stri
 	return map[string]any{
 		dbtype.SessionIDColumn: id,
 		"ActorUsername":        imp.ActorUsername,
+		"ActorUserId":          actorUserID,
 		"ActorRealm":           nullString(imp.ActorRealm),
 		"SourceSessionId":      sourceSessionID,
 		"PrincipalKind":        imp.PrincipalKind,
-		"PrincipalUser":        nullString(imp.PrincipalUser),
+		"PrincipalUserId":      nullString(imp.PrincipalUserID),
 		"PrincipalRole":        nullString(imp.PrincipalRole),
 		"Mask":                 nullString(imp.Mask),
 		"Reason":               nullString(imp.Reason),
@@ -340,7 +351,7 @@ func (s *SessionStorageDriver) ActiveImpersonations(ctx context.Context, activeS
 		filters.WriteString(" AND i.PrincipalKind = @kind AND i.PrincipalRole = @principal")
 	} else if user, _ := q.Principal.User(); user != "" {
 		params["kind"], params["principal"] = dbtype.PrincipalKindUser, string(user)
-		filters.WriteString(" AND i.PrincipalKind = @kind AND i.PrincipalUser = @principal")
+		filters.WriteString(" AND i.PrincipalKind = @kind AND i.PrincipalUserId = @principal")
 	}
 
 	stmt := spanner.NewStatement(fmt.Sprintf(`

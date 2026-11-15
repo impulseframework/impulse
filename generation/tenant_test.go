@@ -10,9 +10,13 @@ import (
 )
 
 // tenantFixtureTables is the synthetic schema behind the tenantfixture's table-backed
-// structs: every table keyed once on Id, except Docks, keyed on two columns.
+// structs: every table keyed once on Id, a key of the table's own that no foreign key
+// names and that sits in no interleaved table, so the create path of a struct declaring
+// it an impulse.UUID generates it (resourceInfo.PrimaryKeyIsGeneratedUUID). The
+// exceptions are Docks, keyed on two columns, and Depots, whose key is a foreign key.
 func tenantFixtureTables() map[string]*tableMetadata {
 	pk := columnMeta{IsPrimaryKey: true, IsIndex: true, IsUniqueIndex: true}
+	foreignPK := columnMeta{IsPrimaryKey: true, IsIndex: true, IsUniqueIndex: true, IsForeignKey: true, ReferencedTable: "Sectors", ReferencedColumn: "Id"}
 	compositeKey := columnMeta{IsPrimaryKey: true, IsIndex: true}
 	plain := columnMeta{}
 	nullable := columnMeta{IsNullable: true}
@@ -23,6 +27,7 @@ func tenantFixtureTables() map[string]*tableMetadata {
 		"Outposts":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "SectorId": plain}},
 		"Docks":     {PkCount: 2, Columns: map[string]columnMeta{"SectorId": compositeKey, "Number": compositeKey}},
 		"Hangars":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain}},
+		"Depots":    {PkCount: 1, Columns: map[string]columnMeta{"Id": foreignPK, "Name": plain}},
 		"Regions":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk}},
 		"Stations":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain, "Motto": nullable, "Opened": plain, "Derived": plain}},
 		"Colonies":  {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain}},
@@ -43,6 +48,8 @@ func tenantFixtureTables() map[string]*tableMetadata {
 		"Slipways":          {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Seat": plain}},
 		"Wharfs":            {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Method": plain, "Connection": plain, "Seated": plain}},
 		"Breakwaters":       {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Method": plain, "Connection": plain}},
+		"Marinas":           {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Method": plain, "Connection": plain}},
+		"Lighthouses":       {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": nullable, "Method": plain, "Connection": plain}},
 		"Bollards":          {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Method": plain, "Connection": plain, "Seat": plain, "Rank": plain}},
 		"Piers":             {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Closed": plain}},
 		"Quays":             {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Mode": plain}},
@@ -86,7 +93,7 @@ func Test_resolveTenant(t *testing.T) {
 		wantErr    string
 	}{
 		{
-			name:       "the global, single string-keyed record is the tenant record",
+			name:       "the global record keyed by one generated id is the tenant record",
 			structs:    []string{"Sector", "Berth"},
 			wantTenant: "Sector",
 			wantShape:  tenantCreationAdministrator,
@@ -147,9 +154,14 @@ func Test_resolveTenant(t *testing.T) {
 			wantErr: "struct Dock: @tenant on a resource with a compound primary key; the tenant record has one key, the domain in every tenant-scoped URL",
 		},
 		{
-			name:    "@tenant on a resource whose key is not a string is refused",
+			name:    "@tenant on a resource whose key is a string a person types is refused",
 			structs: []string{"Hangar"},
-			wantErr: "struct Hangar: @tenant on a resource whose key ID is impulse.UUID; the tenant record's key is a string, the domain in every tenant-scoped URL",
+			wantErr: "struct Hangar: @tenant on a resource whose key ID is string; the tenant record's key is an id the create path generates (impulse.UUID), so a tenant's name can change and no key is used twice",
+		},
+		{
+			name:    "@tenant on a resource whose id is a foreign key, which the create path does not generate, is refused",
+			structs: []string{"Depot"},
+			wantErr: "struct Depot: @tenant on a resource whose key ID is another record's (a foreign key, or the table is interleaved in a parent); the tenant record's key is an id its own create path generates, so a tenant's name can change and no key is used twice",
 		},
 		{
 			name:    "@tenant on a second struct is refused naming the first",
@@ -533,19 +545,45 @@ func Test_patchTemplate_tenant(t *testing.T) {
 				"roles := a.SectorAdministratorRoles()",
 				`panic("SectorAdministratorRoles() names no role: the person who creates a Sector holds its administrator role, which the application names there")`,
 				"identity := a.StaffIdentity()",
-				"var created []string",
+				"var created []impulse.UUID",
 				"userPermissions := a.UserPermissions(r)",
 				"created = nil",
-				"if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id)), string(userPermissions.User()), role); err != nil {",
+				// The create generates the id: the caller names none, and the creator's
+				// roles are given under the id the buffered row carries, whose text is
+				// the tenant's domain.
+				"patch, err := tenantfixture.NewSectorCreatePatchFromPatchSet(patchSet)",
+				"id := patch.ID()",
+				"if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id.String())), userPermissions.User(), role); err != nil {",
 				"created = append(created, id)",
-				"for _, domain := range created {",
-				"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(domain)); err != nil {",
+				"for _, id := range created {",
+				"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(id.String())); err != nil {",
+				`logger.FromCtx(ctx).Errorf("sector %s: %v", id, err)`,
 				"if err := a.TenantRoster().Reload(ctx); err != nil {",
 				"if err := a.LiveService().Signal(ctx, resource.KindTenants); err != nil {",
 			},
-			// Nothing is removed after the commit: the row and the membership are one
-			// transaction, written through the auth's identity client.
-			wantNotContains: []string{"SeatFirstAdministrator", "UserSurface", ".NewSectorDeletePatch(row)"},
+			wantNotContains: []string{
+				// Nothing is removed after the commit: the row and the membership are one
+				// transaction, written through the auth's identity client.
+				"SeatFirstAdministrator", "UserSurface", ".NewSectorDeletePatch(row)",
+				// No create takes its key from the caller, so no row a create meets is
+				// there already: nothing is skipped, and no key is converted as a string.
+				"NewSectorCreatePatchFromPatchSet(id, patchSet)", "RowSkipped", "OrSkip", "RequireCreatePath", "accesstypes.Domain(id))", "accesstypes.Domain(domain))",
+			},
+		},
+		{
+			name:   "the record's delete clears what the auth holds for the tenant, in the delete's transaction",
+			tenant: true,
+			auth:   true,
+			wantContains: []string{
+				"if err := tenantfixture.NewSectorDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {",
+				"if err := a.StaffIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {",
+				`return errors.Wrap(err, "StaffIdentity().ClearTenant()")`,
+			},
+		},
+		{
+			name:            "a program that generates no auth's management clears nothing: the memberships are the application's own",
+			tenant:          true,
+			wantNotContains: []string{"ClearTenant"},
 		},
 		{
 			name:            "a self-service record's handler seats nobody, since it creates nothing",
@@ -565,7 +603,8 @@ func Test_patchTemplate_tenant(t *testing.T) {
 		},
 		{
 			name:            "another resource carries none of it",
-			wantNotContains: []string{"tenantsWritten", "TenantRoster()", "KindTenants"},
+			auth:            true,
+			wantNotContains: []string{"tenantsWritten", "TenantRoster()", "KindTenants", "ClearTenant"},
 		},
 	}
 
@@ -620,6 +659,15 @@ func Test_patchTemplate_tenant(t *testing.T) {
 			if given := strings.Index(s, "identity.AssignRole(ctx, txn,"); tt.auth && (given < 0 || given >= commit) {
 				t.Errorf("order: membership %d, commit %d; want the membership written inside the transaction:\n%s", given, commit, out)
 			}
+			// The membership is the create's own: after the row is buffered and its
+			// generated id read, before the update's case begins.
+			row := strings.Index(s, "patch.Buffer(ctx, txn, eventSource)")
+			generated := strings.Index(s, "id := patch.ID()")
+			given := strings.Index(s, "identity.AssignRole(ctx, txn,")
+			update := strings.Index(s, "case resource.OperationUpdate:")
+			if tt.auth && (row < 0 || row >= generated || generated >= given || given >= update) {
+				t.Errorf("order: row %d, generated id %d, membership %d, update %d; want the membership in the create, under the id the row was buffered with:\n%s", row, generated, given, update, out)
+			}
 		})
 	}
 }
@@ -631,7 +679,7 @@ func Test_authzTestTemplate_tenantContract(t *testing.T) {
 	t.Parallel()
 
 	for _, want := range []string{
-		`newTestHandler adds the suite's domain value "testDomain" to the test application's`,
+		`newTestHandler adds the suite's domain (the generated router's TestDomain) to the test`,
 		"tenant roster with Add (resource.TenantRoster.Add)",
 	} {
 		if !strings.Contains(authzTestTemplate, want) {

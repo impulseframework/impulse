@@ -1,6 +1,6 @@
 DROP TABLE StaffRoleGrants;
 
-DROP INDEX StaffUserRolesByUser;
+DROP INDEX StaffUserRolesByUserId;
 
 DROP TABLE StaffUserRoles;
 

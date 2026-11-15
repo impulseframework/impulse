@@ -12,6 +12,7 @@ import (
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/spxscan"
@@ -45,7 +46,7 @@ type (
 	// @order(FeesOutstanding desc)
 	// @page(default: 25, max: 200)
 	ServiceLedger struct {
-		SectorID        string          `spanner:"SectorId"        allow_filter:"true"` // @primarykey
+		SectorID        impulse.UUID    `spanner:"SectorId"        allow_filter:"true"` // @primarykey
 		Name            string          `spanner:"Name"            allow_filter:"true"`
 		OpenMissions    int64           `spanner:"OpenMissions"    allow_filter:"true"`
 		FeesOutstanding decimal.Decimal `spanner:"FeesOutstanding"`

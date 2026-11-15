@@ -29,7 +29,7 @@ func (Mission) DefaultConfig() resource.Config {
 // enforce; missionReadSets holds one Set per read operation.
 type missionRead struct {
 	ID                 impulse.UUID        `json:"id"                 perm:"-"`
-	SectorID           string              `json:"sectorId"`
+	SectorID           impulse.UUID        `json:"sectorId"`
 	ClientID           impulse.UUID        `json:"clientId"`
 	KindID             string              `json:"kindId"`
 	Title              string              `json:"title"`
@@ -39,7 +39,8 @@ type missionRead struct {
 	Fee                decimal.Decimal     `json:"fee"`
 	Deadline           time.Time           `json:"deadline"`
 	RequiredCertID     *string             `json:"requiredCertId"`
-	BookedBy           string              `json:"bookedBy"`
+	BookedByUserID     string              `json:"bookedByUserId"`
+	BookedByName       string              `json:"bookedByName"`
 	AssignedSquadronID impulse.NullUUID    `json:"assignedSquadronId"`
 	StatusID           string              `json:"statusId"`
 	Notes              *string             `json:"notes"`
@@ -53,7 +54,7 @@ var missionReadSets resource.SetCache[Mission, missionRead]
 // routes enforce; missionWriteSets holds one Set per mutation.
 type missionWrite struct {
 	ID                 impulse.UUID        `json:"-"`
-	SectorID           string              `json:"-"`
+	SectorID           impulse.UUID        `json:"-"`
 	ClientID           impulse.UUID        `json:"clientId"`
 	KindID             string              `json:"kindId"             sqltype:"STRING(64)"`
 	Title              string              `json:"title"`
@@ -63,7 +64,8 @@ type missionWrite struct {
 	Fee                decimal.Decimal     `json:"fee"                sqltype:"NUMERIC"`
 	Deadline           time.Time           `json:"deadline"`
 	RequiredCertID     *string             `json:"requiredCertId"     sqltype:"STRING(64)"`
-	BookedBy           string              `json:"-"`
+	BookedByUserID     string              `json:"-"`
+	BookedByName       string              `json:"-"`
 	AssignedSquadronID impulse.NullUUID    `json:"assignedSquadronId"`
 	StatusID           string              `json:"-"`
 	Notes              *string             `json:"notes"`
@@ -187,7 +189,8 @@ func (c *MissionColumns) All() *MissionColumns {
 		"Fee",
 		"Deadline",
 		"RequiredCertID",
-		"BookedBy",
+		"BookedByUserID",
+		"BookedByName",
 		"AssignedSquadronID",
 		"StatusID",
 		"Notes",
@@ -263,8 +266,14 @@ func (c *MissionColumns) RequiredCertID() *MissionColumns {
 	return c
 }
 
-func (c *MissionColumns) BookedBy() *MissionColumns {
-	c.fields = append(c.fields, "BookedBy")
+func (c *MissionColumns) BookedByUserID() *MissionColumns {
+	c.fields = append(c.fields, "BookedByUserID")
+
+	return c
+}
+
+func (c *MissionColumns) BookedByName() *MissionColumns {
+	c.fields = append(c.fields, "BookedByName")
 
 	return c
 }
@@ -309,8 +318,8 @@ func (p MissionQueryPartialClause) ID() MissionQueryIdent[impulse.UUID] {
 	return MissionQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p MissionQueryPartialClause) SectorID() MissionQueryIdent[string] {
-	return MissionQueryIdent[string]{Ident: resource.NewIdent[string]("SectorID", p.partialClause, true)}
+func (p MissionQueryPartialClause) SectorID() MissionQueryIdent[impulse.UUID] {
+	return MissionQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("SectorID", p.partialClause, true)}
 }
 
 func (p MissionQueryPartialClause) ClientID() MissionQueryIdent[impulse.UUID] {
@@ -484,8 +493,12 @@ func (c *missionSort) RequiredCertID() *MissionSort {
 	return c.addField("RequiredCertID")
 }
 
-func (c *missionSort) BookedBy() *MissionSort {
-	return c.addField("BookedBy")
+func (c *missionSort) BookedByUserID() *MissionSort {
+	return c.addField("BookedByUserID")
+}
+
+func (c *missionSort) BookedByName() *MissionSort {
+	return c.addField("BookedByName")
 }
 
 func (c *missionSort) AssignedSquadronID() *MissionSort {
@@ -583,7 +596,8 @@ func (p *MissionCreatePatch) Enforce(caller *resource.Caller) *MissionCreatePatc
 }
 
 func (p *MissionCreatePatch) registerDefaultFuncs() {
-	p.patchSet.RegisterDefaultCreateFunc("BookedBy", currentUser)
+	p.patchSet.RegisterDefaultCreateFunc("BookedByUserID", currentUser)
+	p.patchSet.RegisterDefaultCreateFunc("BookedByName", currentUserName)
 	p.patchSet.RegisterDefaultCreateFunc("StatusID", func(context.Context, resource.ReadWriteTransaction) (any, error) {
 		return string("open"), nil
 	})
@@ -601,14 +615,14 @@ func (p *MissionCreatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *MissionCreatePatch) SetSectorID(v string) *MissionCreatePatch {
+func (p *MissionCreatePatch) SetSectorID(v impulse.UUID) *MissionCreatePatch {
 	p.patchSet.Set("SectorID", v)
 
 	return p
 }
 
-func (p *MissionCreatePatch) SectorID() string {
-	v, _ := p.patchSet.Get("SectorID").(string)
+func (p *MissionCreatePatch) SectorID() impulse.UUID {
+	v, _ := p.patchSet.Get("SectorID").(impulse.UUID)
 
 	return v
 }
@@ -773,20 +787,36 @@ func (p *MissionCreatePatch) RequiredCertIDIsSet() bool {
 	return p.patchSet.IsSet("RequiredCertID")
 }
 
-func (p *MissionCreatePatch) SetBookedBy(v string) *MissionCreatePatch {
-	p.patchSet.Set("BookedBy", v)
+func (p *MissionCreatePatch) SetBookedByUserID(v string) *MissionCreatePatch {
+	p.patchSet.Set("BookedByUserID", v)
 
 	return p
 }
 
-func (p *MissionCreatePatch) BookedBy() string {
-	v, _ := p.patchSet.Get("BookedBy").(string)
+func (p *MissionCreatePatch) BookedByUserID() string {
+	v, _ := p.patchSet.Get("BookedByUserID").(string)
 
 	return v
 }
 
-func (p *MissionCreatePatch) BookedByIsSet() bool {
-	return p.patchSet.IsSet("BookedBy")
+func (p *MissionCreatePatch) BookedByUserIDIsSet() bool {
+	return p.patchSet.IsSet("BookedByUserID")
+}
+
+func (p *MissionCreatePatch) SetBookedByName(v string) *MissionCreatePatch {
+	p.patchSet.Set("BookedByName", v)
+
+	return p
+}
+
+func (p *MissionCreatePatch) BookedByName() string {
+	v, _ := p.patchSet.Get("BookedByName").(string)
+
+	return v
+}
+
+func (p *MissionCreatePatch) BookedByNameIsSet() bool {
+	return p.patchSet.IsSet("BookedByName")
 }
 
 func (p *MissionCreatePatch) SetAssignedSquadronID(v impulse.NullUUID) *MissionCreatePatch {
@@ -949,14 +979,14 @@ func (p *MissionUpdatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *MissionUpdatePatch) SetSectorID(v string) *MissionUpdatePatch {
+func (p *MissionUpdatePatch) SetSectorID(v impulse.UUID) *MissionUpdatePatch {
 	p.patchSet.Set("SectorID", v)
 
 	return p
 }
 
-func (p *MissionUpdatePatch) SectorID() string {
-	v, _ := p.patchSet.Get("SectorID").(string)
+func (p *MissionUpdatePatch) SectorID() impulse.UUID {
+	v, _ := p.patchSet.Get("SectorID").(impulse.UUID)
 
 	return v
 }
@@ -1121,20 +1151,36 @@ func (p *MissionUpdatePatch) RequiredCertIDIsSet() bool {
 	return p.patchSet.IsSet("RequiredCertID")
 }
 
-func (p *MissionUpdatePatch) SetBookedBy(v string) *MissionUpdatePatch {
-	p.patchSet.Set("BookedBy", v)
+func (p *MissionUpdatePatch) SetBookedByUserID(v string) *MissionUpdatePatch {
+	p.patchSet.Set("BookedByUserID", v)
 
 	return p
 }
 
-func (p *MissionUpdatePatch) BookedBy() string {
-	v, _ := p.patchSet.Get("BookedBy").(string)
+func (p *MissionUpdatePatch) BookedByUserID() string {
+	v, _ := p.patchSet.Get("BookedByUserID").(string)
 
 	return v
 }
 
-func (p *MissionUpdatePatch) BookedByIsSet() bool {
-	return p.patchSet.IsSet("BookedBy")
+func (p *MissionUpdatePatch) BookedByUserIDIsSet() bool {
+	return p.patchSet.IsSet("BookedByUserID")
+}
+
+func (p *MissionUpdatePatch) SetBookedByName(v string) *MissionUpdatePatch {
+	p.patchSet.Set("BookedByName", v)
+
+	return p
+}
+
+func (p *MissionUpdatePatch) BookedByName() string {
+	v, _ := p.patchSet.Get("BookedByName").(string)
+
+	return v
+}
+
+func (p *MissionUpdatePatch) BookedByNameIsSet() bool {
+	return p.patchSet.IsSet("BookedByName")
 }
 
 func (p *MissionUpdatePatch) SetAssignedSquadronID(v impulse.NullUUID) *MissionUpdatePatch {

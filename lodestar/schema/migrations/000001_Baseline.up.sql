@@ -95,8 +95,13 @@ CREATE INDEX CrewSessionsByUserId ON CrewSessions(UserId);
 
 CREATE INDEX CrewSessionsByProviderSessionId ON CrewSessions(ProviderSessionId);
 
+-- A sector's key is an id the create path generates, never a word a person types: it is
+-- written into every row the sector owns and is the domain of every role held in it, so
+-- it never changes and is never used twice. The name is what people call the sector,
+-- changed like any field; the unique index below keeps two sectors from carrying one
+-- name, and an application that allows that drops it.
 CREATE TABLE Sectors (
-  Id STRING(64) NOT NULL,
+  Id STRING(36) NOT NULL,
   Name STRING(MAX) NOT NULL,
   Region STRING(MAX) NOT NULL,
   Established DATE NOT NULL,
@@ -105,7 +110,7 @@ CREATE TABLE Sectors (
   -- the other half is SectorDirectories.
   DirectoryOnly BOOL NOT NULL DEFAULT (FALSE),
 
-  CONSTRAINT CK_Sectors_Id CHECK (REGEXP_CONTAINS(Id, r'^[a-z][a-z0-9-]{1,62}$')),
+  CONSTRAINT CK_Sectors_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
 ) PRIMARY KEY (Id);
 
 CREATE UNIQUE INDEX SectorsByName ON Sectors(Name);
@@ -118,7 +123,7 @@ CREATE UNIQUE INDEX SectorsByName ON Sectors(Name);
 -- sector at their first sign-in; NULL says the sector admits them by invitation only.
 CREATE TABLE SectorDirectories (
   Id STRING(36) NOT NULL,
-  SectorId STRING(64) NOT NULL,
+  SectorId STRING(36) NOT NULL,
   Method STRING(16) NOT NULL,
   Connection STRING(MAX) NOT NULL,
   DefaultSeat STRING(64),
@@ -132,7 +137,7 @@ CREATE UNIQUE INDEX SectorDirectoriesBySectorIdMethodConnection ON SectorDirecto
 
 CREATE TABLE Wings (
   Id STRING(36) NOT NULL,
-  SectorId STRING(64) NOT NULL,
+  SectorId STRING(36) NOT NULL,
   Name STRING(MAX) NOT NULL,
 
   CONSTRAINT CK_Wings_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
@@ -290,7 +295,7 @@ CREATE UNIQUE INDEX ShipClassesByDesignation ON ShipClasses(Designation);
 
 CREATE TABLE Pilots (
   Id STRING(36) NOT NULL,
-  UserId STRING(320) NOT NULL,
+  UserId STRING(36) NOT NULL,
   DisplayName STRING(MAX) NOT NULL,
   Clearance INT64 NOT NULL,
   FeeLimit NUMERIC NOT NULL,
@@ -302,7 +307,7 @@ CREATE UNIQUE INDEX PilotsByUserId ON Pilots(UserId);
 
 CREATE TABLE ClientContacts (
   Id STRING(36) NOT NULL,
-  UserId STRING(320) NOT NULL,
+  UserId STRING(36) NOT NULL,
   ClientId STRING(36) NOT NULL,
   DisplayName STRING(MAX) NOT NULL,
 
@@ -317,7 +322,7 @@ CREATE TABLE ClientContacts (
 CREATE UNIQUE INDEX ClientContactsByUserId ON ClientContacts(UserId);
 
 CREATE TABLE PilotCertifications (
-  UserId STRING(320) NOT NULL,
+  UserId STRING(36) NOT NULL,
   CertificationId STRING(64) NOT NULL,
 
   CONSTRAINT FK_PilotCertifications_CertificationId FOREIGN KEY (CertificationId) REFERENCES Certifications(Id),
@@ -345,7 +350,7 @@ CREATE INDEX SquadronsByName ON Squadrons(Name);
 
 CREATE TABLE SquadronMemberships (
   SquadronId STRING(36) NOT NULL,
-  UserId STRING(320) NOT NULL,
+  UserId STRING(36) NOT NULL,
 
   CONSTRAINT FK_SquadronMemberships_SquadronId FOREIGN KEY (SquadronId) REFERENCES Squadrons(Id),
 ) PRIMARY KEY (SquadronId, UserId);
@@ -354,7 +359,7 @@ CREATE INDEX SquadronMembershipsByUserId ON SquadronMemberships(UserId);
 
 CREATE TABLE Hangars (
   Id STRING(36) NOT NULL,
-  SectorId STRING(64) NOT NULL,
+  SectorId STRING(36) NOT NULL,
   Name STRING(MAX) NOT NULL,
   Zone STRING(MAX) NOT NULL,
 
@@ -397,7 +402,7 @@ CREATE UNIQUE INDEX ShipsByRegistry ON Ships(Registry);
 
 CREATE TABLE Missions (
   Id STRING(36) NOT NULL,
-  SectorId STRING(64) NOT NULL,
+  SectorId STRING(36) NOT NULL,
   ClientId STRING(36) NOT NULL,
   KindId STRING(64) NOT NULL,
   Title STRING(MAX) NOT NULL,
@@ -406,7 +411,12 @@ CREATE TABLE Missions (
   Fee NUMERIC NOT NULL,
   Deadline TIMESTAMP NOT NULL,
   RequiredCertId STRING(64),
-  BookedBy STRING(320) NOT NULL,
+  -- BookedByUserId is who booked the mission: the id of their account, which is what the
+  -- permission store names a person by and what the grants compare (bookedBy = subject).
+  -- BookedByName is that person's username as it was when the row was written, for people
+  -- to read: an account id is never shown, and a username may change afterwards.
+  BookedByUserId STRING(36) NOT NULL,
+  BookedByName STRING(320) NOT NULL,
   AssignedSquadronId STRING(36),
   StatusId STRING(64) NOT NULL,
   Notes STRING(MAX),
@@ -437,7 +447,7 @@ CREATE TABLE Sorties (
   Id STRING(36) NOT NULL,
   MissionId STRING(36) NOT NULL,
   ShipId STRING(36) NOT NULL,
-  PilotUserId STRING(320) NOT NULL,
+  PilotUserId STRING(36) NOT NULL,
   LaunchedAt TIMESTAMP NOT NULL,
   ReturnedAt TIMESTAMP,
   Debrief STRING(MAX),
@@ -464,7 +474,10 @@ CREATE TABLE Refits (
   StatusId STRING(64) NOT NULL,
   Estimate NUMERIC,
   InspectedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
-  OpenedBy STRING(320) NOT NULL,
+  -- OpenedByUserId is the id of the account of whoever opened the refit, and OpenedByName their
+  -- username as it was then, as Missions.BookedByUserId and BookedByName are.
+  OpenedByUserId STRING(36) NOT NULL,
+  OpenedByName STRING(320) NOT NULL,
   Notes STRING(MAX),
 
   CONSTRAINT CK_Refits_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
@@ -486,7 +499,7 @@ CREATE TABLE RefitTasks (
 
 CREATE TABLE Consignments (
   Id STRING(36) NOT NULL,
-  SectorId STRING(64) NOT NULL,
+  SectorId STRING(36) NOT NULL,
   ClientId STRING(36) NOT NULL,
   BondCode STRING(MAX) NOT NULL,
   Description STRING(MAX) NOT NULL,
@@ -503,7 +516,7 @@ CREATE UNIQUE INDEX ConsignmentsByBondCode ON Consignments(BondCode);
 
 CREATE TABLE DroidReports (
   Id STRING(36) NOT NULL,
-  SectorId STRING(64) NOT NULL,
+  SectorId STRING(36) NOT NULL,
   ShipId STRING(36) NOT NULL,
   Subsystem STRING(MAX) NOT NULL,
   Reading FLOAT64 NOT NULL,
@@ -522,13 +535,16 @@ CREATE TABLE DroidReports (
 
 CREATE TABLE DistressCalls (
   Id STRING(36) NOT NULL,
-  SectorId STRING(64) NOT NULL,
+  SectorId STRING(36) NOT NULL,
   Summary STRING(MAX) NOT NULL,
   Severity INT64 NOT NULL,
   CallerContact STRING(MAX),
   Transcript STRING(MAX),
   CaseNumber STRING(MAX) NOT NULL,
-  FiledBy STRING(320) NOT NULL,
+  -- FiledByUserId is the id of the account of whoever filed the call, a crew member's or a
+  -- client's (filedBy = subject), and FiledByName their username as it was then.
+  FiledByUserId STRING(36) NOT NULL,
+  FiledByName STRING(320) NOT NULL,
 
   CONSTRAINT CK_DistressCalls_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
   CONSTRAINT FK_DistressCalls_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
@@ -545,7 +561,10 @@ CREATE TABLE MissionDocuments (
   ContentType STRING(MAX) NOT NULL,
   Size INT64 NOT NULL,
   StoreKey STRING(36) NOT NULL,
-  UploadedBy STRING(MAX) NOT NULL,
+  -- UploadedByUserId is the id of the account of whoever attached the document, and
+  -- UploadedByName their username as it was then.
+  UploadedByUserId STRING(36) NOT NULL,
+  UploadedByName STRING(MAX) NOT NULL,
   UploadedAt TIMESTAMP NOT NULL,
 
   CONSTRAINT CK_MissionDocuments_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
@@ -573,10 +592,11 @@ CREATE INDEX MissionDocumentsByMissionId ON MissionDocuments(MissionId);
 CREATE TABLE CrewSessionImpersonations (
     SessionId        STRING(36) NOT NULL,
     ActorUsername    STRING(MAX) NOT NULL,
+    ActorUserId      STRING(36),
     ActorRealm       STRING(MAX),
     SourceSessionId  STRING(36),
     PrincipalKind    STRING(16) NOT NULL,
-    PrincipalUser    STRING(MAX),
+    PrincipalUserId  STRING(MAX),
     PrincipalRole    STRING(MAX),
     Mask             STRING(MAX),
     Reason           STRING(MAX),
@@ -592,9 +612,9 @@ CREATE INDEX CrewSessionImpersonations_ActorUsername_idx
     ON CrewSessionImpersonations
     (ActorUsername, StartedAt DESC);
 
-CREATE INDEX CrewSessionImpersonations_PrincipalUser_idx
+CREATE INDEX CrewSessionImpersonations_PrincipalUserId_idx
     ON CrewSessionImpersonations
-    (PrincipalUser, StartedAt DESC);
+    (PrincipalUserId, StartedAt DESC);
 
 -- Tenant-leading indexes for the bare-tenant resources that list in a declared order:
 -- each list reads its page off the index instead of sorting the sector's partition.
@@ -611,7 +631,7 @@ CREATE INDEX ConsignmentsBySectorIdReleasedAt ON Consignments(SectorId, Released
 CREATE INDEX DistressCallsBySectorIdSeverity ON DistressCalls(SectorId, Severity DESC);
 
 -- Both auths' access tables take the shape the access library reads. Where a row is held is
--- the (Kind, Axis, Domain) triple, Kind one of global, domain, or every, so a membership or a
+-- the (Kind, Axis, DomainId) triple, Kind one of global, domain, or every, so a membership or a
 -- custom role held in every sector is one row that reaches a sector created later too.
 -- UserRoles stands alone rather than under Roles: a membership names a release default role,
 -- which has no Roles row, and an index led by the user serves the listing of everything one
@@ -620,29 +640,29 @@ CREATE INDEX DistressCallsBySectorIdSeverity ON DistressCalls(SectorId, Severity
 CREATE TABLE CrewRoles (
   Kind STRING(16) NOT NULL,
   Axis STRING(128) NOT NULL,
-  Domain STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
   Description STRING(MAX) NOT NULL,
   UpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CrewRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
-) PRIMARY KEY (Kind, Axis, Domain, Role);
+) PRIMARY KEY (Kind, Axis, DomainId, Role);
 
 CREATE TABLE CrewUserRoles (
   Kind STRING(16) NOT NULL,
   Axis STRING(128) NOT NULL,
-  Domain STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
-  User STRING(320) NOT NULL,
+  UserId STRING(320) NOT NULL,
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CrewUserRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
-) PRIMARY KEY (Kind, Axis, Domain, Role, User);
+) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId);
 
-CREATE INDEX CrewUserRolesByUser ON CrewUserRoles (User, Kind, Axis, Domain);
+CREATE INDEX CrewUserRolesByUserId ON CrewUserRoles (UserId, Kind, Axis, DomainId);
 
 CREATE TABLE CrewRoleGrants (
   Kind STRING(16) NOT NULL,
   Axis STRING(128) NOT NULL,
-  Domain STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
   Permission STRING(64) NOT NULL,
   Resource STRING(128) NOT NULL,
@@ -650,35 +670,35 @@ CREATE TABLE CrewRoleGrants (
   Condition STRING(MAX) NOT NULL,
   UpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CrewRoleGrantsKind CHECK (Kind IN ('global', 'domain', 'every')),
-) PRIMARY KEY (Kind, Axis, Domain, Role, Permission, Resource, Field, Condition),
+) PRIMARY KEY (Kind, Axis, DomainId, Role, Permission, Resource, Field, Condition),
   INTERLEAVE IN PARENT CrewRoles ON DELETE CASCADE;
 
 CREATE TABLE MembersRoles (
   Kind STRING(16) NOT NULL,
   Axis STRING(128) NOT NULL,
-  Domain STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
   Description STRING(MAX) NOT NULL,
   UpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT MembersRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
-) PRIMARY KEY (Kind, Axis, Domain, Role);
+) PRIMARY KEY (Kind, Axis, DomainId, Role);
 
 CREATE TABLE MembersUserRoles (
   Kind STRING(16) NOT NULL,
   Axis STRING(128) NOT NULL,
-  Domain STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
-  User STRING(320) NOT NULL,
+  UserId STRING(320) NOT NULL,
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT MembersUserRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
-) PRIMARY KEY (Kind, Axis, Domain, Role, User);
+) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId);
 
-CREATE INDEX MembersUserRolesByUser ON MembersUserRoles (User, Kind, Axis, Domain);
+CREATE INDEX MembersUserRolesByUserId ON MembersUserRoles (UserId, Kind, Axis, DomainId);
 
 CREATE TABLE MembersRoleGrants (
   Kind STRING(16) NOT NULL,
   Axis STRING(128) NOT NULL,
-  Domain STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
   Permission STRING(64) NOT NULL,
   Resource STRING(128) NOT NULL,
@@ -686,7 +706,7 @@ CREATE TABLE MembersRoleGrants (
   Condition STRING(MAX) NOT NULL,
   UpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT MembersRoleGrantsKind CHECK (Kind IN ('global', 'domain', 'every')),
-) PRIMARY KEY (Kind, Axis, Domain, Role, Permission, Resource, Field, Condition),
+) PRIMARY KEY (Kind, Axis, DomainId, Role, Permission, Resource, Field, Condition),
   INTERLEAVE IN PARENT MembersRoles ON DELETE CASCADE;
 
 -- The feature flags: one row per flag the resources package declares (a resource.Feature
@@ -719,7 +739,10 @@ CREATE TABLE Commendations (
   Id STRING(36) NOT NULL,
   PilotId STRING(36) NOT NULL,
   Citation STRING(MAX) NOT NULL,
-  AwardedBy STRING(320) NOT NULL,
+  -- AwardedByUserId is the id of the account of whoever filed the citation, and AwardedByName
+  -- their username as it was then.
+  AwardedByUserId STRING(36) NOT NULL,
+  AwardedByName STRING(320) NOT NULL,
   AwardedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 
   CONSTRAINT CK_Commendations_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
@@ -912,10 +935,9 @@ CREATE TABLE CrewSessionSignInAttempts (
 
 CREATE UNIQUE NULL_FILTERED INDEX CrewSessionUsersByNormalizedEmail ON CrewSessionUsers(NormalizedEmail);
 
--- The index a list of people reads the account through when it starts from who holds a
--- role (a sector's people, the roles held in a sector): by the exact username a role
--- membership names its person by, carrying the columns those lists show, so a page reads
--- one index entry for each person and no row of the table.
+-- The username as written is unique. The index is in the order a list of people is read
+-- in, by username, and carries the columns such a list shows, so a page of people can be
+-- read from it alone.
 CREATE UNIQUE INDEX CrewSessionUsersByUsername ON CrewSessionUsers(Username) STORING (Name, Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);
 
 -- The crew's mail links: the single-use links the auth mails (the session library's
@@ -935,9 +957,9 @@ CREATE TABLE CrewSessionMailLinks (
     Email      STRING(MAX) NOT NULL,
     Name       STRING(MAX),
     UserId     STRING(36),
-    Tenant     STRING(MAX),
+    TenantId   STRING(MAX),
     RoleNames  ARRAY<STRING(MAX)>,
-    InvitedBy  STRING(36),
+    InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
@@ -953,7 +975,7 @@ CREATE INDEX CrewSessionMailLinksByKind ON CrewSessionMailLinks(Kind, ConsumedAt
 -- A sector's links, newest first, with the columns a sector's list of its invitations
 -- shows: a page of that list reads its own rows from the index and nothing else. A link
 -- that names no sector is not in it.
-CREATE NULL_FILTERED INDEX CrewSessionMailLinksByTenant ON CrewSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);
+CREATE NULL_FILTERED INDEX CrewSessionMailLinksByTenantId ON CrewSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);
 
 -- The members' sign-in attempts: the password method's attempt limiter counts the failed
 -- attempts on one name, known or not, within a window, and the lock those failures
@@ -975,10 +997,9 @@ CREATE TABLE MembersSessionSignInAttempts (
 
 CREATE UNIQUE NULL_FILTERED INDEX MembersSessionUsersByNormalizedEmail ON MembersSessionUsers(NormalizedEmail);
 
--- The index a list of people reads the account through when it starts from who holds a
--- role (a sector's people, the roles held in a sector): by the exact username a role
--- membership names its person by, carrying the columns those lists show, so a page reads
--- one index entry for each person and no row of the table.
+-- The username as written is unique. The index is in the order a list of people is read
+-- in, by username, and carries the columns such a list shows, so a page of people can be
+-- read from it alone.
 CREATE UNIQUE INDEX MembersSessionUsersByUsername ON MembersSessionUsers(Username) STORING (Name, Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);
 
 -- The members' mail links: the single-use links the auth mails (the session library's
@@ -998,9 +1019,9 @@ CREATE TABLE MembersSessionMailLinks (
     Email      STRING(MAX) NOT NULL,
     Name       STRING(MAX),
     UserId     STRING(36),
-    Tenant     STRING(MAX),
+    TenantId   STRING(MAX),
     RoleNames  ARRAY<STRING(MAX)>,
-    InvitedBy  STRING(36),
+    InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
@@ -1016,7 +1037,7 @@ CREATE INDEX MembersSessionMailLinksByKind ON MembersSessionMailLinks(Kind, Cons
 -- A sector's links, newest first, with the columns a sector's list of its invitations
 -- shows: a page of that list reads its own rows from the index and nothing else. A link
 -- that names no sector is not in it.
-CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenant ON MembersSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);
+CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenantId ON MembersSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);
 
 -- The crew's tokens: the bearer credentials of the droids outlet (the session library's
 -- SessionTokens migration, under the auth's prefix). A row is one credential: an
@@ -1025,7 +1046,7 @@ CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenant ON MembersSessionMail
 -- grant a command-line client obtained with a crew member's approval; the client holds
 -- an opaque secret and the row keeps its hash. A token acts as its user (UserId) on the
 -- one machine outlet it was issued for (Outlet) and is live while it is not revoked and
--- not expired. A device grant's tokens share a Family, and every successor a refresh
+-- not expired. A device grant's tokens share a family (FamilyId), and every successor a refresh
 -- exchange issues joins it, so a rotated refresh token presented again revokes the
 -- family at once (RevokedReason 'reuse'). CreatedAt, LastUsedAt and RevokedAt take the
 -- commit time; ExpiresAt is the library's deadline, written as given. A token goes with
@@ -1037,7 +1058,7 @@ CREATE TABLE CrewSessionTokens (
     UserId        STRING(36) NOT NULL,
     Outlet        STRING(MAX) NOT NULL,
     Name          STRING(MAX),
-    Family        STRING(36),
+    FamilyId      STRING(36),
     ClientId      STRING(MAX),
     CreatedAt     TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt     TIMESTAMP NOT NULL,
@@ -1054,7 +1075,7 @@ CREATE UNIQUE INDEX CrewSessionTokensByTokenHash ON CrewSessionTokens(TokenHash)
 
 CREATE INDEX CrewSessionTokensByUser ON CrewSessionTokens(UserId, RevokedAt, ExpiresAt);
 
-CREATE INDEX CrewSessionTokensByFamily ON CrewSessionTokens(Family, RevokedAt);
+CREATE INDEX CrewSessionTokensByFamilyId ON CrewSessionTokens(FamilyId, RevokedAt);
 
 -- The crew's device codes: the device authorizations command-line clients start for
 -- the droids outlet (RFC 8628; the session library's SessionDeviceCodes migration,

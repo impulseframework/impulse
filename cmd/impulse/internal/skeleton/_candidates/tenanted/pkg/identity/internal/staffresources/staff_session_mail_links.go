@@ -24,16 +24,16 @@ type (
 	// @order(CreatedAt desc)
 	// @page(default: 25, max: 200)
 	StaffSessionMailLink struct {
-		ID         impulse.UUID  `spanner:"Id"`
-		Kind       string        `spanner:"Kind"`
-		Email      string        `spanner:"Email"`
-		Name       *string       `spanner:"Name"`
-		UserID     *impulse.UUID `spanner:"UserId"`
-		Tenant     *string       `spanner:"Tenant"`
-		RoleNames  []string      `spanner:"RoleNames"`
-		InvitedBy  *impulse.UUID `spanner:"InvitedBy"`
-		CreatedAt  time.Time     `spanner:"CreatedAt"`
-		ExpiresAt  time.Time     `spanner:"ExpiresAt"`
-		ConsumedAt *time.Time    `spanner:"ConsumedAt"`
+		ID              impulse.UUID  `spanner:"Id"`
+		Kind            string        `spanner:"Kind"`
+		Email           string        `spanner:"Email"`
+		Name            *string       `spanner:"Name"`
+		UserID          *impulse.UUID `spanner:"UserId"`
+		TenantID        *string       `spanner:"TenantId"`
+		RoleNames       []string      `spanner:"RoleNames"`
+		InvitedByUserID *impulse.UUID `spanner:"InvitedByUserId"`
+		CreatedAt       time.Time     `spanner:"CreatedAt"`
+		ExpiresAt       time.Time     `spanner:"ExpiresAt"`
+		ConsumedAt      *time.Time    `spanner:"ConsumedAt"`
 	}
 )

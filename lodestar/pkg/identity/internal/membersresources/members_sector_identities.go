@@ -15,7 +15,7 @@ type (
 	// role in the tenant or in every tenant, with the columns of MembersSessionIdentity and the
 	// person's username. An account is one row for the whole application, so the identity
 	// of a person who holds a role in two tenants is a row in each: the identity's id is
-	// the key of a row within its tenant, and Domain, the tenant, holds the row to it.
+	// the key of a row within its tenant, and DomainId, the tenant, holds the row to it.
 	// Tenant is the link's own column, the organization its directory vouched for, and is
 	// not the row's tenant.
 	//
@@ -32,7 +32,7 @@ type (
 		// @primarykey
 		ID impulse.UUID `spanner:"Id" index:"true"`
 		// @domain
-		Domain      string       `spanner:"Domain"      index:"true"`
+		DomainID    string       `spanner:"DomainId"    index:"true"`
 		UserID      impulse.UUID `spanner:"UserId"      index:"true"`
 		Username    string       `spanner:"Username"    index:"true"`
 		Method      string       `spanner:"Method"      index:"true"`
@@ -56,7 +56,7 @@ type (
 const membersSectorIdentityQuery = `
 SELECT
   i.Id AS Id,
-  t.Domain AS Domain,
+  t.DomainId AS DomainId,
   u.Id AS UserId,
   u.Username AS Username,
   i.Method AS Method,
@@ -68,26 +68,26 @@ SELECT
   i.LastUsedAt AS LastUsedAt,
   (EXISTS (
     SELECT 1 FROM MembersUserRoles o
-    WHERE o.User = u.Username AND o.Kind = 'every' AND o.Axis = ''
+    WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
   ) OR EXISTS (
     SELECT 1 FROM MembersUserRoles o
-    WHERE o.User = u.Username AND o.Kind = 'domain' AND o.Axis = '' AND o.Domain != t.Domain
+    WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
   )) AS HeldElsewhere,
   EXISTS (
     SELECT 1 FROM MembersUserRoles g
-    WHERE g.User = u.Username AND g.Kind = 'global'
+    WHERE g.UserId = u.Id AND g.Kind = 'global'
   ) AS HeldGlobally
 FROM (
-  SELECT m.Domain AS Domain, m.User AS User
+  SELECT m.DomainId AS DomainId, m.UserId AS UserId
   FROM MembersUserRoles m
   WHERE m.Kind = 'domain' AND m.Axis = ''
   UNION DISTINCT
-  SELECT s.Id AS Domain, m.User AS User
+  SELECT s.Id AS DomainId, m.UserId AS UserId
   FROM MembersUserRoles@{FORCE_INDEX=_BASE_TABLE} m
   CROSS JOIN Sectors s
   WHERE m.Kind = 'every' AND m.Axis = ''
 ) t
-JOIN MembersSessionUsers u ON u.Username = t.User
+JOIN MembersSessionUsers u ON u.Id = t.UserId
 JOIN MembersSessionIdentities i ON i.UserId = u.Id
 `
 

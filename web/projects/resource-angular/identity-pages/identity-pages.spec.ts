@@ -1,5 +1,13 @@
 import { ApiDescriptor, IdentityDescriptor, Resource } from '@impulseframework/resource';
-import { FieldMeta, ListViewConfig, MethodPresentation, RecordData, ResourceMeta, RootConfig } from '@impulseframework/resource-angular/types';
+import {
+  FieldMeta,
+  ListViewConfig,
+  MethodPresentation,
+  MultiColumnConfig,
+  RecordData,
+  ResourceMeta,
+  RootConfig,
+} from '@impulseframework/resource-angular/types';
 import { pageDataKey } from '@impulseframework/resource-angular/auth-frame';
 import { identityMenuPages, identityPages, identityRoutes } from './identity-pages';
 
@@ -25,18 +33,20 @@ const fields = (...names: string[]): ResourceMeta =>
 
 const metas: Record<string, ResourceMeta> = {
   CrewSessionUsers: fields('id', 'username', 'name', 'email', 'emailVerifiedAt', 'disabled', 'passwordChangeRequired', 'createdAt', 'lastSignInAt'),
-  CrewUserRoles: fields('kind', 'axis', 'domain', 'role', 'user', 'createdAt'),
+  CrewUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'),
   CrewSessionIdentities: fields('id', 'userId', 'method', 'connection', 'emailAtLink', 'createdAt', 'lastUsedAt'),
-  CrewSessionMailLinks: fields('id', 'kind', 'email', 'name', 'tenant', 'roleNames', 'createdAt', 'expiresAt', 'consumedAt'),
+  CrewSessionMailLinks: fields('id', 'kind', 'email', 'name', 'tenantId', 'roleNames', 'createdAt', 'expiresAt', 'consumedAt'),
   CrewSessions: fields('id', 'userId', 'username', 'expired', 'authenticatedAt', 'updatedAt'),
   CrewSessionSignInAttempts: fields('name', 'failures', 'lockedUntil', 'updatedAt'),
-  CrewSectorUsers: fields('id', 'domain', 'username', 'name', 'email', 'disabled', 'passwordChangeRequired', 'lastSignInAt', 'heldElsewhere', 'heldGlobally'),
-  CrewSectorUserRoles: fields('domain', 'userId', 'username', 'role', 'everyDomain', 'createdAt'),
+  CrewSectorUsers: fields('id', 'domainId', 'username', 'name', 'email', 'disabled', 'passwordChangeRequired', 'lastSignInAt', 'heldElsewhere', 'heldGlobally'),
+  CrewSectorUserRoles: fields('domainId', 'userId', 'username', 'role', 'everyDomain', 'createdAt'),
   CrewSectorIdentities: fields('id', 'userId', 'username', 'method', 'connection', 'emailAtLink', 'createdAt', 'lastUsedAt'),
   CrewSectorInvitations: fields('id', 'email', 'name', 'roleNames', 'createdAt', 'expiresAt', 'pending'),
   // An Auth whose username is the address carries no email column, and whose directory admits its people no password.
   MembersSessionUsers: fields('id', 'username', 'disabled', 'passwordChangeRequired', 'lastSignInAt'),
-  MembersUserRoles: fields('kind', 'axis', 'domain', 'role', 'user', 'createdAt'),
+  MembersUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'),
+  // The tenant record: keyed by an id, and it says which field a sector is called by.
+  Sectors: { ...fields('id', 'name', 'region'), nameField: 'name' },
 };
 const resourceMeta = (resource: Resource): ResourceMeta => metas[resource];
 
@@ -44,6 +54,7 @@ const crew: IdentityDescriptor = {
   auth: 'Crew',
   label: 'Crew',
   tenant: 'Sector',
+  tenantResource: 'Sectors',
   sides: [
     {
       scope: 'global',
@@ -185,9 +196,9 @@ describe("identityPages, the whole application's side", () => {
     expect((disable.confirm as (row: RecordData) => string)(ada)).toBe('Disable ada? They cannot sign in until the account is enabled again.');
   });
 
-  it("fills the person's name in the method that gives a role, which names no target row, and names the tenant in the application's word", () => {
+  it("fills the id of the person's account in the method that gives a role, which names no target row, and names the tenant in the application's word", () => {
     const give = presentation(list(people).rowMethods, 'AssignCrewRole');
-    expect(give.fill?.({ username: 'ada', id: 'u-1' })).toEqual({ username: 'ada' });
+    expect(give.fill?.({ username: 'ada', id: 'u-1' })).toEqual({ userId: 'u-1' });
     expect(give.labels).toEqual({ domain: 'Sector', everyDomain: 'In every sector' });
     expect(presentation(list(people).listMethods, 'CreateCrewUser').labels).toEqual({ domain: 'Sector', everyDomain: 'In every sector' });
   });
@@ -206,7 +217,7 @@ describe("identityPages, the whole application's side", () => {
       ['createdAt', 'Created'],
     ]);
     expect(children(people).map((child) => [child.title, child.primaryResource, child.parentRelation, child.showViewButton])).toEqual([
-      ['Roles held', 'CrewUserRoles', { parentKey: 'username', childKey: 'user' }, false],
+      ['Roles held', 'CrewUserRoles', { parentKey: 'id', childKey: 'userId' }, false],
       ['Sign-in identities', 'CrewSessionIdentities', { parentKey: 'id', childKey: 'userId' }, false],
       ['Sessions', 'CrewSessions', { parentKey: 'id', childKey: 'userId' }, false],
     ]);
@@ -216,33 +227,48 @@ describe("identityPages, the whole application's side", () => {
     const roles = children(people)[0];
     expect(columns(roles)).toEqual([
       ['role', 'Role'],
-      ['kind', 'Held in'],
+      ['domainId', 'Held in'],
+      ['kind', undefined],
       ['createdAt', 'Given'],
     ]);
-    const heldIn = roles.listColumns[1].valueGetter as (row: RecordData) => string;
+    // The sector a role is held in is named: the list reads the sector record's row by the
+    // key the membership carries and shows its name. The words below are what a row says
+    // that names no sector, or whose sector the caller may not read.
+    const where = roles.listColumns[1] as MultiColumnConfig;
+    expect(where.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
+    expect(where.filterable).toBe(false);
+    expect(roles.listColumns[2].hidden).toBe(true);
+    const heldIn = where.fallback as (row: RecordData) => string;
     const remove = presentation(roles.rowMethods, 'RemoveCrewRole');
     const cases: { row: RecordData; where: string; body: Record<string, unknown> }[] = [
       {
-        row: { user: 'ada', role: 'Clerk', kind: 'global', domain: '' },
+        row: { userId: 'u-1', role: 'Clerk', kind: 'global', domainId: '' },
         where: 'The whole application',
-        body: { username: 'ada', role: 'Clerk', domain: undefined, everyDomain: false },
+        body: { userId: 'u-1', role: 'Clerk', domain: null, everyDomain: false },
       },
       {
-        row: { user: 'ada', role: 'Cadet', kind: 'domain', domain: 'anvil' },
-        where: 'Sector anvil',
-        body: { username: 'ada', role: 'Cadet', domain: 'anvil', everyDomain: false },
+        row: { userId: 'u-1', role: 'Cadet', kind: 'domain', domainId: 'a1111111-1111-4111-8111-111111111111' },
+        where: 'Sector a1111111-1111-4111-8111-111111111111',
+        body: { userId: 'u-1', role: 'Cadet', domain: 'a1111111-1111-4111-8111-111111111111', everyDomain: false },
       },
       {
-        row: { user: 'ada', role: 'Marshal', kind: 'every', domain: '' },
+        row: { userId: 'u-1', role: 'Marshal', kind: 'every', domainId: '' },
         where: 'Every sector',
-        body: { username: 'ada', role: 'Marshal', domain: undefined, everyDomain: true },
+        body: { userId: 'u-1', role: 'Marshal', domain: null, everyDomain: true },
       },
     ];
     for (const tt of cases) {
       expect(heldIn(tt.row)).toBe(tt.where);
       expect(remove.fill?.(tt.row)).toEqual(tt.body);
     }
-    expect((remove.confirm as (row: RecordData) => string)(cases[1].row)).toBe('Take Cadet (sector anvil) away from ada?');
+    // The question names no key: the row the person clicked names the sector, and the
+    // page the list sits on names the person, whom a role row knows by id alone.
+    const confirm = remove.confirm as (row: RecordData) => string;
+    expect(cases.map((tt) => confirm(tt.row))).toEqual([
+      'Take Clerk away from this person?',
+      'Take Cadet in this sector away from this person?',
+      'Take Marshal in every sector away from this person?',
+    ]);
   });
 
   it('offers Withdraw on a mailed link that was not used, End the session on a session, and Unlock on a counted name', () => {
@@ -250,6 +276,11 @@ describe("identityPages, the whole application's side", () => {
     expect([withdraw.when?.({ consumedAt: null }), withdraw.when?.({ consumedAt: '2026-01-01T00:00:00Z' })]).toEqual([true, false]);
     expect(list(invitations).listMethods).toEqual([]);
     expect(columns(list(invitations)).map(([, header]) => header)).toEqual(['Kind', 'Email', 'Name', 'Sector', 'Roles', 'Sent', 'Expires', 'Used']);
+    // The sector a link invites into is named the same way, and shows its key where the sector cannot be read.
+    const into = list(invitations).listColumns[3] as MultiColumnConfig;
+    expect(into.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
+    expect(into.fallback?.({ tenantId: 'a1111111-1111-4111-8111-111111111111' })).toBe('a1111111-1111-4111-8111-111111111111');
+    expect(into.fallback?.({ tenantId: null })).toBe('');
     expect(methodsOf(list(sessions).rowMethods)).toEqual([['EndCrewSession', 'End the session']]);
     expect(columns(list(sessions)).map(([id]) => id)).toEqual(['username', 'authenticatedAt', 'updatedAt', 'expired']);
     expect(methodsOf(list(attempts).rowMethods)).toEqual([['UnlockCrewSignIn', 'Unlock']]);
@@ -323,6 +354,10 @@ describe('identityPages, what an auth and an application decide', () => {
     expect(people.listMethods).toEqual([]);
     // The roles are listed and nobody takes one away by hand.
     expect(children(pages[0]).map((child) => [child.title, child.rowMethods])).toEqual([['Roles held', []]]);
+    // An application with no tenant record names no tenant: where a role is held is said in words alone.
+    const where = children(pages[0])[0].listColumns[1];
+    expect('additionalIds' in where).toBe(false);
+    expect(where.valueGetter?.({ kind: 'global', domainId: '' })).toBe('The whole application');
   });
 
   it('takes the routes the application gives', () => {

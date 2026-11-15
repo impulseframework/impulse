@@ -22,10 +22,11 @@ func (h *Handlers) CrewSessionImpersonations() http.HandlerFunc {
 	type crewSessionImpersonation struct {
 		SessionID       impulse.UUID  `json:"sessionId"       index:"true" perm:"-"`
 		ActorUsername   string        `json:"actorUsername"   index:"true"`
+		ActorUserID     *impulse.UUID `json:"actorUserId"`
 		ActorRealm      *string       `json:"actorRealm"`
 		SourceSessionID *impulse.UUID `json:"sourceSessionId"`
 		PrincipalKind   string        `json:"principalKind"`
-		PrincipalUser   *string       `json:"principalUser"   index:"true"`
+		PrincipalUserID *string       `json:"principalUserId" index:"true"`
 		PrincipalRole   *string       `json:"principalRole"`
 		Mask            *string       `json:"mask"`
 		Reason          *string       `json:"reason"`
@@ -82,6 +83,10 @@ func (h *Handlers) CrewSessionImpersonations() http.HandlerFunc {
 					if !row.Masked("actorUsername") {
 						rmap["actorUsername"] = rec.ActorUsername
 					}
+				case "ActorUserID":
+					if !row.Masked("actorUserId") {
+						rmap["actorUserId"] = rec.ActorUserID
+					}
 				case "ActorRealm":
 					if !row.Masked("actorRealm") {
 						rmap["actorRealm"] = rec.ActorRealm
@@ -94,9 +99,9 @@ func (h *Handlers) CrewSessionImpersonations() http.HandlerFunc {
 					if !row.Masked("principalKind") {
 						rmap["principalKind"] = rec.PrincipalKind
 					}
-				case "PrincipalUser":
-					if !row.Masked("principalUser") {
-						rmap["principalUser"] = rec.PrincipalUser
+				case "PrincipalUserID":
+					if !row.Masked("principalUserId") {
+						rmap["principalUserId"] = rec.PrincipalUserID
 					}
 				case "PrincipalRole":
 					if !row.Masked("principalRole") {
@@ -151,10 +156,11 @@ func (h *Handlers) CrewSessionImpersonation() http.HandlerFunc {
 	type response struct {
 		SessionID       impulse.UUID  `json:"sessionId"       index:"true" perm:"-"`
 		ActorUsername   string        `json:"actorUsername"`
+		ActorUserID     *impulse.UUID `json:"actorUserId"`
 		ActorRealm      *string       `json:"actorRealm"`
 		SourceSessionID *impulse.UUID `json:"sourceSessionId"`
 		PrincipalKind   string        `json:"principalKind"`
-		PrincipalUser   *string       `json:"principalUser"`
+		PrincipalUserID *string       `json:"principalUserId"`
 		PrincipalRole   *string       `json:"principalRole"`
 		Mask            *string       `json:"mask"`
 		Reason          *string       `json:"reason"`
@@ -199,6 +205,10 @@ func (h *Handlers) CrewSessionImpersonation() http.HandlerFunc {
 				if !row.Masked("actorUsername") {
 					rmap["actorUsername"] = rec.ActorUsername
 				}
+			case "ActorUserID":
+				if !row.Masked("actorUserId") {
+					rmap["actorUserId"] = rec.ActorUserID
+				}
 			case "ActorRealm":
 				if !row.Masked("actorRealm") {
 					rmap["actorRealm"] = rec.ActorRealm
@@ -211,9 +221,9 @@ func (h *Handlers) CrewSessionImpersonation() http.HandlerFunc {
 				if !row.Masked("principalKind") {
 					rmap["principalKind"] = rec.PrincipalKind
 				}
-			case "PrincipalUser":
-				if !row.Masked("principalUser") {
-					rmap["principalUser"] = rec.PrincipalUser
+			case "PrincipalUserID":
+				if !row.Masked("principalUserId") {
+					rmap["principalUserId"] = rec.PrincipalUserID
 				}
 			case "PrincipalRole":
 				if !row.Masked("principalRole") {

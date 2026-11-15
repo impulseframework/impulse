@@ -248,6 +248,9 @@ func (r *resourceGenerator) validateTenantDeclaration() error {
 	if directories.DomainBinding == nil || len(directories.DomainBinding.Path) > 0 {
 		return errors.Newf("struct %s: @%s needs the bare @%s column, the tenant's key on the row itself, since a directory is the tenant's own declaration; a join path (@%s(via: ...)) is refused", directories.Name(), tenantDirectoryKeyword, domainKeyword, domainKeyword)
 	}
+	if column := directories.DomainBinding.Anchor; column.Type() != impulseUUIDGoType && column.Type() != "string" {
+		return errors.Newf("struct %s field %s: the @%s column of the @%s record is %s; it holds the tenant's key, an id, as %s or as its text (string), since the create-your-tenant route writes the creator's directory under the id it generated", directories.Name(), column.Name(), domainKeyword, tenantDirectoryKeyword, column.Type(), impulseUUIDGoType)
+	}
 	if directories.DirectoryMethodField == nil {
 		return errors.Newf("struct %s: @%s with no @%s column; annotate the string column holding the sign-in method a directory is reached through (google, azure, workos)", directories.Name(), tenantDirectoryKeyword, directoryMethodKeyword)
 	}

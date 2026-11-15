@@ -178,7 +178,7 @@ func openedInvitation(t *testing.T, f *authFixture, links *mailLinks) []*http.Co
 	if !ok {
 		t.Fatal("the fixture's mail is not a recorder")
 	}
-	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", Tenant: "lakeside", RoleNames: []string{"Teacher"}}); err != nil {
+	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", TenantID: "lakeside", RoleNames: []string{"Teacher"}}); err != nil {
 		t.Fatalf("Invite() error = %v", err)
 	}
 
@@ -220,7 +220,7 @@ func TestAuth_MethodsStandingInvitation(t *testing.T) {
 		want := map[string]any{
 			"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
 			"standing": map[string]any{
-				"email": "pat@lakeside.edu", "tenant": "lakeside", "expiresAt": links.last(t).ExpiresAt.Format(time.RFC3339Nano), "usernameIsEmail": false, "methods": []any{},
+				"email": "pat@lakeside.edu", "tenantId": "lakeside", "expiresAt": links.last(t).ExpiresAt.Format(time.RFC3339Nano), "usernameIsEmail": false, "methods": []any{},
 				"accountExists": false, "hasPassword": false,
 			},
 		}

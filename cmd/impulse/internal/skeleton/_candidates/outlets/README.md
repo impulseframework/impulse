@@ -74,7 +74,8 @@ its checksum at `GET /devices/programs/sensor/<release>/linux/amd64`, behind the
 check, so a copy installed on a device fetches its next release where it already posts
 its readings. A person installs the first copy from the release's assets or with `go
 install <module>/cmd/sensor@<release>`. Given the outlet's URL, an application token a
-staff login issued for the outlet on the console's API keys page, and the tenant
+staff login issued for the outlet on the console's API keys page, and the tenant's id,
+which the tenant's page in the console shows
 (`SENSOR_OUTLET`, `SENSOR_TOKEN`, `SENSOR_TENANT`; `SENSOR_SOURCE` names the device in
 its readings, the hostname when unset), `sensor post 21.5` posts one reading and `sensor
 list` lists the latest, and after either the copy reads the server's release from the
@@ -173,9 +174,10 @@ generated router test proves the route sits behind the token check.
   administrator while its users table holds no rows, the foothold a deployed environment
   starts from: the staff auth's `administrator`, with the password the stack generates
   (`APP_STAFF_ADMINISTRATOR_PASSWORD`, a generated secret), holding the development
-  administrator's roles; the members auth's administrator role memberships in every domain under the
-  sign-in name the placement names (`APP_MEMBERS_ADMINISTRATOR`), which the first person
-  to sign in holds. A user that exists stops the seed; the auth's management
+  administrator's roles; the members auth's user without a password under the
+  sign-in name the placement names (`APP_MEMBERS_ADMINISTRATOR`), holding the administrator
+  roles in every domain, which that person's first sign-in through the directory links to.
+  A user that exists stops the seed; the auth's management
   creates every user after the first, and the bootstrap creates the development logins
   instead. `cmd/deployment/migrate` is the deploy step;
   `cmd/bootstrap` reuses it to stand up an emulator database, seeds the development

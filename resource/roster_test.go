@@ -2,6 +2,7 @@ package resource
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
@@ -258,6 +259,52 @@ func TestTenantRoster_Name_unread(t *testing.T) {
 	r.Add("alpha")
 	if name := r.Name("alpha"); name != "" {
 		t.Errorf("Name() of a tenant added by hand = %q, want \"\"", name)
+	}
+}
+
+// TestTenantRoster_Named pins the tenant a name answers: the one tenant that carries
+// it, and an error for a name no tenant carries, for a name two tenants carry, for a
+// roster that holds no names and for a nil roster.
+func TestTenantRoster_Named(t *testing.T) {
+	t.Parallel()
+
+	named := NewTenantRoster(nil, "Stations", "Id", WithTenantNames("Name"))
+	names := tenantNames{"0190a000-0000-7000-8000-000000000001": "North", "0190a000-0000-7000-8000-000000000002": "South", "0190a000-0000-7000-8000-000000000003": "South"}
+	named.names.Store(&names)
+
+	tests := []struct {
+		name    string
+		roster  *TenantRoster
+		tenant  string
+		want    accesstypes.Domain
+		wantErr string
+	}{
+		{name: "the one tenant that carries the name", roster: named, tenant: "North", want: "0190a000-0000-7000-8000-000000000001"},
+		{name: "a name is matched as written", roster: named, tenant: "north", wantErr: `no tenant is named "north"`},
+		{name: "a name no tenant carries", roster: named, tenant: "East", wantErr: `no tenant is named "East"`},
+		{name: "a name two tenants carry does not say which", roster: named, tenant: "South", wantErr: `2 tenants are named "South"`},
+		{name: "a roster that has read no names", roster: NewTenantRoster(nil, "Stations", "Id"), tenant: "North", wantErr: "the roster holds no names"},
+		{name: "a nil roster", roster: nil, tenant: "North", wantErr: "the application wired no roster"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := tt.roster.Named(tt.tenant)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("Named() error = %v, want one saying %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("Named() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("Named() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

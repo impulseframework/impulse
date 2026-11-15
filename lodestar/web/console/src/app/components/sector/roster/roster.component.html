@@ -11,7 +11,7 @@
   </mat-card>
 } @else if (!canListSquadrons()) {
   <mat-card appearance="outlined" class="table-card">
-    <p class="empty">Your posting in {{ sector() || 'this sector' }} does not cover the squadron roster.</p>
+    <p class="empty">Your posting in {{ sectorName() || 'this sector' }} does not cover the squadron roster.</p>
   </mat-card>
 } @else {
   <mat-card appearance="outlined" class="table-card">
@@ -32,7 +32,7 @@
       <tr mat-row *matRowDef="let row; columns: columns"></tr>
     </table>
     @if (!squadrons.value().length) {
-      <p class="empty">No squadrons visible in {{ sector() }} for your posting.</p>
+      <p class="empty">No squadrons visible in {{ sectorName() }} for your posting.</p>
     }
   </mat-card>
 }
@@ -47,13 +47,13 @@
       </mat-card-subtitle>
     </mat-card-header>
     <mat-card-content>
-      @if (canViewAs()) {
+      @if (canViewAs() && people.value().length) {
         <form class="inline-form" (ngSubmit)="viewAs()">
           <mat-form-field appearance="outline">
             <mat-label>View as (read-only)</mat-label>
-            <mat-select name="viewAs" [(ngModel)]="viewAsUser">
-              @for (person of crew; track person.login) {
-                <mat-option [value]="person.login">{{ person.name }} ({{ person.login }})</mat-option>
+            <mat-select name="viewAs" [(ngModel)]="viewAsUserId">
+              @for (person of people.value(); track person.id) {
+                <mat-option [value]="person.id">{{ personLabel(person.username) }}</mat-option>
               }
             </mat-select>
           </mat-form-field>

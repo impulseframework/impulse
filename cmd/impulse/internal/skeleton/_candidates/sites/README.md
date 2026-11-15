@@ -205,8 +205,8 @@ generated handler applies the rest.
     cp .envrc.template .envrc && direnv allow
     overmind start -l spanner,firestore,console,portal
 
-That starts fresh Spanner and Firestore emulators, bootstraps the database (schema, the `north` and `south` tenants,
-roles, the logins `admin` — every tenant — `member` and `client` — north only — with
+That starts fresh Spanner and Firestore emulators, bootstraps the database (schema, the North and South tenants,
+roles, the logins `admin` — every tenant — `member` and `client` — North only — with
 password `password`), and serves the console site on :8094 and the portal site on :8095.
 The first run compiles and bootstraps before it listens; wait for "Starting Server" in
 the console pane, then the portal pane.

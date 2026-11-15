@@ -21,10 +21,12 @@ import { TenantSignInComponent } from './tenant-sign-in.component';
 // administrator (Update on the global Tenants record too) flips the flag; a session
 // without the grants sees the sentences and nothing is requested.
 
-const workspace: TenantDirectories = { id: 'd-1', tenantId: 'acme', method: 'google', connection: 'acme.example' };
+/** Acme's id: a tenant's key is an id its create generates, and the name is a field. */
+const acmeID = 'ac4e0000-0000-4000-8000-000000000001';
+const workspace: TenantDirectories = { id: 'd-1', tenantId: acmeID, method: 'google', connection: 'acme.example' };
 const entra: TenantDirectories = {
   id: 'd-2',
-  tenantId: 'acme',
+  tenantId: acmeID,
   method: 'azure',
   connection: '6f2c1b7e-3d4a-4c1e-9b2a-1f0e8d7c6b5a',
   defaultSeat: 'TenantAdministrator',
@@ -53,16 +55,16 @@ function serverFor(digests: { global: PermissionDigest; acme: PermissionDigest }
       case `${environment.apiUrl}/user/session`:
         return { status: 200, body: { authenticated: true, username: 'someone' } };
       case `${environment.apiUrl}/permission-digest`:
-        return { status: 200, body: url.searchParams.get('domain') === 'acme' ? digests.acme : digests.global };
+        return { status: 200, body: url.searchParams.get('domain') === acmeID ? digests.acme : digests.global };
       case `${environment.apiUrl}/user-domains`:
-        return { status: 200, body: [{ domain: 'acme', name: 'Acme' }] };
+        return { status: 200, body: [{ domain: acmeID, name: 'Acme' }] };
       case `${environment.apiUrl}/features`:
         return { status: 200, body: { enabled: [] } };
-      case `${environment.apiUrl}/tenants/acme`:
-        return { status: 200, body: { id: 'acme', name: 'Acme', directoryOnly: false } };
-      case `${environment.apiUrl}/tenants/acme/tenant-directories`:
+      case `${environment.apiUrl}/tenants/${acmeID}`:
+        return { status: 200, body: { id: acmeID, name: 'Acme', directoryOnly: false } };
+      case `${environment.apiUrl}/tenants/${acmeID}/tenant-directories`:
         return { status: 200, body: directories };
-      case `${environment.apiUrl}/tenants/acme/staff-tenant-roles`:
+      case `${environment.apiUrl}/tenants/${acmeID}/staff-tenant-roles`:
         return { status: 200, body: tenantRoles };
       // Every write rides the consolidated route as one operation.
       case `${environment.apiUrl}/resources`:
@@ -77,7 +79,7 @@ describe('TenantSignInComponent', () => {
   let fixture: ComponentFixture<TenantSignInComponent>;
   let transport: ScriptedTransport;
 
-  /** Signs in, loads the global and acme digests as entering the tenant does, and renders the page for acme. */
+  /** Signs in, loads the tenant list and the global and Acme digests as entering the tenant does, and renders the page for Acme. */
   const pageFor = async (digests: { global: PermissionDigest; acme: PermissionDigest }): Promise<void> => {
     transport = scriptedTransport(serverFor(digests));
     await TestBed.configureTestingModule({
@@ -88,11 +90,12 @@ describe('TenantSignInComponent', () => {
     }).compileComponents();
     await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
     const client = TestBed.inject<ClientBase>(RESOURCE_CLIENT);
+    await client.permissions.loadDomains();
     await client.permissions.loadDigest();
-    await client.permissions.loadDigest('acme' as Domain);
+    await client.permissions.loadDigest(acmeID as Domain);
     await TestBed.inject(ApplicationRef).whenStable();
     fixture = TestBed.createComponent(TenantSignInComponent);
-    fixture.componentRef.setInput('tenantID', 'acme');
+    fixture.componentRef.setInput('tenantID', acmeID);
     fixture.detectChanges();
     await TestBed.inject(ApplicationRef).whenStable();
     fixture.detectChanges();
@@ -114,7 +117,8 @@ describe('TenantSignInComponent', () => {
   it("the tenant's administrator lists, declares and withdraws directories, and is told who sets directory only", async () => {
     await pageFor(tenantAdministrator);
 
-    expect(texts('h1')).toEqual(['Who may enter acme']);
+    // The tenant's administrator cannot read the tenant record: the name is the one the session's tenant list carries.
+    expect(texts('h1')).toEqual(['Who may enter Acme']);
     expect(texts('.directories td:first-child')).toEqual(['Google Workspace', 'Microsoft Entra']);
     expect(texts('.directories code')).toEqual(['acme.example', '6f2c1b7e-3d4a-4c1e-9b2a-1f0e8d7c6b5a']);
     expect(element().querySelectorAll('.seat-picker').length).toBe(2);
@@ -126,14 +130,14 @@ describe('TenantSignInComponent', () => {
     await fixture.componentInstance.declare();
     await settle();
     expect(writes()).toEqual([
-      { op: 'add', path: '/tenants/acme/tenant-directories', value: { method: 'google', connection: 'partner.example' } },
+      { op: 'add', path: `/tenants/${acmeID}/tenant-directories`, value: { method: 'google', connection: 'partner.example' } },
     ]);
 
     await fixture.componentInstance.withdraw(entra);
     await settle();
     expect(writes()).toEqual([
-      { op: 'add', path: '/tenants/acme/tenant-directories', value: { method: 'google', connection: 'partner.example' } },
-      { op: 'remove', path: '/tenants/acme/tenant-directories/d-2' },
+      { op: 'add', path: `/tenants/${acmeID}/tenant-directories`, value: { method: 'google', connection: 'partner.example' } },
+      { op: 'remove', path: `/tenants/${acmeID}/tenant-directories/d-2` },
     ]);
   });
 
@@ -149,15 +153,15 @@ describe('TenantSignInComponent', () => {
     await fixture.componentInstance.seat(workspace, 'TenantAdministrator');
     await settle();
     expect(writes()).toEqual([
-      { op: 'patch', path: '/tenants/acme/tenant-directories/d-1', value: { defaultSeat: 'TenantAdministrator' } },
+      { op: 'patch', path: `/tenants/${acmeID}/tenant-directories/d-1`, value: { defaultSeat: 'TenantAdministrator' } },
     ]);
 
     // Clearing the seat sends an explicit null: the column is cleared, not left alone.
     await fixture.componentInstance.seat(entra, '');
     await settle();
     expect(writes()).toEqual([
-      { op: 'patch', path: '/tenants/acme/tenant-directories/d-1', value: { defaultSeat: 'TenantAdministrator' } },
-      { op: 'patch', path: '/tenants/acme/tenant-directories/d-2', value: { defaultSeat: null } },
+      { op: 'patch', path: `/tenants/${acmeID}/tenant-directories/d-1`, value: { defaultSeat: 'TenantAdministrator' } },
+      { op: 'patch', path: `/tenants/${acmeID}/tenant-directories/d-2`, value: { defaultSeat: null } },
     ]);
   });
 
@@ -179,7 +183,7 @@ describe('TenantSignInComponent', () => {
 
     await fixture.componentInstance.close(true);
     await settle();
-    expect(writes()).toEqual([{ op: 'patch', path: '/tenants/acme', value: { directoryOnly: true } }]);
+    expect(writes()).toEqual([{ op: 'patch', path: `/tenants/${acmeID}`, value: { directoryOnly: true } }]);
   });
 
   it('a session without the grants sees the sentences, and nothing is requested under the tenant', async () => {
@@ -190,7 +194,7 @@ describe('TenantSignInComponent', () => {
       'Your role does not cover the tenant record, which carries this setting.',
     ]);
     expect(element().querySelector('.declare-form')).toBeNull();
-    expect(transport.requests.map((r) => r.url.replace(/\?.*$/, '')).filter((u) => u.includes('/tenants/acme'))).toEqual([]);
+    expect(transport.requests.map((r) => r.url.replace(/\?.*$/, '')).filter((u) => u.includes(`/tenants/${acmeID}`))).toEqual([]);
   });
 
   // Opened by its address (a reload, a bookmark), the page renders before the tenant's
@@ -205,13 +209,13 @@ describe('TenantSignInComponent', () => {
     }).compileComponents();
     await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
     fixture = TestBed.createComponent(TenantSignInComponent);
-    fixture.componentRef.setInput('tenantID', 'acme');
+    fixture.componentRef.setInput('tenantID', acmeID);
     await settle();
     expect(texts('.empty')).toContain('Your role in this tenant does not cover its directories.');
 
     const client = TestBed.inject<ClientBase>(RESOURCE_CLIENT);
     await client.permissions.loadDigest();
-    await client.permissions.loadDigest('acme' as Domain);
+    await client.permissions.loadDigest(acmeID as Domain);
     await settle();
     await settle();
 

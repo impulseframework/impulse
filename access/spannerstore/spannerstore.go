@@ -6,7 +6,7 @@
 // Each Store owns three tables named {Prefix}{Store}{Roles|UserRoles|
 // RoleGrants} — defaults yield AccessRoles, AccessUserRoles, AccessRoleGrants.
 // Rows are partitioned by where the policy is held, persisted as the
-// structural column triple (Kind, Axis, Domain): Kind names the global
+// structural column triple (Kind, Axis, DomainId): Kind names the global
 // partition, one domain or every domain — never a distinguished domain value
 // — and the axis is the name of the axis the domain belongs to, "" for the
 // default axis, which is every scope today. The Roles table holds custom
@@ -42,10 +42,10 @@ var _ access.Store = (*Store)(nil)
 const (
 	colKind        = "Kind"
 	colAxis        = "Axis"
-	colDomain      = "Domain"
+	colDomain      = "DomainId"
 	colRole        = "Role"
 	colDescription = "Description"
-	colUser        = "User"
+	colUser        = "UserId"
 	colPermission  = "Permission"
 	colResource    = "Resource"
 	colField       = "Field"
@@ -103,7 +103,7 @@ func resolveNames(opts []Option) (tableNames, error) {
 		roles:      tables.Roles,
 		userRoles:  tables.UserRoles,
 		roleGrants: tables.RoleGrants,
-		userIndex:  tables.UserRolesByUser,
+		userIndex:  tables.UserRolesByUserID,
 	}, nil
 }
 
@@ -139,17 +139,17 @@ func New(client *spanner.Client, opts ...Option) (*Store, error) {
 		client: client,
 		names:  names,
 
-		sqlDeleteRole:          fmt.Sprintf("DELETE FROM %s WHERE Kind = @kind AND Axis = @axis AND Domain = @domain AND Role = @role", names.roles),
-		sqlRoleHasMembers:      fmt.Sprintf("SELECT 1 FROM %s WHERE Kind = @kind AND Axis = @axis AND Domain = @domain AND Role = @role LIMIT 1", names.userRoles),
-		sqlRoleExists:          fmt.Sprintf("SELECT 1 FROM %s WHERE Kind = @kind AND Axis = @axis AND Domain = @domain AND Role = @role", names.roles),
-		sqlListRoles:           fmt.Sprintf("SELECT Role, Description FROM %s WHERE Kind = @kind AND Axis = @axis AND Domain = @domain ORDER BY Role", names.roles),
-		sqlListUserRoles:       fmt.Sprintf("SELECT Role FROM %s WHERE Kind = @kind AND Axis = @axis AND Domain = @domain AND User = @user ORDER BY Role", names.userRoles),
-		sqlListUserMemberships: fmt.Sprintf("SELECT Kind, Axis, Domain, Role FROM %s@{FORCE_INDEX=%s} WHERE User = @user ORDER BY Kind, Axis, Domain, Role", names.userRoles, names.userIndex),
-		sqlListRoleUsers:       fmt.Sprintf("SELECT User FROM %s WHERE Kind = @kind AND Axis = @axis AND Domain = @domain AND Role = @role ORDER BY User", names.userRoles),
-		sqlListRoleGrants:      fmt.Sprintf("SELECT Permission, Resource, Field, Condition FROM %s WHERE Kind = @kind AND Axis = @axis AND Domain = @domain AND Role = @role ORDER BY Permission, Resource, Field, Condition", names.roleGrants),
-		sqlReadRoles:           fmt.Sprintf("SELECT Kind, Axis, Domain, Role FROM %s", names.roles),
-		sqlReadGrants:          fmt.Sprintf("SELECT Kind, Axis, Domain, Role, Permission, Resource, Field, Condition FROM %s", names.roleGrants),
-		sqlReadMemberships:     fmt.Sprintf("SELECT Kind, Axis, Domain, User, Role FROM %s", names.userRoles),
+		sqlDeleteRole:          fmt.Sprintf("DELETE FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role", names.roles),
+		sqlRoleHasMembers:      fmt.Sprintf("SELECT 1 FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role LIMIT 1", names.userRoles),
+		sqlRoleExists:          fmt.Sprintf("SELECT 1 FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role", names.roles),
+		sqlListRoles:           fmt.Sprintf("SELECT Role, Description FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain ORDER BY Role", names.roles),
+		sqlListUserRoles:       fmt.Sprintf("SELECT Role FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND UserId = @user ORDER BY Role", names.userRoles),
+		sqlListUserMemberships: fmt.Sprintf("SELECT Kind, Axis, DomainId, Role FROM %s@{FORCE_INDEX=%s} WHERE UserId = @user ORDER BY Kind, Axis, DomainId, Role", names.userRoles, names.userIndex),
+		sqlListRoleUsers:       fmt.Sprintf("SELECT UserId FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role ORDER BY UserId", names.userRoles),
+		sqlListRoleGrants:      fmt.Sprintf("SELECT Permission, Resource, Field, Condition FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role ORDER BY Permission, Resource, Field, Condition", names.roleGrants),
+		sqlReadRoles:           fmt.Sprintf("SELECT Kind, Axis, DomainId, Role FROM %s", names.roles),
+		sqlReadGrants:          fmt.Sprintf("SELECT Kind, Axis, DomainId, Role, Permission, Resource, Field, Condition FROM %s", names.roleGrants),
+		sqlReadMemberships:     fmt.Sprintf("SELECT Kind, Axis, DomainId, UserId, Role FROM %s", names.userRoles),
 	}, nil
 }
 
@@ -169,26 +169,26 @@ func (s *Store) DDL() []string {
 		fmt.Sprintf(`CREATE TABLE %s (
   Kind STRING(16) NOT NULL,
   Axis STRING(128) NOT NULL,
-  Domain STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
   Description STRING(MAX) NOT NULL,
   UpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   %s,
-) PRIMARY KEY (Kind, Axis, Domain, Role)`, n.roles, kindCheck(n.roles)),
+) PRIMARY KEY (Kind, Axis, DomainId, Role)`, n.roles, kindCheck(n.roles)),
 		fmt.Sprintf(`CREATE TABLE %s (
   Kind STRING(16) NOT NULL,
   Axis STRING(128) NOT NULL,
-  Domain STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
-  User STRING(320) NOT NULL,
+  UserId STRING(320) NOT NULL,
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   %s,
-) PRIMARY KEY (Kind, Axis, Domain, Role, User)`, n.userRoles, kindCheck(n.userRoles)),
-		fmt.Sprintf(`CREATE INDEX %s ON %s (User, Kind, Axis, Domain)`, n.userIndex, n.userRoles),
+) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId)`, n.userRoles, kindCheck(n.userRoles)),
+		fmt.Sprintf(`CREATE INDEX %s ON %s (UserId, Kind, Axis, DomainId)`, n.userIndex, n.userRoles),
 		fmt.Sprintf(`CREATE TABLE %s (
   Kind STRING(16) NOT NULL,
   Axis STRING(128) NOT NULL,
-  Domain STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
   Permission STRING(64) NOT NULL,
   Resource STRING(128) NOT NULL,
@@ -196,7 +196,7 @@ func (s *Store) DDL() []string {
   Condition STRING(MAX) NOT NULL,
   UpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   %s,
-) PRIMARY KEY (Kind, Axis, Domain, Role, Permission, Resource, Field, Condition),
+) PRIMARY KEY (Kind, Axis, DomainId, Role, Permission, Resource, Field, Condition),
   INTERLEAVE IN PARENT %s ON DELETE CASCADE`, n.roleGrants, kindCheck(n.roleGrants), n.roles),
 	}
 }

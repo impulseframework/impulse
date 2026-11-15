@@ -329,10 +329,13 @@ func (h *Handlers) TokensRevoke() http.HandlerFunc {
 // outlet: a machine's configured credential (the droids' APP_DROIDS_API_KEY), kept the
 // way a person's own token is, hashed in the store, bound to the outlet, acting as the
 // account, so the token check and the permission checks treat the droid like any
-// other caller. The account is created without a password when the auth has never
-// seen it; a secret the store already holds live is left alone, and a changed one
-// replaces the account's seeded token on the outlet, so a rotated key takes effect
-// at the next start.
+// other caller. The account is found by its username: its roles are held by the id of
+// the account, as everyone's are, so the account that holds them is the one whoever
+// gave them created (the bootstrap creates the droid's, without a password, and gives
+// it its roles). An account the auth has never seen is created without a password and
+// holds no role until it is given one. A secret the store already holds live is left
+// alone, and a changed one replaces the account's seeded token on the outlet, so a
+// rotated key takes effect at the next start.
 //
 // Demonstrates: outlet.tokens, machine-identity.
 func (h *Handlers) SeedToken(ctx context.Context, username, outlet, secret string) error {
@@ -715,12 +718,14 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// connection decide: a row with a default seat creates the person and seats them
 	// with it in one transaction (Cinder seats them SectorCrew), and the sign-in rule
 	// then finds the membership; rows with none refuse them (invitation_only), and no
-	// account is created, unless they followed an invitation link, which is the way in;
-	// a person already seated somewhere is the sector's own and passes. A directory no
-	// sector declares falls to the registration's rule as before (the pioneer's
-	// sign-up). The crew's roles are the application's, so the admission is set on this
-	// auth; an auth whose directory writes the roles (the members' directory) is the
-	// authority for everyone it holds and sets none.
+	// account is created, unless they followed an invitation link, which is the way in.
+	// A directory no sector declares falls to the registration's rule as before (the
+	// pioneer's sign-up). A person given a role ahead of their first sign-in is no
+	// stranger: a role is held by an account, so they have the account the role was
+	// given to, and the sign-in links their identity to it, under its sign-in name,
+	// before the sectors are asked. The crew's roles are the application's, so the
+	// admission is set on this auth; an auth whose directory writes the roles (the
+	// members' directory) is the authority for everyone it holds and sets none.
 	//
 	// The invitation's acceptance: an accepted invitation seats the person with the
 	// roles it carries, in the sector it names or in the global partition, in the
@@ -729,7 +734,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// stranger invited into Bastion signs in admitted.
 	//
 	// Demonstrates: tenancy.default-seat, auth.invitation.
-	crewSession.SetDirectoryAdmission(settings.TenantDirectories, resource.SignInRoles(accessClient.UserManager()), identityClient.DirectorySeated())
+	crewSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
 	crewSession.SetInvitationAccepted(identityClient.InvitationAccepted())
 
 	// The machine outlet the auth issues tokens for, registered before the first

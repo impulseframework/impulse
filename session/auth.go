@@ -6,6 +6,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/impulseframework/impulse/accesstypes"
+
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
@@ -251,12 +253,13 @@ type Auth[SessionData, UserData, Tx any] struct {
 	acceptInvitation signinflow.InvitationAcceptor[Tx]
 	userRenamed      UserRenamedHook
 	// directories reads the tenants' declarations of a directory for a stranger's
-	// first sign-in, directoryRoles is the role store the person's memberships are
-	// read from, and directorySeated seats the person they admit; all nil for none.
-	// Set by SetDirectoryAdmission before the Auth is in use.
+	// first sign-in, and directorySeated seats the person they admit; both nil for
+	// none. Set by SetDirectoryAdmission before the Auth is in use.
 	directories     signin.DirectoryReader[Tx]
-	directoryRoles  signin.UserRoleManager
 	directorySeated signinflow.DirectorySeater[Tx]
+	// tenantNames names the tenant an invitation seats a person in, for the invitation
+	// screen; nil for none. Set by SetTenantNames before the Auth is in use.
+	tenantNames TenantNamer
 	// methods are the registered sign-in methods. Read them through registered.
 	methods signInMethods[Tx]
 }
@@ -418,19 +421,19 @@ func (a *Auth[SessionData, UserData, Tx]) SetSignedInHook(hook SignedInHook) {
 
 // UserRenamedHook is told that a user's username changed by the library's own doing:
 // under a password method declared UsernameIsEmail, the person who verifies a new
-// address is renamed to it, live sessions included, as a rename does. An application
-// that keys anything by the username, role memberships above all, moves it from the old
-// name to the new here. The hook runs after the rename is written and outside any
-// transaction; an error is logged and answered to the person as the verification
-// having failed, with the address verified and the username changed, so the hook is
-// written to be safe to run again (adding under the new name before removing under
-// the old).
+// address is renamed to it, live sessions included, as a rename does. Role memberships
+// are held by the id of the account and follow nothing; an application that keys
+// anything of its own by the username moves it from the old name to the new here. The
+// hook runs after the rename is written and outside any transaction; an error is logged
+// and answered to the person as the verification having failed, with the address
+// verified and the username changed, so the hook is written to be safe to run again
+// (adding under the new name before removing under the old).
 type UserRenamedHook = func(ctx context.Context, userID impulse.UUID, from, to string) error
 
 // SetUserRenamed sets the hook a rename the library performs is reported to. An
-// application whose password method declares UsernameIsEmail and that keys memberships
-// by username needs one. Set it after NewAuth and before serving the first request; a
-// nil hook, a second hook, or a hook set once the Auth is in use panics.
+// application whose password method declares UsernameIsEmail and that keys anything of
+// its own by the username needs one. Set it after NewAuth and before serving the first
+// request; a nil hook, a second hook, or a hook set once the Auth is in use panics.
 func (a *Auth[SessionData, UserData, Tx]) SetUserRenamed(hook UserRenamedHook) {
 	if hook == nil {
 		panic("session: SetUserRenamed was given nil: pass the application's hook, or set none")
@@ -453,10 +456,10 @@ func (a *Auth[SessionData, UserData, Tx]) SetUserRenamed(hook UserRenamedHook) {
 // storage's transaction type): the invitation is spent and its roles given together,
 // or neither. It runs for every acceptance: the one a sign-in or a sign-up performs
 // with the invitation the browser carries, and Invitation().Accept() for a person
-// already signed in. The user is named by id and by username, the key an application's
-// memberships are held under; a user the same transaction provisioned is buffered in
-// it and is not readable until the commit, so the hook writes under the name it is
-// given and looks nobody up.
+// already signed in. The user is named by id, the key role memberships are held under,
+// and by username, what a log line reads; a user the same transaction provisioned is
+// buffered in it and is not readable until the commit, so the hook writes under the id
+// it is given and looks nobody up.
 //
 // The hook reads and writes through tx alone. The Spanner emulator allows one
 // read-write transaction at a time, so a second transaction, or a read through another
@@ -614,8 +617,8 @@ func (a *Auth[S, U, Tx]) ValidateSession(next http.Handler) http.Handler {
 }
 
 // DirectorySeatedHook is the application's half of a directory's default seat: it
-// seats the user a first sign-in provisions, named by id and by username (the key an
-// application's memberships are held under), with seats, the default seats of the
+// seats the user a first sign-in provisions, named by id (the key an application's
+// memberships are held under) and by username (what a log line reads), with seats, the default seats of the
 // directories the tenants declared for the identity's connection, inside the
 // transaction that provisions the user, which it is handed: the account is made and
 // seated together, or neither. A seat the invitation this sign-in consumes names too
@@ -631,26 +634,21 @@ type DirectorySeatedHook[Tx any] = func(ctx context.Context, tx Tx, userID impul
 // SetDirectoryAdmission sets what a tenanted application gives a first sign-in
 // through a directory by a person no user was created for: reader, which reads
 // every tenant's declaration of the directory the identity came through
-// (signin.DirectoryReader); roles, the role store the person's memberships are read
-// from (signin.UserRoleManager, the access library's user manager the tenant policy
-// reads too); and hook, which seats the person with the default seats the
-// declarations name. With them the standard account rules ask the tenants first: a
+// (signin.DirectoryReader), and hook, which seats the person with the default seats
+// the declarations name. With them the standard account rules ask the tenants first: a
 // directory some tenant declares belongs to that tenant, and its declaration decides
-// before the registration's own rule. A person who already holds a membership under
-// the sign-in name in a declaring tenant, or as the application's staff, is that
-// tenant's person and is admitted; a default seat admits a stranger with it; and a
+// before the registration's own rule. A default seat admits a stranger with it, and a
 // declaration naming none refuses a stranger by invitation only (invitation_only,
-// unless the sign-in carries an invitation), with no account created. A directory no
-// tenant declares falls to the registration's rule as without them. Set the three
-// after NewAuth and before serving the first request; a nil reader, roles or hook, a
-// second call, or a call once the Auth is in use is a wiring mistake and panics, as
-// SetSignInPolicy does.
-func (a *Auth[SessionData, UserData, Tx]) SetDirectoryAdmission(reader signin.DirectoryReader[Tx], roles signin.UserRoleManager, hook DirectorySeatedHook[Tx]) {
+// unless the sign-in carries an invitation), with no account created. A person the
+// application gave a role ahead of their first sign-in is no stranger: a role is held
+// by an account, and the sign-in links the identity to the account under its sign-in
+// name before the tenants are asked. A directory no tenant declares falls to the
+// registration's rule as without them. Set the two after NewAuth and before serving
+// the first request; a nil reader or hook, a second call, or a call once the Auth is
+// in use is a wiring mistake and panics, as SetSignInPolicy does.
+func (a *Auth[SessionData, UserData, Tx]) SetDirectoryAdmission(reader signin.DirectoryReader[Tx], hook DirectorySeatedHook[Tx]) {
 	if reader == nil {
 		panic("session: SetDirectoryAdmission was given no reader: pass the application's reader of the tenants' directory declarations")
-	}
-	if roles == nil {
-		panic("session: SetDirectoryAdmission was given no role store: pass the access library's user manager")
 	}
 	if hook == nil {
 		panic("session: SetDirectoryAdmission was given no hook: pass the application's hook that seats the person")
@@ -664,7 +662,50 @@ func (a *Auth[SessionData, UserData, Tx]) SetDirectoryAdmission(reader signin.Di
 	if a.directories != nil {
 		panic("session: the directory admission was set twice: one Auth has one")
 	}
-	a.directories, a.directoryRoles, a.directorySeated = reader, roles, hook
+	a.directories, a.directorySeated = reader, hook
+}
+
+// TenantNamer names a tenant by its key: what people call it, "" for a tenant it does
+// not know. The application's tenant roster (resource.TenantRoster) is one, answering
+// from its copy with no read.
+type TenantNamer interface {
+	Name(tenant accesstypes.Domain) string
+}
+
+// SetTenantNames sets what names the tenant an invitation seats a person in. The
+// invitation screen is read by a person who is not signed in, who can read no tenant
+// record and to whom the tenant's key, an id, says nothing: with names, the opened
+// invitation (Invitation().Open()) and the invitation a sign-in methods answer reports
+// carry the tenant's name beside its key (tenantName), and the screen says where the
+// person is invited. Without them, or for a tenant the namer does not know, the name is
+// empty and the screen names no tenant. Set it after NewAuth and before serving the
+// first request; a nil namer, a second call, or a call once the Auth is in use is a
+// wiring mistake and panics, as SetDirectoryAdmission does.
+func (a *Auth[SessionData, UserData, Tx]) SetTenantNames(names TenantNamer) {
+	if names == nil {
+		panic("session: SetTenantNames was given nil: pass the application's tenant roster, or set none")
+	}
+	a.methods.mu.Lock()
+	defer a.methods.mu.Unlock()
+
+	if a.methods.inUse.Load() {
+		panic("session: the tenant names were set after the Auth served a request: set them before serving")
+	}
+	if a.tenantNames != nil {
+		panic("session: the tenant names were set twice: one Auth has one namer")
+	}
+	a.tenantNames = names
+}
+
+// tenantName is what the invitation screen calls the tenant an invitation seats a
+// person in: its name from the namer (SetTenantNames), "" for the application's global
+// surface, for no namer and for a tenant the namer does not know.
+func (a *Auth[SessionData, UserData, Tx]) tenantName(tenantID string) string {
+	if tenantID == "" || a.tenantNames == nil {
+		return ""
+	}
+
+	return a.tenantNames.Name(accesstypes.Domain(tenantID))
 }
 
 // SetXSRFToken sets the XSRF token.

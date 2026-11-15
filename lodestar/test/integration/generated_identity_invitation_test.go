@@ -68,7 +68,7 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	for name, body := range map[string]string{
 		"without a role":                       `{"email":"ensign@example.com"}`,
 		"with a role that does not exist":      `{"email":"ensign@example.com","roles":["NoSuchRole"]}`,
-		"with a global role into a sector":     `{"email":"ensign@example.com","roles":["ClientBrowser"],"domain":"anvil"}`,
+		"with a global role into a sector":     `{"email":"ensign@example.com","roles":["ClientBrowser"],"domain":"` + anvil + `"}`,
 		"to something that is no address":      `{"email":"ensign at example","roles":["ClientBrowser"]}`,
 		"into a sector named by an empty name": `{"email":"ensign@example.com","roles":["Pilot"],"domain":""}`,
 	} {
@@ -92,10 +92,10 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	if got := readColumn[string](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{answer.ID}, "Kind"); got != "invitation" {
 		t.Errorf("the stored link's kind = %q, want invitation", got)
 	}
-	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{answer.ID}, "InvitedBy"); got.StringVal != governorID {
+	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{answer.ID}, "InvitedByUserId"); got.StringVal != governorID {
 		t.Errorf("the invitation's sender = %v, want the governor (%s)", got, governorID)
 	}
-	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{answer.ID}, "Tenant"); got.Valid {
+	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{answer.ID}, "TenantId"); got.Valid {
 		t.Errorf("the invitation's tenant = %v, want none: it is into the application", got)
 	}
 	status, body := hq.do(ctx, http.MethodGet, consoleAPI+"/crew-session-mail-links/"+answer.ID, nil)
@@ -136,8 +136,8 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 	}
 
 	// An invitation into a sector carries the sector.
-	sector := inviteCrew(ctx, t, hq, `{"email":"wingman@example.com","roles":["Pilot"],"domain":"anvil"}`)
-	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{sector.ID}, "Tenant"); got.StringVal != "anvil" {
+	sector := inviteCrew(ctx, t, hq, `{"email":"wingman@example.com","roles":["Pilot"],"domain":"`+anvil+`"}`)
+	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{sector.ID}, "TenantId"); got.StringVal != anvil {
 		t.Errorf("the sector invitation's tenant = %v, want anvil", got)
 	}
 
@@ -151,20 +151,20 @@ func TestGeneratedIdentityInvitations(t *testing.T) {
 
 		return status, decodeRow(t, body)
 	}
-	status, listedAtAnvil := sectorInvitation("anvil")
+	status, listedAtAnvil := sectorInvitation(anvil)
 	if status != http.StatusOK {
 		t.Fatalf("the invitation in Anvil's list: status %d, want 200", status)
 	}
-	if cell[string](t, listedAtAnvil, "email") != "wingman@example.com" || !cell[bool](t, listedAtAnvil, "pending") || cell[string](t, listedAtAnvil, "invitedBy") != governorID {
+	if cell[string](t, listedAtAnvil, "email") != "wingman@example.com" || !cell[bool](t, listedAtAnvil, "pending") || cell[string](t, listedAtAnvil, "invitedByUserId") != governorID {
 		t.Errorf("the invitation as Anvil's list reads it = %v, want it standing for wingman@example.com, sent by the governor", listedAtAnvil)
 	}
-	if status, _ := sectorInvitation("bastion"); status != http.StatusNotFound {
+	if status, _ := sectorInvitation(bastion); status != http.StatusNotFound {
 		t.Errorf("Anvil's invitation in Bastion's list: status %d, want 404", status)
 	}
 	if status, body := hq.do(ctx, http.MethodPost, consoleAPI+"/withdraw-crew-invitation", []byte(`{"invitationId":"`+sector.ID+`"}`)); status != http.StatusNoContent {
 		t.Fatalf("withdrawing the sector invitation: status %d: %s", status, body)
 	}
-	if status, withdrawnAtAnvil := sectorInvitation("anvil"); status != http.StatusOK || cell[bool](t, withdrawnAtAnvil, "pending") {
+	if status, withdrawnAtAnvil := sectorInvitation(anvil); status != http.StatusOK || cell[bool](t, withdrawnAtAnvil, "pending") {
 		t.Errorf("the withdrawn invitation in Anvil's list: status %d, row %v, want it listed and no longer pending", status, withdrawnAtAnvil)
 	}
 

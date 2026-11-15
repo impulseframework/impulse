@@ -274,7 +274,7 @@ func TestAuthAPI_CreateApplicationToken(t *testing.T) {
 		if sum := sha256.Sum256([]byte(issued.Secret)); !bytes.Equal(sum[:], stored.TokenHash) {
 			t.Error("the stored hash is not the secret's")
 		}
-		if stored.Kind != sessionstorage.TokenApplication || stored.UserID != f.user.ID || stored.Outlet != droids || stored.Name != "laptop" || stored.Family.Valid {
+		if stored.Kind != sessionstorage.TokenApplication || stored.UserID != f.user.ID || stored.Outlet != droids || stored.Name != "laptop" || stored.FamilyID.Valid {
 			t.Errorf("stored = %+v", stored)
 		}
 		if until := time.Until(stored.ExpiresAt); until < 59*time.Minute || until > time.Hour {
@@ -459,7 +459,7 @@ func authAPIDeviceCase3(t *testing.T) {
 	if !bytes.Equal(hashToken(pair.AccessToken), access.TokenHash) || !bytes.Equal(hashToken(pair.RefreshToken), refresh.TokenHash) {
 		t.Error("the pair's secrets are not the hashes the store took")
 	}
-	if access.Kind != sessionstorage.TokenAccess || refresh.Kind != sessionstorage.TokenRefresh || !access.Family.Valid || access.Family != refresh.Family {
+	if access.Kind != sessionstorage.TokenAccess || refresh.Kind != sessionstorage.TokenRefresh || !access.FamilyID.Valid || access.FamilyID != refresh.FamilyID {
 		t.Errorf("access = %+v, refresh = %+v; want one family", access, refresh)
 	}
 	if pair.ExpiresIn != time.Hour || time.Until(access.ExpiresAt) > time.Hour || time.Until(refresh.ExpiresAt) < 23*time.Hour {

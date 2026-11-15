@@ -38,7 +38,7 @@ type (
 	DroidReport struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		SectorID   string       `spanner:"SectorId"`
+		SectorID   impulse.UUID `spanner:"SectorId"`
 		ShipID     impulse.UUID `spanner:"ShipId"`
 		Subsystem  string       `spanner:"Subsystem"`
 		Reading    float64      `spanner:"Reading"`

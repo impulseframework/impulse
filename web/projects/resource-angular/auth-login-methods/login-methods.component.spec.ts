@@ -103,7 +103,8 @@ const mailingList: LoginMethods = {
 };
 const invited = {
   email: 'ensign@fleet.example',
-  tenant: 'anvil',
+  tenantId: '5d1c8e2a-7b3f-4a9e-b6d0-2c4f8a1e9b37',
+  tenantName: 'Anvil',
   expiresAt: '2026-10-30T12:00:00Z',
   signUp: true,
   usernameIsEmail: false,
@@ -1510,7 +1511,7 @@ describe('LoginMethodsComponent opens an invitation', () => {
     ]);
     expect(page.transport.requests[2].body).toEqual({ token: 'tok-1' });
     expect(page.component.invitation()).toEqual(invited);
-    expect(titleOf(page)).toBe("You're invited to anvil");
+    expect(titleOf(page)).toBe("You're invited to Anvil");
     // An older server did not say what holds the address: every path is offered, as before.
     expect(noteOf(page)).toBe(
       'The invitation is for ensign@fleet.example. Sign in to accept it, or create an account with a password.',
@@ -1546,11 +1547,20 @@ describe('LoginMethodsComponent opens an invitation', () => {
     ]);
   });
 
+  it("names the tenant by the name the server gives and never by its id: a tenant it names none for is no tenant on the screen", async () => {
+    const page = await pageOver(
+      server({ methods: mailingList, invitationOpen: { status: 200, body: { ...invited, tenantName: '' } } }),
+      { invitation: 'tok-1' },
+    );
+    expect(titleOf(page)).toBe("You're invited");
+    expect(page.element.textContent).not.toContain(invited.tenantId);
+  });
+
   it('words a global invitation without a tenant, and one without a password method without the account', async () => {
     const page = await pageOver(
       server({
         methods: { ...mailingList, invitation: { open: invitationRoutes.open, accept: invitationRoutes.accept } },
-        invitationOpen: { status: 200, body: { ...invited, tenant: '', signUp: false } },
+        invitationOpen: { status: 200, body: { ...invited, tenantId: '', tenantName: '', signUp: false } },
       }),
       { invitation: 'tok-1' },
     );
@@ -1762,7 +1772,7 @@ describe('LoginMethodsComponent opens an invitation', () => {
     expect(page.component.invitation()).toEqual({ ...invited, methods: [], accountExists: false, hasPassword: false });
     expect(page.component.invitationPaths()).toEqual({ known: true, redirects: [], password: false, create: true });
     expect(page.component.account()).toEqual({ source: 'invitation', email: invited.email, usernameIsEmail: false });
-    expect(titleOf(page)).toBe("You're invited to anvil");
+    expect(titleOf(page)).toBe("You're invited to Anvil");
     expect(page.element.querySelector('input[name="accountUsername"]')).not.toBeNull();
     expect(page.element.querySelector('.impulse-login-cancel')).toBeNull();
     page.transport.requests.length = 0;
@@ -1856,7 +1866,8 @@ describe('LoginMethodsComponent finds the invitation the browser carries', () =>
   /** The invitation as the methods list names it under `invitation.standing`: what opening it answered, less `signUp`. */
   const standing = {
     email: invited.email,
-    tenant: invited.tenant,
+    tenantId: invited.tenantId,
+    tenantName: invited.tenantName,
     expiresAt: invited.expiresAt,
     usernameIsEmail: false,
   };
@@ -1968,7 +1979,8 @@ describe('LoginMethodsComponent finds the invitation the browser carries', () =>
 describe('LoginMethodsComponent shows the directory buttons that could admit the invitee', () => {
   const standing = {
     email: invited.email,
-    tenant: invited.tenant,
+    tenantId: invited.tenantId,
+    tenantName: invited.tenantName,
     expiresAt: invited.expiresAt,
     usernameIsEmail: false,
   };

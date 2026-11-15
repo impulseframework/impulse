@@ -21,8 +21,14 @@ type Impersonation struct {
 	// SessionID is the impersonated session — the record's key, and the value
 	// every piece of evidence carries under AttrImpersonationSessionID.
 	SessionID impulse.UUID
-	// Actor is the authenticated real user the session acts on behalf of.
+	// Actor is the authenticated real user the session acts on behalf of, by username:
+	// what a person reads, and what evidence carries.
 	Actor string
+	// ActorID is the actor's account in this application, read from the actor's own
+	// session when the impersonated session is established: what the permission store
+	// names the actor by (ActorUser). It is null for a foreign actor, who has no account
+	// here, and for a session type whose sessions belong to no account.
+	ActorID impulse.NullUUID
 	// ActorRealm names the application or identity provider that authenticated
 	// the actor, when it differs from this application (e.g. "admin-portal").
 	// Empty means the actor is a user of this application (see IsLocalActor).
@@ -32,7 +38,9 @@ type Impersonation struct {
 	// returned to by EndImpersonation), or in the source application for a
 	// foreign actor, for cross-application correlation.
 	SourceSessionID impulse.NullUUID
-	// Principal is the authorization subject the session evaluates against.
+	// Principal is the authorization subject the session evaluates against. A user
+	// principal names the impersonated person as the permission store does: by the id
+	// of their account, for a session type whose users are accounts.
 	Principal accesstypes.Principal
 	// Mask is the permission allowlist the session is attenuated by; the zero
 	// mask is unrestricted.
@@ -51,6 +59,17 @@ type Impersonation struct {
 	EndedAt *time.Time
 	// EndReason says how the session ended; empty while EndedAt is nil.
 	EndReason ImpersonationEndReason
+}
+
+// ActorUser returns the actor as the permission store names them: the id of their
+// account for an actor who has one here, and otherwise the name the record carries (a
+// foreign actor's, which is no account's id and so holds nothing in this application).
+func (i *Impersonation) ActorUser() accesstypes.User {
+	if i.ActorID.Valid {
+		return accesstypes.User(i.ActorID.String())
+	}
+
+	return accesstypes.User(i.Actor)
 }
 
 // IsLocalActor reports whether the actor is a user of this application: no
@@ -83,8 +102,11 @@ const (
 // line logged within the request); applications, dashboards and alerting
 // should reference these constants rather than respell them.
 const (
-	// AttrImpersonationActor is the real user acting.
+	// AttrImpersonationActor is the real user acting, by username.
 	AttrImpersonationActor = "impersonation.actor"
+	// AttrImpersonationActorID is the id of the actor's account, for an actor who has one
+	// in this application.
+	AttrImpersonationActorID = "impersonation.actor_id"
 	// AttrImpersonationActorRealm is the application or IdP that authenticated the actor.
 	AttrImpersonationActorRealm = "impersonation.actor_realm"
 	// AttrImpersonationPrincipalKind is "User" or "Role".
@@ -124,7 +146,9 @@ func (i *Impersonation) PrincipalKind() string {
 	return PrincipalKindUser
 }
 
-// PrincipalName renders the impersonated user or role name for evidence.
+// PrincipalName renders the impersonated role's name, or the impersonated user as the
+// principal names them (the id of their account, for a session type whose users are
+// accounts), for evidence. The session's own username names the person beside it.
 func (i *Impersonation) PrincipalName() string {
 	if role, ok := i.Principal.Role(); ok {
 		return string(role)
@@ -143,6 +167,9 @@ func (i *Impersonation) Attributes() []Attribute {
 		{Key: AttrImpersonationPrincipal, Value: i.PrincipalName()},
 		{Key: AttrImpersonationMask, Value: i.Mask.String()},
 		{Key: AttrImpersonationSessionID, Value: i.SessionID.String()},
+	}
+	if i.ActorID.Valid {
+		attrs = append(attrs, Attribute{Key: AttrImpersonationActorID, Value: i.ActorID.String()})
 	}
 	if i.ActorRealm != "" {
 		attrs = append(attrs, Attribute{Key: AttrImpersonationActorRealm, Value: i.ActorRealm})
@@ -216,7 +243,8 @@ func ImpersonationFromCtx(ctx context.Context) (*Impersonation, bool) {
 // PrincipalFromCtx returns the authorization subject of the session in the
 // context: the principal a configured resolver chose for this request when it
 // did; otherwise the impersonation record's principal for an impersonated
-// session; otherwise the session user's own principal. Callers never branch on
+// session; otherwise the session user's own principal, the id of their account
+// (SessionData.User). Callers never branch on
 // whether the session is impersonated, or on whether a resolver is configured,
 // to obtain the subject. It panics when no session is in the context, like
 // FromCtx.
@@ -232,18 +260,35 @@ func PrincipalFromCtx(ctx context.Context) accesstypes.Principal {
 		return sess.Impersonation.Principal
 	}
 
-	return accesstypes.UserPrincipal(accesstypes.User(sess.Username))
+	return accesstypes.UserPrincipal(sess.User())
 }
 
-// ActorFromCtx returns the real user behind the session in the context: the
-// impersonation record's actor for an impersonated session, otherwise the
-// session's username.
+// ActorFromCtx returns the username of the real user behind the session in the
+// context: the impersonation record's actor for an impersonated session, otherwise the
+// session's username. It is what a person reads and what evidence carries; the
+// permission store names the same person by ActorUserFromCtx.
 func ActorFromCtx(ctx context.Context) string {
 	if imp, ok := ImpersonationFromCtx(ctx); ok {
 		return imp.Actor
 	}
 
 	return FromCtx(ctx).Username
+}
+
+// ActorUserFromCtx returns the real user behind the session in the context as the
+// permission store names them: the impersonation record's actor for an impersonated
+// session (Impersonation.ActorUser), otherwise the session's own user
+// (SessionData.User). It panics when no session is in the context, like FromCtx.
+func ActorUserFromCtx(ctx context.Context) accesstypes.User {
+	sess, ok := ctx.Value(CtxSessionInfo).(*SessionData)
+	if !ok {
+		panic(fmt.Sprintf("failed to find %s in request context", CtxSessionInfo))
+	}
+	if sess.Impersonation != nil {
+		return sess.Impersonation.ActorUser()
+	}
+
+	return sess.User()
 }
 
 // MaskFromCtx returns the permission mask of the session in the context: the

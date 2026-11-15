@@ -3,6 +3,7 @@ package impulse
 import (
 	"errors"
 	"reflect"
+	"regexp"
 	"testing"
 
 	"github.com/gofrs/uuid"
@@ -74,6 +75,62 @@ func TestNewUUID(t *testing.T) {
 			}
 			if got.IsNil() {
 				t.Error("UUID.IsNil() = true, want valid UUID", got)
+			}
+		})
+	}
+}
+
+// TestUUIDFromName pins the id of a name: the same namespace and name give the same id,
+// on every call and in every process (it is the version 5 id any implementation
+// derives, so the published id of python.org in the DNS namespace is the one expected),
+// another name or another namespace gives another, and the id reads back from its own
+// text, which is the canonical lower-case form.
+func TestUUIDFromName(t *testing.T) {
+	t.Parallel()
+
+	dns := UUID{UUID: uuid.NamespaceDNS}
+	pythonOrg := UUID{UUID: uuid.FromStringOrNil("886313e1-3b8a-5372-9b90-0c9aee199e5d")}
+	canonical := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+	tests := []struct {
+		name      string
+		namespace UUID
+		value     string
+		// wantPythonOrg is whether the id is the one of python.org in the DNS namespace.
+		wantPythonOrg bool
+	}{
+		{name: "the same namespace and name give the same id", namespace: dns, value: "python.org", wantPythonOrg: true},
+		{name: "a different name gives another id", namespace: dns, value: "python.com"},
+		{name: "a name that differs in case alone gives another id", namespace: dns, value: "Python.org"},
+		{name: "the empty name has an id of its own", namespace: dns, value: ""},
+		{name: "a different namespace gives another id", namespace: UUID{UUID: uuid.NamespaceURL}, value: "python.org"},
+		{name: "the nil namespace is a namespace like any other", namespace: NilUUID, value: "python.org"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := UUIDFromName(tt.namespace, tt.value)
+			if again := UUIDFromName(tt.namespace, tt.value); again != got {
+				t.Errorf("UUIDFromName() = %s, then %s: want the same id on every call", got, again)
+			}
+			if isPythonOrg := got == pythonOrg; isPythonOrg != tt.wantPythonOrg {
+				t.Errorf("UUIDFromName() = %s: it is the id of python.org in the DNS namespace (%s) = %v, want %v", got, pythonOrg, isPythonOrg, tt.wantPythonOrg)
+			}
+			if v := got.Version(); v != uuid.V5 {
+				t.Errorf("UUID.Version() = %v, want %v", v, uuid.V5)
+			}
+			if got.IsNil() {
+				t.Errorf("UUIDFromName() = %s, want an id that is not the nil id", got)
+			}
+			if text := got.String(); !canonical.MatchString(text) {
+				t.Errorf("UUID.String() = %q, want the canonical lower-case text of a version 5 id", text)
+			}
+			parsed, err := UUIDFromString(got.String())
+			if err != nil {
+				t.Fatalf("UUIDFromString(%q) error = %v", got.String(), err)
+			}
+			if diff := cmp.Diff(got, parsed); diff != "" {
+				t.Errorf("the id read back from its text (-want +got):\n%s", diff)
 			}
 		})
 	}

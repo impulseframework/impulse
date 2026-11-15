@@ -20,11 +20,12 @@ import (
 
 func (a *App) Commendations() http.HandlerFunc {
 	type commendation struct {
-		ID        impulse.UUID `json:"id"        index:"true" perm:"-"`
-		PilotID   impulse.UUID `json:"pilotId"   index:"true"`
-		Citation  string       `json:"citation"`
-		AwardedBy string       `json:"awardedBy"`
-		AwardedAt time.Time    `json:"awardedAt"`
+		ID              impulse.UUID `json:"id"              index:"true" perm:"-"`
+		PilotID         impulse.UUID `json:"pilotId"         index:"true"`
+		Citation        string       `json:"citation"`
+		AwardedByUserID string       `json:"awardedByUserId"`
+		AwardedByName   string       `json:"awardedByName"`
+		AwardedAt       time.Time    `json:"awardedAt"`
 	}
 
 	type response []map[string]any
@@ -78,9 +79,13 @@ func (a *App) Commendations() http.HandlerFunc {
 					if !row.Masked("citation") {
 						rmap["citation"] = rec.Citation
 					}
-				case "AwardedBy":
-					if !row.Masked("awardedBy") {
-						rmap["awardedBy"] = rec.AwardedBy
+				case "AwardedByUserID":
+					if !row.Masked("awardedByUserId") {
+						rmap["awardedByUserId"] = rec.AwardedByUserID
+					}
+				case "AwardedByName":
+					if !row.Masked("awardedByName") {
+						rmap["awardedByName"] = rec.AwardedByName
 					}
 				case "AwardedAt":
 					if !row.Masked("awardedAt") {
@@ -109,11 +114,12 @@ func (a *App) Commendations() http.HandlerFunc {
 
 func (a *App) Commendation() http.HandlerFunc {
 	type response struct {
-		ID        impulse.UUID `json:"id"        index:"true" perm:"-"`
-		PilotID   impulse.UUID `json:"pilotId"`
-		Citation  string       `json:"citation"`
-		AwardedBy string       `json:"awardedBy"`
-		AwardedAt time.Time    `json:"awardedAt"`
+		ID              impulse.UUID `json:"id"              index:"true" perm:"-"`
+		PilotID         impulse.UUID `json:"pilotId"`
+		Citation        string       `json:"citation"`
+		AwardedByUserID string       `json:"awardedByUserId"`
+		AwardedByName   string       `json:"awardedByName"`
+		AwardedAt       time.Time    `json:"awardedAt"`
 	}
 
 	decoder := NewQueryDecoder[resources.Commendation, response](a, accesstypes.Read)
@@ -155,9 +161,13 @@ func (a *App) Commendation() http.HandlerFunc {
 				if !row.Masked("citation") {
 					rmap["citation"] = rec.Citation
 				}
-			case "AwardedBy":
-				if !row.Masked("awardedBy") {
-					rmap["awardedBy"] = rec.AwardedBy
+			case "AwardedByUserID":
+				if !row.Masked("awardedByUserId") {
+					rmap["awardedByUserId"] = rec.AwardedByUserID
+				}
+			case "AwardedByName":
+				if !row.Masked("awardedByName") {
+					rmap["awardedByName"] = rec.AwardedByName
 				}
 			case "AwardedAt":
 				if !row.Masked("awardedAt") {

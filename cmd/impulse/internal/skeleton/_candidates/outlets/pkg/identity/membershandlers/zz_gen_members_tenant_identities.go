@@ -21,7 +21,7 @@ import (
 func (h *Handlers) MembersTenantIdentities() http.HandlerFunc {
 	type membersTenantIdentity struct {
 		ID            impulse.UUID `json:"id"            index:"true" perm:"-"`
-		Domain        string       `json:"domain"        index:"true"`
+		DomainID      string       `json:"domainId"      index:"true"`
 		UserID        impulse.UUID `json:"userId"        index:"true"`
 		Username      string       `json:"username"      index:"true"`
 		Method        string       `json:"method"        index:"true"`
@@ -79,9 +79,9 @@ func (h *Handlers) MembersTenantIdentities() http.HandlerFunc {
 					if !row.Masked("id") {
 						rmap["id"] = rec.ID
 					}
-				case "Domain":
-					if !row.Masked("domain") {
-						rmap["domain"] = rec.Domain
+				case "DomainID":
+					if !row.Masked("domainId") {
+						rmap["domainId"] = rec.DomainID
 					}
 				case "UserID":
 					if !row.Masked("userId") {
@@ -151,7 +151,7 @@ func (h *Handlers) MembersTenantIdentities() http.HandlerFunc {
 func (h *Handlers) MembersTenantIdentity() http.HandlerFunc {
 	type response struct {
 		ID            impulse.UUID `json:"id"            index:"true" perm:"-"`
-		Domain        string       `json:"domain"`
+		DomainID      string       `json:"domainId"`
 		UserID        impulse.UUID `json:"userId"`
 		Username      string       `json:"username"`
 		Method        string       `json:"method"`
@@ -197,9 +197,9 @@ func (h *Handlers) MembersTenantIdentity() http.HandlerFunc {
 				if !row.Masked("id") {
 					rmap["id"] = rec.ID
 				}
-			case "Domain":
-				if !row.Masked("domain") {
-					rmap["domain"] = rec.Domain
+			case "DomainID":
+				if !row.Masked("domainId") {
+					rmap["domainId"] = rec.DomainID
 				}
 			case "UserID":
 				if !row.Masked("userId") {

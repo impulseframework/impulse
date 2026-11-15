@@ -118,19 +118,19 @@ func TestDDL_keys(t *testing.T) {
 		{name: "roles", stmt: 0, want: []string{
 			`"Kind" TEXT NOT NULL`, `"Axis" TEXT NOT NULL`, `"Description" TEXT NOT NULL`,
 			`CONSTRAINT "AccessRolesKind" CHECK ("Kind" IN ('global', 'domain', 'every'))`,
-			`PRIMARY KEY ("Kind", "Axis", "Domain", "Role")`,
+			`PRIMARY KEY ("Kind", "Axis", "DomainId", "Role")`,
 		}},
 		{name: "user roles stand alone", stmt: 1, want: []string{
 			`"Kind" TEXT NOT NULL`, `"Axis" TEXT NOT NULL`,
 			`CONSTRAINT "AccessUserRolesKind" CHECK ("Kind" IN ('global', 'domain', 'every'))`,
-			`PRIMARY KEY ("Kind", "Axis", "Domain", "Role", "User")`,
+			`PRIMARY KEY ("Kind", "Axis", "DomainId", "Role", "UserId")`,
 		}},
-		{name: "user roles by user", stmt: 2, want: []string{`CREATE INDEX "AccessUserRolesByUser" ON "AccessUserRoles" ("User", "Kind", "Axis", "Domain")`}},
+		{name: "user roles by user", stmt: 2, want: []string{`CREATE INDEX "AccessUserRolesByUserId" ON "AccessUserRoles" ("UserId", "Kind", "Axis", "DomainId")`}},
 		{name: "role grants cascade from roles", stmt: 3, want: []string{
 			`"Kind" TEXT NOT NULL`, `"Axis" TEXT NOT NULL`,
 			`CONSTRAINT "AccessRoleGrantsKind" CHECK ("Kind" IN ('global', 'domain', 'every'))`,
-			`PRIMARY KEY ("Kind", "Axis", "Domain", "Role", "Permission", "Resource", "Field", "Condition")`,
-			`FOREIGN KEY ("Kind", "Axis", "Domain", "Role") REFERENCES "AccessRoles" ("Kind", "Axis", "Domain", "Role") ON DELETE CASCADE`,
+			`PRIMARY KEY ("Kind", "Axis", "DomainId", "Role", "Permission", "Resource", "Field", "Condition")`,
+			`FOREIGN KEY ("Kind", "Axis", "DomainId", "Role") REFERENCES "AccessRoles" ("Kind", "Axis", "DomainId", "Role") ON DELETE CASCADE`,
 		}},
 	}
 	for _, tt := range tests {

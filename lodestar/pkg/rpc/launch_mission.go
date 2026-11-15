@@ -26,7 +26,9 @@ type (
 		// @target
 		MissionID impulse.UUID
 		// @enumerate(Ships)
-		ShipID      impulse.UUID
+		ShipID impulse.UUID
+		// PilotUserID names the pilot who flies the sortie by the id of their account,
+		// the value Pilots.UserId holds.
 		PilotUserID string
 	}
 )

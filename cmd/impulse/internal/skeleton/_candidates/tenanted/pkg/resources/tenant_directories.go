@@ -35,7 +35,7 @@ type (
 	TenantDirectory struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		TenantID string `spanner:"TenantId"`
+		TenantID impulse.UUID `spanner:"TenantId"`
 		// @directoryMethod
 		Method string `spanner:"Method"`
 		// @directoryConnection

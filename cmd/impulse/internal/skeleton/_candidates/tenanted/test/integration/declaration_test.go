@@ -188,27 +188,6 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	}
 }
 
-// accountExists reports whether the staff auth holds a user under the username.
-func accountExists(ctx context.Context, t *testing.T, s *served, user string) bool {
-	t.Helper()
-
-	iter := s.db.Client.Single().Query(ctx, cloudspanner.Statement{
-		SQL:    "SELECT COUNT(*) FROM StaffSessionUsers WHERE Username = @user",
-		Params: map[string]any{"user": user},
-	})
-	defer iter.Stop()
-	row, err := iter.Next()
-	if err != nil {
-		t.Fatalf("counting accounts named %s: %v", user, err)
-	}
-	var n int64
-	if err := row.Columns(&n); err != nil {
-		t.Fatalf("reading the count of accounts named %s: %v", user, err)
-	}
-
-	return n > 0
-}
-
 // defaultSeats lists the tenant's declared directories' default seats, in the record's
 // order, an empty string for a row naming none.
 func defaultSeats(ctx context.Context, t *testing.T, b *browser, tenant string) []string {
@@ -257,15 +236,30 @@ func signedInThroughGoogle(ctx context.Context, t *testing.T, s *served) *browse
 	return b
 }
 
-// seat gives the user the tenant's administrator role in the tenant and waits for the
-// engine to answer it.
-func seat(ctx context.Context, t *testing.T, s *served, user accesstypes.User, tenant accesstypes.Domain) {
+// seat gives the person the tenant's administrator role in the tenant, held by the id of
+// their account, and waits for the engine to answer it.
+func seat(ctx context.Context, t *testing.T, s *served, username string, tenant accesstypes.Domain) {
 	t.Helper()
 
+	user := accesstypes.User(accountID(ctx, t, s, username))
 	if err := s.access.UserManager().AddUserRoles(ctx, accesstypes.DomainPolicyScope(tenant), user, "TenantAdministrator"); err != nil {
-		t.Fatalf("AddUserRoles(%s, %s) error = %v", user, tenant, err)
+		t.Fatalf("AddUserRoles(%s, %s) error = %v", username, tenant, err)
 	}
 	waitForDomains(ctx, t, s.access, user, []accesstypes.Domain{tenant})
+}
+
+// accountID finds the id of the account the staff auth holds under the username, for a
+// person a suite did not create itself (one a directory sign-in created): the id is how
+// the permission store and the generated management name the person.
+func accountID(ctx context.Context, t *testing.T, s *served, username string) string {
+	t.Helper()
+
+	user, err := s.auth.Session().API().UserByUsername(ctx, username)
+	if err != nil {
+		t.Fatalf("UserByUsername(%s) error = %v", username, err)
+	}
+
+	return user.ID.String()
 }
 
 // directoryOf reads the directory the user's identity came through, as the identities

@@ -7,15 +7,16 @@ import (
 	"context"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 )
 
-// RemoveStaffRole takes a role from a person of the Staff auth: the one held
-// in the global scope, in one domain (Domain), or in every domain (EveryDomain). A role
-// the person does not hold there is no error. The person's next request is served
-// without it.
+// RemoveStaffRole takes a role from a person of the Staff auth, named by the
+// id of their account: the one held in the global scope, in one domain (Domain), or in
+// every domain (EveryDomain). A role the person does not hold there is no error. The
+// person's next request is served without it.
 //
 // A person who removes a role from themselves keeps an administrator role nobody else
 // would hold where it is held (identity.WithAdministratorRoles names them). A person
@@ -26,7 +27,7 @@ import (
 // @outlet(default)
 // @answers(204)
 type RemoveStaffRole struct {
-	Username    string `validate:"required"`
+	UserID      impulse.UUID
 	Role        string `validate:"required"`
 	Domain      *string
 	EveryDomain bool
@@ -38,7 +39,7 @@ func (m *RemoveStaffRole) Execute(ctx context.Context, txn resource.ReadWriteTra
 	if err != nil {
 		return errors.Wrap(err, "identity.Scope()")
 	}
-	if err := client.manager.RemoveRole(ctx, txn, scope, m.Username, accesstypes.Role(m.Role)); err != nil {
+	if err := client.manager.RemoveRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role)); err != nil {
 		return errors.Wrap(err, "identity.Manager.RemoveRole()")
 	}
 

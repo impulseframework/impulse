@@ -27,13 +27,14 @@ func (DistressCall) DefaultConfig() resource.Config {
 // enforce; distressCallReadSets holds one Set per read operation.
 type distressCallRead struct {
 	ID            impulse.UUID `json:"id"            perm:"-"`
-	SectorID      string       `json:"sectorId"`
+	SectorID      impulse.UUID `json:"sectorId"`
 	Summary       string       `json:"summary"`
 	Severity      int64        `json:"severity"`
 	CallerContact *string      `json:"callerContact" pii:"true"`
 	Transcript    *string      `json:"-"`
 	CaseNumber    string       `json:"caseNumber"`
-	FiledBy       string       `json:"filedBy"`
+	FiledByUserID string       `json:"filedByUserId"`
+	FiledByName   string       `json:"filedByName"`
 	Position      *Position    `json:"position"`
 }
 
@@ -44,13 +45,14 @@ var distressCallReadSets resource.SetCache[DistressCall, distressCallRead]
 // routes enforce; distressCallWriteSets holds one Set per mutation.
 type distressCallWrite struct {
 	ID            impulse.UUID `json:"-"`
-	SectorID      string       `json:"-"`
+	SectorID      impulse.UUID `json:"-"`
 	Summary       string       `json:"summary"`
 	Severity      int64        `json:"severity"`
 	CallerContact *string      `json:"callerContact"`
 	Transcript    *string      `json:"transcript"`
 	CaseNumber    string       `json:"-"`
-	FiledBy       string       `json:"-"`
+	FiledByUserID string       `json:"-"`
+	FiledByName   string       `json:"-"`
 	Position      *Position    `json:"position"`
 }
 
@@ -179,7 +181,8 @@ func (c *DistressCallColumns) All() *DistressCallColumns {
 		"CallerContact",
 		"Transcript",
 		"CaseNumber",
-		"FiledBy",
+		"FiledByUserID",
+		"FiledByName",
 		"Position",
 	}
 
@@ -228,8 +231,14 @@ func (c *DistressCallColumns) CaseNumber() *DistressCallColumns {
 	return c
 }
 
-func (c *DistressCallColumns) FiledBy() *DistressCallColumns {
-	c.fields = append(c.fields, "FiledBy")
+func (c *DistressCallColumns) FiledByUserID() *DistressCallColumns {
+	c.fields = append(c.fields, "FiledByUserID")
+
+	return c
+}
+
+func (c *DistressCallColumns) FiledByName() *DistressCallColumns {
+	c.fields = append(c.fields, "FiledByName")
 
 	return c
 }
@@ -256,8 +265,8 @@ func (p DistressCallQueryPartialClause) ID() DistressCallQueryIdent[impulse.UUID
 	return DistressCallQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p DistressCallQueryPartialClause) SectorID() DistressCallQueryIdent[string] {
-	return DistressCallQueryIdent[string]{Ident: resource.NewIdent[string]("SectorID", p.partialClause, true)}
+func (p DistressCallQueryPartialClause) SectorID() DistressCallQueryIdent[impulse.UUID] {
+	return DistressCallQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("SectorID", p.partialClause, true)}
 }
 
 func (p DistressCallQueryPartialClause) Severity() DistressCallQueryIdent[int64] {
@@ -362,8 +371,12 @@ func (c *distressCallSort) CaseNumber() *DistressCallSort {
 	return c.addField("CaseNumber")
 }
 
-func (c *distressCallSort) FiledBy() *DistressCallSort {
-	return c.addField("FiledBy")
+func (c *distressCallSort) FiledByUserID() *DistressCallSort {
+	return c.addField("FiledByUserID")
+}
+
+func (c *distressCallSort) FiledByName() *DistressCallSort {
+	return c.addField("FiledByName")
 }
 
 func (c *distressCallSort) Position() *DistressCallSort {
@@ -450,7 +463,8 @@ func (p *DistressCallCreatePatch) Enforce(caller *resource.Caller) *DistressCall
 
 func (p *DistressCallCreatePatch) registerDefaultFuncs() {
 	p.patchSet.RegisterDefaultCreateFunc("CaseNumber", defaultCaseNumber)
-	p.patchSet.RegisterDefaultCreateFunc("FiledBy", currentUser)
+	p.patchSet.RegisterDefaultCreateFunc("FiledByUserID", currentUser)
+	p.patchSet.RegisterDefaultCreateFunc("FiledByName", currentUserName)
 }
 
 func (p *DistressCallCreatePatch) ID() impulse.UUID {
@@ -459,14 +473,14 @@ func (p *DistressCallCreatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *DistressCallCreatePatch) SetSectorID(v string) *DistressCallCreatePatch {
+func (p *DistressCallCreatePatch) SetSectorID(v impulse.UUID) *DistressCallCreatePatch {
 	p.patchSet.Set("SectorID", v)
 
 	return p
 }
 
-func (p *DistressCallCreatePatch) SectorID() string {
-	v, _ := p.patchSet.Get("SectorID").(string)
+func (p *DistressCallCreatePatch) SectorID() impulse.UUID {
+	v, _ := p.patchSet.Get("SectorID").(impulse.UUID)
 
 	return v
 }
@@ -563,20 +577,36 @@ func (p *DistressCallCreatePatch) CaseNumberIsSet() bool {
 	return p.patchSet.IsSet("CaseNumber")
 }
 
-func (p *DistressCallCreatePatch) SetFiledBy(v string) *DistressCallCreatePatch {
-	p.patchSet.Set("FiledBy", v)
+func (p *DistressCallCreatePatch) SetFiledByUserID(v string) *DistressCallCreatePatch {
+	p.patchSet.Set("FiledByUserID", v)
 
 	return p
 }
 
-func (p *DistressCallCreatePatch) FiledBy() string {
-	v, _ := p.patchSet.Get("FiledBy").(string)
+func (p *DistressCallCreatePatch) FiledByUserID() string {
+	v, _ := p.patchSet.Get("FiledByUserID").(string)
 
 	return v
 }
 
-func (p *DistressCallCreatePatch) FiledByIsSet() bool {
-	return p.patchSet.IsSet("FiledBy")
+func (p *DistressCallCreatePatch) FiledByUserIDIsSet() bool {
+	return p.patchSet.IsSet("FiledByUserID")
+}
+
+func (p *DistressCallCreatePatch) SetFiledByName(v string) *DistressCallCreatePatch {
+	p.patchSet.Set("FiledByName", v)
+
+	return p
+}
+
+func (p *DistressCallCreatePatch) FiledByName() string {
+	v, _ := p.patchSet.Get("FiledByName").(string)
+
+	return v
+}
+
+func (p *DistressCallCreatePatch) FiledByNameIsSet() bool {
+	return p.patchSet.IsSet("FiledByName")
 }
 
 func (p *DistressCallCreatePatch) SetPosition(v *Position) *DistressCallCreatePatch {
@@ -691,14 +721,14 @@ func (p *DistressCallUpdatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *DistressCallUpdatePatch) SetSectorID(v string) *DistressCallUpdatePatch {
+func (p *DistressCallUpdatePatch) SetSectorID(v impulse.UUID) *DistressCallUpdatePatch {
 	p.patchSet.Set("SectorID", v)
 
 	return p
 }
 
-func (p *DistressCallUpdatePatch) SectorID() string {
-	v, _ := p.patchSet.Get("SectorID").(string)
+func (p *DistressCallUpdatePatch) SectorID() impulse.UUID {
+	v, _ := p.patchSet.Get("SectorID").(impulse.UUID)
 
 	return v
 }
@@ -795,20 +825,36 @@ func (p *DistressCallUpdatePatch) CaseNumberIsSet() bool {
 	return p.patchSet.IsSet("CaseNumber")
 }
 
-func (p *DistressCallUpdatePatch) SetFiledBy(v string) *DistressCallUpdatePatch {
-	p.patchSet.Set("FiledBy", v)
+func (p *DistressCallUpdatePatch) SetFiledByUserID(v string) *DistressCallUpdatePatch {
+	p.patchSet.Set("FiledByUserID", v)
 
 	return p
 }
 
-func (p *DistressCallUpdatePatch) FiledBy() string {
-	v, _ := p.patchSet.Get("FiledBy").(string)
+func (p *DistressCallUpdatePatch) FiledByUserID() string {
+	v, _ := p.patchSet.Get("FiledByUserID").(string)
 
 	return v
 }
 
-func (p *DistressCallUpdatePatch) FiledByIsSet() bool {
-	return p.patchSet.IsSet("FiledBy")
+func (p *DistressCallUpdatePatch) FiledByUserIDIsSet() bool {
+	return p.patchSet.IsSet("FiledByUserID")
+}
+
+func (p *DistressCallUpdatePatch) SetFiledByName(v string) *DistressCallUpdatePatch {
+	p.patchSet.Set("FiledByName", v)
+
+	return p
+}
+
+func (p *DistressCallUpdatePatch) FiledByName() string {
+	v, _ := p.patchSet.Get("FiledByName").(string)
+
+	return v
+}
+
+func (p *DistressCallUpdatePatch) FiledByNameIsSet() bool {
+	return p.patchSet.IsSet("FiledByName")
 }
 
 func (p *DistressCallUpdatePatch) SetPosition(v *Position) *DistressCallUpdatePatch {

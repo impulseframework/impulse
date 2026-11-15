@@ -210,6 +210,24 @@ func (r *resourceGenerator) tenantSeatData(record *resourceInfo) (*tenantSeatDat
 	}, nil
 }
 
+// tenantClears names what the tenant record's delete clears a tenant through: the
+// application's accessor of the generated identity client of every auth whose
+// management the program generates, in declaration order, since each auth keeps its own
+// memberships, custom roles and invitations. It is empty for every other resource, and
+// for a program that generates no auth's management, whose memberships are the
+// application's own to remove.
+func (r *resourceGenerator) tenantClears(record *resourceInfo) []string {
+	if !record.IsTenant {
+		return nil
+	}
+	accessors := make([]string, 0, len(r.identity))
+	for _, inst := range r.identity {
+		accessors = append(accessors, inst.accessor())
+	}
+
+	return accessors
+}
+
 // tenantCreationIdentityAccessor is the application's accessor of the auth's generated
 // identity client, as the auth's generated handlers name it (identityInstance.accessor):
 // StaffIdentity.
@@ -326,9 +344,9 @@ type tenantCreationData struct {
 	Auth             string
 	IdentityAccessor string
 	RolesAccessor    string
-	// Key is the record's key as the request carries it; Fields are the request's
-	// fields, the key first; Setters are the create patch's setters, one per field
-	// after the key.
+	// Key is the record's key as the answer carries it, the id the create generates;
+	// Fields are the request's fields, the key not among them; Setters are the create
+	// patch's setters, one per field.
 	Key     *tenantCreationField
 	Fields  []*tenantCreationField
 	Setters []string
@@ -349,8 +367,11 @@ type tenantCreationData struct {
 // the route's undo reads it off the create patch (`directory.ID()`, every key column of
 // a compound key in order), the arguments of the record's delete patch constructor.
 type tenantCreationDirectory struct {
-	Record          string
-	TenantField     string
+	Record      string
+	TenantField string
+	// TenantValue is the new tenant's id as the directories record's tenant column takes
+	// it: the id itself where the column is an id, its text where the column is a string.
+	TenantValue     string
 	MethodField     string
 	ConnectionField string
 	Keys            string
@@ -369,16 +390,15 @@ type tenantCreationField struct {
 }
 
 // tenantCreationFields are the record's fields as the create-your-tenant request
-// carries them: the key, required, then every field the wire may write at create,
-// required where the column is. The directory-only flag is not among them: a new
-// tenant declares nothing beyond its creator's directory, and whoever holds the
-// record's Update grant sets the flag after.
+// carries them: every field the wire may write at create, required where the column
+// is. The key is not among them: the create generates it, and the answer carries it.
+// Nor is the directory-only flag: a new tenant declares nothing beyond its creator's
+// directory, and whoever holds the record's Update grant sets the flag after.
 func tenantCreationFields(record *resourceInfo) (key *tenantCreationField, fields []*tenantCreationField, setters []string) {
 	for _, field := range record.Fields {
 		switch {
 		case field.IsPrimaryKey:
-			key = &tenantCreationField{Name: field.Name(), Type: field.Type(), Wire: field.WireName(), Tags: field.JSONTag() + ` validate:"required"`}
-			fields = append(fields, key)
+			key = &tenantCreationField{Name: field.Name(), Type: field.Type(), Wire: field.WireName(), Tags: field.JSONTag()}
 		case field.IsOutputOnly(), field == record.DirectoryOnlyField:
 			// Server-owned, or the declaration's flag: the wire cannot write it here.
 		default:
@@ -469,6 +489,7 @@ func tenantCreationDirectoryData(record *resourceInfo) *tenantCreationDirectory 
 	return &tenantCreationDirectory{
 		Record:          directories.Name(),
 		TenantField:     directories.DomainBinding.Anchor.Name(),
+		TenantValue:     tenantValueFor(directories.DomainBinding.Anchor),
 		MethodField:     directories.DirectoryMethodField.Name(),
 		ConnectionField: directories.DirectoryConnectionField.Name(),
 		Keys:            strings.Join(keys, ", "),
@@ -512,10 +533,16 @@ func (r *resourceGenerator) accumulateTenantCreationRoute(outlets []*routerOutle
 	return routerTestRoutes
 }
 
+// tenantCreationRefusedBody is the body the matrix sends the create-your-tenant route: it
+// names a field the route does not take, which the decoder refuses whatever the record
+// requires, so the admitted half of the case meets validation and never creates a
+// tenant, a record with no required column included.
+const tenantCreationRefusedBody = `{"notAFieldOfTheRecord":true}`
+
 // tenantCreationAuthzCases are the matrix's cases for the create-your-tenant route,
 // the opposite of a permission gate: a caller holding a grant anywhere holds a tenant
 // and is refused, and a caller holding none is admitted past the gate, where the
-// minimal body meets its validation (NoGrant renders both halves).
+// body meets its validation (NoGrant renders both halves).
 func (r *resourceGenerator) tenantCreationAuthzCases() []authzCase {
 	record := r.tenantRecord()
 	if record == nil || !record.TenantCreation.SelfService() {
@@ -528,7 +555,7 @@ func (r *resourceGenerator) tenantCreationAuthzCases() []authzCase {
 			Name:    authzCaseName(route.HandlerFunc, outlet),
 			Method:  httpMethodConst(route.Method),
 			URL:     route.TestURL,
-			Body:    emptyObjectBody,
+			Body:    tenantCreationRefusedBody,
 			NoGrant: true,
 		})
 	}
@@ -548,6 +575,8 @@ type tsTenantCreation struct {
 	RouteConstant string
 	RequestType   string
 	Fields        []*tsAPIField
+	// KeyWire is the key's name in the answer: the id the route generated.
+	KeyWire string
 }
 
 // tenantCreationClientData is the create-your-tenant block of a client generated for
@@ -573,7 +602,8 @@ func (t *typescriptGenerator) tenantCreationClientData() *tsTenantCreation {
 	for _, field := range record.Fields {
 		switch {
 		case field.IsPrimaryKey:
-			out.Fields = append(out.Fields, newTSAPIField(field, true))
+			// The route generates the key and answers it: no field of the body.
+			out.KeyWire = field.WireName()
 		case field.IsOutputOnly(), field == record.DirectoryOnlyField:
 			// Server-owned, or the declaration's flag: the wire cannot write it here.
 		default:
@@ -582,4 +612,15 @@ func (t *typescriptGenerator) tenantCreationClientData() *tsTenantCreation {
 	}
 
 	return out
+}
+
+// tenantValueFor is the expression that hands a new tenant's id (the variable id, an
+// impulse.UUID) to a tenant column's setter: the id where the column is one, its text
+// where the column is a string.
+func tenantValueFor(column *resourceField) string {
+	if column.Type() == impulseUUIDGoType {
+		return "id"
+	}
+
+	return "id.String()"
 }

@@ -58,7 +58,7 @@ func assertNoCrewAccount(ctx context.Context, t *testing.T, s *served, username,
 	for _, held := range []struct{ table, column, value string }{
 		{"CrewSessionUsers", "Username", username},
 		{"CrewSessionIdentities", "Subject", "skipauth-" + username},
-		{"CrewUserRoles", "User", username},
+		{"CrewUserRoles", "UserId", username},
 		{"CrewSessions", "Username", username},
 	} {
 		if n := countRowsOf(ctx, t, s, held.table, held.column, held.value); n != 0 {
@@ -203,7 +203,7 @@ func TestSignInRoles_invitationSpentWithItsRolesOrNotAtAll(t *testing.T) {
 	if n := countRowsOf(ctx, t, s, "CrewSessionUsers", "Username", ensign); n != 1 {
 		t.Errorf("CrewSessionUsers holds %d row(s) of the ensign after the failed sign-up, want the 1 the sign-up made before the sign-in", n)
 	}
-	if n := countRowsOf(ctx, t, s, "CrewUserRoles", "User", ensign); n != 0 {
+	if n := countRowsOf(ctx, t, s, "CrewUserRoles", "UserId", ensign); n != 0 {
 		t.Errorf("CrewUserRoles holds %d row(s) of the ensign after the failed sign-up, want none", n)
 	}
 

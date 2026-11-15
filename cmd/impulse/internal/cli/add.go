@@ -789,9 +789,9 @@ the package (the file its Roles() embeds and hands to the permission engine), an
 level constructs it beside that auth. The package carries a foothold (foothold.go): the
 first administrator the migrate command seeds while the auth's users table holds no rows,
 a user named administrator with the password the stack generates for a password auth, or
-the administrator role memberships under a sign-in name the placement names for an auth
-whose roles the application assigns; its roles, its setting in the data level and its
-seeding from pkg/deploy are handed to the agent.
+a user without a password under a sign-in name the placement names, which that person's
+first sign-in links to, for an auth whose roles the application assigns; its roles, its
+setting in the data level and its seeding from pkg/deploy are handed to the agent.
 
 --method names the sign-in methods the Auth starts with, repeatable: password (the default
 when none is given), azure:<registration> (Microsoft Entra over OpenID Connect),
@@ -816,8 +816,8 @@ declaration, so the router serves the sign-up routes); members and invited descr
 directory and are refused with the password method alone. --username-is-email makes the
 password method's sign-in name the person's email address (session.UsernameIsEmail(), and
 .UsernameIsEmail() on the declaration): the generated management derives the address from
-the username, and a verified change of address renames the user, the roles following the
-name. Every auth
+the username, and a verified change of address renames the user, whose roles stay with
+the account. Every auth
 mails, through the application's one sender (Settings.Mail) and to the login page of the
 surface bound to it (Settings.MailLoginURL): an administrator invites a person by address
 with the roles the invitation gives, and a signed-in person adds and verifies an address.
@@ -900,7 +900,7 @@ and .OpenSignUp() on the declaration, so the router serves the sign-up routes).
 --username-is-email makes the password method's sign-in name the person's email address
 (session.UsernameIsEmail(), and .UsernameIsEmail() on the declaration): the generated
 management derives the address from the username, and a verified change of address renames
-the user, the roles following the name.
+the user, whose roles stay with the account.
 
 --authority is who owns role membership for a directory method, asked when not given:
 directory (the directory's roles are synchronized at every sign-in, allowed with one

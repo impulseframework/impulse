@@ -23,10 +23,12 @@ import { SectorSignInComponent } from './sector-sign-in.component';
 // too) flips the flag; a session without the grants sees the sentences and nothing is
 // requested.
 
-const workspace: SectorDirectories = { id: 'd-1', sectorId: 'anvil', method: 'google', connection: 'example' };
+/** Anvil's id: a sector's key is an id its create generates, and the name is a field. */
+const anvilID = 'a1111111-1111-4111-8111-111111111111';
+const workspace: SectorDirectories = { id: 'd-1', sectorId: anvilID, method: 'google', connection: 'example' };
 const entra: SectorDirectories = {
   id: 'd-2',
-  sectorId: 'anvil',
+  sectorId: anvilID,
   method: 'azure',
   connection: '6f2c1b7e-3d4a-4c1e-9b2a-1f0e8d7c6b5a',
   defaultSeat: 'SectorCrew',
@@ -55,16 +57,16 @@ function serverFor(digests: { global: PermissionDigest; anvil: PermissionDigest 
       case `${environment.apiUrl}/user/session`:
         return { status: 200, body: { authenticated: true, username: 'someone' } };
       case `${environment.apiUrl}/permission-digest`:
-        return { status: 200, body: url.searchParams.get('domain') === 'anvil' ? digests.anvil : digests.global };
+        return { status: 200, body: url.searchParams.get('domain') === anvilID ? digests.anvil : digests.global };
       case `${environment.apiUrl}/user-domains`:
-        return { status: 200, body: [{ domain: 'anvil', name: 'Anvil' }] };
+        return { status: 200, body: [{ domain: anvilID, name: 'Anvil' }] };
       case `${environment.apiUrl}/features`:
         return { status: 200, body: { enabled: [] } };
-      case `${environment.apiUrl}/sectors/anvil`:
-        return { status: 200, body: { id: 'anvil', name: 'Anvil', directoryOnly: false } };
-      case `${environment.apiUrl}/sectors/anvil/sector-directories`:
+      case `${environment.apiUrl}/sectors/${anvilID}`:
+        return { status: 200, body: { id: anvilID, name: 'Anvil', directoryOnly: false } };
+      case `${environment.apiUrl}/sectors/${anvilID}/sector-directories`:
         return { status: 200, body: directories };
-      case `${environment.apiUrl}/sectors/anvil/crew-sector-roles`:
+      case `${environment.apiUrl}/sectors/${anvilID}/crew-sector-roles`:
         return { status: 200, body: sectorRoles };
       // Every write rides the consolidated route as one operation.
       case `${environment.apiUrl}/resources`:
@@ -79,7 +81,7 @@ describe('SectorSignInComponent', () => {
   let fixture: ComponentFixture<SectorSignInComponent>;
   let transport: ScriptedTransport;
 
-  /** Signs in, loads the global and anvil digests as entering the sector does, and renders the page for anvil. */
+  /** Signs in, loads the sector list and the global and Anvil digests as entering the sector does, and renders the page for Anvil. */
   const pageFor = async (digests: { global: PermissionDigest; anvil: PermissionDigest }): Promise<void> => {
     transport = scriptedTransport(serverFor(digests));
     await TestBed.configureTestingModule({
@@ -90,11 +92,12 @@ describe('SectorSignInComponent', () => {
     }).compileComponents();
     await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
     const client = TestBed.inject<ClientBase>(RESOURCE_CLIENT);
+    await client.permissions.loadDomains();
     await client.permissions.loadDigest();
-    await client.permissions.loadDigest('anvil' as Domain);
+    await client.permissions.loadDigest(anvilID as Domain);
     await TestBed.inject(ApplicationRef).whenStable();
     fixture = TestBed.createComponent(SectorSignInComponent);
-    fixture.componentRef.setInput('sectorID', 'anvil');
+    fixture.componentRef.setInput('sectorID', anvilID);
     fixture.detectChanges();
     await TestBed.inject(ApplicationRef).whenStable();
     fixture.detectChanges();
@@ -116,7 +119,8 @@ describe('SectorSignInComponent', () => {
   it("the sector's marshal lists, declares and withdraws directories, and is told who sets directory only", async () => {
     await pageFor(marshal);
 
-    expect(texts('h1')).toEqual(['Who may enter anvil']);
+    // The marshal cannot read the sector record: the name is the one the session's sector list carries.
+    expect(texts('h1')).toEqual(['Who may enter Anvil']);
     expect(texts('.directories td:first-child')).toEqual(['Google Workspace', 'Microsoft Entra']);
     expect(texts('.directories code')).toEqual(['example', '6f2c1b7e-3d4a-4c1e-9b2a-1f0e8d7c6b5a']);
     expect(element().querySelectorAll('.seat-picker').length).toBe(2);
@@ -128,14 +132,14 @@ describe('SectorSignInComponent', () => {
     await fixture.componentInstance.declare();
     await settle();
     expect(writes()).toEqual([
-      { op: 'add', path: '/sectors/anvil/sector-directories', value: { method: 'google', connection: 'partner.example' } },
+      { op: 'add', path: `/sectors/${anvilID}/sector-directories`, value: { method: 'google', connection: 'partner.example' } },
     ]);
 
     await fixture.componentInstance.withdraw(entra);
     await settle();
     expect(writes()).toEqual([
-      { op: 'add', path: '/sectors/anvil/sector-directories', value: { method: 'google', connection: 'partner.example' } },
-      { op: 'remove', path: '/sectors/anvil/sector-directories/d-2' },
+      { op: 'add', path: `/sectors/${anvilID}/sector-directories`, value: { method: 'google', connection: 'partner.example' } },
+      { op: 'remove', path: `/sectors/${anvilID}/sector-directories/d-2` },
     ]);
   });
 
@@ -151,15 +155,15 @@ describe('SectorSignInComponent', () => {
     await fixture.componentInstance.seat(workspace, 'SectorCrew');
     await settle();
     expect(writes()).toEqual([
-      { op: 'patch', path: '/sectors/anvil/sector-directories/d-1', value: { defaultSeat: 'SectorCrew' } },
+      { op: 'patch', path: `/sectors/${anvilID}/sector-directories/d-1`, value: { defaultSeat: 'SectorCrew' } },
     ]);
 
     // Clearing the seat sends an explicit null: the column is cleared, not left alone.
     await fixture.componentInstance.seat(entra, '');
     await settle();
     expect(writes()).toEqual([
-      { op: 'patch', path: '/sectors/anvil/sector-directories/d-1', value: { defaultSeat: 'SectorCrew' } },
-      { op: 'patch', path: '/sectors/anvil/sector-directories/d-2', value: { defaultSeat: null } },
+      { op: 'patch', path: `/sectors/${anvilID}/sector-directories/d-1`, value: { defaultSeat: 'SectorCrew' } },
+      { op: 'patch', path: `/sectors/${anvilID}/sector-directories/d-2`, value: { defaultSeat: null } },
     ]);
   });
 
@@ -181,7 +185,7 @@ describe('SectorSignInComponent', () => {
 
     await fixture.componentInstance.close(true);
     await settle();
-    expect(writes()).toEqual([{ op: 'patch', path: '/sectors/anvil', value: { directoryOnly: true } }]);
+    expect(writes()).toEqual([{ op: 'patch', path: `/sectors/${anvilID}`, value: { directoryOnly: true } }]);
   });
 
   it('a session without the grants sees the sentences, and nothing is requested under the sector', async () => {
@@ -192,7 +196,7 @@ describe('SectorSignInComponent', () => {
       'Your role does not cover the sector record, which carries this setting.',
     ]);
     expect(element().querySelector('.declare-form')).toBeNull();
-    expect(transport.requests.map((r) => r.url.replace(/\?.*$/, '')).filter((u) => u.includes('/sectors/anvil'))).toEqual([]);
+    expect(transport.requests.map((r) => r.url.replace(/\?.*$/, '')).filter((u) => u.includes(`/sectors/${anvilID}`))).toEqual([]);
   });
 
   // Opened by its address (a reload, a bookmark), the page renders before the sector's
@@ -207,13 +211,13 @@ describe('SectorSignInComponent', () => {
     }).compileComponents();
     await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
     fixture = TestBed.createComponent(SectorSignInComponent);
-    fixture.componentRef.setInput('sectorID', 'anvil');
+    fixture.componentRef.setInput('sectorID', anvilID);
     await settle();
     expect(texts('.empty')).toContain('Your role in this sector does not cover its directories.');
 
     const client = TestBed.inject<ClientBase>(RESOURCE_CLIENT);
     await client.permissions.loadDigest();
-    await client.permissions.loadDigest('anvil' as Domain);
+    await client.permissions.loadDigest(anvilID as Domain);
     await settle();
     await settle();
 

@@ -8,7 +8,8 @@ a real Spanner instance" procedure targets. Every script reads that target from 
 environment variables the application does.
 
 - `shapes/*.sql`: one statement per shape, the renderer's own text with its parameters
-  bound to literals from the seed (`'anvil'`, `'lead'`, the enumeration ids). The first
+  bound to literals from the seed (Anvil's id, the id of the flight lead's account, which
+  is how the permission store names a person, the enumeration ids). The first
   comment line of each file says what the shape is and where its text came from.
 - `plans.sh <output-dir> [shape...]`: runs every shape in PROFILE mode and saves Spanner's
   plan with per-node execution statistics, one file per shape.

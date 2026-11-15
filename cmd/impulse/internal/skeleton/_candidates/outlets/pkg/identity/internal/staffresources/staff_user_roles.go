@@ -9,20 +9,21 @@ type (
 	// StaffUserRole is one role a person of the Staff auth holds: a row of
 	// StaffUserRoles, the permission store's memberships table. Kind, Axis and
 	// Domain spell where the membership is held as the store writes them (global, one
-	// domain, or every domain), and User is the person's username.
+	// domain, or every domain), and UserID is the person: the id of their account, as
+	// text, which is how the permission store names anyone.
 	//
 	// @resource
 	// @suppress(readHandler)
 	// @suppress(patchHandler)
 	// @outlet(default)
-	// @order(User asc)
+	// @order(UserID asc)
 	// @page(default: 25, max: 200)
 	StaffUserRole struct {
 		Kind      string    `spanner:"Kind"`
 		Axis      string    `spanner:"Axis"`
-		Domain    string    `spanner:"Domain"`
+		DomainID  string    `spanner:"DomainId"`
 		Role      string    `spanner:"Role"`
-		User      string    `spanner:"User"`
+		UserID    string    `spanner:"UserId"`
 		CreatedAt time.Time `spanner:"CreatedAt"`
 	}
 )

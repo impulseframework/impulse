@@ -506,6 +506,38 @@ func (r *TenantRoster) Name(domain accesstypes.Domain) string {
 	return (*names)[domain]
 }
 
+// Named answers the tenant that carries the name, as the record's name column held it
+// at the last read (WithTenantNames), from the copy: no read, no wait. A tenant's key is
+// an id nobody reads, so what names a tenant by hand names it by its name: a
+// development bootstrap reads its logins' tenants this way. A name no tenant carries
+// and a name more than one tenant carries are errors: the first names nothing, and the
+// second does not say which. A nil roster and one that reads no names hold no name.
+func (r *TenantRoster) Named(name string) (accesstypes.Domain, error) {
+	if r == nil {
+		return "", errors.Newf("resource: tenant roster: no tenant is named %q: the application wired no roster", name)
+	}
+	names := r.names.Load()
+	if names == nil {
+		return "", errors.Newf("resource: tenant roster: no tenant is named %q: the roster holds no names (WithTenantNames, and a read)", name)
+	}
+	var found []accesstypes.Domain
+	for domain, held := range *names {
+		if held == name {
+			found = append(found, domain)
+		}
+	}
+	switch len(found) {
+	case 0:
+		return "", errors.Newf("resource: tenant roster: no tenant is named %q", name)
+	case 1:
+		return found[0], nil
+	default:
+		slices.Sort(found)
+
+		return "", errors.Newf("resource: tenant roster: %d tenants are named %q (%v): the name does not say which", len(found), name, found)
+	}
+}
+
 // Has reports whether the domain is a tenant the roster holds. It loads the set and
 // looks the domain up: no read, no wait. A domain the set does not hold is unknown,
 // and every domain is unknown to a nil roster.

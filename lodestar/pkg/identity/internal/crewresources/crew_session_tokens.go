@@ -13,7 +13,7 @@ type (
 	// CrewSessionToken is one bearer token the Crew auth issued: a row of
 	// CrewSessionTokens. The token itself is held by whoever it was issued to and its
 	// hash is not a field, so neither is ever read here. A token is live while it is not
-	// revoked and not expired; the tokens of one device authorization share a Family.
+	// revoked and not expired; the tokens of one device authorization share a family.
 	//
 	// @resource
 	// @suppress(patchHandler)
@@ -26,7 +26,7 @@ type (
 		UserID        impulse.UUID  `spanner:"UserId"`
 		Outlet        string        `spanner:"Outlet"`
 		Name          *string       `spanner:"Name"`
-		Family        *impulse.UUID `spanner:"Family"`
+		FamilyID      *impulse.UUID `spanner:"FamilyId"`
 		ClientID      *string       `spanner:"ClientId"`
 		CreatedAt     time.Time     `spanner:"CreatedAt"`
 		ExpiresAt     time.Time     `spanner:"ExpiresAt"`

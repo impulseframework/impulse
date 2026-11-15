@@ -45,7 +45,7 @@ func TestMigrations_listIndexes(t *testing.T) {
 				tt.address,
 				usersIndex,
 				"CREATE INDEX StaffSessionIdentitiesByUserId ON StaffSessionIdentities(UserId) STORING (Method, Connection, Subject, Tenant, EmailAtLink, CreatedAt, LastUsedAt);",
-				"CREATE NULL_FILTERED INDEX StaffSessionMailLinksByTenant ON StaffSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);",
+				"CREATE NULL_FILTERED INDEX StaffSessionMailLinksByTenantId ON StaffSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);",
 			} {
 				if !strings.Contains(up.String(), statement) {
 					t.Errorf("the migrations lack %q", statement)
@@ -54,7 +54,7 @@ func TestMigrations_listIndexes(t *testing.T) {
 			for _, statement := range []string{
 				"DROP INDEX StaffSessionUsersByUsername;",
 				"DROP INDEX StaffSessionIdentitiesByUserId;",
-				"DROP INDEX StaffSessionMailLinksByTenant;",
+				"DROP INDEX StaffSessionMailLinksByTenantId;",
 			} {
 				if !strings.Contains(down.String(), statement) {
 					t.Errorf("the down migrations lack %q", statement)
@@ -62,9 +62,9 @@ func TestMigrations_listIndexes(t *testing.T) {
 			}
 			// Each index is dropped before its table.
 			for index, table := range map[string]string{
-				"DROP INDEX StaffSessionUsersByUsername;":    "DROP TABLE StaffSessionUsers;",
-				"DROP INDEX StaffSessionMailLinksByTenant;":  "DROP TABLE StaffSessionMailLinks;",
-				"DROP INDEX StaffSessionIdentitiesByUserId;": "DROP TABLE StaffSessionIdentities;",
+				"DROP INDEX StaffSessionUsersByUsername;":     "DROP TABLE StaffSessionUsers;",
+				"DROP INDEX StaffSessionMailLinksByTenantId;": "DROP TABLE StaffSessionMailLinks;",
+				"DROP INDEX StaffSessionIdentitiesByUserId;":  "DROP TABLE StaffSessionIdentities;",
 			} {
 				if strings.Index(down.String(), index) > strings.Index(down.String(), table) {
 					t.Errorf("%q comes after %q", index, table)

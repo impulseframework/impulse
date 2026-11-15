@@ -26,13 +26,15 @@ import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/config"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/pkg/deploy"
 	initiator "github.com/impulseframework/impulse/db"
+	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 )
 
 // usersPath is the committed development identities: the staff logins with plaintext
 // passwords and their role assignments, the members (the portal's people, who sign in
-// through the directory and so get no password here, only their roles in the members
-// store), and the service accounts the machine outlet's API key binds requests to.
+// through the directory and so get no password here: an account under the name the
+// directory presents, and its roles in the members store), and the service accounts the
+// machine outlet's API key binds requests to.
 // Development only — a deployed application's membership comes from its identity
 // provider or its administration surface.
 const usersPath = "cmd/bootstrap/users.json"
@@ -41,33 +43,40 @@ const usersPath = "cmd/bootstrap/users.json"
 type devIdentities struct {
 	Users []devUser `json:"users"`
 	// Members are the portal's people: the directory proves who they are (under the
-	// skipAuth build tag, APP_USERNAME does), and the application assigns their roles,
-	// so a member here is role assignments in the members store and nothing more.
+	// skipAuth build tag, APP_USERNAME does), and the application assigns their roles.
+	// A role is held by an account, so a member here is a user without a password under
+	// the name the directory presents, which the member's first sign-in links to, and
+	// the roles that user holds in the members store.
 	Members []devMember `json:"members"`
 }
 
 // devRoles is an identity's role memberships by where each is held, mirroring
 // accesstypes.PolicyScope: the global partition, every tenant domain (one membership
 // that reaches every tenant, the seeded ones and those created later), and single
-// tenant domains. Every identities file carries the three keys in this order.
+// tenant domains. Every identities file carries the three keys in this order. A single
+// tenant is named by its name, since its key is an id nobody types: the bootstrap finds
+// the tenant that carries the name (resource.TenantRoster.Named) and refuses a name no
+// tenant or more than one tenant carries.
 type devRoles struct {
-	Global      []accesstypes.Role                        `json:"global"`
-	EveryDomain []accesstypes.Role                        `json:"everyDomain"`
-	Domains     map[accesstypes.Domain][]accesstypes.Role `json:"domains"`
+	Global      []accesstypes.Role            `json:"global"`
+	EveryDomain []accesstypes.Role            `json:"everyDomain"`
+	Domains     map[string][]accesstypes.Role `json:"domains"`
 }
 
-// devUser is one development login.
+// devUser is one development login: User is its username. The roles are held by the id
+// of the account the bootstrap creates under it, which is how the permission store names
+// a person.
 type devUser struct {
-	User     accesstypes.User `json:"user"`
-	Password string           `json:"password"`
-	Roles    devRoles         `json:"roles"`
+	User     string   `json:"user"`
+	Password string   `json:"password"`
+	Roles    devRoles `json:"roles"`
 }
 
-// devMember is one development member: role assignments in the members store, keyed by
-// the username the directory will present.
+// devMember is one development member: User is the username the directory will
+// present, and the roles are held by the id of the account created under it.
 type devMember struct {
-	User  accesstypes.User `json:"user"`
-	Roles devRoles         `json:"roles"`
+	User  string   `json:"user"`
+	Roles devRoles `json:"roles"`
 }
 
 func main() {
@@ -167,22 +176,27 @@ func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 	}
 
 	for _, user := range identities.Users {
-		if _, err := data.Staff().Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{
-			Username: string(user.User),
+		id, err := data.Staff().Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{
+			Username: user.User,
 			Password: &user.Password,
-		}); err != nil {
+		})
+		if err != nil {
 			return errors.Wrapf(err, "session.AuthAPI.CreateSessionUser(): user %s", user.User)
 		}
 		fmt.Printf("Created login %s\n", user.User)
 
-		if err := assignRoles(ctx, data.UserManager(), user.User, user.Roles); err != nil {
+		if err := assignRoles(ctx, data.UserManager(), data.TenantRoster(), user.User, accesstypes.User(id.String()), user.Roles); err != nil {
 			return err
 		}
 	}
 
 	for _, member := range identities.Members {
-		fmt.Printf("Seeding member %s\n", member.User)
-		if err := assignRoles(ctx, data.Members().Access().UserManager(), member.User, member.Roles); err != nil {
+		id, err := data.Members().Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: member.User})
+		if err != nil {
+			return errors.Wrapf(err, "session.AuthAPI.CreateSessionUser(): member %s", member.User)
+		}
+		fmt.Printf("Created member %s\n", member.User)
+		if err := assignRoles(ctx, data.Members().Access().UserManager(), data.TenantRoster(), member.User, accesstypes.User(id.String()), member.Roles); err != nil {
 			return err
 		}
 	}
@@ -191,26 +205,32 @@ func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 }
 
 // assignRoles writes the identity's memberships where each is held: the global partition
-// first, then every tenant domain, then each single domain in sorted order.
-func assignRoles(ctx context.Context, manager access.UserManager, user accesstypes.User, roles devRoles) error {
+// first, then every tenant domain, then each single tenant in the order of the names,
+// each found by its name in the roster. user is the account the roles are held by, the
+// id of the login's user, and login its username, which the lines printed read.
+func assignRoles(ctx context.Context, manager access.UserManager, tenants *resource.TenantRoster, login string, user accesstypes.User, roles devRoles) error {
 	if len(roles.Global) > 0 {
 		if err := manager.AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), user, roles.Global...); err != nil {
-			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in the global partition", user)
+			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in the global partition", login)
 		}
-		fmt.Printf("Assigned %v to %s in the global partition\n", roles.Global, user)
+		fmt.Printf("Assigned %v to %s in the global partition\n", roles.Global, login)
 	}
 	if len(roles.EveryDomain) > 0 {
 		if err := manager.AddUserRoles(ctx, accesstypes.EveryDomainPolicyScope(), user, roles.EveryDomain...); err != nil {
-			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in every domain", user)
+			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in every domain", login)
 		}
-		fmt.Printf("Assigned %v to %s in every domain\n", roles.EveryDomain, user)
+		fmt.Printf("Assigned %v to %s in every domain\n", roles.EveryDomain, login)
 	}
-	for _, domain := range slices.Sorted(maps.Keys(roles.Domains)) {
-		domainRoles := roles.Domains[domain]
-		if err := manager.AddUserRoles(ctx, accesstypes.DomainPolicyScope(domain), user, domainRoles...); err != nil {
-			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in domain %s", user, domain)
+	for _, name := range slices.Sorted(maps.Keys(roles.Domains)) {
+		domain, err := tenants.Named(name)
+		if err != nil {
+			return errors.Wrapf(err, "resource.TenantRoster.Named(): user %s", login)
 		}
-		fmt.Printf("Assigned %v to %s in domain %s\n", domainRoles, user, domain)
+		domainRoles := roles.Domains[name]
+		if err := manager.AddUserRoles(ctx, accesstypes.DomainPolicyScope(domain), user, domainRoles...); err != nil {
+			return errors.Wrapf(err, "access.UserManager.AddUserRoles(): user %s in the tenant %s (%s)", login, name, domain)
+		}
+		fmt.Printf("Assigned %v to %s in the tenant %s (%s)\n", domainRoles, login, name, domain)
 	}
 
 	return nil

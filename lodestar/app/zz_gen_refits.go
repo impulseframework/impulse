@@ -21,13 +21,14 @@ import (
 
 func (a *App) Refits() http.HandlerFunc {
 	type refit struct {
-		ID          impulse.UUID        `json:"id"          index:"true" perm:"-"`
-		ShipID      impulse.UUID        `json:"shipId"      index:"true"`
-		StatusID    string              `json:"statusId"    index:"true"`
-		Estimate    decimal.NullDecimal `json:"estimate"`
-		InspectedAt *time.Time          `json:"inspectedAt"`
-		OpenedBy    string              `json:"openedBy"`
-		Notes       *string             `json:"notes"`
+		ID             impulse.UUID        `json:"id"             index:"true" perm:"-"`
+		ShipID         impulse.UUID        `json:"shipId"         index:"true"`
+		StatusID       string              `json:"statusId"       index:"true"`
+		Estimate       decimal.NullDecimal `json:"estimate"`
+		InspectedAt    *time.Time          `json:"inspectedAt"`
+		OpenedByUserID string              `json:"openedByUserId"`
+		OpenedByName   string              `json:"openedByName"`
+		Notes          *string             `json:"notes"`
 	}
 
 	type response []map[string]any
@@ -90,9 +91,13 @@ func (a *App) Refits() http.HandlerFunc {
 					if !row.Masked("inspectedAt") {
 						rmap["inspectedAt"] = rec.InspectedAt
 					}
-				case "OpenedBy":
-					if !row.Masked("openedBy") {
-						rmap["openedBy"] = rec.OpenedBy
+				case "OpenedByUserID":
+					if !row.Masked("openedByUserId") {
+						rmap["openedByUserId"] = rec.OpenedByUserID
+					}
+				case "OpenedByName":
+					if !row.Masked("openedByName") {
+						rmap["openedByName"] = rec.OpenedByName
 					}
 				case "Notes":
 					if !row.Masked("notes") {
@@ -121,13 +126,14 @@ func (a *App) Refits() http.HandlerFunc {
 
 func (a *App) Refit() http.HandlerFunc {
 	type response struct {
-		ID          impulse.UUID        `json:"id"          index:"true" perm:"-"`
-		ShipID      impulse.UUID        `json:"shipId"`
-		StatusID    string              `json:"statusId"`
-		Estimate    decimal.NullDecimal `json:"estimate"`
-		InspectedAt *time.Time          `json:"inspectedAt"`
-		OpenedBy    string              `json:"openedBy"`
-		Notes       *string             `json:"notes"`
+		ID             impulse.UUID        `json:"id"             index:"true" perm:"-"`
+		ShipID         impulse.UUID        `json:"shipId"`
+		StatusID       string              `json:"statusId"`
+		Estimate       decimal.NullDecimal `json:"estimate"`
+		InspectedAt    *time.Time          `json:"inspectedAt"`
+		OpenedByUserID string              `json:"openedByUserId"`
+		OpenedByName   string              `json:"openedByName"`
+		Notes          *string             `json:"notes"`
 	}
 
 	decoder := NewQueryDecoder[resources.Refit, response](a, accesstypes.Read)
@@ -178,9 +184,13 @@ func (a *App) Refit() http.HandlerFunc {
 				if !row.Masked("inspectedAt") {
 					rmap["inspectedAt"] = rec.InspectedAt
 				}
-			case "OpenedBy":
-				if !row.Masked("openedBy") {
-					rmap["openedBy"] = rec.OpenedBy
+			case "OpenedByUserID":
+				if !row.Masked("openedByUserId") {
+					rmap["openedByUserId"] = rec.OpenedByUserID
+				}
+			case "OpenedByName":
+				if !row.Masked("openedByName") {
+					rmap["openedByName"] = rec.OpenedByName
 				}
 			case "Notes":
 				if !row.Masked("notes") {

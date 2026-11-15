@@ -10,7 +10,7 @@ package computedresources
 
 import (
 	"github.com/go-playground/errors/v5"
-	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -23,17 +23,23 @@ func NewClient() *Client {
 	return &Client{}
 }
 
-// sectorOf returns the sector the request was checked in. The generated computed handlers
-// check permissions in the URL sector's partition and hand the List and Read functions
-// the QuerySet that carries that scope, so a sector-scoped computed resource partitions
-// its rows on exactly the value the permission check ran against. A global scope here is
-// a wiring error: the resource is declared @domain.
+// sectorOf returns the sector the request was checked in, as the id the sector's rows
+// carry in their tenancy column. The generated computed handlers check permissions in the
+// URL sector's partition and hand the List and Read functions the QuerySet that carries
+// that scope, so a sector-scoped computed resource partitions its rows on exactly the
+// value the permission check ran against. A global scope here is a wiring error: the
+// resource is declared @domain. A sector's key is an id, so the scope's domain is an
+// id's text, and one that is not names no sector.
 //
 // Demonstrates: computed.scope.
-func sectorOf[Resource resource.Resourcer](qSet *resource.QuerySet[Resource]) (accesstypes.Domain, error) {
-	sector, ok := qSet.Scope().Domain()
+func sectorOf[Resource resource.Resourcer](qSet *resource.QuerySet[Resource]) (impulse.UUID, error) {
+	domain, ok := qSet.Scope().Domain()
 	if !ok {
-		return "", errors.Newf("%s is sector-scoped but was checked in the global scope", qSet.Resource())
+		return impulse.NilUUID, errors.Newf("%s is sector-scoped but was checked in the global scope", qSet.Resource())
+	}
+	sector, err := impulse.UUIDFromString(string(domain))
+	if err != nil {
+		return impulse.NilUUID, errors.Wrapf(err, "impulse.UUIDFromString(): the sector %s of %s", domain, qSet.Resource())
 	}
 
 	return sector, nil

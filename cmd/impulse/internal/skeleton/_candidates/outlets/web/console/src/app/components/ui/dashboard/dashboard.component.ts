@@ -2,7 +2,7 @@ import { Component, computed, inject } from '@angular/core';
 import { MatCardModule } from '@angular/material/card';
 import { Resources } from '@app/service/zz_gen_constants';
 import { ResourceScopes } from '@app/service/zz_gen_resources';
-import { TenantService } from '@impulseframework/resource-angular/auth-frame';
+import { PlaceService, TenantService } from '@impulseframework/resource-angular/auth-frame';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { Permission, PermissionDigestState, Resource } from '@impulseframework/resource';
 
@@ -30,6 +30,13 @@ interface PermissionRow {
 export class DashboardComponent {
   auth = inject(AuthService);
   tenants = inject(TenantService);
+  private places = inject(PlaceService);
+
+  /**
+   * The name of the tenant the page is open in, empty outside every tenant. A tenant's key is
+   * an id nobody reads, so the page names the tenant as the place switcher does.
+   */
+  readonly tenantName = computed(() => (this.tenants.current() ? this.places.current().label : ''));
 
   readonly permissionNames = ['List', 'Read', 'Create', 'Update', 'Delete', 'Execute'] as Permission[];
 
@@ -51,6 +58,6 @@ export class DashboardComponent {
   });
 
   private scopeOf(resource: Resource): string {
-    return ResourceScopes[resource] === 'domain' ? this.tenants.current() : 'global';
+    return ResourceScopes[resource] === 'domain' ? this.tenantName() : 'global';
   }
 }

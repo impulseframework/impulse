@@ -7,7 +7,7 @@
 // Each Store owns three tables named {Prefix}{Store}{Roles|UserRoles|
 // RoleGrants} — defaults yield AccessRoles, AccessUserRoles, AccessRoleGrants.
 // Rows are partitioned by where the policy is held, persisted as the
-// structural column triple ("Kind", "Axis", "Domain"): Kind names the global
+// structural column triple ("Kind", "Axis", "DomainId"): Kind names the global
 // partition, one domain or every domain — never a distinguished domain value
 // — and the axis is the name of the axis the domain belongs to, "" for the
 // default axis, which is every scope today. The Roles table holds custom
@@ -83,7 +83,7 @@ func resolveNames(opts []Option) (tableNames, error) {
 		rawRoles:      tables.Roles,
 		rawUserRoles:  tables.UserRoles,
 		rawRoleGrants: tables.RoleGrants,
-		rawUserIndex:  tables.UserRolesByUser,
+		rawUserIndex:  tables.UserRolesByUserID,
 	}
 	n.roles = pgx.Identifier{n.rawRoles}.Sanitize()
 	n.userRoles = pgx.Identifier{n.rawUserRoles}.Sanitize()
@@ -130,27 +130,27 @@ func New(pool *pgxpool.Pool, opts ...Option) (*Store, error) {
 		pool:  pool,
 		names: names,
 
-		sqlInsertRole:          fmt.Sprintf(`insert into %s ("Kind", "Axis", "Domain", "Role", "Description") values ($1, $2, $3, $4, $5) on conflict do nothing`, names.roles),
-		sqlDeleteRole:          fmt.Sprintf(`delete from %s where "Kind" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4`, names.roles),
-		sqlRoleHasMembers:      fmt.Sprintf(`select exists(select 1 from %s where "Kind" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4)`, names.userRoles),
-		sqlRoleExists:          fmt.Sprintf(`select exists(select 1 from %s where "Kind" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4)`, names.roles),
-		sqlListRoles:           fmt.Sprintf(`select "Role", "Description" from %s where "Kind" = $1 and "Axis" = $2 and "Domain" = $3 order by "Role"`, names.roles),
-		sqlInsertUserRole:      fmt.Sprintf(`insert into %s ("Kind", "Axis", "Domain", "Role", "User") values ($1, $2, $3, $4, $5) on conflict do nothing`, names.userRoles),
-		sqlDeleteUserRole:      fmt.Sprintf(`delete from %s where "Kind" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4 and "User" = $5`, names.userRoles),
-		sqlListUserRoles:       fmt.Sprintf(`select "Role" from %s where "Kind" = $1 and "Axis" = $2 and "Domain" = $3 and "User" = $4 order by "Role"`, names.userRoles),
-		sqlListUserMemberships: fmt.Sprintf(`select "Kind", "Axis", "Domain", "Role" from %s where "User" = $1 order by "Kind", "Axis", "Domain", "Role"`, names.userRoles),
-		sqlListRoleUsers:       fmt.Sprintf(`select "User" from %s where "Kind" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4 order by "User"`, names.userRoles),
+		sqlInsertRole:          fmt.Sprintf(`insert into %s ("Kind", "Axis", "DomainId", "Role", "Description") values ($1, $2, $3, $4, $5) on conflict do nothing`, names.roles),
+		sqlDeleteRole:          fmt.Sprintf(`delete from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4`, names.roles),
+		sqlRoleHasMembers:      fmt.Sprintf(`select exists(select 1 from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4)`, names.userRoles),
+		sqlRoleExists:          fmt.Sprintf(`select exists(select 1 from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4)`, names.roles),
+		sqlListRoles:           fmt.Sprintf(`select "Role", "Description" from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 order by "Role"`, names.roles),
+		sqlInsertUserRole:      fmt.Sprintf(`insert into %s ("Kind", "Axis", "DomainId", "Role", "UserId") values ($1, $2, $3, $4, $5) on conflict do nothing`, names.userRoles),
+		sqlDeleteUserRole:      fmt.Sprintf(`delete from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 and "UserId" = $5`, names.userRoles),
+		sqlListUserRoles:       fmt.Sprintf(`select "Role" from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "UserId" = $4 order by "Role"`, names.userRoles),
+		sqlListUserMemberships: fmt.Sprintf(`select "Kind", "Axis", "DomainId", "Role" from %s where "UserId" = $1 order by "Kind", "Axis", "DomainId", "Role"`, names.userRoles),
+		sqlListRoleUsers:       fmt.Sprintf(`select "UserId" from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 order by "UserId"`, names.userRoles),
 		sqlInsertGrant: fmt.Sprintf(
-			`insert into %s ("Kind", "Axis", "Domain", "Role", "Permission", "Resource", "Field", "Condition") values ($1, $2, $3, $4, $5, $6, $7, $8) on conflict do nothing`, names.roleGrants),
+			`insert into %s ("Kind", "Axis", "DomainId", "Role", "Permission", "Resource", "Field", "Condition") values ($1, $2, $3, $4, $5, $6, $7, $8) on conflict do nothing`, names.roleGrants),
 		sqlDeleteGrant: fmt.Sprintf(
-			`delete from %s where "Kind" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4 and "Permission" = $5 and "Resource" = $6 and "Field" = $7 and "Condition" = $8`, names.roleGrants),
+			`delete from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 and "Permission" = $5 and "Resource" = $6 and "Field" = $7 and "Condition" = $8`, names.roleGrants),
 		sqlDeleteGrants: fmt.Sprintf(
-			`delete from %s where "Kind" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4 and "Permission" = $5 and "Resource" = $6 and "Field" = $7`, names.roleGrants),
+			`delete from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 and "Permission" = $5 and "Resource" = $6 and "Field" = $7`, names.roleGrants),
 		sqlListRoleGrants: fmt.Sprintf(
-			`select "Permission", "Resource", "Field", "Condition" from %s where "Kind" = $1 and "Axis" = $2 and "Domain" = $3 and "Role" = $4 order by "Permission", "Resource", "Field", "Condition"`, names.roleGrants),
-		sqlReadRoles:       fmt.Sprintf(`select "Kind", "Axis", "Domain", "Role" from %s`, names.roles),
-		sqlReadGrants:      fmt.Sprintf(`select "Kind", "Axis", "Domain", "Role", "Permission", "Resource", "Field", "Condition" from %s`, names.roleGrants),
-		sqlReadMemberships: fmt.Sprintf(`select "Kind", "Axis", "Domain", "User", "Role" from %s`, names.userRoles),
+			`select "Permission", "Resource", "Field", "Condition" from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 and "Role" = $4 order by "Permission", "Resource", "Field", "Condition"`, names.roleGrants),
+		sqlReadRoles:       fmt.Sprintf(`select "Kind", "Axis", "DomainId", "Role" from %s`, names.roles),
+		sqlReadGrants:      fmt.Sprintf(`select "Kind", "Axis", "DomainId", "Role", "Permission", "Resource", "Field", "Condition" from %s`, names.roleGrants),
+		sqlReadMemberships: fmt.Sprintf(`select "Kind", "Axis", "DomainId", "UserId", "Role" from %s`, names.userRoles),
 	}, nil
 }
 
@@ -171,36 +171,36 @@ func (s *Store) DDL() []string {
 		fmt.Sprintf(`CREATE TABLE %s (
   "Kind" TEXT NOT NULL,
   "Axis" TEXT NOT NULL,
-  "Domain" TEXT NOT NULL,
+  "DomainId" TEXT NOT NULL,
   "Role" TEXT NOT NULL,
   "Description" TEXT NOT NULL,
   "UpdatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY ("Kind", "Axis", "Domain", "Role"),
+  PRIMARY KEY ("Kind", "Axis", "DomainId", "Role"),
   %s
 )`, n.roles, kindCheck(n.rawRoles)),
 		fmt.Sprintf(`CREATE TABLE %s (
   "Kind" TEXT NOT NULL,
   "Axis" TEXT NOT NULL,
-  "Domain" TEXT NOT NULL,
+  "DomainId" TEXT NOT NULL,
   "Role" TEXT NOT NULL,
-  "User" TEXT NOT NULL,
+  "UserId" TEXT NOT NULL,
   "CreatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY ("Kind", "Axis", "Domain", "Role", "User"),
+  PRIMARY KEY ("Kind", "Axis", "DomainId", "Role", "UserId"),
   %s
 )`, n.userRoles, kindCheck(n.rawUserRoles)),
-		fmt.Sprintf(`CREATE INDEX %s ON %s ("User", "Kind", "Axis", "Domain")`, quote(n.rawUserIndex), n.userRoles),
+		fmt.Sprintf(`CREATE INDEX %s ON %s ("UserId", "Kind", "Axis", "DomainId")`, quote(n.rawUserIndex), n.userRoles),
 		fmt.Sprintf(`CREATE TABLE %s (
   "Kind" TEXT NOT NULL,
   "Axis" TEXT NOT NULL,
-  "Domain" TEXT NOT NULL,
+  "DomainId" TEXT NOT NULL,
   "Role" TEXT NOT NULL,
   "Permission" TEXT NOT NULL,
   "Resource" TEXT NOT NULL,
   "Field" TEXT NOT NULL,
   "Condition" TEXT NOT NULL,
   "UpdatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
-  PRIMARY KEY ("Kind", "Axis", "Domain", "Role", "Permission", "Resource", "Field", "Condition"),
-  FOREIGN KEY ("Kind", "Axis", "Domain", "Role") REFERENCES %s ("Kind", "Axis", "Domain", "Role") ON DELETE CASCADE,
+  PRIMARY KEY ("Kind", "Axis", "DomainId", "Role", "Permission", "Resource", "Field", "Condition"),
+  FOREIGN KEY ("Kind", "Axis", "DomainId", "Role") REFERENCES %s ("Kind", "Axis", "DomainId", "Role") ON DELETE CASCADE,
   %s
 )`, n.roleGrants, n.roles, kindCheck(n.rawRoleGrants)),
 	}

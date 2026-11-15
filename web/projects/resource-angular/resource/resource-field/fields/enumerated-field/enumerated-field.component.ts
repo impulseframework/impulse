@@ -15,7 +15,7 @@ import {
   defaultEmptyFieldValue,
   EnumeratedConfig,
   EnumerationOption,
-  FieldElement,
+  FieldName,
   keyFields,
   Resource,
   RootConfig,
@@ -151,6 +151,21 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     return resource ? this.resourceMeta(resource) : undefined;
   });
 
+  /**
+   * How the picker presents the source's rows: the field's configuration, and where it
+   * names no display of its own (a form drawn from the metadata alone), the field the
+   * source's metadata says its rows are called by (`nameField`: a tenant's name), so a
+   * picker over a record keyed by an id lists names and never ids.
+   */
+  private picker = computed((): EnumeratedConfig => {
+    const config = this.fieldConfig().enumeratedConfig;
+    const name = this.sourceMeta()?.nameField;
+    if (!name || config.listDisplay.length > 0 || config.viewDisplay.length > 0) {
+      return config;
+    }
+    return { ...config, viewDisplay: [name as FieldName] };
+  });
+
   /** The digest's List field set for any resource (listableFieldsOf): the source's own and a search branch's child. */
   private readonly listableOf = listableFieldsOf(this.auth);
 
@@ -169,7 +184,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
    * a PII display field. The server refuses a PII field in a URL with a 400.
    */
   private sensitive = computed(() => {
-    const config = this.fieldConfig().enumeratedConfig;
+    const config = this.picker();
     if (config.disableCacheForFilterPii || filterReachesPII(this.optionFilter(), this.sourceMeta())) {
       return true;
     }
@@ -188,7 +203,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
 
   /** How a searchable paged source narrows as the user types: the box, a prefix on the display field, or nothing. */
   narrowing = computed(() => {
-    if (!this.paged() || !this.fieldConfig().enumeratedConfig.searchable) {
+    if (!this.paged() || !this.picker().searchable) {
       return undefined;
     }
     return pickerNarrowing(this.sourceMeta(), this.displayColumn(), this.sourceSearchFields());
@@ -203,11 +218,11 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   });
 
   viewDetails = computed(() => {
-    return this.editMode() === 'view' && this.fieldConfig().enumeratedConfig.viewDetails === true;
+    return this.editMode() === 'view' && this.picker().viewDetails === true;
   });
 
   sorts = computed(() => {
-    return this.fieldConfig().enumeratedConfig.sorts;
+    return this.picker().sorts;
   });
 
   /**
@@ -215,7 +230,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
    * and on a searchable whole source its search fields, which the browser's matcher reads.
    */
   private columns = computed(() => {
-    const config = this.fieldConfig().enumeratedConfig;
+    const config = this.picker();
     return optionColumns(config, config.searchable && !this.paged() ? this.ownSearchFields() : [], this.keyField());
   });
 
@@ -228,7 +243,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
 
   /** The display column shown first: the sort a paged source with no @order pages by. */
   private displayColumn = computed((): string | undefined => {
-    const config = this.fieldConfig().enumeratedConfig;
+    const config = this.picker();
     return config.listDisplay[0] ?? config.viewDisplay[0];
   });
 
@@ -241,7 +256,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
 
   /** The configured filter over the options, evaluated against the root or the parent row as configured. */
   private optionFilter = computed((): string => {
-    const config = this.fieldConfig().enumeratedConfig;
+    const config = this.picker();
     return (
       (config.filterType === 'rootResource'
         ? config.filter?.(this.rootResourceRef()?.value() || {})
@@ -307,7 +322,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   enumResourceRef = computed(() => {
     if (this.showField() === false || !this.resource() || this.paged()) return undefined;
     const enumeratedMeta = this.resourceMeta(this.resource() as Resource);
-    const config = this.fieldConfig().enumeratedConfig;
+    const config = this.picker();
     return this.store.resourceList(
       signal(enumeratedMeta.route),
       signal(this.optionFilter()),
@@ -326,7 +341,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     if (!this.paged() || !descriptor || this.showField() === false || this.editMode() !== 'edit') {
       return undefined;
     }
-    const config = this.fieldConfig().enumeratedConfig;
+    const config = this.picker();
     const configured = config.sorts.map((sort) => ({ field: sort.field as string, direction: sort.direction }));
     return {
       route: this.resourceMeta(this.resource() as Resource).route,
@@ -344,12 +359,12 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   private allEnumOptions = computed((): PickerOption[] => {
     const records = this.enumResourceRef()?.value();
     if (!records || !records.length) return [];
-    return records.map((record) => this.toEnumerated(record as Record<string, string>, this.fieldConfig()));
+    return records.map((record) => this.toEnumerated(record as Record<string, string>));
   });
 
   /** The open page's rows on a paged source, in the mode's display. */
   private pageOptions = computed((): PickerOption[] =>
-    (this.pager()?.rows() ?? []).map((record) => this.toEnumerated(record as Record<string, string>, this.fieldConfig())),
+    (this.pager()?.rows() ?? []).map((record) => this.toEnumerated(record as Record<string, string>)),
   );
 
   singleEnumDisplayText = computed(() => {
@@ -387,7 +402,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
       return defaultEmptyFieldValue;
     }
 
-    const enumeratedValues = this.toEnumerated(record as Record<string, string>, fieldConfig);
+    const enumeratedValues = this.toEnumerated(record as Record<string, string>);
     return enumeratedValues.display;
   });
 
@@ -438,7 +453,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     }
     const record = this.singleEnumResourceRef()?.value();
     if (!record || Object.keys(record).length === 0) return [];
-    return [this.toEnumerated(record as Record<string, string>, this.fieldConfig())];
+    return [this.toEnumerated(record as Record<string, string>)];
   });
 
   listEnumValues = computed((): PickerOption[] => {
@@ -492,8 +507,8 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     return ref && ref.status() === 'error' ? pickerRefusal(ref.error()) : undefined;
   });
 
-  toEnumerated(resource: Record<string, string>, element: FieldElement): PickerOption {
-    const enumeratedConfig = element.enumeratedConfig as EnumeratedConfig;
+  toEnumerated(resource: Record<string, string>): PickerOption {
+    const enumeratedConfig = this.picker();
     const displayFields =
       this.editMode() === 'edit' && enumeratedConfig.listDisplay.length > 0
         ? enumeratedConfig.listDisplay
@@ -529,7 +544,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
   };
 
   private formatDisplay(resource: Record<string, string>): string {
-    return this.toEnumerated(resource, this.fieldConfig()).display;
+    return this.toEnumerated(resource).display;
   }
 
   search(value: string): void {
@@ -552,7 +567,7 @@ export class EnumeratedFieldComponent extends BaseInputComponent implements OnIn
     const meta = this.sourceMeta();
     if (
       resource &&
-      this.fieldConfig().enumeratedConfig.searchable &&
+      this.picker().searchable &&
       this.paged() &&
       pickerNarrowing(meta, this.displayColumn(), meta?.searchFields ?? []) === undefined
     ) {

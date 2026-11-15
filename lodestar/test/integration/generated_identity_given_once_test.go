@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -19,11 +19,14 @@ func TestGeneratedIdentityRoleGivenOnce(t *testing.T) {
 	t.Parallel()
 	w := newIdentityWorld(t)
 	ctx := sessionContext(t, "governor")
-	gina := accesstypes.User("gina-" + identitySuffix())
+	username := "gina-" + identitySuffix()
 
-	// One transaction creates the person and gives the role twice.
+	// One transaction creates the person and gives the role twice, to the account the
+	// create made, by its id.
+	var gina impulse.UUID
 	if err := w.inTransaction(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		if _, err := w.createCrewUser(ctx, txn, string(gina), "CrewCommon"); err != nil {
+		var err error
+		if gina, err = w.createCrewUser(ctx, txn, username, "CrewCommon"); err != nil {
 			return err
 		}
 		if err := w.assignCrewRole(ctx, txn, gina, "Headquarters"); err != nil {
@@ -34,7 +37,7 @@ func TestGeneratedIdentityRoleGivenOnce(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("a role given twice in one transaction: %v", err)
 	}
-	given := readColumn[time.Time](ctx, t, w.db, "CrewUserRoles", crewMembershipKey("Headquarters", gina), "CreatedAt")
+	given := readColumn[time.Time](ctx, t, w.db, "CrewUserRoles", crewMembershipKey("Headquarters", userOf(gina)), "CreatedAt")
 	if given.IsZero() {
 		t.Fatal("the membership row carries no time")
 	}
@@ -45,7 +48,7 @@ func TestGeneratedIdentityRoleGivenOnce(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("a role given to a person who holds it: %v", err)
 	}
-	if again := readColumn[time.Time](ctx, t, w.db, "CrewUserRoles", crewMembershipKey("Headquarters", gina), "CreatedAt"); !again.Equal(given) {
+	if again := readColumn[time.Time](ctx, t, w.db, "CrewUserRoles", crewMembershipKey("Headquarters", userOf(gina)), "CreatedAt"); !again.Equal(given) {
 		t.Errorf("the membership's time moved from %v to %v: a role held already is left as it is", given, again)
 	}
 }

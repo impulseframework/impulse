@@ -20,7 +20,7 @@ import (
 func (a *App) ClientRosters() http.HandlerFunc {
 	type clientRoster struct {
 		ID             impulse.UUID `json:"id"             index:"true" perm:"-"`
-		SectorID       string       `json:"sectorId"       index:"true"`
+		SectorID       impulse.UUID `json:"sectorId"       index:"true"`
 		Name           string       `json:"name"           index:"true" search:"token=Name_Search;index=ClientsSearch;role=text;anchors=prefix,suffix;contains"`
 		Trusted        bool         `json:"trusted"`
 		ContactCount   int64        `json:"contactCount"`
@@ -115,7 +115,7 @@ func (a *App) ClientRosters() http.HandlerFunc {
 func (a *App) ClientRoster() http.HandlerFunc {
 	type response struct {
 		ID             impulse.UUID `json:"id"             index:"true"                                                                            perm:"-"`
-		SectorID       string       `json:"sectorId"`
+		SectorID       impulse.UUID `json:"sectorId"`
 		Name           string       `json:"name"           search:"token=Name_Search;index=ClientsSearch;role=text;anchors=prefix,suffix;contains"`
 		Trusted        bool         `json:"trusted"`
 		ContactCount   int64        `json:"contactCount"`

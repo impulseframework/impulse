@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/tenanted/pkg/resources"
 	"github.com/impulseframework/impulse/httpio"
@@ -31,7 +32,7 @@ var _ interface {
 // No grant admits the call. The session must be established, which the router's session
 // group holds it to, and must hold a grant in no tenant: a person creates one tenant,
 // and the member or administrator of one is refused (403). The row is written first, in
-// its own transaction, which is the claim on the key (a key already taken answers 409),
+// its own transaction, under an id the create generates, which the answer carries,
 // and the person's administrator membership is written in that transaction, through the
 // Staff auth's generated identity client, so the tenant and its administrator are
 // committed together or not at all; this instance's roster rereads its table, so it
@@ -49,11 +50,10 @@ var _ interface {
 // not know admits nobody who came through a directory.
 func (a *App) CreateTenant() http.HandlerFunc {
 	type request struct {
-		ID   string `json:"id"   validate:"required"`
 		Name string `json:"name" validate:"required"`
 	}
 	type response struct {
-		ID string `json:"id"`
+		ID impulse.UUID `json:"id"`
 	}
 
 	decoder := resource.MustNewBodyDecoder[request](a.Validator())
@@ -80,14 +80,20 @@ func (a *App) CreateTenant() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		domain := accesstypes.Domain(req.ID)
 		eventSource := resource.UserEvent(ctx)
 
-		// The row and its administrator, in one transaction: the key is the claim, and
-		// the person's membership is written with the row or not at all.
+		// The row and its administrator, in one transaction: the person's membership is
+		// written with the row or not at all. The id is the one the attempt that
+		// committed generated.
+		var id impulse.UUID
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			patch := resources.NewTenantCreatePatch(req.ID)
+			patch, err := resources.NewTenantCreatePatch()
+			if err != nil {
+				return errors.Wrap(err, "resources.NewTenantCreatePatch()")
+			}
+			id = patch.ID()
+			domain := accesstypes.Domain(id.String())
 			patch.SetName(req.Name)
 			if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "resources.TenantCreatePatch.Buffer()")
@@ -99,7 +105,7 @@ func (a *App) CreateTenant() http.HandlerFunc {
 				if err != nil {
 					return errors.Wrap(err, "resources.NewTenantDirectoryCreatePatch()")
 				}
-				directory.SetTenantID(req.ID).SetMethod(string(established.Method)).SetConnection(established.Connection)
+				directory.SetTenantID(id).SetMethod(string(established.Method)).SetConnection(established.Connection)
 				if err := directory.Buffer(ctx, txn, eventSource); err != nil {
 					return errors.Wrap(err, "resources.TenantDirectoryCreatePatch.Buffer()")
 				}
@@ -107,7 +113,7 @@ func (a *App) CreateTenant() http.HandlerFunc {
 			// The first administrator: the person's membership of each role, in the row's
 			// transaction.
 			for _, role := range roles {
-				if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), string(userPermissions.User()), role); err != nil {
+				if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {
 					return errors.Wrap(err, "StaffIdentity().AssignRole()")
 				}
 			}
@@ -117,6 +123,7 @@ func (a *App) CreateTenant() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		live.Publish(ctx, a.LiveService(), liveDerivations, "", touched)
+		domain := accesstypes.Domain(id.String())
 
 		// This instance's roster learns the tenant before the membership is probed:
 		// the probe asks what the person's next request asks, a foothold in a
@@ -137,6 +144,6 @@ func (a *App) CreateTenant() http.HandlerFunc {
 			logger.FromCtx(ctx).Errorf("tenants: signaling the tenants kind failed; the other instances reload at their backstop: %v", err)
 		}
 
-		return httpio.NewEncoder(w).Ok(response{ID: req.ID})
+		return httpio.NewEncoder(w).Ok(response{ID: id})
 	})
 }

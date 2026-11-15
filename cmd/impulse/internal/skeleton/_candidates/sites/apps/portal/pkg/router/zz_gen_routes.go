@@ -23,6 +23,12 @@ import (
 // body over its limit answers 413 naming the limit.
 const BodyLimit int64 = 4194304
 
+// TestDomain is the tenant the generated tests address every domain-scoped route in: an
+// id's text, as a tenant's key is one. An empty test schema holds no tenant row, so a
+// test harness that serves the generated routes adds it to its tenant roster
+// (resource.TenantRoster.Add).
+const TestDomain = "7e57d0a1-0000-4000-8000-000000000000"
+
 const (
 	// Domain is the route parameter carrying the permission domain for domain-scoped routes.
 	Domain         httpio.ParamType = "tenantID"

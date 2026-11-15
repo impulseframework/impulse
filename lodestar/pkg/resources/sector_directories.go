@@ -37,7 +37,7 @@ type (
 	SectorDirectory struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		SectorID string `spanner:"SectorId"`
+		SectorID impulse.UUID `spanner:"SectorId"`
 		// @directoryMethod
 		Method string `spanner:"Method"`
 		// @directoryConnection

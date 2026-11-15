@@ -31,6 +31,15 @@ func Test_typescriptResourcesTemplate_optionalFields(t *testing.T) {
 			f.typescriptType = "string"
 		}
 	})
+	tenantRecord := fixtureResource(t, structs, "Widget", func(res *resourceInfo) {
+		res.IsTenant = true
+		for _, f := range res.Fields {
+			f.typescriptType = "string"
+			if f.Name() == "Name" {
+				res.TenantNameField = f
+			}
+		}
+	})
 	publishedView := fixtureResource(t, structs, "Widget", func(res *resourceInfo) {
 		res.IsVirtual = true
 		res.published = &publishedSet{Root: "Widgets", Tables: []string{"Gizmos"}}
@@ -63,7 +72,19 @@ func Test_typescriptResourcesTemplate_optionalFields(t *testing.T) {
 			wantNotContains: []string{
 				"  id?: string;",
 				"  name: string;",
+				// A resource that is not the tenant record says no field its rows are called by.
+				"nameField",
 			},
+		},
+		{
+			name: "the tenant record's metadata says which field a tenant is called by",
+			data: tsResourcesData{
+				Resources: []*resourceInfo{tenantRecord},
+				GenPrefix: "zz_gen",
+			},
+			// The record is keyed by an id: a picker over it and a page that names a row's
+			// tenant show this field.
+			wantContains: []string{"    live: true,\n    nameField: 'name',\n    fields: ["},
 		},
 		{
 			name: "computed resource interface fields are optional except primary keys",

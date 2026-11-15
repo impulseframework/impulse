@@ -24,8 +24,8 @@ type (
 	// Update on Missions.settlement, so the settlement write is armed through caller.As
 	// composed over the Paymaster role (RolePrincipalPermissions over the engine's
 	// ForRole), a role nobody signs in as. The identity stays the lead's; only the checker
-	// changes, and the change event reads "lead as role Paymaster", the same actor-aware
-	// event an act-as-role session produces.
+	// changes, and the change event reads "lead (the id of her account) as role
+	// Paymaster", the same actor-aware event an act-as-role session produces.
 	//
 	// It is also the method that reads a DECISION AS DATA: it asks the caller's checker
 	// (resource.Caller.Check) whether the caller may Update Missions.notes and records a
@@ -112,15 +112,27 @@ func (m *CompleteMission) Execute(ctx context.Context, txn resource.ReadWriteTra
 
 // postSettlementAsPaymaster writes the settlement through the Paymaster role's checker:
 // the caller's identity, the role's grants. The event source names both, as an
-// act-as-role session's would.
+// act-as-role session's would (resource.UserEvent): the caller by username with the id
+// of their account, the role, and the session.
 func postSettlementAsPaymaster(ctx context.Context, txn resource.ReadWriteTransaction, caller *resource.Caller, client *Client, missionID impulse.UUID, net decimal.Decimal) error {
 	actor := caller.Permissions.User()
 	paymaster := caller.As(resource.RolePrincipalPermissions(client.ForRole(PaymasterRole), actor))
-	event := fmt.Sprintf("%s as role %s (%s)", actor, PaymasterRole, sessioninfo.FromCtx(ctx).ID)
+	event := fmt.Sprintf("%s as role %s, session %s", person(resources.CurrentUserName(ctx), actor), PaymasterRole, sessioninfo.FromCtx(ctx).ID)
 
 	if err := resources.NewMissionUpdatePatch(missionID).SetSettlement(decimal.NewNullDecimal(net)).Enforce(paymaster).Buffer(ctx, txn, event); err != nil {
 		return errors.Wrap(err, "resources.MissionUpdatePatch.Buffer()")
 	}
 
 	return nil
+}
+
+// person writes a person for an event source the way resource.UserEvent does: the
+// username with the id of their account, or the username alone for one the permission
+// store names by it, who has no account here.
+func person(username string, user accesstypes.User) string {
+	if string(user) == username {
+		return username
+	}
+
+	return fmt.Sprintf("%s (%s)", username, user)
 }

@@ -46,7 +46,12 @@ type tsAPIIdentity struct {
 	Auth   string
 	Label  string
 	Tenant string
-	Sides  []*tsAPIIdentitySide
+	// TenantResource is the tenant record's resource where the outlet serves it: a page
+	// that lists a role or an invitation across tenants reads the tenant's name from it,
+	// since the row carries the tenant's key, an id nobody reads. Empty where the outlet
+	// does not serve the record, and the page shows the key.
+	TenantResource string
+	Sides          []*tsAPIIdentitySide
 }
 
 // tsAPIIdentitySide is one side of an auth's management: the whole application's (the
@@ -140,6 +145,9 @@ func (t *typescriptGenerator) identityOn(data *tsAPIData) []*tsAPIIdentity {
 		sides := []bool{false}
 		if inst.tenant != nil {
 			identity.Tenant = inst.tenant.name
+			if name := t.pluralize(inst.tenant.name); resources[name] {
+				identity.TenantResource = name
+			}
 			sides = append(sides, true)
 		}
 		for _, tenant := range sides {

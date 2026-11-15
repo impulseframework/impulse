@@ -27,7 +27,7 @@ func (PilotAssignment) DefaultConfig() resource.Config {
 type pilotAssignmentRead struct {
 	SquadronID   impulse.UUID `json:"squadronId"   perm:"-"`
 	UserID       string       `json:"userId"       perm:"-"`
-	SectorID     string       `json:"sectorId"`
+	SectorID     impulse.UUID `json:"sectorId"`
 	SquadronName string       `json:"squadronName"`
 	WingName     string       `json:"wingName"`
 }
@@ -210,8 +210,8 @@ func (p PilotAssignmentQueryPartialClause) UserID() PilotAssignmentQueryIdent[st
 	return PilotAssignmentQueryIdent[string]{Ident: resource.NewIdent[string]("UserID", p.partialClause, true)}
 }
 
-func (p PilotAssignmentQueryPartialClause) SectorID() PilotAssignmentQueryIdent[string] {
-	return PilotAssignmentQueryIdent[string]{Ident: resource.NewIdent[string]("SectorID", p.partialClause, true)}
+func (p PilotAssignmentQueryPartialClause) SectorID() PilotAssignmentQueryIdent[impulse.UUID] {
+	return PilotAssignmentQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("SectorID", p.partialClause, true)}
 }
 
 func (p PilotAssignmentQueryPartialClause) SquadronName() PilotAssignmentQueryIdent[string] {

@@ -35,7 +35,7 @@ func (s *SessionStorageDriver) ImpersonationEnabled() bool {
 // impersonationColumns are the record's columns after the SessionId marker, in
 // the order the session query selects and Session scans them.
 var impersonationColumns = []string{
-	"ActorUsername", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUser", "PrincipalRole",
+	"ActorUsername", "ActorUserId", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUserId", "PrincipalRole",
 	"Mask", "Reason", "StartedAt", "ExpiresAt", "EndedAt", "EndReason",
 }
 
@@ -58,9 +58,10 @@ func (s *SessionStorageDriver) impersonationJoin() string {
 }
 
 // impersonationScan holds the typed scan destinations for an impersonation
-// record; SourceSessionId is scanned as text and parsed afterwards.
+// record; ActorUserId and SourceSessionId are scanned as text and parsed afterwards.
 type impersonationScan struct {
 	imp             *dbtype.Impersonation
+	actorUserID     *string
 	sourceSessionID *string
 }
 
@@ -71,13 +72,20 @@ func newImpersonationScan(sessionID impulse.UUID) *impersonationScan {
 // dests returns the scan destinations in impersonationColumns order.
 func (p *impersonationScan) dests() []any {
 	return []any{
-		&p.imp.ActorUsername, &p.imp.ActorRealm, &p.sourceSessionID, &p.imp.PrincipalKind, &p.imp.PrincipalUser, &p.imp.PrincipalRole,
+		&p.imp.ActorUsername, &p.actorUserID, &p.imp.ActorRealm, &p.sourceSessionID, &p.imp.PrincipalKind, &p.imp.PrincipalUserID, &p.imp.PrincipalRole,
 		&p.imp.Mask, &p.imp.Reason, &p.imp.StartedAt, &p.imp.ExpiresAt, &p.imp.EndedAt, &p.imp.EndReason,
 	}
 }
 
 // row returns the scanned record.
 func (p *impersonationScan) row() (*dbtype.Impersonation, error) {
+	if p.actorUserID != nil {
+		id, err := impulse.UUIDFromString(*p.actorUserID)
+		if err != nil {
+			return nil, errors.Wrap(err, "impulse.UUIDFromString()")
+		}
+		p.imp.ActorUserID = &id
+	}
 	if p.sourceSessionID != nil {
 		id, err := impulse.UUIDFromString(*p.sourceSessionID)
 		if err != nil {
@@ -132,7 +140,11 @@ func (s *SessionStorageDriver) InsertImpersonatedSession(
 // insertImpersonation writes the impersonation record for a new session inside txn,
 // started at the database's time.
 func (s *SessionStorageDriver) insertImpersonation(ctx context.Context, txn pgx.Tx, id impulse.UUID, imp *dbtype.InsertImpersonation) error {
-	var sourceSessionID *string
+	var actorUserID, sourceSessionID *string
+	if imp.ActorUserID != nil {
+		v := imp.ActorUserID.String()
+		actorUserID = &v
+	}
 	if imp.SourceSessionID != nil {
 		v := imp.SourceSessionID.String()
 		sourceSessionID = &v
@@ -140,12 +152,12 @@ func (s *SessionStorageDriver) insertImpersonation(ctx context.Context, txn pgx.
 
 	query := fmt.Sprintf(`
 		INSERT INTO %s
-			("SessionId", "ActorUsername", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUser", "PrincipalRole", "Mask", "Reason", "StartedAt", "ExpiresAt")
+			("SessionId", "ActorUsername", "ActorUserId", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUserId", "PrincipalRole", "Mask", "Reason", "StartedAt", "ExpiresAt")
 		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), $10)
+			($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now(), $11)
 		`, pgx.Identifier{s.impersonation.TableName}.Sanitize())
 	args := []any{
-		id, imp.ActorUsername, imp.ActorRealm, sourceSessionID, imp.PrincipalKind, imp.PrincipalUser, imp.PrincipalRole,
+		id, imp.ActorUsername, actorUserID, imp.ActorRealm, sourceSessionID, imp.PrincipalKind, imp.PrincipalUserID, imp.PrincipalRole,
 		imp.Mask, imp.Reason, imp.ExpiresAt,
 	}
 
@@ -297,7 +309,7 @@ func (s *SessionStorageDriver) ActiveImpersonations(ctx context.Context, activeS
 		fmt.Fprintf(&filters, ` AND i."PrincipalKind" = $%d AND i."PrincipalRole" = $%d`, len(args)-1, len(args))
 	} else if user, _ := q.Principal.User(); user != "" {
 		args = append(args, dbtype.PrincipalKindUser, string(user))
-		fmt.Fprintf(&filters, ` AND i."PrincipalKind" = $%d AND i."PrincipalUser" = $%d`, len(args)-1, len(args))
+		fmt.Fprintf(&filters, ` AND i."PrincipalKind" = $%d AND i."PrincipalUserId" = $%d`, len(args)-1, len(args))
 	}
 
 	query := fmt.Sprintf(`

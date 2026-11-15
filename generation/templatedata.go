@@ -144,6 +144,10 @@ type consolidatedCaseData struct {
 	// each tenant the transaction created (consolidatedPatchData.Seat): the case
 	// collects the keys its create operations wrote.
 	Seated bool
+	// Clears are the application's accessors of the identity clients the tenant
+	// record's delete clears the tenant through (tenantClears); empty on every other
+	// case.
+	Clears []string
 }
 
 func (d *consolidatedPatchData) typeImports() []fixerImport {
@@ -165,6 +169,10 @@ type handlerContentData struct {
 	// create's commit, nil on every other resource and where the record's create
 	// seats nobody (tenantSeatData).
 	Seat *tenantSeatData
+	// Clears are the application's accessors of the identity clients the tenant
+	// record's delete clears the tenant through (tenantClears); empty on every other
+	// resource.
+	Clears []string
 	// Home is where the handler is written, nil for the application's handler package:
 	// it says what the handler hands to every publish (handlerHome.LiveDerivations).
 	Home *handlerHome
@@ -260,8 +268,11 @@ type routerFileData struct {
 	// none); BodyLimitText is it in words, and BodyLimitDefault whether it is the
 	// default. HasBoundedRoutes emits the default outlet's bounded group when a route
 	// the router wraps exists beyond the session and consolidated routes.
-	BodyLimit        int64
-	BodyLimitText    string
+	BodyLimit     int64
+	BodyLimitText string
+	// DomainTestValue is the TestDomain const's value: the tenant the generated tests
+	// address every domain-scoped route in.
+	DomainTestValue  string
 	BodyLimitDefault bool
 	HasBoundedRoutes bool
 	// RouteRequestLogs says a route or a scheduled route declares its own request log
@@ -521,7 +532,7 @@ type authzCase struct {
 	Open bool
 	// NoGrant marks the create-your-tenant route, the opposite of a permission gate:
 	// a caller holding a grant anywhere holds a tenant and is refused (403), and a
-	// caller holding none is admitted past the gate, where the minimal body meets its
+	// caller holding none is admitted past the gate, where the body meets its
 	// validation (400). The case renders both halves.
 	NoGrant bool
 }

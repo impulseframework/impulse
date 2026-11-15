@@ -27,7 +27,7 @@ func (SectorDirectory) DefaultConfig() resource.Config {
 // enforce; sectorDirectoryReadSets holds one Set per read operation.
 type sectorDirectoryRead struct {
 	ID          impulse.UUID `json:"id"          perm:"-"`
-	SectorID    string       `json:"sectorId"`
+	SectorID    impulse.UUID `json:"sectorId"`
 	Method      string       `json:"method"`
 	Connection  string       `json:"connection"`
 	DefaultSeat *string      `json:"defaultSeat"`
@@ -40,7 +40,7 @@ var sectorDirectoryReadSets resource.SetCache[SectorDirectory, sectorDirectoryRe
 // routes enforce; sectorDirectoryWriteSets holds one Set per mutation.
 type sectorDirectoryWrite struct {
 	ID          impulse.UUID `json:"-"`
-	SectorID    string       `json:"-"`
+	SectorID    impulse.UUID `json:"-"`
 	Method      string       `json:"method"      sqltype:"STRING(16)"`
 	Connection  string       `json:"connection"`
 	DefaultSeat *string      `json:"defaultSeat" sqltype:"STRING(64)"`
@@ -208,8 +208,8 @@ func (p SectorDirectoryQueryPartialClause) ID() SectorDirectoryQueryIdent[impuls
 	return SectorDirectoryQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p SectorDirectoryQueryPartialClause) SectorID() SectorDirectoryQueryIdent[string] {
-	return SectorDirectoryQueryIdent[string]{Ident: resource.NewIdent[string]("SectorID", p.partialClause, true)}
+func (p SectorDirectoryQueryPartialClause) SectorID() SectorDirectoryQueryIdent[impulse.UUID] {
+	return SectorDirectoryQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("SectorID", p.partialClause, true)}
 }
 
 func (p SectorDirectoryQueryPartialClause) Method() SectorDirectoryQueryIdent[string] {
@@ -389,14 +389,14 @@ func (p *SectorDirectoryCreatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *SectorDirectoryCreatePatch) SetSectorID(v string) *SectorDirectoryCreatePatch {
+func (p *SectorDirectoryCreatePatch) SetSectorID(v impulse.UUID) *SectorDirectoryCreatePatch {
 	p.patchSet.Set("SectorID", v)
 
 	return p
 }
 
-func (p *SectorDirectoryCreatePatch) SectorID() string {
-	v, _ := p.patchSet.Get("SectorID").(string)
+func (p *SectorDirectoryCreatePatch) SectorID() impulse.UUID {
+	v, _ := p.patchSet.Get("SectorID").(impulse.UUID)
 
 	return v
 }
@@ -549,14 +549,14 @@ func (p *SectorDirectoryUpdatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *SectorDirectoryUpdatePatch) SetSectorID(v string) *SectorDirectoryUpdatePatch {
+func (p *SectorDirectoryUpdatePatch) SetSectorID(v impulse.UUID) *SectorDirectoryUpdatePatch {
 	p.patchSet.Set("SectorID", v)
 
 	return p
 }
 
-func (p *SectorDirectoryUpdatePatch) SectorID() string {
-	v, _ := p.patchSet.Get("SectorID").(string)
+func (p *SectorDirectoryUpdatePatch) SectorID() impulse.UUID {
+	v, _ := p.patchSet.Get("SectorID").(impulse.UUID)
 
 	return v
 }

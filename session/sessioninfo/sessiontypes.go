@@ -33,7 +33,7 @@ type SessionInfo struct {
 // this request (session.WithPrincipalResolver), set at validation and never stored. It
 // is the zero Principal when no resolver is configured or the resolver kept the
 // default, in which case PrincipalFromCtx derives the subject from the impersonation
-// record or the username.
+// record or the session's own user.
 type SessionData struct {
 	*SessionInfo
 	CustomData    any
@@ -42,6 +42,7 @@ type SessionData struct {
 	// UserID is the user (SessionUsers.Id) the session belongs to. For a
 	// user-principal impersonation it is the impersonated user. It is null for the
 	// legacy session types, preauth sessions, and role-principal impersonations.
+	// It is what the permission store names the person by (User).
 	UserID impulse.NullUUID
 	// AuthenticatedAt is when the session's most recent authentication step completed.
 	AuthenticatedAt time.Time
@@ -58,6 +59,24 @@ type SessionData struct {
 	// for a browser session. Such a request has no session row: the token stands in
 	// for one, its id as the session id and its issue as the authentication.
 	Token *TokenInfo
+}
+
+// User returns the session's person as the permission store names them: the id of
+// their account, as text. A username can change and can be the same in two auths; the
+// id of an account does neither, so every membership, every principal and the subject
+// of every row condition is the id. A session that belongs to no account (a preauth
+// session, a role-principal impersonation, whose person is its actor: ActorUserFromCtx)
+// has only its username, and is named by it. A name must therefore never read as an id
+// where sessions of both kinds are asked of one permission store: an Auth refuses an
+// actor from another application whose name does, and an application that runs a
+// pre-authenticated session type beside an Auth over one store keeps the names it
+// hands that type from reading as ids.
+func (s *SessionData) User() accesstypes.User {
+	if s.UserID.Valid {
+		return accesstypes.User(s.UserID.String())
+	}
+
+	return accesstypes.User(s.Username)
 }
 
 // EstablishedBy returns how the session was established: its first auth event, the

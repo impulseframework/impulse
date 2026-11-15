@@ -10,10 +10,11 @@ CREATE TABLE "SessionImpersonations"
 (
     "SessionId" UUID NOT NULL,
     "ActorUsername" character varying NOT NULL,
+    "ActorUserId" UUID,
     "ActorRealm" character varying,
     "SourceSessionId" UUID,
     "PrincipalKind" character varying(16) NOT NULL,
-    "PrincipalUser" character varying,
+    "PrincipalUserId" character varying,
     "PrincipalRole" character varying,
     "Mask" character varying,
     "Reason" character varying,
@@ -29,8 +30,8 @@ CREATE INDEX "SessionImpersonations_ActorUsername_idx"
     ON "SessionImpersonations" USING btree
     ("ActorUsername" ASC, "StartedAt" DESC);
 
-CREATE INDEX "SessionImpersonations_PrincipalUser_idx"
+CREATE INDEX "SessionImpersonations_PrincipalUserId_idx"
     ON "SessionImpersonations" USING btree
-    ("PrincipalUser" ASC, "StartedAt" DESC);
+    ("PrincipalUserId" ASC, "StartedAt" DESC);
 
 COMMIT;

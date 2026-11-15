@@ -26,16 +26,16 @@ func (CrewSectorInvitation) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; crewSectorInvitationReadSets holds one Set per read operation.
 type crewSectorInvitationRead struct {
-	ID         impulse.UUID  `json:"id"         perm:"-"`
-	Domain     string        `json:"domain"`
-	Email      string        `json:"email"`
-	Name       *string       `json:"name"`
-	RoleNames  []string      `json:"roleNames"`
-	InvitedBy  *impulse.UUID `json:"invitedBy"`
-	CreatedAt  time.Time     `json:"createdAt"`
-	ExpiresAt  time.Time     `json:"expiresAt"`
-	ConsumedAt *time.Time    `json:"consumedAt"`
-	Pending    bool          `json:"pending"`
+	ID              impulse.UUID  `json:"id"              perm:"-"`
+	DomainID        string        `json:"domainId"`
+	Email           string        `json:"email"`
+	Name            *string       `json:"name"`
+	RoleNames       []string      `json:"roleNames"`
+	InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
+	CreatedAt       time.Time     `json:"createdAt"`
+	ExpiresAt       time.Time     `json:"expiresAt"`
+	ConsumedAt      *time.Time    `json:"consumedAt"`
+	Pending         bool          `json:"pending"`
 }
 
 var crewSectorInvitationReadSets resource.SetCache[CrewSectorInvitation, crewSectorInvitationRead]
@@ -145,11 +145,11 @@ func NewCrewSectorInvitationColumns() *CrewSectorInvitationColumns {
 func (c *CrewSectorInvitationColumns) All() *CrewSectorInvitationColumns {
 	c.fields = []accesstypes.Field{
 		"ID",
-		"Domain",
+		"DomainID",
 		"Email",
 		"Name",
 		"RoleNames",
-		"InvitedBy",
+		"InvitedByUserID",
 		"CreatedAt",
 		"ExpiresAt",
 		"ConsumedAt",
@@ -165,8 +165,8 @@ func (c *CrewSectorInvitationColumns) ID() *CrewSectorInvitationColumns {
 	return c
 }
 
-func (c *CrewSectorInvitationColumns) Domain() *CrewSectorInvitationColumns {
-	c.fields = append(c.fields, "Domain")
+func (c *CrewSectorInvitationColumns) DomainID() *CrewSectorInvitationColumns {
+	c.fields = append(c.fields, "DomainID")
 
 	return c
 }
@@ -189,8 +189,8 @@ func (c *CrewSectorInvitationColumns) RoleNames() *CrewSectorInvitationColumns {
 	return c
 }
 
-func (c *CrewSectorInvitationColumns) InvitedBy() *CrewSectorInvitationColumns {
-	c.fields = append(c.fields, "InvitedBy")
+func (c *CrewSectorInvitationColumns) InvitedByUserID() *CrewSectorInvitationColumns {
+	c.fields = append(c.fields, "InvitedByUserID")
 
 	return c
 }
@@ -235,8 +235,8 @@ func (p CrewSectorInvitationQueryPartialClause) ID() CrewSectorInvitationQueryId
 	return CrewSectorInvitationQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p CrewSectorInvitationQueryPartialClause) Domain() CrewSectorInvitationQueryIdent[string] {
-	return CrewSectorInvitationQueryIdent[string]{Ident: resource.NewIdent[string]("Domain", p.partialClause, true)}
+func (p CrewSectorInvitationQueryPartialClause) DomainID() CrewSectorInvitationQueryIdent[string] {
+	return CrewSectorInvitationQueryIdent[string]{Ident: resource.NewIdent[string]("DomainID", p.partialClause, true)}
 }
 
 func (p CrewSectorInvitationQueryPartialClause) Email() CrewSectorInvitationQueryIdent[string] {
@@ -321,8 +321,8 @@ func (c *crewSectorInvitationSort) ID() *CrewSectorInvitationSort {
 	return c.addField("ID")
 }
 
-func (c *crewSectorInvitationSort) Domain() *CrewSectorInvitationSort {
-	return c.addField("Domain")
+func (c *crewSectorInvitationSort) DomainID() *CrewSectorInvitationSort {
+	return c.addField("DomainID")
 }
 
 func (c *crewSectorInvitationSort) Email() *CrewSectorInvitationSort {
@@ -337,8 +337,8 @@ func (c *crewSectorInvitationSort) RoleNames() *CrewSectorInvitationSort {
 	return c.addField("RoleNames")
 }
 
-func (c *crewSectorInvitationSort) InvitedBy() *CrewSectorInvitationSort {
-	return c.addField("InvitedBy")
+func (c *crewSectorInvitationSort) InvitedByUserID() *CrewSectorInvitationSort {
+	return c.addField("InvitedByUserID")
 }
 
 func (c *crewSectorInvitationSort) CreatedAt() *CrewSectorInvitationSort {

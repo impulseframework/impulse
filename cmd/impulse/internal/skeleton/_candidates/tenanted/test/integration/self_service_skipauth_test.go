@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"maps"
 	"net/http"
 	"net/url"
 	"slices"
@@ -52,13 +53,16 @@ func TestSelfService_signInFirstThroughOpenSignUp(t *testing.T) {
 	if domains := userDomains(ctx, t, b); len(domains) != 0 {
 		t.Fatalf("user-domains before = %v, want none", domains)
 	}
-	if status, body := b.do(ctx, http.MethodPost, "/api/create-tenant", []byte(`{"id":"wander","name":"Wander"}`)); status != http.StatusOK {
+	if status, body := b.do(ctx, http.MethodPost, "/api/create-tenant", []byte(`{"name":"Wander"}`)); status != http.StatusOK {
 		t.Fatalf("POST /api/create-tenant: status %d: %s", status, body)
 	}
-	if domains := userDomains(ctx, t, b); !slices.Equal(domains, []string{"wander"}) {
-		t.Errorf("user-domains after = %v, want [wander]", domains)
+	names := tenantNames(ctx, t, b)
+	if held := slices.Collect(maps.Values(names)); !slices.Equal(held, []string{"Wander"}) {
+		t.Fatalf("the tenants the stranger holds after = %v, want Wander alone", held)
 	}
-	if status, body := b.do(ctx, http.MethodGet, "/api/tenants/wander/announcements", nil); status != http.StatusOK {
-		t.Errorf("GET /api/tenants/wander/announcements: status %d, want 200: %s", status, body)
+	for wander := range names {
+		if status, body := b.do(ctx, http.MethodGet, "/api/tenants/"+wander+"/announcements", nil); status != http.StatusOK {
+			t.Errorf("GET Wander's announcements: status %d, want 200: %s", status, body)
+		}
 	}
 }

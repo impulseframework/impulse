@@ -94,8 +94,10 @@ export interface MethodPresentation {
    * What the page fills in the method's request from a row: the row the method is
    * offered on, or, for a method above a list, the row the list sits under (a child
    * list's parent). A filled field is not asked, and a value left undefined fills
-   * nothing. It is how a method that names no target row and takes what a row holds
-   * is run from that row: a role given to a person by the person's name, above the
+   * nothing, so the dialog asks for that field. A field the row answers with nothing
+   * (a role held in no one tenant) is filled with null: it is sent as nothing and is
+   * not asked. It is how a method that names no target row and takes what a row holds
+   * is run from that row: a role given to a person by the id of their account, above the
    * list of the roles the person holds. Named among `rowMethods`, a method with no
    * target row and a `fill` is offered on every row while the digest grants the
    * caller Execute on it; the server gives no answer for a row it does not name.
@@ -254,6 +256,13 @@ export type MultiColumnConfig = FieldColumnConfig & {
   // todo: additionalIds name is not clear. the id provided is fetched from a different resource, such as a typeId
   additionalIds: AdditionalResourceConfig[];
   concatFn: ListConcatFn;
+  /**
+   * What the cell says for a row with nothing to concatenate, given the row: the row
+   * names no related record (a role held in the whole application names no tenant), or
+   * the related records could not be read (the caller holds no List on them). Absent,
+   * the cell shows `emptyDataValue`.
+   */
+  fallback?: (data: any) => string;
 };
 export type MultiColumnConfigOptions = MultiColumnConfig;
 

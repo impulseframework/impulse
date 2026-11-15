@@ -60,8 +60,9 @@ func inTransaction(t *testing.T, f func(ctx context.Context, txn resource.ReadWr
 // fakeStore is an auth's tables in memory: the committed rows the reads answer from, and
 // a log of the writes the rules buffered, in order.
 type fakeStore struct {
-	// sessions are the live sessions of each user, memberships the committed rows, and
-	// roles the rows of the roles table, the custom roles.
+	// sessions are the live sessions of each user, memberships the committed rows, each
+	// held under the id of its person's account (User), and roles the rows of the roles
+	// table, the custom roles.
 	sessions    map[impulse.UUID][]impulse.UUID
 	memberships map[access.MembershipKey]bool
 	roles       map[access.RoleKey]bool
@@ -70,8 +71,8 @@ type fakeStore struct {
 	// impersonation records by session, true while one stands, and heldBy the sessions
 	// whose standing record names a username as its local actor.
 	usernames map[impulse.UUID]string
-	// emails are the usernames of the users who have confirmed an address, by address.
-	emails  map[string]string
+	// emails are the accounts of the users who have confirmed an address, by address.
+	emails  map[string]impulse.UUID
 	ended   map[impulse.UUID]bool
 	missing map[impulse.UUID]bool
 	records map[impulse.UUID]bool
@@ -80,8 +81,10 @@ type fakeStore struct {
 	// unrevoked trusted devices of each user.
 	actsAsRole map[impulse.UUID]bool
 	devices    map[impulse.UUID][]impulse.UUID
-	// links are the mail links by id.
-	links map[impulse.UUID]*MailLink
+	// links are the mail links by id, and invitations the unconsumed invitations into
+	// each tenant.
+	links       map[impulse.UUID]*MailLink
+	invitations map[accesstypes.Domain][]impulse.UUID
 	// passwords are the users that exist for the password rule, true where one holds a
 	// password; identities the user each identity links to; tokens the tokens by id,
 	// and families the unrevoked tokens of each family.
@@ -266,13 +269,13 @@ func (f *fakeStore) UserID(_ context.Context, _ resource.ReadWriteTransaction, u
 	return impulse.NilUUID, false, nil
 }
 
-func (f *fakeStore) UserByVerifiedEmail(_ context.Context, _ resource.ReadWriteTransaction, email string) (username string, found bool, err error) {
+func (f *fakeStore) UserByVerifiedEmail(_ context.Context, _ resource.ReadWriteTransaction, email string) (userID impulse.UUID, found bool, err error) {
 	if err := f.fail("UserByVerifiedEmail"); err != nil {
-		return "", false, err
+		return impulse.NilUUID, false, err
 	}
-	username, found = f.emails[email]
+	userID, found = f.emails[email]
 
-	return username, found, nil
+	return userID, found, nil
 }
 
 func (f *fakeStore) DeleteUser(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
@@ -357,10 +360,10 @@ func (f *fakeStore) InsertInvitation(_ context.Context, _ resource.ReadWriteTran
 		return err
 	}
 	invitedBy := "<nobody>"
-	if row.InvitedBy.Valid {
-		invitedBy = row.InvitedBy.String()
+	if row.InvitedByUserID.Valid {
+		invitedBy = row.InvitedByUserID.String()
 	}
-	line := "insert invitation " + row.ID.String() + " " + row.Email + " tenant=" + row.Tenant + " roles=" + strings.Join(row.RoleNames, ",") + " by=" + invitedBy
+	line := "insert invitation " + row.ID.String() + " " + row.Email + " tenant=" + row.TenantID + " roles=" + strings.Join(row.RoleNames, ",") + " by=" + invitedBy
 	if row.Name != "" {
 		line += " name=" + row.Name
 	}
@@ -430,13 +433,13 @@ func (f *fakeStore) HasMembership(_ context.Context, _ resource.ReadWriteTransac
 	return f.memberships[*key], nil
 }
 
-func (f *fakeStore) Memberships(_ context.Context, _ resource.ReadWriteTransaction, username string) ([]access.MembershipKey, error) {
+func (f *fakeStore) Memberships(_ context.Context, _ resource.ReadWriteTransaction, userID impulse.UUID) ([]access.MembershipKey, error) {
 	if err := f.fail("Memberships"); err != nil {
 		return nil, err
 	}
 	var keys []access.MembershipKey
 	for key, held := range f.memberships {
-		if held && string(key.User) == username {
+		if held && key.User == User(userID) {
 			keys = append(keys, key)
 		}
 	}
@@ -481,6 +484,50 @@ func (f *fakeStore) DeleteMembership(_ context.Context, _ resource.ReadWriteTran
 	f.writes = append(f.writes, "delete membership "+membershipText(key))
 
 	return nil
+}
+
+func (f *fakeStore) TenantMemberships(_ context.Context, _ resource.ReadWriteTransaction, domain accesstypes.Domain) ([]access.MembershipKey, error) {
+	if err := f.fail("TenantMemberships"); err != nil {
+		return nil, err
+	}
+	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
+	var keys []access.MembershipKey
+	for key, held := range f.memberships {
+		if held && key.Kind == at.Kind && key.Axis == at.Axis && key.Domain == at.Domain {
+			keys = append(keys, key)
+		}
+	}
+	slices.SortFunc(keys, func(a, b access.MembershipKey) int { return strings.Compare(membershipText(&a), membershipText(&b)) })
+
+	return keys, nil
+}
+
+// DeleteTenantRoles logs one write for the tenant's custom roles and their grants, and
+// answers how many rows of the roles table the tenant holds.
+func (f *fakeStore) DeleteTenantRoles(_ context.Context, _ resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
+	if err := f.fail("DeleteTenantRoles"); err != nil {
+		return 0, err
+	}
+	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
+	roles := 0
+	for key, held := range f.roles {
+		if held && key.Kind == at.Kind && key.Axis == at.Axis && key.Domain == at.Domain {
+			roles++
+		}
+	}
+	if roles > 0 {
+		f.writes = append(f.writes, "delete the custom roles of "+string(domain))
+	}
+
+	return roles, nil
+}
+
+func (f *fakeStore) TenantInvitations(_ context.Context, _ resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
+	if err := f.fail("TenantInvitations"); err != nil {
+		return nil, err
+	}
+
+	return f.invitations[domain], nil
 }
 
 func boolText(b bool) string {
@@ -579,7 +626,7 @@ func (s fakeSessions) PrepareInvitation(_ context.Context, req *session.Invitati
 	return &fakePrepared{
 		mail: s.mail,
 		row: session.InvitationRow{
-			ID: s.mail.id, TokenHash: []byte("hash"), Email: req.Email, Name: strings.TrimSpace(req.Name), Tenant: req.Tenant, RoleNames: req.RoleNames, InvitedBy: req.InvitedBy,
+			ID: s.mail.id, TokenHash: []byte("hash"), Email: req.Email, Name: strings.TrimSpace(req.Name), TenantID: req.TenantID, RoleNames: req.RoleNames, InvitedByUserID: req.InvitedByUserID,
 			ExpiresAt: time.Time{},
 		},
 	}, nil

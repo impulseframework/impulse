@@ -55,6 +55,11 @@ type identityTenant struct {
 	// outlets are the outlets the record is served on: what its @outlet names, the
 	// default outlet when it names none.
 	outlets []string
+	// word is what the application calls one tenant, as the middle of a sentence says
+	// it: the record's label (@tenant(label: ...)) or its name in words, the first
+	// letter lowered ("customer", "service district"). A refusal that speaks of a
+	// tenant says it (identity.WithTenantWord).
+	word string
 }
 
 // identityList is one of a tenant's lists as the generated management declares it: the
@@ -181,6 +186,16 @@ func (d *identitySourceData) TenantName() string {
 	return d.tenant.name
 }
 
+// TenantWord is what the application calls one tenant in a sentence, "" in an
+// application with no tenant record.
+func (d *identitySourceData) TenantWord() string {
+	if d.tenant == nil {
+		return ""
+	}
+
+	return d.tenant.word
+}
+
 // TenantPicker is the tenant record's resource where a method of the instance can offer
 // a picker of it, for the field that says which tenant a role is given in: the record is
 // served on every outlet the instance's methods are on, since a picker lists a resource
@@ -253,7 +268,7 @@ func sqlStringLiteral(value string) string {
 // whose key is not one string column, is refused here in the words the extraction would
 // use after the load, since the lists cannot be written over it.
 func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
-	name, outlets, err := tenantRecordIn(r.resource.Dir())
+	name, outlets, label, err := tenantRecordIn(r.resource.Dir())
 	if err != nil {
 		return nil, errors.Wrapf(err, "GenerateIdentity(%q): reading the tenant record (@%s) from the sources of %s", r.identityTree.Dir(), tenantKeyword, r.resource.Dir())
 	}
@@ -277,10 +292,10 @@ func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
 		return nil, errors.Newf("GenerateIdentity(%q): struct %s is the tenant record (@%s) and its table %s has %d key columns; the tenant record has one key, the domain in every tenant-scoped URL", r.identityTree.Dir(), name, tenantKeyword, table, len(keys))
 	}
 	if spannerType := meta.Columns[keys[0]].SpannerType; !strings.HasPrefix(spannerType, "STRING") {
-		return nil, errors.Newf("GenerateIdentity(%q): struct %s is the tenant record (@%s) and its key %s.%s is %s; the tenant record's key is a string, the domain in every tenant-scoped URL", r.identityTree.Dir(), name, tenantKeyword, table, keys[0], spannerType)
+		return nil, errors.Newf("GenerateIdentity(%q): struct %s is the tenant record (@%s) and its key %s.%s is %s; the tenant record's key is an id the create path generates, kept as its text, the domain in every tenant-scoped URL", r.identityTree.Dir(), name, tenantKeyword, table, keys[0], spannerType)
 	}
 
-	return &identityTenant{name: name, table: table, key: keys[0], outlets: outlets}, nil
+	return &identityTenant{name: name, table: table, key: keys[0], outlets: outlets, word: sentenceWord(name, label)}, nil
 }
 
 // holdIdentityTenant holds the tenant record the sources were written for to the one the
@@ -313,38 +328,41 @@ func (r *resourceGenerator) holdIdentityTenant() error {
 }
 
 // tenantRecordIn reads the name of the struct a package's sources declare the tenant
-// record, "" when none does or the directory holds no package. Only the syntax is read:
-// the files the default build takes, each struct's comment scanned as the extraction
-// scans it. A comment the scanner refuses is passed over here; the extraction refuses it
-// with the struct's place once the packages are loaded.
-func tenantRecordIn(dir string) (name string, outlets []string, err error) {
+// record, "" when none does or the directory holds no package, with the outlets it is
+// served on and the label it declares for one tenant (@tenant(label: ...)), "" where it
+// declares none. Only the syntax is read: the files the default build takes, each
+// struct's comment scanned as the extraction scans it. A comment the scanner refuses is
+// passed over here; the extraction refuses it with the struct's place once the packages
+// are loaded.
+func tenantRecordIn(dir string) (name string, outlets []string, label string, err error) {
 	if dir == "" {
-		return "", nil, nil
+		return "", nil, "", nil
 	}
 	if _, err := os.Stat(dir); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return "", nil, nil
+			return "", nil, "", nil
 		}
 
-		return "", nil, errors.Wrap(err, "os.Stat()")
+		return "", nil, "", errors.Wrap(err, "os.Stat()")
 	}
 	pkg, err := build.ImportDir(dir, 0)
 	if err != nil {
 		var noGo *build.NoGoError
 		if errors.As(err, &noGo) {
-			return "", nil, nil
+			return "", nil, "", nil
 		}
 
-		return "", nil, errors.Wrap(err, "build.ImportDir()")
+		return "", nil, "", errors.Wrap(err, "build.ImportDir()")
 	}
 
 	var records []string
 	served := map[string][]string{}
+	labels := map[string]string{}
 	fset := token.NewFileSet()
 	for _, name := range pkg.GoFiles {
 		file, err := goparser.ParseFile(fset, filepath.Join(dir, name), nil, goparser.ParseComments|goparser.SkipObjectResolution)
 		if err != nil {
-			return "", nil, errors.Wrap(err, "parser.ParseFile()")
+			return "", nil, "", errors.Wrap(err, "parser.ParseFile()")
 		}
 		for _, decl := range file.Decls {
 			gen, ok := decl.(*ast.GenDecl)
@@ -362,27 +380,65 @@ func tenantRecordIn(dir string) (name string, outlets []string, err error) {
 				if structCommentHas(gen, typeSpec, tenantKeyword) {
 					records = append(records, typeSpec.Name.Name)
 					served[typeSpec.Name.Name] = structCommentOutlets(gen, typeSpec)
+					labels[typeSpec.Name.Name] = structCommentTenantLabel(gen, typeSpec)
 				}
 			}
 		}
 	}
 	switch len(records) {
 	case 0:
-		return "", nil, nil
+		return "", nil, "", nil
 	case 1:
-		return records[0], served[records[0]], nil
+		return records[0], served[records[0]], labels[records[0]], nil
 	default:
 		slices.Sort(records)
 
-		return "", nil, errors.Newf("structs %s each carry @%s; an application has one tenant record", strings.Join(records, " and "), tenantKeyword)
+		return "", nil, "", errors.Newf("structs %s each carry @%s; an application has one tenant record", strings.Join(records, " and "), tenantKeyword)
 	}
 }
 
 // tenantRecordNameIn is tenantRecordIn's name alone.
 func tenantRecordNameIn(dir string) (string, error) {
-	name, _, err := tenantRecordIn(dir)
+	name, _, _, err := tenantRecordIn(dir)
 
 	return name, err
+}
+
+// structCommentTenantLabel reads the label a tenant record's comment declares for one
+// tenant (@tenant(label: ...)), "" where it declares none or the arguments are ones the
+// extraction refuses once the packages are loaded.
+func structCommentTenantLabel(gen *ast.GenDecl, typeSpec *ast.TypeSpec) string {
+	doc := typeSpec.Doc
+	if doc == nil && len(gen.Specs) == 1 {
+		doc = gen.Doc
+	}
+	annotations, err := genlang.NewScanner(resourceKeywords()).ScanStructComment(doc.Text() + typeSpec.Comment.Text())
+	if err != nil || !annotations.Has(tenantKeyword) {
+		return ""
+	}
+	args, err := parseTenantArgs(typeSpec.Name.Name, annotations.Get(tenantKeyword))
+	if err != nil {
+		return ""
+	}
+
+	return args.label
+}
+
+// sentenceWord is what the application calls one tenant as the middle of a sentence
+// says it: the record's label where it declares one, else its name in words, with the
+// first letter lowered unless the first word is an initialism ("Customer" is
+// "customer", "ServiceDistrict" is "service district", "HQ unit" stays).
+func sentenceWord(name, label string) string {
+	word := label
+	if word == "" {
+		word = screenWords(name)
+	}
+	first, _, _ := strings.Cut(word, " ")
+	if word == "" || isInitialism(first) {
+		return word
+	}
+
+	return strings.ToLower(word[:1]) + word[1:]
 }
 
 // structCommentOutlets reads the outlets a struct's comment names (@outlet), the default

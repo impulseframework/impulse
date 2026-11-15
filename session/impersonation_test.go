@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -60,6 +61,30 @@ func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 
 	sessionID := impulse.Must(impulse.NewUUID())
 	customData := &NoCustomData{}
+	// accountID reads as the id of an account, in a session type that keeps none: there
+	// is nobody here a text could be the id of, so a name or a principal that reads as
+	// one is taken as given, like any other.
+	const accountID = "a11ce000-0000-4000-8000-00000000000a"
+	// establishedAs expects the session of username, started by actor from another
+	// application, whose record carries the principal.
+	establishedAs := func(username, actor string, principal accesstypes.Principal) func(*mock_sessionstorage.MockPreauthStore, *mock_cookie.MockHandler) {
+		return func(storage *mock_sessionstorage.MockPreauthStore, cookieHandler *mock_cookie.MockHandler) {
+			storage.EXPECT().ImpersonationEnabled().Return(true)
+			storage.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).
+				DoAndReturn(func(_ context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
+					if req.Username != username || req.UserID != impulse.NilUUID {
+						return impulse.NilUUID, errors.Newf("unexpected NewSessionRequest %+v", req)
+					}
+					if imp.Actor != actor || imp.ActorRealm != "admin-portal" || imp.Principal != principal {
+						return impulse.NilUUID, errors.Newf("unexpected impersonation %+v", imp)
+					}
+
+					return sessionID, nil
+				})
+			cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
+			cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
+		}
+	}
 
 	tests := []struct {
 		name           string
@@ -164,6 +189,26 @@ func TestPreauthAPI_StartImpersonatedSession(t *testing.T) {
 				cookieHandler.EXPECT().NewAuthCookie(gomock.Any(), true, sessionID).Return(cookie.NewValues())
 				cookieHandler.EXPECT().CreateXSRFTokenCookie(gomock.Any(), sessionID)
 			},
+		},
+		{
+			name:    "an actor from another application whose name reads as an id is accepted for a role principal: no session here belongs to an account",
+			req:     &ImpersonationRequest{Actor: accountID, ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("PartnerViewer")},
+			prepare: establishedAs(accountID, accountID, accesstypes.RolePrincipal("PartnerViewer")),
+		},
+		{
+			name:    "an actor from another application whose name reads as an id is accepted for a user principal: no session here belongs to an account",
+			req:     &ImpersonationRequest{Actor: accountID, ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal("bob@partner.org")},
+			prepare: establishedAs("bob@partner.org", accountID, accesstypes.UserPrincipal("bob@partner.org")),
+		},
+		{
+			name:    "a user principal that reads as an id in upper case is kept as given: the username and the record's principal are the request's text",
+			req:     &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User(strings.ToUpper(accountID)))},
+			prepare: establishedAs(strings.ToUpper(accountID), "alice", accesstypes.UserPrincipal(accesstypes.User(strings.ToUpper(accountID)))),
+		},
+		{
+			name:    "a user principal that reads as an id in braces is kept as given: the username and the record's principal are the request's text",
+			req:     &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal("{" + accountID + "}")},
+			prepare: establishedAs("{"+accountID+"}", "alice", accesstypes.UserPrincipal("{"+accountID+"}")),
 		},
 		{
 			name: "a failed audit destroys the session and fails the establishment",

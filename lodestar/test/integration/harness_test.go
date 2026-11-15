@@ -91,12 +91,13 @@ const (
 )
 
 // Seeded row identifiers, matching schema/devseed. The values are patterned and stable
-// so tests can address rows directly. The comments beside each mission are the facts the
-// §7 conditions read.
+// so tests can address rows directly. A sector's key is an id, and the seed gives the
+// three fixed ones. The comments beside each mission are the facts the §7 conditions
+// read.
 const (
-	anvil   = "anvil"
-	bastion = "bastion"
-	cinder  = "cinder"
+	anvil   = "a1111111-1111-4111-8111-111111111111"
+	bastion = "b2222222-2222-4222-8222-222222222222"
+	cinder  = "c3333333-3333-4333-8333-333333333333"
 
 	clientHalvardID      = "10000000-0000-4000-8000-000000000001" // trusted, insured; Cleo's company
 	clientMeridianID     = "10000000-0000-4000-8000-000000000002" // trusted, cover unknown (Insured NULL)
@@ -171,6 +172,10 @@ const (
 
 // sectors is the seeded roster.
 var sectors = []accesstypes.Domain{anvil, bastion, cinder}
+
+// sectorsByName is the seeded roster by the names the seed gives the sectors: the
+// personas file names a sector by its name, since its key is an id nobody types.
+var sectorsByName = map[string]accesstypes.Domain{"Anvil": anvil, "Bastion": bastion, "Cinder": cinder}
 
 // testCursorKey is the one cursor key the integration suites seal and open with.
 var testCursorKey = func() *resource.CursorKey {
@@ -527,10 +532,13 @@ func doRequest(t *testing.T, h http.Handler, method, target, body string) (statu
 	return doRequestAs(t, h, "integration-test-user", method, target, body)
 }
 
-// doRequestAs performs a request against the app as the given user. The bootstrap-parity
-// suites run against the real engines, where the acting user decides outcomes; every
-// other suite scripts its checks and uses the default user. A portal user's request is
-// bound to the members auth, as the portal's session group binds it.
+// doRequestAs performs a request against the app as the given user, named by username.
+// The bootstrap-parity suites run against the real engines, where the acting user
+// decides outcomes; every other suite scripts its checks and uses the default user. A
+// persona of the cast runs as its account, as a signed-in person does: the synthetic
+// session carries the account's fixed id, which is how the permission store names the
+// persona. A portal user's request is bound to the members auth, as the portal's session
+// group binds it.
 func doRequestAs(t *testing.T, h http.Handler, user accesstypes.User, method, target, body string) (statusCode int, respBody []byte) {
 	t.Helper()
 
@@ -562,14 +570,8 @@ func doRequestRecordedWithHeaders(t *testing.T, h http.Handler, user accesstypes
 
 	// Generated mutation handlers derive their change-event source from the session,
 	// which production apps establish via session middleware. The harness injects a
-	// synthetic one.
-	sessionID, err := impulse.NewUUID()
-	if err != nil {
-		t.Fatalf("impulse.NewUUID: %v", err)
-	}
-	ctx := context.WithValue(t.Context(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
-		SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: string(user)},
-	})
+	// synthetic one (sessionContext).
+	ctx := sessionContext(t, user)
 	if portalUsers[user] {
 		ctx = auth.Bind(ctx, members.Name)
 	}
@@ -586,6 +588,96 @@ func doRequestRecordedWithHeaders(t *testing.T, h http.Handler, user accesstypes
 	h.ServeHTTP(rr, req)
 
 	return rr
+}
+
+// sessionContext is a context carrying the synthetic session the harness gives scripted
+// requests, which stands where the session middleware would put a signed-in person's:
+// the username the suite named and, for a persona of the cast, the id of its account,
+// which the permission checks, the row conditions' subject and the columns that record
+// who take. An account a test made is carried the same way once the test has said whose
+// it is (knownAs). Any other name is a person with no account, named by the username
+// alone.
+func sessionContext(t *testing.T, user accesstypes.User) context.Context {
+	t.Helper()
+
+	sessionID, err := impulse.NewUUID()
+	if err != nil {
+		t.Fatalf("impulse.NewUUID: %v", err)
+	}
+	data := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: string(user)}}
+	if id, ok := accountID(user); ok {
+		data.UserID = impulse.NullUUIDFromUUID(id)
+	} else if id, ok := madeAccountID(t, user); ok {
+		data.UserID = impulse.NullUUIDFromUUID(id)
+	}
+
+	return context.WithValue(t.Context(), sessioninfo.CtxSessionInfo, data)
+}
+
+// madeAccounts holds the accounts the tests made: a test that creates a person and then
+// makes requests as them says which account the username is (knownAs), and the synthetic
+// session carries its id from then on. A pair belongs to the top-level test that made it,
+// since each builds a world of its own and two worlds may each hold an "ada".
+var madeAccounts sync.Map
+
+// madeAccount is a key of madeAccounts: a username within one top-level test.
+type madeAccount struct {
+	test     string
+	username accesstypes.User
+}
+
+// madeAccountID is the id of the account this test made under the username, if the test
+// has said whose it is (knownAs).
+func madeAccountID(t *testing.T, username accesstypes.User) (impulse.UUID, bool) {
+	t.Helper()
+
+	made, _ := madeAccounts.Load(madeAccount{test: topLevelTest(t), username: username})
+	id, ok := made.(impulse.UUID)
+
+	return id, ok
+}
+
+// topLevelTest is the name of the top-level test t runs under, itself or a subtest.
+func topLevelTest(t *testing.T) string {
+	t.Helper()
+
+	name, _, _ := strings.Cut(t.Name(), "/")
+
+	return name
+}
+
+// knownAs tells the harness that the account id is the person signed in as username from
+// here on, as the session middleware would know from the session's row: a request this
+// test makes as that username (doRequestAs) then runs as the account. It answers the
+// person as the permission store names them, the id as text, and forgets the pair when
+// the test ends.
+func knownAs(t *testing.T, username accesstypes.User, id impulse.UUID) accesstypes.User {
+	t.Helper()
+
+	key := madeAccount{test: topLevelTest(t), username: username}
+	madeAccounts.Store(key, id)
+	t.Cleanup(func() { madeAccounts.CompareAndDelete(key, id) })
+
+	return accesstypes.User(id.String())
+}
+
+// makeCrewAccount writes an account of the crew's for a person a test makes up, as a
+// registration creates one: under an id of its own, with no password and no role. It
+// tells the harness whose the account is (knownAs) and answers the person as the
+// permission store names them.
+func makeCrewAccount(ctx context.Context, t *testing.T, db *initiator.SpannerDB, username accesstypes.User) accesstypes.User {
+	t.Helper()
+
+	id, err := impulse.NewUUID()
+	if err != nil {
+		t.Fatalf("impulse.NewUUID: %v", err)
+	}
+	row := spanner.InsertMap("CrewSessionUsers", map[string]any{"Id": id.String(), "Username": string(username), "CreatedAt": spanner.CommitTimestamp})
+	if _, err := db.Apply(ctx, []*spanner.Mutation{row}); err != nil {
+		t.Fatalf("writing %s's crew account: %v", username, err)
+	}
+
+	return knownAs(t, username, id)
 }
 
 // decodeRows decodes a list response body into rows.
@@ -758,8 +850,9 @@ type served struct {
 }
 
 // newServed provisions the database the way the bootstrap does (schema, the demo world,
-// the personas and the droid with their memberships; both auths' roles are the embedded
-// files the engines validate when the auths open), and serves the full router. Under the
+// the personas, the members and the droid as accounts under their fixed ids, with the
+// memberships held by those ids; both auths' roles are the embedded files the engines
+// validate when the auths open), and serves the full router. Under the
 // skipAuth build the members auth's directory is simulated and its login returns straight
 // to the callback; without the tag the suite skips.
 func newServed(ctx context.Context, t *testing.T) *served {
@@ -873,18 +966,35 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 		}
 	})
 
-	if err := provisionDemoAccess(ctx, crewAuth.Access(), membersAuth.Access()); err != nil {
+	// The cast's accounts, each under its fixed id as the bootstrap creates them: the
+	// personas with their passwords, the members and the droid service account without
+	// one. The roles are held by those ids (provisionDemoAccess).
+	identities, err := loadIdentities()
+	if err != nil {
 		t.Fatal(err)
 	}
-	passwordAuth := crewAuth.Session()
-	for _, user := range demoUsers(t) {
+	crewAPI := crewAuth.Session().API()
+	for _, user := range identities.Users {
 		password := user.Password
-		if _, err := passwordAuth.API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: string(user.User), Password: &password}); err != nil {
+		if _, err := crewAPI.CreateSessionUser(ctx, &session.CreateUserRequest{ID: impulse.NullUUIDFromUUID(user.ID), Username: string(user.User), Password: &password}); err != nil {
 			t.Fatalf("CreateSessionUser(%s) error = %v", user.User, err)
 		}
 	}
+	for _, account := range identities.ServiceAccounts {
+		if _, err := crewAPI.CreateSessionUser(ctx, &session.CreateUserRequest{ID: impulse.NullUUIDFromUUID(account.ID), Username: string(account.User)}); err != nil {
+			t.Fatalf("CreateSessionUser(%s) error = %v", account.User, err)
+		}
+	}
+	for _, member := range identities.Members {
+		if _, err := membersAuth.Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{ID: impulse.NullUUIDFromUUID(member.ID), Username: string(member.User)}); err != nil {
+			t.Fatalf("CreateSessionUser(member %s) error = %v", member.User, err)
+		}
+	}
+	if err := provisionDemoAccess(ctx, crewAuth.Access(), membersAuth.Access()); err != nil {
+		t.Fatal(err)
+	}
 	// The droid service account's key, seeded as its token the way the App's Start
-	// seeds the configured one.
+	// seeds the configured one: the account is found by its username.
 	if err := crewAuth.Handlers().SeedToken(ctx, droidUser, crew.DroidsOutlet, droidsAPIKey); err != nil {
 		t.Fatalf("crew.Handlers.SeedToken() error = %v", err)
 	}

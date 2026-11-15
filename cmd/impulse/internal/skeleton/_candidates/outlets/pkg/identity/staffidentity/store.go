@@ -199,7 +199,7 @@ func (store) DeleteIdentity(ctx context.Context, txn resource.ReadWriteTransacti
 
 func (store) Token(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (token *identity.Token, found bool, err error) {
 	row, err := staffresources.NewStaffSessionTokenQuery().
-		AddColumns(staffresources.NewStaffSessionTokenColumns().Family().ExpiresAt().RevokedAt()).
+		AddColumns(staffresources.NewStaffSessionTokenColumns().FamilyID().ExpiresAt().RevokedAt()).
 		SetID(id).
 		Read(ctx, txn)
 	if err != nil {
@@ -210,14 +210,14 @@ func (store) Token(ctx context.Context, txn resource.ReadWriteTransaction, id im
 		return nil, false, errors.Wrap(err, "staffresources.StaffSessionTokenQuery.Read()")
 	}
 
-	return &identity.Token{Family: row.Data.Family, ExpiresAt: row.Data.ExpiresAt, Revoked: row.Data.RevokedAt != nil}, true, nil
+	return &identity.Token{FamilyID: row.Data.FamilyID, ExpiresAt: row.Data.ExpiresAt, Revoked: row.Data.RevokedAt != nil}, true, nil
 }
 
 func (store) FamilyTokens(ctx context.Context, txn resource.ReadWriteTransaction, family impulse.UUID) ([]impulse.UUID, error) {
 	// The index leads with the family; whether a token is revoked is read off each row.
 	query := staffresources.NewStaffSessionTokenQuery().
 		AddColumns(staffresources.NewStaffSessionTokenColumns().ID().RevokedAt()).
-		Where(staffresources.NewStaffSessionTokenQueryClause().Family().Equal(family))
+		Where(staffresources.NewStaffSessionTokenQueryClause().FamilyID().Equal(family))
 	var ids []impulse.UUID
 	for row, err := range query.List(ctx, txn) {
 		if err != nil {
@@ -276,24 +276,24 @@ func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, user
 	return id, found, nil
 }
 
-func (store) UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTransaction, email string) (username string, found bool, err error) {
+func (store) UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTransaction, email string) (id impulse.UUID, found bool, err error) {
 	// A read that goes past the declarations, as UserID's is: the table's normalized
 	// address is no field of the declaration, and it is the column the unique index
 	// is over, so the address is compared as the session library compares one. An
 	// address nobody confirmed names no one, as at a sign-in.
 	stmt := spanner.Statement{
-		SQL:    "SELECT Username FROM StaffSessionUsers WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL",
+		SQL:    "SELECT Id FROM StaffSessionUsers WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL",
 		Params: map[string]any{"email": email},
 	}
 	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
 		found = true
 
-		return row.Column(0, &username)
+		return row.Column(0, &id)
 	}); err != nil {
-		return "", false, errors.Wrap(err, "spanner.RowIterator.Do()")
+		return impulse.NilUUID, false, errors.Wrap(err, "spanner.RowIterator.Do()")
 	}
 
-	return username, found, nil
+	return id, found, nil
 }
 
 func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
@@ -342,7 +342,7 @@ func (store) EndImpersonation(_ context.Context, _ resource.ReadWriteTransaction
 func (store) HasRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RoleKey) (bool, error) {
 	_, err := staffresources.NewStaffRoleQuery().
 		AddColumns(staffresources.NewStaffRoleColumns().Role()).
-		SetKind(key.Kind).SetAxis(key.Axis).SetDomain(key.Domain).SetRole(string(key.Role)).
+		SetKind(key.Kind).SetAxis(key.Axis).SetDomainID(key.Domain).SetRole(string(key.Role)).
 		Read(ctx, txn)
 	if err != nil {
 		if httpio.HasNotFound(err) {
@@ -358,7 +358,7 @@ func (store) HasRole(ctx context.Context, txn resource.ReadWriteTransaction, key
 func (store) HasMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey) (bool, error) {
 	_, err := staffresources.NewStaffUserRoleQuery().
 		AddColumns(staffresources.NewStaffUserRoleColumns().Role()).
-		SetKind(key.Kind).SetAxis(key.Axis).SetDomain(key.Domain).SetRole(string(key.Role)).SetUser(string(key.User)).
+		SetKind(key.Kind).SetAxis(key.Axis).SetDomainID(key.Domain).SetRole(string(key.Role)).SetUserID(string(key.User)).
 		Read(ctx, txn)
 	if err != nil {
 		if httpio.HasNotFound(err) {
@@ -371,17 +371,17 @@ func (store) HasMembership(ctx context.Context, txn resource.ReadWriteTransactio
 	return true, nil
 }
 
-func (store) Memberships(ctx context.Context, txn resource.ReadWriteTransaction, username string) ([]access.MembershipKey, error) {
-	// The table's index by user leads with the name.
+func (store) Memberships(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.MembershipKey, error) {
+	// The table's index by user leads with the person, the id of their account.
 	query := staffresources.NewStaffUserRoleQuery().
-		AddColumns(staffresources.NewStaffUserRoleColumns().Kind().Axis().Domain().Role().User()).
-		Where(staffresources.NewStaffUserRoleQueryClause().User().Equal(username))
+		AddColumns(staffresources.NewStaffUserRoleColumns().Kind().Axis().DomainID().Role().UserID()).
+		Where(staffresources.NewStaffUserRoleQueryClause().UserID().Equal(userID.String()))
 	var keys []access.MembershipKey
 	for row, err := range query.List(ctx, txn) {
 		if err != nil {
 			return nil, errors.Wrap(err, "staffresources.StaffUserRoleQuery.List()")
 		}
-		keys = append(keys, access.MembershipKey{Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.Domain, Role: accesstypes.Role(row.Data.Role), User: accesstypes.User(row.Data.User)})
+		keys = append(keys, access.MembershipKey{Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Role: accesstypes.Role(row.Data.Role), User: accesstypes.User(row.Data.UserID)})
 	}
 
 	return keys, nil
@@ -391,14 +391,14 @@ func (store) RoleHolders(ctx context.Context, txn resource.ReadWriteTransaction,
 	// The table's key leads with where the role is held, then the role: the list is
 	// the rows under that prefix of the key.
 	query := staffresources.NewStaffUserRoleQuery().
-		AddColumns(staffresources.NewStaffUserRoleColumns().User()).
-		SetKind(key.Kind).SetAxis(key.Axis).SetDomain(key.Domain).SetRole(string(key.Role))
+		AddColumns(staffresources.NewStaffUserRoleColumns().UserID()).
+		SetKind(key.Kind).SetAxis(key.Axis).SetDomainID(key.Domain).SetRole(string(key.Role))
 	var users []accesstypes.User
 	for row, err := range query.List(ctx, txn) {
 		if err != nil {
 			return nil, errors.Wrap(err, "staffresources.StaffUserRoleQuery.List()")
 		}
-		users = append(users, accesstypes.User(row.Data.User))
+		users = append(users, accesstypes.User(row.Data.UserID))
 	}
 
 	return users, nil
@@ -424,6 +424,65 @@ func (store) DeleteMembership(ctx context.Context, txn resource.ReadWriteTransac
 	}
 
 	return nil
+}
+
+func (store) TenantMemberships(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]access.MembershipKey, error) {
+	// The table's key leads with where a membership is held: the list is the rows
+	// under the tenant's own scope.
+	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
+	query := staffresources.NewStaffUserRoleQuery().
+		AddColumns(staffresources.NewStaffUserRoleColumns().Kind().Axis().DomainID().Role().UserID()).
+		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
+	var keys []access.MembershipKey
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "staffresources.StaffUserRoleQuery.List()")
+		}
+		keys = append(keys, access.MembershipKey{Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Role: accesstypes.Role(row.Data.Role), User: accesstypes.User(row.Data.UserID)})
+	}
+
+	return keys, nil
+}
+
+// DeleteTenantRoles removes the custom roles made in one tenant with their grants: the
+// one write here to the roles and grants tables, whose rows are otherwise the
+// permission engine's to write, made because the tenant itself goes.
+func (store) DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (int, error) {
+	at := access.NewMembershipKey(accesstypes.DomainPolicyScope(domain), "", "")
+	grants := staffresources.NewStaffRoleGrantQuery().
+		AddColumns(staffresources.NewStaffRoleGrantColumns().Kind().Axis().DomainID().Role().Permission().ResourceName().Field().Condition()).
+		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
+	var grantPatches []*staffresources.StaffRoleGrantDeletePatch
+	for row, err := range grants.List(ctx, txn) {
+		if err != nil {
+			return 0, errors.Wrap(err, "staffresources.StaffRoleGrantQuery.List()")
+		}
+		grant := row.Data
+		grantPatches = append(grantPatches, staffresources.NewStaffRoleGrantDeletePatch(grant.Kind, grant.Axis, grant.DomainID, grant.Role, grant.Permission, grant.ResourceName, grant.Field, grant.Condition))
+	}
+	roles := staffresources.NewStaffRoleQuery().
+		AddColumns(staffresources.NewStaffRoleColumns().Kind().Axis().DomainID().Role()).
+		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
+	var rolePatches []*staffresources.StaffRoleDeletePatch
+	for row, err := range roles.List(ctx, txn) {
+		if err != nil {
+			return 0, errors.Wrap(err, "staffresources.StaffRoleQuery.List()")
+		}
+		role := row.Data
+		rolePatches = append(rolePatches, staffresources.NewStaffRoleDeletePatch(role.Kind, role.Axis, role.DomainID, role.Role))
+	}
+	for _, patch := range grantPatches {
+		if err := patch.Buffer(ctx, txn); err != nil {
+			return 0, errors.Wrap(err, "staffresources.StaffRoleGrantDeletePatch.Buffer()")
+		}
+	}
+	for _, patch := range rolePatches {
+		if err := patch.Buffer(ctx, txn); err != nil {
+			return 0, errors.Wrap(err, "staffresources.StaffRoleDeletePatch.Buffer()")
+		}
+	}
+
+	return len(rolePatches), nil
 }
 
 // invitationWrite names the mail links row an invitation is written as. It goes past
@@ -461,11 +520,11 @@ func (store) InsertInvitation(_ context.Context, txn resource.ReadWriteTransacti
 	if row.Name != "" {
 		columns["Name"] = row.Name
 	}
-	if row.Tenant != "" {
-		columns["Tenant"] = row.Tenant
+	if row.TenantID != "" {
+		columns["TenantId"] = row.TenantID
 	}
-	if row.InvitedBy.Valid {
-		columns["InvitedBy"] = row.InvitedBy.UUID
+	if row.InvitedByUserID.Valid {
+		columns["InvitedByUserId"] = row.InvitedByUserID.UUID
 	}
 	if err := txn.BufferMap(invitationWrite{id: row.ID}, columns); err != nil {
 		return errors.Wrap(err, "resource.ReadWriteTransaction.BufferMap()")
@@ -497,6 +556,25 @@ func (store) ConsumeMailLink(ctx context.Context, txn resource.ReadWriteTransact
 	}
 
 	return nil
+}
+
+func (store) TenantInvitations(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
+	// The table's index by tenant leads with the tenant, then the kind.
+	clause := staffresources.NewStaffSessionMailLinkQueryClause()
+	query := staffresources.NewStaffSessionMailLinkQuery().
+		AddColumns(staffresources.NewStaffSessionMailLinkColumns().ID().ConsumedAt()).
+		Where(clause.TenantID().Equal(string(domain)).And().Kind().Equal(string(sessionstorage.MailLinkInvitation)))
+	var ids []impulse.UUID
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "staffresources.StaffSessionMailLinkQuery.List()")
+		}
+		if row.Data.ConsumedAt == nil {
+			ids = append(ids, row.Data.ID)
+		}
+	}
+
+	return ids, nil
 }
 
 func (store) TrustedDevices(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {

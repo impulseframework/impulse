@@ -20,7 +20,7 @@ import (
 func (a *App) Wings() http.HandlerFunc {
 	type wing struct {
 		ID       impulse.UUID `json:"id"       index:"true" perm:"-"`
-		SectorID string       `json:"sectorId" index:"true"`
+		SectorID impulse.UUID `json:"sectorId" index:"true"`
 		Name     string       `json:"name"     index:"true"`
 	}
 
@@ -100,7 +100,7 @@ func (a *App) Wings() http.HandlerFunc {
 func (a *App) Wing() http.HandlerFunc {
 	type response struct {
 		ID       impulse.UUID `json:"id"       index:"true" perm:"-"`
-		SectorID string       `json:"sectorId"`
+		SectorID impulse.UUID `json:"sectorId"`
 		Name     string       `json:"name"`
 	}
 

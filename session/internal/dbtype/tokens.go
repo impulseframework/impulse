@@ -87,9 +87,9 @@ type Token struct {
 	// Name is the name the person gave an application token; "" for the tokens of a
 	// device grant.
 	Name string
-	// Family groups a device grant's access and refresh tokens, and every successor a
+	// FamilyID groups a device grant's access and refresh tokens, and every successor a
 	// refresh issues, so a reuse revokes them together; null for an application token.
-	Family impulse.NullUUID
+	FamilyID impulse.NullUUID
 	// ClientID is the client a device grant was issued to; "" for an application token.
 	ClientID      string
 	CreatedAt     time.Time

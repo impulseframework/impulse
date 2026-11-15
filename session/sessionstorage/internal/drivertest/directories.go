@@ -16,7 +16,6 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -76,26 +75,6 @@ func (s *seatings) of(username string) []signin.DirectorySeat {
 	return s.got[username]
 }
 
-// heldRoles is a role store holding the memberships given, by username, and never
-// written.
-type heldRoles map[accesstypes.User]accesstypes.RoleCollection
-
-func (r heldRoles) UserRoles(_ context.Context, user accesstypes.User, _ ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error) {
-	return r[user], nil
-}
-
-func (heldRoles) ResolveRole(context.Context, accesstypes.PolicyScope, string) (accesstypes.Role, bool, error) {
-	return "", false, errors.New("the sign-in never resolves a role")
-}
-
-func (heldRoles) AddUserRoles(context.Context, accesstypes.PolicyScope, accesstypes.User, ...accesstypes.Role) error {
-	return errors.New("the sign-in never writes a membership")
-}
-
-func (heldRoles) DeleteUserRoles(context.Context, accesstypes.PolicyScope, accesstypes.User, ...accesstypes.Role) error {
-	return errors.New("the sign-in never removes a membership")
-}
-
 // declaring is a directory reader that answers declared for every directory, nothing
 // when none is given.
 func declaring(declared ...signin.DeclaredDirectory) func(context.Context, HookTx, signin.Directory) ([]signin.DeclaredDirectory, error) {
@@ -148,22 +127,10 @@ func testDirectoryDefaultSeat(ctx context.Context, t *testing.T, h *AuthHarness)
 func testDirectoryInvitationOnly(ctx context.Context, t *testing.T, h *AuthHarness) {
 	rec := newSeatings()
 	acc := newAcceptances()
-	roles := heldRoles{"lee@lakeside.edu": {accesstypes.DomainPolicyScope("lakeside"): {"Member"}}, "ops@lakeside.edu": {accesstypes.GlobalPolicyScope(): {"Administrator"}}}
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
 		Auth: true, Accounts: signin.MembersOfDirectory, Accept: acc.hook,
-		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside"}), Roles: roles, Seat: rec.hook},
+		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside"}), Seat: rec.hook},
 	})
-
-	// A person the tenant seated ahead of their first sign-in, and the application's
-	// own staff, are not strangers: provisioned under the sign-in name, no seat added.
-	for _, name := range []string{"lee@lakeside.edu", "ops@lakeside.edu"} {
-		identity := entra("oid-"+name, name)
-		req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity}
-		assertProvisioned(ctx, t, in.Driver, signInRequest(ctx, in, req), req, identity, "tenant-1")
-		if seats := rec.of(name); seats != nil {
-			t.Errorf("seats granted to %s = %v, want none: the memberships stand", name, seats)
-		}
-	}
 
 	// The stranger is refused and nothing is written, though the registration admits
 	// members of the directory.
@@ -175,12 +142,16 @@ func testDirectoryInvitationOnly(ctx context.Context, t *testing.T, h *AuthHarne
 		t.Errorf("seats granted to the refused stranger = %v, want none", seats)
 	}
 
-	// A pre-created user under the sign-in name is linked, as before: the declaration
-	// decides strangers alone.
+	// A person given a role ahead of their first sign-in is no stranger: a role is held
+	// by an account, and the user under the sign-in name is linked, as before. The
+	// declaration decides strangers alone, and seats nobody it did not create.
 	kim := createUser(ctx, t, in.Driver, "kim@lakeside.edu")
 	kimIdentity := entra("oid-kim", "kim@lakeside.edu")
 	kimReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "kim@lakeside.edu", Identity: kimIdentity}
 	assertNewlyLinked(ctx, t, in.Driver, signInRequest(ctx, in, kimReq), kimReq, kimIdentity, kim, "tenant-1")
+	if seats := rec.of("kim@lakeside.edu"); seats != nil {
+		t.Errorf("seats granted to the user created ahead = %v, want none", seats)
+	}
 
 	// An invitation is the way past: the stranger who carries one is provisioned, the
 	// invitation accepted and granted, and no default seat given.

@@ -184,12 +184,12 @@ func Publish(ctx context.Context, svc Service, derivations *Derivations, domain 
 
 // PrincipalID is the session principal's id as the subscription record, the change set
 // and the browser's identity carry it: the name of the auth the request came through
-// (bound by Subscribing), AuthSeparator, and the user name for a user principal (an
-// ordinary session, or an impersonated user) or the role prefixed with "role:" for a
-// session established as a role. A password user alice of the crew auth is crew|alice,
-// a directory user of the members auth is members|alice@example.com, and a session
-// established as the Auditor role through the crew auth is crew|role:Auditor, so two
-// auths over one database never share an id.
+// (bound by Subscribing), AuthSeparator, and the person for a user principal (an
+// ordinary session, or an impersonated user), named as the permission store names them,
+// by the id of their account, or the role prefixed with "role:" for a session
+// established as a role. A user of the crew auth is crew|0b5e…, the account's id, and a
+// session established as the Auditor role through the crew auth is crew|role:Auditor.
+// A person renamed keeps their id, and so their subscriptions.
 //
 // Nothing is truncated or hashed. An id longer than MaxPrincipalIDLength, Firebase's
 // uid limit, fails with a 403 client message whose cause names the id, its length and
@@ -211,8 +211,9 @@ func PrincipalID(ctx context.Context) (string, error) {
 	return id, nil
 }
 
-// principalName is the session principal as its id names it after the auth: the user
-// name for a user principal, the role marked "role:" for a session established as a role.
+// principalName is the session principal as its id names it after the auth: the person
+// for a user principal, as the permission store names them (the id of their account),
+// the role marked "role:" for a session established as a role.
 func principalName(ctx context.Context) string {
 	principal := sessioninfo.PrincipalFromCtx(ctx)
 	if role, ok := principal.Role(); ok {

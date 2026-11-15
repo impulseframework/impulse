@@ -22,7 +22,7 @@ import (
 func (a *App) Consignments() http.HandlerFunc {
 	type consignment struct {
 		ID          impulse.UUID `json:"id"          index:"true"        perm:"-"`
-		SectorID    string       `json:"sectorId"    index:"true"`
+		SectorID    impulse.UUID `json:"sectorId"    index:"true"`
 		ClientID    impulse.UUID `json:"clientId"    index:"true"`
 		BondCode    string       `json:"bondCode"    index:"true"`
 		Description string       `json:"description"`
@@ -127,7 +127,7 @@ func (a *App) Consignments() http.HandlerFunc {
 func (a *App) Consignment() http.HandlerFunc {
 	type response struct {
 		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
-		SectorID    string       `json:"sectorId"`
+		SectorID    impulse.UUID `json:"sectorId"`
 		ClientID    impulse.UUID `json:"clientId"`
 		BondCode    string       `json:"bondCode"    index:"true"`
 		Description string       `json:"description"`

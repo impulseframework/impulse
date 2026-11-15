@@ -22,7 +22,7 @@ import (
 func (a *App) PatchDevicesResources() http.HandlerFunc {
 	type readingRequest struct {
 		ID         impulse.UUID `json:"-"`
-		TenantID   string       `json:"-"`
+		TenantID   impulse.UUID `json:"-"`
 		Source     string       `json:"source"`
 		Value      float64      `json:"value"`
 		RecordedAt time.Time    `json:"recordedAt"`

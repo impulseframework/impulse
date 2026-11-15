@@ -13,9 +13,9 @@ CREATE TABLE SessionMailLinks (
     Kind       STRING(16) NOT NULL,
     Email      STRING(MAX) NOT NULL,
     UserId     STRING(36),
-    Tenant     STRING(MAX),
+    TenantId   STRING(MAX),
     RoleNames  ARRAY<STRING(MAX)>,
-    InvitedBy  STRING(36),
+    InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
@@ -30,4 +30,4 @@ CREATE INDEX SessionMailLinksByKind ON SessionMailLinks(Kind, ConsumedAt, Expire
 -- A tenant's links, newest first, with the columns a tenant's list of its invitations
 -- shows: a page of that list reads its own rows from the index and nothing else. A link
 -- that names no tenant is not in it.
-CREATE NULL_FILTERED INDEX SessionMailLinksByTenant ON SessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);
+CREATE NULL_FILTERED INDEX SessionMailLinksByTenantId ON SessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);

@@ -89,7 +89,7 @@ func (m *Manager) CreateUser(ctx context.Context, txn resource.ReadWriteTransact
 		}
 	}
 	for _, role := range roles {
-		if err := m.AssignRole(ctx, txn, account.Scope, username, role); err != nil {
+		if err := m.AssignRole(ctx, txn, account.Scope, id, role); err != nil {
 			return impulse.NilUUID, err
 		}
 	}
@@ -142,7 +142,7 @@ func (m *Manager) DisableUser(ctx context.Context, txn resource.ReadWriteTransac
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := m.refuseOwnAccount(ctx, txn, userID, "disable"); err != nil {
+	if err := m.refuseOwnAccount(ctx, userID, "disable"); err != nil {
 		return err
 	}
 	// The sessions are read before anything is buffered: they are the ones live now.
@@ -273,4 +273,20 @@ func optionalAddress(email *string) (*string, error) {
 	}
 
 	return &parsed.Address, nil
+}
+
+// RequireUser answers NotFound unless a user of the auth holds the id, read in the
+// caller's transaction. A role is held by an account, and AssignRole looks nobody up (it
+// serves a user created in its own transaction), so a method that gives a role to a
+// person named in a request asks this first.
+func (m *Manager) RequireUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
+	_, found, err := m.store.Username(ctx, txn, userID)
+	if err != nil {
+		return errors.Wrap(err, "identity.Store.Username()")
+	}
+	if !found {
+		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+
+	return nil
 }

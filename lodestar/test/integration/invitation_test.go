@@ -133,7 +133,7 @@ func TestInvitation_globalSignUpWithPassword(t *testing.T) {
 
 	// The rule on a last role: the governor takes the one role away, and the account
 	// goes with it.
-	take := jsonBody(t, map[string]any{"username": username, "role": "ClientBrowser"})
+	take := jsonBody(t, map[string]any{"userId": row["id"], "role": "ClientBrowser"})
 	if status, body := governor.do(ctx, http.MethodPost, crewMethod("remove-crew-role"), take); status != http.StatusNoContent {
 		t.Fatalf("the governor takes the ensign's role away: status %d: %s", status, body)
 	}

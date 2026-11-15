@@ -818,21 +818,36 @@ const (
 	// instance's roster lists it, so the person's next request stands in the tenant. An
 	// engine that does not answer in time is logged and the request answered: the rows
 	// are committed.
-	tenantCreatorSeated = `for _, domain := range created {
-			if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(domain)); err != nil {
-				logger.FromCtx(ctx).Errorf("{{ .Seat.RecordLower }} %s: %v", domain, err)
+	tenantCreatorSeated = `for _, id := range created {
+			if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(id.String())); err != nil {
+				logger.FromCtx(ctx).Errorf("{{ .Seat.RecordLower }} %s: %v", id, err)
 			}
 		}`
 
 	// tenantCreatorRoles is spliced into the tenant record's create, after the row is
-	// buffered: the creator's administrator roles, buffered as memberships in the same
-	// transaction through the auth's generated identity client.
+	// buffered under the id the create generated (id, which the splice's place sets): the
+	// creator's administrator roles, buffered as memberships in the same transaction
+	// through the auth's generated identity client. The id's text is the tenant's domain.
 	tenantCreatorRoles = `for _, role := range roles {
-						if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id)), string(userPermissions.User()), role); err != nil {
+						if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id.String())), userPermissions.User(), role); err != nil {
 							return errors.Wrap(err, "{{ .Seat.IdentityAccessor }}().AssignRole()")
 						}
 					}
 					created = append(created, id)`
+
+	// tenantCleared is spliced into the tenant record's delete, after the row's removal
+	// is buffered under its id (id, which the splice's place sets): what each auth holds
+	// for the tenant goes in the same transaction, through the generated identity client
+	// of every auth whose management the program generates (identity.Manager.ClearTenant).
+	// The id's text is the tenant's domain.
+	tenantCleared = `// A tenant that goes takes what each auth holds for it, in this transaction:
+					// the roles people hold in it, the custom roles made in it and the
+					// invitations into it that still stand.
+					{{- range $clear := .Clears }}
+					if err := {{ $.ReceiverName }}.{{ $clear }}().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {
+						return errors.Wrap(err, "{{ $clear }}().ClearTenant()")
+					}
+					{{- end }}`
 
 	// permissionsTemplate emits the application's permission endpoints — the
 	// PermissionDigest and UserDomains handlers — as one-line delegations to the
@@ -1499,7 +1514,7 @@ var _ interface {
 // No grant admits the call. The session must be established, which the router's session
 // group holds it to, and must hold a grant in no {{ .RecordLower }}: a person creates one {{ .RecordLower }},
 // and the member or administrator of one is refused (403). The row is written first, in
-// its own transaction, which is the claim on the key (a key already taken answers 409),
+// its own transaction, under an id the create generates, which the answer carries,
 // and the person's administrator membership is written in that transaction, through the
 // {{ .Auth }} auth's generated identity client, so the {{ .RecordLower }} and its administrator are
 // committed together or not at all; this instance's roster rereads its table, so it
@@ -1547,18 +1562,24 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 		if len(held) > 0 {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessage("{{ .Refusal }}"))
 		}
-		req, err := decoder.Decode(r)
+		{{ if .Setters }}req{{ else }}_{{ end }}, err := decoder.Decode(r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		domain := accesstypes.Domain(req.{{ .Key.Name }})
 		eventSource := resource.UserEvent(ctx)
 
-		// The row and its administrator, in one transaction: the key is the claim, and
-		// the person's membership is written with the row or not at all.
+		// The row and its administrator, in one transaction: the person's membership is
+		// written with the row or not at all. The id is the one the attempt that
+		// committed generated.
+		var id {{ .Key.Type }}
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		if err := {{ .ReceiverName }}.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			patch := {{ .ResourcePackage }}.New{{ .Record }}CreatePatch(req.{{ .Key.Name }})
+			patch, err := {{ .ResourcePackage }}.New{{ .Record }}CreatePatch()
+			if err != nil {
+				return errors.Wrap(err, "{{ .ResourcePackage }}.New{{ .Record }}CreatePatch()")
+			}
+			id = patch.{{ .Key.Name }}()
+			domain := accesstypes.Domain(id.String())
 			{{- range $field := .Setters }}
 			patch.Set{{ $field }}(req.{{ $field }})
 			{{- end }}
@@ -1573,7 +1594,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 				if err != nil {
 					return errors.Wrap(err, "{{ .ResourcePackage }}.New{{ .Directory.Record }}CreatePatch()")
 				}
-				directory.Set{{ .Directory.TenantField }}(req.{{ .Key.Name }}).Set{{ .Directory.MethodField }}(string(established.Method)).Set{{ .Directory.ConnectionField }}(established.Connection)
+				directory.Set{{ .Directory.TenantField }}({{ .Directory.TenantValue }}).Set{{ .Directory.MethodField }}(string(established.Method)).Set{{ .Directory.ConnectionField }}(established.Connection)
 				if err := directory.Buffer(ctx, txn, eventSource); err != nil {
 					return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Directory.Record }}CreatePatch.Buffer()")
 				}
@@ -1582,7 +1603,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 			// The first administrator: the person's membership of each role, in the row's
 			// transaction.
 			for _, role := range roles {
-				if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), string(userPermissions.User()), role); err != nil {
+				if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {
 					return errors.Wrap(err, "{{ .IdentityAccessor }}().AssignRole()")
 				}
 			}
@@ -1592,6 +1613,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		live.Publish(ctx, {{ .ReceiverName }}.LiveService(), liveDerivations, "", touched)
+		domain := accesstypes.Domain(id.String())
 
 		// This instance's roster learns the {{ .RecordLower }} before the membership is probed:
 		// the probe asks what the person's next request asks, a foothold in a
@@ -1612,7 +1634,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 			logger.FromCtx(ctx).Errorf("tenants: signaling the tenants kind failed; the other instances reload at their backstop: %v", err)
 		}
 
-		return httpio.NewEncoder(w).Ok(response{ {{- .Key.Name }}: req.{{ .Key.Name -}} })
+		return httpio.NewEncoder(w).Ok(response{ {{- .Key.Name }}: id})
 	})
 }
 `
@@ -1935,9 +1957,9 @@ type grants map[accesstypes.Permission]bool
 //
 // constructing the application around the test database with the scripted grants and
 // composing it through the generated router.NewTestRouter. For domain-scoped routes,
-// newTestHandler adds the suite's domain value "testDomain" to the test application's
-// tenant roster with Add (resource.TenantRoster.Add), since the empty schema holds no
-// tenant row; with concealed domains a case with no grants has no foothold and is
+// newTestHandler adds the suite's domain (the generated router's TestDomain) to the test
+// application's tenant roster with Add (resource.TenantRoster.Add), since the empty
+// schema holds no tenant row; with concealed domains a case with no grants has no foothold and is
 // answered as if the domain did not exist.
 func TestGeneratedAuthorizationMatrix(t *testing.T) {
 	t.Parallel()
@@ -1970,8 +1992,9 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusForbidden},
 		},
 		{
-			// A caller holding no grant is admitted past the gate: the minimal body
-			// meets its validation, not a permission check.
+			// A caller holding no grant is admitted past the gate: the body, which names
+			// a field the route does not take, meets its validation, not a permission
+			// check.
 			name:         "{{ .Name }} admits a caller holding no grant",
 			method:       {{ .Method }},
 			target:       "{{ .URL }}",
@@ -2343,6 +2366,10 @@ import (
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}CreatePatch.Buffer()")
 					}
 					resp.IDs = append(resp.IDs, patch.{{ .Resource.PrimaryKey.Name }}())
+					{{- if .Seat }}
+					id := patch.{{ .Resource.PrimaryKey.Name }}()
+					` + tenantCreatorRoles + `
+					{{- end }}
 				{{- else if .Resource.HasCompoundPrimaryKey }}
 					{{- range $i, $field := .Resource.PrimaryKeys }}
 					id{{ Add $i 1 }} := httpio.Param[{{ $field.Type }}](op.Req, "id{{ Add $i 1 }}")
@@ -2363,13 +2390,6 @@ import (
 					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}CreatePatch.Buffer()")
 					}
-					{{- if .Seat }}
-					if patch.RowSkipped() {
-						// The row was there: nothing was created, so nobody is its creator.
-						continue
-					}
-					` + tenantCreatorRoles + `
-					{{- end }}
 				{{- end }}
 				case resource.OperationUpdate:
 				{{- if .Resource.HasCompoundPrimaryKey }}
@@ -2398,6 +2418,9 @@ import (
 					if err := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
+					{{- if .Clears }}
+					` + tenantCleared + `
+					{{- end }}
 				{{- end }}
 				}
 			}
@@ -2657,6 +2680,15 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}CreatePatch.Buffer()")
 							}
 							resp["{{ GoCamel (Pluralize .Name) }}"] = append(resp["{{ GoCamel (Pluralize .Name) }}"], patch.{{ .PrimaryKey.Name }}())
+							{{- if .Seated }}
+							id := patch.{{ .PrimaryKey.Name }}()
+							for _, role := range roles {
+								if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id.String())), userPermissions.User(), role); err != nil {
+									return errors.Wrap(err, "the auth's identity client: AssignRole()")
+								}
+							}
+							created = append(created, id)
+							{{- end }}
 						{{- else if .HasCompoundPrimaryKey }}
 							{{- range $i, $field := .PrimaryKeys }}
 							id{{ Add $i 1 }} := httpio.Param[{{ $field.Type }}](req, "id{{ Add $i 1 }}")
@@ -2677,18 +2709,6 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}CreatePatch.Buffer()")
 							}
-							{{- if .Seated }}
-							if patch.RowSkipped() {
-								// The row was there: nothing was created, so nobody is its creator.
-								continue
-							}
-							for _, role := range roles {
-								if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id)), string(userPermissions.User()), role); err != nil {
-									return errors.Wrap(err, "the auth's identity client: AssignRole()")
-								}
-							}
-							created = append(created, id)
-							{{- end }}
 						{{- end }}
 						case resource.OperationUpdate:
 							{{- if .HasCompoundPrimaryKey }}
@@ -2717,6 +2737,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							if err := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}
+							{{- if .Clears }}
+							` + tenantCleared + `
+							{{- end }}
 							{{- end }}
 						}
 {{- end }}`
@@ -2979,6 +3002,9 @@ const resourceMap = defineResourceMap({
     deleteDisabled: true,
     {{- end }}
     live: {{ $resource.Published }},
+    {{- if $resource.TenantNameField }}
+    nameField: '{{ Camel $resource.TenantNameField.Name }}',
+    {{- end }}
     fields: [
       {{- range $field := $resource.Fields }}
       {{- if not $field.IsFileKey }}
@@ -3441,6 +3467,9 @@ export const apiDescriptor = defineApiDescriptor({
       {{- if $a.Tenant }}
       tenant: '{{ $a.Tenant }}',
       {{- end }}
+      {{- if $a.TenantResource }}
+      tenantResource: Resources.{{ $a.TenantResource }},
+      {{- end }}
       sides: [
 {{- range $side := $a.Sides }}
         {
@@ -3471,14 +3500,18 @@ export const apiDescriptor = defineApiDescriptor({
  * The create-your-{{ .RecordLower }} route (@tenant(creation: {{ .Shape }})): POST {{ .Route }} under the API
  * prefix, with the body below, through the application's HTTP client. A signed-in person who holds
  * no {{ .RecordLower }} creates one and becomes its administrator; a person who already holds one is
- * refused (403). The answer carries the new {{ .RecordLower }}'s key.
+ * refused (403). The route generates the new {{ .RecordLower }}'s id and answers it.
  */
 export const {{ .RouteConstant }} = '{{ .Route }}';
-/** The body the create-your-{{ .RecordLower }} route takes: the {{ .Record }} record's fields with its key. */
+/** The body the create-your-{{ .RecordLower }} route takes: the {{ .Record }} record's fields, without its id. */
 export interface {{ .RequestType }} {
 {{- range $f := .Fields }}
   {{ $f.Name }}{{ if not $f.Required }}?{{ end }}: {{ $f.Type }}{{ if $f.Nullable }} | null{{ end }};
 {{- end }}
+}
+/** The answer of the create-your-{{ .RecordLower }} route: the id of the {{ .RecordLower }} it created, the domain of its addresses. */
+export interface {{ .RequestType }}Answer {
+  {{ .KeyWire }}: string;
 }
 {{- end }}
 
@@ -3642,7 +3675,13 @@ import (
 // method at its declared maximum or at this limit, applied by its generated handler. A
 // body over its limit answers 413 naming the limit.
 const BodyLimit int64 = {{ .BodyLimit }}
-
+{{ if .HasDomainScoped }}
+// TestDomain is the tenant the generated tests address every domain-scoped route in: an
+// id's text, as a tenant's key is one. An empty test schema holds no tenant row, so a
+// test harness that serves the generated routes adds it to its tenant roster
+// (resource.TenantRoster.Add).
+const TestDomain = "{{ .DomainTestValue }}"
+{{ end }}
 {{ if or (gt (len .ConstResources) 0) (gt (len .ConstComputedResources) 0) .HasDomainScoped -}}
 const (
 {{- if .HasDomainScoped }}

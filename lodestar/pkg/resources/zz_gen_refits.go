@@ -28,13 +28,14 @@ func (Refit) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; refitReadSets holds one Set per read operation.
 type refitRead struct {
-	ID          impulse.UUID        `json:"id"          perm:"-"`
-	ShipID      impulse.UUID        `json:"shipId"`
-	StatusID    string              `json:"statusId"`
-	Estimate    decimal.NullDecimal `json:"estimate"`
-	InspectedAt *time.Time          `json:"inspectedAt"`
-	OpenedBy    string              `json:"openedBy"`
-	Notes       *string             `json:"notes"`
+	ID             impulse.UUID        `json:"id"             perm:"-"`
+	ShipID         impulse.UUID        `json:"shipId"`
+	StatusID       string              `json:"statusId"`
+	Estimate       decimal.NullDecimal `json:"estimate"`
+	InspectedAt    *time.Time          `json:"inspectedAt"`
+	OpenedByUserID string              `json:"openedByUserId"`
+	OpenedByName   string              `json:"openedByName"`
+	Notes          *string             `json:"notes"`
 }
 
 var refitReadSets resource.SetCache[Refit, refitRead]
@@ -43,13 +44,14 @@ var refitReadSets resource.SetCache[Refit, refitRead]
 // accept on a mutation, so a patch armed with Enforce meets the field permissions the
 // routes enforce; refitWriteSets holds one Set per mutation.
 type refitWrite struct {
-	ID          impulse.UUID        `json:"-"`
-	ShipID      impulse.UUID        `json:"shipId"`
-	StatusID    string              `json:"-"`
-	Estimate    decimal.NullDecimal `json:"estimate" sqltype:"NUMERIC"`
-	InspectedAt *time.Time          `json:"-"`
-	OpenedBy    string              `json:"-"`
-	Notes       *string             `json:"notes"`
+	ID             impulse.UUID        `json:"-"`
+	ShipID         impulse.UUID        `json:"shipId"`
+	StatusID       string              `json:"-"`
+	Estimate       decimal.NullDecimal `json:"estimate" sqltype:"NUMERIC"`
+	InspectedAt    *time.Time          `json:"-"`
+	OpenedByUserID string              `json:"-"`
+	OpenedByName   string              `json:"-"`
+	Notes          *string             `json:"notes"`
 }
 
 var refitWriteSets resource.SetCache[Refit, refitWrite]
@@ -163,7 +165,8 @@ func (c *RefitColumns) All() *RefitColumns {
 		"StatusID",
 		"Estimate",
 		"InspectedAt",
-		"OpenedBy",
+		"OpenedByUserID",
+		"OpenedByName",
 		"Notes",
 	}
 
@@ -200,8 +203,14 @@ func (c *RefitColumns) InspectedAt() *RefitColumns {
 	return c
 }
 
-func (c *RefitColumns) OpenedBy() *RefitColumns {
-	c.fields = append(c.fields, "OpenedBy")
+func (c *RefitColumns) OpenedByUserID() *RefitColumns {
+	c.fields = append(c.fields, "OpenedByUserID")
+
+	return c
+}
+
+func (c *RefitColumns) OpenedByName() *RefitColumns {
+	c.fields = append(c.fields, "OpenedByName")
 
 	return c
 }
@@ -322,8 +331,12 @@ func (c *refitSort) InspectedAt() *RefitSort {
 	return c.addField("InspectedAt")
 }
 
-func (c *refitSort) OpenedBy() *RefitSort {
-	return c.addField("OpenedBy")
+func (c *refitSort) OpenedByUserID() *RefitSort {
+	return c.addField("OpenedByUserID")
+}
+
+func (c *refitSort) OpenedByName() *RefitSort {
+	return c.addField("OpenedByName")
 }
 
 func (c *refitSort) Notes() *RefitSort {
@@ -412,7 +425,8 @@ func (p *RefitCreatePatch) registerDefaultFuncs() {
 	p.patchSet.RegisterDefaultCreateFunc("StatusID", func(context.Context, resource.ReadWriteTransaction) (any, error) {
 		return string("docked"), nil
 	})
-	p.patchSet.RegisterDefaultCreateFunc("OpenedBy", currentUser)
+	p.patchSet.RegisterDefaultCreateFunc("OpenedByUserID", currentUser)
+	p.patchSet.RegisterDefaultCreateFunc("OpenedByName", currentUserName)
 }
 
 func (p *RefitCreatePatch) ID() impulse.UUID {
@@ -489,20 +503,36 @@ func (p *RefitCreatePatch) InspectedAtIsSet() bool {
 	return p.patchSet.IsSet("InspectedAt")
 }
 
-func (p *RefitCreatePatch) SetOpenedBy(v string) *RefitCreatePatch {
-	p.patchSet.Set("OpenedBy", v)
+func (p *RefitCreatePatch) SetOpenedByUserID(v string) *RefitCreatePatch {
+	p.patchSet.Set("OpenedByUserID", v)
 
 	return p
 }
 
-func (p *RefitCreatePatch) OpenedBy() string {
-	v, _ := p.patchSet.Get("OpenedBy").(string)
+func (p *RefitCreatePatch) OpenedByUserID() string {
+	v, _ := p.patchSet.Get("OpenedByUserID").(string)
 
 	return v
 }
 
-func (p *RefitCreatePatch) OpenedByIsSet() bool {
-	return p.patchSet.IsSet("OpenedBy")
+func (p *RefitCreatePatch) OpenedByUserIDIsSet() bool {
+	return p.patchSet.IsSet("OpenedByUserID")
+}
+
+func (p *RefitCreatePatch) SetOpenedByName(v string) *RefitCreatePatch {
+	p.patchSet.Set("OpenedByName", v)
+
+	return p
+}
+
+func (p *RefitCreatePatch) OpenedByName() string {
+	v, _ := p.patchSet.Get("OpenedByName").(string)
+
+	return v
+}
+
+func (p *RefitCreatePatch) OpenedByNameIsSet() bool {
+	return p.patchSet.IsSet("OpenedByName")
 }
 
 func (p *RefitCreatePatch) SetNotes(v *string) *RefitCreatePatch {
@@ -691,20 +721,36 @@ func (p *RefitUpdatePatch) InspectedAtIsSet() bool {
 	return p.patchSet.IsSet("InspectedAt")
 }
 
-func (p *RefitUpdatePatch) SetOpenedBy(v string) *RefitUpdatePatch {
-	p.patchSet.Set("OpenedBy", v)
+func (p *RefitUpdatePatch) SetOpenedByUserID(v string) *RefitUpdatePatch {
+	p.patchSet.Set("OpenedByUserID", v)
 
 	return p
 }
 
-func (p *RefitUpdatePatch) OpenedBy() string {
-	v, _ := p.patchSet.Get("OpenedBy").(string)
+func (p *RefitUpdatePatch) OpenedByUserID() string {
+	v, _ := p.patchSet.Get("OpenedByUserID").(string)
 
 	return v
 }
 
-func (p *RefitUpdatePatch) OpenedByIsSet() bool {
-	return p.patchSet.IsSet("OpenedBy")
+func (p *RefitUpdatePatch) OpenedByUserIDIsSet() bool {
+	return p.patchSet.IsSet("OpenedByUserID")
+}
+
+func (p *RefitUpdatePatch) SetOpenedByName(v string) *RefitUpdatePatch {
+	p.patchSet.Set("OpenedByName", v)
+
+	return p
+}
+
+func (p *RefitUpdatePatch) OpenedByName() string {
+	v, _ := p.patchSet.Get("OpenedByName").(string)
+
+	return v
+}
+
+func (p *RefitUpdatePatch) OpenedByNameIsSet() bool {
+	return p.patchSet.IsSet("OpenedByName")
 }
 
 func (p *RefitUpdatePatch) SetNotes(v *string) *RefitUpdatePatch {

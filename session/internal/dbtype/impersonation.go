@@ -20,10 +20,11 @@ const (
 type Impersonation struct {
 	SessionID       impulse.UUID
 	ActorUsername   string
+	ActorUserID     *impulse.UUID
 	ActorRealm      *string
 	SourceSessionID *impulse.UUID
 	PrincipalKind   string
-	PrincipalUser   *string
+	PrincipalUserID *string
 	PrincipalRole   *string
 	Mask            *string
 	Reason          *string
@@ -38,10 +39,11 @@ type Impersonation struct {
 // ExpiresAt is the caller's deadline.
 type InsertImpersonation struct {
 	ActorUsername   string
+	ActorUserID     *impulse.UUID
 	ActorRealm      *string
 	SourceSessionID *impulse.UUID
 	PrincipalKind   string
-	PrincipalUser   *string
+	PrincipalUserID *string
 	PrincipalRole   *string
 	Mask            *string
 	Reason          *string
@@ -58,6 +60,10 @@ func NewInsertImpersonation(imp *sessioninfo.Impersonation) *InsertImpersonation
 		Mask:          MaskColumn(imp.Mask),
 		ExpiresAt:     imp.ExpiresAt,
 	}
+	if imp.ActorID.Valid {
+		id := imp.ActorID.UUID
+		row.ActorUserID = &id
+	}
 	if imp.SourceSessionID.Valid {
 		id := imp.SourceSessionID.UUID
 		row.SourceSessionID = &id
@@ -68,7 +74,7 @@ func NewInsertImpersonation(imp *sessioninfo.Impersonation) *InsertImpersonation
 	} else {
 		user, _ := imp.Principal.User()
 		row.PrincipalKind = PrincipalKindUser
-		row.PrincipalUser = optionalString(string(user))
+		row.PrincipalUserID = optionalString(string(user))
 	}
 
 	return row
@@ -87,13 +93,16 @@ func (i *Impersonation) ToSessionInfo() *sessioninfo.Impersonation {
 		EndedAt:    i.EndedAt,
 		EndReason:  sessioninfo.ImpersonationEndReason(derefString(i.EndReason)),
 	}
+	if i.ActorUserID != nil {
+		imp.ActorID = impulse.NullUUID{UUID: *i.ActorUserID, Valid: true}
+	}
 	if i.SourceSessionID != nil {
 		imp.SourceSessionID = impulse.NullUUID{UUID: *i.SourceSessionID, Valid: true}
 	}
 	if i.PrincipalKind == PrincipalKindRole {
 		imp.Principal = accesstypes.RolePrincipal(accesstypes.Role(derefString(i.PrincipalRole)))
 	} else {
-		imp.Principal = accesstypes.UserPrincipal(accesstypes.User(derefString(i.PrincipalUser)))
+		imp.Principal = accesstypes.UserPrincipal(accesstypes.User(derefString(i.PrincipalUserID)))
 	}
 
 	return imp

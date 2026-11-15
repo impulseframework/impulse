@@ -7,7 +7,9 @@ type (
 	// on one user column: subject.squadrons is the set of SquadronId values on rows whose
 	// UserId matches the requesting user (assignedSquadron IN subject.squadrons), and
 	// subject.wings continues through the squadron's foreign key to its wing, a dotted
-	// value path (wing IN subject.wings).
+	// value path (wing IN subject.wings). UserId holds the id of the member's account,
+	// which is what the permission store names a person by; whoever adds a member picks
+	// the person from the sector's people by their username (@enumerate).
 	//
 	// The anchor is two-hop tenancy (Squadron, Wing, SectorId), so the rendered subject
 	// subquery is filtered to the request's sector: a squadron roster at Bastion never
@@ -25,6 +27,7 @@ type (
 		SquadronID impulse.UUID `spanner:"SquadronId"`
 		// @subjectSet(squadrons, value: SquadronID)
 		// @subjectSet(wings, value: SquadronID.WingID)
+		// @enumerate(CrewSectorUsers)
 		UserID string `spanner:"UserId"`
 	}
 )

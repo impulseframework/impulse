@@ -20,7 +20,7 @@ func (h *Handlers) CrewRoleGrants() http.HandlerFunc {
 	type crewRoleGrant struct {
 		Kind         string    `json:"kind"         index:"true" perm:"-"`
 		Axis         string    `json:"axis"         perm:"-"`
-		Domain       string    `json:"domain"       perm:"-"`
+		DomainID     string    `json:"domainId"     perm:"-"`
 		Role         string    `json:"role"         perm:"-"`
 		Permission   string    `json:"permission"   perm:"-"`
 		ResourceName string    `json:"resourceName" perm:"-"`
@@ -76,9 +76,9 @@ func (h *Handlers) CrewRoleGrants() http.HandlerFunc {
 					if !row.Masked("axis") {
 						rmap["axis"] = rec.Axis
 					}
-				case "Domain":
-					if !row.Masked("domain") {
-						rmap["domain"] = rec.Domain
+				case "DomainID":
+					if !row.Masked("domainId") {
+						rmap["domainId"] = rec.DomainID
 					}
 				case "Role":
 					if !row.Masked("role") {

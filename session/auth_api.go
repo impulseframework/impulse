@@ -138,6 +138,9 @@ func (p *AuthAPI[S, U, Tx]) CreateSessionUser(ctx context.Context, req *CreateUs
 	if req.PasswordChangeRequired && req.Password == nil {
 		return impulse.NilUUID, httpio.NewBadRequestMessage("a password change can only be required of a user that has a password")
 	}
+	if req.ID.Valid && req.ID.UUID == impulse.NilUUID {
+		return impulse.NilUUID, errors.New("the id a user is created under is the nil id, which names nobody: leave ID null for a generated id")
+	}
 
 	var hash *securehash.Hash
 	if req.Password != nil {
@@ -158,7 +161,7 @@ func (p *AuthAPI[S, U, Tx]) CreateSessionUser(ctx context.Context, req *CreateUs
 		return impulse.NilUUID, err
 	}
 	user, err := p.auth.storage.CreateUser(ctx, &sessionstorage.InsertSessionUser{
-		Username: req.Username, PasswordHash: hash, Disabled: req.Disabled, PasswordChangeRequired: req.PasswordChangeRequired, Email: email, Name: req.Name,
+		ID: req.ID, Username: req.Username, PasswordHash: hash, Disabled: req.Disabled, PasswordChangeRequired: req.PasswordChangeRequired, Email: email, Name: req.Name,
 	}, data)
 	if err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.CreateUser()")

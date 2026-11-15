@@ -26,7 +26,7 @@ func (ClientRoster) DefaultConfig() resource.Config {
 // enforce; clientRosterReadSets holds one Set per read operation.
 type clientRosterRead struct {
 	ID             impulse.UUID `json:"id"             perm:"-"`
-	SectorID       string       `json:"sectorId"`
+	SectorID       impulse.UUID `json:"sectorId"`
 	Name           string       `json:"name"`
 	Trusted        bool         `json:"trusted"`
 	ContactCount   int64        `json:"contactCount"`
@@ -202,8 +202,8 @@ func (p ClientRosterQueryPartialClause) ID() ClientRosterQueryIdent[impulse.UUID
 	return ClientRosterQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p ClientRosterQueryPartialClause) SectorID() ClientRosterQueryIdent[string] {
-	return ClientRosterQueryIdent[string]{Ident: resource.NewIdent[string]("SectorID", p.partialClause, true)}
+func (p ClientRosterQueryPartialClause) SectorID() ClientRosterQueryIdent[impulse.UUID] {
+	return ClientRosterQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("SectorID", p.partialClause, true)}
 }
 
 func (p ClientRosterQueryPartialClause) Name() ClientRosterNameQueryIdent {

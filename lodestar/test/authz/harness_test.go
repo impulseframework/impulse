@@ -30,12 +30,10 @@ import (
 )
 
 // testUser is the assumed identity every request carries; the suites script what it is
-// permitted to do per test via grants.
+// permitted to do per test via grants. The generated matrix addresses one sector, the
+// generated router's TestDomain, which newTestHandler adds to the application's tenant
+// roster.
 const testUser = "authz-user"
-
-// testDomain is the domain value the generated matrix addresses every domain-scoped
-// route with; newTestHandler adds it to the application's tenant roster.
-const testDomain accesstypes.Domain = "testDomain"
 
 // fakeAccess scripts access.Controller's permission checks. Every Controller method
 // the pipeline does not consume panics through the embedded nil interface, keeping the
@@ -240,10 +238,10 @@ func newTestHandler(t *testing.T, db *initiator.SpannerDB, g grants) http.Handle
 	// stores a file, and the generated router requires both at start.
 	stores := []resource.ClientOption{resource.WithFileStore(filestore.NewMem()), resource.WithNamedFileStore[resources.Documents](filestore.NewMem())}
 
-	// The suite's domain value is added to the roster with Add, the generated matrix's
+	// The matrix's sector is added to the roster with Add, the generated matrix's
 	// contract: the empty schema holds no tenant row for Start to read.
 	tenants := app.NewSectorRoster(resource.NewSpannerClient(db.Client, stores...))
-	tenants.Add(testDomain)
+	tenants.Add(router.TestDomain)
 
 	a := app.New(&testConfigurer{db: db, g: g, stores: stores, tenants: tenants})
 	// The App reads its feature flags as it is built, so a suite that flips a flag

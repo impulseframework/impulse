@@ -52,6 +52,26 @@ func testUserAccounts(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if !users[1].PasswordChangeRequired || !users[1].CreatedAt.Equal(pat.CreatedAt) || users[1].LastSignInAt != nil || !sameHash(users[1].PasswordHash, temporary) {
 		t.Errorf("Users()[1] = %+v, want Pat as created", users[1])
 	}
+
+	// A seed chooses the id of the user it creates: the row carries that id, and an id
+	// another user holds is refused, so no second user comes to hold it.
+	chosen := impulse.Must(impulse.NewUUID())
+	sam, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{ID: impulse.NullUUIDFromUUID(chosen), Username: "sam@lakeside.edu"}, nil)
+	if err != nil {
+		t.Fatalf("CreateUser() under a chosen id error = %v", err)
+	}
+	if sam.ID != chosen {
+		t.Errorf("CreateUser() under a chosen id = %s, want %s", sam.ID, chosen)
+	}
+	if read, err := in.Driver.User(ctx, chosen); err != nil || read.Username != "sam@lakeside.edu" {
+		t.Errorf("User(the chosen id) = %+v, %v; want sam", read, err)
+	}
+	if _, err := in.Driver.CreateUser(ctx, &dbtype.InsertSessionUser{ID: impulse.NullUUIDFromUUID(chosen), Username: "second@lakeside.edu"}, nil); err == nil {
+		t.Error("CreateUser() under an id another user holds error = nil, want a refusal")
+	}
+	if _, err := in.Driver.UserByUserName(ctx, "second@lakeside.edu"); !httpio.HasNotFound(err) {
+		t.Errorf("UserByUserName(second) error = %v, want NotFound: the refused insert left no user", err)
+	}
 }
 
 // testUserPasswordSet pins SetUserPassword: the hash and the mark land in one write,

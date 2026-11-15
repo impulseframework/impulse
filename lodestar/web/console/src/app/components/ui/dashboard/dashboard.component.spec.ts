@@ -14,6 +14,8 @@ import { firstValueFrom } from 'rxjs';
 import { DashboardComponent } from './dashboard.component';
 
 /** Anvil's digest for a marshal: every mission permission, ships read under terms. */
+/** Anvil's id: a sector's key is an id its create generates, and the name is a field. */
+const anvilID = 'a1111111-1111-4111-8111-111111111111';
 const anvil: PermissionDigest = {
   Missions: { List: 'granted', Read: 'granted', Create: 'granted', Update: 'granted', Delete: 'granted' },
   Ships: { List: 'conditional', Read: 'conditional' },
@@ -33,9 +35,9 @@ function server(request: TransportRequest): TransportResponse {
         body: { authenticated: true, username: 'marshal', email: 'marshal@lodestar.test', emailVerified: true },
       };
     case `${environment.apiUrl}/permission-digest`:
-      return { status: 200, body: url.searchParams.get('domain') === 'anvil' ? anvil : {} };
+      return { status: 200, body: url.searchParams.get('domain') === anvilID ? anvil : {} };
     case `${environment.apiUrl}/user-domains`:
-      return { status: 200, body: [{ domain: 'anvil', name: 'Anvil' }] };
+      return { status: 200, body: [{ domain: anvilID, name: 'Anvil' }] };
     default:
       return { status: 404, body: { message: `unscripted ${request.method} ${request.url}` } };
   }
@@ -65,8 +67,8 @@ describe('DashboardComponent', () => {
     // runs. Entering the one lit sector, as the tenant guard does for a page under it, loads
     // its digest.
     await firstValueFrom(TestBed.inject(AuthService).checkUserSession());
-    TestBed.inject(TenantService).enter('anvil');
-    await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest('anvil' as Domain);
+    TestBed.inject(TenantService).enter(anvilID);
+    await TestBed.inject<ClientBase>(RESOURCE_CLIENT).permissions.loadDigest(anvilID as Domain);
 
     fixture = TestBed.createComponent(DashboardComponent);
     fixture.detectChanges();
@@ -92,7 +94,7 @@ describe('DashboardComponent', () => {
     expect(asked).toContain(`GET ${environment.apiUrl}/user/session`);
     expect(asked).toContain(`GET ${environment.apiUrl}/permission-digest`);
     expect(asked).toContain(`GET ${environment.apiUrl}/user-domains`);
-    expect(asked).toContain(`GET ${environment.apiUrl}/permission-digest?domain=anvil`);
+    expect(asked).toContain(`GET ${environment.apiUrl}/permission-digest?domain=${anvilID}`);
     // The service ledger and the pilot cards are global lists the marshal holds no List
     // grant on: never requested.
     expect(asked.filter((line) => line.includes('service-ledgers') || line.includes('pilot-cards'))).toEqual([]);

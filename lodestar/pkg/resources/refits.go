@@ -18,7 +18,9 @@ type (
 	//
 	// InspectedAt is domain data written explicitly by InspectShip (output_only keeps
 	// clients out); the Engineer's Update grant carries inspectedAt IS NOT NULL, so an
-	// estimate is only ever set after inspection. OpenedBy is server-stamped. The update
+	// estimate is only ever set after inspection. OpenedByUserID is server-stamped with the id
+	// of the opener's account, and OpenedByName with their username as it was then, which
+	// is what a page shows. The update
 	// path runs both a defaults type and a validator type. Change tracking is on, feeding
 	// the ship's log.
 	//
@@ -41,8 +43,9 @@ type (
 		// @attribute(inspectedAt)
 		InspectedAt *time.Time `spanner:"InspectedAt" conditions:"output_only"`
 		// @attribute(openedBy)
-		OpenedBy string  `spanner:"OpenedBy" conditions:"output_only" default_create_fn:"currentUser"`
-		Notes    *string `spanner:"Notes"`
+		OpenedByUserID string  `spanner:"OpenedByUserId"     conditions:"output_only" default_create_fn:"currentUser"`
+		OpenedByName   string  `spanner:"OpenedByName" conditions:"output_only" default_create_fn:"currentUserName"`
+		Notes          *string `spanner:"Notes"`
 	}
 )
 

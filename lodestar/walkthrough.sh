@@ -163,7 +163,14 @@ assert_py() { # assert_py <label> <response> <python expression over rows -> boo
   fi
 }
 
-ANVIL=$API/sectors/anvil
+# The seeded sectors' keys: a sector's key is an id nobody types, and the demo world
+# fixes the three (schema/devseed), so every URL, body and answer below names a sector by
+# its variable. Dawn's and Ember's ids are generated when each is charted and read from
+# the create's answer (DAWN_ID, EMBER_ID).
+ANVIL_ID=a1111111-1111-4111-8111-111111111111
+BASTION_ID=b2222222-2222-4222-8222-222222222222
+CINDER_ID=c3333333-3333-4333-8333-333333333333
+ANVIL=$API/sectors/$ANVIL_ID
 HAULER=80000000-0000-4000-8000-000000000001
 CORVID=80000000-0000-4000-8000-000000000002
 CONVOY=80000000-0000-4000-8000-000000000003
@@ -186,6 +193,35 @@ MERIDIAN=10000000-0000-4000-8000-000000000002
 BASTION_RELAY=10000000-0000-4000-8000-000000000003
 CONVOY_SORTIE=90000000-0000-4000-8000-000000000001
 BEACON_CALL=d0000000-0000-4000-8000-000000000001
+
+# The cast's accounts. A person is named by the id of their account, never by their
+# username, which may change: every role is held under the id, a row that says whose it is
+# or who wrote it carries the id (with the username beside it where a page shows who), a
+# role method and a view-as session take the id, and a live page's set is keyed by it. The
+# bootstrap creates each account of the cast under a fixed id (cmd/bootstrap/users.json):
+# the crew's accounts, the droid service account last among them, are numbered in the
+# file's order under one prefix, and the members' under another. A person a sign-in
+# creates during the run (the navigator, the pioneer) has a generated id, read from the
+# list that names them.
+CAST="governor marshal cadet pilot veteran lead dispatcher overseer booking wingco engineer quartermaster supercargo salvor yeoman purser registrar photographer archivist assessor hazards dock watch harbormaster adjutant surveyor rigger bosun droid-r7"
+account() { # account <persona>: the fixed id of a crew account of the cast, by the persona's place in the cast file
+  local n=0 p
+  for p in $CAST; do
+    n=$((n + 1))
+    if [ "$p" = "$1" ]; then printf 'f0000000-0000-4000-8000-%012d\n' "$n"; return 0; fi
+  done
+  echo "walkthrough: $1 is not a crew account of the cast" >&2; return 1
+}
+GOVERNOR_ID=$(account governor)
+MARSHAL_ID=$(account marshal)
+CADET_ID=$(account cadet)
+PILOT_ID=$(account pilot)
+LEAD_ID=$(account lead)
+BOOKING_ID=$(account booking)
+ENGINEER_ID=$(account engineer)
+ADJUTANT_ID=$(account adjutant)
+CLIENT_ID=f1000000-0000-4000-8000-000000000001   # Client Cleo, the first of the members' accounts
+UUID="(lambda s: str(__import__('uuid').UUID(s))==s)"   # a python test over a value: it is an id
 
 # Two browser applications share the router tree, so neither is mounted at /: the root
 # alone sends a browser to the console's application, and every other unmatched path is
@@ -214,16 +250,19 @@ r=$(curl -s -w '\n%{http_code}' "$PORTAL/user/methods"); assert_py "the portal t
 # ---- the two auths, and the crew's two ways in ----
 r=$(req client GET "$PORTAL/user/session"); assert_py "cleo is signed in through the directory" "$r" "rows['authenticated'] and rows['username']=='client'"
 r=$(req navigator GET "$API/user/session"); assert_py "the navigator is signed in on the console through the fleet's directory: a crew session like the password personas'" "$r" "rows['authenticated'] and rows['username']=='navigator'"
-r=$(req navigator GET "$API/user-domains"); assert_py "the navigator is on no manifest: his first sign-in created him seated where a declaring row names a default seat, Cinder's SectorCrew, and nowhere else (Anvil's and Bastion's rows name none)" "$r" "[d['domain'] for d in rows] == ['cinder']"
-r=$(req governor GET "$API/sectors/cinder/crew-sector-user-roles"); assert_py "Cinder's list of the roles held, read by headquarters, carries his SectorCrew, the row's default seat" "$r" "[h['role'] for h in rows if h['username']=='navigator']==['SectorCrew']"
+r=$(req navigator GET "$API/user-domains"); assert_py "the navigator is on no manifest: his first sign-in created him seated where a declaring row names a default seat, Cinder's SectorCrew, and nowhere else (Anvil's and Bastion's rows name none)" "$r" "[d['domain'] for d in rows] == ['$CINDER_ID']"
+r=$(req governor GET "$API/sectors/$CINDER_ID/crew-sector-user-roles")
+assert_py "Cinder's list of the roles held, read by headquarters, carries his SectorCrew, the row's default seat" "$r" "[h['role'] for h in rows if h['username']=='navigator']==['SectorCrew']"
+assert_py "and names him by the id of the account his first sign-in created, beside the username a person reads" "$r" "all($UUID(h['userId']) for h in rows) and len({h['userId'] for h in rows if h['username']=='navigator'})==1"
+NAVIGATOR_ID=$(body "$r" | py "print([h['userId'] for h in rows if h['username']=='navigator'][0])")
 r=$(req client GET "$ANVIL/missions"); check "a client's session is a stranger to the console" 401 "$r"
 r=$(req marshal GET "$PORTAL/user-domains"); check "a crew session is a stranger to the portal" 401 "$r"
 
 # ---- the sectors a session reaches, the place switcher's list: user-domains ----
 r=$(req cadet GET "$API/user-domains"); check "cadet's chart lights Anvil only" 200 "$r"
-assert_py "cadet's chart is [anvil]" "$r" "[d['domain'] for d in rows] == ['anvil']"
-r=$(req archivist GET "$API/user-domains"); assert_py "archivist's chart lights all three" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder']"
-r=$(req marshal GET "$API/sectors/cinder/missions"); check "Cinder is dark for the marshal: the concealed-sector guard answers 404 (opening it by its URL lands the console on the frame's refusal page, in these words)" 404 "$r"
+assert_py "cadet's chart is Anvil alone" "$r" "[d['domain'] for d in rows] == ['$ANVIL_ID']"
+r=$(req archivist GET "$API/user-domains"); assert_py "archivist's chart lights all three" "$r" "[d['domain'] for d in rows] == ['$ANVIL_ID','$BASTION_ID','$CINDER_ID']"
+r=$(req marshal GET "$API/sectors/$CINDER_ID/missions"); check "Cinder is dark for the marshal: the concealed-sector guard answers 404 (opening it by its URL lands the console on the frame's refusal page, in these words)" 404 "$r"
 
 # ---- flight deck: per-persona boards, paged from the descriptor ----
 r=$(req cadet GET "$ANVIL/missions?capabilities=Execute&limit=200"); check "cadet lists missions" 200 "$r"
@@ -239,7 +278,7 @@ assert_py "lead: Add sortie lights on the underway convoy only" "$r" "all((m['zz
 r=$(req archivist GET "$ANVIL/missions?limit=200"); assert_py "archivist: fee redacted until completed" "$r" "rows and all(('fee' in m) == (m['statusId']=='completed') for m in rows)"
 r=$(req archivist GET "$ANVIL/missions?sort=fee"); check "the archivist sorts by fee: the masked cells run over the visible projection" 200 "$r"
 assert_py "masked fees fall to the NULL region, first ascending in Spanner's placement" "$r" "[('fee' in m) for m in rows] == [False,False,False,False,True,True,True]"
-r=$(req archivist GET "$ANVIL/missions?filter=sectorId:eq:anvil,fee:isnull"); assert_py "fee isnull matches exactly the redacted rows" "$r" "len(rows)==4 and all('fee' not in m for m in rows)"
+r=$(req archivist GET "$ANVIL/missions?filter=sectorId:eq:$ANVIL_ID,fee:isnull"); assert_py "fee isnull matches exactly the redacted rows" "$r" "len(rows)==4 and all('fee' not in m for m in rows)"
 # The assessor's grid sorts by a hazard it does not display. The key is a named variant
 # of INT64 (HazardLevel), concealing, hers only while a mission is open, and left out of
 # columns=, so every page turns on the cursor's copy decoded into the field's own type,
@@ -260,7 +299,9 @@ r=$(req marshal GET "$ANVIL/missions?capabilities=Execute&limit=200"); assert_py
 r=$(req marshal GET "$ANVIL/missions?limit=201"); check "a page over Missions' declared maximum of 200 is refused, never clamped" 400 "$r"
 r=$(req marshal GET "$ANVIL/missions?limit=all"); check "Missions declares a maximum, so limit=all is refused" 400 "$r"
 r=$(req marshal GET "$ANVIL/missions?offset=5"); check "offset is refused; the cursor is its replacement" 400 "$r"
-r=$(req marshal GET "$API/pilots?limit=all"); assert_py "the crew roster declares no maximum: limit=all answers every pilot" "$r" "len(rows)==17"
+r=$(req marshal GET "$API/pilots?limit=all")
+assert_py "the crew roster declares no maximum: limit=all answers every pilot" "$r" "len(rows)==17"
+assert_py "a pilot's record is anchored to a person by the id of their account: Pax's row carries his, and his name is the record's own" "$r" "[p['userId'] for p in rows if p['displayName']=='Pilot Pax']==['$PILOT_ID'] and all($UUID(p['userId']) for p in rows)"
 # Every paged list request carries an order. The hull catalog and the briefing catalog declare no @order, so a bare GET or a limit on either without a sort is refused naming the two ways out; limit=all reads each whole and unsorted (the hulls in Spanner's own order, the sheets in the catalog's sequence), and a requested sort pages them by cursor.
 r=$(req marshal GET "$API/ship-classes"); check "the hull catalog declares no order: a bare GET is refused" 400 "$r"
 assert_py "the refusal names the resource and the two ways out" "$r" "rows=={'message':'ShipClasses declares no order; add a sort, or ask limit=all'}"
@@ -291,15 +332,17 @@ r=$(req cadet POST "$ANVIL/claim-mission" "{\"missionId\":\"$QUARANTINE\",\"squa
 r=$(req pilot POST "$ANVIL/claim-mission" "{\"missionId\":\"$CONVOY\",\"squadronId\":\"$TONGS\"}"); check "pilot refused the hazard-4 convoy (grant, not body)" 403 "$r"
 r=$(req lead POST "$ANVIL/hold-mission" "{\"missionId\":\"$CONVOY\",\"reason\":\"debris on the lane\"}"); check "lead may Execute Hold but holds no Update on the notes: the armed body refuses" 403 "$r"
 r=$(req marshal POST "$ANVIL/hold-mission" "{\"missionId\":\"$CONVOY\",\"reason\":\"debris on the lane\"}"); check "the marshal holds the convoy" 200 "$r"
-r=$(req quartermaster PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/sectors/anvil/sortie-expenses\",\"value\":{\"sortieId\":\"$CONVOY_SORTIE\",\"category\":\"fuel\",\"amount\":100}}]"); check "quartermaster refused while on hold (two hops deep)" 403 "$r"
+r=$(req quartermaster PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/sectors/$ANVIL_ID/sortie-expenses\",\"value\":{\"sortieId\":\"$CONVOY_SORTIE\",\"category\":\"fuel\",\"amount\":100}}]"); check "quartermaster refused while on hold (two hops deep)" 403 "$r"
 r=$(req lead POST "$ANVIL/resume-mission" "{\"missionId\":\"$CONVOY\"}"); check "lead resumes the convoy (the loop)" 200 "$r"
-r=$(req quartermaster PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/sectors/anvil/sortie-expenses\",\"value\":{\"sortieId\":\"$CONVOY_SORTIE\",\"category\":\"fuel\",\"amount\":100}}]"); check "quartermaster books an expense while underway" 200 "$r"
+r=$(req quartermaster PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/sectors/$ANVIL_ID/sortie-expenses\",\"value\":{\"sortieId\":\"$CONVOY_SORTIE\",\"category\":\"fuel\",\"amount\":100}}]"); check "quartermaster books an expense while underway" 200 "$r"
 r=$(req booking POST "$ANVIL/stand-down-mission" "{\"missionId\":\"$CONVOY\"}"); check "booking cannot stand down the marshal's booking" 403 "$r"
 r=$(req marshal POST "$ANVIL/stand-down-mission" "{\"missionId\":\"$CONVOY\"}"); check "nobody stands down an underway mission (hold it first)" 403 "$r"
 r=$(req booking POST "$ANVIL/stand-down-mission" "{\"missionId\":\"$HAULER\"}"); check "booking stands down her own open booking" 200 "$r"
+r=$(req marshal GET "$ANVIL/missions/$HAULER"); assert_py "the hauler's row says who booked it by the id of her account, which is what bookedBy = subject compared, and by her username for the page" "$r" "rows['bookedByUserId']=='$BOOKING_ID' and rows['bookedByName']=='booking'"
 printf 'Three survey barges through the debris belt; hold formation at the belt edge.' > "$S/brief.txt"
 r=$(upload marshal "$ANVIL/attach-mission-document" "{\"missionId\":\"$CONVOY\",\"title\":\"Escort brief\"}" "$S/brief.txt"); check "marshal attaches the escort brief (a multipart @upload the transaction claims)" 200 "$r"
 r=$(req marshal GET "$ANVIL/mission-documents?filter=missionId:eq:$CONVOY"); assert_py "the brief is listed, its store key off the wire" "$r" "rows[0]['title']=='Escort brief' and rows[0]['fileName']=='brief.txt' and 'storeKey' not in rows[0]"
+assert_py "the row says who attached it by the id of the marshal's account, with her username beside it for the page" "$r" "rows[0]['uploadedByUserId']=='$MARSHAL_ID' and rows[0]['uploadedByName']=='marshal'"
 # The BYTES column rides as one base64 string (the generated interface says string, display type bytes), the SHA-256 of the file.
 assert_py "the brief's digest is the SHA-256 of its bytes, one base64 string on the wire" "$r" "__import__('base64').b64decode(rows[0]['digest'])==__import__('hashlib').sha256(open('$S/brief.txt','rb').read()).digest()"
 DOC=$(body "$r" | py "print(rows[0]['id'])")
@@ -310,7 +353,7 @@ DOC_ETAG=$(awk 'tolower($1)=="etag:" {print $2}' "$S/doc.hdr" | tr -d '\r')
 if grep -qi '^content-type: text/plain' "$S/doc.hdr" && grep -qi '^content-disposition: inline; filename=brief.txt' "$S/doc.hdr" && grep -qi '^cache-control: private, no-cache' "$S/doc.hdr" && [ -n "$DOC_ETAG" ]; then echo "PASS  the file route types and names the download from the row, and sends a validator"; else echo "FAIL  the file route's headers: $(cat "$S/doc.hdr" | tr '\n' ' ' | head -c 300)"; fails=$((fails + 1)); fi
 r=$(req marshal GET "$ANVIL/mission-documents/$DOC/content" "" -H "If-None-Match: $DOC_ETAG"); check "a kept copy asks again with the validator and hears 304" 304 "$r"
 r=$(req cadet GET "$ANVIL/mission-documents/$DOC/content"); check "the cadet holds no Read on the documents: the file route refuses" 403 "$r"
-r=$(req governor GET "$API/sectors/bastion/mission-documents/$DOC/content"); check "another sector's document is indistinguishable from none" 404 "$r"
+r=$(req governor GET "$API/sectors/$BASTION_ID/mission-documents/$DOC/content"); check "another sector's document is indistinguishable from none" 404 "$r"
 # ---- photographer: the default store beside the Documents store ----
 # The two stores' directories (file:// URLs in .envrc): the default store holds the refit photos, the Documents store the mission documents.
 FILES_DIR=${APP_FILE_STORE:-file://uploads}; FILES_DIR=${FILES_DIR#file://}
@@ -334,7 +377,7 @@ if [ -d "$FILES_DIR" ] && [ -d "$DOCS_DIR" ]; then
 fi
 # ---- registrar: the document register; a replaced or deleted file leaves the store with the commit ----
 # The release is nobody's code: the patch machinery records the key a transaction lets go of, with the store its column names, and the resource client, on which the Documents store is wired (resource.WithNamedFileStore[resources.Documents]), deletes it from that store once the commit lands. Demonstrates: @file.released, @file.replaced.
-r=$(req registrar PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/anvil/mission-documents/$DOC\",\"value\":{\"title\":\"Escort brief, revised\"}}]"); check "the registrar retitles the brief: an update that leaves the key alone releases nothing" 200 "$r"
+r=$(req registrar PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/mission-documents/$DOC\",\"value\":{\"title\":\"Escort brief, revised\"}}]"); check "the registrar retitles the brief: an update that leaves the key alone releases nothing" 200 "$r"
 r=$(req marshal GET "$ANVIL/mission-documents/$DOC/content" "" -H "If-None-Match: $DOC_ETAG"); check "the retitled brief still answers its validator with 304: the object is untouched" 304 "$r"
 printf 'Three survey barges through the debris belt; hold formation at the belt edge. Amended: two barges.' > "$S/brief2.txt"
 r=$(upload marshal "$ANVIL/replace-mission-document" "{\"documentId\":\"$DOC\"}" "$S/brief2.txt"); check "the marshal holds no Execute on Replace: refused, nothing stored, nothing released" 403 "$r"
@@ -348,24 +391,28 @@ if [ -n "$DOC_ETAG2" ] && [ "$DOC_ETAG2" != "$DOC_ETAG" ]; then echo "PASS  the 
 r=$(req marshal GET "$ANVIL/mission-documents/$DOC/content" "" -H "If-None-Match: $DOC_ETAG"); check "a copy kept under the old validator is stale: 200, not 304" 200 "$r"
 r=$(req marshal GET "$ANVIL/mission-documents?filter=missionId:eq:$CONVOY"); assert_py "the row carries the replacement's name and digest" "$r" "rows[0]['fileName']=='brief2.txt' and __import__('base64').b64decode(rows[0]['digest'])==__import__('hashlib').sha256(open('$S/brief2.txt','rb').read()).digest()"
 if [ -d "$DOCS_DIR" ]; then if [ ! -e "$DOCS_DIR/$(echo "$DOC_ETAG" | tr -d '"')" ] && [ -e "$DOCS_DIR/$(echo "$DOC_ETAG2" | tr -d '"')" ]; then echo "PASS  the Documents store holds the new object and no longer the old one"; else echo "FAIL  the Documents store holds the new object and no longer the old one: $(ls "$DOCS_DIR" | tr '\n' ' ')"; fails=$((fails + 1)); fi; fi
-r=$(req cadet PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/anvil/mission-documents/$DOC\"}]"); check "the cadet holds no Delete on the documents" 403 "$r"
-r=$(req registrar PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/anvil/mission-documents/$DOC\"}]"); check "the registrar deletes the brief: the row goes with the commit and the object with the row" 200 "$r"
+r=$(req cadet PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$ANVIL_ID/mission-documents/$DOC\"}]"); check "the cadet holds no Delete on the documents" 403 "$r"
+r=$(req registrar PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$ANVIL_ID/mission-documents/$DOC\"}]"); check "the registrar deletes the brief: the row goes with the commit and the object with the row" 200 "$r"
 r=$(req marshal GET "$ANVIL/mission-documents/$DOC/content"); check "the deleted document's file route answers 404" 404 "$r"
 if [ -d "$DOCS_DIR" ]; then if [ ! -e "$DOCS_DIR/$(echo "$DOC_ETAG2" | tr -d '"')" ]; then echo "PASS  no object of the deleted document remains in the Documents store"; else echo "FAIL  no object of the deleted document remains in the Documents store"; fails=$((fails + 1)); fi; fi
 r=$(dryrun lead POST "$ANVIL/complete-mission" "{\"missionId\":\"$CONVOY\"}"); check "lead's dry run of Complete would commit (the Paymaster's checker posts the settlement)" 200 "$r"
 r=$(req lead POST "$ANVIL/complete-mission" "{\"missionId\":\"$CONVOY\"}"); check "lead completes Hammer's convoy (the method answers with the settlement)" 200 "$r"
 assert_py "the settlement is the fee less the booked expenses" "$r" "rows['fee']=='15000' and rows['expenses']=='1600' and rows['net']=='13400'"
 r=$(req marshal GET "$ANVIL/missions?limit=200"); assert_py "the convoy completed with its settlement posted through the Paymaster role" "$r" "next(m for m in rows if m['id']=='$CONVOY')['statusId']=='completed' and next(m for m in rows if m['id']=='$CONVOY')['settlement']=='13400'"
-r=$(req archivist GET "$ANVIL/ships-log-entries"); assert_py "the ship's log names 'lead as role Paymaster' on the settlement" "$r" "any('lead as role Paymaster' in e['eventSource'] for e in rows)"
+r=$(req archivist GET "$ANVIL/ships-log-entries"); assert_py "the ship's log names 'lead (the id of her account) as role Paymaster' on the settlement, with the session it was posted from" "$r" "any(e['eventSource'].startswith('lead ($LEAD_ID) as role Paymaster, session ') and $UUID(e['eventSource'].rsplit(' ',1)[1]) for e in rows)"
+assert_py "an ordinary change is signed the same way, the person by username and account id and then the session: the marshal's hold of the convoy" "$r" "any(e['eventSource'].startswith('marshal ($MARSHAL_ID), session ') and $UUID(e['eventSource'].rsplit(' ',1)[1]) for e in rows)"
 
 # ---- dispatcher: the two-grant PATCH ----
-r=$(req dispatcher PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/anvil/missions/$QUARANTINE\",\"value\":{\"notes\":\"client called\",\"deadline\":\"$(days +87)\"}}]"); check "dispatcher extends a deadline and notes it" 200 "$r"
-r=$(req dispatcher PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/anvil/missions/$QUARANTINE\",\"value\":{\"deadline\":\"$(days -1)\"}}]"); check "pulling a deadline in is refused (new.deadline >= deadline)" 403 "$r"
-r=$(req dispatcher PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/anvil/missions/$QUARANTINE\",\"value\":{\"assignedSquadronId\":\"50000000-0000-4000-8000-000000000004\"}}]"); check "assigning a foreign squadron is refused (new.x IN subject.set)" 403 "$r"
+r=$(req dispatcher PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/missions/$QUARANTINE\",\"value\":{\"notes\":\"client called\",\"deadline\":\"$(days +87)\"}}]"); check "dispatcher extends a deadline and notes it" 200 "$r"
+r=$(req dispatcher PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/missions/$QUARANTINE\",\"value\":{\"deadline\":\"$(days -1)\"}}]"); check "pulling a deadline in is refused (new.deadline >= deadline)" 403 "$r"
+r=$(req dispatcher PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/missions/$QUARANTINE\",\"value\":{\"assignedSquadronId\":\"50000000-0000-4000-8000-000000000004\"}}]"); check "assigning a foreign squadron is refused (new.x IN subject.set)" 403 "$r"
 
 # ---- booking: fee limit ----
-r=$(req booking PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/sectors/anvil/missions\",\"value\":{\"clientId\":\"$HALVARD\",\"kindId\":\"courier\",\"title\":\"Walkthrough booking\",\"hazard\":1,\"fee\":26000,\"deadline\":\"$(days +365)\"}}]"); check "booking over the fee limit is refused" 403 "$r"
-r=$(req booking PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/sectors/anvil/missions\",\"value\":{\"clientId\":\"$HALVARD\",\"kindId\":\"courier\",\"title\":\"Walkthrough booking\",\"hazard\":1,\"fee\":9000,\"deadline\":\"$(days +365)\"}}]"); check "booking within the fee limit" 200 "$r"
+r=$(req booking PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/sectors/$ANVIL_ID/missions\",\"value\":{\"clientId\":\"$HALVARD\",\"kindId\":\"courier\",\"title\":\"Walkthrough booking\",\"hazard\":1,\"fee\":26000,\"deadline\":\"$(days +365)\"}}]"); check "booking over the fee limit is refused" 403 "$r"
+r=$(req booking PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/sectors/$ANVIL_ID/missions\",\"value\":{\"clientId\":\"$HALVARD\",\"kindId\":\"courier\",\"title\":\"Walkthrough booking\",\"hazard\":1,\"fee\":9000,\"deadline\":\"$(days +365)\"}}]"); check "booking within the fee limit" 200 "$r"
+BOOKED=$(body "$r" | py "print(rows['missions'][0])")
+r=$(req booking GET "$ANVIL/missions/$BOOKED"); check "she reads her own booking, under the fee her grant opens to her: bookedBy = subject holds for the row's author" 200 "$r"
+r=$(req marshal GET "$ANVIL/missions/$BOOKED"); assert_py "the server stamped who booked it: the id of her account, and her username beside it for the page" "$r" "rows['bookedByUserId']=='$BOOKING_ID' and rows['bookedByName']=='booking'"
 
 # ---- the briefing: the client-form method ----
 r=$(req marshal POST "$ANVIL/compile-briefing" '{"includeHazards":true}'); check "the marshal compiles a briefing (a method that runs outside a transaction)" 200 "$r"
@@ -376,9 +423,9 @@ r=$(dryrun marshal POST "$ANVIL/compile-briefing" '{}'); check "a dry run of the
 r=$(req cadet POST "$ANVIL/compile-briefing" '{}'); check "the cadet holds no briefing" 403 "$r"
 
 # ---- the ledger: the pushdown computed resource ----
-r=$(req governor GET "$API/service-ledgers"); assert_py "the ledger lists sectors by fees outstanding, pushed into SQL" "$r" "[l['sectorId'] for l in rows]==['anvil','bastion','cinder']"
-r=$(req governor GET "$API/service-ledgers?filter=name:eq:Bastion"); assert_py "a filter on the ledger is taken into the statement" "$r" "[l['sectorId'] for l in rows]==['bastion']"
-r=$(req governor GET "$API/service-ledgers?sort=name:desc&limit=1"); assert_py "a page of one, sorted, pushed down" "$r" "[l['sectorId'] for l in rows]==['cinder']"
+r=$(req governor GET "$API/service-ledgers"); assert_py "the ledger lists sectors by fees outstanding, pushed into SQL" "$r" "[l['sectorId'] for l in rows]==['$ANVIL_ID','$BASTION_ID','$CINDER_ID']"
+r=$(req governor GET "$API/service-ledgers?filter=name:eq:Bastion"); assert_py "a filter on the ledger is taken into the statement" "$r" "[l['sectorId'] for l in rows]==['$BASTION_ID']"
+r=$(req governor GET "$API/service-ledgers?sort=name:desc&limit=1"); assert_py "a page of one, sorted, pushed down" "$r" "[l['sectorId'] for l in rows]==['$CINDER_ID']"
 
 # ---- standing orders: the key-less list ----
 # StandingOrders declares no @primarykey, so it is a whole read-only list: a bare GET serves the book in its own order, a sort orders it, limit=all is the explicit spelling of the same shape, and a numeric limit or a cursor is refused naming the key as the way to page. There is no read route and no Read permission to grant.
@@ -407,16 +454,18 @@ r=$(req purser GET "$ANVIL/expense-manifests?limit=200"); check "the purser list
 assert_py "the convoy's manifest counts its sorties and sums its booked expenses" "$r" "next(m for m in rows if m['missionId']=='$CONVOY')['sorties']==1 and next(m for m in rows if m['missionId']=='$CONVOY')['expenses']=='1600'"
 r=$(req purser GET "$ANVIL/expense-manifests/$CONVOY/content" "" -D "$S/manifest.hdr"); check "the purser downloads the convoy's manifest, a CSV sheet rendered on request" 200 "$r"
 if grep -qi '^content-type: text/csv' "$S/manifest.hdr" && [ "$(body "$r" | head -1)" = "sortie,pilot,launchedAt,category,amount,memo" ] && [ "$(body "$r" | grep -c .)" -eq 4 ]; then echo "PASS  the sheet is text/csv, a header and one line per booked expense (the convoy's three, the quartermaster's among them)"; else echo "FAIL  the sheet: $(body "$r" | head -c 200)"; fails=$((fails + 1)); fi
+if [ "$(body "$r" | tail -n +2 | grep . | cut -d, -f2 | sort -u)" = "Flight Lead Lior" ]; then echo "PASS  each line names the sortie's pilot as the pilots' roster does, never by the account id the sortie holds"; else echo "FAIL  the sheet's pilot column: $(body "$r" | tail -n +2 | grep . | cut -d, -f2 | sort -u | tr '\n' ' ' | head -c 200)"; fails=$((fails + 1)); fi
 MANIFEST_ETAG=$(awk 'tolower($1)=="etag:" {print $2}' "$S/manifest.hdr" | tr -d '\r')
 r=$(req purser GET "$ANVIL/expense-manifests/$CONVOY/content" "" -H "If-None-Match: $MANIFEST_ETAG"); check "the sheet's digest is its validator: a kept copy hears 304" 304 "$r"
 r=$(req marshal GET "$ANVIL/expense-manifests/$CONVOY/content"); check "the marshal holds no Read on the manifests: the file route refuses" 403 "$r"
 r=$(req purser GET "$ANVIL/expense-manifests/80000000-0000-4000-8000-0000000000ff/content"); check "a manifest of a mission that is not the sector's is 404" 404 "$r"
 
 # ---- hangar deck ----
-r=$(req engineer PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/anvil/refits/$LANTERN_REFIT\",\"value\":{\"estimate\":1000}}]"); check "engineer's estimate refused before inspection" 403 "$r"
+r=$(req engineer PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/refits/$LANTERN_REFIT\",\"value\":{\"estimate\":1000}}]"); check "engineer's estimate refused before inspection" 403 "$r"
 r=$(req engineer POST "$ANVIL/inspect-ship" "{\"refitId\":\"$LANTERN_REFIT\"}"); check "engineer inspects the Lantern (the method answers a typed report)" 200 "$r"
 assert_py "the inspection report names the ship" "$r" "rows['shipName']=='Lantern'"
-r=$(req engineer PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/anvil/refits/$LANTERN_REFIT\",\"value\":{\"estimate\":1000.6}}]"); check "estimate lands after inspection (rounded)" 200 "$r"
+r=$(req engineer PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/refits/$LANTERN_REFIT\",\"value\":{\"estimate\":1000.6}}]"); check "estimate lands after inspection (rounded)" 200 "$r"
+r=$(req engineer GET "$ANVIL/refits/$LANTERN_REFIT"); assert_py "the refit says who opened it by the id of the engineer's account, with his username beside it for the page" "$r" "rows['openedByUserId']=='$ENGINEER_ID' and rows['openedByName']=='engineer'"
 r=$(req engineer POST "$ANVIL/begin-refit" "{\"refitId\":\"$LANTERN_REFIT\"}"); check "begin refit" 200 "$r"
 r=$(req engineer POST "$ANVIL/start-flight-test" "{\"refitId\":\"$LANTERN_REFIT\"}"); check "start flight test (marked-file method)" 200 "$r"
 r=$(req engineer POST "$ANVIL/fail-flight-test" "{\"refitId\":\"$LANTERN_REFIT\"}"); check "fail flight test (the backward edge)" 200 "$r"
@@ -432,10 +481,10 @@ r=$(req marshal GET "$ANVIL/ships?limit=100"); assert_py "the Stubborn Mule's ca
 r=$(req marshal GET "$ANVIL/ships?sort=cargoBays:asc"); check "a sort naming the array column answers 400" 400 "$r"
 # A nullable ARRAY<STRING(16)> column typed by the plain slice: NULL (Tongs has not filed) and [] (a stated none) are different answers, and a null in a PATCH is accepted where the column allows it and refused where it does not.
 r=$(req marshal GET "$ANVIL/squadrons"); assert_py "Hammer's callsigns are filed and Tongs's are null (not yet filed)" "$r" "next(s for s in rows if s['name']=='Hammer')['callsigns']==['Hammerfall','Anvil Actual'] and next(s for s in rows if s['name']=='Tongs')['callsigns'] is None"
-r=$(req marshal PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/anvil/squadrons/$TONGS\",\"value\":{\"callsigns\":[]}}]"); check "marshal files Tongs as flying silent ([] is a stated answer)" 200 "$r"
-r=$(req marshal PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/anvil/squadrons/$TONGS\",\"value\":{\"callsigns\":null}}]"); check "a null clears the filing (the column allows NULL, the request struct says so)" 200 "$r"
+r=$(req marshal PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/squadrons/$TONGS\",\"value\":{\"callsigns\":[]}}]"); check "marshal files Tongs as flying silent ([] is a stated answer)" 200 "$r"
+r=$(req marshal PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/squadrons/$TONGS\",\"value\":{\"callsigns\":null}}]"); check "a null clears the filing (the column allows NULL, the request struct says so)" 200 "$r"
 r=$(req marshal GET "$ANVIL/squadrons/$TONGS"); assert_py "Tongs reads back null after the clear" "$r" "rows['callsigns'] is None"
-r=$(req marshal PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/anvil/ships/$KINGFISHER\",\"value\":{\"cargoBays\":null}}]"); check "a null into the NOT NULL array column is refused at decode" 400 "$r"
+r=$(req marshal PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/ships/$KINGFISHER\",\"value\":{\"cargoBays\":null}}]"); check "a null into the NOT NULL array column is refused at decode" 400 "$r"
 r=$(req dock GET "$ANVIL/refits"); d=${r##*$'\n'}
 r=$(req watch GET "$ANVIL/refits"); n=${r##*$'\n'}
 if { [ "$d" = 200 ] && [ "$n" = 403 ]; } || { [ "$d" = 403 ] && [ "$n" = 200 ]; }; then echo "PASS  exactly one shift sees the hangar deck (dara=$d nadia=$n)"; else echo "FAIL  shift pair: dara=$d nadia=$n"; fails=$((fails+1)); fi
@@ -457,11 +506,11 @@ HERON=70000000-0000-4000-8000-000000000009
 HERON_REFIT=a0000000-0000-4000-8000-000000000008
 TAB=walkthrough-$(date +%s)   # the tab id a browser mints: 1 to 64 of [A-Za-z0-9_-]
 SEED=seed-$(date +%s%N)       # the version a page asks by before any change arrived
-uid() { # uid <persona>: a console persona's live principal id, the crew auth's name and the user name joined by | (live.PrincipalID): the uid of the persona's change set and browser identity
-  echo "crew|$1"
+uid() { # uid <persona>: a console persona's live principal id, the crew auth's name and the id of the persona's account joined by | (live.PrincipalID): the uid of the persona's change set and browser identity, which a change of username leaves as it is
+  echo "crew|$(account "$1")"
 }
 uid_path() { # uid_path <persona>: the persona's uid as a URL path segment, its | written %7C
-  echo "crew%7C$1"
+  echo "crew%7C$(account "$1")"
 }
 fsdocs() { # fsdocs <collection path>: the emulator's documents under the path, read as the owner (an empty collection answers {})
   curl -s -H 'Authorization: Bearer owner' "http://$FS/v1/projects/$FS_PROJECT/databases/$FS_DB/documents/$1"
@@ -499,15 +548,15 @@ HERON_BEFORE=$(body "$r" | py "print(rows['lastRefitAt'])")   # the seeded stamp
 cache_header "the live read is cacheable the same way" "$S/live-row.h" "private, max-age=300"
 r=$(req harbormaster GET "$ANVIL/ships" "" -D "$S/plain-list.h"); check "the same list asked plainly" 200 "$r"
 cache_header "a request without _v stays uncached" "$S/plain-list.h" "no-cache, no-store, must-revalidate"
-assert_fs "two subscriptions are on record for her tab: the Heron's row and the Anvil list" subscriptions "sorted((d['resource'],d['key'],d['domain']) for d in rows if d['principal']=='$(uid harbormaster)' and d['tab']=='$TAB')==[('Ships','','anvil'),('Ships','$HERON','')]"
-r=$(req pilot GET "$API/sectors/bastion/ships?_v=$SEED" "" -H "X-Subscribe: $TAB-pilot"); check "the pilot's fleet board at Bastion, live" 200 "$r"
-assert_fs "the pilot's Bastion list is on record" subscriptions "any(d['principal']=='$(uid pilot)' and d['tab']=='$TAB-pilot' and d['resource']=='Ships' and d['domain']=='bastion' for d in rows)"
+assert_fs "two subscriptions are on record for her tab: the Heron's row and the Anvil list" subscriptions "sorted((d['resource'],d['key'],d['domain']) for d in rows if d['principal']=='$(uid harbormaster)' and d['tab']=='$TAB')==[('Ships','','$ANVIL_ID'),('Ships','$HERON','')]"
+r=$(req pilot GET "$API/sectors/$BASTION_ID/ships?_v=$SEED" "" -H "X-Subscribe: $TAB-pilot"); check "the pilot's fleet board at Bastion, live" 200 "$r"
+assert_fs "the pilot's Bastion list is on record" subscriptions "any(d['principal']=='$(uid pilot)' and d['tab']=='$TAB-pilot' and d['resource']=='Ships' and d['domain']=='$BASTION_ID' for d in rows)"
 r=$(req cadet GET "$ANVIL/ships"); check "the cadet holds no List on Ships" 403 "$r"
 r=$(req cadet GET "$ANVIL/ships?_v=$SEED" "" -H "X-Subscribe: $TAB-cadet"); check "asking live changes nothing for her: refused as before" 403 "$r"
 assert_fs "no record was written for the refused request" subscriptions "not any(d['principal']=='$(uid cadet)' for d in rows)"
 r=$(req engineer POST "$ANVIL/start-flight-test" "{\"refitId\":\"$HERON_REFIT\"}"); check "the engineer starts the Heron's flight test" 200 "$r"
 r=$(req engineer POST "$ANVIL/pass-flight-test" "{\"refitId\":\"$HERON_REFIT\"}"); check "the Heron passes: the commit stamps the ship and publishes" 200 "$r"
-assert_fs "Hollis's set holds exactly two documents, the row and the list, each with its server timestamp" "users/$(uid_path harbormaster)/changes" "sorted((d['kind'],d['resource'],d.get('key',''),d.get('domain',''),d.get('deleted',False)) for d in rows)==[('list','Ships','','anvil',False),('row','Ships','$HERON','',False)] and all(d['_at'] for d in rows)"
+assert_fs "Hollis's set holds exactly two documents, the row and the list, each with its server timestamp" "users/$(uid_path harbormaster)/changes" "sorted((d['kind'],d['resource'],d.get('key',''),d.get('domain',''),d.get('deleted',False)) for d in rows)==[('list','Ships','','$ANVIL_ID',False),('row','Ships','$HERON','',False)] and all(d['_at'] for d in rows)"
 LIST_V=$(change_at harbormaster list); ROW_V=$(change_at harbormaster row)
 r=$(req harbormaster GET "$ANVIL/ships?_v=$LIST_V" "" -H "X-Subscribe: $TAB" -D "$S/refetch-list.h"); check "the fleet board asks again by the list document's timestamp (_v=$LIST_V)" 200 "$r"
 cache_header "the refetched list is cacheable under its new version" "$S/refetch-list.h" "private, max-age=300"
@@ -515,7 +564,7 @@ r=$(req harbormaster GET "$ANVIL/ships/$HERON?_v=$ROW_V" "" -H "X-Subscribe: $TA
 assert_py "the refetched Heron carries a new LastRefitAt, the pass's commit timestamp" "$r" "rows['lastRefitAt'] is not None and rows['lastRefitAt'] != '$HERON_BEFORE'"
 assert_fs "the pilot watching Bastion's fleet received nothing" "users/$(uid_path pilot)/changes" "len(rows)==0"
 assert_fs "the cadet, never subscribed, received nothing" "users/$(uid_path cadet)/changes" "len(rows)==0"
-r=$(req harbormaster POST "$API/live/renew" "{\"tab\":\"$TAB\",\"subscriptions\":[{\"resource\":\"Ships\",\"domain\":\"anvil\"},{\"resource\":\"Ships\",\"key\":\"$HERON\",\"domain\":\"anvil\"},{\"resource\":\"Refits\",\"domain\":\"anvil\"}]}" -H "X-Subscribe: $TAB"); check "the tab renews its subscriptions" 200 "$r"
+r=$(req harbormaster POST "$API/live/renew" "{\"tab\":\"$TAB\",\"subscriptions\":[{\"resource\":\"Ships\",\"domain\":\"$ANVIL_ID\"},{\"resource\":\"Ships\",\"key\":\"$HERON\",\"domain\":\"$ANVIL_ID\"},{\"resource\":\"Refits\",\"domain\":\"$ANVIL_ID\"}]}" -H "X-Subscribe: $TAB"); check "the tab renews its subscriptions" 200 "$r"
 assert_py "the two Ships subscriptions are kept and the Refits one, which her grants do not cover, is dropped" "$r" "[s['resource'] for s in rows['kept']]==['Ships','Ships'] and [s['resource'] for s in rows['dropped']]==['Refits'] and rows['expiresAt']"
 r=$(req harbormaster POST "$API/live/unsubscribe" "{\"tab\":\"$TAB\",\"all\":false}" -H "X-Subscribe: $TAB"); check "the tab leaves" 204 "$r"
 assert_fs "the tab's subscriptions are gone" subscriptions "not any(d['principal']=='$(uid harbormaster)' and d['tab']=='$TAB' for d in rows)"
@@ -566,7 +615,9 @@ r=$(req adjutant GET "$API/commendations/e0000000-0000-4000-8000-000000000001");
 r=$(req adjutant PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/commendations\",\"value\":{\"pilotId\":\"$PAX\",\"citation\":\"Filed while the desk is dark\"}}]"); check "the desk's arm of the consolidated patch answers as an unknown resource" 400 "$r"
 r=$(req adjutant GET "$API/permission-digest"); assert_py "the adjutant's digest leaves the desk and the card's field out and carries the flags and the flip" "$r" "'Commendations' not in rows and 'PilotCards.commendations' not in rows and rows['FeatureFlags']['List']=='granted' and rows['SetFeature']['Execute']=='granted'"
 r=$(req pilot GET "$API/pilot-cards?columns=userId,commendations"); check "a gated field named in a request is an unknown field while the flag is off" 400 "$r"
-r=$(req pilot GET "$API/pilot-cards"); assert_py "Pax's card carries no commendations field" "$r" "len(rows)==1 and 'commendations' not in rows[0]"
+r=$(req pilot GET "$API/pilot-cards")
+assert_py "Pax's card carries no commendations field" "$r" "len(rows)==1 and 'commendations' not in rows[0]"
+assert_py "the one card is his own, keyed by the id of his account, and named by the pilot's record" "$r" "rows[0]['userId']=='$PILOT_ID' and rows[0]['displayName']=='Pilot Pax'"
 r=$(req cadet POST "$API/set-feature" '{"name":"commendations","enabled":true}'); check "the cadet holds no Execute on SetFeature" 403 "$r"
 r=$(req cadet GET "$API/feature-flags"); check "nor List on the flags" 403 "$r"
 r=$(req adjutant POST "$API/set-feature" '{"name":"nonesuch","enabled":true}'); check "a flag the package does not declare is not found" 404 "$r"
@@ -583,7 +634,7 @@ r=$(req adjutant POST "$API/set-feature" '{"name":"commendations","enabled":true
 assert_py "the answer is the flag as written, stamped now" "$r" "rows['name']=='commendations' and rows['enabled'] is True and $RECENT(rows['updatedAt'])"
 r=$(req adjutant GET "$API/features"); assert_py "the features route lists it" "$r" "rows=={'enabled':['commendations']}"
 r=$(req adjutant GET "$API/feature-flags/commendations"); check "the flag read by name (Read on FeatureFlags)" 200 "$r"
-assert_py "on, stamped by the adjutant within the last day: what the dialog shows as on-since" "$r" "rows['enabled'] is True and 'adjutant' in rows['updatedBy'] and $RECENT(rows['updatedAt'])"
+assert_py "on, stamped by the adjutant within the last day: what the dialog shows as on-since" "$r" "rows['enabled'] is True and rows['updatedBy'].startswith('adjutant ($ADJUTANT_ID), session ') and $RECENT(rows['updatedAt'])"
 r=$(req adjutant GET "$API/commendations"); check "the desk answers at once on the instance that flipped" 200 "$r"
 assert_py "the seeded citations, newest first" "$r" "[c['citation'] for c in rows]==['Talked a drifting hauler crew through a cold restart','Brought the Kingfisher home on one engine','Held formation through the debris belt with a cracked canopy']"
 r=$(req adjutant GET "$API/commendations?filter=pilotId:eq:$PAX"); assert_py "Pax's two, off the index" "$r" "len(rows)==2 and all(c['pilotId']=='$PAX' for c in rows)"
@@ -591,6 +642,7 @@ r=$(req adjutant GET "$API/permission-digest"); assert_py "the digest now carrie
 r=$(req pilot GET "$API/pilot-cards?columns=userId,commendations"); check "the card's field is served under the crew's grant" 200 "$r"
 assert_py "Pax's card counts his two citations" "$r" "rows[0]['commendations']==2"
 r=$(req adjutant PATCH "$API/resources" "[{\"op\":\"add\",\"path\":\"/commendations\",\"value\":{\"pilotId\":\"$PAX\",\"citation\":\"Flew the Hesper's wounded home through the belt\"}}]"); check "the adjutant files a citation on Pax's record" 200 "$r"
+r=$(req adjutant GET "$API/commendations?filter=pilotId:eq:$PAX"); assert_py "the desk says who filed each citation by the id of their account, with the username beside it for the page: hers on the one just filed, the governor's and the marshal's on the seeded two" "$r" "sorted((c['awardedByUserId'],c['awardedByName']) for c in rows)==sorted([('$ADJUTANT_ID','adjutant'),('$GOVERNOR_ID','governor'),('$MARSHAL_ID','marshal')]) and [c['awardedByName'] for c in rows if c['citation'].startswith('Flew the Hesper')]==['adjutant']"
 r=$(req pilot GET "$API/pilot-cards?columns=userId,commendations"); assert_py "the card counts three" "$r" "rows[0]['commendations']==3"
 r=$(req cadet GET "$API/commendations"); check "the cadet holds no desk: the flag opens the route, the grant still decides" 403 "$r"
 if [ -n "$SECOND_PID" ]; then
@@ -620,27 +672,27 @@ fi
 role() { echo "{\"userId\":\"$1\",\"role\":\"$2\"}"; }
 r=$(req cadet GET "$ANVIL/ships"); check "the cadet holds no List on Ships" 403 "$r"
 r=$(req marshal GET "$ANVIL/crew-sector-users"); check "the marshal lists the sector's crew (List on CrewSectorUsers)" 200 "$r"
-CADET_ID=$(body "$r" | py "print([u for u in rows if u['username']=='cadet'][0]['id'])")
+assert_py "the list names the cadet's account by the fixed id the bootstrap created it under: the id the role methods take" "$r" "[u['id'] for u in rows if u['username']=='cadet']==['$CADET_ID']"
 r=$(req marshal GET "$ANVIL/crew-sector-user-roles"); check "and the roles they hold there (List on CrewSectorUserRoles)" 200 "$r"
 assert_py "Hollis holds Harbormaster, the cadet does not" "$r" "'Harbormaster' in [h['role'] for h in rows if h['username']=='harbormaster'] and 'Harbormaster' not in [h['role'] for h in rows if h['username']=='cadet']"
 r=$(req cadet POST "$ANVIL/assign-crew-sector-role" "$(role "$CADET_ID" Harbormaster)"); check "the cadet cannot give herself a role: no Execute on AssignCrewSectorRole" 403 "$r"
 r=$(req marshal POST "$ANVIL/assign-crew-sector-role" "$(role "$CADET_ID" SectorMarshal)"); check "the marshal cannot mint a marshal: the grant's condition new.role != 'SectorMarshal'" 403 "$r"
-r=$(req marshal POST "$API/sectors/bastion/assign-crew-sector-role" "$(role "$CADET_ID" Harbormaster)"); check "Bastion does not exist for the marshal: the concealed-sector guard" 404 "$r"
+r=$(req marshal POST "$API/sectors/$BASTION_ID/assign-crew-sector-role" "$(role "$CADET_ID" Harbormaster)"); check "Bastion does not exist for the marshal: the concealed-sector guard" 404 "$r"
 if [ -n "$SECOND_PID" ]; then
   login_second cadet
-  r=$(req cadet.2 GET "$API2/sectors/anvil/ships"); check "nor on the second instance" 403 "$r"
+  r=$(req cadet.2 GET "$API2/sectors/$ANVIL_ID/ships"); check "nor on the second instance" 403 "$r"
 fi
 r=$(req marshal POST "$ANVIL/assign-crew-sector-role" "$(role "$CADET_ID" Harbormaster)"); check "the marshal gives the cadet the Harbormaster role at Anvil" 204 "$r"
 r=$(req marshal GET "$ANVIL/crew-sector-user-roles"); assert_py "the sector's list of the roles held carries it" "$r" "'Harbormaster' in [h['role'] for h in rows if h['username']=='cadet']"
 r=$(req cadet GET "$ANVIL/ships"); check "the instance that wrote serves her the fleet board at once" 200 "$r"
 if [ -n "$SECOND_PID" ]; then
-  tries=0; for i in $(seq 1 40); do tries=$i; r=$(req cadet.2 GET "$API2/sectors/anvil/ships"); [ "${r##*$'\n'}" = 200 ] && break; sleep 0.25; done
+  tries=0; for i in $(seq 1 40); do tries=$i; r=$(req cadet.2 GET "$API2/sectors/$ANVIL_ID/ships"); [ "${r##*$'\n'}" = 200 ] && break; sleep 0.25; done
   check "the second instance serves her the fleet board at its next request: the policy kind's signal, not the one-minute heartbeat (answered on try $tries)" 200 "$r"
 fi
 r=$(req marshal POST "$ANVIL/remove-crew-sector-role" "$(role "$CADET_ID" Harbormaster)"); check "the marshal takes the role away" 204 "$r"
 r=$(req cadet GET "$ANVIL/ships"); check "refused again on the instance that wrote" 403 "$r"
 if [ -n "$SECOND_PID" ]; then
-  tries=0; for i in $(seq 1 40); do tries=$i; r=$(req cadet.2 GET "$API2/sectors/anvil/ships"); [ "${r##*$'\n'}" = 403 ] && break; sleep 0.25; done
+  tries=0; for i in $(seq 1 40); do tries=$i; r=$(req cadet.2 GET "$API2/sectors/$ANVIL_ID/ships"); [ "${r##*$'\n'}" = 403 ] && break; sleep 0.25; done
   check "and on the second instance at its next request (try $tries)" 403 "$r"
 fi
 
@@ -648,8 +700,10 @@ fi
 # Sectors is the tenant record (@tenant): its rows are the sectors every sector-scoped URL
 # names, and every instance holds a roster of them that the generated guard asks first. The
 # surveyor, who holds Create and Update on Sectors and SectorCrew in every sector, charts
-# sector Dawn through the consolidated patch, the key in the operation's path: the instance
-# that wrote adds Dawn to its roster after the commit and signals the tenants kind, so her
+# sector Dawn through the consolidated patch, by its fields alone (the create path
+# generates Dawn's key, an id, and answers it; a key in the operation's path is refused):
+# the instance that wrote adds Dawn to its roster after the commit and signals the tenants
+# kind, so her
 # chart lights Dawn and Dawn's wings answer her with no restart, no migrate job and no
 # new login; the marshal's chart does not light it and Dawn answers her as a sector that
 # does not exist; the client's portal, whose directory role is held in every sector, opens
@@ -659,33 +713,36 @@ fi
 # sector's marshal (SectorMarshal, the role SectorAdministratorRoles names), whatever the
 # creation shape: the surveyor is Dawn's first administrator, as the pioneer is Ember's.
 # Demonstrates: tenancy.run-time-tenant, tenancy.creator-seat.
-DAWN=$API/sectors/dawn
-r=$(req surveyor GET "$API/user-domains"); assert_py "the surveyor's chart lights the three charted sectors: SectorCrew held in every sector" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder']"
-r=$(req surveyor GET "$DAWN/wings"); check "Dawn is not on the chart yet: a sector that does not exist" 404 "$r"
+r=$(req surveyor GET "$API/user-domains"); assert_py "the surveyor's chart lights the three charted sectors: SectorCrew held in every sector" "$r" "[d['domain'] for d in rows] == ['$ANVIL_ID','$BASTION_ID','$CINDER_ID']"
+r=$(req surveyor GET "$API/sectors"); assert_py "Dawn is not on the chart yet: the sector list carries the three seeded sectors" "$r" "[s['name'] for s in rows]==['Anvil','Bastion','Cinder']"
 if [ -n "$SECOND_PID" ]; then
   login_second surveyor
-  r=$(req surveyor.2 GET "$API2/sectors/dawn/wings"); check "nor on the second process" 404 "$r"
+  r=$(req surveyor.2 GET "$API2/sectors"); assert_py "nor on the second process" "$r" "[s['name'] for s in rows]==['Anvil','Bastion','Cinder']"
 fi
-r=$(req marshal PATCH "$API/resources" '[{"op":"add","path":"/sectors/dawn","value":{"name":"Dawn","region":"Outer frontier","established":"2226-10-02"}}]'); check "the marshal holds no Create on Sectors" 403 "$r"
-r=$(req surveyor PATCH "$API/resources" '[{"op":"add","path":"/sectors/dawn","value":{"name":"Dawn","region":"Outer frontier","established":"2226-10-02"}}]'); check "the surveyor charts sector Dawn (Create on Sectors; the key rides in the path)" 200 "$r"
+r=$(req marshal PATCH "$API/resources" '[{"op":"add","path":"/sectors","value":{"name":"Dawn","region":"Outer frontier","established":"2226-10-02"}}]'); check "the marshal holds no Create on Sectors" 403 "$r"
+r=$(req surveyor PATCH "$API/resources" '[{"op":"add","path":"/sectors/dawn","value":{"name":"Dawn","region":"Outer frontier","established":"2226-10-02"}}]'); check "a key in the path is refused the surveyor: nobody types a sector's key, the create path generates it" 400 "$r"
+r=$(req surveyor PATCH "$API/resources" '[{"op":"add","path":"/sectors","value":{"name":"Dawn","region":"Outer frontier","established":"2226-10-02"}}]'); check "the surveyor charts sector Dawn (Create on Sectors; by its fields alone)" 200 "$r"
+assert_py "the answer carries the one id the create path generated for Dawn" "$r" "len(rows['sectors'])==1 and str(__import__('uuid').UUID(rows['sectors'][0]))==rows['sectors'][0]"
+DAWN_ID=$(body "$r" | py "print(rows['sectors'][0])")
+DAWN=$API/sectors/$DAWN_ID
 r=$(req surveyor GET "$API/sectors"); assert_py "the sector list carries Dawn, in name order" "$r" "[s['name'] for s in rows]==['Anvil','Bastion','Cinder','Dawn']"
-r=$(req surveyor GET "$API/user-domains"); assert_py "her chart lights Dawn at once: no restart, no migrate job, no new login" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn']"
+r=$(req surveyor GET "$API/user-domains"); assert_py "her chart lights Dawn at once: no restart, no migrate job, no new login" "$r" "[d['domain'] for d in rows] == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID'])"
 r=$(req surveyor GET "$DAWN/wings"); check "Dawn's wings answer her: SectorCrew, held in every sector, reached Dawn with nothing written" 200 "$r"
 assert_py "an empty wing list: Dawn is charted, not yet crewed" "$r" "rows == []"
-r=$(req surveyor PATCH "$API/resources" '[{"op":"patch","path":"/sectors/dawn","value":{"region":"Far frontier"}}]'); check "the surveyor corrects Dawn's region (Update on Sectors)" 200 "$r"
+r=$(req surveyor PATCH "$API/resources" '[{"op":"patch","path":"/sectors/'"$DAWN_ID"'","value":{"region":"Far frontier"}}]'); check "the surveyor corrects Dawn's region (Update on Sectors)" 200 "$r"
 r=$(req surveyor GET "$DAWN/crew-sector-user-roles"); check "the create path made the surveyor Dawn's marshal: Dawn's list of the roles held answers her" 200 "$r"
 assert_py "and carries her SectorMarshal" "$r" "'SectorMarshal' in [h['role'] for h in rows if h['username']=='surveyor']"
-r=$(req marshal GET "$API/user-domains"); assert_py "the marshal's chart does not light Dawn" "$r" "[d['domain'] for d in rows] == ['anvil']"
+r=$(req marshal GET "$API/user-domains"); assert_py "the marshal's chart does not light Dawn" "$r" "[d['domain'] for d in rows] == ['$ANVIL_ID']"
 r=$(req marshal GET "$DAWN/wings"); check "Dawn's routes answer the marshal 404: a sector that does not exist for her" 404 "$r"
-r=$(req governor GET "$API/user-domains"); assert_py "the governor, marshal in every sector, sees Dawn" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn']"
+r=$(req governor GET "$API/user-domains"); assert_py "the governor, marshal in every sector, sees Dawn" "$r" "[d['domain'] for d in rows] == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID'])"
 r=$(req governor GET "$DAWN/missions"); check "Dawn's flight deck answers the governor, empty" 200 "$r"
-r=$(req archivist GET "$API/user-domains"); assert_py "the archivist, held in every sector, sees Dawn" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn']"
-r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Dawn at once: the directory's role is held in every sector" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn']"
-r=$(req client GET "$PORTAL/sectors/dawn/missions"); check "Dawn's tracker opens for her, empty" 200 "$r"
+r=$(req archivist GET "$API/user-domains"); assert_py "the archivist, held in every sector, sees Dawn" "$r" "[d['domain'] for d in rows] == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID'])"
+r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Dawn at once: the directory's role is held in every sector" "$r" "[d['domain'] for d in rows] == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID'])"
+r=$(req client GET "$PORTAL/sectors/$DAWN_ID/missions"); check "Dawn's tracker opens for her, empty" 200 "$r"
 if [ -n "$SECOND_PID" ]; then
-  tries=0; for i in $(seq 1 40); do tries=$i; r=$(req surveyor.2 GET "$API2/sectors/dawn/wings"); [ "${r##*$'\n'}" = 200 ] && break; sleep 0.25; done
+  tries=0; for i in $(seq 1 40); do tries=$i; r=$(req surveyor.2 GET "$API2/sectors/$DAWN_ID/wings"); [ "${r##*$'\n'}" = 200 ] && break; sleep 0.25; done
   check "the second process serves Dawn at its next request: the tenants kind's signal, not the five-minute backstop (answered on try $tries)" 200 "$r"
-  r=$(req surveyor.2 GET "$API2/user-domains"); assert_py "and her chart there lights Dawn" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn']"
+  r=$(req surveyor.2 GET "$API2/user-domains"); assert_py "and her chart there lights Dawn" "$r" "[d['domain'] for d in rows] == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID'])"
   kill "$SECOND_PID" 2>/dev/null; wait "$SECOND_PID" 2>/dev/null; SECOND_PID=
 fi
 
@@ -695,29 +752,33 @@ fi
 # self-service: she signed in through the crew auth's sign-up registration (any Google
 # account, open sign-up: a person the auth has never seen becomes a crew login holding no
 # role and no sector) and names her own sector through the generated create-sector route,
-# which writes the row, seats her as its marshal (SectorMarshal, the roles the App names)
+# by the record's fields without its key (the route generates the id and answers it; a
+# body that names a key is refused), which writes the row, seats her as its marshal
+# (SectorMarshal, the roles the App names)
 # and hands the sector to the roster, so her next request stands in it; whoever holds a
 # sector already is refused, the governor included, since an administrator of one sector
 # never creates another here. Sign in first, then name the sector.
 # Demonstrates: tenancy.self-service, auth.open-sign-up.
-EMBER=$API/sectors/ember
 r=$(req pioneer GET "$API/user/session"); assert_py "the pioneer is signed in through the sign-up registration: a crew session on no manifest" "$r" "rows['authenticated'] and rows['username']=='pioneer'"
 r=$(req pioneer GET "$API/user-domains"); assert_py "her chart is dark: a crew login holding nothing" "$r" "[d['domain'] for d in rows] == []"
-r=$(req pioneer GET "$EMBER/missions"); check "Ember does not exist" 404 "$r"
-r=$(req marshal POST "$API/create-sector" '{"id":"ember","name":"Ember","region":"Near frontier","established":"2226-10-20"}'); check "the marshal holds Anvil and is refused: only a person holding no sector charts one here" 403 "$r"
-r=$(req governor POST "$API/create-sector" '{"id":"ember","name":"Ember","region":"Near frontier","established":"2226-10-20"}'); check "the governor, marshal in every sector, is refused too: an administrator of one sector never creates another here" 403 "$r"
-r=$(req pioneer POST "$API/create-sector" '{"id":"ember","region":"Near frontier","established":"2226-10-20"}'); check "a body without the name is refused her" 400 "$r"
-r=$(req pioneer POST "$API/create-sector" '{"id":"ember","name":"Ember","region":"Near frontier","established":"2226-10-20"}'); check "the pioneer charts sector Ember: the row, her marshal's seat and the roster in one call" 200 "$r"
-assert_py "answered its key" "$r" "rows['id']=='ember'"
-r=$(req pioneer GET "$API/user-domains"); assert_py "her chart lights Ember at once: seated as its marshal before the route answered" "$r" "[d['domain'] for d in rows] == ['ember']"
+r=$(req surveyor GET "$API/sectors"); assert_py "Ember does not exist: the sector list carries no Ember" "$r" "'Ember' not in [s['name'] for s in rows]"
+r=$(req marshal POST "$API/create-sector" '{"name":"Ember","region":"Near frontier","established":"2226-10-20"}'); check "the marshal holds Anvil and is refused: only a person holding no sector charts one here" 403 "$r"
+r=$(req governor POST "$API/create-sector" '{"name":"Ember","region":"Near frontier","established":"2226-10-20"}'); check "the governor, marshal in every sector, is refused too: an administrator of one sector never creates another here" 403 "$r"
+r=$(req pioneer POST "$API/create-sector" '{"region":"Near frontier","established":"2226-10-20"}'); check "a body without the name is refused her" 400 "$r"
+r=$(req pioneer POST "$API/create-sector" '{"id":"ember","name":"Ember","region":"Near frontier","established":"2226-10-20"}'); check "a body that names a key is refused her: the route generates it" 400 "$r"
+r=$(req pioneer POST "$API/create-sector" '{"name":"Ember","region":"Near frontier","established":"2226-10-20"}'); check "the pioneer charts sector Ember: the row, her marshal's seat and the roster in one call" 200 "$r"
+assert_py "answered the id the route generated for Ember" "$r" "str(__import__('uuid').UUID(rows['id']))==rows['id']"
+EMBER_ID=$(body "$r" | py "print(rows['id'])")
+EMBER=$API/sectors/$EMBER_ID
+r=$(req pioneer GET "$API/user-domains"); assert_py "her chart lights Ember at once: seated as its marshal before the route answered" "$r" "[d['domain'] for d in rows] == ['$EMBER_ID']"
 r=$(req pioneer GET "$EMBER/missions"); check "Ember's flight deck answers her, empty" 200 "$r"
 assert_py "an empty flight deck: Ember is charted, not yet flown" "$r" "rows == []"
 r=$(req pioneer GET "$EMBER/sector-directories"); assert_py "Ember declares the directory she came through, written with the row: her Google session is admitted by it (tenancy.creator-directory)" "$r" "len(rows)==1 and rows[0]['method']=='google' and rows[0]['connection']"
-r=$(req pioneer POST "$API/create-sector" '{"id":"ember-two","name":"Ember Two","region":"Near frontier","established":"2226-10-21"}'); check "a second sector is refused her: one sector per person" 403 "$r"
+r=$(req pioneer POST "$API/create-sector" '{"name":"Ember Two","region":"Near frontier","established":"2226-10-21"}'); check "a second sector is refused her: one sector per person" 403 "$r"
 r=$(req surveyor GET "$API/sectors"); assert_py "the sector list carries Ember, in name order" "$r" "[s['name'] for s in rows]==['Anvil','Bastion','Cinder','Dawn','Ember']"
 r=$(req marshal GET "$EMBER/missions"); check "Ember's routes answer the marshal 404: a sector that does not exist for her" 404 "$r"
-r=$(req governor GET "$API/user-domains"); assert_py "the governor sees Ember with nothing written for him" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn','ember']"
-r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Ember at once" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn','ember']"
+r=$(req governor GET "$API/user-domains"); assert_py "the governor sees Ember with nothing written for him" "$r" "[d['domain'] for d in rows] == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID'])"
+r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Ember at once" "$r" "[d['domain'] for d in rows] == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID'])"
 
 # ---- who may enter a sector: the declaration ----
 # Who may enter a sector is the record's declaration, data of the application: the
@@ -740,40 +801,42 @@ r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Ember
 # does) and names it again, under Update on the row.
 # Demonstrates: tenancy.declaration, tenancy.directory-only, tenancy.default-seat.
 login rigger
-r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Anvil alone: Bastion admits its people through its directory only, and she came by password" "$r" "[d['domain'] for d in rows] == ['anvil']"
-r=$(req rigger GET "$API/sectors/bastion/wings"); check "Bastion answers her as a sector that does not exist" 404 "$r"
+r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Anvil alone: Bastion admits its people through its directory only, and she came by password" "$r" "[d['domain'] for d in rows] == ['$ANVIL_ID']"
+r=$(req rigger GET "$API/sectors/$BASTION_ID/wings"); check "Bastion answers her as a sector that does not exist" 404 "$r"
 r=$(req rigger GET "$ANVIL/wings"); check "Anvil's wings answer her" 200 "$r"
 rm -f "$S/bosun.jar"; curl -s -L -c "$S/bosun.jar" -b "$S/bosun.jar" -o /dev/null "$API/user/session"
 r=$(curl -s -c "$S/bosun.jar" -b "$S/bosun.jar" -H "X-XSRF-TOKEN: $(xsrf bosun)" -H 'Content-Type: application/json' -d '{"username":"bosun","password":"lodestar"}' -w '\n%{http_code}' "$API/user/password/login")
 check "the bosun, whose only sector is Bastion, is refused at sign-in" 401 "$r"
 assert_py "naming the rule: directory_only" "$r" "rows['code']=='directory_only'"
-r=$(req governor POST "$API/assign-crew-role" '{"username":"navigator","role":"Pilot","everyDomain":true}'); check "the governor gives the navigator the Pilot role in every sector" 204 "$r"
-r=$(req navigator GET "$API/user-domains"); assert_py "the navigator, through the fleet's directory, which every sector declares, charts all three: Bastion admits him" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder']"
+r=$(req governor POST "$API/assign-crew-role" '{"username":"navigator","role":"Pilot","everyDomain":true}'); check "a role is given to an account, named by its id: a body that names the person by username is refused" 400 "$r"
+r=$(req governor POST "$API/assign-crew-role" '{"userId":"f0000000-0000-4000-8000-0000000000ff","role":"Pilot","everyDomain":true}'); check "and an id no account holds is refused: a role is held by an account" 404 "$r"
+r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$NAVIGATOR_ID\",\"role\":\"Pilot\",\"everyDomain\":true}"); check "the governor gives the navigator the Pilot role in every sector, by the id of his account" 204 "$r"
+r=$(req navigator GET "$API/user-domains"); assert_py "the navigator, through the fleet's directory, which every sector declares, charts all three: Bastion admits him" "$r" "[d['domain'] for d in rows] == ['$ANVIL_ID','$BASTION_ID','$CINDER_ID']"
 r=$(req governor GET "$ANVIL/sector-directories"); assert_py "Anvil declares one directory: the fleet's Google Workspace, example" "$r" "[(d['method'],d['connection']) for d in rows]==[('google','example')]"
 ANVIL_DIRECTORY=$(body "$r" | py "print(rows[0]['id'])")
-r=$(req rigger PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/anvil/sector-directories/$ANVIL_DIRECTORY\"}]"); check "the rigger holds no Delete on SectorDirectories" 403 "$r"
-r=$(req governor PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/anvil/sector-directories/$ANVIL_DIRECTORY\"}]"); check "the governor, marshal in every sector, withdraws Anvil's directory" 200 "$r"
-r=$(req navigator GET "$API/user-domains"); assert_py "the navigator's chart loses Anvil at once: no sector of his declares the directory he came through there" "$r" "[d['domain'] for d in rows] == ['bastion','cinder']"
+r=$(req rigger PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$ANVIL_ID/sector-directories/$ANVIL_DIRECTORY\"}]"); check "the rigger holds no Delete on SectorDirectories" 403 "$r"
+r=$(req governor PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$ANVIL_ID/sector-directories/$ANVIL_DIRECTORY\"}]"); check "the governor, marshal in every sector, withdraws Anvil's directory" 200 "$r"
+r=$(req navigator GET "$API/user-domains"); assert_py "the navigator's chart loses Anvil at once: no sector of his declares the directory he came through there" "$r" "[d['domain'] for d in rows] == ['$BASTION_ID','$CINDER_ID']"
 r=$(req navigator GET "$ANVIL/wings"); check "Anvil answers him as a sector that does not exist" 404 "$r"
-r=$(req governor GET "$API/user-domains"); assert_py "the governor keeps every sector: a global role" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn','ember']"
-r=$(req governor PATCH "$API/resources" '[{"op":"add","path":"/sectors/anvil/sector-directories","value":{"method":"google","connection":"example"}}]'); check "the governor declares the directory on Anvil again" 200 "$r"
-r=$(req navigator GET "$API/user-domains"); assert_py "and the navigator's chart lights Anvil again" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder']"
-r=$(req governor PATCH "$API/resources" '[{"op":"add","path":"/sectors/anvil/sector-directories","value":{"method":"google","connection":"example"}}]'); check "the same declaration twice is a conflict: one row per directory" 409 "$r"
-r=$(req governor PATCH "$API/resources" '[{"op":"patch","path":"/sectors/bastion","value":{"directoryOnly":false}}]'); check "headquarters opens Bastion to passwords (Update on Sectors, directoryOnly)" 200 "$r"
-r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Bastion at once" "$r" "[d['domain'] for d in rows] == ['anvil','bastion']"
+r=$(req governor GET "$API/user-domains"); assert_py "the governor keeps every sector: a global role" "$r" "[d['domain'] for d in rows] == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID'])"
+r=$(req governor PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$ANVIL_ID"'/sector-directories","value":{"method":"google","connection":"example"}}]'); check "the governor declares the directory on Anvil again" 200 "$r"
+r=$(req navigator GET "$API/user-domains"); assert_py "and the navigator's chart lights Anvil again" "$r" "[d['domain'] for d in rows] == ['$ANVIL_ID','$BASTION_ID','$CINDER_ID']"
+r=$(req governor PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$ANVIL_ID"'/sector-directories","value":{"method":"google","connection":"example"}}]'); check "the same declaration twice is a conflict: one row per directory" 409 "$r"
+r=$(req governor PATCH "$API/resources" '[{"op":"patch","path":"/sectors/'"$BASTION_ID"'","value":{"directoryOnly":false}}]'); check "headquarters opens Bastion to passwords (Update on Sectors, directoryOnly)" 200 "$r"
+r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Bastion at once" "$r" "[d['domain'] for d in rows] == ['$ANVIL_ID','$BASTION_ID']"
 r=$(curl -s -c "$S/bosun.jar" -b "$S/bosun.jar" -H "X-XSRF-TOKEN: $(xsrf bosun)" -H 'Content-Type: application/json' -d '{"username":"bosun","password":"lodestar"}' -w '\n%{http_code}' "$API/user/password/login")
 check "and the bosun's password is taken, the sign-in waiting for its code" 200 "$r"
 second_factor bosun "$API" bosun@fleet.example "$LOG"
 r=$(req bosun GET "$API/user/session"); assert_py "and the bosun signs in" "$r" "rows['authenticated'] and rows['username']=='bosun'"
-r=$(req governor PATCH "$API/resources" '[{"op":"patch","path":"/sectors/bastion","value":{"directoryOnly":true}}]'); check "headquarters closes Bastion again" 200 "$r"
+r=$(req governor PATCH "$API/resources" '[{"op":"patch","path":"/sectors/'"$BASTION_ID"'","value":{"directoryOnly":true}}]'); check "headquarters closes Bastion again" 200 "$r"
 r=$(req bosun GET "$API/user-domains"); assert_py "the bosun's chart goes dark: the session stands, and reaches no sector" "$r" "[d['domain'] for d in rows] == []"
-r=$(req governor GET "$API/sectors/cinder/sector-directories"); assert_py "Cinder's directory row names SectorCrew as its default seat" "$r" "[(d['method'],d['connection'],d.get('defaultSeat')) for d in rows]==[('google','example','SectorCrew')]"
+r=$(req governor GET "$API/sectors/$CINDER_ID/sector-directories"); assert_py "Cinder's directory row names SectorCrew as its default seat" "$r" "[(d['method'],d['connection'],d.get('defaultSeat')) for d in rows]==[('google','example','SectorCrew')]"
 CINDER_DIRECTORY=$(body "$r" | py "print(rows[0]['id'])")
-r=$(req marshal PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/cinder/sector-directories/$CINDER_DIRECTORY\",\"value\":{\"defaultSeat\":null}}]"); check "Cinder does not exist for the marshal of Anvil: a patch into a sector the caller does not reach is answered as an unknown one" 400 "$r"
-r=$(req governor PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/cinder/sector-directories/$CINDER_DIRECTORY\",\"value\":{\"defaultSeat\":null}}]"); check "the governor clears Cinder's default seat: an explicit null clears the column" 200 "$r"
-r=$(req governor GET "$API/sectors/cinder/sector-directories"); assert_py "the row names no seat: a stranger from the fleet's directory is now admitted by invitation only" "$r" "[d.get('defaultSeat') for d in rows]==[None]"
-r=$(req governor PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/cinder/sector-directories/$CINDER_DIRECTORY\",\"value\":{\"defaultSeat\":\"SectorCrew\"}}]"); check "and names SectorCrew again" 200 "$r"
-r=$(req governor GET "$API/sectors/cinder/sector-directories"); assert_py "the row names SectorCrew" "$r" "[d.get('defaultSeat') for d in rows]==['SectorCrew']"
+r=$(req marshal PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$CINDER_ID/sector-directories/$CINDER_DIRECTORY\",\"value\":{\"defaultSeat\":null}}]"); check "Cinder does not exist for the marshal of Anvil: a patch into a sector the caller does not reach is answered as an unknown one" 400 "$r"
+r=$(req governor PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$CINDER_ID/sector-directories/$CINDER_DIRECTORY\",\"value\":{\"defaultSeat\":null}}]"); check "the governor clears Cinder's default seat: an explicit null clears the column" 200 "$r"
+r=$(req governor GET "$API/sectors/$CINDER_ID/sector-directories"); assert_py "the row names no seat: a stranger from the fleet's directory is now admitted by invitation only" "$r" "[d.get('defaultSeat') for d in rows]==[None]"
+r=$(req governor PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$CINDER_ID/sector-directories/$CINDER_DIRECTORY\",\"value\":{\"defaultSeat\":\"SectorCrew\"}}]"); check "and names SectorCrew again" 200 "$r"
+r=$(req governor GET "$API/sectors/$CINDER_ID/sector-directories"); assert_py "the row names SectorCrew" "$r" "[d.get('defaultSeat') for d in rows]==['SectorCrew']"
 
 # ---- squadrons config page: the array config's request ----
 # The Squadrons page's "Other squadrons in this sector" is an arrayConfig over the same resource, its listFilter excluding the page's row by the indexed key; Squadrons declares a maximum, so the library asks one server page (the key column alone, with the count) and draws each row by the iterated config. Demonstrates: config.array.
@@ -797,23 +860,25 @@ r=$(req supercargo GET "$ANVIL/consignments?sort=releasedAt&limit=5"); assert_py
 r=$(req supercargo POST "$ANVIL/release-consignment" "{\"consignmentId\":\"$POD_BOND\"}"); check "supercargo releases a consignment (the armed manifest read, a typed receipt)" 200 "$r"
 assert_py "the receipt names the bond" "$r" "rows['bondCode']=='BND-ANV-0001' and rows['releasedAt']"
 r=$(req supercargo POST "$ANVIL/release-consignment" "{\"consignmentId\":\"$POD_BOND\"}"); check "second release is the frame's uniform Forbidden" 403 "$r"
-r=$(req supercargo PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/anvil/consignments/$DRONES_BOND\"}]"); check "supercargo disposes of expired bond" 200 "$r"
-r=$(req supercargo PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/anvil/consignments/$BULLION_BOND\"}]"); check "live bond cannot be disposed of" 403 "$r"
+r=$(req supercargo PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$ANVIL_ID/consignments/$DRONES_BOND\"}]"); check "supercargo disposes of expired bond" 200 "$r"
+r=$(req supercargo PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$ANVIL_ID/consignments/$BULLION_BOND\"}]"); check "live bond cannot be disposed of" 403 "$r"
 r=$(req salvor GET "$API/clients"); assert_py "salvor's roster is the covered and undecided outfits (Halvard, Meridian, Bastion Relay), never Vellum's refused cover" "$r" "sorted(c['id'] for c in rows) == sorted(['$HALVARD','$MERIDIAN','$BASTION_RELAY']) and all('insured' in c for c in rows)"
 
 # ---- call log: create-form narrowing ----
-r=$(req cadet GET "$API/permission-digest?domain=anvil"); assert_py "cadet's digest narrows the call form to summary and severity" "$r" "'DistressCalls.summary' in rows and 'DistressCalls.callerContact' not in rows"
-r=$(req cadet PATCH "$API/resources" '[{"op":"add","path":"/sectors/anvil/distress-calls","value":{"summary":"Debris on the approach","severity":2}}]'); check "cadet files a two-field call" 200 "$r"
+r=$(req cadet GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "cadet's digest narrows the call form to summary and severity" "$r" "'DistressCalls.summary' in rows and 'DistressCalls.callerContact' not in rows"
+r=$(req cadet PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$ANVIL_ID"'/distress-calls","value":{"summary":"Debris on the approach","severity":2}}]'); check "cadet files a two-field call" 200 "$r"
+r=$(req cadet GET "$ANVIL/distress-calls?limit=100"); assert_py "the cadet's call log holds her own calls alone, the seeded one and the one just filed: filedBy = subject compares the id of her account, which the seed wrote and the server stamped" "$r" "sorted(c['summary'] for c in rows)==['Debris field reported on the approach lane','Debris on the approach']"
+r=$(req marshal GET "$ANVIL/distress-calls?limit=100"); assert_py "the marshal's log says who filed the new call by the id of the cadet's account, with her username beside it for the page" "$r" "[(c['filedByUserId'],c['filedByName']) for c in rows if c['summary']=='Debris on the approach']==[('$CADET_ID','cadet')]"
 # The Update envelope speaks for every field the caller may write, projected or not: the marshal's grant covers the write-only transcript, which no read returns, and the envelope on a seeded call names it, so the Calls page's edit form draws its blank input. Demonstrates: field.write-only.
 r=$(req marshal GET "$ANVIL/distress-calls/$BEACON_CALL?capabilities=Update"); assert_py "the marshal's Update envelope on a seeded call names the write-only transcript the read never returns" "$r" "'transcript' in rows['zzCapabilities']['Update'] and 'transcript' not in rows and rows['zzCapabilities']['Update']==sorted(rows['zzCapabilities']['Update'])"
 
 # ---- droid channel ----
 # The droid's first reading carries the firmware's raw frame, a type declared in the droid link's own package, which the generator writes the frame's JSON and Spanner methods into (WithTypes); the list reads the frame back as the JSON it was sent, and a reading sent without one carries null. Demonstrates: typescript.types-package.
 if [ -n "$KEY" ]; then
-  r=$(droid POST "$DROIDS/sectors/anvil/ingest-droid-reports" "{\"shipId\":\"$KINGFISHER\",\"subsystem\":\"hull\",\"reading\":0.95,\"recordedAt\":\"2026-09-04T12:00:00Z\",\"frame\":{\"fw\":\"7.2\",\"hull\":{\"strain\":0.95,\"plates\":[3,7]}}}"); check "droid posts a reading (one per call; the payload is flat) with its raw frame" 200 "$r"
-  r=$(droid POST "$DROIDS/sectors/anvil/ingest-droid-reports" "{\"shipId\":\"$KINGFISHER\",\"subsystem\":\"reactor\",\"reading\":0.55,\"recordedAt\":\"2026-09-04T12:01:00Z\"}"); check "droid posts a second reading" 200 "$r"
-  r=$(droid POST "$DROIDS/sectors/anvil/ingest-droid-reports" "{\"shipId\":\"$KINGFISHER\",\"reading\":0.9}"); check "a reading without a subsystem is refused by the body" 400 "$r"
-  r=$(droid GET "$DROIDS/sectors/anvil/droid-reports"); check "droid lists its channel" 200 "$r"
+  r=$(droid POST "$DROIDS/sectors/$ANVIL_ID/ingest-droid-reports" "{\"shipId\":\"$KINGFISHER\",\"subsystem\":\"hull\",\"reading\":0.95,\"recordedAt\":\"2026-09-04T12:00:00Z\",\"frame\":{\"fw\":\"7.2\",\"hull\":{\"strain\":0.95,\"plates\":[3,7]}}}"); check "droid posts a reading (one per call; the payload is flat) with its raw frame" 200 "$r"
+  r=$(droid POST "$DROIDS/sectors/$ANVIL_ID/ingest-droid-reports" "{\"shipId\":\"$KINGFISHER\",\"subsystem\":\"reactor\",\"reading\":0.55,\"recordedAt\":\"2026-09-04T12:01:00Z\"}"); check "droid posts a second reading" 200 "$r"
+  r=$(droid POST "$DROIDS/sectors/$ANVIL_ID/ingest-droid-reports" "{\"shipId\":\"$KINGFISHER\",\"reading\":0.9}"); check "a reading without a subsystem is refused by the body" 400 "$r"
+  r=$(droid GET "$DROIDS/sectors/$ANVIL_ID/droid-reports"); check "droid lists its channel" 200 "$r"
   assert_py "the droid reads its raw frame back as the JSON it sent, and null for the reading sent without one" "$r" "any(x.get('frame')=={'fw':'7.2','hull':{'strain':0.95,'plates':[3,7]}} for x in rows) and any(x['subsystem']=='reactor' and x.get('frame') is None for x in rows)"
   r=$(req marshal GET "$ANVIL/droid-reports"); check "droid reports have no human route" 404 "$r"
   r=$(req hazards GET "$ANVIL/sector-hazard-boards?limit=all"); assert_py "hazard board shows the worst hull reading" "$r" "any(b['shipName']=='Kingfisher' and b['subsystem']=='hull' and b['worstReading']==0.95 for b in rows)"
@@ -821,26 +886,28 @@ if [ -n "$KEY" ]; then
   r=$(req hazards GET "$ANVIL/sector-hazard-boards?columns=recent.value"); check "nothing inside the nested field is a column" 400 "$r"
   r=$(req hazards GET "$ANVIL/sector-hazard-boards?filter=shipName:eq:Kingfisher,subsystem:eq:reactor"); assert_py "the board is filtered like a table: the body takes the ship name, the handler the subsystem" "$r" "[(b['shipName'],b['subsystem']) for b in rows]==[('Kingfisher','reactor')]"
   r=$(req hazards GET "$ANVIL/sector-hazard-boards?limit=1"); assert_py "the board pages: the worst reading first, one row" "$r" "len(rows)==1 and rows[0]['worstReading']==0.95"
-  r=$(droid POST "$DROIDS/sectors/anvil/release-consignment" "{\"consignmentId\":\"b0000000-0000-4000-8000-000000000005\"}"); check "the droid releases bond through the shared method, reading the manifest under its own grant" 200 "$r"
+  r=$(droid POST "$DROIDS/sectors/$ANVIL_ID/release-consignment" "{\"consignmentId\":\"b0000000-0000-4000-8000-000000000005\"}"); check "the droid releases bond through the shared method, reading the manifest under its own grant" 200 "$r"
   assert_py "the droid's receipt" "$r" "rows['bondCode']=='BND-ANV-0005'"
-  r=$(droid GET "$DROIDS/sectors/anvil/droid-reports?offset=2"); check "offset is refused on the droid channel too" 400 "$r"
-  r=$(curl -s -X POST -H 'Content-Type: application/json' -d '{}' -w '\n%{http_code}' "$DROIDS/sectors/anvil/ingest-droid-reports"); check "the droid channel refuses without the key" 401 "$r"
+  r=$(droid GET "$DROIDS/sectors/$ANVIL_ID/droid-reports?offset=2"); check "offset is refused on the droid channel too" 400 "$r"
+  r=$(curl -s -X POST -H 'Content-Type: application/json' -d '{}' -w '\n%{http_code}' "$DROIDS/sectors/$ANVIL_ID/ingest-droid-reports"); check "the droid channel refuses without the key" 401 "$r"
 else
   echo "SKIP  droid channel: set APP_DROIDS_API_KEY on the server and here"
 fi
 
 # ---- portal ----
-r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists every sector, Dawn and Ember charted above among them: the directory's domain role is held in every sector" "$r" "[d['domain'] for d in rows] == ['anvil','bastion','cinder','dawn','ember']"
-r=$(req client GET "$PORTAL/sectors/anvil/missions?capabilities=Execute&limit=200"); check "cleo tracks Halvard's missions" 200 "$r"
+r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists every sector, Dawn and Ember charted above among them: the directory's domain role is held in every sector" "$r" "[d['domain'] for d in rows] == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID'])"
+r=$(req client GET "$PORTAL/sectors/$ANVIL_ID/missions?capabilities=Execute&limit=200"); check "cleo tracks Halvard's missions" 200 "$r"
 assert_py "portal width excludes assignedSquadronId/notes/settlement" "$r" "rows and all('assignedSquadronId' not in m and 'settlement' not in m for m in rows)"
 assert_py "Stand down lights only on her company's open, claimed, or on-hold rows" "$r" "all(('StandDownMission' in m['zzCapabilities']['Execute']) == (m['statusId'] in ('open','claimed','on_hold')) for m in rows)"
-page=$(curl -s -D "$S/portal.h" -L -b "$S/client.jar" -H "X-XSRF-TOKEN: $(xsrf client)" "$PORTAL/sectors/anvil/missions?limit=4")
+page=$(curl -s -D "$S/portal.h" -L -b "$S/client.jar" -H "X-XSRF-TOKEN: $(xsrf client)" "$PORTAL/sectors/$ANVIL_ID/missions?limit=4")
 grep -qi '^Link:.*rel="next"' "$S/portal.h" && echo "PASS  the portal tracker pages with the Link header under its own prefix" || { echo "FAIL  portal paging: no Link header"; fails=$((fails+1)); }
-r=$(req client POST "$PORTAL/sectors/anvil/stand-down-mission" "{\"missionId\":\"$QUARANTINE\"}"); check "cleo stands down her company's claimed mission" 200 "$r"
-r=$(req client POST "$PORTAL/sectors/anvil/stand-down-mission" "{\"missionId\":\"$CORVID\"}"); check "cleo cannot stand down Meridian's mission" 403 "$r"
-r=$(req client PATCH "$PORTAL/resources" '[{"op":"add","path":"/sectors/anvil/distress-calls","value":{"summary":"Hauler drifting","severity":4,"callerContact":"cleo@halvard.example"}}]'); check "cleo files a call with her contact" 200 "$r"
-r=$(req client GET "$PORTAL/sectors/anvil/refits"); check "refits are not a portal member" 404 "$r"
-r=$(req client GET "$PORTAL/sectors/anvil/client-statements"); check "cleo reads her company's statement (the portal-only manual resource)" 200 "$r"
+r=$(req client POST "$PORTAL/sectors/$ANVIL_ID/stand-down-mission" "{\"missionId\":\"$QUARANTINE\"}"); check "cleo stands down her company's claimed mission" 200 "$r"
+r=$(req client POST "$PORTAL/sectors/$ANVIL_ID/stand-down-mission" "{\"missionId\":\"$CORVID\"}"); check "cleo cannot stand down Meridian's mission" 403 "$r"
+r=$(req client PATCH "$PORTAL/resources" '[{"op":"add","path":"/sectors/'"$ANVIL_ID"'/distress-calls","value":{"summary":"Hauler drifting","severity":4,"callerContact":"cleo@halvard.example"}}]'); check "cleo files a call with her contact" 200 "$r"
+r=$(req client GET "$PORTAL/sectors/$ANVIL_ID/distress-calls?limit=100"); assert_py "cleo's portal lists her own calls alone, the seeded five and the one just filed: filedBy = subject compares the id of her account in the members auth" "$r" "len(rows)==6 and 'Hauler drifting' in [c['summary'] for c in rows] and all('filedByUserId' not in c for c in rows)"
+r=$(req marshal GET "$ANVIL/distress-calls?limit=100"); assert_py "the console says a client filed it: the id of her members account, which is no crew account's, and her username beside it" "$r" "[(c['filedByUserId'],c['filedByName']) for c in rows if c['summary']=='Hauler drifting']==[('$CLIENT_ID','client')]"
+r=$(req client GET "$PORTAL/sectors/$ANVIL_ID/refits"); check "refits are not a portal member" 404 "$r"
+r=$(req client GET "$PORTAL/sectors/$ANVIL_ID/client-statements"); check "cleo reads her company's statement (the portal-only manual resource)" 200 "$r"
 assert_py "the statement carries the stand-down of her company's mission" "$r" "any(l['missionId']=='$QUARANTINE' for l in rows)"
 r=$(req marshal GET "$ANVIL/client-statements"); check "the statement is not mounted on the console" 404 "$r"
 
@@ -854,32 +921,39 @@ r=$(req marshal POST "$API/issue-bulletin" '{"announcement":"All hands: drill at
 r=$(req cadet POST "$API/issue-bulletin" '{"announcement":"unauthorized"}'); check "cadet refused the bulletin" 403 "$r"
 
 # ---- impersonation: view as, act as, the watch desk ----
-r=$(req marshal POST "$API/impersonate" '{"kind":"user","principal":"cadet","reason":"walkthrough"}'); check "marshal mints a view-as session" 200 "$r"
+# A view-as session names the person to view as by the id of their account, which is how
+# the permission store names a person, and the session library refuses a principal that
+# is no id. What a person reads stays a name: the session answers the cadet's username,
+# the watch desk lists both people by username, and a change written under a role is
+# signed with the actor's username and the id of their account.
+r=$(req marshal POST "$API/impersonate" '{"kind":"user","principal":"cadet","reason":"walkthrough"}'); check "a view-as session names the person by the id of their account: a username as the principal is refused" 400 "$r"
+r=$(req marshal GET "$API/user/session"); assert_py "and the console is still Maren's" "$r" "rows['username']=='marshal' and not rows.get('impersonation')"
+r=$(req marshal POST "$API/impersonate" "{\"kind\":\"user\",\"principal\":\"$CADET_ID\",\"reason\":\"walkthrough\"}"); check "marshal mints a view-as session, as the cadet's account" 200 "$r"
 MINTED=$(body "$r" | py "print(rows['sessionId'])")
 r=$(req marshal GET "$API/user/session"); assert_py "the console is now Cass's" "$r" "rows['username']=='cadet' and rows['impersonation']['actor']=='marshal'"
 r=$(req marshal GET "$ANVIL/missions?capabilities=Execute&limit=200"); assert_py "every edge unlit under the mask" "$r" "rows and all(not m['zzCapabilities']['Execute'] for m in rows)"
 r=$(req marshal POST "$ANVIL/claim-mission" "{\"missionId\":\"$HAULER\",\"squadronId\":\"$TONGS\"}"); check "a forged write on the read-only session is stopped at the door by EnforceReadOnlyMask" 403 "$r"
-r=$(req marshal POST "$API/impersonate" '{"kind":"user","principal":"pilot"}'); check "chaining is refused" 403 "$r"
+r=$(req marshal POST "$API/impersonate" "{\"kind\":\"user\",\"principal\":\"$PILOT_ID\"}"); check "chaining is refused" 403 "$r"
 r=$(req governor GET "$API/impersonations"); check "the governor's watch desk lists the live sessions" 200 "$r"
-assert_py "the minted session is listed with its two-hour cap" "$r" "any(s['sessionId']=='$MINTED' and s['actor']=='marshal' and s['principal']=='cadet' for s in rows)"
+assert_py "the minted session is listed with its two-hour cap, both people by username: the desk reads the cadet's name from the account the record names by id" "$r" "any(s['sessionId']=='$MINTED' and s['actor']=='marshal' and s['kind']=='user' and s['principal']=='cadet' for s in rows)"
 r=$(req cadet GET "$API/impersonations"); check "the cadet may not operate the desk" 403 "$r"
 r=$(req marshal POST "$API/impersonate/end" '{}'); assert_py "marshal returns to self" "$r" "rows['restored'] is True"
 r=$(req marshal GET "$API/user/session"); assert_py "the console is Maren's again, no record" "$r" "rows['username']=='marshal' and not rows.get('impersonation')"
-r=$(req marshal POST "$API/impersonate" '{"kind":"user","principal":"cadet","reason":"to be revoked"}'); check "marshal mints another view-as session" 200 "$r"
+r=$(req marshal POST "$API/impersonate" "{\"kind\":\"user\",\"principal\":\"$CADET_ID\",\"reason\":\"to be revoked\"}"); check "marshal mints another view-as session" 200 "$r"
 MINTED=$(body "$r" | py "print(rows['sessionId'])")
 r=$(req governor DELETE "$API/impersonations/$MINTED"); check "the governor revokes it from the watch desk" 204 "$r"
 r=$(req marshal GET "$ANVIL/missions"); check "the revoked console's next request is refused" 401 "$r"
 login marshal
 r=$(req governor POST "$API/impersonate" '{"kind":"role","principal":"Dispatcher","reason":"walkthrough"}'); check "governor assumes the Dispatcher role" 200 "$r"
-r=$(req governor PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/anvil/missions/$COURIER\",\"value\":{\"deadline\":\"$(days +88)\"}}]"); check "deadline extended under the role (grant B, on hold is not terminal)" 200 "$r"
-r=$(req governor PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/anvil/missions/$CORVID\",\"value\":{\"assignedSquadronId\":\"$HAMMER\"}}]"); check "assignment refused on a claimed mission: subject is Greer, not a dispatcher" 403 "$r"
-r=$(req archivist GET "$ANVIL/ships-log-entries"); assert_py "the log names 'governor as role Dispatcher'" "$r" "any('governor as role Dispatcher' in e['eventSource'] for e in rows)"
+r=$(req governor PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/missions/$COURIER\",\"value\":{\"deadline\":\"$(days +88)\"}}]"); check "deadline extended under the role (grant B, on hold is not terminal)" 200 "$r"
+r=$(req governor PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/missions/$CORVID\",\"value\":{\"assignedSquadronId\":\"$HAMMER\"}}]"); check "assignment refused on a claimed mission: subject is Greer, not a dispatcher" 403 "$r"
+r=$(req archivist GET "$ANVIL/ships-log-entries"); assert_py "the log names 'governor (the id of his account) as role Dispatcher', with the session" "$r" "any(e['eventSource'].startswith('governor ($GOVERNOR_ID) as role Dispatcher, session ') and $UUID(e['eventSource'].rsplit(' ',1)[1]) for e in rows)"
 
 # ---- the overdue flip ----
 if [ "${LODESTAR_SKIP_FLIP:-}" != 1 ]; then
   echo "INFO  waiting for the Corvid deadline (bootstrap + 3 minutes) to pass for the overseer's flip..."
   for i in $(seq 1 40); do
-    r=$(req overseer PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/anvil/missions/$CORVID\",\"value\":{\"assignedSquadronId\":\"$TONGS\"}}]")
+    r=$(req overseer PATCH "$API/resources" "[{\"op\":\"patch\",\"path\":\"/sectors/$ANVIL_ID/missions/$CORVID\",\"value\":{\"assignedSquadronId\":\"$TONGS\"}}]")
     [ "${r##*$'\n'}" = 200 ] && break
     sleep 5
   done

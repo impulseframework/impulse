@@ -38,7 +38,7 @@ const resourceMap = defineResourceMap({
     live: true,
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'tenantId', displayType: 'string', required: true, isIndex: true, filterable: 'always', readOnly: true },
+      { fieldName: 'tenantId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always', readOnly: true },
       { fieldName: 'kindId', displayType: 'string', required: true, isIndex: true, filterable: 'always', maxLength: 64 },
       { fieldName: 'title', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'body', displayType: 'string', required: true, isIndex: false },

@@ -7,7 +7,7 @@
 
 @if (!canCompile()) {
   <mat-card appearance="outlined" class="table-card">
-    <p class="empty">Your posting in {{ sector() || 'this sector' }} does not include compiling a briefing.</p>
+    <p class="empty">Your posting in {{ sectorName() || 'this sector' }} does not include compiling a briefing.</p>
   </mat-card>
 } @else {
   <mat-card appearance="outlined" class="table-card">
@@ -41,7 +41,7 @@
       }
       @if (sheet(); as sheet) {
         <div class="sheet">
-          <h2>Briefing for {{ sheet.sector }}</h2>
+          <h2>Briefing for {{ sectorName() }}</h2>
           <p class="stamp">{{ sheet.template }}, compiled {{ sheet.compiledAt | date: 'medium' }}</p>
           <dl>
             <dt>Missions you may see</dt>

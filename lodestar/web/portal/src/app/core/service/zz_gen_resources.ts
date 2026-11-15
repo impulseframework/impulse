@@ -26,14 +26,15 @@ export interface DistressCalls {
   severity?: number;
   callerContact?: string;
   caseNumber?: string;
-  filedBy?: string;
+  filedByUserId?: string;
+  filedByName?: string;
   position?: Point;
 }
 
 export interface MembersRoles {
   kind: string;
   axis: string;
-  domain: string;
+  domainId: string;
   role: string;
   description?: string;
   updatedAt?: Date;
@@ -42,7 +43,7 @@ export interface MembersRoles {
 export interface MembersRoleGrants {
   kind: string;
   axis: string;
-  domain: string;
+  domainId: string;
   role: string;
   permission: string;
   resourceName: string;
@@ -53,7 +54,7 @@ export interface MembersRoleGrants {
 
 export interface MembersSectorIdentities {
   id: string;
-  domain?: string;
+  domainId?: string;
   userId?: string;
   username?: string;
   method?: string;
@@ -69,11 +70,11 @@ export interface MembersSectorIdentities {
 
 export interface MembersSectorInvitations {
   id: string;
-  domain?: string;
+  domainId?: string;
   email?: string;
   name?: string;
   roleNames?: string[];
-  invitedBy?: string;
+  invitedByUserId?: string;
   createdAt?: Date;
   expiresAt?: Date;
   consumedAt?: Date;
@@ -82,7 +83,7 @@ export interface MembersSectorInvitations {
 
 export interface MembersSectorUsers {
   id: string;
-  domain?: string;
+  domainId?: string;
   username?: string;
   name?: string;
   email?: string;
@@ -96,7 +97,7 @@ export interface MembersSectorUsers {
 }
 
 export interface MembersSectorUserRoles {
-  domain?: string;
+  domainId?: string;
   userId: string;
   username?: string;
   role: string;
@@ -141,9 +142,9 @@ export interface MembersSessionMailLinks {
   email?: string;
   name?: string;
   userId?: string;
-  tenant?: string;
+  tenantId?: string;
   roleNames?: string[];
-  invitedBy?: string;
+  invitedByUserId?: string;
   createdAt?: Date;
   expiresAt?: Date;
   consumedAt?: Date;
@@ -181,9 +182,9 @@ export interface MembersSessionUsers {
 export interface MembersUserRoles {
   kind: string;
   axis: string;
-  domain: string;
+  domainId: string;
   role: string;
-  user: string;
+  userId: string;
   createdAt?: Date;
 }
 
@@ -199,7 +200,8 @@ export interface Missions {
   fee?: number;
   deadline?: Date;
   requiredCertId?: string;
-  bookedBy?: string;
+  bookedByUserId?: string;
+  bookedByName?: string;
   assignedSquadronId?: string;
   statusId?: string;
   notes?: string;
@@ -213,7 +215,8 @@ export interface MissionDocuments {
   fileName?: string;
   contentType?: string;
   size?: number;
-  uploadedBy?: string;
+  uploadedByUserId?: string;
+  uploadedByName?: string;
   uploadedAt?: Date;
   provenance?: MissionDocuments.Provenance;
   digest?: string;
@@ -262,7 +265,7 @@ const resourceMap = defineResourceMap({
     live: true,
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'userId', displayType: 'string', required: true, isIndex: true, filterable: 'always', maxLength: 320 },
+      { fieldName: 'userId', displayType: 'string', required: true, isIndex: true, filterable: 'always', maxLength: 36 },
       { fieldName: 'clientId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'displayName', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed', search: ['contains'] },
     ],
@@ -273,7 +276,7 @@ const resourceMap = defineResourceMap({
     live: true,
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'sectorId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: true, isIndex: true, filterable: 'always', search: ['contains', 'startswith', 'endswith'] },
       { fieldName: 'trusted', displayType: 'boolean', required: true, isIndex: false },
       { fieldName: 'contactCount', displayType: 'number', required: true, isIndex: false },
@@ -287,13 +290,14 @@ const resourceMap = defineResourceMap({
     live: true,
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'sectorId', displayType: 'string', required: true, isIndex: true, filterable: 'always', readOnly: true },
+      { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always', readOnly: true },
       { fieldName: 'summary', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'severity', displayType: 'number', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'callerContact', displayType: 'string', required: false, isIndex: false, pii: true },
       { fieldName: 'transcript', displayType: 'string', required: false, isIndex: false, writeOnly: true },
       { fieldName: 'caseNumber', displayType: 'string', required: false, isIndex: true, filterable: 'always', readOnly: true },
-      { fieldName: 'filedBy', displayType: 'string', required: false, isIndex: false, readOnly: true },
+      { fieldName: 'filedByUserId', displayType: 'string', required: false, isIndex: false, readOnly: true },
+      { fieldName: 'filedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'position', displayType: 'object', required: false, isIndex: false },
     ],
   },
@@ -307,7 +311,7 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domain', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'description', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'updatedAt', displayType: 'date', required: true, isIndex: false },
@@ -323,7 +327,7 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domain', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'permission', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'resourceName', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: false },
@@ -337,7 +341,7 @@ const resourceMap = defineResourceMap({
     live: true,
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'domain', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'method', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -356,11 +360,11 @@ const resourceMap = defineResourceMap({
     live: true,
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'domain', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'email', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'roleNames', displayType: 'string[]', required: true, isIndex: false },
-      { fieldName: 'invitedBy', displayType: 'uuid', required: false, isIndex: false },
+      { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
@@ -372,7 +376,7 @@ const resourceMap = defineResourceMap({
     live: true,
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'domain', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
@@ -389,7 +393,7 @@ const resourceMap = defineResourceMap({
     route: 'sectors/{sectorID}/members-sector-user-roles',
     live: true,
     fields: [
-      { fieldName: 'domain', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'domainId', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'username', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
@@ -459,9 +463,9 @@ const resourceMap = defineResourceMap({
       { fieldName: 'email', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'userId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', enumeratedResource: Resources.MembersSessionUsers },
-      { fieldName: 'tenant', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
+      { fieldName: 'tenantId', displayType: 'string', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'roleNames', displayType: 'string[]', required: false, isIndex: false },
-      { fieldName: 'invitedBy', displayType: 'uuid', required: false, isIndex: false },
+      { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'expiresAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'consumedAt', displayType: 'date', required: false, isIndex: false },
@@ -525,9 +529,9 @@ const resourceMap = defineResourceMap({
     fields: [
       { fieldName: 'kind', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'axis', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'domain', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'domainId', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'user', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
     ],
   },
@@ -537,7 +541,7 @@ const resourceMap = defineResourceMap({
     live: true,
     fields: [
       { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
-      { fieldName: 'sectorId', displayType: 'string', required: true, isIndex: true, filterable: 'always', readOnly: true },
+      { fieldName: 'sectorId', displayType: 'uuid', required: true, isIndex: true, filterable: 'always', readOnly: true },
       { fieldName: 'clientId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.ClientRosters },
       { fieldName: 'kindId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', maxLength: 64, enumeration: [{ id: "courier", display: "Courier" }, { id: "escort", display: "Escort" }, { id: "rescue", display: "Rescue" }, { id: "salvage", display: "Salvage" }] },
       { fieldName: 'title', displayType: 'string', required: true, isIndex: false, filterable: 'withIndexed', search: ['contains'] },
@@ -547,7 +551,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'fee', displayType: 'number', required: true, isIndex: false, filterable: 'withIndexed' },
       { fieldName: 'deadline', displayType: 'date', required: true, isIndex: true, filterable: 'always', masking: 'positional' },
       { fieldName: 'requiredCertId', displayType: 'enumerated', required: false, isIndex: true, filterable: 'always', maxLength: 64, enumeration: [{ id: "deep_space", display: "Deep space" }, { id: "escort", display: "Escort" }, { id: "hazmat", display: "Hazardous materials" }, { id: "salvage", display: "Salvage" }] },
-      { fieldName: 'bookedBy', displayType: 'string', required: false, isIndex: false, readOnly: true },
+      { fieldName: 'bookedByUserId', displayType: 'string', required: false, isIndex: false, readOnly: true },
+      { fieldName: 'bookedByName', displayType: 'string', required: false, isIndex: false, readOnly: true },
       { fieldName: 'assignedSquadronId', displayType: 'uuid', required: false, isIndex: true, filterable: 'always' },
       { fieldName: 'statusId', displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeration: [{ id: "claimed", display: "Claimed" }, { id: "completed", display: "Completed" }, { id: "failed", display: "Failed" }, { id: "on_hold", display: "On hold" }, { id: "open", display: "Open" }, { id: "stood_down", display: "Stood down" }, { id: "underway", display: "Underway" }], readOnly: true },
       { fieldName: 'notes', displayType: 'string', required: false, isIndex: false },
@@ -567,7 +572,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'fileName', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'contentType', displayType: 'string', required: true, isIndex: false },
       { fieldName: 'size', displayType: 'number', required: true, isIndex: false },
-      { fieldName: 'uploadedBy', displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'uploadedByUserId', displayType: 'string', required: true, isIndex: false, maxLength: 36 },
+      { fieldName: 'uploadedByName', displayType: 'string', required: true, isIndex: false, readOnly: true },
       { fieldName: 'uploadedAt', displayType: 'date', required: true, isIndex: false },
       { fieldName: 'provenance', displayType: 'object', required: false, isIndex: false },
       { fieldName: 'digest', displayType: 'bytes', required: true, isIndex: false },

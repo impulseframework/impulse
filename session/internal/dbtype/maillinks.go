@@ -46,15 +46,15 @@ type MailLink struct {
 	// UserID names the account a verification link belongs to; null for the other
 	// kinds.
 	UserID impulse.NullUUID
-	// Tenant is the tenant an invitation seats the person in, "" for the application's
+	// TenantID is the tenant an invitation seats the person in, "" for the application's
 	// global surface or for the other kinds.
-	Tenant string
+	TenantID string
 	// RoleNames are the roles an invitation's acceptance grants; nil for the other
 	// kinds.
 	RoleNames []string
-	// InvitedBy is the user who sent an invitation; null when unknown or for the other
+	// InvitedByUserID is the user who sent an invitation; null when unknown or for the other
 	// kinds.
-	InvitedBy impulse.NullUUID
+	InvitedByUserID impulse.NullUUID
 	// Name is the invited person's name as the inviter typed it; "" for none and for
 	// the other kinds.
 	Name       string

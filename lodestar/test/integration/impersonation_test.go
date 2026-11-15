@@ -31,6 +31,15 @@ func (b *browser) impersonate(ctx context.Context, body string) (status int, res
 	return b.do(ctx, http.MethodPost, "/console/api/impersonate", []byte(body))
 }
 
+// viewAs is the mint route's body for a view-as session: the person to view as is a
+// persona of the cast, named in the request by the id of their account, which is how the
+// permission store names a person; a username is refused.
+func viewAs(t *testing.T, username accesstypes.User, reason string) string {
+	t.Helper()
+
+	return fmt.Sprintf(`{"kind":"user","principal":%q,"reason":%q}`, account(t, username), reason)
+}
+
 // Demonstrates: impersonation.view-as, impersonation.act-as-role, impersonation.mask, impersonation.identity-proof, impersonation.end, event-source, @manualAddResource.execute, impersonation.session-permissions.
 func TestImpersonatedSessions(t *testing.T) {
 	t.Parallel()
@@ -45,17 +54,27 @@ func TestImpersonatedSessions(t *testing.T) {
 		maren := newBrowser(t, s, consoleAPI)
 		maren.signIn(ctx, "marshal")
 
+		// The person to view as is named by the id of their account: a username names
+		// nobody, and the request is refused before any session is minted.
 		status, body := maren.impersonate(ctx, `{"kind":"user","principal":"cadet","reason":"walkthrough"}`)
+		assertStatus(t, status, http.StatusBadRequest, body)
+		if info := maren.session(ctx); info["username"] != "marshal" || info["impersonation"] != nil {
+			t.Errorf("session after the refused request = %v, want the marshal's own", info)
+		}
+
+		status, body = maren.impersonate(ctx, viewAs(t, "cadet", "walkthrough"))
 		assertStatus(t, status, http.StatusOK, body)
 
-		// The console is now Cass's console...
+		// The console is now Cass's console: the session reads as the cadet by
+		// username, and its record names the actor by username and the principal as the
+		// permission store does, by the id of the cadet's account.
 		info := maren.session(ctx)
 		if info["username"] != "cadet" {
 			t.Errorf("session username = %v, want cadet", info["username"])
 		}
 		imp, _ := info["impersonation"].(map[string]any)
-		if imp["actor"] != "marshal" || imp["principal"] != "cadet" {
-			t.Errorf("impersonation record = %v, want actor marshal, principal cadet", imp)
+		if imp["actor"] != "marshal" || imp["principal"] != string(account(t, "cadet")) {
+			t.Errorf("impersonation record = %v, want actor marshal, principal the id of the cadet's account", imp)
 		}
 
 		// ...the same two-hazard board...
@@ -93,7 +112,7 @@ func TestImpersonatedSessions(t *testing.T) {
 		assertStatus(t, status, http.StatusForbidden, body)
 
 		// Chaining is refused by the library.
-		status, body = maren.impersonate(ctx, `{"kind":"user","principal":"pilot"}`)
+		status, body = maren.impersonate(ctx, viewAs(t, "pilot", ""))
 		if status == http.StatusOK {
 			t.Errorf("minting from an impersonated session succeeded: %s", body)
 		}
@@ -124,10 +143,11 @@ func TestImpersonatedSessions(t *testing.T) {
 		status, body = greer.do(ctx, http.MethodPatch, "/console/api/resources",
 			fmt.Appendf(nil, `[{"op":"patch","path":%q,"value":{"deadline":%q}}]`, opPath(anvil, "missions/"+missionConvoyID), deadline(27)))
 		assertStatus(t, status, http.StatusOK, body)
-		// ...and the change event names the actor and the role.
+		// ...and the change event names the actor, by username with the id of her
+		// account, and the role.
 		source, _ := latestChangeEvent(t, db, "Missions", missionConvoyID)
-		if !strings.Contains(source, "governor as role Dispatcher") {
-			t.Errorf("eventSource = %q, want 'governor as role Dispatcher'", source)
+		if want := fmt.Sprintf("governor (%s) as role Dispatcher, session ", account(t, "governor")); !strings.HasPrefix(source, want) {
+			t.Errorf("eventSource = %q, want it to begin %q", source, want)
 		}
 
 		// The identity proof: grant A reads subject.squadrons against Greer's own
@@ -156,7 +176,7 @@ func TestImpersonatedSessions(t *testing.T) {
 
 		maren := newBrowser(t, s, consoleAPI)
 		maren.signIn(ctx, "marshal")
-		status, body := maren.impersonate(ctx, `{"kind":"user","principal":"cadet","reason":"walkthrough"}`)
+		status, body := maren.impersonate(ctx, viewAs(t, "cadet", "walkthrough"))
 		assertStatus(t, status, http.StatusOK, body)
 		if info := maren.session(ctx); info["username"] != "cadet" {
 			t.Fatalf("session username = %v, want cadet before ending", info["username"])
@@ -208,7 +228,7 @@ func TestImpersonatedSessions(t *testing.T) {
 
 		cass := newBrowser(t, s, consoleAPI)
 		cass.signIn(ctx, "cadet")
-		status, body := cass.impersonate(ctx, `{"kind":"user","principal":"marshal"}`)
+		status, body := cass.impersonate(ctx, viewAs(t, "marshal", ""))
 		assertStatus(t, status, http.StatusForbidden, body)
 		status, body = cass.impersonate(ctx, `{"kind":"role","principal":"SectorMarshal"}`)
 		assertStatus(t, status, http.StatusForbidden, body)

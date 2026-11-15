@@ -26,7 +26,7 @@ func (CrewSectorUserRole) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; crewSectorUserRoleReadSets holds one Set per read operation.
 type crewSectorUserRoleRead struct {
-	Domain      string       `json:"domain"`
+	DomainID    string       `json:"domainId"`
 	UserID      impulse.UUID `json:"userId"      perm:"-"`
 	Username    string       `json:"username"`
 	Role        string       `json:"role"        perm:"-"`
@@ -152,7 +152,7 @@ func NewCrewSectorUserRoleColumns() *CrewSectorUserRoleColumns {
 
 func (c *CrewSectorUserRoleColumns) All() *CrewSectorUserRoleColumns {
 	c.fields = []accesstypes.Field{
-		"Domain",
+		"DomainID",
 		"UserID",
 		"Username",
 		"Role",
@@ -163,8 +163,8 @@ func (c *CrewSectorUserRoleColumns) All() *CrewSectorUserRoleColumns {
 	return c
 }
 
-func (c *CrewSectorUserRoleColumns) Domain() *CrewSectorUserRoleColumns {
-	c.fields = append(c.fields, "Domain")
+func (c *CrewSectorUserRoleColumns) DomainID() *CrewSectorUserRoleColumns {
+	c.fields = append(c.fields, "DomainID")
 
 	return c
 }
@@ -211,8 +211,8 @@ func (p CrewSectorUserRoleQueryPartialClause) Group(qc CrewSectorUserRoleQueryCl
 	return CrewSectorUserRoleQueryClause{clause: p.partialClause.Group(qc.clause)}
 }
 
-func (p CrewSectorUserRoleQueryPartialClause) Domain() CrewSectorUserRoleQueryIdent[string] {
-	return CrewSectorUserRoleQueryIdent[string]{Ident: resource.NewIdent[string]("Domain", p.partialClause, true)}
+func (p CrewSectorUserRoleQueryPartialClause) DomainID() CrewSectorUserRoleQueryIdent[string] {
+	return CrewSectorUserRoleQueryIdent[string]{Ident: resource.NewIdent[string]("DomainID", p.partialClause, true)}
 }
 
 func (p CrewSectorUserRoleQueryPartialClause) UserID() CrewSectorUserRoleQueryIdent[impulse.UUID] {
@@ -297,8 +297,8 @@ func (c *crewSectorUserRoleSort) addField(field string) *CrewSectorUserRoleSort 
 	return &CrewSectorUserRoleSort{crewSectorUserRoleSort: c}
 }
 
-func (c *crewSectorUserRoleSort) Domain() *CrewSectorUserRoleSort {
-	return c.addField("Domain")
+func (c *crewSectorUserRoleSort) DomainID() *CrewSectorUserRoleSort {
+	return c.addField("DomainID")
 }
 
 func (c *crewSectorUserRoleSort) UserID() *CrewSectorUserRoleSort {

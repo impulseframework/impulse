@@ -56,7 +56,7 @@ func TestTenantAdmission_sectorDeclarationsDecideTheChart(t *testing.T) {
 	if err := provisionDemoAccess(ctx, crewEngine, membersEngine); err != nil {
 		t.Fatal(err)
 	}
-	if err := assignDemoRoles(ctx, crewEngine, deckhand, demoRoles{Domains: map[accesstypes.Domain][]accesstypes.Role{anvil: {"SectorCrew"}, bastion: {"SectorCrew"}}}); err != nil {
+	if err := assignDemoRoles(ctx, crewEngine, deckhand, demoRoles{Domains: map[string][]accesstypes.Role{"Anvil": {"SectorCrew"}, "Bastion": {"SectorCrew"}}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := waitForDecision(ctx, crewEngine, deckhand, bastion, accesstypes.List, "Wings"); err != nil {

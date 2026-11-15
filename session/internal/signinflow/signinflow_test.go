@@ -80,7 +80,7 @@ func (s *memStore) invite(email, tenant string, roles ...string) *sessioninfo.In
 	id := impulse.Must(impulse.NewUUID())
 	s.invitations[id] = true
 
-	return &sessioninfo.Invitation{ID: id, Email: email, Tenant: tenant, RoleNames: roles}
+	return &sessioninfo.Invitation{ID: id, Email: email, TenantID: tenant, RoleNames: roles}
 }
 
 // userNamed finds a committed user by username.
@@ -623,15 +623,15 @@ func TestSeatsBeyondInvitation(t *testing.T) {
 	}{
 		{name: "no invitation", want: seats},
 		{name: "an invitation into the application", inv: &sessioninfo.Invitation{RoleNames: []string{"Member"}}, want: seats},
-		{name: "another role of the tenant", inv: &sessioninfo.Invitation{Tenant: "lakeside", RoleNames: []string{"Teacher"}}, want: seats},
+		{name: "another role of the tenant", inv: &sessioninfo.Invitation{TenantID: "lakeside", RoleNames: []string{"Teacher"}}, want: seats},
 		{
 			name: "the seat's role in the seat's tenant",
-			inv:  &sessioninfo.Invitation{Tenant: "lakeside", RoleNames: []string{"Teacher", "Member"}},
+			inv:  &sessioninfo.Invitation{TenantID: "lakeside", RoleNames: []string{"Teacher", "Member"}},
 			want: []signin.DirectorySeat{{Tenant: "hillside", Role: "Member"}, {Tenant: "lakeside", Role: "Aide"}},
 		},
 		{
 			name: "every seat of the tenant",
-			inv:  &sessioninfo.Invitation{Tenant: "lakeside", RoleNames: []string{"Aide", "Member"}},
+			inv:  &sessioninfo.Invitation{TenantID: "lakeside", RoleNames: []string{"Aide", "Member"}},
 			want: []signin.DirectorySeat{{Tenant: "hillside", Role: "Member"}},
 		},
 	}
@@ -797,7 +797,7 @@ func TestAcceptInvitation_inOneTransaction(t *testing.T) {
 
 		// The same invitation again: dead now, skipped, and the sign-in goes on.
 		store.steps = nil
-		again := &sessioninfo.Invitation{ID: inv.ID, Email: inv.Email, Tenant: inv.Tenant, RoleNames: inv.RoleNames}
+		again := &sessioninfo.Invitation{ID: inv.ID, Email: inv.Email, TenantID: inv.TenantID, RoleNames: inv.RoleNames}
 		if err := signInWith(t, d, passwordRequest(id, again), Rules[*memTx]{Policy: hooks.policy, Accept: hooks.accept}); err != nil {
 			t.Fatalf("SignIn() with a dead invitation error = %v, want the sign-in to go on", err)
 		}

@@ -27,7 +27,7 @@ func (Wing) DefaultConfig() resource.Config {
 // enforce; wingReadSets holds one Set per read operation.
 type wingRead struct {
 	ID       impulse.UUID `json:"id"       perm:"-"`
-	SectorID string       `json:"sectorId"`
+	SectorID impulse.UUID `json:"sectorId"`
 	Name     string       `json:"name"`
 }
 
@@ -38,7 +38,7 @@ var wingReadSets resource.SetCache[Wing, wingRead]
 // routes enforce; wingWriteSets holds one Set per mutation.
 type wingWrite struct {
 	ID       impulse.UUID `json:"-"`
-	SectorID string       `json:"-"`
+	SectorID impulse.UUID `json:"-"`
 	Name     string       `json:"name"`
 }
 
@@ -190,8 +190,8 @@ func (p WingQueryPartialClause) ID() WingQueryIdent[impulse.UUID] {
 	return WingQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p WingQueryPartialClause) SectorID() WingQueryIdent[string] {
-	return WingQueryIdent[string]{Ident: resource.NewIdent[string]("SectorID", p.partialClause, true)}
+func (p WingQueryPartialClause) SectorID() WingQueryIdent[impulse.UUID] {
+	return WingQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("SectorID", p.partialClause, true)}
 }
 
 func (p WingQueryPartialClause) Name() WingQueryIdent[string] {
@@ -363,14 +363,14 @@ func (p *WingCreatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *WingCreatePatch) SetSectorID(v string) *WingCreatePatch {
+func (p *WingCreatePatch) SetSectorID(v impulse.UUID) *WingCreatePatch {
 	p.patchSet.Set("SectorID", v)
 
 	return p
 }
 
-func (p *WingCreatePatch) SectorID() string {
-	v, _ := p.patchSet.Get("SectorID").(string)
+func (p *WingCreatePatch) SectorID() impulse.UUID {
+	v, _ := p.patchSet.Get("SectorID").(impulse.UUID)
 
 	return v
 }
@@ -487,14 +487,14 @@ func (p *WingUpdatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *WingUpdatePatch) SetSectorID(v string) *WingUpdatePatch {
+func (p *WingUpdatePatch) SetSectorID(v impulse.UUID) *WingUpdatePatch {
 	p.patchSet.Set("SectorID", v)
 
 	return p
 }
 
-func (p *WingUpdatePatch) SectorID() string {
-	v, _ := p.patchSet.Get("SectorID").(string)
+func (p *WingUpdatePatch) SectorID() impulse.UUID {
+	v, _ := p.patchSet.Get("SectorID").(impulse.UUID)
 
 	return v
 }

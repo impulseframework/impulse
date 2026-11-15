@@ -21,10 +21,10 @@ export interface AnnouncementsPatch {
 export type AnnouncementsKey = [id: string];
 
 /** The primary key of MembersRoles, in route order. */
-export type MembersRolesKey = [kind: string, axis: string, domain: string, role: string];
+export type MembersRolesKey = [kind: string, axis: string, domainId: string, role: string];
 
 /** The primary key of MembersRoleGrants, in route order. */
-export type MembersRoleGrantsKey = [kind: string, axis: string, domain: string, role: string, permission: string, resourceName: string, field: string, condition: string];
+export type MembersRoleGrantsKey = [kind: string, axis: string, domainId: string, role: string, permission: string, resourceName: string, field: string, condition: string];
 
 /** The primary key of MembersSessions, in route order. */
 export type MembersSessionsKey = [id: string];
@@ -63,7 +63,7 @@ export type MembersTenantUsersKey = [id: string];
 export type MembersTenantUserRolesKey = [userId: string, role: string];
 
 /** The primary key of MembersUserRoles, in route order. */
-export type MembersUserRolesKey = [kind: string, axis: string, domain: string, role: string, user: string];
+export type MembersUserRolesKey = [kind: string, axis: string, domainId: string, role: string, userId: string];
 
 /** The primary key of MembersTenantRoles, in route order. */
 export type MembersTenantRolesKey = [name: string];
@@ -108,7 +108,7 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'members-roles',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role'],
+      keys: ['kind', 'axis', 'domainId', 'role'],
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
@@ -119,7 +119,7 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'members-role-grants',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role', 'permission', 'resourceName', 'field', 'condition'],
+      keys: ['kind', 'axis', 'domainId', 'role', 'permission', 'resourceName', 'field', 'condition'],
       operations: ['list'],
       page: { default: 25, max: 200 },
       order: [{ field: 'role', direction: 'asc' }],
@@ -262,10 +262,10 @@ export const apiDescriptor = defineApiDescriptor({
       route: 'members-user-roles',
       scope: 'global',
       consolidated: false,
-      keys: ['kind', 'axis', 'domain', 'role', 'user'],
+      keys: ['kind', 'axis', 'domainId', 'role', 'userId'],
       operations: ['list'],
       page: { default: 25, max: 200 },
-      order: [{ field: 'user', direction: 'asc' }],
+      order: [{ field: 'userId', direction: 'asc' }],
     },
     [Resources.MembersTenantRoles]: {
       resource: Resources.MembersTenantRoles,

@@ -12,7 +12,7 @@
   </mat-card>
 } @else if (!canList()) {
   <mat-card appearance="outlined" class="table-card">
-    <p class="empty">Your posting in {{ sector() || 'this sector' }} does not cover the hazard board.</p>
+    <p class="empty">Your posting in {{ sectorName() || 'this sector' }} does not cover the hazard board.</p>
   </mat-card>
 } @else {
   <mat-card appearance="outlined" class="table-card">
@@ -49,7 +49,7 @@
       <tr mat-row *matRowDef="let row; columns: columns"></tr>
     </table>
     @if (!rows.value().length) {
-      <p class="empty">No telemetry in {{ sector() }} yet — run the droid channel from walkthrough.sh.</p>
+      <p class="empty">No telemetry in {{ sectorName() }} yet — run the droid channel from walkthrough.sh.</p>
     }
   </mat-card>
 }

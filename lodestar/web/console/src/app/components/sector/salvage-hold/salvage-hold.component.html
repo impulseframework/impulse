@@ -11,7 +11,7 @@
   </mat-card>
 } @else if (!canList()) {
   <mat-card appearance="outlined" class="table-card">
-    <p class="empty">Your posting in {{ sector() || 'this sector' }} does not cover the salvage hold.</p>
+    <p class="empty">Your posting in {{ sectorName() || 'this sector' }} does not cover the salvage hold.</p>
   </mat-card>
 } @else {
   <mat-card appearance="outlined" class="table-card">
@@ -75,7 +75,7 @@
       <tr mat-row *matRowDef="let row; columns: columns"></tr>
     </table>
     @if (!consignments().length) {
-      <p class="empty">Nothing in bond in {{ sector() }} for your posting.</p>
+      <p class="empty">Nothing in bond in {{ sectorName() }} for your posting.</p>
     }
   </mat-card>
   <mat-card appearance="outlined" class="table-card">

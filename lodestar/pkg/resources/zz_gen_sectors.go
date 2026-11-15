@@ -8,7 +8,9 @@ import (
 	"iter"
 
 	"cloud.google.com/go/civil"
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -25,11 +27,11 @@ func (Sector) DefaultConfig() resource.Config {
 // and read, so a query armed with Enforce meets the field permissions the routes
 // enforce; sectorReadSets holds one Set per read operation.
 type sectorRead struct {
-	ID            string     `json:"id"            perm:"-"`
-	Name          string     `json:"name"`
-	Region        string     `json:"region"`
-	Established   civil.Date `json:"established"`
-	DirectoryOnly bool       `json:"directoryOnly"`
+	ID            impulse.UUID `json:"id"            perm:"-"`
+	Name          string       `json:"name"`
+	Region        string       `json:"region"`
+	Established   civil.Date   `json:"established"`
+	DirectoryOnly bool         `json:"directoryOnly"`
 }
 
 var sectorReadSets resource.SetCache[Sector, sectorRead]
@@ -38,11 +40,11 @@ var sectorReadSets resource.SetCache[Sector, sectorRead]
 // accept on a mutation, so a patch armed with Enforce meets the field permissions the
 // routes enforce; sectorWriteSets holds one Set per mutation.
 type sectorWrite struct {
-	ID            string     `json:"-"`
-	Name          string     `json:"name"`
-	Region        string     `json:"region"`
-	Established   civil.Date `json:"established"`
-	DirectoryOnly bool       `json:"directoryOnly"`
+	ID            impulse.UUID `json:"-"`
+	Name          string       `json:"name"`
+	Region        string       `json:"region"`
+	Established   civil.Date   `json:"established"`
+	DirectoryOnly bool         `json:"directoryOnly"`
 }
 
 var sectorWriteSets resource.SetCache[Sector, sectorWrite]
@@ -61,14 +63,14 @@ func NewSectorQueryFromQuerySet(qSet *resource.QuerySet[Sector]) *SectorQuery {
 	return &SectorQuery{qSet: qSet}
 }
 
-func (q *SectorQuery) SetID(v string) *SectorQuery {
+func (q *SectorQuery) SetID(v impulse.UUID) *SectorQuery {
 	q.qSet.SetKey("ID", v)
 
 	return q
 }
 
-func (q *SectorQuery) ID() string {
-	v, _ := q.qSet.Key("ID").(string)
+func (q *SectorQuery) ID() impulse.UUID {
+	v, _ := q.qSet.Key("ID").(impulse.UUID)
 
 	return v
 }
@@ -215,8 +217,8 @@ func (p SectorQueryPartialClause) Group(qc SectorQueryClause) SectorQueryClause 
 	return SectorQueryClause{clause: p.partialClause.Group(qc.clause)}
 }
 
-func (p SectorQueryPartialClause) ID() SectorQueryIdent[string] {
-	return SectorQueryIdent[string]{Ident: resource.NewIdent[string]("ID", p.partialClause, true)}
+func (p SectorQueryPartialClause) ID() SectorQueryIdent[impulse.UUID] {
+	return SectorQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
 func (p SectorQueryPartialClause) Name() SectorQueryIdent[string] {
@@ -329,24 +331,34 @@ type SectorCreatePatch struct {
 	patchSet *resource.PatchSet[Sector]
 }
 
-func NewSectorCreatePatchFromPatchSet(id string, patchSet *resource.PatchSet[Sector]) *SectorCreatePatch {
+func NewSectorCreatePatchFromPatchSet(patchSet *resource.PatchSet[Sector]) (*SectorCreatePatch, error) {
+	id, err := impulse.NewUUID()
+	if err != nil {
+		return nil, errors.Wrap(err, "impulse.NewUUID()")
+	}
+
 	patchSet.
 		SetKey("ID", id).
 		SetPatchType(resource.CreatePatchType)
 	patch := &SectorCreatePatch{patchSet: patchSet}
 	patch.registerDefaultFuncs()
 
-	return patch
+	return patch, nil
 }
 
-func NewSectorCreatePatch(id string) *SectorCreatePatch {
+func NewSectorCreatePatch() (*SectorCreatePatch, error) {
+	id, err := impulse.NewUUID()
+	if err != nil {
+		return nil, errors.Wrap(err, "impulse.NewUUID()")
+	}
+
 	patchSet := resource.NewPatchSet(resource.NewMetadata[Sector]()).
 		SetKey("ID", id).
 		SetPatchType(resource.CreatePatchType)
 	patch := &SectorCreatePatch{patchSet: patchSet}
 	patch.registerDefaultFuncs()
 
-	return patch
+	return patch, nil
 }
 
 func (p *SectorCreatePatch) FromStruct(s any) error {
@@ -377,31 +389,11 @@ func (p *SectorCreatePatch) Enforce(caller *resource.Caller) *SectorCreatePatch 
 	return p
 }
 
-// OrSkip turns the create into create-unless-there. Apply and Buffer look for the
-// row by its key inside the transaction: when it is not there the create runs as
-// it is, and when it is there nothing is done at all, so the row keeps every
-// value it holds and no default, validation, or change record runs. A row an
-// earlier patch of the same transaction wrote counts as there. An armed patch is
-// checked for Create before the row is looked for. RowSkipped says afterwards
-// which it was.
-func (p *SectorCreatePatch) OrSkip() *SectorCreatePatch {
-	p.patchSet.OrSkip()
-
-	return p
-}
-
-// RowSkipped reports whether the last Apply or Buffer of an OrSkip patch found the
-// row there and left it as it is. It is false when the patch created the row, on a
-// patch that is not an OrSkip, and before the patch has run.
-func (p *SectorCreatePatch) RowSkipped() bool {
-	return p.patchSet.Outcome() == resource.OutcomeSkipped
-}
-
 func (p *SectorCreatePatch) registerDefaultFuncs() {
 }
 
-func (p *SectorCreatePatch) ID() string {
-	v, _ := p.patchSet.Key("ID").(string)
+func (p *SectorCreatePatch) ID() impulse.UUID {
+	v, _ := p.patchSet.Key("ID").(impulse.UUID)
 
 	return v
 }
@@ -479,7 +471,7 @@ type SectorUpdatePatch struct {
 	patchSet *resource.PatchSet[Sector]
 }
 
-func NewSectorUpdatePatchFromPatchSet(id string, patchSet *resource.PatchSet[Sector]) *SectorUpdatePatch {
+func NewSectorUpdatePatchFromPatchSet(id impulse.UUID, patchSet *resource.PatchSet[Sector]) *SectorUpdatePatch {
 	patchSet.
 		SetKey("ID", id).
 		SetPatchType(resource.UpdatePatchType)
@@ -490,7 +482,7 @@ func NewSectorUpdatePatchFromPatchSet(id string, patchSet *resource.PatchSet[Sec
 	return patch
 }
 
-func NewSectorUpdatePatch(id string) *SectorUpdatePatch {
+func NewSectorUpdatePatch(id impulse.UUID) *SectorUpdatePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[Sector]()).
 		SetKey("ID", id).
 		SetPatchType(resource.UpdatePatchType)
@@ -556,8 +548,8 @@ func (p *SectorUpdatePatch) RowCreated() bool {
 func (p *SectorUpdatePatch) registerDefaultFuncs() {
 }
 
-func (p *SectorUpdatePatch) ID() string {
-	v, _ := p.patchSet.Key("ID").(string)
+func (p *SectorUpdatePatch) ID() impulse.UUID {
+	v, _ := p.patchSet.Key("ID").(impulse.UUID)
 
 	return v
 }
@@ -635,7 +627,7 @@ type SectorDeletePatch struct {
 	patchSet *resource.PatchSet[Sector]
 }
 
-func NewSectorDeletePatchFromPatchSet(id string, patchSet *resource.PatchSet[Sector]) *SectorDeletePatch {
+func NewSectorDeletePatchFromPatchSet(id impulse.UUID, patchSet *resource.PatchSet[Sector]) *SectorDeletePatch {
 	patchSet.
 		SetKey("ID", id).
 		SetPatchType(resource.DeletePatchType)
@@ -643,7 +635,7 @@ func NewSectorDeletePatchFromPatchSet(id string, patchSet *resource.PatchSet[Sec
 	return &SectorDeletePatch{patchSet: patchSet}
 }
 
-func NewSectorDeletePatch(id string) *SectorDeletePatch {
+func NewSectorDeletePatch(id impulse.UUID) *SectorDeletePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[Sector]()).
 		SetKey("ID", id).
 		SetPatchType(resource.DeletePatchType)
@@ -671,8 +663,8 @@ func (p *SectorDeletePatch) Enforce(caller *resource.Caller) *SectorDeletePatch 
 	return p
 }
 
-func (p *SectorDeletePatch) ID() string {
-	v, _ := p.patchSet.Key("ID").(string)
+func (p *SectorDeletePatch) ID() impulse.UUID {
+	v, _ := p.patchSet.Key("ID").(impulse.UUID)
 
 	return v
 }

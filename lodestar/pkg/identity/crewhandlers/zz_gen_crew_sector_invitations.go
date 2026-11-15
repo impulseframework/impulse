@@ -20,16 +20,16 @@ import (
 
 func (h *Handlers) CrewSectorInvitations() http.HandlerFunc {
 	type crewSectorInvitation struct {
-		ID         impulse.UUID  `json:"id"         index:"true" perm:"-"`
-		Domain     string        `json:"domain"     index:"true"`
-		Email      string        `json:"email"      index:"true"`
-		Name       *string       `json:"name"`
-		RoleNames  []string      `json:"roleNames"`
-		InvitedBy  *impulse.UUID `json:"invitedBy"`
-		CreatedAt  time.Time     `json:"createdAt"  index:"true"`
-		ExpiresAt  time.Time     `json:"expiresAt"`
-		ConsumedAt *time.Time    `json:"consumedAt"`
-		Pending    bool          `json:"pending"    index:"true"`
+		ID              impulse.UUID  `json:"id"              index:"true" perm:"-"`
+		DomainID        string        `json:"domainId"        index:"true"`
+		Email           string        `json:"email"           index:"true"`
+		Name            *string       `json:"name"`
+		RoleNames       []string      `json:"roleNames"`
+		InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
+		CreatedAt       time.Time     `json:"createdAt"       index:"true"`
+		ExpiresAt       time.Time     `json:"expiresAt"`
+		ConsumedAt      *time.Time    `json:"consumedAt"`
+		Pending         bool          `json:"pending"         index:"true"`
 	}
 
 	type response []map[string]any
@@ -76,9 +76,9 @@ func (h *Handlers) CrewSectorInvitations() http.HandlerFunc {
 					if !row.Masked("id") {
 						rmap["id"] = rec.ID
 					}
-				case "Domain":
-					if !row.Masked("domain") {
-						rmap["domain"] = rec.Domain
+				case "DomainID":
+					if !row.Masked("domainId") {
+						rmap["domainId"] = rec.DomainID
 					}
 				case "Email":
 					if !row.Masked("email") {
@@ -92,9 +92,9 @@ func (h *Handlers) CrewSectorInvitations() http.HandlerFunc {
 					if !row.Masked("roleNames") {
 						rmap["roleNames"] = rec.RoleNames
 					}
-				case "InvitedBy":
-					if !row.Masked("invitedBy") {
-						rmap["invitedBy"] = rec.InvitedBy
+				case "InvitedByUserID":
+					if !row.Masked("invitedByUserId") {
+						rmap["invitedByUserId"] = rec.InvitedByUserID
 					}
 				case "CreatedAt":
 					if !row.Masked("createdAt") {
@@ -135,16 +135,16 @@ func (h *Handlers) CrewSectorInvitations() http.HandlerFunc {
 
 func (h *Handlers) CrewSectorInvitation() http.HandlerFunc {
 	type response struct {
-		ID         impulse.UUID  `json:"id"         index:"true" perm:"-"`
-		Domain     string        `json:"domain"`
-		Email      string        `json:"email"`
-		Name       *string       `json:"name"`
-		RoleNames  []string      `json:"roleNames"`
-		InvitedBy  *impulse.UUID `json:"invitedBy"`
-		CreatedAt  time.Time     `json:"createdAt"`
-		ExpiresAt  time.Time     `json:"expiresAt"`
-		ConsumedAt *time.Time    `json:"consumedAt"`
-		Pending    bool          `json:"pending"`
+		ID              impulse.UUID  `json:"id"              index:"true" perm:"-"`
+		DomainID        string        `json:"domainId"`
+		Email           string        `json:"email"`
+		Name            *string       `json:"name"`
+		RoleNames       []string      `json:"roleNames"`
+		InvitedByUserID *impulse.UUID `json:"invitedByUserId"`
+		CreatedAt       time.Time     `json:"createdAt"`
+		ExpiresAt       time.Time     `json:"expiresAt"`
+		ConsumedAt      *time.Time    `json:"consumedAt"`
+		Pending         bool          `json:"pending"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewSectorInvitation, response](h, accesstypes.Read)
@@ -179,9 +179,9 @@ func (h *Handlers) CrewSectorInvitation() http.HandlerFunc {
 				if !row.Masked("id") {
 					rmap["id"] = rec.ID
 				}
-			case "Domain":
-				if !row.Masked("domain") {
-					rmap["domain"] = rec.Domain
+			case "DomainID":
+				if !row.Masked("domainId") {
+					rmap["domainId"] = rec.DomainID
 				}
 			case "Email":
 				if !row.Masked("email") {
@@ -195,9 +195,9 @@ func (h *Handlers) CrewSectorInvitation() http.HandlerFunc {
 				if !row.Masked("roleNames") {
 					rmap["roleNames"] = rec.RoleNames
 				}
-			case "InvitedBy":
-				if !row.Masked("invitedBy") {
-					rmap["invitedBy"] = rec.InvitedBy
+			case "InvitedByUserID":
+				if !row.Masked("invitedByUserId") {
+					rmap["invitedByUserId"] = rec.InvitedByUserID
 				}
 			case "CreatedAt":
 				if !row.Masked("createdAt") {

@@ -21,7 +21,7 @@ import (
 func (a *App) Readings() http.HandlerFunc {
 	type reading struct {
 		ID         impulse.UUID `json:"id"         index:"true" perm:"-"`
-		TenantID   string       `json:"tenantId"   index:"true"`
+		TenantID   impulse.UUID `json:"tenantId"   index:"true"`
 		Source     string       `json:"source"`
 		Value      float64      `json:"value"`
 		RecordedAt time.Time    `json:"recordedAt" index:"true"`
@@ -111,7 +111,7 @@ func (a *App) Readings() http.HandlerFunc {
 func (a *App) Reading() http.HandlerFunc {
 	type response struct {
 		ID         impulse.UUID `json:"id"         index:"true" perm:"-"`
-		TenantID   string       `json:"tenantId"`
+		TenantID   impulse.UUID `json:"tenantId"`
 		Source     string       `json:"source"`
 		Value      float64      `json:"value"`
 		RecordedAt time.Time    `json:"recordedAt"`

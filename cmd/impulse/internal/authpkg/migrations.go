@@ -66,10 +66,9 @@ CREATE UNIQUE INDEX %[1]sSessionUsersByNormalizedUsername ON %[1]sSessionUsers(N
 
 CREATE UNIQUE NULL_FILTERED INDEX %[1]sSessionUsersByNormalizedEmail ON %[1]sSessionUsers(NormalizedEmail);
 
--- The index a list of people reads the account through when it starts from who holds a
--- role (a tenant's people, the roles held in a tenant): by the exact username a role
--- membership names its person by, carrying the columns those lists show, so a page reads
--- one index entry for each person and no row of the table.
+-- The username as written is unique. The index is in the order a list of people is read
+-- in, by username, and carries the columns such a list shows, so a page of people can be
+-- read from it alone.
 CREATE UNIQUE INDEX %[1]sSessionUsersByUsername ON %[1]sSessionUsers(Username) STORING (Name, Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);
 `, p, who, guidCheck, emailColumns(usernameIsEmail))
 }
@@ -258,9 +257,9 @@ CREATE TABLE %[1]sSessionMailLinks (
     Email      STRING(MAX) NOT NULL,
     Name       STRING(MAX),
     UserId     STRING(36),
-    Tenant     STRING(MAX),
+    TenantId   STRING(MAX),
     RoleNames  ARRAY<STRING(MAX)>,
-    InvitedBy  STRING(36),
+    InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,
     ConsumedAt TIMESTAMP OPTIONS (allow_commit_timestamp = true),
@@ -276,7 +275,7 @@ CREATE INDEX %[1]sSessionMailLinksByKind ON %[1]sSessionMailLinks(Kind, Consumed
 -- A tenant's links, newest first, with the columns a tenant's list of its invitations
 -- shows: a page of that list reads its own rows from the index and nothing else. A link
 -- that names no tenant is not in it.
-CREATE NULL_FILTERED INDEX %[1]sSessionMailLinksByTenant ON %[1]sSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);
+CREATE NULL_FILTERED INDEX %[1]sSessionMailLinksByTenantId ON %[1]sSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);
 
 `, p, who, guidCheck)
 }
@@ -291,7 +290,7 @@ func tokensUp(p, who string) string {
 -- obtained with a person's approval; the client holds an opaque secret and the row keeps
 -- its hash. A token acts as its user (UserId) on the one machine outlet it was issued
 -- for (Outlet) and is live while it is not revoked and not expired. A device grant's
--- tokens share a Family, and every successor a refresh exchange issues joins it, so a
+-- tokens share a family (FamilyId), and every successor a refresh exchange issues joins it, so a
 -- rotated refresh token presented again revokes the family at once (RevokedReason
 -- 'reuse'). CreatedAt, LastUsedAt and RevokedAt take the commit time; ExpiresAt is the
 -- library's deadline, written as given. A token goes with its user.
@@ -302,7 +301,7 @@ CREATE TABLE %[1]sSessionTokens (
     UserId        STRING(36) NOT NULL,
     Outlet        STRING(MAX) NOT NULL,
     Name          STRING(MAX),
-    Family        STRING(36),
+    FamilyId      STRING(36),
     ClientId      STRING(MAX),
     CreatedAt     TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt     TIMESTAMP NOT NULL,
@@ -319,7 +318,7 @@ CREATE UNIQUE INDEX %[1]sSessionTokensByTokenHash ON %[1]sSessionTokens(TokenHas
 
 CREATE INDEX %[1]sSessionTokensByUser ON %[1]sSessionTokens(UserId, RevokedAt, ExpiresAt);
 
-CREATE INDEX %[1]sSessionTokensByFamily ON %[1]sSessionTokens(Family, RevokedAt);
+CREATE INDEX %[1]sSessionTokensByFamilyId ON %[1]sSessionTokens(FamilyId, RevokedAt);
 
 -- The device codes: the device authorizations command-line clients start for a machine
 -- outlet whose tokens the %[2]s auth issues (RFC 8628). The client holds the opaque
@@ -410,11 +409,11 @@ func sessionsDown(p string) string {
 		"DROP INDEX %[1]sSessionDeviceCodesByUserCode;",
 		"DROP INDEX %[1]sSessionDeviceCodesByHash;",
 		"DROP TABLE %[1]sSessionDeviceCodes;",
-		"DROP INDEX %[1]sSessionTokensByFamily;",
+		"DROP INDEX %[1]sSessionTokensByFamilyId;",
 		"DROP INDEX %[1]sSessionTokensByUser;",
 		"DROP INDEX %[1]sSessionTokensByTokenHash;",
 		"DROP TABLE %[1]sSessionTokens;",
-		"DROP INDEX %[1]sSessionMailLinksByTenant;",
+		"DROP INDEX %[1]sSessionMailLinksByTenantId;",
 		"DROP INDEX %[1]sSessionMailLinksByKind;",
 		"DROP INDEX %[1]sSessionMailLinksByTokenHash;",
 		"DROP TABLE %[1]sSessionMailLinks;",

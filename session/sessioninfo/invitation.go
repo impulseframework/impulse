@@ -23,13 +23,13 @@ type Invitation struct {
 	// written on the account the acceptance creates when the sign-in asserts no name of
 	// its own, and on an existing account that holds none.
 	Name string
-	// Tenant is the tenant the invitation seats the person in, "" for the
+	// TenantID is the tenant the invitation seats the person in, "" for the
 	// application's global surface.
-	Tenant string
+	TenantID string
 	// RoleNames are the roles the acceptance grants, as the application names them.
 	RoleNames []string
-	// InvitedBy is the user who sent it, null when unknown.
-	InvitedBy impulse.NullUUID
+	// InvitedByUserID is the user who sent it, null when unknown.
+	InvitedByUserID impulse.NullUUID
 	// ExpiresAt is when the invitation stops being accepted.
 	// CreatedAt is when it was sent, ExpiresAt when it stops standing.
 	CreatedAt time.Time

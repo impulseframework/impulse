@@ -69,7 +69,7 @@ func TestResetDevelopmentData(t *testing.T) {
 		t.Fatalf("access.UserManager.AddUserRoles() error = %v", err)
 	}
 
-	for table, column := range map[string]string{"Missions": "Id", "CrewRoles": "Role", "CrewRoleGrants": "Role", "CrewUserRoles": "User"} {
+	for table, column := range map[string]string{"Missions": "Id", "CrewRoles": "Role", "CrewRoleGrants": "Role", "CrewUserRoles": "UserId"} {
 		if n := countRows(ctx, t, db, table, column); n == 0 {
 			t.Fatalf("%s is empty before the reset; the reset would prove nothing", table)
 		}
@@ -91,7 +91,7 @@ func TestResetDevelopmentData(t *testing.T) {
 		{name: "a foreign-key parent is emptied after its children", table: "Clients", column: "Id", wantEmpty: true},
 		{name: "a custom role's grant, the interleaved child on cascade, is emptied first", table: "CrewRoleGrants", column: "Role", wantEmpty: true},
 		{name: "then the custom role it hung under", table: "CrewRoles", column: "Role", wantEmpty: true},
-		{name: "the memberships are emptied", table: "CrewUserRoles", column: "User", wantEmpty: true},
+		{name: "the memberships are emptied", table: "CrewUserRoles", column: "UserId", wantEmpty: true},
 		{name: "an enumeration the schema populates stays", table: "MissionStatuses", column: "Id", wantEmpty: false},
 		{name: "the schema migration bookkeeping stays", table: "SchemaMigrations", column: "Version", wantEmpty: false},
 	}

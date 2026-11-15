@@ -103,11 +103,11 @@ func ReadExpenseManifest(ctx context.Context, missionID impulse.UUID, qSet *reso
 }
 
 // ExpenseManifestContent renders one mission's manifest as a text/csv sheet, one line
-// per booked expense: the content function the struct-scope @file names, called by the
-// generated route after its gate. It returns nil for a mission that is not the sector's,
-// which the frame answers 404 as the read route would, and it never touches the response:
-// the frame writes the headers, answers 304 when the request's validator matches the
-// sheet's digest, and copies the bytes.
+// per booked expense with the sortie's pilot by name: the content function the
+// struct-scope @file names, called by the generated route after its gate. It returns nil
+// for a mission that is not the sector's, which the frame answers 404 as the read route
+// would, and it never touches the response: the frame writes the headers, answers 304
+// when the request's validator matches the sheet's digest, and copies the bytes.
 //
 // Demonstrates: @file.rendered.
 func ExpenseManifestContent(ctx context.Context, missionID impulse.UUID, qSet *resource.QuerySet[ExpenseManifest], client resource.Client, _ *Client) (*resource.Content, error) {
@@ -128,6 +128,10 @@ func ExpenseManifestContent(ctx context.Context, missionID impulse.UUID, qSet *r
 	if err := w.Write([]string{"sortie", "pilot", "launchedAt", "category", "amount", "memo"}); err != nil {
 		return nil, errors.Wrap(err, "csv.Writer.Write()")
 	}
+	pilots, err := pilotNames(ctx, client)
+	if err != nil {
+		return nil, err
+	}
 	sorties := resources.NewSortieQuery().
 		AddColumns(resources.NewSortieColumns().ID().PilotUserID().LaunchedAt()).
 		Where(resources.NewSortieQueryClause().MissionID().Equal(missionID))
@@ -146,7 +150,7 @@ func ExpenseManifestContent(ctx context.Context, missionID impulse.UUID, qSet *r
 			if expense.Data.Memo != nil {
 				memo = *expense.Data.Memo
 			}
-			line := []string{sortie.Data.ID.String(), sortie.Data.PilotUserID, sortie.Data.LaunchedAt.UTC().Format("2006-01-02T15:04:05Z"), expense.Data.Category, expense.Data.Amount.String(), memo}
+			line := []string{sortie.Data.ID.String(), pilots[sortie.Data.PilotUserID], sortie.Data.LaunchedAt.UTC().Format("2006-01-02T15:04:05Z"), expense.Data.Category, expense.Data.Amount.String(), memo}
 			if err := w.Write(line); err != nil {
 				return nil, errors.Wrap(err, "csv.Writer.Write()")
 			}
@@ -170,17 +174,33 @@ func ExpenseManifestContent(ctx context.Context, missionID impulse.UUID, qSet *r
 	}, nil
 }
 
+// pilotNames is the pilots' display names by the id of each pilot's account, the value a
+// sortie names its pilot by: the sheet is read by people, so it carries the pilot's name
+// and never the account id. A sortie whose pilot has no record leaves the cell empty.
+func pilotNames(ctx context.Context, client resource.Client) (map[string]string, error) {
+	names := make(map[string]string)
+	pilots := resources.NewPilotQuery().AddColumns(resources.NewPilotColumns().UserID().DisplayName())
+	for pilot, err := range pilots.List(ctx, client) {
+		if err != nil {
+			return nil, errors.Wrap(err, "resources.PilotQuery.List()")
+		}
+		names[pilot.Data.UserID] = pilot.Data.DisplayName
+	}
+
+	return names, nil
+}
+
 // manifestsOf folds the sector's missions, their sorties, and the expenses booked
 // against them into one manifest per mission, narrowed to one mission when asked. Rows
 // come back in the missions' title order; the generated handler sorts and pages them.
-func manifestsOf(ctx context.Context, client resource.Client, sector accesstypes.Domain, missionID *impulse.UUID) ([]*ExpenseManifest, error) {
+func manifestsOf(ctx context.Context, client resource.Client, sector impulse.UUID, missionID *impulse.UUID) ([]*ExpenseManifest, error) {
 	missions := resources.NewMissionQuery().
 		AddColumns(resources.NewMissionColumns().ID().Title().AssignedSquadronID()).
-		Where(resources.NewMissionQueryClause().SectorID().Equal(string(sector)))
+		Where(resources.NewMissionQueryClause().SectorID().Equal(sector))
 	if missionID != nil {
 		missions = resources.NewMissionQuery().
 			AddColumns(resources.NewMissionColumns().ID().Title().AssignedSquadronID()).
-			Where(resources.NewMissionQueryClause().SectorID().Equal(string(sector)).And().ID().Equal(*missionID))
+			Where(resources.NewMissionQueryClause().SectorID().Equal(sector).And().ID().Equal(*missionID))
 	}
 
 	var manifests []*ExpenseManifest

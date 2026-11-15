@@ -17,7 +17,7 @@ type (
 	Wing struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		SectorID string `spanner:"SectorId"`
-		Name     string `spanner:"Name"`
+		SectorID impulse.UUID `spanner:"SectorId"`
+		Name     string       `spanner:"Name"`
 	}
 )

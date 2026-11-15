@@ -26,7 +26,7 @@ func (SectorPilot) DefaultConfig() resource.Config {
 // enforce; sectorPilotReadSets holds one Set per read operation.
 type sectorPilotRead struct {
 	PilotID        impulse.UUID `json:"pilotId"        perm:"-"`
-	SectorID       string       `json:"sectorId"`
+	SectorID       impulse.UUID `json:"sectorId"`
 	DisplayName    string       `json:"displayName"`
 	Squadrons      int64        `json:"squadrons"`
 	Clearance      int64        `json:"clearance"`
@@ -202,8 +202,8 @@ func (p SectorPilotQueryPartialClause) PilotID() SectorPilotQueryIdent[impulse.U
 	return SectorPilotQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("PilotID", p.partialClause, true)}
 }
 
-func (p SectorPilotQueryPartialClause) SectorID() SectorPilotQueryIdent[string] {
-	return SectorPilotQueryIdent[string]{Ident: resource.NewIdent[string]("SectorID", p.partialClause, true)}
+func (p SectorPilotQueryPartialClause) SectorID() SectorPilotQueryIdent[impulse.UUID] {
+	return SectorPilotQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("SectorID", p.partialClause, true)}
 }
 
 func (p SectorPilotQueryPartialClause) DisplayName() SectorPilotQueryIdent[string] {

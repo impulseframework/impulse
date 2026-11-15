@@ -39,8 +39,7 @@ CREATE UNIQUE INDEX StaffSessionUsersByNormalizedUsername ON StaffSessionUsers(N
 
 CREATE UNIQUE NULL_FILTERED INDEX StaffSessionUsersByNormalizedEmail ON StaffSessionUsers(NormalizedEmail);
 
--- The index a list of people reads the account through when it starts from who holds a
--- role (a tenant's people, the roles held in a tenant): by the exact username a role
--- membership names its person by, carrying the columns those lists show, so a page reads
--- one index entry for each person and no row of the table.
+-- The username as written is unique. The index is in the order a list of people is read
+-- in, by username, and carries the columns such a list shows, so a page of people can be
+-- read from it alone.
 CREATE UNIQUE INDEX StaffSessionUsersByUsername ON StaffSessionUsers(Username) STORING (Name, Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);

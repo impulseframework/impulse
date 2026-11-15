@@ -27,7 +27,7 @@ func (Hangar) DefaultConfig() resource.Config {
 // enforce; hangarReadSets holds one Set per read operation.
 type hangarRead struct {
 	ID       impulse.UUID `json:"id"       perm:"-"`
-	SectorID string       `json:"sectorId"`
+	SectorID impulse.UUID `json:"sectorId"`
 	Name     string       `json:"name"`
 	Zone     string       `json:"zone"`
 }
@@ -39,7 +39,7 @@ var hangarReadSets resource.SetCache[Hangar, hangarRead]
 // routes enforce; hangarWriteSets holds one Set per mutation.
 type hangarWrite struct {
 	ID       impulse.UUID `json:"-"`
-	SectorID string       `json:"-"`
+	SectorID impulse.UUID `json:"-"`
 	Name     string       `json:"name"`
 	Zone     string       `json:"zone"`
 }
@@ -199,8 +199,8 @@ func (p HangarQueryPartialClause) ID() HangarQueryIdent[impulse.UUID] {
 	return HangarQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p HangarQueryPartialClause) SectorID() HangarQueryIdent[string] {
-	return HangarQueryIdent[string]{Ident: resource.NewIdent[string]("SectorID", p.partialClause, true)}
+func (p HangarQueryPartialClause) SectorID() HangarQueryIdent[impulse.UUID] {
+	return HangarQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("SectorID", p.partialClause, true)}
 }
 
 func (p HangarQueryPartialClause) Name() HangarNameQueryIdent {
@@ -390,14 +390,14 @@ func (p *HangarCreatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *HangarCreatePatch) SetSectorID(v string) *HangarCreatePatch {
+func (p *HangarCreatePatch) SetSectorID(v impulse.UUID) *HangarCreatePatch {
 	p.patchSet.Set("SectorID", v)
 
 	return p
 }
 
-func (p *HangarCreatePatch) SectorID() string {
-	v, _ := p.patchSet.Get("SectorID").(string)
+func (p *HangarCreatePatch) SectorID() impulse.UUID {
+	v, _ := p.patchSet.Get("SectorID").(impulse.UUID)
 
 	return v
 }
@@ -530,14 +530,14 @@ func (p *HangarUpdatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *HangarUpdatePatch) SetSectorID(v string) *HangarUpdatePatch {
+func (p *HangarUpdatePatch) SetSectorID(v impulse.UUID) *HangarUpdatePatch {
 	p.patchSet.Set("SectorID", v)
 
 	return p
 }
 
-func (p *HangarUpdatePatch) SectorID() string {
-	v, _ := p.patchSet.Get("SectorID").(string)
+func (p *HangarUpdatePatch) SectorID() impulse.UUID {
+	v, _ := p.patchSet.Get("SectorID").(impulse.UUID)
 
 	return v
 }

@@ -1,8 +1,13 @@
 package authpkg
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"maps"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -54,12 +59,85 @@ func smokeSpecs() []*Spec {
 	}
 }
 
+// renderedFile is one Go file of a smoke spec's auth package, parsed.
+type renderedFile struct {
+	spec, name string
+	file       *ast.File
+}
+
+// importNames are the names a file's imports bring into it: an import's own name where
+// it gives one, else the last element of its path, passing over a major version
+// (errors/v5 is errors). An import made for its effect alone brings no name.
+func importNames(t *testing.T, file *ast.File) map[string]bool {
+	t.Helper()
+
+	names := map[string]bool{}
+	for _, spec := range file.Imports {
+		if spec.Name != nil {
+			if spec.Name.Name != "_" && spec.Name.Name != "." {
+				names[spec.Name.Name] = true
+			}
+
+			continue
+		}
+		path, err := strconv.Unquote(spec.Path.Value)
+		if err != nil {
+			t.Fatalf("strconv.Unquote(%s) error = %v", spec.Path.Value, err)
+		}
+		elements := strings.Split(path, "/")
+		name := elements[len(elements)-1]
+		if len(elements) > 1 && len(name) > 1 && name[0] == 'v' && strings.Trim(name[1:], "0123456789") == "" {
+			name = elements[len(elements)-2]
+		}
+		names[name] = true
+	}
+
+	return names
+}
+
+// requireImportsNamed fails the test for every package a rendered file names and does
+// not import. render formats what a template wrote and no more, and a file with a
+// missing import formats cleanly: without this the file that does not compile is found
+// by the first application that composes the method. A name is taken for a package's
+// when some rendered file imports a package of that name, the file itself does not
+// declare the name, and the file selects from it.
+func requireImportsNamed(t *testing.T, files []renderedFile) {
+	t.Helper()
+
+	packages := map[string]bool{}
+	for _, f := range files {
+		maps.Copy(packages, importNames(t, f.file))
+	}
+	for _, f := range files {
+		imported := importNames(t, f.file)
+		reported := map[string]bool{}
+		ast.Inspect(f.file, func(n ast.Node) bool {
+			sel, ok := n.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			// An identifier the file declares (a variable, a parameter, a receiver)
+			// carries its declaration and is no package.
+			base, ok := sel.X.(*ast.Ident)
+			if !ok || base.Obj != nil || !packages[base.Name] || imported[base.Name] || reported[base.Name] {
+				return true
+			}
+			reported[base.Name] = true
+			t.Errorf("%s of the %s auth names %s.%s and imports no package %s", f.name, f.spec, base.Name, sel.Sel.Name, base.Name)
+
+			return true
+		})
+	}
+}
+
 // TestFiles renders the smoke specs and, when AUTHPKG_OUT names a directory, writes each
 // package under it as pkg/auth/<name>/ so the output can be compiled against the
-// framework pins.
+// framework pins. Every rendered file parses and imports each package it names.
 func TestFiles(t *testing.T) {
 	t.Parallel()
 	out := os.Getenv("AUTHPKG_OUT")
+	fset := token.NewFileSet()
+	var rendered []renderedFile
 	for _, spec := range smokeSpecs() {
 		files, err := Files(spec)
 		if err != nil {
@@ -71,6 +149,15 @@ func TestFiles(t *testing.T) {
 		for name, data := range files {
 			if !strings.HasPrefix(string(data), "// Package "+spec.Name) && !strings.HasPrefix(string(data), "package "+spec.Name) {
 				t.Errorf("%s/%s does not start with the package clause", spec.Name, name)
+			}
+			if strings.HasSuffix(name, ".go") {
+				// The parser's own resolution of identifiers is what tells a
+				// variable from a package: it is left on.
+				file, err := parser.ParseFile(fset, filepath.Join(spec.Name, name), data, parser.AllErrors)
+				if err != nil {
+					t.Fatalf("parser.ParseFile(%s/%s) error = %v", spec.Name, name, err)
+				}
+				rendered = append(rendered, renderedFile{spec: spec.Name, name: name, file: file})
 			}
 			if out == "" {
 				continue
@@ -91,6 +178,46 @@ func TestFiles(t *testing.T) {
 				}
 			}
 		}
+	}
+	requireImportsNamed(t, rendered)
+}
+
+// TestFiles_castRefusesTheFirstAdministratorsName holds the persona seed apart from the
+// first administrator's: the two derive an account's id from its name, so where the
+// auth seeds a first administrator with a password the cast refuses a persona of that
+// name, and where it seeds none there is no name to refuse.
+func TestFiles_castRefusesTheFirstAdministratorsName(t *testing.T) {
+	t.Parallel()
+	const refusal = "if id == session.SeedUserID(Name, Administrator) {"
+	tests := []struct {
+		name string
+		spec *Spec
+		want bool
+	}{
+		{name: "a password first administrator", want: true, spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "crew", Methods: []Method{
+			{Kind: app.MethodPassword},
+			{Kind: app.MethodPersona},
+		}}},
+		{name: "no password first administrator", want: false, spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "reviewers", Methods: []Method{
+			{Kind: app.MethodOIDC, Name: "okta", Accounts: AccountsInvited, Authority: app.AuthorityApplication},
+			{Kind: app.MethodPersona},
+		}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			files, err := Files(tt.spec)
+			if err != nil {
+				t.Fatalf("Files(%s) error = %v", tt.spec.Name, err)
+			}
+			cast, ok := files[CastGoFile]
+			if !ok {
+				t.Fatalf("Files(%s) wrote no %s", tt.spec.Name, CastGoFile)
+			}
+			if got := strings.Contains(string(cast), refusal); got != tt.want {
+				t.Errorf("%s refuses a persona named as the first administrator = %v, want %v", CastGoFile, got, tt.want)
+			}
+		})
 	}
 }
 

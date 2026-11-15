@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/lodestar/pkg/computedresources"
@@ -19,7 +20,7 @@ import (
 
 func (a *App) ServiceLedgers() http.HandlerFunc {
 	type serviceLedger struct {
-		SectorID        string          `json:"sectorId"        allow_filter:"true" perm:"-"        search:"memory"`
+		SectorID        impulse.UUID    `json:"sectorId"        allow_filter:"true" perm:"-"`
 		Name            string          `json:"name"            allow_filter:"true" search:"memory"`
 		OpenMissions    int64           `json:"openMissions"    allow_filter:"true"`
 		FeesOutstanding decimal.Decimal `json:"feesOutstanding"`

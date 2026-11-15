@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
@@ -14,15 +15,15 @@ import (
 
 // AssignStaffRole gives a person of the Staff auth a role: in the global
 // scope, in one domain (Domain), or in every domain (EveryDomain). The person is named
-// by username, so a user created earlier in the same transaction can be seated in it.
-// The role must exist where it is given; a role the person holds there already is left
-// as it is. The person's next request is served with the role.
+// by the id of their account, and an id no user holds is refused: a role is held by an
+// account. The role must exist where it is given; a role the person holds there already
+// is left as it is. The person's next request is served with the role.
 //
 // @rpc
 // @outlet(default)
 // @answers(204)
 type AssignStaffRole struct {
-	Username string `validate:"required"`
+	UserID impulse.UUID
 	// Role is the role the person is given. A grant's condition reads it as new.role, so a
 	// role file can limit which roles the grant's holder hands out.
 	//
@@ -38,7 +39,10 @@ func (m *AssignStaffRole) Execute(ctx context.Context, txn resource.ReadWriteTra
 	if err != nil {
 		return errors.Wrap(err, "identity.Scope()")
 	}
-	if err := client.manager.AssignRole(ctx, txn, scope, m.Username, accesstypes.Role(m.Role)); err != nil {
+	if err := client.manager.RequireUser(ctx, txn, m.UserID); err != nil {
+		return errors.Wrap(err, "identity.Manager.RequireUser()")
+	}
+	if err := client.manager.AssignRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role)); err != nil {
 		return errors.Wrap(err, "identity.Manager.AssignRole()")
 	}
 

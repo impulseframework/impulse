@@ -477,8 +477,8 @@ server offers a password method), `email` (`add`, `verify`) and `signUp` (`start
 `complete`), each block present only where the server serves it; and `usernameIsEmail` when
 the password method declares the username as the person's email address, so the form asks for
 the address and an account created from a link takes no username of its own. The `invitation`
-block also carries `standing` while the browser holds a live invitation: its `email`, `tenant`,
-`expiresAt`, `usernameIsEmail`, `methods`, `accountExists` and `hasPassword`, what opening the
+block also carries `standing` while the browser holds a live invitation: its `email`, `tenantId`,
+`tenantName`, `expiresAt`, `usernameIsEmail`, `methods`, `accountExists` and `hasPassword`, what opening the
 link answered, so a login page the browser comes back to without the token (a redirect method
 refused the sign-in and returned with `?code=`) shows the invitation again; it is absent when
 the browser holds none. Each step below
@@ -487,7 +487,9 @@ routes for it.
 
 An invitation (`?invitation=<token>`) brings a person into the application, or into one of its
 tenants, with the roles it carries. `openInvitation(token)` posts the token: the answer
-describes the invitation (`email`; `tenant`, empty for the global surface; `expiresAt`;
+describes the invitation (`email`; `tenantId` and `tenantName`, the tenant's id and what people
+call it, both empty for the global surface and the name empty where the server names none, so
+the screen names the tenant by its name or not at all; `expiresAt`;
 `signUp`, whether an account with a password may be created here; `usernameIsEmail`;
 `methods`, the registration names of the listed directory methods that could admit the
 address, absent when the server did not say; and `accountExists` and `hasPassword`, whether

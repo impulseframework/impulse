@@ -54,7 +54,10 @@ type (
 	// transaction that does not commit
 	// releases nothing. The resource serves the listing on the console and on the client
 	// portal, whose grant holds no content, so the client lists documents and cannot
-	// download them. Provenance is the document's origin as one JSON column typed by a
+	// download them. UploadedByUserID is the id of the account of whoever attached the document,
+	// and UploadedByName their username as it was then, which is what a page shows; the
+	// upload method writes both, and the name is output_only, so no update rewrites it.
+	// Provenance is the document's origin as one JSON column typed by a
 	// plain struct. Digest is the SHA-256 of the stored bytes, a BYTES(32) column the
 	// method computes from the file the frame streamed: a []byte is one leaf to the
 	// generator, a string in both clients' interfaces (encoding/json carries it as base64)
@@ -77,9 +80,10 @@ type (
 		ContentType string       `spanner:"ContentType"`
 		Size        int64        `spanner:"Size"`
 		// @file(name: FileName, type: ContentType)
-		StoreKey   resource.Key[Documents] `spanner:"StoreKey"`
-		UploadedBy string                  `spanner:"UploadedBy"`
-		UploadedAt time.Time               `spanner:"UploadedAt"`
+		StoreKey         resource.Key[Documents] `spanner:"StoreKey"`
+		UploadedByUserID string                  `spanner:"UploadedByUserId"`
+		UploadedByName   string                  `spanner:"UploadedByName" conditions:"output_only"`
+		UploadedAt       time.Time               `spanner:"UploadedAt"`
 		// Provenance is nullable: a document filed before the origin was recorded has none.
 		Provenance *Provenance `spanner:"Provenance"`
 		Digest     []byte      `spanner:"Digest"`

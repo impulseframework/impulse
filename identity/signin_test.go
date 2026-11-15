@@ -2,11 +2,11 @@ package identity
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
-	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
@@ -16,11 +16,14 @@ import (
 )
 
 // TestManager_giveInvitedRoles pins what an accepted invitation gives: its roles in its
-// tenant, or, for an invitation into the application, each role where it is held; a role
-// that can no longer be given fails the transaction, and a failed write is not taken
-// for a role that does not exist.
+// tenant, or, for an invitation into the application, each role where it is held, every
+// one under the id of the person's account; a role that can no longer be given fails
+// the transaction, in an error that names the person by username, and a failed write is
+// not taken for a role that does not exist.
 func TestManager_giveInvitedRoles(t *testing.T) {
 	t.Parallel()
+
+	id := userID.String()
 
 	tests := []struct {
 		name        string
@@ -34,8 +37,8 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 	}{
 		{
 			name:        "an invitation into a tenant gives its roles in that tenant",
-			inv:         &sessioninfo.Invitation{Email: "dana@example.com", Tenant: "alpha", RoleNames: []string{"Reader"}},
-			wantWrites:  []string{"insert membership domain/alpha dana Reader"},
+			inv:         &sessioninfo.Invitation{Email: "dana@example.com", TenantID: "alpha", RoleNames: []string{"Reader"}},
+			wantWrites:  []string{"insert membership domain/alpha " + id + " Reader"},
 			wantChanged: 1,
 		},
 		{
@@ -44,15 +47,15 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 			// Reader is asked for globally first, where the role file does not hold it, so the
 			// roles table is read there before every tenant is tried.
 			wantReads:   []string{"role global/ Reader"},
-			wantWrites:  []string{"insert membership global/ dana Steward", "insert membership every/ dana Reader"},
+			wantWrites:  []string{"insert membership global/ " + id + " Steward", "insert membership every/ " + id + " Reader"},
 			wantChanged: 1,
 		},
 		{
 			name:       "a role the person holds already is left as it is, and the others are given",
 			inv:        &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Steward", "Reader"}},
-			held:       []access.MembershipKey{access.NewMembershipKey(globalScope, "dana", "Steward")},
+			held:       []access.MembershipKey{access.NewMembershipKey(globalScope, dana, "Steward")},
 			wantReads:  []string{"role global/ Reader"},
-			wantWrites: []string{"insert membership every/ dana Reader"},
+			wantWrites: []string{"insert membership every/ " + id + " Reader"},
 			// One membership was written, so the engine is told.
 			wantChanged: 1,
 		},
@@ -62,11 +65,11 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 			wantErr: httpio.HasNotFound,
 			// Retired is read from the roles table in both places it could be held.
 			wantReads:  []string{"role global/ Retired", "role every/ Retired"},
-			wantWrites: []string{"insert membership global/ dana Steward"},
+			wantWrites: []string{"insert membership global/ " + id + " Steward"},
 		},
 		{
 			name:    "a role of a tenant's invitation that does not exist in the tenant fails the transaction",
-			inv:     &sessioninfo.Invitation{Email: "dana@example.com", Tenant: "alpha", RoleNames: []string{"Steward"}},
+			inv:     &sessioninfo.Invitation{Email: "dana@example.com", TenantID: "alpha", RoleNames: []string{"Steward"}},
 			wantErr: httpio.HasNotFound,
 			// The global role is not looked for anywhere but in the tenant.
 			wantReads: []string{"role domain/alpha Steward"},
@@ -89,11 +92,14 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 			m, engine := newManager(t, store, engineRoles)
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return m.giveInvitedRoles(ctx, txn, "dana", tt.inv)
+				return m.giveInvitedRoles(ctx, txn, userID, "dana", tt.inv)
 			})
 			if tt.wantErr != nil {
 				if err == nil || !tt.wantErr(err) {
 					t.Fatalf("giveInvitedRoles() error = %v, want the refusal", err)
+				}
+				if !strings.Contains(err.Error(), `gives "dana" the role`) {
+					t.Errorf("giveInvitedRoles() error = %v, want one that names the person by username", err)
 				}
 			} else if err != nil {
 				t.Fatalf("giveInvitedRoles() error = %v", err)
@@ -112,10 +118,13 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 }
 
 // TestManager_giveDirectoryRoles pins what a directory's default role gives a person at
-// their first sign-in: each role in its tenant, and a role that cannot be given fails
-// the transaction that creates the person.
+// their first sign-in: each role in its tenant, under the id of the person's account,
+// and a role that cannot be given fails the transaction that creates the person, in an
+// error that names them by username.
 func TestManager_giveDirectoryRoles(t *testing.T) {
 	t.Parallel()
+
+	id := userID.String()
 
 	tests := []struct {
 		name        string
@@ -130,14 +139,14 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}, {Tenant: "beta", Role: "Auditor"}},
 			// beta's role is a custom one, read from the roles table.
 			custom:      []access.RoleKey{{Kind: "domain", Domain: "beta", Role: "Auditor"}},
-			wantWrites:  []string{"insert membership domain/alpha dana Reader", "insert membership domain/beta dana Auditor"},
+			wantWrites:  []string{"insert membership domain/alpha " + id + " Reader", "insert membership domain/beta " + id + " Auditor"},
 			wantChanged: 1,
 		},
 		{
 			name:       "a default role that does not exist in its tenant fails the transaction",
 			seats:      []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}, {Tenant: "beta", Role: "Auditor"}},
 			wantErr:    httpio.HasNotFound,
-			wantWrites: []string{"insert membership domain/alpha dana Reader"},
+			wantWrites: []string{"insert membership domain/alpha " + id + " Reader"},
 		},
 		{
 			name: "no default role gives nothing and tells the engine nothing",
@@ -154,11 +163,14 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 			m, engine := newManager(t, store, engineRoles)
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return m.giveDirectoryRoles(ctx, txn, "dana", tt.seats)
+				return m.giveDirectoryRoles(ctx, txn, userID, "dana", tt.seats)
 			})
 			if tt.wantErr != nil {
 				if err == nil || !tt.wantErr(err) {
 					t.Fatalf("giveDirectoryRoles() error = %v, want the refusal", err)
+				}
+				if !strings.Contains(err.Error(), `gives "dana" the role`) {
+					t.Errorf("giveDirectoryRoles() error = %v, want one that names the person by username", err)
 				}
 			} else if err != nil {
 				t.Fatalf("giveDirectoryRoles() error = %v", err)
@@ -173,14 +185,15 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 	}
 }
 
-// TestManager_signInHooks pins the two hooks as the session library calls them: nothing
-// is told to the engine until the committed function runs, a run whose transaction did
-// not commit (Spanner ran the closure again) tells it nothing, and a hook that fails
-// answers no committed function.
+// TestManager_signInHooks pins the two hooks as the session library calls them: the
+// roles are given under the id of the account the library hands the hook, never under
+// the username beside it; nothing is told to the engine until the committed function
+// runs, a run whose transaction did not commit (Spanner ran the closure again) tells it
+// nothing, and a hook that fails answers no committed function.
 func TestManager_signInHooks(t *testing.T) {
 	t.Parallel()
 
-	inv := &sessioninfo.Invitation{Email: "dana@example.com", Tenant: "alpha", RoleNames: []string{"Reader"}}
+	inv := &sessioninfo.Invitation{Email: "dana@example.com", TenantID: "alpha", RoleNames: []string{"Reader"}}
 	seats := []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}}
 
 	hooks := map[string]func(m *Manager) func(ctx context.Context) (func(ctx context.Context), error){
@@ -190,14 +203,14 @@ func TestManager_signInHooks(t *testing.T) {
 			return func(ctx context.Context) (func(ctx context.Context), error) {
 				// The store here is in memory and reads nothing off the transaction, so
 				// the hook is handed none.
-				return hook(ctx, nil, impulse.NilUUID, "dana", inv)
+				return hook(ctx, nil, userID, "dana", inv)
 			}
 		},
 		"a directory's default role": func(m *Manager) func(ctx context.Context) (func(ctx context.Context), error) {
 			hook := m.DirectorySeated("Staff")
 
 			return func(ctx context.Context) (func(ctx context.Context), error) {
-				return hook(ctx, nil, impulse.NilUUID, "dana", seats)
+				return hook(ctx, nil, userID, "dana", seats)
 			}
 		},
 	}
@@ -224,7 +237,8 @@ func TestManager_signInHooks(t *testing.T) {
 			if engine.changed != 1 {
 				t.Errorf("the engine was told the policy changed %d time(s) after the commit, want 1", engine.changed)
 			}
-			want := []string{"insert membership domain/alpha dana Reader", "insert membership domain/alpha dana Reader"}
+			given := "insert membership domain/alpha " + userID.String() + " Reader"
+			want := []string{given, given}
 			if diff := cmp.Diff(want, store.writes); diff != "" {
 				t.Errorf("buffered writes of the two runs (-want +got):\n%s", diff)
 			}
@@ -249,89 +263,4 @@ func TestManager_signInHooks(t *testing.T) {
 			}
 		})
 	}
-}
-
-// renamedRoles is an engine's membership store for the rename hook: the roles each
-// person holds by where they are held, with a write that can be made to fail. Every
-// other method panics through the embedded nil interface.
-type renamedRoles struct {
-	access.UserManager
-	held    map[accesstypes.User]accesstypes.RoleCollection
-	failAdd bool
-}
-
-func (r *renamedRoles) UserRoles(_ context.Context, user accesstypes.User, _ ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error) {
-	return r.held[user], nil
-}
-
-func (r *renamedRoles) AddUserRoles(_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error {
-	if r.failAdd {
-		return errStore
-	}
-	if r.held[user] == nil {
-		r.held[user] = accesstypes.RoleCollection{}
-	}
-	r.held[user][scope] = append(r.held[user][scope], roles...)
-
-	return nil
-}
-
-func (r *renamedRoles) DeleteUserRoles(_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, _ ...accesstypes.Role) error {
-	delete(r.held[user], scope)
-
-	return nil
-}
-
-// TestRolesFollowRename pins the hook a rename by the session library is reported to:
-// every role the person held under the old name is held under the new one, in each
-// place it was held, and none is left under the old; a role that could not be given
-// under the new name stops the move with the old name's roles kept, so running the
-// hook again finishes it.
-func TestRolesFollowRename(t *testing.T) {
-	t.Parallel()
-
-	alpha := accesstypes.DomainPolicyScope("alpha")
-	holds := func() accesstypes.RoleCollection {
-		return accesstypes.RoleCollection{globalScope: {"Steward"}, alpha: {"Reader", "Auditor"}}
-	}
-
-	t.Run("the roles move to the new name", func(t *testing.T) {
-		t.Parallel()
-
-		store := &renamedRoles{held: map[accesstypes.User]accesstypes.RoleCollection{"pat@example.com": holds()}}
-		if err := RolesFollowRename(store)(t.Context(), impulse.NilUUID, "pat@example.com", "pat.lee@example.com"); err != nil {
-			t.Fatalf("RolesFollowRename() error = %v", err)
-		}
-		if diff := cmp.Diff(holds(), store.held["pat.lee@example.com"]); diff != "" {
-			t.Errorf("the roles under the new name (-want +got):\n%s", diff)
-		}
-		if left := store.held["pat@example.com"]; len(left) != 0 {
-			t.Errorf("the old name still holds %v", left)
-		}
-	})
-
-	t.Run("a role that cannot be given stops the move, and the old name keeps its roles", func(t *testing.T) {
-		t.Parallel()
-
-		store := &renamedRoles{held: map[accesstypes.User]accesstypes.RoleCollection{"pat@example.com": holds()}, failAdd: true}
-		err := RolesFollowRename(store)(t.Context(), impulse.NilUUID, "pat@example.com", "pat.lee@example.com")
-		if !errors.Is(err, errStore) {
-			t.Fatalf("RolesFollowRename() error = %v, want the store's", err)
-		}
-		if diff := cmp.Diff(holds(), store.held["pat@example.com"]); diff != "" {
-			t.Errorf("the roles under the old name after the failed move (-want +got):\n%s", diff)
-		}
-	})
-
-	t.Run("a person who holds nothing moves nothing", func(t *testing.T) {
-		t.Parallel()
-
-		store := &renamedRoles{held: map[accesstypes.User]accesstypes.RoleCollection{}}
-		if err := RolesFollowRename(store)(t.Context(), impulse.NilUUID, "pat@example.com", "pat.lee@example.com"); err != nil {
-			t.Fatalf("RolesFollowRename() error = %v", err)
-		}
-		if len(store.held) != 0 {
-			t.Errorf("the store holds %v, want nothing written", store.held)
-		}
-	})
 }

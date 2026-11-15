@@ -1,4 +1,11 @@
-import { Resources, SquadronMemberships, SquadronRosters, Squadrons, Wings } from '@app/service/zz_gen_constants';
+import {
+  CrewSectorUsers,
+  Resources,
+  SquadronMemberships,
+  SquadronRosters,
+  Squadrons,
+  Wings,
+} from '@app/service/zz_gen_constants';
 import { DomainRoutePath, Squadrons as SquadronRow } from '@app/service/zz_gen_resources';
 import {
   arrayConfig,
@@ -7,6 +14,7 @@ import {
   field,
   foreignKeyDefault,
   listViewConfig,
+  multiColumnConfig,
   rootConfig,
   section,
 } from '@impulseframework/resource-angular/types';
@@ -18,10 +26,10 @@ import { SquadronChannelComponent } from '@components/sector/squadron-channel/sq
 // declares its backing table, a create goes into the table, and the new row shows up in
 // the view on the next list because the view's SQL reads that table: the roster names
 // the view alone, its create form is SquadronMemberships' (the squadron filled from the
-// page, the login typed), and a row is deleted from the list through the table by the
-// compound key the view carries under the table's own column names. The row route
-// names the roster's pilotId, whose declared enumeration is Pilots: a row opens the
-// pilot's page by that value, gated on Read of Pilots.
+// page, the person picked from the sector's people), and a row is deleted from the list
+// through the table by the compound key the view carries under the table's own column
+// names. The row route names the roster's pilotId, whose declared enumeration is Pilots:
+// a row opens the pilot's page by that value, gated on Read of Pilots.
 //
 // The row page also carries the two related-config shapes that are not a list: the
 // squadron's channel card, the application's own component handed the row
@@ -43,7 +51,13 @@ export const squadronsConfig = rootConfig({
     primaryResource: Resources.Squadrons,
     listColumns: [
       { id: Squadrons.fieldName.name },
-      { id: Squadrons.fieldName.wingId },
+      // The wing by its name: the column holds the wing's id, which nobody reads.
+      multiColumnConfig({
+        id: Squadrons.fieldName.wingId,
+        header: 'Wing',
+        additionalIds: [{ id: Wings.fieldName.id, resource: Resources.Wings, field: Wings.fieldName.name }],
+        concatFn: 'hyphen-concat',
+      }),
       { id: Squadrons.fieldName.callsigns },
     ],
     elements: [
@@ -74,10 +88,9 @@ export const squadronsConfig = rootConfig({
       primaryResource: Resources.SquadronRosters,
       parentRelation: { parentKey: Squadrons.fieldName.id, childKey: SquadronRosters.fieldName.squadronId },
       rowRoute: SquadronRosters.fieldName.pilotId,
-      listColumns: [
-        { id: SquadronRosters.fieldName.pilotName, header: 'Pilot' },
-        { id: SquadronRosters.fieldName.userId, header: 'Login' },
-      ],
+      // A member is named by the pilot's name; the id of their account, which the
+      // membership holds, is nothing a person reads.
+      listColumns: [{ id: SquadronRosters.fieldName.pilotName, header: 'Pilot' }],
       elements: [
         section({
           label: 'Membership',
@@ -89,7 +102,17 @@ export const squadronsConfig = rootConfig({
               readOnly: true,
               default: foreignKeyDefault({ parentId: Squadrons.fieldName.id }),
             }),
-            field({ name: SquadronMemberships.fieldName.userId, label: 'Login', cols: 6 }),
+            // The member, held by the id of their account and picked by their username
+            // from the sector's people, which whoever adds a member may list.
+            field({
+              name: SquadronMemberships.fieldName.userId,
+              label: 'Person',
+              cols: 6,
+              enumeratedConfig: enumeratedConfig({
+                listDisplay: [CrewSectorUsers.fieldName.username],
+                viewDisplay: [CrewSectorUsers.fieldName.username],
+              }),
+            }),
           ],
         }),
       ],
@@ -106,7 +129,15 @@ export const squadronsConfig = rootConfig({
       listFilter: (squadron: SquadronRow): string => `${Squadrons.fieldName.id}:ne:${squadron.id}`,
       iteratedConfig: listViewConfig({
         primaryResource: Resources.Squadrons,
-        listColumns: [{ id: Squadrons.fieldName.name }, { id: Squadrons.fieldName.wingId }],
+        listColumns: [
+          { id: Squadrons.fieldName.name },
+          multiColumnConfig({
+            id: Squadrons.fieldName.wingId,
+            header: 'Wing',
+            additionalIds: [{ id: Wings.fieldName.id, resource: Resources.Wings, field: Wings.fieldName.name }],
+            concatFn: 'hyphen-concat',
+          }),
+        ],
         elements: [
           section({
             label: 'Squadron',

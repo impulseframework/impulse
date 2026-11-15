@@ -30,7 +30,8 @@ export class HazardBoardComponent {
   rows = this.sectors.sectorList((sector) => sector.sectorHazardBoards, { limit: 'all' });
   columns = ['shipName', 'subsystem', 'worstReading', 'recordedAt', 'recent'];
 
-  sector = this.sectors.current;
+  /** The open sector's name, as the session's sector list carries it. */
+  sectorName = this.sectors.placeName;
   canList = computed(() => this.sectors.can(Permissions.List, Resources.SectorHazardBoards));
 
   severity(reading: number): string {

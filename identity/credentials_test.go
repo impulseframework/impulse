@@ -170,7 +170,7 @@ func TestManager_RevokeToken(t *testing.T) {
 		},
 		{
 			name:     "a token of a device authorization takes its family with it",
-			tokens:   map[impulse.UUID]*Token{tokenA: {Family: &familyID, ExpiresAt: ahead}},
+			tokens:   map[impulse.UUID]*Token{tokenA: {FamilyID: &familyID, ExpiresAt: ahead}},
 			families: map[impulse.UUID][]impulse.UUID{familyID: {tokenA, tokenB}},
 			wantWrites: []string{
 				"revoke token " + tokenA.String() + " revoked",
@@ -198,7 +198,7 @@ func TestManager_RevokeToken(t *testing.T) {
 		},
 		{
 			name:     "a failed read of the family buffers nothing",
-			tokens:   map[impulse.UUID]*Token{tokenA: {Family: &familyID, ExpiresAt: ahead}},
+			tokens:   map[impulse.UUID]*Token{tokenA: {FamilyID: &familyID, ExpiresAt: ahead}},
 			families: map[impulse.UUID][]impulse.UUID{familyID: {tokenA, tokenB}},
 			failOn:   "FamilyTokens",
 			wantErr:  func(err error) bool { return errors.Is(err, errStore) },

@@ -44,6 +44,37 @@ func generatedIdentityOf(importPaths ...string) []*identityInstance {
 	return instances
 }
 
+// Test_tenantClears pins what the tenant record's delete clears a tenant through: the
+// application's accessor of every generated identity client, in declaration order, and
+// nothing for any other resource or for a program that generates no auth's management.
+func Test_tenantClears(t *testing.T) {
+	t.Parallel()
+
+	two := generatedIdentityOf("example.com/app/pkg/auth/staff", "example.com/app/pkg/auth/members")
+
+	tests := []struct {
+		name     string
+		identity []*identityInstance
+		tenant   bool
+		want     []string
+	}{
+		{name: "the tenant record, through every auth's client", identity: two, tenant: true, want: []string{"StaffIdentity", "MembersIdentity"}},
+		{name: "the tenant record of a program that generates no auth's management", tenant: true, want: []string{}},
+		{name: "any other resource", identity: two, want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &resourceGenerator{client: &client{}}
+			r.identity = tt.identity
+			if diff := cmp.Diff(tt.want, r.tenantClears(&resourceInfo{IsTenant: tt.tenant})); diff != "" {
+				t.Errorf("tenantClears() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 // openAuth is an outlet auth with a registration admitting open sign-up.
 func openAuth(importPath string) *outletAuth {
 	return &outletAuth{importPath: importPath, methods: []AuthMethod{PasswordMethod(), GoogleMethod("sign-up").OpenSignUp()}}
@@ -185,9 +216,6 @@ func Test_validateTenantCreation(t *testing.T) {
 	}
 }
 
-// Test_tenantCreationFields pins the create-your-tenant request's shape: the key first
-// and required, then every column the wire may write, required where the column is,
-// and no server-owned column.
 // Test_tenantSeatData pins what the record's create path seats its creator with: the
 // accessors over the auth of the session outlets serving the record; nothing for a
 // record created through its route alone, one whose handlers are suppressed, or one
@@ -206,13 +234,13 @@ func Test_tenantSeatData(t *testing.T) {
 		{
 			name:   "the default outlet's auth seats the creator",
 			mutate: func(r *resourceGenerator) { r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff") },
-			want:   &tenantSeatData{Record: "Station", RecordLower: "station", KeyType: "string", Auth: "Staff", IdentityAccessor: "StaffIdentity", RolesAccessor: "StationAdministratorRoles"},
+			want:   &tenantSeatData{Record: "Station", RecordLower: "station", KeyType: "impulse.UUID", Auth: "Staff", IdentityAccessor: "StaffIdentity", RolesAccessor: "StationAdministratorRoles"},
 		},
 		{
 			name:     "the both shape seats the creator of an administrator's create too",
 			creation: tenantCreationBoth,
 			mutate:   func(r *resourceGenerator) { r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff") },
-			want:     &tenantSeatData{Record: "Station", RecordLower: "station", KeyType: "string", Auth: "Staff", IdentityAccessor: "StaffIdentity", RolesAccessor: "StationAdministratorRoles"},
+			want:     &tenantSeatData{Record: "Station", RecordLower: "station", KeyType: "impulse.UUID", Auth: "Staff", IdentityAccessor: "StaffIdentity", RolesAccessor: "StationAdministratorRoles"},
 		},
 		{
 			name:     "a self-service record has no create path to seat through",
@@ -269,6 +297,10 @@ func Test_tenantSeatData(t *testing.T) {
 	}
 }
 
+// Test_tenantCreationFields pins the create-your-tenant route's shapes: the request
+// carries every column the wire may write, required where the column is, and neither
+// the key, which the create generates, nor a server-owned column; the key is returned
+// apart, as the answer carries it, with no validation rule, since no request sends it.
 func Test_tenantCreationFields(t *testing.T) {
 	t.Parallel()
 
@@ -276,7 +308,6 @@ func Test_tenantCreationFields(t *testing.T) {
 	key, fields, setters := tenantCreationFields(r.resources[0])
 
 	wantFields := []*tenantCreationField{
-		{Name: "ID", Type: "string", Wire: "id", Tags: `json:"id" validate:"required"`},
 		{Name: "Name", Type: "string", Wire: "name", Tags: `json:"name" validate:"required"`},
 		{Name: "Motto", Type: "*string", Wire: "motto", Tags: `json:"motto"`},
 		{Name: "Opened", Type: "civil.Date", Wire: "opened", Tags: `json:"opened" validate:"required"`},
@@ -284,8 +315,12 @@ func Test_tenantCreationFields(t *testing.T) {
 	if diff := cmp.Diff(wantFields, fields); diff != "" {
 		t.Errorf("tenantCreationFields() fields mismatch (-want +got):\n%s", diff)
 	}
-	if diff := cmp.Diff(wantFields[0], key); diff != "" {
+	wantKey := &tenantCreationField{Name: "ID", Type: "impulse.UUID", Wire: "id", Tags: `json:"id"`}
+	if diff := cmp.Diff(wantKey, key); diff != "" {
 		t.Errorf("tenantCreationFields() key mismatch (-want +got):\n%s", diff)
+	}
+	if slices.Contains(fields, key) {
+		t.Errorf("tenantCreationFields() lists the key among the request's fields: %v", fields)
 	}
 	if diff := cmp.Diff([]string{"Name", "Motto", "Opened"}, setters); diff != "" {
 		t.Errorf("tenantCreationFields() setters mismatch (-want +got):\n%s", diff)
@@ -294,7 +329,8 @@ func Test_tenantCreationFields(t *testing.T) {
 
 // Test_tenantCreationData_typeImports pins the payload's import scope: the packages the
 // record's field types name, so the handler file resolves a column type from another
-// package (civil.Date) the way the handlers files do.
+// package (civil.Date) the way the handlers files do, and the type of the id the
+// handler declares and answers with (impulse.UUID).
 func Test_tenantCreationData_typeImports(t *testing.T) {
 	t.Parallel()
 
@@ -308,8 +344,13 @@ func Test_tenantCreationData_typeImports(t *testing.T) {
 	for _, imp := range imports {
 		paths = append(paths, imp.path)
 	}
-	if !slices.Contains(paths, "cloud.google.com/go/civil") {
-		t.Errorf("typeImports() = %v, want cloud.google.com/go/civil among them", paths)
+	for _, want := range []string{"cloud.google.com/go/civil", "github.com/impulseframework/impulse"} {
+		if !slices.Contains(paths, want) {
+			t.Errorf("typeImports() = %v, want %s among them", paths, want)
+		}
+	}
+	if data.Key == nil || data.Key.Type != "impulse.UUID" || slices.Contains(data.Fields, data.Key) {
+		t.Errorf("tenantCreationData() key = %v, fields = %v; want the generated id as the key and not among the request's fields", data.Key, data.Fields)
 	}
 	if data.RoutePath != "/api/create-station" || data.Auth != "Staff" || data.IdentityAccessor != "StaffIdentity" || data.RolesAccessor != "StationAdministratorRoles" {
 		t.Errorf("tenantCreationData() = route %q, auth %q, identity %q, roles %q", data.RoutePath, data.Auth, data.IdentityAccessor, data.RolesAccessor)
@@ -317,9 +358,10 @@ func Test_tenantCreationData_typeImports(t *testing.T) {
 }
 
 // Test_tenantCreationTemplate pins the generated handler: the contract it asserts on
-// the application, the gate on a session holding a tenant, the row in its own
-// transaction, the seat after the commit with the row removed when the seat fails, and
-// the roster and signal before the answer.
+// the application, the gate on a session holding a tenant, a request that carries no
+// key, the row written under an id the create generates with the administrator's
+// membership in the same transaction, the roster, the wait and the signal after the
+// commit, and the answer that carries the generated id.
 func Test_tenantCreationTemplate(t *testing.T) {
 	t.Parallel()
 
@@ -358,47 +400,85 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"through the Staff auth's generated identity client (StaffIdentity).",
 		"} = (*App)(nil)",
 		"func (a *App) CreateStation() http.HandlerFunc {",
-		"ID string `json:\"id\" validate:\"required\"`",
 		"Name string `json:\"name\" validate:\"required\"`",
 		"Motto *string `json:\"motto\"`",
 		"Opened civil.Date `json:\"opened\" validate:\"required\"`",
-		"ID string `json:\"id\"`",
+		"ID impulse.UUID `json:\"id\"`",
 		"decoder := resource.MustNewBodyDecoder[request](a.Validator())",
 		"roles := a.StationAdministratorRoles()",
 		"identity := a.StaffIdentity()",
 		"held, err := userPermissions.Domains(ctx)",
 		`httpio.NewForbiddenMessage("the session already holds a station; a person creates one station and becomes its administrator")`,
-		"patch := resources.NewStationCreatePatch(req.ID)",
+		// The create generates the id, the id's text is the tenant's domain, and the
+		// membership is written under it.
+		"var id impulse.UUID",
+		"patch, err := resources.NewStationCreatePatch()",
+		`return errors.Wrap(err, "resources.NewStationCreatePatch()")`,
+		"id = patch.ID()",
+		"domain := accesstypes.Domain(id.String())",
 		"patch.SetName(req.Name)",
 		"patch.SetMotto(req.Motto)",
 		"patch.SetOpened(req.Opened)",
-		"if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), string(userPermissions.User()), role); err != nil {",
+		"if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(domain), userPermissions.User(), role); err != nil {",
 		"if err := resource.AwaitFirstAdministrator(ctx, userPermissions, domain); err != nil {",
 		"if err := a.TenantRoster().Reload(ctx); err != nil {",
 		"a.LiveService().Signal(ctx, resource.KindTenants)",
-		"return httpio.NewEncoder(w).Ok(response{ID: req.ID})",
+		// The answer carries the generated id.
+		"return httpio.NewEncoder(w).Ok(response{ID: id})",
 	}, []string{
 		"Derived", "SetID", "SetDerived", "sessioninfo", "EstablishedBy",
 		// Nothing is removed after the commit: the row and the administrator's
 		// membership are one transaction.
 		"DeletePatch", "SeatFirstAdministrator", "UserSurface",
+		// The person names no key: none is read off the request, and none is a string.
+		"req.ID", "NewStationCreatePatch(req", "ID string",
 	})
 
-	// The gate before the body, the membership before the commit, the commit before
-	// the roster, the roster before the wait, the wait before the signal, the signal
-	// before the answer.
+	// The request carries the columns the wire may write and no key; the answer
+	// carries the key alone.
 	s := string(out)
+	if request := structBody(t, s, "request"); strings.Contains(request, "ID") || !strings.Contains(request, "Name string") {
+		t.Errorf("the request struct = %q; want the record's writable columns and no key", request)
+	}
+	if response := strings.TrimSpace(structBody(t, s, "response")); response != "ID impulse.UUID `json:\"id\"`" {
+		t.Errorf("the response struct = %q; want the generated id alone", response)
+	}
+
+	// The gate before the body, the id generated inside the transaction before the
+	// row is buffered, the membership after the row and before the commit, the commit
+	// before the roster, the roster before the wait, the wait before the signal, the
+	// signal before the answer.
 	gate := strings.Index(s, "if len(held) > 0 {")
 	decode := strings.Index(s, "req, err := decoder.Decode(r)")
+	begin := strings.Index(s, "ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {")
+	generated := strings.Index(s, "id = patch.ID()")
+	row := strings.Index(s, "patch.Buffer(ctx, txn, eventSource)")
 	commit := strings.Index(s, "}); err != nil {")
 	roster := strings.Index(s, "a.TenantRoster().Reload(ctx)")
 	given := strings.Index(s, "identity.AssignRole(ctx, txn,")
 	seat := strings.Index(s, "resource.AwaitFirstAdministrator(")
 	signal := strings.Index(s, "Signal(ctx, resource.KindTenants)")
 	answer := strings.Index(s, "return httpio.NewEncoder(w).Ok(")
-	if gate >= decode || decode >= given || given >= commit || commit >= roster || roster >= seat || seat >= signal || signal >= answer {
-		t.Errorf("order: gate %d, decode %d, membership %d, commit %d, roster %d, wait %d, signal %d, answer %d; want ascending:\n%s", gate, decode, given, commit, roster, seat, signal, answer, out)
+	if gate >= decode || decode >= begin || begin >= generated || generated >= row || row >= given || given >= commit || commit >= roster || roster >= seat || seat >= signal || signal >= answer {
+		t.Errorf("order: gate %d, decode %d, transaction %d, generated id %d, row %d, membership %d, commit %d, roster %d, wait %d, signal %d, answer %d; want ascending:\n%s", gate, decode, begin, generated, row, given, commit, roster, seat, signal, answer, out)
 	}
+}
+
+// structBody returns the fields of the struct type the rendered source declares under
+// the name, as written between its braces.
+func structBody(t *testing.T, source, name string) string {
+	t.Helper()
+
+	_, after, found := strings.Cut(source, "type "+name+" struct {")
+	if !found {
+		t.Fatalf("the rendered source declares no struct type %s:\n%s", name, source)
+	}
+	body, _, found := strings.Cut(after, "\n\t}")
+	if !found {
+		t.Fatalf("the struct type %s is not closed:\n%s", name, source)
+	}
+
+	return body
 }
 
 // Test_accumulateTenantCreationRoute pins the route's registration: a POST under the
@@ -480,8 +560,8 @@ func Test_tenantCreationAuthzCases(t *testing.T) {
 		r.extraOutlets = []routerOutlet{{name: "members", prefix: "members", servesSessions: true, auth: openAuth("example.com/app/pkg/auth/staff")}}
 	})
 	want := []authzCase{
-		{Name: "CreateStation", Method: "http.MethodPost", URL: "/api/create-station", Body: "{}", NoGrant: true},
-		{Name: "CreateStation (members)", Method: "http.MethodPost", URL: "/members/create-station", Body: "{}", NoGrant: true},
+		{Name: "CreateStation", Method: "http.MethodPost", URL: "/api/create-station", Body: tenantCreationRefusedBody, NoGrant: true},
+		{Name: "CreateStation (members)", Method: "http.MethodPost", URL: "/members/create-station", Body: tenantCreationRefusedBody, NoGrant: true},
 	}
 	if diff := cmp.Diff(want, r.tenantCreationAuthzCases(), cmp.AllowUnexported(authzCase{})); diff != "" {
 		t.Errorf("tenantCreationAuthzCases() mismatch (-want +got):\n%s", diff)
@@ -498,7 +578,7 @@ func Test_authzTestTemplate_noGrant(t *testing.T) {
 
 	out, err := (&client{}).generateTemplateOutput("authzTestTemplate", authzTestTemplate, &authzTestData{
 		Package: "authz",
-		Cases:   []authzCase{{Name: "CreateStation", Method: "http.MethodPost", URL: "/api/create-station", Body: "{}", NoGrant: true}},
+		Cases:   []authzCase{{Name: "CreateStation", Method: "http.MethodPost", URL: "/api/create-station", Body: tenantCreationRefusedBody, NoGrant: true}},
 	})
 	if err != nil {
 		t.Fatalf("generateTemplateOutput() error = %v", err)
@@ -514,8 +594,10 @@ func Test_authzTestTemplate_noGrant(t *testing.T) {
 		[]string{"CreateStation denied", "CreateStation granted", "CreateStation open"})
 }
 
-// Test_apiClientData_tenantCreation pins the client's block: the route constant and
-// the request's interface on an outlet serving the route, nothing elsewhere.
+// Test_apiClientData_tenantCreation pins the client's block: the route constant, the
+// request's interface, which carries no key since the route generates it, and the
+// answer's interface, which carries the generated id, on an outlet serving the route,
+// nothing elsewhere.
 func Test_apiClientData_tenantCreation(t *testing.T) {
 	t.Parallel()
 
@@ -532,7 +614,9 @@ func Test_apiClientData_tenantCreation(t *testing.T) {
 			wantContains: []string{
 				"The create-your-colony route (@tenant(creation: both)): POST create-colony under the API",
 				"export const createColonyRoute = 'create-colony';",
-				"export interface CreateColony {\n  id: string;\n  name: string;\n}",
+				"The route generates the new colony's id and answers it.",
+				"export interface CreateColony {\n  name: string;\n}",
+				"export interface CreateColonyAnswer {\n  id: string;\n}",
 			},
 		},
 		{
@@ -540,7 +624,8 @@ func Test_apiClientData_tenantCreation(t *testing.T) {
 			record: "Station",
 			wantContains: []string{
 				"export const createStationRoute = 'create-station';",
-				"export interface CreateStation {\n  id: string;\n  name: string;\n  motto?: string | null;\n  opened: string;\n}",
+				"export interface CreateStation {\n  name: string;\n  motto?: string | null;\n  opened: string;\n}",
+				"export interface CreateStationAnswer {\n  id: string;\n}",
 			},
 			wantNotContains: []string{"derived"},
 		},

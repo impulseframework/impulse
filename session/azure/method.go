@@ -353,8 +353,8 @@ func method(authn Authenticator, roles *signin.RoleReconciler, authority string,
 		},
 	}
 	if roles != nil {
-		m.SyncRoles = func(ctx context.Context, username string, roleNames []string) error {
-			return roles.RequireRoles(ctx, accesstypes.User(username), roleNames)
+		m.SyncRoles = func(ctx context.Context, user accesstypes.User, roleNames []string) error {
+			return roles.RequireRoles(ctx, user, roleNames)
 		}
 		m.RecognizesRoles = func(ctx context.Context, roleNames []string) (bool, error) {
 			return roles.RecognizesAny(ctx, roleNames)

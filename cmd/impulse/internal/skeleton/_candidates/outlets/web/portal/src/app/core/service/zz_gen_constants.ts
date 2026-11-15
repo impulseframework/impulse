@@ -107,7 +107,7 @@ export namespace MembersRoleGrants {
   export const fieldName = {
     axis: 'axis' as FieldName,
     condition: 'condition' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     field: 'field' as FieldName,
     kind: 'kind' as FieldName,
     permission: 'permission' as FieldName,
@@ -118,7 +118,7 @@ export namespace MembersRoleGrants {
   export const resourceName = {
     axis: 'MembersRoleGrants.axis' as Resource,
     condition: 'MembersRoleGrants.condition' as Resource,
-    domain: 'MembersRoleGrants.domain' as Resource,
+    domainId: 'MembersRoleGrants.domainId' as Resource,
     field: 'MembersRoleGrants.field' as Resource,
     kind: 'MembersRoleGrants.kind' as Resource,
     permission: 'MembersRoleGrants.permission' as Resource,
@@ -132,7 +132,7 @@ export namespace MembersRoles {
   export const fieldName = {
     axis: 'axis' as FieldName,
     description: 'description' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     kind: 'kind' as FieldName,
     role: 'role' as FieldName,
     updatedAt: 'updatedAt' as FieldName,
@@ -140,7 +140,7 @@ export namespace MembersRoles {
   export const resourceName = {
     axis: 'MembersRoles.axis' as Resource,
     description: 'MembersRoles.description' as Resource,
-    domain: 'MembersRoles.domain' as Resource,
+    domainId: 'MembersRoles.domainId' as Resource,
     kind: 'MembersRoles.kind' as Resource,
     role: 'MembersRoles.role' as Resource,
     updatedAt: 'MembersRoles.updatedAt' as Resource,
@@ -198,11 +198,11 @@ export namespace MembersSessionMailLinks {
     email: 'email' as FieldName,
     expiresAt: 'expiresAt' as FieldName,
     id: 'id' as FieldName,
-    invitedBy: 'invitedBy' as FieldName,
+    invitedByUserId: 'invitedByUserId' as FieldName,
     kind: 'kind' as FieldName,
     name: 'name' as FieldName,
     roleNames: 'roleNames' as FieldName,
-    tenant: 'tenant' as FieldName,
+    tenantId: 'tenantId' as FieldName,
     userId: 'userId' as FieldName,
   };
   export const resourceName = {
@@ -211,11 +211,11 @@ export namespace MembersSessionMailLinks {
     email: 'MembersSessionMailLinks.email' as Resource,
     expiresAt: 'MembersSessionMailLinks.expiresAt' as Resource,
     id: 'MembersSessionMailLinks.id' as Resource,
-    invitedBy: 'MembersSessionMailLinks.invitedBy' as Resource,
+    invitedByUserId: 'MembersSessionMailLinks.invitedByUserId' as Resource,
     kind: 'MembersSessionMailLinks.kind' as Resource,
     name: 'MembersSessionMailLinks.name' as Resource,
     roleNames: 'MembersSessionMailLinks.roleNames' as Resource,
-    tenant: 'MembersSessionMailLinks.tenant' as Resource,
+    tenantId: 'MembersSessionMailLinks.tenantId' as Resource,
     userId: 'MembersSessionMailLinks.userId' as Resource,
   };
 }
@@ -242,7 +242,7 @@ export namespace MembersSessionTokens {
     clientId: 'clientId' as FieldName,
     createdAt: 'createdAt' as FieldName,
     expiresAt: 'expiresAt' as FieldName,
-    family: 'family' as FieldName,
+    familyId: 'familyId' as FieldName,
     id: 'id' as FieldName,
     kind: 'kind' as FieldName,
     lastUsedAt: 'lastUsedAt' as FieldName,
@@ -256,7 +256,7 @@ export namespace MembersSessionTokens {
     clientId: 'MembersSessionTokens.clientId' as Resource,
     createdAt: 'MembersSessionTokens.createdAt' as Resource,
     expiresAt: 'MembersSessionTokens.expiresAt' as Resource,
-    family: 'MembersSessionTokens.family' as Resource,
+    familyId: 'MembersSessionTokens.familyId' as Resource,
     id: 'MembersSessionTokens.id' as Resource,
     kind: 'MembersSessionTokens.kind' as Resource,
     lastUsedAt: 'MembersSessionTokens.lastUsedAt' as Resource,
@@ -337,7 +337,7 @@ export namespace MembersTenantIdentities {
   export const fieldName = {
     connection: 'connection' as FieldName,
     createdAt: 'createdAt' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     emailAtLink: 'emailAtLink' as FieldName,
     heldElsewhere: 'heldElsewhere' as FieldName,
     heldGlobally: 'heldGlobally' as FieldName,
@@ -352,7 +352,7 @@ export namespace MembersTenantIdentities {
   export const resourceName = {
     connection: 'MembersTenantIdentities.connection' as Resource,
     createdAt: 'MembersTenantIdentities.createdAt' as Resource,
-    domain: 'MembersTenantIdentities.domain' as Resource,
+    domainId: 'MembersTenantIdentities.domainId' as Resource,
     emailAtLink: 'MembersTenantIdentities.emailAtLink' as Resource,
     heldElsewhere: 'MembersTenantIdentities.heldElsewhere' as Resource,
     heldGlobally: 'MembersTenantIdentities.heldGlobally' as Resource,
@@ -370,11 +370,11 @@ export namespace MembersTenantInvitations {
   export const fieldName = {
     consumedAt: 'consumedAt' as FieldName,
     createdAt: 'createdAt' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     email: 'email' as FieldName,
     expiresAt: 'expiresAt' as FieldName,
     id: 'id' as FieldName,
-    invitedBy: 'invitedBy' as FieldName,
+    invitedByUserId: 'invitedByUserId' as FieldName,
     name: 'name' as FieldName,
     pending: 'pending' as FieldName,
     roleNames: 'roleNames' as FieldName,
@@ -382,11 +382,11 @@ export namespace MembersTenantInvitations {
   export const resourceName = {
     consumedAt: 'MembersTenantInvitations.consumedAt' as Resource,
     createdAt: 'MembersTenantInvitations.createdAt' as Resource,
-    domain: 'MembersTenantInvitations.domain' as Resource,
+    domainId: 'MembersTenantInvitations.domainId' as Resource,
     email: 'MembersTenantInvitations.email' as Resource,
     expiresAt: 'MembersTenantInvitations.expiresAt' as Resource,
     id: 'MembersTenantInvitations.id' as Resource,
-    invitedBy: 'MembersTenantInvitations.invitedBy' as Resource,
+    invitedByUserId: 'MembersTenantInvitations.invitedByUserId' as Resource,
     name: 'MembersTenantInvitations.name' as Resource,
     pending: 'MembersTenantInvitations.pending' as Resource,
     roleNames: 'MembersTenantInvitations.roleNames' as Resource,
@@ -407,7 +407,7 @@ export namespace MembersTenantRoles {
 export namespace MembersTenantUserRoles {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
     role: 'role' as FieldName,
     userId: 'userId' as FieldName,
@@ -415,7 +415,7 @@ export namespace MembersTenantUserRoles {
   };
   export const resourceName = {
     createdAt: 'MembersTenantUserRoles.createdAt' as Resource,
-    domain: 'MembersTenantUserRoles.domain' as Resource,
+    domainId: 'MembersTenantUserRoles.domainId' as Resource,
     everyDomain: 'MembersTenantUserRoles.everyDomain' as Resource,
     role: 'MembersTenantUserRoles.role' as Resource,
     userId: 'MembersTenantUserRoles.userId' as Resource,
@@ -427,7 +427,7 @@ export namespace MembersTenantUsers {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     email: 'email' as FieldName,
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
     heldElsewhere: 'heldElsewhere' as FieldName,
@@ -441,7 +441,7 @@ export namespace MembersTenantUsers {
   export const resourceName = {
     createdAt: 'MembersTenantUsers.createdAt' as Resource,
     disabled: 'MembersTenantUsers.disabled' as Resource,
-    domain: 'MembersTenantUsers.domain' as Resource,
+    domainId: 'MembersTenantUsers.domainId' as Resource,
     email: 'MembersTenantUsers.email' as Resource,
     emailVerifiedAt: 'MembersTenantUsers.emailVerifiedAt' as Resource,
     heldElsewhere: 'MembersTenantUsers.heldElsewhere' as Resource,
@@ -458,24 +458,24 @@ export namespace MembersUserRoles {
   export const fieldName = {
     axis: 'axis' as FieldName,
     createdAt: 'createdAt' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     kind: 'kind' as FieldName,
     role: 'role' as FieldName,
-    user: 'user' as FieldName,
+    userId: 'userId' as FieldName,
   };
   export const resourceName = {
     axis: 'MembersUserRoles.axis' as Resource,
     createdAt: 'MembersUserRoles.createdAt' as Resource,
-    domain: 'MembersUserRoles.domain' as Resource,
+    domainId: 'MembersUserRoles.domainId' as Resource,
     kind: 'MembersUserRoles.kind' as Resource,
     role: 'MembersUserRoles.role' as Resource,
-    user: 'MembersUserRoles.user' as Resource,
+    userId: 'MembersUserRoles.userId' as Resource,
   };
 }
 
 export namespace AssignMembersRole {
   export const fieldName = {
-    username: 'username' as FieldName,
+    userId: 'userId' as FieldName,
     role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
@@ -562,7 +562,7 @@ export namespace InviteMembersUser {
 
 export namespace RemoveMembersRole {
   export const fieldName = {
-    username: 'username' as FieldName,
+    userId: 'userId' as FieldName,
     role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,

@@ -86,10 +86,10 @@ func TestGeneratedIdentitySectorInvitationsAndPassword(t *testing.T) {
 	if err := json.Unmarshal(body, &answer); err != nil || answer.ID == "" || !answer.Sent {
 		t.Fatalf("invite-crew-sector-user answered %s (%v), want the invitation's id and the word that its message went", body, err)
 	}
-	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{answer.ID}, "Tenant"); got.StringVal != anvil {
+	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{answer.ID}, "TenantId"); got.StringVal != anvil {
 		t.Errorf("the invitation's tenant = %v, want %s", got, anvil)
 	}
-	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{answer.ID}, "InvitedBy"); got.StringVal != marshalID {
+	if got := readColumn[spanner.NullString](ctx, t, s.db, "CrewSessionMailLinks", spanner.Key{answer.ID}, "InvitedByUserId"); got.StringVal != marshalID {
 		t.Errorf("the invitation's sender = %v, want the Marshal (%s)", got, marshalID)
 	}
 	_, token := lastMailTo(t, s, email, "invitation")
@@ -119,7 +119,7 @@ func TestGeneratedIdentitySectorInvitationsAndPassword(t *testing.T) {
 		t.Fatalf("signing up at the invitation: status %d: %s", status, body)
 	}
 	stranger.secondFactor(ctx, username)
-	if got, want := crewHolds(t, s.db, username), []string{"domain/anvil Cadet"}; !slices.Equal(got, want) {
+	if got, want := crewHolds(t, s.db, username), []string{"domain/" + anvil + " Cadet"}; !slices.Equal(got, want) {
 		t.Errorf("the invited person holds %v, want %v", got, want)
 	}
 	if !consumed(answer.ID) {
@@ -154,7 +154,7 @@ func TestGeneratedIdentitySectorInvitationsAndPassword(t *testing.T) {
 
 	// An invitation into another sector, and one into the application, are no rows of
 	// Anvil's list: the Marshal does not find them.
-	atBastion := inviteCrew(ctx, t, hq, `{"email":"elsewhere@example.com","roles":["Pilot"],"domain":"bastion"}`)
+	atBastion := inviteCrew(ctx, t, hq, `{"email":"elsewhere@example.com","roles":["Pilot"],"domain":"`+bastion+`"}`)
 	intoApplication := inviteCrew(ctx, t, hq, `{"email":"staff@example.com","roles":["ClientBrowser"]}`)
 	for name, id := range map[string]string{"another sector's": atBastion.ID, "the application's": intoApplication.ID} {
 		if status, body := withdraw(marshal, anvil, id); status != http.StatusNotFound {
@@ -170,9 +170,9 @@ func TestGeneratedIdentitySectorInvitationsAndPassword(t *testing.T) {
 	// role the invitation gives, and every one has to pass. The row's Execute answer says
 	// so before the Marshal tries, and Headquarters, whose grant carries no condition,
 	// withdraws it.
-	asMarshal := inviteCrew(ctx, t, hq, `{"email":"successor@example.com","roles":["SectorMarshal"],"domain":"anvil"}`)
-	amongOthers := inviteCrew(ctx, t, hq, `{"email":"deputy@example.com","roles":["Cadet","SectorMarshal"],"domain":"anvil"}`)
-	asPilot := inviteCrew(ctx, t, hq, `{"email":"wingmate@example.com","roles":["Pilot","Cadet"],"domain":"anvil"}`)
+	asMarshal := inviteCrew(ctx, t, hq, `{"email":"successor@example.com","roles":["SectorMarshal"],"domain":"`+anvil+`"}`)
+	amongOthers := inviteCrew(ctx, t, hq, `{"email":"deputy@example.com","roles":["Cadet","SectorMarshal"],"domain":"`+anvil+`"}`)
+	asPilot := inviteCrew(ctx, t, hq, `{"email":"wingmate@example.com","roles":["Pilot","Cadet"],"domain":"`+anvil+`"}`)
 	withdrawable := func(id string) bool {
 		status, body := marshal.do(ctx, http.MethodGet, sectorPath(anvil, sectorInvitationsPath+"/"+id+"?capabilities=Execute"), nil)
 		assertStatus(t, status, http.StatusOK, body)
@@ -236,7 +236,7 @@ func TestGeneratedIdentitySectorInvitationsAndPassword(t *testing.T) {
 
 	// Once the recruit holds a role at Bastion too, the account is not Anvil's alone:
 	// the Marshal sets no password for them.
-	if status, body := hq.do(ctx, http.MethodPost, consoleAPI+"/assign-crew-role", []byte(`{"username":"`+username+`","role":"Pilot","domain":"bastion"}`)); status != http.StatusNoContent {
+	if status, body := hq.do(ctx, http.MethodPost, consoleAPI+"/assign-crew-role", []byte(`{"userId":"`+recruitID+`","role":"Pilot","domain":"`+bastion+`"}`)); status != http.StatusNoContent {
 		t.Fatalf("seating the recruit at Bastion: status %d: %s", status, body)
 	}
 	if status, body := post(marshal, anvil, "set-crew-sector-temporary-password", `{"userId":"`+recruitID+`","password":"second-day-pass"}`); status != http.StatusForbidden {

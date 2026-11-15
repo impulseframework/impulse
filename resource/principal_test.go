@@ -105,6 +105,37 @@ func sessionCtx(username string, imp *sessioninfo.Impersonation, events ...sessi
 	})
 }
 
+// aliceID and bobID are the accounts of the tests' two people, and aliceUser and
+// bobUser the people as the permission store names them: by the id of their account,
+// as text. The usernames alice and bob are what people read.
+var (
+	aliceID   = impulse.Must(impulse.UUIDFromString("a11ce000-0000-4000-8000-000000000001"))
+	bobID     = impulse.Must(impulse.UUIDFromString("b0b00000-0000-4000-8000-000000000002"))
+	aliceUser = accesstypes.User(aliceID.String())
+	bobUser   = accesstypes.User(bobID.String())
+)
+
+// accountCtx is sessionCtx for a session that belongs to an account, as an Auth's
+// sessions do: UserID is the account's id.
+func accountCtx(username string, userID impulse.UUID, imp *sessioninfo.Impersonation, events ...sessioninfo.AuthEvent) context.Context {
+	return context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, &sessioninfo.SessionData{
+		SessionInfo:   &sessioninfo.SessionInfo{ID: impulse.Must(impulse.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5")), Username: username},
+		Impersonation: imp,
+		AuthEvents:    events,
+		UserID:        impulse.NullUUIDFromUUID(userID),
+	})
+}
+
+// resolvedAs is ctx with the request's principal set, as the application's principal
+// resolver sets it when the session is validated: what the request is authorized as,
+// and nothing of whose session it is.
+func resolvedAs(ctx context.Context, principal accesstypes.Principal) context.Context {
+	sess := *sessioninfo.DataFromCtx(ctx)
+	sess.Principal = principal
+
+	return context.WithValue(ctx, sessioninfo.CtxSessionInfo, &sess)
+}
+
 func TestMasked(t *testing.T) {
 	t.Parallel()
 
@@ -241,6 +272,15 @@ func (r *checkerRecorder) forRole(role accesstypes.Role) *stubRolePermissions {
 	return &stubRolePermissions{role: role}
 }
 
+// TestSessionPermissions pins which checker a session is answered by and who it is.
+// A person is named as the permission store names them, by the id of their account: a
+// session that belongs to an account asks forUser for the id and never the username,
+// and one that belongs to none (a session type that keeps no accounts) has only its
+// username. A role principal is nobody. The User() of a session established to act as
+// a role is the actor who established it, their account's id where the impersonation
+// carries one and their name where it does not; a session the application's resolver
+// gave a role stays its own person's, who is the person viewed as when it views as
+// someone, never the actor.
 func TestSessionPermissions(t *testing.T) {
 	t.Parallel()
 
@@ -259,7 +299,16 @@ func TestSessionPermissions(t *testing.T) {
 		wantDomains []accesstypes.Domain
 	}{
 		{
-			name:          "ordinary session routes to the user checker, unmasked",
+			name:          "ordinary session of an account routes to the user checker for the account's id, never the username, unmasked",
+			ctx:           accountCtx("alice", aliceID, nil),
+			wantUsers:     []accesstypes.User{aliceUser},
+			wantUser:      aliceUser,
+			wantUpdate:    true,
+			wantDigestLen: 1,
+			wantDomains:   []accesstypes.Domain{"tenant"},
+		},
+		{
+			name:          "ordinary session that belongs to no account routes to the user checker for its username",
 			ctx:           sessionCtx("alice", nil),
 			wantUsers:     []accesstypes.User{"alice"},
 			wantUser:      "alice",
@@ -268,7 +317,20 @@ func TestSessionPermissions(t *testing.T) {
 			wantDomains:   []accesstypes.Domain{"tenant"},
 		},
 		{
-			name: "impersonated user routes to the user checker for the impersonated user and is masked",
+			name: "impersonated user of an account routes to the user checker for the impersonated account's id and is masked",
+			ctx: accountCtx("bob", bobID, &sessioninfo.Impersonation{
+				Actor:     "alice",
+				ActorID:   impulse.NullUUIDFromUUID(aliceID),
+				Principal: accesstypes.UserPrincipal(bobUser),
+				Mask:      accesstypes.MaskPermissions(accesstypes.DenyAll(), accesstypes.List, accesstypes.Read),
+			}),
+			wantUsers:     []accesstypes.User{bobUser},
+			wantUser:      bobUser,
+			wantDigestLen: 0,
+			wantDomains:   []accesstypes.Domain{},
+		},
+		{
+			name: "impersonated user of no account routes to the user checker for the impersonated username and is masked",
 			ctx: sessionCtx("bob", &sessioninfo.Impersonation{
 				Actor:     "alice",
 				Principal: accesstypes.UserPrincipal("bob"),
@@ -280,10 +342,74 @@ func TestSessionPermissions(t *testing.T) {
 			wantDomains:   []accesstypes.Domain{},
 		},
 		{
-			name:          "role principal routes to the role checker, which has no User(); the session's effective identity is supplied",
-			ctx:           sessionCtx("alice", &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.RolePrincipal("PartnerViewer")}),
+			name: "role principal routes to the role checker, which has no User(); the actor's account id is supplied",
+			ctx: sessionCtx("alice", &sessioninfo.Impersonation{
+				Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.RolePrincipal("PartnerViewer"),
+			}),
+			wantRoles:     []accesstypes.Role{"PartnerViewer"},
+			wantUser:      aliceUser,
+			wantUpdate:    true,
+			wantDigestLen: 1,
+			wantDomains:   []accesstypes.Domain{"tenant"},
+		},
+		{
+			name: "role principal of an actor with no account here: the actor's name is supplied",
+			ctx: sessionCtx("alice", &sessioninfo.Impersonation{
+				Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("PartnerViewer"),
+			}),
 			wantRoles:     []accesstypes.Role{"PartnerViewer"},
 			wantUser:      "alice",
+			wantUpdate:    true,
+			wantDigestLen: 1,
+			wantDomains:   []accesstypes.Domain{"tenant"},
+		},
+		{
+			name: "role principal the session was established as: the actor's account id is supplied whatever role a resolver chose for the request",
+			ctx: resolvedAs(sessionCtx("alice", &sessioninfo.Impersonation{
+				Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.RolePrincipal("PartnerViewer"),
+			}), accesstypes.RolePrincipal("Auditor")),
+			wantRoles:     []accesstypes.Role{"Auditor"},
+			wantUser:      aliceUser,
+			wantUpdate:    true,
+			wantDigestLen: 1,
+			wantDomains:   []accesstypes.Domain{"tenant"},
+		},
+		{
+			name:          "role principal a resolver chose for an ordinary session of an account: the session's own account id is supplied",
+			ctx:           resolvedAs(accountCtx("alice", aliceID, nil), accesstypes.RolePrincipal("PartnerViewer")),
+			wantRoles:     []accesstypes.Role{"PartnerViewer"},
+			wantUser:      aliceUser,
+			wantUpdate:    true,
+			wantDigestLen: 1,
+			wantDomains:   []accesstypes.Domain{"tenant"},
+		},
+		{
+			name:          "role principal a resolver chose for an ordinary session that belongs to no account: its username is supplied",
+			ctx:           resolvedAs(sessionCtx("alice", nil), accesstypes.RolePrincipal("PartnerViewer")),
+			wantRoles:     []accesstypes.Role{"PartnerViewer"},
+			wantUser:      "alice",
+			wantUpdate:    true,
+			wantDigestLen: 1,
+			wantDomains:   []accesstypes.Domain{"tenant"},
+		},
+		{
+			name: "role principal a resolver chose for an impersonated user: the account id of the person viewed as is supplied, never the actor's",
+			ctx: resolvedAs(accountCtx("bob", bobID, &sessioninfo.Impersonation{
+				Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.UserPrincipal(bobUser),
+			}), accesstypes.RolePrincipal("PartnerViewer")),
+			wantRoles:     []accesstypes.Role{"PartnerViewer"},
+			wantUser:      bobUser,
+			wantUpdate:    true,
+			wantDigestLen: 1,
+			wantDomains:   []accesstypes.Domain{"tenant"},
+		},
+		{
+			name: "role principal a resolver chose for an impersonated user, an actor with no account here: the account id of the person viewed as is supplied, never the actor's name",
+			ctx: resolvedAs(accountCtx("bob", bobID, &sessioninfo.Impersonation{
+				Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(bobUser),
+			}), accesstypes.RolePrincipal("PartnerViewer")),
+			wantRoles:     []accesstypes.Role{"PartnerViewer"},
+			wantUser:      bobUser,
 			wantUpdate:    true,
 			wantDigestLen: 1,
 			wantDomains:   []accesstypes.Domain{"tenant"},
@@ -301,10 +427,28 @@ func TestSessionPermissions(t *testing.T) {
 			wantDomains:   []accesstypes.Domain{},
 		},
 		{
-			name:        "role principal without a role checker fails closed with the session's effective identity as User()",
+			name: "role principal without a role checker fails closed with the actor's account id as User()",
+			ctx: sessionCtx("alice", &sessioninfo.Impersonation{
+				Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.RolePrincipal("PartnerViewer"),
+			}),
+			unsupported: true,
+			wantUser:    aliceUser,
+			wantDomains: []accesstypes.Domain{},
+		},
+		{
+			name:        "role principal without a role checker, of an actor with no account here, fails closed with the actor's name as User()",
 			ctx:         sessionCtx("alice", &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.RolePrincipal("PartnerViewer")}),
 			unsupported: true,
 			wantUser:    "alice",
+			wantDomains: []accesstypes.Domain{},
+		},
+		{
+			name: "role principal a resolver chose for an impersonated user, without a role checker, fails closed, and User() is the account id of the person viewed as",
+			ctx: resolvedAs(accountCtx("bob", bobID, &sessioninfo.Impersonation{
+				Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.UserPrincipal(bobUser),
+			}), accesstypes.RolePrincipal("PartnerViewer")),
+			unsupported: true,
+			wantUser:    bobUser,
 			wantDomains: []accesstypes.Domain{},
 		},
 	}
@@ -360,8 +504,15 @@ func TestSessionPermissions(t *testing.T) {
 	}
 }
 
+// TestUserEvent pins the event source a data change carries. A person is written as
+// their username with the id of their account, and by name alone where they have no
+// account here; the session comes last. An impersonated session names the actor first.
 func TestUserEvent(t *testing.T) {
 	t.Parallel()
+
+	const session = "de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"
+	alice, bob := aliceID.String(), bobID.String()
+	actorAlice := impulse.NullUUIDFromUUID(aliceID)
 
 	tests := []struct {
 		name string
@@ -369,19 +520,52 @@ func TestUserEvent(t *testing.T) {
 		want string
 	}{
 		{
-			name: "ordinary session",
+			name: "ordinary session: the username, the account id, the session",
+			ctx:  accountCtx("alice@example.com", aliceID, nil),
+			want: "alice@example.com (" + alice + "), session " + session,
+		},
+		{
+			name: "ordinary session of no account: the person by name alone",
 			ctx:  sessionCtx("alice@example.com", nil),
-			want: "alice@example.com (de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5)",
+			want: "alice@example.com, session " + session,
 		},
 		{
-			name: "impersonated user names the actor first",
+			name: "impersonated user names the actor first, each with the id of their account",
+			ctx: accountCtx("bob@partner.org", bobID, &sessioninfo.Impersonation{
+				Actor: "alice@example.com", ActorID: actorAlice, Principal: accesstypes.UserPrincipal(bobUser),
+			}),
+			want: "alice@example.com (" + alice + ") impersonating bob@partner.org (" + bob + "), session " + session,
+		},
+		{
+			name: "impersonated user, an actor with no account here: the actor by name alone",
+			ctx: accountCtx("bob@partner.org", bobID, &sessioninfo.Impersonation{
+				Actor: "alice@example.com", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(bobUser),
+			}),
+			want: "alice@example.com impersonating bob@partner.org (" + bob + "), session " + session,
+		},
+		{
+			name: "impersonated user of no account, an actor with one: the user by name alone",
+			ctx: sessionCtx("bob@partner.org", &sessioninfo.Impersonation{
+				Actor: "alice@example.com", ActorID: actorAlice, Principal: accesstypes.UserPrincipal("bob@partner.org"),
+			}),
+			want: "alice@example.com (" + alice + ") impersonating bob@partner.org, session " + session,
+		},
+		{
+			name: "impersonated user, neither with an account: both by name alone",
 			ctx:  sessionCtx("bob@partner.org", &sessioninfo.Impersonation{Actor: "alice@example.com", Principal: accesstypes.UserPrincipal("bob@partner.org")}),
-			want: "alice@example.com impersonating bob@partner.org (de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5)",
+			want: "alice@example.com impersonating bob@partner.org, session " + session,
 		},
 		{
-			name: "impersonated role names the actor and the role",
+			name: "impersonated role names the actor, with the id of their account, and the role",
+			ctx: sessionCtx("alice@example.com", &sessioninfo.Impersonation{
+				Actor: "alice@example.com", ActorID: actorAlice, Principal: accesstypes.RolePrincipal("PartnerViewer"),
+			}),
+			want: "alice@example.com (" + alice + ") as role PartnerViewer, session " + session,
+		},
+		{
+			name: "impersonated role, an actor with no account here: the actor by name alone",
 			ctx:  sessionCtx("alice@example.com", &sessioninfo.Impersonation{Actor: "alice@example.com", Principal: accesstypes.RolePrincipal("PartnerViewer")}),
-			want: "alice@example.com as role PartnerViewer (de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5)",
+			want: "alice@example.com as role PartnerViewer, session " + session,
 		},
 	}
 	for _, tt := range tests {
@@ -756,5 +940,129 @@ func TestSessionPermissions_admissionReadsOnce(t *testing.T) {
 	}
 	if users != 1 {
 		t.Errorf("forUser was called %d times, want once: an ordinary session's actor is its user", users)
+	}
+}
+
+// TestSessionPermissions_actorByAccount pins who the staff question is asked of when
+// the people of a session are accounts: the session's actor as the permission store
+// names them, by the id of their account. An ordinary session's actor is its user, and
+// the checker in hand answers; an impersonated session's actor is the real person
+// behind it, asked for under their account's id and never their username, so the reach
+// follows the grants the actor's account holds; an actor with no account here is asked
+// for by the name the impersonation carries.
+func TestSessionPermissions_actorByAccount(t *testing.T) {
+	t.Parallel()
+
+	const anvil accesstypes.Domain = "anvil"
+	password := sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}
+	impersonation := sessioninfo.AuthEvent{Method: sessioninfo.MethodImpersonation, Connection: "alice"}
+	asBob := func(actorID impulse.NullUUID) *sessioninfo.Impersonation {
+		return &sessioninfo.Impersonation{Actor: "alice", ActorID: actorID, Principal: accesstypes.UserPrincipal(bobUser)}
+	}
+	asRole := &sessioninfo.Impersonation{Actor: "alice", ActorID: impulse.NullUUIDFromUUID(aliceID), Principal: accesstypes.RolePrincipal("PartnerViewer")}
+
+	tests := []struct {
+		name string
+		ctx  context.Context
+		// staff are the users whose checker holds a grant in the global partition.
+		staff []accesstypes.User
+		// wantAsked are the users forUser was asked for, in order: the principal's
+		// checker first, for a user principal, then the actor's for the staff question.
+		wantAsked []accesstypes.User
+		wantUser  accesstypes.User
+		// wantReaches is whether the session reaches anvil, which admits a directory's
+		// sessions alone: only the application's staff do.
+		wantReaches bool
+	}{
+		{
+			name:        "an ordinary session's actor is its user: the account's checker answers, asked for once",
+			ctx:         accountCtx("alice", aliceID, nil, password),
+			staff:       []accesstypes.User{aliceUser},
+			wantAsked:   []accesstypes.User{aliceUser},
+			wantUser:    aliceUser,
+			wantReaches: true,
+		},
+		{
+			name:      "an ordinary session: a grant held under the username is nobody's",
+			ctx:       accountCtx("alice", aliceID, nil, password),
+			staff:     []accesstypes.User{"alice"},
+			wantAsked: []accesstypes.User{aliceUser},
+			wantUser:  aliceUser,
+		},
+		{
+			name:        "an impersonated session: the staff question is asked of the actor's account id",
+			ctx:         accountCtx("bob", bobID, asBob(impulse.NullUUIDFromUUID(aliceID)), impersonation),
+			staff:       []accesstypes.User{aliceUser},
+			wantAsked:   []accesstypes.User{bobUser, aliceUser},
+			wantUser:    bobUser,
+			wantReaches: true,
+		},
+		{
+			name:      "an impersonated session: the impersonated account's grants do not answer for the actor",
+			ctx:       accountCtx("bob", bobID, asBob(impulse.NullUUIDFromUUID(aliceID)), impersonation),
+			staff:     []accesstypes.User{bobUser},
+			wantAsked: []accesstypes.User{bobUser, aliceUser},
+			wantUser:  bobUser,
+		},
+		{
+			name:      "an impersonated session: a grant held under the actor's username is nobody's",
+			ctx:       accountCtx("bob", bobID, asBob(impulse.NullUUIDFromUUID(aliceID)), impersonation),
+			staff:     []accesstypes.User{"alice"},
+			wantAsked: []accesstypes.User{bobUser, aliceUser},
+			wantUser:  bobUser,
+		},
+		{
+			name:        "an impersonated session of an actor with no account here: the question is asked of the actor's name",
+			ctx:         accountCtx("bob", bobID, asBob(impulse.NullUUID{}), impersonation),
+			staff:       []accesstypes.User{"alice"},
+			wantAsked:   []accesstypes.User{bobUser, "alice"},
+			wantUser:    bobUser,
+			wantReaches: true,
+		},
+		{
+			name:        "a role principal: the question is asked of the actor's account id, which is the session's User()",
+			ctx:         sessionCtx("alice", asRole, impersonation),
+			staff:       []accesstypes.User{aliceUser},
+			wantAsked:   []accesstypes.User{aliceUser},
+			wantUser:    aliceUser,
+			wantReaches: true,
+		},
+	}
+	roster := func(context.Context) ([]accesstypes.Domain, error) {
+		return []accesstypes.Domain{anvil}, nil
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var asked []accesstypes.User
+			forUser := func(user accesstypes.User) *stubPermissions {
+				asked = append(asked, user)
+
+				return &stubPermissions{user: user, domains: []accesstypes.Domain{anvil}, global: slices.Contains(tt.staff, user)}
+			}
+			forRole := func(accesstypes.Role) *stubRolePermissions {
+				return &stubRolePermissions{}
+			}
+			reader := &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: {DirectoryOnly: true}}}
+			perms := SessionPermissions(tt.ctx, forUser, forRole, roster, reader.read)
+
+			if perms.User() != tt.wantUser {
+				t.Errorf("User() = %q, want %q", perms.User(), tt.wantUser)
+			}
+			// Asked twice: the staff question is asked once for the composed value.
+			for range 2 {
+				reaches, err := perms.Reaches(context.Background(), anvil)
+				if err != nil {
+					t.Fatalf("Reaches() error = %v", err)
+				}
+				if reaches != tt.wantReaches {
+					t.Errorf("Reaches(%s) = %v, want %v", anvil, reaches, tt.wantReaches)
+				}
+			}
+			if diff := cmp.Diff(tt.wantAsked, asked); diff != "" {
+				t.Errorf("forUser calls mismatch (-want +got):\n%s", diff)
+			}
+		})
 	}
 }

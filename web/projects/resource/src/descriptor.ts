@@ -188,6 +188,14 @@ export interface IdentityDescriptor {
   readonly auth: string;
   readonly label: string;
   readonly tenant?: string;
+  /**
+   * The tenant record's resource, where the outlet serves it. A list of the whole
+   * application's side carries the key of the tenant a role or an invitation is in, an
+   * id nobody reads: the pages read the tenant's name from this resource (its metadata's
+   * `nameField`). Absent where the outlet does not serve the record, or on a description
+   * from a generator that predates it, and the pages show the key.
+   */
+  readonly tenantResource?: string;
   readonly sides: readonly IdentitySideDescriptor[];
 }
 

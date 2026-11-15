@@ -10,7 +10,7 @@ INSERT INTO "SessionCustomData" ("SessionId", "CustomString")
     VALUES
         ('11111111-1111-1111-1111-111111111111', 'admin');
 
-INSERT INTO "SessionImpersonations" ("SessionId", "ActorUsername", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUser", "PrincipalRole", "Mask", "Reason", "StartedAt", "ExpiresAt", "EndedAt", "EndReason")
+INSERT INTO "SessionImpersonations" ("SessionId", "ActorUsername", "ActorRealm", "SourceSessionId", "PrincipalKind", "PrincipalUserId", "PrincipalRole", "Mask", "Reason", "StartedAt", "ExpiresAt", "EndedAt", "EndReason")
     VALUES
         ('11111111-1111-1111-1111-111111111111', 'alice@example.com', 'admin-portal', '55555555-5555-5555-5555-555555555555', 'User', 'bob@partner.org', NULL, 'List,Read', 'ticket JRN-1', '2026-08-27 10:00:00', '2026-08-27 11:00:00', NULL, NULL),
         ('22222222-2222-2222-2222-222222222222', 'alice@example.com', NULL, NULL, 'Role', NULL, 'PartnerViewer', NULL, NULL, '2026-08-27 09:00:00', '2026-08-27 10:00:00', '2026-08-27 09:30:00', 'Logout'),

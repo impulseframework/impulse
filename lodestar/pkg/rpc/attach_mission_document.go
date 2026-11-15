@@ -27,8 +27,10 @@ type (
 	// missions. Each row records its origin as a Provenance, one JSON column typed by a
 	// plain struct, and the SHA-256 of its bytes as Digest, a BYTES column the body
 	// computes from the object the frame streamed (a dry run streams nothing and records
-	// no digest). Reading a document back is the generated file route on
-	// MissionDocuments.StoreKey's @file.
+	// no digest). Each row also records who attached it, as the permission store names
+	// the caller (the id of their account, resources.CurrentUser), with their username as
+	// it is now beside it for people to read (resources.CurrentUserName). Reading a
+	// document back is the generated file route on MissionDocuments.StoreKey's @file.
 	//
 	// Demonstrates: @upload, @upload.store, rpc.upload-store, execute-condition, typescript.derived-object, typescript.byte-slice.
 	//
@@ -50,7 +52,7 @@ type (
 
 // Execute runs inside the handler's transaction with the streamed files.
 func (m *AttachMissionDocument) Execute(ctx context.Context, txn resource.ReadWriteTransaction, files resource.FilesIn[resources.Documents], client *Client) (*Attached, error) {
-	uploadedBy := string(resource.CallerFrom(ctx).Permissions.User())
+	uploadedBy, uploadedByName := string(resources.CurrentUser(ctx)), resources.CurrentUserName(ctx)
 	now := time.Now().UTC()
 
 	attached := &Attached{DocumentIDs: make([]impulse.UUID, 0, len(files))}
@@ -74,7 +76,8 @@ func (m *AttachMissionDocument) Execute(ctx context.Context, txn resource.ReadWr
 			SetContentType(file.ContentType).
 			SetSize(file.Size).
 			SetStoreKey(file.Key).
-			SetUploadedBy(uploadedBy).
+			SetUploadedByUserID(uploadedBy).
+			SetUploadedByName(uploadedByName).
 			SetUploadedAt(now).
 			// The origin rides as one JSON column: the struct is stored by its
 			// generated Spanner methods and read back as the derived interface.

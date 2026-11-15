@@ -1,4 +1,12 @@
-import { PilotAssignments, Pilots, Resources, SquadronMemberships, Squadrons } from '@app/service/zz_gen_constants';
+import {
+  CrewSectorUsers,
+  CrewSessionUsers,
+  PilotAssignments,
+  Pilots,
+  Resources,
+  SquadronMemberships,
+  Squadrons,
+} from '@app/service/zz_gen_constants';
 import { DomainRoutePath } from '@app/service/zz_gen_resources';
 import {
   enumeratedConfig,
@@ -30,7 +38,6 @@ const registry = (): ReturnType<typeof listViewConfig> =>
     primaryResource: Resources.Pilots,
     listColumns: [
       { id: Pilots.fieldName.displayName },
-      { id: Pilots.fieldName.userId },
       { id: Pilots.fieldName.clearance },
       { id: Pilots.fieldName.feeLimit },
     ],
@@ -39,7 +46,17 @@ const registry = (): ReturnType<typeof listViewConfig> =>
         label: 'Pilot',
         children: [
           field({ name: Pilots.fieldName.displayName, label: 'Name', cols: 3 }),
-          field({ name: Pilots.fieldName.userId, label: 'Login', cols: 3 }),
+          // The pilot's account, held by its id and picked by its username from the
+          // crew's accounts, which whoever adds a pilot may list.
+          field({
+            name: Pilots.fieldName.userId,
+            label: 'Account',
+            cols: 3,
+            enumeratedConfig: enumeratedConfig({
+              listDisplay: [CrewSessionUsers.fieldName.username],
+              viewDisplay: [CrewSessionUsers.fieldName.username],
+            }),
+          }),
           field({ name: Pilots.fieldName.clearance, label: 'Hazard clearance', cols: 3 }),
           field({ name: Pilots.fieldName.feeLimit, label: 'Fee limit', cols: 3 }),
         ],
@@ -85,10 +102,14 @@ export const sectorPilotsConfig = rootConfig({
             }),
             field({
               name: SquadronMemberships.fieldName.userId,
-              label: 'Login',
+              label: 'Person',
               cols: 6,
               readOnly: true,
               default: foreignKeyDefault({ parentId: Pilots.fieldName.userId }),
+              enumeratedConfig: enumeratedConfig({
+                listDisplay: [CrewSectorUsers.fieldName.username],
+                viewDisplay: [CrewSectorUsers.fieldName.username],
+              }),
             }),
           ],
         }),

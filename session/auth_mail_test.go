@@ -403,15 +403,15 @@ func authInviteCase1(t *testing.T) {
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
 	inviter := impulse.Must(impulse.NewUUID())
 
-	inv, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "Pat Lee <pat@lakeside.edu>", Tenant: "lakeside", RoleNames: []string{"Teacher"}, InvitedBy: impulse.NullUUIDFromUUID(inviter)})
+	inv, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "Pat Lee <pat@lakeside.edu>", TenantID: "lakeside", RoleNames: []string{"Teacher"}, InvitedByUserID: impulse.NullUUIDFromUUID(inviter)})
 	if err != nil {
 		t.Fatalf("Invite() error = %v", err)
 	}
 	row := links.last(t)
-	if row.Kind != sessionstorage.MailLinkInvitation || row.Email != "pat@lakeside.edu" || row.Tenant != "lakeside" || row.RoleNames[0] != "Teacher" || row.InvitedBy.UUID != inviter {
+	if row.Kind != sessionstorage.MailLinkInvitation || row.Email != "pat@lakeside.edu" || row.TenantID != "lakeside" || row.RoleNames[0] != "Teacher" || row.InvitedByUserID.UUID != inviter {
 		t.Errorf("stored link = %+v, want the invitation as requested, the address bare", row)
 	}
-	if inv.ID != row.ID || inv.Email != row.Email || inv.Tenant != "lakeside" || !inv.ExpiresAt.After(time.Now().Add(6*24*time.Hour)) {
+	if inv.ID != row.ID || inv.Email != row.Email || inv.TenantID != "lakeside" || !inv.ExpiresAt.After(time.Now().Add(6*24*time.Hour)) {
 		t.Errorf("Invite() = %+v, want the stored invitation standing seven days", inv)
 	}
 	msgs := recorder.Messages()
@@ -464,7 +464,7 @@ func authInviteCase4(t *testing.T) {
 	// The page offers Google alone: the password method is registered for operators, not listed.
 	f.auth.Methods(&MethodList{Methods: []AdvertisedMethod{{Name: "google", Label: "Google", Path: "/api/user/google/login"}}})
 
-	_, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "Pat Lee <Pat@Elsewhere.Example>", Tenant: "lakeside"})
+	_, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "Pat Lee <Pat@Elsewhere.Example>", TenantID: "lakeside"})
 	if want := "No sign-in method of this application accepts an address at elsewhere.example."; !httpio.HasBadRequest(err) || httpio.Message(err) != want {
 		t.Errorf("Invite() error = %v, want BadRequest %q", err, want)
 	}
@@ -472,7 +472,7 @@ func authInviteCase4(t *testing.T) {
 		t.Errorf("rows = %d, messages = %d after the refusal; want nothing stored or mailed", len(links.rows), len(recorder.Messages()))
 	}
 
-	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", Tenant: "lakeside"}); err != nil {
+	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", TenantID: "lakeside"}); err != nil {
 		t.Fatalf("Invite() of an address Google admits error = %v", err)
 	}
 	if len(links.rows) != 1 || len(recorder.Messages()) != 1 {
@@ -492,7 +492,7 @@ func TestAuth_PrepareInvitation(t *testing.T) {
 		f, recorder, links := newMailFixture(t, gomock.NewController(t))
 		inviter := impulse.Must(impulse.NewUUID())
 
-		prepared, err := f.auth.API().PrepareInvitation(context.Background(), &InvitationRequest{Email: "Pat Lee <pat@lakeside.edu>", Tenant: "lakeside", RoleNames: []string{"Teacher"}, InvitedBy: impulse.NullUUIDFromUUID(inviter)})
+		prepared, err := f.auth.API().PrepareInvitation(context.Background(), &InvitationRequest{Email: "Pat Lee <pat@lakeside.edu>", TenantID: "lakeside", RoleNames: []string{"Teacher"}, InvitedByUserID: impulse.NullUUIDFromUUID(inviter)})
 		if err != nil {
 			t.Fatalf("PrepareInvitation() error = %v", err)
 		}
@@ -500,11 +500,11 @@ func TestAuth_PrepareInvitation(t *testing.T) {
 			t.Fatalf("rows = %d, messages = %d after the preparation; want nothing stored or mailed", len(links.rows), len(recorder.Messages()))
 		}
 		row := prepared.Row()
-		if row.ID.IsNil() || row.Email != "pat@lakeside.edu" || row.Tenant != "lakeside" || len(row.RoleNames) != 1 || row.RoleNames[0] != "Teacher" || row.InvitedBy.UUID != inviter || !row.ExpiresAt.After(time.Now().Add(6*24*time.Hour)) {
+		if row.ID.IsNil() || row.Email != "pat@lakeside.edu" || row.TenantID != "lakeside" || len(row.RoleNames) != 1 || row.RoleNames[0] != "Teacher" || row.InvitedByUserID.UUID != inviter || !row.ExpiresAt.After(time.Now().Add(6*24*time.Hour)) {
 			t.Errorf("Row() = %+v, want the invitation as requested, the address bare, standing seven days", row)
 		}
 		// The caller stores the row; the fixture's table stands for its transaction.
-		links.insert(&sessionstorage.MailLink{ID: row.ID, TokenHash: row.TokenHash, Kind: sessionstorage.MailLinkInvitation, Email: row.Email, Tenant: row.Tenant, RoleNames: row.RoleNames, InvitedBy: row.InvitedBy, ExpiresAt: row.ExpiresAt})
+		links.insert(&sessionstorage.MailLink{ID: row.ID, TokenHash: row.TokenHash, Kind: sessionstorage.MailLinkInvitation, Email: row.Email, TenantID: row.TenantID, RoleNames: row.RoleNames, InvitedByUserID: row.InvitedByUserID, ExpiresAt: row.ExpiresAt})
 		if err := prepared.Send(context.Background()); err != nil {
 			t.Fatalf("Send() error = %v", err)
 		}
@@ -593,6 +593,50 @@ func TestAuth_Invitation(t *testing.T) {
 	t.Run("a sign-up from an invitation refuses a short password, a missing username and a missing invitation", authInvitationCase4)
 	t.Run("where the username is the address, the sign-up takes the invitation's address as the username", authInvitationCase5)
 	t.Run("opening an invitation names the listed registrations that could admit its address, none as an empty list", authInvitationCase6)
+	t.Run("opening an invitation names its tenant by the application's namer, and by nothing for a tenant the namer does not know", authInvitationCase7)
+}
+
+// namedTenants is a TenantNamer over a fixed map, as the application's tenant roster is
+// one over its copy.
+type namedTenants map[accesstypes.Domain]string
+
+func (n namedTenants) Name(tenant accesstypes.Domain) string {
+	return n[tenant]
+}
+
+func authInvitationCase7(t *testing.T) {
+	t.Parallel()
+	f, recorder, links := newMailFixture(t, gomock.NewController(t))
+	links.expectAccounts(f)
+	f.auth.SetTenantNames(namedTenants{"7b0c2f1e-9a4d-4c3b-8e51-2d6f0a9b4c17": "Lakeside High"})
+	opened := func(tenantID string) map[string]any {
+		t.Helper()
+		if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", TenantID: tenantID, RoleNames: []string{"Teacher"}}); err != nil {
+			t.Fatal(err)
+		}
+		messages := recorder.Messages()
+		token := tokenIn(t, messages[len(messages)-1].Text, "invitation")
+		rr := f.serve(f.auth.Invitation().Open(), http.MethodPost, "/invitation", map[string]string{"token": token}, nil)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("Open() = %d %s, want 200", rr.Code, rr.Body.String())
+		}
+
+		return decoded(t, rr)
+	}
+
+	// The person reading the screen is not signed in and can read no tenant record: the
+	// answer carries the name beside the key, and the screen shows the name.
+	if body := opened("7b0c2f1e-9a4d-4c3b-8e51-2d6f0a9b4c17"); body["tenantId"] != "7b0c2f1e-9a4d-4c3b-8e51-2d6f0a9b4c17" || body["tenantName"] != "Lakeside High" {
+		t.Errorf("Open() = %v, want the tenant's id and its name Lakeside High", body)
+	}
+	// A tenant the namer does not know is named by nothing; its key is still the key.
+	if body := opened("0e9d7c6b-5a4f-4e3d-9c2b-1a0f9e8d7c6b"); body["tenantId"] != "0e9d7c6b-5a4f-4e3d-9c2b-1a0f9e8d7c6b" || body["tenantName"] != nil {
+		t.Errorf("Open() = %v, want the tenant's id and no name", body)
+	}
+	// An invitation to the application's global surface names no tenant at all.
+	if body := opened(""); body["tenantId"] != nil || body["tenantName"] != nil {
+		t.Errorf("Open() = %v, want no tenant", body)
+	}
 }
 
 func TestAuth_InvitationKeptOnRefusedSignIn(t *testing.T) {
@@ -622,7 +666,7 @@ func TestAuth_InvitationKeptOnRefusedSignIn(t *testing.T) {
 			return "/next", "sid", nil
 		})
 	entra := azure.SignIn(f.auth, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(roles), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), Authenticator: authn})
-	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", Tenant: "lakeside", RoleNames: []string{"Teacher"}}); err != nil {
+	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", TenantID: "lakeside", RoleNames: []string{"Teacher"}}); err != nil {
 		t.Fatal(err)
 	}
 	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))
@@ -705,14 +749,14 @@ func authInvitationCase1(t *testing.T) {
 	t.Parallel()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
 	links.expectAccounts(f)
-	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", Tenant: "lakeside", RoleNames: []string{"Teacher"}}); err != nil {
+	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", TenantID: "lakeside", RoleNames: []string{"Teacher"}}); err != nil {
 		t.Fatal(err)
 	}
 	token := tokenIn(t, recorder.Messages()[0].Text, "invitation")
 
 	rr := f.serve(f.auth.Invitation().Open(), http.MethodPost, "/invitation", map[string]string{"token": token}, nil)
 	body := decoded(t, rr)
-	if rr.Code != http.StatusOK || body["email"] != "pat@lakeside.edu" || body["tenant"] != "lakeside" || body["signUp"] != true || body["usernameIsEmail"] != false {
+	if rr.Code != http.StatusOK || body["email"] != "pat@lakeside.edu" || body["tenantId"] != "lakeside" || body["signUp"] != true || body["usernameIsEmail"] != false {
 		t.Errorf("Open() = %d %s, want the invitation with sign-up offered", rr.Code, rr.Body.String())
 	}
 	if body["accountExists"] != false || body["hasPassword"] != false {
@@ -825,7 +869,7 @@ func authInvitationCase3(t *testing.T) {
 	t.Parallel()
 	userID, sessionID := newIDs()
 	f, recorder, links := newMailFixture(t, gomock.NewController(t))
-	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", Tenant: "lakeside"}); err != nil {
+	if _, err := f.auth.API().Invite(context.Background(), &InvitationRequest{Email: "pat@lakeside.edu", TenantID: "lakeside"}); err != nil {
 		t.Fatal(err)
 	}
 	cookies := invitationCookies(t, f, links, tokenIn(t, recorder.Messages()[0].Text, "invitation"))

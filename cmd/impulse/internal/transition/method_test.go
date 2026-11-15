@@ -78,9 +78,11 @@ func TestMethodApply(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		method      Method
-		extra       map[string]string
+		name   string
+		method Method
+		extra  map[string]string
+		// without are fixture files the case's application does not have.
+		without     []string
 		wantDid     []string
 		wantSkipped []string
 		// wantNotSkipped are words no skipped line carries: an obligation the shape does
@@ -346,6 +348,33 @@ func TestMethodApply(t *testing.T) {
 			},
 		},
 		{
+			// A role is held by the id of the account, so a rename moves nothing: the
+			// registration sets no hook for a verified change of address.
+			name:   "a password method whose sign-in name is the address sets no rename hook",
+			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodPassword, UsernameIsEmail: true}},
+			extra: map[string]string{
+				"pkg/auth/staff/staff.go": strings.Replace(strings.Replace(staffPackage(t, "staff.go"),
+					"\tpassword *session.PasswordMethod\n", "", 1),
+					"\thandlers.password = registerPassword(authSession)\n", "", 1),
+			},
+			without: []string{"pkg/auth/staff/password.go"},
+			check: func(t *testing.T, a *app.App) {
+				t.Helper()
+				main := read(t, a, "pkg/auth/staff/staff.go")
+				if want := "\thandlers.password = registerPassword(authSession)\n"; !strings.Contains(main, want) {
+					t.Errorf("staff.go lacks %q:\n%s", want, main)
+				}
+				for _, gone := range []string{"SetUserRenamed", "RolesFollowRename"} {
+					if strings.Contains(main, gone) {
+						t.Errorf("staff.go carries %q, which the identity package no longer has a use for:\n%s", gone, main)
+					}
+				}
+				if file := read(t, a, "pkg/auth/staff/password.go"); !strings.Contains(file, "session.UsernameIsEmail()") {
+					t.Errorf("password.go does not register the method with the address as the sign-in name:\n%s", file)
+				}
+			},
+		},
+		{
 			name:   "a second registration joins the function under the first",
 			method: Method{Auth: "staff", Spec: authpkg.Method{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication}},
 			extra: map[string]string{"pkg/config/data.go": strings.Replace(authConfigSettings,
@@ -439,6 +468,9 @@ func TestMethodApply(t *testing.T) {
 			files["cmd/generate/resourcegenerator/main.go"] = beaconRouterProgram
 			for rel, content := range tt.extra {
 				files[rel] = content
+			}
+			for _, rel := range tt.without {
+				delete(files, rel)
 			}
 			a := beacon(t, files)
 			exec := &fakeExec{err: tt.generateErr}

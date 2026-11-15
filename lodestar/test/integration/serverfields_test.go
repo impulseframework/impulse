@@ -2,7 +2,7 @@
 package integration
 
 // This suite pins the server-owned field machinery on DistressCalls: output_only +
-// default_create_fn (CaseNumber, FiledBy), input_only (Transcript), plus the
+// default_create_fn (CaseNumber, FiledByUserID, FiledByName), input_only (Transcript), plus the
 // create-side defaults and validator on Missions, the update-side pair on Refits, and
 // immutable enforcement on Ships.
 
@@ -31,7 +31,7 @@ func TestDistressCallServerFields(t *testing.T) {
 	}
 	h := newTestApp(db, grants{
 		accesstypes.Create: withFields(callsResource, "summary", "severity", "callerContact", "transcript"),
-		accesstypes.Read:   withFields(callsResource, "summary", "severity", "caseNumber", "filedBy"),
+		accesstypes.Read:   withFields(callsResource, "summary", "severity", "caseNumber", "filedByUserId"),
 	})
 
 	// Supplying the output_only case number is rejected, not ignored.
@@ -42,8 +42,10 @@ func TestDistressCallServerFields(t *testing.T) {
 	}
 
 	// A clean create gets a server-issued case number and the session's user as
-	// filedBy; the input_only transcript lands in the row but never serializes back.
-	status, body = doRequestAs(t, h, "caller-cal", http.MethodPatch, "/console/api/resources",
+	// filedBy, by the id of their account, with their username beside it as
+	// filedByName; the input_only transcript lands in the row but never serializes
+	// back. The cadet files it: a persona of the cast, who has an account.
+	status, body = doRequestAs(t, h, "cadet", http.MethodPatch, "/console/api/resources",
 		fmt.Sprintf(`[{"op":"add","path":%q,"value":{"summary":"Hull breach reported","severity":4,"callerContact":"cal@relay.example","transcript":"Mayday, mayday"}}]`, opPath(anvil, "distress-calls")))
 	assertStatus(t, status, http.StatusOK, body)
 	ids, _ := decodeRow(t, body)["distressCalls"].([]any)
@@ -55,8 +57,11 @@ func TestDistressCallServerFields(t *testing.T) {
 	if got := readColumn[string](ctx, t, db, "DistressCalls", spanner.Key{id}, "CaseNumber"); !strings.HasPrefix(got, "DC-") {
 		t.Errorf("CaseNumber = %q, want a server-issued DC- number", got)
 	}
-	if got := readColumn[string](ctx, t, db, "DistressCalls", spanner.Key{id}, "FiledBy"); got != "caller-cal" {
-		t.Errorf("FiledBy = %q, want the session user", got)
+	if got, want := readColumn[string](ctx, t, db, "DistressCalls", spanner.Key{id}, "FiledByUserId"), string(account(t, "cadet")); got != want {
+		t.Errorf("FiledByUserID = %q, want %q, the id of the session user's account", got, want)
+	}
+	if got := readColumn[string](ctx, t, db, "DistressCalls", spanner.Key{id}, "FiledByName"); got != "cadet" {
+		t.Errorf("FiledByName = %q, want the session user's username", got)
 	}
 	if got := readColumn[spanner.NullString](ctx, t, db, "DistressCalls", spanner.Key{id}, "Transcript"); got.StringVal != "Mayday, mayday" {
 		t.Errorf("Transcript = %q, want the submitted transcript stored", got.StringVal)

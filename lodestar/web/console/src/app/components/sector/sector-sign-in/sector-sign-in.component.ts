@@ -96,6 +96,15 @@ export class SectorSignInComponent {
       params.readable ? this.api.sectors.read([params.sector]) : Promise.resolve(undefined),
   });
 
+  /**
+   * The sector's name: the record's where the role reads it, else the name the session's
+   * sector list carries, which a marshal who cannot read the record still has.
+   */
+  sectorName = computed(() => {
+    this.permissions();
+    return this.sector.value()?.name || this.api.permissions.domainName(this.sectorID() as Domain);
+  });
+
   /** The directories the sector declares, listed under the sector where the digest grants List. */
   directories = resource({
     params: () => ({ sector: this.sectorID(), listed: this.canList() }),

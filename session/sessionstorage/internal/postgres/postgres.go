@@ -583,9 +583,13 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.Inse
 	if err := dbtype.ValidateInsertUser(user, s.usernameIsEmail); err != nil {
 		return nil, errors.Wrap(err, "dbtype.ValidateInsertUser()")
 	}
-	id, err := impulse.NewUUID()
-	if err != nil {
-		return nil, errors.Wrap(err, "impulse.NewUUID()")
+	id := user.ID.UUID
+	if !user.ID.Valid {
+		generated, err := impulse.NewUUID()
+		if err != nil {
+			return nil, errors.Wrap(err, "impulse.NewUUID()")
+		}
+		id = generated
 	}
 
 	query, args := s.userInsertStatement(id, user)

@@ -55,10 +55,13 @@ func TestSelfServiceSignUp_signInFirstThenChart(t *testing.T) {
 		t.Fatalf("user-domains after the sign-up = %v, want none", got)
 	}
 
-	// She charts Ember and stands in it: the row, her marshal's seat and the roster.
-	if status, body := b.do(ctx, http.MethodPost, createSectorRoute, []byte(chartEmber)); status != http.StatusOK {
+	// She charts Ember, by its fields alone, and stands in it: the row under the id the
+	// route generated and answered, her marshal's seat and the roster.
+	status, body := b.do(ctx, http.MethodPost, createSectorRoute, []byte(chartEmber))
+	if status != http.StatusOK {
 		t.Fatalf("POST %s: status %d: %s", createSectorRoute, status, body)
 	}
+	ember := createdKey(t, "charting Ember", body)
 	if got, want := b.domains(ctx), []string{ember}; !slices.Equal(got, want) {
 		t.Errorf("user-domains after charting = %v, want %v", got, want)
 	}
@@ -67,7 +70,7 @@ func TestSelfServiceSignUp_signInFirstThenChart(t *testing.T) {
 	}
 	// Ember declares the directory she came through, and nothing else: her Google
 	// session is admitted by it, which is why her chart lights Ember at all.
-	status, body := b.do(ctx, http.MethodGet, consoleAPI+"/sectors/"+ember+"/sector-directories", nil)
+	status, body = b.do(ctx, http.MethodGet, consoleAPI+"/sectors/"+ember+"/sector-directories", nil)
 	if status != http.StatusOK {
 		t.Fatalf("GET Ember's directories: status %d: %s", status, body)
 	}

@@ -16,8 +16,9 @@ import (
 // application's reader in the sign-in's transaction, from the HookRecords table.
 
 // roleStore stands in for the access library's user manager: the memberships each
-// user holds. The tenant policy reads memberships and never writes them, so every
-// write is an error.
+// user holds, under the name the permission store gives a person, the id of their
+// account. The tenant policy reads memberships and never writes them, so every write
+// is an error.
 type roleStore struct {
 	held map[accesstypes.User]accesstypes.RoleCollection
 }
@@ -112,7 +113,8 @@ func testTenantPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 
 	tests := []struct {
 		name string
-		// held are jane's memberships, declared the tenants' declarations.
+		// held are jane's memberships, held under the id of her account, declared the
+		// tenants' declarations.
 		held     accesstypes.RoleCollection
 		declared map[accesstypes.Domain]*signin.TenantDeclaration
 		// password signs jane in by password; otherwise through her Lakeside WorkOS
@@ -191,7 +193,11 @@ func testTenantPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 			t.Parallel()
 			ctx := t.Context()
 
-			policy := signin.TenantPolicy(&roleStore{held: map[accesstypes.User]accesstypes.RoleCollection{jane: tt.held}}, readDeclaration, tt.opts...)
+			// A membership held under jane's username is nobody's: the policy reads the
+			// person by the id of their account, so this one, which would admit every
+			// sign-in here, decides none of them.
+			roles := &roleStore{held: map[accesstypes.User]accesstypes.RoleCollection{jane: {global: {"Administrator"}}}}
+			policy := signin.TenantPolicy(roles, readDeclaration, tt.opts...)
 			if tt.then != nil {
 				policy = policy.Then(tt.then)
 			}
@@ -200,6 +206,7 @@ func testTenantPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 				h.Record(ctx, t, in.Raw, declarationKeyPrefix+string(tenant), declarationValue(declaration))
 			}
 			user := passwordUser(ctx, t, in.Driver, jane)
+			roles.held[accesstypes.User(user.ID.String())] = tt.held
 
 			var err error
 			if tt.password {

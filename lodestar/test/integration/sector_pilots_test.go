@@ -46,14 +46,14 @@ func newSectorPilotsWorld(t *testing.T) *identityWorld {
 	w := newIdentityWorld(t)
 
 	if _, err := w.db.Apply(ctx, []*spanner.Mutation{
-		spanner.InsertMap("SquadronMemberships", map[string]any{"SquadronId": squadronPortcullisID, "UserId": "cadet"}),
+		spanner.InsertMap("SquadronMemberships", map[string]any{"SquadronId": squadronPortcullisID, "UserId": string(account(t, "cadet"))}),
 	}); err != nil {
 		t.Fatalf("putting Cass on Portcullis: %v", err)
 	}
-	if err := w.engine.UserManager().AddUserRoles(ctx, accesstypes.DomainPolicyScope(bastion), "wingco", "WingCommander"); err != nil {
+	if err := w.engine.UserManager().AddUserRoles(ctx, accesstypes.DomainPolicyScope(bastion), account(t, "wingco"), "WingCommander"); err != nil {
 		t.Fatalf("seating the Wing Commander at Bastion: %v", err)
 	}
-	if err := waitForDecision(ctx, w.engine, "wingco", bastion, accesstypes.List, "SectorPilots"); err != nil {
+	if err := waitForDecision(ctx, w.engine, account(t, "wingco"), bastion, accesstypes.List, "SectorPilots"); err != nil {
 		t.Fatalf("the Wing Commander's seat at Bastion never took effect: %v", err)
 	}
 
@@ -273,7 +273,7 @@ func TestSectorPilotsMethod(t *testing.T) {
 
 	// The fact moved with the data: once Pax leaves Portcullis, Pax flies for Anvil
 	// alone, and the Wing Commander's grant admits the same call it refused.
-	if _, err := w.db.Apply(ctx, []*spanner.Mutation{spanner.Delete("SquadronMemberships", spanner.Key{squadronPortcullisID, "pilot"})}); err != nil {
+	if _, err := w.db.Apply(ctx, []*spanner.Mutation{spanner.Delete("SquadronMemberships", spanner.Key{squadronPortcullisID, string(account(t, "pilot"))})}); err != nil {
 		t.Fatalf("taking Pax off Portcullis: %v", err)
 	}
 	status, body := doRequestAs(t, w.h, "wingco", http.MethodPost, sectorPath(anvil, "set-sector-pilot-clearance"), fmt.Sprintf(`{"pilotId":%q,"clearance":2}`, pilotPaxID))

@@ -429,12 +429,12 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// in one transaction (the identity client's DirectorySeated, which the session
 	// library runs inside the transaction that creates the person), and the sign-in rule
 	// then finds the membership; rows with none refuse them (invitation_only) and no
-	// account is created, unless they followed an invitation link, which is the way in;
-	// a person who already holds a role somewhere is the tenant's own and passes. A
-	// directory no tenant declares falls to the registration's rule. The auth's roles
-	// are the application's, so the admission is set here; an auth whose directory
-	// writes the roles sets none.
-	authSession.SetDirectoryAdmission(settings.TenantDirectories, resource.SignInRoles(accessClient.UserManager()), identityClient.DirectorySeated())
+	// account is created, unless they followed an invitation link, which is the way in.
+	// A person given a role ahead of their first sign-in has the account the role is
+	// held by, which the sign-in links, and is no stranger. A directory no tenant
+	// declares falls to the registration's rule. The auth's roles are the application's,
+	// so the admission is set here; an auth whose directory writes the roles sets none.
+	authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
 
 	// An accepted invitation gives its roles, in the tenant it names or for the whole
 	// application, in the transaction that consumes the invitation (the identity

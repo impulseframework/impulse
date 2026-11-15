@@ -174,7 +174,7 @@ func TestTenancyBrowserAuth(t *testing.T) {
 	}, placeholder)
 	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.spec.ts", []string{
 		"PeopleServiceAreaRoles: { List: 'granted' },",
-		"case `${environment.apiUrl}/service-areas/acme/people-service-area-roles`:",
+		"case `${environment.apiUrl}/service-areas/${acmeID}/people-service-area-roles`:",
 	}, placeholder)
 	for _, f := range tenantWebFiles {
 		wantContains(t, a, "web/console/src/"+f.rel, nil, placeholder)
@@ -360,19 +360,19 @@ func TestTenancyBrowserRecordWords(t *testing.T) {
 		"connection: \"the Entra tenant's id\"",
 	}, []string{"tenantID", ".tenants.", "Resources.Tenants"})
 	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.html", []string{
-		"<h1>Who may enter {{ tenant.value()?.name || serviceAreaID() }}</h1>",
+		"<h1>Who may enter {{ tenantName() || 'this service area' }}</h1>",
 		"A service area declares who may enter it.",
 		"or a Microsoft Entra tenant, named\n  by its tenant id.",
 		"Your role in this service area does not cover its directories.",
 		"@if (tenant.value(); as row) {",
 	}, nil)
 	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.spec.ts", []string{
-		"const workspace: ServiceAreaDirectories = { id: 'd-1', serviceAreaId: 'acme', method: 'google', connection: 'acme.example' };",
+		"const workspace: ServiceAreaDirectories = { id: 'd-1', serviceAreaId: acmeID, method: 'google', connection: 'acme.example' };",
 		"StaffServiceAreaRoles: { List: 'granted' },",
 		"global: { ServiceAreas: { Read: 'granted', Update: 'granted' } },",
-		"case `${environment.apiUrl}/service-areas/acme/service-area-directories`:",
-		"case `${environment.apiUrl}/service-areas/acme/staff-service-area-roles`:",
-		"fixture.componentRef.setInput('serviceAreaID', 'acme');",
+		"case `${environment.apiUrl}/service-areas/${acmeID}/service-area-directories`:",
+		"case `${environment.apiUrl}/service-areas/${acmeID}/staff-service-area-roles`:",
+		"fixture.componentRef.setInput('serviceAreaID', acmeID);",
 		"'Your role in this service area does not cover its directories.',",
 	}, []string{"tenantID", "/tenants/"})
 	wantContains(t, a, src+"configs/tenants.config.ts", []string{
@@ -382,25 +382,33 @@ func TestTenancyBrowserRecordWords(t *testing.T) {
 		"title: 'Service areas',",
 		"createTitle: 'Service area',",
 		"primaryResource: Resources.ServiceAreas,",
-		"{ id: ServiceAreas.fieldName.id },",
+		// The list names a service area; its id, which nobody types, shows on the row
+		// page alone, read only.
+		"{ id: ServiceAreas.fieldName.name },",
+		"field({ name: ServiceAreas.fieldName.id, label: 'Id', cols: 4, readOnly: true }),",
 		"label: 'Service area',",
 	}, nil)
 	wantContains(t, a, src+"components/ui/new-tenant/new-tenant-dialog.component.ts", []string{
-		"import { ServiceAreasCreate } from '@app/service/zz_gen_api';",
+		"import { apiDescriptor, ServiceAreasCreate } from '@app/service/zz_gen_api';",
 		"const body: ServiceAreasCreate = this.form.getRawValue();",
+		// A name another service area carries is refused in the record's word, which the
+		// generated description carries; the reference's word is never written here.
+		"named ${name} already exists. Choose another name.`;",
+		"apiDescriptor.domainRoute?.word?.one",
 		"await this.api.serviceAreas.create(body)",
 		"export function openNewTenantDialog(",
 	}, nil)
 	wantContains(t, a, src+"components/ui/new-tenant/new-tenant-dialog.component.html", []string{
 		"<h2 mat-dialog-title>New service area</h2>",
-		"The service area is served the moment it exists.",
+		"The service area is served the moment it exists, and you are its first administrator.",
+		"What people call the service area, wherever it is listed. It can be changed later.",
 		"Create service area</button>",
 	}, nil)
 	wantContains(t, a, src+"components/ui/new-tenant/new-tenant-dialog.component.spec.ts", []string{
 		"toContain('New service area')",
-		"{ serviceAreas: ['west'] }",
-		"path: '/service-areas/west'",
-		"['/', 'service-areas', 'west']",
+		"{ serviceAreas: [west] }",
+		"path: '/service-areas'",
+		"['/', 'service-areas', west]",
 	}, nil)
 	wantContains(t, a, src+"app.menus.ts", []string{
 		"      label: 'Service areas',",

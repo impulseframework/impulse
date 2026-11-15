@@ -31,7 +31,7 @@ export const distressCallsConfig = rootConfig({
       { id: DistressCalls.fieldName.caseNumber, header: 'Case' },
       { id: DistressCalls.fieldName.summary },
       { id: DistressCalls.fieldName.severity },
-      { id: DistressCalls.fieldName.filedBy, header: 'Filed by' },
+      { id: DistressCalls.fieldName.filedByName, header: 'Filed by' },
       { id: DistressCalls.fieldName.position },
     ],
     elements: [
@@ -43,7 +43,7 @@ export const distressCallsConfig = rootConfig({
           field({ name: DistressCalls.piiFieldName.callerContact, label: 'Caller contact', cols: 6 }),
           field({ name: DistressCalls.fieldName.transcript, label: 'Transcript', cols: 6 }),
           field({ name: DistressCalls.fieldName.caseNumber, label: 'Case number', cols: 6 }),
-          field({ name: DistressCalls.fieldName.filedBy, label: 'Filed by', cols: 6 }),
+          field({ name: DistressCalls.fieldName.filedByName, label: 'Filed by', cols: 6 }),
           field({ name: DistressCalls.fieldName.position, label: 'Position', cols: 12 }),
         ],
       }),

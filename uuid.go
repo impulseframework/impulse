@@ -28,6 +28,14 @@ func NewUUID() (UUID, error) {
 	return UUID{UUID: uid}, nil
 }
 
+// UUIDFromName returns the UUID of a name within a namespace (a version 5 UUID): the
+// same namespace and name give the same id every time, and a different name another.
+// It is for an id that must be the same on every run of the code that makes it, a seed's
+// rows above all; an id that only has to be unique comes from NewUUID.
+func UUIDFromName(namespace UUID, name string) UUID {
+	return UUID{UUID: uuid.NewV5(namespace.UUID, name)}
+}
+
 // UUIDFromString parses a UUID from a string representation
 func UUIDFromString(s string) (UUID, error) {
 	uid, err := uuid.FromString(s)

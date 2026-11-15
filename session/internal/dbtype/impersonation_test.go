@@ -69,6 +69,9 @@ func TestImpersonation_RowConversions(t *testing.T) {
 
 	sessionID := impulse.Must(impulse.UUIDFromString("de6e1a12-2d4d-4c4d-aaf1-d82cb9a9eff5"))
 	sourceID := impulse.Must(impulse.UUIDFromString("7a1d5f6e-0c2b-4a3e-9d8f-1b2c3d4e5f60"))
+	// The accounts of the actor and of the impersonated user.
+	actorID := impulse.Must(impulse.UUIDFromString("a11ce000-0000-4000-8000-000000000001"))
+	userID := impulse.Must(impulse.UUIDFromString("b0b00000-0000-4000-8000-000000000002"))
 	started := time.Date(2026, 8, 27, 10, 0, 0, 0, time.UTC)
 	expires := started.Add(time.Hour)
 	ended := started.Add(30 * time.Minute)
@@ -90,20 +93,20 @@ func TestImpersonation_RowConversions(t *testing.T) {
 				ExpiresAt: expires,
 			},
 			wantInsert: &InsertImpersonation{
-				ActorUsername: "alice@example.com",
-				PrincipalKind: PrincipalKindUser,
-				PrincipalUser: strPtr("bob@partner.org"),
-				Mask:          strPtr("List,Read"),
-				ExpiresAt:     expires,
+				ActorUsername:   "alice@example.com",
+				PrincipalKind:   PrincipalKindUser,
+				PrincipalUserID: strPtr("bob@partner.org"),
+				Mask:            strPtr("List,Read"),
+				ExpiresAt:       expires,
 			},
 			row: &Impersonation{
-				SessionID:     sessionID,
-				ActorUsername: "alice@example.com",
-				PrincipalKind: PrincipalKindUser,
-				PrincipalUser: strPtr("bob@partner.org"),
-				Mask:          strPtr("List,Read"),
-				StartedAt:     started,
-				ExpiresAt:     expires,
+				SessionID:       sessionID,
+				ActorUsername:   "alice@example.com",
+				PrincipalKind:   PrincipalKindUser,
+				PrincipalUserID: strPtr("bob@partner.org"),
+				Mask:            strPtr("List,Read"),
+				StartedAt:       started,
+				ExpiresAt:       expires,
 			},
 			wantInfo: &sessioninfo.Impersonation{
 				SessionID: sessionID,
@@ -158,6 +161,44 @@ func TestImpersonation_RowConversions(t *testing.T) {
 				ExpiresAt:       expires,
 				EndedAt:         &ended,
 				EndReason:       sessioninfo.ImpersonationEndedByRevocation,
+			},
+		},
+		{
+			name: "an account impersonated by a local actor: the actor's account rides beside their username, and the principal is the impersonated account's id",
+			imp: &sessioninfo.Impersonation{
+				Actor:           "alice@example.com",
+				ActorID:         impulse.NullUUIDFromUUID(actorID),
+				SourceSessionID: impulse.NullUUID{UUID: sourceID, Valid: true},
+				Principal:       accesstypes.UserPrincipal(accesstypes.User(userID.String())),
+				StartedAt:       started,
+				ExpiresAt:       expires,
+			},
+			wantInsert: &InsertImpersonation{
+				ActorUsername:   "alice@example.com",
+				ActorUserID:     &actorID,
+				SourceSessionID: &sourceID,
+				PrincipalKind:   PrincipalKindUser,
+				PrincipalUserID: strPtr(userID.String()),
+				ExpiresAt:       expires,
+			},
+			row: &Impersonation{
+				SessionID:       sessionID,
+				ActorUsername:   "alice@example.com",
+				ActorUserID:     &actorID,
+				SourceSessionID: &sourceID,
+				PrincipalKind:   PrincipalKindUser,
+				PrincipalUserID: strPtr(userID.String()),
+				StartedAt:       started,
+				ExpiresAt:       expires,
+			},
+			wantInfo: &sessioninfo.Impersonation{
+				SessionID:       sessionID,
+				Actor:           "alice@example.com",
+				ActorID:         impulse.NullUUIDFromUUID(actorID),
+				SourceSessionID: impulse.NullUUID{UUID: sourceID, Valid: true},
+				Principal:       accesstypes.UserPrincipal(accesstypes.User(userID.String())),
+				StartedAt:       started,
+				ExpiresAt:       expires,
 			},
 		},
 	}

@@ -18,6 +18,7 @@ func TestBaseSession_ValidateSessionAPI_PrincipalResolver(t *testing.T) {
 	t.Parallel()
 
 	sessionID := impulse.Must(impulse.UUIDFromString("92922509-82d2-4bc7-853a-d73b8926a55f"))
+	aliceID := impulse.Must(impulse.UUIDFromString("a11ce000-0000-4000-8000-000000000001"))
 	editor := accesstypes.RolePrincipal("Editor")
 
 	type customData struct{ RoleID string }
@@ -56,6 +57,16 @@ func TestBaseSession_ValidateSessionAPI_PrincipalResolver(t *testing.T) {
 			name:          "no resolver: the session user's own principal",
 			session:       ordinary(),
 			wantPrincipal: accesstypes.UserPrincipal("alice"),
+		},
+		{
+			name: "no resolver: a session that belongs to an account is the account, named by its id",
+			session: func() *sessioninfo.SessionData {
+				s := ordinary()
+				s.UserID = impulse.NullUUIDFromUUID(aliceID)
+
+				return s
+			}(),
+			wantPrincipal: accesstypes.UserPrincipal(accesstypes.User(aliceID.String())),
 		},
 		{
 			name:          "an ordinary session acts as the resolver's choice, read from custom session data",

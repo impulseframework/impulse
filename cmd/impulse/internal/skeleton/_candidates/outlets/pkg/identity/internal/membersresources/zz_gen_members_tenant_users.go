@@ -27,7 +27,7 @@ func (MembersTenantUser) DefaultConfig() resource.Config {
 // enforce; membersTenantUserReadSets holds one Set per read operation.
 type membersTenantUserRead struct {
 	ID                     impulse.UUID `json:"id"                     perm:"-"`
-	Domain                 string       `json:"domain"`
+	DomainID               string       `json:"domainId"`
 	Username               string       `json:"username"`
 	Name                   *string      `json:"name"`
 	Email                  *string      `json:"email"`
@@ -147,7 +147,7 @@ func NewMembersTenantUserColumns() *MembersTenantUserColumns {
 func (c *MembersTenantUserColumns) All() *MembersTenantUserColumns {
 	c.fields = []accesstypes.Field{
 		"ID",
-		"Domain",
+		"DomainID",
 		"Username",
 		"Name",
 		"Email",
@@ -169,8 +169,8 @@ func (c *MembersTenantUserColumns) ID() *MembersTenantUserColumns {
 	return c
 }
 
-func (c *MembersTenantUserColumns) Domain() *MembersTenantUserColumns {
-	c.fields = append(c.fields, "Domain")
+func (c *MembersTenantUserColumns) DomainID() *MembersTenantUserColumns {
+	c.fields = append(c.fields, "DomainID")
 
 	return c
 }
@@ -251,8 +251,8 @@ func (p MembersTenantUserQueryPartialClause) ID() MembersTenantUserQueryIdent[im
 	return MembersTenantUserQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p MembersTenantUserQueryPartialClause) Domain() MembersTenantUserQueryIdent[string] {
-	return MembersTenantUserQueryIdent[string]{Ident: resource.NewIdent[string]("Domain", p.partialClause, true)}
+func (p MembersTenantUserQueryPartialClause) DomainID() MembersTenantUserQueryIdent[string] {
+	return MembersTenantUserQueryIdent[string]{Ident: resource.NewIdent[string]("DomainID", p.partialClause, true)}
 }
 
 func (p MembersTenantUserQueryPartialClause) Username() MembersTenantUserQueryIdent[string] {
@@ -337,8 +337,8 @@ func (c *membersTenantUserSort) ID() *MembersTenantUserSort {
 	return c.addField("ID")
 }
 
-func (c *membersTenantUserSort) Domain() *MembersTenantUserSort {
-	return c.addField("Domain")
+func (c *membersTenantUserSort) DomainID() *MembersTenantUserSort {
+	return c.addField("DomainID")
 }
 
 func (c *membersTenantUserSort) Username() *MembersTenantUserSort {

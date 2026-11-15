@@ -13,7 +13,6 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
-	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -132,11 +131,9 @@ type Rules[Tx any] struct {
 	// Accept is the application's invitation acceptor, nil for none.
 	Accept InvitationAcceptor[Tx]
 	// Directories reads the tenants' declarations of a directory for a stranger's
-	// first sign-in, nil for none; Roles is the role store the person's memberships
-	// are read from, nil for none, and Seat seats the person with the default seats
+	// first sign-in, nil for none, and Seat seats the person with the default seats
 	// the declarations name, nil for none; see standardRule.
 	Directories signin.DirectoryReader[Tx]
-	Roles       signin.UserRoleManager
 	Seat        DirectorySeater[Tx]
 	// TrustedDevice reports whether the browser is a trusted device of the user, nil
 	// for none; see decideSignIn.
@@ -406,12 +403,12 @@ func grantConsumed[Tx any](
 // by the invitation. An invitation into the application names no tenant and gives its
 // roles elsewhere (globally, or in every tenant), so it shares no row with a seat.
 func seatsBeyondInvitation(seats []signin.DirectorySeat, inv *sessioninfo.Invitation) []signin.DirectorySeat {
-	if inv == nil || inv.Tenant == "" || len(seats) == 0 {
+	if inv == nil || inv.TenantID == "" || len(seats) == 0 {
 		return seats
 	}
 
 	return slices.DeleteFunc(slices.Clone(seats), func(seat signin.DirectorySeat) bool {
-		return string(seat.Tenant) == inv.Tenant && slices.Contains(inv.RoleNames, string(seat.Role))
+		return string(seat.Tenant) == inv.TenantID && slices.Contains(inv.RoleNames, string(seat.Role))
 	})
 }
 
@@ -752,7 +749,7 @@ func standardRule[Tx any](
 			return nil, false, nil, errors.Wrap(err, "signin.DirectoryReader()")
 		}
 		if len(declared) > 0 {
-			return declaredRule(ctx, req, declared, tenant, rules.Roles)
+			return declaredRule(req, declared, tenant)
 		}
 	}
 
@@ -775,27 +772,21 @@ func standardRule[Tx any](
 
 // declaredRule decides a person no user was created for, from a directory some
 // tenant declares: a declared directory belongs to its tenant, and the tenant's
-// declaration decides before the registration's standard rule. A person who already
-// holds a membership under the sign-in name, in a declaring tenant or as the
-// application's staff, is that tenant's person, seated ahead of their first sign-in:
-// they are provisioned under the sign-in name, with the default seats of the
-// declaring tenants where they hold nothing. A tenant that names a default seat
-// admits a stranger: they are provisioned and seated in every tenant that names one,
-// in the resolution's transaction (Rules.Seat). When no tenant names a seat and the
-// person holds nothing, the tenants admit their people by invitation only: the
-// invitation the browser carries is the account, as under the invited-users-only
-// rule, and without one the sign-in is refused (invitation_only) and nothing is
-// written.
+// declaration decides before the registration's standard rule. A person with no user
+// holds nothing: a role is held by an account, so the tenant's own person, given a
+// role ahead of their first sign-in, has the account the role was given to, and the
+// sign-in found it before it came here (preCreatedUser). A tenant that names a default
+// seat admits a stranger: they are provisioned and seated in every tenant that names
+// one, in the resolution's transaction (Rules.Seat). When no tenant names a seat, the
+// tenants admit their people by invitation only: the invitation the browser carries is
+// the account, as under the invited-users-only rule, and without one the sign-in is
+// refused (invitation_only) and nothing is written.
 func declaredRule(
-	ctx context.Context, req *sessioninfo.NewSessionRequest, declared []signin.DeclaredDirectory, tenant string, roles signin.UserRoleManager,
+	req *sessioninfo.NewSessionRequest, declared []signin.DeclaredDirectory, tenant string,
 ) (res *signin.Resolution, byInvitation bool, stop, err error) {
-	member, held, err := heldIn(ctx, roles, req.Identity.SignInName, declared)
-	if err != nil {
-		return nil, false, nil, err
-	}
 	seats := make([]signin.DirectorySeat, 0, len(declared))
 	for _, d := range declared {
-		if d.DefaultSeat != "" && !held[d.Tenant] {
+		if d.DefaultSeat != "" {
 			seats = append(seats, signin.DirectorySeat{Tenant: d.Tenant, Role: d.DefaultSeat})
 		}
 	}
@@ -803,51 +794,11 @@ func declaredRule(
 	switch {
 	case len(seats) > 0:
 		return signin.Provision(newUser, nil, signin.Tenant(tenant), signin.Seats(seats...)), false, nil, nil
-	case member:
-		return signin.Provision(newUser, nil, signin.Tenant(tenant)), false, nil, nil
 	case req.Invitation != nil:
 		return signin.Provision(newUser, nil, signin.Tenant(tenant)), true, nil, nil
 	default:
 		return nil, false, Refusal("", sessioninfo.RefusedInvitationOnly, signin.ErrInvitationOnly, "this organization signs people in by invitation: ask your administrator to invite you"), nil
 	}
-}
-
-// heldIn reads the memberships username holds, from roles (none when roles is nil):
-// member reports a role held in one of the declaring tenants or as the application's
-// staff (the global partition or every tenant domain), and held names the declaring
-// tenants where a role is held.
-func heldIn(
-	ctx context.Context, roles signin.UserRoleManager, username string, declared []signin.DeclaredDirectory,
-) (member bool, held map[accesstypes.Domain]bool, err error) {
-	held = make(map[accesstypes.Domain]bool, len(declared))
-	if roles == nil {
-		return false, held, nil
-	}
-	collection, err := roles.UserRoles(ctx, accesstypes.User(username))
-	if err != nil {
-		return false, nil, errors.Wrap(err, "signin.UserRoleManager.UserRoles()")
-	}
-	for scope, scopeRoles := range collection {
-		if len(scopeRoles) == 0 {
-			continue
-		}
-		if scope.IsGlobal() || scope.IsEveryDomain() {
-			member = true
-
-			continue
-		}
-		domain, ok := scope.Domain()
-		if !ok {
-			continue
-		}
-		for _, d := range declared {
-			if d.Tenant == domain {
-				member, held[domain] = true, true
-			}
-		}
-	}
-
-	return member, held, nil
 }
 
 // preCreatedUser finds the user an unlinked identity belongs to, before any row is

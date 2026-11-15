@@ -18,6 +18,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -63,16 +64,45 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, opts 
 	return &Client{manager: manager}, nil
 }
 
-// AssignRole buffers the membership of username in role, held in scope, in the caller's
+// AssignRole buffers the membership of user in role, held in scope, in the caller's
 // transaction, and has the permission engine told once the transaction has committed
 // (identity.Manager.AssignRole): the role exists in the scope, and a membership held
 // already is left as it is. It is the Go call the auth's role methods are made of, for
 // a write that is not a served method: the generated create of a tenant gives its
 // creator the tenant's administrator roles through it, in the transaction that writes
 // the tenant's row.
-func (c *Client) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, username string, role accesstypes.Role) error {
-	if err := c.manager.AssignRole(ctx, txn, scope, username, role); err != nil {
+//
+// user is the person as the permission store names them, the id of their account: a
+// request's caller is its resource.UserPermissions.User(). A role is held by an account,
+// so a user that is no account's id (a session that acts for nobody with an account
+// here) is refused, and nothing is written. The call reads no account: a user created
+// earlier in the same transaction is one the database cannot yet show it, and such a
+// user is what a Go caller often gives a role to. The caller names an account it knows
+// exists, its request's caller or one it created; a role method served to a person who
+// names someone else reads the account first (identity.Manager.RequireUser).
+func (c *Client) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
+	userID, ok := identity.UserID(user)
+	if !ok {
+		return httpio.NewForbiddenMessagef("the role %s is given to a person with an account, and this session acts for none", role)
+	}
+	if err := c.manager.AssignRole(ctx, txn, scope, userID, role); err != nil {
 		return errors.Wrap(err, "identity.Manager.AssignRole()")
+	}
+
+	return nil
+}
+
+// ClearTenant buffers the removal of everything the Staff auth holds for a tenant, in
+// the transaction that deletes the tenant's row (identity.Manager.ClearTenant): every
+// membership held in it, the custom roles made in it with their grants, and the
+// withdrawal of every invitation into it that still stands. A person the tenant's
+// memberships were the only ones of is deleted with their identity links and sessions,
+// by the rule on an account nothing admits. The generated delete of the tenant record
+// calls it; an application that deletes a tenant in a transaction of its own calls it
+// there.
+func (c *Client) ClearTenant(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) error {
+	if err := c.manager.ClearTenant(ctx, txn, domain); err != nil {
+		return errors.Wrap(err, "identity.Manager.ClearTenant()")
 	}
 
 	return nil

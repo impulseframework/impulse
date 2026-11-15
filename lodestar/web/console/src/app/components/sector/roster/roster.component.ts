@@ -38,33 +38,53 @@ export class RosterComponent {
   pilots = this.sectors.globalList((api) => api.pilots, { limit: 'all' });
   columns = ['name', 'wing', 'members'];
 
-  sector = this.sectors.current;
+  /** The open sector's name, as the session's sector list carries it. */
+  sectorName = this.sectors.placeName;
   canListSquadrons = computed(() => this.sectors.can(Permissions.List, Resources.Squadrons));
-  canViewAs = computed(() => this.sectors.can(Permissions.Execute, Methods.ViewAsUser));
+  // The people of the open sector, for "view as". The server names a person by the id of
+  // their account, which the sector's people list carries beside the username; a caller
+  // who cannot list the sector's people has nobody to pick, so the form is not offered.
+  people = this.sectors.sectorList((sector) => sector.crewSectorUsers, { limit: 200 });
+  canViewAs = computed(
+    () =>
+      this.sectors.can(Permissions.Execute, Methods.ViewAsUser) &&
+      this.sectors.can(Permissions.List, Resources.CrewSectorUsers),
+  );
   canAssumeRole = computed(() => this.sectors.can(Permissions.Execute, Methods.AssumeRole));
   alreadyImpersonating = computed(() => this.impersonation.record() !== undefined);
 
-  readonly crew = CREW_MANIFEST;
   readonly roles = ['Dispatcher', 'Cadet', 'Pilot', 'Engineer', 'Archivist', 'BookingAgent', 'SectorMarshal'];
 
-  viewAsUser = '';
+  /** The id of the account of the person to view as. */
+  viewAsUserId = '';
   assumeRoleName = '';
+
+  /** A person of the sector as the picker names them: the persona's name where the login is one of the cast's. */
+  personLabel(username: string | undefined): string {
+    const persona = CREW_MANIFEST.find((p) => p.login === username);
+    return persona ? `${persona.name} (${username})` : (username ?? 'No name to show');
+  }
 
   wingName(id: string | undefined): string {
     return this.wings.value().find((w) => w.id === id)?.name ?? '—';
   }
 
+  /**
+   * The members of a squadron by name. A membership names its person by the id of their
+   * account, and the personnel registry holds the name under the same id.
+   */
   members(squadronId: string): string {
+    const pilots = this.pilots.value();
     return this.memberships
       .value()
       .filter((m) => m.squadronId === squadronId)
-      .map((m) => m.userId)
+      .map((m) => pilots.find((p) => p.userId === m.userId)?.displayName ?? 'not in the registry')
       .join(', ');
   }
 
   async viewAs(): Promise<void> {
-    if (!this.viewAsUser) return;
-    await this.impersonation.viewAs(this.viewAsUser);
+    if (!this.viewAsUserId) return;
+    await this.impersonation.viewAs(this.viewAsUserId);
   }
 
   async assumeRole(): Promise<void> {

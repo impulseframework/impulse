@@ -69,12 +69,16 @@ type Store interface {
 	// Username reads a user's username; found is false where no user holds the id.
 	Username(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (username string, found bool, err error)
 	// UserID reads the id of the user who holds a username, compared as the auth
-	// compares names at a sign-in; found is false where none does.
+	// compares names at a sign-in; found is false where none does. It is how a new
+	// name is found taken. The permission store names a person by the id of their
+	// account; the username stays on what carries it for reading, the person's live
+	// sessions and the impersonation records they hold as actor, which a rename
+	// rewrites (RenameUser).
 	UserID(ctx context.Context, txn resource.ReadWriteTransaction, username string) (id impulse.UUID, found bool, err error)
-	// UserByVerifiedEmail answers the username of the user who has confirmed the
-	// address, compared as the table's unique index compares addresses; found is
-	// false when no user holds it, and when the one who does has not confirmed it.
-	UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTransaction, email string) (username string, found bool, err error)
+	// UserByVerifiedEmail answers the id of the user who has confirmed the address,
+	// compared as the table's unique index compares addresses; found is false when no
+	// user holds it, and when the one who does has not confirmed it.
+	UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTransaction, email string) (userID impulse.UUID, found bool, err error)
 	// DeleteUser buffers the removal of a user row.
 	DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
 
@@ -107,9 +111,11 @@ type Store interface {
 	HasRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RoleKey) (bool, error)
 	// HasMembership reports whether the membership row is committed.
 	HasMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey) (bool, error)
-	// Memberships lists every membership the username holds, wherever it is held.
-	Memberships(ctx context.Context, txn resource.ReadWriteTransaction, username string) ([]access.MembershipKey, error)
-	// RoleHolders lists who holds the role where the key says it is held.
+	// Memberships lists every membership the user holds, wherever it is held. A
+	// membership names its person by the id of their account (User).
+	Memberships(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]access.MembershipKey, error)
+	// RoleHolders lists who holds the role where the key says it is held, each by the
+	// id of their account.
 	RoleHolders(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RoleKey) ([]accesstypes.User, error)
 	// InsertMembership buffers a membership row unless the membership is there already,
 	// committed or written earlier in this transaction, and reports whether it did. A
@@ -117,6 +123,14 @@ type Store interface {
 	InsertMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey) (inserted bool, err error)
 	// DeleteMembership buffers the removal of a membership row.
 	DeleteMembership(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey) error
+	// TenantMemberships lists every membership held in one tenant, whoever holds it:
+	// the rows of the memberships table under the tenant's own scope. A membership
+	// held in every tenant is no row of one tenant and is not listed.
+	TenantMemberships(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]access.MembershipKey, error)
+	// DeleteTenantRoles buffers the removal of every custom role made in one tenant
+	// with its grants: the rows of the roles table and of the grants table under the
+	// tenant's own scope. It answers how many roles go.
+	DeleteTenantRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) (roles int, err error)
 
 	// InsertInvitation buffers the mail links row of a prepared invitation, as the
 	// session library says one is written (session.InvitationRow).
@@ -126,6 +140,9 @@ type Store interface {
 	MailLink(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (link *MailLink, found bool, err error)
 	// ConsumeMailLink buffers the consumption of one link: it is then dead.
 	ConsumeMailLink(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
+	// TenantInvitations lists the invitations into one tenant that are not consumed:
+	// neither accepted nor withdrawn. An auth that mails no links answers none.
+	TenantInvitations(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error)
 
 	// TrustedDevices lists the browsers the user asked to be remembered after the
 	// second factor that are not revoked. An auth that keeps none answers none.
@@ -204,9 +221,9 @@ type EmailChange struct {
 
 // Token is a bearer token as the rules read it.
 type Token struct {
-	// Family is the device authorization the token belongs to, nil for a token that
+	// FamilyID is the device authorization the token belongs to, nil for a token that
 	// stands alone.
-	Family *impulse.UUID
+	FamilyID *impulse.UUID
 	// ExpiresAt is when the token stops being accepted, and Revoked whether it was
 	// revoked before that.
 	ExpiresAt time.Time
@@ -228,6 +245,9 @@ type Manager struct {
 	// and holds what the hooks of a sign-in have given so far; nil where a person may
 	// hold roles in several tenants.
 	oneTenant *signInTenants
+	// tenantWord is what the application calls one tenant, as a sentence a person reads
+	// says it ("customer"); "tenant" where the application named none (WithTenantWord).
+	tenantWord string
 	// now is the application's clock, which the session library holds a deadline
 	// against (a token's expiry).
 	now func() time.Time
@@ -253,6 +273,18 @@ func WithAdministratorRoles(global, domain []accesstypes.Role) Option {
 	}
 }
 
+// WithTenantWord names what the application calls one tenant, as the middle of a
+// sentence says it ("customer", "service district"): a refusal that speaks of a tenant
+// says the application's word, the one its pages show. The generated client passes the
+// tenant record's word. Without it, and for an empty word, the word is "tenant".
+func WithTenantWord(word string) Option {
+	return func(m *Manager) {
+		if word != "" {
+			m.tenantWord = word
+		}
+	}
+}
+
 // New returns the manager of one auth. auth is the auth's name, the one its outlets'
 // generated routes bind to a request (the auth package's Name): the rules that keep a
 // person from acting on themselves take a caller for a person of this auth only when the
@@ -273,7 +305,7 @@ func New(auth string, store Store, controller access.Controller, sessions Sessio
 	if sessions == nil {
 		return nil, errors.New("identity.New(): the session API is nil; pass the API of the Auth that signs the auth's people in (session.Auth.API), whose hasher a password written here is checked by")
 	}
-	m := &Manager{auth: auth, store: store, access: controller, sessions: sessions, administrators: nil, oneTenant: nil, now: time.Now}
+	m := &Manager{auth: auth, store: store, access: controller, sessions: sessions, administrators: nil, oneTenant: nil, tenantWord: "tenant", now: time.Now}
 	for _, opt := range opts {
 		opt(m)
 	}

@@ -27,7 +27,7 @@ func (TenantDirectory) DefaultConfig() resource.Config {
 // enforce; tenantDirectoryReadSets holds one Set per read operation.
 type tenantDirectoryRead struct {
 	ID          impulse.UUID `json:"id"          perm:"-"`
-	TenantID    string       `json:"tenantId"`
+	TenantID    impulse.UUID `json:"tenantId"`
 	Method      string       `json:"method"`
 	Connection  string       `json:"connection"`
 	DefaultSeat *string      `json:"defaultSeat"`
@@ -40,7 +40,7 @@ var tenantDirectoryReadSets resource.SetCache[TenantDirectory, tenantDirectoryRe
 // routes enforce; tenantDirectoryWriteSets holds one Set per mutation.
 type tenantDirectoryWrite struct {
 	ID          impulse.UUID `json:"-"`
-	TenantID    string       `json:"-"`
+	TenantID    impulse.UUID `json:"-"`
 	Method      string       `json:"method"      sqltype:"STRING(16)"`
 	Connection  string       `json:"connection"`
 	DefaultSeat *string      `json:"defaultSeat" sqltype:"STRING(64)"`
@@ -208,8 +208,8 @@ func (p TenantDirectoryQueryPartialClause) ID() TenantDirectoryQueryIdent[impuls
 	return TenantDirectoryQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("ID", p.partialClause, true)}
 }
 
-func (p TenantDirectoryQueryPartialClause) TenantID() TenantDirectoryQueryIdent[string] {
-	return TenantDirectoryQueryIdent[string]{Ident: resource.NewIdent[string]("TenantID", p.partialClause, true)}
+func (p TenantDirectoryQueryPartialClause) TenantID() TenantDirectoryQueryIdent[impulse.UUID] {
+	return TenantDirectoryQueryIdent[impulse.UUID]{Ident: resource.NewIdent[impulse.UUID]("TenantID", p.partialClause, true)}
 }
 
 func (p TenantDirectoryQueryPartialClause) Method() TenantDirectoryQueryIdent[string] {
@@ -389,14 +389,14 @@ func (p *TenantDirectoryCreatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *TenantDirectoryCreatePatch) SetTenantID(v string) *TenantDirectoryCreatePatch {
+func (p *TenantDirectoryCreatePatch) SetTenantID(v impulse.UUID) *TenantDirectoryCreatePatch {
 	p.patchSet.Set("TenantID", v)
 
 	return p
 }
 
-func (p *TenantDirectoryCreatePatch) TenantID() string {
-	v, _ := p.patchSet.Get("TenantID").(string)
+func (p *TenantDirectoryCreatePatch) TenantID() impulse.UUID {
+	v, _ := p.patchSet.Get("TenantID").(impulse.UUID)
 
 	return v
 }
@@ -549,14 +549,14 @@ func (p *TenantDirectoryUpdatePatch) ID() impulse.UUID {
 	return v
 }
 
-func (p *TenantDirectoryUpdatePatch) SetTenantID(v string) *TenantDirectoryUpdatePatch {
+func (p *TenantDirectoryUpdatePatch) SetTenantID(v impulse.UUID) *TenantDirectoryUpdatePatch {
 	p.patchSet.Set("TenantID", v)
 
 	return p
 }
 
-func (p *TenantDirectoryUpdatePatch) TenantID() string {
-	v, _ := p.patchSet.Get("TenantID").(string)
+func (p *TenantDirectoryUpdatePatch) TenantID() impulse.UUID {
+	v, _ := p.patchSet.Get("TenantID").(impulse.UUID)
 
 	return v
 }

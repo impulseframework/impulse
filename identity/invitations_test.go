@@ -31,7 +31,8 @@ func newInviter(t *testing.T, store Store, mail *fakeMail) *Manager {
 // the message sent once the transaction has committed and never when it has not, the
 // answer told how the send went, an invitation whose message could not be sent
 // withdrawn, a role required and held to where the acceptance seats it, and the caller
-// recorded as the sender.
+// recorded as the sender: the account whose id the caller carries, where a user of the
+// auth holds it.
 func TestManager_Invite(t *testing.T) {
 	t.Parallel()
 
@@ -60,7 +61,7 @@ func TestManager_Invite(t *testing.T) {
 		{
 			name:       "an invitation into the application: the row is written, and the message goes once it is committed",
 			inv:        Invitation{Email: "  pat@example.com ", Roles: []accesstypes.Role{"Steward", "Reader", "Steward"}},
-			caller:     "dana",
+			caller:     dana,
 			wantWrites: []string{row("pat@example.com", "", "Steward,Reader", userID.String())},
 			wantMailed: []string{"pat@example.com"},
 			wantSent:   ptr(true),
@@ -68,7 +69,7 @@ func TestManager_Invite(t *testing.T) {
 		{
 			name:       "an invitation carries the name its sender gives the person",
 			inv:        Invitation{Email: "pat@example.com", Name: ptr("  Pat Example "), Roles: []accesstypes.Role{"Steward"}},
-			caller:     "dana",
+			caller:     dana,
 			wantWrites: []string{row("pat@example.com", "", "Steward", userID.String()) + " name=Pat Example"},
 			wantMailed: []string{"pat@example.com"},
 			wantSent:   ptr(true),
@@ -76,7 +77,7 @@ func TestManager_Invite(t *testing.T) {
 		{
 			name:       "an invitation into a tenant carries the tenant, and its roles are the tenant's",
 			inv:        Invitation{Email: "pat@example.com", Domain: ptr("alpha"), Roles: []accesstypes.Role{"Reader"}},
-			caller:     "dana",
+			caller:     dana,
 			wantWrites: []string{row("pat@example.com", "alpha", "Reader", userID.String())},
 			wantMailed: []string{"pat@example.com"},
 			wantSent:   ptr(true),
@@ -89,9 +90,18 @@ func TestManager_Invite(t *testing.T) {
 			wantSent:   ptr(true),
 		},
 		{
-			name:       "a caller who is no user of the auth is not recorded",
+			name:       "a caller whose id no user of the auth holds is not recorded",
 			inv:        Invitation{Email: "pat@example.com", Roles: []accesstypes.Role{"Steward"}},
-			caller:     "someone-else",
+			caller:     erin,
+			wantWrites: []string{row("pat@example.com", "", "Steward", "<nobody>")},
+			wantMailed: []string{"pat@example.com"},
+			wantSent:   ptr(true),
+		},
+		{
+			// The name is one a user of the auth holds: a name is not who a caller is.
+			name:       "a caller who carries a username and no id is not recorded",
+			inv:        Invitation{Email: "pat@example.com", Roles: []accesstypes.Role{"Steward"}},
+			caller:     "dana",
 			wantWrites: []string{row("pat@example.com", "", "Steward", "<nobody>")},
 			wantMailed: []string{"pat@example.com"},
 			wantSent:   ptr(true),

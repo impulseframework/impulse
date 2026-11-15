@@ -245,14 +245,16 @@ export namespace Clients {
 export namespace Commendations {
   export const fieldName = {
     awardedAt: 'awardedAt' as FieldName,
-    awardedBy: 'awardedBy' as FieldName,
+    awardedByName: 'awardedByName' as FieldName,
+    awardedByUserId: 'awardedByUserId' as FieldName,
     citation: 'citation' as FieldName,
     id: 'id' as FieldName,
     pilotId: 'pilotId' as FieldName,
   };
   export const resourceName = {
     awardedAt: 'Commendations.awardedAt' as Resource,
-    awardedBy: 'Commendations.awardedBy' as Resource,
+    awardedByName: 'Commendations.awardedByName' as Resource,
+    awardedByUserId: 'Commendations.awardedByUserId' as Resource,
     citation: 'Commendations.citation' as Resource,
     id: 'Commendations.id' as Resource,
     pilotId: 'Commendations.pilotId' as Resource,
@@ -286,7 +288,7 @@ export namespace CrewRoleGrants {
   export const fieldName = {
     axis: 'axis' as FieldName,
     condition: 'condition' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     field: 'field' as FieldName,
     kind: 'kind' as FieldName,
     permission: 'permission' as FieldName,
@@ -297,7 +299,7 @@ export namespace CrewRoleGrants {
   export const resourceName = {
     axis: 'CrewRoleGrants.axis' as Resource,
     condition: 'CrewRoleGrants.condition' as Resource,
-    domain: 'CrewRoleGrants.domain' as Resource,
+    domainId: 'CrewRoleGrants.domainId' as Resource,
     field: 'CrewRoleGrants.field' as Resource,
     kind: 'CrewRoleGrants.kind' as Resource,
     permission: 'CrewRoleGrants.permission' as Resource,
@@ -311,7 +313,7 @@ export namespace CrewRoles {
   export const fieldName = {
     axis: 'axis' as FieldName,
     description: 'description' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     kind: 'kind' as FieldName,
     role: 'role' as FieldName,
     updatedAt: 'updatedAt' as FieldName,
@@ -319,7 +321,7 @@ export namespace CrewRoles {
   export const resourceName = {
     axis: 'CrewRoles.axis' as Resource,
     description: 'CrewRoles.description' as Resource,
-    domain: 'CrewRoles.domain' as Resource,
+    domainId: 'CrewRoles.domainId' as Resource,
     kind: 'CrewRoles.kind' as Resource,
     role: 'CrewRoles.role' as Resource,
     updatedAt: 'CrewRoles.updatedAt' as Resource,
@@ -330,7 +332,7 @@ export namespace CrewSectorIdentities {
   export const fieldName = {
     connection: 'connection' as FieldName,
     createdAt: 'createdAt' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     emailAtLink: 'emailAtLink' as FieldName,
     heldElsewhere: 'heldElsewhere' as FieldName,
     heldGlobally: 'heldGlobally' as FieldName,
@@ -345,7 +347,7 @@ export namespace CrewSectorIdentities {
   export const resourceName = {
     connection: 'CrewSectorIdentities.connection' as Resource,
     createdAt: 'CrewSectorIdentities.createdAt' as Resource,
-    domain: 'CrewSectorIdentities.domain' as Resource,
+    domainId: 'CrewSectorIdentities.domainId' as Resource,
     emailAtLink: 'CrewSectorIdentities.emailAtLink' as Resource,
     heldElsewhere: 'CrewSectorIdentities.heldElsewhere' as Resource,
     heldGlobally: 'CrewSectorIdentities.heldGlobally' as Resource,
@@ -363,11 +365,11 @@ export namespace CrewSectorInvitations {
   export const fieldName = {
     consumedAt: 'consumedAt' as FieldName,
     createdAt: 'createdAt' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     email: 'email' as FieldName,
     expiresAt: 'expiresAt' as FieldName,
     id: 'id' as FieldName,
-    invitedBy: 'invitedBy' as FieldName,
+    invitedByUserId: 'invitedByUserId' as FieldName,
     name: 'name' as FieldName,
     pending: 'pending' as FieldName,
     roleNames: 'roleNames' as FieldName,
@@ -375,11 +377,11 @@ export namespace CrewSectorInvitations {
   export const resourceName = {
     consumedAt: 'CrewSectorInvitations.consumedAt' as Resource,
     createdAt: 'CrewSectorInvitations.createdAt' as Resource,
-    domain: 'CrewSectorInvitations.domain' as Resource,
+    domainId: 'CrewSectorInvitations.domainId' as Resource,
     email: 'CrewSectorInvitations.email' as Resource,
     expiresAt: 'CrewSectorInvitations.expiresAt' as Resource,
     id: 'CrewSectorInvitations.id' as Resource,
-    invitedBy: 'CrewSectorInvitations.invitedBy' as Resource,
+    invitedByUserId: 'CrewSectorInvitations.invitedByUserId' as Resource,
     name: 'CrewSectorInvitations.name' as Resource,
     pending: 'CrewSectorInvitations.pending' as Resource,
     roleNames: 'CrewSectorInvitations.roleNames' as Resource,
@@ -400,7 +402,7 @@ export namespace CrewSectorRoles {
 export namespace CrewSectorUserRoles {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
     role: 'role' as FieldName,
     userId: 'userId' as FieldName,
@@ -408,7 +410,7 @@ export namespace CrewSectorUserRoles {
   };
   export const resourceName = {
     createdAt: 'CrewSectorUserRoles.createdAt' as Resource,
-    domain: 'CrewSectorUserRoles.domain' as Resource,
+    domainId: 'CrewSectorUserRoles.domainId' as Resource,
     everyDomain: 'CrewSectorUserRoles.everyDomain' as Resource,
     role: 'CrewSectorUserRoles.role' as Resource,
     userId: 'CrewSectorUserRoles.userId' as Resource,
@@ -420,7 +422,7 @@ export namespace CrewSectorUsers {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     email: 'email' as FieldName,
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
     heldElsewhere: 'heldElsewhere' as FieldName,
@@ -434,7 +436,7 @@ export namespace CrewSectorUsers {
   export const resourceName = {
     createdAt: 'CrewSectorUsers.createdAt' as Resource,
     disabled: 'CrewSectorUsers.disabled' as Resource,
-    domain: 'CrewSectorUsers.domain' as Resource,
+    domainId: 'CrewSectorUsers.domainId' as Resource,
     email: 'CrewSectorUsers.email' as Resource,
     emailVerifiedAt: 'CrewSectorUsers.emailVerifiedAt' as Resource,
     heldElsewhere: 'CrewSectorUsers.heldElsewhere' as Resource,
@@ -494,6 +496,7 @@ export namespace CrewSessionIdentities {
 export namespace CrewSessionImpersonations {
   export const fieldName = {
     actorRealm: 'actorRealm' as FieldName,
+    actorUserId: 'actorUserId' as FieldName,
     actorUsername: 'actorUsername' as FieldName,
     endReason: 'endReason' as FieldName,
     endedAt: 'endedAt' as FieldName,
@@ -501,7 +504,7 @@ export namespace CrewSessionImpersonations {
     mask: 'mask' as FieldName,
     principalKind: 'principalKind' as FieldName,
     principalRole: 'principalRole' as FieldName,
-    principalUser: 'principalUser' as FieldName,
+    principalUserId: 'principalUserId' as FieldName,
     reason: 'reason' as FieldName,
     sessionId: 'sessionId' as FieldName,
     sourceSessionId: 'sourceSessionId' as FieldName,
@@ -509,6 +512,7 @@ export namespace CrewSessionImpersonations {
   };
   export const resourceName = {
     actorRealm: 'CrewSessionImpersonations.actorRealm' as Resource,
+    actorUserId: 'CrewSessionImpersonations.actorUserId' as Resource,
     actorUsername: 'CrewSessionImpersonations.actorUsername' as Resource,
     endReason: 'CrewSessionImpersonations.endReason' as Resource,
     endedAt: 'CrewSessionImpersonations.endedAt' as Resource,
@@ -516,7 +520,7 @@ export namespace CrewSessionImpersonations {
     mask: 'CrewSessionImpersonations.mask' as Resource,
     principalKind: 'CrewSessionImpersonations.principalKind' as Resource,
     principalRole: 'CrewSessionImpersonations.principalRole' as Resource,
-    principalUser: 'CrewSessionImpersonations.principalUser' as Resource,
+    principalUserId: 'CrewSessionImpersonations.principalUserId' as Resource,
     reason: 'CrewSessionImpersonations.reason' as Resource,
     sessionId: 'CrewSessionImpersonations.sessionId' as Resource,
     sourceSessionId: 'CrewSessionImpersonations.sourceSessionId' as Resource,
@@ -531,11 +535,11 @@ export namespace CrewSessionMailLinks {
     email: 'email' as FieldName,
     expiresAt: 'expiresAt' as FieldName,
     id: 'id' as FieldName,
-    invitedBy: 'invitedBy' as FieldName,
+    invitedByUserId: 'invitedByUserId' as FieldName,
     kind: 'kind' as FieldName,
     name: 'name' as FieldName,
     roleNames: 'roleNames' as FieldName,
-    tenant: 'tenant' as FieldName,
+    tenantId: 'tenantId' as FieldName,
     userId: 'userId' as FieldName,
   };
   export const resourceName = {
@@ -544,11 +548,11 @@ export namespace CrewSessionMailLinks {
     email: 'CrewSessionMailLinks.email' as Resource,
     expiresAt: 'CrewSessionMailLinks.expiresAt' as Resource,
     id: 'CrewSessionMailLinks.id' as Resource,
-    invitedBy: 'CrewSessionMailLinks.invitedBy' as Resource,
+    invitedByUserId: 'CrewSessionMailLinks.invitedByUserId' as Resource,
     kind: 'CrewSessionMailLinks.kind' as Resource,
     name: 'CrewSessionMailLinks.name' as Resource,
     roleNames: 'CrewSessionMailLinks.roleNames' as Resource,
-    tenant: 'CrewSessionMailLinks.tenant' as Resource,
+    tenantId: 'CrewSessionMailLinks.tenantId' as Resource,
     userId: 'CrewSessionMailLinks.userId' as Resource,
   };
 }
@@ -575,7 +579,7 @@ export namespace CrewSessionTokens {
     clientId: 'clientId' as FieldName,
     createdAt: 'createdAt' as FieldName,
     expiresAt: 'expiresAt' as FieldName,
-    family: 'family' as FieldName,
+    familyId: 'familyId' as FieldName,
     id: 'id' as FieldName,
     kind: 'kind' as FieldName,
     lastUsedAt: 'lastUsedAt' as FieldName,
@@ -589,7 +593,7 @@ export namespace CrewSessionTokens {
     clientId: 'CrewSessionTokens.clientId' as Resource,
     createdAt: 'CrewSessionTokens.createdAt' as Resource,
     expiresAt: 'CrewSessionTokens.expiresAt' as Resource,
-    family: 'CrewSessionTokens.family' as Resource,
+    familyId: 'CrewSessionTokens.familyId' as Resource,
     id: 'CrewSessionTokens.id' as Resource,
     kind: 'CrewSessionTokens.kind' as Resource,
     lastUsedAt: 'CrewSessionTokens.lastUsedAt' as Resource,
@@ -670,25 +674,26 @@ export namespace CrewUserRoles {
   export const fieldName = {
     axis: 'axis' as FieldName,
     createdAt: 'createdAt' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     kind: 'kind' as FieldName,
     role: 'role' as FieldName,
-    user: 'user' as FieldName,
+    userId: 'userId' as FieldName,
   };
   export const resourceName = {
     axis: 'CrewUserRoles.axis' as Resource,
     createdAt: 'CrewUserRoles.createdAt' as Resource,
-    domain: 'CrewUserRoles.domain' as Resource,
+    domainId: 'CrewUserRoles.domainId' as Resource,
     kind: 'CrewUserRoles.kind' as Resource,
     role: 'CrewUserRoles.role' as Resource,
-    user: 'CrewUserRoles.user' as Resource,
+    userId: 'CrewUserRoles.userId' as Resource,
   };
 }
 
 export namespace DistressCalls {
   export const fieldName = {
     caseNumber: 'caseNumber' as FieldName,
-    filedBy: 'filedBy' as FieldName,
+    filedByName: 'filedByName' as FieldName,
+    filedByUserId: 'filedByUserId' as FieldName,
     id: 'id' as FieldName,
     position: 'position' as FieldName,
     sectorId: 'sectorId' as FieldName,
@@ -702,7 +707,8 @@ export namespace DistressCalls {
   export const resourceName = {
     callerContact: 'DistressCalls.callerContact' as Resource,
     caseNumber: 'DistressCalls.caseNumber' as Resource,
-    filedBy: 'DistressCalls.filedBy' as Resource,
+    filedByName: 'DistressCalls.filedByName' as Resource,
+    filedByUserId: 'DistressCalls.filedByUserId' as Resource,
     id: 'DistressCalls.id' as Resource,
     position: 'DistressCalls.position' as Resource,
     sectorId: 'DistressCalls.sectorId' as Resource,
@@ -782,7 +788,7 @@ export namespace MembersRoleGrants {
   export const fieldName = {
     axis: 'axis' as FieldName,
     condition: 'condition' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     field: 'field' as FieldName,
     kind: 'kind' as FieldName,
     permission: 'permission' as FieldName,
@@ -793,7 +799,7 @@ export namespace MembersRoleGrants {
   export const resourceName = {
     axis: 'MembersRoleGrants.axis' as Resource,
     condition: 'MembersRoleGrants.condition' as Resource,
-    domain: 'MembersRoleGrants.domain' as Resource,
+    domainId: 'MembersRoleGrants.domainId' as Resource,
     field: 'MembersRoleGrants.field' as Resource,
     kind: 'MembersRoleGrants.kind' as Resource,
     permission: 'MembersRoleGrants.permission' as Resource,
@@ -807,7 +813,7 @@ export namespace MembersRoles {
   export const fieldName = {
     axis: 'axis' as FieldName,
     description: 'description' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     kind: 'kind' as FieldName,
     role: 'role' as FieldName,
     updatedAt: 'updatedAt' as FieldName,
@@ -815,7 +821,7 @@ export namespace MembersRoles {
   export const resourceName = {
     axis: 'MembersRoles.axis' as Resource,
     description: 'MembersRoles.description' as Resource,
-    domain: 'MembersRoles.domain' as Resource,
+    domainId: 'MembersRoles.domainId' as Resource,
     kind: 'MembersRoles.kind' as Resource,
     role: 'MembersRoles.role' as Resource,
     updatedAt: 'MembersRoles.updatedAt' as Resource,
@@ -826,7 +832,7 @@ export namespace MembersSectorIdentities {
   export const fieldName = {
     connection: 'connection' as FieldName,
     createdAt: 'createdAt' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     emailAtLink: 'emailAtLink' as FieldName,
     heldElsewhere: 'heldElsewhere' as FieldName,
     heldGlobally: 'heldGlobally' as FieldName,
@@ -841,7 +847,7 @@ export namespace MembersSectorIdentities {
   export const resourceName = {
     connection: 'MembersSectorIdentities.connection' as Resource,
     createdAt: 'MembersSectorIdentities.createdAt' as Resource,
-    domain: 'MembersSectorIdentities.domain' as Resource,
+    domainId: 'MembersSectorIdentities.domainId' as Resource,
     emailAtLink: 'MembersSectorIdentities.emailAtLink' as Resource,
     heldElsewhere: 'MembersSectorIdentities.heldElsewhere' as Resource,
     heldGlobally: 'MembersSectorIdentities.heldGlobally' as Resource,
@@ -859,11 +865,11 @@ export namespace MembersSectorInvitations {
   export const fieldName = {
     consumedAt: 'consumedAt' as FieldName,
     createdAt: 'createdAt' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     email: 'email' as FieldName,
     expiresAt: 'expiresAt' as FieldName,
     id: 'id' as FieldName,
-    invitedBy: 'invitedBy' as FieldName,
+    invitedByUserId: 'invitedByUserId' as FieldName,
     name: 'name' as FieldName,
     pending: 'pending' as FieldName,
     roleNames: 'roleNames' as FieldName,
@@ -871,11 +877,11 @@ export namespace MembersSectorInvitations {
   export const resourceName = {
     consumedAt: 'MembersSectorInvitations.consumedAt' as Resource,
     createdAt: 'MembersSectorInvitations.createdAt' as Resource,
-    domain: 'MembersSectorInvitations.domain' as Resource,
+    domainId: 'MembersSectorInvitations.domainId' as Resource,
     email: 'MembersSectorInvitations.email' as Resource,
     expiresAt: 'MembersSectorInvitations.expiresAt' as Resource,
     id: 'MembersSectorInvitations.id' as Resource,
-    invitedBy: 'MembersSectorInvitations.invitedBy' as Resource,
+    invitedByUserId: 'MembersSectorInvitations.invitedByUserId' as Resource,
     name: 'MembersSectorInvitations.name' as Resource,
     pending: 'MembersSectorInvitations.pending' as Resource,
     roleNames: 'MembersSectorInvitations.roleNames' as Resource,
@@ -885,7 +891,7 @@ export namespace MembersSectorInvitations {
 export namespace MembersSectorUserRoles {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
     role: 'role' as FieldName,
     userId: 'userId' as FieldName,
@@ -893,7 +899,7 @@ export namespace MembersSectorUserRoles {
   };
   export const resourceName = {
     createdAt: 'MembersSectorUserRoles.createdAt' as Resource,
-    domain: 'MembersSectorUserRoles.domain' as Resource,
+    domainId: 'MembersSectorUserRoles.domainId' as Resource,
     everyDomain: 'MembersSectorUserRoles.everyDomain' as Resource,
     role: 'MembersSectorUserRoles.role' as Resource,
     userId: 'MembersSectorUserRoles.userId' as Resource,
@@ -905,7 +911,7 @@ export namespace MembersSectorUsers {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     email: 'email' as FieldName,
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
     heldElsewhere: 'heldElsewhere' as FieldName,
@@ -919,7 +925,7 @@ export namespace MembersSectorUsers {
   export const resourceName = {
     createdAt: 'MembersSectorUsers.createdAt' as Resource,
     disabled: 'MembersSectorUsers.disabled' as Resource,
-    domain: 'MembersSectorUsers.domain' as Resource,
+    domainId: 'MembersSectorUsers.domainId' as Resource,
     email: 'MembersSectorUsers.email' as Resource,
     emailVerifiedAt: 'MembersSectorUsers.emailVerifiedAt' as Resource,
     heldElsewhere: 'MembersSectorUsers.heldElsewhere' as Resource,
@@ -983,11 +989,11 @@ export namespace MembersSessionMailLinks {
     email: 'email' as FieldName,
     expiresAt: 'expiresAt' as FieldName,
     id: 'id' as FieldName,
-    invitedBy: 'invitedBy' as FieldName,
+    invitedByUserId: 'invitedByUserId' as FieldName,
     kind: 'kind' as FieldName,
     name: 'name' as FieldName,
     roleNames: 'roleNames' as FieldName,
-    tenant: 'tenant' as FieldName,
+    tenantId: 'tenantId' as FieldName,
     userId: 'userId' as FieldName,
   };
   export const resourceName = {
@@ -996,11 +1002,11 @@ export namespace MembersSessionMailLinks {
     email: 'MembersSessionMailLinks.email' as Resource,
     expiresAt: 'MembersSessionMailLinks.expiresAt' as Resource,
     id: 'MembersSessionMailLinks.id' as Resource,
-    invitedBy: 'MembersSessionMailLinks.invitedBy' as Resource,
+    invitedByUserId: 'MembersSessionMailLinks.invitedByUserId' as Resource,
     kind: 'MembersSessionMailLinks.kind' as Resource,
     name: 'MembersSessionMailLinks.name' as Resource,
     roleNames: 'MembersSessionMailLinks.roleNames' as Resource,
-    tenant: 'MembersSessionMailLinks.tenant' as Resource,
+    tenantId: 'MembersSessionMailLinks.tenantId' as Resource,
     userId: 'MembersSessionMailLinks.userId' as Resource,
   };
 }
@@ -1091,18 +1097,18 @@ export namespace MembersUserRoles {
   export const fieldName = {
     axis: 'axis' as FieldName,
     createdAt: 'createdAt' as FieldName,
-    domain: 'domain' as FieldName,
+    domainId: 'domainId' as FieldName,
     kind: 'kind' as FieldName,
     role: 'role' as FieldName,
-    user: 'user' as FieldName,
+    userId: 'userId' as FieldName,
   };
   export const resourceName = {
     axis: 'MembersUserRoles.axis' as Resource,
     createdAt: 'MembersUserRoles.createdAt' as Resource,
-    domain: 'MembersUserRoles.domain' as Resource,
+    domainId: 'MembersUserRoles.domainId' as Resource,
     kind: 'MembersUserRoles.kind' as Resource,
     role: 'MembersUserRoles.role' as Resource,
-    user: 'MembersUserRoles.user' as Resource,
+    userId: 'MembersUserRoles.userId' as Resource,
   };
 }
 
@@ -1143,7 +1149,8 @@ export namespace MissionDocuments {
     size: 'size' as FieldName,
     title: 'title' as FieldName,
     uploadedAt: 'uploadedAt' as FieldName,
-    uploadedBy: 'uploadedBy' as FieldName,
+    uploadedByName: 'uploadedByName' as FieldName,
+    uploadedByUserId: 'uploadedByUserId' as FieldName,
   };
   export const resourceName = {
     content: 'MissionDocuments.content' as Resource,
@@ -1156,14 +1163,16 @@ export namespace MissionDocuments {
     size: 'MissionDocuments.size' as Resource,
     title: 'MissionDocuments.title' as Resource,
     uploadedAt: 'MissionDocuments.uploadedAt' as Resource,
-    uploadedBy: 'MissionDocuments.uploadedBy' as Resource,
+    uploadedByName: 'MissionDocuments.uploadedByName' as Resource,
+    uploadedByUserId: 'MissionDocuments.uploadedByUserId' as Resource,
   };
 }
 
 export namespace Missions {
   export const fieldName = {
     assignedSquadronId: 'assignedSquadronId' as FieldName,
-    bookedBy: 'bookedBy' as FieldName,
+    bookedByName: 'bookedByName' as FieldName,
+    bookedByUserId: 'bookedByUserId' as FieldName,
     brief: 'brief' as FieldName,
     briefingTemplateId: 'briefingTemplateId' as FieldName,
     clientId: 'clientId' as FieldName,
@@ -1181,7 +1190,8 @@ export namespace Missions {
   };
   export const resourceName = {
     assignedSquadronId: 'Missions.assignedSquadronId' as Resource,
-    bookedBy: 'Missions.bookedBy' as Resource,
+    bookedByName: 'Missions.bookedByName' as Resource,
+    bookedByUserId: 'Missions.bookedByUserId' as Resource,
     brief: 'Missions.brief' as Resource,
     briefingTemplateId: 'Missions.briefingTemplateId' as Resource,
     clientId: 'Missions.clientId' as Resource,
@@ -1307,7 +1317,8 @@ export namespace Refits {
     id: 'id' as FieldName,
     inspectedAt: 'inspectedAt' as FieldName,
     notes: 'notes' as FieldName,
-    openedBy: 'openedBy' as FieldName,
+    openedByName: 'openedByName' as FieldName,
+    openedByUserId: 'openedByUserId' as FieldName,
     shipId: 'shipId' as FieldName,
     statusId: 'statusId' as FieldName,
   };
@@ -1316,7 +1327,8 @@ export namespace Refits {
     id: 'Refits.id' as Resource,
     inspectedAt: 'Refits.inspectedAt' as Resource,
     notes: 'Refits.notes' as Resource,
-    openedBy: 'Refits.openedBy' as Resource,
+    openedByName: 'Refits.openedByName' as Resource,
+    openedByUserId: 'Refits.openedByUserId' as Resource,
     shipId: 'Refits.shipId' as Resource,
     statusId: 'Refits.statusId' as Resource,
   };
@@ -1566,7 +1578,7 @@ export namespace Wings {
 
 export namespace AssignCrewRole {
   export const fieldName = {
-    username: 'username' as FieldName,
+    userId: 'userId' as FieldName,
     role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
@@ -1833,7 +1845,7 @@ export namespace ReleaseConsignment {
 
 export namespace RemoveCrewRole {
   export const fieldName = {
-    username: 'username' as FieldName,
+    userId: 'userId' as FieldName,
     role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,

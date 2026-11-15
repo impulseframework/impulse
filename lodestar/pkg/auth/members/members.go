@@ -5,11 +5,18 @@
 // The directory proves who someone is and says what they may do. Role membership is the
 // directory's (google.RoleSync): every sign-in reconciles the person's roles to the
 // Google Groups the directory places them in and removes any it does not name, so nothing
-// in the application assigns roles in this store and the bootstrap seeds none. A global
-// role is held in the global partition and a domain role in every sector, so one
-// membership reaches every sector, the ones seeded today and the ones created later. The
-// application-run alternative, google.DisableRoleSync, leaves role membership to the
-// application, so one registration is never both.
+// in the application assigns roles in this store and the bootstrap seeds none. The roles
+// are held by the id of the member's account, which is how the permission store names a
+// person. A global role is held in the global partition and a domain role in every
+// sector, so one membership reaches every sector, the ones seeded today and the ones
+// created later. The application-run alternative, google.DisableRoleSync, leaves role
+// membership to the application, so one registration is never both.
+//
+// A member's account is made by their first sign-in, under the name the directory
+// presents. The development bootstrap makes the accounts of the members the demo world's
+// rows name (cmd/bootstrap/users.json, "members") ahead of that, without a password and
+// under fixed ids, so a seeded row can say whose it is; the member's first sign-in finds
+// the account under the directory's sign-in name and links to it.
 //
 // An auth is a package. It owns its session manager, one Auth session with the sign-in
 // methods registered on it, here the directory alone, with its own session, user,

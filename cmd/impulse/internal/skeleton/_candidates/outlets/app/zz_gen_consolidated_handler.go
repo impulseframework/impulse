@@ -22,22 +22,22 @@ import (
 func (a *App) PatchResources() http.HandlerFunc {
 	type announcementRequest struct {
 		ID       impulse.UUID `json:"-"`
-		TenantID string       `json:"-"`
+		TenantID impulse.UUID `json:"-"`
 		Title    string       `json:"title"`
 		Body     string       `json:"body"`
 	}
 	announcementDecoder := NewDecoder[resources.Announcement, announcementRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type tenantRequest struct {
-		ID            string `json:"-"`
-		Name          string `json:"name"`
-		DirectoryOnly bool   `json:"directoryOnly"`
+		ID            impulse.UUID `json:"-"`
+		Name          string       `json:"name"`
+		DirectoryOnly bool         `json:"directoryOnly"`
 	}
 	tenantDecoder := NewDecoder[resources.Tenant, tenantRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
 	type tenantDirectoryRequest struct {
 		ID          impulse.UUID `json:"-"`
-		TenantID    string       `json:"-"`
+		TenantID    impulse.UUID `json:"-"`
 		Method      string       `json:"method"      sqltype:"STRING(16)"`
 		Connection  string       `json:"connection"`
 		DefaultSeat *string      `json:"defaultSeat" sqltype:"STRING(64)"`
@@ -70,7 +70,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		tenantsWritten := false
 		// The Tenants this transaction creates with their creator's membership,
 		// which the answer waits on after the commit.
-		var created []string
+		var created []impulse.UUID
 
 		// The rows the transaction writes are collected for the live pages, published
 		// once the commit lands and before the answer, each under the domain its
@@ -93,68 +93,52 @@ func (a *App) PatchResources() http.HandlerFunc {
 				switch httpio.Param[string](op.Req, "resource") {
 				case "tenants":
 					if op.PathDepth() <= 2 {
-						// The two operations that decide from whether their row is there run
-						// as the add or the patch they turn out to be: an add-or-skip is the
-						// add it is, with the create patch told to leave a row that is there
-						// alone, and a patch-or-add is a patch when its row is there and an
-						// add when it is not.
-						orSkip := false
-						switch op.Type {
-						case resource.OperationCreateOrSkip:
-							op, orSkip = op.AsCreate(), true
-						case resource.OperationUpdateOrCreate:
-							keyReq, err := op.ReqWithPattern("/{resource}/{id}", resource.RequireCreatePath())
-							if err != nil {
-								return errors.Wrap(err, "op.ReqWithPattern()")
-							}
-							key := resource.KeySet{}
-							key = key.Add("ID", httpio.Param[string](keyReq, "id"))
-							decided, err := tenantDecoder.DecideOperation(ctx, txn, op, userPermissions, accesstypes.GlobalScope(), key)
-							if err != nil {
-								return errors.Wrap(err, "tenantDecoder.DecideOperation()")
-							}
-							op = decided
-						}
 						patchSet, err := tenantDecoder.DecodeOperation(op, userPermissions, accesstypes.GlobalScope())
 						if err != nil {
 							return errors.Wrap(err, "tenantDecoder.DecodeOperation()")
 						}
 						tenantsWritten = true
 
-						req, err := op.ReqWithPattern("/{resource}/{id}", resource.RequireCreatePath())
+						req, err := op.ReqWithPattern("/{resource}/{id}")
 						if err != nil {
 							return errors.Wrap(err, "op.ReqWithPattern()")
 						}
 
 						switch op.Type {
 						case resource.OperationCreate:
-							id := httpio.Param[string](req, "id")
-							patch := resources.NewTenantCreatePatchFromPatchSet(id, patchSet)
-							if orSkip {
-								patch.OrSkip()
+							patch, err := resources.NewTenantCreatePatchFromPatchSet(patchSet)
+							if err != nil {
+								return errors.Wrap(err, "tenantCreatePatchFromPatchSet()")
 							}
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.TenantCreatePatch.Buffer()")
 							}
-							if patch.RowSkipped() {
-								// The row was there: nothing was created, so nobody is its creator.
-								continue
-							}
+							resp["tenants"] = append(resp["tenants"], patch.ID())
+							id := patch.ID()
 							for _, role := range roles {
-								if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id)), string(userPermissions.User()), role); err != nil {
+								if err := identity.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(id.String())), userPermissions.User(), role); err != nil {
 									return errors.Wrap(err, "the auth's identity client: AssignRole()")
 								}
 							}
 							created = append(created, id)
 						case resource.OperationUpdate:
-							id := httpio.Param[string](req, "id")
+							id := httpio.Param[impulse.UUID](req, "id")
 							if err := resources.NewTenantUpdatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.TenantUpdatePatch.Buffer()")
 							}
 						case resource.OperationDelete:
-							id := httpio.Param[string](req, "id")
+							id := httpio.Param[impulse.UUID](req, "id")
 							if err := resources.NewTenantDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.TenantDeletePatch.Buffer()")
+							}
+							// A tenant that goes takes what each auth holds for it, in this transaction:
+							// the roles people hold in it, the custom roles made in it and the
+							// invitations into it that still stand.
+							if err := a.StaffIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {
+								return errors.Wrap(err, "StaffIdentity().ClearTenant()")
+							}
+							if err := a.MembersIdentity().ClearTenant(ctx, txn, accesstypes.Domain(id.String())); err != nil {
+								return errors.Wrap(err, "MembersIdentity().ClearTenant()")
 							}
 						}
 
@@ -264,9 +248,9 @@ func (a *App) PatchResources() http.HandlerFunc {
 				logger.FromCtx(ctx).Errorf("tenants: rereading the roster after the commit failed; this instance reloads on the tenants signal or at its backstop: %v", err)
 			}
 		}
-		for _, domain := range created {
-			if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(domain)); err != nil {
-				logger.FromCtx(ctx).Errorf("tenant %s: %v", domain, err)
+		for _, id := range created {
+			if err := resource.AwaitFirstAdministrator(ctx, userPermissions, accesstypes.Domain(id.String())); err != nil {
+				logger.FromCtx(ctx).Errorf("tenant %s: %v", id, err)
 			}
 		}
 		if tenantsWritten {

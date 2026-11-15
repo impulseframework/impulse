@@ -1,7 +1,10 @@
 // Package tenantfixture provides parsed-struct fixtures for the tenant record's capture
 // rules (@tenant): the well-formed record beside a tenant-scoped resource, and each
-// shape the annotation refuses. The schema behind the table-backed structs is synthetic
-// (tenantFixtureTables in the tests); Docks is keyed twice there.
+// shape the annotation refuses. A tenant record is keyed by an id its create path
+// generates (impulse.UUID), and a tenant-scoped record carries that id in its tenant
+// column, as the id or as its text. The schema behind the table-backed structs is
+// synthetic (tenantFixtureTables in the tests); Docks is keyed twice there, and the key
+// of Depots is a foreign key.
 package tenantfixture
 
 import (
@@ -13,13 +16,14 @@ import (
 // Struct-level annotations only parse from a TypeSpec doc comment, so the structs sit
 // in a grouped type block like real project sources do.
 type (
-	// Sector is the well-formed tenant record: global, table-backed, one string key.
+	// Sector is the well-formed tenant record: global, table-backed, one key, an id its
+	// create path generates.
 	//
 	// @resource
 	// @tenant
 	Sector struct {
-		ID   string `spanner:"Id"`
-		Name string `spanner:"Name"`
+		ID   impulse.UUID `spanner:"Id"`
+		Name string       `spanner:"Name"`
 	}
 
 	// Berth is tenant-scoped: served under the record's segment.
@@ -29,8 +33,8 @@ type (
 	Berth struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		SectorID string `spanner:"SectorId"`
-		Name     string `spanner:"Name"`
+		SectorID impulse.UUID `spanner:"SectorId"`
+		Name     string       `spanner:"Name"`
 	}
 
 	// Outpost declares @tenant on a tenant-scoped resource.
@@ -39,9 +43,9 @@ type (
 	// @tenant
 	// @permissionScope(domain)
 	Outpost struct {
-		ID string `spanner:"Id"`
+		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		SectorID string `spanner:"SectorId"`
+		SectorID impulse.UUID `spanner:"SectorId"`
 	}
 
 	// Dock declares @tenant on a resource the schema keys twice.
@@ -49,15 +53,27 @@ type (
 	// @resource
 	// @tenant
 	Dock struct {
-		SectorID string `spanner:"SectorId"`
-		Number   int64  `spanner:"Number"`
+		SectorID impulse.UUID `spanner:"SectorId"`
+		Number   int64        `spanner:"Number"`
 	}
 
-	// Hangar declares @tenant on a resource whose key is not a string.
+	// Hangar declares @tenant on a resource whose key is a string a person types, not an
+	// id its create path generates.
 	//
 	// @resource
 	// @tenant
 	Hangar struct {
+		ID   string `spanner:"Id"`
+		Name string `spanner:"Name"`
+	}
+
+	// Depot declares @tenant on a resource whose id is the key of another table's row (a
+	// foreign key in the schema): the caller names it, and its create path generates
+	// none.
+	//
+	// @resource
+	// @tenant
+	Depot struct {
 		ID   impulse.UUID `spanner:"Id"`
 		Name string       `spanner:"Name"`
 	}
@@ -67,7 +83,7 @@ type (
 	// @resource
 	// @tenant
 	Region struct {
-		ID string `spanner:"Id"`
+		ID impulse.UUID `spanner:"Id"`
 	}
 
 	// Ledger declares @tenant on a view.
@@ -76,8 +92,8 @@ type (
 	// @tenant
 	Ledger struct {
 		// @primarykey
-		ID   string `spanner:"Id" uniqueindex:"true"`
-		Name string `spanner:"Name"`
+		ID   impulse.UUID `spanner:"Id" uniqueindex:"true"`
+		Name string       `spanner:"Name"`
 	}
 
 	// Tally declares @tenant on a computed resource.
@@ -85,7 +101,7 @@ type (
 	// @computed
 	// @tenant
 	Tally struct {
-		ID    string // @primarykey
+		ID    impulse.UUID // @primarykey
 		Total int64
 	}
 
@@ -99,17 +115,17 @@ type (
 
 	// Station declares the self-service creation shape: the person who becomes its
 	// administrator creates it, through the generated route, and no administrator does.
-	// Beside the key it carries a plain column, a nullable one, a column of a type from
-	// another package and a server-owned one.
+	// Beside the key, the id the route generates, it carries a plain column, a nullable
+	// one, a column of a type from another package and a server-owned one.
 	//
 	// @resource
 	// @tenant(creation: self-service)
 	Station struct {
-		ID      string     `spanner:"Id"`
-		Name    string     `spanner:"Name"`
-		Motto   *string    `spanner:"Motto"`
-		Opened  civil.Date `spanner:"Opened"`
-		Derived string     `spanner:"Derived" conditions:"output_only"`
+		ID      impulse.UUID `spanner:"Id"`
+		Name    string       `spanner:"Name"`
+		Motto   *string      `spanner:"Motto"`
+		Opened  civil.Date   `spanner:"Opened"`
+		Derived string       `spanner:"Derived" conditions:"output_only"`
 	}
 
 	// Colony declares both creation shapes.
@@ -117,8 +133,8 @@ type (
 	// @resource
 	// @tenant(creation: both)
 	Colony struct {
-		ID   string `spanner:"Id"`
-		Name string `spanner:"Name"`
+		ID   impulse.UUID `spanner:"Id"`
+		Name string       `spanner:"Name"`
 	}
 
 	// Enclave spells the default shape out.
@@ -126,7 +142,7 @@ type (
 	// @resource
 	// @tenant(creation: administrator)
 	Enclave struct {
-		ID string `spanner:"Id"`
+		ID impulse.UUID `spanner:"Id"`
 	}
 
 	// Outland names a creation shape the generator does not know.
@@ -134,7 +150,7 @@ type (
 	// @resource
 	// @tenant(creation: nowhere)
 	Outland struct {
-		ID string `spanner:"Id"`
+		ID impulse.UUID `spanner:"Id"`
 	}
 
 	// Province passes the shape without its key.
@@ -142,7 +158,7 @@ type (
 	// @resource
 	// @tenant(self-service)
 	Province struct {
-		ID string `spanner:"Id"`
+		ID impulse.UUID `spanner:"Id"`
 	}
 
 	// CreateStation is a method named as the Station record's create-your-station
@@ -158,7 +174,7 @@ type (
 	// @resource
 	// @tenant(shape: both)
 	Bastion struct {
-		ID string `spanner:"Id"`
+		ID impulse.UUID `spanner:"Id"`
 	}
 
 	// Harbor is a tenant record that declares who may enter a harbor: its people enter
@@ -168,15 +184,15 @@ type (
 	// @resource
 	// @tenant(creation: both)
 	Harbor struct {
-		ID   string `spanner:"Id"`
-		Name string `spanner:"Name"`
+		ID   impulse.UUID `spanner:"Id"`
+		Name string       `spanner:"Name"`
 		// @directoryOnly
 		DirectoryOnly bool `spanner:"DirectoryOnly"`
 	}
 
 	// HarborDirectory is the well-formed directories record: tenant-scoped through the
-	// bare @domain column, with its method and connection columns and the default seat
-	// a stranger it vouches for gets at their first sign-in.
+	// bare @domain column, which holds the harbor's id, with its method and connection
+	// columns and the default seat a stranger it vouches for gets at their first sign-in.
 	//
 	// @resource
 	// @permissionScope(domain)
@@ -184,7 +200,7 @@ type (
 	HarborDirectory struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		HarborID string `spanner:"HarborId"`
+		HarborID impulse.UUID `spanner:"HarborId"`
 		// @directoryMethod
 		Method string `spanner:"Method"`
 		// @directoryConnection
@@ -202,7 +218,41 @@ type (
 	Breakwater struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
+		HarborID impulse.UUID `spanner:"HarborId"`
+		// @directoryMethod
+		Method string `spanner:"Method"`
+		// @directoryConnection
+		Connection string `spanner:"Connection"`
+	}
+
+	// Marina is a well-formed directories record whose tenant column is a string: it
+	// holds the harbor's id as its text, which is what the create-your-tenant route
+	// hands it.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @tenantDirectory
+	Marina struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
 		HarborID string `spanner:"HarborId"`
+		// @directoryMethod
+		Method string `spanner:"Method"`
+		// @directoryConnection
+		Connection string `spanner:"Connection"`
+	}
+
+	// Lighthouse is a directories record whose tenant column is a nullable string:
+	// neither the id nor its text, so the create-your-tenant route has no value to
+	// hand it.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @tenantDirectory
+	Lighthouse struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		HarborID *string `spanner:"HarborId"`
 		// @directoryMethod
 		Method string `spanner:"Method"`
 		// @directoryConnection
@@ -217,7 +267,7 @@ type (
 	Slipway struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		HarborID string `spanner:"HarborId"`
+		HarborID impulse.UUID `spanner:"HarborId"`
 		// @directoryDefaultSeat
 		Seat string `spanner:"Seat"`
 	}
@@ -230,7 +280,7 @@ type (
 	Wharf struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		HarborID string `spanner:"HarborId"`
+		HarborID impulse.UUID `spanner:"HarborId"`
 		// @directoryMethod
 		Method string `spanner:"Method"`
 		// @directoryConnection
@@ -247,7 +297,7 @@ type (
 	Bollard struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		HarborID string `spanner:"HarborId"`
+		HarborID impulse.UUID `spanner:"HarborId"`
 		// @directoryMethod
 		Method string `spanner:"Method"`
 		// @directoryConnection
@@ -272,7 +322,7 @@ type (
 	// @resource
 	// @tenant
 	Quay struct {
-		ID string `spanner:"Id"`
+		ID impulse.UUID `spanner:"Id"`
 		// @directoryOnly
 		Mode string `spanner:"Mode"`
 	}
@@ -294,7 +344,7 @@ type (
 	Buoy struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		HarborID string `spanner:"HarborId"`
+		HarborID impulse.UUID `spanner:"HarborId"`
 		// @directoryMethod
 		Method string `spanner:"Method"`
 	}
@@ -307,7 +357,7 @@ type (
 	Mooring struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		HarborID string `spanner:"HarborId"`
+		HarborID impulse.UUID `spanner:"HarborId"`
 		// @directoryMethod
 		Method     string `spanner:"Method"`
 		Connection string `spanner:"Connection"`
@@ -321,7 +371,7 @@ type (
 	Jetty struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
-		HarborID string `spanner:"HarborId"`
+		HarborID impulse.UUID `spanner:"HarborId"`
 		// @directoryMethod
 		Method string `spanner:"Method"`
 		// @directoryMethod
@@ -353,7 +403,7 @@ type (
 	// @resource
 	// @tenant(label: "Service district")
 	Lagoon struct {
-		ID string `spanner:"Id"`
+		ID impulse.UUID `spanner:"Id"`
 		// @tenantName
 		Name string `spanner:"Name"`
 	}
@@ -362,7 +412,7 @@ type (
 	//
 	// @resource
 	Reef struct {
-		ID string `spanner:"Id"`
+		ID impulse.UUID `spanner:"Id"`
 		// @tenantName
 		Name string `spanner:"Name"`
 	}
@@ -372,7 +422,7 @@ type (
 	// @resource
 	// @tenant
 	Atoll struct {
-		ID string `spanner:"Id"`
+		ID impulse.UUID `spanner:"Id"`
 		// @tenantName
 		Rank int64 `spanner:"Rank"`
 	}
@@ -382,7 +432,7 @@ type (
 	// @resource
 	// @tenant
 	Islet struct {
-		ID string `spanner:"Id"`
+		ID impulse.UUID `spanner:"Id"`
 		// @tenantName
 		Name string `spanner:"Name"`
 		// @tenantName
@@ -394,6 +444,6 @@ type (
 	// @resource
 	// @tenant(label: "Shoal's")
 	Shoal struct {
-		ID string `spanner:"Id"`
+		ID impulse.UUID `spanner:"Id"`
 	}
 )

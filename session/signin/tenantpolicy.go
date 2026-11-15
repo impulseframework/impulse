@@ -180,7 +180,7 @@ func (p *tenantPolicy[Tx]) decide(ctx context.Context, tx Tx, req *sessioninfo.N
 	if req.RoleNames != nil {
 		return Allow(), nil
 	}
-	held, err := p.roles.UserRoles(ctx, accesstypes.User(req.Username))
+	held, err := p.roles.UserRoles(ctx, accesstypes.User(req.UserID.String()))
 	if err != nil {
 		return nil, errors.Wrap(err, "UserRoleManager.UserRoles()")
 	}

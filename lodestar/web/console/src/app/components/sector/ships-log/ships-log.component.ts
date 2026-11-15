@@ -25,7 +25,8 @@ import { SectorService, ShipsLogEntry } from '../sector.service';
 export class ShipsLogComponent {
   sectors = inject(SectorService);
 
-  sector = this.sectors.current;
+  /** The open sector's name, as the session's sector list carries it. */
+  sectorName = this.sectors.placeName;
   canList = computed(() => this.sectors.can(Permissions.List, Resources.ShipsLogEntries));
   columns = ['eventTime', 'tableName', 'rowId', 'eventSource', 'changeSet'];
 

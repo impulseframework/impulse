@@ -25,7 +25,7 @@ func (h *Handlers) MembersSessionTokens() http.HandlerFunc {
 		UserID        impulse.UUID  `json:"userId"        index:"true"`
 		Outlet        string        `json:"outlet"`
 		Name          *string       `json:"name"`
-		Family        *impulse.UUID `json:"family"        index:"true"`
+		FamilyID      *impulse.UUID `json:"familyId"      index:"true"`
 		ClientID      *string       `json:"clientId"`
 		CreatedAt     time.Time     `json:"createdAt"`
 		ExpiresAt     time.Time     `json:"expiresAt"`
@@ -93,9 +93,9 @@ func (h *Handlers) MembersSessionTokens() http.HandlerFunc {
 					if !row.Masked("name") {
 						rmap["name"] = rec.Name
 					}
-				case "Family":
-					if !row.Masked("family") {
-						rmap["family"] = rec.Family
+				case "FamilyID":
+					if !row.Masked("familyId") {
+						rmap["familyId"] = rec.FamilyID
 					}
 				case "ClientID":
 					if !row.Masked("clientId") {
@@ -149,7 +149,7 @@ func (h *Handlers) MembersSessionToken() http.HandlerFunc {
 		UserID        impulse.UUID  `json:"userId"`
 		Outlet        string        `json:"outlet"`
 		Name          *string       `json:"name"`
-		Family        *impulse.UUID `json:"family"`
+		FamilyID      *impulse.UUID `json:"familyId"`
 		ClientID      *string       `json:"clientId"`
 		CreatedAt     time.Time     `json:"createdAt"`
 		ExpiresAt     time.Time     `json:"expiresAt"`
@@ -205,9 +205,9 @@ func (h *Handlers) MembersSessionToken() http.HandlerFunc {
 				if !row.Masked("name") {
 					rmap["name"] = rec.Name
 				}
-			case "Family":
-				if !row.Masked("family") {
-					rmap["family"] = rec.Family
+			case "FamilyID":
+				if !row.Masked("familyId") {
+					rmap["familyId"] = rec.FamilyID
 				}
 			case "ClientID":
 				if !row.Masked("clientId") {

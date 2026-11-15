@@ -121,8 +121,8 @@ func TestIngestPath(t *testing.T) {
 		sector string
 		want   string
 	}{
-		{name: "anvil", sector: "anvil", want: "/sectors/anvil/ingest-droid-reports"},
-		{name: "cinder", sector: "cinder", want: "/sectors/cinder/ingest-droid-reports"},
+		{name: "anvil", sector: "a1111111-1111-4111-8111-111111111111", want: "/sectors/a1111111-1111-4111-8111-111111111111/ingest-droid-reports"},
+		{name: "cinder", sector: "c3333333-3333-4333-8333-333333333333", want: "/sectors/c3333333-3333-4333-8333-333333333333/ingest-droid-reports"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

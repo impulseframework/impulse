@@ -27,7 +27,7 @@ func (StaffRole) DefaultConfig() resource.Config {
 type staffRoleRead struct {
 	Kind        string    `json:"kind"        perm:"-"`
 	Axis        string    `json:"axis"        perm:"-"`
-	Domain      string    `json:"domain"      perm:"-"`
+	DomainID    string    `json:"domainId"    perm:"-"`
 	Role        string    `json:"role"        perm:"-"`
 	Description string    `json:"description"`
 	UpdatedAt   time.Time `json:"updatedAt"`
@@ -41,7 +41,7 @@ var staffRoleReadSets resource.SetCache[StaffRole, staffRoleRead]
 type staffRoleWrite struct {
 	Kind        string    `json:"-"`
 	Axis        string    `json:"-"`
-	Domain      string    `json:"-"`
+	DomainID    string    `json:"-"`
 	Role        string    `json:"-"`
 	Description string    `json:"description"`
 	UpdatedAt   time.Time `json:"updatedAt"`
@@ -87,14 +87,14 @@ func (q *StaffRoleQuery) Axis() string {
 	return v
 }
 
-func (q *StaffRoleQuery) SetDomain(v string) *StaffRoleQuery {
-	q.qSet.SetKey("Domain", v)
+func (q *StaffRoleQuery) SetDomainID(v string) *StaffRoleQuery {
+	q.qSet.SetKey("DomainID", v)
 
 	return q
 }
 
-func (q *StaffRoleQuery) Domain() string {
-	v, _ := q.qSet.Key("Domain").(string)
+func (q *StaffRoleQuery) DomainID() string {
+	v, _ := q.qSet.Key("DomainID").(string)
 
 	return v
 }
@@ -191,7 +191,7 @@ func (c *StaffRoleColumns) All() *StaffRoleColumns {
 	c.fields = []accesstypes.Field{
 		"Kind",
 		"Axis",
-		"Domain",
+		"DomainID",
 		"Role",
 		"Description",
 		"UpdatedAt",
@@ -212,8 +212,8 @@ func (c *StaffRoleColumns) Axis() *StaffRoleColumns {
 	return c
 }
 
-func (c *StaffRoleColumns) Domain() *StaffRoleColumns {
-	c.fields = append(c.fields, "Domain")
+func (c *StaffRoleColumns) DomainID() *StaffRoleColumns {
+	c.fields = append(c.fields, "DomainID")
 
 	return c
 }
@@ -326,8 +326,8 @@ func (c *staffRoleSort) Axis() *StaffRoleSort {
 	return c.addField("Axis")
 }
 
-func (c *staffRoleSort) Domain() *StaffRoleSort {
-	return c.addField("Domain")
+func (c *staffRoleSort) DomainID() *StaffRoleSort {
+	return c.addField("DomainID")
 }
 
 func (c *staffRoleSort) Role() *StaffRoleSort {
@@ -362,11 +362,11 @@ type StaffRoleCreatePatch struct {
 	patchSet *resource.PatchSet[StaffRole]
 }
 
-func NewStaffRoleCreatePatchFromPatchSet(kind string, axis string, domain string, role string, patchSet *resource.PatchSet[StaffRole]) *StaffRoleCreatePatch {
+func NewStaffRoleCreatePatchFromPatchSet(kind string, axis string, domainID string, role string, patchSet *resource.PatchSet[StaffRole]) *StaffRoleCreatePatch {
 	patchSet.
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetPatchType(resource.CreatePatchType)
 	patch := &StaffRoleCreatePatch{patchSet: patchSet}
@@ -375,11 +375,11 @@ func NewStaffRoleCreatePatchFromPatchSet(kind string, axis string, domain string
 	return patch
 }
 
-func NewStaffRoleCreatePatch(kind string, axis string, domain string, role string) *StaffRoleCreatePatch {
+func NewStaffRoleCreatePatch(kind string, axis string, domainID string, role string) *StaffRoleCreatePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[StaffRole]()).
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetPatchType(resource.CreatePatchType)
 	patch := &StaffRoleCreatePatch{patchSet: patchSet}
@@ -451,8 +451,8 @@ func (p *StaffRoleCreatePatch) Axis() string {
 	return v
 }
 
-func (p *StaffRoleCreatePatch) Domain() string {
-	v, _ := p.patchSet.Key("Domain").(string)
+func (p *StaffRoleCreatePatch) DomainID() string {
+	v, _ := p.patchSet.Key("DomainID").(string)
 
 	return v
 }
@@ -504,11 +504,11 @@ type StaffRoleUpdatePatch struct {
 	patchSet *resource.PatchSet[StaffRole]
 }
 
-func NewStaffRoleUpdatePatchFromPatchSet(kind string, axis string, domain string, role string, patchSet *resource.PatchSet[StaffRole]) *StaffRoleUpdatePatch {
+func NewStaffRoleUpdatePatchFromPatchSet(kind string, axis string, domainID string, role string, patchSet *resource.PatchSet[StaffRole]) *StaffRoleUpdatePatch {
 	patchSet.
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetPatchType(resource.UpdatePatchType)
 
@@ -518,11 +518,11 @@ func NewStaffRoleUpdatePatchFromPatchSet(kind string, axis string, domain string
 	return patch
 }
 
-func NewStaffRoleUpdatePatch(kind string, axis string, domain string, role string) *StaffRoleUpdatePatch {
+func NewStaffRoleUpdatePatch(kind string, axis string, domainID string, role string) *StaffRoleUpdatePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[StaffRole]()).
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetPatchType(resource.UpdatePatchType)
 
@@ -599,8 +599,8 @@ func (p *StaffRoleUpdatePatch) Axis() string {
 	return v
 }
 
-func (p *StaffRoleUpdatePatch) Domain() string {
-	v, _ := p.patchSet.Key("Domain").(string)
+func (p *StaffRoleUpdatePatch) DomainID() string {
+	v, _ := p.patchSet.Key("DomainID").(string)
 
 	return v
 }
@@ -652,22 +652,22 @@ type StaffRoleDeletePatch struct {
 	patchSet *resource.PatchSet[StaffRole]
 }
 
-func NewStaffRoleDeletePatchFromPatchSet(kind string, axis string, domain string, role string, patchSet *resource.PatchSet[StaffRole]) *StaffRoleDeletePatch {
+func NewStaffRoleDeletePatchFromPatchSet(kind string, axis string, domainID string, role string, patchSet *resource.PatchSet[StaffRole]) *StaffRoleDeletePatch {
 	patchSet.
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetPatchType(resource.DeletePatchType)
 
 	return &StaffRoleDeletePatch{patchSet: patchSet}
 }
 
-func NewStaffRoleDeletePatch(kind string, axis string, domain string, role string) *StaffRoleDeletePatch {
+func NewStaffRoleDeletePatch(kind string, axis string, domainID string, role string) *StaffRoleDeletePatch {
 	patchSet := resource.NewPatchSet(resource.NewMetadata[StaffRole]()).
 		SetKey("Kind", kind).
 		SetKey("Axis", axis).
-		SetKey("Domain", domain).
+		SetKey("DomainID", domainID).
 		SetKey("Role", role).
 		SetPatchType(resource.DeletePatchType)
 
@@ -706,8 +706,8 @@ func (p *StaffRoleDeletePatch) Axis() string {
 	return v
 }
 
-func (p *StaffRoleDeletePatch) Domain() string {
-	v, _ := p.patchSet.Key("Domain").(string)
+func (p *StaffRoleDeletePatch) DomainID() string {
+	v, _ := p.patchSet.Key("DomainID").(string)
 
 	return v
 }

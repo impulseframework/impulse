@@ -433,7 +433,6 @@ type SignInRules[Tx any] struct {
 	Policy      signin.Policy[Tx]
 	Accept      signinflow.InvitationAcceptor[Tx]
 	Directories signin.DirectoryReader[Tx]
-	Roles       signin.UserRoleManager
 	Seat        signinflow.DirectorySeater[Tx]
 	// TrustedDevice reports whether the browser signing in is a trusted device of
 	// the user, which stands in for the second factor a RequireMFA asks; nil for none.
@@ -453,7 +452,7 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 
 	flowRules := signinflow.Rules[Tx]{
 		Account: rules.Account, Standard: rules.Standard, Policy: rules.Policy, Accept: rules.Accept,
-		Directories: rules.Directories, Roles: rules.Roles, Seat: rules.Seat, TrustedDevice: rules.TrustedDevice,
+		Directories: rules.Directories, Seat: rules.Seat, TrustedDevice: rules.TrustedDevice,
 	}
 	if err := signinflow.SignIn(ctx, a.flow, id, session, req, flowRules); err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")

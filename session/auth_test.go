@@ -1352,6 +1352,8 @@ func TestAuth_AzureCallback(t *testing.T) {
 	resolved := func(req *sessioninfo.NewSessionRequest) {
 		req.UserID, req.Username = userID, "pat"
 	}
+	// pat is the user as the role store names them: by the id of the account.
+	pat := accesstypes.User(userID.String())
 	// recognizeEditor makes Editor a role the application knows, in every tenant
 	// domain: the sign-in passes the role check that runs before the store is asked.
 	recognizeEditor := func(roles *mock_signin.MockUserRoleManager) {
@@ -1390,11 +1392,12 @@ func TestAuth_AzureCallback(t *testing.T) {
 					}
 					resolved(req)
 				}, nil)
-				roles.EXPECT().UserRoles(gomock.Any(), accesstypes.User("pat")).Return(accesstypes.RoleCollection{}, nil)
+				// The permission store names pat by the id of the account, never by "pat".
+				roles.EXPECT().UserRoles(gomock.Any(), pat).Return(accesstypes.RoleCollection{}, nil)
 				// Once before the store is asked, once at the reconciliation.
 				roles.EXPECT().ResolveRole(gomock.Any(), global, "Editor").Return(accesstypes.Role(""), false, nil).Times(2)
 				roles.EXPECT().ResolveRole(gomock.Any(), every, "Editor").Return(accesstypes.Role("Editor"), true, nil).Times(2)
-				roles.EXPECT().AddUserRoles(gomock.Any(), every, accesstypes.User("pat"), []accesstypes.Role{"Editor"}).Return(nil)
+				roles.EXPECT().AddUserRoles(gomock.Any(), every, pat, []accesstypes.Role{"Editor"}).Return(nil)
 			},
 			wantLocation: "/next",
 			wantSession:  true,
@@ -1414,7 +1417,7 @@ func TestAuth_AzureCallback(t *testing.T) {
 				f.expectSignIn(sessionID, resolved, nil)
 				roles.EXPECT().ResolveRole(gomock.Any(), global, "Editor").Return(accesstypes.Role(""), false, nil).AnyTimes()
 				roles.EXPECT().ResolveRole(gomock.Any(), every, "Editor").Return(accesstypes.Role("Editor"), true, nil).AnyTimes()
-				roles.EXPECT().UserRoles(gomock.Any(), accesstypes.User("pat")).Return(nil, errors.New("role store down"))
+				roles.EXPECT().UserRoles(gomock.Any(), pat).Return(nil, errors.New("role store down"))
 				f.store.EXPECT().DestroySession(gomock.Any(), sessionID).Return(nil)
 			},
 			wantLocation: "/login?code=internal_error",
@@ -2549,10 +2552,21 @@ func TestAuth_WithoutPolicy(t *testing.T) {
 func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 	t.Parallel()
 
-	bobID := impulse.Must(impulse.NewUUID())
+	aliceID := impulse.Must(impulse.NewUUID())
+	// bobID has letters among its digits, so its text in upper case is another text.
+	bobID := impulse.Must(impulse.UUIDFromString("b0b00000-0000-4000-8000-00000000000b"))
+	// bob is the impersonated user as a user principal names them: by the id of the
+	// account, which is what the permission store holds their roles under.
+	bob := accesstypes.UserPrincipal(accesstypes.User(bobID.String()))
+	loadsBob := func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
+		store.EXPECT().User(gomock.Any(), bobID).Return(&sessionstorage.SessionUser{ID: bobID, Username: "bob"}, nil)
+	}
 	sourceID := impulse.Must(impulse.NewUUID())
 	source := func() *sessioninfo.SessionData {
-		return &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sourceID, Username: "alice", UpdatedAt: time.Now()}, ProviderSessionID: "sid-1", ProviderSessionIssuer: "https://issuer"}
+		return &sessioninfo.SessionData{
+			SessionInfo: &sessioninfo.SessionInfo{ID: sourceID, Username: "alice", UpdatedAt: time.Now()},
+			UserID:      impulse.NullUUIDFromUUID(aliceID), ProviderSessionID: "sid-1", ProviderSessionIssuer: "https://issuer",
+		}
 	}
 	tests := []struct {
 		name            string
@@ -2560,16 +2574,62 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		request         *ImpersonationRequest
 		prepare         func(store *mock_sessionstorage.MockAuthStore[mockTx])
 		wantUserID      impulse.UUID
+		wantActorID     impulse.NullUUID
 		wantProviderSID string
+		wantBadRequest  bool
+		// wantPrincipal is the principal the record carries, where it is not the
+		// request's own text.
+		wantPrincipal accesstypes.Principal
 	}{
 		{
-			name:    "a user principal's session belongs to the impersonated user",
+			name:    "a user principal's session belongs to the impersonated user, loaded by the id the principal names",
 			ctx:     context.Background,
-			request: &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal("bob")},
+			request: &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: bob},
 			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
-				store.EXPECT().UserByUserName(gomock.Any(), "bob").Return(&sessionstorage.SessionUser{ID: bobID, Username: "bob"}, nil)
+				store.EXPECT().User(gomock.Any(), bobID).Return(&sessionstorage.SessionUser{ID: bobID, Username: "bob"}, nil)
 			},
 			wantUserID: bobID,
+		},
+		// A person is named in one text alone, the one their roles are held under: the
+		// record keeps it whatever form of the id the request gave.
+		{
+			name:          "a user principal that gives the id in upper case is the same person, and the record names them by the id's canonical text",
+			ctx:           context.Background,
+			request:       &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User(strings.ToUpper(bobID.String())))},
+			prepare:       loadsBob,
+			wantUserID:    bobID,
+			wantPrincipal: bob,
+		},
+		{
+			name:          "a user principal that gives the id in braces is the same person, and the record names them by the id's canonical text",
+			ctx:           context.Background,
+			request:       &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User("{" + bobID.String() + "}"))},
+			prepare:       loadsBob,
+			wantUserID:    bobID,
+			wantPrincipal: bob,
+		},
+		{
+			name:          "a user principal that gives the id as a urn is the same person, and the record names them by the id's canonical text",
+			ctx:           context.Background,
+			request:       &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User("urn:uuid:" + bobID.String()))},
+			prepare:       loadsBob,
+			wantUserID:    bobID,
+			wantPrincipal: bob,
+		},
+		{
+			name:          "a user principal that gives the id without its dashes is the same person, and the record names them by the id's canonical text",
+			ctx:           context.Background,
+			request:       &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal(accesstypes.User(strings.ReplaceAll(bobID.String(), "-", "")))},
+			prepare:       loadsBob,
+			wantUserID:    bobID,
+			wantPrincipal: bob,
+		},
+		{
+			name:           "a user principal that names the person by username is refused, and no user is looked up",
+			ctx:            context.Background,
+			request:        &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.UserPrincipal("bob")},
+			prepare:        func(*mock_sessionstorage.MockAuthStore[mockTx]) {},
+			wantBadRequest: true,
 		},
 		{
 			name:    "a role principal's session belongs to no user",
@@ -2580,16 +2640,17 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 			},
 		},
 		{
-			name: "an impersonation started on a validated session keeps its provider session id, so a provider-initiated logout reaches it",
+			name: "an impersonation started on a validated session keeps its provider session id, so a provider-initiated logout reaches it, and its record names the actor's account",
 			ctx: func() context.Context {
 				return context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, source())
 			},
-			request: &ImpersonationRequest{Actor: "alice", Principal: accesstypes.UserPrincipal("bob")},
+			request: &ImpersonationRequest{Actor: "alice", Principal: bob},
 			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
 				store.EXPECT().Session(gomock.Any(), sourceID).Return(source(), nil)
-				store.EXPECT().UserByUserName(gomock.Any(), "bob").Return(&sessionstorage.SessionUser{ID: bobID, Username: "bob"}, nil)
+				store.EXPECT().User(gomock.Any(), bobID).Return(&sessionstorage.SessionUser{ID: bobID, Username: "bob"}, nil)
 			},
 			wantUserID:      bobID,
+			wantActorID:     impulse.NullUUIDFromUUID(aliceID),
 			wantProviderSID: "sid-1",
 		},
 	}
@@ -2600,14 +2661,30 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 			f := newAuthFixture(t, ctrl)
 			f.store.EXPECT().ImpersonationEnabled().Return(true)
 			tt.prepare(f.store)
+			if tt.wantBadRequest {
+				// No CreateImpersonatedSession is expected: the mock fails the test on one.
+				_, err := f.auth.API().StartImpersonatedSession(tt.ctx(), httptest.NewRecorder(), tt.request)
+				if !httpio.HasBadRequest(err) {
+					t.Errorf("StartImpersonatedSession() error = %v, want a bad request", err)
+				}
+
+				return
+			}
+			wantPrincipal := tt.request.Principal
+			if tt.wantPrincipal != (accesstypes.Principal{}) {
+				wantPrincipal = tt.wantPrincipal
+			}
 			f.store.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-				func(_ context.Context, req *sessioninfo.NewSessionRequest, _ *sessioninfo.Impersonation) (impulse.UUID, error) {
+				func(_ context.Context, req *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
 					wantIssuer := ""
 					if tt.wantProviderSID != "" {
 						wantIssuer = "https://issuer"
 					}
 					if req.UserID != tt.wantUserID || req.Reason != sessioninfo.ReasonImpersonation || req.ProviderSessionID != tt.wantProviderSID || req.ProviderSessionIssuer != wantIssuer {
 						t.Errorf("CreateImpersonatedSession() request = %+v, want UserID %s and provider session (%q, %q)", req, tt.wantUserID, tt.wantProviderSID, wantIssuer)
+					}
+					if imp.Principal != wantPrincipal || imp.ActorID != tt.wantActorID {
+						t.Errorf("CreateImpersonatedSession() record = principal %s, actor id %v; want %s, %v", imp.Principal, imp.ActorID, wantPrincipal, tt.wantActorID)
 					}
 
 					return impulse.Must(impulse.NewUUID()), nil
@@ -2617,6 +2694,101 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 				t.Errorf("StartImpersonatedSession() error = %v", err)
 			}
 		})
+	}
+}
+
+// TestAuthAPI_StartImpersonatedSession_ActorNamedAsAccount pins the refusal of an actor
+// from another application whose name reads as the id of an account. The permission
+// store names a person of this application by the id of their account and an actor
+// from elsewhere by the name the record carries, so a name that reads as an id would
+// be taken for the account of that id. It is refused in every form the id parser
+// reads, whatever the principal, before anyone is looked up. An ordinary name is
+// accepted as before, and an actor of this application, whose own session is the proof
+// of the name, is not held to the rule.
+func TestAuthAPI_StartImpersonatedSession_ActorNamedAsAccount(t *testing.T) {
+	t.Parallel()
+
+	// id has letters among its digits, so its text in upper case is another text.
+	const id = "a11ce000-0000-4000-8000-00000000000a"
+	hex := strings.ReplaceAll(id, "-", "")
+	bobID := impulse.Must(impulse.NewUUID())
+	sourceID := impulse.Must(impulse.NewUUID())
+
+	principals := []struct {
+		name      string
+		principal accesstypes.Principal
+	}{
+		{name: "a role principal", principal: accesstypes.RolePrincipal("Viewer")},
+		{name: "a user principal", principal: accesstypes.UserPrincipal(accesstypes.User(bobID.String()))},
+	}
+	tests := []struct {
+		name  string
+		actor string
+		// realm is the application the actor signed in to: empty for one of this
+		// application, who starts the session on their own.
+		realm          string
+		wantBadRequest bool
+	}{
+		{name: "an actor from another application named by an id's canonical text is refused", actor: id, realm: "admin-portal", wantBadRequest: true},
+		{name: "an actor from another application named by an id in upper case is refused", actor: strings.ToUpper(id), realm: "admin-portal", wantBadRequest: true},
+		{name: "an actor from another application named by an id in braces is refused", actor: "{" + id + "}", realm: "admin-portal", wantBadRequest: true},
+		{name: "an actor from another application named by an id as a urn is refused", actor: "urn:uuid:" + id, realm: "admin-portal", wantBadRequest: true},
+		{name: "an actor from another application named by an id without its dashes is refused", actor: hex, realm: "admin-portal", wantBadRequest: true},
+		{name: "an actor from another application named by an id without its dashes, in braces, is refused", actor: "{" + hex + "}", realm: "admin-portal", wantBadRequest: true},
+		{name: "an actor from another application named by an id without its dashes, as a urn, is refused", actor: "urn:uuid:" + hex, realm: "admin-portal", wantBadRequest: true},
+		{name: "an actor from another application with an ordinary name is accepted", actor: "alice", realm: "admin-portal"},
+		{name: "an actor from another application named by an address is accepted", actor: "alice@example.com", realm: "admin-portal"},
+		{name: "an actor from another application whose name is one digit short of an id is accepted", actor: id[:len(id)-1], realm: "admin-portal"},
+		{name: "an actor of this application whose username reads as an id is not held to the rule", actor: id},
+	}
+	for _, tt := range tests {
+		for _, p := range principals {
+			t.Run(tt.name+": "+p.name, func(t *testing.T) {
+				t.Parallel()
+				ctrl := gomock.NewController(t)
+				f := newAuthFixture(t, ctrl)
+				f.store.EXPECT().ImpersonationEnabled().Return(true)
+				request := &ImpersonationRequest{Actor: tt.actor, ActorRealm: tt.realm, Principal: p.principal}
+				if tt.wantBadRequest {
+					// Nobody is looked up and no session is created: the mock fails the
+					// test on either.
+					_, err := f.auth.API().StartImpersonatedSession(context.Background(), httptest.NewRecorder(), request)
+					if !httpio.HasBadRequest(err) {
+						t.Errorf("StartImpersonatedSession() error = %v, want a bad request", err)
+					}
+
+					return
+				}
+
+				ctx := context.Background()
+				if tt.realm == "" {
+					// An actor of this application starts the session on their own.
+					own := &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sourceID, Username: tt.actor, UpdatedAt: time.Now()}}
+					ctx = context.WithValue(ctx, sessioninfo.CtxSessionInfo, own)
+					f.store.EXPECT().Session(gomock.Any(), sourceID).Return(own, nil)
+				}
+				_, isRole := p.principal.Role()
+				switch {
+				case !isRole:
+					f.store.EXPECT().User(gomock.Any(), bobID).Return(&sessionstorage.SessionUser{ID: bobID, Username: "bob"}, nil)
+				case tt.realm != "":
+					// The name of an actor from elsewhere must be no user's here.
+					f.store.EXPECT().UserByUserName(gomock.Any(), tt.actor).Return(nil, httpio.NewNotFoundMessage("no such user"))
+				}
+				f.store.EXPECT().CreateImpersonatedSession(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, _ *sessioninfo.NewSessionRequest, imp *sessioninfo.Impersonation) (impulse.UUID, error) {
+						if imp.Actor != tt.actor || imp.ActorRealm != tt.realm || imp.Principal != p.principal {
+							t.Errorf("CreateImpersonatedSession() record = actor %q of %q as %s; want %q of %q as %s", imp.Actor, imp.ActorRealm, imp.Principal, tt.actor, tt.realm, p.principal)
+						}
+
+						return impulse.Must(impulse.NewUUID()), nil
+					})
+
+				if _, err := f.auth.API().StartImpersonatedSession(ctx, httptest.NewRecorder(), request); err != nil {
+					t.Errorf("StartImpersonatedSession() error = %v", err)
+				}
+			})
+		}
 	}
 }
 
@@ -2657,7 +2829,7 @@ func TestAuth_ValidateSession(t *testing.T) {
 		},
 		{
 			name:   "an impersonation of a user who must change their password is the actor's and is not held to the mark",
-			userID: impulse.NullUUIDFromUUID(userID), imp: &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.UserPrincipal("pat"), ExpiresAt: time.Now().Add(time.Hour)},
+			userID: impulse.NullUUIDFromUUID(userID), imp: &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.UserPrincipal(accesstypes.User(userID.String())), ExpiresAt: time.Now().Add(time.Hour)},
 			user:     &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordChangeRequired: true},
 			wantNext: true, wantUser: userID,
 		},
@@ -2946,6 +3118,59 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 			t.Errorf("UnlinkIdentity() error = %v, want ErrLastSignInMethod (Conflict)", err)
 		}
 	})
+}
+
+// TestAuthAPI_CreateSessionUser_ID pins the id a user is created under: the one a Go
+// caller chose (a seed, which names its people before they exist), or one the store
+// generates when the request leaves it null. The nil id names nobody, so a request
+// that chose it is refused before the store is asked, and no user is created.
+func TestAuthAPI_CreateSessionUser_ID(t *testing.T) {
+	t.Parallel()
+
+	chosen := impulse.Must(impulse.NewUUID())
+	generated := impulse.Must(impulse.NewUUID())
+
+	tests := []struct {
+		name string
+		id   impulse.NullUUID
+		// want is the id of the user created: the nil id for a request that is refused.
+		want    impulse.UUID
+		wantErr bool
+	}{
+		{name: "a chosen id reaches the store as given, and is the id of the user", id: impulse.NullUUIDFromUUID(chosen), want: chosen},
+		{name: "a null id reaches the store null, and the user has the id the store generated", id: impulse.NullUUID{}, want: generated},
+		{name: "the nil id is refused, and the store is not asked to create anyone", id: impulse.NullUUIDFromUUID(impulse.NilUUID), wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			f := newAuthFixture(t, ctrl)
+			// A refused request expects no CreateUser: the mock fails the test on one.
+			if !tt.wantErr {
+				f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).DoAndReturn(func(_ context.Context, user *sessionstorage.InsertSessionUser, _ any) (*sessionstorage.SessionUser, error) {
+					if user.ID != tt.id || user.Username != "pat" {
+						t.Errorf("CreateUser() = %+v, want pat under the id %+v", user, tt.id)
+					}
+					// As a driver does: the id the caller chose, or one of its own.
+					id := generated
+					if user.ID.Valid {
+						id = user.ID.UUID
+					}
+
+					return &sessionstorage.SessionUser{ID: id, Username: user.Username}, nil
+				})
+			}
+
+			got, err := f.auth.API().CreateSessionUser(context.Background(), &CreateUserRequest{ID: tt.id, Username: "pat"})
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("CreateSessionUser() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if got != tt.want {
+				t.Errorf("CreateSessionUser() = %s, want %s", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestPendingRedirectURL(t *testing.T) {

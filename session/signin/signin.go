@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/session/cookie"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
@@ -105,9 +106,10 @@ type Method struct {
 	// sessioninfo.LoginRefusal.
 	Complete func(ctx context.Context, w http.ResponseWriter, r *http.Request) (*Verified, error)
 	// SyncRoles reconciles the user's roles to the role names the provider asserted,
-	// and refuses the sign-in (no_roles) when no recognized role results. It is nil
+	// and refuses the sign-in (no_roles) when no recognized role results. The user is
+	// named as the permission store names them, by the id of their account. It is nil
 	// when the method synchronizes no roles.
-	SyncRoles func(ctx context.Context, username string, roleNames []string) error
+	SyncRoles func(ctx context.Context, user accesstypes.User, roleNames []string) error
 	// RecognizesRoles reports whether SyncRoles would leave the user holding a role:
 	// at least one of roleNames is a role the application knows. The core asks it
 	// before the sign-in is resolved, so a person whose roles admit nothing is refused

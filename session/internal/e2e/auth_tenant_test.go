@@ -45,7 +45,8 @@ var (
 )
 
 // tenantRoles stands in for the access library's user manager: the memberships each
-// user holds, granted per scenario. The tenant policy reads them and never writes.
+// user holds, granted per scenario and held under the id of the user's account, as the
+// permission store holds them. The tenant policy reads them and never writes.
 type tenantRoles struct {
 	mu   sync.Mutex
 	held map[accesstypes.User]accesstypes.RoleCollection
@@ -59,15 +60,16 @@ type tenantRoles struct {
 // once that transaction has committed (seat), which is when an application's engine is
 // told that the rows the hook wrote have landed.
 func seatIn[Tx any](r *tenantRoles) session.DirectorySeatedHook[Tx] {
-	return func(_ context.Context, _ Tx, _ impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
-		return func(context.Context) { r.seat(username, seats) }, nil
+	return func(_ context.Context, _ Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
+		return func(context.Context) { r.seat(userID, username, seats) }, nil
 	}
 }
 
-// seat grants each seat as a membership in its tenant and records what was granted.
-func (r *tenantRoles) seat(username string, seats []signin.DirectorySeat) {
+// seat grants each seat as a membership in its tenant, held by the user's account, and
+// records what was granted under the name the scenarios read.
+func (r *tenantRoles) seat(userID impulse.UUID, username string, seats []signin.DirectorySeat) {
 	for _, s := range seats {
-		r.grant(username, accesstypes.DomainPolicyScope(s.Tenant), s.Role)
+		r.grant(accesstypes.User(userID.String()), accesstypes.DomainPolicyScope(s.Tenant), s.Role)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -86,18 +88,18 @@ func (r *tenantRoles) seatsOf(username string) []signin.DirectorySeat {
 	return slices.Clone(r.seated[username])
 }
 
-// grant gives user the roles in scope.
-func (r *tenantRoles) grant(user string, scope accesstypes.PolicyScope, roles ...accesstypes.Role) {
+// grant gives user, the id of an account, the roles in scope.
+func (r *tenantRoles) grant(user accesstypes.User, scope accesstypes.PolicyScope, roles ...accesstypes.Role) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if r.held == nil {
 		r.held = make(map[accesstypes.User]accesstypes.RoleCollection)
 	}
-	if r.held[accesstypes.User(user)] == nil {
-		r.held[accesstypes.User(user)] = make(accesstypes.RoleCollection)
+	if r.held[user] == nil {
+		r.held[user] = make(accesstypes.RoleCollection)
 	}
-	r.held[accesstypes.User(user)][scope] = append(r.held[accesstypes.User(user)][scope], roles...)
+	r.held[user][scope] = append(r.held[user][scope], roles...)
 }
 
 func (r *tenantRoles) UserRoles(_ context.Context, user accesstypes.User, scopes ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error) {
@@ -148,7 +150,7 @@ func newTenantApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opt
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
 	auth.SetSignInPolicy(signin.TenantPolicy(roles, be.rows.tenantDeclaration, opts...).Then(h.signInPolicy))
-	auth.SetDirectoryAdmission(be.rows.directoryLookup, roles, seatIn[Tx](roles))
+	auth.SetDirectoryAdmission(be.rows.directoryLookup, seatIn[Tx](roles))
 
 	password := session.PasswordSignIn(auth)
 	entra := azure.SignIn(auth, "entra", nil, &azure.Config{
@@ -181,6 +183,22 @@ func newTenantApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opt
 		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h},
 		entra:   entraIDP, google: googleIDP, roles: roles,
 	}
+}
+
+// grant gives the person of username the roles in scope. A role is held by an account,
+// so a person given one ahead of their first sign-in has a user: the one under the
+// name, or one created here without a password, which their first sign-in through a
+// directory links.
+func (a *tenantApp[Tx]) grant(ctx context.Context, t *testing.T, username string, scope accesstypes.PolicyScope, roles ...accesstypes.Role) {
+	t.Helper()
+
+	var id impulse.UUID
+	if user, err := a.api.UserByUsername(ctx, username); err == nil {
+		id = user.ID
+	} else {
+		id = a.createUser(ctx, t, username)
+	}
+	a.roles.grant(accesstypes.User(id.String()), scope, roles...)
 }
 
 // entraSignIn runs an Entra round trip with claims in b and returns where the callback
@@ -355,9 +373,9 @@ func seamDirectoryInvitationOnly[Tx any](ctx context.Context, t *testing.T, be b
 func seamTenantAdmitted[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newTenantApp(ctx, t, be)
 	a.db.declareTenant(ctx, t, tenantLakeside, false, lakesideEntra)
-	a.roles.grant("pat@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
-	a.roles.grant("kim@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
 	a.seed(ctx, t, "kim@lakeside.edu")
+	a.grant(ctx, t, "pat@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
+	a.grant(ctx, t, "kim@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
 
 	b := a.browser(t)
 	assertRedirect(t, a.entraSignIn(ctx, b, azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")), "/home", url.Values{})
@@ -373,14 +391,14 @@ func seamTenantAdmitted[Tx any](ctx context.Context, t *testing.T, be backend[Tx
 func seamTenantConnectionNotInTenant[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newTenantApp(ctx, t, be)
 	a.db.declareTenant(ctx, t, tenantLakeside, false, lakesideEntra)
-	a.roles.grant("pat@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
-	a.roles.grant("sam@riverside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
+	a.grant(ctx, t, "pat@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
+	a.grant(ctx, t, "sam@riverside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
 
 	workspace := a.browser(t)
 	assertRedirect(t, a.googleSignIn(ctx, workspace, googleClaims("sub-pat", "pat@lakeside.edu")), "/login", url.Values{"code": {"connection_not_in_tenant"}})
 	workspace.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
 	if !a.db.hasUser(ctx, t, "pat@lakeside.edu") {
-		t.Error("the account the rule provisioned is gone, want it kept: the policy decides sessions, not accounts")
+		t.Error("the account the role is held by is gone, want it kept: the policy decides sessions, not accounts")
 	}
 
 	other := a.browser(t)
@@ -410,12 +428,12 @@ func seamTenantAdmitWithoutTenant[Tx any](ctx context.Context, t *testing.T, be 
 func seamTenantDirectoryOnly[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newTenantApp(ctx, t, be)
 	a.db.declareTenant(ctx, t, tenantLakeside, true, lakesideEntra)
-	a.roles.grant("kim@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
-	a.roles.grant("lee@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
-	a.roles.grant("lee@lakeside.edu", accesstypes.DomainPolicyScope(tenantRiverside), member...)
-	a.roles.grant("pat@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
 	a.seed(ctx, t, "kim@lakeside.edu")
 	a.seed(ctx, t, "lee@lakeside.edu")
+	a.grant(ctx, t, "kim@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
+	a.grant(ctx, t, "lee@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
+	a.grant(ctx, t, "lee@lakeside.edu", accesstypes.DomainPolicyScope(tenantRiverside), member...)
+	a.grant(ctx, t, "pat@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
 
 	a.assertPasswordSignIn(ctx, t, "kim@lakeside.edu", http.StatusUnauthorized, "directory_only")
 	a.assertPasswordSignIn(ctx, t, "lee@lakeside.edu", http.StatusOK, "")
@@ -428,7 +446,7 @@ func seamTenantDirectoryOnly[Tx any](ctx context.Context, t *testing.T, be backe
 // seamTenantStaff is the scenario "a person holding a global role is the application's staff".
 func seamTenantStaff[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newTenantApp(ctx, t, be)
-	a.roles.grant("ops@lakeside.edu", accesstypes.GlobalPolicyScope(), "Administrator")
+	a.grant(ctx, t, "ops@lakeside.edu", accesstypes.GlobalPolicyScope(), "Administrator")
 
 	b := a.browser(t)
 	assertRedirect(t, a.googleSignIn(ctx, b, googleClaims("sub-ops", "ops@lakeside.edu")), "/home", url.Values{})
@@ -440,7 +458,7 @@ func seamTenantStaff[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) 
 func seamTenantChainedRule[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newTenantApp(ctx, t, be)
 	a.db.declareTenant(ctx, t, tenantLakeside, false, lakesideEntra)
-	a.roles.grant("pat@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
+	a.grant(ctx, t, "pat@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
 	var asked atomic.Int32
 	a.hooks.set(func(h *hooks[Tx]) {
 		h.policy = func(*sessioninfo.NewSessionRequest) *signin.Decision {

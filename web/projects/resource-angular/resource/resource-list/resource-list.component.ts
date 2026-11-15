@@ -561,6 +561,8 @@ export class ResourceListComponent implements OnInit {
           header: col.header,
           width: col.width,
           resizable: col.resizable,
+          // A column that opts out of its filter control says so to the table.
+          ...(col.filterable === false ? { filterable: false } : {}),
           valueGetter: (data) => {
             const concatArray: string[] = [];
 
@@ -588,7 +590,7 @@ export class ResourceListComponent implements OnInit {
             });
 
             if (concatArray.length === 0) {
-              return col.emptyDataValue as string;
+              return col.fallback ? col.fallback(data) : (col.emptyDataValue as string);
             }
 
             switch (col.concatFn) {
@@ -628,6 +630,8 @@ export class ResourceListComponent implements OnInit {
           resizable: col.resizable,
           valueFormatter,
           ...(col.valueGetter ? { valueGetter: col.valueGetter } : {}),
+          // A column that opts out of its filter control says so to the table.
+          ...(col.filterable === false ? { filterable: false } : {}),
         };
         // An icon column keeps its map and tooltip position for the grid; the cell itself is
         // resolved with the display row (processedRowData), never at render time.

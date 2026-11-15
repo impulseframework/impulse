@@ -20,7 +20,7 @@ func TestOverseerClockFlip(t *testing.T) {
 
 	ctx := t.Context()
 	_, _, client := sharedWorld(t)
-	checker := client.ForUser("overseer")
+	checker := client.ForUser(account(t, "overseer"))
 
 	// The grant this suite proves, pinned to the roles file (conditions-proven).
 	provesGrant(t, crew.Roles(), "Overseer", "Update", "Missions", "state = 'claimed' AND deadline < now")

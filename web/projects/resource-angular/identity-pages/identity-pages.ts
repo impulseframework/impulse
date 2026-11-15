@@ -10,6 +10,7 @@ import {
   listViewConfig,
   Method,
   MethodPresentation,
+  multiColumnConfig,
   RecordData,
   Resource,
   ResourceMeta,
@@ -229,7 +230,7 @@ class SideBuilder {
           ['kind', 'Kind'],
           ['email', 'Email'],
           ['name', 'Name'],
-          ['tenant', words(this.identity.tenant ?? 'Tenant')],
+          ['tenantId', words(this.identity.tenant ?? 'Tenant')],
           ['roleNames', 'Roles'],
           ['createdAt', 'Sent'],
           ['expiresAt', 'Expires'],
@@ -243,7 +244,10 @@ class SideBuilder {
         primaryResource: resource,
         showViewButton: false,
         showRowCount: true,
-        listColumns: this.columns(resource, fields),
+        // The tenant a link invites into is named, where the tenant record can be read.
+        listColumns: this.columns(resource, fields).map((column) =>
+          column.id === 'tenantId' ? this.tenantNamed(column.id, column.header ?? '', (row) => String(row['tenantId'] ?? '')) : column,
+        ),
         rowMethods: this.present([
           [
             methods.withdrawInvitation,
@@ -357,19 +361,26 @@ class SideBuilder {
         elements: [],
       });
     }
-    // The whole application's roles are held by name, in the whole application, in one
-    // tenant, or in every tenant, and the methods that give and take one take the
-    // person's name: the page fills each from the row.
+    // The whole application's roles are held by the person's account, in the whole
+    // application, in one tenant, or in every tenant: a role row names its person by the
+    // id of their account, and the methods that give and take one take that id, which
+    // the page fills from the row.
     return listViewConfig({
       title: 'Roles held',
       primaryResource: resource,
-      parentRelation: { parentKey: 'username' as FieldName, childKey: 'user' as FieldName },
+      parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
       showViewButton: false,
       collapsible: false,
       listColumns: [
         ...this.columns(resource, [['role', 'Role']]),
+        // Where the role is held: the tenant by its name, where the tenant record can
+        // be read, and in words for a role held in every tenant or the whole application.
         ...(this.has(resource, 'kind')
-          ? [{ id: 'kind' as FieldName, header: 'Held in', valueGetter: (row: RecordData): string => this.heldIn(row) }]
+          ? [
+              this.tenantNamed('domainId' as FieldName, 'Held in', (row) => this.heldIn(row)),
+              // Read with each row and not drawn: what the words and the methods are filled from.
+              { id: 'kind' as FieldName, hidden: true },
+            ]
           : []),
         ...this.columns(resource, [['createdAt', 'Given']]),
       ],
@@ -380,12 +391,17 @@ class SideBuilder {
             label: 'Take the role away',
             icon: 'person_remove',
             fill: (row) => ({
-              username: row['user'],
+              userId: row['userId'],
               role: row['role'],
-              domain: row['kind'] === heldInOneTenant ? row['domain'] : undefined,
+              // A role held for the whole application or in every tenant names no tenant:
+              // the page fills that with nothing (null), so the dialog asks for none and
+              // puts its question. Left undefined, the dialog would ask the person for it.
+              domain: row['kind'] === heldInOneTenant ? row['domainId'] : null,
               everyDomain: row['kind'] === heldInEveryTenant,
             }),
-            confirm: (row) => `Take ${String(row['role'])} (${this.heldIn(row).toLowerCase()}) away from ${String(row['user'])}?`,
+            // The list sits under the person, and a role row carries their id, which
+            // nobody reads: the question names the role and where it is held.
+            confirm: (row) => `Take ${String(row['role'])}${this.heldWhere(row)} away from this person?`,
           },
         ],
       ]),
@@ -455,8 +471,8 @@ class SideBuilder {
         methods.assignRole,
         this.tenant
           ? { label: 'Give a role', icon: 'badge' }
-          : // The whole application's method takes the person's name, which the row fills.
-            { label: 'Give a role', icon: 'badge', fill: (row) => ({ username: row['username'] }), labels: this.where() },
+          : // The whole application's method takes the id of the person's account, which the row fills.
+            { label: 'Give a role', icon: 'badge', fill: (row) => ({ userId: row['id'] }), labels: this.where() },
       ],
       // A person has two names: the one people read, and the username they sign in under.
       [methods.setName, { label: 'Change the name', icon: 'person' }],
@@ -538,16 +554,61 @@ class SideBuilder {
       .map(([method, presentation]) => ({ method: method as Method, ...presentation }));
   }
 
-  /** Where a role of the whole application's list is held, in words. */
+  /**
+   * Where a role of the whole application's list is held, in words, for a row whose
+   * tenant could not be named: a role held in one tenant falls back to the tenant's
+   * key, which is all the row carries.
+   */
   private heldIn(row: RecordData): string {
     switch (row['kind']) {
       case heldInOneTenant:
-        return `${words(this.identity.tenant ?? 'Tenant')} ${String(row['domain'])}`;
+        return `${words(this.identity.tenant ?? 'Tenant')} ${String(row['domainId'])}`;
       case heldInEveryTenant:
         return `Every ${this.tenantWord}`;
       default:
         return 'The whole application';
     }
+  }
+
+  /**
+   * Where the role of a row is held, as the question before it is taken away says it.
+   * The row the person clicked names the tenant; the question says no key.
+   */
+  private heldWhere(row: RecordData): string {
+    switch (row['kind']) {
+      case heldInOneTenant:
+        return ` in this ${this.tenantWord}`;
+      case heldInEveryTenant:
+        return ` in every ${this.tenantWord}`;
+      default:
+        return '';
+    }
+  }
+
+  /**
+   * A column over a field that holds a tenant's key, showing the tenant's name: the
+   * tenant record's row is read by the keys on the page (the list's related-record
+   * column) and its name field shown. A tenant's key is an id nobody reads. `otherwise`
+   * says what a row shows that names no tenant, or whose tenant could not be read (the
+   * caller holds no List on the record); it is all a row shows where the description
+   * names no tenant record or the record marks no name.
+   */
+  private tenantNamed(id: FieldName, header: string, otherwise: (row: RecordData) => string): ColumnConfig {
+    const record = this.identity.tenantResource as Resource | undefined;
+    const meta = record ? this.resourceMeta(record) : undefined;
+    const key = meta?.fields.find((candidate) => candidate.primaryKey)?.fieldName;
+    if (!record || !meta?.nameField || !key) {
+      return { id, header, valueGetter: otherwise, filterable: false };
+    }
+    return multiColumnConfig({
+      id,
+      header,
+      additionalIds: [{ resource: record, id: key as FieldName, field: meta.nameField as FieldName }],
+      concatFn: 'hyphen-concat',
+      fallback: otherwise,
+      // The field holds the key: a filter typed over the column would be asked for an id.
+      filterable: false,
+    });
   }
 
   /** Whether the resource has the field, by its metadata. */

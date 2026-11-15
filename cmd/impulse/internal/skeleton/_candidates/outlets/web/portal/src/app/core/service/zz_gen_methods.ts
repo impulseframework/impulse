@@ -7,13 +7,13 @@ export interface FieldPointer {
 }
 
 export interface AssignMembersRoleConfig {
-  username: string | FieldPointer;
+  userId: string | FieldPointer;
   role: string | FieldPointer;
   domain?: string | FieldPointer;
   everyDomain: boolean | FieldPointer;
 }
 export interface AssignMembersRole {
-  username: string;
+  userId: string;
   role: string;
   domain?: string;
   everyDomain: boolean;
@@ -148,13 +148,13 @@ export interface InviteMembersUserResult {
 }
 
 export interface RemoveMembersRoleConfig {
-  username: string | FieldPointer;
+  userId: string | FieldPointer;
   role: string | FieldPointer;
   domain?: string | FieldPointer;
   everyDomain: boolean | FieldPointer;
 }
 export interface RemoveMembersRole {
-  username: string;
+  userId: string;
   role: string;
   domain?: string;
   everyDomain: boolean;
@@ -402,7 +402,7 @@ const methodMap: MethodMap = {
     statuses: [204],
     dryRun: true,
     fields: [
-      { fieldName: 'username', displayType: 'string', required: true },
+      { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
@@ -525,7 +525,7 @@ const methodMap: MethodMap = {
     statuses: [204],
     dryRun: true,
     fields: [
-      { fieldName: 'username', displayType: 'string', required: true },
+      { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'string', required: true },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },

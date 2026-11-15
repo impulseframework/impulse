@@ -13,7 +13,7 @@ type (
 	// CrewSectorUserRole is one role a person of the Crew auth holds in one
 	// Sector: a row for each role held in the tenant, by a membership of the
 	// tenant's own or by one held in every tenant. The key is the account's id and the
-	// role, two columns that name the row within its tenant; Domain is the tenant.
+	// role, two columns that name the row within its tenant; DomainId is the tenant.
 	//
 	// EveryDomain is a fact about the row, under the name a grant's condition reads
 	// (everyDomain): the role is held here through a membership held in every tenant
@@ -28,7 +28,7 @@ type (
 	// @page(default: 25, max: 200)
 	CrewSectorUserRole struct {
 		// @domain
-		Domain string `spanner:"Domain" index:"true"`
+		DomainID string `spanner:"DomainId" index:"true"`
 		// @primarykey
 		UserID   impulse.UUID `spanner:"UserId"   index:"true"`
 		Username string       `spanner:"Username" index:"true"`
@@ -45,34 +45,34 @@ type (
 // memberships of CrewUserRoles, and the memberships held in every tenant once
 // per row of Sectors where the tenant holds no membership of its own for the
 // same person and role, each joined to the account as the people's list joins it: by the
-// exact username, through the users table's index by username, which carries the id, so
-// a page reads one index entry for each role held and no row of the users table. A row
+// id a membership names its person by, the users table's key, so a page reads one row of
+// the users table for each role held. A row
 // is keyed by the account's id and the role, each a column the database looks up: a
 // read of one row, and the check a method makes of the row it names, read the one
 // person's memberships and no other row of the tenant.
 const crewSectorUserRoleQuery = `
 SELECT
-  t.Domain AS Domain,
+  t.DomainId AS DomainId,
   u.Id AS UserId,
   u.Username AS Username,
   t.Role AS Role,
   t.EveryDomain AS EveryDomain,
   t.CreatedAt AS CreatedAt
 FROM (
-  SELECT m.Domain AS Domain, m.User AS User, m.Role AS Role, FALSE AS EveryDomain, m.CreatedAt AS CreatedAt
+  SELECT m.DomainId AS DomainId, m.UserId AS UserId, m.Role AS Role, FALSE AS EveryDomain, m.CreatedAt AS CreatedAt
   FROM CrewUserRoles m
   WHERE m.Kind = 'domain' AND m.Axis = ''
   UNION ALL
-  SELECT s.Id AS Domain, m.User AS User, m.Role AS Role, TRUE AS EveryDomain, m.CreatedAt AS CreatedAt
+  SELECT s.Id AS DomainId, m.UserId AS UserId, m.Role AS Role, TRUE AS EveryDomain, m.CreatedAt AS CreatedAt
   FROM CrewUserRoles@{FORCE_INDEX=_BASE_TABLE} m
   CROSS JOIN Sectors s
   WHERE m.Kind = 'every' AND m.Axis = ''
     AND NOT EXISTS (
       SELECT 1 FROM CrewUserRoles d
-      WHERE d.Kind = 'domain' AND d.Axis = m.Axis AND d.Domain = s.Id AND d.Role = m.Role AND d.User = m.User
+      WHERE d.Kind = 'domain' AND d.Axis = m.Axis AND d.DomainId = s.Id AND d.Role = m.Role AND d.UserId = m.UserId
     )
 ) t
-JOIN CrewSessionUsers u ON u.Username = t.User
+JOIN CrewSessionUsers u ON u.Id = t.UserId
 `
 
 // Subquery is the query the rows are read from.

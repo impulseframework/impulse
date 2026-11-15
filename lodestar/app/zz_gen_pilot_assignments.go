@@ -21,7 +21,7 @@ func (a *App) PilotAssignments() http.HandlerFunc {
 	type pilotAssignment struct {
 		SquadronID   impulse.UUID `json:"squadronId"   index:"true" perm:"-"`
 		UserID       string       `json:"userId"       index:"true" perm:"-"`
-		SectorID     string       `json:"sectorId"     index:"true"`
+		SectorID     impulse.UUID `json:"sectorId"     index:"true"`
 		SquadronName string       `json:"squadronName" index:"true"`
 		WingName     string       `json:"wingName"     index:"true"`
 	}
@@ -111,7 +111,7 @@ func (a *App) PilotAssignment() http.HandlerFunc {
 	type response struct {
 		SquadronID   impulse.UUID `json:"squadronId"   index:"true" perm:"-"`
 		UserID       string       `json:"userId"       index:"true" perm:"-"`
-		SectorID     string       `json:"sectorId"`
+		SectorID     impulse.UUID `json:"sectorId"`
 		SquadronName string       `json:"squadronName"`
 		WingName     string       `json:"wingName"`
 	}

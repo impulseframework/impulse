@@ -1,7 +1,10 @@
-INSERT INTO Tenants (Id, Name) VALUES ('north', 'North');
-INSERT INTO Tenants (Id, Name) VALUES ('south', 'South');
+-- The development tenants, under fixed ids: a tenant's key is an id the application
+-- generates, and the development data fixes the two so the suites can name them. The
+-- development logins name a tenant by its name (cmd/bootstrap/users.json).
+INSERT INTO Tenants (Id, Name) VALUES ('11111111-1111-4111-8111-111111111111', 'North');
+INSERT INTO Tenants (Id, Name) VALUES ('22222222-2222-4222-8222-222222222222', 'South');
 -- The portal's members come through the Microsoft Entra directory the members auth
 -- registers (APP_MEMBERS_DIRECTORY_TENANT_ID, the development placeholder): both tenants
 -- declare it, so a member reaches the tenant they hold a role in.
-INSERT INTO TenantDirectories (Id, TenantId, Method, Connection) VALUES ('10000000-0000-4000-8000-000000000001', 'north', 'azure', '00000000-0000-0000-0000-000000000000');
-INSERT INTO TenantDirectories (Id, TenantId, Method, Connection) VALUES ('10000000-0000-4000-8000-000000000002', 'south', 'azure', '00000000-0000-0000-0000-000000000000');
+INSERT INTO TenantDirectories (Id, TenantId, Method, Connection) VALUES ('10000000-0000-4000-8000-000000000001', '11111111-1111-4111-8111-111111111111', 'azure', '00000000-0000-0000-0000-000000000000');
+INSERT INTO TenantDirectories (Id, TenantId, Method, Connection) VALUES ('10000000-0000-4000-8000-000000000002', '22222222-2222-4222-8222-222222222222', 'azure', '00000000-0000-0000-0000-000000000000');

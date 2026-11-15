@@ -222,6 +222,15 @@ describe('filledMethods and filledBody', () => {
     expect(filledBody(remove, undefined)).toEqual({});
   });
 
+  it('keeps a field the page filled with nothing, so the dialog does not ask for it', () => {
+    const none: MethodPresentation[] = [
+      { method: 'RemoveCrewRole' as Method, fill: (row) => ({ username: row['user'], role: row['role'], domain: null }) },
+    ];
+    const filled = filledBody(offered('RemoveCrewRole', metaOf('RemoveCrewRole'), none), held);
+    expect(filled).toEqual({ username: 'ada', role: 'Cadet', domain: null });
+    expect(askedFields(metaOf('RemoveCrewRole'), Object.keys(filled))).toEqual([]);
+  });
+
   it('asks for the fields the page did not fill', () => {
     expect(askedFields(metaOf('AssignCrewRole'), ['username']).map((f) => f.fieldName)).toEqual(['role', 'domain']);
     expect(askedFields(metaOf('RemoveCrewRole'), ['username', 'role', 'domain'])).toEqual([]);

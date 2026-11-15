@@ -73,7 +73,9 @@ func TestHailShipTouch(t *testing.T) {
 		t.Fatalf("seeded UpdatedAt = %v, want unset", got)
 	}
 
-	status, body := doRequestAs(t, h, "hailer-hal", http.MethodPost, sectorPath(anvil, "hail-ship"), fmt.Sprintf(`{"shipId":%q}`, shipKingfisherID))
+	// The dock master hails: a persona of the cast, whose session belongs to an account,
+	// so the change is written by her username with the id of the account.
+	status, body := doRequestAs(t, h, "dock", http.MethodPost, sectorPath(anvil, "hail-ship"), fmt.Sprintf(`{"shipId":%q}`, shipKingfisherID))
 	assertStatus(t, status, http.StatusNoContent, body)
 
 	first := readColumn[spanner.NullTime](ctx, t, db, "Ships", spanner.Key{shipKingfisherID}, "UpdatedAt")
@@ -82,14 +84,14 @@ func TestHailShipTouch(t *testing.T) {
 	}
 
 	eventSource, changeSetKeys := latestChangeEvent(t, db, "Ships", shipKingfisherID)
-	if want := "hailer-hal ("; !strings.HasPrefix(eventSource, want) {
+	if want := fmt.Sprintf("dock (%s), session ", account(t, "dock")); !strings.HasPrefix(eventSource, want) {
 		t.Errorf("eventSource = %q, want the session-derived %q prefix", eventSource, want)
 	}
 	if len(changeSetKeys) != 1 || changeSetKeys[0] != "UpdatedAt" {
 		t.Errorf("changeSet keys = %v, want exactly [UpdatedAt]", changeSetKeys)
 	}
 
-	status, body = doRequestAs(t, h, "hailer-hal", http.MethodPost, sectorPath(anvil, "hail-ship"), fmt.Sprintf(`{"shipId":%q}`, shipKingfisherID))
+	status, body = doRequestAs(t, h, "dock", http.MethodPost, sectorPath(anvil, "hail-ship"), fmt.Sprintf(`{"shipId":%q}`, shipKingfisherID))
 	assertStatus(t, status, http.StatusNoContent, body)
 	second := readColumn[spanner.NullTime](ctx, t, db, "Ships", spanner.Key{shipKingfisherID}, "UpdatedAt")
 	if !second.Valid || !second.Time.After(first.Time) {
@@ -97,6 +99,6 @@ func TestHailShipTouch(t *testing.T) {
 	}
 
 	// The generated frame locates the @target row before the body runs.
-	status, body = doRequestAs(t, h, "hailer-hal", http.MethodPost, sectorPath(anvil, "hail-ship"), `{"shipId":"70000000-0000-4000-8000-00000000dead"}`)
+	status, body = doRequestAs(t, h, "dock", http.MethodPost, sectorPath(anvil, "hail-ship"), `{"shipId":"70000000-0000-4000-8000-00000000dead"}`)
 	assertStatus(t, status, http.StatusNotFound, body)
 }

@@ -23,46 +23,41 @@ var (
 )
 
 // TestManager_RenameUser pins the rename: the user row, every live session that carries
-// the name (the person's own and the ones they hold that act as a role), the actor's
-// name on every standing record they hold, and every membership, moved to the new name;
-// a name another user holds is a conflict, the same name is nothing to do, and the
-// engine is told when a membership moved.
+// the name (the person's own and the ones they hold that act as a role), and the actor's
+// name on every standing record they hold, found under the old name. No membership is
+// written: the permission store names the person by the id of their account, so the
+// roles stay where they are and the engine is told nothing. A name another user holds
+// is a conflict, and the same name is nothing to do.
 func TestManager_RenameUser(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		username    string
-		prepare     func(store *fakeStore)
-		failOn      string
-		wantErr     func(error) bool
-		wantWrites  []string
-		wantChanged int
+		name       string
+		username   string
+		prepare    func(store *fakeStore)
+		failOn     string
+		wantErr    func(error) bool
+		wantWrites []string
 	}{
 		{
-			name:     "a person with sessions, records and roles keeps all of them under the new name",
+			name:     "a person with sessions, records and roles: the sessions and the records carry the new name, and no membership is written",
 			username: "  dana.r ",
 			prepare: func(store *fakeStore) {
 				store.sessions = map[impulse.UUID][]impulse.UUID{userID: {sessionA}}
 				store.heldBy = map[string][]impulse.UUID{"dana": {roleSession, viewSession}}
 				store.actsAsRole = map[impulse.UUID]bool{roleSession: true}
 				store.memberships = map[access.MembershipKey]bool{
-					access.NewMembershipKey(globalScope, "dana", "Steward"): true,
-					access.NewMembershipKey(alphaScope, "dana", "Reader"):   true,
+					access.NewMembershipKey(globalScope, dana, "Steward"): true,
+					access.NewMembershipKey(alphaScope, dana, "Reader"):   true,
 				}
 			},
 			wantWrites: []string{
-				"delete membership domain/alpha dana Reader",
-				"delete membership global/ dana Steward",
-				"insert membership domain/alpha dana.r Reader",
-				"insert membership global/ dana.r Steward",
 				"update user " + userID.String() + " username=dana.r",
 				"rename session " + sessionA.String() + " dana.r",
 				"rename session " + roleSession.String() + " dana.r",
 				"rename actor " + roleSession.String() + " dana.r",
 				"rename actor " + viewSession.String() + " dana.r",
 			},
-			wantChanged: 1,
 		},
 		{
 			name:     "a session that acts as a role and has ended keeps its name; its record follows",
@@ -78,7 +73,7 @@ func TestManager_RenameUser(t *testing.T) {
 			},
 		},
 		{
-			name:       "a person who holds no role: the engine is not told",
+			name:       "a person with no session, record or role: the user row alone",
 			username:   "dana.r",
 			wantWrites: []string{"update user " + userID.String() + " username=dana.r"},
 		},
@@ -133,8 +128,8 @@ func TestManager_RenameUser(t *testing.T) {
 					t.Errorf("buffered writes (-want +got):\n%s", diff)
 				}
 			}
-			if engine.changed != tt.wantChanged {
-				t.Errorf("the engine was told %d times, want %d", engine.changed, tt.wantChanged)
+			if engine.changed != 0 {
+				t.Errorf("the engine was told %d times, want none: a rename changes nothing the engine holds", engine.changed)
 			}
 		})
 	}
@@ -152,9 +147,55 @@ func TestManager_RenameUser(t *testing.T) {
 	})
 }
 
+// TestManager_RenameUser_rolesStay pins what a rename leaves alone: the memberships. The
+// permission store names a person by the id of their account, which a rename does not
+// change, so every membership the person holds, in the global scope, in a tenant and in
+// every tenant, is theirs after the rename as it was before, none is removed and none is
+// written under any name, another person's are untouched, and the permission engine is
+// told nothing for a rename alone.
+func TestManager_RenameUser_rolesStay(t *testing.T) {
+	t.Parallel()
+
+	held := []access.MembershipKey{
+		access.NewMembershipKey(alphaScope, dana, "Reader"),
+		access.NewMembershipKey(everyScope, dana, "Reader"),
+		access.NewMembershipKey(globalScope, dana, "Steward"),
+	}
+	store := &fakeStore{
+		usernames:   map[impulse.UUID]string{userID: "dana", otherUser: "erin"},
+		memberships: map[access.MembershipKey]bool{access.NewMembershipKey(globalScope, erin, "Steward"): true},
+	}
+	for _, key := range held {
+		store.memberships[key] = true
+	}
+	m, engine := newManager(t, store, engineRoles)
+
+	var after []access.MembershipKey
+	if err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		if err := m.RenameUser(ctx, txn, userID, "dana.r"); err != nil {
+			return err
+		}
+		var err error
+		after, err = store.Memberships(ctx, txn, userID)
+
+		return err
+	}); err != nil {
+		t.Fatalf("RenameUser() error = %v", err)
+	}
+	if diff := cmp.Diff([]string{"update user " + userID.String() + " username=dana.r"}, store.writes); diff != "" {
+		t.Errorf("buffered writes (-want +got): the user row alone, and no membership\n%s", diff)
+	}
+	if diff := cmp.Diff(held, after); diff != "" {
+		t.Errorf("the memberships the person holds after the rename (-want +got):\n%s", diff)
+	}
+	if engine.changed != 0 {
+		t.Errorf("the engine was told %d times, want none: a rename changes nothing the engine holds", engine.changed)
+	}
+}
+
 // TestManager_DeleteUser pins the delete: the sessions ended, the identity links and the
-// row removed, every membership the person holds removed with them and the engine told;
-// nobody deletes themselves; a user that does not exist is not found.
+// row removed, every membership held under the account's id removed with them and the
+// engine told; nobody deletes themselves; a user that does not exist is not found.
 func TestManager_DeleteUser(t *testing.T) {
 	t.Parallel()
 
@@ -162,8 +203,8 @@ func TestManager_DeleteUser(t *testing.T) {
 		"end session " + sessionA.String(),
 		"delete identity " + identityA.String(),
 		"delete user " + userID.String(),
-		"delete membership domain/alpha dana Reader",
-		"delete membership global/ dana Steward",
+		"delete membership domain/alpha " + userID.String() + " Reader",
+		"delete membership global/ " + userID.String() + " Steward",
 	}
 
 	tests := []struct {
@@ -175,11 +216,11 @@ func TestManager_DeleteUser(t *testing.T) {
 		wantWrites  []string
 		wantChanged int
 	}{
-		{name: "another person's account goes with everything that names it", caller: "erin", wantWrites: whole, wantChanged: 1},
+		{name: "another person's account goes with everything that names it", caller: erin, wantWrites: whole, wantChanged: 1},
 		{name: "a call outside any request is the application's act", wantWrites: whole, wantChanged: 1},
-		{name: "a person who holds no role: the engine is not told", caller: "erin", noRoles: true, wantWrites: whole[:3]},
-		{name: "the caller's own account is refused", caller: "Dana", wantErr: httpio.HasForbidden},
-		{name: "a user that does not exist is not found", caller: "erin", missing: true, wantErr: httpio.HasNotFound},
+		{name: "a person who holds no role: the engine is not told", caller: erin, noRoles: true, wantWrites: whole[:3]},
+		{name: "the caller's own account is refused: the caller carries the account's id", caller: dana, wantErr: httpio.HasForbidden},
+		{name: "a user that does not exist is not found", caller: erin, missing: true, wantErr: httpio.HasNotFound},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -192,8 +233,8 @@ func TestManager_DeleteUser(t *testing.T) {
 				memberships: map[access.MembershipKey]bool{},
 			}
 			if !tt.noRoles {
-				store.memberships[access.NewMembershipKey(globalScope, "dana", "Steward")] = true
-				store.memberships[access.NewMembershipKey(alphaScope, "dana", "Reader")] = true
+				store.memberships[access.NewMembershipKey(globalScope, dana, "Steward")] = true
+				store.memberships[access.NewMembershipKey(alphaScope, dana, "Reader")] = true
 			}
 			if tt.missing {
 				store.usernames = nil
@@ -293,12 +334,12 @@ func TestManager_CreateUser_password(t *testing.T) {
 			wantWrites: []string{
 				"insert user dana <none>",
 				"set password " + createdID.String() + " hash(first-day) changeRequired=true",
-				"insert membership global/ dana Steward",
+				"insert membership global/ " + createdID.String() + " Steward",
 			},
 		},
 		{
 			name:       "no password is a person who signs in another way",
-			wantWrites: []string{"insert user dana <none>", "insert membership global/ dana Steward"},
+			wantWrites: []string{"insert user dana <none>", "insert membership global/ " + createdID.String() + " Steward"},
 		},
 		{name: "an empty password is refused", password: ptr(""), wantErr: httpio.HasBadRequest},
 		{name: "where the password is the only way in, none is refused", required: true, wantErr: httpio.HasBadRequest},
@@ -309,7 +350,7 @@ func TestManager_CreateUser_password(t *testing.T) {
 			wantWrites: []string{
 				"insert user dana <none>",
 				"set password " + createdID.String() + " hash(first-day) changeRequired=true",
-				"insert membership global/ dana Steward",
+				"insert membership global/ " + createdID.String() + " Steward",
 			},
 		},
 	}
