@@ -39,7 +39,7 @@ func TestMain(m *testing.M) {
 
 // spannerEmulator returns the shared container, starting it on first demand.
 // Under -short the calling test skips instead, so the unit run never needs a
-// container runtime; TestLodestarApp skips the same way.
+// container runtime.
 func spannerEmulator(t *testing.T) *initiator.SpannerContainer {
 	t.Helper()
 

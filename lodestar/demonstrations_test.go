@@ -106,22 +106,6 @@ func scanDeclarations(t *testing.T, root string) []declaration {
 		t.Fatalf("walking %s: %v", root, err)
 	}
 
-	// The CI stub lives one directory up, in the resource module; it is part of the proof.
-	stub := filepath.Join(root, "..", "lodestar_test.go")
-	if raw, err := os.ReadFile(stub); err == nil {
-		for line := range strings.SplitSeq(string(raw), "\n") {
-			if m := demonstratesLine.FindStringSubmatch(line); m != nil {
-				var keys []string
-				for key := range strings.SplitSeq(m[1], ",") {
-					if key = strings.TrimSpace(key); key != "" {
-						keys = append(keys, key)
-					}
-				}
-				out = append(out, declaration{file: "../lodestar_test.go", keys: keys, test: true})
-			}
-		}
-	}
-
 	return out
 }
 
