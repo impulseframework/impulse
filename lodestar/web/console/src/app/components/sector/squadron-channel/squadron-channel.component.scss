@@ -4,8 +4,8 @@
   gap: 12px;
   margin: 8px 0 16px;
   padding: 8px 12px;
-  border-left: 3px solid #f2b544;
-  background: rgba(242, 181, 68, 0.08);
+  border-left: 3px solid var(--lodestar-highlight);
+  background: color-mix(in srgb, var(--lodestar-highlight) 8%, transparent);
 
   .label {
     font-size: 0.75rem;

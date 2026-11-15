@@ -35,3 +35,21 @@ html {
     ),
   )
 );
+
+// Lodestar's own signal colors, set here and read by the component stylesheets, which carry
+// no literal color (cmd/generate's TestWebStylesheetsCarryNoLiteralColor refuses one). Each
+// that colors text or a line is a light-dark pair, as mat.theme's tokens are, so it keeps its
+// contrast in the person's light or dark: amber for a hazard, a selection and a refusal the
+// server explained, green for a nominal reading and a probe the server allowed, teal for the
+// ship's log and a live transition. The highlight is a fill under its own dark text, and the
+// view-as banner a band under its own white text, the same in both.
+html {
+  --lodestar-amber: light-dark(#a5640a, #f2b544);
+  --lodestar-green: light-dark(#2f7a3e, #8fd19e);
+  --lodestar-teal: light-dark(#1f6f8b, #7fc8e0);
+  --lodestar-highlight: #f2b544;
+  --lodestar-on-highlight: #15161d;
+  --lodestar-banner: #1f6f8b;
+  --lodestar-banner-role: #8a5208;
+  --lodestar-on-banner: #fff;
+}

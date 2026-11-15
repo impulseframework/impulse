@@ -26,7 +26,7 @@
     }
 
     &.live {
-      color: #1f6f8b;
+      color: var(--lodestar-teal);
       cursor: pointer;
 
       path {
@@ -41,23 +41,27 @@
 
   .node {
     rect {
-      fill: #fff;
-      stroke: #15161d;
+      fill: var(--mat-sys-surface-container-lowest);
+      stroke: var(--mat-sys-on-surface);
       stroke-width: 1.2;
     }
 
     text {
       font-size: 11px;
       text-anchor: middle;
-      fill: #15161d;
+      fill: var(--mat-sys-on-surface);
     }
 
     &.terminal rect {
-      fill: #e9ebf2;
+      fill: var(--mat-sys-surface-container-high);
     }
 
     &.current rect {
-      fill: #f2b544;
+      fill: var(--lodestar-highlight);
+    }
+
+    &.current text {
+      fill: var(--lodestar-on-highlight);
     }
   }
 }

@@ -28,3 +28,15 @@ html {
     ),
   )
 );
+
+// Lodestar's own signal colors, set here and read by the component stylesheets, which carry
+// no literal color (cmd/generate's TestWebStylesheetsCarryNoLiteralColor refuses one). Each
+// that colors text or a line is a light-dark pair, as mat.theme's tokens are, so it keeps its
+// contrast in the person's light or dark: amber for a selection, teal for a live transition.
+// The highlight is a fill under its own dark text, the same in both.
+html {
+  --lodestar-amber: light-dark(#a5640a, #f2b544);
+  --lodestar-teal: light-dark(#1f6f8b, #7fc8e0);
+  --lodestar-highlight: #f2b544;
+  --lodestar-on-highlight: #15161d;
+}

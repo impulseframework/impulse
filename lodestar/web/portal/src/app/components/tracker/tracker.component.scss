@@ -19,8 +19,8 @@
   font: inherit;
 
   &.selected {
-    border-color: #a5640a;
-    box-shadow: 0 0 0 2px rgba(165, 100, 10, 0.25);
+    border-color: var(--lodestar-amber);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--lodestar-amber) 25%, transparent);
   }
 
   .row {
