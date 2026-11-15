@@ -131,6 +131,19 @@ export interface LoginMethods {
    */
   readonly forgetBrowser?: string;
   /**
+   * The path where a signed-in person writes their own name (`changeName()`): the name
+   * as people read it, which a page shows in place of the username. Absent on a server
+   * that does not serve it.
+   */
+  readonly changeName?: string;
+  /**
+   * The path where a signed-in person's pages keep the look the person chose
+   * (`changeLook()`): light or dark, and one of the palettes the application offers, kept
+   * with the account so it follows the person to every browser. Absent on a server that
+   * does not serve it.
+   */
+  readonly changeLook?: string;
+  /**
    * The password method's username is the person's email address: the form asks for the
    * address, and an account created from a mailed link takes no username of its own.
    * Absent, or false, where the username is a name of the person's choosing.
@@ -224,6 +237,33 @@ export interface NewAccount {
  * old one or fails the server's rule, or the session is an impersonation.
  */
 export type PasswordChangeResult = { readonly outcome: 'changed' } | SignInRefusal;
+
+/**
+ * What a change of the person's own name answers: `changed`, with the name as the server
+ * keeps it (without the space around it), absent when the person now holds none; or the
+ * server's refusal, resolved rather than thrown, with its words: the name is too long, or
+ * the session is an impersonation.
+ */
+export type NameChangeResult = { readonly outcome: 'changed'; readonly name?: string } | SignInRefusal;
+
+/**
+ * The look a person chose for the application's pages: light or dark, and the id of one
+ * of the palettes the application offers. Either half may be absent, for none chosen. The
+ * session read carries it (`look`) when the account holds one.
+ */
+export interface Look {
+  readonly scheme?: 'light' | 'dark';
+  readonly palette?: string;
+}
+
+/**
+ * What keeping a person's look resolves to: `changed` with the look as the server keeps
+ * it (the palette's id without the space around it, a half absent where the person now
+ * holds none), or the server's refusal, resolved rather than thrown, with its words: the
+ * scheme is neither light nor dark, the palette's id is too long, or the session is an
+ * impersonation.
+ */
+export type LookChangeResult = { readonly outcome: 'changed'; readonly look: Look } | SignInRefusal;
 
 /** What the password method's form posts. */
 export interface PasswordCredentials {
@@ -407,10 +447,30 @@ interface MethodsAnswer {
   pending?: Partial<PendingRoutes> | null;
   changePassword?: string | null;
   forgetBrowser?: string | null;
+  changeName?: string | null;
+  changeLook?: string | null;
   usernameIsEmail?: boolean | null;
   invitation?: InvitationAnswer | null;
   email?: Partial<EmailRoutes> | null;
   signUp?: Partial<SignUpRoutes> | null;
+}
+
+/** A look as the server answers it, before it is checked. */
+interface LookAnswer {
+  scheme?: string | null;
+  palette?: string | null;
+}
+
+/** The look in an answer, keeping only what is one: a scheme that is light or dark, a palette id that is not empty. */
+function lookOf(answer: LookAnswer | null | undefined): Look {
+  const look: { scheme?: 'light' | 'dark'; palette?: string } = {};
+  if (answer?.scheme === 'light' || answer?.scheme === 'dark') {
+    look.scheme = answer.scheme;
+  }
+  if (typeof answer?.palette === 'string' && answer.palette !== '') {
+    look.palette = answer.palette;
+  }
+  return look;
 }
 
 /** The shape the invitation block answers, before it is checked. */
@@ -772,6 +832,55 @@ export class AuthClient {
   }
 
   /**
+   * Writes the signed-in person's own name: reads the methods list again, then posts
+   * `{ name }` to the change path it names. The name is what a page shows for the person
+   * in place of the username, which stays what identifies them; an empty one takes the
+   * name off. The result is `changed` with the name as the server keeps it, so the page
+   * checks the session again to show it, or the server's refusal with its words. A server
+   * whose list names no change path serves none, and the call throws saying so.
+   */
+  async changeName(name: string): Promise<NameChangeResult> {
+    const list = await this.methods();
+    if (!list.changeName) {
+      throw new Error('this server names no change-your-name path in its methods list: it does not serve one');
+    }
+    const response = await this.options.request<{ name?: string | null } | RefusalAnswer | null>(
+      'POST',
+      list.changeName,
+      { body: { name }, absolute: true, accept: changeRefusals },
+    );
+    if (response.status >= 400) {
+      return refusalOf(response);
+    }
+    const kept = (response.body as { name?: string | null } | null)?.name;
+    return typeof kept === 'string' && kept !== '' ? { outcome: 'changed', name: kept } : { outcome: 'changed' };
+  }
+
+  /**
+   * Keeps the look the signed-in person chose with their account, so it follows them to
+   * every browser: reads the methods list again, then posts `{ scheme, palette }` to the
+   * path it names. The look replaces the one held as a whole, so a half left out is taken
+   * off. The result is `changed` with the look as the server keeps it, or the server's
+   * refusal with its words. A server whose list names no such path serves none, and the
+   * call throws saying so.
+   */
+  async changeLook(look: Look): Promise<LookChangeResult> {
+    const list = await this.methods();
+    if (!list.changeLook) {
+      throw new Error('this server names no keep-your-look path in its methods list: it does not serve one');
+    }
+    const response = await this.options.request<LookAnswer | RefusalAnswer | null>('POST', list.changeLook, {
+      body: { scheme: look.scheme ?? '', palette: look.palette ?? '' },
+      absolute: true,
+      accept: changeRefusals,
+    });
+    if (response.status >= 400) {
+      return refusalOf(response);
+    }
+    return { outcome: 'changed', look: lookOf(response.body as LookAnswer | null) };
+  }
+
+  /**
    * Opens the invitation a mailed link carried: reads the methods list again, then posts
    * the token to the invitation's open route. The answer describes the invitation (the
    * address, the tenant, when it expires, whether an account with a password may be
@@ -1030,6 +1139,14 @@ export class AuthClient {
     const forgetBrowser = answer?.forgetBrowser;
     if (typeof forgetBrowser === 'string' && forgetBrowser !== '') {
       list.forgetBrowser = forgetBrowser;
+    }
+    const changeName = answer?.changeName;
+    if (typeof changeName === 'string' && changeName !== '') {
+      list.changeName = changeName;
+    }
+    const changeLook = answer?.changeLook;
+    if (typeof changeLook === 'string' && changeLook !== '') {
+      list.changeLook = changeLook;
     }
     if (answer?.usernameIsEmail === true) {
       list.usernameIsEmail = true;

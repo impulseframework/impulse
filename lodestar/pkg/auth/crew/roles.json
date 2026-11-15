@@ -129,6 +129,7 @@
               "resource": "CrewSessionUsers",
               "fields": [
                 "username",
+                "name",
                 "email",
                 "emailVerifiedAt",
                 "disabled",
@@ -158,6 +159,7 @@
               "resource": "MembersSessionUsers",
               "fields": [
                 "username",
+                "name",
                 "email",
                 "emailVerifiedAt",
                 "disabled",
@@ -221,6 +223,7 @@
                 "expiresAt",
                 "invitedBy",
                 "kind",
+                "name",
                 "roleNames",
                 "tenant",
                 "userId"
@@ -296,6 +299,7 @@
                 "expiresAt",
                 "invitedBy",
                 "kind",
+                "name",
                 "roleNames",
                 "tenant",
                 "userId"
@@ -376,6 +380,7 @@
               "resource": "CrewSessionUsers",
               "fields": [
                 "username",
+                "name",
                 "email",
                 "emailVerifiedAt",
                 "disabled",
@@ -399,6 +404,7 @@
               "resource": "MembersSessionUsers",
               "fields": [
                 "username",
+                "name",
                 "email",
                 "emailVerifiedAt",
                 "disabled",
@@ -456,6 +462,7 @@
                 "expiresAt",
                 "invitedBy",
                 "kind",
+                "name",
                 "roleNames",
                 "tenant",
                 "userId"
@@ -500,6 +507,7 @@
                 "expiresAt",
                 "invitedBy",
                 "kind",
+                "name",
                 "roleNames",
                 "tenant",
                 "userId"
@@ -728,7 +736,13 @@
               "resource": "SetCrewUserEmail"
             },
             {
+              "resource": "SetCrewUserName"
+            },
+            {
               "resource": "SetMembersUserEmail"
+            },
+            {
+              "resource": "SetMembersUserName"
             }
           ]
         }
@@ -1123,6 +1137,7 @@
               "resource": "CrewSectorUsers",
               "fields": [
                 "username",
+                "name",
                 "disabled",
                 "createdAt",
                 "lastSignInAt",
@@ -1151,6 +1166,7 @@
               "resource": "CrewSectorInvitations",
               "fields": [
                 "email",
+                "name",
                 "roleNames",
                 "invitedBy",
                 "createdAt",
@@ -1368,6 +1384,7 @@
               "resource": "CrewSectorUsers",
               "fields": [
                 "username",
+                "name",
                 "disabled",
                 "createdAt",
                 "lastSignInAt",
@@ -1396,6 +1413,7 @@
               "resource": "CrewSectorInvitations",
               "fields": [
                 "email",
+                "name",
                 "roleNames",
                 "invitedBy",
                 "createdAt",
@@ -1798,6 +1816,10 @@
             },
             {
               "resource": "SetCrewSectorUserEmail",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "SetCrewSectorUserName",
               "condition": "heldElsewhere = false AND heldGlobally = false"
             },
             {

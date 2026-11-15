@@ -63,6 +63,40 @@ func (b *browser) pendingStatus(ctx context.Context) *pendingStatus {
 	return status
 }
 
+// authenticatedName reads the session read's name, empty for none.
+func (b *browser) authenticatedName(ctx context.Context) string {
+	b.t.Helper()
+
+	var body struct {
+		Name *string `json:"name"`
+	}
+	if err := json.Unmarshal(b.expect(ctx, http.StatusOK, http.MethodGet, "/authenticated", nil), &body); err != nil {
+		b.t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if body.Name == nil {
+		return ""
+	}
+
+	return *body.Name
+}
+
+// authenticatedLook reads the session read's look, and whether the answer carries one.
+func (b *browser) authenticatedLook(ctx context.Context) (look sessioninfo.Look, present bool) {
+	b.t.Helper()
+
+	var body struct {
+		Look *sessioninfo.Look `json:"look"`
+	}
+	if err := json.Unmarshal(b.expect(ctx, http.StatusOK, http.MethodGet, "/authenticated", nil), &body); err != nil {
+		b.t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if body.Look == nil {
+		return sessioninfo.Look{}, false
+	}
+
+	return *body.Look, true
+}
+
 // authenticatedEmail reads the session read's address and whether it is verified.
 func (b *browser) authenticatedEmail(ctx context.Context) (email string, verified bool) {
 	b.t.Helper()

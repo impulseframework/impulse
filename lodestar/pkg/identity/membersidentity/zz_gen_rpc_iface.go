@@ -11,7 +11,7 @@ type Method interface {
 		DisableMembersUser | EnableMembersSectorUser | EnableMembersUser |
 		EndMembersSectorUserSessions | EndMembersSession | EndMembersUserSessions |
 		RenameMembersSectorUser | RenameMembersUser | RevokeMembersSectorUserTrustedDevices |
-		RevokeMembersUserTrustedDevices | SetMembersSectorUserEmail | SetMembersUserEmail |
-		UnlinkMembersSectorSessionIdentity | UnlinkMembersSessionIdentity |
-		UnlockMembersSignIn
+		RevokeMembersUserTrustedDevices | SetMembersSectorUserEmail | SetMembersSectorUserName |
+		SetMembersUserEmail | SetMembersUserName | UnlinkMembersSectorSessionIdentity |
+		UnlinkMembersSessionIdentity | UnlockMembersSignIn
 }

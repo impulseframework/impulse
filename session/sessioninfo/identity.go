@@ -153,6 +153,12 @@ type Identity struct {
 	Subject string
 	// Email is the email address asserted by the method, if any.
 	Email string
+	// Name is the person's name as the method asserts it (the name claim of a Google,
+	// Entra or OpenID Connect token, the first and last name of a WorkOS profile); ""
+	// when the method has none. It is written on the account a sign-in creates and on an
+	// account that holds no name yet, and never over a name the account holds. It is an
+	// attribute, never a key.
+	Name string
 	// EmailVerified reports whether the method asserts the email is verified.
 	EmailVerified bool
 	// Claims is the method's verified payload (ID-token claims or WorkOS profile). It
@@ -341,6 +347,13 @@ const (
 	// tenant admits its people through their directories only, under the tenant
 	// policy.
 	RefusedDirectoryOnly LoginRefusalCode = "directory_only"
+	// RefusedOtherTenant is the code for a role in a tenant that is refused because the
+	// person belongs to another tenant, in an application where a person belongs to
+	// one (the identity package's WithOneTenantPerPerson). The session library never
+	// answers it itself: the application's hooks do, and a sign-in ends on it when the
+	// invitation it carries, or the default role of the directory it came through,
+	// would seat the person in a second tenant.
+	RefusedOtherTenant LoginRefusalCode = "other_tenant"
 	// RefusedInvalidCode is the code for an email code that is not the one sent; the
 	// code sent stands, with one fewer attempt left.
 	RefusedInvalidCode LoginRefusalCode = "invalid_code"

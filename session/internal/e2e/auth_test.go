@@ -266,6 +266,12 @@ func mountAuth[Tx any](r chi.Router, auth *session.Auth[appSessionData, appUserD
 		// A signed-in person forgets this browser as a trusted device of theirs; the
 		// handler validates the session itself, as the password change does.
 		r.Post("/forget-browser", auth.ForgetBrowser())
+		// A signed-in person writes their own name; the handler validates the session
+		// itself, as the password change does.
+		r.Post("/name", auth.ChangeName())
+		// A signed-in person's pages keep the look the person chose; the handler
+		// validates the session itself, as the password change does.
+		r.Post("/look", auth.ChangeLook())
 
 		r.Group(func(r chi.Router) {
 			r.Use(auth.ValidateSession)

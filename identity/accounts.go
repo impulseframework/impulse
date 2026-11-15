@@ -77,7 +77,7 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 		return err
 	}
 
-	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: &name, Disabled: nil, PasswordChangeRequired: nil, Email: nil}); err != nil {
+	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: &name, Disabled: nil, PasswordChangeRequired: nil, Email: nil, Name: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
 	}
 	for _, id := range sessions {

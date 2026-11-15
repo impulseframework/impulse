@@ -11,6 +11,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
 )
 
@@ -18,6 +19,9 @@ import (
 // start.
 type NewAccount struct {
 	Username string
+	// Name is the person's name as people read it, nil for none: what pages show for
+	// the person in place of the username. The person may change it themselves.
+	Name *string
 	// Email is the person's address, entered unverified; nil for none, and always nil
 	// where the auth's usernames are the addresses.
 	Email *string
@@ -47,7 +51,9 @@ type NewAccount struct {
 // (AssignRole): it exists there under exactly this spelling.
 //
 // Shared rule: an address is written bare, the part a message is sent to, as the session
-// library writes one (its address function); a value that is no address is refused.
+// library writes one (its address function); a value that is no address is refused. A
+// name is held to the session library's rule of one (sessioninfo.CleanName): without
+// the space around it, none where nothing is left, refused where it is too long.
 func (m *Manager) CreateUser(ctx context.Context, txn resource.ReadWriteTransaction, account *NewAccount) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -60,6 +66,10 @@ func (m *Manager) CreateUser(ctx context.Context, txn resource.ReadWriteTransact
 	if err != nil {
 		return impulse.NilUUID, err
 	}
+	name, err := sessioninfo.CleanName(account.Name)
+	if err != nil {
+		return impulse.NilUUID, errors.Wrap(err, "sessioninfo.CleanName()")
+	}
 	roles := distinctRoles(account.Roles)
 	if len(roles) == 0 {
 		return impulse.NilUUID, httpio.NewBadRequestMessage("at least one role is required: an account that holds no role anywhere is not kept, so none is created without one")
@@ -69,7 +79,7 @@ func (m *Manager) CreateUser(ctx context.Context, txn resource.ReadWriteTransact
 		return impulse.NilUUID, err
 	}
 
-	id, err := m.store.InsertUser(ctx, txn, &NewUser{Username: username, Email: bare})
+	id, err := m.store.InsertUser(ctx, txn, &NewUser{Username: username, Name: name, Email: bare})
 	if err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "identity.Store.InsertUser()")
 	}
@@ -140,7 +150,7 @@ func (m *Manager) DisableUser(ctx context.Context, txn resource.ReadWriteTransac
 		return err
 	}
 	disabled := true
-	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: &disabled, PasswordChangeRequired: nil, Email: nil}); err != nil {
+	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: &disabled, PasswordChangeRequired: nil, Email: nil, Name: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
 	}
 
@@ -154,7 +164,7 @@ func (m *Manager) EnableUser(ctx context.Context, txn resource.ReadWriteTransact
 	defer span.End()
 
 	disabled := false
-	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: &disabled, PasswordChangeRequired: nil, Email: nil}); err != nil {
+	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: &disabled, PasswordChangeRequired: nil, Email: nil, Name: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
 	}
 
@@ -184,7 +194,7 @@ func (m *Manager) RequirePasswordChange(ctx context.Context, txn resource.ReadWr
 		return httpio.NewBadRequestMessage("a password change can only be required of a user that has a password")
 	}
 	required := true
-	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: nil, PasswordChangeRequired: &required, Email: nil}); err != nil {
+	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: nil, PasswordChangeRequired: &required, Email: nil, Name: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
 	}
 
@@ -216,7 +226,35 @@ func (m *Manager) SetEmail(ctx context.Context, txn resource.ReadWriteTransactio
 	} else if !found {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 	}
-	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: nil, PasswordChangeRequired: nil, Email: &EmailChange{Address: bare}}); err != nil {
+	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: nil, PasswordChangeRequired: nil, Email: &EmailChange{Address: bare}, Name: nil}); err != nil {
+		return errors.Wrap(err, "identity.Store.UpdateUser()")
+	}
+
+	return nil
+}
+
+// SetName buffers a person's name on a user, or takes the name off (nil, or nothing
+// but space), in the caller's transaction. The name is what pages show for the person
+// in place of the username; it identifies nobody, so nothing follows it: no session
+// ends and no membership moves. A name written here stands until it is written again:
+// a later sign-in through a directory fills a name only where the user holds none.
+//
+// Shared rule: the session library's SetUserName, which holds the name to the same
+// rule (sessioninfo.CleanName) and writes it on the row.
+func (m *Manager) SetName(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, name *string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	clean, err := sessioninfo.CleanName(name)
+	if err != nil {
+		return errors.Wrap(err, "sessioninfo.CleanName()")
+	}
+	if _, found, err := m.store.Username(ctx, txn, userID); err != nil {
+		return errors.Wrap(err, "identity.Store.Username()")
+	} else if !found {
+		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: nil, PasswordChangeRequired: nil, Email: nil, Name: &NameChange{Name: clean}}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
 	}
 

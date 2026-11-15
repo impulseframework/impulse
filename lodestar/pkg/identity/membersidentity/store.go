@@ -32,6 +32,9 @@ func (store) InsertUser(ctx context.Context, txn resource.ReadWriteTransaction, 
 		return impulse.NilUUID, errors.Wrap(err, "membersresources.NewMembersSessionUserCreatePatch()")
 	}
 	patch.SetUsername(user.Username).SetDisabled(false).SetPasswordChangeRequired(false).SetCreatedAt(spanner.CommitTimestamp)
+	if user.Name != nil {
+		patch.SetName(user.Name)
+	}
 	if user.Email != nil {
 		patch.SetEmail(user.Email)
 	}
@@ -52,6 +55,9 @@ func (store) UpdateUser(ctx context.Context, txn resource.ReadWriteTransaction, 
 	}
 	if change.PasswordChangeRequired != nil {
 		patch.SetPasswordChangeRequired(*change.PasswordChangeRequired)
+	}
+	if change.Name != nil {
+		patch.SetName(change.Name.Name)
 	}
 	// An address entered by hand is unverified, whatever the one before it was.
 	if change.Email != nil {
@@ -220,6 +226,26 @@ func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, user
 	return id, found, nil
 }
 
+func (store) UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTransaction, email string) (username string, found bool, err error) {
+	// A read that goes past the declarations, as UserID's is: the table's normalized
+	// address is no field of the declaration, and it is the column the unique index
+	// is over, so the address is compared as the session library compares one. An
+	// address nobody confirmed names no one, as at a sign-in.
+	stmt := spanner.Statement{
+		SQL:    "SELECT Username FROM MembersSessionUsers WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL",
+		Params: map[string]any{"email": email},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		found = true
+
+		return row.Column(0, &username)
+	}); err != nil {
+		return "", false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return username, found, nil
+}
+
 func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
 	if err := membersresources.NewMembersSessionUserDeletePatch(id).Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "membersresources.MembersSessionUserDeletePatch.Buffer()")
@@ -381,6 +407,9 @@ func (store) InsertInvitation(_ context.Context, txn resource.ReadWriteTransacti
 		"RoleNames": row.RoleNames,
 		"CreatedAt": spanner.CommitTimestamp,
 		"ExpiresAt": row.ExpiresAt,
+	}
+	if row.Name != "" {
+		columns["Name"] = row.Name
 	}
 	if row.Tenant != "" {
 		columns["Tenant"] = row.Tenant

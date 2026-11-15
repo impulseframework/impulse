@@ -68,7 +68,9 @@ export const Methods = {
   SetStaffTemporaryPassword: 'SetStaffTemporaryPassword' as Method,
   SetStaffTenantTemporaryPassword: 'SetStaffTenantTemporaryPassword' as Method,
   SetStaffTenantUserEmail: 'SetStaffTenantUserEmail' as Method,
+  SetStaffTenantUserName: 'SetStaffTenantUserName' as Method,
   SetStaffUserEmail: 'SetStaffUserEmail' as Method,
+  SetStaffUserName: 'SetStaffUserName' as Method,
   UnlinkStaffSessionIdentity: 'UnlinkStaffSessionIdentity' as Method,
   UnlinkStaffTenantSessionIdentity: 'UnlinkStaffTenantSessionIdentity' as Method,
   UnlockStaffSignIn: 'UnlockStaffSignIn' as Method,
@@ -208,6 +210,7 @@ export namespace StaffSessionMailLinks {
     id: 'id' as FieldName,
     invitedBy: 'invitedBy' as FieldName,
     kind: 'kind' as FieldName,
+    name: 'name' as FieldName,
     roleNames: 'roleNames' as FieldName,
     tenant: 'tenant' as FieldName,
     userId: 'userId' as FieldName,
@@ -220,6 +223,7 @@ export namespace StaffSessionMailLinks {
     id: 'StaffSessionMailLinks.id' as Resource,
     invitedBy: 'StaffSessionMailLinks.invitedBy' as Resource,
     kind: 'StaffSessionMailLinks.kind' as Resource,
+    name: 'StaffSessionMailLinks.name' as Resource,
     roleNames: 'StaffSessionMailLinks.roleNames' as Resource,
     tenant: 'StaffSessionMailLinks.tenant' as Resource,
     userId: 'StaffSessionMailLinks.userId' as Resource,
@@ -301,6 +305,7 @@ export namespace StaffSessionUsers {
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    name: 'name' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     username: 'username' as FieldName,
   };
@@ -311,6 +316,7 @@ export namespace StaffSessionUsers {
     emailVerifiedAt: 'StaffSessionUsers.emailVerifiedAt' as Resource,
     id: 'StaffSessionUsers.id' as Resource,
     lastSignInAt: 'StaffSessionUsers.lastSignInAt' as Resource,
+    name: 'StaffSessionUsers.name' as Resource,
     passwordChangeRequired: 'StaffSessionUsers.passwordChangeRequired' as Resource,
     username: 'StaffSessionUsers.username' as Resource,
   };
@@ -379,6 +385,7 @@ export namespace StaffTenantInvitations {
     expiresAt: 'expiresAt' as FieldName,
     id: 'id' as FieldName,
     invitedBy: 'invitedBy' as FieldName,
+    name: 'name' as FieldName,
     pending: 'pending' as FieldName,
     roleNames: 'roleNames' as FieldName,
   };
@@ -390,6 +397,7 @@ export namespace StaffTenantInvitations {
     expiresAt: 'StaffTenantInvitations.expiresAt' as Resource,
     id: 'StaffTenantInvitations.id' as Resource,
     invitedBy: 'StaffTenantInvitations.invitedBy' as Resource,
+    name: 'StaffTenantInvitations.name' as Resource,
     pending: 'StaffTenantInvitations.pending' as Resource,
     roleNames: 'StaffTenantInvitations.roleNames' as Resource,
   };
@@ -436,6 +444,7 @@ export namespace StaffTenantUsers {
     heldGlobally: 'heldGlobally' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    name: 'name' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     username: 'username' as FieldName,
   };
@@ -449,6 +458,7 @@ export namespace StaffTenantUsers {
     heldGlobally: 'StaffTenantUsers.heldGlobally' as Resource,
     id: 'StaffTenantUsers.id' as Resource,
     lastSignInAt: 'StaffTenantUsers.lastSignInAt' as Resource,
+    name: 'StaffTenantUsers.name' as Resource,
     passwordChangeRequired: 'StaffTenantUsers.passwordChangeRequired' as Resource,
     username: 'StaffTenantUsers.username' as Resource,
   };
@@ -522,6 +532,7 @@ export namespace AssignStaffTenantRole {
 export namespace CreateStaffTenantUser {
   export const fieldName = {
     username: 'username' as FieldName,
+    name: 'name' as FieldName,
     email: 'email' as FieldName,
     password: 'password' as FieldName,
     roles: 'roles' as FieldName,
@@ -531,6 +542,7 @@ export namespace CreateStaffTenantUser {
 export namespace CreateStaffUser {
   export const fieldName = {
     username: 'username' as FieldName,
+    name: 'name' as FieldName,
     email: 'email' as FieldName,
     password: 'password' as FieldName,
     roles: 'roles' as FieldName,
@@ -596,6 +608,7 @@ export namespace EndStaffUserSessions {
 export namespace InviteStaffTenantUser {
   export const fieldName = {
     email: 'email' as FieldName,
+    name: 'name' as FieldName,
     roles: 'roles' as FieldName,
   };
 }
@@ -603,6 +616,7 @@ export namespace InviteStaffTenantUser {
 export namespace InviteStaffUser {
   export const fieldName = {
     email: 'email' as FieldName,
+    name: 'name' as FieldName,
     roles: 'roles' as FieldName,
     domain: 'domain' as FieldName,
   };
@@ -689,10 +703,24 @@ export namespace SetStaffTenantUserEmail {
   };
 }
 
+export namespace SetStaffTenantUserName {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+    name: 'name' as FieldName,
+  };
+}
+
 export namespace SetStaffUserEmail {
   export const fieldName = {
     userId: 'userId' as FieldName,
     email: 'email' as FieldName,
+  };
+}
+
+export namespace SetStaffUserName {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+    name: 'name' as FieldName,
   };
 }
 

@@ -29,6 +29,7 @@ type staffTenantInvitationRead struct {
 	ID         impulse.UUID  `json:"id"         perm:"-"`
 	Domain     string        `json:"domain"`
 	Email      string        `json:"email"`
+	Name       *string       `json:"name"`
 	RoleNames  []string      `json:"roleNames"`
 	InvitedBy  *impulse.UUID `json:"invitedBy"`
 	CreatedAt  time.Time     `json:"createdAt"`
@@ -146,6 +147,7 @@ func (c *StaffTenantInvitationColumns) All() *StaffTenantInvitationColumns {
 		"ID",
 		"Domain",
 		"Email",
+		"Name",
 		"RoleNames",
 		"InvitedBy",
 		"CreatedAt",
@@ -171,6 +173,12 @@ func (c *StaffTenantInvitationColumns) Domain() *StaffTenantInvitationColumns {
 
 func (c *StaffTenantInvitationColumns) Email() *StaffTenantInvitationColumns {
 	c.fields = append(c.fields, "Email")
+
+	return c
+}
+
+func (c *StaffTenantInvitationColumns) Name() *StaffTenantInvitationColumns {
+	c.fields = append(c.fields, "Name")
 
 	return c
 }
@@ -319,6 +327,10 @@ func (c *staffTenantInvitationSort) Domain() *StaffTenantInvitationSort {
 
 func (c *staffTenantInvitationSort) Email() *StaffTenantInvitationSort {
 	return c.addField("Email")
+}
+
+func (c *staffTenantInvitationSort) Name() *StaffTenantInvitationSort {
+	return c.addField("Name")
 }
 
 func (c *staffTenantInvitationSort) RoleNames() *StaffTenantInvitationSort {

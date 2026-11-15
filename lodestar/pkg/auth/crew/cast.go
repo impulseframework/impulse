@@ -36,7 +36,7 @@ func Cast() (*cast.Cast, error) {
 }
 
 // SeedCast seeds the cast: a password-less crew login under each persona's login, with
-// the persona's address, seated in the roles the cast names, a global role in the global
+// the persona's name and address, seated in the roles the cast names, a global role in the global
 // partition and a domain role in every sector, as the administrator roles are. A persona
 // whose login exists is left as it is, so every start seeds the cast again harmlessly and
 // a persona added to the cast arrives at the next one. The memberships are written first,
@@ -69,6 +69,9 @@ func (a *Auth) SeedCast(ctx context.Context) (int, error) {
 		req := &session.CreateUserRequest{Username: p.Login}
 		if p.Email != "" {
 			req.Email = &p.Email
+		}
+		if p.Name != "" {
+			req.Name = &p.Name
 		}
 		if _, err := api.CreateSessionUser(ctx, req); err != nil {
 			if _, found := api.UserByUsername(ctx, p.Login); found == nil {

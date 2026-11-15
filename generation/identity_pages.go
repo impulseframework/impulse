@@ -98,6 +98,7 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 		{"enable", "Enable" + subject + "User"},
 		{"delete", "Delete" + subject + "User"},
 		{"rename", "Rename" + subject + "User"},
+		{"setName", "Set" + subject + "UserName"},
 		{"setEmail", "Set" + subject + "UserEmail"},
 		{"setTemporaryPassword", "Set" + subject + "TemporaryPassword"},
 		{"requirePasswordChange", "Require" + subject + "PasswordChange"},

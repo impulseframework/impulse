@@ -43,6 +43,7 @@ func TestTenantMembers_aTenantAdministratorActsOnTheTenantsOwnMembersAlone(t *te
 	provesGrant(t, members.Roles(), "TenantAdministrator", "Execute", "EnableMembersTenantUser", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, members.Roles(), "TenantAdministrator", "Execute", "DeleteMembersTenantUser", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, members.Roles(), "TenantAdministrator", "Execute", "RenameMembersTenantUser", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, members.Roles(), "TenantAdministrator", "Execute", "SetMembersTenantUserName", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, members.Roles(), "TenantAdministrator", "Execute", "SetMembersTenantUserEmail", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, members.Roles(), "TenantAdministrator", "Execute", "RevokeMembersTenantUserTrustedDevices", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, members.Roles(), "TenantAdministrator", "Execute", "EndMembersTenantUserSessions", "heldElsewhere = false AND heldGlobally = false")
@@ -65,7 +66,7 @@ func TestTenantMembers_aTenantAdministratorActsOnTheTenantsOwnMembersAlone(t *te
 		}
 		ids[name] = id.String()
 		rows = append(rows, spanner.InsertMap("MembersSessionUsers", map[string]any{
-			"Id": id.String(), "Username": name, "Email": name + "@example.com", "CreatedAt": spanner.CommitTimestamp,
+			"Id": id.String(), "Username": name, "Name": name + " of north", "Email": name + "@example.com", "CreatedAt": spanner.CommitTimestamp,
 		}))
 		for _, connection := range []string{"first", "second"} {
 			link, err := impulse.NewUUID()
@@ -110,8 +111,8 @@ func TestTenantMembers_aTenantAdministratorActsOnTheTenantsOwnMembersAlone(t *te
 			"list": people[ids[name]],
 			"read": tenantRow(ctx, t, client, north, "members-tenant-users", ids[name]),
 		} {
-			if row["username"] != name {
-				t.Errorf("%s: the %s of north's members answers %v, want the member with the fields the grant carries with no condition", name, where, row)
+			if row["username"] != name || row["name"] != name+" of north" {
+				t.Errorf("%s: the %s of north's members answers %v, want the member with the fields the grant carries with no condition, the name among them", name, where, row)
 			}
 			if _, got := row["email"]; got != want {
 				t.Errorf("%s: the address in the %s is answered = %v, want %v: %v", name, where, got, want, row)
@@ -139,6 +140,9 @@ func TestTenantMembers_aTenantAdministratorActsOnTheTenantsOwnMembersAlone(t *te
 		method string
 		body   func(name string) map[string]any
 	}{
+		{"set-members-tenant-user-name", func(name string) map[string]any {
+			return map[string]any{"userId": ids[name], "name": name + " renamed"}
+		}},
 		{"set-members-tenant-user-email", func(name string) map[string]any {
 			return map[string]any{"userId": ids[name], "email": name + ".new@example.com"}
 		}},

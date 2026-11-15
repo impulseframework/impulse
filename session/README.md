@@ -72,8 +72,9 @@ the username, the password hash and `Disabled`, the password change mark
 creates them; a users table named per group takes the same DDL under its name. The
 auth set adds the email address columns `Email`, `NormalizedEmail` and
 `EmailVerifiedAt` (`SessionUserEmail`), the mail links table (`SessionMailLinks`) and
-the second factor's tables (`SessionFactorCodes`, `SessionTrustedDevices`); see "Users
-and their email address" for the two shapes the address columns take.
+the second factor's tables (`SessionFactorCodes`, `SessionTrustedDevices`), and the
+person's name `Name` (`SessionNames`); see "Users and their email address" for the two
+shapes the address columns take, and "A person's name".
 
 **PostgreSQL time columns are `timestamp with time zone`.** The driver writes `time.Time`
 values as instants, which `timestamptz` stores faithfully whatever zone the host runs in.
@@ -135,7 +136,7 @@ Each auth group owns ten tables: sessions and users (the base migrations,
 mail links, factor codes and trusted devices (the auth migrations,
 `schema/*/auth/migrations`, which also add `UserId`, `AuthenticatedAt`,
 `ProviderSessionId` and `ProviderSessionIssuer` to the sessions table and the email
-address columns to the users table), and impersonations
+address columns and the person's name to the users table), and impersonations
 (`schema/*/impersonation/migrations`) if you use it. A new group applies the base set,
 then the auth set.
 
@@ -520,6 +521,8 @@ r.Group(func(r chi.Router) {
     r.Post("/api/user/mfa", app.CompleteMFA) // an MFA step of the application's own: checks its code, then auth.API().CompletePending
     r.Post("/api/user/logout", auth.Logout())
     r.Post("/api/user/password", password.ChangeUserPassword()) // validates the session itself
+    r.Post("/api/user/name", auth.ChangeName())                 // {"name"}: the person's own name; validates the session itself
+    r.Post("/api/user/look", auth.ChangeLook())                 // {"scheme", "palette"}: the look the person chose; validates the session itself
     r.Post("/api/user/invitation", auth.Invitation().Open())          // {"token"}: sets the invitation cookie
     r.Post("/api/user/invitation/sign-up", auth.Invitation().SignUp()) // {"password", "username"}: the invited person's account
     r.Post("/api/user/sign-up", auth.SignUp().Start())                 // {"email"}: mails the sign-up link (OpenSignUp)
@@ -603,6 +606,12 @@ the password method is listed.
   which the page posts `{"oldPassword", "newPassword"}` to when a sign-in finds the
   user must change their password (the session read's `passwordChangeRequired`). It is
   present whenever the password method is listed.
+- `forgetBrowser`, `changeName` and `changeLook` are the paths of the `ForgetBrowser`,
+  `ChangeName` and `ChangeLook` handlers, each present when the list names it
+  (`MethodList.ForgetBrowser`, `MethodList.ChangeName`, `MethodList.ChangeLook`): where
+  a signed-in person's account page forgets this browser and writes the person's own
+  name, and where their pages keep the look they chose (see "The second factor", "A
+  person's name" and "The look a person chose").
 - `usernameIsEmail` is present, and true, when the listed password method declares
   the username as the email address (`UsernameIsEmail`): the page then asks for the
   address where it would ask for a username, and a sign-up takes none.
@@ -929,7 +938,8 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. |
 | `Identities(ctx, id)`, `UnlinkIdentity(ctx, identityID)` | The user's identity links; unlinking a password-less user's last link is refused (Conflict). |
 | `UserByEmail(ctx, email)`, `SetSessionUserEmail(ctx, id, email)` | The user holding an address, verified or not; an operator's entry of an address, unverified, or its removal (nil). See "Users and their email address". |
-| `Invite(ctx, &InvitationRequest{Email, Tenant, RoleNames, InvitedBy})`, `Invitations(ctx)`, `RevokeInvitation(ctx, id)` | An invitation mailed to an address; the invitations that stand; one withdrawn. See "Invitations". |
+| `SetSessionUserName(ctx, id, name)` | An operator's entry of the person's name, or its removal (nil). See "A person's name". |
+| `Invite(ctx, &InvitationRequest{Email, Name, Tenant, RoleNames, InvitedBy})`, `Invitations(ctx)`, `RevokeInvitation(ctx, id)` | An invitation mailed to an address; the invitations that stand; one withdrawn. See "Invitations". |
 | `PrepareInvitation(ctx, &InvitationRequest{…})` | An invitation checked and made, and neither stored nor mailed: `Row()` is the mail links row for a caller that stores it in a transaction of its own (`InvitationRow`, whose comment says how each column is written), and `Send(ctx)` mails the link once that transaction has committed; a message that could not be sent withdraws the invitation. The token, the message and the sender stay in the library. `Invite` is the two in the Auth's own storage. |
 
 **The forced password change.** A password an operator set, at creation
@@ -1028,6 +1038,82 @@ matching shape:
 The session read (`Authenticated`) reports `email`, `emailVerified` and, for a user
 without an address, `emailHint`.
 
+### A person's name
+
+A user may hold a name: the person's name as people read it ("Gale Reyes"), which a
+page shows in place of the username. It identifies nobody. The username stays what a
+person signs in under and what a role membership names them by, so writing a name
+renames nobody, ends no session and moves no role. No name is required of any user,
+and two people may hold the same one. A name is kept without the space around it, a
+name of nothing but space is no name, and one longer than 200 characters, or one that
+is not text on one line (a line break, a tab or another control character in it), is
+refused as a bad request (`sessioninfo.CleanName`, `sessioninfo.MaxNameLength`):
+everything that writes a name holds it to that one rule.
+
+How a name gets onto a user:
+
+- **A directory asserts it at a sign-in.** The Google, Microsoft Entra and generic
+  OpenID Connect methods read the `name` claim and WorkOS the profile's first and last
+  name (`sessioninfo.Identity.Name`). A sign-in that creates the account writes the
+  name with it. A sign-in to an account that exists fills the name **only where the
+  user holds none**, after the session stands, so a name the person or an operator
+  wrote is never replaced by the directory's. A name the rule would refuse is dropped
+  before anything of the sign-in is written, and the sign-in stands
+  (`sessioninfo.KeptName`).
+- **An invitation carries it.** `InvitationRequest.Name` is the name the sender gives
+  the person. An account the acceptance creates takes it unless the sign-in asserted a
+  name of its own, and an existing account that accepts takes it only where it holds
+  none.
+- **The person writes their own**, signed in: `Auth.ChangeName()` takes `{"name"}` and
+  answers `{"name"}`, the name as it is kept, absent when the person now holds none
+  (an empty name takes it off; the next directory sign-in then fills it again). The
+  handler validates the session itself, as the password change does, so it is routed
+  beside it outside `ValidateSession`, and it refuses an impersonated session: the name
+  is the person's own to write. The generated router mounts it at `/user/name` and
+  names it in the methods list (`MethodList.ChangeName`).
+- **An operator writes it**: `CreateSessionUser` takes `CreateUserRequest.Name`,
+  `SetSessionUserName(ctx, id, name)` replaces the name whatever the user held (nil
+  takes it off), and the management an application generates for an auth's people
+  creates and invites with a name and changes one (`Set<Auth>UserName`).
+
+The session
+read (`Authenticated`) reports `name` when the user holds one, and `UserInfo.Name`
+carries it to the application's handlers.
+
+A users table made before the name existed takes the column from the auth set's
+`SessionNames` migration, which also adds the name an invitation carries to the mail
+links and the name a waiting sign-in's identity asserted to the pending sign-ins, and
+stores the name in the two indexes a list reads without a row of the table.
+
+### The look a person chose
+
+A user may hold a look: light or dark, and one of the palettes the application offers
+(`sessioninfo.Look{Scheme, Palette}`). It is the person's own choice for how the
+application's pages are drawn for them, kept with the account so that it follows them to
+every browser they sign in from. Nobody else sets it: there is no operator's entry for
+it, and the management an application generates for an auth's people neither lists nor
+changes it.
+
+- **The rule** (`sessioninfo.CleanLook`): the scheme is `light`, `dark` or none; the
+  palette is an id as the application names its palettes, kept without the space around
+  it and at most 64 characters (`sessioninfo.MaxPaletteLength`), or none. The session
+  library does not know an application's palettes, so a page drops an id its application
+  no longer offers. A scheme that is neither, a longer id, and an id with a control
+  character in it are a bad request.
+- **The person's pages write it**, signed in: `Auth.ChangeLook()` takes `{"scheme",
+  "palette"}` and answers the look as it is kept, each half absent when the person now
+  holds none. The look is replaced as a whole, so a half left out is taken off. The
+  handler validates the session itself, as the password change does, so it is routed
+  beside it outside `ValidateSession`, and it refuses an impersonated session: the look
+  is the person's own to choose. The generated router mounts it at `/user/look` and
+  names it in the methods list (`MethodList.ChangeLook`).
+- **The session read** (`Authenticated`) reports `look` when the user holds one, and
+  `UserInfo.Look` carries it to the application's handlers. A browser applies it once
+  the session is checked and keeps a copy of its own for the login page.
+
+A users table made before the look existed takes the two columns, `LookScheme` and
+`LookPalette`, from the auth set's `SessionLooks` migration.
+
 ### Invitations
 
 An invitation is a mailed link that brings a person into the application, or into
@@ -1041,8 +1127,9 @@ invitation left standing for the invited account. A password account that holds 
 address, and a sign-up with a password, accept by the link: the person proved they
 read the mailbox, and the account takes the address.
 
-- **Sending**: `auth.API().Invite(ctx, &session.InvitationRequest{Email, Tenant,
-  RoleNames, InvitedBy})` stores the invitation and mails the link; it stands for
+- **Sending**: `auth.API().Invite(ctx, &session.InvitationRequest{Email, Name, Tenant,
+  RoleNames, InvitedBy})` stores the invitation and mails the link; `Name`, optional, is
+  the name the sender gives the person (see "A person's name"). The invitation stands for
   `MailSettings.InvitationTimeout` (seven days). `Invitations(ctx)` lists those that
   stand; `RevokeInvitation(ctx, id)` withdraws one. The tenant and the roles are the
   application's, opaque to the library.
@@ -1843,6 +1930,7 @@ table is the wire contract:
 | `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, and the policy was not built with `signin.AdmitWithoutTenant()`. |
 | `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection) that no tenant of the person declares. |
 | `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in that is not through a directory (a password, a session the application started itself) by a person whose every tenant admits its people through their directories only. |
+| `other_tenant` | `RefusedOtherTenant` | Never answered by the session library itself: the generated user management answers it from its hooks where the application declared that a person belongs to one tenant (`identity.WithOneTenantPerPerson()`). The invitation the sign-in carried, or the default role of the directory it came through, would give the person a role in a second tenant; the hook fails the sign-in's transaction, so nothing is consumed and no account is made. |
 | `too_many_attempts` | `RefusedTooManyAttempts` | Auth: a password attempt on a name whose failed attempts reached the limit, or from a client held for its own; answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes (see "Attempt limiting and the after-sign-in hook"). |
 | `too_many_emails` | `RefusedTooManyEmails` | Auth: a sixth sign-in code or link asked for one address within fifteen minutes while the five before it went unused (a code or link that is used resets the count); answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes. |
 | `invalid_code` | `RefusedInvalidCode` | Auth: the sign-in code entered is not the one sent; the code stands with one fewer attempt (see "The second factor"). |

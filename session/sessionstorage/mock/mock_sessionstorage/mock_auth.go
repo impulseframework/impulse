@@ -117,6 +117,21 @@ func (mr *MockAuthStoreMockRecorder[Tx]) ApproveDeviceCode(ctx, id, userID any) 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApproveDeviceCode", reflect.TypeOf((*MockAuthStore[Tx])(nil).ApproveDeviceCode), ctx, id, userID)
 }
 
+// ClaimUserName mocks base method.
+func (m *MockAuthStore[Tx]) ClaimUserName(ctx context.Context, id impulse.UUID, name string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimUserName", ctx, id, name)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimUserName indicates an expected call of ClaimUserName.
+func (mr *MockAuthStoreMockRecorder[Tx]) ClaimUserName(ctx, id, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimUserName", reflect.TypeOf((*MockAuthStore[Tx])(nil).ClaimUserName), ctx, id, name)
+}
+
 // ClaimVerifiedEmail mocks base method.
 func (m *MockAuthStore[Tx]) ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, email string) (bool, error) {
 	m.ctrl.T.Helper()
@@ -919,6 +934,34 @@ func (m *MockAuthStore[Tx]) SetUserEmail(ctx context.Context, id impulse.UUID, e
 func (mr *MockAuthStoreMockRecorder[Tx]) SetUserEmail(ctx, id, email any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserEmail", reflect.TypeOf((*MockAuthStore[Tx])(nil).SetUserEmail), ctx, id, email)
+}
+
+// SetUserLook mocks base method.
+func (m *MockAuthStore[Tx]) SetUserLook(ctx context.Context, id impulse.UUID, look sessioninfo.Look) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUserLook", ctx, id, look)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetUserLook indicates an expected call of SetUserLook.
+func (mr *MockAuthStoreMockRecorder[Tx]) SetUserLook(ctx, id, look any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserLook", reflect.TypeOf((*MockAuthStore[Tx])(nil).SetUserLook), ctx, id, look)
+}
+
+// SetUserName mocks base method.
+func (m *MockAuthStore[Tx]) SetUserName(ctx context.Context, id impulse.UUID, name *string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUserName", ctx, id, name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetUserName indicates an expected call of SetUserName.
+func (mr *MockAuthStoreMockRecorder[Tx]) SetUserName(ctx, id, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserName", reflect.TypeOf((*MockAuthStore[Tx])(nil).SetUserName), ctx, id, name)
 }
 
 // SetUserPassword mocks base method.

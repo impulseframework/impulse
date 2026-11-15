@@ -53,9 +53,10 @@ import (
 
 type (
 	// {{ .User }} is one person who signs in through the {{ .Auth }} auth: a row of
-	// {{ .Tables.Users }}, the session library's users table. The password hash is not a
-	// field, so it is never read or written here, and the normalized columns are the
-	// table's own.
+	// {{ .Tables.Users }}, the session library's users table. Name is the person's name
+	// as people read it, which a page shows in place of the username where the person
+	// holds one; it identifies nobody. The password hash is not a field, so it is never
+	// read or written here, and the normalized columns are the table's own.
 	//
 	// @resource
 	// @suppress(patchHandler)
@@ -65,6 +66,7 @@ type (
 	{{ .User }} struct {
 		ID                     impulse.UUID ` + "`spanner:\"Id\"`" + `
 		Username               string       ` + "`spanner:\"Username\"`" + `
+		Name                   *string      ` + "`spanner:\"Name\"`" + `
 		Email                  *string      ` + "`spanner:\"Email\"`" + `
 		EmailVerifiedAt        *time.Time   ` + "`spanner:\"EmailVerifiedAt\"`" + `
 		Disabled               bool         ` + "`spanner:\"Disabled\"`" + `
@@ -204,7 +206,8 @@ import (
 type (
 	// {{ .MailLink }} is one link the {{ .Auth }} auth mailed: a row of
 	// {{ .Tables.MailLinks }}. Kind says what the link is for (invitation, verification
-	// or sign-up); an invitation carries the roles and the tenant it invites into. A
+	// or sign-up); an invitation carries the roles and the tenant it invites into, and
+	// the name its sender gave the person (Name), where they gave one. A
 	// link stands while it is neither consumed nor expired, and one that was followed
 	// and one that was revoked are both consumed. The link itself is in the message
 	// alone and its hash is not a field.
@@ -218,6 +221,7 @@ type (
 		ID         impulse.UUID  ` + "`spanner:\"Id\"`" + `
 		Kind       string        ` + "`spanner:\"Kind\"`" + `
 		Email      string        ` + "`spanner:\"Email\"`" + `
+		Name       *string       ` + "`spanner:\"Name\"`" + `
 		UserID     *impulse.UUID ` + "`spanner:\"UserId\"`" + `
 		Tenant     *string       ` + "`spanner:\"Tenant\"`" + `
 		RoleNames  []string      ` + "`spanner:\"RoleNames\"`" + `
@@ -543,7 +547,8 @@ type Client struct {
 // auth's people in (its API method): a password a method writes is hashed by that
 // Auth's password method. The options are the identity package's: the administrator
 // roles (identity.WithAdministratorRoles), which the rule on a person removing a role
-// from themselves reads.
+// from themselves reads, and one tenant per person (identity.WithOneTenantPerPerson),
+// which every role given in a tenant is then held to.
 func NewClient(controller access.Controller, sessions identity.SessionAPI, opts ...identity.Option) (*Client, error) {
 	manager, err := identity.New(AuthName, store{}, controller, sessions, opts...)
 	if err != nil {
@@ -629,6 +634,9 @@ func (store) InsertUser(ctx context.Context, txn resource.ReadWriteTransaction, 
 		return impulse.NilUUID, errors.Wrap(err, "{{ .ResourcesPackage }}.New{{ .User }}CreatePatch()")
 	}
 	patch.SetUsername(user.Username).SetDisabled(false).SetPasswordChangeRequired(false).SetCreatedAt(spanner.CommitTimestamp)
+	if user.Name != nil {
+		patch.SetName(user.Name)
+	}
 	{{- if .UsernameIsEmail }}
 	// The auth's usernames are the addresses: the table derives the address from the
 	// username, so none is written.
@@ -654,6 +662,9 @@ func (store) UpdateUser(ctx context.Context, txn resource.ReadWriteTransaction, 
 	}
 	if change.PasswordChangeRequired != nil {
 		patch.SetPasswordChangeRequired(*change.PasswordChangeRequired)
+	}
+	if change.Name != nil {
+		patch.SetName(change.Name.Name)
 	}
 	{{- if .UsernameIsEmail }}
 	// The auth's usernames are the addresses: the table derives the address from the
@@ -924,6 +935,26 @@ func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, user
 	return id, found, nil
 }
 
+func (store) UserByVerifiedEmail(ctx context.Context, txn resource.ReadWriteTransaction, email string) (username string, found bool, err error) {
+	// A read that goes past the declarations, as UserID's is: the table's normalized
+	// address is no field of the declaration, and it is the column the unique index
+	// is over, so the address is compared as the session library compares one. An
+	// address nobody confirmed names no one, as at a sign-in.
+	stmt := spanner.Statement{
+		SQL:    "SELECT Username FROM {{ .Tables.Users }} WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL",
+		Params: map[string]any{"email": email},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, stmt).Do(func(row *spanner.Row) error {
+		found = true
+
+		return row.Column(0, &username)
+	}); err != nil {
+		return "", false, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return username, found, nil
+}
+
 func (store) DeleteUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
 	if err := {{ .ResourcesPackage }}.New{{ .User }}DeletePatch(id).Buffer(ctx, txn); err != nil {
 		return errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .User }}DeletePatch.Buffer()")
@@ -1170,6 +1201,9 @@ func (store) InsertInvitation(_ context.Context, txn resource.ReadWriteTransacti
 		"CreatedAt": spanner.CommitTimestamp,
 		"ExpiresAt": row.ExpiresAt,
 	}
+	if row.Name != "" {
+		columns["Name"] = row.Name
+	}
 	if row.Tenant != "" {
 		columns["Tenant"] = row.Tenant
 	}
@@ -1294,6 +1328,8 @@ type (
 	{{- else }}
 	// The person holds no password: they sign in through a directory.
 	{{- end }}
+	// Name is the person's name as people read it, shown in place of the username
+	// where it is given; the person may change it themselves.
 	// It answers the new user's id. A username or an address another user holds is
 	// refused when the transaction commits.
 	//
@@ -1301,6 +1337,7 @@ type (
 	// @outlet({{ .Outlets }})
 	Create{{ .Auth }}User struct {
 		Username    string ` + "`validate:\"required\"`" + `
+		Name        *string
 		{{- if not .UsernameIsEmail }}
 		Email       *string
 		{{- end }}
@@ -1335,7 +1372,7 @@ func (m *Create{{ .Auth }}User) Execute(ctx context.Context, txn resource.ReadWr
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Scope()")
 	}
-	account := &identity.NewAccount{Username: m.Username, Scope: scope}
+	account := &identity.NewAccount{Username: m.Username, Name: m.Name, Scope: scope}
 	{{- if not .UsernameIsEmail }}
 	account.Email = m.Email
 	{{- end }}
@@ -1891,7 +1928,9 @@ type (
 	// mailed to it, and whoever follows the link and signs in, or signs up, is given
 	// the roles. An invitation gives at least one role: into a tenant (Domain), where
 	// every role is held there, or into the application, where a role of the global
-	// scope is held there and a role of the domain kind in every tenant.
+	// scope is held there and a role of the domain kind in every tenant. Name is the
+	// name the sender gives the person: whoever accepts the invitation takes it where
+	// their account holds none.
 	//
 	// The invitation is written in the transaction, beside whatever else it writes,
 	// and its message is sent once the transaction has committed, since a message
@@ -1903,6 +1942,7 @@ type (
 	// @outlet({{ .Outlets }})
 	Invite{{ .Auth }}User struct {
 		Email  string ` + "`validate:\"required\"`" + `
+		Name   *string
 		// Roles are the roles the person is given. A grant's condition reads each of them as
 		// new.role, so a role file can limit which roles the grant's holder hands out.
 		//
@@ -1928,7 +1968,7 @@ type (
 // Execute buffers the invitation into the caller's transaction and registers the send
 // for after its commit.
 func (m *Invite{{ .Auth }}User) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) (*Invite{{ .Auth }}UserResult, error) {
-	invitation := &identity.Invitation{Email: m.Email, Domain: m.Domain}
+	invitation := &identity.Invitation{Email: m.Email, Name: m.Name, Domain: m.Domain}
 	for _, role := range m.Roles {
 		invitation.Roles = append(invitation.Roles, accesstypes.Role(role))
 	}

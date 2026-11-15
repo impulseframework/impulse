@@ -23,6 +23,7 @@ func (h *Handlers) CrewSessionMailLinks() http.HandlerFunc {
 		ID         impulse.UUID  `json:"id"         index:"true" perm:"-"`
 		Kind       string        `json:"kind"       index:"true"`
 		Email      string        `json:"email"`
+		Name       *string       `json:"name"`
 		UserID     *impulse.UUID `json:"userId"     index:"true"`
 		Tenant     *string       `json:"tenant"     index:"true"`
 		RoleNames  []string      `json:"roleNames"`
@@ -83,6 +84,10 @@ func (h *Handlers) CrewSessionMailLinks() http.HandlerFunc {
 					if !row.Masked("email") {
 						rmap["email"] = rec.Email
 					}
+				case "Name":
+					if !row.Masked("name") {
+						rmap["name"] = rec.Name
+					}
 				case "UserID":
 					if !row.Masked("userId") {
 						rmap["userId"] = rec.UserID
@@ -137,6 +142,7 @@ func (h *Handlers) CrewSessionMailLink() http.HandlerFunc {
 		ID         impulse.UUID  `json:"id"         index:"true" perm:"-"`
 		Kind       string        `json:"kind"`
 		Email      string        `json:"email"`
+		Name       *string       `json:"name"`
 		UserID     *impulse.UUID `json:"userId"`
 		Tenant     *string       `json:"tenant"`
 		RoleNames  []string      `json:"roleNames"`
@@ -184,6 +190,10 @@ func (h *Handlers) CrewSessionMailLink() http.HandlerFunc {
 			case "Email":
 				if !row.Masked("email") {
 					rmap["email"] = rec.Email
+				}
+			case "Name":
+				if !row.Masked("name") {
+					rmap["name"] = rec.Name
 				}
 			case "UserID":
 				if !row.Masked("userId") {

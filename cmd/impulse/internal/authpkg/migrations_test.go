@@ -13,7 +13,7 @@ import (
 func TestMigrations_listIndexes(t *testing.T) {
 	t.Parallel()
 
-	const usersIndex = "CREATE UNIQUE INDEX StaffSessionUsersByUsername ON StaffSessionUsers(Username) STORING (Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);"
+	const usersIndex = "CREATE UNIQUE INDEX StaffSessionUsersByUsername ON StaffSessionUsers(Username) STORING (Name, Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);"
 	tests := []struct {
 		name            string
 		usernameIsEmail bool
@@ -45,7 +45,7 @@ func TestMigrations_listIndexes(t *testing.T) {
 				tt.address,
 				usersIndex,
 				"CREATE INDEX StaffSessionIdentitiesByUserId ON StaffSessionIdentities(UserId) STORING (Method, Connection, Subject, Tenant, EmailAtLink, CreatedAt, LastUsedAt);",
-				"CREATE NULL_FILTERED INDEX StaffSessionMailLinksByTenant ON StaffSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);",
+				"CREATE NULL_FILTERED INDEX StaffSessionMailLinksByTenant ON StaffSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);",
 			} {
 				if !strings.Contains(up.String(), statement) {
 					t.Errorf("the migrations lack %q", statement)

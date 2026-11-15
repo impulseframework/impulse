@@ -395,6 +395,19 @@ func (a *Auth[S, U, Tx]) claimVerifiedEmail(ctx context.Context, userID impulse.
 	}
 }
 
+// claimName writes the name a sign-in method asserts onto the user when the user holds
+// none: a directory's name for the person fills an account that has no name and never
+// replaces one, so a name the person wrote themselves stands. It is bookkeeping after
+// the session stands: a failure is logged.
+func (a *Auth[S, U, Tx]) claimName(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity) {
+	if identity == nil || identity.Name == "" {
+		return
+	}
+	if _, err := a.storage.ClaimUserName(ctx, userID, identity.Name); err != nil {
+		logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.ClaimUserName()"))
+	}
+}
+
 // linkToken is a mailed link's token as the mail carries it and its hash as the row
 // keeps it; it is the pending identity's token, made the same way.
 func linkToken() (token string, hash []byte, err error) {

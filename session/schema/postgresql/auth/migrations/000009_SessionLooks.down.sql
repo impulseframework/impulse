@@ -1,0 +1,5 @@
+BEGIN;
+ALTER TABLE "SessionUsers" DROP CONSTRAINT IF EXISTS "CK_SessionUsersLookScheme";
+ALTER TABLE "SessionUsers" DROP COLUMN IF EXISTS "LookPalette";
+ALTER TABLE "SessionUsers" DROP COLUMN IF EXISTS "LookScheme";
+COMMIT;

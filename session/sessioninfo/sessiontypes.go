@@ -88,6 +88,12 @@ type UserInfo struct {
 	// unverified address is trusted for nothing.
 	Email           *string    `spanner:"Email"           db:"Email"`
 	EmailVerifiedAt *time.Time `spanner:"EmailVerifiedAt" db:"EmailVerifiedAt"`
+	// Name is the person's name as people read it, nil for none; Auth sessions only. It
+	// identifies nobody: Username does.
+	Name *string `spanner:"Name" db:"Name"`
+	// Look is the look the person chose for the application's pages, the zero value
+	// for none; Auth sessions only.
+	Look Look `spanner:"-" db:"-"`
 }
 
 // EmailVerified reports whether the user holds a verified address.

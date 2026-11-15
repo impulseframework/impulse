@@ -21,6 +21,8 @@ type (
 	// Password, when given, is a temporary password, which the person changes before
 	// anything else is served; without one the person signs in another way, or
 	// follows an invitation and chooses their own.
+	// Name is the person's name as people read it, shown in place of the username
+	// where it is given; the person may change it themselves.
 	// It answers the new user's id. A username or an address another user holds is
 	// refused when the transaction commits.
 	//
@@ -28,6 +30,7 @@ type (
 	// @outlet(default)
 	CreateCrewUser struct {
 		Username string `validate:"required"`
+		Name     *string
 		Email    *string
 		Password *string `conditions:"secret"`
 		// Roles are the roles the person is given. A grant's condition reads each of them as
@@ -54,7 +57,7 @@ func (m *CreateCrewUser) Execute(ctx context.Context, txn resource.ReadWriteTran
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Scope()")
 	}
-	account := &identity.NewAccount{Username: m.Username, Scope: scope}
+	account := &identity.NewAccount{Username: m.Username, Name: m.Name, Scope: scope}
 	account.Email = m.Email
 	account.Password = m.Password
 	for _, role := range m.Roles {

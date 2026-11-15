@@ -57,7 +57,9 @@ export const Methods = {
   RevokeMembersSectorUserTrustedDevices: 'RevokeMembersSectorUserTrustedDevices' as Method,
   RevokeMembersUserTrustedDevices: 'RevokeMembersUserTrustedDevices' as Method,
   SetMembersSectorUserEmail: 'SetMembersSectorUserEmail' as Method,
+  SetMembersSectorUserName: 'SetMembersSectorUserName' as Method,
   SetMembersUserEmail: 'SetMembersUserEmail' as Method,
+  SetMembersUserName: 'SetMembersUserName' as Method,
   StandDownMission: 'StandDownMission' as Method,
   UnlinkMembersSectorSessionIdentity: 'UnlinkMembersSectorSessionIdentity' as Method,
   UnlinkMembersSessionIdentity: 'UnlinkMembersSessionIdentity' as Method,
@@ -246,6 +248,7 @@ export namespace MembersSectorInvitations {
     expiresAt: 'expiresAt' as FieldName,
     id: 'id' as FieldName,
     invitedBy: 'invitedBy' as FieldName,
+    name: 'name' as FieldName,
     pending: 'pending' as FieldName,
     roleNames: 'roleNames' as FieldName,
   };
@@ -257,6 +260,7 @@ export namespace MembersSectorInvitations {
     expiresAt: 'MembersSectorInvitations.expiresAt' as Resource,
     id: 'MembersSectorInvitations.id' as Resource,
     invitedBy: 'MembersSectorInvitations.invitedBy' as Resource,
+    name: 'MembersSectorInvitations.name' as Resource,
     pending: 'MembersSectorInvitations.pending' as Resource,
     roleNames: 'MembersSectorInvitations.roleNames' as Resource,
   };
@@ -292,6 +296,7 @@ export namespace MembersSectorUsers {
     heldGlobally: 'heldGlobally' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    name: 'name' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     username: 'username' as FieldName,
   };
@@ -305,6 +310,7 @@ export namespace MembersSectorUsers {
     heldGlobally: 'MembersSectorUsers.heldGlobally' as Resource,
     id: 'MembersSectorUsers.id' as Resource,
     lastSignInAt: 'MembersSectorUsers.lastSignInAt' as Resource,
+    name: 'MembersSectorUsers.name' as Resource,
     passwordChangeRequired: 'MembersSectorUsers.passwordChangeRequired' as Resource,
     username: 'MembersSectorUsers.username' as Resource,
   };
@@ -363,6 +369,7 @@ export namespace MembersSessionMailLinks {
     id: 'id' as FieldName,
     invitedBy: 'invitedBy' as FieldName,
     kind: 'kind' as FieldName,
+    name: 'name' as FieldName,
     roleNames: 'roleNames' as FieldName,
     tenant: 'tenant' as FieldName,
     userId: 'userId' as FieldName,
@@ -375,6 +382,7 @@ export namespace MembersSessionMailLinks {
     id: 'MembersSessionMailLinks.id' as Resource,
     invitedBy: 'MembersSessionMailLinks.invitedBy' as Resource,
     kind: 'MembersSessionMailLinks.kind' as Resource,
+    name: 'MembersSessionMailLinks.name' as Resource,
     roleNames: 'MembersSessionMailLinks.roleNames' as Resource,
     tenant: 'MembersSessionMailLinks.tenant' as Resource,
     userId: 'MembersSessionMailLinks.userId' as Resource,
@@ -425,6 +433,7 @@ export namespace MembersSessionUsers {
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    name: 'name' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     username: 'username' as FieldName,
   };
@@ -435,6 +444,7 @@ export namespace MembersSessionUsers {
     emailVerifiedAt: 'MembersSessionUsers.emailVerifiedAt' as Resource,
     id: 'MembersSessionUsers.id' as Resource,
     lastSignInAt: 'MembersSessionUsers.lastSignInAt' as Resource,
+    name: 'MembersSessionUsers.name' as Resource,
     passwordChangeRequired: 'MembersSessionUsers.passwordChangeRequired' as Resource,
     username: 'MembersSessionUsers.username' as Resource,
   };
@@ -635,10 +645,24 @@ export namespace SetMembersSectorUserEmail {
   };
 }
 
+export namespace SetMembersSectorUserName {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+    name: 'name' as FieldName,
+  };
+}
+
 export namespace SetMembersUserEmail {
   export const fieldName = {
     userId: 'userId' as FieldName,
     email: 'email' as FieldName,
+  };
+}
+
+export namespace SetMembersUserName {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+    name: 'name' as FieldName,
   };
 }
 

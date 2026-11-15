@@ -126,7 +126,8 @@ func (p *AuthAPI[S, U, Tx]) Logout(ctx context.Context) error {
 // the user changes before anything else is served; a user without a password has
 // nothing to change, so the mark without a password is a BadRequest. req.Email, when
 // given, is written unverified and reserves the address; one another user holds is a
-// Conflict.
+// Conflict. req.Name, when given, is the person's name, kept without the space around
+// it; one too long to keep is a BadRequest.
 func (p *AuthAPI[S, U, Tx]) CreateSessionUser(ctx context.Context, req *CreateUserRequest, customData ...*U) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -157,7 +158,7 @@ func (p *AuthAPI[S, U, Tx]) CreateSessionUser(ctx context.Context, req *CreateUs
 		return impulse.NilUUID, err
 	}
 	user, err := p.auth.storage.CreateUser(ctx, &sessionstorage.InsertSessionUser{
-		Username: req.Username, PasswordHash: hash, Disabled: req.Disabled, PasswordChangeRequired: req.PasswordChangeRequired, Email: email,
+		Username: req.Username, PasswordHash: hash, Disabled: req.Disabled, PasswordChangeRequired: req.PasswordChangeRequired, Email: email, Name: req.Name,
 	}, data)
 	if err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.CreateUser()")

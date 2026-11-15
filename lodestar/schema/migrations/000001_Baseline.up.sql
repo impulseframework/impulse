@@ -29,6 +29,15 @@ CREATE TABLE CrewSessionUsers (
   Id                 STRING(36) NOT NULL,
   Username           STRING(MAX) NOT NULL,
   NormalizedUsername STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED,
+  -- The person's name, as people read it ("Gale Reyes"); null for none. It identifies
+  -- nobody: the username does. A directory's sign-in or an invitation fills it only
+  -- where the person holds none, so the person's own change stands.
+  Name               STRING(MAX),
+  -- The look the person chose for the pages: light or dark, and one of the palettes the
+  -- application offers, by its id; null for none chosen. The person's own pages write
+  -- it and nothing else does, so it follows them to every browser they sign in from.
+  LookScheme         STRING(MAX),
+  LookPalette        STRING(MAX),
   PasswordHash       STRING(MAX),
   Disabled           BOOL NOT NULL DEFAULT (FALSE),
   -- An operator set the password (a first password, a reset): the person changes it
@@ -39,6 +48,7 @@ CREATE TABLE CrewSessionUsers (
   CreatedAt          TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   LastSignInAt       TIMESTAMP OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CK_CrewSessionUsersId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
+  CONSTRAINT CK_CrewSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark')),
   -- The crew's email addresses, in two states. Email is the address as the person gave
   -- it, NormalizedEmail the form uniqueness and lookups use, and EmailVerifiedAt the
   -- database's time at which the person proved they read the mailbox by following a link
@@ -138,6 +148,15 @@ CREATE TABLE MembersSessionUsers (
   Id                 STRING(36) NOT NULL,
   Username           STRING(MAX) NOT NULL,
   NormalizedUsername STRING(MAX) AS (NORMALIZE_AND_CASEFOLD(Username)) STORED,
+  -- The person's name, as people read it ("Gale Reyes"); null for none. It identifies
+  -- nobody: the username does. A directory's sign-in or an invitation fills it only
+  -- where the person holds none, so the person's own change stands.
+  Name               STRING(MAX),
+  -- The look the person chose for the pages: light or dark, and one of the palettes the
+  -- application offers, by its id; null for none chosen. The person's own pages write
+  -- it and nothing else does, so it follows them to every browser they sign in from.
+  LookScheme         STRING(MAX),
+  LookPalette        STRING(MAX),
   PasswordHash       STRING(MAX),
   Disabled           BOOL NOT NULL DEFAULT (FALSE),
   -- An operator set the password (a first password, a reset): the person changes it
@@ -148,6 +167,7 @@ CREATE TABLE MembersSessionUsers (
   CreatedAt          TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   LastSignInAt       TIMESTAMP OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT CK_MembersSessionUsersId CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
+  CONSTRAINT CK_MembersSessionUsersLookScheme CHECK (LookScheme IN ('light', 'dark')),
   -- The members' email addresses, in two states. Email is the address as the person gave
   -- it, NormalizedEmail the form uniqueness and lookups use, and EmailVerifiedAt the
   -- database's time at which the person proved they read the mailbox by following a link
@@ -764,6 +784,7 @@ CREATE TABLE CrewSessionPendingSignIns (
     Subject           STRING(MAX) NOT NULL,
     Email             STRING(MAX) NOT NULL,
     EmailVerified     BOOL NOT NULL,
+    Name              STRING(MAX) NOT NULL,
     IdpAmr            ARRAY<STRING(MAX)>,
     Claims            BYTES(MAX),
     SignInName        STRING(MAX) NOT NULL,
@@ -845,6 +866,7 @@ CREATE TABLE MembersSessionPendingSignIns (
     Subject           STRING(MAX) NOT NULL,
     Email             STRING(MAX) NOT NULL,
     EmailVerified     BOOL NOT NULL,
+    Name              STRING(MAX) NOT NULL,
     IdpAmr            ARRAY<STRING(MAX)>,
     Claims            BYTES(MAX),
     SignInName        STRING(MAX) NOT NULL,
@@ -894,7 +916,7 @@ CREATE UNIQUE NULL_FILTERED INDEX CrewSessionUsersByNormalizedEmail ON CrewSessi
 -- role (a sector's people, the roles held in a sector): by the exact username a role
 -- membership names its person by, carrying the columns those lists show, so a page reads
 -- one index entry for each person and no row of the table.
-CREATE UNIQUE INDEX CrewSessionUsersByUsername ON CrewSessionUsers(Username) STORING (Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);
+CREATE UNIQUE INDEX CrewSessionUsersByUsername ON CrewSessionUsers(Username) STORING (Name, Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);
 
 -- The crew's mail links: the single-use links the auth mails (the session library's
 -- SessionMailLinks migration, under the auth's prefix). A row is one link: an invitation
@@ -911,6 +933,7 @@ CREATE TABLE CrewSessionMailLinks (
     TokenHash  BYTES(32) NOT NULL,
     Kind       STRING(16) NOT NULL,
     Email      STRING(MAX) NOT NULL,
+    Name       STRING(MAX),
     UserId     STRING(36),
     Tenant     STRING(MAX),
     RoleNames  ARRAY<STRING(MAX)>,
@@ -930,7 +953,7 @@ CREATE INDEX CrewSessionMailLinksByKind ON CrewSessionMailLinks(Kind, ConsumedAt
 -- A sector's links, newest first, with the columns a sector's list of its invitations
 -- shows: a page of that list reads its own rows from the index and nothing else. A link
 -- that names no sector is not in it.
-CREATE NULL_FILTERED INDEX CrewSessionMailLinksByTenant ON CrewSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);
+CREATE NULL_FILTERED INDEX CrewSessionMailLinksByTenant ON CrewSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);
 
 -- The members' sign-in attempts: the password method's attempt limiter counts the failed
 -- attempts on one name, known or not, within a window, and the lock those failures
@@ -956,7 +979,7 @@ CREATE UNIQUE NULL_FILTERED INDEX MembersSessionUsersByNormalizedEmail ON Member
 -- role (a sector's people, the roles held in a sector): by the exact username a role
 -- membership names its person by, carrying the columns those lists show, so a page reads
 -- one index entry for each person and no row of the table.
-CREATE UNIQUE INDEX MembersSessionUsersByUsername ON MembersSessionUsers(Username) STORING (Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);
+CREATE UNIQUE INDEX MembersSessionUsersByUsername ON MembersSessionUsers(Username) STORING (Name, Email, EmailVerifiedAt, Disabled, PasswordChangeRequired, CreatedAt, LastSignInAt);
 
 -- The members' mail links: the single-use links the auth mails (the session library's
 -- SessionMailLinks migration, under the auth's prefix). A row is one link: an invitation
@@ -973,6 +996,7 @@ CREATE TABLE MembersSessionMailLinks (
     TokenHash  BYTES(32) NOT NULL,
     Kind       STRING(16) NOT NULL,
     Email      STRING(MAX) NOT NULL,
+    Name       STRING(MAX),
     UserId     STRING(36),
     Tenant     STRING(MAX),
     RoleNames  ARRAY<STRING(MAX)>,
@@ -992,7 +1016,7 @@ CREATE INDEX MembersSessionMailLinksByKind ON MembersSessionMailLinks(Kind, Cons
 -- A sector's links, newest first, with the columns a sector's list of its invitations
 -- shows: a page of that list reads its own rows from the index and nothing else. A link
 -- that names no sector is not in it.
-CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenant ON MembersSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);
+CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenant ON MembersSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);
 
 -- The crew's tokens: the bearer credentials of the droids outlet (the session library's
 -- SessionTokens migration, under the auth's prefix). A row is one credential: an

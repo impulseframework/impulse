@@ -117,4 +117,69 @@ describe('ThemeService', () => {
     expect(theme.scheme()).toBe('dark');
     expect(root().style.getPropertyValue('color-scheme')).toBe('dark');
   });
+  it("names the person's own change, the whole look after it, and nothing before one", () => {
+    const theme = start();
+    expect(theme.chosen()).toBeUndefined();
+    theme.setScheme('dark');
+    expect(theme.chosen()).toEqual({ scheme: 'dark', palette: 'blue' });
+    theme.setPalette('workspace');
+    expect(theme.chosen()).toEqual({ scheme: 'dark', palette: 'workspace' });
+    theme.setPalette('violet');
+    expect(theme.chosen()).toEqual({ scheme: 'dark', palette: 'workspace' });
+  });
+
+  it('does not count the remembered choice as a change the person made', () => {
+    localStorage.setItem(THEME_STORAGE_KEY, JSON.stringify({ scheme: 'dark', palette: 'workspace' }));
+    expect(start().chosen()).toBeUndefined();
+  });
+
+  describe('a look kept elsewhere for the person', () => {
+    it('is applied and remembered, and is not a change the person made here', () => {
+      const theme = start();
+      theme.adopt({ scheme: 'dark', palette: 'workspace' });
+      expect(theme.scheme()).toBe('dark');
+      expect(theme.palette()).toBe('workspace');
+      expect(root().style.getPropertyValue('color-scheme')).toBe('dark');
+      expect(root().getAttribute('data-palette')).toBe('workspace');
+      expect(remembered()).toEqual({ scheme: 'dark', palette: 'workspace' });
+      expect(theme.chosen()).toBeUndefined();
+    });
+
+    const partial: { name: string; choice: Record<string, unknown>; scheme: string; palette: string }[] = [
+      { name: 'a scheme alone leaves the palette', choice: { scheme: 'dark' }, scheme: 'dark', palette: 'blue' },
+      {
+        name: 'a palette alone leaves the scheme',
+        choice: { palette: 'workspace' },
+        scheme: 'light',
+        palette: 'workspace',
+      },
+      {
+        name: 'a palette no longer offered is left out',
+        choice: { scheme: 'dark', palette: 'violet' },
+        scheme: 'dark',
+        palette: 'blue',
+      },
+      {
+        name: 'a scheme that is neither is left out',
+        choice: { scheme: 'sepia', palette: 'workspace' },
+        scheme: 'light',
+        palette: 'workspace',
+      },
+    ];
+    for (const tt of partial) {
+      it(tt.name, () => {
+        const theme = start();
+        theme.adopt(tt.choice as never);
+        expect(theme.scheme()).toBe(tt.scheme);
+        expect(theme.palette()).toBe(tt.palette);
+      });
+    }
+
+    it('that is the look already in force writes nothing', () => {
+      const theme = start();
+      theme.adopt({ scheme: 'light', palette: 'blue' });
+      theme.adopt({});
+      expect(localStorage.getItem(THEME_STORAGE_KEY)).toBeNull();
+    });
+  });
 });

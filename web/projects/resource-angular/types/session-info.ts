@@ -1,3 +1,5 @@
+import { Look } from '@impulseframework/resource';
+
 /**
  * Session Information for a logged in user. Permissions are not part of the session:
  * the AuthService answers them from the permission digest and user-domains endpoints.
@@ -5,6 +7,20 @@
 export interface SessionInfo {
   authenticated: boolean;
   username: string;
+  /**
+   * The person's name as people read it ("Gale Reyes"), when they hold one: what a page
+   * shows for the person in place of the username, which stays what identifies them. A
+   * directory's sign-in or an invitation fills it, and the person changes it on their
+   * account page (`api.auth.changeName`).
+   */
+  name?: string | null;
+  /**
+   * The look the person chose, light or dark and one of the palettes the application
+   * offers, when their account holds one: what their pages are drawn in on every browser
+   * they sign in from. The frame applies it once the session is checked and writes the
+   * person's next change back (`api.auth.changeLook`).
+   */
+  look?: Look | null;
   /**
    * An operator set this user's password: the server serves nothing but the password
    * change, this read and the logout until the person sets a password of their own,
@@ -31,4 +47,25 @@ export interface SessionInfo {
    * impersonated session, which may not forget it.
    */
   browserRemembered?: boolean;
+  /**
+   * The session acts for someone else: the record the server reports of an impersonated
+   * session, absent on a person's own. What is the person's alone to change (their name)
+   * is not offered in such a session, which the server refuses.
+   */
+  impersonation?: SessionImpersonation;
+}
+
+/** The record of an impersonated session, as the session read reports it. */
+export interface SessionImpersonation {
+  /** The signed-in person the session acts on behalf of. */
+  actor: string;
+  /** The application or identity provider that signed the actor in, when it is not this one. */
+  actorRealm?: string;
+  /** What the session acts as: a user or a role, and which. */
+  principalKind: string;
+  principal: string;
+  /** What the session is limited to; absent on an unrestricted one. */
+  mask?: string[];
+  reason?: string;
+  expiresAt: string;
 }

@@ -23,6 +23,15 @@ export const THEME_PALETTES = new InjectionToken<readonly ThemePalette[]>('THEME
   factory: () => [],
 });
 
+/**
+ * A look as it is kept outside the browser, with the person's account: light or dark, and
+ * a palette's id. Either half may be absent, for none chosen.
+ */
+export interface ThemeChoice {
+  readonly scheme?: ColorScheme;
+  readonly palette?: string;
+}
+
 /** The key the choice is remembered under in the browser's local storage. */
 export const THEME_STORAGE_KEY = 'impulse-theme';
 
@@ -42,6 +51,11 @@ interface StoredChoice {
  * start() as the application starts. A choice the browser remembers but the application no
  * longer offers, a storage the browser refuses, and a value that is not one of the choices
  * all leave the defaults in force: light, and the first palette.
+ *
+ * The browser's copy is one browser's. An application that keeps the look with the
+ * person's account, so it follows them to another device, reads `chosen`, the person's own
+ * last change on this page, and hands the look the account holds to `adopt`; the frame
+ * does both (provideFrame).
  */
 @Injectable({
   providedIn: 'root',
@@ -56,6 +70,13 @@ export class ThemeService {
   readonly scheme = this.schemeSignal.asReadonly();
   /** The id of the palette in force, undefined when the application offers none. */
   readonly palette = this.paletteSignal.asReadonly();
+  private chosenSignal = signal<ThemeChoice | undefined>(undefined);
+  /**
+   * The look as the person last changed it on this page, undefined until they change it:
+   * the whole look in force after the change, for whoever keeps it beside the browser. A
+   * look taken from elsewhere (adopt) and the one the browser remembered are not changes.
+   */
+  readonly chosen = this.chosenSignal.asReadonly();
 
   /** Reads the remembered choice, keeps what is still offered, and applies the result. */
   start(): void {
@@ -77,6 +98,7 @@ export class ThemeService {
     this.schemeSignal.set(scheme);
     this.apply();
     this.remember();
+    this.changed();
   }
 
   /** Switches to one of the offered palettes by id, applies it, and remembers the choice; an id not offered changes nothing. */
@@ -87,6 +109,33 @@ export class ThemeService {
     this.paletteSignal.set(id);
     this.apply();
     this.remember();
+    this.changed();
+  }
+
+  /**
+   * Takes a look kept elsewhere for the person, their account's: each half that is one of
+   * the choices is applied and remembered in the browser, and a half that is absent, or a
+   * palette the application does not offer, leaves what is in force. It is not a change
+   * the person made here, so `chosen` does not move.
+   */
+  adopt(choice: ThemeChoice): void {
+    let moved = false;
+    if ((choice.scheme === 'light' || choice.scheme === 'dark') && choice.scheme !== this.schemeSignal()) {
+      this.schemeSignal.set(choice.scheme);
+      moved = true;
+    }
+    if (typeof choice.palette === 'string' && this.offers(choice.palette) && choice.palette !== this.paletteSignal()) {
+      this.paletteSignal.set(choice.palette);
+      moved = true;
+    }
+    if (moved) {
+      this.apply();
+      this.remember();
+    }
+  }
+
+  private changed(): void {
+    this.chosenSignal.set({ scheme: this.schemeSignal(), palette: this.paletteSignal() });
   }
 
   private offers(id: string): boolean {

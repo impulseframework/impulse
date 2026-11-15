@@ -56,6 +56,10 @@
               "condition": "heldElsewhere = false AND heldGlobally = false"
             },
             {
+              "resource": "SetMembersTenantUserName",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
               "resource": "RevokeMembersTenantUserTrustedDevices",
               "condition": "heldElsewhere = false AND heldGlobally = false"
             },
@@ -81,6 +85,7 @@
               "resource": "MembersTenantUsers",
               "fields": [
                 "username",
+                "name",
                 "disabled",
                 "createdAt",
                 "lastSignInAt",
@@ -109,6 +114,7 @@
               "resource": "MembersTenantInvitations",
               "fields": [
                 "email",
+                "name",
                 "roleNames",
                 "invitedBy",
                 "createdAt",
@@ -159,6 +165,7 @@
               "resource": "MembersTenantUsers",
               "fields": [
                 "username",
+                "name",
                 "disabled",
                 "createdAt",
                 "lastSignInAt",
@@ -187,6 +194,7 @@
               "resource": "MembersTenantInvitations",
               "fields": [
                 "email",
+                "name",
                 "roleNames",
                 "invitedBy",
                 "createdAt",

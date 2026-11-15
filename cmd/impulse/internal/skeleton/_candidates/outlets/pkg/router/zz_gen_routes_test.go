@@ -170,7 +170,9 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/console/api/tenants/testDomain/revoke-members-tenant-user-trusted-devices", method: http.MethodPost},
 		{url: "/console/api/revoke-members-user-trusted-devices", method: http.MethodPost},
 		{url: "/console/api/tenants/testDomain/set-members-tenant-user-email", method: http.MethodPost},
+		{url: "/console/api/tenants/testDomain/set-members-tenant-user-name", method: http.MethodPost},
 		{url: "/console/api/set-members-user-email", method: http.MethodPost},
+		{url: "/console/api/set-members-user-name", method: http.MethodPost},
 		{url: "/console/api/unlink-members-session-identity", method: http.MethodPost},
 		{url: "/console/api/tenants/testDomain/unlink-members-tenant-session-identity", method: http.MethodPost},
 		{url: "/console/api/unlock-members-sign-in", method: http.MethodPost},
@@ -267,7 +269,9 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/set-staff-temporary-password", method: http.MethodPost},
 		{url: "/portal/api/tenants/testDomain/set-staff-tenant-temporary-password", method: http.MethodPost},
 		{url: "/portal/api/tenants/testDomain/set-staff-tenant-user-email", method: http.MethodPost},
+		{url: "/portal/api/tenants/testDomain/set-staff-tenant-user-name", method: http.MethodPost},
 		{url: "/portal/api/set-staff-user-email", method: http.MethodPost},
+		{url: "/portal/api/set-staff-user-name", method: http.MethodPost},
 		{url: "/portal/api/unlink-staff-session-identity", method: http.MethodPost},
 		{url: "/portal/api/tenants/testDomain/unlink-staff-tenant-session-identity", method: http.MethodPost},
 		{url: "/portal/api/unlock-staff-sign-in", method: http.MethodPost},
@@ -444,11 +448,15 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/tenants/testDomain/revoke-staff-tenant-user-trusted-devices", method: http.MethodPost},
 		{url: "/devices/revoke-staff-user-trusted-devices", method: http.MethodPost},
 		{url: "/devices/tenants/testDomain/set-members-tenant-user-email", method: http.MethodPost},
+		{url: "/devices/tenants/testDomain/set-members-tenant-user-name", method: http.MethodPost},
 		{url: "/devices/set-members-user-email", method: http.MethodPost},
+		{url: "/devices/set-members-user-name", method: http.MethodPost},
 		{url: "/devices/set-staff-temporary-password", method: http.MethodPost},
 		{url: "/devices/tenants/testDomain/set-staff-tenant-temporary-password", method: http.MethodPost},
 		{url: "/devices/tenants/testDomain/set-staff-tenant-user-email", method: http.MethodPost},
+		{url: "/devices/tenants/testDomain/set-staff-tenant-user-name", method: http.MethodPost},
 		{url: "/devices/set-staff-user-email", method: http.MethodPost},
+		{url: "/devices/set-staff-user-name", method: http.MethodPost},
 		{url: "/devices/unlink-members-session-identity", method: http.MethodPost},
 		{url: "/devices/tenants/testDomain/unlink-members-tenant-session-identity", method: http.MethodPost},
 		{url: "/devices/unlink-staff-session-identity", method: http.MethodPost},
@@ -1520,8 +1528,16 @@ func (s *generatedHandlersStub) SetStaffTenantUserEmail() http.HandlerFunc {
 	return s.record("SetStaffTenantUserEmail")
 }
 
+func (s *generatedHandlersStub) SetStaffTenantUserName() http.HandlerFunc {
+	return s.record("SetStaffTenantUserName")
+}
+
 func (s *generatedHandlersStub) SetStaffUserEmail() http.HandlerFunc {
 	return s.record("SetStaffUserEmail")
+}
+
+func (s *generatedHandlersStub) SetStaffUserName() http.HandlerFunc {
+	return s.record("SetStaffUserName")
 }
 
 func (s *generatedHandlersStub) StaffRoles() http.HandlerFunc {
@@ -1872,8 +1888,16 @@ func (s *generatedHandlersStub) SetMembersTenantUserEmail() http.HandlerFunc {
 	return s.record("SetMembersTenantUserEmail")
 }
 
+func (s *generatedHandlersStub) SetMembersTenantUserName() http.HandlerFunc {
+	return s.record("SetMembersTenantUserName")
+}
+
 func (s *generatedHandlersStub) SetMembersUserEmail() http.HandlerFunc {
 	return s.record("SetMembersUserEmail")
+}
+
+func (s *generatedHandlersStub) SetMembersUserName() http.HandlerFunc {
+	return s.record("SetMembersUserName")
 }
 
 func (s *generatedHandlersStub) UnlinkMembersSessionIdentity() http.HandlerFunc {

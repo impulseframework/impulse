@@ -43,6 +43,10 @@ import (
 // Inside a hook everything is read and written through the transaction it was handed:
 // the Spanner emulator allows one read-write transaction at a time, and a second one,
 // or a read through another client, would wait on this one for good.
+//
+// Where a person belongs to one tenant (WithOneTenantPerPerson), the two hooks of one
+// sign-in share what they have given under the transaction they were both handed, so
+// the roles of one sign-in are held to the rule together (signInTenants).
 
 // InvitationAccepted answers the session library's hook for an accepted invitation
 // (session.Auth.SetInvitationAccepted): the roles the invitation carries are buffered
@@ -58,11 +62,12 @@ import (
 func (m *Manager) InvitationAccepted(auth string) session.InvitationAcceptedHook[*spanner.ReadWriteTransaction] {
 	return func(ctx context.Context, tx *spanner.ReadWriteTransaction, _ impulse.UUID, username string, inv *sessioninfo.Invitation) (func(ctx context.Context), error) {
 		txn := resource.NewSpannerReadWriteTransaction(tx)
-		if err := m.giveInvitedRoles(ctx, txn, username, inv); err != nil {
+		if err := m.giveInvitedRoles(m.oneTenant.within(ctx, tx), txn, username, inv); err != nil {
 			return nil, err
 		}
 
 		return func(ctx context.Context) {
+			m.oneTenant.forget(tx)
 			txn.Committed(ctx)
 			logger.FromCtx(ctx).Infof("%s: %q accepted the invitation to %s and holds %s", auth, username, inv.Email, strings.Join(inv.RoleNames, ", "))
 		}, nil
@@ -79,11 +84,12 @@ func (m *Manager) InvitationAccepted(auth string) session.InvitationAcceptedHook
 func (m *Manager) DirectorySeated(auth string) session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {
 	return func(ctx context.Context, tx *spanner.ReadWriteTransaction, _ impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
 		txn := resource.NewSpannerReadWriteTransaction(tx)
-		if err := m.giveDirectoryRoles(ctx, txn, username, seats); err != nil {
+		if err := m.giveDirectoryRoles(m.oneTenant.within(ctx, tx), txn, username, seats); err != nil {
 			return nil, err
 		}
 
 		return func(ctx context.Context) {
+			m.oneTenant.forget(tx)
 			txn.Committed(ctx)
 			for _, seat := range seats {
 				logger.FromCtx(ctx).Infof("%s: %q entered %s through its directory and holds %s", auth, username, seat.Tenant, seat.Role)

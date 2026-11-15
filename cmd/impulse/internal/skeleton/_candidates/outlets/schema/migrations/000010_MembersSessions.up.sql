@@ -78,6 +78,7 @@ CREATE TABLE MembersSessionPendingSignIns (
     Subject               STRING(MAX) NOT NULL,
     Email                 STRING(MAX) NOT NULL,
     EmailVerified         BOOL NOT NULL,
+    Name                  STRING(MAX) NOT NULL,
     IdpAmr                ARRAY<STRING(MAX)>,
     Claims                BYTES(MAX),
     SignInName            STRING(MAX) NOT NULL,
@@ -117,7 +118,8 @@ CREATE TABLE MembersSessionSignInAttempts (
 ) PRIMARY KEY (Name);
 
 -- The mail links: the single-use links the auth mails. A row is one link: an invitation
--- to an address, carrying the tenant and the roles its acceptance seats and who sent it;
+-- to an address, carrying the tenant and the roles its acceptance seats, the name its
+-- sender gave the person (Name, null for none) and who sent it;
 -- the verification of an address a signed-in person adds (UserId names the account,
 -- Email the address); or a sign-up a person starts by giving their address. The mail
 -- carries an opaque token and the row keeps its hash; the row is accepted only while it
@@ -130,6 +132,7 @@ CREATE TABLE MembersSessionMailLinks (
     TokenHash  BYTES(32) NOT NULL,
     Kind       STRING(16) NOT NULL,
     Email      STRING(MAX) NOT NULL,
+    Name       STRING(MAX),
     UserId     STRING(36),
     Tenant     STRING(MAX),
     RoleNames  ARRAY<STRING(MAX)>,
@@ -149,7 +152,7 @@ CREATE INDEX MembersSessionMailLinksByKind ON MembersSessionMailLinks(Kind, Cons
 -- A tenant's links, newest first, with the columns a tenant's list of its invitations
 -- shows: a page of that list reads its own rows from the index and nothing else. A link
 -- that names no tenant is not in it.
-CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenant ON MembersSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);
+CREATE NULL_FILTERED INDEX MembersSessionMailLinksByTenant ON MembersSessionMailLinks(Tenant, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedBy, ExpiresAt, ConsumedAt);
 
 -- The tokens: the bearer credentials of the machine outlets whose tokens the members auth
 -- issues. A row is one credential: an application token a person issued to a program of

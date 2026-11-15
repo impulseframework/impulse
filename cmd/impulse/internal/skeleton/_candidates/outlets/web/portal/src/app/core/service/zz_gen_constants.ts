@@ -60,7 +60,9 @@ export const Methods = {
   RevokeMembersTenantUserTrustedDevices: 'RevokeMembersTenantUserTrustedDevices' as Method,
   RevokeMembersUserTrustedDevices: 'RevokeMembersUserTrustedDevices' as Method,
   SetMembersTenantUserEmail: 'SetMembersTenantUserEmail' as Method,
+  SetMembersTenantUserName: 'SetMembersTenantUserName' as Method,
   SetMembersUserEmail: 'SetMembersUserEmail' as Method,
+  SetMembersUserName: 'SetMembersUserName' as Method,
   UnlinkMembersSessionIdentity: 'UnlinkMembersSessionIdentity' as Method,
   UnlinkMembersTenantSessionIdentity: 'UnlinkMembersTenantSessionIdentity' as Method,
   UnlockMembersSignIn: 'UnlockMembersSignIn' as Method,
@@ -198,6 +200,7 @@ export namespace MembersSessionMailLinks {
     id: 'id' as FieldName,
     invitedBy: 'invitedBy' as FieldName,
     kind: 'kind' as FieldName,
+    name: 'name' as FieldName,
     roleNames: 'roleNames' as FieldName,
     tenant: 'tenant' as FieldName,
     userId: 'userId' as FieldName,
@@ -210,6 +213,7 @@ export namespace MembersSessionMailLinks {
     id: 'MembersSessionMailLinks.id' as Resource,
     invitedBy: 'MembersSessionMailLinks.invitedBy' as Resource,
     kind: 'MembersSessionMailLinks.kind' as Resource,
+    name: 'MembersSessionMailLinks.name' as Resource,
     roleNames: 'MembersSessionMailLinks.roleNames' as Resource,
     tenant: 'MembersSessionMailLinks.tenant' as Resource,
     userId: 'MembersSessionMailLinks.userId' as Resource,
@@ -291,6 +295,7 @@ export namespace MembersSessionUsers {
     emailVerifiedAt: 'emailVerifiedAt' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    name: 'name' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     username: 'username' as FieldName,
   };
@@ -301,6 +306,7 @@ export namespace MembersSessionUsers {
     emailVerifiedAt: 'MembersSessionUsers.emailVerifiedAt' as Resource,
     id: 'MembersSessionUsers.id' as Resource,
     lastSignInAt: 'MembersSessionUsers.lastSignInAt' as Resource,
+    name: 'MembersSessionUsers.name' as Resource,
     passwordChangeRequired: 'MembersSessionUsers.passwordChangeRequired' as Resource,
     username: 'MembersSessionUsers.username' as Resource,
   };
@@ -369,6 +375,7 @@ export namespace MembersTenantInvitations {
     expiresAt: 'expiresAt' as FieldName,
     id: 'id' as FieldName,
     invitedBy: 'invitedBy' as FieldName,
+    name: 'name' as FieldName,
     pending: 'pending' as FieldName,
     roleNames: 'roleNames' as FieldName,
   };
@@ -380,6 +387,7 @@ export namespace MembersTenantInvitations {
     expiresAt: 'MembersTenantInvitations.expiresAt' as Resource,
     id: 'MembersTenantInvitations.id' as Resource,
     invitedBy: 'MembersTenantInvitations.invitedBy' as Resource,
+    name: 'MembersTenantInvitations.name' as Resource,
     pending: 'MembersTenantInvitations.pending' as Resource,
     roleNames: 'MembersTenantInvitations.roleNames' as Resource,
   };
@@ -426,6 +434,7 @@ export namespace MembersTenantUsers {
     heldGlobally: 'heldGlobally' as FieldName,
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
+    name: 'name' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     username: 'username' as FieldName,
   };
@@ -439,6 +448,7 @@ export namespace MembersTenantUsers {
     heldGlobally: 'MembersTenantUsers.heldGlobally' as Resource,
     id: 'MembersTenantUsers.id' as Resource,
     lastSignInAt: 'MembersTenantUsers.lastSignInAt' as Resource,
+    name: 'MembersTenantUsers.name' as Resource,
     passwordChangeRequired: 'MembersTenantUsers.passwordChangeRequired' as Resource,
     username: 'MembersTenantUsers.username' as Resource,
   };
@@ -536,6 +546,7 @@ export namespace EndMembersUserSessions {
 export namespace InviteMembersTenantUser {
   export const fieldName = {
     email: 'email' as FieldName,
+    name: 'name' as FieldName,
     roles: 'roles' as FieldName,
   };
 }
@@ -543,6 +554,7 @@ export namespace InviteMembersTenantUser {
 export namespace InviteMembersUser {
   export const fieldName = {
     email: 'email' as FieldName,
+    name: 'name' as FieldName,
     roles: 'roles' as FieldName,
     domain: 'domain' as FieldName,
   };
@@ -603,10 +615,24 @@ export namespace SetMembersTenantUserEmail {
   };
 }
 
+export namespace SetMembersTenantUserName {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+    name: 'name' as FieldName,
+  };
+}
+
 export namespace SetMembersUserEmail {
   export const fieldName = {
     userId: 'userId' as FieldName,
     email: 'email' as FieldName,
+  };
+}
+
+export namespace SetMembersUserName {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+    name: 'name' as FieldName,
   };
 }
 

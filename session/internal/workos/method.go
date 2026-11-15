@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -137,7 +138,8 @@ func method(authn Authenticator) *signin.Method {
 
 			return &signin.Verified{
 				Identity: &sessioninfo.Identity{
-					Method: sessioninfo.MethodWorkOS, Connection: profile.ConnectionID, Subject: profile.IDPID, Email: profile.Email, Claims: rawProfile,
+					Method: sessioninfo.MethodWorkOS, Connection: profile.ConnectionID, Subject: profile.IDPID, Email: profile.Email,
+					Name: strings.TrimSpace(profile.FirstName + " " + profile.LastName), Claims: rawProfile,
 				},
 				ReturnURL: returnURL,
 			}, nil

@@ -189,7 +189,7 @@ func (a *Auth[S, U, Tx]) completeSignUp(ctx context.Context, token, username, pa
 	if err != nil {
 		return nil, err
 	}
-	user, err := a.createAccount(ctx, link.Email, username, password)
+	user, err := a.createAccount(ctx, link.Email, username, password, "")
 	if err != nil {
 		return nil, err
 	}

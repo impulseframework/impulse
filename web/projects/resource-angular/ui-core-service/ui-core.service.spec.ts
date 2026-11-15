@@ -31,6 +31,11 @@ describe('UiCoreService login messages', () => {
       code: 'invitation_only',
       want: DEFAULT_LOGIN_MESSAGES['invitation_only'],
     },
+    {
+      name: 'a person of one organization who would join a second answers its default sentence',
+      code: 'other_tenant',
+      want: DEFAULT_LOGIN_MESSAGES['other_tenant'],
+    },
     { name: 'an unknown code answers nothing', code: 'call 555-0100 for a password reset', want: '' },
     { name: 'an empty code answers nothing', code: '', want: '' },
     { name: 'a key inherited from Object is not a code', code: 'constructor', want: '' },
@@ -80,6 +85,7 @@ describe('UiCoreService login messages', () => {
       'directory_only',
       'invitation_only',
       'invitation_address',
+      'other_tenant',
     ];
     // The login page's own codes, never sent by a server: the arrival's reads got no answer it could show.
     const pageCodes = ['unreachable'];

@@ -89,7 +89,8 @@ func (a *Auth[S, U, Tx]) invitationOf(ctx context.Context) (*sessioninfo.Invitat
 // invitationOf renders a mail link row as the invitation a sign-in carries.
 func invitationOf(link *sessionstorage.MailLink) *sessioninfo.Invitation {
 	return &sessioninfo.Invitation{
-		ID: link.ID, Email: link.Email, Tenant: link.Tenant, RoleNames: link.RoleNames, InvitedBy: link.InvitedBy, CreatedAt: link.CreatedAt, ExpiresAt: link.ExpiresAt,
+		ID: link.ID, Email: link.Email, Name: link.Name, Tenant: link.Tenant, RoleNames: link.RoleNames, InvitedBy: link.InvitedBy, CreatedAt: link.CreatedAt,
+		ExpiresAt: link.ExpiresAt,
 	}
 }
 
@@ -314,7 +315,7 @@ func (a *Auth[S, U, Tx]) invitationSignUp() http.HandlerFunc {
 		if inv == nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewNotFoundMessage("the browser carries no live invitation"))
 		}
-		user, err := a.createAccount(ctx, inv.Email, req.Username, req.Password)
+		user, err := a.createAccount(ctx, inv.Email, req.Username, req.Password, inv.Name)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -332,8 +333,9 @@ func (a *Auth[S, U, Tx]) invitationSignUp() http.HandlerFunc {
 // createAccount creates the account a sign-up or an invitation's sign-up makes: the
 // password the person chose, the address they proved they read, verified, and the
 // username, which is the address when the password method declares them one and the
-// person's choice otherwise.
-func (a *Auth[S, U, Tx]) createAccount(ctx context.Context, email, username, password string) (*sessionstorage.SessionUser, error) {
+// person's choice otherwise. name is the person's name as the invitation carried it,
+// "" for none and for a sign-up, which carries none.
+func (a *Auth[S, U, Tx]) createAccount(ctx context.Context, email, username, password, name string) (*sessionstorage.SessionUser, error) {
 	if err := acceptedPassword(password); err != nil {
 		return nil, err
 	}
@@ -348,7 +350,11 @@ func (a *Auth[S, U, Tx]) createAccount(ctx context.Context, email, username, pas
 	if err != nil {
 		return nil, errors.Wrap(err, "securehash.SecureHasher.Hash()")
 	}
-	user, err := a.storage.CreateUser(ctx, &sessionstorage.InsertSessionUser{Username: username, PasswordHash: hash, Email: &email, EmailVerified: true}, nil)
+	insert := &sessionstorage.InsertSessionUser{Username: username, PasswordHash: hash, Email: &email, EmailVerified: true}
+	if name != "" {
+		insert.Name = &name
+	}
+	user, err := a.storage.CreateUser(ctx, insert, nil)
 	if err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.CreateUser()")
 	}
@@ -372,6 +378,10 @@ func (a *Auth[S, U, Tx]) passwordAttempt(user *sessionstorage.SessionUser) *sign
 type InvitationRequest struct {
 	// Email is the address to invite.
 	Email string
+	// Name is the person's name as the inviter gives it, "" for none: the account the
+	// acceptance creates carries it unless the sign-in asserts a name of its own, and
+	// an existing account that holds none takes it.
+	Name string
 	// Tenant is the tenant the invitation seats the person in, "" for the
 	// application's global surface.
 	Tenant string
@@ -400,13 +410,17 @@ func (p *AuthAPI[S, U, Tx]) Invite(ctx context.Context, req *InvitationRequest) 
 	if err != nil {
 		return nil, err
 	}
+	name, err := invitedName(req.Name)
+	if err != nil {
+		return nil, err
+	}
 	token, hash, err := linkToken()
 	if err != nil {
 		return nil, err
 	}
 	lifetime := m.settings.InvitationTimeout
 	link := &sessionstorage.MailLink{
-		TokenHash: hash, Kind: sessionstorage.MailLinkInvitation, Email: email, Tenant: req.Tenant, RoleNames: req.RoleNames, InvitedBy: req.InvitedBy,
+		TokenHash: hash, Kind: sessionstorage.MailLinkInvitation, Email: email, Name: name, Tenant: req.Tenant, RoleNames: req.RoleNames, InvitedBy: req.InvitedBy,
 		ExpiresAt: time.Now().Add(lifetime),
 	}
 	if err := p.auth.storage.InsertMailLink(ctx, link); err != nil {
@@ -417,6 +431,21 @@ func (p *AuthAPI[S, U, Tx]) Invite(ctx context.Context, req *InvitationRequest) 
 	}
 
 	return invitationOf(link), nil
+}
+
+// invitedName is the name an invitation carries as it is stored: without the space
+// around it, "" for none. A name longer than a user row keeps is a BadRequest, so the
+// inviter learns it now and not the invitee at the sign-in.
+func invitedName(name string) (string, error) {
+	clean, err := sessioninfo.CleanName(&name)
+	if err != nil {
+		return "", errors.Wrap(err, "sessioninfo.CleanName()")
+	}
+	if clean == nil {
+		return "", nil
+	}
+
+	return *clean, nil
 }
 
 // invitee applies the checks an invitation's address is held to before anything is
@@ -468,6 +497,9 @@ type InvitationRow struct {
 	TokenHash []byte
 	// Email is the invited address, bare.
 	Email string
+	// Name is the invited person's name as the inviter gave it, without the space
+	// around it; "" for none.
+	Name string
 	// Tenant is the tenant the acceptance seats the person in, "" for the
 	// application's global surface, and RoleNames the roles it grants.
 	Tenant    string
@@ -532,6 +564,10 @@ func (p *AuthAPI[S, U, Tx]) PrepareInvitation(ctx context.Context, req *Invitati
 	if err != nil {
 		return nil, err
 	}
+	name, err := invitedName(req.Name)
+	if err != nil {
+		return nil, err
+	}
 	token, hash, err := linkToken()
 	if err != nil {
 		return nil, err
@@ -544,7 +580,7 @@ func (p *AuthAPI[S, U, Tx]) PrepareInvitation(ctx context.Context, req *Invitati
 
 	return &preparedInvitation{
 		row: InvitationRow{
-			ID: id, TokenHash: hash, Email: email, Tenant: req.Tenant, RoleNames: slices.Clone(req.RoleNames), InvitedBy: req.InvitedBy,
+			ID: id, TokenHash: hash, Email: email, Name: name, Tenant: req.Tenant, RoleNames: slices.Clone(req.RoleNames), InvitedBy: req.InvitedBy,
 			ExpiresAt: time.Now().Add(lifetime),
 		},
 		send: func(ctx context.Context) error {

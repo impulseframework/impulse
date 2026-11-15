@@ -1,5 +1,6 @@
 export * from './about-page.component';
 export * from './account';
+export * from './account-look';
 export * from './account-page.component';
 export * from './api-keys-page.component';
 export * from './frame';

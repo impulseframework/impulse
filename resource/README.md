@@ -2491,14 +2491,15 @@ GET  <prefix>/sectors/{sectorID}/crew-sector-users, …/{id}         List, Read 
 GET  <prefix>/sectors/{sectorID}/crew-sector-user-roles, …/{id}    List, Read on CrewSectorUserRoles (sort=username,role)
 GET  <prefix>/sectors/{sectorID}/crew-sector-invitations, …/{id}   List, Read on CrewSectorInvitations (newest first)
 GET  <prefix>/sectors/{sectorID}/crew-sector-identities, …/{id}    List, Read on CrewSectorIdentities (newest first)
-POST <prefix>/create-crew-user                {"username","email","password","roles","domain","everyDomain"} → {"id"}   Execute on CreateCrewUser
+POST <prefix>/create-crew-user                {"username","name","email","password","roles","domain","everyDomain"} → {"id"}   Execute on CreateCrewUser
 POST <prefix>/rename-crew-user                {"userId","username"}            Execute on RenameCrewUser, targeting CrewSessionUsers
 POST <prefix>/delete-crew-user                {"userId"}                       Execute on DeleteCrewUser, targeting CrewSessionUsers
+POST <prefix>/set-crew-user-name              {"userId","name"}                Execute on SetCrewUserName, targeting CrewSessionUsers
 POST <prefix>/set-crew-user-email             {"userId","email"}               Execute on SetCrewUserEmail, targeting CrewSessionUsers
 POST <prefix>/set-crew-temporary-password     {"userId","password"}            Execute on SetCrewTemporaryPassword, targeting CrewSessionUsers
 POST <prefix>/revoke-crew-user-trusted-devices {"userId"}                      Execute on RevokeCrewUserTrustedDevices, targeting CrewSessionUsers
 POST <prefix>/unlock-crew-sign-in             {"name"}                         Execute on UnlockCrewSignIn, targeting CrewSessionSignInAttempts
-POST <prefix>/invite-crew-user                {"email","roles","domain"} → {"id","sent"}   Execute on InviteCrewUser
+POST <prefix>/invite-crew-user                {"email","name","roles","domain"} → {"id","sent"}   Execute on InviteCrewUser
 POST <prefix>/withdraw-crew-invitation        {"invitationId"}                 Execute on WithdrawCrewInvitation, targeting CrewSessionMailLinks
 POST <prefix>/disable-crew-user               {"userId"}                       Execute on DisableCrewUser, targeting CrewSessionUsers
 POST <prefix>/enable-crew-user                {"userId"}                       Execute on EnableCrewUser, targeting CrewSessionUsers
@@ -2510,13 +2511,13 @@ POST <prefix>/unlink-crew-session-identity    {"identityId"}                   E
 POST <prefix>/revoke-crew-session-token       {"tokenId"}                      Execute on RevokeCrewSessionToken, targeting CrewSessionTokens
 POST <prefix>/assign-crew-role                {"username","role","domain","everyDomain"}   Execute on AssignCrewRole
 POST <prefix>/remove-crew-role                {"username","role","domain","everyDomain"}   Execute on RemoveCrewRole
-POST <prefix>/sectors/{sectorID}/create-crew-sector-user   {"username","email","password","roles"} → {"id"}   Execute on CreateCrewSectorUser
-POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
+POST <prefix>/sectors/{sectorID}/create-crew-sector-user   {"username","name","email","password","roles"} → {"id"}   Execute on CreateCrewSectorUser
+POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","name","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
 POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationId"}     Execute on WithdrawCrewSectorInvitation, targeting CrewSectorInvitations
 POST <prefix>/sectors/{sectorID}/assign-crew-sector-role   {"userId","role"}            Execute on AssignCrewSectorRole, targeting CrewSectorUsers
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-role   {"userId","role"}            Execute on RemoveCrewSectorRole, targeting CrewSectorUserRoles
 POST <prefix>/sectors/{sectorID}/unlink-crew-sector-session-identity   {"identityId"}   Execute on UnlinkCrewSectorSessionIdentity, targeting CrewSectorIdentities
-POST <prefix>/sectors/{sectorID}/disable-crew-sector-user, enable-…, delete-…, rename-…, set-crew-sector-user-email,
+POST <prefix>/sectors/{sectorID}/disable-crew-sector-user, enable-…, delete-…, rename-…, set-crew-sector-user-name, set-crew-sector-user-email,
      set-crew-sector-temporary-password, require-crew-sector-password-change, revoke-crew-sector-user-trusted-devices,
      end-crew-sector-user-sessions            the whole application's bodies                Execute on each, targeting CrewSectorUsers
 ```
@@ -2897,6 +2898,56 @@ handlers hold equal to the auth package's `Name` at compile time). On an outlet 
 serves another Auth's management (`Manages`), a console person and a member may carry one
 username and are two people: there nobody is refused as acting on themselves.
 
+**One tenant per person.** In an application whose tenants own their people, a person
+belongs to one tenant: the tenant that created or invited them manages the account, which
+it cannot do for a person another tenant holds too. The application says so where it
+builds the client, beside its administrator roles (`identity.WithOneTenantPerPerson()`),
+and every way a person comes to hold a role in a tenant is then held to it:
+
+- A role in a tenant given by hand, and an account created in a tenant under a name
+  that holds a role already, are refused (409) for a person who holds a role in another
+  tenant.
+- A rename moves a person's roles to the new name, so a name that already holds roles
+  (given to it before it had an account) is refused (409) where the two together would
+  span more tenants than the person was in.
+- An invitation into a tenant is refused when it is sent (409) where a user has
+  confirmed the address and holds a role in another tenant, so the sender is told and
+  nobody is mailed a link they cannot accept. An address counts once its holder has
+  confirmed it, as at a sign-in: one an administrator typed onto an account says nothing
+  of who reads its mail, so a tenant cannot keep another from inviting an address by
+  writing it on one of its own accounts. An address no user has confirmed is invited,
+  and whoever accepts is held to the rule then.
+- An invitation accepted, and a directory's default role, are refused inside the
+  sign-in's transaction: nothing is consumed and no account is made, and the sign-in ends
+  on the login refusal code `other_tenant`, which the login page holds a sentence for.
+  The roles of one sign-in are judged together, so a stranger from one tenant's
+  directory who carries another tenant's invitation is refused, and so is a stranger
+  from a directory two tenants declare with a default role.
+
+A refusal says the person belongs to another tenant and never which.
+
+The application's own people are outside the rule. A person who holds a role for the
+whole application or in every tenant is no tenant's to manage, whatever else they hold
+(the role files grant a tenant its account methods on a person it holds alone,
+`heldElsewhere = false AND heldGlobally = false`), so they are given a role in any
+tenant: an operator who creates one customer's tenant after another is seated as each
+one's first administrator. Such a
+role is no tenant's either, so it never counts as one and is never refused. So that
+nobody is left in several tenants with nothing outside them, the last role a person
+holds outside the tenants is not taken away while they hold roles in more than one
+(409): take the roles in all but one tenant away first.
+
+The rule reads what is committed, as the other rules do: one transaction of the
+application's own gives a person roles in one tenant. A person who already holds roles
+in two tenants when the option is turned on is given no further role in a tenant until
+they are down to one. Two writers are outside it. A directory's role sync gives and
+takes roles for the whole application and in every tenant alone, on the directory's
+word. And where the sign-in name is the person's address, the session library renames
+the user itself when a new address is confirmed, and the roles follow once that has
+committed (`identity.RolesFollowRename`): that move merges what the new name already
+held. Without the option a person may hold roles in any number of tenants, as in the
+skeletons and in Lodestar.
+
 **The pages.** No application writes a page for an Auth's management. The generated API
 description (`zz_gen_api.ts`) carries an `identity` block beside its resources and
 methods: for each Auth whose management the outlet serves, the Auth's name and label,
@@ -2932,6 +2983,9 @@ allowed on a person the sector holds alone, refused on one it shares and not fou
 another sector's; the roles given and taken; the create; the identities and the unlink) with
 `generated_identity_tenant_invitation_test.go` for the ones that need the session manager
 (the invitation, its withdrawal, the temporary password),
+`generated_identity_one_tenant_test.go` holds the rule of one tenant per person through a
+second client built with the option, since Lodestar itself lets a person hold roles in
+several sectors,
 `generated_identity_live_test.go` holds that a method's commit reaches the pages of a
 resource derived from the Auth's tables, a sector's open list among them, and its
 console's `identity-pages.spec.ts` holds the pages the library builds for the two Auths

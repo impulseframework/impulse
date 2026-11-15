@@ -93,6 +93,8 @@ interface Server {
   verifyCode: TransportResponse;
   enrollEmail: TransportResponse;
   change: TransportResponse;
+  name: TransportResponse;
+  look: TransportResponse;
   invitationOpen: TransportResponse;
   invitationAccept: TransportResponse;
   invitationSignUp: TransportResponse;
@@ -114,6 +116,8 @@ function server(overrides: Partial<Server> = {}): Server {
     verifyCode: { status: 200, body: { mfaIsRequired: false } },
     enrollEmail: { status: 200, body: codeMailed },
     change: { status: 200, body: undefined },
+    name: { status: 200, body: { name: 'Nova Example' } },
+    look: { status: 200, body: { scheme: 'dark', palette: 'workspace' } },
     invitationOpen: { status: 200, body: opened },
     invitationAccept: { status: 200, body: { accepted: true } },
     invitationSignUp: { status: 200, body: { mfaIsRequired: false } },
@@ -151,6 +155,10 @@ function transportOf(state: Server): ScriptedTransport {
         return state.change;
       case 'POST /console/api/user/browser/forget':
         return { status: 200, body: undefined };
+      case 'POST /console/api/user/name':
+        return state.name;
+      case 'POST /console/api/user/look':
+        return state.look;
       case 'POST /console/api/user/invitation':
         return state.invitationOpen;
       case 'POST /console/api/user/invitation/accept':
@@ -771,6 +779,113 @@ describe('forgetting this browser', () => {
   it('throws on a server whose list names no forget path, sending nothing', async () => {
     const { auth, transport } = authOver(server());
     await expect(auth.forgetBrowser()).rejects.toThrow(/names no forget-this-browser path/);
+    expect(sent(transport).filter((request) => request.startsWith('POST'))).toEqual([]);
+  });
+});
+
+describe("changing the person's own name", () => {
+  const namePath = '/console/api/user/name';
+  const named = (overrides: Partial<Server> = {}): Server =>
+    server({ methods: { ...consoleList, changeName: namePath }, ...overrides });
+
+  it('reads the list again, then posts the name to the change path it names, and resolves the name the server keeps', async () => {
+    const { auth, transport, errors } = authOver(named());
+    expect(await auth.changeName('  Nova Example ')).toEqual({ outcome: 'changed', name: 'Nova Example' });
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${namePath}`]);
+    expect(transport.requests[1].body).toEqual({ name: '  Nova Example ' });
+    expect(errors).toEqual([]);
+  });
+
+  it('resolves no name when the server answers none: the name was taken off', async () => {
+    const { auth } = authOver(named({ name: { status: 200, body: {} } }));
+    expect(await auth.changeName('')).toEqual({ outcome: 'changed' });
+  });
+
+  const refusals: { name: string; answer: TransportResponse; want: unknown }[] = [
+    {
+      name: 'a name too long to keep resolves with the server\'s words',
+      answer: { status: 400, body: { message: 'a name is at most 200 characters' } },
+      want: { outcome: 'refused', status: 400, message: 'a name is at most 200 characters' },
+    },
+    {
+      name: 'an impersonated session resolves as refused',
+      answer: { status: 403, body: { message: 'ChangeName is not permitted in an impersonated session' } },
+      want: { outcome: 'refused', status: 403, message: 'ChangeName is not permitted in an impersonated session' },
+    },
+  ];
+  for (const tt of refusals) {
+    it(tt.name, async () => {
+      const { auth, errors } = authOver(named({ name: tt.answer }));
+      expect(await auth.changeName('Nova')).toEqual(tt.want);
+      expect(errors).toEqual([]);
+    });
+  }
+
+  it('throws on a server whose list names no change path, sending nothing', async () => {
+    const { auth, transport } = authOver(server());
+    await expect(auth.changeName('Nova')).rejects.toThrow(/names no change-your-name path/);
+    expect(sent(transport).filter((request) => request.startsWith('POST'))).toEqual([]);
+  });
+});
+
+describe('keeping the look the person chose', () => {
+  const lookPath = '/console/api/user/look';
+  const kept = (overrides: Partial<Server> = {}): Server =>
+    server({ methods: { ...consoleList, changeLook: lookPath }, ...overrides });
+
+  it('reads the list again, then posts the look to the path it names, and resolves the look the server keeps', async () => {
+    const { auth, transport, errors } = authOver(kept());
+    expect(await auth.changeLook({ scheme: 'dark', palette: ' workspace ' })).toEqual({
+      outcome: 'changed',
+      look: { scheme: 'dark', palette: 'workspace' },
+    });
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `POST ${lookPath}`]);
+    expect(transport.requests[1].body).toEqual({ scheme: 'dark', palette: ' workspace ' });
+    expect(errors).toEqual([]);
+  });
+
+  it('posts a half the person did not choose as empty, which takes it off', async () => {
+    const { auth, transport } = authOver(kept({ look: { status: 200, body: { scheme: 'light' } } }));
+    expect(await auth.changeLook({ scheme: 'light' })).toEqual({ outcome: 'changed', look: { scheme: 'light' } });
+    expect(transport.requests[1].body).toEqual({ scheme: 'light', palette: '' });
+  });
+
+  const answers: { name: string; body: unknown; want: unknown }[] = [
+    { name: 'an empty answer is a look of nothing', body: {}, want: {} },
+    { name: 'no body is a look of nothing', body: undefined, want: {} },
+    { name: 'a scheme that is neither is not kept', body: { scheme: 'sepia', palette: 'blue' }, want: { palette: 'blue' } },
+    { name: 'an empty palette is none', body: { scheme: 'dark', palette: '' }, want: { scheme: 'dark' } },
+  ];
+  for (const tt of answers) {
+    it(tt.name, async () => {
+      const { auth } = authOver(kept({ look: { status: 200, body: tt.body } }));
+      expect(await auth.changeLook({})).toEqual({ outcome: 'changed', look: tt.want });
+    });
+  }
+
+  const refusals: { name: string; answer: TransportResponse; want: unknown }[] = [
+    {
+      name: "a scheme that is neither light nor dark resolves with the server's words",
+      answer: { status: 400, body: { message: 'a scheme is light or dark' } },
+      want: { outcome: 'refused', status: 400, message: 'a scheme is light or dark' },
+    },
+    {
+      name: 'an impersonated session resolves as refused',
+      answer: { status: 403, body: { message: 'ChangeLook is not permitted in an impersonated session' } },
+      want: { outcome: 'refused', status: 403, message: 'ChangeLook is not permitted in an impersonated session' },
+    },
+  ];
+  for (const tt of refusals) {
+    it(tt.name, async () => {
+      const { auth, errors } = authOver(kept({ look: tt.answer }));
+      expect(await auth.changeLook({ scheme: 'dark' })).toEqual(tt.want);
+      expect(errors).toEqual([]);
+    });
+  }
+
+  it('throws on a server whose list names no such path, sending nothing', async () => {
+    const { auth, transport } = authOver(server());
+    await expect(auth.changeLook({ scheme: 'dark' })).rejects.toThrow(/names no keep-your-look path/);
     expect(sent(transport).filter((request) => request.startsWith('POST'))).toEqual([]);
   });
 });

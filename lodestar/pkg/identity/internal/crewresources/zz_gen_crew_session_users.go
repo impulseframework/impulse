@@ -29,6 +29,7 @@ func (CrewSessionUser) DefaultConfig() resource.Config {
 type crewSessionUserRead struct {
 	ID                     impulse.UUID `json:"id"                     perm:"-"`
 	Username               string       `json:"username"`
+	Name                   *string      `json:"name"`
 	Email                  *string      `json:"email"`
 	EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
 	Disabled               bool         `json:"disabled"`
@@ -45,6 +46,7 @@ var crewSessionUserReadSets resource.SetCache[CrewSessionUser, crewSessionUserRe
 type crewSessionUserWrite struct {
 	ID                     impulse.UUID `json:"-"`
 	Username               string       `json:"username"`
+	Name                   *string      `json:"name"`
 	Email                  *string      `json:"email"`
 	EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
 	Disabled               bool         `json:"disabled"`
@@ -173,6 +175,7 @@ func (c *CrewSessionUserColumns) All() *CrewSessionUserColumns {
 	c.fields = []accesstypes.Field{
 		"ID",
 		"Username",
+		"Name",
 		"Email",
 		"EmailVerifiedAt",
 		"Disabled",
@@ -192,6 +195,12 @@ func (c *CrewSessionUserColumns) ID() *CrewSessionUserColumns {
 
 func (c *CrewSessionUserColumns) Username() *CrewSessionUserColumns {
 	c.fields = append(c.fields, "Username")
+
+	return c
+}
+
+func (c *CrewSessionUserColumns) Name() *CrewSessionUserColumns {
+	c.fields = append(c.fields, "Name")
 
 	return c
 }
@@ -326,6 +335,10 @@ func (c *crewSessionUserSort) Username() *CrewSessionUserSort {
 	return c.addField("Username")
 }
 
+func (c *crewSessionUserSort) Name() *CrewSessionUserSort {
+	return c.addField("Name")
+}
+
 func (c *crewSessionUserSort) Email() *CrewSessionUserSort {
 	return c.addField("Email")
 }
@@ -451,6 +464,26 @@ func (p *CrewSessionUserCreatePatch) Username() string {
 
 func (p *CrewSessionUserCreatePatch) UsernameIsSet() bool {
 	return p.patchSet.IsSet("Username")
+}
+
+func (p *CrewSessionUserCreatePatch) SetName(v *string) *CrewSessionUserCreatePatch {
+	if v != nil {
+		p.patchSet.Set("Name", v)
+	} else {
+		p.patchSet.Set("Name", nil)
+	}
+
+	return p
+}
+
+func (p *CrewSessionUserCreatePatch) Name() *string {
+	v, _ := p.patchSet.Get("Name").(*string)
+
+	return v
+}
+
+func (p *CrewSessionUserCreatePatch) NameIsSet() bool {
+	return p.patchSet.IsSet("Name")
 }
 
 func (p *CrewSessionUserCreatePatch) SetEmail(v *string) *CrewSessionUserCreatePatch {
@@ -667,6 +700,26 @@ func (p *CrewSessionUserUpdatePatch) Username() string {
 
 func (p *CrewSessionUserUpdatePatch) UsernameIsSet() bool {
 	return p.patchSet.IsSet("Username")
+}
+
+func (p *CrewSessionUserUpdatePatch) SetName(v *string) *CrewSessionUserUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("Name", v)
+	} else {
+		p.patchSet.Set("Name", nil)
+	}
+
+	return p
+}
+
+func (p *CrewSessionUserUpdatePatch) Name() *string {
+	v, _ := p.patchSet.Get("Name").(*string)
+
+	return v
+}
+
+func (p *CrewSessionUserUpdatePatch) NameIsSet() bool {
+	return p.patchSet.IsSet("Name")
 }
 
 func (p *CrewSessionUserUpdatePatch) SetEmail(v *string) *CrewSessionUserUpdatePatch {

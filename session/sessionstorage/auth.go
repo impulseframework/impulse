@@ -232,6 +232,19 @@ type AuthStore[Tx any] interface {
 	// addresses only the verified time is written, and only when the address is the
 	// username.
 	ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, email string) (bool, error)
+	// SetUserName writes the person's name on a user, or takes it off (nil, or nothing
+	// but space): the person's own change. It replaces whatever the user held; a name
+	// longer than the store keeps is a BadRequest.
+	SetUserName(ctx context.Context, id impulse.UUID, name *string) error
+	// ClaimUserName writes name on the user when the user holds none, and reports
+	// whether it wrote: the name a directory asserted at a sign-in. A user that holds
+	// a name keeps it, so a name the person wrote themselves is never replaced.
+	ClaimUserName(ctx context.Context, id impulse.UUID, name string) (bool, error)
+	// SetUserLook writes the look the person chose on a user (sessioninfo.Look): the
+	// person's own change, and nobody else's. It replaces the look held as a whole, so
+	// a half the look does not name is taken off; a scheme that is neither light nor
+	// dark, and a palette id longer than the store keeps, is a BadRequest.
+	SetUserLook(ctx context.Context, id impulse.UUID, look sessioninfo.Look) error
 	// InsertMailLink stores a mailed link's row: l.TokenHash is the hash of the opaque
 	// token the mail carries. The row's ID is set on l.
 	InsertMailLink(ctx context.Context, l *MailLink) error
@@ -525,6 +538,43 @@ func (a *Auth[Tx]) ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, emai
 	claimed, err := a.db.ClaimVerifiedEmail(ctx, id, email)
 	if err != nil {
 		return false, errors.Wrap(err, "db.ClaimVerifiedEmail()")
+	}
+
+	return claimed, nil
+}
+
+// SetUserName implements AuthStore.
+func (a *Auth[Tx]) SetUserName(ctx context.Context, id impulse.UUID, name *string) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.SetUserName(ctx, id, name); err != nil {
+		return errors.Wrap(err, "db.SetUserName()")
+	}
+
+	return nil
+}
+
+// SetUserLook implements AuthStore.
+func (a *Auth[Tx]) SetUserLook(ctx context.Context, id impulse.UUID, look sessioninfo.Look) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.SetUserLook(ctx, id, look); err != nil {
+		return errors.Wrap(err, "db.SetUserLook()")
+	}
+
+	return nil
+}
+
+// ClaimUserName implements AuthStore.
+func (a *Auth[Tx]) ClaimUserName(ctx context.Context, id impulse.UUID, name string) (bool, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	claimed, err := a.db.ClaimUserName(ctx, id, name)
+	if err != nil {
+		return false, errors.Wrap(err, "db.ClaimUserName()")
 	}
 
 	return claimed, nil

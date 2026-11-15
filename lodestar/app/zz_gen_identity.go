@@ -252,12 +252,20 @@ func (a *App) SetCrewSectorUserEmail() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).SetCrewSectorUserEmail()
 }
 
+func (a *App) SetCrewSectorUserName() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).SetCrewSectorUserName()
+}
+
 func (a *App) SetCrewTemporaryPassword() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).SetCrewTemporaryPassword()
 }
 
 func (a *App) SetCrewUserEmail() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).SetCrewUserEmail()
+}
+
+func (a *App) SetCrewUserName() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).SetCrewUserName()
 }
 
 func (a *App) UnlinkCrewSectorSessionIdentity() http.HandlerFunc {
@@ -446,8 +454,16 @@ func (a *App) SetMembersSectorUserEmail() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).SetMembersSectorUserEmail()
 }
 
+func (a *App) SetMembersSectorUserName() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).SetMembersSectorUserName()
+}
+
 func (a *App) SetMembersUserEmail() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).SetMembersUserEmail()
+}
+
+func (a *App) SetMembersUserName() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).SetMembersUserName()
 }
 
 func (a *App) UnlinkMembersSectorSessionIdentity() http.HandlerFunc {

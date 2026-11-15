@@ -244,8 +244,16 @@ func (a *App) SetStaffTenantUserEmail() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).SetStaffTenantUserEmail()
 }
 
+func (a *App) SetStaffTenantUserName() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).SetStaffTenantUserName()
+}
+
 func (a *App) SetStaffUserEmail() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).SetStaffUserEmail()
+}
+
+func (a *App) SetStaffUserName() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).SetStaffUserName()
 }
 
 func (a *App) UnlinkStaffSessionIdentity() http.HandlerFunc {
@@ -474,8 +482,16 @@ func (a *App) SetMembersTenantUserEmail() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).SetMembersTenantUserEmail()
 }
 
+func (a *App) SetMembersTenantUserName() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).SetMembersTenantUserName()
+}
+
 func (a *App) SetMembersUserEmail() http.HandlerFunc {
 	return membershandlers.New(a, liveDerivations).SetMembersUserEmail()
+}
+
+func (a *App) SetMembersUserName() http.HandlerFunc {
+	return membershandlers.New(a, liveDerivations).SetMembersUserName()
 }
 
 func (a *App) UnlinkMembersSessionIdentity() http.HandlerFunc {

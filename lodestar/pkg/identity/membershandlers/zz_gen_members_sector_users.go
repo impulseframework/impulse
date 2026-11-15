@@ -23,6 +23,7 @@ func (h *Handlers) MembersSectorUsers() http.HandlerFunc {
 		ID                     impulse.UUID `json:"id"                     index:"true" perm:"-"`
 		Domain                 string       `json:"domain"                 index:"true"`
 		Username               string       `json:"username"               index:"true"`
+		Name                   *string      `json:"name"`
 		Email                  *string      `json:"email"`
 		EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
 		Disabled               bool         `json:"disabled"`
@@ -85,6 +86,10 @@ func (h *Handlers) MembersSectorUsers() http.HandlerFunc {
 					if !row.Masked("username") {
 						rmap["username"] = rec.Username
 					}
+				case "Name":
+					if !row.Masked("name") {
+						rmap["name"] = rec.Name
+					}
 				case "Email":
 					if !row.Masked("email") {
 						rmap["email"] = rec.Email
@@ -143,6 +148,7 @@ func (h *Handlers) MembersSectorUser() http.HandlerFunc {
 		ID                     impulse.UUID `json:"id"                     index:"true" perm:"-"`
 		Domain                 string       `json:"domain"`
 		Username               string       `json:"username"`
+		Name                   *string      `json:"name"`
 		Email                  *string      `json:"email"`
 		EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
 		Disabled               bool         `json:"disabled"`
@@ -192,6 +198,10 @@ func (h *Handlers) MembersSectorUser() http.HandlerFunc {
 			case "Username":
 				if !row.Masked("username") {
 					rmap["username"] = rec.Username
+				}
+			case "Name":
+				if !row.Masked("name") {
+					rmap["name"] = rec.Name
 				}
 			case "Email":
 				if !row.Masked("email") {

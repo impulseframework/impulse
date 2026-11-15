@@ -115,10 +115,12 @@ export type EndMembersUserSessionsStatus = 204;
 
 export interface InviteMembersTenantUserConfig {
   email: string | FieldPointer;
+  name?: string | FieldPointer;
   roles: string[] | FieldPointer;
 }
 export interface InviteMembersTenantUser {
   email: string;
+  name?: string;
   roles: string[];
 }
 /** The result InviteMembersTenantUser answers with. */
@@ -129,11 +131,13 @@ export interface InviteMembersTenantUserResult {
 
 export interface InviteMembersUserConfig {
   email: string | FieldPointer;
+  name?: string | FieldPointer;
   roles: string[] | FieldPointer;
   domain?: string | FieldPointer;
 }
 export interface InviteMembersUser {
   email: string;
+  name?: string;
   roles: string[];
   domain?: string;
 }
@@ -229,6 +233,17 @@ export interface SetMembersTenantUserEmail {
 /** The statuses SetMembersTenantUserEmail declares; the method chooses one per response. */
 export type SetMembersTenantUserEmailStatus = 204;
 
+export interface SetMembersTenantUserNameConfig {
+  userId: string | FieldPointer;
+  name?: string | FieldPointer;
+}
+export interface SetMembersTenantUserName {
+  userId: string;
+  name?: string;
+}
+/** The statuses SetMembersTenantUserName declares; the method chooses one per response. */
+export type SetMembersTenantUserNameStatus = 204;
+
 export interface SetMembersUserEmailConfig {
   userId: string | FieldPointer;
   email?: string | FieldPointer;
@@ -239,6 +254,17 @@ export interface SetMembersUserEmail {
 }
 /** The statuses SetMembersUserEmail declares; the method chooses one per response. */
 export type SetMembersUserEmailStatus = 204;
+
+export interface SetMembersUserNameConfig {
+  userId: string | FieldPointer;
+  name?: string | FieldPointer;
+}
+export interface SetMembersUserName {
+  userId: string;
+  name?: string;
+}
+/** The statuses SetMembersUserName declares; the method chooses one per response. */
+export type SetMembersUserNameStatus = 204;
 
 export interface UnlinkMembersSessionIdentityConfig {
   identityId: string | FieldPointer;
@@ -479,6 +505,7 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'email', displayType: 'string', required: true },
+      { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.MembersTenantRoles, attribute: 'role' },
     ],
   },
@@ -488,6 +515,7 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'email', displayType: 'string', required: true },
+      { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
       { fieldName: 'domain', displayType: 'string', optional: true },
     ],
@@ -570,6 +598,16 @@ const methodMap: MethodMap = {
       { fieldName: 'email', displayType: 'string', optional: true },
     ],
   },
+  [Methods.SetMembersTenantUserName]: {
+    route: 'set-members-tenant-user-name',
+    target: { resource: Resources.MembersTenantUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'name', displayType: 'string', optional: true },
+    ],
+  },
   [Methods.SetMembersUserEmail]: {
     route: 'set-members-user-email',
     target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
@@ -578,6 +616,16 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'email', displayType: 'string', optional: true },
+    ],
+  },
+  [Methods.SetMembersUserName]: {
+    route: 'set-members-user-name',
+    target: { resource: Resources.MembersSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+      { fieldName: 'name', displayType: 'string', optional: true },
     ],
   },
   [Methods.UnlinkMembersSessionIdentity]: {

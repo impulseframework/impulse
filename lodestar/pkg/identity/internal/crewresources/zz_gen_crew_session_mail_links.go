@@ -30,6 +30,7 @@ type crewSessionMailLinkRead struct {
 	ID         impulse.UUID  `json:"id"         perm:"-"`
 	Kind       string        `json:"kind"`
 	Email      string        `json:"email"`
+	Name       *string       `json:"name"`
 	UserID     *impulse.UUID `json:"userId"`
 	Tenant     *string       `json:"tenant"`
 	RoleNames  []string      `json:"roleNames"`
@@ -48,6 +49,7 @@ type crewSessionMailLinkWrite struct {
 	ID         impulse.UUID  `json:"-"`
 	Kind       string        `json:"kind"       sqltype:"STRING(16)"`
 	Email      string        `json:"email"`
+	Name       *string       `json:"name"`
 	UserID     *impulse.UUID `json:"userId"`
 	Tenant     *string       `json:"tenant"`
 	RoleNames  []string      `json:"roleNames"  nullable:"true"`
@@ -166,6 +168,7 @@ func (c *CrewSessionMailLinkColumns) All() *CrewSessionMailLinkColumns {
 		"ID",
 		"Kind",
 		"Email",
+		"Name",
 		"UserID",
 		"Tenant",
 		"RoleNames",
@@ -192,6 +195,12 @@ func (c *CrewSessionMailLinkColumns) Kind() *CrewSessionMailLinkColumns {
 
 func (c *CrewSessionMailLinkColumns) Email() *CrewSessionMailLinkColumns {
 	c.fields = append(c.fields, "Email")
+
+	return c
+}
+
+func (c *CrewSessionMailLinkColumns) Name() *CrewSessionMailLinkColumns {
+	c.fields = append(c.fields, "Name")
 
 	return c
 }
@@ -344,6 +353,10 @@ func (c *crewSessionMailLinkSort) Email() *CrewSessionMailLinkSort {
 	return c.addField("Email")
 }
 
+func (c *crewSessionMailLinkSort) Name() *CrewSessionMailLinkSort {
+	return c.addField("Name")
+}
+
 func (c *crewSessionMailLinkSort) UserID() *CrewSessionMailLinkSort {
 	return c.addField("UserID")
 }
@@ -489,6 +502,26 @@ func (p *CrewSessionMailLinkCreatePatch) Email() string {
 
 func (p *CrewSessionMailLinkCreatePatch) EmailIsSet() bool {
 	return p.patchSet.IsSet("Email")
+}
+
+func (p *CrewSessionMailLinkCreatePatch) SetName(v *string) *CrewSessionMailLinkCreatePatch {
+	if v != nil {
+		p.patchSet.Set("Name", v)
+	} else {
+		p.patchSet.Set("Name", nil)
+	}
+
+	return p
+}
+
+func (p *CrewSessionMailLinkCreatePatch) Name() *string {
+	v, _ := p.patchSet.Get("Name").(*string)
+
+	return v
+}
+
+func (p *CrewSessionMailLinkCreatePatch) NameIsSet() bool {
+	return p.patchSet.IsSet("Name")
 }
 
 func (p *CrewSessionMailLinkCreatePatch) SetUserID(v *impulse.UUID) *CrewSessionMailLinkCreatePatch {
@@ -741,6 +774,26 @@ func (p *CrewSessionMailLinkUpdatePatch) Email() string {
 
 func (p *CrewSessionMailLinkUpdatePatch) EmailIsSet() bool {
 	return p.patchSet.IsSet("Email")
+}
+
+func (p *CrewSessionMailLinkUpdatePatch) SetName(v *string) *CrewSessionMailLinkUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("Name", v)
+	} else {
+		p.patchSet.Set("Name", nil)
+	}
+
+	return p
+}
+
+func (p *CrewSessionMailLinkUpdatePatch) Name() *string {
+	v, _ := p.patchSet.Get("Name").(*string)
+
+	return v
+}
+
+func (p *CrewSessionMailLinkUpdatePatch) NameIsSet() bool {
+	return p.patchSet.IsSet("Name")
 }
 
 func (p *CrewSessionMailLinkUpdatePatch) SetUserID(v *impulse.UUID) *CrewSessionMailLinkUpdatePatch {

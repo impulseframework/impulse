@@ -346,7 +346,7 @@ func Test_identityInstance_tenantMethodSources(t *testing.T) {
 
 	ship := &identityTenant{name: "Ship", table: "Ships", key: "Id", outlets: []string{"default"}}
 	every := []identityTable{identityUsers, identityMemberships, identityMailLinks, identitySessions, identityTrustedDevices}
-	account := []string{"disable_crew_ship_user", "enable_crew_ship_user", "delete_crew_ship_user", "end_crew_ship_user_sessions", "revoke_crew_ship_user_trusted_devices"}
+	account := []string{"disable_crew_ship_user", "enable_crew_ship_user", "delete_crew_ship_user", "end_crew_ship_user_sessions", "revoke_crew_ship_user_trusted_devices", "set_crew_ship_user_name"}
 	named := []string{"rename_crew_ship_user", "set_crew_ship_user_email"}
 	tests := []struct {
 		name   string

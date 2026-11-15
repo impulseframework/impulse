@@ -7,9 +7,11 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
 	"sync"
 	"testing"
 
@@ -20,6 +22,7 @@ import (
 	"github.com/impulseframework/impulse/session/google"
 	"github.com/impulseframework/impulse/session/internal/oidctest"
 	"github.com/impulseframework/impulse/session/oidc"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
 
@@ -350,6 +353,123 @@ func runAzureGoogleSeams[Tx any](t *testing.T, be backend[Tx]) {
 				}
 				if after, linked := a.hooks.counts(); after != before || len(linked) != 2 {
 					t.Errorf("resolver runs = %d (was %d), IdentityLinked reports = %d; want no new run and two reports", after, before, len(linked))
+				}
+			},
+		},
+		{
+			name: "the name a directory asserts is the new account's, never replaces the one the person wrote, and fills the account again once the name is taken off",
+			run: func(ctx context.Context, t *testing.T, a *oidcApp[Tx]) {
+				a.hooks.set(func(h *hooks[Tx]) {
+					h.resolveAzure = func(identity *azure.Identity) *signin.Resolution {
+						return signin.Provision(&signin.NewUser{Username: identity.Email}, nil)
+					}
+				})
+				named := func(name string) map[string]any {
+					claims := azureClaims(azureTenant, "oid-quinn", "quinn@lakeside.edu")
+					if name != "" {
+						claims["name"] = name
+					}
+
+					return claims
+				}
+				signIn := func(name string) *browser {
+					b := a.browser(t)
+					assertRedirect(t, b.oidcSignIn(ctx, a.azure, "/azure", named(name)), "/home", url.Values{})
+
+					return b
+				}
+
+				// The first sign-in creates the account with the directory's name.
+				b := signIn("  Quinn Example ")
+				if got := b.authenticatedName(ctx); got != "Quinn Example" {
+					t.Fatalf("the new account's name = %q, want the directory's without the space around it", got)
+				}
+
+				// The person writes their own name: the answer and the session read carry it.
+				var answer struct {
+					Name string `json:"name"`
+				}
+				if err := json.Unmarshal(b.expect(ctx, http.StatusOK, http.MethodPost, "/name", map[string]string{"name": " Q. Example "}), &answer); err != nil || answer.Name != "Q. Example" {
+					t.Fatalf("POST /name answered %+v (%v), want the name as it is kept", answer, err)
+				}
+				if got := b.authenticatedName(ctx); got != "Q. Example" {
+					t.Errorf("the name after the person's change = %q, want theirs", got)
+				}
+				b.expect(ctx, http.StatusBadRequest, http.MethodPost, "/name", map[string]string{"name": strings.Repeat("q", 201)})
+
+				// A later sign-in, the directory asserting another name, leaves it.
+				if got := signIn("Quinn Renamed").authenticatedName(ctx); got != "Q. Example" {
+					t.Errorf("the name after a later sign-in = %q, want the person's own", got)
+				}
+
+				// The name taken off, a sign-in that asserts none leaves the account
+				// without one, and the next one that asserts a name fills it.
+				b.expect(ctx, http.StatusOK, http.MethodPost, "/name", map[string]string{"name": "  "})
+				if got := b.authenticatedName(ctx); got != "" {
+					t.Errorf("the name after it was taken off = %q, want none", got)
+				}
+				if got := signIn("").authenticatedName(ctx); got != "" {
+					t.Errorf("the name after a sign-in that asserts none = %q, want none", got)
+				}
+				if got := signIn("Quinn Renamed").authenticatedName(ctx); got != "Quinn Renamed" {
+					t.Errorf("the name after the next sign-in = %q, want the directory's", got)
+				}
+			},
+		},
+		{
+			name: "the look a person chose is kept with the account: the session read of another browser answers it, a half left out is taken off, and a scheme that is neither light nor dark is refused",
+			run: func(ctx context.Context, t *testing.T, a *oidcApp[Tx]) {
+				a.hooks.set(func(h *hooks[Tx]) {
+					h.resolveAzure = func(identity *azure.Identity) *signin.Resolution {
+						return signin.Provision(&signin.NewUser{Username: identity.Email}, nil)
+					}
+				})
+				signIn := func() *browser {
+					b := a.browser(t)
+					assertRedirect(t, b.oidcSignIn(ctx, a.azure, "/azure", azureClaims(azureTenant, "oid-lee", "lee@lakeside.edu")), "/home", url.Values{})
+
+					return b
+				}
+
+				// A new account holds no look, and the session read leaves it out.
+				first := signIn()
+				if look, present := first.authenticatedLook(ctx); present {
+					t.Fatalf("a new account's look = %+v, want none in the answer", look)
+				}
+
+				// The person chooses one on this browser: the answer is the look as kept.
+				var kept sessioninfo.Look
+				if err := json.Unmarshal(first.expect(ctx, http.StatusOK, http.MethodPost, "/look", map[string]string{"scheme": "dark", "palette": " workspace "}), &kept); err != nil {
+					t.Fatalf("json.Unmarshal() error = %v", err)
+				}
+				dark := sessioninfo.Look{Scheme: sessioninfo.SchemeDark, Palette: "workspace"}
+				if kept != dark {
+					t.Fatalf("POST /look answered %+v, want %+v", kept, dark)
+				}
+
+				// Another browser signs the same person in: its session read answers the look.
+				second := signIn()
+				if look, _ := second.authenticatedLook(ctx); look != dark {
+					t.Errorf("the look on a second browser = %+v, want %+v", look, dark)
+				}
+
+				// A change there is the first browser's next read too, and a half left out is taken off.
+				second.expect(ctx, http.StatusOK, http.MethodPost, "/look", map[string]string{"scheme": "light"})
+				if look, _ := first.authenticatedLook(ctx); look != (sessioninfo.Look{Scheme: sessioninfo.SchemeLight}) {
+					t.Errorf("the look on the first browser after the second's change = %+v, want light alone", look)
+				}
+
+				// A look the rule refuses changes nothing.
+				first.expect(ctx, http.StatusBadRequest, http.MethodPost, "/look", map[string]string{"scheme": "sepia"})
+				first.expect(ctx, http.StatusBadRequest, http.MethodPost, "/look", map[string]string{"palette": strings.Repeat("p", sessioninfo.MaxPaletteLength+1)})
+				if look, _ := second.authenticatedLook(ctx); look != (sessioninfo.Look{Scheme: sessioninfo.SchemeLight}) {
+					t.Errorf("the look after the refused changes = %+v, want light alone", look)
+				}
+
+				// Nothing chosen takes the look off, and the answer leaves it out again.
+				first.expect(ctx, http.StatusOK, http.MethodPost, "/look", map[string]string{})
+				if look, present := second.authenticatedLook(ctx); present {
+					t.Errorf("the look after it was taken off = %+v, want none in the answer", look)
 				}
 			},
 		},

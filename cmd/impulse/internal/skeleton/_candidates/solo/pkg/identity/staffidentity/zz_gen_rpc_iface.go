@@ -10,6 +10,6 @@ type Method interface {
 	AssignStaffRole | CreateStaffUser | DeleteStaffUser | DisableStaffUser | EnableStaffUser |
 		EndStaffSession | EndStaffUserSessions | InviteStaffUser | RemoveStaffRole | RenameStaffUser |
 		RequireStaffPasswordChange | RevokeStaffSessionToken | RevokeStaffUserTrustedDevices |
-		SetStaffTemporaryPassword | SetStaffUserEmail | UnlinkStaffSessionIdentity |
-		UnlockStaffSignIn | WithdrawStaffInvitation
+		SetStaffTemporaryPassword | SetStaffUserEmail | SetStaffUserName |
+		UnlinkStaffSessionIdentity | UnlockStaffSignIn | WithdrawStaffInvitation
 }

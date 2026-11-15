@@ -32,6 +32,11 @@ import (
 // release's role file is known to the engine; a custom role is read from the auth's
 // roles table in the caller's transaction, so a role deleted beside the membership fails
 // one of the two.
+//
+// Where a person belongs to one tenant (WithOneTenantPerPerson), a role in a tenant is
+// refused for a person who holds a role in another one, as a Conflict that never says
+// which (refuseSecondTenant). A role for the whole application or in every tenant is
+// given whatever the person holds, and its holder is given a role in any tenant.
 func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, username string, role accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -46,6 +51,9 @@ func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransact
 	})
 	if err != nil {
 		return errors.Wrap(err, "access.UserManager.Membership()")
+	}
+	if err := m.refuseSecondTenant(ctx, txn, scope, username); err != nil {
+		return err
 	}
 	inserted, err := m.store.InsertMembership(ctx, txn, &key)
 	if err != nil {
@@ -67,6 +75,9 @@ func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransact
 // themselves is held to the rule on the last administrator (refuseLastAdministrator).
 // And a person left with no role anywhere is deleted with their identity links and
 // sessions in the same transaction (deleteWithLastRole), whoever removed the role.
+// Where a person belongs to one tenant (WithOneTenantPerPerson) there is a third: the
+// last role a person holds outside the tenants stays while they hold roles in more than
+// one tenant (refuseLeavingSeveralTenants).
 //
 // What the person holds is read as committed: a second removal for the same person in
 // one transaction does not see the first, as no read sees a buffered write, so the
@@ -100,6 +111,9 @@ func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTr
 	all, err := m.store.Memberships(ctx, txn, username)
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.Memberships()")
+	}
+	if err := m.refuseLeavingSeveralTenants(all, key); err != nil {
+		return err
 	}
 	if err := m.deleteWithLastRole(ctx, txn, username, all, key); err != nil {
 		return err

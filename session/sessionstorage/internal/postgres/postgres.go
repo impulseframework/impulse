@@ -160,11 +160,11 @@ func (s *SessionStorageDriver) UsernameIsEmail() bool {
 }
 
 // userSelectColumns are the user table's columns as the user reads select them: the
-// address columns only on the auth schema, which has them.
+// address columns, the name and the look only on the auth schema, which has them.
 func (s *SessionStorageDriver) userSelectColumns() string {
 	columns := `"Id", "Username", "PasswordHash", "Disabled", "PasswordChangeRequired", "CreatedAt", "LastSignInAt"`
 	if s.users {
-		columns += `, "Email", "EmailVerifiedAt"`
+		columns += `, "Email", "EmailVerifiedAt", "Name", "LookScheme", "LookPalette"`
 	}
 
 	return columns
@@ -605,9 +605,10 @@ func (s *SessionStorageDriver) CreateUser(ctx context.Context, user *dbtype.Inse
 	return s.User(ctx, id)
 }
 
-// userInsertStatement renders the insert of a new user row. The address columns are
-// written on the auth schema only, which has them, and Email never on a store whose
-// usernames are the addresses, where the database derives it.
+// userInsertStatement renders the insert of a new user row. The address columns and the
+// name are written on the auth schema only, which has them, and Email never on a store
+// whose usernames are the addresses, where the database derives it. The name is written
+// as sessioninfo.CleanName leaves it; the caller has validated the row.
 func (s *SessionStorageDriver) userInsertStatement(id impulse.UUID, user *dbtype.InsertSessionUser) (query string, args []any) {
 	columns := `"Id", "Username", "PasswordHash", "Disabled", "PasswordChangeRequired", "CreatedAt"`
 	values := `$1, $2, $3, $4, $5, now()`
@@ -621,6 +622,11 @@ func (s *SessionStorageDriver) userInsertStatement(id impulse.UUID, user *dbtype
 		if user.EmailVerified {
 			columns += `, "EmailVerifiedAt"`
 			values += `, now()`
+		}
+		if name, err := sessioninfo.CleanName(user.Name); err == nil && name != nil {
+			columns += `, "Name"`
+			values += fmt.Sprintf(`, $%d`, len(args)+1)
+			args = append(args, *name)
 		}
 	}
 

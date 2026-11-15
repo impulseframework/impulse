@@ -77,6 +77,7 @@ describe("the library's pages over an auth's generated management", () => {
         Methods.RenameMembersUser,
         Methods.RevokeMembersUserTrustedDevices,
         Methods.SetMembersUserEmail,
+        Methods.SetMembersUserName,
         Methods.UnlinkMembersSessionIdentity,
         Methods.UnlockMembersSignIn,
       ].sort(),

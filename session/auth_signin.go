@@ -74,6 +74,17 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	// The name a directory gave is kept as a user's is, or not at all: one a row would
+	// not keep is dropped here, before anything of the sign-in is written, the pending
+	// identity among it, so it never fails the sign-in it came with. The identity is the
+	// caller's, who may hand one to several sign-ins at once, so it is never written:
+	// the attempt takes a copy that carries the name as kept.
+	if kept := sessioninfo.KeptName(at.identity.Name); kept != at.identity.Name {
+		identity := *at.identity
+		identity.Name = kept
+		at.identity = &identity
+	}
+
 	// An identity whose connection attests to a second factor records the
 	// attestation after the sign-in's own event, so the policy and the session see it.
 	if at.events == nil && at.identity.Attestation != sessioninfo.NotAttested {
@@ -131,12 +142,14 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 
 			return impulse.NilUUID, err
 		}
-		// The user's last sign-in and the address a method verified are bookkeeping,
-		// written once the session stands: a failure is logged and the sign-in goes on.
+		// The user's last sign-in, the address a method verified and the name it asserts
+		// are bookkeeping, written once the session stands: a failure is logged and the
+		// sign-in goes on.
 		if err := a.storage.TouchUserSignIn(ctx, req.UserID); err != nil {
 			logger.FromCtx(ctx).Error(errors.Wrap(err, "sessionstorage.AuthStore.TouchUserSignIn()"))
 		}
 		a.claimVerifiedEmail(ctx, req.UserID, at.identity)
+		a.claimName(ctx, req.UserID, at.identity)
 
 		return id, nil
 	})
@@ -312,6 +325,7 @@ func enabledUser(user *sessionstorage.SessionUser) (*sessioninfo.UserInfo, error
 
 	return &sessioninfo.UserInfo{
 		ID: user.ID, Username: user.Username, PasswordChangeRequired: user.PasswordChangeRequired, Email: user.Email, EmailVerifiedAt: user.EmailVerifiedAt,
+		Name: user.Name, Look: user.Look(),
 	}, nil
 }
 

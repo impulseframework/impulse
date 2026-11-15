@@ -21,6 +21,8 @@ type (
 	// Password is a temporary password, which the person changes before anything else
 	// is served: the password is the auth's one way in, so a person is created with
 	// one.
+	// Name is the person's name as people read it, shown in place of the username
+	// where it is given; the person may change it themselves.
 	// It answers the new user's id. An account is one row for the whole application, so
 	// a username or an address another user holds, in whatever tenant, is refused when
 	// the transaction commits.
@@ -30,6 +32,7 @@ type (
 	// @outlet(default)
 	CreateStaffTenantUser struct {
 		Username string `validate:"required"`
+		Name     *string
 		Email    *string
 		Password string `validate:"required"`
 		// Roles are the roles the person is given, picked from the roles that exist in the
@@ -52,7 +55,7 @@ func (m *CreateStaffTenantUser) Execute(ctx context.Context, txn resource.ReadWr
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.Manager.Tenant()")
 	}
-	account := &identity.NewAccount{Username: m.Username}
+	account := &identity.NewAccount{Username: m.Username, Name: m.Name}
 	account.Email = m.Email
 	account.Password, account.PasswordRequired = &m.Password, true
 	for _, role := range m.Roles {

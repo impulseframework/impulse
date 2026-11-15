@@ -48,7 +48,7 @@ func newPendingSignIn(userID impulse.NullUUID, hash []byte) *dbtype.PendingSignI
 		Identity: sessioninfo.Identity{
 			Method: sessioninfo.MethodWorkOS, Connection: "conn_1", Subject: "idp_pat", Email: "pat@lakeside.edu", EmailVerified: true,
 			Claims: json.RawMessage(`{"raw_attributes":{"department":"math"}}`), IDPAMR: []string{"pwd", "mfa"},
-			SignInName: "pat@lakeside.edu", Guest: true, Organization: "lakeside-tenant",
+			SignInName: "pat@lakeside.edu", Guest: true, Organization: "lakeside-tenant", Name: "Pat Lee",
 		},
 		UserID:                userID,
 		Username:              "pat@lakeside.edu",

@@ -29,6 +29,7 @@ type membersTenantUserRead struct {
 	ID                     impulse.UUID `json:"id"                     perm:"-"`
 	Domain                 string       `json:"domain"`
 	Username               string       `json:"username"`
+	Name                   *string      `json:"name"`
 	Email                  *string      `json:"email"`
 	EmailVerifiedAt        *time.Time   `json:"emailVerifiedAt"`
 	Disabled               bool         `json:"disabled"`
@@ -148,6 +149,7 @@ func (c *MembersTenantUserColumns) All() *MembersTenantUserColumns {
 		"ID",
 		"Domain",
 		"Username",
+		"Name",
 		"Email",
 		"EmailVerifiedAt",
 		"Disabled",
@@ -175,6 +177,12 @@ func (c *MembersTenantUserColumns) Domain() *MembersTenantUserColumns {
 
 func (c *MembersTenantUserColumns) Username() *MembersTenantUserColumns {
 	c.fields = append(c.fields, "Username")
+
+	return c
+}
+
+func (c *MembersTenantUserColumns) Name() *MembersTenantUserColumns {
+	c.fields = append(c.fields, "Name")
 
 	return c
 }
@@ -335,6 +343,10 @@ func (c *membersTenantUserSort) Domain() *MembersTenantUserSort {
 
 func (c *membersTenantUserSort) Username() *MembersTenantUserSort {
 	return c.addField("Username")
+}
+
+func (c *membersTenantUserSort) Name() *MembersTenantUserSort {
+	return c.addField("Name")
 }
 
 func (c *membersTenantUserSort) Email() *MembersTenantUserSort {

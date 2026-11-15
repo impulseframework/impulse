@@ -2,7 +2,7 @@
 import { ApiDescriptor, Client, ClientOptions, createClient, MethodHandle, ResourceHandle } from '@impulseframework/resource';
 import { Methods, Resources } from './zz_gen_constants';
 import { StaffRoles, StaffRoleGrants, StaffSessions, StaffSessionAuthEvents, StaffSessionIdentities, StaffSessionMailLinks, StaffSessionSignInAttempts, StaffSessionTokens, StaffSessionTrustedDevices, StaffSessionUsers, StaffUserRoles, FeatureFlags } from './zz_gen_resources';
-import { AssignStaffRole, CreateStaffUser, CreateStaffUserResult, DeleteStaffUser, DisableStaffUser, EnableStaffUser, EndStaffSession, EndStaffUserSessions, InviteStaffUser, InviteStaffUserResult, RemoveStaffRole, RenameStaffUser, RequireStaffPasswordChange, RevokeStaffSessionToken, RevokeStaffUserTrustedDevices, SetStaffTemporaryPassword, SetStaffUserEmail, UnlinkStaffSessionIdentity, UnlockStaffSignIn, WithdrawStaffInvitation, SetFeature, SetFeatureResult } from './zz_gen_methods';
+import { AssignStaffRole, CreateStaffUser, CreateStaffUserResult, DeleteStaffUser, DisableStaffUser, EnableStaffUser, EndStaffSession, EndStaffUserSessions, InviteStaffUser, InviteStaffUserResult, RemoveStaffRole, RenameStaffUser, RequireStaffPasswordChange, RevokeStaffSessionToken, RevokeStaffUserTrustedDevices, SetStaffTemporaryPassword, SetStaffUserEmail, SetStaffUserName, UnlinkStaffSessionIdentity, UnlockStaffSignIn, WithdrawStaffInvitation, SetFeature, SetFeatureResult } from './zz_gen_methods';
 
 /** The primary key of StaffRoles, in route order. */
 export type StaffRolesKey = [kind: string, axis: string, domain: string, role: string];
@@ -206,6 +206,7 @@ export const apiDescriptor = defineApiDescriptor({
     [Methods.RevokeStaffUserTrustedDevices]: { method: Methods.RevokeStaffUserTrustedDevices, property: 'revokeStaffUserTrustedDevices', route: 'revoke-staff-user-trusted-devices', scope: 'global', statuses: [204] },
     [Methods.SetStaffTemporaryPassword]: { method: Methods.SetStaffTemporaryPassword, property: 'setStaffTemporaryPassword', route: 'set-staff-temporary-password', scope: 'global', statuses: [204] },
     [Methods.SetStaffUserEmail]: { method: Methods.SetStaffUserEmail, property: 'setStaffUserEmail', route: 'set-staff-user-email', scope: 'global', statuses: [204] },
+    [Methods.SetStaffUserName]: { method: Methods.SetStaffUserName, property: 'setStaffUserName', route: 'set-staff-user-name', scope: 'global', statuses: [204] },
     [Methods.UnlinkStaffSessionIdentity]: { method: Methods.UnlinkStaffSessionIdentity, property: 'unlinkStaffSessionIdentity', route: 'unlink-staff-session-identity', scope: 'global', statuses: [204] },
     [Methods.UnlockStaffSignIn]: { method: Methods.UnlockStaffSignIn, property: 'unlockStaffSignIn', route: 'unlock-staff-sign-in', scope: 'global', statuses: [204] },
     [Methods.WithdrawStaffInvitation]: { method: Methods.WithdrawStaffInvitation, property: 'withdrawStaffInvitation', route: 'withdraw-staff-invitation', scope: 'global', statuses: [204] },
@@ -219,7 +220,7 @@ export const apiDescriptor = defineApiDescriptor({
         {
           scope: 'global',
           lists: { users: Resources.StaffSessionUsers, roles: Resources.StaffUserRoles, identities: Resources.StaffSessionIdentities, invitations: Resources.StaffSessionMailLinks, sessions: Resources.StaffSessions, signInAttempts: Resources.StaffSessionSignInAttempts },
-          methods: { create: Methods.CreateStaffUser, invite: Methods.InviteStaffUser, withdrawInvitation: Methods.WithdrawStaffInvitation, assignRole: Methods.AssignStaffRole, removeRole: Methods.RemoveStaffRole, disable: Methods.DisableStaffUser, enable: Methods.EnableStaffUser, delete: Methods.DeleteStaffUser, rename: Methods.RenameStaffUser, setEmail: Methods.SetStaffUserEmail, setTemporaryPassword: Methods.SetStaffTemporaryPassword, requirePasswordChange: Methods.RequireStaffPasswordChange, endUserSessions: Methods.EndStaffUserSessions, revokeTrustedDevices: Methods.RevokeStaffUserTrustedDevices, unlinkIdentity: Methods.UnlinkStaffSessionIdentity, endSession: Methods.EndStaffSession, unlockSignIn: Methods.UnlockStaffSignIn },
+          methods: { create: Methods.CreateStaffUser, invite: Methods.InviteStaffUser, withdrawInvitation: Methods.WithdrawStaffInvitation, assignRole: Methods.AssignStaffRole, removeRole: Methods.RemoveStaffRole, disable: Methods.DisableStaffUser, enable: Methods.EnableStaffUser, delete: Methods.DeleteStaffUser, rename: Methods.RenameStaffUser, setName: Methods.SetStaffUserName, setEmail: Methods.SetStaffUserEmail, setTemporaryPassword: Methods.SetStaffTemporaryPassword, requirePasswordChange: Methods.RequireStaffPasswordChange, endUserSessions: Methods.EndStaffUserSessions, revokeTrustedDevices: Methods.RevokeStaffUserTrustedDevices, unlinkIdentity: Methods.UnlinkStaffSessionIdentity, endSession: Methods.EndStaffSession, unlockSignIn: Methods.UnlockStaffSignIn },
         },
       ],
     },
@@ -255,6 +256,7 @@ export interface GlobalApi {
   revokeStaffUserTrustedDevices: MethodHandle<RevokeStaffUserTrustedDevices>;
   setStaffTemporaryPassword: MethodHandle<SetStaffTemporaryPassword>;
   setStaffUserEmail: MethodHandle<SetStaffUserEmail>;
+  setStaffUserName: MethodHandle<SetStaffUserName>;
   unlinkStaffSessionIdentity: MethodHandle<UnlinkStaffSessionIdentity>;
   unlockStaffSignIn: MethodHandle<UnlockStaffSignIn>;
   withdrawStaffInvitation: MethodHandle<WithdrawStaffInvitation>;

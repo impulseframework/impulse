@@ -72,6 +72,9 @@
             },
             {
               "resource": "SetStaffUserEmail"
+            },
+            {
+              "resource": "SetStaffUserName"
             }
           ],
           "List": [
@@ -86,6 +89,7 @@
               "resource": "StaffSessionUsers",
               "fields": [
                 "username",
+                "name",
                 "email",
                 "emailVerifiedAt",
                 "disabled",
@@ -149,6 +153,7 @@
                 "expiresAt",
                 "invitedBy",
                 "kind",
+                "name",
                 "roleNames",
                 "tenant",
                 "userId"
@@ -208,6 +213,7 @@
               "resource": "StaffSessionUsers",
               "fields": [
                 "username",
+                "name",
                 "email",
                 "emailVerifiedAt",
                 "disabled",
@@ -265,6 +271,7 @@
                 "expiresAt",
                 "invitedBy",
                 "kind",
+                "name",
                 "roleNames",
                 "tenant",
                 "userId"
@@ -396,6 +403,10 @@
               "condition": "heldElsewhere = false AND heldGlobally = false"
             },
             {
+              "resource": "SetStaffTenantUserName",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
               "resource": "SetStaffTenantTemporaryPassword",
               "condition": "heldElsewhere = false AND heldGlobally = false"
             },
@@ -439,6 +450,7 @@
               "resource": "StaffTenantUsers",
               "fields": [
                 "username",
+                "name",
                 "disabled",
                 "createdAt",
                 "lastSignInAt",
@@ -467,6 +479,7 @@
               "resource": "StaffTenantInvitations",
               "fields": [
                 "email",
+                "name",
                 "roleNames",
                 "invitedBy",
                 "createdAt",
@@ -527,6 +540,7 @@
               "resource": "StaffTenantUsers",
               "fields": [
                 "username",
+                "name",
                 "disabled",
                 "createdAt",
                 "lastSignInAt",
@@ -555,6 +569,7 @@
               "resource": "StaffTenantInvitations",
               "fields": [
                 "email",
+                "name",
                 "roleNames",
                 "invitedBy",
                 "createdAt",

@@ -54,6 +54,9 @@ type AuthDriver interface {
 	SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string) error
 	VerifyUserEmail(ctx context.Context, id impulse.UUID, email string) error
 	ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, email string) (bool, error)
+	SetUserName(ctx context.Context, id impulse.UUID, name *string) error
+	ClaimUserName(ctx context.Context, id impulse.UUID, name string) (bool, error)
+	SetUserLook(ctx context.Context, id impulse.UUID, look sessioninfo.Look) error
 	InsertMailLink(ctx context.Context, l *dbtype.MailLink) error
 	MailLinkByToken(ctx context.Context, tokenHash []byte, now time.Time) (*dbtype.MailLink, error)
 	LiveMailLinks(ctx context.Context, kind dbtype.MailLinkKind, now time.Time) ([]*dbtype.MailLink, error)
@@ -346,6 +349,8 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a verified address replaces what the user held, at the database's time; an address another user holds is refused", run: testUserEmailVerified},
 		{name: "a sign-in refused or held before the acceptance leaves the invitation standing, nothing consumed and nothing granted", run: testInvitationKeptOnRefusal},
 		{name: "a method's verified address is claimed for a user without one, once, and never over another user's", run: testClaimVerifiedEmail},
+		{name: "a person's name is stored without the space around it, replaced or taken off by hand, and claimed only for a user who holds none", run: testUserName},
+		{name: "the look a person chose is kept as a whole, a half it does not name taken off, and a scheme that is neither light nor dark refused", run: testUserLook},
 		{name: "where the username is the address, the database derives the address, a rename is refused and a verified address renames the user", run: testUsernameIsEmail},
 		{name: "a mail link is read back by its token hash with everything it carried", run: testMailLinkRoundTrip},
 		{name: "a mail link is consumed once, by token or by id, and listed while it stands", run: testMailLinkConsumedOnce},

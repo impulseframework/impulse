@@ -395,10 +395,14 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/sectors/testDomain/scrap-ship", method: http.MethodPost},
 		{url: "/droids/sectors/testDomain/set-crew-sector-temporary-password", method: http.MethodPost},
 		{url: "/droids/sectors/testDomain/set-crew-sector-user-email", method: http.MethodPost},
+		{url: "/droids/sectors/testDomain/set-crew-sector-user-name", method: http.MethodPost},
 		{url: "/droids/set-crew-temporary-password", method: http.MethodPost},
 		{url: "/droids/set-crew-user-email", method: http.MethodPost},
+		{url: "/droids/set-crew-user-name", method: http.MethodPost},
 		{url: "/droids/sectors/testDomain/set-members-sector-user-email", method: http.MethodPost},
+		{url: "/droids/sectors/testDomain/set-members-sector-user-name", method: http.MethodPost},
 		{url: "/droids/set-members-user-email", method: http.MethodPost},
+		{url: "/droids/set-members-user-name", method: http.MethodPost},
 		{url: "/droids/sectors/testDomain/set-sector-pilot-clearance", method: http.MethodPost},
 		{url: "/droids/sectors/testDomain/stand-down-mission", method: http.MethodPost},
 		{url: "/droids/sectors/testDomain/start-flight-test", method: http.MethodPost},
@@ -624,8 +628,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/sectors/testDomain/scrap-ship", method: http.MethodPost},
 		{url: "/portal/api/sectors/testDomain/set-crew-sector-temporary-password", method: http.MethodPost},
 		{url: "/portal/api/sectors/testDomain/set-crew-sector-user-email", method: http.MethodPost},
+		{url: "/portal/api/sectors/testDomain/set-crew-sector-user-name", method: http.MethodPost},
 		{url: "/portal/api/set-crew-temporary-password", method: http.MethodPost},
 		{url: "/portal/api/set-crew-user-email", method: http.MethodPost},
+		{url: "/portal/api/set-crew-user-name", method: http.MethodPost},
 		{url: "/portal/api/sectors/testDomain/set-sector-pilot-clearance", method: http.MethodPost},
 		{url: "/portal/api/sectors/testDomain/start-flight-test", method: http.MethodPost},
 		{url: "/portal/api/sectors/testDomain/unlink-crew-sector-session-identity", method: http.MethodPost},
@@ -3198,12 +3204,20 @@ func (s *generatedHandlersStub) SetCrewSectorUserEmail() http.HandlerFunc {
 	return s.record("SetCrewSectorUserEmail")
 }
 
+func (s *generatedHandlersStub) SetCrewSectorUserName() http.HandlerFunc {
+	return s.record("SetCrewSectorUserName")
+}
+
 func (s *generatedHandlersStub) SetCrewTemporaryPassword() http.HandlerFunc {
 	return s.record("SetCrewTemporaryPassword")
 }
 
 func (s *generatedHandlersStub) SetCrewUserEmail() http.HandlerFunc {
 	return s.record("SetCrewUserEmail")
+}
+
+func (s *generatedHandlersStub) SetCrewUserName() http.HandlerFunc {
+	return s.record("SetCrewUserName")
 }
 
 func (s *generatedHandlersStub) SetFeature() http.HandlerFunc {
@@ -3214,8 +3228,16 @@ func (s *generatedHandlersStub) SetMembersSectorUserEmail() http.HandlerFunc {
 	return s.record("SetMembersSectorUserEmail")
 }
 
+func (s *generatedHandlersStub) SetMembersSectorUserName() http.HandlerFunc {
+	return s.record("SetMembersSectorUserName")
+}
+
 func (s *generatedHandlersStub) SetMembersUserEmail() http.HandlerFunc {
 	return s.record("SetMembersUserEmail")
+}
+
+func (s *generatedHandlersStub) SetMembersUserName() http.HandlerFunc {
+	return s.record("SetMembersUserName")
 }
 
 func (s *generatedHandlersStub) SetSectorPilotClearance() http.HandlerFunc {

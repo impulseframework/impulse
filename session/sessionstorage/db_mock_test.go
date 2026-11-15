@@ -270,6 +270,21 @@ func (mr *MockdbMockRecorder) ApproveDeviceCode(ctx, id, userID, now any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ApproveDeviceCode", reflect.TypeOf((*Mockdb)(nil).ApproveDeviceCode), ctx, id, userID, now)
 }
 
+// ClaimUserName mocks base method.
+func (m *Mockdb) ClaimUserName(ctx context.Context, id impulse.UUID, name string) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ClaimUserName", ctx, id, name)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ClaimUserName indicates an expected call of ClaimUserName.
+func (mr *MockdbMockRecorder) ClaimUserName(ctx, id, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ClaimUserName", reflect.TypeOf((*Mockdb)(nil).ClaimUserName), ctx, id, name)
+}
+
 // ClaimVerifiedEmail mocks base method.
 func (m *Mockdb) ClaimVerifiedEmail(ctx context.Context, id impulse.UUID, email string) (bool, error) {
 	m.ctrl.T.Helper()
@@ -1085,6 +1100,34 @@ func (m *Mockdb) SetUserEmail(ctx context.Context, id impulse.UUID, email *strin
 func (mr *MockdbMockRecorder) SetUserEmail(ctx, id, email any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserEmail", reflect.TypeOf((*Mockdb)(nil).SetUserEmail), ctx, id, email)
+}
+
+// SetUserLook mocks base method.
+func (m *Mockdb) SetUserLook(ctx context.Context, id impulse.UUID, look sessioninfo.Look) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUserLook", ctx, id, look)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetUserLook indicates an expected call of SetUserLook.
+func (mr *MockdbMockRecorder) SetUserLook(ctx, id, look any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserLook", reflect.TypeOf((*Mockdb)(nil).SetUserLook), ctx, id, look)
+}
+
+// SetUserName mocks base method.
+func (m *Mockdb) SetUserName(ctx context.Context, id impulse.UUID, name *string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetUserName", ctx, id, name)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetUserName indicates an expected call of SetUserName.
+func (mr *MockdbMockRecorder) SetUserName(ctx, id, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetUserName", reflect.TypeOf((*Mockdb)(nil).SetUserName), ctx, id, name)
 }
 
 // SetUserPassword mocks base method.
