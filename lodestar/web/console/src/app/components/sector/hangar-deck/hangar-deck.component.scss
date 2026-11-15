@@ -7,7 +7,7 @@
 
 .bay {
   min-height: 140px;
-  background: #fff;
+  background: var(--mat-sys-surface-container-lowest);
   border: 1px dashed var(--mat-sys-outline-variant);
   border-radius: 8px;
   padding: 8px;
@@ -21,7 +21,7 @@
   }
 
   &.scrapyard {
-    background: #e9ebf2;
+    background: var(--mat-sys-surface-container-high);
     border-style: solid;
   }
 }
@@ -33,15 +33,17 @@
   text-align: left;
   border: 1px solid var(--mat-sys-outline-variant);
   border-radius: 6px;
-  background: #fff;
+  // The ship is a button: its ground and its text both follow the theme, so dark reads.
+  background: var(--mat-sys-surface-container-lowest);
+  color: var(--mat-sys-on-surface);
   padding: 6px 8px;
   margin-bottom: 6px;
   cursor: grab;
   font: inherit;
 
   &.selected {
-    border-color: #a5640a;
-    box-shadow: 0 0 0 2px rgba(165, 100, 10, 0.25);
+    border-color: var(--lodestar-amber);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--lodestar-amber) 25%, transparent);
   }
 
   .name {
@@ -55,7 +57,7 @@
 }
 
 .refusal {
-  color: #b3261e;
+  color: var(--mat-sys-error);
   font-weight: 500;
 }
 

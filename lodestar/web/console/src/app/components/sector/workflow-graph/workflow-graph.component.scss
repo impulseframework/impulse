@@ -26,7 +26,7 @@
     }
 
     &.live {
-      color: #1f6f8b;
+      color: var(--lodestar-teal);
       cursor: pointer;
 
       path {
@@ -35,14 +35,14 @@
 
       text {
         font-weight: 700;
-        fill: #1f6f8b;
+        fill: var(--lodestar-teal);
       }
 
       &:hover {
-        color: #a5640a;
+        color: var(--lodestar-amber);
 
         text {
-          fill: #a5640a;
+          fill: var(--lodestar-amber);
         }
       }
     }
@@ -50,28 +50,32 @@
 
   .node {
     rect {
-      fill: #fff;
-      stroke: #15161d;
+      fill: var(--mat-sys-surface-container-lowest);
+      stroke: var(--mat-sys-on-surface);
       stroke-width: 1.2;
     }
 
     text {
       font-size: 11px;
       text-anchor: middle;
-      fill: #15161d;
+      fill: var(--mat-sys-on-surface);
     }
 
     &.terminal rect {
-      fill: #e9ebf2;
+      fill: var(--mat-sys-surface-container-high);
     }
 
     &.default rect {
       stroke-width: 2.2;
-      stroke: #a5640a;
+      stroke: var(--lodestar-amber);
     }
 
     &.current rect {
-      fill: #f2b544;
+      fill: var(--lodestar-highlight);
+    }
+
+    &.current text {
+      fill: var(--lodestar-on-highlight);
     }
   }
 }

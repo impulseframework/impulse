@@ -1132,6 +1132,13 @@ func authSignUpCase1(t *testing.T) {
 		if u.Username != "newbie" || u.PasswordHash == nil || u.Email == nil || *u.Email != "new@lakeside.edu" || !u.EmailVerified {
 			t.Errorf("CreateUser() given %+v, want the chosen username, a hash and the address verified", u)
 		}
+		// A role is held by an account's id, and a seed writes roles under an id it derives
+		// before the user exists (SeedUserID). A sign-up that chose the id it is created
+		// under, from the name or otherwise, could take roles written there; the store
+		// generates it, under which nothing is held.
+		if u.ID.Valid {
+			t.Errorf("CreateUser() given the id %s, want none: the store generates a new account's id", u.ID.UUID)
+		}
 
 		return &sessionstorage.SessionUser{ID: userID, Username: "newbie"}, nil
 	})

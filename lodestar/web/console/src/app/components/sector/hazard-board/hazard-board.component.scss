@@ -4,16 +4,16 @@
   font-family: 'Roboto Mono', monospace;
 
   &.nominal {
-    background: rgba(47, 122, 62, 0.18);
+    background: color-mix(in srgb, var(--lodestar-green) 18%, transparent);
   }
 
   &.elevated {
-    background: rgba(165, 100, 10, 0.2);
+    background: color-mix(in srgb, var(--lodestar-amber) 20%, transparent);
   }
 
   &.critical {
-    background: rgba(179, 38, 30, 0.2);
-    color: #b3261e;
+    background: color-mix(in srgb, var(--mat-sys-error) 20%, transparent);
+    color: var(--mat-sys-error);
   }
 }
 

@@ -21,6 +21,12 @@
 :root {
   --default-blue: var(--mat-sys-primary);
   --app-background-color: var(--mat-sys-surface);
+  // The section label's presets that name a surface: the application still picks one
+  // (--layout-label-background-color, white unless it picks another), and the one it
+  // picks follows light and dark.
+  --layout-label-background-white: var(--mat-sys-surface);
+  --layout-label-background-off-white: var(--mat-sys-surface-container-low);
+  --layout-label-background-grey: var(--mat-sys-surface-container-highest);
   --impulse-accent: var(--mat-sys-primary);
   --impulse-surface: var(--mat-sys-surface);
   --impulse-outline: var(--mat-sys-outline);

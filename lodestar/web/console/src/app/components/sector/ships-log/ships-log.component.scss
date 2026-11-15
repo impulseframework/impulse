@@ -14,7 +14,7 @@
   margin-right: 6px;
   padding: 1px 6px;
   border-radius: 8px;
-  background: rgba(31, 111, 139, 0.18);
-  color: #1f6f8b;
+  background: color-mix(in srgb, var(--lodestar-teal) 18%, transparent);
+  color: var(--lodestar-teal);
   font-size: 11px;
 }

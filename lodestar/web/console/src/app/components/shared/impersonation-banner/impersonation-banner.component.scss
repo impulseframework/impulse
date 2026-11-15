@@ -4,12 +4,12 @@
   align-items: center;
   gap: 8px 12px;
   padding: 6px 16px;
-  background: #1f6f8b;
-  color: #fff;
+  background: var(--lodestar-banner);
+  color: var(--lodestar-on-banner);
   font-size: 14px;
 
   &.role {
-    background: #8a5208;
+    background: var(--lodestar-banner-role);
   }
 
   .text {
@@ -18,7 +18,7 @@
   }
 
   button {
-    color: #fff;
-    border-color: rgba(255, 255, 255, 0.6);
+    color: var(--lodestar-on-banner);
+    border-color: color-mix(in srgb, var(--lodestar-on-banner) 60%, transparent);
   }
 }

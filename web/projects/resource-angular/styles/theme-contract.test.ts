@@ -23,7 +23,16 @@ const styles = read(join(root, 'styles', '_index.scss'));
 const theme = read(join(root, 'styles', '_theme.scss'));
 const tokens = declared(styles);
 const themed = declared(theme);
-const older = ['--default-blue', '--app-background-color'];
+// The variables the sheet exposed before the tokens that hold a color: the two the
+// components read, and the section label's presets that name a surface (the label reads
+// the preset the application picks, white unless it picks another).
+const older = [
+  '--default-blue',
+  '--app-background-color',
+  '--layout-label-background-white',
+  '--layout-label-background-off-white',
+  '--layout-label-background-grey',
+];
 
 describe('the theming contract', () => {
   it('declares every token the components read, with a default', () => {
@@ -37,7 +46,7 @@ describe('the theming contract', () => {
     expect([...tokens].filter((t) => !used.has(t))).toEqual([]);
   });
 
-  it('sets every token, and the two older variables, from the theme', () => {
+  it('sets every token, and the older variables that hold a color, from the theme', () => {
     expect([...tokens].filter((t) => !themed.has(t))).toEqual([]);
     expect([...themed].filter((t) => !tokens.has(t))).toEqual([]);
     for (const name of older) expect(theme).toMatch(new RegExp(`^\\s*${name}\\s*:\\s*var\\(--mat-sys-`, 'm'));

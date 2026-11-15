@@ -13,7 +13,7 @@ import { refusedSegment, TenantService } from './tenant.service';
  * segment loads. A tenant not on the list is asked of the server once more, since on a
  * deep link the list may still be loading, and a seat granted since sign-in is not on it
  * yet; a tenant still absent is refused: the browser is sent to the refusal page under the
- * tenant's own URL, which shows the server's answer. It is never switched to another tenant.
+ * tenant's own URL, which says 404 Not Found. It is never switched to another tenant.
  *
  * Leaving is not the guard's: TenantService follows the navigation that lands, so a
  * navigation another guard turns back into the same tenant clears nothing.
