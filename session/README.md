@@ -15,7 +15,7 @@ The Session repository is designed to handle the management of user sessions, in
   - Username/Password (`session.PasswordSignIn`)
   - Microsoft Entra ID (Azure) OIDC (`session/azure`), admitting one tenant, several, any tenant or Microsoft personal accounts, with role synchronization from the token's roles and provider-initiated logout (see the "Microsoft Entra ID OIDC" section)
   - Google Workspace OIDC (`session/google`), admitting one Workspace, several, any Workspace or any Google account, with role synchronization from Google Groups (see the "Google Workspace OIDC" section)
-  - WorkOS SSO: built and tested, but under `internal` until its review
+  - WorkOS SSO (`session/internal/workos`): built and tested, in an internal package, so an application cannot import it
 - `The second factor`: every session carries one when the sign-in policy asks (`signin.RequireMFA`): the attestation a sign-in's connection makes, by evidence in the token (Entra's `amr`) or by the application's declaration of a directory it administers (`Attesting()`), or else the library's own factor, a one-time code mailed to the user's address, with the browser remembered afterwards as a trusted device and an administrator's reset. See "The second factor" under the Auth session.
 - `Invitations, email addresses and sign-up`: an invitation mailed to an address, carrying the roles its acceptance grants, accepted only by the account it was sent to (an account with no address, by the link); a user's email address in two states, unverified and verified, the person proving it by a mailed link; and self-service sign-up with a password when the application opens it. See "Users and their email address", "Invitations" and "Sign-up" under the Auth session.
 - `Mail`: one interface the invitation, verification, sign-up and sign-in code flows send through (`session/mail`), with the Google Workspace SMTP relay as the first driver (`session/mail/workspace`). See the "Sending mail" section.
@@ -91,8 +91,9 @@ method checks the user's password; an external method produces a verified
 transaction type (`pgx.Tx` or `*spanner.ReadWriteTransaction`); `NewAuth` infers it from
 the store, and the rules the application gives the `Auth` and its methods are typed to it.
 
-Each redirect-based method is its own package (`session/azure`, `session/google`;
-`session/workos` waits under `internal` until its review), built on the `session/signin`
+Each redirect-based method is its own package (`session/azure`, `session/google`; the
+WorkOS method is `session/internal/workos`, which an application cannot import), built
+on the `session/signin`
 contract and the shared `session/oidc` machinery, which also holds the generic OpenID
 Connect method for a provider with nothing vendor-specific about it; an application imports the packages of the methods it offers and registers
 each with its `SignIn` function and `Config`.
