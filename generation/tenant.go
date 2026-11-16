@@ -240,10 +240,17 @@ type tenantsData struct {
 	NameField  string
 	// Declaration is the declaration's columns (resource.TenantDeclarationColumns), nil
 	// where the record declares none; Directories names the directories record and
-	// DefaultSeat its default seat field, empty where it carries none.
-	Declaration *tenantDeclarationColumns
-	Directories string
-	DefaultSeat string
+	// DefaultSeat its default seat field, empty where it carries none. Directory is the
+	// directories record as Set<Record>Directory writes a row of it, Word what a
+	// refusal of the directory's rules calls one tenant, and ResourcePackage the
+	// package of the record's create patch; all three are empty where the record
+	// declares none.
+	Declaration     *tenantDeclarationColumns
+	Directories     string
+	DefaultSeat     string
+	Directory       *tenantDirectoryWrite
+	Word            string
+	ResourcePackage string
 	// Seat is the creator's seat the record's create path writes, nil where the
 	// record's create seats nobody (tenantSeatData); the file asserts the accessors
 	// it draws on against the application type.
@@ -293,6 +300,9 @@ func (r *resourceGenerator) generateTenants() error {
 		if field := tenant.declaration.Directories.DirectoryDefaultSeatField; field != nil {
 			data.DefaultSeat = field.Name()
 		}
+		data.Directory = tenantDirectoryWriteData(tenant)
+		data.Word = r.directoryTenantWord(tenant)
+		data.ResourcePackage = r.resource.Package()
 	}
 	if err := r.writeFormattedGoFile(destinationFilePath, "tenantsTemplate", tenantsTemplate, data); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")
