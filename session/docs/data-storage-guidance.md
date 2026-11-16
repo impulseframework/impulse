@@ -70,38 +70,28 @@ inside the transaction that creates the user.
   yourself. Durable custom user data is deliberately unsupported here: keying
   it on a caller-supplied username string is AP-1.
 
-#### OIDC key choice: `oid` alone vs `(tid, oid)` composite
+#### Entra identities: the link is keyed by `(tid, oid)`
 
-What the claims mean:
+An `Auth` links an Entra identity to its user by the tenant id and the object
+id, the token's `tid` and `oid` claims: the link's connection is the tenant and
+its subject the object id (`sessioninfo.Identity`), and a token without both is
+refused (`parse_claims_failed`). The connection scopes the subject. One
+registration can admit several tenants, or any tenant (`azure.Tenants`,
+`azure.AnyTenant`), and an object id says whose account it is only together
+with the tenant that issued the token. The key is the pair under every shape of
+`Config.Tenants`, a single tenant included.
 
-- **`oid`** is the GUID of the user object in the Entra ID directory (tenant)
-  that issued the token. It is immutable for the life of that object and
-  unique **within that tenant**. It is the same value the Graph API reports
-  as the user's object id, so it correlates across all of your apps and with
-  directory tooling. (Prefer it over `sub`, which is pairwise — unique per
-  user *per application* — and therefore useless for correlating anything.)
-- **`tid`** is the GUID of the tenant the token was issued for.
+The same person reaching the application through two tenants arrives under two
+tenant ids, so as two identities. Whether they are one user is the account
+rules' answer, not a claim's: each identity is linked to the user a rule names
+(see P-2), and a user may hold several links.
 
-**Single-tenant app** (all users from one directory): `oid` alone is a
-sufficient primary key. `tid` is a constant, so including it in the key adds
-nothing. Cheap insurance if multi-tenancy is ever plausible: store `tid` as a
-plain column from day one — promoting it into the key later is then a schema
-change, not a data backfill.
-
-**Multi-tenant app** (sign-ins from multiple directories): the primary key
-must be the composite `(tid, oid)`. Two reasons:
-
-1. **Uniqueness is only guaranteed per tenant.** Microsoft's own guidance is
-   that a cross-tenant user identifier is the `tid` + `oid` pair; treating
-   `oid` as globally unique is relying on an accident of GUID generation, not
-   a contract.
-2. **The semantics are per-tenant anyway.** The same human reaching your app
-   through two tenants (home tenant, or as a guest in another) presents a
-   *different* `oid` per tenant. `(tid, oid)` makes each tenant-scoped
-   identity its own row — which is almost always what a multi-tenant app
-   wants. If the product genuinely needs "one human across tenants," that is
-   a user-linking feature the app builds on top, not something any claim
-   gives you.
+Neither claim is a key for the application's own tables. Those key by
+`SessionUsers.Id`, as above, whatever tenant or method signed the person in. An
+application that wants the directory's ids beside its rows, to correlate with
+directory tooling, stores them as plain columns: an account rule receives them
+as `azure.Identity.TenantID` and `ObjectID`, a custom session data resolver as
+`req.Identity.Connection` and `Subject`.
 
 ### P-2: JIT-provision user data inside the account rule's transaction
 
@@ -188,7 +178,8 @@ session state mid-flight, not for initial population.
 
 Any OIDC flow that compares usernames to decide "same user?" is wrong in both
 directions (renames split one person in two; recycling merges two people into
-one). Identity comparison is `oid` (or `(tid, oid)`) — always.
+one). Identity comparison is the link's key, `(method, connection, subject)`,
+which for Entra is `(tid, oid)` — always. An `Auth` makes it for every sign-in.
 
 ## Regeneration semantics
 
@@ -230,5 +221,6 @@ see AP-2.
   record — the stepping-stone (e.g., MFA-pending) session. Each godoc names
   the other as the alternative.
 - **OQ-5:** ~~Multi-tenant OIDC: do we take a position on `(tid, oid)`
-  composite keys?~~ **Resolved:** the guidance takes a position — see
-  "OIDC key choice" under P-1.
+  composite keys?~~ **Resolved — implemented:** an `Auth` keys an Entra
+  identity's link by `(tid, oid)` under every tenant shape, and application
+  tables key by `SessionUsers.Id` — see "Entra identities" under P-1.

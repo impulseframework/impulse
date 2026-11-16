@@ -188,9 +188,9 @@ func TestNewCustomUserData(t *testing.T) {
 }
 
 // TestAuth_WithCustomData proves the store's attach methods configure its driver: the
-// probes the Auth session checks at construction answer the attached types, no login
-// hook is configured, and the resolver reaches the driver typed to its transaction, a
-// typed nil crossing as an untyped nil.
+// probes the Auth session checks at construction answer the attached types, and the
+// resolver reaches the driver typed to its transaction, a typed nil crossing as an
+// untyped nil.
 func TestAuth_WithCustomData(t *testing.T) {
 	t.Parallel()
 
@@ -247,6 +247,37 @@ func TestAuth_WithCustomData(t *testing.T) {
 		if erased := sessionData.sessionData(); erased.resolver != nil {
 			t.Error("a nil resolver reached the driver as a function")
 		}
+	})
+}
+
+// TestPreauth_WithCustomSessionData proves the Preauth store's attach method configures
+// its driver on each backend: the probe the Preauth session checks at construction
+// answers the attached type, and none on a store given no configuration.
+func TestPreauth_WithCustomSessionData(t *testing.T) {
+	t.Parallel()
+
+	t.Run("postgres", func(t *testing.T) {
+		t.Parallel()
+
+		sessionData, err := NewCustomSessionData[testTypedData, pgx.Tx]("SessionCustomData", nil)
+		if err != nil {
+			t.Fatalf("NewCustomSessionData() error = %v", err)
+		}
+
+		assertProbes(t, NewPostgresPreauth(nil), nil, nil)
+		assertProbes(t, NewPostgresPreauth(nil).WithCustomSessionData(sessionData), reflect.TypeFor[testTypedData](), nil)
+	})
+
+	t.Run("spanner", func(t *testing.T) {
+		t.Parallel()
+
+		sessionData, err := NewCustomSessionData[testTypedData, *cloudspanner.ReadWriteTransaction]("SessionCustomData", nil)
+		if err != nil {
+			t.Fatalf("NewCustomSessionData() error = %v", err)
+		}
+
+		assertProbes(t, NewSpannerPreauth(nil), nil, nil)
+		assertProbes(t, NewSpannerPreauth(nil).WithCustomSessionData(sessionData), reflect.TypeFor[testTypedData](), nil)
 	})
 }
 

@@ -1,10 +1,10 @@
 package app
 
 // LegacyAuth is an Auth option of a generator program whose method argument is not a
-// sign-in method declaration: the identifier the single-method session types took
-// (generation.Password, generation.OIDCGoogle and their kin), which the library keeps
-// under session/legacy. No recipe moves an application off those types; it is re-created
-// from the skeleton.
+// sign-in method declaration: an identifier in a declaration's place
+// (generation.Password, generation.OIDCGoogle and their kin), which names a
+// single-method session type this module does not carry. No recipe moves an application
+// off those types; it is re-created from the skeleton.
 type LegacyAuth struct {
 	// Pos is the Auth call's position as file:line.
 	Pos string

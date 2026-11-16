@@ -388,10 +388,6 @@ func (s *SessionStorageDriver) ActiveImpersonations(ctx context.Context, activeS
 	return imps, nil
 }
 
-// liveRolePrincipalRecord renders an EXISTS predicate, over the session alias s, that is
-// true when the session carries a live role-principal impersonation record. FALSE when
-// no impersonation table is configured, so username-keyed statements can embed it
-// unconditionally.
 // foreignRolePrincipalRecord is a predicate over session alias s: the session carries a
 // live role-principal record whose actor was authenticated by another application. Its
 // username is that actor's, borrowed, not a user of this application's.

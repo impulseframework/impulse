@@ -318,7 +318,7 @@ func issuerOf(authority, tid string) string {
 
 // TenantOfIssuer reads a tenant's v2.0 issuer, <authority>/<tenant id>/v2.0, into the
 // authority and the tenant it names, for a configuration that holds the issuer of one
-// tenant as v0.12 did (Config.Authority and Config.Tenants hold them apart). An issuer
+// tenant as one URL (Config.Authority and Config.Tenants hold them apart). An issuer
 // of another shape is an error.
 func TenantOfIssuer(issuerURL string) (authority string, tenant TenantSet, err error) {
 	base, ok := strings.CutSuffix(strings.TrimSuffix(issuerURL, "/"), "/v2.0")

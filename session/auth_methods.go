@@ -323,7 +323,7 @@ func (a *Auth[S, U, Tx]) register(reg *signInRegistration) methodHandlers {
 
 // RegisterExternal registers a redirect-based sign-in method under its registration's
 // name and returns its handlers. It implements signin.Core: the method packages (azure,
-// google; workos under internal until v0.13.1) reach it through signin.Register, so an application never calls it
+// google; workos under internal) reach it through signin.Register, so an application never calls it
 // directly. It panics on a registration rule, as refuseRegistration documents, when
 // the registration has neither a standard account rule nor a custom one, when it
 // names a standard rule that does not exist, and when a registration that synchronizes

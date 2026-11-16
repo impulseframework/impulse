@@ -409,10 +409,10 @@ func (a *Auth[S, U, Tx]) claimCodeAddress(ctx context.Context, userID impulse.UU
 // are each remembered: a sign-in reads the signing-in user's entry alone and a held
 // sign-in drops that user's entry alone, so one person's remembering never forgets
 // another's. The browser holds at most trustedDevicesPerBrowser entries; remembering
-// one more drops the oldest. Releases before 0.13.17 wrote one bare token under
-// trustedCookieKey: such a cookie is still read, its token standing for whichever
-// user's device the row names, and it is rewritten in the new shape at the next
-// remembering or held sign-in.
+// one more drops the oldest. A cookie that holds one bare token under
+// trustedCookieKey is read too, its token standing for whichever user's device the
+// row names, and it is rewritten in the entries' shape at the next remembering or
+// held sign-in.
 const (
 	trustedDevicesKey        cookie.Key = "devices"
 	trustedCookieKey         cookie.Key = "trusted"

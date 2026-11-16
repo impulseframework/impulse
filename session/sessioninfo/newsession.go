@@ -54,10 +54,6 @@ type NewSessionRequest struct {
 	// Resolvers unmarshal the fields they need — the library does not curate a claims
 	// struct.
 	Claims json.RawMessage
-	// Tid and Oid are set by no sign-in method: a Microsoft Entra ID sign-in carries its
-	// tenant and object id as the Identity's Connection and Subject.
-	Tid string
-	Oid string
 	// Identity is the verified identity establishing an Auth session. It is nil for a
 	// session no sign-in establishes: a preauth session, a regeneration, an
 	// impersonation.

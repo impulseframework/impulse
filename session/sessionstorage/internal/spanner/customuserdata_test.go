@@ -20,18 +20,6 @@ type userTestData struct {
 	LoginCount spanner.NullInt64  `spanner:"LoginCount"`
 }
 
-// oidcUserTestData matches the sessions_test/oidc_users OIDCUserData table.
-type oidcUserTestData struct {
-	Email       spanner.NullString `spanner:"Email"`
-	DisplayName spanner.NullString `spanner:"DisplayName"`
-	Theme       spanner.NullString `spanner:"Theme"`
-}
-
-// sessionUserRefData matches the sessions_test/oidc_users SessionCustomData table.
-type sessionUserRefData struct {
-	UserIDRef spanner.NullString `spanner:"UserIdRef"`
-}
-
 func ns(s string) spanner.NullString {
 	return spanner.NullString{StringVal: s, Valid: true}
 }

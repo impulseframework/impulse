@@ -30,7 +30,9 @@ schema), which is how the scenarios prove a hook's write survives a refusal and 
 reads what the sign-in's resolver wrote in the same transaction. Both applications carry
 custom session and user data through the store's one configuration of each
 (`withCustomData`), so the resolver typed to the backend's transaction and the tables
-`testdata/<backend>/000002_CustomData` runs on both. Needs Docker.
+`testdata/<backend>/000002_CustomData` runs on both. A `Preauth` carries custom session
+data on both backends too (`TestPreauthSeams_CustomSessionData`, over the base set and
+`testdata/preauth/<backend>`). Needs Docker.
 
 **Public surface** (`surface_test.go` in the root package). One scenario table runs
 against `Preauth` and `Auth` (with password and WorkOS sign-in registered on it), built
