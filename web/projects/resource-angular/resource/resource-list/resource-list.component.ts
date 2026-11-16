@@ -612,7 +612,8 @@ export class ResourceListComponent implements OnInit {
       } else {
         // A cell without a configured format is written by the field's display type: a
         // size for bytes, the elements for an array, one-line JSON for an object, a
-        // calendar date for a date, the value's text for the rest.
+        // calendar date for a date, the value's text for the rest. A yes-or-no value is
+        // not written at all: the table draws it as a mark (processedRowData).
         const displayType = this.meta()?.fields?.find((field) => field.fieldName === col.id)?.displayType;
         const valueFormatter = (params: DataType | null): string => {
           if (col.formatType) {
@@ -629,6 +630,9 @@ export class ResourceListComponent implements OnInit {
           width: col.width,
           resizable: col.resizable,
           valueFormatter,
+          // A configured format stays with the column, so the display row knows the
+          // author chose how the cell is written.
+          ...(col.formatType ? { formatType: col.formatType } : {}),
           ...(col.valueGetter ? { valueGetter: col.valueGetter } : {}),
           // A column that opts out of its filter control says so to the table.
           ...(col.filterable === false ? { filterable: false } : {}),
@@ -734,7 +738,11 @@ export class ResourceListComponent implements OnInit {
           updatedRow[col.id] = row[col.id];
         }
 
-        if (typeof col.valueFormatter === 'function') {
+        // A yes-or-no value stays what it is, so the table draws it as a check or a dash
+        // and not as the word a formatter would make of it. A column that configures a
+        // format is written by that format, as its author asked.
+        const mark = typeof updatedRow[col.id] === 'boolean' && !col.formatType;
+        if (typeof col.valueFormatter === 'function' && !mark) {
           updatedRow[col.id] = col.valueFormatter(updatedRow[col.id]);
         }
 

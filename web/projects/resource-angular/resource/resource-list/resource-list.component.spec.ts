@@ -54,6 +54,8 @@ const metas: Record<string, ResourceMeta> = {
       field('cargoBays', { displayType: 'number[]' }),
       field('digest', { displayType: 'bytes' }),
       field('lastRefitAt', { displayType: 'date' }),
+      field('decommissioned', { displayType: 'boolean' }),
+      field('flagged', { displayType: 'nullboolean' }),
       field('limitStatus'),
       field('activeLearners', { displayType: 'number' }),
       field('partnerLimit', { displayType: 'number' }),
@@ -213,6 +215,61 @@ describe('ResourceListComponent', () => {
       );
       expect(cells).toEqual(['Kestrel', '60, 60, 30', '32 B', '9/21/2026']);
       expect((fixture.nativeElement as HTMLElement).textContent).not.toContain(digest32);
+    });
+  });
+
+  describe('hands a yes-or-no value to the table as it is', () => {
+    const fleet = [
+      { id: 's-1', name: 'Kestrel', decommissioned: true, flagged: null },
+      { id: 's-2', name: 'Heron', decommissioned: false, flagged: false },
+    ];
+    const cellsOf = (): HTMLElement[][] =>
+      Array.from((fixture.nativeElement as HTMLElement).querySelectorAll<HTMLElement>('tr.impulse-row')).map((row) =>
+        Array.from(row.querySelectorAll<HTMLElement>('td.data-col')),
+      );
+
+    it('so a yes is a check and a no is a dash, never the words, and a null is the column\'s empty value', async () => {
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [
+            { id: 'name' as FieldName },
+            { id: 'decommissioned' as FieldName },
+            { id: 'flagged' as FieldName, emptyDataValue: 'Not set' },
+          ],
+        },
+        fleet,
+      );
+      fixture.detectChanges();
+      await settle();
+      const rows = fixture.componentInstance.processedRowData();
+      expect(rows.map((row) => row['decommissioned'])).toEqual([true, false]);
+      expect(rows.map((row) => row['flagged'])).toEqual(['Not set', false]);
+
+      const cells = cellsOf();
+      expect(cells[0][1].querySelector('mat-icon.cell-yes')?.getAttribute('aria-label')).toBe('Yes');
+      expect(cells[1][1].querySelector('.cell-no')?.getAttribute('aria-label')).toBe('No');
+      expect(cells[0][2].textContent?.trim()).toBe('Not set');
+      expect(cells[1][2].querySelector('.cell-no')?.getAttribute('aria-label')).toBe('No');
+      const words = cells.flat().map((cell) => cell.textContent?.trim());
+      expect(words).not.toContain('true');
+      expect(words).not.toContain('false');
+    });
+
+    it('but writes it by the format of a column that configures one', async () => {
+      await create(
+        {
+          primaryResource: ships,
+          listColumns: [{ id: 'name' as FieldName }, { id: 'decommissioned' as FieldName, formatType: 'yyyy' }],
+        },
+        fleet,
+      );
+      fixture.detectChanges();
+      await settle();
+      // The configured format answers as it always has for a value that is no date: its
+      // text for a yes, nothing for a no.
+      expect(fixture.componentInstance.processedRowData().map((row) => row['decommissioned'])).toEqual(['true', undefined]);
+      expect(cellsOf().flat().some((cell) => cell.querySelector('.cell-yes, .cell-no'))).toBe(false);
     });
   });
 

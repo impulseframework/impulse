@@ -237,7 +237,15 @@
                   }
                 </td>
               } @else {
-                <td class="data-col" [style.width.px]="widthFor(col)">{{ row[col.id] }}</td>
+                <td class="data-col" [style.width.px]="widthFor(col)">
+                  @if (row[col.id] === true) {
+                    <mat-icon class="cell-yes" role="img" aria-hidden="false" aria-label="Yes">check</mat-icon>
+                  } @else if (row[col.id] === false) {
+                    <span class="cell-no" role="img" aria-label="No">–</span>
+                  } @else {
+                    {{ row[col.id] }}
+                  }
+                </td>
               }
             }
           </tr>
