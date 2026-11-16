@@ -181,8 +181,7 @@ func impersonatedIdentity(ctx context.Context, req *ImpersonationRequest, resolv
 	return resolve.User(ctx, user)
 }
 
-// UserStore is the user lookup the identity resolver and the session user check
-// need: the Auth store has it.
+// UserStore is the user lookup the identity resolver needs: the Auth store has it.
 type UserStore interface {
 	User(ctx context.Context, id impulse.UUID) (*sessionstorage.SessionUser, error)
 	UserByUserName(ctx context.Context, username string) (*sessionstorage.SessionUser, error)
@@ -253,27 +252,6 @@ func refuseShadowedActor(ctx context.Context, storage UserStore, actor string) e
 	default:
 		return errors.Wrap(err, "UserStore.UserByUserName()")
 	}
-}
-
-// SessionUserInfo resolves the validated session's user record for the request
-// context. A foreign actor's role-principal session has no local user — the actor is
-// not a user of this application — so no record is looked up and none can be disabled.
-// Every other session, a local actor's role-principal session included, must map to an
-// existing, enabled user.
-func SessionUserInfo(ctx context.Context, storage UserStore, sessInfo *sessioninfo.SessionInfo) (*sessioninfo.UserInfo, error) {
-	if imp, ok := ImpersonationInCtx(ctx); ok && imp.Principal.IsRole() && !imp.IsLocalActor() {
-		return &sessioninfo.UserInfo{Username: sessInfo.Username}, nil
-	}
-
-	user, err := storage.UserByUserName(ctx, sessInfo.Username)
-	if err != nil {
-		return nil, errors.Wrap(err, "UserStore.UserByUserName()")
-	}
-	if user.Disabled {
-		return nil, httpio.NewUnauthorizedMessage("Session Expired")
-	}
-
-	return &sessioninfo.UserInfo{ID: user.ID, Username: user.Username, Disabled: user.Disabled}, nil
 }
 
 // RefuseImpersonated guards the library's identity-mutating handlers. A self

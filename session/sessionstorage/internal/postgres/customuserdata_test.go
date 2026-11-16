@@ -19,18 +19,6 @@ type userTestData struct {
 	LoginCount *int64  `db:"LoginCount"`
 }
 
-// oidcUserTestData matches the sessions_test/oidc_users OIDCUserData table.
-type oidcUserTestData struct {
-	Email       *string `db:"Email"`
-	DisplayName *string `db:"DisplayName"`
-	Theme       *string `db:"Theme"`
-}
-
-// sessionUserRefData matches the sessions_test/oidc_users SessionCustomData table.
-type sessionUserRefData struct {
-	UserIDRef *string `db:"UserIdRef"`
-}
-
 var (
 	dataUserID   = impulse.Must(impulse.UUIDFromString("27b43588-b743-4133-8730-e0439065a844"))
 	noDataUserID = impulse.Must(impulse.UUIDFromString("54918893-2342-4621-8673-79520a84b84f"))
