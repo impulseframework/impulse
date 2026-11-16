@@ -357,8 +357,8 @@ var (
 // moved (in process, by the pinned release, and on the pin-only move), the pin after the
 // move held to the step (a release go refuses stops the step with go's words; a pin below
 // the step's version, or dropped by the tidy, is refused naming what go.mod holds; one
-// carried beyond it stays, noted), and the refusals (a legacy auth, a dirty tree, a pin
-// newer than the running impulse, a pinned render, check or handoff that could not run).
+// carried beyond it stays, noted), and the refusals (a dirty tree, a pin newer than the
+// running impulse, a pinned render, check or handoff that could not run).
 func TestUpgrade(t *testing.T) {
 	t.Parallel()
 
