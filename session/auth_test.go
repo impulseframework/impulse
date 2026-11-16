@@ -2065,7 +2065,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			wait:     confirmation,
 			password: "pw",
 			prepare: func(f *authFixture, pendingID impulse.UUID) {
-				f.store.EXPECT().LinkIdentity(gomock.Any(), userID, identity, "lakeside").Return(&sessionstorage.SessionIdentity{}, nil)
+				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any()).Return(nil)
 				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn"}, {Method: sessioninfo.MethodLinkConfirmation}}
 					if diff := cmp.Diff(want, req.AuthEvents, eventOpts); diff != "" || req.Reason != sessioninfo.ReasonIdentityLinked || !cmp.Equal(req.Identity, identity) {
@@ -2087,7 +2087,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			wait:     confirmation,
 			password: "pw",
 			prepare: func(f *authFixture, pendingID impulse.UUID) {
-				f.store.EXPECT().LinkIdentity(gomock.Any(), userID, identity, "lakeside").Return(&sessionstorage.SessionIdentity{}, nil)
+				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any()).Return(nil)
 				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(userID), Username: "pat"}
 				})
@@ -2111,7 +2111,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			password: "pw",
 			prepare: func(f *authFixture, pendingID impulse.UUID) {
 				f.expectConsume(pendingID)
-				f.store.EXPECT().LinkIdentity(gomock.Any(), userID, identity, "lakeside").Return(nil, httpio.NewConflictMessage("already linked"))
+				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any()).Return(httpio.NewConflictMessage("already linked"))
 				f.store.EXPECT().Identity(gomock.Any(), identity.Method, identity.Connection, identity.Subject).Return(&sessionstorage.SessionIdentity{UserID: otherID}, nil)
 			},
 			wantStatus: http.StatusUnauthorized,
@@ -2177,6 +2177,60 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			}
 			if c := cookieNamed(rr, defaultPendingCookieName); (c != nil && c.Value != "") != tt.wantReplaced {
 				t.Errorf("pending cookie replaced = %v, want %v", c != nil && c.Value != "", tt.wantReplaced)
+			}
+		})
+	}
+}
+
+// TestAuth_PendingConfirmWithPassword_givesTheDirectorySeat pins what a password
+// confirmation hands the store with the link: the Auth's directory admission, its
+// reader and its seat hook, so the store gives the person the default seat of the
+// tenant whose directory the identity came through in the transaction that makes the
+// link; an Auth with no admission hands none.
+func TestAuth_PendingConfirmWithPassword_givesTheDirectorySeat(t *testing.T) {
+	t.Parallel()
+
+	userID := impulse.Must(impulse.NewUUID())
+	sessionID := impulse.Must(impulse.NewUUID())
+	identity := &sessioninfo.Identity{Method: sessioninfo.MethodWorkOS, Connection: "conn", Subject: "idp", Email: "pat@lakeside.edu"}
+	confirmation := &signin.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: impulse.NullUUIDFromUUID(userID), Username: "pat", Tenant: "lakeside"}
+
+	tests := []struct {
+		name      string
+		admission bool
+	}{
+		{name: "an Auth with a directory admission hands its reader and its seat hook to the link", admission: true},
+		{name: "an Auth with none hands none"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			f := newAuthFixture(t, ctrl)
+			workos.SignIn(f.auth, "workos", resolveAll[workos.Identity](), &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
+			handed := gomock.Nil()
+			if tt.admission {
+				f.auth.SetDirectoryAdmission(
+					func(context.Context, mockTx, signin.Directory) ([]signin.DeclaredDirectory, error) { return nil, nil },
+					func(context.Context, mockTx, impulse.UUID, string, []signin.DirectorySeat) (func(context.Context), error) {
+						return nil, nil
+					},
+				)
+				handed = gomock.Not(gomock.Nil())
+			}
+			f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "pw")}, nil).AnyTimes()
+			cookies, pendingID := f.hold(t, &signInAttempt{identity: identity, reason: sessioninfo.ReasonLogin, registration: "workos"}, confirmation)
+			f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", handed, handed).Return(nil)
+			f.expectSignIn(sessionID, nil, func(req *sessioninfo.NewSessionRequest) error {
+				req.UserID, req.Username = userID, "pat"
+
+				return nil
+			})
+			f.expectConsume(pendingID)
+
+			rr := f.serve(f.auth.Pending().ConfirmWithPassword(), http.MethodPost, "/pending/confirm", map[string]string{"password": "pw"}, cookies)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, http.StatusOK, rr.Body.String())
 			}
 		})
 	}

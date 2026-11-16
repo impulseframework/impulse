@@ -101,9 +101,18 @@ type AuthStore[Tx any] interface {
 	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*SessionIdentity, error)
 	// IdentitiesByUser lists a user's identity links.
 	IdentitiesByUser(ctx context.Context, userID impulse.UUID) ([]*SessionIdentity, error)
-	// LinkIdentity links an identity to a user outside the sign-in flow (for
-	// example after a pending confirmation).
+	// LinkIdentity links an identity to a user outside the sign-in flow.
 	LinkIdentity(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*SessionIdentity, error)
+	// LinkConfirmedIdentity links an identity to the user whose password confirmed the
+	// link, in one transaction, and gives the person the default seat of the tenant
+	// whose directory the identity came through: directories reads the declaration and
+	// seat gives the seat, handed the transaction, as at a sign-in that makes the link
+	// itself (SignInRules; both nil for none). The link is made and the person seated
+	// together, or neither. An identity linked meanwhile is a Conflict.
+	LinkConfirmedIdentity(
+		ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string,
+		directories signin.DirectoryReader[Tx], seat signinflow.DirectorySeater[Tx],
+	) error
 	// UnlinkIdentity removes a link. It refuses to remove the last means of sign-in of
 	// a user that has no password.
 	UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error
@@ -426,7 +435,8 @@ func NewPostgresAuth(pg postgres.Queryer, opts ...PostgresOption) *Auth[pgx.Tx] 
 // AuthStore.SignIn: the registration's own account rule (nil for none) and its standard
 // rule ("" for none), the sign-in policy (nil for none), the invitation acceptor (nil
 // for none), and a tenanted application's reader of the tenants' directory
-// declarations with the hook that seats a stranger they admit (both nil for none).
+// declarations with the hook that seats a person at their first sign-in through a
+// tenant's directory (both nil for none).
 type SignInRules[Tx any] struct {
 	Account     signin.AccountRule[Tx]
 	Standard    signin.StandardAccountRule
@@ -852,6 +862,21 @@ func (a *Auth[Tx]) LinkIdentity(ctx context.Context, userID impulse.UUID, identi
 	}
 
 	return (*SessionIdentity)(link), nil
+}
+
+// LinkConfirmedIdentity implements AuthStore.
+func (a *Auth[Tx]) LinkConfirmedIdentity(
+	ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string,
+	directories signin.DirectoryReader[Tx], seat signinflow.DirectorySeater[Tx],
+) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := signinflow.LinkConfirmed(ctx, a.flow, userID, username, identity, tenant, directories, seat); err != nil {
+		return errors.Wrap(err, "signinflow.LinkConfirmed()")
+	}
+
+	return nil
 }
 
 // UnlinkIdentity implements AuthStore.

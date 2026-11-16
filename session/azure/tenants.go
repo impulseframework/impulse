@@ -19,8 +19,10 @@ const DefaultAuthority = "https://login.microsoftonline.com"
 
 // ConsumerTenantID is the tenant id of Microsoft personal accounts (outlook.com,
 // hotmail.com, Xbox): the tid claim every personal account's token carries. It is
-// admitted only by PersonalAccounts, and refused as a listed tenant.
-const ConsumerTenantID = "9188040d-6c67-4c5b-b112-36a304b66dad"
+// admitted only by PersonalAccounts, and refused as a listed tenant. It is one of the
+// two values that are no organization's directory (signin.Directory.PersonalAccounts),
+// so no tenant of an application takes it as its own.
+const ConsumerTenantID = signin.MicrosoftPersonalAccountsConnection
 
 // The shared endpoints of the Microsoft identity platform, whose discovery documents
 // name their issuer with a placeholder.

@@ -5,13 +5,16 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // AnyAccountConnection is the connection written on the link of a Google account that
 // is in none of the registration's named Workspaces and is admitted by AnyGoogleAccount:
 // the provider itself, since such an account belongs to no organization the
 // application names. A Workspace account admitted by AnyWorkspace carries its domain.
-const AnyAccountConnection = "accounts.google.com"
+// It is one of the two values that are no organization's directory
+// (signin.Directory.PersonalAccounts), so no tenant takes it as its own.
+const AnyAccountConnection = signin.GoogleAnyAccountConnection
 
 // anyWorkspaceAccount is the hd hint that asks Google's account chooser for any
 // Workspace account, sent when a registration admits more than one domain.
