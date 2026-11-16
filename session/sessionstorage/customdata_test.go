@@ -250,6 +250,37 @@ func TestAuth_WithCustomData(t *testing.T) {
 	})
 }
 
+// TestPreauth_WithCustomSessionData proves the Preauth store's attach method configures
+// its driver on each backend: the probe the Preauth session checks at construction
+// answers the attached type, and none on a store given no configuration.
+func TestPreauth_WithCustomSessionData(t *testing.T) {
+	t.Parallel()
+
+	t.Run("postgres", func(t *testing.T) {
+		t.Parallel()
+
+		sessionData, err := NewCustomSessionData[testTypedData, pgx.Tx]("SessionCustomData", nil)
+		if err != nil {
+			t.Fatalf("NewCustomSessionData() error = %v", err)
+		}
+
+		assertProbes(t, NewPostgresPreauth(nil), nil, nil)
+		assertProbes(t, NewPostgresPreauth(nil).WithCustomSessionData(sessionData), reflect.TypeFor[testTypedData](), nil)
+	})
+
+	t.Run("spanner", func(t *testing.T) {
+		t.Parallel()
+
+		sessionData, err := NewCustomSessionData[testTypedData, *cloudspanner.ReadWriteTransaction]("SessionCustomData", nil)
+		if err != nil {
+			t.Fatalf("NewCustomSessionData() error = %v", err)
+		}
+
+		assertProbes(t, NewSpannerPreauth(nil), nil, nil)
+		assertProbes(t, NewSpannerPreauth(nil).WithCustomSessionData(sessionData), reflect.TypeFor[testTypedData](), nil)
+	})
+}
+
 func assertProbes(t *testing.T, store interface {
 	CustomDataType() reflect.Type
 	CustomUserDataType() reflect.Type

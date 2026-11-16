@@ -2089,6 +2089,25 @@ values (below) or `UpdateCustomSessionData`. A Spanner store takes a resolver ov
 `*spanner.ReadWriteTransaction` and reads `spanner:"..."` tags; a struct tagged for both
 drivers serves either.
 
+### Configuration — Preauth
+
+A `Preauth` store takes its one configuration the same way, through its own
+`WithCustomSessionData`, typed to its transaction, and the session type is built for
+the same `T`:
+
+```go
+sessionData, err := sessionstorage.NewCustomSessionData[MyData, pgx.Tx]("SessionCustomData", nil)
+if err != nil { /* as above */ }
+
+store := sessionstorage.NewPostgresPreauth(pool).WithCustomSessionData(sessionData)
+preauth, err := session.NewPreauth[MyData](store, cookieKey)
+```
+
+A Preauth session's row is the caller's: `Login` is given it (see "Per-call custom
+data"). A configuration that carries a resolver has it asked for a session started
+with no row, a `Login`'s with `Reason: ReasonPreauth` and the username; the request
+names no user and no identity, since a Preauth keeps none.
+
 ### Reading the data in handlers
 
 ```go
@@ -2183,7 +2202,7 @@ on regeneration feels like data loss, it was user data, not session data — see
 |---|---|
 | Non-struct `T`, no persistable fields, invalid tag identifier, reserved `SessionId`, duplicate columns | Error from the config constructor, at startup |
 | Session type's `T` doesn't match the storage config's `T` (or no config attached) | Error from the session-type constructor, at startup |
-| Wrong-backend config on a storage constructor | Compile error |
+| A config typed to the other backend's transaction given to a store's `WithCustomSessionData` | Compile error |
 | Resolver returns an error | Session creation aborts atomically: no session row, no custom row, no cookies; login fails (OIDC: redirect to the login page with a refusal code, see "Login refusal codes") |
 | Per-call data with no config attached, or more than one per-call value | Error before any insert |
 | Column name not in your DDL | Database error from the creation transaction (aborts atomically) or from the per-request query |

@@ -74,8 +74,6 @@ type BaseStore interface {
 	SetUserTableName(name string) error
 }
 
-var _ PreauthStore = (*Preauth)(nil)
-
 // PreauthStore defines an interface for managing pre-authenticated session storage.
 type PreauthStore interface {
 	// NewSession creates a new session in the database, returning its id. customData
