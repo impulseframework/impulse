@@ -11,8 +11,9 @@ import (
 )
 
 // Fake is an in-memory Service for tests: the record is a map, a publish keeps the
-// documents Fanout produced per principal with the fake's clock as their timestamp,
-// the identity answers a recognizable payload and remembers what it revoked, and a
+// documents Fanout produced per principal with the fake's clock as their timestamp and
+// the write's id, the identity answers a recognizable payload and remembers what it
+// revoked, and a
 // signal runs the kind's subscriptions synchronously and is remembered. Every method
 // fails with Err when it is set, so a caller's logged-failure path can be driven. It is
 // safe for concurrent use.
@@ -33,12 +34,13 @@ type Fake struct {
 	nextSubscription int
 }
 
-// FakeChange is one change document the fake holds, with the fake's timestamp and the
-// id the document was written under.
+// FakeChange is one change document the fake holds, with the fake's timestamp, the id
+// the document was written under, and the id of the write that published it last.
 type FakeChange struct {
 	ChangeDocument
-	ID string
-	At time.Time
+	ID    string
+	At    time.Time
+	Write string
 }
 
 // FakePublish is one Publish call the fake received.
@@ -160,10 +162,11 @@ func (f *Fake) lookup(match func(Subscription) bool) ([]Subscription, error) {
 }
 
 // Publish fans the changes out and keeps the documents per principal, coalescing by id
-// within the fake's current second as the Firestore implementation does.
-func (f *Fake) Publish(ctx context.Context, domain accesstypes.Domain, writes Writes) error {
+// within the fake's current second as the Firestore implementation does: the later
+// write's deleted flag, timestamp and id replace the earlier one's.
+func (f *Fake) Publish(ctx context.Context, domain accesstypes.Domain, writes Writes) (Changes, error) {
 	if f.Err != nil {
-		return f.Err
+		return nil, f.Err
 	}
 	f.mu.Lock()
 	f.publishs = append(f.publishs, FakePublish{Domain: domain, Writes: writes})
@@ -171,7 +174,7 @@ func (f *Fake) Publish(ctx context.Context, domain accesstypes.Domain, writes Wr
 
 	changes, err := Fanout(ctx, f, domain, writes)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	now := f.Now()
@@ -187,14 +190,15 @@ func (f *Fake) Publish(ctx context.Context, domain accesstypes.Domain, writes Wr
 			if at >= 0 {
 				held[at].Deleted = doc.Deleted
 				held[at].At = now
+				held[at].Write = writes.ID
 
 				continue
 			}
-			f.changes[principal] = append(held, FakeChange{ChangeDocument: doc, ID: id, At: now})
+			f.changes[principal] = append(held, FakeChange{ChangeDocument: doc, ID: id, At: now, Write: writes.ID})
 		}
 	}
 
-	return nil
+	return changes, nil
 }
 
 // Token answers an emulator-shaped payload for uid.

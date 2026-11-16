@@ -38,10 +38,13 @@ type SubscriptionRecord interface {
 // resource, and for a derived resource changed wholesale, every subscriber of the
 // resource gets one resource document instead (Fanout). The writes arrive expanded
 // (Derivations.Expand): the derived resources a commit reaches are already among them.
-// The publisher never checks permission: a subscription was written for a permitted
-// request and is re-checked at renewal.
+// Every document carries the write's id (Writes.ID), the last write's when several
+// within one second became one document, and Publish answers the documents it wrote,
+// per principal, which is how a write's answer names the ones in the caller's own
+// change set. The publisher never checks permission: a subscription was written for a
+// permitted request and is re-checked at renewal.
 type ChangePublisher interface {
-	Publish(ctx context.Context, domain accesstypes.Domain, writes Writes) error
+	Publish(ctx context.Context, domain accesstypes.Domain, writes Writes) (Changes, error)
 }
 
 // Identity mints and revokes the browser's identity on the change set.

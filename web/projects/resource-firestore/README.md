@@ -58,10 +58,12 @@ The first snapshot of a listener primes the last change seen and emits nothing. 
 documents already there predate the page's own first fetch; after an error, the resync the
 recovery emits already refetches everything. Each later document becomes one `ChangeEvent`:
 its `kind` (`row`, `list`, or `resource`), `resource`, `key`, `domain`, and `deleted` as the
-document carries them, and `at` as unix microseconds in decimal, the version the refetch
-carries. A document rewritten within its second (the server coalesces writes to one target
-per second) moves forward and is one more event; a document expiring out of the result set
-is not.
+document carries them, `at` as unix microseconds in decimal, the version the refetch
+carries, and `write`, the id of the write that published the document, by which the live
+session tells the tab's own change, which it fetched for when the write was answered, from
+somebody else's. A document rewritten within its second (the server coalesces writes to one
+target per second) moves forward, carries the later write's id, and is one more event; a
+document expiring out of the result set is not.
 
 A quiet stretch is not evidence that anything was missed: the listener keeps its connection
 and resumes after a drop, and the change documents live ten minutes, so a change is lost only

@@ -233,10 +233,38 @@ reaches the tab through a change feed, one listener per tab over the user's own 
 and the row or list refetches with the change's timestamp as its version, so the browser's
 cache answers a repeat and never a stale one.
 
+When a live row or list fetches again. A change the person made in this tab shows at once.
+The server's answer to a write names what the write changed among the rows and lists the
+person holds live (the `X-Changes` response header, which the client reads off every
+answer), and the session fetches those as the write is answered, before the caller of the
+write goes on, by the write's id as their version, without waiting for the feed. The feed
+reports the same write a moment later, carrying the same id, and that report fetches
+nothing; when the feed is the faster of the two, the wait its report started ends with the
+fetch the answer makes. A reload the page asks for itself after its own write carries the
+same version, so the browser answers it with what the session's fetch brought. A change
+somebody else made waits. The first one
+starts a wait of two seconds, every change that arrives in the wait joins it, and the row or
+list fetches once at its end, by the latest change's timestamp: ten changes inside one
+second are one fetch, two seconds after the first. While changes keep arriving the row or
+list fetches at most once every five seconds, counted between the fetches made for other
+people's changes, so a person's own write never waits on them. A tab that is not shown (the
+document's `visibilityState` is `hidden`) fetches nothing, whoever made the change: each row
+and list remembers that something changed and fetches once when the tab is shown again.
+Each watched row and list keeps its own wait. The two times are the library's defaults
+(`liveChangeWait`, `liveRefetchInterval`), and an application sets its own once, where it
+creates its client:
+
+```ts
+const api = createApi({ baseUrl: '/api', live: { changeWait: 1_000, refetchInterval: 10_000 } });
+```
+
 What it costs. One feed listener per tab. One renewal request every two minutes while any
-live row or list is held. One request per change to a watched row or list, the whole page
-again for a list change. One unsubscribe when the page leaves (a keepalive request) and one
-at logout. The server holds no connection and keeps scaling to zero.
+live row or list is held. For a watched row or list: one request for each write the tab
+made to it, one for a burst of other people's changes and at most one every five seconds
+while they keep coming, none while the tab is hidden and one when it is shown again if
+something changed; the whole page again for a list. One unsubscribe when the page leaves (a
+keepalive request) and one at logout. The server holds no connection and keeps scaling to
+zero.
 
 What it never does. It caches nothing without the version parameter, so a plain request is
 never served stale. It never serves one user another's cache: the seed is minted when the
@@ -255,11 +283,16 @@ refetches every watched row and list by a fresh seed, so a page mounted before t
 becomes live; `stop()` is the logout path (every subscription of the user deleted and the
 feed's identity revoked with `{ all: true }`, the feed stopped, a fresh seed), run before the
 session is logged out; `watch(subscription, refetch)` holds a row or list live and returns
-the release; `handle.subscription(key?)` is the subscription a handle's list or row makes.
+the release, and `refetch` runs when the session says the row or list is to be fetched
+again, as above; `handle.subscription(key?)` is the subscription a handle's list or row makes.
 A live request carries `X-Subscribe: <tab>` and `_v=<version>`; every request to a live route
-carries the header too, so each shows the tab on its request log line. The `ChangeFeed`
+carries the header too, so each shows the tab on its request log line. A write needs
+nothing: the client hands the session the `X-Changes` header of any answer that carries one
+(`parseChangesHeader`, `LiveSession.wrote`), whichever handle, method or `api.request` made
+the write. The `ChangeFeed`
 interface (`start`, `stop`, `onChange`, `onResync`) and `ChangeEvent` (`row`, `list`, or
-`resource`, with `at` as unix microseconds) are the seam the feed implements;
+`resource`, with `at` as unix microseconds and `write`, the id of the write that published
+it) are the seam the feed implements;
 [`@impulseframework/resource-firestore`](../resource-firestore/README.md) is the Firestore one, and
 this package depends on no SDK.
 
@@ -287,13 +320,19 @@ releaseRow();
 await api.live.stop(); // at logout, before the session is logged out
 ```
 
-Everything is refetched by a fresh seed on three occasions and no other: when the live
-session starts; when the feed's listener recovers after an error; and when the page becomes
+Everything is refetched by a fresh seed on four occasions and no other: when the live
+session starts; when the feed's listener recovers after an error; when the page becomes
 visible again after being hidden longer than the change document's ten-minute life, since a
-browser throttles or drops a background page's connection. A quiet stretch is not one of
+browser throttles or drops a background page's connection; and when the answer to a write
+the tab made says the write changed more of what the person holds live than its header
+names (`all`). In a hidden tab each of these waits for the tab to be shown, like any other
+fetch. A quiet stretch is not one of
 them: the listener keeps its connection and resumes after a drop, so nothing is missed while
-it runs. `LiveOptions` on `createApi` (`live: { renewInterval, page, fetch, xsrf }`) are the
-knobs a spec turns; every one has a default. The page-leave unsubscribe rides a keepalive
+it runs. `LiveOptions` on `createApi` (`live: { changeWait, refetchInterval, renewInterval,
+page, visibility, clock, fetch, xsrf }`) are the knobs: the two times are an application's
+to set, the rest are what a spec turns (`visibility` is where the session reads whether the
+tab is shown, the document by default, and `clock` the time and the timer its waits run on,
+so a spec moves the time itself); every one has a default. The page-leave unsubscribe rides a keepalive
 fetch, not the transport, so it echoes the XSRF token itself: `xsrf` names the cookie and the
 header (the server's defaults), or is a token source (`{ token() }`) when the application's
 HTTP layer knows the cookie, as the Angular adapter's is, so the cookie is named once.

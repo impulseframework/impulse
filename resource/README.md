@@ -1779,16 +1779,61 @@ before its answer: for each row it wrote, the subscribers of the row get a row d
 and the subscribers of the resource's list in the row's domain a list document; above
 100 rows of one resource in one request, every subscriber of the resource gets one
 resource document instead. Writes to one target within one second coalesce. The publish
-is bounded by two seconds and a failure is logged; it never fails the request. A
+is bounded by two seconds and a failure is logged; it never fails the request. The
+write's answer then names what the write put into the caller's own change set, so the
+tab that wrote fetches at once (below). A
 request's calls on the subscription record and the identity (register, renew,
 unsubscribe, revoke, token) are bounded by five seconds (`live.RecordTimeout`), so a
 backend that stops answering never holds a request open. The
 browser listens to its own change set (`users/{uid}/changes`, timestamps after the last
 one it saw) and refetches the row or list with `_v=<the change's timestamp>` (section 4),
+or `_v=<the write's id>` for a write the tab made itself,
 and such a response carries `Cache-Control: private, max-age=300` so a remount inside
 the window is the browser's own; before any change arrived the client mints a seed at
 login, so a second user on a shared machine never hits the first's cached answers. Every
 other response stays uncached; the session and digest routes never carry the header.
+
+**Whose change it is, and when a page fetches.** A page shows a person's own change at
+once and groups other people's, and what tells the two apart is the write's id. A
+committed request is one write: `live.Publish` mints its id (26 random characters) once,
+whatever tenants its rows were written in, and every change document the write publishes
+carries it as `write`, in every subscriber's change set. A document that several writes
+within one second became carries the last one's, as it carries the last one's timestamp,
+so the tab that wrote first finds somebody else's id on the document and fetches for it.
+The change's time could not serve: it is Firestore's server timestamp, set when Firestore
+commits the document, which the server answering the write never learns; and the
+document's id is the target and the second, shared by everybody who wrote to the target
+in that second. The write's answer names the id and the documents that went into the
+caller's own change set, the ones its own tabs will hear of, in the response header
+`X-Changes` (`live.Answer`), as JSON, percent-encoded so a key or a tenant outside ASCII
+travels in a header; decoded:
+
+```
+X-Changes: {"write":"<id>","changes":[{"kind":"list","resource":"Ships","domain":"<domain>"},{"kind":"row","resource":"Ships","key":"<key>","deleted":true}]}
+```
+
+The generated write handlers hand `live.Publish` the answer they have yet to write, so
+every write path carries it: a resource's patch route, the consolidated patch, an RPC
+method and the create-your-tenant route. The header is at most 2048 bytes
+(`live.MaxChangesHeaderLength`); a write that reached more of the caller's subscriptions
+than fit answers `{"write":"<id>","all":true}`, and the tab fetches everything it holds
+live. An answer carries no header when the write reached nothing the caller holds live,
+when the request speaks for no session principal (a machine outlet's, a scheduled
+call's), and when a publish of the write failed (it may have written some of its
+documents, which a tab told the id would take for changes it had fetched for). Nothing
+is lost by the header's absence: the change set reports the change and the page fetches
+for it as for anyone's.
+
+The browser does the rest (the client library's README, "Live pages"). The tab that
+wrote fetches what the header names when the write is answered, without waiting for its
+change set, and does nothing when the change set reports a document carrying that
+write's id. A document carrying any other id, or none, is somebody else's change: the
+first one starts a wait of two seconds and everything that arrives in the wait becomes
+one fetch, and while changes keep arriving a page fetches at most once every five
+seconds. A tab that is not shown fetches nothing; it remembers that something changed
+and fetches once when it is shown again. The two times are the client library's
+defaults, and an application sets its own where it creates its client. The server holds
+none of this: it publishes each write as it always did, once.
 
 **Derived resources.** A virtual or computed resource has no rows of its own, so a commit
 reaches it through the tables it reads, which the generator records next to the resource:
@@ -1892,7 +1937,8 @@ checked when the server starts.
 
 **The seams** are in `resource/live`: `SubscriptionRecord` (register and renew in one
 batch, unsubscribe a tab or a principal, the subscribers of a row, of a list in a domain,
-of a resource), `ChangePublisher` (`Publish(ctx, domain, touched)`), `Identity` (the
+of a resource), `ChangePublisher` (`Publish(ctx, domain, writes)`, which answers the
+documents it wrote, per principal), `Identity` (the
 token payload and the revocation), `Signaler` and `Subscriber` (the signals below),
 bundled as `Service`; `Fanout` is the fan-out every publisher implementation writes, and
 `Fake` an in-memory service for tests. The Firestore implementation is the live driver,
@@ -1948,9 +1994,10 @@ Lodestar's wiring is [pkg/config/data.go](../lodestar/pkg/config/data.go) and
 **The names the client library mirrors**: the header `X-Subscribe`, the parameter `_v`,
 the routes `live/renew`, `live/unsubscribe` and `live/token` under the outlet's prefix,
 the renewal interval 120 s, the expiry 300 s, the cache header `Cache-Control: private,
-max-age=300`, the bulk threshold 100, and the change document's shape (`kind` of `row`,
-`list` or `resource`; `resource`; `key` and `deleted` on a row; `domain` on a list; `at`
-and `expires`). The generated descriptor names the routes per outlet:
+max-age=300`, the bulk threshold 100, the response header `X-Changes` and its JSON
+(`write`, `changes`, `all`), and the change document's shape (`kind` of `row`,
+`list` or `resource`; `resource`; `key` and `deleted` on a row; `domain` on a list; `at`,
+`expires` and `write`). The generated descriptor names the routes per outlet:
 `live: { renewRoute, unsubscribeRoute, tokenRoute }`.
 
 ## 15. Feature flags

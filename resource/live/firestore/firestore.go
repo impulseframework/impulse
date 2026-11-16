@@ -383,14 +383,17 @@ func (s *Service) lookup(ctx context.Context, query *cloudfirestore.Query, keep 
 // Publish fans the committed changes out through the record (live.Fanout) and writes
 // one document per subscriber into their change set, set with merge under an id that
 // carries the current second, so writes to one target within a second coalesce. Every
-// document carries the server timestamp and an expiry the time-to-live policy acts on.
-func (s *Service) Publish(ctx context.Context, domain accesstypes.Domain, writes live.Writes) error {
+// document carries the server timestamp, an expiry the time-to-live policy acts on,
+// and the id of the write (writes.ID), which the merge replaces with the later
+// write's as it replaces the timestamp. It answers the documents it wrote, per
+// principal.
+func (s *Service) Publish(ctx context.Context, domain accesstypes.Domain, writes live.Writes) (live.Changes, error) {
 	changes, err := live.Fanout(ctx, s, domain, writes)
 	if err != nil {
-		return errors.Wrap(err, "live.Fanout()")
+		return nil, errors.Wrap(err, "live.Fanout()")
 	}
 	if len(changes) == 0 {
-		return nil
+		return changes, nil
 	}
 
 	now := s.now()
@@ -400,26 +403,30 @@ func (s *Service) Publish(ctx context.Context, domain accesstypes.Domain, writes
 	var jobs []*cloudfirestore.BulkWriterJob
 	for principal, docs := range changes {
 		for _, doc := range docs {
-			job, err := writer.Set(s.changes(principal).Doc(doc.ID(second)), changeData(doc, expires), cloudfirestore.MergeAll)
+			job, err := writer.Set(s.changes(principal).Doc(doc.ID(second)), changeData(doc, expires, writes.ID), cloudfirestore.MergeAll)
 			if err != nil {
-				return errors.Wrap(err, "firestore.BulkWriter.Set()")
+				return nil, errors.Wrap(err, "firestore.BulkWriter.Set()")
 			}
 			jobs = append(jobs, job)
 		}
 	}
+	if err := await(writer, jobs); err != nil {
+		return nil, err
+	}
 
-	return await(writer, jobs)
+	return changes, nil
 }
 
-// changeData renders a change document's fields: kind, resource and the two
-// timestamps on every document, key and deleted on a row document, domain on a list
-// document.
-func changeData(doc live.ChangeDocument, expires time.Time) map[string]any {
+// changeData renders a change document's fields: kind, resource, the two timestamps
+// and the id of the write that published it on every document, key and deleted on a
+// row document, domain on a list document.
+func changeData(doc live.ChangeDocument, expires time.Time, write string) map[string]any {
 	data := map[string]any{
 		"kind":     string(doc.Kind),
 		"resource": string(doc.Resource),
 		"at":       cloudfirestore.ServerTimestamp,
 		"expires":  expires,
+		"write":    write,
 	}
 	switch doc.Kind {
 	case live.RowChange:
@@ -439,6 +446,8 @@ type Change struct {
 	live.ChangeDocument
 	At      time.Time
 	Expires time.Time
+	// Write is the id of the write that published the document last.
+	Write string
 }
 
 // Changes reads the principal's change set the way the browser does: the documents
@@ -464,6 +473,7 @@ func (s *Service) Changes(ctx context.Context, principal string, after time.Time
 			Deleted  bool      `firestore:"deleted"`
 			At       time.Time `firestore:"at"`
 			Expires  time.Time `firestore:"expires"`
+			Write    string    `firestore:"write"`
 		}
 		if err := snapshot.DataTo(&doc); err != nil {
 			return nil, errors.Wrap(err, "firestore.DocumentSnapshot.DataTo()")
@@ -479,6 +489,7 @@ func (s *Service) Changes(ctx context.Context, principal string, after time.Time
 			},
 			At:      doc.At,
 			Expires: doc.Expires,
+			Write:   doc.Write,
 		})
 	}
 }
