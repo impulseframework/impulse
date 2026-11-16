@@ -21,9 +21,20 @@ type stubPermissions struct {
 	domains    []accesstypes.Domain
 	err        error
 	checkPerms []accesstypes.Permission
-	// global makes the checker hold a grant in the global partition: the
-	// application's staff.
+	// global makes the checker hold a grant in the global partition, which exempts
+	// nobody from a tenant's sign-in settings.
 	global bool
+	// super makes the user a super administrator: a holder of the Super
+	// Administrator role.
+	super bool
+}
+
+func (s *stubPermissions) SuperAdministrator(context.Context) (bool, error) {
+	if s.err != nil {
+		return false, s.err
+	}
+
+	return s.super, nil
 }
 
 func (s *stubPermissions) Check(_ context.Context, _ accesstypes.Environment, _ accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource) (accesstypes.Decisions, error) {
@@ -666,9 +677,9 @@ func (d *declarationReader) read(_ context.Context, domain accesstypes.Domain) (
 // TestSessionPermissions_admission pins the reach-time admission: a tenant is
 // in the session's list only when the session holds a grant there and the
 // tenant's declaration admits the way the session was established, or the
-// session's actor is the application's staff; in a tenant the session does
-// not reach it holds nothing, on every question the composed permissions
-// answer.
+// session's actor is a super administrator, and nobody else is exempt; in a
+// tenant the session does not reach it holds nothing, on every question the
+// composed permissions answer.
 func TestSessionPermissions_admission(t *testing.T) {
 	t.Parallel()
 
@@ -681,6 +692,9 @@ func TestSessionPermissions_admission(t *testing.T) {
 	impersonation := sessioninfo.AuthEvent{Method: sessioninfo.MethodImpersonation, Connection: "alice"}
 	declaresWorkspace := &signin.TenantDeclaration{Directories: []signin.Directory{{Method: sessioninfo.MethodGoogle, Connection: "acme"}}}
 	workspaceOnly := &signin.TenantDeclaration{Directories: []signin.Directory{{Method: sessioninfo.MethodGoogle, Connection: "acme"}}, DirectoryOnly: true}
+	// lockedOut is the declaration that shuts everyone out: directory only, and no
+	// directory listed.
+	lockedOut := &signin.TenantDeclaration{DirectoryOnly: true}
 	asBob := &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.UserPrincipal("bob")}
 	asRole := &sessioninfo.Impersonation{Actor: "alice", Principal: accesstypes.RolePrincipal("PartnerViewer")}
 
@@ -691,9 +705,11 @@ func TestSessionPermissions_admission(t *testing.T) {
 		// one that does.
 		reader *declarationReader
 		// holds are the tenants the principal's checker holds a grant in; global
-		// makes it, and the actor's checker, staff.
+		// makes it, and the actor's checker, hold a grant in the global partition;
+		// super makes them a super administrator.
 		holds  []accesstypes.Domain
 		global bool
+		super  bool
 		// wantDomains is the session's tenant list; wantReaches the answer per
 		// tenant of the roster (anvil, bastion) when the list is not the whole story.
 		wantDomains []accesstypes.Domain
@@ -766,13 +782,34 @@ func TestSessionPermissions_admission(t *testing.T) {
 			wantDomains: []accesstypes.Domain{bastion},
 		},
 		{
-			name:        "the application's staff reach every tenant",
+			name:        "a super administrator enters a tenant that is directory only and lists no directory",
+			ctx:         sessionCtx("alice", nil, password),
+			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: lockedOut}},
+			holds:       []accesstypes.Domain{anvil, bastion},
+			global:      true,
+			super:       true,
+			wantDomains: []accesstypes.Domain{anvil, bastion},
+			wantReaches: map[accesstypes.Domain]bool{anvil: true, bastion: true},
+		},
+		{
+			name:        "a person holding another global role does not enter it: a grant in the global partition exempts nobody",
+			ctx:         sessionCtx("alice", nil, password),
+			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: lockedOut}},
+			holds:       []accesstypes.Domain{anvil, bastion},
+			global:      true,
+			wantDomains: []accesstypes.Domain{bastion},
+			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
+		},
+		{
+			// A membership that covers every tenant domain is a grant in each tenant and
+			// none in the global partition: held to each tenant's declaration, as the
+			// sign-in rule holds it to be no super administrator's.
+			name:        "a person whose only membership covers every tenant is held to each tenant's declaration",
 			ctx:         sessionCtx("alice", nil, password),
 			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
 			holds:       []accesstypes.Domain{anvil, bastion},
-			global:      true,
-			wantDomains: []accesstypes.Domain{anvil, bastion},
-			wantReaches: map[accesstypes.Domain]bool{anvil: true, bastion: true},
+			wantDomains: []accesstypes.Domain{bastion},
+			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
 		},
 		{
 			name:        "an impersonated session is established by its impersonation, which a directory-only tenant refuses",
@@ -783,16 +820,17 @@ func TestSessionPermissions_admission(t *testing.T) {
 			wantReaches: map[accesstypes.Domain]bool{anvil: false, bastion: true},
 		},
 		{
-			name:        "an impersonated session reaches by its actor's rights: a staff actor reaches the directory-only tenant",
+			name:        "an impersonated session reaches by its actor's rights: a super administrator's reaches the directory-only tenant",
 			ctx:         sessionCtx("bob", asBob, impersonation),
 			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
 			holds:       []accesstypes.Domain{anvil, bastion},
-			global:      true,
+			super:       true,
 			wantDomains: []accesstypes.Domain{anvil, bastion},
 		},
 		{
 			// The role checker (stubRolePermissions) holds a grant in "tenant" alone, so
-			// the list stays empty; the reach is the actor's, who is not staff.
+			// the list stays empty; the reach is the actor's, who is no super
+			// administrator.
 			name:        "a role principal is admitted like any session, by its actor's rights",
 			ctx:         sessionCtx("alice", asRole, impersonation),
 			reader:      &declarationReader{declarations: map[accesstypes.Domain]*signin.TenantDeclaration{anvil: workspaceOnly}},
@@ -823,7 +861,7 @@ func TestSessionPermissions_admission(t *testing.T) {
 			t.Parallel()
 
 			forUser := func(user accesstypes.User) *stubPermissions {
-				return &stubPermissions{user: user, digest: accesstypes.PermissionDigest{"documents": {accesstypes.Read: accesstypes.DigestGranted}}, domains: tt.holds, global: tt.global}
+				return &stubPermissions{user: user, digest: accesstypes.PermissionDigest{"documents": {accesstypes.Read: accesstypes.DigestGranted}}, domains: tt.holds, global: tt.global, super: tt.super}
 			}
 			forRole := func(accesstypes.Role) *stubRolePermissions {
 				return &stubRolePermissions{}
@@ -905,7 +943,7 @@ func TestSessionPermissions_admission(t *testing.T) {
 }
 
 // TestSessionPermissions_admissionReadsOnce pins that one composed value reads a
-// tenant's declaration once and asks the staff question once, whatever is asked
+// tenant's declaration once and asks the super administrator question once, whatever is asked
 // about the tenant after: the guard, the handler's checks and the digest share
 // one answer.
 func TestSessionPermissions_admissionReadsOnce(t *testing.T) {
@@ -943,13 +981,15 @@ func TestSessionPermissions_admissionReadsOnce(t *testing.T) {
 	}
 }
 
-// TestSessionPermissions_actorByAccount pins who the staff question is asked of when
-// the people of a session are accounts: the session's actor as the permission store
-// names them, by the id of their account. An ordinary session's actor is its user, and
-// the checker in hand answers; an impersonated session's actor is the real person
-// behind it, asked for under their account's id and never their username, so the reach
-// follows the grants the actor's account holds; an actor with no account here is asked
-// for by the name the impersonation carries.
+// TestSessionPermissions_actorByAccount pins who the super administrator question is
+// asked of when the people of a session are accounts: the session's actor as the
+// permission store names them, by the id of their account. An ordinary session's actor
+// is its user, and the checker in hand answers; an impersonated session's actor is the
+// real person behind it, asked for under their account's id and never their username,
+// so the reach follows the role the actor's account holds: a session started by a
+// super administrator, viewed as a person who is none, enters a directory-only tenant,
+// and the reverse does not; an actor with no account here is asked for by the name the
+// impersonation carries.
 func TestSessionPermissions_actorByAccount(t *testing.T) {
 	t.Parallel()
 
@@ -964,57 +1004,59 @@ func TestSessionPermissions_actorByAccount(t *testing.T) {
 	tests := []struct {
 		name string
 		ctx  context.Context
-		// staff are the users whose checker holds a grant in the global partition.
-		staff []accesstypes.User
+		// supers are the users who hold the Super Administrator role; every user's
+		// checker holds a grant in the global partition, which exempts nobody.
+		supers []accesstypes.User
 		// wantAsked are the users forUser was asked for, in order: the principal's
-		// checker first, for a user principal, then the actor's for the staff question.
+		// checker first, for a user principal, then the actor's for the super
+		// administrator question.
 		wantAsked []accesstypes.User
 		wantUser  accesstypes.User
 		// wantReaches is whether the session reaches anvil, which admits a directory's
-		// sessions alone: only the application's staff do.
+		// sessions alone: only a super administrator's do.
 		wantReaches bool
 	}{
 		{
 			name:        "an ordinary session's actor is its user: the account's checker answers, asked for once",
 			ctx:         accountCtx("alice", aliceID, nil, password),
-			staff:       []accesstypes.User{aliceUser},
+			supers:      []accesstypes.User{aliceUser},
 			wantAsked:   []accesstypes.User{aliceUser},
 			wantUser:    aliceUser,
 			wantReaches: true,
 		},
 		{
-			name:      "an ordinary session: a grant held under the username is nobody's",
+			name:      "an ordinary session: the role held under the username is nobody's",
 			ctx:       accountCtx("alice", aliceID, nil, password),
-			staff:     []accesstypes.User{"alice"},
+			supers:    []accesstypes.User{"alice"},
 			wantAsked: []accesstypes.User{aliceUser},
 			wantUser:  aliceUser,
 		},
 		{
-			name:        "an impersonated session: the staff question is asked of the actor's account id",
+			name:        "an impersonated session of a person who is no super administrator, started by one who is, enters: the question is asked of the actor's account id",
 			ctx:         accountCtx("bob", bobID, asBob(impulse.NullUUIDFromUUID(aliceID)), impersonation),
-			staff:       []accesstypes.User{aliceUser},
+			supers:      []accesstypes.User{aliceUser},
 			wantAsked:   []accesstypes.User{bobUser, aliceUser},
 			wantUser:    bobUser,
 			wantReaches: true,
 		},
 		{
-			name:      "an impersonated session: the impersonated account's grants do not answer for the actor",
+			name:      "the reverse does not: an impersonated session of a super administrator, started by a person who is none",
 			ctx:       accountCtx("bob", bobID, asBob(impulse.NullUUIDFromUUID(aliceID)), impersonation),
-			staff:     []accesstypes.User{bobUser},
+			supers:    []accesstypes.User{bobUser},
 			wantAsked: []accesstypes.User{bobUser, aliceUser},
 			wantUser:  bobUser,
 		},
 		{
-			name:      "an impersonated session: a grant held under the actor's username is nobody's",
+			name:      "an impersonated session: the role held under the actor's username is nobody's",
 			ctx:       accountCtx("bob", bobID, asBob(impulse.NullUUIDFromUUID(aliceID)), impersonation),
-			staff:     []accesstypes.User{"alice"},
+			supers:    []accesstypes.User{"alice"},
 			wantAsked: []accesstypes.User{bobUser, aliceUser},
 			wantUser:  bobUser,
 		},
 		{
 			name:        "an impersonated session of an actor with no account here: the question is asked of the actor's name",
 			ctx:         accountCtx("bob", bobID, asBob(impulse.NullUUID{}), impersonation),
-			staff:       []accesstypes.User{"alice"},
+			supers:      []accesstypes.User{"alice"},
 			wantAsked:   []accesstypes.User{bobUser, "alice"},
 			wantUser:    bobUser,
 			wantReaches: true,
@@ -1022,7 +1064,7 @@ func TestSessionPermissions_actorByAccount(t *testing.T) {
 		{
 			name:        "a role principal: the question is asked of the actor's account id, which is the session's User()",
 			ctx:         sessionCtx("alice", asRole, impersonation),
-			staff:       []accesstypes.User{aliceUser},
+			supers:      []accesstypes.User{aliceUser},
 			wantAsked:   []accesstypes.User{aliceUser},
 			wantUser:    aliceUser,
 			wantReaches: true,
@@ -1039,7 +1081,7 @@ func TestSessionPermissions_actorByAccount(t *testing.T) {
 			forUser := func(user accesstypes.User) *stubPermissions {
 				asked = append(asked, user)
 
-				return &stubPermissions{user: user, domains: []accesstypes.Domain{anvil}, global: slices.Contains(tt.staff, user)}
+				return &stubPermissions{user: user, domains: []accesstypes.Domain{anvil}, global: true, super: slices.Contains(tt.supers, user)}
 			}
 			forRole := func(accesstypes.Role) *stubRolePermissions {
 				return &stubRolePermissions{}
@@ -1050,7 +1092,7 @@ func TestSessionPermissions_actorByAccount(t *testing.T) {
 			if perms.User() != tt.wantUser {
 				t.Errorf("User() = %q, want %q", perms.User(), tt.wantUser)
 			}
-			// Asked twice: the staff question is asked once for the composed value.
+			// Asked twice: the super administrator question is asked once for the composed value.
 			for range 2 {
 				reaches, err := perms.Reaches(context.Background(), anvil)
 				if err != nil {

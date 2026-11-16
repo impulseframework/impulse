@@ -184,17 +184,40 @@ func TestTenantPolicy(t *testing.T) {
 		wantRead []accesstypes.Domain
 	}{
 		{
-			name:        "a global role admits a sign-in through a directory no tenant declares",
+			name:        "a super administrator is admitted by password when every tenant of theirs is directory only, and no declaration is read",
+			held:        accesstypes.RoleCollection{global: {accesstypes.SuperAdministrator}, lakeside: member},
+			identity:    passwordIdentity,
+			declared:    map[accesstypes.Domain]*TenantDeclaration{"lakeside": {DirectoryOnly: true}},
+			wantOutcome: AllowSignIn,
+		},
+		{
+			name:        "a super administrator is admitted through a directory no tenant declares",
+			held:        accesstypes.RoleCollection{global: {accesstypes.SuperAdministrator}},
+			identity:    entraIdentity,
+			wantOutcome: AllowSignIn,
+		},
+		{
+			name:        "a global role is a place outside every tenant and admits a sign-in through a directory no tenant declares",
 			held:        accesstypes.RoleCollection{global: {"Administrator"}},
 			identity:    entraIdentity,
 			wantOutcome: AllowSignIn,
 		},
 		{
-			name:        "an every-domain role admits a password when every tenant is directory only",
+			name:        "a role held in every tenant admits a password whatever the one tenant read would say: the policy has no list of the others",
 			held:        accesstypes.RoleCollection{every: {"Auditor"}, lakeside: member},
 			identity:    passwordIdentity,
 			declared:    map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
 			wantOutcome: AllowSignIn,
+		},
+		{
+			name:        "the Super Administrator name held in a tenant makes nobody a super administrator",
+			held:        accesstypes.RoleCollection{lakeside: {accesstypes.SuperAdministrator}},
+			identity:    passwordIdentity,
+			declared:    map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
+			wantOutcome: DenySignIn,
+			wantCode:    sessioninfo.RefusedDirectoryOnly,
+			wantCause:   ErrDirectoryOnly,
+			wantRead:    []accesstypes.Domain{"lakeside"},
 		},
 		{
 			name:        "a sign-in whose method synchronizes roles is admitted without the store being asked",

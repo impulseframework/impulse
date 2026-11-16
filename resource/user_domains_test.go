@@ -111,7 +111,8 @@ func TestUserDomainsHandler(t *testing.T) {
 // TestUserDomainsHandler_admission pins the endpoint over the composed session
 // permissions: the picker lists the tenants the session holds a grant in and
 // reaches, so a tenant whose declaration does not admit the way the session was
-// established is never offered, while the application's staff see every tenant.
+// established is never offered, while a super administrator sees every tenant
+// they hold a grant in, and a person holding another global role does not.
 func TestUserDomainsHandler_admission(t *testing.T) {
 	t.Parallel()
 
@@ -132,6 +133,7 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 		name     string
 		ctx      context.Context
 		global   bool
+		super    bool
 		wantBody string
 	}{
 		{
@@ -150,10 +152,17 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 			wantBody: `[]`,
 		},
 		{
-			name:     "the application's staff list every tenant they hold a grant in",
+			name:     "a super administrator lists every tenant they hold a grant in",
 			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}),
 			global:   true,
+			super:    true,
 			wantBody: `[{"domain":"anvil","name":"anvil"},{"domain":"bastion","name":"bastion"}]`,
+		},
+		{
+			name:     "a person holding another global role lists the tenant that admits passwords alone",
+			ctx:      sessionCtx("dana", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword}),
+			global:   true,
+			wantBody: `[{"domain":"bastion","name":"bastion"}]`,
 		},
 	}
 	for _, tt := range tests {
@@ -161,7 +170,7 @@ func TestUserDomainsHandler_admission(t *testing.T) {
 			t.Parallel()
 
 			forUser := func(user accesstypes.User) *stubPermissions {
-				return &stubPermissions{user: user, domains: []accesstypes.Domain{anvil, bastion}, global: tt.global}
+				return &stubPermissions{user: user, domains: []accesstypes.Domain{anvil, bastion}, global: tt.global, super: tt.super}
 			}
 			reader := &declarationReader{declarations: declarations}
 			handler := UserDomainsHandler(func(r *http.Request) UserPermissions {
