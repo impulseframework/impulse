@@ -366,7 +366,10 @@ to a password sign-in, is read from the pending status route and takes the list'
 confirmation, the password form of the user the sign-in matched, posting to the confirmation route,
 with a cancel that returns to the list and emits `cancelled`; a step the server names a page for
 (a pending hook's `redirectUrl`) sends the browser there. A step that has expired returns to the
-list with the sentence for `pending_expired`. An arrival whose reads fail (no answer, or a gateway's
+list with the sentence for `pending_expired`. The component drops the password once the server has
+taken it and asks for a step, and a step that is canceled or has expired returns to an empty
+sign-in form: neither the username nor the password typed comes back with the list. A refused
+password is different, and leaves the form as typed for the person to correct. An arrival whose reads fail (no answer, or a gateway's
 502 or 504 with no words to show) renders the sentence held for `unreachable`, "The server did not
 answer. Try again in a moment.", and a Try again button that runs the arrival again, in the list's
 place; the status itself is never shown.

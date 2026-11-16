@@ -576,6 +576,8 @@ describe('LoginMethodsComponent signs in with the password', () => {
       // The arrival's session read alone: a refused sign-in checks no session.
       expect(sent(page.transport).filter((request) => request === 'GET /console/api/user/session')).toHaveLength(1);
       expect(page.element.querySelector('input[name="password"]')).not.toBeNull();
+      // The form stays as typed, for the person to correct.
+      expect([page.component.username, page.component.password]).toEqual(['overseer', 'wrong']);
       expect(page.component.busy()).toBe(false);
       // The refusal is rendered in place and raises no notice.
       expect(TestBed.inject(NotificationService).notifications()).toEqual([]);
@@ -1377,6 +1379,75 @@ describe('LoginMethodsComponent runs the sign-in code step', () => {
     expect(page.component.signInCode).toBe('');
     expect(page.component.rememberDevice).toBe(false);
     expect(page.element.querySelector('input[name="username"]')).not.toBeNull();
+  });
+
+  /** What the sign-in form's boxes show: the username, then the password. */
+  const formOf = (page: Page): (string | undefined)[] =>
+    ['username', 'password'].map((name) => page.element.querySelector<HTMLInputElement>(`input[name="${name}"]`)?.value);
+
+  /** Signs in with the password as far as the code step, which the server holds the sign-in for. */
+  async function heldForCode(answers: Parameters<typeof server>[0] = {}): Promise<Page> {
+    const page = await pageOver(
+      server({ login: { status: 200, body: { mfaIsRequired: true } }, status: { status: 200, body: standing }, ...answers }),
+    );
+    page.component.username = 'nova';
+    page.component.password = 'lodestar';
+    await page.component.login();
+    await page.settle();
+    expect(page.element.querySelector('input[name="code"]')).not.toBeNull();
+
+    return page;
+  }
+
+  it('holds the password no longer once the server took it and asked for the code', async () => {
+    const page = await heldForCode();
+    expect(page.component.password).toBe('');
+  });
+
+  it('canceled after a password sign-in, returns to an empty sign-in form', async () => {
+    const page = await heldForCode();
+    await page.component.cancel();
+    await page.settle();
+    expect(page.component.pending()).toBeUndefined();
+    expect([page.component.username, page.component.password]).toEqual(['', '']);
+    expect(formOf(page)).toEqual(['', '']);
+  });
+
+  for (const tt of endings) {
+    it(`after a password sign-in, ${tt.name}, the sign-in form empty`, async () => {
+      const page = await heldForCode({ verifyCode: tt.answer });
+      await enterCode(page, '123456');
+      expect(messageOf(page)).toBe(tt.want);
+      expect(page.component.pending()).toBeUndefined();
+      expect([page.component.username, page.component.password]).toEqual(['', '']);
+      expect(formOf(page)).toEqual(['', '']);
+    });
+  }
+
+  it('a code that cannot be sent because the sign-in ran out returns to an empty sign-in form', async () => {
+    const page = await heldForCode({
+      sendCode: { status: 401, body: { message: 'the pending sign-in has expired', code: 'pending_expired' } },
+    });
+    await page.component.sendCode();
+    await page.settle();
+    expect(messageOf(page)).toBe(DEFAULT_LOGIN_MESSAGES['pending_expired']);
+    expect(page.component.pending()).toBeUndefined();
+    expect([page.component.username, page.component.password]).toEqual(['', '']);
+  });
+
+  it('a step that is gone before the page can read it returns to the list with no username kept', async () => {
+    const page = await pageOver(
+      server({
+        login: { status: 200, body: { mfaIsRequired: true } },
+        status: { status: 401, body: { message: 'the pending sign-in has expired', code: 'pending_expired' } },
+      }),
+    );
+    page.component.username = 'nova';
+    page.component.password = 'lodestar';
+    await page.component.login();
+    await page.settle();
+    expect(messageOf(page)).toBe(DEFAULT_LOGIN_MESSAGES['pending_expired']);
+    expect([page.component.username, page.component.password]).toEqual(['', '']);
   });
 });
 

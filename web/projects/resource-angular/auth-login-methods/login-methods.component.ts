@@ -575,14 +575,17 @@ export class LoginMethodsComponent implements OnInit {
     });
   }
 
-  /** Discards the pending sign-in and shows the list again. */
+  /**
+   * Discards the pending sign-in and shows the list again, with an empty sign-in form: the
+   * person walked away from the sign-in, and nobody after them finds it ready to post.
+   */
   cancel(): Promise<void> {
     if (this.busy() || !this.pending()) {
       return Promise.resolve();
     }
     return this.step(async () => {
       await this.client.auth.cancelPending();
-      this.pending.set(undefined);
+      this.endPending();
       this.confirmation = '';
       this.clearCodeForm();
       this.cancelled.emit();
@@ -997,10 +1000,10 @@ export class LoginMethodsComponent implements OnInit {
         }
         return;
       case 'none':
-        this.pending.set(undefined);
+        this.endPending();
         return;
       case 'refused':
-        this.pending.set(undefined);
+        this.endPending();
         this.refusal.set(this.sentenceOf(status));
         return;
     }
@@ -1018,6 +1021,9 @@ export class LoginMethodsComponent implements OnInit {
         await this.complete(page());
         return;
       case 'pending':
+        // The server took the password, and no later step posts it: each posts its own
+        // fields. The page holds it no longer than that.
+        this.password = '';
         if (result.redirectUrl) {
           this.leaveFor(result.redirectUrl);
           return;
@@ -1025,10 +1031,14 @@ export class LoginMethodsComponent implements OnInit {
         this.confirmation = '';
         this.clearCodeForm();
         await this.readPending();
+        if (!this.pending()) {
+          // The step was gone before it could be shown: the list returns as after a cancel.
+          this.username = '';
+        }
         return;
       case 'refused':
         if (result.code === 'pending_expired' || result.status === 404 || result.status === 409) {
-          this.pending.set(undefined);
+          this.endPending();
         }
         if (result.status === 404 && this.account()) {
           this.leaveInvitation(result);
@@ -1049,7 +1059,7 @@ export class LoginMethodsComponent implements OnInit {
     const result = await send();
     if (result.outcome === 'refused') {
       if (result.code === 'pending_expired' || result.status === 404 || result.status === 409) {
-        this.pending.set(undefined);
+        this.endPending();
       }
       this.mailHold.hold(result);
       this.refusal.set(this.sentenceOf(result));
@@ -1069,6 +1079,20 @@ export class LoginMethodsComponent implements OnInit {
         codeExpiresAt: result.codeExpiresAt,
       },
     });
+  }
+
+  /**
+   * Ends the pending sign-in on the page. When one stood, the sign-in form it began from
+   * is emptied with it, so the list comes back with nothing typed: a sign-in that was
+   * canceled or ran out is over. With none standing the form is left as it is, which is
+   * how a refused password stays for the person to correct.
+   */
+  private endPending(): void {
+    if (this.pending()) {
+      this.username = '';
+      this.password = '';
+    }
+    this.pending.set(undefined);
   }
 
   private clearCodeForm(): void {
