@@ -274,6 +274,15 @@ func (s *snapshotEngine) userHasGrants(ctx context.Context, user accesstypes.Use
 	return snap.userHasGrants(scope, user), nil
 }
 
+func (s *snapshotEngine) userIsSuperAdministrator(ctx context.Context, user accesstypes.User) (bool, error) {
+	snap, err := s.currentSnapshot(ctx)
+	if err != nil {
+		return false, err
+	}
+
+	return snap.userIsSuperAdministrator(user), nil
+}
+
 func (s *snapshotEngine) userPermissions(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.UserScopePermissions, error) {
 	snap, err := s.currentSnapshot(ctx)
 	if err != nil {

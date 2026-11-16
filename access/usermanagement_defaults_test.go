@@ -75,7 +75,7 @@ func defaultsManager(t *testing.T) (*userManager, *fakeStore) {
 	t.Helper()
 	ctx := context.Background()
 
-	defaults, err := compileDefaultRoles(grammarCollection{}, defaultsRoleConfig())
+	defaults, err := compileDefaultRoles(grammarCollection{}, defaultsRoleConfig(), nil)
 	if err != nil {
 		t.Fatalf("compileDefaultRoles() error = %v", err)
 	}
@@ -199,13 +199,14 @@ func Test_userManager_defaults_Roles(t *testing.T) {
 		dupTenant     = RoleInfo{Name: "Dup", Description: dupTenantDescription}
 		dupEverywhere = RoleInfo{Name: "Dup", Description: dupEverywhereDescription}
 		gob           = RoleInfo{Name: "Gob", Description: gobDescription}
+		super         = RoleInfo{Name: accesstypes.SuperAdministrator, Description: superAdministratorDescription}
 	)
 	tests := []struct {
 		name  string
 		scope accesstypes.PolicyScope
 		want  []RoleInfo
 	}{
-		{name: "the global partition lists the global default and the global customs", scope: globalPolicy, want: []RoleInfo{gob, steward}},
+		{name: "the global partition lists the global default, the global customs and the framework's Super Administrator", scope: globalPolicy, want: []RoleInfo{gob, steward, super}},
 		{name: "one domain lists the domain default, its own customs and the every-domain customs once, its own row's description first", scope: tenant1Policy, want: []RoleInfo{dupTenant, everywhere, reader, zed}},
 		{name: "another domain does not see a custom role held in the first", scope: tenant2Policy, want: []RoleInfo{dupEverywhere, everywhere, reader}},
 		{name: "a domain the store holds no row in lists the defaults and the every-domain customs", scope: neverSeenScope.PolicyScope(), want: []RoleInfo{dupEverywhere, everywhere, reader}},

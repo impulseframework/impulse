@@ -36,6 +36,11 @@ type evaluator interface {
 	// domain did not exist).
 	userHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error)
 
+	// userIsSuperAdministrator reports whether user holds the Super
+	// Administrator role, a membership held in the global partition, answered
+	// from the policy snapshot the checks are answered from.
+	userIsSuperAdministrator(ctx context.Context, user accesstypes.User) (bool, error)
+
 	// userPermissions returns user's effective permissions within scope by
 	// name — the management listing, answered from the same snapshot the
 	// checks are.
