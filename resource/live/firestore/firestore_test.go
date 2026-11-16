@@ -348,7 +348,8 @@ func TestService_Publish(t *testing.T) {
 			}
 			register(t, svc, now, subs...)
 
-			if err := svc.Publish(t.Context(), tt.domain, live.Writes{Rows: tt.touched(res)}); err != nil {
+			published, err := svc.Publish(t.Context(), tt.domain, live.Writes{ID: "write-1", Rows: tt.touched(res)})
+			if err != nil {
 				t.Fatalf("Publish() error = %v", err)
 			}
 
@@ -357,13 +358,21 @@ func TestService_Publish(t *testing.T) {
 				if err != nil {
 					t.Fatalf("Changes(%s) error = %v", who, err)
 				}
+				// Publish answers the documents it wrote into each set, which is what
+				// a write's answer names from the caller's.
+				answered := make([]live.ChangeDocument, 0, len(want))
 				for i := range want {
 					want[i].Resource = res
 					want[i].ID = want[i].ChangeDocument.ID(second)
 					want[i].Expires = now.Add(live.ChangeTTL)
+					want[i].Write = "write-1"
+					answered = append(answered, want[i].ChangeDocument)
 				}
 				if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(livefirestore.Change{}, "At")); diff != "" {
 					t.Errorf("Changes(%s) mismatch (-want +got):\n%s", who, diff)
+				}
+				if diff := cmp.Diff(answered, published[principalFor(t, who)], cmpopts.EquateEmpty()); diff != "" {
+					t.Errorf("Publish() answered for %s mismatch (-want +got):\n%s", who, diff)
 				}
 				for _, change := range got {
 					if change.At.IsZero() {
@@ -387,17 +396,18 @@ func TestService_Publish_coalesces(t *testing.T) {
 	p1 := principalFor(t, "p1")
 	register(t, svc, now, live.Subscription{Principal: p1, Tab: "t1", Resource: res, Key: "k1"})
 
-	// Two publishes within one second are one document, the second's deleted flag kept.
-	if err := svc.Publish(t.Context(), "anvil", live.Writes{Rows: map[accesstypes.Resource][]resource.RowChange{res: {{Key: "k1"}}}}); err != nil {
+	// Two publishes within one second are one document, the second's deleted flag and
+	// the second write's id kept.
+	if _, err := svc.Publish(t.Context(), "anvil", live.Writes{ID: "write-1", Rows: map[accesstypes.Resource][]resource.RowChange{res: {{Key: "k1"}}}}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 	clock = now.Add(700 * time.Millisecond)
-	if err := svc.Publish(t.Context(), "anvil", live.Writes{Rows: map[accesstypes.Resource][]resource.RowChange{res: {{Key: "k1", Deleted: true}}}}); err != nil {
+	if _, err := svc.Publish(t.Context(), "anvil", live.Writes{ID: "write-2", Rows: map[accesstypes.Resource][]resource.RowChange{res: {{Key: "k1", Deleted: true}}}}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 	// The next second is a new document.
 	clock = now.Add(time.Second)
-	if err := svc.Publish(t.Context(), "anvil", live.Writes{Rows: map[accesstypes.Resource][]resource.RowChange{res: {{Key: "k1"}}}}); err != nil {
+	if _, err := svc.Publish(t.Context(), "anvil", live.Writes{ID: "write-3", Rows: map[accesstypes.Resource][]resource.RowChange{res: {{Key: "k1"}}}}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
@@ -406,8 +416,8 @@ func TestService_Publish_coalesces(t *testing.T) {
 		t.Fatalf("Changes() error = %v", err)
 	}
 	want := []livefirestore.Change{
-		{ID: live.ChangeDocument{Kind: live.RowChange, Resource: res, Key: "k1"}.ID(now.Unix()), ChangeDocument: live.ChangeDocument{Kind: live.RowChange, Resource: res, Key: "k1", Deleted: true}},
-		{ID: live.ChangeDocument{Kind: live.RowChange, Resource: res, Key: "k1"}.ID(now.Unix() + 1), ChangeDocument: live.ChangeDocument{Kind: live.RowChange, Resource: res, Key: "k1"}},
+		{ID: live.ChangeDocument{Kind: live.RowChange, Resource: res, Key: "k1"}.ID(now.Unix()), ChangeDocument: live.ChangeDocument{Kind: live.RowChange, Resource: res, Key: "k1", Deleted: true}, Write: "write-2"},
+		{ID: live.ChangeDocument{Kind: live.RowChange, Resource: res, Key: "k1"}.ID(now.Unix() + 1), ChangeDocument: live.ChangeDocument{Kind: live.RowChange, Resource: res, Key: "k1"}, Write: "write-3"},
 	}
 	if diff := cmp.Diff(want, got, cmpopts.IgnoreFields(livefirestore.Change{}, "At", "Expires")); diff != "" {
 		t.Errorf("Changes() mismatch (-want +got):\n%s", diff)
@@ -557,7 +567,7 @@ func TestService_twoAuthsOneName(t *testing.T) {
 
 	// One commit writes row k2 in anvil: the list's watcher and the row's watcher each
 	// get their own document in their own set.
-	if err := svc.Publish(t.Context(), "anvil", live.Writes{Rows: map[accesstypes.Resource][]resource.RowChange{res: {{Key: "k2"}}}}); err != nil {
+	if _, err := svc.Publish(t.Context(), "anvil", live.Writes{Rows: map[accesstypes.Resource][]resource.RowChange{res: {{Key: "k2"}}}}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 	for _, p := range people {

@@ -86,7 +86,7 @@ func (h *Handlers) CreateCrewUser() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
 		}
 
-		live.Publish(ctx, h.LiveService(), h.liveDerivations, "", touched)
+		live.Publish(ctx, w, h.LiveService(), h.liveDerivations, "", touched)
 		if result == nil {
 			return httpio.NewEncoder(w).Ok(nil)
 		}

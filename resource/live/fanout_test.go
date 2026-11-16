@@ -235,28 +235,51 @@ func TestFake_Publish_coalesces(t *testing.T) {
 
 	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
 	fake := subscribed(t, now, Subscription{Principal: "dispatcher", Tab: "t1", Resource: "Ships", Key: "s1"})
-	touched := Writes{Rows: map[accesstypes.Resource][]resource.RowChange{"Ships": {{Key: "s1"}}}}
+	rows := map[accesstypes.Resource][]resource.RowChange{"Ships": {{Key: "s1"}}}
 
-	// Two publishes within one second are one document; the second's deleted flag wins.
-	if err := fake.Publish(t.Context(), "anvil", touched); err != nil {
+	// Two publishes within one second are one document; the second's deleted flag and
+	// the second write's id win.
+	if _, err := fake.Publish(t.Context(), "anvil", Writes{ID: "write-1", Rows: rows}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 	fake.Now = fixedClock(now.Add(500 * time.Millisecond))
-	if err := fake.Publish(t.Context(), "anvil", Writes{Rows: map[accesstypes.Resource][]resource.RowChange{"Ships": {{Key: "s1", Deleted: true}}}}); err != nil {
+	if _, err := fake.Publish(t.Context(), "anvil", Writes{ID: "write-2", Rows: map[accesstypes.Resource][]resource.RowChange{"Ships": {{Key: "s1", Deleted: true}}}}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 	// A publish in the next second is a new document.
 	fake.Now = fixedClock(now.Add(time.Second))
-	if err := fake.Publish(t.Context(), "anvil", touched); err != nil {
+	if _, err := fake.Publish(t.Context(), "anvil", Writes{ID: "write-3", Rows: rows}); err != nil {
 		t.Fatalf("Publish() error = %v", err)
 	}
 
 	want := []FakeChange{
-		{ChangeDocument: ChangeDocument{Kind: RowChange, Resource: "Ships", Key: "s1", Deleted: true}, ID: "row|Ships|s1|1790942400", At: now.Add(500 * time.Millisecond)},
-		{ChangeDocument: ChangeDocument{Kind: RowChange, Resource: "Ships", Key: "s1"}, ID: "row|Ships|s1|1790942401", At: now.Add(time.Second)},
+		{ChangeDocument: ChangeDocument{Kind: RowChange, Resource: "Ships", Key: "s1", Deleted: true}, ID: "row|Ships|s1|1790942400", At: now.Add(500 * time.Millisecond), Write: "write-2"},
+		{ChangeDocument: ChangeDocument{Kind: RowChange, Resource: "Ships", Key: "s1"}, ID: "row|Ships|s1|1790942401", At: now.Add(time.Second), Write: "write-3"},
 	}
 	if diff := cmp.Diff(want, fake.Changes("dispatcher")); diff != "" {
 		t.Errorf("Changes() mismatch (-want +got):\n%s", diff)
+	}
+}
+
+func TestFake_Publish_answersWhatItWrote(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	fake := subscribed(t, now,
+		Subscription{Principal: "dispatcher", Tab: "t1", Resource: "Ships", Key: "s1"},
+		Subscription{Principal: "harbormaster", Tab: "t2", Resource: "Ships", Domain: "anvil"},
+	)
+
+	got, err := fake.Publish(t.Context(), "anvil", Writes{ID: "write-1", Rows: map[accesstypes.Resource][]resource.RowChange{"Ships": {{Key: "s1"}}}})
+	if err != nil {
+		t.Fatalf("Publish() error = %v", err)
+	}
+	want := Changes{
+		"dispatcher":   {{Kind: RowChange, Resource: "Ships", Key: "s1"}},
+		"harbormaster": {{Kind: ListChange, Resource: "Ships", Domain: "anvil"}},
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("Publish() mismatch (-want +got):\n%s", diff)
 	}
 }
 

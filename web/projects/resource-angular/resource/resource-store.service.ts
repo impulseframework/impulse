@@ -170,6 +170,8 @@ export class ResourceStore {
   private readonly position = signal<PagePosition>({ offset: 0 });
   private pageEffect: EffectRef | undefined;
   private pageRequestSeq = 0;
+  /** The reload of a live page in flight: the page it repeats, the version it asked by, and its place among the requests. */
+  private liveReload: { page: Page<RecordData>; version: string; seq: number } | undefined;
   pageStatus = signal<ListPageStatus>('idle');
   /** The page request's error when it failed — an ApiError for a server refusal — else undefined. */
   pageError = signal<unknown>(undefined);
@@ -244,8 +246,10 @@ export class ResourceStore {
   /**
    * Starts holding the server's page for the list: from here on, whenever the request the
    * signals describe changes, the store asks for a first page, and while the page is live
-   * a change the feed reports to the resource in the tenant requests the page again by
-   * its own cursor. Idempotent.
+   * a change to the resource in the tenant requests the page again by its own cursor,
+   * when the client's live session says so: at once for a write this tab made, after the
+   * session's wait for other people's changes, and not while the tab is hidden (see
+   * LiveSession in @impulseframework/resource). Idempotent.
    */
   buildStorePage(): void {
     if (this.pageEffect) {
@@ -282,14 +286,38 @@ export class ResourceStore {
     void this.runPageRequest(step, direction, current.rows.length);
   }
 
-  /** The page the table is on, requested again by its own cursor, so a write shows without losing the position. */
+  /**
+   * The page the table is on, requested again by its own cursor, so a write shows without
+   * losing the position. A live page asks by a version, and its answer is the one answer
+   * for that version: when a write this tab made is answered, the live session has asked
+   * for the page already, by the write, so the reload a component asks for after its own
+   * write, while that request is in flight, is that request and is not sent again.
+   */
   reloadPage(): void {
     const current = this.currentPage();
     if (!current) {
       this.firstPage();
       return;
     }
+    const version = this.pageVersion();
+    const inFlight = this.liveReload;
+    if (
+      version !== undefined &&
+      inFlight !== undefined &&
+      inFlight.page === current &&
+      inFlight.version === version &&
+      inFlight.seq === this.pageRequestSeq
+    ) {
+      return;
+    }
     void this.runPageRequest(current.reload, 'reload', current.rows.length);
+    this.liveReload = version === undefined ? undefined : { page: current, version, seq: this.pageRequestSeq };
+  }
+
+  /** The version a request for the list page carries now, while the page is live and the live session runs; undefined otherwise. */
+  private pageVersion(): string | undefined {
+    const subscription = untracked(() => this.pageSubscription());
+    return subscription && this.client.live.active ? this.client.live.version(subscription) : undefined;
   }
 
   private loadFirstPage(query: ReturnType<typeof this.pageQuery>): void {
@@ -593,9 +621,10 @@ export class ResourceStore {
 
   /**
    * Holds the row or list `subscription` names on the client's live session for as long
-   * as the signal names it: a change the feed reports to it, or a resync, runs `refetch`.
-   * A new answer from the signal releases the old hold and takes the new; undefined holds
-   * nothing. Released with the store.
+   * as the signal names it: the session runs `refetch` when the row or list is to be
+   * fetched again (a write this tab made, other people's changes after its wait, a
+   * resync). A new answer from the signal releases the old hold and takes the new;
+   * undefined holds nothing. Released with the store.
    */
   private watchLive(subscription: Signal<LiveSubscription | undefined>, refetch: () => void): void {
     let release: (() => void) | undefined;
@@ -641,7 +670,10 @@ export class ResourceStore {
    * request. Nothing answers an empty key with an empty row, since an empty row would
    * count as present. While `live` is set the read carries the client's live option (so
    * the first live read subscribes the tab to the row) and the row is held on the live
-   * session: a change the feed reports to it reads it again by the change's version.
+   * session, which says when it is read again: at once for a write this tab made, after
+   * the session's wait for other people's changes, and not while the tab is hidden. The
+   * row stays on hand through every such read, so a form in use and the row's children
+   * stay on screen.
    */
   resourceView(
     route: Signal<string>,

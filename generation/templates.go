@@ -1612,7 +1612,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 		}); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		live.Publish(ctx, {{ .ReceiverName }}.LiveService(), liveDerivations, "", touched)
+		live.Publish(ctx, w, {{ .ReceiverName }}.LiveService(), liveDerivations, "", touched)
 		domain := accesstypes.Domain(id.String())
 
 		// This instance's roster learns the {{ .RecordLower }} before the membership is probed:
@@ -2429,7 +2429,7 @@ import (
 		}); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		live.Publish(ctx, {{ .ReceiverName }}.LiveService(), {{ .Home.LiveDerivations }}, {{ if .Resource.IsDomainScoped }}domain{{ else }}""{{ end }}, touched)
+		live.Publish(ctx, w, {{ .ReceiverName }}.LiveService(), {{ .Home.LiveDerivations }}, {{ if .Resource.IsDomainScoped }}domain{{ else }}""{{ end }}, touched)
 		{{- if .Resource.SignalsTenants }}
 		` + tenantsReloaded + `
 		{{- end }}
@@ -2587,7 +2587,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 		}); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		live.Publish(ctx, {{ .ReceiverName }}.LiveService(), liveDerivations, "", touched)
+		live.Publish(ctx, w, {{ .ReceiverName }}.LiveService(), liveDerivations, "", touched)
 		{{- if .HasTenant }}
 		` + tenantsReloaded + `
 		{{- end }}
@@ -4779,7 +4779,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 
 {{- define "rpcPublish" }}
 
-		live.Publish(ctx, {{ $.ReceiverName }}.LiveService(), {{ $.Home.LiveDerivations }}, {{ if .RPCMethod.IsDomainScoped }}domain{{ else }}""{{ end }}, touched)
+		live.Publish(ctx, w, {{ $.ReceiverName }}.LiveService(), {{ $.Home.LiveDerivations }}, {{ if .RPCMethod.IsDomainScoped }}domain{{ else }}""{{ end }}, touched)
 {{- end }}
 
 {{- define "rpcResultVars" }}

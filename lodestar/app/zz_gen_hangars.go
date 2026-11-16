@@ -237,7 +237,7 @@ func (a *App) PatchHangars() http.HandlerFunc {
 		}); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		live.Publish(ctx, a.LiveService(), liveDerivations, domain, touched)
+		live.Publish(ctx, w, a.LiveService(), liveDerivations, domain, touched)
 
 		return httpio.NewEncoder(w).Ok(resp)
 	})
