@@ -35,7 +35,7 @@ func TestSessionStorage_Session_User(t *testing.T) {
 			want: &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sessionID}, UserID: impulse.NullUUIDFromUUID(userID), AuthenticatedAt: at, AuthEvents: events},
 		},
 		{
-			name: "a legacy session carries none",
+			name: "a session without them carries none",
 			row:  &dbtype.SessionData{Session: &dbtype.Session{ID: sessionID}},
 			want: &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sessionID}},
 		},
