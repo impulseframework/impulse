@@ -38,8 +38,8 @@ type storeRecorder interface {
 	DestroyImpersonatedSession(ctx, sessionID, reason any) *gomock.Call
 }
 
-// sessionAPI is the impersonation surface of the five API types that this file
-// exercises directly.
+// sessionAPI is the impersonation surface of the API types that this file exercises
+// directly.
 type sessionAPI interface {
 	EndImpersonation(ctx context.Context, w http.ResponseWriter) (restored bool, err error)
 }

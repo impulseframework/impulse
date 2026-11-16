@@ -118,8 +118,8 @@ type customSessionData[Tx any] struct {
 // user record, untouched by logout, expiry and regeneration, and is read on demand,
 // never joined into the per-request session read. It is written per call on
 // CreateSessionUser and by UpdateCustomUserData, or by a custom account rule's
-// signin.Provision hook; there is no login hook. Build it with NewCustomUserData and
-// attach it with Auth.WithCustomUserData. It fits either driver: columns derive from
+// signin.Provision hook. Build it with NewCustomUserData and attach it with
+// Auth.WithCustomUserData. It fits either driver: columns derive from
 // U's `db:` tags on PostgreSQL and its `spanner:` tags on Spanner.
 type CustomUserData[U any] struct {
 	tableName string

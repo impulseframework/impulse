@@ -2,8 +2,8 @@
 // the storage and the cookie client, the options every session type takes, session
 // establishment, the API methods every session type shares, impersonation
 // establishment and its guards, the custom data type checks, the password comparison
-// and the login refusal redirect. The root package and the legacy package both build
-// on it, so neither has to export it.
+// and the login refusal redirect. The root package builds on it and exports what an
+// application needs of it under its own names.
 package sessioncore
 
 import (

@@ -18,8 +18,8 @@ var _ PreauthHandlers = &Preauth[NoCustomData]{}
 // Preauth handles session management for pre-authentication scenarios, with custom
 // session data typed as SessionData (caller-supplied at Login); use NoCustomData when
 // custom session data is not used. Preauth is trust-the-caller with no user record, so
-// it has no custom user data axis — durable per-user data needs a user anchor
-// (password auth's SessionUsers, or the OIDC user anchor).
+// it has no custom user data axis — durable per-user data needs a user record (an
+// Auth's SessionUsers).
 type Preauth[SessionData any] struct {
 	storage     sessionstorage.PreauthStore
 	baseSession *basesession.BaseSession
@@ -127,7 +127,7 @@ func (p *PreauthAPI[T]) shared() sessioncore.API[T, NoCustomData] {
 // Preauth is trust-the-caller: no user record is required or consulted, which makes it
 // the right tool for stepping-stone sessions (e.g. MFA-pending) where identity is not
 // yet fully established. For a full session backed by an existing user record after
-// external authentication, use PasswordAuth's StartAuthenticatedSession instead.
+// external authentication, use AuthAPI.StartAuthenticatedSession instead.
 //
 // Optional customData (at most one *T) is written atomically with the session insert —
 // the session and its custom data row land together or not at all. The library does not

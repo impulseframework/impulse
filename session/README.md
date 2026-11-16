@@ -45,8 +45,7 @@ a group applies is in "Storage and schema" below.
 (a session's `CreatedAt`, `UpdatedAt` and `AuthenticatedAt`, a user's `CreatedAt` and
 `LastSignInAt`, an auth event's `OccurredAt`, an impersonation record's `StartedAt` and
 `EndedAt`, an identity link's `CreatedAt` and `LastUsedAt`, a pending sign-in's
-`CreatedAt` and `ConsumedAt`, a factor code's and a trusted device's time columns, the
-OIDC user anchor's `CreatedAt` and `UpdatedAt`) is
+`CreatedAt` and `ConsumedAt`, a factor code's and a trusted device's time columns) is
 written with the database's time, never
 the application's: Spanner's commit timestamp, PostgreSQL's transaction time (`now()`).
 A host clock that runs ahead of the database's therefore cannot be refused, and the
@@ -86,8 +85,8 @@ the parameter types of its prepared statements, so a live pool keeps writing wal
 values (and fails one cached read per connection) until its connections are recycled:
 
 ```sql
--- Repeat for every time column created from the DDL (OIDCUsers CreatedAt and
--- UpdatedAt, the impersonation table's StartedAt/ExpiresAt/EndedAt).
+-- Repeat for every time column created from the DDL (the impersonation table's
+-- StartedAt, ExpiresAt and EndedAt among them).
 -- 'UTC' names the zone the writing processes ran in.
 ALTER TABLE "Sessions"
     ALTER COLUMN "CreatedAt" TYPE timestamptz USING "CreatedAt" AT TIME ZONE 'UTC',
@@ -330,9 +329,6 @@ sso := azure.SignIn(auth, "entra", entraAccountRule, &azure.Config{ // *azure.Me
     Accounts: signin.InvitedUsersOnly, // the standard rule: pre-created users only
 })
 ```
-
-`NewAuth` refuses the OIDC-only storage features
-(`WithOIDCUsers`, the custom user data login hook).
 
 ### The tenant policy
 
@@ -874,9 +870,10 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   whose asserted roles the application recognizes none of is refused (`no_roles`)
   before anything is resolved or written, so an invitation it carried stands; a role
   store that fails once the session stands expires the session.
-- **Impersonation** works as on the other types. A user principal's session belongs to
-  the impersonated user; a role principal's belongs to none. The session records an
-  `impersonation` event whose connection is the actor.
+- **Impersonation** is established through `auth.API().StartImpersonatedSession` (see
+  "Impersonated sessions"). A user principal's session belongs to the impersonated
+  user; a role principal's belongs to none. The session records an `impersonation`
+  event whose connection is the actor.
 - **A request on a machine outlet** is bound to the person whose bearer token it
   carries the same way: the user is loaded on every request and refused when missing
   or disabled, the session data's `ID` is the token's, its one auth event is `token`
@@ -909,8 +906,8 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
   registration does not declare it; a request without a `sid` is 400. The handler reads
   nothing from the browser, since Entra calls it in a frame, and a known `sid` under a
   declared issuer is its only credential. A session recorded with an id but no issuer
-  (a session from before the issuer was recorded) is out of its reach until the person
-  signs in again. Register its route as the application's front-channel logout URL in
+  is out of its reach until the person signs in again. Register its route as the
+  application's front-channel logout URL in
   Entra, outside `ValidateSession`. An app registration takes one such URL, and the
   handler reaches the sessions of its own `Auth`: an application whose several `Auth`s
   should all end at Microsoft's sign-out registers one Entra application per `Auth`.
@@ -1054,8 +1051,9 @@ without an address, `emailHint`.
 
 A user may hold a name: the person's name as people read it ("Gale Reyes"), which a
 page shows in place of the username. It identifies nobody. The username stays what a
-person signs in under and what a role membership names them by, so writing a name
-renames nobody, ends no session and moves no role. No name is required of any user,
+person signs in under, and a role membership names them by the id of their account, so
+writing a name renames nobody, ends no session and moves no role. No name is required
+of any user,
 and two people may hold the same one. A name is kept without the space around it, a
 name of nothing but space is no name, and one longer than 200 characters, or one that
 is not text on one line (a line break, a tab or another control character in it), is
@@ -1190,7 +1188,7 @@ read the mailbox, and the account takes the address.
   allows one read-write transaction at a time and a second one, or a read through
   another client, inside the hook waits on the transaction it runs in; a user the
   transaction provisioned is buffered and not readable in it, so the hook writes under
-  the username it is given. `committed`, nil for none, is what the library runs once
+  the id it is given. `committed`, nil for none, is what the library runs once
   the transaction has committed and before the policy decides (the word to a
   permission engine that its rows changed), once, for the run of the transaction that
   committed. A hook that fails fails the transaction and ends the sign-in with its
@@ -1592,15 +1590,6 @@ be returned, never flattened to "role missing": the sync removes what the direct
 not name, so a swallowed store error would delete a valid membership on a transient
 fault.
 
-Migrating from the shape that took a domains provider (`session.RoleSync(manager,
-domainsFn)` and `session.GoogleRoleSync(manager, domainsFn, ...)`): drop the provider,
-since the sync no longer keeps a list of tenants, and give the manager the
-`accesstypes.PolicyScope` signatures above. Older code that passed the manager straight
-to `NewOIDCAzure` wraps it in `session.RoleSync(manager)`, and
-`session.DisableUserRoleManagement()` becomes `session.DisableRoleSync()`, which also
-disables the at-least-one-role login gate. `session.GoogleRoleSync` is now
-`google.RoleSync`, in the `session/google` package.
-
 ## Generic OpenID Connect
 
 A provider with nothing vendor-specific about it, an identity gateway, Okta or
@@ -1715,11 +1704,12 @@ the authority and the tenant it names.
 ### Provider-initiated logout
 
 Entra calls the application's front-channel logout URL (`FrontChannelLogout`) with
-`sid` and `iss` when the person signs out of Microsoft. The handler ends every session
-whose sign-in carried that `sid` under that issuer, impersonations started from them
-included, and refuses an issuer of no tenant the registration admits. A registration
-serving one tenant supplies its issuer when the request names none; one serving several
-needs the `iss` Entra sends. See "Every session" for the design.
+the `sid` when the person signs out of Microsoft. The handler ends every session whose
+sign-in carried that `sid` under an issuer the registration declares, impersonations
+started from them included. A registration serving one tenant scopes the request to
+that tenant's issuer; one serving several, to whichever of its issuers live sessions
+carry the `sid` under. A request that names an `iss` is scoped to it, and refused when
+no tenant the registration admits has it. See "Every session" for the design.
 
 ## Google Workspace OIDC
 
@@ -2236,8 +2226,8 @@ differences that follow from durability:
   differently:
   - **Auth**: initial data is **per-call on `CreateSessionUser`**, written atomically
     with the user insert, or written by a custom account rule's `signin.Provision` hook
-    in the sign-in's transaction for a user it provisions. There is no login hook: an
-    identity's claims reach the rule, which decides what to keep.
+    in the sign-in's transaction for a user it provisions: an identity's claims reach
+    the rule, which decides what to keep.
   - **Preauth**: unsupported — there is no user record to anchor durable data to
     (construction error if configured).
 
@@ -2249,7 +2239,7 @@ Never tag a field `UserId` — it is implied
 and reserved. Nullable columns must map to nullable Go types.
 
 ```sql
--- Spanner, password auth
+-- Spanner
 CREATE TABLE UserCustomData (
     UserId  STRING(36) NOT NULL,
     Locale  STRING(MAX),
@@ -2300,11 +2290,7 @@ err = auth.API().UpdateCustomUserData(ctx, userID, func(d *UserData) error {
 |---|---|
 | Non-struct `U`, invalid tag identifier, reserved `UserId`, duplicate columns | Error from the config constructor, at startup |
 | Session type's `U` doesn't match the storage config's `U` (or no config attached) | Error from the session-type constructor, at startup |
-| Custom user data on OIDC storage without `WithOIDCUsers()` | Error from `NewOIDCAzure`, at startup |
-| Login hook on password-auth storage, or any user data config on preauth storage | Error from the session-type constructor, at startup |
-| `WithOIDCUsers()` on password-auth or preauth storage | Error from the session-type constructor, at startup |
-| Missing `tid`/`oid` claim with the anchor enabled | Login aborts: no anchor row, no user data, no session, no cookies |
-| Login hook returns an error | Login aborts atomically (anchor upsert included) |
+| A custom user data configuration on the storage given to `NewPreauth` | Error from `NewPreauth`, at startup |
 | Per-call data on `CreateSessionUser` with no config attached, or more than one value | Error before any insert |
 | `UpdateCustomUserData` for a user ID that doesn't exist | Not-found error; nothing written |
 | User has no custom row | Not a failure: reads and RMW yield a zero-value `U` |
@@ -2598,7 +2584,8 @@ Everything an impersonated session touches names the actor and the principal:
   principal has no local user: no record is looked up and `UserFromCtx` carries the
   actor's username with the zero ID, so self-referential checks (cannot delete yourself)
   go inert, correctly. A local actor's role principal is their own session, so their
-  record is looked up as usual — a disabled actor's role session ends with their others.
+  record is looked up, by the username the session carries — a disabled actor's role
+  session ends with their others.
   Preauth validates an impersonated session exactly as any other.
 - **Identity operations.** The library's own handlers refuse under impersonation:
   `ChangeUserPassword` (the password method's on `Auth`) always, since it would alter the
@@ -2606,22 +2593,25 @@ Everything an impersonated session touches names the actor and the principal:
   `IdentityOperationBlocked` event. On `Auth` the user operations are `AuthAPI` methods
   behind the application's own handlers, which guard them.
 - **One name, one user.** A role principal's session carries the actor's own username,
-  in the same session table as the application's real users. For a *local* actor that
-  name is their user, and the two username-keyed store operations treat everything
-  under it as theirs: `DestroyAllUserSessions` expires their own sessions, their role
-  sessions, and every impersonation they hold as a local actor under other names, ending
-  the records `Revoked`; the session rename on `ChangeUsername` renames their role sessions
-  and moves their live records to the new name. For a *foreign* actor the name is
-  borrowed, so password auth refuses a role principal when that name is already a
-  `SessionUsers` user (the actor logs in as that user, or impersonates it as a user
-  principal), and the two operations never touch a session carrying a live foreign
-  role-principal record — a user created later under that name cannot reach the
-  actor's session either. On `Auth` the same holds by user ID: `DestroyUserSessions`
-  ends the user's own sessions under any username, the user-principal impersonations of
-  them and every impersonation they hold as a local actor. Preauth and the legacy OIDC
-  type have no username-keyed user to collide with; the legacy `FrontChannelLogout` is
-  username-keyed all the same, and makes no exception for a foreign role session (see
-  *Identity by session type*).
+  in the same session table as the sessions of the application's users, and belongs to
+  no account. On an `Auth` what is a user's is found by the id of their account:
+  `DestroyUserSessions(ctx, userID)` ends the user's own sessions under any username,
+  the user-principal impersonations of them and every impersonation they hold as a
+  local actor, their role sessions among them, ending the records `Revoked`. A local
+  actor's role session is reached through the actor's username: validation loads the
+  actor's user by the username the session carries, and the records a local actor
+  holds are found by the actor's username. So `ChangeSessionUserUsername` renames the
+  user's live sessions, their role sessions with them, and moves the live records they
+  hold as a local actor to the new name. For a *foreign* actor the name is borrowed,
+  so an `Auth` refuses a foreign actor's role principal when that name is already a
+  `SessionUsers` username (403: the actor logs in as that user, or impersonates it as
+  a user principal), and neither operation touches a session carrying a live foreign
+  role-principal record: a user created later under that name cannot reach the actor's
+  session either. `Preauth` keeps no accounts, so there a name is all a session has,
+  and there is no user for a foreign actor's name to collide with:
+  `PreauthAPI.DestroyAllUserSessions(ctx, username)` expires every session under the
+  name but a foreign actor's role session, and every impersonation the name holds as a
+  local actor under other names, ending the records `Revoked`.
   This is the store-level complement of the authorization rule: under a role principal the
   subject is the role, and application policy must not key row conditions on the session
   username.
