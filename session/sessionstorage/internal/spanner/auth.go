@@ -22,9 +22,9 @@ type AuthEventsConfig struct {
 }
 
 // EnableAuth enables the auth schema's session columns, UserId and
-// AuthenticatedAt. Non-OIDC session inserts write them and session reads return them.
-// Without it the driver never names those columns, so a legacy session table keeps
-// working.
+// AuthenticatedAt. Session inserts write them and session reads return them. Without
+// it the driver never names those columns, so a session table without the auth
+// migrations, which a Preauth store runs on, keeps working.
 func (s *SessionStorageDriver) EnableAuth() {
 	s.users = true
 }
@@ -61,7 +61,7 @@ func commitTime(t time.Time) time.Time {
 	return t
 }
 
-// sessionInsertMutation renders the insert of a non-OIDC session row, created and
+// sessionInsertMutation renders the insert of a session row, created and
 // updated at the commit time. With the user columns enabled it also writes UserId,
 // AuthenticatedAt (the commit time, or null for a preauth session) and
 // ProviderSessionId.

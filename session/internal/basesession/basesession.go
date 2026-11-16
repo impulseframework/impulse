@@ -105,7 +105,7 @@ func (s *BaseSession) StartSessionAPI(ctx context.Context, w http.ResponseWriter
 
 	if sameSiteStrict, _ := cval.GetString(internalcookie.SameSiteStrict); sameSiteStrict != strconv.FormatBool(true) {
 		// Upgrade cookie to SameSite=Strict
-		// CallbackOIDC() sets it to None to allow OAuth flow to work
+		// An external method's callback writes it None, so it survives the provider's redirect
 		s.CookieHandler.WriteAuthCookie(w, true, cval)
 	}
 

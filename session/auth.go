@@ -265,9 +265,8 @@ type Auth[SessionData, UserData, Tx any] struct {
 }
 
 // NewAuth creates an Auth session for the given storage. The storage's custom session
-// and user data configurations must be built for SessionData and UserData. The
-// OIDC-only storage features (the OIDC user anchor and the custom user data login hook)
-// are refused. Tx is inferred from the storage: an application writes
+// and user data configurations must be built for SessionData and UserData. Tx is
+// inferred from the storage: an application writes
 // NewAuth[SessionData, UserData](store, cookieKey, options...).
 //
 // A sign-in is decided by the library's own checks: the user exists and is enabled,

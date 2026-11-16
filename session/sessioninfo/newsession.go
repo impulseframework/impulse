@@ -47,18 +47,20 @@ type NewSessionRequest struct {
 	// configured resolver is NOT invoked for this creation (per-call data wins). It
 	// requires a custom session data configuration on the storage.
 	CustomData any
-	// Claims holds the raw verified ID-token claims when the session is created by an
-	// OIDC login; it is nil for all other session types. Resolvers unmarshal the fields
-	// they need — the library does not curate a claims struct.
+	// Claims holds the raw claims of the verified identity that establishes the session
+	// (Identity.Claims): the ID token's claims for an OpenID Connect sign-in, the profile
+	// for a WorkOS one. It is nil when the identity carries none (a password sign-in, a
+	// session the application starts) and for a session no identity establishes.
+	// Resolvers unmarshal the fields they need — the library does not curate a claims
+	// struct.
 	Claims json.RawMessage
-	// Tid and Oid are the verified tenant and directory-object GUID claims when the
-	// session is created by an Azure OIDC login; they are empty for all other session
-	// types. When the OIDC user anchor is enabled they key the OIDCUsers upsert, and
-	// UserID is populated with the anchor record's ID before any resolver or hook runs.
+	// Tid and Oid are set by no sign-in method: a Microsoft Entra ID sign-in carries its
+	// tenant and object id as the Identity's Connection and Subject.
 	Tid string
 	Oid string
-	// Identity is the verified identity establishing an Auth session. It is nil for the
-	// legacy session types.
+	// Identity is the verified identity establishing an Auth session. It is nil for a
+	// session no sign-in establishes: a preauth session, a regeneration, an
+	// impersonation.
 	Identity *Identity
 	// ProviderSessionID is the identity provider's session id the sign-in carried (an
 	// OpenID Connect sid claim), which a provider-initiated logout names; "" when the
@@ -81,7 +83,7 @@ type NewSessionRequest struct {
 	// User is the user an Auth sign-in resolved to and how. The storage sets it
 	// once the user is known, before the sign-in policy and the custom session data
 	// resolver run, and leaves it set after the insert returns. It is nil while the
-	// account rules run and for the legacy session types.
+	// account rules run and for a session no sign-in establishes.
 	User *SignInUser
 	// Invitation is the live invitation the browser carries into this sign-in, nil
 	// for none. The sign-in accepts it once the user is known and reports the outcome

@@ -71,9 +71,9 @@ type IdentityResolver struct {
 	Accounts bool
 }
 
-// IdentityAsGiven is the resolver for session types with no username-keyed local user
-// record (Preauth, OIDC): the principal's name is the username, the user ID is zero, and
-// no name can collide with a user.
+// IdentityAsGiven is the resolver of Preauth, which keeps no user record: the
+// principal's name is the username, the user ID is zero, and no name can collide with a
+// user.
 var IdentityAsGiven = IdentityResolver{
 	User: func(_ context.Context, user accesstypes.User) (string, impulse.UUID, error) {
 		return string(user), impulse.NilUUID, nil
@@ -182,15 +182,15 @@ func impersonatedIdentity(ctx context.Context, req *ImpersonationRequest, resolv
 }
 
 // UserStore is the user lookup the identity resolver and the session user check
-// need: the Auth store and the legacy password store both have it.
+// need: the Auth store has it.
 type UserStore interface {
 	User(ctx context.Context, id impulse.UUID) (*sessionstorage.SessionUser, error)
 	UserByUserName(ctx context.Context, username string) (*sessionstorage.SessionUser, error)
 }
 
-// UserIdentity is the identity resolver of Auth and the legacy PasswordAuth, whose users are
-// SessionUsers records. A user principal resolves against storage. A foreign actor's
-// role principal is refused when the actor's name is already a user there.
+// UserIdentity is the identity resolver of Auth, whose users are SessionUsers records.
+// A user principal resolves against storage. A foreign actor's role principal is
+// refused when the actor's name is already a user there.
 func UserIdentity(storage UserStore) IdentityResolver {
 	return IdentityResolver{
 		User: func(ctx context.Context, user accesstypes.User) (string, impulse.UUID, error) {

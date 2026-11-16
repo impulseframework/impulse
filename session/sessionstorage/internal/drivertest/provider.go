@@ -16,9 +16,9 @@ import (
 // row under the registration's issuer, and a provider-initiated logout ends every live
 // session under that issuer and id: the sign-in's own, a regenerated one that kept
 // them, and an impersonation started from it (its record ends Logout). A session under
-// another issuer or another id, one without an id, and one with an id but no issuer (a
-// legacy session the upgrade carried over) stay. The issuers live sessions carry an id
-// under are listed, for a logout that names no issuer; the issuerless session is not.
+// another issuer or another id, one without an id, and one with an id but no issuer
+// stay. The issuers live sessions carry an id under are listed, for a logout that names
+// no issuer; the issuerless session is not.
 
 func testProviderSessionLogout(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Impersonation: true})
@@ -49,7 +49,7 @@ func testProviderSessionLogout(ctx context.Context, t *testing.T, h *AuthHarness
 	otherIssuer := start(pat, riverside, "sid-1")
 	otherSID := start(pat, lakeside, "sid-2")
 	none := start(sam, "", "")
-	// A legacy session the upgrade carried over has an id but no issuer.
+	// A session recorded with an id but no issuer matches no logout.
 	issuerless := start(sam, "", "sid-1")
 
 	if sess := mustSession(ctx, t, in.Driver, first); sess.ProviderSessionID != "sid-1" || sess.ProviderSessionIssuer != lakeside {

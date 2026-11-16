@@ -406,9 +406,12 @@ func (p *AuthAPI[S, U, Tx]) UpdateCustomUserData(ctx context.Context, userID imp
 	return p.auth.shared().UpdateCustomUserData(ctx, userID, mutate)
 }
 
-// StartImpersonatedSession starts an impersonated session, with the same semantics as
-// the other session types. A user principal resolves against the users, as on
-// PasswordAuth.
+// StartImpersonatedSession establishes a session that operates as req.Principal on
+// behalf of req.Actor. A user principal names the person by the id of their account
+// and resolves against the users: a principal that is no id is a BadRequest, a missing
+// user is an error and a disabled one is refused. An actor from another application
+// (req.ActorRealm set) is refused when their name reads as the id of an account, and,
+// for a role principal, when their name is already a user's username.
 //
 // A user principal's session belongs to the impersonated user (SessionData.UserID).
 // A role principal's session belongs to no user (null UserID). The session records
