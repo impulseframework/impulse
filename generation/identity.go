@@ -565,6 +565,14 @@ func (d *identitySourceData) Password() bool { return d.password }
 // answers none of the hooks that give one.
 func (d *identitySourceData) RolesSynced() bool { return d.rolesSynced }
 
+// GivesRoles reports whether the instance serves the methods that give and take the
+// auth's roles for the whole application (Assign<Auth>Role and Remove<Auth>Role): the
+// application assigns the roles, and the schema holds the memberships. They are the
+// methods a super administrator always executes.
+func (d *identitySourceData) GivesRoles() bool {
+	return !d.rolesSynced && d.has(identityMemberships)
+}
+
 // PasswordOnCreate says what a create does with a password: "required" where the
 // password is the auth's one way in, "optional" beside a registration that admits
 // invited users alone, and "none" where the auth has no password method.

@@ -59,12 +59,19 @@ func UserID(user accesstypes.User) (userID impulse.UUID, ok bool) {
 // refused for a person who holds a role in another one, as a Conflict that never says
 // which (refuseSecondTenant). A role for the whole application or in every tenant is
 // given whatever the person holds, and its holder is given a role in any tenant.
+//
+// The Super Administrator role is given in the global scope alone, and by a caller who
+// holds it (requireSuperAdministrator): only a super administrator makes another. A
+// call outside any request is the application's own act and gives it.
 func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if userID.IsNil() {
 		return httpio.NewBadRequestMessage("a role is given to a person: the user id is empty")
+	}
+	if role == accesstypes.SuperAdministrator && !scope.IsGlobal() {
+		return httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, never in a %s or in every %s: give it with no %s named", string(role), m.tenantWord, m.tenantWord, m.tenantWord)
 	}
 	key, err := m.access.UserManager().Membership(ctx, scope, User(userID), role, func(ctx context.Context, key access.RoleKey) (bool, error) {
 		held, err := m.store.HasRole(ctx, txn, &key)
@@ -76,6 +83,11 @@ func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransact
 	})
 	if err != nil {
 		return errors.Wrap(err, "access.UserManager.Membership()")
+	}
+	if role == accesstypes.SuperAdministrator {
+		if err := m.requireSuperAdministrator(ctx, txn, "gives the Super Administrator role"); err != nil {
+			return err
+		}
 	}
 	if err := m.refuseSecondTenant(ctx, txn, scope, userID); err != nil {
 		return err
@@ -98,9 +110,12 @@ func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransact
 // like any other.
 //
 // Two rules of the user management are held here. A person who removes a role from
-// themselves is held to the rule on the last administrator (refuseLastAdministrator).
-// And a person left with no role anywhere is deleted with their identity links and
-// sessions in the same transaction (deleteWithLastRole), whoever removed the role.
+// themselves in a tenant is held to the rule on the tenant's last administrator
+// (refuseLastAdministrator). And a person left with no role anywhere is deleted with
+// their identity links and sessions in the same transaction (deleteWithLastRole),
+// whoever removed the role. The Super Administrator role has its own: it is taken away
+// by a caller who holds it, and never from the last holder who can sign in, whoever
+// asks (requireSuperAdministrator, refuseLastSuperAdministrator).
 // Where a person belongs to one tenant (WithOneTenantPerPerson) there is a third: the
 // last role a person holds outside the tenants stays while they hold roles in more than
 // one tenant (refuseLeavingSeveralTenants).
@@ -125,11 +140,19 @@ func (m *Manager) RemoveRole(ctx context.Context, txn resource.ReadWriteTransact
 	return m.removeMembership(ctx, txn, scope, userID, &key)
 }
 
-// removeMembership buffers the removal of a membership the person holds, under the two
+// removeMembership buffers the removal of a membership the person holds, under the
 // rules of RemoveRole, and has the permission engine told once the transaction has
 // committed. key is the membership, read as held by the caller.
 func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, key *access.MembershipKey) error {
-	if m.callerIs(ctx, userID) {
+	switch {
+	case scope.IsGlobal() && key.Role == accesstypes.SuperAdministrator:
+		if err := m.requireSuperAdministrator(ctx, txn, "takes the Super Administrator role away"); err != nil {
+			return err
+		}
+		if err := m.refuseLastSuperAdministrator(ctx, txn, userID, "take the role from them"); err != nil {
+			return err
+		}
+	case m.callerIs(ctx, userID):
 		if err := m.refuseLastAdministrator(ctx, txn, scope, key); err != nil {
 			return err
 		}
