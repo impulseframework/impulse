@@ -412,7 +412,7 @@ func (a *Auth[S, U, Tx]) claimCodeAddress(ctx context.Context, userID impulse.UU
 // one more drops the oldest.
 const (
 	trustedDevicesKey        cookie.Key = "devices"
-	trustedDevicesPerBrowser            = 5
+	trustedDevicesPerBrowser int        = 5
 )
 
 // trustedEntry is one user's token in the trusted device cookie: the token, and when
