@@ -1683,8 +1683,7 @@ Open sign-up, in turn, is refused on a registration that lists its tenants only.
 `Config.Authority` is the Microsoft identity platform the tenants live on,
 `https://login.microsoftonline.com` when empty; Azure Government tenants live at
 `https://login.microsoftonline.us`. There is no issuer setting: a tenant's issuer is
-`<Authority>/<tenant id>/v2.0`, and `azure.TenantOfIssuer` reads such an issuer into
-the authority and the tenant it names.
+`<Authority>/<tenant id>/v2.0`.
 
 ### Provider-initiated logout
 

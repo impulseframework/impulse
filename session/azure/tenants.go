@@ -316,24 +316,6 @@ func issuerOf(authority, tid string) string {
 	return authority + "/" + strings.ToLower(tid) + "/v2.0"
 }
 
-// TenantOfIssuer reads a tenant's v2.0 issuer, <authority>/<tenant id>/v2.0, into the
-// authority and the tenant it names, for a configuration that holds the issuer of one
-// tenant as one URL (Config.Authority and Config.Tenants hold them apart). An issuer
-// of another shape is an error.
-func TenantOfIssuer(issuerURL string) (authority string, tenant TenantSet, err error) {
-	base, ok := strings.CutSuffix(strings.TrimSuffix(issuerURL, "/"), "/v2.0")
-	i := strings.LastIndex(base, "/")
-	if !ok || i <= 0 || !tenantIDPattern.MatchString(base[i+1:]) {
-		return "", TenantSet{}, errors.Newf("%q is not the issuer of a Microsoft Entra tenant, <authority>/<tenant id>/v2.0", issuerURL)
-	}
-	authority, err = authorityOf(base[:i])
-	if err != nil {
-		return "", TenantSet{}, errors.Wrap(err, "azure.authorityOf()")
-	}
-
-	return authority, Tenant(base[i+1:]), nil
-}
-
 // tenantOfIssuer reads the tenant id out of an issuer under authority, and reports
 // whether iss has that shape: authority, one tenant id segment, v2.0.
 func tenantOfIssuer(authority, iss string) (string, bool) {

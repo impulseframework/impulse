@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/session/mock/mock_signin"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
@@ -194,43 +193,6 @@ func TestTenantSet_simulatedTenantID(t *testing.T) {
 
 			if got := tt.tenants.simulatedTenantID(fallback); got != tt.want {
 				t.Errorf("simulatedTenantID() = %q, want %q", got, tt.want)
-			}
-		})
-	}
-}
-
-func TestTenantOfIssuer(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name          string
-		issuer        string
-		wantAuthority string
-		wantTenant    TenantSet
-		wantErr       bool
-	}{
-		{name: "a tenant's v2.0 issuer", issuer: "https://login.microsoftonline.com/" + tenantLake + "/v2.0", wantAuthority: DefaultAuthority, wantTenant: Tenant(tenantLake)},
-		{name: "a trailing slash is tolerated", issuer: "https://login.microsoftonline.com/" + tenantLake + "/v2.0/", wantAuthority: DefaultAuthority, wantTenant: Tenant(tenantLake)},
-		{name: "another authority", issuer: "https://login.microsoftonline.us/" + tenantLake + "/v2.0", wantAuthority: "https://login.microsoftonline.us", wantTenant: Tenant(tenantLake)},
-		{name: "a v1.0 issuer names no v2.0 tenant", issuer: "https://sts.windows.net/" + tenantLake + "/", wantErr: true},
-		{name: "a shared endpoint is no tenant's issuer", issuer: "https://login.microsoftonline.com/common/v2.0", wantErr: true},
-		{name: "a bare word", issuer: "issuerURL", wantErr: true},
-		{name: "an issuer without a scheme", issuer: "login/" + tenantLake + "/v2.0", wantErr: true},
-		{name: "an authority with a path", issuer: "https://login.microsoftonline.com/extra/" + tenantLake + "/v2.0", wantErr: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-
-			authority, tenant, err := TenantOfIssuer(tt.issuer)
-			if (err != nil) != tt.wantErr {
-				t.Fatalf("TenantOfIssuer() error = %v, wantErr %v", err, tt.wantErr)
-			}
-			if authority != tt.wantAuthority {
-				t.Errorf("TenantOfIssuer() authority = %q, want %q", authority, tt.wantAuthority)
-			}
-			if diff := cmp.Diff(tt.wantTenant, tenant, cmp.AllowUnexported(TenantSet{}, namedTenant{})); diff != "" {
-				t.Errorf("TenantOfIssuer() tenant mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
