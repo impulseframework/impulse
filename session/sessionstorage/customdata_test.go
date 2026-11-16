@@ -188,9 +188,9 @@ func TestNewCustomUserData(t *testing.T) {
 }
 
 // TestAuth_WithCustomData proves the store's attach methods configure its driver: the
-// probes the Auth session checks at construction answer the attached types, no login
-// hook is configured, and the resolver reaches the driver typed to its transaction, a
-// typed nil crossing as an untyped nil.
+// probes the Auth session checks at construction answer the attached types, and the
+// resolver reaches the driver typed to its transaction, a typed nil crossing as an
+// untyped nil.
 func TestAuth_WithCustomData(t *testing.T) {
 	t.Parallel()
 

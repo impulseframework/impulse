@@ -15,7 +15,7 @@ The Session repository is designed to handle the management of user sessions, in
   - Username/Password (`session.PasswordSignIn`)
   - Microsoft Entra ID (Azure) OIDC (`session/azure`), admitting one tenant, several, any tenant or Microsoft personal accounts, with role synchronization from the token's roles and provider-initiated logout (see the "Microsoft Entra ID OIDC" section)
   - Google Workspace OIDC (`session/google`), admitting one Workspace, several, any Workspace or any Google account, with role synchronization from Google Groups (see the "Google Workspace OIDC" section)
-  - WorkOS SSO: built and tested, but under `internal` in v0.13.0 until its review; it returns to the public API in v0.13.1
+  - WorkOS SSO: built and tested, but under `internal` until its review
 - `The second factor`: every session carries one when the sign-in policy asks (`signin.RequireMFA`): the attestation a sign-in's connection makes, by evidence in the token (Entra's `amr`) or by the application's declaration of a directory it administers (`Attesting()`), or else the library's own factor, a one-time code mailed to the user's address, with the browser remembered afterwards as a trusted device and an administrator's reset. See "The second factor" under the Auth session.
 - `Invitations, email addresses and sign-up`: an invitation mailed to an address, carrying the roles its acceptance grants, accepted only by the account it was sent to (an account with no address, by the link); a user's email address in two states, unverified and verified, the person proving it by a mailed link; and self-service sign-up with a password when the application opens it. See "Users and their email address", "Invitations" and "Sign-up" under the Auth session.
 - `Mail`: one interface the invitation, verification, sign-up and sign-in code flows send through (`session/mail`), with the Google Workspace SMTP relay as the first driver (`session/mail/workspace`). See the "Sending mail" section.
@@ -52,7 +52,7 @@ A host clock that runs ahead of the database's therefore cannot be refused, and 
 rows one write stores carry one time. On Spanner the columns carry
 `allow_commit_timestamp = true`: the shipped sets mark them (a `CommitTimestamps`
 migration in each), and a table created by hand or named per group needs the same
-option before a v0.13 driver writes to it, since a write to a column without it fails:
+option before the driver writes to it, since a write to a column without it fails:
 
 ```sql
 ALTER TABLE Sessions ALTER COLUMN CreatedAt SET OPTIONS (allow_commit_timestamp = true);
@@ -77,21 +77,6 @@ shapes the address columns take, and "A person's name".
 
 **PostgreSQL time columns are `timestamp with time zone`.** The driver writes `time.Time`
 values as instants, which `timestamptz` stores faithfully whatever zone the host runs in.
-Earlier revisions of the DDL declared `timestamp without time zone`, which keeps the wall
-clock and drops the zone: a deployment on that type stays correct as long as every process
-writing to it runs in UTC, and such a deployment does not need to migrate. To migrate
-anyway, convert the columns and restart the application in the same window — pgx caches
-the parameter types of its prepared statements, so a live pool keeps writing wall-clock
-values (and fails one cached read per connection) until its connections are recycled:
-
-```sql
--- Repeat for every time column created from the DDL (the impersonation table's
--- StartedAt, ExpiresAt and EndedAt among them).
--- 'UTC' names the zone the writing processes ran in.
-ALTER TABLE "Sessions"
-    ALTER COLUMN "CreatedAt" TYPE timestamptz USING "CreatedAt" AT TIME ZONE 'UTC',
-    ALTER COLUMN "UpdatedAt" TYPE timestamptz USING "UpdatedAt" AT TIME ZONE 'UTC';
-```
 
 ## Auth sessions (multiple sign-in methods)
 
@@ -107,7 +92,7 @@ transaction type (`pgx.Tx` or `*spanner.ReadWriteTransaction`); `NewAuth` infers
 the store, and the rules the application gives the `Auth` and its methods are typed to it.
 
 Each redirect-based method is its own package (`session/azure`, `session/google`;
-`session/workos` waits under `internal` until v0.13.1), built on the `session/signin`
+`session/workos` waits under `internal` until its review), built on the `session/signin`
 contract and the shared `session/oidc` machinery, which also holds the generic OpenID
 Connect method for a provider with nothing vendor-specific about it; an application imports the packages of the methods it offers and registers
 each with its `SignIn` function and `Config`.
@@ -118,7 +103,7 @@ each with its `SignIn` function and `Config`.
 | `azure` | `azure.SignIn(auth, name, rule, &azure.Config{...})` → `*azure.Method`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=`, `?prompt=select_account` | `signin.RoleSync(manager)` or `signin.DisableRoleSync()` |
 | `google` | `google.SignIn(auth, name, rule, &google.Config{...})` → `*google.Method`: `Login`, `Callback` | (the Workspace the `Workspaces` slot selects, `sub`) | `?returnUrl=`, `?login_hint=`, `?prompt=select_account` | `google.RoleSync(...)` or `google.DisableRoleSync()` |
 | `oidc` | `oidc.SignIn(auth, name, rule, &oidc.Config{...})` → `*oidc.Method`: `Login`, `Callback` | (`Config.Connection`, the issuer URL by default; `sub`) | `?returnUrl=`, `?login_hint=`, `?prompt=select_account` | `signin.RoleSync(manager)` (the `roles` claim) or `signin.DisableRoleSync()` |
-| `workos` (internal until v0.13.1) | `workos.SignIn(auth, name, rule, &workos.Config{...})` → `*workos.Method`: `Login`, `Callback` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
+| `workos` (internal) | `workos.SignIn(auth, name, rule, &workos.Config{...})` → `*workos.Method`: `Login`, `Callback` | (`connection_id`, `idp_id`) | `?organization=` (required), `?returnUrl=` | never synchronized |
 
 `name` identifies the registration on the `Auth` and must be unique there: one method
 may be registered several times under different names, so one `Auth` offers two Entra
@@ -788,7 +773,7 @@ the person reaches.
    signing-in user's entry alone, and a sign-in held for the code drops that user's
    entry alone (it named a dead device, or none), leaving the others' as they are. A
    browser holds at most five entries; remembering one more drops the oldest. A cookie
-   of the one-token shape earlier releases wrote is still read and is rewritten in
+   that holds one bare token in place of the entries is read too, and is rewritten in
    this shape at the next remembering.
 3. **The sign-in code.** Otherwise the sign-in waits as a pending identity with reason
    `mfa` and the policy's factors, and the login page runs the step when the factors
@@ -1698,7 +1683,7 @@ Open sign-up, in turn, is refused on a registration that lists its tenants only.
 `Config.Authority` is the Microsoft identity platform the tenants live on,
 `https://login.microsoftonline.com` when empty; Azure Government tenants live at
 `https://login.microsoftonline.us`. There is no issuer setting: a tenant's issuer is
-`<Authority>/<tenant id>/v2.0`, and `azure.TenantOfIssuer` reads a v0.12 issuer into
+`<Authority>/<tenant id>/v2.0`, and `azure.TenantOfIssuer` reads such an issuer into
 the authority and the tenant it names.
 
 ### Provider-initiated logout

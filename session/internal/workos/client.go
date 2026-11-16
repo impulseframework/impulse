@@ -5,8 +5,7 @@
 // profile from a server-to-server code exchange. There is no ID token to verify locally.
 // The exchange, made over TLS with the secret API key, is what vouches for the profile.
 //
-// The package is internal in v0.13.0, until its review; it returns to the public API
-// unchanged in v0.13.1.
+// The package is internal until its review.
 package workos
 
 import (

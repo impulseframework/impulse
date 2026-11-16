@@ -15,7 +15,7 @@ import (
 // the person is with Reject, Link, Provision or Confirm, or leaves the decision to the
 // registration's standard rule with Standard, after checks of its own. It is optional
 // on the Entra and Google methods, which have a standard rule (StandardAccountRule),
-// and required on a method that has none (WorkOS, under internal until v0.13.1). Every
+// and required on a method that has none (WorkOS, under internal). Every
 // external method takes one at its registration, typed to the method's identity
 // (azure.AccountRule, google.AccountRule), and hands the core this form over the
 // sign-in request. It runs in the first of a sign-in's two transactions, which commits

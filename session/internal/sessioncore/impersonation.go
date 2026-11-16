@@ -61,8 +61,8 @@ type IdentityResolver struct {
 	User func(ctx context.Context, user accesstypes.User) (username string, userID impulse.UUID, err error)
 	// actor guards a role principal, whose session carries the actor's own username:
 	// it refuses when that name already belongs to a user in this store, so one
-	// name never means two users in one session table. Nil when the store has no
-	// username-keyed users.
+	// name never means two users in one session table. Nil when the store keeps no
+	// users.
 	Actor func(ctx context.Context, actor string) error
 	// Accounts reports a store whose people are accounts, named by id in the
 	// permission store: there a text that reads as an id is an account's, so an actor
