@@ -129,7 +129,7 @@ Layers, from the outside in:
 | I10 | Destroying the actor's sessions revokes every impersonation they hold as a local actor | driver `DestroyImpersonatedSessions…`, `username-keyed operations…`; `TestSeams/destroying the actor's sessions…` | driver, seam |
 | I11 | An operator's revocation refuses the next request and removes the session from the listing | `TestSeams/an operator revokes…` | seam |
 | I12 | Every end is announced once as an Ended event on every type, including logout | `TestSessionAPIs_Logout_AnnouncesImpersonationEnd`; `TestSessionTypes_PublicSurface/*/Logout…`, `…EndImpersonation…` | public surface |
-| I13 | A same-named role session and a user stay distinct: a foreign actor's role session survives the rename of the user under its name and the destruction of that name's sessions | driver `username-keyed operations…` | driver |
+| I13 | A same-named role session and a user stay distinct: an `Auth` refuses a role principal for a foreign actor whose name is a user's username, and a foreign actor's role session survives the rename of the user under its name and the destruction of that name's sessions | `TestAuthAPI_StartImpersonatedSession/a role principal for an actor from another application whose name is a user's username is refused…`; driver `username-keyed operations…` | root, driver |
 | I14 | Both storage backends implement identical semantics | the shared `drivertest` suite runs unchanged on both | driver |
 
 Not a library property, and therefore not tested here: *who may impersonate whom*, and who
