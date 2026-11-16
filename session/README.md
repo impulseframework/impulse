@@ -772,9 +772,7 @@ the person reaches.
    browser, or one person with two accounts, are each remembered: a sign-in reads the
    signing-in user's entry alone, and a sign-in held for the code drops that user's
    entry alone (it named a dead device, or none), leaving the others' as they are. A
-   browser holds at most five entries; remembering one more drops the oldest. A cookie
-   that holds one bare token in place of the entries is read too, and is rewritten in
-   this shape at the next remembering.
+   browser holds at most five entries; remembering one more drops the oldest.
 3. **The sign-in code.** Otherwise the sign-in waits as a pending identity with reason
    `mfa` and the policy's factors, and the login page runs the step when the factors
    include the email code: `Pending().Status()` reports `emailCode` with the masked
