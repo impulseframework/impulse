@@ -177,6 +177,7 @@ checks:
   file-store
   pins
   gofmt
+  prettier
   gowork-off
   shipped-programs
   regen

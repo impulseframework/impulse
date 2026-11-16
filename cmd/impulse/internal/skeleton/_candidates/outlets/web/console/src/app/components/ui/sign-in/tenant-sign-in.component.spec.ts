@@ -48,7 +48,10 @@ const applicationAdministrator: { global: PermissionDigest; acme: PermissionDige
 };
 const nobody: { global: PermissionDigest; acme: PermissionDigest } = { global: {}, acme: {} };
 
-function serverFor(digests: { global: PermissionDigest; acme: PermissionDigest }): (request: TransportRequest) => TransportResponse {
+function serverFor(digests: {
+  global: PermissionDigest;
+  acme: PermissionDigest;
+}): (request: TransportRequest) => TransportResponse {
   return (request) => {
     const url = new URL(request.url, 'http://skeleton.test');
     switch (url.pathname) {
@@ -130,13 +133,21 @@ describe('TenantSignInComponent', () => {
     await fixture.componentInstance.declare();
     await settle();
     expect(writes()).toEqual([
-      { op: 'add', path: `/tenants/${acmeID}/tenant-directories`, value: { method: 'google', connection: 'partner.example' } },
+      {
+        op: 'add',
+        path: `/tenants/${acmeID}/tenant-directories`,
+        value: { method: 'google', connection: 'partner.example' },
+      },
     ]);
 
     await fixture.componentInstance.withdraw(entra);
     await settle();
     expect(writes()).toEqual([
-      { op: 'add', path: `/tenants/${acmeID}/tenant-directories`, value: { method: 'google', connection: 'partner.example' } },
+      {
+        op: 'add',
+        path: `/tenants/${acmeID}/tenant-directories`,
+        value: { method: 'google', connection: 'partner.example' },
+      },
       { op: 'remove', path: `/tenants/${acmeID}/tenant-directories/d-2` },
     ]);
   });
@@ -170,7 +181,9 @@ describe('TenantSignInComponent', () => {
 
     expect(element().querySelector('.seat-picker')).toBeNull();
     expect(texts('.directories td:nth-child(3)')).toEqual(['Invitation only', 'TenantAdministrator']);
-    expect(transport.requests.map((r) => r.url.replace(/\?.*$/, '')).filter((u) => u.includes('staff-tenant-roles'))).toEqual([]);
+    expect(
+      transport.requests.map((r) => r.url.replace(/\?.*$/, '')).filter((u) => u.includes('staff-tenant-roles')),
+    ).toEqual([]);
   });
 
   it("the application's administrator flips directory only on the tenant record", async () => {
@@ -194,7 +207,9 @@ describe('TenantSignInComponent', () => {
       'Your role does not cover the tenant record, which carries this setting.',
     ]);
     expect(element().querySelector('.declare-form')).toBeNull();
-    expect(transport.requests.map((r) => r.url.replace(/\?.*$/, '')).filter((u) => u.includes(`/tenants/${acmeID}`))).toEqual([]);
+    expect(
+      transport.requests.map((r) => r.url.replace(/\?.*$/, '')).filter((u) => u.includes(`/tenants/${acmeID}`)),
+    ).toEqual([]);
   });
 
   // Opened by its address (a reload, a bookmark), the page renders before the tenant's

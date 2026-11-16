@@ -220,6 +220,7 @@ func All() []Check {
 		fileStore{},
 		pins{},
 		gofmtCheck{},
+		prettierCheck{},
 		goworkOff{},
 		shippedPrograms{},
 		regen{},

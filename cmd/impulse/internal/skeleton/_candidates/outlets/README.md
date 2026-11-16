@@ -301,6 +301,11 @@ http://127.0.0.1:4301/console/ (sign in as `admin` / `password`) and the portal 
 http://127.0.0.1:4303/portal/ (the sign-in button signs in as the simulated directory's
 `client`).
 
+The browser files are held to the prettier the workspace pins (`.prettierrc`): `impulse
+check` names a file prettier would change, and `impulse check --only prettier --fix` formats
+it. Run that once after the first install: the files were written under this application's
+names before the formatter was there to wrap their lines.
+
 After a change in the framework's web packages, push the rebuilt packages, restart the dev
 server, and reload the page:
 

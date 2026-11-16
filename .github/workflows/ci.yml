@@ -678,6 +678,16 @@ jobs:
             (cd "dist/$p" && npm pack --silent --pack-destination "$RUNNER_TEMP/packs")
           done
           ls "$RUNNER_TEMP/packs"
+      - name: The formatting check refuses an unformatted file
+        # impulse check's prettier check, proven against the formatter itself where the
+        # browser packages are installed: a web root holding a line prettier would wrap
+        # fails the check by name, and --fix wraps it. The test skips where no prettier is
+        # installed, so this job, which has just installed one, requires it.
+        if: ${{ env.RUN == 'true' && matrix.framework == 'head' && env.BROWSER_PART == 'true' && matrix.candidate == 'solo' }}
+        working-directory: impulse
+        env:
+          IMPULSE_REQUIRE_PRETTIER: "1"
+        run: go test ./cmd/impulse/internal/check -run TestPrettierRefusesALineItWouldWrap -count=1 -v
       - name: Build, lint and test the browser apps
         # Every web root of the application (web/, or apps/<site>/web/ in the sites layout):
         # its production build, its lint and its specs. The solo head leg first composes
@@ -685,7 +695,11 @@ jobs:
         # people, whose browser files add tenancy writes in that record's words and for
         # that auth, and checks that application's browser app beside the rendered one;
         # its Go side is left with the obligations the brief names, so only its browser
-        # app is checked here.
+        # app is checked here. On the head leg each application's browser files are then
+        # held to the prettier its web roots pin (impulse check's prettier check, which the
+        # install makes runnable): the rendered skeleton as it was rendered, so a candidate
+        # file prettier would change fails here, and the composed application after the one
+        # --fix its next steps name, since its files were written under its own names.
         if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && env.BROWSER_PART == 'true' }}
         env:
           CANDIDATE: ${{ matrix.candidate }}
@@ -729,6 +743,14 @@ jobs:
               ) || { echo "::error::$root: the browser app failed to install, build, lint or test"; exit 1; }
               echo "::endgroup::"
             done
+            if [ "$FRAMEWORK" = head ]; then
+              if [ "$dir" = composed ]; then
+                "$RUNNER_TEMP/impulse" check --app "$dir" --only prettier --fix
+              fi
+              "$RUNNER_TEMP/impulse" check --app "$dir" --only prettier | tee "$RUNNER_TEMP/prettier-report"
+              # A check that did not run reports SKIP and exits 0, which is no proof.
+              grep -q '^PASS  prettier' "$RUNNER_TEMP/prettier-report" || { echo "::error::$dir: the prettier check did not run over an installed web root"; exit 1; }
+            fi
           done
       - name: Save the Go caches
         # Always on master; on a pull request only when no entry for this go.sum was found.

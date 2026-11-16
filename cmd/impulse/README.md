@@ -261,7 +261,12 @@ zero pseudo-version and `go.mod` gains `replace github.com/impulseframework/impu
 for development and never for committing.
 
 The tree is committed as the application's first commit (`--skip-git` leaves it
-uncommitted), so `impulse add` can start from a clean tree. Options come afterwards, one reviewable change each:
+uncommitted), so `impulse add` can start from a clean tree. `new` installs nothing, so the
+browser files it writes under the application's own names (a longer auth name makes a
+longer line) are not wrapped as the web root's prettier would wrap them: the steps it
+prints say to run `impulse check --only prettier --fix` once after the web root's install,
+and `impulse check` fails on the files it names until then (section impulse check,
+`prettier`). Options come afterwards, one reviewable change each:
 `impulse add tenancy`, `impulse add outlet`, `impulse add auth`, `impulse add files`,
 `impulse add job`.
 
@@ -481,6 +486,7 @@ any of them is broken. Run it from the application root, or point it at one:
 impulse check
 impulse check --app path/to/app --skip-generate
 impulse check --only prettier-ignore,env-template --fix
+impulse check --only prettier --fix             # once the web roots' packages are installed
 impulse check --list
 ```
 
@@ -526,6 +532,7 @@ impulse check --list
 | `file-store` | Every file store variable the code declares (`APP_FILE_STORE`, `APP_FILE_STORE_<NAME>`) names, in the development environment template, a store the framework opens (`file://<dir>`, `gs://<bucket>` or `mem://`); a directory store's directory is in `.gitignore` (`--fix` adds it); and a resource or method recording files (`@file`, `@upload`) has a store wired, the failure naming `impulse add files`. |
 | `pins` | `go.mod` requires the framework module, `github.com/impulseframework/impulse`, at a released version: the one framework requirement, whose version is the framework pin. A pseudo-version, or a `replace` of the module (a local path or another version), warns but does not fail, since the application then builds against unreleased framework code, legitimate while a change is in flight. `go.mod` carries the `tool github.com/impulseframework/impulse/cmd/impulse` directive, or the check fails with the commands that add the requirement and the directive together (`go get -tool github.com/impulseframework/impulse/cmd/impulse@<version>`, then `go tool impulse render`, then `go tool impulse check`). When the running impulse was built from a module version (`go tool impulse`, `go install github.com/impulseframework/impulse/cmd/impulse@<version>`) and that version is not the pin, the check fails: with the same three commands to move the pin when the pin stands at the ledger's last step, and with `impulse upgrade` (`go run github.com/impulseframework/impulse/cmd/impulse@<version> upgrade`) when it stands behind a step, since `go get -tool` ahead of the walk would skip the steps' recipes; an impulse built from a checkout is a development build, noted and not compared. |
 | `gofmt` | Every Go file the author owns is gofmt-formatted, test files included, since the rendered CI's lint gate refuses an unformatted file; the generated files (`zz_gen_*`) are the generator's and are left out. `--fix` formats the files named, so a handoff's edit or a recipe's rewrite that left one is caught before the walk commits the step. |
+| `prettier` | Every web root's browser files are formatted as the prettier the root pins formats them, as `gofmt` holds the Go files: the check runs the root's own prettier (`node_modules/.bin/prettier`, the version `package.json` pins) over the whole root with its `.prettierrc`, `.prettierignore` and `.gitignore`, so the generated client and the build's output stay out of it, and fails naming each file prettier would change. Nothing else holds them: the browser apps' lint does not run prettier, and a command that writes browser files under the application's own names (`impulse new`, `impulse add tenancy`) cannot wrap the lines again, since the formatter exists only once the root's packages are installed and those commands install nothing. So a web root whose packages are not installed is said to be not checked and never fails (the check's own line reads `SKIP`, not run, when no root is installed, as in a CI job that installs none), and one whose `package.json` pins no prettier has nothing to be held to. `--fix` formats the files named and changes no other: run `impulse check --only prettier --fix` once after the first install. |
 | `gowork-off` | `GOWORK=off go build ./...` and `go vet ./...` succeed, so the pin in `go.mod` resolves on its own, without a workspace file above the application. |
 | `shipped-programs` | Every program a release ships (`ShipsProgram("cmd/<name>", Platforms("linux/amd64"))` on an outlet) is a main package on a machine outlet that builds for each platform it declares: the outlet declares `Tokens`, since a session outlet serves no programs; a package main is at the directory; and `go build` of the package succeeds for each platform with `CGO_ENABLED=0`, as the image build compiles it after the tag, the compiler's output reported under a failure. An application whose outlets ship no program passes saying so. |
 | `regen` | `go generate ./...` reproduces the generated files on disk: every `zz_gen` file, and every file under a `GenerateIdentity` tree, which is the generator's whole (content compared before and after, so it holds in untracked trees too). The `Warning:` lines the generate programs printed are listed under the result and counted in its summary; they never fail the check, since the program's warnings test is what gates the accepted set. A run that removes a generated Go file it no longer writes is stopped by the go command at that file, which it listed before the generator ran, though the generation finished; the check, like every `impulse` command that regenerates, runs `go generate ./...` once more in that one case and reads the second run. Needs the Spanner emulator and rewrites the working tree; `--skip-generate` leaves it out. |
@@ -900,7 +907,9 @@ library's frame carries the tenant the URL names, the guard, the refusal page an
 place switcher. The record's name, marked `@tenantName`, is what the session's tenant
 list shows. A record of another name gets everything in its own words: with
 `--tenant-table ServiceAreas` the pages, the menus and the routes say service area, and
-every name the generator derives from the record is the record's. The declaration rides along: the tenant table carries `DirectoryOnly` and a
+every name the generator derives from the record is the record's; the files are written
+without wrapping their lines again, so the brief says to run `impulse check --only prettier
+--fix` once the web root's packages are installed. The declaration rides along: the tenant table carries `DirectoryOnly` and a
 `<Record>Directories` table beside it, the directories record joins the resource package
 (`@tenantDirectory`, tenant-scoped), both records track changes, each auth's `Settings`
 carry the reader and its `New` sets the library's sign-in rule over it

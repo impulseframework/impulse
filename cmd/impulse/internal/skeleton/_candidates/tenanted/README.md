@@ -270,6 +270,11 @@ local yalc store, links them, and runs `bun install`; `weblib.sh restore` puts t
 `IMPULSE` to point elsewhere. Then `overmind start` runs everything, with `ng serve` for the console at
 http://127.0.0.1:4301 proxying `/api` to the server.
 
+The browser files are held to the prettier the workspace pins (`.prettierrc`): `impulse
+check` names a file prettier would change, and `impulse check --only prettier --fix` formats
+it. Run that once after the first install: the files were written under this application's
+names before the formatter was there to wrap their lines.
+
 After a change in the framework's web packages, push the rebuilt packages, restart the dev
 server, and reload the page:
 
