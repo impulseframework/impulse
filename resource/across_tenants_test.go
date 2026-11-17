@@ -4,8 +4,8 @@ package resource
 // a set of one tenant byte for byte as the tenant's own route renders it,
 // several tenants with the same roles, several with different roles (a row
 // predicate, a field shown in one tenant and hidden in another, a mask), a
-// subject set following the row, a tenant the session does not reach, a person
-// who is staff, a record bound through a join path, the search box, and what
+// subject set following the row, a tenant the session does not reach, a super
+// administrator, a record bound through a join path, the search box, and what
 // the list refuses. The database tests beside this file run the same shapes.
 
 import (
@@ -603,14 +603,15 @@ func TestAcrossTenants_positionalSearch(t *testing.T) {
 	}
 }
 
-// TestAcrossTenants_staff pins the set of a person who is staff against the set
-// of a person who is not, through the session's own reach
-// (SessionPermissions): the two hold the same roles in the same two tenants,
-// one of which admits its people through its directory alone. A password
-// session of the person who is not staff does not reach that tenant, so the
-// list reads the other tenant alone, as that tenant's own list; the staff
-// person's session reaches both, and the list reads both.
-func TestAcrossTenants_staff(t *testing.T) {
+// TestAcrossTenants_superAdministrator pins the set of a super administrator
+// against the set of everyone else, through the session's own reach
+// (SessionPermissions): each holds the same roles in the same two tenants, one of
+// which admits its people through its directory alone. A password session of a
+// person who is not a super administrator does not reach that tenant, a grant in
+// the global partition or not, so the list reads the other tenant alone, as that
+// tenant's own list; the super administrator's session reaches both, and the list
+// reads both.
+func TestAcrossTenants_superAdministrator(t *testing.T) {
 	t.Parallel()
 
 	declarations := func(_ context.Context, domain accesstypes.Domain) (*signin.TenantDeclaration, error) {
@@ -626,18 +627,20 @@ func TestAcrossTenants_staff(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		staff       bool
+		super       bool
+		global      bool
 		wantDomains []accesstypes.Domain
 	}{
-		{name: "a person who is staff reads every tenant they hold the grant in", staff: true, wantDomains: []accesstypes.Domain{"open", "sealed"}},
-		{name: "a person who is not staff reads the tenants their session reaches", staff: false, wantDomains: []accesstypes.Domain{"open"}},
+		{name: "a super administrator reads every tenant they hold the grant in", super: true, wantDomains: []accesstypes.Domain{"open", "sealed"}},
+		{name: "a person who holds a grant in the global partition reads the tenants their session reaches", global: true, wantDomains: []accesstypes.Domain{"open"}},
+		{name: "a person who holds roles in tenants alone reads the tenants their session reaches", wantDomains: []accesstypes.Domain{"open"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
 			ctx := sessionCtx("erin", nil, sessioninfo.AuthEvent{Method: sessioninfo.MethodPassword})
-			checker := &stubPermissions{user: "erin", domains: []accesstypes.Domain{"open", "sealed"}, global: tt.staff}
+			checker := &stubPermissions{user: "erin", domains: []accesstypes.Domain{"open", "sealed"}, global: tt.global, super: tt.super}
 			perms := SessionPermissions(ctx, func(accesstypes.User) *stubPermissions { return checker }, RolePrincipalsUnsupported, roster, declarations)
 
 			req := acrossRequest(t, "/crates?columns=id").WithContext(ctx)
