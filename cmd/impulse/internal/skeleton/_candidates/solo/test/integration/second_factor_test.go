@@ -137,18 +137,18 @@ func factorAddress(user string) string {
 // secondFactor completes the second factor this browser's sign-in waits for, the way the
 // login page does once the password admitted the person (or a directory the deployment
 // does not administer): the address for the code where the person holds none, the code
-// asked for and read from the mail the auth sent, and the code verified, without asking
-// for the browser to be remembered. One sign-in at a time runs its factor on the stack.
-func (b *browser) secondFactor(ctx context.Context, user string) {
+// asked for and read from the mail the auth sent, and the code verified, asking for the
+// browser to be remembered when remember is set. One sign-in at a time runs its factor on
+// the stack.
+func (b *browser) secondFactor(ctx context.Context, user string, remember bool) {
 	b.t.Helper()
 
 	b.served.codeMu.Lock()
 	defer b.served.codeMu.Unlock()
-	b.secondFactorLocked(ctx, user, false)
+	b.secondFactorLocked(ctx, user, remember)
 }
 
-// secondFactorLocked completes the second factor for a caller holding the stack's factor
-// lock, asking for the browser to be remembered when remember is set.
+// secondFactorLocked is secondFactor for a caller holding the stack's factor lock.
 func (b *browser) secondFactorLocked(ctx context.Context, user string, remember bool) {
 	b.t.Helper()
 
@@ -280,7 +280,7 @@ func TestSecondFactor(t *testing.T) {
 	if pending := b.pending(ctx); pending.EmailCode == nil || pending.EmailCode.EnrollEmail || pending.EmailCode.CodeEmail != "a•••@mail.example" {
 		t.Fatalf("the pending sign-in after the reset = %+v, want the code offered to the address given, masked", pending)
 	}
-	b.secondFactor(ctx, adminUser)
+	b.secondFactor(ctx, adminUser, false)
 	if sess := b.session(ctx); !sess.Authenticated {
 		t.Fatalf("session after the second code = %+v, want authenticated", sess)
 	}
