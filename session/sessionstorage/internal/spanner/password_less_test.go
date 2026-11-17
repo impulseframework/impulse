@@ -5,20 +5,23 @@ import (
 
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/sessionstorage/internal/drivertest"
 )
 
-// TestSessionStorageDriver_PasswordLessUser proves a password-less user (an
-// user provisioned for external sign-in) round-trips on the shipped schema: it is
-// created and read with no hash, gains a password, and loses it again.
+// TestSessionStorageDriver_PasswordLessUser proves a password-less user (a user
+// provisioned for external sign-in) round-trips on the shipped schema with the auth
+// set, which the write of a password needs to end the user's sessions with it: the
+// user is created and read with no hash, gains a password, and loses it again.
 func TestSessionStorageDriver_PasswordLessUser(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 
-	db, err := prepareDatabase(ctx, t, "file://../../../schema/spanner/migrations")
+	db, err := prepareDatabase(ctx, t, authSources(drivertest.Auth)...)
 	if err != nil {
 		t.Fatalf("prepareDatabase() error = %v", err)
 	}
 	driver := NewSessionStorageDriver(db.Client)
+	driver.EnableAuth()
 
 	user, err := driver.CreateUser(ctx, &dbtype.InsertSessionUser{Username: "sso-only@example.com"}, nil)
 	if err != nil {
@@ -41,13 +44,13 @@ func TestSessionStorageDriver_PasswordLessUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := driver.SetUserPassword(ctx, user.ID, hash, false); err != nil {
-		t.Fatalf("SetUserPassword() error = %v", err)
+	if err := driver.ReplaceUserPassword(ctx, user.ID, hash, false); err != nil {
+		t.Fatalf("ReplaceUserPassword() error = %v", err)
 	}
 	assertHash(true)
 
-	if err := driver.SetUserPassword(ctx, user.ID, nil, false); err != nil {
-		t.Fatalf("SetUserPassword(nil) error = %v", err)
+	if err := driver.ReplaceUserPassword(ctx, user.ID, nil, false); err != nil {
+		t.Fatalf("ReplaceUserPassword(nil) error = %v", err)
 	}
 	assertHash(false)
 }

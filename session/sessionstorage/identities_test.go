@@ -69,9 +69,22 @@ func TestAuth_StoreMethods(t *testing.T) {
 			want: (*SessionIdentity)(link),
 		},
 		{
-			name:    "UnlinkIdentity propagates the last-means-of-sign-in refusal",
-			prepare: func(db *Mockdb) { db.EXPECT().UnlinkIdentity(gomock.Any(), link.ID).Return(refused) },
-			call:    func(ctx context.Context, a *Auth[struct{}]) (any, error) { return nil, a.UnlinkIdentity(ctx, link.ID) },
+			name: "UnlinkIdentity hands the driver the caller's judgment of a link and propagates the last-means-of-sign-in refusal",
+			prepare: func(db *Mockdb) {
+				db.EXPECT().UnlinkIdentity(gomock.Any(), link.ID, gomock.Not(gomock.Nil())).
+					DoAndReturn(func(_ context.Context, _ impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error {
+						if !signsIn(sessioninfo.MethodWorkOS, "conn") || signsIn(sessioninfo.MethodWorkOS, "closed") {
+							return errors.New("the driver was handed another judgment than the caller's")
+						}
+
+						return refused
+					})
+			},
+			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
+				return nil, a.UnlinkIdentity(ctx, link.ID, func(_ sessioninfo.AuthMethod, connection string) bool {
+					return connection == "conn"
+				})
+			},
 			wantErr: ErrLastSignInMethod,
 		},
 		{
@@ -102,6 +115,13 @@ func TestAuth_StoreMethods(t *testing.T) {
 				return nil, a.RemoveProvenUserPassword(ctx, userID, proven, nil)
 			},
 			wantErr: ErrPasswordChanged,
+		},
+		{
+			name:    "ReplaceUserPassword hands the driver the hash and the mark, for its one transaction",
+			prepare: func(db *Mockdb) { db.EXPECT().ReplaceUserPassword(gomock.Any(), userID, chosen, true).Return(nil) },
+			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
+				return nil, a.ReplaceUserPassword(ctx, userID, chosen, true)
+			},
 		},
 		{
 			name:    "ChangeUserPassword hands the driver the proven hash beside the new one",

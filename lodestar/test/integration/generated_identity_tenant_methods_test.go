@@ -690,15 +690,27 @@ func TestGeneratedIdentitySectorIdentities(t *testing.T) {
 			}
 		}
 
+		// ada holds no password, so the identity that signs her in is her one way in: her
+		// other identity is of a sign-in the auth does not offer and keeps nobody's way
+		// in, so the first stays while the second is all that would remain.
 		status, body = unlink("marshal", anvil, "ada-fleet")
+		assertStatus(t, status, http.StatusConflict, body)
+		if !strings.Contains(string(body), "none of the other identities linked to the user can sign them in any more") {
+			t.Errorf("the refusal = %s, want it to say her other identity signs nobody in", body)
+		}
+		if !linked("ada-fleet") {
+			t.Error("the last identity that signs in a person with no password was unlinked")
+		}
+		// The one that signs nobody in goes from beside it.
+		status, body = unlink("marshal", anvil, "ada-yard")
 		assertStatus(t, status, http.StatusNoContent, body)
-		if linked("ada-fleet") {
+		if linked("ada-yard") {
 			t.Error("the unlinked identity is still there")
 		}
-		// ada holds no password, so her last identity is her only way in.
-		status, body = unlink("marshal", anvil, "ada-yard")
+		// And the one that is left is still her only way in.
+		status, body = unlink("marshal", anvil, "ada-fleet")
 		assertStatus(t, status, http.StatusConflict, body)
-		if !linked("ada-yard") {
+		if !linked("ada-fleet") {
 			t.Error("the last way in of a person with no password was unlinked")
 		}
 	})

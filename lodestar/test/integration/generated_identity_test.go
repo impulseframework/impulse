@@ -1200,8 +1200,9 @@ func TestGeneratedIdentityCredentials(t *testing.T) {
 		t.Errorf("require-crew-password-change of a person with no password: status %d, want 400: %s", status, body)
 	}
 
-	// Identities, written as a directory sign-in writes them: two for the person with
-	// no password, one for the marshal, who holds a password.
+	// Identities, written as a sign-in through the fleet's directory writes them, under
+	// the connection the crew's Google sign-in takes, so each is a way in: two for the
+	// person with no password, one for the marshal, who holds a password.
 	marshalID := crewAccountID(ctx, t, hq, "marshal")
 	link := func(userID, subject string) string {
 		id, err := impulse.NewUUID()
@@ -1209,7 +1210,7 @@ func TestGeneratedIdentityCredentials(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, err := s.db.Apply(ctx, []*spanner.Mutation{spanner.InsertMap("CrewSessionIdentities", map[string]any{
-			"Id": id.String(), "UserId": userID, "Method": "google", "Connection": "google", "Subject": subject,
+			"Id": id.String(), "UserId": userID, "Method": "google", "Connection": "example", "Subject": subject,
 			"CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
 		})}); err != nil {
 			t.Fatalf("writing an identity of %s: %v", userID, err)

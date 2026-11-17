@@ -49,9 +49,11 @@ type LinkedDirectory struct {
 //
 // It is the one judgment of whether a link counts as a means of sign-in: the removal of
 // a password is refused by it, on an administrator's route and the person's own, the
-// read of what a person signs in with answers by it, and the pages offer the removal by
-// that read. The sign-in policy is not asked: it decides a sign-in from a request no
-// link can stand in for, and may write.
+// unlink of a link is refused by it where the user holds no password, the read of what
+// a person signs in with answers by it, and the pages offer the removal by that read.
+// The sign-in policy is not asked: it decides a sign-in from a request no link can
+// stand in for, and may write. A link the policy would refuse (a tenant's sign-in
+// policy that no longer takes the person's directory) therefore still counts.
 func (a *Auth[S, U, Tx]) signsInThrough(method sessioninfo.AuthMethod, connection string) []string {
 	m := a.registered()
 	var names []string
@@ -78,13 +80,19 @@ func (p *AuthAPI[S, U, Tx]) SignsInThrough(method sessioninfo.AuthMethod, connec
 	return p.auth.signsInThrough(method, connection)
 }
 
-// linksThatSignIn are the ids of the links that count as a means of sign-in
-// (signsInThrough): what a removal of the user's password requires one of to still
-// stand when it writes.
+// signsIn reports whether an identity of method and connection counts as a means of
+// sign-in (signsInThrough): what an unlink requires of another of the user's links, in
+// the transaction that unlinks, where the user holds no password.
+func (a *Auth[S, U, Tx]) signsIn(method sessioninfo.AuthMethod, connection string) bool {
+	return len(a.signsInThrough(method, connection)) > 0
+}
+
+// linksThatSignIn are the ids of the links that count as a means of sign-in (signsIn):
+// what a removal of the user's password requires one of to still stand when it writes.
 func (a *Auth[S, U, Tx]) linksThatSignIn(links []*sessionstorage.SessionIdentity) []impulse.UUID {
 	var standing []impulse.UUID
 	for _, link := range links {
-		if len(a.signsInThrough(link.Method, link.Connection)) > 0 {
+		if a.signsIn(link.Method, link.Connection) {
 			standing = append(standing, link.ID)
 		}
 	}

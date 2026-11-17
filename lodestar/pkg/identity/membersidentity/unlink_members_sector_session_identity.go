@@ -13,8 +13,9 @@ import (
 
 // UnlinkMembersSectorSessionIdentity removes one identity of a person of the Members auth, the
 // link to what a directory verified for them: a sign-in through it no longer reaches the
-// person. A person who holds no password keeps at least one identity. Unlink one
-// identity of a person per transaction: a second in the same one does not see the
+// person. A person who holds no password keeps an identity that can sign them in: the
+// last one that counts stays, whatever identities that sign nobody in remain. Unlink
+// one identity of a person per transaction: a second in the same one does not see the
 // first.
 //
 // It is a tenant's method: served under the address of one Sector, it names a
