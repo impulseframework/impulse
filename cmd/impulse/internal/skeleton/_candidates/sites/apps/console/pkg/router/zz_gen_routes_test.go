@@ -671,6 +671,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "tenantDirectoryID": "testTenantDirectoryID"},
 		},
 		{
+			url: "/api/staff-sign-in-ways", method: http.MethodGet,
+			handlerFunc: "StaffSignInWays",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sign-in-ways", method: http.MethodPost,
+			handlerFunc: "StaffSignInWays",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles", method: http.MethodGet,
 			handlerFunc: "StaffTenantRoles",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -678,6 +688,16 @@ func generatedRouterTests() []*generatedRouterTest {
 		{
 			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles", method: http.MethodPost,
 			handlerFunc: "StaffTenantRoles",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-sign-in-ways", method: http.MethodGet,
+			handlerFunc: "StaffTenantSignInWays",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-sign-in-ways", method: http.MethodPost,
+			handlerFunc: "StaffTenantSignInWays",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
 		},
 		{
@@ -1053,6 +1073,10 @@ func (s *generatedHandlersStub) StaffSessionUser() http.HandlerFunc {
 	return s.record("StaffSessionUser")
 }
 
+func (s *generatedHandlersStub) StaffSignInWays() http.HandlerFunc {
+	return s.record("StaffSignInWays")
+}
+
 func (s *generatedHandlersStub) StaffTenantGroups() http.HandlerFunc {
 	return s.record("StaffTenantGroups")
 }
@@ -1095,6 +1119,10 @@ func (s *generatedHandlersStub) StaffTenantInvitation() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffTenantRoles() http.HandlerFunc {
 	return s.record("StaffTenantRoles")
+}
+
+func (s *generatedHandlersStub) StaffTenantSignInWays() http.HandlerFunc {
+	return s.record("StaffTenantSignInWays")
 }
 
 func (s *generatedHandlersStub) StaffTenantUsers() http.HandlerFunc {

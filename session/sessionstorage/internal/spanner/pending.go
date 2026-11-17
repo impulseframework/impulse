@@ -18,7 +18,7 @@ import (
 
 // pendingColumns are the pending sign-ins table's columns.
 const pendingColumns = `Id, TokenHash, Step, Registration, Method, Connection, Subject, Email, EmailVerified, IdpAmr, Claims, SignInName, Guest, Organization, ` +
-	`UserId, Username, Tenant, Events, RoleNames, Factors, ReturnUrl, ProviderSessionId, ProviderSessionIssuer, CreatedAt, ExpiresAt, ConsumedAt, Name`
+	`UserId, Username, Tenant, Events, RoleNames, Factors, ReturnUrl, ProviderSessionId, ProviderSessionIssuer, CreatedAt, ExpiresAt, ConsumedAt, Name, PasswordProof`
 
 // pendingRow is a pending sign-in as the table holds it.
 type pendingRow struct {
@@ -49,6 +49,7 @@ type pendingRow struct {
 	ExpiresAt             time.Time          `spanner:"ExpiresAt"`
 	ConsumedAt            spanner.NullTime   `spanner:"ConsumedAt"`
 	Name                  string             `spanner:"Name"`
+	PasswordProof         []byte             `spanner:"PasswordProof"`
 }
 
 // newPendingRow renders p as the table holds it: created at the commit time and not
@@ -64,7 +65,7 @@ func newPendingRow(p *dbtype.PendingSignIn) (*pendingRow, error) {
 		EmailVerified: p.Identity.EmailVerified, IdpAmr: p.Identity.IDPAMR, Claims: []byte(p.Identity.Claims),
 		SignInName: p.Identity.SignInName, Guest: p.Identity.Guest, Organization: p.Identity.Organization, Name: p.Identity.Name,
 		Username: p.Username, Tenant: p.Tenant, Events: events, RoleNames: p.RoleNames, Factors: dbtype.MethodNames(p.Factors),
-		ReturnURL: p.ReturnURL, CreatedAt: spanner.CommitTimestamp, ExpiresAt: p.ExpiresAt,
+		ReturnURL: p.ReturnURL, CreatedAt: spanner.CommitTimestamp, ExpiresAt: p.ExpiresAt, PasswordProof: p.PasswordProof,
 	}
 	if p.UserID.Valid {
 		r.UserID = spanner.NullString{StringVal: p.UserID.String(), Valid: true}
@@ -97,6 +98,9 @@ func (r *pendingRow) pending() (*dbtype.PendingSignIn, error) {
 		Username: r.Username, Tenant: r.Tenant, Events: events, RoleNames: r.RoleNames, Factors: dbtype.AuthMethods(r.Factors),
 		ReturnURL: r.ReturnURL, CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt,
 	}
+	if len(r.PasswordProof) > 0 {
+		p.PasswordProof = r.PasswordProof
+	}
 	if r.UserID.Valid {
 		userID, err := impulse.UUIDFromString(r.UserID.StringVal)
 		if err != nil {
@@ -118,7 +122,10 @@ func (r *pendingRow) pending() (*dbtype.PendingSignIn, error) {
 	return p, nil
 }
 
-// InsertPendingSignIn inserts p.
+// InsertPendingSignIn inserts p. A pending sign-in that rests on a password proof
+// (p.PasswordProof) is inserted only while its user still holds the password that was
+// proved, read in the transaction that inserts: a password changed, reset or removed
+// since the proof inserts nothing (ErrPasswordChanged, a Conflict).
 func (s *SessionStorageDriver) InsertPendingSignIn(ctx context.Context, p *dbtype.PendingSignIn) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -131,8 +138,33 @@ func (s *SessionStorageDriver) InsertPendingSignIn(ctx context.Context, p *dbtyp
 	if err != nil {
 		return errors.Wrap(err, "spanner.InsertStruct()")
 	}
-	if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{m}); err != nil {
-		return errors.Wrap(err, "spanner.Client.Apply()")
+	if p.PasswordProof == nil {
+		if _, err := s.spanner.Apply(ctx, []*spanner.Mutation{m}); err != nil {
+			return errors.Wrap(err, "spanner.Client.Apply()")
+		}
+
+		return nil
+	}
+	if !p.UserID.Valid {
+		return errors.New("a pending sign-in that rests on a password proof names its user")
+	}
+
+	_, err = s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		user, err := s.UserIn(ctx, txn, p.UserID.UUID)
+		if err != nil {
+			return err
+		}
+		if err := p.PasswordProof.Check(user.PasswordProof); err != nil {
+			return errors.Wrap(err, "dbtype.PasswordProof.Check()")
+		}
+		if err := txn.BufferWrite([]*spanner.Mutation{m}); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
+		}
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
 	}
 
 	return nil

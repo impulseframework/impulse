@@ -84,6 +84,47 @@ func TestWorkspaceSet_connectionFor(t *testing.T) {
 	}
 }
 
+// TestWorkspaceSet_admitsConnection proves which links the set still signs in: the ones
+// whose connection it would write for the account today. A named Workspace's link
+// stands while the Workspace is named, a link under AnyGoogleAccount while any account
+// is admitted, and a link made under AnyWorkspace, which carries the account's domain,
+// while any Workspace is admitted and no named Workspace has taken that domain.
+func TestWorkspaceSet_admitsConnection(t *testing.T) {
+	t.Parallel()
+
+	named := Workspace("fleet", "fleet.example")
+
+	tests := []struct {
+		name       string
+		workspaces WorkspaceSet
+		connection string
+		want       bool
+	}{
+		{name: "a named Workspace's name", workspaces: named, connection: "fleet", want: true},
+		{name: "a Workspace the set does not name", workspaces: named, connection: "other"},
+		{name: "a named Workspace's domain is no connection of a set that admits it by name", workspaces: named, connection: "fleet.example"},
+		{name: "an account outside a Workspace is not admitted by named Workspaces", workspaces: named, connection: AnyAccountConnection},
+		{name: "no connection", workspaces: Workspaces(named, AnyWorkspace(), AnyGoogleAccount()), connection: ""},
+		{name: "a domain under any Workspace", workspaces: AnyWorkspace(), connection: "lakeside.edu", want: true},
+		{name: "an account outside a Workspace is not admitted by any Workspace", workspaces: AnyWorkspace(), connection: AnyAccountConnection},
+		{name: "a named Workspace keeps its name beside any Workspace", workspaces: Workspaces(named, AnyWorkspace()), connection: "fleet", want: true},
+		{name: "another domain beside a named Workspace, under any Workspace", workspaces: Workspaces(named, AnyWorkspace()), connection: "lakeside.edu", want: true},
+		{name: "a domain a named Workspace has taken: its accounts are written under the name now", workspaces: Workspaces(named, AnyWorkspace()), connection: "Fleet.Example"},
+		{name: "the fixed connection under any Google account", workspaces: AnyGoogleAccount(), connection: AnyAccountConnection, want: true},
+		{name: "a domain is no connection of a set that admits any Google account alone", workspaces: AnyGoogleAccount(), connection: "lakeside.edu"},
+		{name: "the zero value admits no link", connection: "fleet"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.workspaces.admitsConnection(tt.connection); got != tt.want {
+				t.Errorf("admitsConnection(%q) = %v, want %v", tt.connection, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestRefuseShape(t *testing.T) {
 	t.Parallel()
 

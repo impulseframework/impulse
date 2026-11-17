@@ -36,6 +36,7 @@ export const Resources = {
   CrewSectorIdentities: 'CrewSectorIdentities' as Resource,
   CrewSectorInvitations: 'CrewSectorInvitations' as Resource,
   CrewSectorRoles: 'CrewSectorRoles' as Resource,
+  CrewSectorSignInWays: 'CrewSectorSignInWays' as Resource,
   CrewSectorUserGroupRoles: 'CrewSectorUserGroupRoles' as Resource,
   CrewSectorUserRoles: 'CrewSectorUserRoles' as Resource,
   CrewSectorUsers: 'CrewSectorUsers' as Resource,
@@ -48,6 +49,7 @@ export const Resources = {
   CrewSessionTrustedDevices: 'CrewSessionTrustedDevices' as Resource,
   CrewSessionUsers: 'CrewSessionUsers' as Resource,
   CrewSessions: 'CrewSessions' as Resource,
+  CrewSignInWays: 'CrewSignInWays' as Resource,
   CrewUserGroupRoles: 'CrewUserGroupRoles' as Resource,
   CrewUserRoles: 'CrewUserRoles' as Resource,
   DistressCalls: 'DistressCalls' as Resource,
@@ -572,6 +574,29 @@ export namespace CrewSectorRoles {
   };
 }
 
+export namespace CrewSectorSignInWays {
+  export const fieldName = {
+    connection: 'connection' as FieldName,
+    heldElsewhere: 'heldElsewhere' as FieldName,
+    heldGlobally: 'heldGlobally' as FieldName,
+    method: 'method' as FieldName,
+    password: 'password' as FieldName,
+    through: 'through' as FieldName,
+    userId: 'userId' as FieldName,
+    way: 'way' as FieldName,
+  };
+  export const resourceName = {
+    connection: 'CrewSectorSignInWays.connection' as Resource,
+    heldElsewhere: 'CrewSectorSignInWays.heldElsewhere' as Resource,
+    heldGlobally: 'CrewSectorSignInWays.heldGlobally' as Resource,
+    method: 'CrewSectorSignInWays.method' as Resource,
+    password: 'CrewSectorSignInWays.password' as Resource,
+    through: 'CrewSectorSignInWays.through' as Resource,
+    userId: 'CrewSectorSignInWays.userId' as Resource,
+    way: 'CrewSectorSignInWays.way' as Resource,
+  };
+}
+
 export namespace CrewSectorUserGroupRoles {
   export const fieldName = {
     domainId: 'domainId' as FieldName,
@@ -875,6 +900,25 @@ export namespace CrewSessions {
     updatedAt: 'CrewSessions.updatedAt' as Resource,
     userId: 'CrewSessions.userId' as Resource,
     username: 'CrewSessions.username' as Resource,
+  };
+}
+
+export namespace CrewSignInWays {
+  export const fieldName = {
+    connection: 'connection' as FieldName,
+    method: 'method' as FieldName,
+    password: 'password' as FieldName,
+    through: 'through' as FieldName,
+    userId: 'userId' as FieldName,
+    way: 'way' as FieldName,
+  };
+  export const resourceName = {
+    connection: 'CrewSignInWays.connection' as Resource,
+    method: 'CrewSignInWays.method' as Resource,
+    password: 'CrewSignInWays.password' as Resource,
+    through: 'CrewSignInWays.through' as Resource,
+    userId: 'CrewSignInWays.userId' as Resource,
+    way: 'CrewSignInWays.way' as Resource,
   };
 }
 

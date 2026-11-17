@@ -123,7 +123,8 @@ func (c *testConfigurer) Access() access.Controller {
 func (c *testConfigurer) Staff() *staff.Auth { return nil }
 
 // noSessionAPI stands where the matrix serves no session manager: a denied case is
-// answered before any method runs, so nothing here is ever hashed or mailed.
+// answered before any method runs, so nothing here is ever hashed or mailed, and the
+// one list it is asked through (how a person signs in) is asked about nobody.
 type noSessionAPI struct{}
 
 func (noSessionAPI) HashPassword(string) (string, error) {
@@ -132,6 +133,10 @@ func (noSessionAPI) HashPassword(string) (string, error) {
 
 func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationRequest) (session.PreparedInvitation, error) {
 	return nil, errors.New("the authorization matrix serves no session manager")
+}
+
+func (noSessionAPI) SignsInThrough(sessioninfo.AuthMethod, string) []string {
+	return nil
 }
 
 // StaffIdentity is the staff auth's identity client over the scripted engine: the matrix

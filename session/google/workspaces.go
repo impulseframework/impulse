@@ -219,6 +219,39 @@ func (s WorkspaceSet) entryFor(hd string) (connection string, attests, ok bool) 
 	return "", false, false
 }
 
+// admitsConnection reports whether an account whose link carries connection could
+// sign in through the set and reach that link: whether connectionFor would write the
+// same connection for it today. A named Workspace's link carries the Workspace's name
+// and stands while the set names it. A link made under AnyGoogleAccount carries
+// AnyAccountConnection and stands while the set admits any account. Any other
+// connection is the domain of an account admitted under AnyWorkspace: it stands while
+// the set admits any Workspace and no named Workspace has taken the domain, since an
+// account of that domain would now be written under the Workspace's name and miss the
+// link.
+func (s WorkspaceSet) admitsConnection(connection string) bool {
+	if connection == "" {
+		return false
+	}
+	if connection == AnyAccountConnection {
+		return s.anyAccount
+	}
+	for _, w := range s.named {
+		if w.name == connection {
+			return true
+		}
+	}
+	if !s.anyWorkspace {
+		return false
+	}
+	for _, w := range s.named {
+		if slices.ContainsFunc(w.domains, func(d string) bool { return strings.EqualFold(d, connection) }) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // admitsAddress reports whether the set could admit an account whose email address is
 // at domain, which the core asks before it sends an invitation there: a domain of a
 // named Workspace, any domain but a personal account's under AnyWorkspace, any domain

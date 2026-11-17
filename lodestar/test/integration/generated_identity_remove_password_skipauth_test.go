@@ -28,14 +28,18 @@ import (
 // sessions the person holds stand, the one the password established among them; and
 // the requirement to change the password and the count of failed sign-ins go with it.
 // A role with no grant on the method is refused, and the person's own removal asks for
-// the password as proof.
+// the password as proof. Headquarters reads how the person signs in from the list the
+// generated management serves beside the method (CrewSignInWays), held in each state
+// the pilot passes through: the page offers the removal from it.
 //
 // The person's account page offers the removal only where it can happen, from the read
 // the methods answer names beside it: what the person signs in with. It is held here
 // in each state the marshal passes through: a password alone, a password and the
 // directory, the directory alone. The crew's login page offers two Google
-// registrations, and an identity names its method and not its registration, so a
-// Google link answers both buttons. A browser with no session is answered nothing.
+// registrations, the fleet's Workspace and the open sign-up. The identity the fleet's
+// directory linked carries the Workspace's connection, which the open registration
+// writes for nobody, so it answers the Workspace's button alone: a sign-in through the
+// other would not reach it. A browser with no session is answered nothing.
 func TestGeneratedIdentityRemovePassword(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -91,6 +95,25 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 	if !hash(pilotID).Valid {
 		t.Fatal("the pilot's password is gone after the refused removal")
 	}
+	// How a person signs in, as headquarters reads it: what each way comes through, the
+	// password first. It is what the person's page offers the removal from.
+	signsInThrough := func(state string, want ...string) {
+		t.Helper()
+
+		status, body := hq.do(ctx, http.MethodGet, consoleAPI+"/crew-sign-in-ways?filter=userId:eq:"+pilotID, nil)
+		assertStatus(t, status, http.StatusOK, body)
+		var got []string
+		for _, row := range decodeRows(t, body) {
+			if isPassword := cell[string](t, row, "way") == "password"; isPassword != cell[bool](t, row, "password") {
+				t.Errorf("the way %v of the pilot, holding %s: its key and its password mark disagree", row, state)
+			}
+			got = append(got, cell[string](t, row, "through"))
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("how the pilot signs in, holding %s = %q, want %q", state, got, want)
+		}
+	}
+	signsInThrough("a password alone", "Password")
 
 	// The pilot signs in through the directory, which links it. The cadet's role carries
 	// no grant on the method: refused, with nothing but the grant in the way.
@@ -103,6 +126,13 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 	offered, _ := capabilities["Execute"].([]any)
 	if !slices.Contains(offered, any("RemoveCrewPassword")) {
 		t.Errorf("the Execute answer for the pilot's row = %v, want it to list RemoveCrewPassword for headquarters", offered)
+	}
+	// The list says the same: the password, and the identity the directory linked, by
+	// the words of the fleet's Google sign-in, the one of the login page's two that
+	// takes it. The cadet's role carries no grant on the list either.
+	signsInThrough("a password and the directory's identity", "Password", "Lodestar")
+	if status, body := cadet.do(ctx, http.MethodGet, consoleAPI+"/crew-sign-in-ways?filter=userId:eq:"+pilotID, nil); status != http.StatusForbidden {
+		t.Errorf("the cadet's read of how the pilot signs in: status %d, want 403: %s", status, body)
 	}
 	if status, body := remove(cadet, pilotID); status != http.StatusForbidden {
 		t.Errorf("the cadet's remove-crew-password: status %d, want 403: %s", status, body)
@@ -137,6 +167,8 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 	if _, err := s.db.Single().ReadRow(ctx, "CrewSessionSignInAttempts", spanner.Key{"pilot"}, []string{"Failures"}); spanner.ErrCode(err) != codes.NotFound {
 		t.Errorf("the pilot's count of failed sign-ins after the removal: err = %v, want not found", err)
 	}
+	// The list no longer holds the password, so the page offers no second removal.
+	signsInThrough("the directory's identity alone", "Lodestar")
 	// The sessions stand, the one the password established among them, and nothing is
 	// asked of them now that the requirement went with the password.
 	for name, b := range map[string]*browser{"the password established": pilot, "the directory established": sso} {
@@ -197,7 +229,7 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 			t.Errorf("what the marshal signs in with, holding %s: status %d %s, want 200 %s", state, status, got, want)
 		}
 	}
-	const throughGoogle = `[{"name":"google","label":"Lodestar"},{"name":"sign-up","label":"Google"}]`
+	const throughGoogle = `[{"name":"google","label":"Lodestar"}]`
 	if status, body := stranger.do(ctx, http.MethodGet, methods.SignInMeans, nil); status != http.StatusUnauthorized || strings.Contains(string(body), "directories") {
 		t.Errorf("the read of what a person signs in with, asked with no session: status %d, want 401 and nothing of anyone: %s", status, body)
 	}

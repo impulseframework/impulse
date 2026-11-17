@@ -18,7 +18,7 @@ import (
 
 // pendingColumns are the pending sign-ins table's columns, in pendingRow's order.
 const pendingColumns = `"Id", "TokenHash", "Step", "Registration", "Method", "Connection", "Subject", "Email", "EmailVerified", "IdpAmr", "Claims", "SignInName", "Guest", "Organization", ` +
-	`"UserId", "Username", "Tenant", "Events", "RoleNames", "Factors", "ReturnUrl", "ProviderSessionId", "ProviderSessionIssuer", "CreatedAt", "ExpiresAt", "ConsumedAt", "Name"`
+	`"UserId", "Username", "Tenant", "Events", "RoleNames", "Factors", "ReturnUrl", "ProviderSessionId", "ProviderSessionIssuer", "CreatedAt", "ExpiresAt", "ConsumedAt", "Name", "PasswordProof"`
 
 // pendingRow is a pending sign-in as the table holds it.
 type pendingRow struct {
@@ -49,6 +49,7 @@ type pendingRow struct {
 	ExpiresAt             time.Time     `db:"ExpiresAt"`
 	ConsumedAt            *time.Time    `db:"ConsumedAt"`
 	Name                  string        `db:"Name"`
+	PasswordProof         []byte        `db:"PasswordProof"`
 }
 
 func (r *pendingRow) pending() (*dbtype.PendingSignIn, error) {
@@ -64,6 +65,9 @@ func (r *pendingRow) pending() (*dbtype.PendingSignIn, error) {
 		},
 		Username: r.Username, Tenant: r.Tenant, Events: events, RoleNames: r.RoleNames, Factors: dbtype.AuthMethods(r.Factors),
 		ReturnURL: r.ReturnURL, CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt, ConsumedAt: r.ConsumedAt,
+	}
+	if len(r.PasswordProof) > 0 {
+		p.PasswordProof = r.PasswordProof
 	}
 	if r.UserID != nil {
 		p.UserID = impulse.NullUUIDFromUUID(*r.UserID)
@@ -83,7 +87,11 @@ func (s *SessionStorageDriver) pendingTable() string {
 }
 
 // InsertPendingSignIn inserts p, created at the database's time and not consumed,
-// whatever p carries.
+// whatever p carries. A pending sign-in that rests on a password proof (p.PasswordProof)
+// is inserted only while its user still holds the password that was proved, read under
+// the user row's share lock in the transaction that inserts, so no password write lands
+// between the comparison and the insert: a password changed, reset or removed since the
+// proof inserts nothing (ErrPasswordChanged, a Conflict).
 func (s *SessionStorageDriver) InsertPendingSignIn(ctx context.Context, p *dbtype.PendingSignIn) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -97,14 +105,45 @@ func (s *SessionStorageDriver) InsertPendingSignIn(ctx context.Context, p *dbtyp
 		userID = &p.UserID.UUID
 	}
 
-	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, now(), $24, NULL, $25)`,
+	query := fmt.Sprintf(`INSERT INTO %s (%s) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, now(), $24, NULL, $25, $26)`,
 		s.pendingTable(), pendingColumns)
-	if _, err := s.conn.Exec(ctx, query,
+	args := []any{
 		p.ID, p.TokenHash, string(p.Step), p.Registration, string(p.Identity.Method), p.Identity.Connection, p.Identity.Subject,
 		p.Identity.Email, p.Identity.EmailVerified, p.Identity.IDPAMR, []byte(p.Identity.Claims), p.Identity.SignInName, p.Identity.Guest, p.Identity.Organization, userID, p.Username, p.Tenant,
 		events, p.RoleNames, dbtype.MethodNames(p.Factors), p.ReturnURL, dbtype.OptionalString(p.ProviderSessionID), dbtype.OptionalString(p.ProviderSessionIssuer), p.ExpiresAt, p.Identity.Name,
-	); err != nil {
-		return errors.Wrap(err, "Queryer.Exec()")
+		[]byte(p.PasswordProof),
+	}
+	if p.PasswordProof == nil {
+		if _, err := s.conn.Exec(ctx, query, args...); err != nil {
+			return errors.Wrap(err, "Queryer.Exec()")
+		}
+
+		return nil
+	}
+	if userID == nil {
+		return errors.New("a pending sign-in that rests on a password proof names its user")
+	}
+
+	txn, err := s.conn.Begin(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Begin()")
+	}
+	defer func() {
+		_ = txn.Rollback(ctx)
+	}()
+
+	user, err := s.UserIn(ctx, txn, *userID)
+	if err != nil {
+		return err
+	}
+	if err := p.PasswordProof.Check(user.PasswordProof); err != nil {
+		return errors.Wrap(err, "dbtype.PasswordProof.Check()")
+	}
+	if _, err := txn.Exec(ctx, query, args...); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+	if err := txn.Commit(ctx); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Commit()")
 	}
 
 	return nil

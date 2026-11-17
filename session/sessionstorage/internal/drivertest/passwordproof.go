@@ -3,6 +3,7 @@ package drivertest
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // provenWrite is one of the three password writes that follow a proof of the password:
@@ -40,7 +42,12 @@ func provenWrites() []provenWrite {
 		{
 			name: "a user's own removal",
 			write: func(ctx context.Context, d AuthDriver, userID impulse.UUID, proven, _ *securehash.Hash) error {
-				return d.RemoveProvenUserPassword(ctx, userID, proven)
+				standing, err := linkIDs(ctx, d, userID)
+				if err != nil {
+					return err
+				}
+
+				return d.RemoveProvenUserPassword(ctx, userID, proven, standing)
 			},
 		},
 	}
@@ -107,7 +114,7 @@ func testProvenPasswordWrites(ctx context.Context, t *testing.T, h *AuthHarness)
 	}
 
 	removed := linkedPasswordUser(ctx, t, in.Driver, "removed", temporary, true)
-	if err := in.Driver.RemoveProvenUserPassword(ctx, removed.ID, mustUser(ctx, t, in.Driver, removed.ID).PasswordHash); err != nil {
+	if err := in.Driver.RemoveProvenUserPassword(ctx, removed.ID, mustUser(ctx, t, in.Driver, removed.ID).PasswordHash, standingLinks(ctx, t, in.Driver, removed.ID)); err != nil {
 		t.Fatalf("RemoveProvenUserPassword() on proof of the hash the row holds error = %v", err)
 	}
 	if got := mustUser(ctx, t, in.Driver, removed.ID); got.PasswordHash != nil || got.PasswordChangeRequired {
@@ -120,7 +127,7 @@ func testProvenPasswordWrites(ctx context.Context, t *testing.T, h *AuthHarness)
 	if err != nil {
 		t.Fatalf("CreateUser() error = %v", err)
 	}
-	err = in.Driver.RemoveProvenUserPassword(ctx, alone.ID, mustUser(ctx, t, in.Driver, alone.ID).PasswordHash)
+	err = in.Driver.RemoveProvenUserPassword(ctx, alone.ID, mustUser(ctx, t, in.Driver, alone.ID).PasswordHash, nil)
 	if !errors.Is(err, dbtype.ErrLastSignInMethod) || !httpio.HasConflict(err) {
 		t.Errorf("RemoveProvenUserPassword() of a user with no identity error = %v, want ErrLastSignInMethod (Conflict)", err)
 	}
@@ -190,7 +197,7 @@ func testProvenPasswordWriteAfterAnotherWrite(ctx context.Context, t *testing.T,
 		{
 			name: "a removal",
 			commit: func(userID impulse.UUID, _ *securehash.Hash) (*securehash.Hash, bool, error) {
-				return nil, false, in.Driver.RemoveUserPassword(ctx, userID)
+				return nil, false, removeStanding(ctx, in.Driver, userID)
 			},
 		},
 	}
@@ -261,5 +268,72 @@ func testProvenPasswordWriteRacesReset(ctx context.Context, t *testing.T, h *Aut
 					round, w.name, writeErr, sameHash(got.PasswordHash, replacement), got.PasswordHash == nil, got.PasswordChangeRequired)
 			}
 		}
+	}
+}
+
+// testOwnChangeEndsSessions pins a user's own change of password as one transaction:
+// the write that lands ends every session of the user, and no other user's; a change
+// refused because the password changed meanwhile ends none; and a change whose ending of
+// the sessions fails writes no password, so no failure leaves the password changed and
+// a session alive. It runs with the impersonation table attached and without it, the
+// two ways the sessions are ended.
+func testOwnChangeEndsSessions(ctx context.Context, t *testing.T, h *AuthHarness) {
+	hashes := passwordHashes(t, "old", "new", "another")
+	old, replacement, another := hashes[0], hashes[1], hashes[2]
+
+	for _, impersonation := range []bool{false, true} {
+		t.Run(fmt.Sprintf("impersonation attached: %t", impersonation), func(t *testing.T) {
+			in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Impersonation: impersonation})
+			start := func(user *dbtype.SessionUser) impulse.UUID {
+				t.Helper()
+				id, err := in.Driver.InsertSession(ctx, newInsertSession(user.Username), &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: user.Username, UserID: user.ID})
+				if err != nil {
+					t.Fatalf("InsertSession() error = %v", err)
+				}
+
+				return id
+			}
+			pat := linkedPasswordUser(ctx, t, in.Driver, "pat", old, true)
+			other := linkedPasswordUser(ctx, t, in.Driver, "other", old, false)
+			first, second, others := start(pat), start(pat), start(other)
+
+			if err := in.Driver.ChangeUserPassword(ctx, pat.ID, mustUser(ctx, t, in.Driver, pat.ID).PasswordHash, replacement); err != nil {
+				t.Fatalf("ChangeUserPassword() on proof of the hash the row holds error = %v", err)
+			}
+			if got := mustUser(ctx, t, in.Driver, pat.ID); !sameHash(got.PasswordHash, replacement) || got.PasswordChangeRequired {
+				t.Errorf("User() after the change = %+v, want the new hash and no change mark", got)
+			}
+			for name, id := range map[string]impulse.UUID{"the user's first session": first, "the user's second session": second} {
+				if !mustSession(ctx, t, in.Driver, id).Expired {
+					t.Errorf("%s stands after the change, want it ended in the transaction that wrote the password", name)
+				}
+			}
+			if mustSession(ctx, t, in.Driver, others).Expired {
+				t.Error("another user's session was ended by the change")
+			}
+
+			// A change on proof of the password just replaced is refused, and ends nothing.
+			later := start(pat)
+			err := in.Driver.ChangeUserPassword(ctx, pat.ID, old, another)
+			if !errors.Is(err, dbtype.ErrPasswordChanged) || !httpio.HasConflict(err) {
+				t.Fatalf("ChangeUserPassword() on proof of a replaced password error = %v, want ErrPasswordChanged (Conflict)", err)
+			}
+			if mustSession(ctx, t, in.Driver, later).Expired {
+				t.Error("a refused change ended the user's session")
+			}
+
+			// The sessions cannot be ended: the password is not written either.
+			const table = "NoSuchTable"
+			if err := in.Driver.SetSessionTableName(table); err != nil {
+				t.Fatalf("SetSessionTableName() error = %v", err)
+			}
+			err = in.Driver.ChangeUserPassword(ctx, pat.ID, mustUser(ctx, t, in.Driver, pat.ID).PasswordHash, another)
+			if err == nil || errors.Is(err, dbtype.ErrPasswordChanged) || !strings.Contains(err.Error(), table) {
+				t.Fatalf("ChangeUserPassword() where the sessions cannot be ended error = %v, want the failure of the sessions table, naming %s", err, table)
+			}
+			if got := mustUser(ctx, t, in.Driver, pat.ID); !sameHash(got.PasswordHash, replacement) {
+				t.Errorf("User() after the failed change holds another password than before it, want the password as it was: the change is one transaction")
+			}
+		})
 	}
 }

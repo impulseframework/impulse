@@ -152,7 +152,7 @@ func (store) ClearAttempts(ctx context.Context, txn resource.ReadWriteTransactio
 	return nil
 }
 
-func (store) UserHasPassword(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (has, found bool, err error) {
+func (store) UserHasPassword(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (has, found bool, err error) {
 	// A read that goes past the declarations. The password hash is no field of any of
 	// them, so the database is asked whether the user holds one, and the hash itself
 	// is read by nothing here.
@@ -187,19 +187,22 @@ func (store) IdentityUser(ctx context.Context, txn resource.ReadWriteTransaction
 	return row.Data.UserID, true, nil
 }
 
-func (store) Identities(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
+func (store) Identities(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]identity.Link, error) {
+	// The method and the connection say whether a sign-in through the identity is
+	// still possible; its subject and the address it was linked under are read by
+	// nothing here.
 	query := crewresources.NewCrewSessionIdentityQuery().
-		AddColumns(crewresources.NewCrewSessionIdentityColumns().ID()).
+		AddColumns(crewresources.NewCrewSessionIdentityColumns().ID().Method().Connection()).
 		Where(crewresources.NewCrewSessionIdentityQueryClause().UserID().Equal(userID))
-	var ids []impulse.UUID
+	var links []identity.Link
 	for row, err := range query.List(ctx, txn) {
 		if err != nil {
 			return nil, errors.Wrap(err, "crewresources.CrewSessionIdentityQuery.List()")
 		}
-		ids = append(ids, row.Data.ID)
+		links = append(links, identity.Link{ID: row.Data.ID, Method: sessioninfo.AuthMethod(row.Data.Method), Connection: row.Data.Connection})
 	}
 
-	return ids, nil
+	return links, nil
 }
 
 func (store) DeleteIdentity(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {

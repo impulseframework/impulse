@@ -36,8 +36,8 @@ type AuthDriver interface {
 	IdentitiesByUser(ctx context.Context, userID impulse.UUID) ([]*dbtype.SessionIdentity, error)
 	LinkIdentity(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
 	UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error
-	RemoveUserPassword(ctx context.Context, userID impulse.UUID) error
-	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash) error
+	RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error
+	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error
 	DestroyUserSessions(ctx context.Context, userID impulse.UUID) error
 	TouchUserSignIn(ctx context.Context, userID impulse.UUID) error
 	DestroySessionsByProviderSessionID(ctx context.Context, issuer, providerSessionID string) error
@@ -52,6 +52,9 @@ type AuthDriver interface {
 	// SetSignInAttemptsTableName renames the sign-in attempts table; the suite points
 	// it at a table that is not there.
 	SetSignInAttemptsTableName(name string) error
+	// SetSessionTableName renames the sessions table; the suite points it at a table
+	// that is not there, to fail the half of a transaction that ends sessions.
+	SetSessionTableName(name string) error
 	SetUsernameIsEmail(same bool)
 	UserByEmail(ctx context.Context, email string) (*dbtype.SessionUser, error)
 	SetUserEmail(ctx context.Context, id impulse.UUID, email *string) error
@@ -182,26 +185,38 @@ type AuthInstance struct {
 	Raw    any
 	// SignIn establishes the session of a request that carries a verified identity:
 	// the sign-in flow over the driver with the configured resolver and policy, as the
-	// Auth session runs it. The harness builds it with NewSignIn.
-	SignIn func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (impulse.UUID, error)
+	// Auth session runs it. The harness builds it with NewSignIn. proven, at most one, is
+	// the proof of the password the sign-in rests on; none is the sign-in no password
+	// proved.
+	SignIn func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proven ...dbtype.PasswordProof) (impulse.UUID, error)
 	// Accept accepts inv for userID by hand, as the Auth does for a person already
 	// signed in, with the configured acceptor. The harness builds it with NewAccept.
 	Accept func(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation) error
 	// LinkConfirmed links identity to userID as the Auth does once the user's password
 	// has confirmed the link, with the configured admission. The harness builds it with
-	// NewLinkConfirmed.
-	LinkConfirmed func(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string) error
+	// NewLinkConfirmed. proven, at most one, is the proof of the password that confirmed
+	// the link.
+	LinkConfirmed func(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string, proven ...dbtype.PasswordProof) error
+}
+
+// oneProof is the proof a harness call was given: nil for none.
+func oneProof(proven []dbtype.PasswordProof) dbtype.PasswordProof {
+	if len(proven) == 0 {
+		return nil
+	}
+
+	return proven[0]
 }
 
 // NewLinkConfirmed returns an instance's LinkConfirmed over d: the flow's confirmed
 // link with cfg's admission, each hook given the driver's transaction through adapt.
 func NewLinkConfirmed[Tx any](
 	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
-) func(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string) error {
+) func(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string, proven ...dbtype.PasswordProof) error {
 	directories, seat := adaptAdmission(cfg, adapt)
 
-	return func(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string) error {
-		if err := signinflow.LinkConfirmed(ctx, d, userID, username, identity, tenant, directories, seat); err != nil {
+	return func(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string, proven ...dbtype.PasswordProof) error {
+		if err := signinflow.LinkConfirmed(ctx, d, userID, username, identity, tenant, directories, seat, oneProof(proven)); err != nil {
 			return errors.Wrap(err, "signinflow.LinkConfirmed()")
 		}
 
@@ -260,7 +275,7 @@ func adaptAccept[Tx any](cfg AuthConfig, adapt func(tx Tx) HookTx) signinflow.In
 // rules and policy, each given the driver's transaction through adapt.
 func NewSignIn[Tx any](
 	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
-) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (impulse.UUID, error) {
+) func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proven ...dbtype.PasswordProof) (impulse.UUID, error) {
 	var rule signin.AccountRule[Tx]
 	switch {
 	case cfg.Resolve != nil:
@@ -279,12 +294,12 @@ func NewSignIn[Tx any](
 	}
 	directories, seat := adaptAdmission(cfg, adapt)
 	accept := adaptAccept(cfg, adapt)
-	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (impulse.UUID, error) {
+	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proven ...dbtype.PasswordProof) (impulse.UUID, error) {
 		id, err := impulse.NewUUID()
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "impulse.NewUUID()")
 		}
-		rules := signinflow.Rules[Tx]{Account: rule, Standard: cfg.Accounts, Policy: policy, Accept: accept, Directories: directories, Seat: seat}
+		rules := signinflow.Rules[Tx]{Account: rule, Standard: cfg.Accounts, Policy: policy, Accept: accept, Directories: directories, Seat: seat, Proven: oneProof(proven)}
 		if err := signinflow.SignIn(ctx, d, id, insert, req, rules); err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
 		}
@@ -371,6 +386,11 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a hash upgrade, a user's own change and a user's own removal write on proof of the hash the user holds, and nothing without one", run: testProvenPasswordWrites},
 		{name: "a hash upgrade, a user's own change and a user's own removal write nothing once another write of the password has committed since the user was read", run: testProvenPasswordWriteAfterAnotherWrite},
 		{name: "a temporary password an operator sets stands, with its change mark, whatever write on proof of the password it replaces is asked at once", run: testProvenPasswordWriteRacesReset},
+		{name: "a user's own change writes the password and ends the user's sessions in one transaction: both, or neither", run: testOwnChangeEndsSessions},
+		{name: "a sign-in on proof of a password inserts its session only while the user holds that password: refused after a change, a temporary password or a removal, before the policy is asked", run: testProvenSignIn},
+		{name: "a pending sign-in a password started keeps the proof, is inserted only while the user holds that password, and completes only while they do; one no password proved is untouched", run: testProvenPendingSignIn},
+		{name: "a link confirmed with a password is made only while the user holds that password", run: testProvenLinkConfirmed},
+		{name: "a sign-in on proof of a password and the write that replaces it, asked at once, leave no live session resting on the replaced password", run: testProvenSignInRacesPasswordWrite},
 		{name: "a user's last sign-in is the database's time at the touch after a sign-in, nil before the first", run: testUserLastSignIn},
 		{name: "a revocation stamps every session it expires and every record it ends with one time, the database's", run: testDatabaseTimeOnRevocation},
 		{name: "a failed sign-in attempt is recorded under the name, known or not, counted in its window and locked at the limit, at the database's time", run: testSignInAttemptsRecorded},

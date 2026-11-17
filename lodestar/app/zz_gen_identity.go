@@ -208,6 +208,14 @@ func (a *App) CrewSectorRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSectorRoles()
 }
 
+func (a *App) CrewSectorSignInWays() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewSectorSignInWays()
+}
+
+func (a *App) CrewSignInWays() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewSignInWays()
+}
+
 func (a *App) AddCrewGroupMember() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).AddCrewGroupMember()
 }

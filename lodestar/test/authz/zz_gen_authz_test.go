@@ -2308,6 +2308,32 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "CrewSectorSignInWays denied",
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-sign-in-ways",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "CrewSectorSignInWays granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-sign-in-ways",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "CrewSignInWays denied",
+			method:       http.MethodGet,
+			target:       "/console/api/crew-sign-in-ways",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "CrewSignInWays granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/console/api/crew-sign-in-ways",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "ExpenseManifests denied",
 			method:       http.MethodGet,
 			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests",

@@ -421,6 +421,20 @@ func Collection() *resource.GeneratedCollection {
 				QueryKeys: []accesstypes.Tag{"userId", "expired"},
 			},
 			{
+				Name:        "StaffSignInWays",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "connection", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "method", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "password", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "through", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "userId"},
+					{Name: "way"},
+				},
+			},
+			{
 				Name:        "StaffUserGroupRoles",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read},

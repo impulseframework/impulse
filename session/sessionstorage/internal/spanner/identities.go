@@ -3,6 +3,7 @@ package spanner
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"cloud.google.com/go/spanner"
@@ -220,7 +221,9 @@ func (s *SessionStorageDriver) UserByUsernameIn(ctx context.Context, tx *spanner
 }
 
 // userOf reads the part of a user row the flow decides on from row's columns Id,
-// Username, PasswordHash, Disabled.
+// Username, PasswordHash, Disabled, with the proof the row's password hash answers to:
+// read in the transaction that inserts on the strength of a password proof, it is the
+// hash the row holds when that transaction commits, or Spanner runs it again.
 func userOf(row *spanner.Row) (*dbtype.User, error) {
 	var (
 		id   string
@@ -235,6 +238,9 @@ func userOf(row *spanner.Row) (*dbtype.User, error) {
 		return nil, errors.Wrap(err, "impulse.UUIDFromString()")
 	}
 	u.ID, u.HasPassword = userID, hash.Valid
+	if hash.Valid {
+		u.PasswordProof = dbtype.ProofOfStored(hash.StringVal)
+	}
 
 	return &u, nil
 }
@@ -474,10 +480,11 @@ const (
 )
 
 // RemoveUserPassword removes a user's password, and with it the mark that the user must
-// change it, refusing to remove the last means of sign-in of a user that has no
-// identity. The user's sessions stand. A user that holds no password is a BadRequest.
-// It follows no proof of the password and removes whatever hash the row holds.
-func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID impulse.UUID) error {
+// change it, while one of the identities standing names is still linked to the user,
+// and refuses to remove the user's last means of sign-in otherwise. The user's sessions
+// stand. A user that holds no password is a BadRequest. It follows no proof of the
+// password and removes whatever hash the row holds.
+func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -485,7 +492,7 @@ func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID im
 		return errors.New("RemoveUserPassword needs the auth schema: use Auth storage")
 	}
 
-	return s.removeUserPassword(ctx, userID, false, spanner.NullString{})
+	return s.removeUserPassword(ctx, userID, false, spanner.NullString{}, standing)
 }
 
 // RemoveProvenUserPassword removes the password a user proved (proven), as
@@ -493,7 +500,7 @@ func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID im
 // it, so the removal goes through only while the row still holds the proven one: a
 // password changed, reset or removed since the caller read it stands as it is
 // (ErrPasswordChanged, a Conflict).
-func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash) error {
+func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -505,12 +512,15 @@ func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, use
 		return err
 	}
 
-	return s.removeUserPassword(ctx, userID, true, provenHash)
+	return s.removeUserPassword(ctx, userID, true, provenHash, standing)
 }
 
 // removeUserPassword removes a user's password and its change mark in one transaction.
 // With followsProof set, the row must still hold proven, the hash the caller proved.
-func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID impulse.UUID, followsProof bool, proven spanner.NullString) error {
+// standing names the identities the caller judged a means of sign-in: one of them must
+// still be linked to the user when the password goes, read in the transaction that
+// writes, as an unlink reads them.
+func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID impulse.UUID, followsProof bool, proven spanner.NullString, standing []impulse.UUID) error {
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
 		if followsProof {
 			if err := s.holdsProvenPasswordIn(ctx, txn, userID, proven); err != nil {
@@ -531,7 +541,9 @@ func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID im
 		if err != nil {
 			return err
 		}
-		if len(links) == 0 {
+		// Only an identity the caller named counts: one that signs nobody in any more
+		// is no means of sign-in, however many of them the user holds.
+		if !slices.ContainsFunc(links, func(link *dbtype.SessionIdentity) bool { return slices.Contains(standing, link.ID) }) {
 			return httpio.NewConflictMessageWithError(dbtype.ErrLastSignInMethod, "the user has no other means of sign-in: link a directory sign-in first")
 		}
 
@@ -561,54 +573,62 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID i
 	}
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		// The local-actor records name the actor by username.
-		var username string
-		row, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{usernameColumn})
-		switch {
-		case err == nil:
-			if err := row.Column(0, &username); err != nil {
-				return errors.Wrap(err, "spanner.Row.Column()")
-			}
-		case spanner.ErrCode(err) != codes.NotFound:
-			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
-		}
-
-		// The sessions are selected first and expired by id: the selection reads the
-		// records while they are still live, and once a statement has written the commit
-		// timestamp to a table, nothing later in the transaction may read that table.
-		selectSessions := spanner.NewStatement(fmt.Sprintf(`
-			SELECT s.Id, s.Expired
-			FROM %s s
-			WHERE s.UserId = @userId OR %s`, s.sessionTableName, s.heldByLocalActor()))
-		selectSessions.Params["userId"] = userID.String()
-		if s.impersonation != nil {
-			selectSessions.Params["username"] = username
-		}
-		ids, live, err := selectSessionIDs(ctx, txn, selectSessions)
-		if err != nil {
-			return err
-		}
-		if err := s.expireSessions(ctx, txn, live); err != nil {
-			return err
-		}
-
-		if s.impersonation != nil {
-			endRecords := spanner.NewStatement(fmt.Sprintf(`
-				UPDATE %s
-				SET EndedAt = PENDING_COMMIT_TIMESTAMP(), EndReason = @reason
-				WHERE EndedAt IS NULL AND (SessionId IN UNNEST(@ids) OR (ActorUsername = @username AND ActorRealm IS NULL))`, s.impersonation.TableName))
-			endRecords.Params["ids"] = ids
-			endRecords.Params["username"] = username
-			endRecords.Params["reason"] = string(sessioninfo.ImpersonationEndedByRevocation)
-			if _, err := txn.Update(ctx, endRecords); err != nil {
-				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
-			}
-		}
-
-		return nil
+		return s.destroyUserSessionsIn(ctx, txn, userID)
 	})
 	if err != nil {
 		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+	}
+
+	return nil
+}
+
+// destroyUserSessionsIn expires every live session of a user inside txn, as
+// DestroyUserSessions does in a transaction of its own: a user's own change of
+// password ends their sessions in the transaction that writes the password
+// (ChangeUserPassword).
+func (s *SessionStorageDriver) destroyUserSessionsIn(ctx context.Context, txn *spanner.ReadWriteTransaction, userID impulse.UUID) error {
+	// The local-actor records name the actor by username.
+	var username string
+	row, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{usernameColumn})
+	switch {
+	case err == nil:
+		if err := row.Column(0, &username); err != nil {
+			return errors.Wrap(err, "spanner.Row.Column()")
+		}
+	case spanner.ErrCode(err) != codes.NotFound:
+		return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+	}
+
+	// The sessions are selected first and expired by id: the selection reads the
+	// records while they are still live, and once a statement has written the commit
+	// timestamp to a table, nothing later in the transaction may read that table.
+	selectSessions := spanner.NewStatement(fmt.Sprintf(`
+		SELECT s.Id, s.Expired
+		FROM %s s
+		WHERE s.UserId = @userId OR %s`, s.sessionTableName, s.heldByLocalActor()))
+	selectSessions.Params["userId"] = userID.String()
+	if s.impersonation != nil {
+		selectSessions.Params["username"] = username
+	}
+	ids, live, err := selectSessionIDs(ctx, txn, selectSessions)
+	if err != nil {
+		return err
+	}
+	if err := s.expireSessions(ctx, txn, live); err != nil {
+		return err
+	}
+
+	if s.impersonation != nil {
+		endRecords := spanner.NewStatement(fmt.Sprintf(`
+			UPDATE %s
+			SET EndedAt = PENDING_COMMIT_TIMESTAMP(), EndReason = @reason
+			WHERE EndedAt IS NULL AND (SessionId IN UNNEST(@ids) OR (ActorUsername = @username AND ActorRealm IS NULL))`, s.impersonation.TableName))
+		endRecords.Params["ids"] = ids
+		endRecords.Params["username"] = username
+		endRecords.Params["reason"] = string(sessioninfo.ImpersonationEndedByRevocation)
+		if _, err := txn.Update(ctx, endRecords); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+		}
 	}
 
 	return nil

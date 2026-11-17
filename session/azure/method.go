@@ -301,13 +301,20 @@ func accountRule[Tx any](rule AccountRule[Tx]) signin.AccountRule[Tx] {
 // authenticator checks the token's issuer against its tenant and the tenant against
 // the slot; both are checked here again, so an authenticator that did not cannot admit
 // a tenant outside it. When roles is set, the token's roles claim is reconciled. An
-// address is admitted unless it is a personal account's and the slot admits none.
+// address is admitted unless it is a personal account's and the slot admits none, and
+// a link's connection, the tenant id, when the slot admits that tenant.
 func method(authn Authenticator, roles *signin.RoleReconciler, authority string, tenants TenantSet) *signin.Method {
 	m := &signin.Method{
 		Name:     sessioninfo.MethodAzure,
 		LoginURL: authn.LoginURL,
 		AdmitsAddress: func(email string) bool {
 			return tenants.admitsAddress(signin.AddressDomain(email))
+		},
+		// A link's connection is the tenant id of the token that made it.
+		AdmitsConnection: func(connection string) bool {
+			_, admitted := tenants.admits(connection)
+
+			return admitted
 		},
 		Begin: func(ctx context.Context, w http.ResponseWriter, r *http.Request, returnURL string) (string, error) {
 			chooser, err := signin.SelectAccount(r)

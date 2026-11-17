@@ -14,9 +14,9 @@ import (
 
 // TestAuth_HashUpgradeFollowsTheProof pins the hash upgrade a sign-in makes: the store
 // is handed the hash the password was just compared against beside the new one, so it
-// writes only while the user still holds that hash, and a sign-in whose upgrade finds
-// the password changed, reset or removed since the user was read goes on as it would
-// have, with nothing written.
+// writes only while the user still holds that hash, and a check whose upgrade finds the
+// password changed, reset or removed since the user was read fails as a wrong password
+// does: the password entered is no longer the user's.
 func TestAuth_HashUpgradeFollowsTheProof(t *testing.T) {
 	t.Parallel()
 
@@ -51,16 +51,27 @@ func TestAuth_HashUpgradeFollowsTheProof(t *testing.T) {
 		}
 	})
 
-	t.Run("an upgrade that finds the password changed since the user was read writes nothing, and the sign-in goes on", func(t *testing.T) {
+	t.Run("an upgrade that finds the password changed since the user was read refuses the check as a wrong password is refused, counted as one", func(t *testing.T) {
 		t.Parallel()
 		f := newAuthFixture(t, gomock.NewController(t))
-		f.store.EXPECT().UserByUserName(gomock.Any(), "pat").Return(pat(), nil)
+		f.store.EXPECT().UserByUserName(gomock.Any(), "pat").Return(pat(), nil).Times(2)
 		f.store.EXPECT().UpgradeUserPasswordHash(gomock.Any(), userID, outdated, gomock.Not(gomock.Nil())).
 			Return(httpio.NewConflictMessageWithError(sessionstorage.ErrPasswordChanged, "the password has changed since it was checked: check it again and retry"))
 
+		// One failure stands under the name: a check that reset it before the upgrade
+		// found the password changed would leave one, not two.
+		if _, err := f.auth.API().ValidateCredentials(context.Background(), "pat", "wrong"); !httpio.HasUnauthorized(err) {
+			t.Fatalf("ValidateCredentials() of a wrong password error = %v, want Unauthorized", err)
+		}
 		got, err := f.auth.API().ValidateCredentials(context.Background(), "pat", "pw")
-		if err != nil || got != userID {
-			t.Errorf("ValidateCredentials() = %s, %v; want the user: the comparison stands, and the next sign-in upgrades the hash it finds", got, err)
+		if !httpio.HasUnauthorized(err) || httpio.Message(err) != "Invalid Credentials" || got != impulse.NilUUID {
+			t.Errorf("ValidateCredentials() = %s, %v; want Unauthorized \"Invalid Credentials\" and no user: the password entered is no longer the user's", got, err)
+		}
+		if r := f.attemptsRecord("pat"); r == nil || r.Failures != 2 {
+			t.Errorf("attempts under the name = %+v, want two failures: the check counts as a wrong password does and resets nothing", r)
+		}
+		if _, _, clears := f.counts(); clears != 0 {
+			t.Errorf("clears = %d, want 0: a check that fails resets nothing", clears)
 		}
 	})
 

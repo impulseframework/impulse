@@ -238,7 +238,8 @@ describe('AccountPageComponent', () => {
     expect(text('.password .message')).toBe('Your password is changed.');
   });
 
-  // A sign-in that offers the password and one directory, and serves the password's removal.
+  // A sign-in that offers the password and one directory, serves the password's removal
+  // and says what the person signs in with: here a password, and Lakeside linked to them.
   const lakeside = {
     name: 'lakeside',
     method: 'workos',
@@ -250,10 +251,15 @@ describe('AccountPageComponent', () => {
     methods: [lakeside],
     changePassword: passwordMethods.changePassword,
     removePassword: passwordMethods.removePassword,
+    signInMeans: passwordMethods.signInMeans,
+  };
+  const linkedToLakeside: TransportResponse = {
+    status: 200,
+    body: { password: true, directories: [{ name: 'lakeside', label: 'Lakeside' }] },
   };
 
   it('offers the removal of the password where the server serves it, under the change', async () => {
-    await open({ methods: removal });
+    await open({ methods: removal, means: linkedToLakeside });
     expect(text('.password h2')).toBe('Change your password');
     expect(text('.remove-password h2')).toBe('Remove your password');
     expect(text('.remove-password p')).toBe('If you also sign in another way, you can do without a password.');
@@ -262,7 +268,14 @@ describe('AccountPageComponent', () => {
   });
 
   it('offers no removal where the server serves none', async () => {
-    await open({ methods: { methods: [lakeside], changePassword: passwordMethods.changePassword } });
+    await open({
+      methods: {
+        methods: [lakeside],
+        changePassword: passwordMethods.changePassword,
+        signInMeans: passwordMethods.signInMeans,
+      },
+      means: linkedToLakeside,
+    });
     expect(text('.password h2')).toBe('Change your password');
     expect(element().querySelector('.remove-password')).toBeNull();
     expect(TestBed.inject(Account).removePassword()).toBe(false);
@@ -271,6 +284,7 @@ describe('AccountPageComponent', () => {
   it('offers no removal in a session that acts for someone else', async () => {
     await open({
       methods: removal,
+      means: linkedToLakeside,
       session: {
         impersonation: { actor: 'ops', principalKind: 'User', principal: 'gale', expiresAt: '2026-11-15T12:00:00Z' },
       },
@@ -281,7 +295,7 @@ describe('AccountPageComponent', () => {
   });
 
   it('asks before it removes, saying what is left to sign in through, and asks the server nothing when the person keeps the password', async () => {
-    await open({ methods: removal });
+    await open({ methods: removal, means: linkedToLakeside });
     type('removalPassword', 'old');
     (element().querySelector('button.remove-submit') as HTMLButtonElement).click();
     await settle();
@@ -296,7 +310,7 @@ describe('AccountPageComponent', () => {
   });
 
   it('removes the password at the path the server names, with the password as proof, and says what is left', async () => {
-    await open({ methods: removal });
+    await open({ methods: removal, means: linkedToLakeside });
     type('removalPassword', 'old');
     fixture.componentInstance.askToRemovePassword();
     await fixture.componentInstance.removePassword();
@@ -312,7 +326,11 @@ describe('AccountPageComponent', () => {
 
   it("shows the server's words when it refuses the removal, and leaves the password where it was", async () => {
     const onlyWay = 'Your password is your only way to sign in: sign in through your directory first';
-    await open({ methods: removal, removeAnswer: { status: 409, body: { message: onlyWay } } });
+    await open({
+      methods: removal,
+      means: linkedToLakeside,
+      removeAnswer: { status: 409, body: { message: onlyWay } },
+    });
     type('removalPassword', 'old');
     fixture.componentInstance.askToRemovePassword();
     await fixture.componentInstance.removePassword();
@@ -368,13 +386,27 @@ describe('AccountPageComponent', () => {
     expect(text('.none')).toBe('Your sign-in is managed by your organization, so there is nothing to change here.');
   });
 
-  it('offers what the sign-in offers where the read of what the person signs in with fails', async () => {
+  it('offers the change and no removal where the read of what the person signs in with fails: no answer is no offer', async () => {
     await open({ methods: told, means: { status: 500, body: { message: 'the database is away' } } });
     expect(text('.password h2')).toBe('Change your password');
-    expect(text('.remove-password h2')).toBe('Remove your password');
-    expect(fixture.componentInstance.removalConsequence()).toBe(
-      'You will sign in through Lakeside or Fleet Google only.',
-    );
+    expect(element().querySelector('.remove-password')).toBeNull();
+    expect(TestBed.inject(Account).removePassword()).toBe(false);
+    // The page names no way in the server did not say is the person's.
+    expect(TestBed.inject(Account).otherSignIns()).toEqual([]);
+  });
+
+  it('offers the change and no removal where the server names no read of what the person signs in with', async () => {
+    await open({
+      methods: {
+        methods: [lakeside, fleetGoogle],
+        changePassword: passwordMethods.changePassword,
+        removePassword: passwordMethods.removePassword,
+      },
+    });
+    expect(text('.password h2')).toBe('Change your password');
+    expect(element().querySelector('.remove-password')).toBeNull();
+    expect(TestBed.inject(Account).removePassword()).toBe(false);
+    expect(TestBed.inject(Account).otherSignIns()).toEqual([]);
   });
 
   it('offers no password section while what the person signs in with is still being read, so none is drawn and then taken away', async () => {

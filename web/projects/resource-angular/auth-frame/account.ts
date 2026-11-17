@@ -11,10 +11,12 @@ import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-cli
  * browser where it is remembered for them. A page with none of them is not offered in the
  * person's menu.
  *
- * Where the server says what the person signs in with (`signInMeans`), the password
- * sections follow it: neither the change nor the removal is offered to a person who
- * holds no password, and the removal only to one a directory sign-in is linked to, who
- * is told which. A hidden section is a courtesy; the server refuses what it must.
+ * The password sections follow what the server says the person signs in with
+ * (`signInMeans`): neither the change nor the removal is offered to a person who holds no
+ * password, and the removal only to one a directory sign-in is linked to, who is told
+ * which. The removal is offered on the server's word alone: where the read answers
+ * nothing, because the server names none or the read failed, no removal is offered. A
+ * hidden section is a courtesy; the server refuses what it must.
  */
 @Injectable({ providedIn: 'root' })
 export class Account {
@@ -25,8 +27,8 @@ export class Account {
   private methods = resource({ loader: (): Promise<LoginMethods> => this.client.auth.methods() });
   /**
    * What the person signs in with, read once and again after a removal on this page.
-   * The read answers nothing where the server serves none, and the page then knows only
-   * what the sign-in offers.
+   * The read answers nothing where the server serves none, and the page then offers no
+   * removal of the password.
    */
   private means = resource({ loader: (): Promise<SignInMeans | undefined> => this.client.auth.signInMeans() });
   /** What the person signs in with, where the server said: undefined while it is read, where it serves no read, or when the read fails. */
@@ -61,9 +63,10 @@ export class Account {
   /**
    * The server serves the removal of a person's own password where they change it, and
    * the session is the person's own: an impersonated session may not remove the password
-   * of the person it acts as. Where the server says what the person signs in with, the
-   * removal is offered only to a person a directory sign-in is linked to: the server
-   * refuses it to anyone else, whose password is their only way in.
+   * of the person it acts as. It is offered only to a person the server says a directory
+   * sign-in is linked to: the server refuses it to anyone else, whose password is their
+   * only way in. A read that answers nothing offers nothing: the page does not guess
+   * that some other way in is the person's.
    */
   readonly removePassword = computed(() => {
     const means = this.signInMeans();
@@ -71,27 +74,18 @@ export class Account {
       this.password() &&
       this.auth.sessionInfo().impersonation === undefined &&
       this.methods.value()?.removePassword !== undefined &&
-      (means === undefined || means.directories.length > 0)
+      means !== undefined &&
+      means.directories.length > 0
     );
   });
   /**
    * What a person who removes their password is left to sign in through, each by the
-   * words its button on the login page carries: the directory sign-ins linked to them,
-   * where the server says which, and otherwise every other way in the sign-in offers
-   * beside the password.
+   * words its button on the login page carries: the directory sign-ins the server says
+   * are linked to them, and none where the server said nothing.
    */
-  readonly otherSignIns = computed<string[]>(() => {
-    const means = this.signInMeans();
-    if (means) {
-      return means.directories.map((directory) => directory.label);
-    }
-    return this.methods.hasValue()
-      ? this.methods
-          .value()
-          .methods.filter((method) => method.kind === 'redirect')
-          .map((method) => method.label)
-      : [];
-  });
+  readonly otherSignIns = computed<string[]>(
+    () => this.signInMeans()?.directories.map((directory) => directory.label) ?? [],
+  );
   /** This browser is remembered for the person, and the server serves forgetting it. */
   readonly browser = computed(
     () =>

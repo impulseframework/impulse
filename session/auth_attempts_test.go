@@ -97,6 +97,146 @@ func assertLocked(t *testing.T, rr *httptest.ResponseRecorder) {
 	}
 }
 
+// TestAuth_AttemptLimit_OwnPasswordProofs proves a session of the person guesses their
+// password no faster than the login lets a stranger: the proof a person's own change
+// and own removal of their password ask for is counted under the person's name as a
+// login's is, a name at the limit is refused before anything is hashed, with nothing
+// written, and a right proof resets the count.
+func TestAuth_AttemptLimit_OwnPasswordProofs(t *testing.T) {
+	t.Parallel()
+
+	userID := impulse.Must(impulse.NewUUID())
+	sessionID := impulse.Must(impulse.NewUUID())
+	held := hashed(t, "pw")
+	pat := func() *sessionstorage.SessionUser {
+		return &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: held}
+	}
+	session := func() *sessioninfo.SessionData {
+		return &sessioninfo.SessionData{SessionInfo: &sessioninfo.SessionInfo{ID: sessionID, Username: "pat", UpdatedAt: time.Now()}, UserID: impulse.NullUUIDFromUUID(userID)}
+	}
+	post := func(h http.Handler, body string) *httptest.ResponseRecorder {
+		r := httptest.NewRequestWithContext(context.WithValue(context.Background(), sessioninfo.CTXSessionID, sessionID), http.MethodPost, "/api/user/password", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, r)
+
+		return rr
+	}
+
+	tests := []struct {
+		name string
+		run  func(t *testing.T, f *authFixture)
+	}{
+		{
+			name: "a removal's wrong passwords count, and at the limit the right one is refused before the hash and nothing is removed",
+			run: func(t *testing.T, f *authFixture) {
+				// The session's validation and the proof each read the user. The mock
+				// refuses a removal it was not told of.
+				f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil).Times(4)
+				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(8)
+				compares := countCompares(f)
+				for i := range 3 {
+					if rr := post(f.password.RemoveUserPassword(), `{"password":"wrong"}`); rr.Code != http.StatusBadRequest {
+						t.Fatalf("removal %d with a wrong password = %d %s, want 400", i+1, rr.Code, rr.Body.String())
+					}
+				}
+				if r := f.attemptsRecord("pat"); r == nil || r.Failures != 3 || r.LockedUntil == nil {
+					t.Errorf("record of the name = %+v, want three failures and a lock, as three wrong logins leave", r)
+				}
+				assertLocked(t, post(f.password.RemoveUserPassword(), `{"password":"pw"}`))
+				if *compares != 3 {
+					t.Errorf("password comparisons = %d, want 3: the locked removal hashed nothing", *compares)
+				}
+				// The login shares the limiter: the name is held there too.
+				assertLocked(t, f.login("pat", "pw", "10.0.0.1", "tok"))
+			},
+		},
+		{
+			name: "a change's wrong old passwords count, and at the limit the right one is refused before the hash and nothing is changed",
+			run: func(t *testing.T, f *authFixture) {
+				f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil).Times(4)
+				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(8)
+				compares := countCompares(f)
+				for i := range 3 {
+					if rr := post(f.password.ChangeUserPassword(), `{"oldPassword":"wrong","newPassword":"another"}`); rr.Code != http.StatusBadRequest {
+						t.Fatalf("change %d with a wrong old password = %d %s, want 400", i+1, rr.Code, rr.Body.String())
+					}
+				}
+				if r := f.attemptsRecord("pat"); r == nil || r.Failures != 3 || r.LockedUntil == nil {
+					t.Errorf("record of the name = %+v, want three failures and a lock", r)
+				}
+				assertLocked(t, post(f.password.ChangeUserPassword(), `{"oldPassword":"pw","newPassword":"another"}`))
+				if *compares != 3 {
+					t.Errorf("password comparisons = %d, want 3: the locked change hashed nothing", *compares)
+				}
+			},
+		},
+		{
+			name: "ChangeSessionUserPassword counts and refuses as the handler does, with the wait on the error",
+			run: func(t *testing.T, f *authFixture) {
+				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(4)
+				change := func(old string) error {
+					return f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: old, NewPassword: "another"})
+				}
+				for range 3 {
+					if err := change("wrong"); !httpio.HasBadRequest(err) {
+						t.Fatalf("ChangeSessionUserPassword() with a wrong old password error = %v, want a bad request", err)
+					}
+				}
+				err := change("pw")
+				wait, ok := sessioninfo.RetryAfterOf(err)
+				if !ok || wait != testLock || !httpio.HasTooManyRequests(err) || sessioninfo.LoginRefusalCodeOf(err) != sessioninfo.RefusedTooManyAttempts {
+					t.Errorf("ChangeSessionUserPassword() at the limit error = %v (wait %v, %v), want too_many_attempts with the lock as the wait", err, wait, ok)
+				}
+			},
+		},
+		{
+			name: "a right proof resets the name: two wrong removals, then the right one removes and leaves no count",
+			run: func(t *testing.T, f *authFixture) {
+				f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil).Times(3)
+				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(6)
+				f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, held, gomock.Any()).Return(nil)
+				for range 2 {
+					post(f.password.RemoveUserPassword(), `{"password":"wrong"}`)
+				}
+				if r := f.attemptsRecord("pat"); r == nil || r.Failures != 2 {
+					t.Fatalf("record of the name = %+v, want two failures", r)
+				}
+				if rr := post(f.password.RemoveUserPassword(), `{"password":"pw"}`); rr.Code != http.StatusOK {
+					t.Fatalf("removal with the right password = %d %s, want 200", rr.Code, rr.Body.String())
+				}
+				if r := f.attemptsRecord("pat"); r != nil {
+					t.Errorf("record of the name = %+v, want none: the proof reset it", r)
+				}
+			},
+		},
+		{
+			name: "a right proof resets the name even where the removal is then refused, as a login's match does where the sign-in is",
+			run: func(t *testing.T, f *authFixture) {
+				f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil).Times(2)
+				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(4)
+				f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, held, gomock.Any()).
+					Return(httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "the user has no other means of sign-in"))
+				post(f.password.RemoveUserPassword(), `{"password":"wrong"}`)
+				if rr := post(f.password.RemoveUserPassword(), `{"password":"pw"}`); rr.Code != http.StatusConflict {
+					t.Fatalf("removal of a last means of sign-in = %d %s, want 409", rr.Code, rr.Body.String())
+				}
+				if r := f.attemptsRecord("pat"); r != nil {
+					t.Errorf("record of the name = %+v, want none: the password was proved", r)
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f := newAuthFixtureWith(t, gomock.NewController(t), testLimit)
+
+			tt.run(t, f)
+		})
+	}
+}
+
 func TestAuth_PasswordLogin_AttemptLimit(t *testing.T) {
 	t.Parallel()
 
@@ -260,13 +400,14 @@ func TestAuth_AttemptLimit_Resets(t *testing.T) {
 				f.login("pat", "wrong", "10.0.0.1", "tok")
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil)
 				f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, gomock.Any(), gomock.Any()).Return(nil)
-				f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil)
 				createSession(f.store, sessionID, nil)
 				if err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "pw", NewPassword: "new"}); err != nil {
 					t.Fatalf("ChangeSessionUserPassword() error = %v", err)
 				}
-				if _, _, clears := f.counts(); clears != 1 || f.attemptsRecord("pat") != nil {
-					t.Errorf("clears = %d, record = %v; want the record deleted by the change", clears, f.attemptsRecord("pat"))
+				// The old password's match reset the name, as a login's match does, and the
+				// change reset it again, whatever this limiter remembered of it.
+				if _, _, clears := f.counts(); clears != 2 || f.attemptsRecord("pat") != nil {
+					t.Errorf("clears = %d, record = %v; want the record deleted by the proof and cleared again by the change", clears, f.attemptsRecord("pat"))
 				}
 			},
 		},
@@ -505,7 +646,7 @@ func TestAuth_SignedInHook(t *testing.T) {
 				cookies, pendingID := f.hold(t, &signInAttempt{identity: identity, reason: sessioninfo.ReasonLogin, registration: "workos"},
 					&signin.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: impulse.NullUUIDFromUUID(userID), Username: "pat", Tenant: "lakeside"})
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat, nil)
-				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any()).Return(nil)
+				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 				f.expectConsume(pendingID)
 				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) { req.UserID, req.Username = userID, "pat" }, nil)
 				rr := f.serve(f.auth.Pending().ConfirmWithPassword(), http.MethodPost, "/pending/confirm", map[string]string{"password": "pw"}, cookies)
