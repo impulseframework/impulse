@@ -201,6 +201,10 @@ func (a *App) StaffSignInWays() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffSignInWays()
 }
 
+func (a *App) StaffTenantDirectoryRoles() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffTenantDirectoryRoles()
+}
+
 func (a *App) StaffTenantRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffTenantRoles()
 }

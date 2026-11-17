@@ -222,7 +222,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 							if err := patchSet.Permitted(ctx, txn); err != nil {
 								return errors.Wrap(err, "resource.PatchSet.Permitted()")
 							}
-							directory, err := NewTenantDirectoryRules().FromSession(ctx, txn, domain)
+							directory, err := NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName).FromSession(ctx, txn, domain)
 							if err != nil {
 								return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")
 							}
@@ -243,7 +243,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 							if err := patchSet.Permitted(ctx, txn); err != nil {
 								return errors.Wrap(err, "resource.PatchSet.Permitted()")
 							}
-							if err := NewTenantDirectoryRules().Remove(ctx, txn, domain); err != nil {
+							if err := NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName).Remove(ctx, txn, domain); err != nil {
 								return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
 							}
 							if err := resources.NewTenantDirectoryDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {

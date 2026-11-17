@@ -1280,7 +1280,7 @@ const methodMap: MethodMap = {
     dryRun: true,
     warning: { typed: 'open' },
     fields: [
-      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffTenantRoles, required: true },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffTenantDirectoryRoles, required: true },
     ],
   },
   [Methods.MakeTenantInviteOnly]: {

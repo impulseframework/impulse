@@ -30,6 +30,7 @@ export const Resources = {
   CrewGroups: 'CrewGroups' as Resource,
   CrewRoleGrants: 'CrewRoleGrants' as Resource,
   CrewRoles: 'CrewRoles' as Resource,
+  CrewSectorDirectoryRoles: 'CrewSectorDirectoryRoles' as Resource,
   CrewSectorGroupRoles: 'CrewSectorGroupRoles' as Resource,
   CrewSectorGroupUsers: 'CrewSectorGroupUsers' as Resource,
   CrewSectorGroups: 'CrewSectorGroups' as Resource,
@@ -444,6 +445,17 @@ export namespace CrewRoles {
     kind: 'CrewRoles.kind' as Resource,
     role: 'CrewRoles.role' as Resource,
     updatedAt: 'CrewRoles.updatedAt' as Resource,
+  };
+}
+
+export namespace CrewSectorDirectoryRoles {
+  export const fieldName = {
+    description: 'description' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    description: 'CrewSectorDirectoryRoles.description' as Resource,
+    name: 'CrewSectorDirectoryRoles.name' as Resource,
   };
 }
 
