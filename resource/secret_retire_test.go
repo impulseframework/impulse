@@ -2,11 +2,13 @@ package resource
 
 import (
 	"context"
+	"iter"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
+	"go.uber.org/mock/gomock"
 )
 
 // retiringRow is sealedRow's table as generated code declares a resource that stores a
@@ -140,6 +142,86 @@ func TestRetireSecretVersion_refusals(t *testing.T) {
 			}
 			if got != nil {
 				t.Errorf("RetireSecretVersion() = %+v beside its refusal, want nothing", got)
+			}
+		})
+	}
+}
+
+// The final check of a retirement: a value that still names the version once every
+// value has been written fails it, so the version is not disabled over a value that
+// needs it. Here the row's value was set again under the old version between the read
+// and the write, which leaves it as it is, and the last read finds it.
+func TestRetireSecretVersion_finalCheck(t *testing.T) {
+	t.Parallel()
+
+	keys := testSecretKeys(t, 1, 2)
+	old := testSecretKeys(t, 1)
+	seal := func(holder *SecretKeys, plain string) *Secret {
+		t.Helper()
+
+		sealed, err := holder.Seal(rowKey("row-1"), plain)
+		if err != nil {
+			t.Fatalf("Seal() error = %v", err)
+		}
+
+		return &sealed
+	}
+	read, since := seal(old, "open-sesame"), seal(old, "set-since")
+	rows := func(held *Secret) iter.Seq2[*Row[retiringRow], error] {
+		return func(yield func(*Row[retiringRow], error) bool) {
+			yield(&Row[retiringRow]{Data: retiringRow{ID: "row-1", AccessCode: held}}, nil)
+		}
+	}
+
+	tests := []struct {
+		name string
+		// held is what the row holds inside the writing transaction, and last what the
+		// final read finds.
+		held, last    *Secret
+		wantRewritten int
+		wantErr       string
+	}{
+		{name: "the value is written and none is left", held: read, last: seal(keys, "open-sesame"), wantRewritten: 1},
+		{name: "a value set since under the old version is left, and fails the retirement", held: since, last: since, wantErr: "APP_SECRET_KEY_1 is not retired: after the rewrite, stored values still name version 1 (1 of SealedRows.AccessCode)"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctrl := gomock.NewController(t)
+			lists := NewMockReader[retiringRow](ctrl)
+			gomock.InOrder(
+				lists.EXPECT().List(gomock.Any(), gomock.Any()).Return(rows(read)),
+				lists.EXPECT().List(gomock.Any(), gomock.Any()).Return(rows(tt.last)),
+			)
+			inTxn := NewMockReader[retiringRow](ctrl)
+			inTxn.EXPECT().Read(gomock.Any(), gomock.Any()).Return(&Row[retiringRow]{Data: retiringRow{ID: "row-1", AccessCode: tt.held}}, nil)
+			buffered := &capturingTxn{}
+			client := NewMockClient(buffered, []any{lists}, []any{inTxn}, WithSecretKeys(keys))
+
+			got, err := RetireSecretVersion(context.Background(), client, "APP_SECRET_KEY_1", SecretHolderOf[retiringRow]())
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("RetireSecretVersion() error = %v, want containing %q", err, tt.wantErr)
+				}
+				if len(buffered.columns) != 0 {
+					t.Errorf("the retirement buffered %d write(s) over a value set since, want none", len(buffered.columns))
+				}
+
+				return
+			}
+			if err != nil || got.Rewritten() != tt.wantRewritten {
+				t.Fatalf("RetireSecretVersion() = %+v, error %v; want %d value(s) rewritten", got, err, tt.wantRewritten)
+			}
+			if len(buffered.columns) != 1 {
+				t.Fatalf("the retirement buffered %d write(s), want 1", len(buffered.columns))
+			}
+			written, ok := buffered.columns[0]["AccessCode"].(Secret)
+			if !ok || written.KeyVersion() != 2 {
+				t.Fatalf("the retirement wrote %T, want the value sealed under version 2", buffered.columns[0]["AccessCode"])
+			}
+			if opened, err := keys.Open(rowKey("row-1"), written); err != nil || opened != "open-sesame" {
+				t.Errorf("the value written does not open to what the row held: error %v", err)
 			}
 		})
 	}

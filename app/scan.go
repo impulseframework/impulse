@@ -62,6 +62,9 @@ func (a *App) scan() error {
 	if err != nil {
 		return errors.Wrap(err, "filepath.WalkDir()")
 	}
+	if err := versionedSecretClash(a.EnvTags); err != nil {
+		return err
+	}
 
 	for _, g := range a.Generators {
 		g.ReadsWarnings = a.readsWarnings(g)
@@ -1004,6 +1007,28 @@ func declaredTags(d cloud.Declaration, rel string, line int) []EnvTag {
 	}
 
 	return tags
+}
+
+// versionedSecretClash refuses a variable named as a version of a versioned secret is:
+// beside APP_SECRET_KEY declared secret:"versioned", APP_SECRET_KEY_1 is the variable its
+// first version is handed over in, so a field declaring that name would be handed the
+// version, or would hide it.
+func versionedSecretClash(tags []EnvTag) error {
+	for _, versioned := range tags {
+		if !versioned.Versioned {
+			continue
+		}
+		for _, tag := range tags {
+			number, found := strings.CutPrefix(tag.Name, versioned.Name+"_")
+			if !found || number == "" || strings.Trim(number, "0123456789") != "" {
+				continue
+			}
+
+			return errors.Newf("%s:%d: %s is the variable version %s of %s is handed over in (%s:%d declares %s secret:%q, one variable for each version): give the field another name", tag.File, tag.Line, tag.Name, number, versioned.Name, versioned.File, versioned.Line, versioned.Name, secretVersioned)
+		}
+	}
+
+	return nil
 }
 
 // secretTag is the struct tag beside the env tag that declares a secret: secretTrue a
