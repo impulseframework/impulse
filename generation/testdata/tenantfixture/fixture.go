@@ -242,13 +242,13 @@ type (
 		Connection string `spanner:"Connection"`
 	}
 
-	// Groyne is a directories record whose table carries no unique index on the tenant
+	// Causeway is a directories record whose table carries no unique index on the tenant
 	// column: nothing in the schema keeps a harbor to one directory.
 	//
 	// @resource
 	// @permissionScope(domain)
 	// @tenantDirectory
-	Groyne struct {
+	Causeway struct {
 		ID impulse.UUID `spanner:"Id"`
 		// @domain
 		HarborID impulse.UUID `spanner:"HarborId"`

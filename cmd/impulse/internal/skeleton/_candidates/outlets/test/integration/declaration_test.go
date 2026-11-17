@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	cloudspanner "cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/outlets/app"
 	"github.com/impulseframework/impulse/httpio"
@@ -225,7 +226,7 @@ func setDirectory(ctx context.Context, t *testing.T, s *served, tenant string, d
 		return app.SetTenantDirectory(ctx, txn, id, directory, "test")
 	})
 	if err != nil {
-		return err
+		return errors.Wrap(err, "resource.SpannerClient.ExecuteFunc()")
 	}
 	if err := s.tenants.Reload(ctx); err != nil {
 		t.Fatalf("resource.TenantRoster.Reload() error = %v", err)

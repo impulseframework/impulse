@@ -88,8 +88,8 @@ func Test_resolveTenantDeclaration(t *testing.T) {
 		},
 		{
 			name:    "a directories record whose table keeps no harbor to one directory is refused naming the index",
-			structs: []string{"Harbor", "Groyne"},
-			wantErr: "struct Groyne: table Groynes has no unique index on HarborId alone; a tenant has one directory, which the schema holds: CREATE UNIQUE INDEX GroynesByHarborId ON Groynes(HarborId)",
+			structs: []string{"Harbor", "Causeway"},
+			wantErr: "struct Causeway: table Causeways has no unique index on HarborId alone; a tenant has one directory, which the schema holds: CREATE UNIQUE INDEX CausewaysByHarborId ON Causeways(HarborId)",
 		},
 		{
 			name:    "a directories record whose table keeps no directory to one harbor is refused naming the index",

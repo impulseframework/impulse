@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	initiator "github.com/impulseframework/impulse/db"
 	"github.com/impulseframework/impulse/httpio"
@@ -28,9 +29,13 @@ func insertStationDirectory(txn ReadWriteTransaction, id string, station accesst
 		panic("the fixture writes through the Spanner transaction")
 	}
 
-	return rw.txn.BufferWrite([]*spanner.Mutation{
+	if err := rw.txn.BufferWrite([]*spanner.Mutation{
 		spanner.Insert("StationDirectories", []string{"Id", "StationId", "Method", "Connection"}, []any{id, string(station), string(directory.Method), directory.Connection}),
-	})
+	}); err != nil {
+		return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
+	}
+
+	return nil
 }
 
 // TestTenantDirectoryRules_spanner proves the rules of a tenant's directory at the
@@ -123,8 +128,11 @@ func TestTenantDirectoryRules_spanner(t *testing.T) {
 
 				return err
 			})
+			if err != nil {
+				return got, errors.Wrap(err, "resource.Executor.ExecuteFunc()")
+			}
 
-			return got, err
+			return got, nil
 		}
 		through := establishedBy(sessioninfo.AuthEvent{Method: other.Method, Connection: other.Connection})
 		if got, err := fromSession(through, "gamma"); err != nil || got != other {
@@ -176,17 +184,18 @@ func TestTenantDirectoryRules_schema(t *testing.T) {
 
 	tests := []struct {
 		name      string
+		database  string
 		station   accesstypes.Domain
 		directory signin.Directory
 	}{
-		{name: "a second directory for a station", station: "alpha", directory: other},
-		{name: "a directory another station has", station: "beta", directory: workspace},
+		{name: "a second directory for a station", database: "directory-schema-a", station: "alpha", directory: other},
+		{name: "a directory another station has", database: "directory-schema-b", station: "beta", directory: workspace},
 	}
-	for i, tt := range tests {
+	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			db, client := tenantDatabase(t, "directory-schema-"+string(rune('a'+i)), "alpha", "beta")
+			db, client := tenantDatabase(t, tt.database, "alpha", "beta")
 			declareStation(t, db, "alpha", false, workspace)
 			err := client.ExecuteFunc(t.Context(), func(_ context.Context, txn ReadWriteTransaction) error {
 				return insertStationDirectory(txn, "second", tt.station, tt.directory)
