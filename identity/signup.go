@@ -157,9 +157,10 @@ func (m *Manager) signInMethod(registered *session.RegisteredMethod, row *SignIn
 		}
 		method.Says = "Open: " + m.consequence(registered, method.DefaultRole, method.DefaultRole == "")
 	case row != nil && row.OpenSignUp:
-		// The row was opened when the registration admitted someone else: it opens
-		// nothing, and the page says for whom it was opened and whom the method admits.
-		method.Says = "Invite only: this method was opened " + openedForWords(row.OpenedFor) + ", and it admits " + now + " now. Open it again to admit them."
+		// The row was opened when the registration admitted someone else, or it keeps
+		// no audience that can be compared with the registration's: it opens nothing,
+		// and the page says which of the two it is and whom the method admits.
+		method.Says = "Invite only: " + sinceOpened(row.OpenedFor) + ", and it admits " + now + " now. Open it again to admit them."
 	default:
 		method.Says = "Invite only: a person signs in once they are invited."
 	}
@@ -379,17 +380,22 @@ func (m *Manager) requireSignUpRole(ctx context.Context, txn resource.ReadWriteT
 	return nil
 }
 
-// openedForWords says whom a row was opened for, as the sentence about a method whose
-// audience changed since reads it: "for anyone with an account at lakeside.edu", or
-// that it was opened before its audience was kept, for a row that names none.
-func openedForWords(openedFor *string) string {
+// sinceOpened says why a row that is open opens nothing, as the sentence about a method
+// whose audience is not the one the row was opened for starts: the people the method
+// admits have changed since, for a row that keeps an audience, and the method was
+// opened before its audience was kept, for a row that keeps none it can be compared
+// by: one that names no audience, and one that kept it in an earlier form, by the names
+// of its organizations. Whom the row was opened for is not said: the row keeps what
+// identifies them (signin.Audience.Key), which is no name a person knows, and the
+// sentence names whom the method admits now.
+func sinceOpened(openedFor *string) string {
 	if openedFor != nil {
-		if audience, ok := signin.AudienceOfKey(*openedFor); ok {
-			return "for " + audience.Words()
+		if _, ok := signin.IdentitiesOfKey(*openedFor); ok {
+			return "the people this method admits have changed since it was opened"
 		}
 	}
 
-	return "before its audience was kept"
+	return "this method was opened before its audience was kept"
 }
 
 // consequence is what a method open to sign-up means for the people it admits, as the

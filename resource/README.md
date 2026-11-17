@@ -3782,11 +3782,17 @@ acme.example"), and that is a fact of the method's registration in code, which a
 release can widen. So opening a method writes into its row whom the registration admitted
 then (`OpenedFor`, the registration's audience in a form that compares exactly:
 `signin.Audience.Key`), and the sign-in honors the row only while the registration's
-audience is still that one. A method whose registration has changed since, wider or
-narrower, is invite only until someone opens it again: the list says whom it was opened
-for and whom it admits now, `openSignUp` is false, the page offers Open sign-up, and the
-warning names the audience of today. An invitation, and a person who has an account, are
-not affected. A row written before the audience was kept names none and opens nothing.
+audience is still that one. The row keeps what identifies the people (each Microsoft
+Entra tenant's id, each Google Workspace's domain, a generic provider's issuer, each
+kind of account outside them) and never what they are called, so a second organization
+a release lists under the first one's label is a wider audience, and a renamed
+organization is the same one. A method whose registration has changed since, wider or
+narrower, is invite only until someone opens it again: the list says that the people it
+admits have changed since it was opened and whom it admits now, `openSignUp` is false,
+the page offers Open sign-up, and the warning names the audience of today. An
+invitation, and a person who has an account, are not affected. A row that keeps no
+audience opens nothing, and neither does one that keeps something that is no such key:
+the list says the method was opened before its audience was kept.
 
 A person who has an account, and a person who follows an invitation, sign in the same
 under either choice. The password method's sign-up routes (`POST <prefix>/user/sign-up`,
