@@ -793,6 +793,42 @@ func ExtendMethodCall(rel string, src []byte, typeName, funcName, callee, argume
 	return p.splice(rel, at, at, text)
 }
 
+// SpreadIntoCall adds a slice to the variadic arguments of the first call to callee, a
+// dotted name as the source writes it, inside the named function. fixed is how many of
+// the call's leading arguments are not variadic, and slice the expression that yields
+// the slice. A call that passes no variadic argument yet gains the slice spread
+// (f(a, slice...)); one that already passes some keeps them after the slice's, in one
+// append (f(a, x) becomes f(a, append(slice, x)...)), since a call cannot spread a slice
+// beside other variadic arguments. The result is formatted.
+func SpreadIntoCall(rel string, src []byte, funcName, callee string, fixed int, slice string) ([]byte, error) {
+	p, err := parseSource(rel, src)
+	if err != nil {
+		return nil, err
+	}
+	fd := p.methodDecl("", funcName)
+	if fd == nil {
+		return nil, errors.Wrapf(ErrNoAnchor, "%s declares no %s", rel, qualifiedFunc("", funcName))
+	}
+	call := callIn(fd.Body, callee)
+	if call == nil {
+		return nil, errors.Wrapf(ErrNoAnchor, "%s: %s makes no %s call", rel, qualifiedFunc("", funcName), callee)
+	}
+	at := p.offset(call.Rparen)
+	switch {
+	case len(call.Args) < fixed:
+		return nil, errors.Newf("%s: the %s call in %s passes %d argument(s), fewer than the %d that come before its variadic ones", rel, callee, qualifiedFunc("", funcName), len(call.Args), fixed)
+	case len(call.Args) == fixed && fixed == 0:
+		return p.splice(rel, at, at, slice+"...")
+	case len(call.Args) == fixed:
+		return p.splice(rel, at, at, ", "+slice+"...")
+	}
+	// The variadic arguments as the source writes them, a spread among them included.
+	start := p.offset(call.Args[fixed].Pos())
+	existing := strings.TrimSuffix(strings.TrimSpace(string(p.src[start:at])), ",")
+
+	return p.splice(rel, start, at, "append("+slice+", "+existing+")...")
+}
+
 // AppendCallArgument adds an argument after the last one of the first call to callee, a
 // dotted name as the source writes it, inside the named function, and renders the call
 // one argument per line with a trailing comma, the shape a list of registrations keeps

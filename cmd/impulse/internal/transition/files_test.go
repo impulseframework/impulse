@@ -218,7 +218,7 @@ func TestFilesApply(t *testing.T) {
 			"files filestore.Store",
 			"FileStores FileStoreSettings",
 			"files, err := openFileStore(ctx, env.FileStores)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\n\t// The database driver",
-			"database.Open(ctx, env.Database.Settings, fileStoreOptions(files)...)",
+			"database.Open(ctx, env.Database.Settings, append(fileStoreOptions(files), resource.WithSecretKeys(secretKeys))...)",
 			"files:             files,",
 			"if c.files != nil {\n\t\tif err := c.files.Close(); err != nil {\n\t\t\tlog.Print(errors.Wrap(err, \"filestore.Store.Close()\"))",
 		},
