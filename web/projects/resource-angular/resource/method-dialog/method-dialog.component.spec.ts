@@ -714,8 +714,13 @@ describe('MethodDialogComponent running a method that warns', () => {
     o.transport.requests.map((r) => [r.headers?.['X-Warning'] === 'true' ? 'warning' : 'real', r.body]);
   const runButton = (o: Opened): HTMLButtonElement =>
     (o.fixture.nativeElement as HTMLElement).querySelector('button.run') as HTMLButtonElement;
-  /** Lets the question asked as the dialog opened be answered, and draws the answer. */
+  /**
+   * Lets the question asked as the dialog opened be answered, and draws the answer. The
+   * answer comes back through the transport's promises, which the fixture does not
+   * track, so a turn of the event loop lets them run before the fixture is drawn.
+   */
   const settle = async (o: Opened): Promise<void> => {
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     await o.fixture.whenStable();
     o.fixture.detectChanges();
   };
