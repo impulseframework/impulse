@@ -2943,6 +2943,61 @@ tenant's list of its people (`CrewSectorUsers`) holds who a group puts there: th
 members of its own groups, and the members of a group of the whole application that
 holds a role there, the latter with `heldGlobally`.
 
+**The period of an assignment.** A role given to a person, a person's place in a group
+and a role given to a group may each carry a period: a start and an end, each optional,
+kept in two nullable columns of the permission store's memberships, group members and
+group roles tables (`StartsAt`, `EndsAt`; the store's `DDL()` has them, and every policy
+store's schema holds them). No start is from now, and no end is until it is taken away.
+An assignment counts inside its period alone, and nothing is written when a period
+begins or ends: everything that reads an assignment leaves out one outside its period.
+An Auth whose roles a directory writes gives none by hand and so gives no period.
+
+- The methods that give a role (`AssignCrewRole`, `AssignCrewSectorRole`), a place in a
+  group (`AddCrewGroupMember`, `AddCrewSectorGroupMember`) and a group's role
+  (`GiveCrewGroupRole`, `GiveCrewSectorGroupRole`) take the two times, `startsAt` and
+  `endsAt`. Whoever may give the role there gives it its period: the method's Execute
+  grant, with its condition on `new.role`, is the whole of it.
+- Changing a period is giving again: a role the person holds there already is given the
+  period of the new request in place of the one it had, so a request that names neither
+  time makes the role stand until it is taken away. Ending a role now is taking it away,
+  and a period that is over already is refused (400), as one that ends at or before its
+  start is.
+- The Super Administrator role takes no period (400): there is always a super
+  administrator, and a period could leave none.
+- The permission engine applies the period at the instant a check is made with, the
+  clock a grant's `now` is folded with, so an open session loses a role at its next
+  request after the end. The sign-in rule and the session's list of tenants read what a
+  person holds at the moment, and so do a tenant's list of its people
+  (`CrewSectorUsers`) and the list of the identities of those people: a person whose
+  only role in a tenant has ended, or has not begun, is not one of its people. The two
+  facts about a person (`heldElsewhere`, `heldGlobally`) read what has not ended.
+- The lists of roles and of places carry the period (`startsAt`, `endsAt`) under a
+  field grant of their own, leave out a row that has ended and show one that has not
+  begun, where it is given another period or taken away: `CrewSectorUserRoles`, the
+  lists of a group's people and of the roles it holds, and the roles held through a
+  group, whose period is where the place's and the group role's meet. The declarations
+  over the three tables themselves (`CrewUserRoles`, `CrewGroupMembers`,
+  `CrewGroupRoles`) list each row as the table holds it, period included.
+- The subject set of a person's groups counts a place inside its period alone: the
+  members' declaration says so with the set's `where:` part, so a condition that tests
+  `subject.groups` leaves a group out exactly when the engine stops giving its roles.
+- An ended row goes at its person's next sign-in, and no job runs on a schedule. The
+  generated client answers the session library's hook for a sign-in that stands
+  (`crewidentity.Client.SignedIn(db)`), and the Auth's package sets it where it sets
+  the invitation's hook (`session.Auth.SetSignedInHook`); an application that has a hook
+  of its own calls the client's from it, since one Auth has one hook. The session
+  library calls it once the session is committed and logs an error it answers, so the
+  removal neither fails a sign-in nor undoes one, and a sign-in with nothing to clear
+  costs one read of the person's own rows. It removes the person's ended roles and
+  places and nothing else: never the account, also when the ended role was the last
+  thing the person held; the rule on a tenant's last administrator does not judge it;
+  the engine is told nothing, since an ended assignment already counts for nothing; and
+  each removal is written under the source `identity.EndedByItself`. A role a group
+  held for a period is no one person's, so it stands, counting for nothing, until it is
+  taken away or given again. Where the sign-in rule refuses a person who holds nothing,
+  a person whose every assignment has ended is refused, nothing is cleared for them,
+  and the rows go with the account.
+
 **The rules** are the `identity` package's, written once over a `Store` the generated
 `crewidentity` package implements with the Auth's own typed queries and patches:
 
@@ -3052,6 +3107,15 @@ transaction: the invitation stands and no account is created. The permission eng
 told once the transaction has committed, before the sign-in policy decides. The client
 of an Auth whose roles a directory writes has neither hook: the directory's answer at
 every sign-in is that Auth's roles.
+
+A third hook runs once a sign-in stands, apart from it: the client's `SignedIn` removes
+the person's roles and places in groups whose period has ended (the period of an
+assignment, above), in a transaction of its own on the application's database. It is set
+beside the other two, and an Auth whose roles a directory writes has none:
+
+```go
+authSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
+```
 
 A rename moves nothing the person holds, whoever makes it (an administrator through the
 management, or the session library where the sign-in name is the person's email address
