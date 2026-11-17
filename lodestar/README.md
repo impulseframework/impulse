@@ -115,10 +115,23 @@ built from the one worker configuration at `web/ngsw-config.json`) and a web app
 with the icons beside each under `public/icons/`), so a browser offers to install either
 app as a window of its own: the console under `/console/` and the portal under `/portal/`,
 each worker's scope its own mount, on one origin. The console's manifest names it
-Lodestar and the portal's Lodestar Portal; each carries the app's header color as its
-theme color and its page background as its background color. The dev server registers no
-worker: the worker is on in a production build alone, and the component specs never load
-the app config.
+Lodestar and the portal's Lodestar Client Portal; each carries the brand's primary color
+as its theme color and its page background as its background color. The dev server
+registers no worker: the worker is on in a production build alone, and the component specs
+never load the app config.
+
+Each app's name, icons and colors come from one declaration, the `brand.json` beside its
+logo (`web/console/brand.json` and `web/portal/brand.json`, each with its `logo.png`): the
+name, a square logo, the primary color and the page's background. `impulse brand` from the
+module root (with the web workspace's packages installed) writes the rest from it: the
+manifest's names and colors, the entry document's title, theme color and icon links, the
+favicon and the three icons, the name the frame shows, the first palette of
+`src/theme.scss` (generated into `src/_theme-colors.scss`, and offered under the brand's
+name where the app offers a choice), and for the server `pkg/brand`, the names and the
+logos `main.go` hands the maintenance page by mount path, with the name the mail of each
+app's auth says (`Application` in `pkg/auth/crew` and `pkg/auth/members`). To change any
+of it, change the declaration and run the command again; none of what it writes is edited
+by hand.
 
 An open tab survives a release. The worker keeps the files of the build the tab loaded, so
 a lazy chunk the tab asks for after a deploy is still found although the server no longer

@@ -99,8 +99,9 @@ const (
 	factorCodesTable    = "MembersSessionFactorCodes"
 	trustedDevicesTable = "MembersSessionTrustedDevices"
 
-	// Application is the fleet's name as the mail the auth sends says it.
-	Application = "Lodestar"
+	// Application is the portal's name as the mail the auth sends says it: the name the
+	// portal's brand declares (web/portal/brand.json), which impulse brand writes here.
+	Application = "Lodestar Client Portal"
 )
 
 // rolesFile is the auth's default roles: what a client may do, in the lowercase names the
