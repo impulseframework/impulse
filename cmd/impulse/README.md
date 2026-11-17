@@ -1271,10 +1271,14 @@ application's test environments), and is signed in as that persona with its role
 application's own methods stay on the page. The method is the session library's generic
 OpenID Connect method (`oidc.SignIn`), the application a public client (no secret, PKCE),
 the application the authority for role membership (`--authority` defaults to
-`application` and takes nothing else) and the account rule invited users only
-(`--accounts` defaults to `invited` and takes nothing else): the provider says which
-persona signed in, and the persona's identity (its login as the subject) is linked to the
-account seeded under that login. The method takes no `--slot`. Its settings are
+`application` and takes nothing else) and the account rule seeded users only
+(`signin.SeededUsersOnly`; `--accounts` defaults to `invited` and takes nothing else): the
+provider says which persona signed in, and the persona's identity (its login as the
+subject) is linked to the account seeded under that login, on the login alone, since the
+rule takes the provider's names for the application's own. A seeded account has no
+password and has never signed in, so under any other rule an application whose tenants
+have directories links it only through the directory of the one tenant it belongs to,
+or with its own invitation, and a persona holds its roles in every tenant or in none. The method takes no `--slot`. Its settings are
 `APP_<AUTH>_<REGISTRATION>_ISSUER`, `_CLIENT_ID` and `_REDIRECT_URL`, and
 `register<Registration>` answers nil when the issuer is empty, so the method is registered
 only where the provider is configured: bedrock sets the issuer in the first environment and

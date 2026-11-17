@@ -641,7 +641,7 @@ func (m *Method) Meaning() string {
 	for i, item := range items {
 		fmt.Fprintf(&b, "%d. %s\n", i+1, item)
 	}
-	b.WriteString("\nData consequence: none. An existing person who signs in through the new method is linked to their user when the standard account rule finds them under the name the directory presents (or confirms the link with their password), and a newcomer is provisioned or refused as the account rule says.\n")
+	b.WriteString("\nData consequence: none. An existing person who signs in through the new method is linked to their user when the standard account rule finds them under the name the directory presents (or confirms the link with their password; a person who has no password and has never signed in, in an application whose tenants have directories, is linked only through the directory of the one tenant they belong to or with their own invitation), and a newcomer is provisioned or refused as the account rule says.\n")
 
 	return b.String()
 }
@@ -650,7 +650,7 @@ func (m *Method) Meaning() string {
 // the management the generator emits for the declaration's .InvitedUsers() creates their
 // users, behind Execute on the auth's create method.
 func invitationsItem(auth string, registrations []string) string {
-	return fmt.Sprintf("Invite its people. The %s registration(s) admit invited users only (`signin.InvitedUsersOnly`, and `.InvitedUsers()` on the declaration), so a person signs in once a user exists under the name the directory presents: the generated management of the %s auth creates them (the `Create%sUser` method), so grant Execute on it to the role that invites in the role file.", strings.Join(registrations, ", "), auth, names.Pascal(auth))
+	return fmt.Sprintf("Invite its people. The %s registration(s) admit invited users only (`signin.InvitedUsersOnly`, and `.InvitedUsers()` on the declaration), so a person signs in once a user exists under the name the directory presents: the generated management of the %s auth creates them (the `Create%sUser` method), so grant Execute on it to the role that invites in the role file. In an application whose tenants have directories, a user created with no password is linked at a first sign-in only through the directory of the one tenant they belong to: anyone else (a person in two tenants, one who holds a role in every tenant or outside them) is sent an invitation, whose link the sign-in then carries, or is created with a temporary password.", strings.Join(registrations, ", "), auth, names.Pascal(auth))
 }
 
 // mailItem is the brief's item for the mail an auth sends: the sender it shares with the

@@ -355,18 +355,21 @@ func TestTenancyBrowserRecordWords(t *testing.T) {
 		"this.api.serviceAreas.read([params.tenant])",
 		"this.api.domain(params.tenant as Domain).serviceAreaDirectories.list()",
 		"this.api.domain(params.tenant as Domain).staffServiceAreaRoles.list()",
-		"this.api.can(Permissions.Update, Resources.ServiceAreas)",
+		// The switch is the record's own method, named for the record.
+		"return this.api.domain(this.serviceAreaID() as Domain).setServiceAreaDirectoryOnly.can();",
+		"await this.api.domain(this.serviceAreaID() as Domain).setServiceAreaDirectoryOnly.execute({ directoryOnly });",
 		"export class TenantSignInComponent {",
 		// The directory's own word stays: a Microsoft Entra tenant is not the record's.
 		"azure: 'Microsoft Entra tenant',",
 		"await this.api.domain(this.serviceAreaID() as Domain).serviceAreaDirectories.create({});",
-	}, []string{"tenantID", ".tenants.", "Resources.Tenants"})
+	}, []string{"tenantID", ".tenants.", "Resources.Tenants", "setTenantDirectoryOnly"})
 	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.html", []string{
 		"<h1>Who may enter {{ tenantName() || 'this service area' }}</h1>",
 		"Google Workspace or a Microsoft Entra tenant. A service area has one directory, and a directory belongs to one service area.",
 		"Make {{ mine.connection }} this service area's directory",
 		"Your role in this service area does not cover its directory.",
-		"@if (tenant.value(); as row) {",
+		"@if (directoryOnly() !== undefined) {",
+		"An administrator of this service area sets this, in the service area.",
 	}, nil)
 	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.spec.ts", []string{
 		"const workspace: ServiceAreaDirectories = { id: 'd-1', serviceAreaId: acmeID, method: 'google', connection: 'acme.example' };",
@@ -374,10 +377,12 @@ func TestTenancyBrowserRecordWords(t *testing.T) {
 		"global: { ServiceAreas: { Read: 'granted', Update: 'granted' } },",
 		"case `${environment.apiUrl}/service-areas/${acmeID}/service-area-directories`:",
 		"case `${environment.apiUrl}/service-areas/${acmeID}/staff-service-area-roles`:",
+		"SetServiceAreaDirectoryOnly: { Execute: 'granted' },",
+		"case `${environment.apiUrl}/service-areas/${acmeID}/set-service-area-directory-only`:",
 		"fixture.componentRef.setInput('serviceAreaID', acmeID);",
 		"'Your role in this service area does not cover its directory.',",
 		"expect(texts('.make-directory')).toEqual([\"Make acme.example this service area's directory\"]);",
-	}, []string{"tenantID", "/tenants/"})
+	}, []string{"tenantID", "/tenants/", "SetTenantDirectoryOnly", "set-tenant-directory-only"})
 	wantContains(t, a, src+"configs/tenants.config.ts", []string{
 		"import { Resources, ServiceAreas } from '@app/service/zz_gen_constants';",
 		"export const tenantsConfig = rootConfig({",

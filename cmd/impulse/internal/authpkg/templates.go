@@ -1420,9 +1420,14 @@ func (h *Handlers) {{.Pascal}}Callback() http.HandlerFunc {
 // (signin.DisableRoleSync): the provider says which persona signed in, and the cast the
 // migrate command seeded says what the persona may do. The provider attests (Attesting): the person signed in to the provider's host to
 // pick a persona, which is the whole proof in a test environment, so a persona sign-in is
-// never asked for the sign-in code. The account rule is invited users
+// never asked for the sign-in code. The account rule is seeded users
 // only: the persona's identity (its login as the subject) is linked to the account seeded
 // under that login (cast.json, SeedCast), and a persona the seed does not know is refused.
+// The rule takes the provider's names for the application's own: a seeded account has no
+// password and has never signed in, so nothing but its login ties it to a sign-in, and
+// under any other rule an application whose tenants have directories links such an
+// account only through the directory of the one tenant it belongs to, or with its own
+// invitation, and a persona holds its roles in every tenant or in none.
 func register{{.Pascal}}(authSession *Session, accessClient *access.Client, settings *Settings) *oidc.Method {
 	_ = accessClient
 	if settings.{{.Pascal}}.Issuer == "" {
@@ -1491,7 +1496,7 @@ func Cast() (*cast.Cast, error) {
 // next deploy, and the seed never gives a role to an account it did not create.{{ if eq .Foothold "password" }} A
 // persona named as the first administrator is refused, since the two seeds would derive
 // one account.{{ end }} The persona sign-in links the provider's identity to the user of the same login at the
-// first sign-in (invited users only), so a persona the seed never made is refused there.
+// first sign-in (seeded users only), so a persona the seed never made is refused there.
 // It answers how many users it created.
 func (a *Auth) SeedCast(ctx context.Context) (int, error) {
 	cast, err := Cast()

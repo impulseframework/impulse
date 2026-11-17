@@ -403,7 +403,9 @@ func (m *Method) SyncsRoles() bool {
 // Arg is the method as a generator program declares it on an Auth option: its kind and
 // registration name, with .InvitedUsers() chained under the invited-users rule, so the
 // management the generator emits creates the invitations the method file's
-// signin.InvitedUsersOnly admits, .SyncsRoles() under the directory authority, so that
+// signin.InvitedUsersOnly admits (signin.SeededUsersOnly in the persona method's file,
+// whose invited users are the cast the deployment seeds), .SyncsRoles() under the
+// directory authority, so that
 // management shows the roles the method file's RoleSync writes as the directory's and
 // never writes them (a role removed by hand would come back at the next sign-in),
 // .OpenSignUp() under the open sign-up rule (the registration a self-service tenant

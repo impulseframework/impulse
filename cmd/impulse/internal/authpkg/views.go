@@ -266,6 +266,12 @@ func newMethodView(spec *Spec, m *Method) *methodView {
 	default:
 		mv.AccountsExpr = "signin.MembersOfDirectory"
 	}
+	if m.Kind == app.MethodPersona {
+		// The personas are the accounts the deployment seeds, with no password and ahead
+		// of any sign-in: the registration takes the provider's names for the
+		// application's own, so a seeded account is linked on its login alone.
+		mv.AccountsExpr = "signin.SeededUsersOnly"
+	}
 	mv.StdImports, mv.Imports = splitImports(mv.Imports)
 
 	return mv

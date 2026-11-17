@@ -451,7 +451,8 @@ func TestDeclaration(t *testing.T) {
 // TestDeclarationMatchesMethodFile holds the declaration and the method file to the same
 // rule for every method of the smoke specs: the declaration chains .SyncsRoles() exactly
 // where the file registers the method with RoleSync, .InvitedUsers() exactly where it
-// admits invited users only, and .OpenSignUp() exactly where it admits open sign-up.
+// admits invited users only (seeded users only in the persona method's file, and
+// nowhere else), and .OpenSignUp() exactly where it admits open sign-up.
 func TestDeclarationMatchesMethodFile(t *testing.T) {
 	t.Parallel()
 	for _, spec := range smokeSpecs() {
@@ -466,8 +467,15 @@ func TestDeclarationMatchesMethodFile(t *testing.T) {
 			if got, want := strings.Contains(file, ".RoleSync("), arg.SyncsRoles; got != want {
 				t.Errorf("%s/%s.go registers RoleSync = %v, and the declaration %s says SyncsRoles = %v", spec.Name, m.Name, got, m.Declaration(), want)
 			}
-			if got, want := strings.Contains(file, "signin.InvitedUsersOnly"), arg.InvitedUsers; got != want {
-				t.Errorf("%s/%s.go admits invited users only = %v, and the declaration %s says InvitedUsers = %v", spec.Name, m.Name, got, m.Declaration(), want)
+			invited := "signin.InvitedUsersOnly"
+			if m.Kind == app.MethodPersona {
+				invited = "signin.SeededUsersOnly"
+			}
+			if got, want := strings.Contains(file, invited), arg.InvitedUsers; got != want {
+				t.Errorf("%s/%s.go admits users created ahead only (%s) = %v, and the declaration %s says InvitedUsers = %v", spec.Name, m.Name, invited, got, m.Declaration(), want)
+			}
+			if got, want := strings.Contains(file, "signin.SeededUsersOnly"), m.Kind == app.MethodPersona; got != want {
+				t.Errorf("%s/%s.go takes the provider's names for the application's own (signin.SeededUsersOnly) = %v, want %v: the persona method alone does", spec.Name, m.Name, got, want)
 			}
 			if got, want := strings.Contains(file, "signin.OpenSignUp") || strings.Contains(file, "session.OpenSignUp()"), arg.OpenSignUp; got != want {
 				t.Errorf("%s/%s.go admits open sign-up = %v, and the declaration %s says OpenSignUp = %v", spec.Name, m.Name, got, m.Declaration(), want)
