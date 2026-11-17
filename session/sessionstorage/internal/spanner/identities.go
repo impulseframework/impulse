@@ -459,7 +459,7 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID im
 				return err
 			}
 			if err := dbtype.UnlinkKeepsSignIn(links, identityID, signsIn); err != nil {
-				return err
+				return errors.Wrap(err, "dbtype.UnlinkKeepsSignIn()")
 			}
 		}
 
