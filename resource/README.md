@@ -722,6 +722,18 @@ the wire and the frame's own status stamp must stay privileged. The method's ent
 contract with the permission system is `Execute` on itself, its target row, its
 transition, and any row condition on the Execute grant, all visible in the collection.
 
+A body may ask the caller's grant on another method, where one act is made of another's:
+`resource.CallerFrom(ctx).ExecuteGate(ctx, method, request)` answers the decision the
+other method's own decode would reach for the request the body builds, in the scope the
+request was checked in. No grant is the frame's refusal (403). A condition on the grant
+that reads the request's fields (`new.<name>`) is settled against the request handed,
+and `ExecuteGate.Settled` says whether that decided it. What is left reads the other
+method's target row: `EnforceView` judges a row the database holds, and
+`EnforceProposed` the values of a row the body proposes where the database holds none,
+by the condition language's own evaluator. A condition that reads an attribute the
+proposed row does not carry is an error, never a pass. The generated user management
+asks this way what a change to a group needs (section 21).
+
 ## 8. The generated router
 
 `GenerateRoutes` emits the route tables: one `generated<Outlet>Routes` function and
@@ -3192,6 +3204,38 @@ holding some of them is refused at generation.
   managed by the whole application's methods and holds a role in the global scope, in
   one tenant or in every tenant; no tenant's group is ever given a role in another
   tenant (400).
+- A tenant puts its own people in its groups. The tenant's method
+  (`AddCrewSectorGroupMember`) takes a person the tenant already has, a row of its list
+  of people (`CrewSectorUsers`), and answers 404 for any other id, an account or not: a
+  tenant's administrator pulls no account into the tenant through a group, and the
+  answer says nothing of who belongs elsewhere. An account from outside the tenant is
+  put in a tenant's group by whoever manages the whole application's people, with the
+  whole application's method (`AddCrewGroupMember`), which takes any account and any
+  group.
+- A group gives nobody a power that giving the role directly would not. A change to a
+  group is a change to what people hold, so it is judged as the role changes it makes,
+  beside the grant of the group's own method, which says who manages groups at all.
+  Putting a person in a group needs what giving that person each role the group holds,
+  where it holds it, needs. Taking a person out needs what taking each of those roles
+  from them needs. Giving a group a role needs what giving it to each person in the
+  group needs, and taking a role from a group what taking it from each of them needs.
+  What a role change needs of the caller is the role file's to say, in the grants of
+  the methods that give a role and take one away (`AssignCrewRole`, `RemoveCrewRole`;
+  for a request made under a tenant the tenant's own, `AssignCrewSectorRole` and
+  `RemoveCrewSectorRole`). The generated package asks the permission engine for the
+  caller's grant on that method with the role in question (`crewidentity`'s `grants.go`,
+  its answer to `identity.RoleGrants`, over `resource.Caller.ExecuteGate`), so a
+  condition on the grant is read as it is for the method itself: where the role file
+  grants a sector's marshal `AssignCrewSectorRole` with `new.role != 'SectorMarshal'`,
+  the marshal puts nobody in a group that holds SectorMarshal, whatever the grant on
+  `AddCrewSectorGroupMember` says. A change the caller could not make directly is
+  refused (403), naming the role. A place or a group's role whose period has ended
+  gives nobody anything and is not judged; one that has not begun is. A method the
+  application runs in a transaction of its own, outside any request, is the
+  application's act and is not judged.
+- Taking a role away from a person removes the membership of their own. What they hold
+  through a group stays, and goes when they leave the group or the group loses the
+  role.
 - No group holds the Super Administrator role (400): a super administrator gives it to
   one person at a time, so a group is no way around the rule that only a super
   administrator makes another. The methods a super administrator always executes stay
@@ -3228,7 +3272,9 @@ tenant has its own four (`CrewSectorGroups`, `CrewSectorGroupUsers`,
 `CrewSectorGroupRoles`, `CrewSectorUserGroupRoles`): the first three hold the tenant's
 own groups, and the last every role a person holds in the tenant through a group, with
 `globalGroup` where the group is the whole application's and so not the tenant's to
-change. The lists of what people hold leave out a row the engine gives nobody (the Super
+change. A group of the whole application that holds a role both in the tenant and in
+every tenant is one row there, the one that counts now: the tenant's own row gives way
+while it has not begun and the one held in every tenant counts. The lists of what people hold leave out a row the engine gives nobody (the Super
 Administrator role in a group, a tenant's group with a role outside its tenant). A
 tenant's list of its people (`CrewSectorUsers`) holds who a group puts there: the
 members of its own groups, and the members of a group of the whole application that
@@ -3253,6 +3299,12 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   time makes the role stand until it is taken away. Ending a role now is taking it away,
   and a period that is over already is refused (400), as one that ends at or before its
   start is.
+- Nobody lengthens their own holding. A request that would make something its caller
+  holds last longer than it was given for is refused (403): a period for the caller's
+  own role or the caller's own place in a group that ends later, or never, or begins
+  sooner while it has not begun, and the same for a role of a group the caller is in.
+  It holds for a period that has ended too, while its row stands. Someone else who may
+  give the role gives it its new period; the caller shortens their own freely.
 - The Super Administrator role takes no period (400): there is always a super
   administrator, and a period could leave none.
 - The permission engine applies the period at the instant a check is made with, the
@@ -3279,7 +3331,11 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   of its own calls the client's from it, since one Auth has one hook. The session
   library calls it once the session is committed and logs an error it answers, so the
   removal neither fails a sign-in nor undoes one, and a sign-in with nothing to clear
-  costs one read of the person's own rows. It removes the person's ended roles and
+  costs one read of the person's own rows. What has ended is the database's to say, by
+  its own clock, the one the lists and the sign-in rule read: the statement that finds
+  the rows carries the condition, before the transaction and again inside the
+  transaction that removes them, so a server whose clock runs fast removes nothing that
+  still counts. It removes the person's ended roles and
   places and nothing else: never the account, also when the ended role was the last
   thing the person held; the rule on a tenant's last administrator does not judge it;
   the engine is told nothing, since an ended assignment already counts for nothing; and
@@ -3384,7 +3440,12 @@ answers both hooks over its own membership write, so a role a sign-in gives is h
 the rule a role given by hand is and is committed with the step that causes it: the
 invitation is spent and its roles given together, or neither; the account is linked to
 the directory and given its role together, or neither, and a person who holds a role in
-the tenant already is given nothing. The Auth's package sets them on its session manager
+the tenant already is given nothing. Both read what the person holds by its period, and
+neither waits for an ended row to be removed: a role whose period has ended is nothing
+the person holds, so the invitation gives it afresh and the directory seats a person
+whose only role in the tenant has ended; a role the person holds for a period, or one
+that has not begun, is left exactly as it stands, since an invitation gives what is not
+held and erases no period. The Auth's package sets them on its session manager
 where it builds the client, so no Auth is open without them:
 
 ```go
@@ -3454,7 +3515,10 @@ is removed per user per transaction.
 **Limits.** It runs on Spanner. A rule reads the rows as committed: a method does not see
 what an earlier method of the same transaction buffered, so the rule on a person's last
 role judges one removal per person per transaction, and the rule on the last super
-administrator one holder per transaction. Every generated route runs one method, which
+administrator one holder per transaction. The rules of a group read the group as
+committed too: who is in it and what it holds, so a person put in a group and a role
+given to the group in one transaction of the application's are each judged without the
+other. Every generated route runs one method, which
 names one person, in a transaction of its own, so no request puts two in one; the limit
 is for an application that runs the methods in a transaction it opens itself. A temporary password is the one the session library has today: the
 operator chooses it and passes it on.
@@ -3468,7 +3532,12 @@ own, outside any request, has no caller and is the application's act):
 - A person who removes a role from themselves in a tenant keeps an administrator role
   nobody else would hold there. The application names the roles that administer a tenant
   when it builds the client (`identity.WithAdministratorRoles(domain)`): they are judged
-  among the tenant's holders and those who hold the role in every tenant. Without the
+  among the tenant's holders and those who hold the role in every tenant. A holder
+  through a group is a holder, in both directions: a person in a group that holds the
+  role there administers the tenant and is counted, and a person who takes themselves
+  out of the group that gives them the role, or takes the role from a group they are
+  in, is judged as one who removes it from themselves. Each holding counts inside its
+  period alone. Without the
   option a person removes no role from themselves in a tenant. A role held in the global
   partition goes freely, since a super administrator gives it back.
 - The Super Administrator role (`accesstypes.SuperAdministrator`) is the framework's, in
@@ -3552,7 +3621,9 @@ one's first administrator. Such a
 role is no tenant's either, so it never counts as one and is never refused. So that
 nobody is left in several tenants with nothing outside them, the last role a person
 holds outside the tenants is not taken away while they hold roles in more than one
-(409): take the roles in all but one tenant away first.
+(409): take the roles in all but one tenant away first. A place in a group of the whole
+application is held outside the tenants as a role is, so a person is not taken out of
+the last such group either while nothing else of theirs is.
 
 The rule reads what is committed, as the other rules do: one transaction of the
 application's own gives a person roles in one tenant. A person who already holds roles
@@ -3588,6 +3659,12 @@ the invitations, and for the whole application the sessions and the failed sign-
 Above a person's sign-in identities, where an identity is unlinked, the page offers
 Remove password for an Auth with a password method, while the server's answer for the
 person's row lists the method.
+A period is picked and shown in days. The server keeps an end as the first instant the
+assignment no longer counts, and "until 1 December" means through the end of
+1 December: the dialog of a method that gives something for a period sends the day
+picked for its end as the first instant of the day after it, in the viewer's time zone
+(the method presentation's `throughDay`), and a list shows the last day the assignment
+counts, the day that was picked.
 They are the library's list and row pages over these resources, drawn from a
 configuration the library writes; what a page offers is what the server answers the
 caller may do. Lodestar's console takes its accounts pages this way, once for each side.
@@ -3611,6 +3688,12 @@ does),
 `generated_identity_one_tenant_test.go` holds the rule of one tenant per person through a
 second client built with the option, since Lodestar itself lets a person hold roles in
 several sectors,
+`generated_identity_groups_test.go` and `generated_identity_periods_test.go` hold the
+groups of people and the period of an assignment, and
+`generated_identity_group_rules_test.go` the rules of a change to a group (a sector's
+form takes the sector's people; who is in a group is changed by someone who may give or
+take the roles it holds; nobody lengthens their own holding; the roles held through
+groups show the one that counts),
 `generated_identity_live_test.go` holds that a method's commit reaches the pages of a
 resource derived from the Auth's tables, a sector's open list among them, and its
 console's `identity-pages.spec.ts` holds the pages the library builds for the two Auths

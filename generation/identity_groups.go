@@ -173,7 +173,9 @@ func (i *identityInstance) groupMethodSources() []identitySourceFile {
 	if i.tenant != nil {
 		sides = append(sides, true)
 	}
-	var files []identitySourceFile
+	// The answers the rules of a group ask of the role file, by the grants of the
+	// methods that give a role and take one away: one file for both sides.
+	files := []identitySourceFile{{dir: i.methods, name: "grants", template: identityGrantsTemplate, needs: append(needs, identityMemberships)}}
 	for _, tenant := range sides {
 		subject := i.subject(tenant)
 		method := func(name, template string) identitySourceFile {
@@ -200,6 +202,28 @@ func (d *identitySourceData) GroupRole() string   { return d.auth + "GroupRole" 
 
 // KeepsGroups reports whether the instance manages groups of people.
 func (d *identitySourceData) KeepsGroups() bool { return d.keepsGroups() }
+
+// TenantPeople reports whether one tenant keeps lists of the instance's people and of
+// the roles they hold there: the application has a tenant record and the schema holds
+// the tables the two lists read. The tenant's methods that give a role and take one
+// away name their rows.
+func (d *identitySourceData) TenantPeople() bool {
+	return d.tenant != nil && d.hasList(listPeopleSuffix) && d.hasList(listRolesSuffix)
+}
+
+// TenantSubject names whose method a tenant's method is, whichever side the file is
+// written for: the auth's name and the tenant record's (CrewSector).
+func (d *identitySourceData) TenantSubject() string {
+	return d.subject(true)
+}
+
+// RoleMethods names the methods whose grants judge a change to a group, as a comment
+// reads them: the tenant's for a tenant's method, the whole application's otherwise.
+func (d *identitySourceData) RoleMethods() string {
+	subject := d.subject(d.ForTenant)
+
+	return "Assign" + subject + "Role and Remove" + subject + "Role"
+}
 
 // GroupSet is the name of the subject set of a person's groups.
 func (d *identitySourceData) GroupSet() string { return d.groupSet }

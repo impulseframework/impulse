@@ -36,6 +36,17 @@ type GroupInfo struct {
 	Description string
 }
 
+// RoleHolder is one person who holds a role in a scope now, as UserManager.RoleHolders
+// lists them, with how they hold it: by a membership of their own held there (Own),
+// through the groups they are in that hold the role there (Groups), or both. Removing the
+// person's own membership leaves what they hold through a group, which goes when they
+// leave the group or the group loses the role.
+type RoleHolder struct {
+	User   accesstypes.User
+	Own    bool
+	Groups []GroupInfo
+}
+
 // GroupRow is the row of a group to be created (<Prefix><Store>Groups) less its id,
 // which whoever writes the row generates: where the group is kept, in the stores'
 // encoding of a scope, and its name and description as the rules leave them.
@@ -583,4 +594,13 @@ func (m *storeManager) userGroupRoles(ctx context.Context, user accesstypes.User
 	}
 
 	return roles, nil
+}
+
+func (m *storeManager) roleGroups(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]policy.GroupRow, error) {
+	groups, err := m.store.ListRoleGroups(ctx, scope, role)
+	if err != nil {
+		return nil, errors.Wrapf(err, "access.Store.ListRoleGroups(): role %q", role)
+	}
+
+	return groups, nil
 }

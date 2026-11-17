@@ -18,7 +18,13 @@ import (
 // (EveryDomain). Every person in the group is served without it at their next request,
 // unless they hold it some other way. A role the group does not hold there is no error.
 // It names no row: a page runs it from a row of StaffGroupRole, the roles the groups
-// hold, filling the request from the row.
+// hold, filling the request from the row. A person in the group does not take from it
+// the role that makes them the last administrator of a tenant.
+//
+// A group gives nobody a power that giving the role directly would not: beside the
+// grant of this method, the change needs what the same roles given or taken away
+// directly need of the caller (the grants of AssignStaffRole and RemoveStaffRole, each read with the
+// role in question), and is refused where one of them would be.
 //
 // @rpc
 // @outlet(default)

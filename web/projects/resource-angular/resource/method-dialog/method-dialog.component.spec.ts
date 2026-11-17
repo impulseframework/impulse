@@ -1,5 +1,6 @@
 import { signal } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideNativeDateAdapter } from '@angular/material/core';
 import { MAT_DIALOG_DATA, MatDialogRef } from '@angular/material/dialog';
 import { provideRouter } from '@angular/router';
 import {
@@ -65,6 +66,7 @@ const descriptor: ApiDescriptor = {
       upload: { maxBytes: 5 * 1024 * 1024 },
     },
     GiveRole: { method: 'GiveRole' as Method, property: 'giveRole', route: 'give-role', scope: 'domain', statuses: [204] },
+    GiveRoleFor: { method: 'GiveRoleFor' as Method, property: 'giveRoleFor', route: 'give-role-for', scope: 'domain', statuses: [204] },
     AddPerson: { method: 'AddPerson' as Method, property: 'addPerson', route: 'add-person', scope: 'domain' },
     SendNotice: { method: 'SendNotice' as Method, property: 'sendNotice', route: 'send-notice', scope: 'domain' },
     // A descriptor generated apart from the metadata: the metadata below declares an upload, this does not.
@@ -123,6 +125,18 @@ const methodMeta: Record<string, MethodMeta> = {
       { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
     ],
   },
+  // A role given for a period: its two days are picked, and a condition may read the role.
+  GiveRoleFor: {
+    route: 'give-role-for',
+    target: { resource: people, key: { userId: 'id' } },
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid', required: true },
+      { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
+      { fieldName: 'startsAt', displayType: 'date', optional: true },
+      { fieldName: 'endsAt', displayType: 'date', optional: true },
+    ],
+  },
   // The role is not required by the method's own rules, and a condition may read it.
   AddPerson: {
     route: 'add-person',
@@ -149,6 +163,7 @@ async function open(data: MethodDialogData, transport: ScriptedTransport): Promi
     imports: [MethodDialogComponent],
     providers: [
       provideRouter([]),
+      provideNativeDateAdapter(),
       { provide: RESOURCE_CLIENT, useValue: createClient(descriptor, { baseUrl: '/api', transport }) },
       { provide: RESOURCE_DOMAIN, useValue: signal<Domain | undefined>('anvil' as Domain) },
       { provide: METHOD_META, useValue: (method: string): MethodMeta => methodMeta[method] },
@@ -251,6 +266,36 @@ describe('MethodDialogComponent', () => {
       scriptedTransport({ status: 200, body: undefined }),
     );
     expect(o.component.elements.map((e) => e.label)).toEqual(['New name', 'Note', 'Tell the person']);
+  });
+
+  it('sends a day the page says is the last of a period as the first instant of the day after it', async () => {
+    const o = await open(
+      { method: 'GiveRoleFor', label: 'Give a role', preset: { userId: 'u-1' }, throughDay: ['endsAt'] },
+      scriptedTransport({ status: 204, body: undefined }),
+    );
+    expect(o.component.asked.map((f) => f.fieldName)).toEqual(['role', 'startsAt', 'endsAt']);
+
+    // "From 1 December until 1 December" counts for the whole of 1 December.
+    o.component.form.setValue({ role: 'Pilot', startsAt: new Date(2026, 11, 1), endsAt: new Date(2026, 11, 1) });
+    await o.component.run();
+
+    expect(o.transport.requests[0].body).toEqual({
+      userId: 'u-1',
+      role: 'Pilot',
+      startsAt: new Date(2026, 11, 1),
+      endsAt: new Date(2026, 11, 2),
+    });
+  });
+
+  it('sends a picked day as its first instant where the page names no last day, and nothing for a day not picked', async () => {
+    const o = await open(
+      { method: 'GiveRoleFor', label: 'Give a role', preset: { userId: 'u-1' } },
+      scriptedTransport({ status: 204, body: undefined }),
+    );
+    o.component.form.setValue({ role: 'Pilot', startsAt: '', endsAt: new Date(2026, 11, 1) });
+    await o.component.run();
+
+    expect(o.transport.requests[0].body).toEqual({ userId: 'u-1', role: 'Pilot', endsAt: new Date(2026, 11, 1) });
   });
 
   it('is a question when the page filled every field', async () => {
@@ -431,6 +476,7 @@ describe('MethodDialogComponent rehearsing a method whose grant is conditional',
       imports: [MethodDialogComponent],
       providers: [
         provideRouter([]),
+        provideNativeDateAdapter(),
         { provide: RESOURCE_CLIENT, useValue: client },
         { provide: RESOURCE_DOMAIN, useValue: signal<Domain | undefined>('anvil' as Domain) },
         { provide: METHOD_META, useValue: (method: string): MethodMeta => methodMeta[method] },
@@ -473,6 +519,22 @@ describe('MethodDialogComponent rehearsing a method whose grant is conditional',
     await o.component.run();
     expect(calls(o)).toHaveLength(1);
     expect(o.closed).toEqual([]);
+  });
+
+  it('rehearses the request the call will send: the last day of a period as the first instant of the day after it', async () => {
+    digest = { GiveRoleFor: { Execute: 'conditional' } };
+    const o = await openWithDigest({ method: 'GiveRoleFor', label: 'Give a role', preset: { userId: 'u-1' }, throughDay: ['endsAt'] });
+    expect(o.component.rehearses).toBe(true);
+
+    o.component.form.setValue({ role: 'Pilot', startsAt: '', endsAt: new Date(2026, 11, 1) });
+    await o.component.rehearse('endsAt');
+    await o.component.run();
+
+    const sent = { userId: 'u-1', role: 'Pilot', endsAt: new Date(2026, 11, 2) };
+    expect(calls(o)).toEqual([
+      ['dry', sent],
+      ['real', sent],
+    ]);
   });
 
   it('clears the mark when the refused input changes, and runs the call once a dry run passes', async () => {

@@ -142,6 +142,14 @@ type GroupRole struct {
 // check is the one that sees it.
 var ErrStillAssigned = errors.New("assignments that have not ended stand in the way")
 
+// ErrHeldByGroup is the refusal of a role's deletion while a group holds the
+// role, now or for a period that has not begun: a role deleted from under a
+// group would leave the group's row behind, and a role of the name made again
+// would at once be held by everyone in the group. A store wraps it, as it
+// wraps ErrStillAssigned for a person's own membership, so the access package
+// says which of the two stands in the way.
+var ErrHeldByGroup = errors.New("a group holds the role, now or for a period that has not begun")
+
 // Records is a reader's complete, store-agnostic output.
 type Records struct {
 	Grants       []Grant

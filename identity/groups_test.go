@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
@@ -29,6 +30,12 @@ type fakeGroupTables struct {
 	membershipPeriods map[access.MembershipKey]accesstypes.Period
 	placePeriods      map[access.GroupMemberKey]accesstypes.Period
 	rolePeriods       map[access.GroupRoleKey]accesstypes.Period
+	// tenantPeople are the people of each tenant: the rows of the tenant's own list of
+	// the auth's people.
+	tenantPeople map[accesstypes.Domain][]impulse.UUID
+	// databaseNow is the database's clock, which says what has ended; the wall clock
+	// when nil.
+	databaseNow func() time.Time
 }
 
 func groupRoleText(key *access.GroupRoleKey) string {
@@ -215,6 +222,29 @@ func (f *fakeStore) TenantGroupRoles(_ context.Context, _ resource.ReadWriteTran
 	slices.SortFunc(keys, func(a, b access.GroupRoleKey) int { return strings.Compare(groupRoleText(&a), groupRoleText(&b)) })
 
 	return keys, nil
+}
+
+func (f *fakeStore) GroupsHolding(_ context.Context, _ resource.ReadWriteTransaction, key *access.RoleKey) ([]impulse.UUID, error) {
+	if err := f.fail("GroupsHolding"); err != nil {
+		return nil, err
+	}
+	var ids []impulse.UUID
+	for held, is := range f.groupRoles {
+		if is && held.Kind == key.Kind && held.Axis == key.Axis && held.Domain == key.Domain && held.Role == key.Role {
+			ids = append(ids, mustUUID(string(held.Group)))
+		}
+	}
+	slices.SortFunc(ids, func(a, b impulse.UUID) int { return strings.Compare(a.String(), b.String()) })
+
+	return ids, nil
+}
+
+func (f *fakeStore) TenantPerson(_ context.Context, _ resource.ReadWriteTransaction, domain accesstypes.Domain, userID impulse.UUID) (bool, error) {
+	if err := f.fail("TenantPerson"); err != nil {
+		return false, err
+	}
+
+	return slices.Contains(f.tenantPeople[domain], userID), nil
 }
 
 // GroupRole answers the rule on a group's role as the library does: the Super
@@ -832,6 +862,7 @@ func TestTenant_groups(t *testing.T) {
 	for name, act := range acts {
 		for _, group := range []impulse.UUID{nightID, staffID, dayID, newGroupID} {
 			store := groupStore()
+			store.tenantPeople = map[accesstypes.Domain][]impulse.UUID{"alpha": {userID}}
 			m, _ := newManager(t, store, engineRoles)
 			tenant := &Tenant{manager: m, domain: "alpha"}
 
@@ -955,7 +986,7 @@ func TestManager_groups_noWayToTheSuperAdministratorRole(t *testing.T) {
 			if tt.clean {
 				delete(store.groupRoles, staffSuper)
 			}
-			m, _ := newManager(t, store, superRoles)
+			m, _ := newManager(t, store, superRoles, WithRoleGrants(&fakeGrants{}))
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				return tt.act(tt.ctx(ctx), txn, m)

@@ -16,7 +16,14 @@ import (
 // the tenant: every person in the group is served without it at their next request,
 // unless they hold it some other way. It names a row of MembersTenantGroupRole, the
 // tenant's own list of its groups' roles, by the row's two key columns (the group's id
-// and the role), so a condition on its grant reads the row (role).
+// and the role), so a condition on its grant reads the row (role). A person in the
+// group does not take from it the role that makes them the last administrator of the
+// tenant.
+//
+// A group gives nobody a power that giving the role directly would not: beside the
+// grant of this method, the change needs what the same roles given or taken away
+// directly need of the caller (the grants of AssignMembersTenantRole and RemoveMembersTenantRole, each read with the
+// role in question), and is refused where one of them would be.
 //
 // @rpc
 // @permissionScope(domain)

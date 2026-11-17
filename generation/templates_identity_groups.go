@@ -419,7 +419,50 @@ func (store) TenantGroupRoles(ctx context.Context, txn resource.ReadWriteTransac
 
 	return keys, nil
 }
+
+func (store) GroupsHolding(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RoleKey) ([]impulse.UUID, error) {
+	// The table's index by scope leads with where a role is held, then the role: the
+	// list is the rows under that scope and role, whichever group holds each.
+	query := {{ .ResourcesPackage }}.New{{ .GroupRole }}Query().
+		AddColumns({{ .ResourcesPackage }}.New{{ .GroupRole }}Columns().GroupID()).
+		SetKind(key.Kind).SetAxis(key.Axis).SetDomainID(key.Domain).SetRole(string(key.Role))
+	var ids []impulse.UUID
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .GroupRole }}Query.List()")
+		}
+		ids = append(ids, row.Data.GroupID)
+	}
+
+	return ids, nil
+}
+{{ if .TenantPeople }}
+// TenantPerson reads the tenant's own list of the auth's people, {{ .TenantUser }}, by
+// the two columns that name a row within its tenant: the account's id and the tenant.
+// It is the list a tenant's method names a person from, so a person found here is one
+// the generated frame of such a method finds.
+func (store) TenantPerson(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain, userID impulse.UUID) (bool, error) {
+	clause := {{ .ResourcesPackage }}.New{{ .TenantUser }}QueryClause()
+	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
+		AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().ID()).
+		Where(clause.ID().Equal(userID).And().DomainID().Equal(string(domain)))
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return false, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .TenantUser }}Query.List()")
+		}
+
+		return true, nil
+	}
+
+	return false, nil
+}
 {{ else }}
+// The application has no tenant record, so no tenant keeps a list of the {{ .Auth }}
+// auth's people, and nobody is found in one.
+func (store) TenantPerson(context.Context, resource.ReadWriteTransaction, accesstypes.Domain, impulse.UUID) (bool, error) {
+	return false, nil
+}
+{{ end }}{{ else }}
 // errNoGroups answers a call that writes a group, a member or a group's role on an auth
 // that keeps no groups of people:
 {{- if .RolesSynced }} a directory writes the {{ .Auth }} auth's roles at every
@@ -496,6 +539,16 @@ func (store) DeleteGroupRole(context.Context, resource.ReadWriteTransaction, *ac
 
 func (store) TenantGroupRoles(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]access.GroupRoleKey, error) {
 	return nil, nil
+}
+
+func (store) GroupsHolding(context.Context, resource.ReadWriteTransaction, *access.RoleKey) ([]impulse.UUID, error) {
+	return nil, nil
+}
+
+// TenantPerson is asked by the rules of a tenant's group alone, and here there are no
+// groups.
+func (store) TenantPerson(context.Context, resource.ReadWriteTransaction, accesstypes.Domain, impulse.UUID) (bool, error) {
+	return false, nil
 }
 {{ end }}`
 
@@ -802,7 +855,10 @@ type (
 	//
 	// GlobalGroup says the group is kept for the whole application, so neither the group
 	// nor the role is this tenant's to change; EveryDomain says the group holds the role
-	// in every tenant alone.
+	// in every tenant alone. A group that holds the role both ways, in the tenant and in
+	// every tenant, is one row: the one that counts now, so a row of the tenant's own
+	// that has not begun does not hide the role the person holds through every tenant
+	// today, and the tenant's own row where both count or neither does yet.
 	//
 	// StartsAt and EndsAt are the period the person holds the role for through the group:
 	// where the period of their place in the group and the period the group holds the
@@ -869,9 +925,11 @@ type (
 {{ if .ForTenant -}}
 // {{ GoCamel .SubjectUserGroupRole }}Query selects the roles people hold in every tenant
 // through a group: the rows of {{ .Policy.GroupRoles }} held in one tenant, and the ones
-// held in every tenant once per row of {{ .TenantTable }} where the same group holds no
-// row of its own for the role in the tenant, each joined to its group, the group's
-// members and their accounts. A group kept in one tenant gives its roles there alone.
+// held in every tenant once per row of {{ .TenantTable }}, each joined to its group, the
+// group's members and their accounts. Where a group holds a role both ways the query
+// answers one row, the one that counts now: the tenant's own row gives way to the row
+// held in every tenant while it has not begun and that one counts, and stands in front
+// of it otherwise. A group kept in one tenant gives its roles there alone.
 const {{ GoCamel .SubjectUserGroupRole }}Query = ` + "`" + `
 SELECT
   t.DomainId AS DomainId,
@@ -888,6 +946,11 @@ FROM (
   FROM {{ .Policy.GroupRoles }} r
   WHERE r.Kind = {{ .KindDomain }} AND r.Axis = {{ .ScopeAxis }}
     AND {{ .Standing "r" }}
+    AND (({{ .Counting "r" }}) OR NOT EXISTS (
+      SELECT 1 FROM {{ .Policy.GroupRoles }} e
+      WHERE e.GroupId = r.GroupId AND e.Kind = {{ .KindEvery }} AND e.Axis = r.Axis AND e.Role = r.Role
+        AND {{ .Counting "e" }}
+    ))
   UNION ALL
   SELECT s.{{ .TenantKey }} AS DomainId, r.GroupId AS GroupId, r.Role AS Role, TRUE AS EveryDomain, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt
   FROM {{ .Policy.GroupRoles }} r
@@ -898,6 +961,7 @@ FROM (
       SELECT 1 FROM {{ .Policy.GroupRoles }} d
       WHERE d.GroupId = r.GroupId AND d.Kind = {{ .KindDomain }} AND d.Axis = r.Axis AND d.DomainId = s.{{ .TenantKey }} AND d.Role = r.Role
         AND {{ .Standing "d" }}
+        AND (({{ .Counting "d" }}) OR NOT ({{ .Counting "r" }}))
     )
 ) t
 JOIN {{ .Policy.Groups }} g ON g.Id = t.GroupId
@@ -1120,6 +1184,165 @@ func (m *Delete{{ .Subject }}Group) Execute(ctx context.Context, txn resource.Re
 }
 `
 
+	// identityJudgedNote is the paragraph every method that changes who is in a group,
+	// or what a group holds, adds to its comment: the change is judged as the role
+	// changes it makes.
+	identityJudgedNote = `
+//
+// A group gives nobody a power that giving the role directly would not: beside the
+// grant of this method, the change needs what the same roles given or taken away
+// directly need of the caller (the grants of {{ .RoleMethods }}, each read with the
+// role in question), and is refused where one of them would be.`
+
+	// identityGrantsTemplate is the instance's implementation of identity.RoleGrants:
+	// what the request's caller may do to a person's role, asked of the grants of the
+	// methods that give a role and take one away.
+	identityGrantsTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
+// Source: {{ .Source }}
+
+package {{ .Package }}
+
+import (
+	"context"
+
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/identity"
+	"github.com/impulseframework/impulse/resource"
+	{{ .LocalPackageImports }}
+)
+
+var _ identity.RoleGrants = grants{}
+
+// grants answers what the request's caller may do to a person's role
+// (identity.RoleGrants), by the grants of the methods of this package that give a role
+// and take one away. The rules of a group ask it, since a group gives nobody a power
+// that giving the role directly would not: a person put in a group is given the group's
+// roles, and is judged by the grant of the method that gives a role.
+//
+// The answer is the one the method's own frame would reach for the same caller, asked
+// of the request's own check (resource.Caller.ExecuteGate): the method's Execute grant
+// in the scope the request was checked in, its condition read with the role in question
+// where it reads the role.
+{{- if .TenantPeople }} A request made under a tenant is answered by the
+// tenant's methods (Assign{{ .TenantSubject }}Role, Remove{{ .TenantSubject }}Role), and one
+// made for the whole application by the whole application's (Assign{{ .Auth }}Role,
+// Remove{{ .Auth }}Role).
+{{- else }} The methods are the whole application's (Assign{{ .Auth }}Role,
+// Remove{{ .Auth }}Role).
+{{- end }}
+type grants struct{}
+
+// MayGive reports whether the caller may give the person the role in the scope.
+func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) (bool, error) {
+	caller := resource.CallerFrom(ctx)
+	{{- if .TenantPeople }}
+	if tenant, inTenant := caller.Scope.Domain(); inTenant {
+		// A request made under a tenant gives a role in that tenant alone.
+		if scope != accesstypes.DomainPolicyScope(tenant) {
+			return false, nil
+		}
+		gate, err := caller.ExecuteGate(ctx, Assign{{ .TenantSubject }}Role{}.Method(), &Assign{{ .TenantSubject }}Role{UserID: userID, Role: string(role)})
+		if err != nil {
+			return granted(err)
+		}
+		if may, settled := gate.Settled(); settled {
+			return may, nil
+		}
+		// What is left of the grant's condition reads the person's row of
+		// {{ .TenantUser }}, the row the method itself names. A person who is no row
+		// of the list cannot be judged, and is not given the role this way.
+		people := resource.ExecuteTarget{Resource: "{{ Pluralize .TenantUser }}", Label: "{{ .TenantUser }}", PKColumns: []string{"Id"}, View: {{ .ResourcesPackage }}.{{ .TenantUser }}{}}
+
+		return granted(gate.EnforceView(ctx, txn, people, userID))
+	}
+	{{- end }}
+	domain, everyDomain := scopeFields(scope)
+	gate, err := caller.ExecuteGate(ctx, Assign{{ .Auth }}Role{}.Method(), &Assign{{ .Auth }}Role{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})
+	if err != nil {
+		return granted(err)
+	}
+
+	return settled(gate, "Assign{{ .Auth }}Role")
+}
+
+// MayTake reports whether the caller may take the role the person holds in the scope
+// away.
+func (grants) MayTake(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) (bool, error) {
+	caller := resource.CallerFrom(ctx)
+	{{- if .TenantPeople }}
+	if tenant, inTenant := caller.Scope.Domain(); inTenant {
+		// A request made under a tenant takes away a role held in that tenant alone.
+		if scope != accesstypes.DomainPolicyScope(tenant) {
+			return false, nil
+		}
+		gate, err := caller.ExecuteGate(ctx, Remove{{ .TenantSubject }}Role{}.Method(), &Remove{{ .TenantSubject }}Role{UserID: userID, Role: string(role)})
+		if err != nil {
+			return granted(err)
+		}
+		// The method names a row of {{ .TenantRole }}, the roles held in the tenant by a
+		// membership of a person's own, and a condition on its grant reads that row. A
+		// role held through a group is no row of the list, so the condition is read
+		// against the row the removal would name: this role, held in the tenant itself
+		// and not in every tenant.
+		held := resource.ExecuteTarget{Resource: "{{ Pluralize .TenantRole }}", Label: "{{ .TenantRole }}", PKColumns: []string{"UserId", "Role"}, View: nil}
+
+		return granted(gate.EnforceProposed(ctx, txn, held, map[string]any{"role": string(role), "everyDomain": false}))
+	}
+	{{- end }}
+	domain, everyDomain := scopeFields(scope)
+	gate, err := caller.ExecuteGate(ctx, Remove{{ .Auth }}Role{}.Method(), &Remove{{ .Auth }}Role{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})
+	if err != nil {
+		return granted(err)
+	}
+
+	return settled(gate, "Remove{{ .Auth }}Role")
+}
+
+// granted reads the answer of a check: no error is a yes, the refusal of a grant and a
+// row that is not there are a no, and anything else is the error it is.
+func granted(err error) (bool, error) {
+	switch {
+	case err == nil:
+		return true, nil
+	case httpio.HasForbidden(err), httpio.HasNotFound(err):
+		return false, nil
+	default:
+		return false, errors.Wrap(err, "resource.Caller.ExecuteGate()")
+	}
+}
+
+// settled reads the answer of the grant of a method that names no row: its condition
+// read the request's fields alone, so nothing is left for a row to decide. A condition
+// that reads a row there is one the role file's deployment refuses, and fails here as
+// that.
+func settled(gate *resource.ExecuteGate, method string) (bool, error) {
+	may, done := gate.Settled()
+	if !done {
+		return false, errors.Newf("the grant of %s carries a condition that reads a row, and the method names none", method)
+	}
+
+	return may, nil
+}
+
+// scopeFields spells a scope as the request of a whole application's role method names
+// it: one domain, every domain, or neither for the global scope.
+func scopeFields(scope accesstypes.PolicyScope) (domain *string, everyDomain bool) {
+	if scope.IsGlobal() {
+		return nil, false
+	}
+	if in, ok := scope.Domain(); ok {
+		name := string(in)
+
+		return &name, false
+	}
+
+	return nil, true
+}
+`
+
 	// identityAddGroupMemberTemplate is the method that puts a person in a group.
 	identityAddGroupMemberTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
 // Source: {{ .Source }}
@@ -1141,15 +1364,19 @@ import (
 // request is served with them. The person is named by the id of their account, and an
 // id no user holds is refused.` + identityTenantGroupNote + `
 {{- if .ForTenant }}
-// The person is picked from {{ .TenantUser }}, the tenant's own list of the auth's
-// people.
+// The person is one the tenant already has: a row of {{ .TenantUser }}, the tenant's
+// own list of the auth's people, which the request picks from and the method holds the
+// person to. An account that is not one of the tenant's people is not found here,
+// whatever it holds elsewhere; whoever manages the whole application's people puts such
+// an account into a tenant's group, through Add{{ .Auth }}GroupMember.
 {{- end }}
 //
 // The place is given for a period where the request names one (StartsAt, EndsAt, each
 // optional): outside it the person holds none of the group's roles through it, and
 // nothing is written when it begins or ends. Putting in a person who is in the group
 // already gives their place the period of this request in place of the one it had, so a
-// request that names neither makes the place stand until they are taken out.
+// request that names neither makes the place stand until they are taken out. Nobody
+// gives their own place a period that lasts longer than the one it has.` + identityJudgedNote + `
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
@@ -1157,7 +1384,11 @@ import (
 type Add{{ .Subject }}GroupMember struct {
 	// @target({{ .SubjectGroup }})
 	GroupID impulse.UUID
+	{{- if .ForTenant }}
+	// UserID is the person, one of the tenant's people.
+	{{- else }}
 	// UserID is the person, picked from the people the caller may list.
+	{{- end }}
 	//
 	// @enumerate({{ Pluralize .SubjectUser }})
 	UserID impulse.UUID` + identityPeriodFields + `
@@ -1211,7 +1442,9 @@ import (
 //
 // A place in a group keeps an account as a role of its own does: a person left with no
 // role anywhere and no place in a group is deleted with their identity links and
-// sessions, in the same transaction, since an account nothing admits is not kept.
+// sessions, in the same transaction, since an account nothing admits is not kept. A
+// person who takes themselves out keeps a place that makes them the last administrator
+// of a tenant, as they keep the role itself.` + identityJudgedNote + `
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
@@ -1279,7 +1512,8 @@ import (
 // optional): outside it the role is nobody's through the group, and nothing is written
 // when it begins or ends. Giving a role the group holds there already gives it the
 // period of this request in place of the one it had, so a request that names neither
-// makes the role stand until it is taken away.
+// makes the role stand until it is taken away. Nobody who is in the group gives a role
+// it holds a period that lasts longer than the one it has.` + identityJudgedNote + `
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
@@ -1361,7 +1595,9 @@ import (
 // the tenant: every person in the group is served without it at their next request,
 // unless they hold it some other way. It names a row of {{ .SubjectGroupRole }}, the
 // tenant's own list of its groups' roles, by the row's two key columns (the group's id
-// and the role), so a condition on its grant reads the row (role).
+// and the role), so a condition on its grant reads the row (role). A person in the
+// group does not take from it the role that makes them the last administrator of the
+// tenant.` + identityJudgedNote + `
 //
 // @rpc
 // @permissionScope(domain)
@@ -1379,7 +1615,8 @@ type Take{{ .Subject }}GroupRole struct {
 // (EveryDomain). Every person in the group is served without it at their next request,
 // unless they hold it some other way. A role the group does not hold there is no error.
 // It names no row: a page runs it from a row of {{ .GroupRole }}, the roles the groups
-// hold, filling the request from the row.
+// hold, filling the request from the row. A person in the group does not take from it
+// the role that makes them the last administrator of a tenant.` + identityJudgedNote + `
 //
 // @rpc
 // @outlet({{ .Outlets }})
