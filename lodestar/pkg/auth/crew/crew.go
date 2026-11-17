@@ -783,16 +783,14 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// roles given together or neither is, and the sign-in rule sees the new seat: a
 	// stranger invited into Bastion signs in admitted.
 	//
-	// Demonstrates: tenancy.default-seat, auth.invitation.
+	// The sign-up: a person who signs up through a method an administrator opened is
+	// handed to the identity client in the transaction that makes their account
+	// (SignedUp). The fleet has sectors, so an open method names no default role and
+	// the person holds nothing until they chart a sector of their own.
+	//
+	// Demonstrates: tenancy.default-seat, auth.invitation, auth.open-sign-up.
 	crewSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
 	crewSession.SetInvitationAccepted(identityClient.InvitationAccepted())
-
-	// A person who signs up through a method an administrator opened: the session
-	// library hands their new account to the identity client in the transaction that
-	// makes it (SignedUp). The fleet has sectors, so an open method names no default
-	// role and the person holds nothing until they chart a sector of their own.
-	//
-	// Demonstrates: auth.open-sign-up.
 	crewSession.SetSignUpSeated(identityClient.SignedUp())
 
 	// The machine outlet the auth issues tokens for, registered before the first

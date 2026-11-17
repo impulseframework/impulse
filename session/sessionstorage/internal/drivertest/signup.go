@@ -23,6 +23,13 @@ import (
 	"github.com/impulseframework/impulse/session/signin"
 )
 
+// The sign-up cases follow one person, whose address a mailed link carried and is their
+// username, and one default role.
+const (
+	signUpPerson = "pat.lee@lakeside.edu"
+	signUpRole   = "Member"
+)
+
 // signUps records what the sign-up hook gave, the way an application gives a role: the
 // hook writes through the transaction that makes the account, so its row is committed
 // with the account or not at all, and what it knows in memory it is told once the
@@ -79,17 +86,17 @@ func (s *signUps) failing(err error) {
 	s.fail = err
 }
 
-// assertRoleGiven fails unless the committed HookRecords say username was given role
-// through the instance's method, exactly once.
-func assertRoleGiven(ctx context.Context, t *testing.T, h *AuthHarness, in *AuthInstance, rec *signUps, username, role string) {
+// assertRoleGiven fails unless the committed HookRecords say the person who signed up
+// was given the default role through the instance's method, exactly once.
+func assertRoleGiven(ctx context.Context, t *testing.T, h *AuthHarness, in *AuthInstance, rec *signUps) {
 	t.Helper()
 
-	got, found := h.Recorded(ctx, t, in.Raw, "signed-up:"+username)
-	if want := MethodName + "=" + role; !found || got != want {
-		t.Errorf("the role given to %q = %q (found %v), want %q", username, got, found, want)
+	got, found := h.Recorded(ctx, t, in.Raw, "signed-up:"+signUpPerson)
+	if want := MethodName + "=" + signUpRole; !found || got != want {
+		t.Errorf("the role given to %q = %q (found %v), want %q", signUpPerson, got, found, want)
 	}
-	if got := rec.times(username); got != 1 {
-		t.Errorf("the sign-up hook gave %q a role %d time(s), want once", username, got)
+	if got := rec.times(signUpPerson); got != 1 {
+		t.Errorf("the sign-up hook gave %q a role %d time(s), want once", signUpPerson, got)
 	}
 }
 
@@ -121,7 +128,7 @@ func testSignInMethodRows(ctx context.Context, t *testing.T, h *AuthHarness) {
 	// A caller's UpdatedAt is ignored: the row takes the database's time.
 	stale := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 	w := startWindow(h.ClockLead)
-	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "google", OpenSignUp: true, DefaultRole: strPtr("Member"), UpdatedAt: stale}); err != nil {
+	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "google", OpenSignUp: true, DefaultRole: strPtr(signUpRole), UpdatedAt: stale}); err != nil {
 		t.Fatalf("SetSignInMethod(google) error = %v", err)
 	}
 	w.done()
@@ -132,12 +139,12 @@ func testSignInMethodRows(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if err != nil {
 		t.Fatalf("SignInMethods() error = %v", err)
 	}
-	want := []*dbtype.SignInMethod{{Name: "azure", OpenSignUp: true}, {Name: "google", OpenSignUp: true, DefaultRole: strPtr("Member")}}
+	want := []*dbtype.SignInMethod{{Name: "azure", OpenSignUp: true}, {Name: "google", OpenSignUp: true, DefaultRole: strPtr(signUpRole)}}
 	if diff := cmp.Diff(want, got, opts); diff != "" {
 		t.Fatalf("SignInMethods() mismatch, want the rows by name (-want +got):\n%s", diff)
 	}
 	w.assertStamped(t, "google UpdatedAt", got[1].UpdatedAt)
-	if !got[1].Open() || got[1].Role() != "Member" || got[0].Role() != "" {
+	if !got[1].Open() || got[1].Role() != signUpRole || got[0].Role() != "" {
 		t.Errorf("Open(), Role() = %v, %q and %q; want an open method with the role Member and one with none", got[1].Open(), got[1].Role(), got[0].Role())
 	}
 
@@ -159,8 +166,8 @@ func testSignInMethodRows(ctx context.Context, t *testing.T, h *AuthHarness) {
 }
 
 func testSignInMethodsMissingTable(ctx context.Context, t *testing.T, h *AuthHarness) {
-	const table = "NoSuchTable"
-	const name = "pat.lee@lakeside.edu"
+	const table = "NoSuchSignInMethods"
+	const name = signUpPerson
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true, Accounts: InviteOnly})
 	if err := in.Driver.SetSignInMethodsTableName(table); err != nil {
 		t.Fatalf("SetSignInMethodsTableName() error = %v", err)
@@ -193,9 +200,9 @@ func testSignInMethodsMissingTable(ctx context.Context, t *testing.T, h *AuthHar
 }
 
 func testOpenMethodDefaultRole(ctx context.Context, t *testing.T, h *AuthHarness) {
-	const name = "pat.lee@lakeside.edu"
+	const name = signUpPerson
 	rec := newSignUps()
-	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open, DefaultRole: "Member", SignUp: rec.hook})
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open, DefaultRole: signUpRole, SignUp: rec.hook})
 
 	// A person with no account and no invitation is admitted by the open method: the
 	// account is made and the default role given with it, in one transaction.
@@ -203,7 +210,7 @@ func testOpenMethodDefaultRole(ctx context.Context, t *testing.T, h *AuthHarness
 	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity}
 	err := signInRequest(ctx, in, req)
 	assertProvisioned(ctx, t, in.Driver, err, req, identity, "tenant-1")
-	assertRoleGiven(ctx, t, h, in, rec, name, "Member")
+	assertRoleGiven(ctx, t, h, in, rec)
 
 	// The role is given with the account, once: a later sign-in gives nothing, so a
 	// role an administrator took away stays away.
@@ -230,7 +237,7 @@ func testOpenMethodDefaultRole(ctx context.Context, t *testing.T, h *AuthHarness
 }
 
 func testOpenMethodWithoutRole(ctx context.Context, t *testing.T, h *AuthHarness) {
-	const name = "pat.lee@lakeside.edu"
+	const name = signUpPerson
 	rec := newSignUps()
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open, SignUp: rec.hook})
 
@@ -246,7 +253,7 @@ func testOpenMethodWithoutRole(ctx context.Context, t *testing.T, h *AuthHarness
 func testEitherChoiceSameForAccountsAndInvitations(_ context.Context, t *testing.T, h *AuthHarness) {
 	const (
 		member  = "kim@lakeside.edu"
-		invited = "pat.lee@lakeside.edu"
+		invited = signUpPerson
 	)
 
 	tests := []struct {
@@ -263,7 +270,7 @@ func testEitherChoiceSameForAccountsAndInvitations(_ context.Context, t *testing
 
 			acc := newAcceptances()
 			rec := newSignUps()
-			in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: tt.accounts, DefaultRole: "Member", Accept: acc.hook, SignUp: rec.hook})
+			in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: tt.accounts, DefaultRole: signUpRole, Accept: acc.hook, SignUp: rec.hook})
 
 			// A person with an account signs in by the link: the choice is not read
 			// for them, and nothing is given.
@@ -298,10 +305,10 @@ func testEitherChoiceSameForAccountsAndInvitations(_ context.Context, t *testing
 }
 
 func testOpenMethodDeadInvitation(ctx context.Context, t *testing.T, h *AuthHarness) {
-	const name = "pat.lee@lakeside.edu"
+	const name = signUpPerson
 	acc := newAcceptances()
 	rec := newSignUps()
-	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open, DefaultRole: "Member", Accept: acc.hook, SignUp: rec.hook})
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open, DefaultRole: signUpRole, Accept: acc.hook, SignUp: rec.hook})
 
 	// The method admits the person, not the invitation: one that died gives nothing,
 	// and the person gets what any new person gets through the method.
@@ -316,12 +323,12 @@ func testOpenMethodDeadInvitation(ctx context.Context, t *testing.T, h *AuthHarn
 	if _, found := acc.recorded("accepted:" + name); found {
 		t.Error("the invitation hook ran for a dead invitation, want nothing granted by it")
 	}
-	assertRoleGiven(ctx, t, h, in, rec, name, "Member")
+	assertRoleGiven(ctx, t, h, in, rec)
 }
 
 func testOpenMethodHookMissing(ctx context.Context, t *testing.T, h *AuthHarness) {
-	const name = "pat.lee@lakeside.edu"
-	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open, DefaultRole: "Member"})
+	const name = signUpPerson
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open, DefaultRole: signUpRole})
 
 	// A default role with nothing to give it is a wiring mistake: the sign-in fails in
 	// the transaction that would have made the account, so no account holds nothing.
@@ -336,11 +343,11 @@ func testOpenMethodHookMissing(ctx context.Context, t *testing.T, h *AuthHarness
 }
 
 func testOpenMethodHookFails(ctx context.Context, t *testing.T, h *AuthHarness) {
-	const name = "pat.lee@lakeside.edu"
+	const name = signUpPerson
 	rec := newSignUps()
 	failure := errors.New("the default role could not be given")
 	rec.failing(failure)
-	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open, DefaultRole: "Member", SignUp: rec.hook})
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open, DefaultRole: signUpRole, SignUp: rec.hook})
 
 	// The role cannot be given, so the transaction fails: no account, no link, and
 	// none of the hook's own writes.
@@ -358,7 +365,7 @@ func testOpenMethodHookFails(ctx context.Context, t *testing.T, h *AuthHarness) 
 	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: entra("oid-pat", name)}
 	err = signInRequest(ctx, in, req)
 	assertProvisioned(ctx, t, in.Driver, err, req, identity, "tenant-1")
-	assertRoleGiven(ctx, t, h, in, rec, name, "Member")
+	assertRoleGiven(ctx, t, h, in, rec)
 }
 
 // signUpUser is the account a password sign-up makes for email: the address, verified
@@ -367,11 +374,11 @@ func signUpUser(email string) *dbtype.InsertSessionUser {
 	return &dbtype.InsertSessionUser{Username: email, Email: strPtr(email), EmailVerified: true}
 }
 
-// signUpLink inserts the link mailed to a person who started a sign-up with email.
-func signUpLink(ctx context.Context, t *testing.T, d AuthDriver, email string, hash []byte) *dbtype.MailLink {
+// signUpLink inserts the link mailed to the person when they started a sign-up.
+func signUpLink(ctx context.Context, t *testing.T, d AuthDriver, hash []byte) *dbtype.MailLink {
 	t.Helper()
 
-	link := newMailLink(dbtype.MailLinkSignUp, email, hash)
+	link := newMailLink(dbtype.MailLinkSignUp, signUpPerson, hash)
 	if err := d.InsertMailLink(ctx, link); err != nil {
 		t.Fatalf("InsertMailLink() error = %v", err)
 	}
@@ -389,7 +396,7 @@ func assertLinkLive(ctx context.Context, t *testing.T, h *AuthHarness, in *AuthI
 }
 
 func testPasswordSignUpClosed(_ context.Context, t *testing.T, h *AuthHarness) {
-	const name = "pat.lee@lakeside.edu"
+	const name = signUpPerson
 
 	tests := []struct {
 		name string
@@ -397,7 +404,7 @@ func testPasswordSignUpClosed(_ context.Context, t *testing.T, h *AuthHarness) {
 		seed *dbtype.SignInMethod
 	}{
 		{name: "a method with no row"},
-		{name: "a method made invite only again", seed: &dbtype.SignInMethod{Name: MethodName, DefaultRole: strPtr("Member")}},
+		{name: "a method made invite only again", seed: &dbtype.SignInMethod{Name: MethodName, DefaultRole: strPtr(signUpRole)}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -411,7 +418,7 @@ func testPasswordSignUpClosed(_ context.Context, t *testing.T, h *AuthHarness) {
 					t.Fatalf("SetSignInMethod() error = %v", err)
 				}
 			}
-			link := signUpLink(ctx, t, in.Driver, name, tokenHash(1))
+			link := signUpLink(ctx, t, in.Driver, tokenHash(1))
 
 			// A link mailed while the method was open makes nothing once it is not.
 			_, err := in.SignUp(ctx, signUpUser(name), link.ID)
@@ -427,12 +434,12 @@ func testPasswordSignUpClosed(_ context.Context, t *testing.T, h *AuthHarness) {
 }
 
 func testPasswordSignUpOpen(ctx context.Context, t *testing.T, h *AuthHarness) {
-	const name = "pat.lee@lakeside.edu"
+	const name = signUpPerson
 	rec := newSignUps()
-	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open, DefaultRole: "Member", SignUp: rec.hook})
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open, DefaultRole: signUpRole, SignUp: rec.hook})
 
 	// The link is spent, the account made and the role held together.
-	link := signUpLink(ctx, t, in.Driver, name, tokenHash(1))
+	link := signUpLink(ctx, t, in.Driver, tokenHash(1))
 	id, err := in.SignUp(ctx, signUpUser(name), link.ID)
 	if err != nil {
 		t.Fatalf("SignUp() error = %v", err)
@@ -445,7 +452,7 @@ func testPasswordSignUpOpen(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if consumed := h.MailLinkConsumedAt(ctx, t, in.Raw, link.TokenHash); consumed == nil {
 		t.Error("the sign-up link is still live, want it consumed with the account")
 	}
-	assertRoleGiven(ctx, t, h, in, rec, name, "Member")
+	assertRoleGiven(ctx, t, h, in, rec)
 
 	// The link made one account: followed again it is gone, and nothing more is given.
 	if _, err := in.SignUp(ctx, signUpUser("second@lakeside.edu"), link.ID); !httpio.HasNotFound(err) {
@@ -454,7 +461,7 @@ func testPasswordSignUpOpen(ctx context.Context, t *testing.T, h *AuthHarness) {
 	assertNoUser(ctx, t, in.Driver, "second@lakeside.edu")
 
 	// An address another user holds is a conflict, and the link stands.
-	held := signUpLink(ctx, t, in.Driver, name, tokenHash(2))
+	held := signUpLink(ctx, t, in.Driver, tokenHash(2))
 	if _, err := in.SignUp(ctx, &dbtype.InsertSessionUser{Username: "pat", Email: strPtr(name), EmailVerified: true}, held.ID); !httpio.HasConflict(err) {
 		t.Errorf("SignUp() with a held address error = %v, want a Conflict", err)
 	}
@@ -463,12 +470,12 @@ func testPasswordSignUpOpen(ctx context.Context, t *testing.T, h *AuthHarness) {
 }
 
 func testPasswordSignUpHookFails(ctx context.Context, t *testing.T, h *AuthHarness) {
-	const name = "pat.lee@lakeside.edu"
+	const name = signUpPerson
 	rec := newSignUps()
 	failure := errors.New("the default role could not be given")
 	rec.failing(failure)
-	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open, DefaultRole: "Member", SignUp: rec.hook})
-	link := signUpLink(ctx, t, in.Driver, name, tokenHash(1))
+	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: Open, DefaultRole: signUpRole, SignUp: rec.hook})
+	link := signUpLink(ctx, t, in.Driver, tokenHash(1))
 
 	// The role cannot be given: no account, the hook's write gone, and the link left
 	// for the next attempt.
@@ -483,5 +490,5 @@ func testPasswordSignUpHookFails(ctx context.Context, t *testing.T, h *AuthHarne
 	if _, err := in.SignUp(ctx, signUpUser(name), link.ID); err != nil {
 		t.Fatalf("SignUp() once the hook works error = %v", err)
 	}
-	assertRoleGiven(ctx, t, h, in, rec, name, "Member")
+	assertRoleGiven(ctx, t, h, in, rec)
 }

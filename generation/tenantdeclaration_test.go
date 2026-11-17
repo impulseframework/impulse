@@ -606,9 +606,9 @@ func Test_apiClientData_tenantCreation_declaration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("declaration error = %v", err)
 	}
-	// The route is generated where it can serve; here it is marked as the run does.
-	r.tenantRecord().TenantCreation = tenantCreationBoth
-	tsg := &typescriptGenerator{client: r.client}
+	// The route is generated where it can serve; here the target is told so as the run
+	// tells it.
+	tsg := &typescriptGenerator{client: r.client, tenantCreation: tenantCreationBoth}
 	got := tsg.tenantCreationClientData()
 	if got == nil {
 		t.Fatal("tenantCreationClientData() = nil, want the route")

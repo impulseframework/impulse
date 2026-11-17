@@ -45,15 +45,18 @@ const sampleRow = (resource: Resource): RecordData =>
   Object.fromEntries(fieldNames(resource).map((name) => [name, `${name}-value`]));
 
 describe("the library's pages over an auth's generated management", () => {
-  it('are the accounts, mailed links, sessions and failed sign-ins of the whole service, and the people and invitations of a sector', () => {
+  it('are the accounts, mailed links, sessions, failed sign-ins and sign-in methods of the whole service, and the people and invitations of a sector', () => {
     const routes = (auth: string, scope: 'global' | 'domain'): (string | undefined)[] =>
       identityPages(apiDescriptor, resourceMeta, { auth, scope }).map((page) => page.routeData.route);
 
+    // The crew's auth carries the choice of who may sign up, so it has the Sign-in page;
+    // the members' auth, whose roles a directory writes, has none.
     expect(routes('Crew', 'global')).toEqual([
       'crew-accounts',
       'crew-mailed-links',
       'crew-sessions',
       'crew-failed-sign-ins',
+      'crew-sign-in',
     ]);
     expect(routes('Crew', 'domain')).toEqual(['sectors/:sectorID/crew-people', 'sectors/:sectorID/crew-invitations']);
     expect(routes('Members', 'global')).toEqual([

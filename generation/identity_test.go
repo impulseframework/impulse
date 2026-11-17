@@ -303,10 +303,12 @@ func Test_identityInstances(t *testing.T) {
 	}
 }
 
-// identityTreeFiles lists the Go files under the tree, by path from the tree's root.
-func identityTreeFiles(t *testing.T, tree string) []string {
+// identityTreeFiles lists the Go files under the identity tree the fixtures generate
+// into, by path from the tree's root.
+func identityTreeFiles(t *testing.T) []string {
 	t.Helper()
 
+	const tree = "pkg/identity"
 	var files []string
 	if err := filepath.WalkDir(tree, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -403,7 +405,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"membersidentity/set_members_user_name.go",
 		"membersidentity/store.go",
 	}
-	if diff := cmp.Diff(want, identityTreeFiles(t, "pkg/identity")); diff != "" {
+	if diff := cmp.Diff(want, identityTreeFiles(t)); diff != "" {
 		t.Errorf("the tree's files (-want +got):\n%s", diff)
 	}
 	for _, file := range want {
@@ -795,7 +797,7 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 		"internal/membersresources/members_ship_users.go",
 	}
 	var got []string
-	for _, file := range identityTreeFiles(t, "pkg/identity") {
+	for _, file := range identityTreeFiles(t) {
 		if strings.HasPrefix(file, "internal/") && strings.Contains(file, "_ship_") {
 			got = append(got, file)
 		}
@@ -942,7 +944,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		"membersidentity/set_members_ship_user_name.go",
 	}
 	var got []string
-	for _, file := range identityTreeFiles(t, "pkg/identity") {
+	for _, file := range identityTreeFiles(t) {
 		if !strings.HasPrefix(file, "internal/") && strings.Contains(file, "_ship_") {
 			got = append(got, file)
 		}

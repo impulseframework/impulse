@@ -12,7 +12,7 @@ import (
 )
 
 // signInMethodColumns are the sign-in methods table's columns.
-var signInMethodColumns = []string{"Name", "OpenSignUp", "DefaultRole", updatedAtColumn}
+var signInMethodColumns = []string{nameColumn, "OpenSignUp", "DefaultRole", updatedAtColumn}
 
 // signInMethodRow is a sign-in method's row as the table holds it.
 type signInMethodRow struct {
@@ -89,7 +89,7 @@ func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.Si
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	row := map[string]any{"Name": m.Name, "OpenSignUp": m.OpenSignUp, "DefaultRole": spanner.NullString{}, updatedAtColumn: spanner.CommitTimestamp}
+	row := map[string]any{nameColumn: m.Name, "OpenSignUp": m.OpenSignUp, "DefaultRole": spanner.NullString{}, updatedAtColumn: spanner.CommitTimestamp}
 	if m.DefaultRole != nil {
 		row["DefaultRole"] = spanner.NullString{StringVal: *m.DefaultRole, Valid: true}
 	}

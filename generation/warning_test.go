@@ -90,8 +90,14 @@ func Test_rpcHandlerTemplate_warning(t *testing.T) {
 	structs := fixtureStructs(loadFixture(t, "wirefixture"))
 	c := &client{}
 
-	warning := fixtureAnsweringMethod(t, structs, "Inspect")
-	warning.Warning = &rpcWarning{Typed: "open"}
+	// inspect is the fixture's transaction-form method with the warning it declares, nil
+	// for none.
+	inspect := func(warning *rpcWarning) *rpcMethodInfo {
+		method := fixtureAnsweringMethod(t, structs, "Inspect")
+		method.Warning = warning
+
+		return method
+	}
 
 	tests := []struct {
 		name            string
@@ -102,7 +108,7 @@ func Test_rpcHandlerTemplate_warning(t *testing.T) {
 	}{
 		{
 			name:   "a method that declares a warning answers it and rolls back",
-			method: warning,
+			method: inspect(&rpcWarning{Typed: "open"}),
 			wantContains: []string{
 				"asksWarning := resource.AsksWarning(r)",
 				"said, err := p.Warning(ctx, txn, a.RPCClient())",
@@ -117,7 +123,7 @@ func Test_rpcHandlerTemplate_warning(t *testing.T) {
 		},
 		{
 			name:   "a transaction-form method that declares none refuses the header",
-			method: fixtureAnsweringMethod(t, structs, "Inspect"),
+			method: inspect(nil),
 			wantContains: []string{
 				"if resource.AsksWarning(r) {",
 				`httpio.NewBadRequestMessage("Inspect declares no warning: send the call without the X-Warning header")`,

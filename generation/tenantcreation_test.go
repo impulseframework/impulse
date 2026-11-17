@@ -633,10 +633,23 @@ func Test_apiClientData_tenantCreation(t *testing.T) {
 					r.defaultOutlet.auth = openAuth("example.com/app/pkg/auth/staff")
 				}
 			})
-			for _, f := range r.resources[0].Fields {
+			target := typescriptTarget{destination: "ui/src"}
+			if tt.outlet != "" {
+				target.options = []TSOption{ForOutlet(tt.outlet)}
+			}
+			gen, err := r.buildUnifiedTypescriptGenerator(nil, nil, target)
+			if err != nil {
+				t.Fatalf("buildUnifiedTypescriptGenerator() error = %v", err)
+			}
+			// A target parses the resources for itself, so its record is the annotation's
+			// alone and carries no decision: the run hands the target the one it made.
+			gen.resources = tenantCreationFixtureGenerator(t, tt.record, nil).resources
+			if gen.resources[0].TenantCreation.SelfService() {
+				t.Fatal("the fixture's own parse of the record carries the decision; the case proves nothing")
+			}
+			for _, f := range gen.resources[0].Fields {
 				f.typescriptType = "string"
 			}
-			gen := &typescriptGenerator{client: r.client, outletName: tt.outlet}
 			out, err := gen.generateTemplateOutput("typescriptAPITemplate", typescriptAPITemplate, gen.apiClientData())
 			if err != nil {
 				t.Fatalf("generateTemplateOutput() error = %v", err)

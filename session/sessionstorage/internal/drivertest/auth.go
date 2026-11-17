@@ -149,14 +149,14 @@ type AuthConfig struct {
 	AuthEvents bool
 	// Impersonation attaches the SessionImpersonations table.
 	Impersonation bool
-	// Resolve is the custom account rule the instance's SignIn runs with, which the
-	// harness adapts to the driver's transaction. Nil with NoStandardRule rejects every
-	// unlinked identity.
-	Resolve func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error)
 	// Accounts is what the library's standard rule finds chosen for the instance's
 	// sign-in method (MethodName), applied when Resolve is nil or answers
 	// signin.Standard; NoStandardRule for none.
 	Accounts Accounts
+	// Resolve is the custom account rule the instance's SignIn runs with, which the
+	// harness adapts to the driver's transaction. Nil with NoStandardRule rejects every
+	// unlinked identity.
+	Resolve func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error)
 	// DefaultRole is the default role an Open method's row names, "" for none.
 	DefaultRole string
 	// SignUp is the hook that gives a person who signed up through an Open method its
@@ -183,7 +183,7 @@ const MethodName = "directory"
 
 // Accounts is what an administrator chose for an instance's sign-in method, which the
 // library's standard rule reads.
-type Accounts int
+type Accounts uint8
 
 const (
 	// NoStandardRule runs no standard rule: with no Resolve, every unlinked identity

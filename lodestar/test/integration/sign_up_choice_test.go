@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -255,7 +256,7 @@ func changeSources(ctx context.Context, t *testing.T, s *served, table string) [
 	if err := iter.Do(func(row *spanner.Row) error {
 		var source string
 		if err := row.Columns(&source); err != nil {
-			return err
+			return errors.Wrap(err, "spanner.Row.Columns()")
 		}
 		sources = append(sources, source)
 

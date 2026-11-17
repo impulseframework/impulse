@@ -603,8 +603,10 @@ func (m *Method) Meaning() string {
 			items = append(items, signUpItem(m.Auth))
 		}
 	default:
-		items = append(items, fmt.Sprintf("Give the %s auth its development logins with passwords in the bootstrap identities, and the test harness a login that posts to `user/password/login`.", m.Auth))
-		items = append(items, signUpItem(m.Auth))
+		items = append(items,
+			fmt.Sprintf("Give the %s auth its development logins with passwords in the bootstrap identities, and the test harness a login that posts to `user/password/login`.", m.Auth),
+			signUpItem(m.Auth),
+		)
 		if spec.UsernameIsEmail {
 			items = append(items, fmt.Sprintf("Mind the sign-in name. The %s auth's password method takes the person's email address as the username (`session.UsernameIsEmail()`, and `.UsernameIsEmail()` on the declaration), so the generated management derives the address from the username and carries no method that renames a user or sets an address by hand; the session library renames the user when a verified change of address completes, and the roles, which are held by the id of the account, stay as they are; the development logins and the first administrator are addresses.", m.Auth))
 		}

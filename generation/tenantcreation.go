@@ -562,7 +562,10 @@ type tsTenantCreation struct {
 }
 
 // tenantCreationClientData is the create-your-tenant block of a client generated for
-// an outlet serving the route; nil where the outlet serves none.
+// an outlet serving the route; nil where the outlet serves none. Whether the route is
+// generated is the resource generator's decision, handed to this target when the run
+// builds it (buildUnifiedTypescriptGenerator): the record as this target parsed it
+// carries none.
 func (t *typescriptGenerator) tenantCreationClientData() *tsTenantCreation {
 	var record *resourceInfo
 	for _, res := range t.resources {
@@ -570,7 +573,7 @@ func (t *typescriptGenerator) tenantCreationClientData() *tsTenantCreation {
 			record = res
 		}
 	}
-	if record == nil || !record.TenantCreation.SelfService() || !record.OnOutlet(t.targetOutlet()) {
+	if record == nil || !t.tenantCreation.SelfService() || !record.OnOutlet(t.targetOutlet()) {
 		return nil
 	}
 	out := &tsTenantCreation{

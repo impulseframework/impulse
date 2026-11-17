@@ -16,7 +16,7 @@ func signUpFiles(t *testing.T) []string {
 	t.Helper()
 
 	var got []string
-	for _, file := range identityTreeFiles(t, "pkg/identity") {
+	for _, file := range identityTreeFiles(t) {
 		for _, part := range []string{"sign_in_methods", "sign_up", "invite_only"} {
 			if strings.Contains(file, part) {
 				got = append(got, file)

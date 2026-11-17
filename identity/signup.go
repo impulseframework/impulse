@@ -121,7 +121,7 @@ func (m *Manager) AnyMethodOpen(ctx context.Context, reader resource.ReadOnlyTra
 func (m *Manager) signInMethod(registered *session.RegisteredMethod, row *SignInMethodRow) SignInMethod {
 	method := SignInMethod{
 		Name: registered.Name, Label: registered.Label, Admits: sentenceStart(registered.Audience.Words()),
-		DirectoryGivesRoles: registered.SyncsRoles,
+		OpenSignUp: false, DefaultRole: "", DirectoryGivesRoles: registered.SyncsRoles, Says: "",
 	}
 	switch {
 	case registered.SyncsRoles:
@@ -171,7 +171,7 @@ func (m *Manager) OpenSignUp(ctx context.Context, txn resource.ReadWriteTransact
 	if _, err := m.choosable(open.Method); err != nil {
 		return err
 	}
-	row := &SignInMethodRow{Name: open.Method, OpenSignUp: true}
+	row := &SignInMethodRow{Name: open.Method, OpenSignUp: true, DefaultRole: nil}
 	switch {
 	case open.CreatesTenant && open.DefaultRole != "":
 		return httpio.NewBadRequestMessagef("no default role is chosen here: a person who signs up creates %s of their own and administers it, so send the request without a role", withArticle(m.tenantWord))
@@ -236,7 +236,7 @@ func (m *Manager) MakeInviteOnly(ctx context.Context, txn resource.ReadWriteTran
 	if row := rowNamed(rows, method); row == nil || !row.OpenSignUp {
 		return nil
 	}
-	if err := m.store.SetSignInMethod(ctx, txn, &SignInMethodRow{Name: method}); err != nil {
+	if err := m.store.SetSignInMethod(ctx, txn, &SignInMethodRow{Name: method, OpenSignUp: false, DefaultRole: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.SetSignInMethod()")
 	}
 
