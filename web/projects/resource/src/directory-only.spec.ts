@@ -34,7 +34,9 @@ describe('directoryOnlyState', () => {
     const client = createClient(descriptor, { baseUrl: '/api', transport });
 
     expect(await directoryOnlyState(client, 'acme co' as Domain)).toEqual({ directoryOnly: true });
-    expect(transport.requests.map((r) => `${r.method} ${r.url}`)).toEqual(['GET /api/tenants/acme%20co/directory-only']);
+    expect(transport.requests.map((r) => `${r.method} ${r.url}`)).toEqual([
+      'GET /api/tenants/acme%20co/directory-only',
+    ]);
   });
 
   it('refuses an API that serves no tenant route before any request is made', () => {
