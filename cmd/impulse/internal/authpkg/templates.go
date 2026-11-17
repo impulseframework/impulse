@@ -36,7 +36,7 @@ const authTemplate = `// Package {{.Name}} is the {{.Name}} auth: {{.Doc}}, who 
 //
 // The auth mails: an administrator invites a person by address, with the roles the
 // invitation seats, and the invitee follows the link to accept it; a signed-in person
-// adds an address and proves it by following the link sent to it{{if .Password}}; and, while an
+// adds an address and proves it by following the link sent to it{{if and .Password .SignUpChoice}}; and, while an
 // administrator has the password method open to sign-up, a stranger signs up from a link
 // mailed to the address they give{{end}}.
 // The links open the login page of the surface that binds to this auth
@@ -545,8 +545,13 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// A person whose account stood before is given the default seat too, at the sign-in
 	// that links the account to the directory, where they hold no role in the tenant; a
 	// role an administrator removes afterwards is not given back by signing in. A
+{{- if .SignUpChoice}}
 	// directory no tenant has falls to the method's choice, which is invite only until an
 	// administrator opens the method to sign-up. The auth's roles are the
+{{- else}}
+	// directory no tenant has falls to the method, which is invite only: an account
+	// stands before the sign-in, or an invitation comes with it. The auth's roles are the
+{{- end}}
 	// application's, so the admission is set here; an auth whose directory writes the
 	// roles sets none.
 	authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
@@ -662,8 +667,12 @@ import (
 // sign-in is checked against the user's hash in the users table; the bootstrap creates
 // the development logins with their passwords, and a deployed environment starts from the
 // administrator the migrate command seeds (foothold.go), the rest coming from its
+{{- if .SignUpChoice}}
 // administration surface, from the invitations it mails and, while an administrator has
 // the method open to sign-up, from the strangers who sign up from a mailed link.
+{{- else}}
+// administration surface and from the invitations it mails.
+{{- end}}
 const {{.Registration}} = "password"
 
 // PasswordLogin checks a username and password and starts the session.
@@ -692,8 +701,14 @@ func (h *Handlers) InvitationSignUp() http.HandlerFunc {
 
 // SignUpStart mails a sign-up link to the address a stranger gives; an address already
 // held gets a notice instead, and the caller learns neither. The three sign-up routes
+{{- if .SignUpChoice}}
 // answer 404 while the password method is invite only, which it is until an
 // administrator opens it to sign-up on the application's Sign-in page.
+{{- else}}
+// answer 404 while the password method is invite only, which it always is here: no
+// method of this auth is opened to sign-up, since nobody who signed up to it could be
+// given a tenant.
+{{- end}}
 func (h *Handlers) SignUpStart() http.HandlerFunc {
 	return h.SignUp().Start()
 }
@@ -711,8 +726,13 @@ func (h *Handlers) SignUpComplete() http.HandlerFunc {
 }
 
 // register{{.Pascal}} registers the password method on the Auth, before the first request.
+{{- if .SignUpChoice}}
 // Whether a stranger may sign up through it is no option here: the method is invite
 // only until an administrator opens it to sign-up in the running application.
+{{- else}}
+// The method is invite only, and no method of this auth is opened to sign-up: a person
+// gets an account by an invitation, or from an administrator.
+{{- end}}
 {{- if .UsernameIsEmail}}
 // The sign-in name is the person's email address (session.UsernameIsEmail): the users
 // surface derives the address from it, and a verified change of address renames the user.
@@ -956,8 +976,14 @@ func (h *Handlers) {{.Pascal}}FrontChannelLogout() http.HandlerFunc {
 // has no invite-only or open choice.
 {{- else}}
 // A person Microsoft verifies for the first time, who has no account, needs an
+{{- if .SignUpChoice}}
 // invitation: the method is invite only until an administrator opens it to sign-up on
 // the application's Sign-in page, and anyone else is refused (not_invited). A person
+{{- else}}
+// invitation, or the directory of a tenant that names a default role: the method is
+// invite only and is never opened to sign-up, since nobody who signed up to this auth
+// could be given a tenant, and anyone else is refused (not_invited). A person
+{{- end}}
 // admitted becomes a user under their user principal name, with no password, linked by
 // the directory's immutable tenant and object ids so a renamed account stays the same
 // person; a user created beforehand under that name is linked and signed in.
@@ -1146,9 +1172,16 @@ func (h *Handlers) {{.Pascal}}Callback() http.HandlerFunc {
 // stays the same person, holding the roles the directory's groups name: the directory
 // decides who the method's people are, so the method has no invite-only or open choice.
 {{- else}}
+{{- if .SignUpChoice}}
 // A person Google verifies for the first time, who has no account, needs an invitation:
 // the method is invite only until an administrator opens it to sign-up on the
 // application's Sign-in page, and anyone else is refused (not_invited). A person
+{{- else}}
+// A person Google verifies for the first time, who has no account, needs an invitation,
+// or the directory of a tenant that names a default role: the method is invite only and
+// is never opened to sign-up, since nobody who signed up to this auth could be given a
+// tenant, and anyone else is refused (not_invited). A person
+{{- end}}
 // admitted becomes a user under their verified email, with no password, linked by
 // Google's immutable subject so a renamed account stays the same person; a user created
 // beforehand under that email is linked and signed in.
@@ -1357,8 +1390,14 @@ func (h *Handlers) {{.Pascal}}Callback() http.HandlerFunc {
 // the method's people are, so the method has no invite-only or open choice.
 {{- else}}
 // A person the provider verifies for the first time, who has no account, needs an
+{{- if .SignUpChoice}}
 // invitation: the method is invite only until an administrator opens it to sign-up on
 // the application's Sign-in page, and anyone else is refused (not_invited). A person
+{{- else}}
+// invitation, or the directory of a tenant that names a default role: the method is
+// invite only and is never opened to sign-up, since nobody who signed up to this auth
+// could be given a tenant, and anyone else is refused (not_invited). A person
+{{- end}}
 // admitted becomes a user under the name the provider presents (the preferred username,
 // or the email when it sends none), with no password, linked by the provider's subject
 // so a renamed account stays the same person; a user created beforehand under that name

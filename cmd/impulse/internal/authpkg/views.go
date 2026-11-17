@@ -35,6 +35,9 @@ type view struct {
 	// the application gives nobody a role at a sign-in and the auth sets no hook for it
 	// (the generated identity client of such an auth answers none).
 	RolesSynced bool
+	// SignUpChoice reports an auth whose methods an administrator may open to sign-up
+	// (signUpChoice).
+	SignUpChoice bool
 	// IdentityPackage is the import path of the auth's generated identity package
 	// (<module>/<IdentityDir>/<name>identity); empty where the application generates no
 	// management of its auths.
@@ -99,8 +102,20 @@ type methodView struct {
 	// Simulated are the names the simulated directory signs the registration in with:
 	// APP_<REGISTRATION>_USERNAME and _ROLES.
 	SimulatedUsername, SimulatedRoles string
+	// SignUpChoice reports an auth whose methods an administrator may open to sign-up
+	// (signUpChoice).
+	SignUpChoice bool
 	// module is the application's module path.
 	module string
+}
+
+// signUpChoice reports whether an administrator may open the auth's methods to sign-up
+// in the running application: every auth of an application without tenants, and in one
+// with tenants the auth whose people create a tenant of their own (the tenant policy
+// admits a person who holds none). Another auth of a tenanted application has nothing to
+// give a person who signed up, so its methods stay invite only.
+func signUpChoice(spec *Spec) bool {
+	return spec.TenantPolicy == nil || spec.TenantPolicy.AdmitWithoutTenant
 }
 
 // Module is the application's module path, for the imports of the application's own
@@ -116,6 +131,7 @@ func newView(spec *Spec) *view {
 		v.Doc = "the people who sign in to the application"
 	}
 	v.Application = Application(spec)
+	v.SignUpChoice = signUpChoice(spec)
 	for i := range spec.Methods {
 		mv := newMethodView(spec, &spec.Methods[i])
 		v.Methods = append(v.Methods, mv)
@@ -231,6 +247,7 @@ func newMethodView(spec *Spec, m *Method) *methodView {
 	mv := &methodView{Method: m, Auth: spec.Name, AuthPascal: names.Pascal(spec.Name), Fields: m.Fields(), SlotKind: m.slot(), SlotWords: slotWords(m), module: spec.Module}
 	mv.Field = lowerFirst(m.Pascal())
 	mv.Foothold = Foothold(spec)
+	mv.SignUpChoice = signUpChoice(spec)
 	for i := range mv.Fields {
 		mv.Variables = append(mv.Variables, m.Variable(spec.Name, &mv.Fields[i]))
 	}

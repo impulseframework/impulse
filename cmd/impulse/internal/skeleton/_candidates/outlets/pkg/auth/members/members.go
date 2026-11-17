@@ -435,8 +435,8 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// A person whose account stood before is given the default seat too, at the sign-in
 	// that links the account to the directory, where they hold no role in the tenant; a
 	// role an administrator removes afterwards is not given back by signing in. A
-	// directory no tenant has falls to the method's choice, which is invite only until an
-	// administrator opens the method to sign-up. The auth's roles are the
+	// directory no tenant has falls to the method, which is invite only: an account
+	// stands before the sign-in, or an invitation comes with it. The auth's roles are the
 	// application's, so the admission is set here; an auth whose directory writes the
 	// roles sets none.
 	authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
