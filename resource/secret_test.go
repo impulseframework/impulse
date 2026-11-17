@@ -1519,3 +1519,47 @@ func TestOpenSecretIn_rowWrittenUnderAnotherKeyOrder(t *testing.T) {
 		})
 	}
 }
+
+// unsealedRow is sealedRow's table as a resource that declares no secret: its
+// AccessCode is a string like any other.
+type unsealedRow struct {
+	ID         string  `spanner:"Id"`
+	Title      string  `spanner:"Title"`
+	AccessCode *string `spanner:"AccessCode"`
+}
+
+func (unsealedRow) Resource() accesstypes.Resource {
+	return "SealedRows"
+}
+
+func (unsealedRow) DefaultConfig() Config {
+	return Config{}
+}
+
+// A request's text is sized as a secret only where the resource declares the field one.
+// The same request struct, its field tagged with a BYTES(n) column, is a secret's on the
+// resource that declares it and a stale struct on one that does not: a string-kinded
+// field on BYTES(n) that is no secret has no rule, so nothing sizes it by mistake at the
+// column's length less what sealing adds.
+func TestNewSet_secretValueLimit(t *testing.T) {
+	t.Parallel()
+
+	sealed, err := NewSet[sealedRow, sealedRequest](accesstypes.Update)
+	if err != nil {
+		t.Fatalf("NewSet() on the resource that declares the secret: error = %v", err)
+	}
+	if got, want := sealed.valueLimits["AccessCode"], (valueLimit{kind: ValueKindSecret, max: 4, perElement: false, jsonField: "accessCode"}); got != want {
+		t.Errorf("the secret's limit = %+v, want %+v", got, want)
+	}
+
+	const stale = `sqltype:"BYTES(46)" on field AccessCode is not supported: regenerate this struct`
+	if _, err := NewSet[unsealedRow, sealedRequest](accesstypes.Update); err == nil || !strings.Contains(err.Error(), stale) {
+		t.Errorf("NewSet() on a resource that declares no secret: error = %v, want containing %q", err, stale)
+	}
+	if _, err := newUnenforcedSet[unsealedRow, sealedRequest](); err == nil || !strings.Contains(err.Error(), stale) {
+		t.Errorf("newUnenforcedSet() on a resource that declares no secret: error = %v, want containing %q", err, stale)
+	}
+	if HasValueLimit("BYTES(64)", ValueKindString, false) {
+		t.Error(`HasValueLimit("BYTES(64)", a string) = true, want no rule: the generator would tag a field that is no secret`)
+	}
+}
