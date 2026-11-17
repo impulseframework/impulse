@@ -243,6 +243,27 @@ func Test_tenantMakerData(t *testing.T) {
 			},
 		},
 		{
+			name:    "a field that alone identifies a row and takes no NULL is marked, so the maker reads whether its value is taken",
+			structs: []string{"Citadel"},
+			mutate: func(r *resourceGenerator) {
+				staff(r)
+				for _, field := range r.tenantRecord().Fields {
+					// The name and the motto each under a unique index of its own; the
+					// motto takes NULL, which a unique index holds any number of.
+					field.IsUniqueIndex = field.Name() == "Name" || field.Name() == "Motto"
+				}
+			},
+			want: &tenantMakerData{
+				Key: "ID",
+				Fields: []*tenantMakerField{
+					{Name: "Name", Type: "string", Wire: "name", Unique: true},
+					{Name: "Motto", Type: "*string", Wire: "motto"},
+					{Name: "Founded", Type: "civil.Date", Wire: "founded"},
+					{Name: "Walled", Type: "bool", Wire: "walled"},
+				},
+			},
+		},
+		{
 			name:    "a record that declares the switch and its directories: the switch is no field, and the tenant's id is the directory's tenant column",
 			structs: []string{"Harbor", "HarborDirectory"},
 			mutate:  staff,

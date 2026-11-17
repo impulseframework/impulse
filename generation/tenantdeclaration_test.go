@@ -307,7 +307,7 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				ResourcePackage:     "resources",
 				LocalPackageImports: `"example.com/app/pkg/resources"`,
 				Maker: &tenantMakerData{
-					Fields:      []*tenantMakerField{{Name: "Name", Type: "string", Wire: "name"}, {Name: "Berths", Type: "*int64", Wire: "berths"}},
+					Fields:      []*tenantMakerField{{Name: "Name", Type: "string", Wire: "name", Unique: true}, {Name: "Berths", Type: "*int64", Wire: "berths"}},
 					Key:         "ID",
 					Flag:        "DirectoryOnly",
 					TenantValue: "id",
@@ -328,6 +328,11 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				"id := patch.ID()",
 				`if value, ok := carried["Name"]; ok {`,
 				"var given string",
+				// A name another harbor holds is refused where the answer says so, and
+				// not by the database at the commit.
+				"switch _, err := resources.NewHarborQuery().SetName(given).AddColumns(resources.NewHarborColumns().ID()).Read(ctx, txn); {",
+				`return "", httpio.NewConflictMessagef("a harbor with the name %v already exists: give the new one another", given)`,
+				"case !httpio.HasNotFound(err):",
 				"patch.SetName(given)",
 				`if value, ok := carried["Berths"]; ok {`,
 				"var given *int64",
@@ -386,7 +391,8 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				"func (m *sectorMaker) SeatsDefaultRole() bool {\n\treturn false\n}",
 				"func (m *sectorMaker) DeclaresDirectoryOnly() bool {\n\treturn false\n}",
 			},
-			wantNotContains: []string{"hasDirectory", "DirectoryRules", "sessioninfo", "signin", "SetDirectoryOnly"},
+			// A field under no unique index is not read for.
+			wantNotContains: []string{"hasDirectory", "DirectoryRules", "sessioninfo", "signin", "SetDirectoryOnly", "NewSectorQuery()", "already exists"},
 		},
 		{
 			name: "a maker reads a field of an imported type, whose package the file imports by the record's own fields",

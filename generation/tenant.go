@@ -291,11 +291,15 @@ type tenantMakerData struct {
 
 // tenantMakerField is one field of the record as the maker reads it out of an
 // invitation's details: its name, which is its key there, its type, and its name on the
-// wire for a refusal.
+// wire for a refusal. Unique marks a field that alone identifies a row, under a unique
+// index over its one column, and takes no NULL: the maker reads whether a tenant holds
+// the value already, so a name that is taken is refused when the invitation is sent and
+// not by the database at the first sign-in's commit.
 type tenantMakerField struct {
-	Name string
-	Type string
-	Wire string
+	Name   string
+	Type   string
+	Wire   string
+	Unique bool
 }
 
 // tenantMakerData resolves the maker for the record: nil where the record is not made
@@ -306,7 +310,10 @@ func (r *resourceGenerator) tenantMakerData(record *resourceInfo) *tenantMakerDa
 	}
 	maker := &tenantMakerData{Key: record.PrimaryKey().Name()}
 	for _, field := range tenantInvitationFields(record) {
-		maker.Fields = append(maker.Fields, &tenantMakerField{Name: field.Name(), Type: field.Type(), Wire: field.WireName()})
+		maker.Fields = append(maker.Fields, &tenantMakerField{
+			Name: field.Name(), Type: field.Type(), Wire: field.WireName(),
+			Unique: field.IsUniqueIndex && !field.IsNullable && !strings.HasPrefix(field.Type(), "*"),
+		})
 	}
 	if flag := record.DirectoryOnlyField; flag != nil {
 		maker.Flag = flag.Name()
