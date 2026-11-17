@@ -221,7 +221,13 @@ func (a *Auth[S, U, Tx]) signUpComplete() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		outcome, err := a.signIn(ctx, w, a.passwordAttempt(user))
+		// The address the sign-up verified goes with the sign-in, as a password login
+		// carries the account's own: an invitation the browser also carries is accepted
+		// only where it was mailed to that address, and one mailed to another is refused
+		// (invitation_address) and left standing for the person it invites.
+		attempt := a.passwordAttempt(user)
+		attempt.identity.Email, attempt.identity.EmailVerified = addressOf(user.Email), true
+		outcome, err := a.signIn(ctx, w, attempt)
 		if err != nil {
 			return writeSignInError(ctx, w, err)
 		}
@@ -251,5 +257,5 @@ func (a *Auth[S, U, Tx]) completeSignUp(ctx context.Context, token, username, pa
 	// The link reached the person: the address's mail count is reset.
 	a.clearMailLimit(ctx, link.Email)
 
-	return &sessionstorage.SessionUser{ID: id, Username: insert.Username}, nil
+	return &sessionstorage.SessionUser{ID: id, Username: insert.Username, Email: insert.Email}, nil
 }

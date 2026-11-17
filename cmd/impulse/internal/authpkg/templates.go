@@ -1486,7 +1486,7 @@ func (h *Handlers) {{.Pascal}}Callback() http.HandlerFunc {
 // (signin.DisableRoleSync): the provider says which persona signed in, and the cast the
 // migrate command seeded says what the persona may do. The provider attests (Attesting): the person signed in to the provider's host to
 // pick a persona, which is the whole proof in a test environment, so a persona sign-in is
-// never asked for the sign-in code. The method stays invite only:
+// never asked for the sign-in code. The method is left invite only:
 // the persona's identity (its login as the subject) is linked to the account seeded
 // under that login (cast.json, SeedCast), and a persona the seed does not know is refused.
 func register{{.Pascal}}(authSession *Session, accessClient *access.Client, settings *Settings) *oidc.Method {

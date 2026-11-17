@@ -334,7 +334,7 @@ func TestMethodApply(t *testing.T) {
 			check: func(t *testing.T, a *app.App) {
 				t.Helper()
 				file := read(t, a, "pkg/auth/staff/persona.go")
-				for _, want := range []string{"package staff", `const PersonaRegistration = "persona"`, "type PersonaSettings struct", "func (h *Handlers) PersonaLogin() http.HandlerFunc", "func (h *Handlers) PersonaCallback() http.HandlerFunc", "func registerPersona(authSession *Session, accessClient *access.Client, settings *Settings) *oidc.Method", "if settings.Persona.Issuer == \"\" {\n\t\treturn nil\n\t}", "oidc.SignIn(authSession, PersonaRegistration", "signin.DisableRoleSync()", "The method stays invite only", "LoginURL:    settings.LoginURL"} {
+				for _, want := range []string{"package staff", `const PersonaRegistration = "persona"`, "type PersonaSettings struct", "func (h *Handlers) PersonaLogin() http.HandlerFunc", "func (h *Handlers) PersonaCallback() http.HandlerFunc", "func registerPersona(authSession *Session, accessClient *access.Client, settings *Settings) *oidc.Method", "if settings.Persona.Issuer == \"\" {\n\t\treturn nil\n\t}", "oidc.SignIn(authSession, PersonaRegistration", "signin.DisableRoleSync()", "The method is left invite only", "LoginURL:    settings.LoginURL"} {
 					if !strings.Contains(file, want) {
 						t.Errorf("persona.go lacks %q:\n%s", want, file)
 					}

@@ -1170,6 +1170,11 @@ func authSignUpCase1(t *testing.T) {
 		if req.UserID != userID || req.Username != "newbie" || req.Identity.Method != sessioninfo.MethodPassword || req.Invitation != nil {
 			t.Errorf("SignIn() given %+v, want the new user's password identity", req)
 		}
+		// The address the link verified is the identity's, so the store holds an
+		// invitation the browser carries to it: one mailed to another address is refused.
+		if req.Identity.Email != "new@lakeside.edu" || !req.Identity.EmailVerified {
+			t.Errorf("SignIn() given the identity %+v, want the address the sign-up verified", req.Identity)
+		}
 	}, nil)
 	rr = f.serve(f.auth.SignUp().Complete(), http.MethodPost, "/sign-up/complete", map[string]string{"token": token, "password": "correct horse", "username": "newbie"}, nil)
 	if rr.Code != http.StatusOK || cookieNamed(rr, internalcookie.AuthCookieName) == nil {

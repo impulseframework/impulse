@@ -816,7 +816,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 // it). The provider attests (Attesting): the person signed in to the provider's host to
 // pick a persona, which is the whole proof in a test environment, so a persona sign-in is
 // never asked for the code. The application is the authority for roles
-// (signin.DisableRoleSync), and the method stays invite only: the persona's identity
+// (signin.DisableRoleSync), and the method is left invite only: the persona's identity
 // (its login as the subject) is linked to the crew login seeded under that login
 // (cast.json, SeedCast), and a persona the seed never made is refused. An empty issuer
 // registers nothing, so a later environment never offers the method and nothing in the

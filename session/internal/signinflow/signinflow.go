@@ -121,9 +121,12 @@ type DirectorySeater[Tx any] func(ctx context.Context, tx Tx, userID impulse.UUI
 // opened: it gives userID, named by id and by username, the default role the method's
 // row names, inside the transaction that makes the account, which it is handed: the
 // account is made and holds the role together, or neither. It is called for a person
-// the sign-up alone admitted, never for one who came with an invitation, whose role is
-// the invitation's, nor for one whose account stood before. method is the name the
-// method is registered under. It is held to what InvitationAcceptor is: tx alone for
+// the open method admitted, never for one whose account stood before, and at a
+// directory's method not for one who came with a live invitation, whose roles are the
+// invitation's. A person who signs up with a password from a mailed link is given the
+// role, and an invitation the browser also carries is then accepted only where it was
+// mailed to the address the sign-up verified. method is the name the method is
+// registered under. It is held to what InvitationAcceptor is: tx alone for
 // reads and writes, a committed function (nil for none) the flow runs once the
 // transaction has committed and before the sign-in policy decides, and an error that
 // fails the transaction, so no account is left holding nothing.

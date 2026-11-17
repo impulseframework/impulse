@@ -457,7 +457,8 @@ func registrationLabel(name string) string {
 // provider is configured (the first environment and its pull requests), and the surface's
 // handlers for it are nil elsewhere, so the generated router mounts its routes and tells
 // the login page of it only where the surface has it. The personas are seeded accounts
-// the sign-in links to, so the method stays invite only.
+// the sign-in links to, so nothing is gained by opening the method to sign-up, and it
+// is left invite only.
 func PersonaMethod(name string) AuthMethod {
 	return AuthMethod{kind: methodPersona, name: name, label: "Persona"}
 }

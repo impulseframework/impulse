@@ -865,7 +865,7 @@ The persona method is registered only where the persona provider is configured: 
 placement's persona block names the provider's issuer and the application's client ID root,
 bedrock sets them in the first environment and its pull requests, and a later environment,
 where they are empty, never offers the method. It takes no slot and the application
-authority, and stays invite only: the personas are the accounts of the auth's cast (pkg/auth/<auth>/cast.json,
+authority, and is left invite only: the personas are the accounts of the auth's cast (pkg/auth/<auth>/cast.json,
 written empty here and named by hand), which the migrate command seeds and the deploy
 registers with the provider, and a sign-in links the persona's identity to its account.
 

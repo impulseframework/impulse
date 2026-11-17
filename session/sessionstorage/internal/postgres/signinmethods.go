@@ -35,12 +35,14 @@ func (s *SessionStorageDriver) signInMethodsTable() string {
 // SignInMethodIn reads the row of the sign-in method registered under name inside tx,
 // or nil when the method has none, which is a method that is invite only. A read that
 // fails, as it does when the table is missing, is returned as its own error, never
-// taken for "no row".
+// taken for "no row". The row is held against a change until tx ends (FOR SHARE), so a
+// sign-in that read the method open commits before the change that makes it invite
+// only does, and none commits after it on what it read before.
 func (s *SessionStorageDriver) SignInMethodIn(ctx context.Context, tx pgx.Tx, name string) (*dbtype.SignInMethod, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	query := fmt.Sprintf(`SELECT %s FROM %s WHERE "Name" = $1`, signInMethodColumns, s.signInMethodsTable())
+	query := fmt.Sprintf(`SELECT %s FROM %s WHERE "Name" = $1 FOR SHARE`, signInMethodColumns, s.signInMethodsTable())
 
 	var row signInMethodRow
 	if err := pgxscan.Get(ctx, tx, &row, query, name); err != nil {
