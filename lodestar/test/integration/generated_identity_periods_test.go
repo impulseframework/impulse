@@ -282,7 +282,7 @@ func TestGeneratedIdentityPeriods(t *testing.T) {
 	// After. Each is given once more with an end a moment away, and the suite waits for
 	// the last of them. The rule refuses an end that is past already, so a request that
 	// took longer than the moment is given a longer one.
-	var last time.Time
+	var first, last time.Time
 	endsSoon := func(what string, give func(endsAt time.Time) (int, []byte)) {
 		t.Helper()
 		for _, in := range []time.Duration{2 * time.Second, 10 * time.Second} {
@@ -294,6 +294,9 @@ func TestGeneratedIdentityPeriods(t *testing.T) {
 			assertStatus(t, status, http.StatusNoContent, body)
 			if ends.After(last) {
 				last = ends
+			}
+			if first.IsZero() || ends.Before(first) {
+				first = ends
 			}
 
 			return
@@ -322,8 +325,13 @@ func TestGeneratedIdentityPeriods(t *testing.T) {
 		}
 	}
 	written := rowsStanding(t, w, "SELECT COUNT(*) FROM CrewUserRoles", nil) + rowsStanding(t, w, "SELECT COUNT(*) FROM CrewGroupRoles", nil) + rowsStanding(t, w, "SELECT COUNT(*) FROM CrewGroupMembers", nil)
-	if time.Now().Before(last) {
-		check("inside the periods, a moment before they end", ask(), inside)
+	// A moment before the first of them ends, each still counts. The answers are held to
+	// that only when every one of them was taken before that end: a run slow enough to
+	// pass it says nothing here, and the periods that end far ahead said the same above.
+	if got := ask(); time.Now().Before(first) {
+		check("inside the periods, a moment before they end", got, inside)
+	} else {
+		t.Log("the answers a moment before the periods end were taken after the first end, and are held to nothing")
 	}
 	time.Sleep(time.Until(last.Add(300 * time.Millisecond)))
 
