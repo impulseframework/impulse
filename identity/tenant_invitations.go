@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -53,6 +54,10 @@ type NewTenant struct {
 	// DefaultRole is the role a person from the tenant's directory starts with: the
 	// directory row's default seat. Empty for none.
 	DefaultRole accesstypes.Role
+	// Source is what the change events of the tenant's rows name as their source: the
+	// person who accepted and the invitation, since the write is made at a sign-in,
+	// before any session stands.
+	Source string
 	// Caller is set at the check a send makes, and nil at an acceptance: the request's
 	// caller, whose grants the record's create is held to (the Create grant on the
 	// tenant record and on each field, with every condition), so a detail the sender
@@ -143,7 +148,9 @@ func (m *Manager) CheckInvitedTenant(ctx context.Context, client resource.Client
 		return nil
 	}
 	err := client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-		if _, err := m.tenants.Make(ctx, txn, &NewTenant{Fields: inv.Fields, DirectoryOnly: false, Directory: signin.Directory{}, DefaultRole: "", Caller: caller}); err != nil {
+		if _, err := m.tenants.Make(ctx, txn, &NewTenant{
+			Fields: inv.Fields, DirectoryOnly: false, Directory: signin.Directory{}, DefaultRole: "", Source: "the check of an invitation, rolled back", Caller: caller,
+		}); err != nil {
 			return errors.Wrap(err, "identity.TenantMaker.Make()")
 		}
 
@@ -296,12 +303,15 @@ func (m *Manager) startingRole(ctx context.Context, txn resource.ReadWriteTransa
 	if !exists {
 		return "", httpio.NewBadRequestMessagef("role %q is no role of a %s: the people of the new %s's directory start with one of its roles", role, m.tenantWord, m.tenantWord)
 	}
-	judged, err := m.judged(ctx)
-	if err != nil {
-		return "", err
-	}
-	if !judged {
+	// A call outside any request is the application's own act and is not judged; a
+	// request that reaches a manager built without the grants cannot be judged, which
+	// is an error and never a pass.
+	if resource.CallerFrom(ctx).IsZero() {
 		return role, nil
+	}
+	if m.grants == nil {
+		return "", errors.New("a request names the role the people of a new tenant's directory start with and the manager holds no role grants to judge it by: " +
+			"build it with identity.WithRoleGrants, as the generated client does")
 	}
 	placeholder, err := impulse.NewUUID()
 	if err != nil {
@@ -383,7 +393,8 @@ func (m *Manager) acceptTenantInvitation(ctx context.Context, txn resource.ReadW
 		}
 	}
 	domain, err := m.tenants.Make(ctx, txn, &NewTenant{
-		Fields: details.Fields, DirectoryOnly: inv.NewTenant.DirectoryOnly, Directory: directory, DefaultRole: accesstypes.Role(details.DefaultRole), Caller: nil,
+		Fields: details.Fields, DirectoryOnly: inv.NewTenant.DirectoryOnly, Directory: directory, DefaultRole: accesstypes.Role(details.DefaultRole),
+		Source: fmt.Sprintf("%s (%s), invitation %s", username, userID, inv.ID), Caller: nil,
 	})
 	if err != nil {
 		return "", errors.Wrapf(err, "the invitation to %s makes a %s", inv.Email, m.tenantWord)
