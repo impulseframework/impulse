@@ -94,7 +94,7 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 	// (conditions:"secret"), and a row's generated Open method opens one with. No version
 	// in the environment is no keys, which an application that stores a secret is refused
 	// for when its router is built, and no other.
-	secretKeys, err := resource.SecretKeysFromEnv("APP_SECRET_KEY", os.LookupEnv)
+	secretKeys, err := resource.SecretKeysFromEnv("APP_SECRET_KEY", os.Environ())
 	if err != nil {
 		return nil, errors.Wrap(err, "resource.SecretKeysFromEnv()")
 	}

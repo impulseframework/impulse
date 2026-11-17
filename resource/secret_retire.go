@@ -132,6 +132,12 @@ func RetireSecretVersion(ctx context.Context, client Client, variable string, ho
 		return nil, errors.Newf("%s names version %d, and the highest version this service was given is %d: no value is sealed under a version above the current one, so there is nothing to retire", variable, version, keys.Current())
 	}
 
+	for _, holder := range holders {
+		if holder.retire == nil || holder.named == nil {
+			return nil, errors.Newf("the secret holder of %s was not built by resource.SecretHolderOf: pass the holders the generated SecretHolders answers", holder.Resource)
+		}
+	}
+
 	retirement := &SecretRetirement{Variable: variable, Version: version, Current: keys.Current(), Fields: nil}
 	for _, holder := range holders {
 		for _, field := range holder.Fields {
@@ -371,10 +377,10 @@ func retireSecretFieldPostgres[R Resourcer](ctx context.Context, client *Postgre
 	}
 	where := make([]string, 0, len(rMeta.secretContext)+1)
 	for i, part := range rMeta.secretContext {
-		where = append(where, fmt.Sprintf(`"%s" = $%d`, fieldMap[part].ColumnName, i+2))
+		where = append(where, fmt.Sprintf("%s = $%d", postgresIdentifier(fieldMap[part].ColumnName), i+2))
 	}
-	where = append(where, fmt.Sprintf(`"%s" = $%d`, column.ColumnName, len(rMeta.secretContext)+2))
-	update := fmt.Sprintf(`UPDATE "%s" SET "%s" = $1 WHERE %s`, res.Resource(), column.ColumnName, strings.Join(where, " AND "))
+	where = append(where, fmt.Sprintf("%s = $%d", postgresIdentifier(column.ColumnName), len(rMeta.secretContext)+2))
+	update := fmt.Sprintf("UPDATE %s SET %s = $1 WHERE %s", postgresIdentifier(string(res.Resource())), postgresIdentifier(column.ColumnName), strings.Join(where, " AND "))
 
 	rewritten := 0
 	for {
@@ -427,6 +433,12 @@ func retireSecretFieldPostgres[R Resourcer](ctx context.Context, client *Postgre
 	}
 }
 
+// postgresIdentifier quotes a table's or a column's name for PostgreSQL, which folds an
+// unquoted name to lower case.
+func postgresIdentifier(name string) string {
+	return `"` + strings.ReplaceAll(name, `"`, `""`) + `"`
+}
+
 // postgresNamedSecrets reads the key and one secret field of the rows of R whose stored
 // bytes name the version, limit rows of them or all with no limit, and yields each. The
 // key columns are scanned into the resource struct's own types, so a row's key is the
@@ -444,11 +456,11 @@ func postgresNamedSecrets[R Resourcer](ctx context.Context, client *PostgresClie
 		if !ok {
 			return errors.Newf("key field %s not found in db struct", part)
 		}
-		columns = append(columns, fmt.Sprintf(`"%s"`, meta.ColumnName))
+		columns = append(columns, postgresIdentifier(meta.ColumnName))
 	}
-	columns = append(columns, fmt.Sprintf(`"%s"`, column.ColumnName))
+	columns = append(columns, postgresIdentifier(column.ColumnName))
 	// The first byte of the stored bytes is the version that sealed them.
-	sql := fmt.Sprintf(`SELECT %s FROM "%s" WHERE substring("%s" from 1 for 1) = $1`, strings.Join(columns, ", "), res.Resource(), column.ColumnName)
+	sql := fmt.Sprintf("SELECT %s FROM %s WHERE substring(%s from 1 for 1) = $1", strings.Join(columns, ", "), postgresIdentifier(string(res.Resource())), postgresIdentifier(column.ColumnName))
 	if limit > 0 {
 		sql += " LIMIT " + strconv.Itoa(limit)
 	}

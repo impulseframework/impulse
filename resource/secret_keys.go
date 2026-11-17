@@ -28,7 +28,7 @@ import (
 // secret therefore hold keys with no relation to each other. The salt and the labels
 // must never change: a value sealed under a key opens under no other.
 const (
-	applicationSecretSalt = "impulse-application-secret-v1"
+	applicationSecretSalt = "impulse-application-secret-v1" //nolint:gosec // a fixed public salt, not a credential
 	// secretFieldUse is the use of the working keys that seal resource fields.
 	secretFieldUse = "secret-field"
 	// applicationSecretSize is the least an application secret's version holds.
@@ -125,7 +125,8 @@ func workingKey(secret []byte, use string, version int) ([]byte, error) {
 // hands over every enabled version of the application secret in a variable of its own:
 // the name the configuration declares secret:"versioned", an underscore and the
 // version's number (APP_SECRET_KEY_1, APP_SECRET_KEY_2), each holding the version's 32
-// random bytes in Base64. lookup is os.LookupEnv.
+// random bytes in Base64. environ is os.Environ(): the whole list is read, so every
+// variable the name numbers is either a version or an error, and none is passed over.
 //
 // With no version in the environment it answers no keys and no error: an application
 // that stores no secret runs without the variable, and one that stores a secret is
@@ -133,19 +134,22 @@ func workingKey(secret []byte, use string, version int) ([]byte, error) {
 // and does not hold a version is an error naming the variable, never its value. The
 // declared name with no version number is no version, and is not read. A stored value
 // names the version that sealed it in one byte, so versions run from 1 to 255: the
-// variable of version 256 is an error, since the service would otherwise go on sealing
-// under an older version than the deployment's newest.
-func SecretKeysFromEnv(name string, lookup func(string) (string, bool)) (*SecretKeys, error) {
-	if beyond := name + "_" + strconv.Itoa(maxSecretVersion+1); isSet(lookup, beyond) {
-		return nil, errors.Newf("%s is set: a stored secret names the version that sealed it in one byte, so the application secret's versions run from 1 to %d, and this one is past the last", beyond, maxSecretVersion)
-	}
-
+// variable of a version past the last is an error, since the service would otherwise go
+// on sealing under an older version than the deployment's newest.
+func SecretKeysFromEnv(name string, environ []string) (*SecretKeys, error) {
 	versions := make(map[int][]byte)
-	for version := 1; version <= maxSecretVersion; version++ {
-		variable := name + "_" + strconv.Itoa(version)
-		encoded, ok := lookup(variable)
-		if !ok {
+	for _, entry := range environ {
+		variable, encoded, _ := strings.Cut(entry, "=")
+		number, numbered := strings.CutPrefix(variable, name+"_")
+		if !numbered || number == "" || strings.Trim(number, "0123456789") != "" {
 			continue
+		}
+		version, err := strconv.Atoi(number)
+		switch {
+		case err != nil || version > maxSecretVersion:
+			return nil, errors.Newf("%s is set: a stored secret names the version that sealed it in one byte, so the application secret's versions run from 1 to %d, and this one is past the last", variable, maxSecretVersion)
+		case version < 1 || strconv.Itoa(version) != number:
+			return nil, errors.Newf("%s is set and names no version of the application secret: a version's variable ends in the version's number, 1 to %d, written plainly (%s_1)", variable, maxSecretVersion, name)
 		}
 		secret, err := base64.StdEncoding.DecodeString(encoded)
 		if err != nil {
@@ -168,11 +172,10 @@ func SecretKeysFromEnv(name string, lookup func(string) (string, bool)) (*Secret
 	return keys, nil
 }
 
-// isSet reports whether the environment carries the variable.
-func isSet(lookup func(string) (string, bool), variable string) bool {
-	_, ok := lookup(variable)
-
-	return ok
+// held reports whether the holder holds a key to seal with: false for no holder, and for
+// one that was not built by NewSecretKeys or SecretKeysFromEnv, which holds none.
+func (k *SecretKeys) held() bool {
+	return k != nil && k.current != 0 && k.fields[k.current] != nil
 }
 
 // Current returns the version new values are sealed under: the highest one given.
@@ -197,7 +200,7 @@ func (k *SecretKeys) Versions() []int {
 // the stored bytes of the row's secret field. key carries every key column's value in
 // key order; the write path, which calls this for a patch, takes it from the patch.
 func (k *SecretKeys) Seal(key KeySet, plain string) (Secret, error) {
-	if k == nil {
+	if !k.held() {
 		return Secret{}, errNoSecretKeys()
 	}
 	context, err := secretContext(key)
@@ -207,7 +210,7 @@ func (k *SecretKeys) Seal(key KeySet, plain string) (Secret, error) {
 
 	aead := k.fields[k.current]
 	sealed := make([]byte, secretVersionSize+secretNonceSize, SecretOverhead+len(plain))
-	sealed[0] = byte(k.current)
+	sealed[0] = byte(k.current) //nolint:gosec // a version is 1 to 255, checked where the holder is built
 	if _, err := rand.Read(sealed[secretVersionSize:]); err != nil {
 		return Secret{}, errors.Wrap(err, "rand.Read()")
 	}
@@ -221,7 +224,7 @@ func (k *SecretKeys) Seal(key KeySet, plain string) (Secret, error) {
 // holder was not given answer an UnknownSecretVersionError, and bytes that were written
 // for another row or altered answer ErrSecretNotOpened.
 func (k *SecretKeys) Open(key KeySet, stored Secret) (string, error) {
-	if k == nil {
+	if !k.held() {
 		return "", errNoSecretKeys()
 	}
 	if stored.IsZero() {
@@ -327,7 +330,7 @@ func secretKeyPart(value any) ([]byte, error) {
 	case time.Time:
 		// The placeholder is told by identity, as the client tells it: its instant is an
 		// ordinary one.
-		if t == spanner.CommitTimestamp {
+		if t == spanner.CommitTimestamp { //nolint:staticcheck // the placeholder is this one value, told by identity; an equal instant is an ordinary key
 			return nil, errors.New("is stamped at commit, so its value is not known when the secret is sealed")
 		}
 
@@ -363,7 +366,9 @@ type secretKeyHolder interface {
 // holds none.
 func secretKeysOf(holder any) *SecretKeys {
 	if h, ok := holder.(secretKeyHolder); ok {
-		return h.secretKeys()
+		if keys := h.secretKeys(); keys.held() {
+			return keys
+		}
 	}
 
 	return nil

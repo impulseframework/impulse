@@ -27,7 +27,7 @@ import (
 type sealedRow struct {
 	ID         string  `spanner:"Id"         postgres:"Id"`
 	Title      string  `spanner:"Title"      postgres:"Title"`
-	AccessCode *Secret `spanner:"AccessCode" postgres:"AccessCode" conditions:"secret"`
+	AccessCode *Secret `spanner:"AccessCode" conditions:"secret" postgres:"AccessCode"`
 }
 
 func (sealedRow) Resource() accesstypes.Resource {
@@ -83,7 +83,7 @@ func testSecretKeys(t *testing.T, versions ...int) *SecretKeys {
 
 	given := make(map[int][]byte, len(versions))
 	for _, version := range versions {
-		given[version] = bytes.Repeat([]byte{byte(version)}, applicationSecretSize)
+		given[version] = bytes.Repeat([]byte{byte(version)}, applicationSecretSize) //nolint:gosec // a test's version, 1 to 255
 	}
 	keys, err := NewSecretKeys(given)
 	if err != nil {
@@ -162,7 +162,7 @@ func TestSecret_showsNothing(t *testing.T) {
 	shown := []string{
 		string(encoded),
 		logged.String(),
-		fmt.Sprint(sealed),
+		fmt.Sprint(sealed), //nolint:gocritic // what fmt prints is the thing under test
 		fmt.Sprintf("%v %+v %#v %s %q %x %X %d", sealed, sealed, sealed, sealed, sealed, sealed, sealed, sealed),
 		fmt.Sprintf("%v %+v %#v %s", &sealed, row, row, row.AccessCode),
 		errors.Newf("writing %v of %+v", sealed, row).Error(),
@@ -179,7 +179,7 @@ func TestSecret_showsNothing(t *testing.T) {
 			string(stored),
 			fmt.Sprintf("%x", stored),
 			fmt.Sprintf("%X", stored),
-			fmt.Sprint(stored),
+			fmt.Sprint(stored), //nolint:staticcheck // the bytes as fmt lists them, one of the forms a leak could take
 			base64.StdEncoding.EncodeToString(stored),
 		} {
 			if strings.Contains(text, leak) {
@@ -187,7 +187,7 @@ func TestSecret_showsNothing(t *testing.T) {
 			}
 		}
 	}
-	if got := fmt.Sprintf("%v", sealed); got != secretRedaction {
+	if got := fmt.Sprintf("%v", sealed); got != secretRedaction { //nolint:gocritic // what fmt prints is the thing under test
 		t.Errorf("fmt %%v = %q, want %q", got, secretRedaction)
 	}
 
@@ -565,21 +565,20 @@ func TestSecretKeysFromEnv(t *testing.T) {
 	version := func(n byte) string {
 		return base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{n}, applicationSecretSize))
 	}
-	lookup := func(env map[string]string) func(string) (string, bool) {
-		return func(name string) (string, bool) {
-			value, ok := env[name]
-
-			return value, ok
-		}
-	}
-
-	// Versions 1 and 3: version 2 was retired, and the unnumbered name is no version.
-	keys, err := SecretKeysFromEnv("APP_SECRET_KEY", lookup(map[string]string{
-		"APP_SECRET_KEY_1": version(1),
-		"APP_SECRET_KEY_3": version(3),
-		"APP_SECRET_KEY":   "not a version",
-		"APP_OTHER_KEY_2":  version(2),
-	}))
+	// Versions 1 and 3: version 2 was retired, and neither the unnumbered name, a name
+	// that only begins the same, another variable's numbered name nor an entry with no
+	// value is a version.
+	keys, err := SecretKeysFromEnv("APP_SECRET_KEY", []string{
+		"PATH=/usr/bin",
+		"APP_SECRET_KEY_1=" + version(1),
+		"APP_SECRET_KEY_3=" + version(3),
+		"APP_SECRET_KEY=not a version",
+		"APP_SECRET_KEY_FILE=/run/key",
+		"APP_SECRET_KEY_2A=" + version(2),
+		"APP_OTHER_KEY_2=" + version(2),
+		"MY_APP_SECRET_KEY_2=" + version(2),
+		"APP_SECRET_KEY_",
+	})
 	if err != nil {
 		t.Fatalf("SecretKeysFromEnv() error = %v", err)
 	}
@@ -595,14 +594,23 @@ func TestSecretKeysFromEnv(t *testing.T) {
 		t.Errorf("a value sealed by the holder read from the environment = %q, error %v", opened, err)
 	}
 
-	// A version past the last one a stored value can name is refused, not passed over:
-	// the service would go on sealing under version 255.
-	if _, err := SecretKeysFromEnv("APP_SECRET_KEY", lookup(map[string]string{"APP_SECRET_KEY_255": version(255), "APP_SECRET_KEY_256": version(1)})); err == nil || !strings.Contains(err.Error(), "APP_SECRET_KEY_256 is set: a stored secret names the version that sealed it in one byte") {
-		t.Errorf("SecretKeysFromEnv() with version 256 in the environment: error = %v, want a refusal naming the variable", err)
+	// A version past the last one a stored value can name is refused, not passed over,
+	// whatever versions are missing below it: the service would go on sealing under an
+	// older version. So is a number written any way but plainly.
+	for variable, wantErr := range map[string]string{
+		"APP_SECRET_KEY_256":                     "APP_SECRET_KEY_256 is set: a stored secret names the version that sealed it in one byte",
+		"APP_SECRET_KEY_257":                     "APP_SECRET_KEY_257 is set: a stored secret names the version that sealed it in one byte",
+		"APP_SECRET_KEY_99999999999999999999999": "APP_SECRET_KEY_99999999999999999999999 is set: a stored secret names the version that sealed it in one byte",
+		"APP_SECRET_KEY_0":                       "APP_SECRET_KEY_0 is set and names no version of the application secret",
+		"APP_SECRET_KEY_01":                      "APP_SECRET_KEY_01 is set and names no version of the application secret",
+	} {
+		if _, err := SecretKeysFromEnv("APP_SECRET_KEY", []string{"APP_SECRET_KEY_255=" + version(255), variable + "=" + version(1)}); err == nil || !strings.Contains(err.Error(), wantErr) {
+			t.Errorf("SecretKeysFromEnv() with %s in the environment: error = %v, want containing %q", variable, err, wantErr)
+		}
 	}
 
 	// No version at all is no keys and no error: an application with no secret runs.
-	if keys, err := SecretKeysFromEnv("APP_SECRET_KEY", lookup(nil)); err != nil || keys != nil {
+	if keys, err := SecretKeysFromEnv("APP_SECRET_KEY", []string{"PATH=/usr/bin", "APP_COOKIE_KEY=" + version(9)}); err != nil || keys != nil {
 		t.Errorf("SecretKeysFromEnv() with no version = %v, error %v, want neither", keys, err)
 	}
 
@@ -615,7 +623,7 @@ func TestSecretKeysFromEnv(t *testing.T) {
 		"too short":  {value: short, wantErr: "APP_SECRET_KEY_2 holds 18 bytes: it holds version 2 of the application secret, 32 random bytes in Base64 (openssl rand -base64 32 makes one)"},
 		"empty":      {value: "", wantErr: "APP_SECRET_KEY_2 holds 0 bytes"},
 	} {
-		_, err := SecretKeysFromEnv("APP_SECRET_KEY", lookup(map[string]string{"APP_SECRET_KEY_1": version(1), "APP_SECRET_KEY_2": tt.value}))
+		_, err := SecretKeysFromEnv("APP_SECRET_KEY", []string{"APP_SECRET_KEY_1=" + version(1), "APP_SECRET_KEY_2=" + tt.value})
 		if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 			t.Errorf("%s: error = %v, want containing %q", name, err, tt.wantErr)
 		}
@@ -1049,7 +1057,7 @@ func TestRequireSecretKeys(t *testing.T) {
 			t.Errorf("a client given the keys twice: panic = %v", r)
 		}
 	}()
-	NewMockClient(nil, nil, nil, WithSecretKeys(testSecretKeys(t, 1)), WithSecretKeys(testSecretKeys(t, 1)))
+	NewMockClient(nil, nil, nil, WithSecretKeys(testSecretKeys(t, 1)), WithSecretKeys(testSecretKeys(t, 1))) //nolint:gocritic // the option given twice is the thing under test
 }
 
 // Opening a secret inside a read-write transaction rewrites a value sealed under an
@@ -1081,12 +1089,16 @@ func TestOpenSecretIn(t *testing.T) {
 		gone        bool
 		reads       bool
 		wantRewrite bool
+		// written says a patch of the transaction wrote the row before the value is
+		// opened: no read sees that write, so the rewrite must leave the row alone.
+		written bool
 	}{
 		{name: "an older version is rewritten", opened: old, held: &old, reads: true, wantRewrite: true},
 		{name: "the current version is left alone", opened: current, reads: false},
 		{name: "a value set since the row was read is left alone", opened: old, held: &since, reads: true},
 		{name: "a value cleared since is left alone", opened: old, held: nil, reads: true},
 		{name: "a row deleted since is left alone", opened: old, gone: true, reads: true},
+		{name: "a row this transaction already wrote is left alone, and not read", opened: old, written: true, reads: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1103,14 +1115,29 @@ func TestOpenSecretIn(t *testing.T) {
 			}
 			buffered := &capturingTxn{}
 			txn := NewMockReadWriteTransaction(buffered, reader).WithSecretKeys(keys)
+			earlier := 0
+			if tt.written {
+				// The transaction's own patch sets the secret to another value first.
+				set := NewPatchSet(NewMetadata[sealedRow]()).SetPatchType(UpdatePatchType)
+				set.SetKey("ID", "row-1")
+				set.Set("AccessCode", "set-in-this-transaction")
+				columns, err := set.Resolve(txn.DBType(), keys)
+				if err != nil {
+					t.Fatalf("Resolve() error = %v", err)
+				}
+				if err := txn.BufferMap(set, columns); err != nil {
+					t.Fatalf("BufferMap() error = %v", err)
+				}
+				earlier = 1
+			}
 
 			opened, err := OpenSecretIn[sealedRow](context.Background(), txn, rowKey("row-1"), "AccessCode", tt.opened)
 			if err != nil || opened != plain {
 				t.Fatalf("OpenSecretIn() = %q, error %v, want %q", opened, err, plain)
 			}
 			if !tt.wantRewrite {
-				if len(buffered.columns) != 0 {
-					t.Errorf("the transaction buffered %d writes, want none", len(buffered.columns))
+				if len(buffered.columns) != earlier {
+					t.Errorf("the transaction buffered %d writes after its own %d, want none", len(buffered.columns)-earlier, earlier)
 				}
 
 				return
@@ -1197,6 +1224,44 @@ func TestPatchSet_proposedValues_leavesASecretOut(t *testing.T) {
 		if got := proposed.values["Title"]; got != "a title" {
 			t.Errorf("%s: the proposed image's Title = %v, want the value set: a field that is no secret stays", name, got)
 		}
+	}
+}
+
+// A patch that sets a secret lists the secret alone among its fields: the key a query
+// brings with a secret is for reading, and a patch that listed it would ask the caller
+// for the right to write its row's key and hand a grant's condition a key with no value.
+func TestPatchSet_Set_aSecretBringsNoKey(t *testing.T) {
+	t.Parallel()
+
+	p := NewPatchSet(NewMetadata[sealedPairRow]()).SetPatchType(UpdatePatchType)
+	p.SetKey("Vault", "vault-1")
+	p.SetKey("Shelf", "shelf-1")
+	p.Set("Number", "open-sesame")
+	if got := p.Fields(); !cmp.Equal(got, []accesstypes.Field{"Number"}) || p.Len() != 1 {
+		t.Errorf("the fields of a patch that sets the secret = %v (%d), want the secret alone", got, p.Len())
+	}
+}
+
+// A holder that was not built from versions holds no key: it seals and opens nothing,
+// and a client given it holds no keys, so the application is refused at start as one
+// with no holder is.
+func TestSecretKeys_zeroValue(t *testing.T) {
+	t.Parallel()
+
+	empty := &SecretKeys{}
+	if _, err := empty.Seal(rowKey("row-1"), "open-sesame"); err == nil || !strings.Contains(err.Error(), "no secret keys") {
+		t.Errorf("Seal() by a holder with no key: error = %v, want the refusal of no keys", err)
+	}
+	sealed, err := testSecretKeys(t, 1).Seal(rowKey("row-1"), "open-sesame")
+	if err != nil {
+		t.Fatalf("Seal() error = %v", err)
+	}
+	if _, err := empty.Open(rowKey("row-1"), sealed); err == nil || !strings.Contains(err.Error(), "no secret keys") {
+		t.Errorf("Open() by a holder with no key: error = %v, want the refusal of no keys", err)
+	}
+	client := NewMockClient(nil, nil, nil, WithSecretKeys(empty))
+	if err := RequireSecretKeys(client, "SealedRow.AccessCode"); err == nil || !strings.Contains(err.Error(), "was built with no secret keys") {
+		t.Errorf("RequireSecretKeys() of a client given a holder with no key: error = %v, want the start refusal", err)
 	}
 }
 

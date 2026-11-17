@@ -17,7 +17,7 @@ import (
 type retiringRow struct {
 	ID         string  `spanner:"Id"         postgres:"Id"`
 	Title      string  `spanner:"Title"      postgres:"Title"`
-	AccessCode *Secret `spanner:"AccessCode" postgres:"AccessCode" conditions:"secret"`
+	AccessCode *Secret `spanner:"AccessCode" conditions:"secret" postgres:"AccessCode"`
 }
 
 func (retiringRow) Resource() accesstypes.Resource {
@@ -100,15 +100,11 @@ func TestRetireSecretVersion_refusals(t *testing.T) {
 	t.Parallel()
 
 	fromEnv := func(versions ...string) *SecretKeys {
-		env := make(map[string]string, len(versions))
+		environ := make([]string, 0, len(versions))
 		for _, version := range versions {
-			env["APP_SECRET_KEY_"+version] = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+			environ = append(environ, "APP_SECRET_KEY_"+version+"=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 		}
-		keys, err := SecretKeysFromEnv("APP_SECRET_KEY", func(name string) (string, bool) {
-			value, ok := env[name]
-
-			return value, ok
-		})
+		keys, err := SecretKeysFromEnv("APP_SECRET_KEY", environ)
 		if err != nil {
 			t.Fatalf("SecretKeysFromEnv() error = %v", err)
 		}
@@ -128,6 +124,7 @@ func TestRetireSecretVersion_refusals(t *testing.T) {
 		{name: "the only version is the current one", keys: fromEnv("1"), variable: "APP_SECRET_KEY_1", wantErr: "APP_SECRET_KEY_1 is the current version of the application secret"},
 		{name: "a version above the current one", keys: fromEnv("1", "2"), variable: "APP_SECRET_KEY_3", wantErr: "APP_SECRET_KEY_3 names version 3, and the highest version this service was given is 2"},
 		{name: "keys built from fixed bytes hold the variable to no name, and still refuse the current version", keys: testSecretKeys(t, 1, 2), variable: "ANY_NAME_2", wantErr: "ANY_NAME_2 is the current version of the application secret"},
+		{name: "a holder with no key is no keys", keys: &SecretKeys{}, variable: "APP_SECRET_KEY_1", wantErr: "APP_SECRET_KEY_1 cannot be retired: the resource client holds no secret keys"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -144,6 +141,18 @@ func TestRetireSecretVersion_refusals(t *testing.T) {
 				t.Errorf("RetireSecretVersion() = %+v beside its refusal, want nothing", got)
 			}
 		})
+	}
+}
+
+// A holder that SecretHolderOf did not build cannot read or write anything, and is
+// refused before anything is read.
+func TestRetireSecretVersion_holderNotBuilt(t *testing.T) {
+	t.Parallel()
+
+	client := NewMockClient(nil, nil, nil, WithSecretKeys(testSecretKeys(t, 1, 2)))
+	_, err := RetireSecretVersion(context.Background(), client, "APP_SECRET_KEY_1", SecretHolder{Resource: "SealedRows", Fields: []accesstypes.Field{"AccessCode"}})
+	if want := "the secret holder of SealedRows was not built by resource.SecretHolderOf"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("RetireSecretVersion() with a holder written by hand: error = %v, want containing %q", err, want)
 	}
 }
 

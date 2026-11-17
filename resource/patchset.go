@@ -110,7 +110,9 @@ func (p *PatchSet[Resource]) checkPermissions(ctx context.Context, dbType DBType
 // Set adds or updates a field's value in the PatchSet.
 func (p *PatchSet[Resource]) Set(field accesstypes.Field, value any) *PatchSet[Resource] {
 	p.data.Set(field, value)
-	p.querySet.AddField(field)
+	// The field alone: a query that reads a secret reads its row's key with it
+	// (QuerySet.AddField), and a patch that sets one writes the secret and nothing more.
+	p.querySet.addField(field)
 
 	return p
 }
@@ -182,11 +184,12 @@ func (p *PatchSet[Resource]) ToStruct() *Resource {
 			continue
 		}
 		val := reflect.ValueOf(value)
-		if val.Type().AssignableTo(field.Type()) {
+		switch {
+		case val.Type().AssignableTo(field.Type()):
 			field.Set(val)
-		} else if p.querySet.rMeta.secret(fieldName) {
-			continue
-		} else {
+		case p.querySet.rMeta.secret(fieldName):
+			// A secret given as text: the struct's field holds stored bytes alone.
+		default:
 			panic(errors.Newf("cannot assign value of type %s to field %s of type %s", val.Type(), fieldName, field.Type()))
 		}
 	}

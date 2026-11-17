@@ -404,7 +404,7 @@ func Test_secretHoldersTemplate(t *testing.T) {
 		r := &resourceGenerator{client: &client{}}
 		r.resource = packageDir("pkg/resources")
 		r.resources = resources
-		out, err := r.generateTemplateOutput("secretHoldersTemplate", secretHoldersTemplate, r.secretHoldersData())
+		out, err := r.generateTemplateOutput("sealedHoldersTemplate", sealedHoldersTemplate, r.secretHoldersData())
 		if err != nil {
 			t.Fatalf("generateTemplateOutput() error = %v", err)
 		}

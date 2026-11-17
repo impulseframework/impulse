@@ -569,18 +569,21 @@ func (q *QuerySet[Resource]) addAccessibleFields(ctx context.Context, dbType DBT
 // and the row's generated Open method takes the key from the row, so a row read for its
 // secret alone would open on no key at all.
 func (q *QuerySet[Resource]) AddField(field accesstypes.Field) *QuerySet[Resource] {
-	if !slices.Contains(q.fields, field) {
-		q.fields = append(q.fields, field)
-	}
+	q.addField(field)
 	if q.rMeta.secret(field) {
 		for _, key := range q.rMeta.secretContext {
-			if !slices.Contains(q.fields, key) {
-				q.fields = append(q.fields, key)
-			}
+			q.addField(key)
 		}
 	}
 
 	return q
+}
+
+// addField adds the field alone, once: what a patch lists the fields it sets with.
+func (q *QuerySet[Resource]) addField(field accesstypes.Field) {
+	if !slices.Contains(q.fields, field) {
+		q.fields = append(q.fields, field)
+	}
 }
 
 // Fields returns the list of fields to be returned by the query.

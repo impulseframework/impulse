@@ -154,13 +154,24 @@ func undeclaredSecretRefusal(path string, field *resourceField) string {
 	return fmt.Sprintf("%s: typed %s and not declared conditions:%q: the declaration is what keeps the field from being served and has its value sealed when it is written; add it", path, field.Type(), secretCondition)
 }
 
+// generateHolders writes the resources package's two holders files: the file holders
+// the orphaned-file cleanup reads, and the secret holders a retirement of a version of
+// the application secret reads and rewrites.
+func (r *resourceGenerator) generateHolders() error {
+	if err := r.generateFileHolders(); err != nil {
+		return err
+	}
+
+	return r.generateSecretHolders()
+}
+
 // generateSecretHolders writes the resources package's zz_gen_secret_holders.go:
 // SecretHolders(), every resource that stores a secret. It is written on every
 // application, so the migrate command calls it unconditionally.
 func (r *resourceGenerator) generateSecretHolders() error {
 	begin := time.Now()
 	destinationFilePath := filepath.Join(r.resource.Dir(), generatedGoFileName(secretHoldersOutputName))
-	if err := r.writeFormattedGoFile(destinationFilePath, "secretHoldersTemplate", secretHoldersTemplate, r.secretHoldersData()); err != nil {
+	if err := r.writeFormattedGoFile(destinationFilePath, "sealedHoldersTemplate", sealedHoldersTemplate, r.secretHoldersData()); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")
 	}
 	log.Printf("Generated secret holders file in %s: %s", time.Since(begin), destinationFilePath)

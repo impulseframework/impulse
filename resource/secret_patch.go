@@ -218,7 +218,8 @@ func (p *PatchSet[Resource]) secretChanged(keys *SecretKeys, field accesstypes.F
 // asked, no update function stamps the row and no change record is written. It is
 // buffered only when the row still holds the bytes that were opened, read inside the
 // transaction, so a row read before the transaction began never overwrites a value set
-// since.
+// since, and never for a row a patch of the same transaction has already written, whose
+// buffered write no read sees.
 func OpenSecretIn[Resource Resourcer](ctx context.Context, txn ReadWriteTransaction, key KeySet, field accesstypes.Field, stored Secret) (string, error) {
 	rMeta := NewMetadata[Resource]()
 	keys := secretKeysOf(txn)
@@ -271,6 +272,15 @@ func rewriteSecret[Resource Resourcer](ctx context.Context, txn ReadWriteTransac
 	for _, part := range key.Parts() {
 		qSet.SetKey(part.Key, part.Value)
 		p.SetKey(part.Key, part.Value)
+	}
+	// No read sees a write its transaction has buffered. A row one of the transaction's
+	// own patches already wrote may hold a value set since the caller's row was read,
+	// which the rewrite would put the opened value back over, so the row is left as it
+	// is: its value takes the current version the next time it is used.
+	if finder, ok := txn.(touchedFinder); ok {
+		if written, _ := finder.touchedRow(p); written {
+			return false, nil
+		}
 	}
 	qSet.AddField(field)
 	stmt, err := qSet.stmt(txn.DBType())

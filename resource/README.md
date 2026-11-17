@@ -3239,7 +3239,7 @@ derived keys, not the versions it was built from). The highest version given is 
 one. The data level builds it and hands it to the database client:
 
 ```go
-keys, err := resource.SecretKeysFromEnv("APP_SECRET_KEY", os.LookupEnv)
+keys, err := resource.SecretKeysFromEnv("APP_SECRET_KEY", os.Environ())
 // ...
 db, err := database.Open(ctx, env.Database.Settings, resource.WithSecretKeys(keys))
 ```
@@ -3259,11 +3259,12 @@ SecretKey string `env:"APP_SECRET_KEY" secret:"versioned"`
 
 No variable has the declared name. Each version arrives in a variable of its own, the name
 and the version's number (`APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`), holding the version's 32
-bytes in Base64, and `resource.SecretKeysFromEnv` collects whichever are set. With none set
+bytes in Base64, and `resource.SecretKeysFromEnv` collects whichever are set, reading the
+whole environment so that no variable the name numbers is passed over. With none set
 it answers no keys and no error, so an application that stores no secret runs without the
 variable; a variable that is set and does not hold a version is an error naming the
 variable, never its value. A stored value names its version in one byte, so a secret has
-255 versions in its life: the variable of version 256 is an error at start. The development environment file carries `APP_SECRET_KEY_1` (a
+255 versions in its life: the variable of a version past 255 is an error at start. The development environment file carries `APP_SECRET_KEY_1` (a
 fixed development value in the skeletons' and Lodestar's `.envrc.template`), and
 `impulse check` (`env-template`) holds the template to it.
 

@@ -135,7 +135,7 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 	// and the server refuses to start, since its resources store a secret (router.New).
 	//
 	// Demonstrates: secret.rotation.
-	secretKeys, err := resource.SecretKeysFromEnv("APP_SECRET_KEY", os.LookupEnv)
+	secretKeys, err := resource.SecretKeysFromEnv("APP_SECRET_KEY", os.Environ())
 	if err != nil {
 		return nil, errors.Wrap(err, "resource.SecretKeysFromEnv()")
 	}

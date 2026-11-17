@@ -375,12 +375,7 @@ func (r *resourceGenerator) Generate() error {
 	if err := r.validateStores(); err != nil {
 		return err
 	}
-	if err := r.generateFileHolders(); err != nil {
-		return err
-	}
-	// The secret holders: what a retirement of a version of the application secret
-	// reads and rewrites.
-	if err := r.generateSecretHolders(); err != nil {
+	if err := r.generateHolders(); err != nil {
 		return err
 	}
 
