@@ -801,17 +801,21 @@ Either header asks that the call be held back, so a call that has no dry run and
 warning refuses a request that carries one: 400, naming the header and saying the call
 has none, and the call is not run. Only a method has either (an `@rpc` struct's, an
 upload's, a tenant's own that the generator writes, and `SetFeature`), and its frame
-answers both headers itself. Every other generated route (a list, a read, a
-collection's patch, the consolidated patch with its creates, patches and deletes, the
-creation of a tenant, a scheduled call, the live routes) is mounted behind one
-middleware in the generated router, `resource.NoDryRunOrWarning`, which refuses either
-header with the value `true` and any other value as the frames do. The router knows
-which routes read the headers, so the refusal is said once there and no frame repeats
-it; the generated router test (`TestGeneratedDryRunAndWarning`) sends both headers to
-every route of the application and holds each to one side or the other. The browser
-client sends the two headers only from a method's handle (`dryRun`, `warning`), to the
-method's own route. A route an application mounts beside the generated ones is its
-own, and takes the middleware by naming it.
+answers both headers itself. Every other route the generated router mounts (a list, a
+read, a collection's patch, the consolidated patch with its creates, patches and
+deletes, the creation of a tenant, a scheduled call, the live routes, and the session
+library's own: the sign-in, a person's account routes, the device flow) is mounted
+behind one middleware, `resource.NoDryRunOrWarning`, which refuses either header with
+the value `true` and any other value as the frames do. The router knows which routes
+read the headers, so the refusal is said once there and no frame repeats it. The
+generated router test (`TestGeneratedDryRunAndWarning`) sends both headers to every
+route in its table, the resources' routes and the ones beside them, and holds each to
+one side or the other; that a frame registered ahead of the refusal reads both headers
+is pinned on the generator's templates. The browser client sends the two headers only
+from a method's handle (`dryRun`, `warning`), to the method's own route. Two kinds of
+route stand outside: the files of the programs a release ships, which are downloads,
+and a route an application mounts beside the generated ones, which is its own and
+takes the middleware by naming it.
 
 The warning is no permission check and no second gate on the route: a script that
 holds the grant calls the method without asking. It is what stands between a person

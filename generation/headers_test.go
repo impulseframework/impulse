@@ -10,7 +10,9 @@ import (
 // two headers that ask it for something in place of the call (X-Dry-Run, X-Warning):
 // each read is answered when it refuses, before anything else is done with it. A frame
 // that read a header and dropped the refusal would run the call for a client that sent
-// "1" to rehearse it.
+// "1" to rehearse it. The frames listed are the ones whose routes the generated router
+// registers ahead of its own refusal of the two headers, so each is also held to
+// reading both.
 func Test_frames_refuseAHeaderValueButTrue(t *testing.T) {
 	t.Parallel()
 
@@ -37,6 +39,15 @@ func Test_frames_refuseAHeaderValueButTrue(t *testing.T) {
 			reads := read.FindAllStringIndex(tt.template, -1)
 			if len(reads) != tt.wantReads {
 				t.Errorf("the template reads a header %d times, want %d", len(reads), tt.wantReads)
+			}
+			// Each of these frames is registered ahead of the router's refusal of the two
+			// headers (generatedRoute.ReadsDryRunAndWarning), which holds only while the
+			// frame answers both itself: one that stopped reading either would run the
+			// call for a request that asked for it to be held back.
+			for _, reader := range []string{"resource.IsDryRun(r)", "resource.AsksWarning(r)"} {
+				if !strings.Contains(tt.template, reader) {
+					t.Errorf("the template never calls %s, and its routes are registered ahead of the router's refusal of the header", reader)
+				}
 			}
 			for _, at := range reads {
 				line := strings.LastIndex(tt.template[:at[0]], "\n") + 1
