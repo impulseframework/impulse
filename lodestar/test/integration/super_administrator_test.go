@@ -15,10 +15,11 @@ import (
 // the crew's generated methods, over the real engine and the shipped role file, in which
 // no role is named SuperAdministrator: the framework defines it, and the governor holds
 // it. Only a holder makes another: headquarters, which the role file lets give roles, is
-// refused the role, a holder's removal and a holder's account, and every act on how a
-// holder signs in: their password set, removed or required changed, their username,
-// their email address, where the code of their second factor is mailed, and their
-// directory identity. The governor, a holder, is refused none of them, and once the
+// refused the role, a holder's removal and a holder's account, whether to delete it, to
+// disable it or to enable it again, and every act on how a holder signs in: their
+// password set, removed or required changed, their username, their email address, where
+// the code of their second factor is mailed, and their directory identity. The
+// governor, a holder, is refused none of them, and once the
 // governor has given the role up is refused like anyone. The role is held for the
 // whole service alone, so a sector's membership of it is refused. A person who holds
 // nothing but the role gives and takes any role of the crew, in headquarters, in one
@@ -84,6 +85,11 @@ func TestSuperAdministrator_rolesAndTheLastHolder(t *testing.T) {
 	refused("headquarters taking the role from a holder", status, body, http.StatusForbidden, "only a super administrator takes the Super Administrator role away, and "+notAHolder)
 	status, body = post(hana, "delete-crew-user", `{"userId":"`+solID+`"}`)
 	refused("headquarters deleting a holder's account", status, body, http.StatusForbidden, "only a super administrator deletes a super administrator's account")
+	status, body = post(hana, "disable-crew-user", `{"userId":"`+solID+`"}`)
+	refused("headquarters disabling a holder's account", status, body, http.StatusForbidden, "only a super administrator disables a super administrator's account, and "+notAHolder)
+	if disabled := readColumn[bool](t.Context(), t, w.db, "CrewSessionUsers", spanner.Key{solID}, "Disabled"); disabled {
+		t.Error("sol's account after headquarters was refused disabling it: disabled, want it left as it was")
+	}
 	status, body = post(hana, "assign-crew-role", role(hanaID, "SuperAdministrator", ""))
 	refused("headquarters giving herself the role", status, body, http.StatusForbidden, notAHolder)
 
@@ -161,6 +167,13 @@ func TestSuperAdministrator_rolesAndTheLastHolder(t *testing.T) {
 	assertStatus(t, status, http.StatusNoContent, body)
 	status, body = post("governor", "disable-crew-user", `{"userId":"`+solID+`"}`)
 	assertStatus(t, status, http.StatusNoContent, body)
+	// Enabling a holder's account makes a super administrator who can sign in, so it is
+	// a holder's to do: headquarters, whom the role file lets enable accounts, is refused.
+	status, body = post(hana, "enable-crew-user", `{"userId":"`+solID+`"}`)
+	refused("headquarters enabling a holder's account", status, body, http.StatusForbidden, "only a super administrator enables a super administrator's account, and "+notAHolder)
+	if disabled := readColumn[bool](t.Context(), t, w.db, "CrewSessionUsers", spanner.Key{solID}, "Disabled"); !disabled {
+		t.Error("sol's account after headquarters was refused enabling it: enabled, want it left disabled")
+	}
 	status, body = post("governor", "remove-crew-role", role(governor, "SuperAdministrator", ""))
 	refused("the last holder giving the role up", status, body, http.StatusForbidden, "you are the last super administrator who can sign in: give another person the Super Administrator role before you remove your own")
 	status, body = post(sol, "remove-crew-role", role(governor, "SuperAdministrator", ""))

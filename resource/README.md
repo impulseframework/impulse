@@ -3116,7 +3116,9 @@ own, outside any request, has no caller and is the application's act):
 - The Super Administrator role (`accesstypes.SuperAdministrator`) is the framework's, in
   every auth and in no role file, held in the global partition alone. Only a holder makes
   or removes another: giving the role, taking it away, inviting a person to it and
-  deleting a holder's account each take a caller who holds it, and a caller who came
+  deleting a holder's account each take a caller who holds it, and so do disabling a
+  holder's account, which removes a super administrator in effect, and enabling one,
+  which makes one who can sign in. A caller who came
   through another Auth (`Manages`) holds no role of this one. Only a holder changes how
   another signs in, since each such act is a way to become the person or to shut them
   out: setting a holder's temporary password, removing their password, requiring them to

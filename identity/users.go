@@ -135,8 +135,9 @@ func distinctRoles(roles []accesstypes.Role) []accesstypes.Role {
 // (EndUserSessions), in the caller's transaction: once it commits, the person's next
 // request is refused, and so is their next sign-in. The sign-in paths cache neither
 // fact. Nobody disables themselves: the request's caller is refused their own account.
-// And the last super administrator who can sign in is disabled by nobody
-// (refuseLastSuperAdministrator).
+// A super administrator's account is disabled by a super administrator alone, since it
+// removes one in effect (requireSuperAdministratorFor), and the last super administrator
+// who can sign in is disabled by nobody (refuseLastSuperAdministrator).
 //
 // Shared rule: disabling a user ends their sessions, which the session library's
 // DeactivateSessionUser does in two commits of its own.
@@ -145,6 +146,9 @@ func (m *Manager) DisableUser(ctx context.Context, txn resource.ReadWriteTransac
 	defer span.End()
 
 	if err := m.refuseOwnAccount(ctx, userID, "disable"); err != nil {
+		return err
+	}
+	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "disables a super administrator's account"); err != nil {
 		return err
 	}
 	if err := m.refuseLastSuperAdministrator(ctx, txn, userID, "disable their account"); err != nil {
@@ -163,11 +167,16 @@ func (m *Manager) DisableUser(ctx context.Context, txn resource.ReadWriteTransac
 }
 
 // EnableUser buffers the enabling of a disabled user, who may sign in again once it
-// commits. The sessions that ended when the user was disabled stay ended.
+// commits. The sessions that ended when the user was disabled stay ended. A super
+// administrator's account is enabled by a super administrator alone, since it makes one
+// who can sign in (requireSuperAdministratorFor).
 func (m *Manager) EnableUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "enables a super administrator's account"); err != nil {
+		return err
+	}
 	disabled := false
 	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: &disabled, PasswordChangeRequired: nil, Email: nil, Name: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")

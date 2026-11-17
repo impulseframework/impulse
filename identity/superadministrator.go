@@ -20,7 +20,9 @@ import (
 //     membership of it anywhere else, access.UserManager.Membership);
 //   - only a super administrator makes or removes another: giving the role, taking it
 //     away, inviting a person to it and deleting a holder's account, which takes the
-//     role with it, each take a caller who holds it;
+//     role with it, each take a caller who holds it, and so do disabling a holder's
+//     account, which removes a super administrator in effect, and enabling one, which
+//     makes one;
 //   - only a super administrator changes how another signs in: a password set for a
 //     holder or taken from them, a change of password required of them, a new username,
 //     a new address (where the code of their second factor is mailed) and the unlinking
@@ -79,7 +81,9 @@ func (m *Manager) requireSuperAdministrator(ctx context.Context, txn resource.Re
 // password of the caller's choosing, an address of theirs, or a sign-in the holder can no
 // longer make would hand them the role or take its holder away, and it takes a super
 // administrator to do either. act says what was asked, as the middle of a sentence
-// ("sets a super administrator's password"). A person who does not hold the role is
+// ("sets a super administrator's password"). Disabling and enabling a holder's account
+// ask it too, since one removes a super administrator in effect and the other makes
+// one. A person who does not hold the role is
 // whoever's the role file says to manage; a super administrator acts on themselves and
 // on another as the role file allows; and a call outside any request goes through.
 func (m *Manager) requireSuperAdministratorFor(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, act string) error {

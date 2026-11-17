@@ -32,6 +32,9 @@ var (
 	erinSteward = access.NewMembershipKey(globalScope, erin, "Steward")
 )
 
+// frankID is the account of a third person, who holds nothing in these tests.
+var frankID = mustUUID("55555555-5555-4555-8555-555555555555")
+
 // viewedBy makes the request's session an impersonated one whose actor, the real person
 // behind it, is the account: the caller the context already carries is the person the
 // session views as, whose grants the entry check ran with.
@@ -332,9 +335,14 @@ func TestManager_lastSuperAdministrator(t *testing.T) {
 		},
 		// Disabling the account.
 		{
-			name: "the last holder's account is disabled by nobody: an administrator who holds the grant",
+			name: "a holder's account is disabled by a super administrator alone: an administrator who holds the grant is refused",
 			act:  disable, caller: erin, held: []access.MembershipKey{danaSuper, erinSteward},
-			wantErr: httpio.HasForbidden, wantSays: last + "disable their account",
+			wantErr: httpio.HasForbidden, wantSays: "only a super administrator disables a super administrator's account, and you do not hold the Super Administrator role",
+		},
+		{
+			name: "an administrator is refused a holder's account while another holder can sign in too",
+			act:  disable, caller: User(frankID), held: []access.MembershipKey{danaSuper, erinSuper},
+			wantErr: httpio.HasForbidden, wantSays: "only a super administrator disables a super administrator's account",
 		},
 		{
 			name: "the last holder's account is disabled by nobody: another holder who cannot sign in",
@@ -448,7 +456,7 @@ func TestNew_superAdministratorMethods(t *testing.T) {
 func TestManager_aSuperAdministratorsSignIn(t *testing.T) {
 	t.Parallel()
 
-	frank := mustUUID("55555555-5555-4555-8555-555555555555")
+	frank := frankID
 	address := "dana@example.com"
 	acts := []struct {
 		name string
@@ -639,6 +647,82 @@ func TestManager_AssignRole_superAdministratorSignsInAgain(t *testing.T) {
 			})
 			if err != nil {
 				t.Fatalf("AssignRole() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
+				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestManager_EnableUser_superAdministrator pins that enabling a super administrator's
+// account, which makes one who can sign in, takes a caller who holds the role: an
+// administrator the role file lets enable accounts is refused a holder's, and so is a
+// person who views as a super administrator. A super administrator enables another, the
+// application enables one outside any request, and an account that holds no such role
+// is whoever's the role file says.
+func TestManager_EnableUser_superAdministrator(t *testing.T) {
+	t.Parallel()
+
+	enabled := []string{"update user " + userID.String() + " disabled=false"}
+	tests := []struct {
+		name string
+		ctx  func(context.Context) context.Context
+		// held are the memberships committed; dana, whose account is disabled, is enabled.
+		held       []access.MembershipKey
+		wantSays   string
+		wantWrites []string
+	}{
+		{
+			name:     "an administrator who does not hold the role is refused a holder's account",
+			ctx:      func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, erin) },
+			held:     []access.MembershipKey{danaSuper, erinSteward},
+			wantSays: "only a super administrator enables a super administrator's account, and you do not hold the Super Administrator role",
+		},
+		{
+			name: "a person who views as a super administrator is refused: the session's actor is judged",
+			ctx: func(ctx context.Context) context.Context {
+				return viewedBy(asCallerThrough(ctx, managedAuth, erin), frankID)
+			},
+			held:     []access.MembershipKey{danaSuper, erinSuper},
+			wantSays: "only a super administrator enables a super administrator's account",
+		},
+		{
+			name:       "a super administrator enables another",
+			ctx:        func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, erin) },
+			held:       []access.MembershipKey{danaSuper, erinSuper},
+			wantWrites: enabled,
+		},
+		{
+			name:       "the application enables one outside any request",
+			ctx:        func(ctx context.Context) context.Context { return ctx },
+			held:       []access.MembershipKey{danaSuper},
+			wantWrites: enabled,
+		},
+		{
+			name:       "an account that does not hold the role is the role file's to enable",
+			ctx:        func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, erin) },
+			held:       []access.MembershipKey{danaSteward, erinSteward},
+			wantWrites: enabled,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := superStore(tt.held...)
+			store.disabled[userID] = true
+			m, _ := newManager(t, store, superRoles)
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return m.EnableUser(tt.ctx(ctx), txn, userID)
+			})
+			if tt.wantSays != "" {
+				if !httpio.HasForbidden(err) || !strings.Contains(httpio.Message(err), tt.wantSays) {
+					t.Fatalf("EnableUser() error = %v, want the refusal saying %q", err, tt.wantSays)
+				}
+			} else if err != nil {
+				t.Fatalf("EnableUser() error = %v", err)
 			}
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
