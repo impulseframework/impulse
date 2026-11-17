@@ -463,7 +463,7 @@ func NewSignIn[Tx any](
 		}
 		rules := signinflow.Rules[Tx]{
 			Account: rule, Method: MethodName, Audience: cfg.audience(), SeededUsers: cfg.SeededUsers, Policy: policy, Accept: accept, SignUp: signUp,
-			Directories: directories, Seat: seat, OnlyIn: onlyIn, Seeded: seeded, Proven: oneProof(proven),
+			Directories: directories, Seat: seat, OnlyIn: onlyIn, Seeded: seeded, OneOrganization: cfg.Admits.Audience().OneOrganization(), Proven: oneProof(proven),
 		}
 		if err := signinflow.SignIn(ctx, d, id, insert, req, rules); err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")

@@ -322,8 +322,10 @@ func testFirstLinkByName(_ context.Context, t *testing.T, h *AuthHarness) {
 			// seededFor is the registration the seed made the account for, "" for an
 			// account an administrator created, whose id is generated.
 			seededFor string
-			// unrecognized says the application answers the rule nothing: it names no seed.
+			// unrecognized says the application answers the rule nothing: it names no seed,
+			// and disabled that the account was disabled before its person ever signed in.
 			unrecognized bool
+			disabled     bool
 			admits       Admits
 			wantLinked   bool
 		}{
@@ -334,6 +336,7 @@ func testFirstLinkByName(_ context.Context, t *testing.T, h *AuthHarness) {
 			{name: "the registration admits one organization and personal accounts", seededFor: MethodName, admits: AdmitsPersonalAccounts},
 			{name: "an account an administrator created under the name holds a generated id, which is no seed's"},
 			{name: "an application that recognizes no seed holds its first administrator to the rule every account created ahead is", seededFor: MethodName, unrecognized: true},
+			{name: "a seed that was disabled is vouched for by nothing, and no link is left on it", seededFor: MethodName, disabled: true},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
 				w := firstLinkWorld("")
@@ -342,7 +345,7 @@ func testFirstLinkByName(_ context.Context, t *testing.T, h *AuthHarness) {
 					w.seededFor = seededFor
 				}
 				in := w.start(ctx, t, h)
-				insert := &dbtype.InsertSessionUser{Username: administrator}
+				insert := &dbtype.InsertSessionUser{Username: administrator, Disabled: tt.disabled}
 				if tt.seededFor != "" {
 					insert.ID = impulse.NullUUIDFromUUID(seedID(tt.seededFor, administrator))
 				}

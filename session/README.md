@@ -266,9 +266,13 @@ DML what a later rule must read.
   organization and nobody else. The same name through another registration of the
   Auth, a customer's own provider among them, or through a registration that names
   several organizations or is open to any or to personal accounts, is not the
-  deployment's word and links nothing; so the first administrator of an Auth whose
-  only directory methods are that wide is given another way in (a directory method of
-  one organization, or a password). Any other sign-in under the name is refused as a
+  deployment's word and links nothing, and neither does a seed that was disabled; so
+  the first administrator of an Auth whose only directory methods are that wide is
+  given another way in (a directory method of one organization, or a password). Naming
+  a registration in the seed says that whoever its directory presents under the name
+  is that person: it is for the deployment's own directory, whose sign-in names only
+  its administrators give, and never for a provider that lets a person choose a name.
+  Any other sign-in under the name is refused as a
   person no account was created for is, with that refusal's own code and words, which
   say nothing of the account (`invitation_only` through a directory some tenant has,
   `not_invited` through any other), and nothing is linked, seated or accepted. An
@@ -1208,9 +1212,13 @@ the same id on every run, which also names the sign-in registration the person c
 through. In an application whose tenants have directories that id is what links the
 account at the person's first sign-in (see "A first link on a name alone"): it is the
 deployment's word on which registration the name is believed from, and it holds while
-that registration admits one organization alone. The generated foothold of such an
-auth seeds its administrator this way, for the auth's first directory method of one
-organization.
+that registration admits one organization alone. The id names the registration and not
+the organization behind it: a registration pointed at another organization before the
+person has signed in believes that organization's word instead. The generated foothold
+seeds its administrator this way where it can name the registration without guessing,
+for an auth whose one directory method is of one Microsoft Entra tenant or one Google
+Workspace; for any other auth it seeds for no registration and says how its author
+names the deployment's own directory.
 
 **The forced password change.** A password an operator set, at creation
 (`PasswordChangeRequired`) or by a reset, is temporary: the user changes it before

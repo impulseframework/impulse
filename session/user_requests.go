@@ -77,6 +77,13 @@ var seedThroughNamespace = impulse.UUIDFromName(impulse.NilUUID, "github.com/imp
 // registration admits one organization and nobody else. A sign-in under the name
 // through any other registration, a customer's own provider among them, or through a
 // registration open to more than one organization, is refused as a stranger's is.
+//
+// Seeding an account under this id says that whoever the registration's directory
+// presents under the username is the person: it is for the deployment's own directory,
+// whose sign-in names only its administrators give, and never for a provider that lets
+// a person choose a name. The id names the registration and not the organization
+// behind it, so a registration pointed at another organization before the person has
+// signed in believes that organization's word instead.
 func SeedUserIDThrough(auth, registration, username string) impulse.UUID {
 	return impulse.UUIDFromName(seedThroughNamespace, auth+"\x00"+registration+"\x00"+attempts.Normalize(username))
 }

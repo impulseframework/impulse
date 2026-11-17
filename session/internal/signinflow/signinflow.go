@@ -188,9 +188,12 @@ type Rules[Tx any] struct {
 	Seat        DirectorySeater[Tx]
 	OnlyIn      OnlyInTenant[Tx]
 	// Seeded reports whether an account is the deployment's own seed for the
-	// registration the sign-in came through, nil for none: with Directories it admits
-	// the seed's first link on the name; see firstLink.
-	Seeded SeededAccount
+	// registration the sign-in came through, nil for none, and OneOrganization says
+	// that registration admits the people of exactly one organization and nobody else
+	// (signin.Audience.OneOrganization): with Directories the two admit the seed's
+	// first link on the name; see firstLink.
+	Seeded          SeededAccount
+	OneOrganization bool
 	// SeededUsers says the registration declared its provider's names the
 	// application's own (signin.Registration.SeededUsers): the standard rule's first
 	// link of a user created ahead is then made on the name alone; see firstLink.
@@ -1293,12 +1296,14 @@ func holdsAddress[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID impul
 //     through (rules.Seeded: the first administrator of an auth whose people sign in
 //     through a directory, created with no password under the name the directory will
 //     present), and that registration admits one organization and nobody else
-//     (admitsOneOrganization). The deployment named the account and, by the id it
+//     (rules.OneOrganization). The deployment named the account and, by the id it
 //     seeded it under, the registration its name is believed from; a registration of
 //     one organization lets no other directory present the name. The same name through
 //     another registration of the Auth, a customer's own provider among them, or
 //     through a registration open to several organizations, to any organization or to
-//     personal accounts, is not the deployment's word and links nothing.
+//     personal accounts, is not the deployment's word and links nothing. A disabled
+//     seed is vouched for by nothing, as a disabled user's invitation vouches for
+//     nothing: no link is left on an account nobody may sign in to.
 //
 // Any other sign-in under the name is refused as a person no account was created for
 // is, with that refusal's code and words, which say nothing of the account: by
@@ -1311,7 +1316,7 @@ func firstLink[Tx any](
 	if rules.Directories == nil || rules.SeededUsers {
 		return false, nil, nil
 	}
-	if rules.Seeded != nil && admitsOneOrganization(rules.Audience) && rules.Seeded(user.ID, user.Username, rules.Method) {
+	if rules.Seeded != nil && rules.OneOrganization && !user.Disabled && rules.Seeded(user.ID, user.Username, rules.Method) {
 		return false, nil, nil
 	}
 	declared, err := declaredDirectory(ctx, tx, req.Identity, rules.Directories)
@@ -1341,17 +1346,6 @@ func firstLink[Tx any](
 	}
 
 	return false, notInvitedRefusal(), nil
-}
-
-// admitsOneOrganization reports whether a registration admits the people of one
-// organization and nobody else, read from the audience its registration spells
-// (signin.Audience.Key): the width at which the name a sign-in presents can have come
-// from one directory alone. An audience that names several organizations, admits
-// accounts outside the ones it names, or does not read as an audience, is wider.
-func admitsOneOrganization(audience string) bool {
-	admits, ok := signin.AudienceOfKey(audience)
-
-	return ok && admits.Limited() && len(admits.Organizations) == 1
 }
 
 // ownInvitation reports whether the invitation a sign-in carries was mailed to user's

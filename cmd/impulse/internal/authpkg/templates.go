@@ -841,7 +841,7 @@ func (a *Auth) SeedAdministrator(ctx context.Context, password string) (bool, er
 // empty. The development bootstrap seeds the development identities instead.
 {{- if .FootholdRegistration}}
 //
-// The account is seeded for the {{.FootholdMethodName}} registration
+// The account is seeded for the {{.FootholdMethodName}} registration, the auth's one directory method
 // (session.SeedUserIDThrough, over {{.FootholdRegistration}}): its id says which of the auth's
 // registrations the name is believed from. An account with no password that has never
 // signed in is tied to whoever signs in next by nothing but its name, and a directory
@@ -856,13 +856,22 @@ func (a *Auth) SeedAdministrator(ctx context.Context, password string) (bool, er
 // until the first administrator has signed in.
 {{- else}}
 //
-// No directory method of the auth admits one organization alone, so nothing says which
-// organization the name is believed from, and the account is seeded for no
-// registration. Where the application's tenants have directories, an account with no
-// password that has never signed in is linked on its name only when something vouches
-// for it, and nothing vouches for this one: its first sign-in is refused as a
-// stranger's is. Give the auth a directory method of one organization for its first
-// administrator, or a password method, before deploying such an application.
+// The account is seeded for no registration. Where the application's tenants have
+// directories, an account with no password that has never signed in is linked on its
+// name only when something vouches for it, since a directory asserts the names it
+// likes, and nothing vouches for this one: its first sign-in is refused as a
+// stranger's is. The generator names a registration only where it cannot be wrong, for
+// an auth whose one directory method is of one Microsoft Entra tenant or one Google
+// Workspace, and this auth is not such: it has several directory methods, or one open
+// to more than one organization, or an organization's identity provider, whose
+// sign-in names the library can hold to nothing. Where one registration is the
+// deployment's own directory, and only its administrators give its sign-in names, say
+// so in seedFoothold: derive the id with session.SeedUserIDThrough(Name, the
+// registration's constant, req.Username), and the sign-in rule links the account at
+// its person's first sign-in through that registration while it admits one
+// organization alone. Naming a registration is the deployment's word that whoever its
+// directory presents under this name is the administrator. Otherwise give the auth a
+// password method for its first administrator before deploying such an application.
 {{- end}}
 func (a *Auth) SeedAdministrator(ctx context.Context, signInName string) (bool, error) {
 	empty, err := a.usersTableEmpty(ctx)

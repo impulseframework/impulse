@@ -29,6 +29,17 @@ func (a Audience) Limited() bool {
 	return a.Accounts == "" && len(a.Organizations) > 0
 }
 
+// OneOrganization reports whether the method admits the people of exactly one
+// organization and nobody else: the width at which a name a sign-in presents can have
+// come from one directory alone, which the rule on the first link of a deployment's
+// seeded account asks. It counts the organizations as the registration listed them,
+// never as they read once spelled (Key writes each name once, so two tenants given one
+// name would read as one). A Google Workspace named with several domains is listed by
+// each domain and reads as several, which errs toward the wider answer.
+func (a Audience) OneOrganization() bool {
+	return a.Accounts == "" && len(a.Organizations) == 1
+}
+
 // Words says whom the method admits, as the middle of a sentence: "anyone with an
 // account at acme.example" for a method limited to its organizations, "anyone with a
 // Google account" for one that is not. A method that says nothing about itself admits

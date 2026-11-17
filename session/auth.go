@@ -780,8 +780,9 @@ func (a *Auth[S, U, Tx]) ValidateSession(next http.Handler) http.Handler {
 // no tenant's directory vouches for them. The seed creates the account under
 // SeedUserIDThrough, and the function answers by that id, which no request can give an
 // account. Such an account is linked on its name at its person's first sign-in through
-// that registration, where the registration admits one organization and nobody else;
-// through any other registration, or a wider one, the name links nothing. Nil
+// that registration, where the registration admits one organization and nobody else
+// (signin.Audience.OneOrganization) and the account is not disabled; through any other
+// registration, or a wider one, the name links nothing. Nil
 // recognizes no account, and a seeded first administrator is then held to the rule
 // every account created ahead is.
 type DirectorySeatedHook[Tx any] struct {

@@ -227,18 +227,24 @@ func TestFiles_castRefusesTheFirstAdministratorsName(t *testing.T) {
 // administrator is seeded with no password and holds roles for the whole application,
 // so where the application's tenants have directories nothing but the deployment's own
 // word links the account at its person's first sign-in: the seed creates it under the
-// id that names the registration (session.SeedUserIDThrough), which is the first
-// directory method whose roles the application gives and that admits one organization
-// alone. A method open to more than one organization is never it, since any of them
-// could present the name, and neither is the persona method. An auth with no such
-// method seeds the account for no registration and says what follows; a password
-// foothold, which signs in with its password, is seeded as it always was.
+// id that names the registration (session.SeedUserIDThrough). Naming a registration
+// says that whoever its directory presents under the name is the administrator, so the
+// generator names one only where it cannot be wrong: the auth's one directory method
+// whose roles the application gives, of one Microsoft Entra tenant or one Google
+// Workspace. A method open to more than one organization is never it, since any of
+// them could present the name; an organization's identity provider is not, since the
+// library can hold its names to nothing; with several directory methods nothing says
+// which is the deployment's own, and their order says nothing; and the persona method
+// is no foothold's. An auth with no such method seeds the account for no registration
+// and says what follows and what its author may do; a password foothold, which signs
+// in with its password, is seeded as it always was.
 func TestFiles_footholdRegistration(t *testing.T) {
 	t.Parallel()
 
 	const (
 		forNone      = "id := session.SeedUserID(Name, req.Username)"
 		refusedSaid  = "its first sign-in is refused as a\n// stranger's is"
+		byHandSaid   = "derive the id with session.SeedUserIDThrough(Name, the\n// registration's constant, req.Username)"
 		believedFrom = "its id says which of the auth's\n// registrations the name is believed from"
 	)
 	application := func(kind, name, slot string) Method {
@@ -255,21 +261,33 @@ func TestFiles_footholdRegistration(t *testing.T) {
 		{name: "one Microsoft Entra tenant", methods: []Method{application(app.MethodAzure, "directory", SlotOne)}, wantRegistration: "DirectoryRegistration", wantFoothold: FootholdMembership},
 		{name: "a slot left empty is one organization", methods: []Method{application(app.MethodAzure, "directory", "")}, wantRegistration: "DirectoryRegistration", wantFoothold: FootholdMembership},
 		{name: "one Google Workspace", methods: []Method{application(app.MethodGoogle, "google", SlotOne)}, wantRegistration: "GoogleRegistration", wantFoothold: FootholdMembership},
-		{name: "an organization's identity provider is one issuer", methods: []Method{application(app.MethodOIDC, "okta", "")}, wantRegistration: "OktaRegistration", wantFoothold: FootholdMembership},
+		{
+			name:    "the persona method beside the one directory method does not make two",
+			methods: []Method{application(app.MethodPersona, "", ""), application(app.MethodAzure, "directory", SlotOne)}, wantRegistration: "DirectoryRegistration", wantFoothold: FootholdMembership,
+		},
+		{
+			name:    "a method whose directory writes the roles is not the application's to seed for, and does not make two",
+			methods: []Method{{Kind: app.MethodAzure, Name: "staff", Slot: SlotOne, Authority: app.AuthorityDirectory}, application(app.MethodAzure, "directory", SlotOne)}, wantRegistration: "DirectoryRegistration", wantFoothold: FootholdMembership,
+		},
+		{name: "an organization's identity provider: the library holds its names to nothing", methods: []Method{application(app.MethodOIDC, "okta", "")}, wantFoothold: FootholdMembership},
 		{name: "any tenant could present the name", methods: []Method{application(app.MethodAzure, "directory", SlotAny)}, wantFoothold: FootholdMembership},
 		{name: "listed tenants could each present the name", methods: []Method{application(app.MethodAzure, "directory", SlotListed)}, wantFoothold: FootholdMembership},
 		{name: "one tenant and personal accounts", methods: []Method{application(app.MethodAzure, "directory", SlotOnePersonal)}, wantFoothold: FootholdMembership},
 		{name: "any Workspace", methods: []Method{application(app.MethodGoogle, "google", SlotAnyWorkspace)}, wantFoothold: FootholdMembership},
 		{name: "one Workspace and any Google account", methods: []Method{application(app.MethodGoogle, "google", SlotMixed)}, wantFoothold: FootholdMembership},
 		{
-			name:    "the first method of one organization is the one, whatever stands before it",
-			methods: []Method{application(app.MethodAzure, "partners", SlotAny), application(app.MethodOIDC, "okta", ""), application(app.MethodAzure, "directory", SlotOne)}, wantRegistration: "OktaRegistration", wantFoothold: FootholdMembership,
+			name:    "two directory methods of one organization each: nothing says which is the deployment's own",
+			methods: []Method{application(app.MethodAzure, "partners", SlotOne), application(app.MethodAzure, "directory", SlotOne)}, wantFoothold: FootholdMembership,
 		},
-		{name: "the persona method is no foothold's", methods: []Method{application(app.MethodPersona, "", "")}, wantFoothold: FootholdMembership},
 		{
-			name:    "a method whose directory writes the roles is not the application's to seed for",
-			methods: []Method{{Kind: app.MethodAzure, Name: "staff", Slot: SlotOne, Authority: app.AuthorityDirectory}, application(app.MethodAzure, "directory", SlotOne)}, wantRegistration: "DirectoryRegistration", wantFoothold: FootholdMembership,
+			name:    "a provider declared before the one tenant is not taken for the deployment's own, and neither is the tenant",
+			methods: []Method{application(app.MethodOIDC, "okta", ""), application(app.MethodAzure, "directory", SlotOne)}, wantFoothold: FootholdMembership,
 		},
+		{
+			name:    "a wide method beside the one tenant leaves two",
+			methods: []Method{application(app.MethodAzure, "directory", SlotOne), application(app.MethodGoogle, "google", SlotAny)}, wantFoothold: FootholdMembership,
+		},
+		{name: "the persona method alone is no foothold's", methods: []Method{application(app.MethodPersona, "", "")}, wantFoothold: FootholdMembership},
 		{name: "a password foothold signs in with its password", methods: []Method{{Kind: app.MethodPassword}, application(app.MethodAzure, "directory", SlotOne)}, wantFoothold: FootholdPassword},
 	}
 	for _, tt := range tests {
@@ -299,11 +317,11 @@ func TestFiles_footholdRegistration(t *testing.T) {
 					t.Errorf("%s does not seed the first administrator for %s alone and say so:\n%s", footholdFile, tt.wantRegistration, foothold)
 				}
 			case tt.wantFoothold == FootholdMembership:
-				// No registration of one organization: the account is seeded for none,
+				// No registration the generator may name: the account is seeded for none,
 				// and the file says its first sign-in links nothing where tenants have
-				// directories.
-				if !strings.Contains(foothold, forNone) || strings.Contains(foothold, "SeedUserIDThrough(Name") || !strings.Contains(foothold, refusedSaid) {
-					t.Errorf("%s does not seed the first administrator for no registration and say what follows:\n%s", footholdFile, foothold)
+				// directories, and how its author names the deployment's own directory.
+				if !strings.Contains(foothold, forNone) || strings.Contains(foothold, "id := session.SeedUserIDThrough") || !strings.Contains(foothold, refusedSaid) || !strings.Contains(foothold, byHandSaid) {
+					t.Errorf("%s does not seed the first administrator for no registration and say what follows and what its author may do:\n%s", footholdFile, foothold)
 				}
 			default:
 				if !strings.Contains(foothold, forNone) || strings.Contains(foothold, "SeedUserIDThrough") || strings.Contains(foothold, refusedSaid) {

@@ -240,35 +240,51 @@ func Foothold(spec *Spec) string {
 }
 
 // FootholdMethod is the method the first administrator of a membership foothold signs
-// in through: the first directory method whose roles the application gives and whose
-// registration admits one organization and nobody else, which is a Microsoft or a
-// Google method in the slot of one organization, or an organization's identity
-// provider, which is one issuer. The seed creates the administrator for that
-// registration (session.SeedUserIDThrough), so the account's id says which of the
-// auth's registrations its name is believed from, and the person's first sign-in
-// through it links the account where the application's tenants have directories and a
-// name alone links nothing. The persona method is no foothold's: its provider is the
-// test environments', registered where it is configured, and declares its names the
-// application's own.
+// in through, where the generator can name it without guessing: the auth's one
+// directory method whose roles the application gives, when it is a Microsoft method in
+// the slot of one tenant or a Google method in the slot of one Workspace. The seed
+// creates the administrator for that registration (session.SeedUserIDThrough), so the
+// account's id says which of the auth's registrations its name is believed from, and
+// the person's first sign-in through it links the account where the application's
+// tenants have directories and a name alone links nothing.
 //
-// Nil for a password foothold, for an auth that seeds nobody, and for a membership
-// foothold none of whose directory methods admits one organization alone: nothing then
-// says which organization the administrator's name is believed from.
+// Naming a registration is the deployment's word that whoever that directory presents
+// under the administrator's name is the administrator, so the generator gives it only
+// where it cannot be wrong, and answers nil everywhere else:
+//
+//   - for an auth with several such methods, since nothing says which is the
+//     deployment's own directory and which a customer's or a partner's, and their order
+//     says nothing;
+//   - for a method open to more than one organization, since any of them could present
+//     the name;
+//   - for an organization's identity provider, whose sign-in names the library can hold
+//     to nothing: a provider that lets a person choose a name vouches for nobody. An
+//     author who knows the provider is the deployment's own directory names it in the
+//     foothold by hand;
+//   - for the persona method, whose provider is the test environments' and declares its
+//     names the application's own;
+//   - for a password foothold, which signs in with its password, and an auth that seeds
+//     nobody.
 func FootholdMethod(spec *Spec) *Method {
 	if Foothold(spec) != FootholdMembership {
 		return nil
 	}
+	var only *Method
 	for i := range spec.Methods {
 		m := &spec.Methods[i]
 		if !m.Directory() || m.Persona() || m.Authority != app.AuthorityApplication {
 			continue
 		}
-		if !m.slotted() || m.slot() == SlotOne {
-			return m
+		if only != nil {
+			return nil
 		}
+		only = m
+	}
+	if only == nil || !only.slotted() || only.slot() != SlotOne {
+		return nil
 	}
 
-	return nil
+	return only
 }
 
 // roleLiteral is the roles as a Go slice literal, nil for none.
