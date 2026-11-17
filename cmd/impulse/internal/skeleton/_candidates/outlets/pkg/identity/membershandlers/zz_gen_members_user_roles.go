@@ -18,12 +18,14 @@ import (
 
 func (h *Handlers) MembersUserRoles() http.HandlerFunc {
 	type membersUserRole struct {
-		Kind      string    `json:"kind"      index:"true" perm:"-"`
-		Axis      string    `json:"axis"      perm:"-"`
-		DomainID  string    `json:"domainId"  perm:"-"`
-		Role      string    `json:"role"      perm:"-"`
-		UserID    string    `json:"userId"    index:"true" perm:"-"`
-		CreatedAt time.Time `json:"createdAt"`
+		Kind      string     `json:"kind"      index:"true" perm:"-"`
+		Axis      string     `json:"axis"      perm:"-"`
+		DomainID  string     `json:"domainId"  perm:"-"`
+		Role      string     `json:"role"      perm:"-"`
+		UserID    string     `json:"userId"    index:"true" perm:"-"`
+		CreatedAt time.Time  `json:"createdAt"`
+		StartsAt  *time.Time `json:"startsAt"`
+		EndsAt    *time.Time `json:"endsAt"`
 	}
 
 	type response []map[string]any
@@ -88,6 +90,14 @@ func (h *Handlers) MembersUserRoles() http.HandlerFunc {
 				case "CreatedAt":
 					if !row.Masked("createdAt") {
 						rmap["createdAt"] = rec.CreatedAt
+					}
+				case "StartsAt":
+					if !row.Masked("startsAt") {
+						rmap["startsAt"] = rec.StartsAt
+					}
+				case "EndsAt":
+					if !row.Masked("endsAt") {
+						rmap["endsAt"] = rec.EndsAt
 					}
 				}
 			}

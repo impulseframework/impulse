@@ -100,6 +100,9 @@ type fakeStore struct {
 	families    map[impulse.UUID][]impulse.UUID
 	// userTokens are the unrevoked tokens of each user.
 	userTokens map[impulse.UUID][]impulse.UUID
+	// fakeGroupTables are the groups of people, their members and the roles they hold
+	// (groups_test.go).
+	fakeGroupTables
 	// nextID is the id InsertUser answers.
 	nextID impulse.UUID
 	// failOn names a call that fails.

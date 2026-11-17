@@ -10,9 +10,12 @@ import (
 
 type Resourcer interface {
 	resource.Resourcer
-	staffresources.StaffRole | staffresources.StaffRoleGrant | staffresources.StaffSession |
+	staffresources.StaffGroup | staffresources.StaffGroupMember |
+		staffresources.StaffGroupRole | staffresources.StaffGroupUser |
+		staffresources.StaffRole | staffresources.StaffRoleGrant | staffresources.StaffSession |
 		staffresources.StaffSessionAuthEvent | staffresources.StaffSessionIdentity |
 		staffresources.StaffSessionMailLink | staffresources.StaffSessionSignInAttempt |
 		staffresources.StaffSessionToken | staffresources.StaffSessionTrustedDevice |
-		staffresources.StaffSessionUser | staffresources.StaffUserRole
+		staffresources.StaffSessionUser | staffresources.StaffUserGroupRole |
+		staffresources.StaffUserRole
 }

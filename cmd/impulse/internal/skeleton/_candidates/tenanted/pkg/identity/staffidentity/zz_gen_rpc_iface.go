@@ -7,16 +7,20 @@ import "github.com/impulseframework/impulse/accesstypes"
 
 type Method interface {
 	Method() accesstypes.Resource
-	AssignStaffRole | AssignStaffTenantRole | CreateStaffTenantUser | CreateStaffUser |
-		DeleteStaffTenantUser | DeleteStaffUser | DisableStaffTenantUser | DisableStaffUser |
+	AddStaffGroupMember | AddStaffTenantGroupMember | AssignStaffRole | AssignStaffTenantRole |
+		CreateStaffGroup | CreateStaffTenantGroup | CreateStaffTenantUser | CreateStaffUser |
+		DeleteStaffGroup | DeleteStaffTenantGroup | DeleteStaffTenantUser | DeleteStaffUser |
+		DescribeStaffGroup | DescribeStaffTenantGroup | DisableStaffTenantUser | DisableStaffUser |
 		EnableStaffTenantUser | EnableStaffUser | EndStaffSession | EndStaffTenantUserSessions |
-		EndStaffUserSessions | InviteStaffTenantUser | InviteStaffUser | RemoveStaffPassword |
-		RemoveStaffRole | RemoveStaffTenantPassword | RemoveStaffTenantRole |
-		RenameStaffTenantUser | RenameStaffUser | RequireStaffPasswordChange |
-		RequireStaffTenantPasswordChange | RevokeStaffSessionToken |
-		RevokeStaffTenantUserTrustedDevices | RevokeStaffUserTrustedDevices |
-		SetStaffTemporaryPassword | SetStaffTenantTemporaryPassword | SetStaffTenantUserEmail |
-		SetStaffTenantUserName | SetStaffUserEmail | SetStaffUserName |
+		EndStaffUserSessions | GiveStaffGroupRole | GiveStaffTenantGroupRole |
+		InviteStaffTenantUser | InviteStaffUser | RemoveStaffGroupMember | RemoveStaffPassword |
+		RemoveStaffRole | RemoveStaffTenantGroupMember | RemoveStaffTenantPassword |
+		RemoveStaffTenantRole | RenameStaffTenantUser | RenameStaffUser |
+		RequireStaffPasswordChange | RequireStaffTenantPasswordChange |
+		RevokeStaffSessionToken | RevokeStaffTenantUserTrustedDevices |
+		RevokeStaffUserTrustedDevices | SetStaffTemporaryPassword |
+		SetStaffTenantTemporaryPassword | SetStaffTenantUserEmail | SetStaffTenantUserName |
+		SetStaffUserEmail | SetStaffUserName | TakeStaffGroupRole | TakeStaffTenantGroupRole |
 		UnlinkStaffSessionIdentity | UnlinkStaffTenantSessionIdentity | UnlockStaffSignIn |
 		WithdrawStaffInvitation | WithdrawStaffTenantInvitation
 }

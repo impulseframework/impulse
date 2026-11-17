@@ -94,8 +94,9 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 }
 
 // DeleteUser buffers the removal of a user, in the caller's transaction: every session
-// they hold is ended, their identity links and every membership they hold go, then the
-// row, and the permission engine is told once the transaction has committed. Nobody
+// they hold is ended, their identity links, every membership they hold and their place
+// in every group go, then the row, and the permission engine is told once the
+// transaction has committed. Nobody
 // deletes themselves: the request's caller is refused their own account. A super
 // administrator's account is deleted by a super administrator alone, and the last one
 // who can sign in by nobody (requireSuperAdministrator, refuseLastSuperAdministrator).
@@ -142,7 +143,11 @@ func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransact
 			return errors.Wrap(err, "identity.Store.DeleteMembership()")
 		}
 	}
-	if len(held) > 0 {
+	inGroups, err := m.removeGroupPlaces(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
+	if len(held) > 0 || inGroups {
 		return m.policyChangesAtCommit(txn)
 	}
 

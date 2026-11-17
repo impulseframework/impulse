@@ -382,6 +382,19 @@ func (c *client) resolveDomain(anchor *resourceField, arg genlang.Arg, structsBy
 	return binding, nil
 }
 
+// subjectBindingArgSpec is the argument shape of @subjectSet and @subjectValue: the
+// name, the value: field, and the two parts a set may write, each an expression of
+// the condition language. The keyword table takes the two keywords' scan flags
+// from it, so their annotations end by the quotes their arguments are split by.
+func subjectBindingArgSpec() *genlang.ArgSpec {
+	return &genlang.ArgSpec{
+		Positional:  1,
+		Keys:        []string{subjectValueArgKey, subjectWhoArgKey, subjectWhereArgKey},
+		Required:    []string{subjectValueArgKey},
+		Expressions: []string{subjectWhoArgKey, subjectWhereArgKey},
+	}
+}
+
 // resolveSubjectBindings compiles the (repeatable) @subjectSet / @subjectValue
 // annotations on one user-id anchor. value: names the sibling Go field the
 // set or value yields, dotted to continue through remote hops; the yielded
@@ -397,12 +410,7 @@ func (c *client) resolveSubjectBindings(res *resourceInfo, anchor *resourceField
 		return nil, errors.Newf("@%s requires its anchor column alone to identify a row, as a single-column primary key or a unique index on exactly that column, so the database enforces one row per user; a column of a composite key or composite unique index does not", subjectValueKeyword)
 	}
 
-	invocations, err := arg.ParseInvocations(&genlang.ArgSpec{
-		Positional:  1,
-		Keys:        []string{subjectValueArgKey, subjectWhoArgKey, subjectWhereArgKey},
-		Required:    []string{subjectValueArgKey},
-		Expressions: []string{subjectWhoArgKey, subjectWhereArgKey},
-	})
+	invocations, err := arg.ParseInvocations(subjectBindingArgSpec())
 	if err != nil {
 		return nil, errors.Wrapf(err, "@%s", keyword)
 	}
@@ -664,6 +672,32 @@ func (c *client) enumeratedValues(field *resourceField) (values []*enumData, sou
 	}
 
 	return nil, "", false
+}
+
+// resolveExtractedSubjectSets checks the sets of the resources one extraction holds,
+// where they are all the run's. A run that generates an auth's management extracts the
+// application's resources and the management's apart, and the management declares a
+// set an application's who: may name (the groups a person is in), so that run checks
+// its sets once it holds both (resolveRunSubjectSets) and not here.
+func (c *client) resolveExtractedSubjectSets(resources []*resourceInfo) error {
+	if len(c.identity) != 0 {
+		return nil
+	}
+
+	return resolveSubjectSetReferences(resources)
+}
+
+// resolveRunSubjectSets checks the sets of a run that generates an auth's management,
+// once the application's resources and the management's are both extracted: the
+// management's declarations are resources of the run like any other, and the set one
+// of them declares is one an application's who: may name. A run with no generated
+// management has checked its sets where it extracted them (resolveExtractedSubjectSets).
+func (c *client) resolveRunSubjectSets(resources []*resourceInfo) error {
+	if len(c.identity) == 0 {
+		return nil
+	}
+
+	return resolveSubjectSetReferences(resources)
 }
 
 // resolveSubjectSetReferences checks what a who: part says of other sets, once

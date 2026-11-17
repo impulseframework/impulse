@@ -308,6 +308,55 @@ func TestFiles_superAdministrator(t *testing.T) {
 	}
 }
 
+// TestFiles_signedInHook holds what an auth package sets for the roles given for a
+// period: the generated identity client's hook for a sign-in that stands, which removes
+// a person's ended roles, over the application's database. An auth whose roles the
+// application gives sets it where it has a generated management; one whose directory
+// writes the roles gives none for a period and sets none, and neither does one with no
+// generated management, which has no client to answer it.
+func TestFiles_signedInHook(t *testing.T) {
+	t.Parallel()
+	const hook = "authSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))"
+	tests := []struct {
+		name string
+		spec *Spec
+		want bool
+	}{
+		{
+			name: "a password auth with its generated management", want: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity", Methods: []Method{{Kind: app.MethodPassword}}},
+		},
+		{
+			name: "a directory auth whose roles the application gives", want: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "members", IdentityDir: "pkg/identity", Methods: []Method{
+				{Kind: app.MethodAzure, Name: "directory", Authority: app.AuthorityApplication},
+			}},
+		},
+		{
+			name: "a directory auth whose roles the directory gives",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "employees", IdentityDir: "pkg/identity", Methods: []Method{
+				{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory},
+			}},
+		},
+		{
+			name: "a password auth with no generated management",
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", Methods: []Method{{Kind: app.MethodPassword}}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			files, err := Files(tt.spec)
+			if err != nil {
+				t.Fatalf("Files(%s) error = %v", tt.spec.Name, err)
+			}
+			if got := strings.Contains(string(files[tt.spec.Name+".go"]), hook); got != tt.want {
+				t.Errorf("%s.go sets the hook that clears a person's ended roles at their sign-in = %v, want %v", tt.spec.Name, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestValidate(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

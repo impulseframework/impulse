@@ -272,16 +272,20 @@ export namespace MembersSectorUserRoles {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
     domainId: 'domainId' as FieldName,
+    endsAt: 'endsAt' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
     role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
     createdAt: 'MembersSectorUserRoles.createdAt' as Resource,
     domainId: 'MembersSectorUserRoles.domainId' as Resource,
+    endsAt: 'MembersSectorUserRoles.endsAt' as Resource,
     everyDomain: 'MembersSectorUserRoles.everyDomain' as Resource,
     role: 'MembersSectorUserRoles.role' as Resource,
+    startsAt: 'MembersSectorUserRoles.startsAt' as Resource,
     userId: 'MembersSectorUserRoles.userId' as Resource,
     username: 'MembersSectorUserRoles.username' as Resource,
   };
@@ -478,16 +482,20 @@ export namespace MembersUserRoles {
     axis: 'axis' as FieldName,
     createdAt: 'createdAt' as FieldName,
     domainId: 'domainId' as FieldName,
+    endsAt: 'endsAt' as FieldName,
     kind: 'kind' as FieldName,
     role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
   };
   export const resourceName = {
     axis: 'MembersUserRoles.axis' as Resource,
     createdAt: 'MembersUserRoles.createdAt' as Resource,
     domainId: 'MembersUserRoles.domainId' as Resource,
+    endsAt: 'MembersUserRoles.endsAt' as Resource,
     kind: 'MembersUserRoles.kind' as Resource,
     role: 'MembersUserRoles.role' as Resource,
+    startsAt: 'MembersUserRoles.startsAt' as Resource,
     userId: 'MembersUserRoles.userId' as Resource,
   };
 }

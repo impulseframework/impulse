@@ -225,7 +225,7 @@ func TestClient_CheckUserResources_conditionalDecision(t *testing.T) {
 			t.Fatalf("InsertGrant(%v) error = %v", g, err)
 		}
 	}
-	if err := store.InsertUserRole(ctx, tenant1.PolicyScope(), "erin", "Editor"); err != nil {
+	if err := store.InsertUserRole(ctx, tenant1.PolicyScope(), "erin", "Editor", accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 
@@ -345,7 +345,7 @@ func TestClient_CheckUser_conditionFolding(t *testing.T) {
 	if err := store.InsertGrant(ctx, tenant1.PolicyScope(), "Chief", "Export", "", "", "now < subject.shiftEnd"); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
-	if err := store.InsertUserRole(ctx, tenant1.PolicyScope(), "erin", "Chief"); err != nil {
+	if err := store.InsertUserRole(ctx, tenant1.PolicyScope(), "erin", "Chief", accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 

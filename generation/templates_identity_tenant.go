@@ -223,17 +223,24 @@ package {{ .Package }}
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 )
 
 // Assign{{ .Subject }}Role gives a person of the {{ .Auth }} auth a role in one
 // {{ .TenantName }}: the tenant the request is made under, and no other. The role must
-// exist there; a role the person holds there already is left as it is. The person's
-// next request is served with the role.
+// exist there. The person's next request is served with the role.
+//
+// The role is given for a period where the request names one (StartsAt, EndsAt, each
+// optional): outside it the role grants nothing, and nothing is written when it begins
+// or ends. Giving a role the person holds there already gives it the period of this
+// request in place of the one it had, so a request that names neither makes the role
+// stand until it is taken away; ending a role now is taking it away.
 //
 // It is a tenant's method: it names a row of {{ .TenantUser }}, the tenant's own list of
 // the auth's people, so the role goes to a person who holds one in the tenant already.
@@ -253,7 +260,7 @@ type Assign{{ .Subject }}Role struct {
 	//
 	// @attribute(role)
 	// @enumerate({{ Pluralize .TenantRoleChoice }})
-	Role string ` + "`validate:\"required\"`" + `
+	Role string ` + "`validate:\"required\"`" + identityPeriodFields + `
 }
 
 // Execute buffers the membership into the caller's transaction.
@@ -262,8 +269,12 @@ func (m *Assign{{ .Subject }}Role) Execute(ctx context.Context, txn resource.Rea
 	if err != nil {
 		return errors.Wrap(err, "identity.Manager.Tenant()")
 	}
-	if err := tenant.AssignRole(ctx, txn, m.UserID, accesstypes.Role(m.Role)); err != nil {
-		return errors.Wrap(err, "identity.Tenant.AssignRole()")
+	period, err := identity.RequestPeriod(m.StartsAt, m.EndsAt)
+	if err != nil {
+		return errors.Wrap(err, "identity.RequestPeriod()")
+	}
+	if err := tenant.AssignRoleFor(ctx, txn, m.UserID, accesstypes.Role(m.Role), period); err != nil {
+		return errors.Wrap(err, "identity.Tenant.AssignRoleFor()")
 	}
 
 	return nil

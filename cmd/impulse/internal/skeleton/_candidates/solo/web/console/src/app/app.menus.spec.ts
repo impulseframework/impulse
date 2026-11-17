@@ -17,6 +17,7 @@ describe('the menu file', () => {
     const withoutSystem = menus().filter((menu) => menu.label !== 'System');
     expect(unplacedPages(routes, withoutSystem).map((page) => page.label)).toEqual([
       'Accounts',
+      'Groups',
       'Mailed links',
       'Sessions',
       'Failed sign-ins',

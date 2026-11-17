@@ -196,8 +196,9 @@ func unusableName(collection PermissionCollection, g *policy.Grant) error {
 }
 
 // sortFindings orders findings for a stable report: the skipped grants first
-// in their records' order, then the shadowed roles, then the orphaned
-// memberships, each group by scope then name.
+// in their records' order, then the shadowed roles, then the roles of groups
+// that were skipped, then the orphaned memberships, each kind by scope then
+// name.
 func sortFindings(findings []policyFinding) {
 	slices.SortStableFunc(findings, func(a, b policyFinding) int {
 		if c := findingRank(a) - findingRank(b); c != 0 {
@@ -214,7 +215,9 @@ func findingRank(f policyFinding) int {
 		return 0
 	case *ShadowedRole:
 		return 1
-	default:
+	case *SkippedGroupRole:
 		return 2
+	default:
+		return 3
 	}
 }

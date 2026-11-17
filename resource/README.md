@@ -83,7 +83,7 @@ type Ship struct { ... }
 | `@upload` | `@rpc` struct | `max: 5MB`, and `store: S` for a named store | Declares the method as a multipart upload. Its `Execute` takes `resource.Files` third, `Execute(ctx, txn resource.ReadWriteTransaction, files resource.Files, client *Client)`, the transaction form only, since the transaction is what claims the files, and the declaration and the signature go together (either alone is a generation error). With `store: S`, the files go to the named store `S` (section 13) and `Execute` takes `resource.FilesIn[S]`, whose keys are `resource.Key[S]`; the declaration and the signature name one store or neither, and a mismatch is a generation error. The request is `multipart/form-data`: one part named `request` first, carrying the JSON the method's decoder reads exactly as for a JSON RPC, then one or more parts named `file`. `max` (a byte count or `KB`/`MB`/`GB`, 1024-based) bounds the whole body; over it is a 413 naming the maximum, no `file` part a 400, a body that is not multipart a 415. The frame streams each file to the method's store, read off the resource client, under a key it minted, runs the body with the files, and on any failure before commit deletes the objects it streamed and answers with the failure; after a commit nothing more happens, since the rows the body wrote claim the keys. The body records each key in a `@file` column of the same store, a `string` column for the default store and a `resource.Key[S]` column for `S`, whose generated setter takes the typed key, so a key of another store does not compile into it; a key recorded anywhere else is invisible to the release and is the orphaned-file cleanup's. An upload naming a store no `@file` column holds is refused at generation. Reading a file back is the `@file` route (section 13). A dry run streams nothing: the files describe the parts with empty keys. The TypeScript handle gains `upload(body, files)`, which refuses locally over the maximum. Examples: [AttachRefitPhoto](../lodestar/pkg/rpc/attach_refit_photo.go) on the default store, [AttachMissionDocument](../lodestar/pkg/rpc/attach_mission_document.go) on a named one. |
 | `@schedule` | `@rpc` struct | the cron expression in quotes, `zone: "<IANA zone>"` (UTC when absent), and `log: onEvent`: `@schedule("30 3 * * *", zone: "America/Denver")` | Declares the method a scheduled route: Cloud Scheduler calls it on the schedule, read in the zone. The expression is five fields separated by single spaces (minute, hour, day of the month, month, day of the week), each a comma list of `*`, a value, or a range, the `*` and the range optionally stepped (`*/15`, `1-5/2`), months and days of the week also by name (`JAN`, `MON`); an expression outside that, a zone the time zone database does not know, and `Local` are generation errors. A scheduled method takes no input: no field, no `@upload`, no `@permissionScope` (a domain scope is a path parameter, and a scheduled method checks no permission), no `@target` or `@transition`, no `@outlet`, `@feature`, `@formerly` or `@suppress`, each refused naming the struct, and it needs `GenerateRouter`. It is served at `POST /_scheduled/<method in kebab case>` behind the scheduler's token check alone, never on an outlet, never in the permission collection or a TypeScript client. `log:` is the method's own request log word (`always`, `onEvent`, `sampled` with `fraction:`, `never`), set ahead of its handler as a route's is (section 8, request logs and traces); a scheduled method's spans follow the front end, so `trace:` is refused here and on its `@rpc`. Section 19. Example: [PruneDroidReports](../lodestar/pkg/rpc/prune_droid_reports.go). |
 | `@file` | field of a `@resource`, `@virtual`, or keyed `@computed` struct (the column holding the store key); or a keyed `@computed` struct | none, `segment`, on a field `name: Field`, `type: Field`, and `log: onEvent`, `trace: off` | A row says which stored object is its file, and the generator serves that file under the row's read route: `GET <read route>/content` answers the bytes with their type, name, size, time, and validator, gated by `Read` on the resource and a `Read` grant on `content`, the route's own field, which the Collection registers with no column behind it (`columns=content` on a read stays a 400; a grant naming it is accepted by `access.MigrateRoles`). On a field, the annotation marks the column holding the store key: `@file` bare serves under `content`, `@file(thumbnail)` under its own segment, and `name:` and `type:` name sibling columns carrying the file's name and media type (a struct may carry several, one per segment). The column's type says which store holds the file: `string` or `*string` is the default store, `resource.Key[S]` or `*resource.Key[S]` the named store `S`, a type the application declares by embedding `resource.Store` (section 13); both are `STRING` columns, and the generated `FileKeys()` names each column with its store. The key column goes off the wire in both directions: never returned on read or list, never accepted on create or update, absent from the TypeScript interface and metadata; a `NOT NULL` key means a row is added by the `@upload` method that stores its file, so `Create` is not registered and the patch handlers refuse a create op naming that way in, while a nullable key leaves `Create` ordinary. On a keyed `@computed` struct, `@file` or `@file(segment)` declares a rendered file: the computed package declares `<Name><Segment>(ctx, key…, qSet *resource.QuerySet[Name], client resource.Client, computedClient *Client) (*resource.Content, error)` beside `Read<Name>`, checked at generation as `Read<Name>`'s callers are, and a nil content is 404. Deleting a row that carries a key, or pointing it at another object, releases the old object: the patch machinery records the key on the transaction and the executor deletes it from the column's store, wired on the resource client (`resource.WithFileStore`, `resource.WithNamedFileStore[S]`), once the commit lands, from every transaction the application runs; one row owns one object, and a row the database deletes by cascade releases nothing (section 13). Under a suppressed read route the declaration serves nothing and still names the key column, so the release and the orphaned-file cleanup see its keys. `log:` and `trace:` are the file route's own request log word and trace setting, as on `@rpc` (section 8, request logs and traces), refused under a suppressed read route, where no route carries them. Refused at generation, naming the struct: a key-less struct, an unknown sibling, two declarations on one segment, a name or type field that is not a `string` or `*string`, a key field that is none of `string`, `*string`, `resource.Key[S]` and `*resource.Key[S]`, a `resource.Key[S]` column without the declaration, the struct-scope form on a table or view, a rendered file under a suppressed read route, and a content function that is missing or has another signature. Examples: [MissionDocument.StoreKey](../lodestar/pkg/resources/mission_documents.go), a stored file; [ExpenseManifest](../lodestar/pkg/computedresources/expense_manifests.go), a rendered one. |
-| `@subjectSet` | user-id field of a `@resource` struct; with a `who:` written, one of the fields the `who:` names | `name, value: Field`, and the two optional parts `who: <tests>` and `where: <condition>` | Declares subject-side set vocabulary: `subject.<name>` in grant conditions is the set of `value:` values on this table's rows whose annotated column matches the requesting user (`crew IN subject.crews`). The annotation designates the user-id column — no separate marker — and is repeatable per anchor; `value:` names the sibling Go field the set yields, dotted to continue through foreign-key hops with the same many-to-one validation as `via:`; every set is drawn in the package's `zz_gen_bindings.dot`: the requester enters the anchor once naming its sets, a bare set is listed in the anchor's box and points at its table when the column is a foreign key, and a dotted value continues as edges (see `@domain`). **Tenancy:** the rendered subject subquery is tenant-filtered by the anchor resource's own `@domain` binding, so a domain-scoped anchor must declare one — generation rejects it otherwise, because without it `subject.<name>` matches the user's rows from every tenant (a membership held at tenant B would satisfy conditions evaluated at tenant A). A global-scoped anchor is the deliberately shared pattern — a certification earned once applies everywhere — and stays unfiltered. Note the anchor's own binding is what counts: tenancy never arrives transitively from a domain-scoped parent table (see `@domain`). **Type:** the set's comparison type is derived from the `value:` column (the terminal of a dotted value) exactly as `@attribute`'s is, and a grant may test only an attribute of the same type for membership in it; `MigrateRoles` refuses the mismatch at deploy. **The two parts:** a set's definition may say two more things, each in the language grant conditions are written in ([`accesstypes/condition`](../accesstypes/condition), whose package documentation states the grammar of both) over the fields of the same struct, named as Go fields. Both are optional, and a set that writes neither is the set described above and generates as it always has. `who:` says which rows are the requester's: one test or several joined by `OR`, each tying a column of the row to the requester, `Field = subject` or `Field IN subject.<another set>`. Left out, it is the annotated column equal to the requester. `where:` says which of those rows count: a condition over the row's own columns compared to literals and to `now`, with the comparisons, `IN (…)`, `IS NULL`, `AND`, `OR` and `NOT`, judged as every condition is, so a row counts only where it is TRUE. One table then yields a set for each level it records, an expired row drops out at its hour, and a set follows a person through any table that declares a set of its own: `@subjectSet(hangarsRun, value: HangarID, who: UserID = subject OR SquadronID IN subject.squadrons, where: LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now))`, written on one line or continued over the comment's next lines. A role file does not change: a grant names the set (`hangar IN subject.hangarsRun`) and nothing of the table behind it. Sets build on sets to any depth, and each keeps its own tenant filter: a set on a tenant-scoped table reads the request's tenant, a set on a global table reads every row, whichever of the two names the other, so a table kept outside every tenant answers the same in each. Both parts render inside the one `EXISTS` the set already is, the set a `who:` follows as that set's own `EXISTS` with the row's column where an attribute would stand. With a `who:` written the annotation sits on one of the fields the `who:` names, as every annotation that ties a row to the requester or the tenant sits on the column it reads. **Refused at generation**, naming the struct, the field and the set: a `who:` test that does not tie the row to the requester (a comparison to a literal, `!=`, a negated test, tests joined by `AND`), since a set of everyone's rows is one mistake away without it; a `who:` naming a field the struct does not have or one no condition can compare, comparing a column that is not a string to the requester, or writing one test twice; a `who:` naming a set no `@subjectSet` declares (the message lists the sets declared), a `@subjectValue`, or a set whose value type differs from the tested column's; sets that build on each other in a loop, a set on itself included, with the loop spelled out; the annotation on a field its `who:` does not name, with the fields it may sit on; a `where:` naming something that is not a field of the struct, or a field no condition can compare; a `where:` literal that does not fit the column it is compared to (a string against a number, a timestamp that is not RFC 3339, a date that is not `YYYY-MM-DD`, `now` against anything but a timestamp); a `where:` value that an enumerated column does not hold (a foreign key into an `@enumerate` table, or a field-scope `@enumerate` naming one), with the values it does hold; and a `where:` that names the requester (`subject`, `subject.<name>`) or a proposed value (`new.`), since the test that ties a row to the requester is the `who:` and a set's rows are read as the database holds them. **Index warning:** generation warns, and never refuses, when no index of the set's table serves the set's lookup, one warning for each column the `who:` names (the annotated column for a set that writes none), each naming the `CREATE INDEX` it wants: the tenant column first where the row carries one, then the column, then the value (section 9). One limit of the annotation's own syntax: an annotation ends at the parenthesis that closes it, counted without regard to quotes, so a string literal in a `where:` holds parentheses only in balanced pairs; one that does not is refused as an unclosed parenthesis or an unclosed quote. Examples: [SquadronMembership](../lodestar/pkg/resources/squadron_memberships.go), a set that writes neither part; [HangarPass](../lodestar/pkg/resources/hangar_passes.go), two sets on one table, each with both. |
+| `@subjectSet` | user-id field of a `@resource` struct; with a `who:` written, one of the fields the `who:` names | `name, value: Field`, and the two optional parts `who: <tests>` and `where: <condition>` | Declares subject-side set vocabulary: `subject.<name>` in grant conditions is the set of `value:` values on this table's rows whose annotated column matches the requesting user (`crew IN subject.crews`). The annotation designates the user-id column — no separate marker — and is repeatable per anchor; `value:` names the sibling Go field the set yields, dotted to continue through foreign-key hops with the same many-to-one validation as `via:`; every set is drawn in the package's `zz_gen_bindings.dot`: the requester enters the anchor once naming its sets, a bare set is listed in the anchor's box and points at its table when the column is a foreign key, and a dotted value continues as edges (see `@domain`). **Tenancy:** the rendered subject subquery is tenant-filtered by the anchor resource's own `@domain` binding, so a domain-scoped anchor must declare one — generation rejects it otherwise, because without it `subject.<name>` matches the user's rows from every tenant (a membership held at tenant B would satisfy conditions evaluated at tenant A). A global-scoped anchor is the deliberately shared pattern — a certification earned once applies everywhere — and stays unfiltered. Note the anchor's own binding is what counts: tenancy never arrives transitively from a domain-scoped parent table (see `@domain`). **Type:** the set's comparison type is derived from the `value:` column (the terminal of a dotted value) exactly as `@attribute`'s is, and a grant may test only an attribute of the same type for membership in it; `MigrateRoles` refuses the mismatch at deploy. **The two parts:** a set's definition may say two more things, each in the language grant conditions are written in ([`accesstypes/condition`](../accesstypes/condition), whose package documentation states the grammar of both) over the fields of the same struct, named as Go fields. Both are optional, and a set that writes neither is the set described above and generates as it always has. `who:` says which rows are the requester's: one test or several joined by `OR`, each tying a column of the row to the requester, `Field = subject` or `Field IN subject.<another set>`. Left out, it is the annotated column equal to the requester. `where:` says which of those rows count: a condition over the row's own columns compared to literals and to `now`, with the comparisons, `IN (…)`, `IS NULL`, `AND`, `OR` and `NOT`, judged as every condition is, so a row counts only where it is TRUE. One table then yields a set for each level it records, an expired row drops out at its hour, and a set follows a person through any table that declares a set of its own: `@subjectSet(hangarsRun, value: HangarID, who: UserID = subject OR SquadronID IN subject.squadrons, where: LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now))`, written on one line or continued over the comment's next lines. A role file does not change: a grant names the set (`hangar IN subject.hangarsRun`) and nothing of the table behind it. Sets build on sets to any depth, and each keeps its own tenant filter: a set on a tenant-scoped table reads the request's tenant, a set on a global table reads every row, whichever of the two names the other, so a table kept outside every tenant answers the same in each. Both parts render inside the one `EXISTS` the set already is, the set a `who:` follows as that set's own `EXISTS` with the row's column where an attribute would stand. With a `who:` written the annotation sits on one of the fields the `who:` names, as every annotation that ties a row to the requester or the tenant sits on the column it reads. **Refused at generation**, naming the struct, the field and the set: a `who:` test that does not tie the row to the requester (a comparison to a literal, `!=`, a negated test, tests joined by `AND`), since a set of everyone's rows is one mistake away without it; a `who:` naming a field the struct does not have or one no condition can compare, comparing a column that is not a string to the requester, or writing one test twice; a `who:` naming a set no `@subjectSet` declares (the message lists the sets declared), a `@subjectValue`, or a set whose value type differs from the tested column's; sets that build on each other in a loop, a set on itself included, with the loop spelled out; the annotation on a field its `who:` does not name, with the fields it may sit on; a `where:` naming something that is not a field of the struct, or a field no condition can compare; a `where:` literal that does not fit the column it is compared to (a string against a number, a timestamp that is not RFC 3339, a date that is not `YYYY-MM-DD`, `now` against anything but a timestamp); a `where:` value that an enumerated column does not hold (a foreign key into an `@enumerate` table, or a field-scope `@enumerate` naming one), with the values it does hold; and a `where:` that names the requester (`subject`, `subject.<name>`) or a proposed value (`new.`), since the test that ties a row to the requester is the `who:` and a set's rows are read as the database holds them. **Index warning:** generation warns, and never refuses, when no index of the set's table serves the set's lookup, one warning for each column the `who:` names (the annotated column for a set that writes none), each naming the `CREATE INDEX` it wants: the tenant column first where the row carries one, then the column, then the value (section 9). **Strings:** a string literal in a `where:` is written in single quotes and holds any character, a comma or a parenthesis among them; a quote inside it is written twice (`Code = ':)'`, `Note != 'it''s'`). A string that is never closed is refused as an unclosed single quote, at the annotation. Examples: [SquadronMembership](../lodestar/pkg/resources/squadron_memberships.go), a set that writes neither part; [HangarPass](../lodestar/pkg/resources/hangar_passes.go), two sets on one table, each with both. |
 | `@subjectValue` | user-id field of a `@resource` struct | `name, value: Field` | Declares subject-side scalar vocabulary for threshold comparisons (`amount <= subject.approvalLimit`). Same grammar — and the same tenancy rule, and the same place in `zz_gen_bindings.dot` — as `@subjectSet`, valid only where the annotated user-id column is the whole key of a unique index, the single-column primary key included, so the database enforces exactly one row per user; a column of a composite key or composite unique index does not qualify. It takes neither `who:` nor `where:`, the parts of a `@subjectSet`: its one row is the requester's by the unique column, and generation refuses either on it. **Type:** the value's comparison type is derived from the `value:` column as `@attribute`'s is, and a grant may compare it only against an attribute of the same type (`now` only against a timestamp-typed value); `MigrateRoles` refuses the mismatch at deploy. |
 | `@manualAddResource` | `accesstypes.Resource` constant | `permission[, scope]` | Registers the permission on the resource in the generated Collection for a hand-written route with no generated handler. Repeatable. Scope is `global` or `domain`; omitted means the global default. An `@outlet` annotation on the same constant names the outlets the hand-written route is mounted under, so an outlet-filtered TypeScript target (`ForOutlet`) carries the registration only when it names that outlet; omitted means the default outlet. The constant's value is the resource name and must not contain `:` (reserved for access-defined markers like `accesstypes.GlobalResource`); generation rejects it. The registration reaches the TypeScript constants like a generated one: an `Execute` registration joins `Methods`, any other permission joins `Resources`. |
 | `@manualAddResourceSet` | `@resource` struct | comma list of `listHandler`, `readHandler`, `patchHandler`, or `allHandlers` | Declares that hand-written handlers register this resource's permission Sets for the given handler types; validated against the set of generated handlers. |
@@ -2808,10 +2808,19 @@ GET  <prefix>/crew-session-auth-events                     List on CrewSessionAu
 GET  <prefix>/crew-user-roles                              List on CrewUserRoles (the role memberships)
 GET  <prefix>/crew-roles                                   List on CrewRoles (the custom roles)
 GET  <prefix>/crew-role-grants                             List on CrewRoleGrants
+GET  <prefix>/crew-groups, …/{id}                          List, Read on CrewGroups (the groups of people, sort=name)
+GET  <prefix>/crew-group-members                           List on CrewGroupMembers
+GET  <prefix>/crew-group-roles                             List on CrewGroupRoles (the roles the groups hold)
+GET  <prefix>/crew-group-users, …/{id}                     List, Read on CrewGroupUsers (the people of the groups, with their names)
+GET  <prefix>/crew-user-group-roles, …/{id}                List, Read on CrewUserGroupRoles (the roles people hold through a group)
 GET  <prefix>/sectors/{sectorID}/crew-sector-users, …/{id}         List, Read on CrewSectorUsers (sort=username)
 GET  <prefix>/sectors/{sectorID}/crew-sector-user-roles, …/{id}    List, Read on CrewSectorUserRoles (sort=username,role)
 GET  <prefix>/sectors/{sectorID}/crew-sector-invitations, …/{id}   List, Read on CrewSectorInvitations (newest first)
 GET  <prefix>/sectors/{sectorID}/crew-sector-identities, …/{id}    List, Read on CrewSectorIdentities (newest first)
+GET  <prefix>/sectors/{sectorID}/crew-sector-groups, …/{id}             List, Read on CrewSectorGroups (the sector's own groups)
+GET  <prefix>/sectors/{sectorID}/crew-sector-group-users, …/{id}        List, Read on CrewSectorGroupUsers
+GET  <prefix>/sectors/{sectorID}/crew-sector-group-roles, …/{id}        List, Read on CrewSectorGroupRoles
+GET  <prefix>/sectors/{sectorID}/crew-sector-user-group-roles, …/{id}   List, Read on CrewSectorUserGroupRoles
 POST <prefix>/create-crew-user                {"username","name","email","password","roles","domain","everyDomain"} → {"id"}   Execute on CreateCrewUser
 POST <prefix>/rename-crew-user                {"userId","username"}            Execute on RenameCrewUser, targeting CrewSessionUsers
 POST <prefix>/delete-crew-user                {"userId"}                       Execute on DeleteCrewUser, targeting CrewSessionUsers
@@ -2833,6 +2842,13 @@ POST <prefix>/remove-crew-password            {"userId"}                       E
 POST <prefix>/revoke-crew-session-token       {"tokenId"}                      Execute on RevokeCrewSessionToken, targeting CrewSessionTokens
 POST <prefix>/assign-crew-role                {"userId","role","domain","everyDomain"}   Execute on AssignCrewRole
 POST <prefix>/remove-crew-role                {"userId","role","domain","everyDomain"}   Execute on RemoveCrewRole
+POST <prefix>/create-crew-group               {"name","description","domain"} → {"id"}   Execute on CreateCrewGroup
+POST <prefix>/describe-crew-group             {"groupId","description"}        Execute on DescribeCrewGroup, targeting CrewGroups
+POST <prefix>/delete-crew-group               {"groupId"}                      Execute on DeleteCrewGroup, targeting CrewGroups
+POST <prefix>/add-crew-group-member           {"groupId","userId"}             Execute on AddCrewGroupMember, targeting CrewGroups
+POST <prefix>/remove-crew-group-member        {"groupId","userId"}             Execute on RemoveCrewGroupMember, targeting CrewGroupUsers
+POST <prefix>/give-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on GiveCrewGroupRole, targeting CrewGroups
+POST <prefix>/take-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on TakeCrewGroupRole
 POST <prefix>/sectors/{sectorID}/create-crew-sector-user   {"username","name","email","password","roles"} → {"id"}   Execute on CreateCrewSectorUser
 POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","name","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
 POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationId"}     Execute on WithdrawCrewSectorInvitation, targeting CrewSectorInvitations
@@ -2840,6 +2856,13 @@ POST <prefix>/sectors/{sectorID}/assign-crew-sector-role   {"userId","role"}    
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-role   {"userId","role"}            Execute on RemoveCrewSectorRole, targeting CrewSectorUserRoles
 POST <prefix>/sectors/{sectorID}/unlink-crew-sector-session-identity   {"identityId"}   Execute on UnlinkCrewSectorSessionIdentity, targeting CrewSectorIdentities
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-password           {"userId"}       Execute on RemoveCrewSectorPassword, targeting CrewSectorUsers
+POST <prefix>/sectors/{sectorID}/create-crew-sector-group          {"name","description"} → {"id"}   Execute on CreateCrewSectorGroup
+POST <prefix>/sectors/{sectorID}/describe-crew-sector-group        {"groupId","description"}   Execute on DescribeCrewSectorGroup, targeting CrewSectorGroups
+POST <prefix>/sectors/{sectorID}/delete-crew-sector-group          {"groupId"}          Execute on DeleteCrewSectorGroup, targeting CrewSectorGroups
+POST <prefix>/sectors/{sectorID}/add-crew-sector-group-member      {"groupId","userId"} Execute on AddCrewSectorGroupMember, targeting CrewSectorGroups
+POST <prefix>/sectors/{sectorID}/remove-crew-sector-group-member   {"groupId","userId"} Execute on RemoveCrewSectorGroupMember, targeting CrewSectorGroupUsers
+POST <prefix>/sectors/{sectorID}/give-crew-sector-group-role       {"groupId","role"}   Execute on GiveCrewSectorGroupRole, targeting CrewSectorGroups
+POST <prefix>/sectors/{sectorID}/take-crew-sector-group-role       {"groupId","role"}   Execute on TakeCrewSectorGroupRole, targeting CrewSectorGroupRoles
 POST <prefix>/sectors/{sectorID}/disable-crew-sector-user, enable-…, delete-…, rename-…, set-crew-sector-user-name, set-crew-sector-user-email,
      set-crew-sector-temporary-password, require-crew-sector-password-change, revoke-crew-sector-user-trusted-devices,
      end-crew-sector-user-sessions            the whole application's bodies                Execute on each, targeting CrewSectorUsers
@@ -3053,6 +3076,121 @@ The roles of an invitation's row are a list too, judged the same way: an invitat
 whole application's administrator sent in the Marshal's role, alone or among others, is
 not the Marshal's to withdraw, and its row's Execute answer leaves the withdrawal out.
 
+**Groups of people.** Where the schema holds the permission store's three group tables
+under the Auth's prefix (`CrewGroups`, `CrewGroupMembers`, `CrewGroupRoles`; the store's
+`DDL()` has them), the generated management serves the Auth's groups. A group holds roles
+the way a person does, and a person put in a group holds the group's roles wherever the
+group holds them, at their next request, until they leave the group or the group loses
+the role. The permission engine folds a group's roles into its members when it compiles
+its snapshot, so a check, a sign-in, a tenant's list of its people and the picker of a
+person's tenants all see through a group with nothing more said. An Auth whose roles a
+directory writes (`SyncsRoles`) keeps no groups, whatever tables the schema holds: the
+directory's own groups do that job. The three tables are migrated together, and a schema
+holding some of them is refused at generation.
+
+- A group is kept for the whole application or in one tenant. A tenant's group is made
+  and managed under the tenant's address by the tenant's own roles, holds any account,
+  and holds roles in that tenant alone. A group kept for the whole application is
+  managed by the whole application's methods and holds a role in the global scope, in
+  one tenant or in every tenant; no tenant's group is ever given a role in another
+  tenant (400).
+- No group holds the Super Administrator role (400): a super administrator gives it to
+  one person at a time, so a group is no way around the rule that only a super
+  administrator makes another. The methods a super administrator always executes stay
+  the two that give and take a person's own role.
+- A group that still has a member or holds a role is not deleted (409): empty it first.
+  Nobody loses a role because a group was deleted. Deleting a tenant removes the
+  tenant's groups with their members and roles, and every role a group of the whole
+  application holds in it (`ClearTenant`); deleting a person takes them out of their
+  groups.
+- A place in a group keeps an account as a role of the person's own does: a person whose
+  last role is taken away stays while they are in a group, and a person taken out of
+  their last group who holds no role is deleted with their identity links and sessions.
+  Where a person belongs to one tenant (`identity.WithOneTenantPerPerson()`), a place in
+  a tenant's group counts as a role in that tenant.
+- The declaration over the members table declares a subject set, the ids of the groups
+  the caller is in: `subject.groups` (section 2, `@subjectSet`). Every list over groups
+  carries the group's id under the attribute `group`, so a role file holds a grant to
+  the caller's own groups (`group IN subject.groups`: Lodestar's sector crew see the
+  groups they are in and the people in them), and a table of the application's own
+  whose rows name a group follows a person through it in a set of its own
+  (`who: GroupID IN subject.groups`). An application with several Auths that keep
+  groups has one set for each, named for its Auth (`subject.crewGroups`,
+  `subject.staffGroups`), since `subject.<name>` is one namespace for the application.
+  The set holds every group the caller is in, whichever tenant keeps it: a group's id
+  names one group in the whole application, so a tenant's group counts in a condition
+  wherever a row names it, and a tenant's rows name a tenant's groups by the picker the
+  application offers.
+
+The lists: `CrewGroups` (the groups, with where each is kept), `CrewGroupUsers` (the
+people of the groups, with their names), `CrewGroupRoles` (the roles the groups hold)
+and `CrewUserGroupRoles` (the roles people hold through a group, which stands beside
+`CrewUserRoles`, the roles each holds themselves, so a page says which is which). A
+tenant has its own four (`CrewSectorGroups`, `CrewSectorGroupUsers`,
+`CrewSectorGroupRoles`, `CrewSectorUserGroupRoles`): the first three hold the tenant's
+own groups, and the last every role a person holds in the tenant through a group, with
+`globalGroup` where the group is the whole application's and so not the tenant's to
+change. The lists of what people hold leave out a row the engine gives nobody (the Super
+Administrator role in a group, a tenant's group with a role outside its tenant). A
+tenant's list of its people (`CrewSectorUsers`) holds who a group puts there: the
+members of its own groups, and the members of a group of the whole application that
+holds a role there, the latter with `heldGlobally`.
+
+**The period of an assignment.** A role given to a person, a person's place in a group
+and a role given to a group may each carry a period: a start and an end, each optional,
+kept in two nullable columns of the permission store's memberships, group members and
+group roles tables (`StartsAt`, `EndsAt`; the store's `DDL()` has them, and every policy
+store's schema holds them). No start is from now, and no end is until it is taken away.
+An assignment counts inside its period alone, and nothing is written when a period
+begins or ends: everything that reads an assignment leaves out one outside its period.
+An Auth whose roles a directory writes gives none by hand and so gives no period.
+
+- The methods that give a role (`AssignCrewRole`, `AssignCrewSectorRole`), a place in a
+  group (`AddCrewGroupMember`, `AddCrewSectorGroupMember`) and a group's role
+  (`GiveCrewGroupRole`, `GiveCrewSectorGroupRole`) take the two times, `startsAt` and
+  `endsAt`. Whoever may give the role there gives it its period: the method's Execute
+  grant, with its condition on `new.role`, is the whole of it.
+- Changing a period is giving again: a role the person holds there already is given the
+  period of the new request in place of the one it had, so a request that names neither
+  time makes the role stand until it is taken away. Ending a role now is taking it away,
+  and a period that is over already is refused (400), as one that ends at or before its
+  start is.
+- The Super Administrator role takes no period (400): there is always a super
+  administrator, and a period could leave none.
+- The permission engine applies the period at the instant a check is made with, the
+  clock a grant's `now` is folded with, so an open session loses a role at its next
+  request after the end. The sign-in rule and the session's list of tenants read what a
+  person holds at the moment, and so do a tenant's list of its people
+  (`CrewSectorUsers`) and the list of the identities of those people: a person whose
+  only role in a tenant has ended, or has not begun, is not one of its people. The two
+  facts about a person (`heldElsewhere`, `heldGlobally`) read what has not ended.
+- The lists of roles and of places carry the period (`startsAt`, `endsAt`) under a
+  field grant of their own, leave out a row that has ended and show one that has not
+  begun, where it is given another period or taken away: `CrewSectorUserRoles`, the
+  lists of a group's people and of the roles it holds, and the roles held through a
+  group, whose period is where the place's and the group role's meet. The declarations
+  over the three tables themselves (`CrewUserRoles`, `CrewGroupMembers`,
+  `CrewGroupRoles`) list each row as the table holds it, period included.
+- The subject set of a person's groups counts a place inside its period alone: the
+  members' declaration says so with the set's `where:` part, so a condition that tests
+  `subject.groups` leaves a group out exactly when the engine stops giving its roles.
+- An ended row goes at its person's next sign-in, and no job runs on a schedule. The
+  generated client answers the session library's hook for a sign-in that stands
+  (`crewidentity.Client.SignedIn(db)`), and the Auth's package sets it where it sets
+  the invitation's hook (`session.Auth.SetSignedInHook`); an application that has a hook
+  of its own calls the client's from it, since one Auth has one hook. The session
+  library calls it once the session is committed and logs an error it answers, so the
+  removal neither fails a sign-in nor undoes one, and a sign-in with nothing to clear
+  costs one read of the person's own rows. It removes the person's ended roles and
+  places and nothing else: never the account, also when the ended role was the last
+  thing the person held; the rule on a tenant's last administrator does not judge it;
+  the engine is told nothing, since an ended assignment already counts for nothing; and
+  each removal is written under the source `identity.EndedByItself`. A role a group
+  held for a period is no one person's, so it stands, counting for nothing, until it is
+  taken away or given again. Where the sign-in rule refuses a person who holds nothing,
+  a person whose every assignment has ended is refused, nothing is cleared for them,
+  and the rows go with the account.
+
 **The rules** are the `identity` package's, written once over a `Store` the generated
 `crewidentity` package implements with the Auth's own typed queries and patches:
 
@@ -3163,6 +3301,15 @@ transaction: the invitation stands and no account is created. The permission eng
 told once the transaction has committed, before the sign-in policy decides. The client
 of an Auth whose roles a directory writes has neither hook: the directory's answer at
 every sign-in is that Auth's roles.
+
+A third hook runs once a sign-in stands, apart from it: the client's `SignedIn` removes
+the person's roles and places in groups whose period has ended (the period of an
+assignment, above), in a transaction of its own on the application's database. It is set
+beside the other two, and an Auth whose roles a directory writes has none:
+
+```go
+authSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
+```
 
 A rename moves nothing the person holds, whoever makes it (an administrator through the
 management, or the session library where the sign-in name is the person's email address

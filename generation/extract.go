@@ -105,7 +105,7 @@ func (c *client) structsToResources(structs []*parser.Struct, validators ...stru
 
 	// A subject set's who: may name another resource's set, so the sets it
 	// names are checked once every resource is extracted.
-	if err := resolveSubjectSetReferences(resources); err != nil {
+	if err := c.resolveExtractedSubjectSets(resources); err != nil {
 		return nil, err
 	}
 

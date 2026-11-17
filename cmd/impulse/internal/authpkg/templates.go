@@ -526,6 +526,16 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	if err != nil {
 		return nil, errors.Wrap(err, "{{.Name}}identity.NewClient()")
 	}
+{{- if not .RolesSynced}}
+
+	// A role, a place in a group and a group's role may each be given for a period, and
+	// count inside it alone. A row whose period has ended goes when its person next signs
+	// in: the session library calls the identity client's SignedIn once the session is
+	// committed, apart from the sign-in, so a failure is logged and the session stands.
+	// It removes the person's ended roles and places and nothing else, never the
+	// account, and no job runs on a schedule.
+	authSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
+{{- end}}
 {{- if .DirectoryAdmission}}
 
 	// The directory admission: what a person gets at their first sign-in through a
