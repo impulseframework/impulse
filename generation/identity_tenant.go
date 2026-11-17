@@ -1,6 +1,9 @@
 package generation
 
-import "slices"
+import (
+	"slices"
+	"strings"
+)
 
 // A tenant's methods of an auth's generated management. Beside the lists one tenant
 // keeps of an auth's people (identity_lists.go), the generated management writes the
@@ -62,6 +65,70 @@ func (i *identityInstance) removePasswordMethod(tenant bool) string {
 // whose directory writes them are picked by nobody.
 func (i *identityInstance) picksRoles() bool {
 	return i.tenant != nil && !i.rolesSynced && i.has(identityMemberships)
+}
+
+// tenantGiving is one method a person gives a role with by hand in one tenant, whose
+// role field picks from the roles that exist in the tenant: the method's struct, and
+// the fields its request names the role in, as Go writes them.
+type tenantGiving struct {
+	Method string
+	Fields string
+}
+
+// tenantGivings are the methods of one tenant whose role field picks from the tenant's
+// roles, each where the instance writes it: the one that gives a person a role, the
+// create and the invitation that start a person with one, and the one that gives a
+// group a role. The list a role is picked from offers the roles one of them takes from
+// the caller (the generated CouldGive), so it reads the same sources the methods are
+// written from and names none the instance does not hold.
+func (i *identityInstance) tenantGivings() []tenantGiving {
+	if i.tenant == nil {
+		return nil
+	}
+	subject := i.subject(true)
+	sources := slices.Concat(i.tenantMethodSources(), i.groupMethodSources())
+	var givings []tenantGiving
+	for _, giving := range []tenantGiving{
+		{Method: "Assign" + subject + "Role", Fields: "Role: string(role)"},
+		{Method: "Create" + subject + "User", Fields: "Roles: []string{string(role)}"},
+		{Method: "Invite" + subject + "User", Fields: "Roles: []string{string(role)}"},
+		{Method: "Give" + subject + "GroupRole", Fields: "Role: string(role)"},
+	} {
+		written := slices.ContainsFunc(sources, func(file identitySourceFile) bool {
+			return file.tenant && file.name == fileStem(giving.Method) &&
+				!slices.ContainsFunc(file.needs, func(kind identityTable) bool { return !i.has(kind) })
+		})
+		if written {
+			givings = append(givings, giving)
+		}
+	}
+
+	return givings
+}
+
+// TenantGivings are the methods of one tenant whose role field picks from the tenant's
+// roles (tenantGivings).
+func (d *identitySourceData) TenantGivings() []tenantGiving {
+	return d.tenantGivings()
+}
+
+// OffersRolesToGive reports whether the list a tenant's role is picked from offers the
+// roles the caller could give and no other: the instance's package answers the role
+// file's grants (grants.go), and a method of the tenant picks from the list. Without
+// either the list is every role of the tenant, limited by its own grant alone.
+func (d *identitySourceData) OffersRolesToGive() bool {
+	return d.judgesRoleChanges() && len(d.tenantGivings()) > 0
+}
+
+// GivingMethods names the methods of TenantGivings as a comment reads them.
+func (d *identitySourceData) GivingMethods() string {
+	givings := d.tenantGivings()
+	names := make([]string, 0, len(givings))
+	for _, giving := range givings {
+		names = append(names, giving.Method)
+	}
+
+	return strings.Join(names, ", ")
 }
 
 // tenantComputedSources are the source files of the computed resources one tenant

@@ -984,12 +984,13 @@ func Test_tenantDirectoryIn(t *testing.T) {
 }
 
 // Test_identityInstance_roleGrantsOfADirectorySeat pins who is handed the role file's
-// answers on giving a role where nothing else asks for them: the auth whose roles in a
-// tenant are given by hand, in an application whose directories record carries the
-// default seat. The role a tenant is opened to its directory's people with is judged
-// by those answers, so the methods that name it are written only for such an auth. An
-// auth whose directory writes its roles judges none, and neither does one in an
-// application that declares no default seat.
+// answers on giving a role where no group and no default role asks for them: the auth
+// whose roles in a tenant are given by hand. The role a tenant is opened to its
+// directory's people with is judged by those answers, in an application whose
+// directories record carries the default seat, and with or without one the list a
+// tenant's role is picked from asks them which roles the caller could give. An auth
+// whose directory writes its roles judges none, and neither does one with no
+// memberships or no tenant record.
 func Test_identityInstance_roleGrantsOfADirectorySeat(t *testing.T) {
 	t.Parallel()
 
@@ -1003,7 +1004,7 @@ func Test_identityInstance_roleGrantsOfADirectorySeat(t *testing.T) {
 		want        bool
 	}{
 		{name: "roles given by hand, and a default seat", tenant: seated, tables: []identityTable{identityUsers, identityMemberships}, want: true},
-		{name: "no default seat: nothing asks", tenant: unseated, tables: []identityTable{identityUsers, identityMemberships}},
+		{name: "no default seat: the list a tenant's role is picked from asks", tenant: unseated, tables: []identityTable{identityUsers, identityMemberships}, want: true},
 		{name: "roles a directory writes: nobody gives one by hand", tenant: seated, tables: []identityTable{identityUsers, identityMemberships}, rolesSynced: true},
 		{name: "no memberships: nobody holds a role", tenant: seated, tables: []identityTable{identityUsers}},
 		{name: "no tenant record", tables: []identityTable{identityUsers, identityMemberships}},

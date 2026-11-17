@@ -1222,7 +1222,9 @@ var _ identity.RoleGrants = grants{}
 // since none of it gives a power that giving the role directly would not: a person put
 // in a group is given the group's roles, and a sign-in method opened to sign-up gives
 // its default role to every person who signs up. Each is judged by the grant of the
-// method that gives a role.
+// method that gives a role. The list a tenant's role is picked from asks which roles
+// the caller could give at all (CouldGive), so a page offers no role every method
+// would refuse.
 //
 // The answer is the one the method's own frame would reach for the same caller, asked
 // of the request's own check (resource.Caller.ExecuteGate): the method's Execute grant
@@ -1268,6 +1270,60 @@ func (grants) MayGive(ctx context.Context, txn resource.ReadWriteTransaction, sc
 	}
 
 	return settled(gate, "Assign{{ .Auth }}Role")
+}
+
+// CouldGive reports whether the caller could give the role in the scope by hand, to
+// somebody: the question of the list a role is picked from, asked before anybody is
+// named, with no row to read and so no transaction.
+{{- if .TenantGivings }} For a request made under a
+// tenant, each method of the tenant whose role field picks from the tenant's roles is
+// asked with the role and nothing else:
+//
+//	{{ .GivingMethods }}
+//
+// The answer is yes where one of them does not refuse the caller the role: its grant
+// admits the role, or what is left of the grant's condition reads the row the method
+// names (a person, a group), so the role could be given to some of them. A role every
+// one of them refuses is one the caller gives nobody. For the whole application the
+// method that gives a role names no row, and its grant answers (MayGive, of nobody).
+{{- else }} The method that gives a role names no row, and its
+// grant answers (MayGive, of nobody).
+{{- end }}
+func (g grants) CouldGive(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
+	{{- if .TenantGivings }}
+	caller := resource.CallerFrom(ctx)
+	if tenant, inTenant := caller.Scope.Domain(); inTenant {
+		// A request made under a tenant gives a role in that tenant alone.
+		if scope != accesstypes.DomainPolicyScope(tenant) {
+			return false, nil
+		}
+		for _, by := range []struct {
+			method  accesstypes.Resource
+			request any
+		}{
+			{{- range .TenantGivings }}
+			{method: {{ .Method }}{}.Method(), request: &{{ .Method }}{ {{- .Fields -}} }},
+			{{- end }}
+		} {
+			gate, err := caller.ExecuteGate(ctx, by.method, by.request)
+			if err != nil {
+				// A method the caller holds no grant on, or whose grant refuses the
+				// role, is a no of that method, and the next is asked.
+				if _, err := granted(err); err != nil {
+					return false, err
+				}
+
+				continue
+			}
+			if may, settled := gate.Settled(); may || !settled {
+				return true, nil
+			}
+		}
+
+		return false, nil
+	}
+{{ end }}
+	return g.MayGive(ctx, nil, scope, impulse.NilUUID, role)
 }
 
 // MayTake reports whether the caller may take the role the person holds in the scope

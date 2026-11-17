@@ -3405,22 +3405,49 @@ them. It is a computed resource (`@computed`, section 2), declared beside the me
 the role file's roles are held by the permission engine and only a custom role is a row
 of a table, so its list function asks the engine (`identity.Manager.TenantRoles`) and no
 query selects it. It serves a list and no read, under the domain pair, and the role file
-grants it like any resource. The role's name is declared for conditions (`@attribute(name)`
-on the field), so a grant says which of the tenant's roles its holder is listed:
+grants it like any resource.
+
+The role field of each method a person gives a role with in a tenant names the list
+(`@enumerate`): `AssignCrewSectorRole`, the create and the invitation that start a person
+with a role (`CreateCrewSectorUser`, `InviteCrewSectorUser`), and
+`GiveCrewSectorGroupRole`. A page draws the field as a picker, and a page offers what
+the caller may do, so the list holds the roles the caller could give and no other. A
+role file says which roles a person hands out once, on the methods' Execute grants,
+where a condition reads the role:
+
+```json
+"Execute": [{ "resource": "AssignCrewSectorRole", "condition": "new.role != 'SectorMarshal'" }]
+```
+
+For each role of the tenant the list asks the grant of every one of those methods, with
+the role and nobody named (`identity.Manager.RolesToGive`, which asks the generated
+`CouldGive` of `identity.RoleGrants`), and leaves out a role every one of them refuses
+the caller: Lodestar's Sector Marshal is offered every role of the sector but the
+Marshal's own. A grant whose condition also reads the row the method names (the person,
+the group) could admit the role for some of them, so the role is offered and the method
+decides. One list serves all four pickers, so it holds a role that one method takes
+and another refuses, which the method then says; a role file that gives the methods the
+same limit, as Lodestar's does, has a picker that offers exactly what each takes. A
+request that names a role the list left out is refused by the method's own grant, as
+before.
+
+The list's own List grant may carry a condition too, which narrows it further. The
+role's name is declared for conditions (`@attribute(name)` on the field), and the library
+judges the condition over each role the list answers (a computed resource's rows,
+section 2); a request for the names alone and the list's count are trimmed the same way.
+Lodestar keeps one, which says nothing its methods' grants do not, to show a condition
+judged over a computed resource's rows:
 
 ```json
 "List": [{ "resource": "CrewSectorRoles", "fields": ["description"], "condition": "name != 'SectorMarshal'" }]
 ```
 
-The `role` field of `AssignCrewSectorRole` names the list (`@enumerate`), so a page draws
-the field as a picker over the roles the caller's grant admits: Lodestar's Sector Marshal
-is offered every role of the sector but the Marshal's own. The library judges the
-condition over each role the engine answers (a computed resource's rows, section 2); a
-request for the names alone and the list's count are trimmed the same way. The picker is
-what a person is offered, and the method's own Execute grant is what holds them to it
-(`new.role != 'SectorMarshal'`): a request that names a role the list left out is refused
-there. The two grants say the same limit once each, as a table's List and Update grants
-do. An Auth whose directory writes the roles gives none by hand and has no such list.
+An Auth whose directory writes the roles gives none by hand and has no such list. The
+roles of the whole application are given by a field a person types, with no list to
+pick from, and the two other lists a role is picked from are limited the same way: the
+default role of a method opened to sign-up (`CrewSignUpRoles`) and the role a tenant is
+opened to its directory's people with (`CrewSectorDirectoryRoles`) each hold the roles
+the caller may give by the method that gives one (`MayGive`).
 
 **A tenant's methods.** Beside the lists the generated management writes the methods a
 tenant changes its people through. Each is a method of the tenant's scope
