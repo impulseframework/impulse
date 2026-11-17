@@ -180,6 +180,8 @@ type GeneratedHandlers interface {
 
 	GiveStaffTenantGroupRole() http.HandlerFunc
 
+	InviteStaffTenant() http.HandlerFunc
+
 	InviteStaffTenantUser() http.HandlerFunc
 
 	InviteStaffUser() http.HandlerFunc
@@ -237,6 +239,8 @@ type GeneratedHandlers interface {
 
 	StaffGroupUsers() http.HandlerFunc
 	StaffGroupUser() http.HandlerFunc
+
+	StaffInvitedTenants() http.HandlerFunc
 
 	StaffRoles() http.HandlerFunc
 
@@ -318,6 +322,8 @@ type GeneratedHandlers interface {
 	UnlockStaffSignIn() http.HandlerFunc
 
 	WithdrawStaffInvitation() http.HandlerFunc
+
+	WithdrawStaffInvitedTenant() http.HandlerFunc
 
 	WithdrawStaffTenantInvitation() http.HandlerFunc
 
@@ -420,6 +426,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	r.Post("/console/api/tenants/{tenantID}/give-staff-tenant-group-role", domainGuard(h.GiveStaffTenantGroupRole()))
 
+	r.Post("/console/api/invite-staff-tenant", h.InviteStaffTenant())
+
 	r.Post("/console/api/tenants/{tenantID}/invite-staff-tenant-user", domainGuard(h.InviteStaffTenantUser()))
 
 	r.Post("/console/api/invite-staff-user", h.InviteStaffUser())
@@ -491,6 +499,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffGroupUserHandler := h.StaffGroupUser()
 	bounded.Get("/console/api/staff-group-users/{staffGroupUserGroupID}/{staffGroupUserUserID}", staffGroupUserHandler)
 	bounded.Post("/console/api/staff-group-users/{staffGroupUserGroupID}/{staffGroupUserUserID}", staffGroupUserHandler)
+
+	staffInvitedTenantsHandler := h.StaffInvitedTenants()
+	bounded.Get("/console/api/staff-invited-tenants", staffInvitedTenantsHandler)
+	bounded.Post("/console/api/staff-invited-tenants", staffInvitedTenantsHandler)
 
 	staffRolesHandler := h.StaffRoles()
 	bounded.Get("/console/api/staff-roles", staffRolesHandler)
@@ -675,6 +687,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	r.Post("/console/api/unlock-staff-sign-in", h.UnlockStaffSignIn())
 
 	r.Post("/console/api/withdraw-staff-invitation", h.WithdrawStaffInvitation())
+
+	r.Post("/console/api/withdraw-staff-invited-tenant", h.WithdrawStaffInvitedTenant())
 
 	r.Post("/console/api/tenants/{tenantID}/withdraw-staff-tenant-invitation", domainGuard(h.WithdrawStaffTenantInvitation()))
 

@@ -671,6 +671,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "tenantDirectoryID": "testTenantDirectoryID"},
 		},
 		{
+			url: "/api/staff-invited-tenants", method: http.MethodGet,
+			handlerFunc: "StaffInvitedTenants",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-invited-tenants", method: http.MethodPost,
+			handlerFunc: "StaffInvitedTenants",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/api/staff-sign-in-methods", method: http.MethodGet,
 			handlerFunc: "StaffSignInMethods",
 			parameters:  map[string]string{},
@@ -961,6 +971,10 @@ func (s *generatedHandlersStub) GiveStaffTenantGroupRole() http.HandlerFunc {
 	return s.record("GiveStaffTenantGroupRole")
 }
 
+func (s *generatedHandlersStub) InviteStaffTenant() http.HandlerFunc {
+	return s.record("InviteStaffTenant")
+}
+
 func (s *generatedHandlersStub) InviteStaffTenantUser() http.HandlerFunc {
 	return s.record("InviteStaffTenantUser")
 }
@@ -1079,6 +1093,10 @@ func (s *generatedHandlersStub) StaffGroupUsers() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffGroupUser() http.HandlerFunc {
 	return s.record("StaffGroupUser")
+}
+
+func (s *generatedHandlersStub) StaffInvitedTenants() http.HandlerFunc {
+	return s.record("StaffInvitedTenants")
 }
 
 func (s *generatedHandlersStub) StaffRoles() http.HandlerFunc {
@@ -1275,6 +1293,10 @@ func (s *generatedHandlersStub) UnlockStaffSignIn() http.HandlerFunc {
 
 func (s *generatedHandlersStub) WithdrawStaffInvitation() http.HandlerFunc {
 	return s.record("WithdrawStaffInvitation")
+}
+
+func (s *generatedHandlersStub) WithdrawStaffInvitedTenant() http.HandlerFunc {
+	return s.record("WithdrawStaffInvitedTenant")
 }
 
 func (s *generatedHandlersStub) WithdrawStaffTenantInvitation() http.HandlerFunc {
