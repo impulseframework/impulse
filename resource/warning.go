@@ -40,6 +40,11 @@ type Warning struct {
 	// Consequence is what the call will do, in sentences a person reads before they
 	// confirm it: who is affected and how.
 	Consequence string `json:"consequence"`
+	// Names are the people or things the consequence speaks of, one a line, where the
+	// method can name them and the caller may be told: a dialog shows them as a list
+	// under the sentences. Nil where the method names none; the consequence stands
+	// without them, and says how many there are where that matters.
+	Names []string `json:"names,omitempty"`
 	// Confirm is the words on the button that runs the call, which say what it does
 	// ("Open to anyone with a Google account"), so nobody confirms by a bare "OK".
 	Confirm string `json:"confirm"`

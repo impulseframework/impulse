@@ -1037,10 +1037,14 @@ func sanitizeEnumIdentifier(name string) string {
 
 func typescriptMethodImports(t *typescriptGenerator) string {
 	pkgs := make([]string, 0, 2)
-	if t.hasRPCMethods() || t.servesFeatureFlags() {
+	own := t.tenantOwnClientData()
+	if t.hasRPCMethods() || t.servesFeatureFlags() || len(own) > 0 {
 		pkgs = append(pkgs, "Methods")
 	}
-	if t.hasRPCMethodWithEnumeratedResource() || t.hasRPCMethodWithTarget() {
+	picks := slices.ContainsFunc(own, func(method *tsTenantOwnMethod) bool {
+		return slices.ContainsFunc(method.Fields, func(field tsTenantOwnField) bool { return field.Enumerated != "" })
+	})
+	if t.hasRPCMethodWithEnumeratedResource() || t.hasRPCMethodWithTarget() || picks {
 		pkgs = append(pkgs, "Resources")
 	}
 
@@ -1052,7 +1056,7 @@ func typescriptConsImports(t *typescriptGenerator, d *resource.TypescriptData) s
 	if len(d.ResourceTags) > 0 || len(t.rpcMethods) > 0 {
 		pkgs = append(pkgs, "FieldName")
 	}
-	if len(t.rpcMethods) > 0 || t.servesFeatureFlags() {
+	if len(t.rpcMethods) > 0 || t.servesFeatureFlags() || len(t.tenantOwnClientData()) > 0 {
 		pkgs = append(pkgs, "Method")
 	}
 	if len(d.Permissions) > 0 {

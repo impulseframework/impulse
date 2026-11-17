@@ -100,20 +100,22 @@ func Test_tenantRecord_switchIsOutputOnly(t *testing.T) {
 }
 
 // Test_tenantDirectoryOnlyTemplate pins the handlers of the tenant record's
-// directory-only switch: the method runs in the tenant's scope to its own Execute
-// grant, asks the rules of the switch and then writes the flag through the record's
-// update patch, reloads the roster and signals the tenants kind; the two reads are the
-// library's, asked under the method's grant, with every auth's reader of the people
-// the switch keeps out and the list that decides whether the caller is told who they
-// are.
+// directory-only switch: each of the two methods runs in the tenant's scope to its own
+// Execute grant, with the caller stamped for the warning to ask whom it may list; the
+// one that turns the switch on answers its warning in place of running the call, with
+// every auth's reader of the people the switch keeps out and the list that decides
+// whether the caller is told who they are; the one that turns it off declares no warning
+// and refuses a request for one; each asks the rules of the switch and then writes the
+// flag through the record's update patch, reloads the roster and signals the tenants
+// kind; and the read of the switch is the library's, asked under either method's grant.
 func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 	t.Parallel()
 
 	data := func(people ...*directoryOnlyPeople) *directoryOnlyData {
 		return &directoryOnlyData{
 			Source: "resources", Package: "app", Name: "Harbor", Word: "harbor", Field: "DirectoryOnly",
-			Method: "SetHarborDirectoryOnly", MethodRoute: "set-harbor-directory-only",
-			StateFunc: "DirectoryOnly", ConsequenceFunc: "DirectoryOnlyConsequence", StateRoute: "directory-only", ConsequenceRoute: "directory-only/consequence",
+			Make: tenantOwnMethod{Name: "MakeHarborDirectoryOnly", Typed: "close"}, End: tenantOwnMethod{Name: "EndHarborDirectoryOnly"},
+			StateFunc: "DirectoryOnly", StateRoute: "directory-only",
 			DomainRoute: "harbors/{harborID}", KeyType: "impulse.UUID", KeyIsUUID: true, People: people,
 			LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
 			ResourcePackage:     "resources", RouterPackage: "router", ApplicationName: "App", ReceiverName: "a",
@@ -129,41 +131,54 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 		wantNotContains []string
 	}{
 		{
-			name: "the method asks its grant, then the rules, then writes the flag; the reads name each auth's people list",
+			name: "each method asks its grant, then the warning or the rules, then writes the flag; the warning names each auth's people list",
 			data: data(
 				&directoryOnlyPeople{Accessor: "StaffIdentity", List: "StaffHarborUsers", Fields: []string{"username", "name"}},
 				&directoryOnlyPeople{Accessor: "MembersIdentity", List: "MemberHarborUsers", Fields: []string{"username", "name"}},
 			),
 			wantInOrder: []string{
-				"func (a *App) SetHarborDirectoryOnly() http.HandlerFunc {",
-				`resource.MustNewRPCDecoder[resource.SetDirectoryOnlyRequest](a, "SetHarborDirectoryOnly", accesstypes.Execute).WithCollection(router.Collection())`,
+				"func (a *App) MakeHarborDirectoryOnly() http.HandlerFunc {",
+				`return harborDirectoryOnly(a, "MakeHarborDirectoryOnly", true)`,
+				"func (a *App) EndHarborDirectoryOnly() http.HandlerFunc {",
+				`return harborDirectoryOnly(a, "EndHarborDirectoryOnly", false)`,
+				"func harborDirectoryOnly(a *App, method accesstypes.Resource, only bool) http.HandlerFunc {",
+				`resource.MustNewRPCDecoder[request](a, method, accesstypes.Execute).WithCollection(router.Collection())`,
 				"domain := httpio.Param[accesstypes.Domain](r, router.Domain)",
-				"req, err := decoder.Decode(r, accesstypes.DomainScope(domain))",
-				"only, err := req.Turn()",
+				"_, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))",
+				"ctx = resource.WithCaller(ctx, caller)",
+				"asksWarning := resource.AsksWarning(r)",
+				"if asksWarning && !only {",
+				`httpio.NewBadRequestMessagef("%s declares no warning: send the call without the X-Warning header", method)`,
 				"id, err := impulse.UUIDFromString(string(domain))",
+				"if asksWarning {",
+				"said, err := rules.DirectoryOnlyWarning(ctx, txn, domain,",
+				`resource.DirectoryPeople{List: "StaffHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.StaffIdentity().DirectoryOutsiders},`,
+				`resource.DirectoryPeople{List: "MemberHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.MembersIdentity().DirectoryOutsiders},`,
+				"if err := resource.CheckWarning(string(method), said); err != nil {",
+				"return resource.ErrWarningAsked",
 				"if err := rules.DirectoryOnly(ctx, txn, domain, only); err != nil {",
 				"if err := resources.NewHarborUpdatePatch(id).SetDirectoryOnly(only).Buffer(ctx, txn, eventSource); err != nil {",
 				"return resource.ErrDryRun",
+				"if asksWarning && resource.WarningAsked(err) {",
+				"return httpio.NewEncoder(w).Ok(warning)",
 				"if err := a.TenantRoster().Reload(ctx); err != nil {",
 				"if err := a.LiveService().Signal(ctx, resource.KindTenants); err != nil {",
 				"func (a *App) DirectoryOnly() http.HandlerFunc {",
-				"return harborDirectoryOnlyReads(a).State()",
-				"func (a *App) DirectoryOnlyConsequence() http.HandlerFunc {",
-				"return harborDirectoryOnlyReads(a).Consequence()",
-				`return resource.NewDirectoryOnlyReads(a.ResourceClient(), NewHarborDirectoryRules(), a.UserPermissions, "SetHarborDirectoryOnly", router.Domain,`,
-				`resource.DirectoryPeople{List: "StaffHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.StaffIdentity().DirectoryOutsiders},`,
-				`resource.DirectoryPeople{List: "MemberHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.MembersIdentity().DirectoryOutsiders},`,
+				`return resource.DirectoryOnlyStateHandler(a.ResourceClient(), NewHarborDirectoryRules(), a.UserPermissions, router.Domain, "MakeHarborDirectoryOnly", "EndHarborDirectoryOnly")`,
 			},
 			wantContains: []string{
-				"POST <prefix>/harbors/{harborID}/set-harbor-directory-only",
+				"POST <prefix>/harbors/{harborID}/make-harbor-directory-only",
+				"POST <prefix>/harbors/{harborID}/end-harbor-directory-only",
 				"GET\n// <prefix>/harbors/{harborID}/directory-only",
-				"GET <prefix>/harbors/{harborID}/directory-only/consequence",
+				`which a person types "close" under`,
 			},
+			// The read of what turning the switch on would do is the method's warning now.
+			wantNotContains: []string{"DirectoryOnlyConsequence", "SetHarborDirectoryOnly", "req.Turn()"},
 		},
 		{
 			name:            "a program that generates no auth's management counts and names no person",
 			data:            data(),
-			wantContains:    []string{"The program generates no auth's management, so the read counts and names no person"},
+			wantContains:    []string{"The program generates no auth's management, so the warning counts and names no person", "said, err := rules.DirectoryOnlyWarning(ctx, txn, domain)"},
 			wantNotContains: []string{"resource.DirectoryPeople{"},
 		},
 		{
@@ -182,33 +197,146 @@ func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 			if err != nil {
 				t.Fatalf("generateTemplateOutput() error = %v", err)
 			}
-			if _, err := format.Source(out); err != nil {
+			formatted, err := format.Source(out)
+			if err != nil {
 				t.Fatalf("the rendered file does not parse: %v\n%s", err, out)
 			}
 			if len(tt.wantInOrder) > 0 {
-				assertInOrder(t, string(out), tt.wantInOrder...)
+				assertInOrder(t, string(formatted), tt.wantInOrder...)
 			}
-			assertContains(t, "the switch's file", string(out), tt.wantContains, tt.wantNotContains)
+			assertContains(t, "the switch's file", string(formatted), tt.wantContains, tt.wantNotContains)
 		})
 	}
 
 	// The tenants file no longer carries a read of the switch: the switch has its own file.
-	if strings.Contains(tenantsTemplate, "DirectoryOnlyHandler") || strings.Contains(tenantsTemplate, "NewDirectoryOnlyReads") {
+	if strings.Contains(tenantsTemplate, "DirectoryOnlyHandler") || strings.Contains(tenantsTemplate, "DirectoryOnlyStateHandler") {
 		t.Error("tenantsTemplate still serves a read of the directory-only switch")
 	}
 }
 
-// Test_directoryOnlyRoutes pins where the switch is served and what registers it: the
-// method and its two reads under the tenant's own route, behind the domain guard, on
-// every session outlet the tenant record is on and on no API-key outlet; a denied case
-// for each in the authorization matrix, the method's dry run included; the method in
-// the collection with Execute in the tenant's scope; and nothing at all for a record
-// that declares no switch. An application's own method or registration under the
-// method's name is refused.
+// Test_tenantDirectoryRoleTemplate pins the handlers of the two methods that say how a
+// tenant admits its directory's people. The one that opens the tenant runs in the
+// tenant's scope to its own Execute grant with the caller stamped, reads the tenant's
+// directory, holds the role to the auth's rule of who may give it, answers its warning
+// in place of running the call, and writes the role through the directories record's
+// update patch; the warning is answered while no role is picked, and the call is not.
+// The one that makes the tenant invite only declares no warning, refuses a request for
+// one, and clears the role where there is one.
+func Test_tenantDirectoryRoleTemplate(t *testing.T) {
+	t.Parallel()
+
+	data := func() *directoryRoleData {
+		return &directoryRoleData{
+			Source: "resources", Package: "app", Name: "Harbor", Word: "harbor", Directories: "HarborDirectory", Field: "DefaultSeat",
+			Open: tenantOwnMethod{Name: "OpenHarborToDirectory", Typed: "open"}, InviteOnly: tenantOwnMethod{Name: "MakeHarborInviteOnly"},
+			DomainRoute: "harbors/{harborID}", SeatIsPointer: true, Auth: "Staff", IdentityAccessor: "StaffIdentity", Picker: "StaffHarborRoles",
+			LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
+			ResourcePackage:     "resources", RouterPackage: "router", ApplicationName: "App", ReceiverName: "a",
+		}
+	}
+	plain := data()
+	plain.SeatIsPointer = false
+	tests := []struct {
+		name            string
+		data            *directoryRoleData
+		wantInOrder     []string
+		wantContains    []string
+		wantNotContains []string
+	}{
+		{
+			name: "opening asks its grant, the directory, the rule of who may give the role, then the warning or the write; invite only clears the role",
+			data: data(),
+			wantInOrder: []string{
+				"func (a *App) OpenHarborToDirectory() http.HandlerFunc {",
+				"Role string `json:\"role\"`",
+				`resource.MustNewRPCDecoder[request](a, "OpenHarborToDirectory", accesstypes.Execute).WithCollection(router.Collection())`,
+				"req, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))",
+				"ctx = resource.WithCaller(ctx, caller)",
+				"role := accesstypes.Role(strings.TrimSpace(req.Role))",
+				"asksWarning := resource.AsksWarning(r)",
+				`if role == "" && !asksWarning {`,
+				"directory, err := rules.Directory(ctx, txn, domain)",
+				`if role != "" {`,
+				"if err := a.StaffIdentity().DirectoryRole(ctx, txn, domain, role); err != nil {",
+				"if asksWarning {",
+				"said := rules.OpenToDirectoryWarning(directory, role)",
+				`if err := resource.CheckWarning("OpenHarborToDirectory", said); err != nil {`,
+				"return resource.ErrWarningAsked",
+				"id, err := impulse.UUIDFromString(directory.Key)",
+				"if err := resources.NewHarborDirectoryUpdatePatch(id).SetDefaultSeat(&seat).Buffer(ctx, txn, eventSource); err != nil {",
+				"return resource.ErrDryRun",
+				"if asksWarning && resource.WarningAsked(err) {",
+				"live.Publish(ctx, w, a.LiveService(), liveDerivations, domain, touched)",
+				"func (a *App) MakeHarborInviteOnly() http.HandlerFunc {",
+				`resource.MustNewRPCDecoder[request](a, "MakeHarborInviteOnly", accesstypes.Execute).WithCollection(router.Collection())`,
+				"_, caller, err := decoder.DecodeCaller(r, accesstypes.DomainScope(domain))",
+				"if resource.AsksWarning(r) {",
+				`httpio.NewBadRequestMessage("MakeHarborInviteOnly declares no warning: send the call without the X-Warning header")`,
+				"directory, err := rules.Directory(ctx, txn, domain)",
+				`if directory.DefaultRole != "" {`,
+				"if err := resources.NewHarborDirectoryUpdatePatch(id).SetDefaultSeat(nil).Buffer(ctx, txn, eventSource); err != nil {",
+				"return resource.ErrDryRun",
+			},
+			wantContains: []string{
+				"POST <prefix>/harbors/{harborID}/open-harbor-to-directory",
+				"POST <prefix>/harbors/{harborID}/make-harbor-invite-only",
+				`which a person types "open" under`,
+				"(StaffHarborRoles)",
+			},
+		},
+		{
+			name:            "a default seat that is a plain string holds no role as the empty string",
+			data:            plain,
+			wantContains:    []string{"SetDefaultSeat(seat).Buffer(ctx, txn, eventSource)", `SetDefaultSeat("").Buffer(ctx, txn, eventSource)`},
+			wantNotContains: []string{"SetDefaultSeat(&seat)", "SetDefaultSeat(nil)"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			c := &client{}
+			out, err := c.generateTemplateOutput("tenantDirectoryRoleTemplate", tenantDirectoryRoleTemplate, tt.data)
+			if err != nil {
+				t.Fatalf("generateTemplateOutput() error = %v", err)
+			}
+			formatted, err := format.Source(out)
+			if err != nil {
+				t.Fatalf("the rendered file does not parse: %v\n%s", err, out)
+			}
+			if len(tt.wantInOrder) > 0 {
+				assertInOrder(t, string(formatted), tt.wantInOrder...)
+			}
+			assertContains(t, "the default role's file", string(formatted), tt.wantContains, tt.wantNotContains)
+		})
+	}
+}
+
+// Test_directoryOnlyRoutes pins where the tenant's own methods are served and what
+// registers them. The switch's two methods and its read are under the tenant's own
+// route, behind the domain guard, on every session outlet the tenant record is on and
+// on no API-key outlet. The two methods that say how the tenant admits its directory's
+// people are served where the session outlets that serve the directories record are
+// all of one Auth whose management the program generates and whose roles are given by
+// hand, and nowhere otherwise. Each route has a denied case in the authorization
+// matrix, a method's dry run and its request for a warning included; each method is in
+// the collection with Execute in the tenant's scope; and a record that declares neither
+// registers nothing. An application's own method or registration under a method's name
+// is refused.
 func Test_directoryOnlyRoutes(t *testing.T) {
 	t.Parallel()
 
-	generator := func(t *testing.T, structs ...string) *resourceGenerator {
+	const staffAuth = "example.com/app/pkg/auth/staff"
+	// staff is the generated management of the Staff auth: its people are listed in a
+	// tenant and its roles are given by hand.
+	staff := func(synced bool) *identityInstance {
+		return &identityInstance{
+			importPath: staffAuth, auth: "Staff", rolesSynced: synced,
+			tenant: &identityTenant{name: "Harbor", table: "Harbors", key: "Id", word: "harbor"},
+			tables: map[identityTable]bool{identityUsers: true, identityMemberships: true},
+		}
+	}
+	generator := func(t *testing.T, auths []string, identity []*identityInstance, structs ...string) *resourceGenerator {
 		t.Helper()
 
 		r, err := declarationResources(t, structs...)
@@ -224,52 +352,154 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			{name: "members", prefix: "members", servesSessions: true},
 			{name: "machines", prefix: "machines", apiKey: true},
 		}
+		if len(auths) > 0 {
+			r.defaultOutlet.auth = &outletAuth{importPath: auths[0]}
+			r.extraOutlets[0].auth = &outletAuth{importPath: auths[len(auths)-1]}
+		}
+		r.identity = identity
 
 		return r
 	}
-	routesUnder := func(prefix string) []*generatedRoute {
-		base, testBase := "/"+prefix+"/harbors/{harborID}", "/"+prefix+"/harbors/"+domainTestValue
-
-		return []*generatedRoute{
-			{Method: "GET", Path: base + "/directory-only", HandlerFunc: "DirectoryOnly", DomainScoped: true, TestURL: testBase + "/directory-only"},
-			{Method: "GET", Path: base + "/directory-only/consequence", HandlerFunc: "DirectoryOnlyConsequence", DomainScoped: true, TestURL: testBase + "/directory-only/consequence"},
-			{Method: "POST", Path: base + "/set-harbor-directory-only", HandlerFunc: "SetHarborDirectoryOnly", DomainScoped: true, TestURL: testBase + "/set-harbor-directory-only", SelfBounded: true},
+	post := func(prefix, method, segment string) *generatedRoute {
+		return &generatedRoute{
+			Method: "POST", Path: "/" + prefix + "/harbors/{harborID}/" + segment, HandlerFunc: method, DomainScoped: true,
+			TestURL: "/" + prefix + "/harbors/" + domainTestValue + "/" + segment, SelfBounded: true,
 		}
 	}
+	switchUnder := func(prefix string) []*generatedRoute {
+		return []*generatedRoute{
+			{Method: "GET", Path: "/" + prefix + "/harbors/{harborID}/directory-only", HandlerFunc: "DirectoryOnly", DomainScoped: true, TestURL: "/" + prefix + "/harbors/" + domainTestValue + "/directory-only"},
+			post(prefix, "MakeHarborDirectoryOnly", "make-harbor-directory-only"),
+			post(prefix, "EndHarborDirectoryOnly", "end-harbor-directory-only"),
+		}
+	}
+	roleUnder := func(prefix string) []*generatedRoute {
+		return []*generatedRoute{
+			post(prefix, "OpenHarborToDirectory", "open-harbor-to-directory"),
+			post(prefix, "MakeHarborInviteOnly", "make-harbor-invite-only"),
+		}
+	}
+	methodCases := func(prefix string, segments ...string) []string {
+		var cases []string
+		for _, segment := range segments {
+			line := "POST /" + prefix + "/harbors/" + domainTestValue + "/" + segment + " {}"
+			cases = append(cases, line, line+" X-Dry-Run", line+" X-Warning")
+		}
+
+		return cases
+	}
+	switchCases := func(prefix string) []string {
+		return append([]string{"GET /" + prefix + "/harbors/" + domainTestValue + "/directory-only"}, methodCases(prefix, "make-harbor-directory-only", "end-harbor-directory-only")...)
+	}
+	roleCases := func(prefix string) []string {
+		return methodCases(prefix, "open-harbor-to-directory", "make-harbor-invite-only")
+	}
+	execute := func(names ...string) []resource.CollectionResource {
+		var out []resource.CollectionResource
+		for _, name := range names {
+			out = append(out, resource.CollectionResource{Name: accesstypes.Resource(name), Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}})
+		}
+
+		return out
+	}
 	tests := []struct {
-		name       string
-		structs    []string
-		wantRoutes map[string][]*generatedRoute
-		wantCases  []string
-		wantMethod bool
+		name        string
+		structs     []string
+		auths       []string
+		identity    []*identityInstance
+		wantRoutes  map[string][]*generatedRoute
+		wantCases   []string
+		wantMethods []resource.CollectionResource
 	}{
 		{
-			name:       "a record that declares the switch, on every session outlet it is on",
-			structs:    []string{"Harbor", "HarborDirectory"},
-			wantRoutes: map[string][]*generatedRoute{defaultOutletName: routesUnder("api"), "members": routesUnder("members")},
-			wantCases: []string{
-				"GET /api/harbors/" + domainTestValue + "/directory-only",
-				"GET /api/harbors/" + domainTestValue + "/directory-only/consequence",
-				"POST /api/harbors/" + domainTestValue + "/set-harbor-directory-only {}",
-				"POST /api/harbors/" + domainTestValue + "/set-harbor-directory-only {} dry run",
-				"GET /members/harbors/" + domainTestValue + "/directory-only",
-				"GET /members/harbors/" + domainTestValue + "/directory-only/consequence",
-				"POST /members/harbors/" + domainTestValue + "/set-harbor-directory-only {}",
-				"POST /members/harbors/" + domainTestValue + "/set-harbor-directory-only {} dry run",
-			},
-			wantMethod: true,
+			name:        "a record that declares the switch, on every session outlet it is on; no outlet auth, so no method of the default role",
+			structs:     []string{"Harbor", "HarborDirectory"},
+			wantRoutes:  map[string][]*generatedRoute{defaultOutletName: switchUnder("api"), "members": switchUnder("members")},
+			wantCases:   slices.Concat(switchCases("api"), switchCases("members")),
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly"),
 		},
 		{
-			name:       "a record that declares no switch registers nothing",
-			structs:    []string{"Sector", "HarborDirectory"},
-			wantRoutes: map[string][]*generatedRoute{},
+			name:     "session outlets of one auth whose management the program generates serve the default role's methods too",
+			structs:  []string{"Harbor", "HarborDirectory"},
+			auths:    []string{staffAuth},
+			identity: []*identityInstance{staff(false)},
+			wantRoutes: map[string][]*generatedRoute{
+				defaultOutletName: slices.Concat(switchUnder("api"), roleUnder("api")),
+				"members":         slices.Concat(switchUnder("members"), roleUnder("members")),
+			},
+			wantCases:   slices.Concat(switchCases("api"), switchCases("members"), roleCases("api"), roleCases("members")),
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly", "MakeHarborInviteOnly", "OpenHarborToDirectory"),
+		},
+		{
+			name:        "a record with a directories record and no switch serves the default role's methods alone",
+			structs:     []string{"Sector", "HarborDirectory"},
+			auths:       []string{staffAuth},
+			identity:    []*identityInstance{{importPath: staffAuth, auth: "Staff", tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector"}, tables: map[identityTable]bool{identityUsers: true, identityMemberships: true}}},
+			wantRoutes:  map[string][]*generatedRoute{},
+			wantMethods: execute("MakeSectorInviteOnly", "OpenSectorToDirectory"),
+		},
+		{
+			name:    "session outlets of two auths serve no method of the default role: one identity client judges the role",
+			structs: []string{"Harbor", "HarborDirectory"},
+			auths:   []string{staffAuth, "example.com/app/pkg/auth/members"},
+			identity: []*identityInstance{staff(false), {
+				importPath: "example.com/app/pkg/auth/members", auth: "Members", tenant: &identityTenant{name: "Harbor", table: "Harbors", key: "Id", word: "harbor"},
+				tables: map[identityTable]bool{identityUsers: true, identityMemberships: true},
+			}},
+			wantRoutes:  map[string][]*generatedRoute{defaultOutletName: switchUnder("api"), "members": switchUnder("members")},
+			wantCases:   slices.Concat(switchCases("api"), switchCases("members")),
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly"),
+		},
+		{
+			name:        "an auth whose management the program does not generate serves none",
+			structs:     []string{"Harbor", "HarborDirectory"},
+			auths:       []string{staffAuth},
+			wantRoutes:  map[string][]*generatedRoute{defaultOutletName: switchUnder("api"), "members": switchUnder("members")},
+			wantCases:   slices.Concat(switchCases("api"), switchCases("members")),
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly"),
+		},
+		{
+			name:        "an auth whose roles a directory writes serves none: nobody gives a role by hand",
+			structs:     []string{"Harbor", "HarborDirectory"},
+			auths:       []string{staffAuth},
+			identity:    []*identityInstance{staff(true)},
+			wantRoutes:  map[string][]*generatedRoute{defaultOutletName: switchUnder("api"), "members": switchUnder("members")},
+			wantCases:   slices.Concat(switchCases("api"), switchCases("members")),
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly"),
+		},
+		{
+			name:        "a directories record with no default seat has no role to set",
+			structs:     []string{"Harbor", "Breakwater"},
+			auths:       []string{staffAuth},
+			identity:    []*identityInstance{staff(false)},
+			wantRoutes:  map[string][]*generatedRoute{defaultOutletName: switchUnder("api"), "members": switchUnder("members")},
+			wantCases:   slices.Concat(switchCases("api"), switchCases("members")),
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly"),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			r := generator(t, tt.structs...)
+			r := generator(t, tt.auths, tt.identity, tt.structs...)
+			if tt.structs[0] == "Sector" {
+				// The Sector fixture record declares no switch; the default role's
+				// methods are still served where its directories record is.
+				tt.wantRoutes = map[string][]*generatedRoute{}
+				for _, prefix := range []string{"api", "members"} {
+					name := prefix
+					if prefix == "api" {
+						name = defaultOutletName
+					}
+					routes := roleUnder(prefix)
+					for _, route := range routes {
+						route.HandlerFunc = strings.Replace(route.HandlerFunc, "Harbor", "Sector", 1)
+						route.Path = strings.NewReplacer("harbors/{harborID}", r.domainRouteSegment+"/{"+r.domainRouteParam+"}", "-harbor-", "-sector-").Replace(route.Path)
+						route.TestURL = strings.NewReplacer("-harbor-", "-sector-").Replace(route.TestURL)
+					}
+					tt.wantRoutes[name] = routes
+				}
+			}
 			outlets := r.allOutlets()
 			outletRoutes := make([]*outletRouteData, len(outlets))
 			for i, outlet := range outlets {
@@ -285,8 +515,12 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 					registered += len(routes)
 				}
 			}
-			if diff := cmp.Diff(tt.wantRoutes, gotRoutes, cmp.AllowUnexported(generatedRoute{})); diff != "" {
-				t.Errorf("registered routes mismatch (-want +got):\n%s", diff)
+			if tt.structs[0] != "Sector" {
+				if diff := cmp.Diff(tt.wantRoutes, gotRoutes, cmp.AllowUnexported(generatedRoute{})); diff != "" {
+					t.Errorf("registered routes mismatch (-want +got):\n%s", diff)
+				}
+			} else if len(gotRoutes) != 2 || len(gotRoutes[defaultOutletName]) != 2 || gotRoutes[defaultOutletName][0].HandlerFunc != "OpenSectorToDirectory" || gotRoutes[defaultOutletName][1].HandlerFunc != "MakeSectorInviteOnly" {
+				t.Errorf("registered routes = %+v, want the two methods of the default role on both session outlets and nothing of a switch", gotRoutes)
 			}
 			if got := len(testRoutes); got != registered {
 				t.Errorf("the dispatch test takes %d routes, want every registered one, %d", got, registered)
@@ -302,13 +536,17 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 				if c.Body != "" {
 					line += " " + c.Body
 				}
-				if len(c.Headers) > 0 {
-					line += " dry run"
+				for _, header := range c.Headers {
+					line += " " + header.Name
 				}
 				gotCases = append(gotCases, line)
 			}
-			if diff := cmp.Diff(tt.wantCases, gotCases); diff != "" {
-				t.Errorf("the matrix's cases mismatch (-want +got):\n%s", diff)
+			if tt.structs[0] != "Sector" {
+				if diff := cmp.Diff(tt.wantCases, gotCases); diff != "" {
+					t.Errorf("the matrix's cases mismatch (-want +got):\n%s", diff)
+				}
+			} else if len(gotCases) != 12 {
+				t.Errorf("the matrix carries %d cases, want 12: each of the two methods plain, on a dry run and on a request for its warning, on both session outlets: %v", len(gotCases), gotCases)
 			}
 
 			b := resource.NewCollectionBuilder()
@@ -319,31 +557,33 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			for _, res := range b.Data().Resources {
 				gotMethods = append(gotMethods, resource.CollectionResource{Name: res.Name, Scope: res.Scope, Permissions: res.Permissions})
 			}
-			var wantMethods []resource.CollectionResource
-			if tt.wantMethod {
-				wantMethods = []resource.CollectionResource{{Name: "SetHarborDirectoryOnly", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}}}
-			}
-			if diff := cmp.Diff(wantMethods, gotMethods); diff != "" {
+			slices.SortFunc(gotMethods, func(a, b resource.CollectionResource) int { return strings.Compare(string(a.Name), string(b.Name)) })
+			if diff := cmp.Diff(tt.wantMethods, gotMethods); diff != "" {
 				t.Errorf("the collection's registrations mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
 
-	t.Run("an application's registration under the method's name is refused", func(t *testing.T) {
+	t.Run("an application's registration under a method's name is refused", func(t *testing.T) {
 		t.Parallel()
 
-		r := generator(t, "Harbor", "HarborDirectory")
-		r.manualRegistrations = []ManualRegistration{{Resource: "SetHarborDirectoryOnly", Permission: accesstypes.Execute}}
-		err := r.collectDirectoryOnlyRegistrations(resource.NewCollectionBuilder())
-		if err == nil || !strings.Contains(err.Error(), "SetHarborDirectoryOnly is the method that turns the Harbor record's directory-only switch") {
-			t.Errorf("collectDirectoryOnlyRegistrations() error = %v, want the refusal naming the method and the record", err)
+		for name, want := range map[string]string{
+			"EndHarborDirectoryOnly": "EndHarborDirectoryOnly is a method of the Harbor record's directory-only switch (@directoryOnly), which the generator writes",
+			"OpenHarborToDirectory":  "OpenHarborToDirectory is a method of the HarborDirectory record's default role (@directoryDefaultSeat), which the generator writes",
+		} {
+			r := generator(t, []string{staffAuth}, []*identityInstance{staff(false)}, "Harbor", "HarborDirectory")
+			r.manualRegistrations = []ManualRegistration{{Resource: accesstypes.Resource(name), Permission: accesstypes.Execute}}
+			err := r.collectDirectoryOnlyRegistrations(resource.NewCollectionBuilder())
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("collectDirectoryOnlyRegistrations() with %s registered error = %v, want the refusal naming the method and the record", name, err)
+			}
 		}
 	})
 
 	t.Run("a run that generates no routes registers no method", func(t *testing.T) {
 		t.Parallel()
 
-		r := generator(t, "Harbor", "HarborDirectory")
+		r := generator(t, []string{staffAuth}, []*identityInstance{staff(false)}, "Harbor", "HarborDirectory")
 		r.genRoutes = false
 		b := resource.NewCollectionBuilder()
 		if err := r.collectDirectoryOnlyRegistrations(b); err != nil {
@@ -353,26 +593,74 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			t.Errorf("the collection carries %v, want nothing", got)
 		}
 	})
+
+	t.Run("the role is picked from the roles of the auth that judges it", func(t *testing.T) {
+		t.Parallel()
+
+		r := generator(t, []string{staffAuth}, []*identityInstance{staff(false)}, "Harbor", "HarborDirectory")
+		if got, want := r.directoryRolePicker(), "StaffHarborRoles"; got != want {
+			t.Errorf("directoryRolePicker() = %q, want %q", got, want)
+		}
+		none := generator(t, nil, nil, "Harbor", "HarborDirectory")
+		if got := none.directoryRolePicker(); got != "" {
+			t.Errorf("directoryRolePicker() = %q where the program writes no method, want none", got)
+		}
+	})
 }
 
-// Test_directoryOnlyClient pins the switch's method on a generated browser client. The
-// browser generator reads each struct on its own and resolves no declaration across
-// them, so it finds the method by the record's own flag and by the collection the
+// Test_directoryDefaultSeat_isOutputOnly pins that the directories record's own write
+// paths never write the default seat: the field decodes output-only, so neither the
+// record's create nor its update takes it from the wire, and a grant of Update on it
+// writes nothing. The tenant's own methods set and clear it. The record still shows it.
+func Test_directoryDefaultSeat_isOutputOnly(t *testing.T) {
+	t.Parallel()
+
+	r, err := declarationResources(t, "Harbor", "HarborDirectory")
+	if err != nil {
+		t.Fatalf("declarationResources() error = %v", err)
+	}
+	field := r.tenantRecord().declaration.Directories.DirectoryDefaultSeatField
+	if field == nil {
+		t.Fatal("the fixture's directories record carries no default seat field")
+	}
+	if !field.IsOutputOnly() {
+		t.Errorf("the default seat's field %s is not output only: the record's own update could write it, past the warning and the rule of who may give the role", field.Name())
+	}
+	if got := reflect.StructTag(field.JSONTagForPatch()).Get(jsonTagKey); got != "-" {
+		t.Errorf("the default seat's field %s is %q in a create or update request, want \"-\": the wire must not write it", field.Name(), got)
+	}
+	if got := reflect.StructTag(field.JSONTag()).Get(jsonTagKey); got != "defaultSeat" {
+		t.Errorf("the default seat's field %s reads as %q, want defaultSeat: the record still shows the role", field.Name(), got)
+	}
+	if got, want := r.declarationColumns(r.tenantRecord()).DirectoriesKeyColumn, "Id"; got != want {
+		t.Errorf("the declaration's directories key column = %q, want %q: the methods write the tenant's row through it", got, want)
+	}
+}
+
+// Test_directoryOnlyClient pins the tenant's own methods on a generated browser client.
+// The browser generator reads each struct on its own and resolves no declaration across
+// them, so it finds each method by the record's own fields and by the collection the
 // handler generator computed: on the client of an outlet that serves the record, in the
-// tenant's scope, with the body that says which way to turn; on no client where the
-// application serves no such method, and left out of the constants of an outlet the
-// record is not on.
+// tenant's scope, the methods that warn with the word a person types and the one that
+// opens the tenant with its role, picked from the list the handler generator chose; on
+// no client where the application serves no such method, and left out of the constants
+// of an outlet the record is not on.
 func Test_directoryOnlyClient(t *testing.T) {
 	t.Parallel()
 
+	const staffAuth = "example.com/app/pkg/auth/staff"
 	// The handler generator's run over the record and its directories record: the
-	// collection carries the method.
+	// collection carries the methods.
 	r, err := declarationResources(t, "Harbor", "HarborDirectory")
 	if err != nil {
 		t.Fatalf("declarationResources() error = %v", err)
 	}
 	r.genRoutes = true
-	r.defaultOutlet = routerOutlet{name: defaultOutletName, prefix: "api", servesSessions: true}
+	r.defaultOutlet = routerOutlet{name: defaultOutletName, prefix: "api", servesSessions: true, auth: &outletAuth{importPath: staffAuth}}
+	r.identity = []*identityInstance{{
+		importPath: staffAuth, auth: "Staff", tenant: &identityTenant{name: "Harbor", table: "Harbors", key: "Id", word: "harbor"},
+		tables: map[identityTable]bool{identityUsers: true, identityMemberships: true},
+	}}
 	served := resource.NewCollectionBuilder()
 	if err := r.collectDirectoryOnlyRegistrations(served); err != nil {
 		t.Fatalf("collectDirectoryOnlyRegistrations() error = %v", err)
@@ -396,13 +684,50 @@ func Test_directoryOnlyClient(t *testing.T) {
 		return c
 	}
 
+	const (
+		makeDoc   = "turns the harbor's directory-only switch on, which closes the harbor to every sign-in but one through its directory; the server refuses it until the harbor has its directory and unless the caller is signed in through it, in a sentence the person can act on"
+		endDoc    = "turns the harbor's directory-only switch off: every sign-in is admitted again"
+		openDoc   = "opens the harbor to its directory's people: each of them is given the role at their first sign-in through the directory, with no invitation"
+		inviteDoc = "makes the harbor invite only for its directory's people: a person from the directory enters once they are invited"
+	)
+	all := func(picker string) []*tsTenantOwnMethod {
+		return []*tsTenantOwnMethod{
+			{Name: "MakeHarborDirectoryOnly", Typed: "close", Doc: makeDoc},
+			{Name: "EndHarborDirectoryOnly", Doc: endDoc},
+			{Name: "OpenHarborToDirectory", Typed: "open", Doc: openDoc, Fields: []tsTenantOwnField{{Name: "role", Enumerated: picker}}},
+			{Name: "MakeHarborInviteOnly", Doc: inviteDoc},
+		}
+	}
 	tests := []struct {
 		name       string
 		collection resource.CollectionData
 		outlet     string
-		want       *tsDirectoryOnly
+		picker     string
+		want       []*tsTenantOwnMethod
+		wantMeta   []string
 	}{
-		{name: "the client of the outlet that serves the record", collection: served.Data(), want: &tsDirectoryOnly{Method: "SetHarborDirectoryOnly", Word: "harbor"}},
+		{
+			name: "the client of the outlet that serves the record", collection: served.Data(), picker: "StaffHarborRoles", want: all("StaffHarborRoles"),
+			wantMeta: []string{
+				"export interface MakeHarborDirectoryOnlyConfig {}\nexport interface MakeHarborDirectoryOnly {}",
+				"export interface EndHarborDirectoryOnlyConfig {}\nexport interface EndHarborDirectoryOnly {}",
+				"export interface OpenHarborToDirectoryConfig {\n  role: string | FieldPointer;\n}",
+				"export interface OpenHarborToDirectory {\n  role: string;\n}",
+				"export interface MakeHarborInviteOnlyConfig {}\nexport interface MakeHarborInviteOnly {}",
+				"[Methods.MakeHarborDirectoryOnly]: {\n    route: 'make-harbor-directory-only',\n    dryRun: true,\n    warning: { typed: 'close' },\n    fields: [],\n  },",
+				"[Methods.EndHarborDirectoryOnly]: {\n    route: 'end-harbor-directory-only',\n    dryRun: true,\n    fields: [],\n  },",
+				"[Methods.OpenHarborToDirectory]: {\n    route: 'open-harbor-to-directory',\n    dryRun: true,\n    warning: { typed: 'open' },\n    fields: [\n      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.StaffHarborRoles, required: true },\n    ],\n  },",
+				"[Methods.MakeHarborInviteOnly]: {\n    route: 'make-harbor-invite-only',\n    dryRun: true,\n    fields: [],\n  },",
+				"import { Methods, Resources } from './zz_gen_constants';",
+			},
+		},
+		{
+			name: "a generator built on its own knows no list to pick the role from, and takes it as text", collection: served.Data(), want: all(""),
+			wantMeta: []string{
+				"[Methods.OpenHarborToDirectory]: {\n    route: 'open-harbor-to-directory',\n    dryRun: true,\n    warning: { typed: 'open' },\n    fields: [\n      { fieldName: 'role', displayType: 'string', required: true },\n    ],\n  },",
+				"import { Methods } from './zz_gen_constants';",
+			},
+		},
 		{name: "an application that serves no such method", collection: resource.NewCollectionBuilder().Data()},
 		{name: "the client of an outlet the record is not on", collection: served.Data(), outlet: "members"},
 	}
@@ -410,7 +735,7 @@ func Test_directoryOnlyClient(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			gen := &typescriptGenerator{client: parsed(t), rc: resource.MustNewGeneratedCollection(tt.collection), outletName: tt.outlet}
+			gen := &typescriptGenerator{client: parsed(t), rc: resource.MustNewGeneratedCollection(tt.collection), outletName: tt.outlet, directoryRolePicker: tt.picker}
 			// The filter narrows the parsed set to the outlet's members, as a run does
 			// before it writes the client.
 			filtered, _, err := gen.applyOutletFilter(slices.Clone(gen.resources), nil)
@@ -418,30 +743,28 @@ func Test_directoryOnlyClient(t *testing.T) {
 				t.Fatalf("applyOutletFilter() error = %v", err)
 			}
 			gen.resources = filtered
-			got := gen.directoryOnlyClientData()
+			got := gen.tenantOwnClientData()
 			if diff := cmp.Diff(tt.want, got); diff != "" {
-				t.Fatalf("directoryOnlyClientData() mismatch (-want +got):\n%s", diff)
+				t.Fatalf("tenantOwnClientData() mismatch (-want +got):\n%s", diff)
 			}
-			excluded := slices.Contains(gen.outletExcluded, accesstypes.Resource("SetHarborDirectoryOnly"))
-			if wantExcluded := tt.outlet != ""; excluded != wantExcluded {
-				t.Errorf("the method is left out of the outlet's constants = %t, want %t", excluded, wantExcluded)
+			for _, method := range []string{"MakeHarborDirectoryOnly", "EndHarborDirectoryOnly", "OpenHarborToDirectory", "MakeHarborInviteOnly"} {
+				excluded := slices.Contains(gen.outletExcluded, accesstypes.Resource(method))
+				if wantExcluded := tt.outlet != ""; excluded != wantExcluded {
+					t.Errorf("%s is left out of the outlet's constants = %t, want %t", method, excluded, wantExcluded)
+				}
 			}
 			if tt.want == nil {
 				return
 			}
 
-			methods, err := gen.generateTemplateOutput(typescriptMethodsTemplate, typescriptMethodsTemplate, tsMethodsData{File: gen, GenPrefix: "zz_gen", DirectoryOnly: got})
+			methods, err := gen.generateTemplateOutput(typescriptMethodsTemplate, typescriptMethodsTemplate, tsMethodsData{File: gen, GenPrefix: "zz_gen", TenantOwn: got})
 			if err != nil {
 				t.Fatalf("generateTemplateOutput(methods) error = %v", err)
 			}
-			assertContains(t, "typescriptMethodsTemplate", string(methods), []string{
-				"export interface SetHarborDirectoryOnlyConfig {\n  directoryOnly: boolean | FieldPointer;\n}",
-				"export interface SetHarborDirectoryOnly {\n  directoryOnly: boolean;\n}",
-				"[Methods.SetHarborDirectoryOnly]: {\n    route: 'set-harbor-directory-only',\n    dryRun: true,\n    fields: [\n      { fieldName: 'directoryOnly', displayType: 'boolean' },",
-			}, nil)
-			want := &tsAPIMethod{Name: "SetHarborDirectoryOnly", Property: "setHarborDirectoryOnly", Route: "set-harbor-directory-only", Scope: accesstypes.DomainPermissionScope}
-			if diff := cmp.Diff(want, directoryOnlyAPIMethod(got.Method)); diff != "" {
-				t.Errorf("directoryOnlyAPIMethod() mismatch (-want +got):\n%s", diff)
+			assertContains(t, "typescriptMethodsTemplate", string(methods), tt.wantMeta, nil)
+			want := &tsAPIMethod{Name: "OpenHarborToDirectory", Property: "openHarborToDirectory", Route: "open-harbor-to-directory", Scope: accesstypes.DomainPermissionScope}
+			if diff := cmp.Diff(want, tenantOwnAPIMethod("OpenHarborToDirectory")); diff != "" {
+				t.Errorf("tenantOwnAPIMethod() mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}

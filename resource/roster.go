@@ -72,6 +72,11 @@ type TenantDeclarationColumns struct {
 	TenantColumn     string
 	MethodColumn     string
 	ConnectionColumn string
+	// DirectoriesKeyColumn is the directories record's key column, which the methods
+	// that say how a tenant admits its directory's people write the tenant's row
+	// through (TenantDirectoryRules.Directory); empty where the record carries no
+	// default seat column.
+	DirectoriesKeyColumn string
 	// DefaultSeatColumn is the directories record's column naming the role a person is
 	// seated with in the tenant at their first sign-in through its directory, NULL or
 	// empty for none (the tenant admits a stranger from its directory by invitation

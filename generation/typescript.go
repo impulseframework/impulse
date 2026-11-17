@@ -44,6 +44,13 @@ type typescriptGenerator struct {
 	// record cannot make it: the decision reads the outlets' auths, which this generator
 	// does not know.
 	tenantCreation tenantCreation
+	// directoryRolePicker mirrors the resourceGenerator's choice of the list the role of
+	// the method that opens a tenant to its directory is picked from: the roles that
+	// exist in one tenant, of the auth whose generated identity client judges the role
+	// (directoryRolePicker). The target's own parse cannot make the choice: it reads
+	// the outlets' auths. Empty where the program writes no such method, and in a
+	// generator built on its own, whose client then takes the role as text.
+	directoryRolePicker string
 	// outletName is the router outlet this target serves (ForOutlet): every emitted
 	// file is filtered to the outlet's members. Empty means the default outlet
 	// (resolveOptions fills the name in; targetOutlet covers directly constructed
@@ -141,11 +148,25 @@ func (t *typescriptGenerator) validateOutletMemberReferences(resources []*resour
 // is a statement about the field and fails generation instead.
 func (t *typescriptGenerator) applyOutletFilter(resources []*resourceInfo, computedResources []*computedResource) ([]*resourceInfo, []*computedResource, error) {
 	t.outletExcludedTables = make(map[string]struct{})
-	// The method that turns the tenant record's directory-only switch is served with
-	// the record, so it leaves the outlet's constants with it.
+	// The methods that turn the tenant record's directory-only switch are served with
+	// the record, and the ones that say how a tenant admits its directory's people with
+	// the directories record, so each leaves the outlet's constants with its record.
+	var tenant *resourceInfo
+	for _, res := range resources {
+		if res.IsTenant {
+			tenant = res
+		}
+	}
 	for _, res := range resources {
 		if res.declaresDirectoryOnly() && !res.OnOutlet(t.targetOutlet()) {
-			t.outletExcluded = append(t.outletExcluded, accesstypes.Resource(directoryOnlyMethodName(res.Name())))
+			for _, method := range directoryOnlyMethodsOf(res.Name()) {
+				t.outletExcluded = append(t.outletExcluded, accesstypes.Resource(method.Name))
+			}
+		}
+		if tenant != nil && res.IsTenantDirectory && res.DirectoryDefaultSeatField != nil && !res.OnOutlet(t.targetOutlet()) {
+			for _, method := range directoryRoleMethodsOf(tenant.Name()) {
+				t.outletExcluded = append(t.outletExcluded, accesstypes.Resource(method.Name))
+			}
 		}
 	}
 	resources = slices.DeleteFunc(resources, func(res *resourceInfo) bool {
@@ -549,11 +570,11 @@ func (t *typescriptGenerator) generateMethodMetadata() error {
 	log.Println("Starting method metadata generation...")
 
 	output, err := t.generateTemplateOutput(typescriptMethodsTemplate, typescriptMethodsTemplate, tsMethodsData{
-		File:          t,
-		RPCMethods:    t.rpcMethods,
-		GenPrefix:     genPrefix,
-		FeatureFlags:  t.servesFeatureFlags(),
-		DirectoryOnly: t.directoryOnlyClientData(),
+		File:         t,
+		RPCMethods:   t.rpcMethods,
+		GenPrefix:    genPrefix,
+		FeatureFlags: t.servesFeatureFlags(),
+		TenantOwn:    t.tenantOwnClientData(),
 	})
 	if err != nil {
 		return errors.Wrap(err, "generateTemplateOutput()")
@@ -885,10 +906,12 @@ func (t *typescriptGenerator) apiClientData() *tsAPIData {
 		data.Resources = append(data.Resources, featureFlagsAPIResource())
 		data.Methods = append(data.Methods, setFeatureAPIMethod())
 	}
-	// The method that turns the tenant record's directory-only switch, served in the
-	// tenant's scope where the outlet serves the record, carried as a generated one is.
-	if only := t.directoryOnlyClientData(); only != nil {
-		data.Methods = append(data.Methods, directoryOnlyAPIMethod(only.Method))
+	// The methods the generator writes in the tenant's scope beside the tenant record's
+	// declaration (the directory-only switch's, and the ones that say how a tenant
+	// admits its directory's people), served where the outlet serves their record,
+	// carried as a generated one is.
+	for _, own := range t.tenantOwnClientData() {
+		data.Methods = append(data.Methods, tenantOwnAPIMethod(own.Name))
 	}
 	// The generated management of the auths the outlet serves it for, named from the
 	// resources and the methods gathered above.

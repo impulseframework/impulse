@@ -129,6 +129,7 @@ func (r *resourceInfo) setDirectorySeatColumn(field *parser.Field) error {
 	if r.DirectoryDefaultSeatField == nil {
 		return errors.Newf("struct %s field %s: @%s on a column the schema does not hold", r.Name(), field.Name(), directoryDefaultSeatKeyword)
 	}
+	r.DirectoryDefaultSeatField.IsDirectoryDefaultSeat = true
 
 	return nil
 }
@@ -408,12 +409,13 @@ func (r *resourceInfo) DirectoryTenantWord() string {
 // resource.NewTenantDirectoryReader: the column names behind the record's annotated
 // fields, the default seat's empty where the record carries none.
 type tenantDeclarationColumns struct {
-	DirectoryOnly     string
-	DirectoriesTable  string
-	TenantColumn      string
-	MethodColumn      string
-	ConnectionColumn  string
-	DefaultSeatColumn string
+	DirectoryOnly        string
+	DirectoriesTable     string
+	TenantColumn         string
+	MethodColumn         string
+	ConnectionColumn     string
+	DirectoriesKeyColumn string
+	DefaultSeatColumn    string
 }
 
 // declarationColumns reads the declaration's columns off the record, nil when the
@@ -433,6 +435,7 @@ func (r *resourceGenerator) declarationColumns(record *resourceInfo) *tenantDecl
 		columns.DirectoryOnly = spannerColumn(record.DirectoryOnlyField)
 	}
 	if directories.DirectoryDefaultSeatField != nil {
+		columns.DirectoriesKeyColumn = spannerColumn(directories.PrimaryKey())
 		columns.DefaultSeatColumn = spannerColumn(directories.DirectoryDefaultSeatField)
 	}
 

@@ -1,30 +1,35 @@
 import { describe, expect, it } from 'bun:test';
-import { Domain } from './brands';
-import { createClient } from './client';
+import { Domain, Method } from './brands';
+import { createClient, methodHandle } from './client';
 import { ApiDescriptor } from './descriptor';
-import { DirectoryOnlyConsequence, directoryOnlyConsequence, directoryOnlyState } from './directory-only';
-import { ApiError } from './transport';
+import { directoryOnlyState } from './directory-only';
+import { ApiError, warningHeader } from './transport';
 import { scriptedTransport } from '@impulseframework/resource/testing';
 
-// A tenant's directory-only switch is read under the tenant's own route: the switch as
-// it stands, and what turning it on would do, answered with the sentence, the count and
-// the people the server names; the server's refusal throws with its own sentence.
+// A tenant's directory-only switch is read as it stands under the tenant's own route.
+// What turning it on would do is the warning of the method that turns it on, asked of
+// the method's own handle in the tenant: the server's sentence, the people it names and
+// the words for the button, or the server's refusal with its own sentence.
 
 const descriptor: ApiDescriptor = {
   permissionDigestRoute: 'permission-digest',
   userDomainsRoute: 'user-domains',
   domainRoute: { segment: 'tenants', param: 'tenantID' },
   resources: {},
-  methods: {},
+  methods: {
+    MakeTenantDirectoryOnly: {
+      method: 'MakeTenantDirectoryOnly' as Method,
+      property: 'makeTenantDirectoryOnly',
+      route: 'make-tenant-directory-only',
+      scope: 'domain',
+    },
+  },
 };
 
-const consequence: DirectoryOnlyConsequence = {
-  directory: 'Google Workspace acme.example',
-  connection: 'acme.example',
-  sentence:
+const warning = {
+  consequence:
     'Only people who sign in through acme.example will be able to enter this tenant. 1 person seated here signs in another way and will lose access.',
-  count: 1,
-  people: [{ userId: 'u-1', username: 'gale', name: 'Gale Ferris' }],
+  names: ['Gale Ferris (gale)'],
   confirm: 'Admit only people who sign in through acme.example',
 };
 
@@ -48,14 +53,17 @@ describe('directoryOnlyState', () => {
   });
 });
 
-describe('directoryOnlyConsequence', () => {
-  it('asks the server what the switch would do in the tenant, and answers its words, the count and the people it names', async () => {
-    const transport = scriptedTransport({ status: 200, body: consequence });
+describe("the warning of the method that turns a tenant's switch on", () => {
+  const handle = (client: ReturnType<typeof createClient>) =>
+    methodHandle<Record<string, never>>(client, 'MakeTenantDirectoryOnly', 'acme' as Domain);
+
+  it('asks the server what the switch would do in the tenant, and answers its words, the people it names and the button', async () => {
+    const transport = scriptedTransport({ status: 200, body: warning });
     const client = createClient(descriptor, { baseUrl: '/api', transport });
 
-    expect(await directoryOnlyConsequence(client, 'acme' as Domain)).toEqual(consequence);
-    expect(transport.requests.map((r) => `${r.method} ${r.url}`)).toEqual([
-      'GET /api/tenants/acme/directory-only/consequence',
+    expect(await handle(client).warning({})).toEqual(warning);
+    expect(transport.requests.map((r) => `${r.method} ${r.url} ${r.headers?.[warningHeader] ?? ''}`)).toEqual([
+      'POST /api/tenants/acme/make-tenant-directory-only true',
     ]);
   });
 
@@ -66,7 +74,7 @@ describe('directoryOnlyConsequence', () => {
 
     let caught: unknown;
     try {
-      await directoryOnlyConsequence(client, 'acme' as Domain);
+      await handle(client).warning({});
     } catch (err) {
       caught = err;
     }

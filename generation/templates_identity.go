@@ -666,6 +666,20 @@ func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWrit
 	return c.manager.DirectorySeated("{{ .Auth }}")
 }
 
+// DirectoryRole holds the role a tenant is opened to its directory's people with to its
+// rules over the {{ .Auth }} auth's tables, in the caller's transaction, and writes
+// nothing: the role exists in the tenant, and the request's caller could give it there
+// directly, by the grant of the method that gives a role in a tenant
+// (identity.Manager.DirectoryRole). The generated method that opens a tenant to its
+// directory asks it before it writes the role.
+func (c *Client) DirectoryRole(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, role accesstypes.Role) error {
+	if err := c.manager.DirectoryRole(ctx, txn, tenant, role); err != nil {
+		return errors.Wrap(err, "identity.Manager.DirectoryRole()")
+	}
+
+	return nil
+}
+
 // SignedIn answers the session library's hook for a sign-in that stands
 // (session.Auth.SetSignedInHook) over the {{ .Auth }} auth's tables: the person's roles
 // and places in groups whose period has ended are removed (identity.Manager.SignedIn),
@@ -1539,10 +1553,11 @@ func (store) RevokeTrustedDevice(_ context.Context, _ resource.ReadWriteTransact
 // people the {{ .TenantWord }}'s directory-only switch keeps out while it is on, and who turning
 // it on would shut out. A super administrator is never one of them. It reads the
 // {{ .TenantWord }}'s own list of its people ({{ .TenantUser }}, whose OutsideDirectory column is the
-// fact), in the caller's transaction, by username. The application's generated read of
-// what the switch would do asks every auth's client (resource.DirectoryOnlyReads,
-// through resource.DirectoryOutsiders), and it sits beside the store because it reads
-// the auth's tables as the store does, through the declarations' own query types.
+// fact), in the caller's transaction, by username. The warning of the generated method
+// that turns the switch on asks every auth's client
+// (resource.TenantDirectoryRules.DirectoryOnlyWarning, through resource.DirectoryPeople),
+// and it sits beside the store because it reads the auth's tables as the store does,
+// through the declarations' own query types.
 func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryOutsider, error) {
 	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
 		AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().ID().Username().Name()).

@@ -666,9 +666,11 @@ type tsMethodsData struct {
 	// FeatureFlags emits the library's SetFeature method: its body and result
 	// interfaces and its metadata.
 	FeatureFlags bool
-	// DirectoryOnly emits the method that turns the tenant record's directory-only
-	// switch: its body interfaces and its metadata. Nil where the outlet serves none.
-	DirectoryOnly *tsDirectoryOnly
+	// TenantOwn emits the methods the generator writes in the tenant's scope beside the
+	// tenant record's declaration (the directory-only switch's, and the ones that say
+	// how a tenant admits its directory's people): each one's body interfaces and its
+	// metadata. Empty where the outlet serves none.
+	TenantOwn []*tsTenantOwnMethod
 }
 
 type tsEnumsData struct {
