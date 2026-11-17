@@ -251,6 +251,8 @@ type GeneratedHandlers interface {
 	CrewSessionUsers() http.HandlerFunc
 	CrewSessionUser() http.HandlerFunc
 
+	CrewSignInMethods() http.HandlerFunc
+
 	CrewUserGroupRoles() http.HandlerFunc
 	CrewUserGroupRole() http.HandlerFunc
 
@@ -346,6 +348,8 @@ type GeneratedHandlers interface {
 
 	LaunchMission() http.HandlerFunc
 
+	MakeCrewInviteOnly() http.HandlerFunc
+
 	MembersRoles() http.HandlerFunc
 
 	MembersRoleGrants() http.HandlerFunc
@@ -393,6 +397,8 @@ type GeneratedHandlers interface {
 	MissionDocuments() http.HandlerFunc
 	MissionDocument() http.HandlerFunc
 	MissionDocumentContent() http.HandlerFunc
+
+	OpenCrewSignUp() http.HandlerFunc
 
 	OpenMissionsBySquadrons() http.HandlerFunc
 	OpenMissionsBySquadron() http.HandlerFunc
@@ -810,6 +816,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/crew-session-users/{crewSessionUserID}", crewSessionUserHandler)
 	bounded.Post("/console/api/crew-session-users/{crewSessionUserID}", crewSessionUserHandler)
 
+	crewSignInMethodsHandler := h.CrewSignInMethods()
+	bounded.Get("/console/api/crew-sign-in-methods", crewSignInMethodsHandler)
+	bounded.Post("/console/api/crew-sign-in-methods", crewSignInMethodsHandler)
+
 	crewUserGroupRolesHandler := h.CrewUserGroupRoles()
 	bounded.Get("/console/api/crew-user-group-roles", crewUserGroupRolesHandler)
 	bounded.Post("/console/api/crew-user-group-roles", crewUserGroupRolesHandler)
@@ -944,6 +954,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	r.Post("/console/api/sectors/{sectorID}/launch-mission", domainGuard(h.LaunchMission()))
 
+	r.Post("/console/api/make-crew-invite-only", h.MakeCrewInviteOnly())
+
 	membersRolesHandler := h.MembersRoles()
 	bounded.Get("/console/api/members-roles", membersRolesHandler)
 	bounded.Post("/console/api/members-roles", membersRolesHandler)
@@ -1065,6 +1077,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Post("/console/api/sectors/{sectorID}/mission-documents/{missionDocumentID}", missionDocumentHandler)
 
 	bounded.Get("/console/api/sectors/{sectorID}/mission-documents/{missionDocumentID}/content", domainGuard(h.MissionDocumentContent()))
+
+	r.Post("/console/api/open-crew-sign-up", h.OpenCrewSignUp())
 
 	openMissionsBySquadronsHandler := domainGuard(h.OpenMissionsBySquadrons())
 	bounded.Get("/console/api/sectors/{sectorID}/open-missions-by-squadrons", openMissionsBySquadronsHandler)

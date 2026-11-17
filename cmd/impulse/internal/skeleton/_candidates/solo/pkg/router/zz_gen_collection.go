@@ -114,6 +114,16 @@ func Collection() *resource.GeneratedCollection {
 				},
 			},
 			{
+				Name:        "MakeStaffInviteOnly",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+			},
+			{
+				Name:        "OpenStaffSignUp",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+			},
+			{
 				Name:        "RemoveStaffGroupMember",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -419,6 +429,34 @@ func Collection() *resource.GeneratedCollection {
 				},
 				Order:     []accesstypes.Tag{"createdAt"},
 				QueryKeys: []accesstypes.Tag{"userId", "expired"},
+			},
+			{
+				Name:        "StaffSignInMethods",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "admits", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "defaultRole", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "directoryGivesRoles", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "label", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "name"},
+					{Name: "openSignUp", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "says", Permissions: []accesstypes.Permission{accesstypes.List}},
+				},
+			},
+			{
+				Name:        "StaffSignUpRoles",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "description", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "name"},
+				},
+				Attributes: []resource.AttributeData{
+					{Name: "name", Column: "Name", Type: "string"},
+				},
 			},
 			{
 				Name:        "StaffUserGroupRoles",

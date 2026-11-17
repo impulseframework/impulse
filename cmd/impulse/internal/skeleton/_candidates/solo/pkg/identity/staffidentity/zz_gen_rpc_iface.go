@@ -10,8 +10,9 @@ type Method interface {
 	AddStaffGroupMember | AssignStaffRole | CreateStaffGroup | CreateStaffUser |
 		DeleteStaffGroup | DeleteStaffUser | DescribeStaffGroup | DisableStaffUser | EnableStaffUser |
 		EndStaffSession | EndStaffUserSessions | GiveStaffGroupRole | InviteStaffUser |
-		RemoveStaffGroupMember | RemoveStaffPassword | RemoveStaffRole | RenameStaffUser |
-		RequireStaffPasswordChange | RevokeStaffSessionToken | RevokeStaffUserTrustedDevices |
-		SetStaffTemporaryPassword | SetStaffUserEmail | SetStaffUserName | TakeStaffGroupRole |
-		UnlinkStaffSessionIdentity | UnlockStaffSignIn | WithdrawStaffInvitation
+		MakeStaffInviteOnly | OpenStaffSignUp | RemoveStaffGroupMember | RemoveStaffPassword |
+		RemoveStaffRole | RenameStaffUser | RequireStaffPasswordChange | RevokeStaffSessionToken |
+		RevokeStaffUserTrustedDevices | SetStaffTemporaryPassword | SetStaffUserEmail |
+		SetStaffUserName | TakeStaffGroupRole | UnlinkStaffSessionIdentity | UnlockStaffSignIn |
+		WithdrawStaffInvitation
 }

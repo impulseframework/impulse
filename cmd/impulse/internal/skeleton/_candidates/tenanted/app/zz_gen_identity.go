@@ -193,6 +193,10 @@ func (a *App) StaffUserRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffUserRoles()
 }
 
+func (a *App) StaffSignInMethods() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).StaffSignInMethods()
+}
+
 func (a *App) StaffTenantRoles() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).StaffTenantRoles()
 }
@@ -295,6 +299,14 @@ func (a *App) InviteStaffTenantUser() http.HandlerFunc {
 
 func (a *App) InviteStaffUser() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).InviteStaffUser()
+}
+
+func (a *App) MakeStaffInviteOnly() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).MakeStaffInviteOnly()
+}
+
+func (a *App) OpenStaffSignUp() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).OpenStaffSignUp()
 }
 
 func (a *App) RemoveStaffGroupMember() http.HandlerFunc {

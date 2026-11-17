@@ -32,7 +32,9 @@ type grants map[accesstypes.Permission]bool
 // which runs before required-field validation, defaults, or row reads. Mutation
 // success paths need valid request bodies the generator does not synthesize yet and
 // are left to manual testing. A transaction-form RPC method carries a second denied
-// case under X-Dry-Run: a dry run refuses exactly as the real call does. The features
+// case under X-Dry-Run: a dry run refuses exactly as the real call does. A method that
+// declares a warning carries one more under X-Warning: its warning is refused as the
+// call is. The features
 // route is open to anyone signed in and carries one case: 200 without a grant. A list
 // across tenants (@listAcrossTenants) has no endpoint gate to refuse at: the List grant
 // is asked in each tenant and a tenant in which the caller holds none is left out, so
@@ -1285,6 +1287,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "StaffSignInMethods denied",
+			method:       http.MethodGet,
+			target:       "/console/api/staff-sign-in-methods",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "StaffSignInMethods granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/console/api/staff-sign-in-methods",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "StaffTenantRoles denied",
 			method:       http.MethodGet,
 			target:       "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles",
@@ -1551,6 +1566,36 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			body:         `{}`,
 			headers:      map[string]string{"X-Dry-Run": "true"},
 			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "CreateMembersTenantUser (portal) denied",
+			method:       http.MethodPost,
+			target:       "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/create-members-tenant-user",
+			body:         `{}`,
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "CreateMembersTenantUser (portal) dry run denied",
+			method:       http.MethodPost,
+			target:       "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/create-members-tenant-user",
+			body:         `{}`,
+			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "CreateMembersUser (portal) denied",
+			method:       http.MethodPost,
+			target:       "/portal/api/create-members-user",
+			body:         `{}`,
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "CreateMembersUser (portal) dry run denied",
+			method:       http.MethodPost,
+			target:       "/portal/api/create-members-user",
+			body:         `{}`,
+			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusForbidden},
 		},
 		{
 			name:         "CreateStaffGroup denied",
@@ -2120,6 +2165,44 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			target:       "/console/api/invite-staff-user",
 			body:         `{}`,
 			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "MakeStaffInviteOnly denied",
+			method:       http.MethodPost,
+			target:       "/console/api/make-staff-invite-only",
+			body:         `{}`,
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "MakeStaffInviteOnly dry run denied",
+			method:       http.MethodPost,
+			target:       "/console/api/make-staff-invite-only",
+			body:         `{}`,
+			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "OpenStaffSignUp denied",
+			method:       http.MethodPost,
+			target:       "/console/api/open-staff-sign-up",
+			body:         `{}`,
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "OpenStaffSignUp dry run denied",
+			method:       http.MethodPost,
+			target:       "/console/api/open-staff-sign-up",
+			body:         `{}`,
+			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "OpenStaffSignUp warning denied",
+			method:       http.MethodPost,
+			target:       "/console/api/open-staff-sign-up",
+			body:         `{}`,
+			headers:      map[string]string{"X-Warning": "true"},
 			wantStatuses: []int{http.StatusForbidden},
 		},
 		{
@@ -2911,6 +2994,25 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			method:       http.MethodGet,
 			target:       "/devices/features",
 			wantStatuses: []int{http.StatusOK},
+		},
+		{
+			// A caller holding a grant anywhere holds a tenant: refused before the body.
+			name:         "CreateTenant refused to a caller holding a tenant",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodPost,
+			target:       "/console/api/create-tenant",
+			body:         `{"notAFieldOfTheRecord":true}`,
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			// A caller holding no grant is admitted past the gate: the body, which names
+			// a field the route does not take, meets its validation, not a permission
+			// check.
+			name:         "CreateTenant admits a caller holding no grant",
+			method:       http.MethodPost,
+			target:       "/console/api/create-tenant",
+			body:         `{"notAFieldOfTheRecord":true}`,
+			wantStatuses: []int{http.StatusBadRequest},
 		},
 	}
 
