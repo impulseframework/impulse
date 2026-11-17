@@ -21,10 +21,11 @@ interface PermissionRow {
  * there, per generated resource, the digest state of each permission — in the tenant the
  * page is open in for tenant-scoped resources, globally for global ones. It lives outside
  * the tenant segment and under it: Configuration's first page, and the tenant's. A session
- * holding no tenant is offered its own: the Tenant record's creation shape
- * (`@tenant(creation: both)`) lets a signed-in person create one, through the new-tenant
- * dialog. The person's email address and the look of the application are theirs, not a
- * place's: the account page and Appearance in the person's menu, which the frame draws.
+ * holding no tenant is offered its own: a person who signed up creates one through the
+ * new-tenant dialog, and the server refuses in its own words while no sign-in method is
+ * open to sign-up. The person's email address and the look of the application are theirs,
+ * not a place's: the account page and Appearance in the person's menu, which the frame
+ * draws.
  */
 @Component({
   selector: 'app-dashboard',

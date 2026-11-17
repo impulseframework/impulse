@@ -20,6 +20,7 @@ describe('the menu file', () => {
       'Mailed links',
       'Sessions',
       'Failed sign-ins',
+      'Sign-in',
     ]);
   });
 });

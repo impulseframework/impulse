@@ -3,18 +3,30 @@
 package integration
 
 import (
+	"context"
+	"encoding/json"
 	"maps"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
-// TestSelfService_signInFirstThroughOpenSignUp proves the order the creation shape
-// settles: a stranger signs in first, through the staff auth's google registration (any
-// Google account, open sign-up: a name the auth has never seen becomes a user), holds
-// nothing, and then names their tenant. Under the session library's skipAuth build tag
+// googleOpenWarns is what the Sign-in page's dialog shows before an administrator opens
+// the google registration, which admits any Google account.
+const googleOpenWarns = "Anyone with a Google account will be able to sign up and create a tenant of their own, without an invitation."
+
+// TestSelfService_signInFirstThroughOpenSignUp proves the order a tenant of one's own is
+// created in: a stranger signs in first, through the staff auth's google registration
+// (any Google account), holds nothing, and then names their tenant. The registration
+// starts invite only, so the stranger is refused at first and no account is made; an
+// administrator opens it to sign-up in the running application, behind a warning that
+// says how wide it is, and from then a name the auth has never seen becomes a user.
+// Made invite only again, the person who signed up meanwhile signs in as before. Under the session library's skipAuth build tag
 // Google is simulated: the login route sends the browser straight to the callback, and
 // the callback signs in whoever APP_GOOGLE_USERNAME names. The test sets that variable,
 // so it does not run in parallel.
@@ -35,9 +47,25 @@ func TestSelfService_signInFirstThroughOpenSignUp(t *testing.T) {
 		t.Fatalf("GET /api/user/methods: status %d, want 200 naming the google registration: %s", status, body)
 	}
 
+	// Invite only, as the registration starts: the stranger is refused at the callback,
+	// which sends the browser to the login page with the code, and no account is made.
+	t.Setenv("APP_GOOGLE_USERNAME", "wanderer")
+	refusedNotInvited(ctx, t, s, "wanderer")
+
+	// The administrator opens the registration: the warning names how wide it is, in the
+	// server's words, and the words for the button say what it does.
+	admin := signedIn(ctx, t, s, adminUser)
+	status, body = askWarning(ctx, admin, "/api/open-staff-sign-up", `{"name":"google"}`)
+	var warning resource.Warning
+	if err := json.Unmarshal(body, &warning); status != http.StatusOK || err != nil || warning.Consequence != googleOpenWarns || warning.Confirm != "Open to anyone with a Google account" {
+		t.Fatalf("the warning of opening the google registration: status %d: %s, want %q", status, body, googleOpenWarns)
+	}
+	if status, body := admin.do(ctx, http.MethodPost, "/api/open-staff-sign-up", []byte(`{"name":"google"}`)); status != http.StatusNoContent {
+		t.Fatalf("POST /api/open-staff-sign-up: status %d: %s", status, body)
+	}
+
 	// Signing in: the login route sends the browser to the simulated directory, which
 	// is the callback.
-	t.Setenv("APP_GOOGLE_USERNAME", "wanderer")
 	status, location := b.redirect(ctx, "/api/user/google/login?returnUrl="+url.QueryEscape("/dashboard"))
 	if status != http.StatusFound {
 		t.Fatalf("GET /api/user/google/login: status %d, want %d to the directory", status, http.StatusFound)
@@ -94,8 +122,43 @@ func TestSelfService_signInFirstThroughOpenSignUp(t *testing.T) {
 	if domains := userDomains(ctx, t, rival); len(domains) != 0 {
 		t.Errorf("the rival's tenants after the refusal = %v, want none", domains)
 	}
-	admin := signedIn(ctx, t, s, adminUser)
 	if held := slices.Sorted(maps.Values(tenantNames(ctx, t, admin))); !slices.Equal(held, []string{"North", "South", "Wander"}) {
 		t.Errorf("the tenants after the refusal = %v, want North, South and Wander alone: the refused create wrote nothing", held)
+	}
+
+	// Invite only again: the wanderer, who has an account, signs in as before. (A new
+	// stranger from the simulated Workspace would be answered by Wander's row now, the
+	// Workspace being its directory, so the registration's own refusal is proven above,
+	// before any tenant had it.)
+	if status, body := admin.do(ctx, http.MethodPost, "/api/make-staff-invite-only", []byte(`{"name":"google"}`)); status != http.StatusNoContent {
+		t.Fatalf("POST /api/make-staff-invite-only: status %d: %s", status, body)
+	}
+	t.Setenv("APP_GOOGLE_USERNAME", "wanderer")
+	again := signedInThroughGoogle(ctx, t, s)
+	if held := slices.Collect(maps.Values(tenantNames(ctx, t, again))); !slices.Equal(held, []string{"Wander"}) {
+		t.Errorf("the tenants the wanderer holds once the registration is invite only again = %v, want Wander alone", held)
+	}
+}
+
+// refusedNotInvited signs the person APP_GOOGLE_USERNAME names in through the google
+// registration and holds the answer to the refusal a person with no account and no
+// invitation meets at a method that is invite only: the callback sends the browser to
+// the login page with the code, no session opens, and no account is made.
+func refusedNotInvited(ctx context.Context, t *testing.T, s *served, username string) {
+	t.Helper()
+
+	b := newBrowser(t, s)
+	status, location := b.redirect(ctx, "/api/user/google/login?returnUrl="+url.QueryEscape("/dashboard"))
+	if status != http.StatusFound {
+		t.Fatalf("GET /api/user/google/login as %s: status %d, want %d to the directory", username, status, http.StatusFound)
+	}
+	if status, location = b.redirect(ctx, location); status != http.StatusFound || !strings.HasSuffix(location, "/login?code="+string(sessioninfo.RefusedNotInvited)) {
+		t.Fatalf("the callback of %s while the registration is invite only: %d to %q, want %d to the login page naming %s", username, status, location, http.StatusFound, sessioninfo.RefusedNotInvited)
+	}
+	if status, body := b.do(ctx, http.MethodGet, "/api/user/session", nil); status != http.StatusOK || !strings.Contains(string(body), `"authenticated":false`) {
+		t.Errorf("GET /api/user/session after the refusal of %s: status %d: %s, want no session", username, status, body)
+	}
+	if accountExists(ctx, t, s, username) {
+		t.Errorf("an account was made for %s, refused at a registration that is invite only, want none", username)
 	}
 }

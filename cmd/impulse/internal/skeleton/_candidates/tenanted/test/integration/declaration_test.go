@@ -49,8 +49,11 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	admin := signedIn(ctx, t, s, adminUser)
 
 	// A person who signed in through Google, seated in south: south has no directory,
-	// which admits a password and no directory, so their chart is empty.
+	// which admits a password and no directory, so their chart is empty. The
+	// registration is invite only, so their account stands before the sign-in, which
+	// links it.
 	t.Setenv("APP_GOOGLE_USERNAME", "traveler")
+	createAccount(ctx, t, s, "traveler")
 	traveler := signedInThroughGoogle(ctx, t, s)
 	seat(ctx, t, s, "traveler", south)
 	if domains := userDomains(ctx, t, traveler); len(domains) != 0 {
@@ -92,6 +95,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// who sets a tenant's first directory after its creation is a super administrator,
 	// the one person who enters a tenant whatever it declares (asSuperAdministrator).
 	t.Setenv("APP_GOOGLE_USERNAME", "organizer")
+	createAccount(ctx, t, s, "organizer")
 	organizer := signedInThroughGoogle(ctx, t, s)
 	asSuperAdministrator(ctx, t, s, "organizer", north, south)
 	status, body = organizer.do(ctx, http.MethodPatch, "/api/resources", []byte(makeSouths))
@@ -401,6 +405,17 @@ func signedInThroughGoogle(ctx context.Context, t *testing.T, s *served) *browse
 	b.secondFactor(ctx, os.Getenv("APP_GOOGLE_USERNAME"), false)
 
 	return b
+}
+
+// createAccount creates an account under the name the directory presents, holding no
+// password and no role: the person an administrator created ahead of their first sign-in
+// through a registration that is invite only, which links the account.
+func createAccount(ctx context.Context, t *testing.T, s *served, username string) {
+	t.Helper()
+
+	if _, err := s.auth.Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: username}); err != nil {
+		t.Fatalf("CreateSessionUser(%s) error = %v", username, err)
+	}
 }
 
 // seat gives the person the tenant's administrator role in the tenant, held by the id of
