@@ -133,10 +133,20 @@ export const nameMaxLength = 200;
             @if (confirmingRemoval()) {
               <p class="question">Remove your password? {{ removalConsequence() }}</p>
               <div class="answers">
-                <button mat-flat-button type="button" class="remove-confirm" [disabled]="busy()" (click)="removePassword()">
+                <button
+                  mat-flat-button
+                  type="button"
+                  class="remove-confirm"
+                  [disabled]="busy()"
+                  (click)="removePassword()">
                   Remove password
                 </button>
-                <button mat-stroked-button type="button" class="remove-keep" [disabled]="busy()" (click)="keepPassword()">
+                <button
+                  mat-stroked-button
+                  type="button"
+                  class="remove-keep"
+                  [disabled]="busy()"
+                  (click)="keepPassword()">
                   Keep password
                 </button>
               </div>
@@ -152,7 +162,9 @@ export const nameMaxLength = 200;
                     autocomplete="current-password"
                     required />
                 </mat-form-field>
-                <button mat-stroked-button type="submit" class="remove-submit" [disabled]="busy()">Remove password</button>
+                <button mat-stroked-button type="submit" class="remove-submit" [disabled]="busy()">
+                  Remove password
+                </button>
               </form>
             }
             @if (removeMessage(); as message) {

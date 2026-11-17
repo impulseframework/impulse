@@ -88,7 +88,9 @@ describe("the library's pages over an auth's generated management", () => {
   it("offer Remove password on a crew member's page above the identities they sign in with, where Unlink is offered, and none on a member's, who holds no password", () => {
     const identitiesOf = (auth: string, scope: 'global' | 'domain'): ListViewConfig => {
       const people = identityPages(apiDescriptor, resourceMeta, { auth, scope })[0];
-      const found = (people?.relatedConfigs as ListViewConfig[] | undefined)?.find((child) => child.title === 'Sign-in identities');
+      const found = (people?.relatedConfigs as ListViewConfig[] | undefined)?.find(
+        (child) => child.title === 'Sign-in identities',
+      );
       if (!found) {
         throw new Error(`the ${auth} people page has no list of sign-in identities`);
       }
@@ -98,8 +100,18 @@ describe("the library's pages over an auth's generated management", () => {
       (presentations || []).map((presentation) => [presentation.method, presentation.label]);
 
     for (const tt of [
-      { scope: 'global' as const, remove: Methods.RemoveCrewPassword, unlink: Methods.UnlinkCrewSessionIdentity, people: Resources.CrewSessionUsers },
-      { scope: 'domain' as const, remove: Methods.RemoveCrewSectorPassword, unlink: Methods.UnlinkCrewSectorSessionIdentity, people: Resources.CrewSectorUsers },
+      {
+        scope: 'global' as const,
+        remove: Methods.RemoveCrewPassword,
+        unlink: Methods.UnlinkCrewSessionIdentity,
+        people: Resources.CrewSessionUsers,
+      },
+      {
+        scope: 'domain' as const,
+        remove: Methods.RemoveCrewSectorPassword,
+        unlink: Methods.UnlinkCrewSectorSessionIdentity,
+        people: Resources.CrewSectorUsers,
+      },
     ]) {
       const identities = identitiesOf('Crew', tt.scope);
       expect(offered(identities.rowMethods)).toEqual([[tt.unlink, 'Unlink']]);
@@ -161,7 +173,9 @@ describe("the library's pages over an auth's generated management", () => {
               // A method that names a row, offered above a list: the list sits under a
               // person, and the method runs against that person's row.
               const people = pages.find((page) => (page.relatedConfigs as ListViewConfig[]).includes(list));
-              expect(target.resource, presentation.method).toBe((people?.parentConfig as ListViewConfig | undefined)?.primaryResource);
+              expect(target.resource, presentation.method).toBe(
+                (people?.parentConfig as ListViewConfig | undefined)?.primaryResource,
+              );
             }
           }
         }

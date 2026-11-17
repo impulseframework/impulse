@@ -752,7 +752,10 @@ from it (`identityRoutes` in
 [`web/console/src/app/app.routes.ts`](web/console/src/app/app.routes.ts)): the crew's
 accounts, mailed links, sessions and failed sign-ins, and the members', each in its own
 group of the navigation ("Crew accounts", "Members accounts"), with a person's row page
-holding the roles held, the sign-in identities and the sessions. A row's menu holds the
+holding the roles held, the sign-in identities and the sessions. Above a crew member's
+sign-in identities the page offers Remove password, for a person who has moved to the
+fleet's directory; the members sign in through their directory alone and have none to
+remove. A row's menu holds the
 methods the server says the caller may run on that row, so a role that holds no grant on
 a method sees no entry for it, and the members' pages offer nothing that gives a role,
 adds an account or invites one. Headquarters holds the grants

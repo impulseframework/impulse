@@ -928,7 +928,9 @@ describe("removing the person's own password", () => {
 
   it('keeps the removal path the list names, and none on a list that names none', async () => {
     expect(await authOver(removing()).auth.methods()).toEqual({ ...consoleList, removePassword: removePath });
-    expect(await authOver(server({ methods: { ...consoleList, removePassword: '' } })).auth.methods()).toEqual(consoleList);
+    expect(await authOver(server({ methods: { ...consoleList, removePassword: '' } })).auth.methods()).toEqual(
+      consoleList,
+    );
   });
 
   it('reads the list again, then posts the password as proof to the removal path it names', async () => {
@@ -941,12 +943,20 @@ describe("removing the person's own password", () => {
 
   for (const tt of [
     { name: 'a password that does not match', status: 400, message: 'Password incorrect' },
-    { name: 'a person no directory sign-in is linked to', status: 409, message: 'Your password is your only way to sign in' },
+    {
+      name: 'a person no directory sign-in is linked to',
+      status: 409,
+      message: 'Your password is your only way to sign in',
+    },
     { name: 'a session that acts for someone else', status: 403, message: 'not while impersonating' },
   ]) {
     it(`resolves the refusal of ${tt.name} with the server's words, through no error hook`, async () => {
       const { auth, errors } = authOver(removing({ remove: { status: tt.status, body: { message: tt.message } } }));
-      expect(await auth.removePassword('secret')).toEqual({ outcome: 'refused', status: tt.status, message: tt.message });
+      expect(await auth.removePassword('secret')).toEqual({
+        outcome: 'refused',
+        status: tt.status,
+        message: tt.message,
+      });
       expect(errors).toEqual([]);
     });
   }

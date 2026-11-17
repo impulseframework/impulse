@@ -366,7 +366,9 @@ describe('CompoundResourceComponent row page, a method above a child list that n
   const disband = 'DisbandSquadron' as Method;
   const withMethod: ApiDescriptor = {
     ...descriptor,
-    methods: { [disband]: { method: disband, property: 'disbandSquadron', route: 'disband-squadron', scope: 'global' } },
+    methods: {
+      [disband]: { method: disband, property: 'disbandSquadron', route: 'disband-squadron', scope: 'global' },
+    },
   };
   const methodMetas: Record<string, MethodMeta> = {
     [disband]: {
@@ -397,7 +399,11 @@ describe('CompoundResourceComponent row page, a method above a child list that n
     );
 
   for (const tt of [
-    { name: 'draws the button where the answer for the row lists the method', execute: ['DisbandSquadron'], want: ['Disband'] },
+    {
+      name: 'draws the button where the answer for the row lists the method',
+      execute: ['DisbandSquadron'],
+      want: ['Disband'],
+    },
     { name: 'draws none where the answer for the row leaves the method out', execute: [], want: [] },
   ]) {
     it(tt.name, async () => {

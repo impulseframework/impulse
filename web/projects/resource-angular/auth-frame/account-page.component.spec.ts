@@ -41,7 +41,13 @@ describe('AccountPageComponent', () => {
     await TestBed.inject(ApplicationRef).whenStable();
   };
 
-  const open = async ({ methods = {}, remembered = false, session = {}, nameAnswer, removeAnswer }: Setup): Promise<void> => {
+  const open = async ({
+    methods = {},
+    remembered = false,
+    session = {},
+    nameAnswer,
+    removeAnswer,
+  }: Setup): Promise<void> => {
     // The session the spec's server answers: a saved name is answered from then on, in an
     // answer of its own, as a server's every read is.
     const server: SpecServer = {
@@ -215,7 +221,13 @@ describe('AccountPageComponent', () => {
   });
 
   // A sign-in that offers the password and one directory, and serves the password's removal.
-  const lakeside = { name: 'lakeside', method: 'workos', kind: 'redirect', label: 'Lakeside', path: '/api/user/lakeside/login' };
+  const lakeside = {
+    name: 'lakeside',
+    method: 'workos',
+    kind: 'redirect',
+    label: 'Lakeside',
+    path: '/api/user/lakeside/login',
+  };
   const removal = {
     methods: [lakeside],
     changePassword: passwordMethods.changePassword,
@@ -241,7 +253,9 @@ describe('AccountPageComponent', () => {
   it('offers no removal in a session that acts for someone else', async () => {
     await open({
       methods: removal,
-      session: { impersonation: { actor: 'ops', principalKind: 'User', principal: 'gale', expiresAt: '2026-11-15T12:00:00Z' } },
+      session: {
+        impersonation: { actor: 'ops', principalKind: 'User', principal: 'gale', expiresAt: '2026-11-15T12:00:00Z' },
+      },
     });
     expect(text('.password h2')).toBe('Change your password');
     expect(element().querySelector('.remove-password')).toBeNull();
@@ -294,10 +308,22 @@ describe('AccountPageComponent', () => {
   });
 
   for (const tt of [
-    { name: 'the one other way in by its words', others: ['Lakeside'], want: 'You will sign in through Lakeside only.' },
+    {
+      name: 'the one other way in by its words',
+      others: ['Lakeside'],
+      want: 'You will sign in through Lakeside only.',
+    },
     { name: 'two by both', others: ['Lakeside', 'Google'], want: 'You will sign in through Lakeside or Google only.' },
-    { name: 'several as a list', others: ['Lakeside', 'Google', 'Entra'], want: 'You will sign in through Lakeside, Google or Entra only.' },
-    { name: "the person's organization where the page knows of none", others: [], want: 'You will sign in through your organization only.' },
+    {
+      name: 'several as a list',
+      others: ['Lakeside', 'Google', 'Entra'],
+      want: 'You will sign in through Lakeside, Google or Entra only.',
+    },
+    {
+      name: "the person's organization where the page knows of none",
+      others: [],
+      want: 'You will sign in through your organization only.',
+    },
   ]) {
     it(`says what removing the password leaves: ${tt.name}`, () => {
       expect(passwordRemovalConsequence(tt.others)).toBe(tt.want);

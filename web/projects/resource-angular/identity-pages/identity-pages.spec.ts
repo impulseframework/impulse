@@ -364,8 +364,18 @@ describe("identityPages, a person's password", () => {
   };
 
   for (const tt of [
-    { name: "the whole application's side", scope: 'global' as const, remove: 'RemoveCrewPassword', unlink: 'UnlinkCrewSessionIdentity' },
-    { name: "a tenant's side", scope: 'domain' as const, remove: 'RemoveCrewSectorPassword', unlink: 'UnlinkCrewSectorSessionIdentity' },
+    {
+      name: "the whole application's side",
+      scope: 'global' as const,
+      remove: 'RemoveCrewPassword',
+      unlink: 'UnlinkCrewSessionIdentity',
+    },
+    {
+      name: "a tenant's side",
+      scope: 'domain' as const,
+      remove: 'RemoveCrewSectorPassword',
+      unlink: 'UnlinkCrewSectorSessionIdentity',
+    },
   ]) {
     it(`offers Remove password above the identities a person signs in with, where Unlink is offered, on ${tt.name}`, () => {
       const pages = identityPages(withPassword, resourceMeta, { auth: 'Crew', scope: tt.scope });

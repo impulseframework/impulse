@@ -363,7 +363,12 @@ describe('ResourceListComponent row methods', () => {
   };
   /** The row a list sits under, as the page's read of it answers: with the methods the caller may run on it, where it says. */
   const under = (disabled: boolean, execute?: string[]): RecordData =>
-    ({ id: 'u-9', username: 'cy', disabled, ...(execute ? { zzCapabilities: { Execute: execute } } : {}) }) as unknown as RecordData;
+    ({
+      id: 'u-9',
+      username: 'cy',
+      disabled,
+      ...(execute ? { zzCapabilities: { Execute: execute } } : {}),
+    }) as unknown as RecordData;
 
   it('draws above a child list a method that names the row the list sits under, where the answer for that row lists it, and runs it against that row', async () => {
     await create(
@@ -377,17 +382,26 @@ describe('ResourceListComponent row methods', () => {
     await settle();
 
     // The row's key fills the request, as it does for a method run from a row's menu.
-    expect(opened).toEqual([{ method: 'DisablePerson', label: 'Disable', preset: { personId: 'u-9' }, confirm: 'Disable cy?' }]);
+    expect(opened).toEqual([
+      { method: 'DisablePerson', label: 'Disable', preset: { personId: 'u-9' }, confirm: 'Disable cy?' },
+    ]);
   });
 
   for (const tt of [
-    { name: 'the answer for the row does not list it, whatever the digest grants', parent: under(false, ['RenamePerson']) },
+    {
+      name: 'the answer for the row does not list it, whatever the digest grants',
+      parent: under(false, ['RenamePerson']),
+    },
     { name: 'the row was read without its answer', parent: under(false) },
     { name: "the page's row predicate says no", parent: under(true, ['DisablePerson']) },
     { name: 'the list sits under no row', parent: undefined },
   ]) {
     it(`draws no such method where ${tt.name}`, async () => {
-      await create({ primaryResource: people, listMethods: [disableAbove] }, { DisablePerson: { Execute: 'granted' } }, tt.parent);
+      await create(
+        { primaryResource: people, listMethods: [disableAbove] },
+        { DisablePerson: { Execute: 'granted' } },
+        tt.parent,
+      );
 
       expect(fixture.componentInstance.listMethods()).toEqual([]);
       expect(element().querySelector('button.list-method')).toBeNull();
