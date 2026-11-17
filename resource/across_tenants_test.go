@@ -505,6 +505,104 @@ func TestAcrossTenants_searchBox(t *testing.T) {
 	}
 }
 
+// TestAcrossTenants_positionalSearch pins the search box over a positional
+// field across tenants. A positional field's match runs on the real column
+// wherever a grant covers the field at all, so a tenant's own list conjoins
+// nothing to it; across tenants the match is still held to the tenants that
+// show the field, and a tenant in which no grant covers it matches nothing by
+// it. The field's own condition stays out of the match, as in the tenant's list.
+func TestAcrossTenants_positionalSearch(t *testing.T) {
+	t.Parallel()
+
+	hiddenInSouth := accesstypes.Decisions{acrossBins + ".code": accesstypes.Denied()}
+	tests := []struct {
+		name   string
+		north  accesstypes.Decisions
+		south  accesstypes.Decisions
+		wants  map[DBType]string
+		params map[string]any
+	}{
+		{
+			name:  "hidden in one tenant, the match is held to the tenant that shows it",
+			north: everyGrant(),
+			south: hiddenInSouth,
+			wants: map[DBType]string{
+				SpannerDBType: "SELECT Id, CASE WHEN `Bins`.`Yard` IN UNNEST(@_c1) THEN `Code` END AS zzCursorCode, `Bins`.`Yard` AS zzTenant FROM Bins " +
+					"WHERE (`Bins`.`Yard` IN UNNEST(@_c1) AND SEARCH_SUBSTRING(`Code_Search`, @_p1)) AND (`Bins`.`Yard` IN UNNEST(@domains)) " +
+					"ORDER BY CASE WHEN `Bins`.`Yard` IN UNNEST(@_c1) THEN `Code` END ASC, `Id` ASC LIMIT 4",
+				PostgresDBType: `SELECT "Id", CASE WHEN "Bins"."Yard" = ANY(@_c1) THEN "Code" END AS "zzCursorCode", "Bins"."Yard" AS "zzTenant" FROM Bins ` +
+					`WHERE ("Bins"."Yard" = ANY(@_c1) AND "Code" ILIKE @_p1) AND ("Bins"."Yard" = ANY(@domains)) ` +
+					`ORDER BY CASE WHEN "Bins"."Yard" = ANY(@_c1) THEN "Code" END ASC, "Id" ASC LIMIT 4`,
+			},
+			params: map[string]any{"domains": []string{"north", "south"}, "_c1": []string{"north"}},
+		},
+		{
+			name:  "under a condition in one tenant and hidden in the other, the condition stays out of the match",
+			north: accesstypes.Decisions{acrossBins + ".code": conditionalOn(acrossBins+".code", "code = 'a'")},
+			south: hiddenInSouth,
+			wants: map[DBType]string{
+				SpannerDBType: "SELECT Id, CASE WHEN `Bins`.`Yard` IN UNNEST(@_c2) THEN `Code` END AS zzCursorCode, `Bins`.`Yard` AS zzTenant FROM Bins " +
+					"WHERE (`Bins`.`Yard` IN UNNEST(@_c2) AND SEARCH_SUBSTRING(`Code_Search`, @_p1)) AND (`Bins`.`Yard` IN UNNEST(@domains)) " +
+					"ORDER BY CASE WHEN `Bins`.`Yard` IN UNNEST(@_c2) THEN `Code` END ASC, `Id` ASC LIMIT 4",
+				PostgresDBType: `SELECT "Id", CASE WHEN "Bins"."Yard" = ANY(@_c2) THEN "Code" END AS "zzCursorCode", "Bins"."Yard" AS "zzTenant" FROM Bins ` +
+					`WHERE ("Bins"."Yard" = ANY(@_c2) AND "Code" ILIKE @_p1) AND ("Bins"."Yard" = ANY(@domains)) ` +
+					`ORDER BY CASE WHEN "Bins"."Yard" = ANY(@_c2) THEN "Code" END ASC, "Id" ASC LIMIT 4`,
+			},
+			// The condition's literal is bound for the cell's projection, which
+			// this request does not select.
+			params: map[string]any{"domains": []string{"north", "south"}, "_c1": "a", "_c2": []string{"north"}},
+		},
+		{
+			name:  "shown in both tenants, the match is bare",
+			north: everyGrant(),
+			south: everyGrant(),
+			wants: map[DBType]string{
+				SpannerDBType: "SELECT Id, Code AS zzCursorCode, `Bins`.`Yard` AS zzTenant FROM Bins " +
+					"WHERE SEARCH_SUBSTRING(`Code_Search`, @_p1) AND (`Bins`.`Yard` IN UNNEST(@domains)) ORDER BY `Code` ASC, `Id` ASC LIMIT 4",
+				PostgresDBType: `SELECT "Id", "Code" AS "zzCursorCode", "Bins"."Yard" AS "zzTenant" FROM Bins ` +
+					`WHERE "Code" ILIKE @_p1 AND ("Bins"."Yard" = ANY(@domains)) ORDER BY "Code" ASC, "Id" ASC LIMIT 4`,
+			},
+			params: map[string]any{"domains": []string{"north", "south"}},
+		},
+	}
+	terms := map[DBType]string{SpannerDBType: "ap", PostgresDBType: "%ap%"}
+	for _, tt := range tests {
+		for dbType, want := range tt.wants {
+			t.Run(tt.name+" on "+string(dbType), func(t *testing.T) {
+				t.Parallel()
+
+				perms := &acrossPermissions{
+					reach:  []accesstypes.Domain{"north", "south"},
+					grants: map[accesstypes.Domain]accesstypes.Decisions{"north": tt.north, "south": tt.south},
+				}
+				decoder := acrossDecoder[acrossBin, acrossBinRequest](t, Paging{Order: []SortField{{Field: "Code", Direction: SortAscending}}, DefaultLimit: 3})
+				target := "/bins?" + url.Values{"columns": {"id"}, "filter": {`*:search:"ap"`}}.Encode()
+				qSet, err := decoder.DecodeAcrossTenants(acrossRequest(t, target), perms)
+				if err != nil {
+					t.Fatalf("QueryDecoder.DecodeAcrossTenants() error = %v", err)
+				}
+				if err := qSet.checkPermissions(t.Context(), dbType); err != nil {
+					t.Fatalf("QuerySet.checkPermissions() error = %v", err)
+				}
+				stmt, err := qSet.stmt(dbType)
+				if err != nil {
+					t.Fatalf("QuerySet.stmt() error = %v", err)
+				}
+				if got := normalizeSQL(stmt.SQL); got != want {
+					t.Errorf("QuerySet.stmt() SQL =\n%s\nwant\n%s", got, want)
+				}
+				wantParams := map[string]any{"_p1": terms[dbType]}
+				for name, value := range tt.params {
+					wantParams[name] = value
+				}
+				if diff := cmp.Diff(wantParams, stmt.Params); diff != "" {
+					t.Errorf("QuerySet.stmt() params mismatch (-want +got):\n%s", diff)
+				}
+			})
+		}
+	}
+}
+
 // TestAcrossTenants_staff pins the set of a person who is staff against the set
 // of a person who is not, through the session's own reach
 // (SessionPermissions): the two hold the same roles in the same two tenants,
@@ -807,6 +905,18 @@ func TestAcrossTenants_cursor(t *testing.T) {
 
 		_, err := decoder.DecodeAcrossTenants(acrossRequest(t, "/crates?domains=east&cursor="+tenant), differingRoles())
 		assertClientMessage(t, err, http.StatusBadRequest, "invalid cursor: restart the walk from the first page")
+	})
+	t.Run("nor the cursor of a tenant whose key spells the list's own filter on the tenant", func(t *testing.T) {
+		t.Parallel()
+
+		for key, target := range map[accesstypes.Domain]string{"every tenant": "/crates?cursor=", "only:east": "/crates?domains=east&cursor="} {
+			named, err := decoder.Decode(acrossRequest(t, "/crates"), differingRoles(), accesstypes.DomainScope(key))
+			if err != nil {
+				t.Fatalf("QueryDecoder.Decode() error = %v", err)
+			}
+			_, err = decoder.DecodeAcrossTenants(acrossRequest(t, target+seal(t, named)), differingRoles())
+			assertClientMessage(t, err, http.StatusBadRequest, "invalid cursor: restart the walk from the first page")
+		}
 	})
 }
 

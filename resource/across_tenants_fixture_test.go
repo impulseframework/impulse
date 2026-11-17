@@ -22,6 +22,7 @@ import (
 const (
 	acrossCrates = accesstypes.Resource("Crates")
 	acrossSeals  = accesstypes.Resource("Seals")
+	acrossBins   = accesstypes.Resource("Bins")
 	// acrossRequester is the person the fixture's requests run as.
 	acrossRequester = accesstypes.User("erin")
 )
@@ -81,6 +82,24 @@ type acrossSealRequest struct {
 	Mark    string `json:"mark"    index:"true"`
 }
 
+// acrossBin is a record whose searched field is positional: its sort, filter
+// and search run on the real column wherever a grant covers the field at all.
+type acrossBin struct {
+	ID   string `spanner:"Id"   postgres:"Id"`
+	Yard string `spanner:"Yard" postgres:"Yard"`
+	Code string `spanner:"Code" postgres:"Code"`
+}
+
+func (acrossBin) Resource() accesstypes.Resource { return acrossBins }
+
+func (acrossBin) DefaultConfig() Config { return Config{} }
+
+type acrossBinRequest struct {
+	ID   string `json:"id"   index:"true" perm:"-"`
+	Yard string `json:"-"`
+	Code string `json:"code" index:"true" masking:"positional" search:"token=Code_Search;index=BinsSearch;role=text;contains"`
+}
+
 // acrossCollection declares the fixture's vocabulary: the crates' attributes
 // and bare tenant column, the seals' join path to the tenant, the crews a
 // person holds in a yard as a subject set, and the tags' attributes for the
@@ -106,6 +125,13 @@ func acrossCollection(t *testing.T) *GeneratedCollection {
 			Permissions: []accesstypes.Permission{accesstypes.List},
 			Attributes:  []AttributeData{{Name: "mark", Column: "Mark", Type: AttributeTypeString}},
 			Domain:      &DomainBindingData{Column: "CrateId", Path: []BindingHop{{Table: "Crates", JoinColumn: "Id", Column: "Yard"}}},
+		},
+		{
+			Name:        acrossBins,
+			Scope:       accesstypes.DomainPermissionScope,
+			Permissions: []accesstypes.Permission{accesstypes.List},
+			Attributes:  []AttributeData{{Name: "code", Column: "Code", Type: AttributeTypeString}},
+			Domain:      &DomainBindingData{Column: "Yard"},
 		},
 		{
 			Name:        "YardCrews",
