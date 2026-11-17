@@ -138,10 +138,14 @@ func TestDirectoryDefaultRole_openedWithARoleTheCallerMayGive(t *testing.T) {
 	}
 	// The role is picked from the roles the caller may give in the sector, and no other
 	// (CrewSectorDirectoryRoles): the marshal's list leaves her own role out, as the
-	// method refuses it, and the governor, a super administrator, is offered every role
-	// of the sector. The role file writes no condition on the list: the grant of the
-	// method that gives a role is what the list reads. Each role the list offers the
-	// marshal is one the method takes from her.
+	// method refuses it. The governor's list is the same. A request made under a sector
+	// is judged by the grant of the sector's method that gives a role, which the governor
+	// holds as the marshal of every sector, and that grant gives nobody the marshal's
+	// role: a marshal is made through the whole application's method. So the list leaves
+	// the role out for the governor too, and the method refuses it from the governor as
+	// it does from the marshal. The role file writes no condition on the list: the grant
+	// of the method that gives a role is what the list reads. Each role the list offers
+	// the marshal is one the method takes from her.
 	offered := func(b *browser) []string {
 		t.Helper()
 		status, body := b.do(ctx, http.MethodGet, sectorPath(cinder, "crew-sector-directory-roles"), nil)
@@ -165,12 +169,15 @@ func TestDirectoryDefaultRole_openedWithARoleTheCallerMayGive(t *testing.T) {
 
 		return names
 	}
-	marshalRoles, everyRole := offered(marshal), offered(governor)
+	marshalRoles, governorRoles := offered(marshal), offered(governor)
 	if slices.Contains(marshalRoles, "SectorMarshal") || !slices.Contains(marshalRoles, "Pilot") || !slices.Contains(marshalRoles, "SectorCrew") {
 		t.Errorf("the roles the marshal is offered = %v, want the sector's roles she may give: Pilot and SectorCrew among them, and never SectorMarshal", marshalRoles)
 	}
-	if !slices.Contains(everyRole, "SectorMarshal") || len(everyRole) != len(marshalRoles)+1 {
-		t.Errorf("the roles the governor is offered = %v, want every role of the sector: the marshal's %v and SectorMarshal", everyRole, marshalRoles)
+	if !slices.Equal(governorRoles, marshalRoles) {
+		t.Errorf("the roles the governor is offered = %v, want the marshal's %v: under a sector both are judged by the grant of the sector's method that gives a role", governorRoles, marshalRoles)
+	}
+	if status, body := open(governor, "SectorMarshal"); status != http.StatusForbidden || !strings.Contains(string(body), mayNotGive) {
+		t.Errorf("opening Cinder with SectorMarshal as the governor: status %d, want 403 saying %q, since the list leaves the role out and offers what the method takes: %s", status, mayNotGive, body)
 	}
 	for _, role := range marshalRoles {
 		dry := marshal.doWith(ctx, http.MethodPost, sectorPath(cinder, "open-sector-to-directory"), jsonBody(t, map[string]string{"role": role}), map[string]string{"X-Dry-Run": "true"})

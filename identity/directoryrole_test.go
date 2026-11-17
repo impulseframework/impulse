@@ -213,6 +213,23 @@ func TestManager_DirectoryRoles(t *testing.T) {
 		})
 	}
 
+	t.Run("a transaction the database runs again lists each role once", func(t *testing.T) {
+		t.Parallel()
+
+		grants := &fakeGrants{}
+		m, _ := newManager(t, groupStore(), wardenRoles, WithRoleGrants(grants))
+		got, err := m.DirectoryRoles(asCallerThrough(t.Context(), managedAuth, erin), ranTwice{}, "alpha")
+		if err != nil {
+			t.Fatalf("DirectoryRoles() error = %v", err)
+		}
+		if diff := cmp.Diff([]access.RoleInfo{reader, warden}, got); diff != "" {
+			t.Errorf("DirectoryRoles() over a transaction run twice mismatch (-want +got):\n%s", diff)
+		}
+		if len(grants.asked) != 4 {
+			t.Errorf("the grants were asked %d times, want 4: each role in each run of the transaction", len(grants.asked))
+		}
+	})
+
 	t.Run("a manager with no grants refuses a request it cannot judge", func(t *testing.T) {
 		t.Parallel()
 
@@ -242,6 +259,18 @@ func TestManager_DirectoryRoles(t *testing.T) {
 			t.Errorf("DirectoryRoles() error = %v, want one that says no tenant was named", err)
 		}
 	})
+}
+
+// ranTwice is a database that runs a transaction's function twice before it commits, as
+// the application's database does when it takes the transaction back and tries again.
+type ranTwice struct{}
+
+func (ranTwice) ExecuteFunc(ctx context.Context, f func(ctx context.Context, txn resource.ReadWriteTransaction) error) error {
+	if err := (fakeDatabase{}).ExecuteFunc(ctx, f); err != nil {
+		return err
+	}
+
+	return fakeDatabase{}.ExecuteFunc(ctx, f)
 }
 
 // TestManager_DirectoryName pins that the manager names a directory as the session

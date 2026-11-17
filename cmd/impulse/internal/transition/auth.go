@@ -573,10 +573,28 @@ func (au Auth) writePackage(a *app.App, src *authSource, spec *authpkg.Spec, ch 
 	case authpkg.FootholdPassword:
 		ch.skipf("%s/foothold.go: the first administrator the migrate command seeds while the auth's users table holds no rows, a user named administrator with a generated password; author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the first administrator is seeded with) with the role file, declare the password in the data level (%s, secret:\"generated\") and seed it from pkg/deploy SeedAdministrators", dir, au.variable("ADMINISTRATOR_PASSWORD"))
 	case authpkg.FootholdMembership:
-		ch.skipf("%s/foothold.go: the first administrator the migrate command seeds while the auth's users table holds no rows, a password-less user under the sign-in name the placement names, holding the first administrator's roles, which the person's first sign-in links to; author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the first administrator is seeded with) with the role file, declare the name in the data level (%s) and seed it from pkg/deploy SeedAdministrators", dir, au.variable("ADMINISTRATOR"))
+		ch.skipf("%s/foothold.go: the first administrator the migrate command seeds while the auth's users table holds no rows, a password-less user under the sign-in name the placement names, holding the first administrator's roles, %s; author AdministratorRoles (the roles whose holder can give a role back) and FirstAdministratorRoles (what the first administrator is seeded with) with the role file, declare the name in the data level (%s) and seed it from pkg/deploy SeedAdministrators", dir, footholdLink(spec), au.variable("ADMINISTRATOR"))
 	}
 
 	return nil
+}
+
+// footholdLink says, in the note a membership foothold leaves its author, what the first
+// sign-in of the user it seeds does. It links the account where the foothold names the
+// registration the name is believed from (authpkg.FootholdMethod), and where the auth
+// sets no directory admission, so a name links an account created ahead as it always
+// did. Where the application's tenants have directories and the foothold names no
+// registration, the sign-in is refused until the author names one, and the note says so.
+func footholdLink(spec *authpkg.Spec) string {
+	switch method := authpkg.FootholdMethod(spec); {
+	case method != nil:
+		return fmt.Sprintf("seeded for the %s registration (session.SeedUserIDThrough) and linked to by the person's first sign-in through that registration", method.Name)
+	case spec.DirectoryAdmission():
+		return "seeded for no registration and linked to by no sign-in while the application's tenants have directories (a name alone links no account that has never signed in): " +
+			"name the deployment's own directory in seedFoothold (session.SeedUserIDThrough with its registration's constant) or give the auth a password method"
+	default:
+		return "which the person's first sign-in links to"
+	}
 }
 
 // variable is a setting of the auth under the convention APP_<AUTH>_<SUFFIX>.
