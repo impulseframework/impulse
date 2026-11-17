@@ -489,6 +489,29 @@ func (a *Auth[S, U, Tx]) compareOrDummy(ctx context.Context, methods *signInMeth
 	return false, sessioncore.ErrNoPassword
 }
 
+// provePassword checks password against the one user holds, for a step that proves a
+// password outside the login: a pending identity's confirmation, a person's own change
+// and a person's own removal. It is held to the login's limit and counted under the
+// user's name as a login is: a name or a client the limiter holds is refused before
+// anything is hashed, with too_many_attempts and the wait; a wrong password counts
+// against the name and the client; a match resets the name. A session of the person
+// therefore guesses their password no faster than a stranger at the login does. wrong
+// reports a password that did not match, a user with no password among them, with the
+// comparison's error, for the caller to answer in its own words.
+func (a *Auth[S, U, Tx]) provePassword(ctx context.Context, user *sessionstorage.SessionUser, password string, client attempts.Client) (wrong bool, err error) {
+	if err := a.limitAttempt(ctx, user.Username, client); err != nil {
+		return false, err
+	}
+	if _, err := a.registered().comparePassword(user.PasswordHash, password); err != nil {
+		a.recordFailure(ctx, user.Username, client)
+
+		return true, err
+	}
+	a.attemptsSucceeded(ctx, user.Username)
+
+	return false, nil
+}
+
 // recordFailure counts a failed attempt on username by client. A store failure is
 // logged; the refusal stands either way.
 func (a *Auth[S, U, Tx]) recordFailure(ctx context.Context, username string, client attempts.Client) {
@@ -566,7 +589,10 @@ func (a *Auth[S, U, Tx]) answerSignIn(ctx context.Context, w http.ResponseWriter
 
 // changeUserPasswordHandler is the password method's change-password handler. It is
 // the one route a user who must change their password reaches, so it validates the
-// session itself, without the mark's refusal, unless ValidateSession already has.
+// session itself, without the mark's refusal, unless ValidateSession already has. The
+// old password is checked under the attempt limiter, for the request's client, and a
+// name the limiter holds is answered as the login answers it (429, too_many_attempts
+// and the wait).
 func (a *Auth[S, U, Tx]) changeUserPasswordHandler() http.HandlerFunc {
 	type request struct {
 		OldPassword string `json:"oldPassword"`
@@ -594,8 +620,8 @@ func (a *Auth[S, U, Tx]) changeUserPasswordHandler() http.HandlerFunc {
 		}
 
 		change := &ChangeSessionUserPasswordRequest{OldPassword: req.OldPassword, NewPassword: req.NewPassword}
-		if err := a.API().ChangeSessionUserPassword(ctx, w, sessioninfo.UserFromCtx(ctx).ID, change); err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		if err := a.changeOwnPassword(ctx, w, sessioninfo.UserFromCtx(ctx).ID, change, a.clientOf(r)); err != nil {
+			return writeSignInError(ctx, w, err)
 		}
 
 		return httpio.NewEncoder(w).Ok(nil)
@@ -604,11 +630,15 @@ func (a *Auth[S, U, Tx]) changeUserPasswordHandler() http.HandlerFunc {
 
 // removeUserPasswordHandler is the password method's remove-password handler: a
 // signed-in user removes their own password, proving it first as a change does. It
-// validates the session itself, as the change handler does, and is refused in an
-// impersonated session. The removal is the one AuthAPI.RemoveSessionUserPassword makes,
-// of the password that was proved and no other: its refusals of a user's last means of
-// sign-in and of a password that changed meanwhile are answered in words the person can
-// act on.
+// validates the session itself, and holds it to what every own-account route but the
+// change holds it to: a user who must change their password is refused
+// (password_change_required, Forbidden), since removing a temporary password would
+// clear the mark with it and leave the session standing with no change made. It is
+// refused in an impersonated session. The password is checked under the attempt
+// limiter, for the request's client, as the change checks the old one. The removal is
+// the one AuthAPI.RemoveSessionUserPassword makes, of the password that was proved and
+// no other: its refusals of a user's last means of sign-in and of a password that
+// changed meanwhile are answered in words the person can act on.
 func (a *Auth[S, U, Tx]) removeUserPasswordHandler() http.HandlerFunc {
 	type request struct {
 		Password string `json:"password"`
@@ -621,7 +651,7 @@ func (a *Auth[S, U, Tx]) removeUserPasswordHandler() http.HandlerFunc {
 
 		if _, validated := ctx.Value(sessioninfo.CtxUserInfo).(*sessioninfo.UserInfo); !validated {
 			var err error
-			if ctx, err = a.validate(ctx); err != nil {
+			if ctx, err = a.validateRequest(ctx); err != nil {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
 		}
@@ -634,8 +664,8 @@ func (a *Auth[S, U, Tx]) removeUserPasswordHandler() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		if err := a.removeOwnPassword(ctx, sessioninfo.UserFromCtx(ctx).ID, req.Password); err != nil {
-			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		if err := a.removeOwnPassword(ctx, sessioninfo.UserFromCtx(ctx).ID, req.Password, a.clientOf(r)); err != nil {
+			return writeSignInError(ctx, w, err)
 		}
 
 		return httpio.NewEncoder(w).Ok(nil)
@@ -643,19 +673,22 @@ func (a *Auth[S, U, Tx]) removeUserPasswordHandler() http.HandlerFunc {
 }
 
 // removeOwnPassword removes the password of the user who proves it: password must match
-// the one userID holds (BadRequest otherwise, as a change answers a wrong old password).
+// the one userID holds (BadRequest otherwise, as a change answers a wrong old password),
+// checked under the attempt limiter for client (provePassword).
 // The store is handed the hash the password matched and removes the password only while
 // the user still holds it, so a password an operator set meanwhile is not removed on
 // proof of the one it replaced (a Conflict that says to try again). The removal does
 // what AuthAPI.RemoveSessionUserPassword does, and its refusal of the last means of
 // sign-in is said to the person themselves, with what to do.
-func (a *Auth[S, U, Tx]) removeOwnPassword(ctx context.Context, userID impulse.UUID, password string) error {
+func (a *Auth[S, U, Tx]) removeOwnPassword(ctx context.Context, userID impulse.UUID, password string, client attempts.Client) error {
 	user, err := a.storage.User(ctx, userID)
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
-	if _, err := sessioncore.ComparePassword(a.registered().hasher, user.PasswordHash, password); err != nil {
+	if wrong, err := a.provePassword(ctx, user, password, client); wrong {
 		return httpio.NewBadRequestMessageWithError(err, "Password incorrect")
+	} else if err != nil {
+		return err
 	}
 	if err := a.storage.RemoveProvenUserPassword(ctx, user.ID, user.PasswordHash); err != nil {
 		switch {

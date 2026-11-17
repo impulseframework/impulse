@@ -422,7 +422,9 @@ func (m *PasswordMethod) Login() http.HandlerFunc { return m.login }
 
 // ChangeUserPassword accepts {"oldPassword", "newPassword"} and changes the signed-in
 // user's password to one they chose: the old one must match and the new one differ
-// (400 otherwise). The password change mark is cleared, every session of the user is
+// (400 otherwise). The old password is checked under the attempt limit, counted under
+// the user's name as a login is: a name at the limit is answered 429 with
+// too_many_attempts and the wait. The password change mark is cleared, every session of the user is
 // destroyed and the caller continues in a new one. It is the one route a user who must
 // change their password reaches, so it validates the session itself: route it beside
 // the session read and the logout, outside ValidateSession and behind
@@ -431,12 +433,15 @@ func (m *PasswordMethod) ChangeUserPassword() http.HandlerFunc { return m.change
 
 // RemoveUserPassword accepts {"password"}, the signed-in user's current password, and
 // removes it: from then on they sign in through their identity links alone. The
-// password must match (400 otherwise), as a change asks, and a user with no identity
-// link keeps it, their last means of sign-in (409). The password change mark is
-// cleared with the password, and the user's sessions stand, this one among them. It
-// validates the session itself, as the change does, so it is routed beside it, outside
-// ValidateSession and behind ValidateXSRFToken; name its path to Methods
-// (MethodList.RemovePassword) for the account page to offer it.
+// password must match (400 otherwise), as a change asks, checked under the attempt
+// limit as the change checks the old one (429 with too_many_attempts and the wait for a
+// name at the limit), and a user with no identity link that can sign them in keeps it,
+// their last means of sign-in (409). The user's sessions stand, this one among them. It
+// validates the session itself, so it is routed beside the change, outside
+// ValidateSession and behind ValidateXSRFToken, and refuses a user who must change
+// their password as ValidateSession does (403, password_change_required): a temporary
+// password is changed, not removed. Name its path to Methods (MethodList.RemovePassword)
+// for the account page to offer it.
 func (m *PasswordMethod) RemoveUserPassword() http.HandlerFunc {
 	return m.removeUserPassword
 }

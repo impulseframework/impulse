@@ -615,7 +615,8 @@ on their own, and they are what a user who must change their password reaches (s
 "Users and the forced password change"). The methods list names the password change
 route (`ChangePassword`) whenever it lists the password method. The removal of a
 person's own password (`RemoveUserPassword`) validates the session itself too and is
-routed beside the change; the methods list names it where the application serves it
+routed beside the change, though a user who must change their password is refused
+there as everywhere else; the methods list names it where the application serves it
 (`RemovePassword`).
 
 ### What the login page is told
@@ -1052,8 +1053,11 @@ linked to (409, `sessionstorage.ErrLastSignInMethod`). An operator removes it wi
 handler, routed beside the change and named to the page as the methods list's
 `removePassword`. A wrong password answers 400, and a person with no identity link is
 told what to do first: sign in through their directory, which links it. The handler
-validates the session itself, so a person whose operator-set password must change
-reaches it, and refuses an impersonated session. Either way the removal takes the
+validates the session itself and holds it to what every own-account route but the
+change holds it to: a person whose operator-set password must change is refused (403,
+`password_change_required`), since the removal would clear the mark with the temporary
+password and no change would have been made. It refuses an impersonated session.
+Either way the removal takes the
 password and the mark with it, clears the count of failed sign-ins kept under the
 user's name, and ends no session: the sessions the user holds stand, the ones the
 password established among them, as they do when an identity is unlinked. From then on
@@ -1396,7 +1400,13 @@ normalizes usernames (`Pat@Lakeside.edu` and `pat@lakeside.edu` are one name). A
 password, an unknown name and a password-less user all count, and all answer the same
 `401 {"message": "Invalid Credentials"}` in the same time: a name with no user or no
 password is compared against a dummy hash the method's hasher made, so timing no
-longer tells an existing name from an unknown one. A matching password resets the
+longer tells an existing name from an unknown one. The password a signed-in person
+proves is held to the same limit, under their own name: the old password of a change
+(`ChangeSessionUserPassword`, the method's `ChangeUserPassword`) and the password a
+removal asks for (`RemoveUserPassword`). A wrong one answers 400 as before and counts;
+a name at the limit answers 429 with `too_many_attempts` and the wait before anything
+is hashed, so a session of the person guesses their password no faster than the login
+lets a stranger. A matching password resets the
 name, as do an MFA completion (`CompletePending`) and a password change of any kind
 (`ChangeSessionUserPassword`, `SetSessionUserPassword`, `ResetSessionUserPassword`).
 Nothing locks a user an operator must unlock: the lock passes on its own, and a

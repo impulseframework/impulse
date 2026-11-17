@@ -217,24 +217,35 @@ func (p *AuthAPI[S, U, Tx]) ChangeSessionUserUsername(ctx context.Context, userI
 // regenerates its session.
 //
 // The old password must match and the new one must differ from it (BadRequest
-// otherwise). The store is handed the hash the old password matched and writes the new
-// one only while the user still holds it: a password that was changed, reset or removed
-// after this call read the user stands as it is, and the call answers a Conflict that
-// says to try again, with nothing written and no session destroyed. Once the password
-// is written and the password change mark cleared, every session of the user is
-// destroyed, by UserId, and the caller continues in a new session (ReasonRegeneration)
-// that records a password event.
+// otherwise). The old password is checked under the attempt limiter, counted under the
+// user's name as a login is: a wrong one counts, and a name whose attempts reached the
+// limit is refused with a *sessioninfo.LoginRefusal carrying RefusedTooManyAttempts and
+// the wait (sessioninfo.RetryAfterOf), before anything is hashed. The call has no
+// client, so only the name is counted; the password method's ChangeUserPassword handler
+// counts the request's client too. The store is handed the hash the old password
+// matched and writes the new one only while the user still holds it: a password that was
+// changed, reset or removed after this call read the user stands as it is, and the call
+// answers a Conflict that says to try again, with nothing written and no session
+// destroyed. Once the password is written and the password change mark cleared, every
+// session of the user is destroyed, by UserId, and the caller continues in a new
+// session (ReasonRegeneration) that records a password event.
 func (p *AuthAPI[S, U, Tx]) ChangeSessionUserPassword(ctx context.Context, w http.ResponseWriter, userID impulse.UUID, req *ChangeSessionUserPasswordRequest) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	a := p.auth
+	return p.auth.changeOwnPassword(ctx, w, userID, req, attempts.Client{})
+}
+
+// changeOwnPassword implements ChangeSessionUserPassword for client.
+func (a *Auth[S, U, Tx]) changeOwnPassword(ctx context.Context, w http.ResponseWriter, userID impulse.UUID, req *ChangeSessionUserPasswordRequest, client attempts.Client) error {
 	user, err := a.storage.User(ctx, userID)
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
-	if _, err := sessioncore.ComparePassword(a.registered().hasher, user.PasswordHash, req.OldPassword); err != nil {
+	if wrong, err := a.provePassword(ctx, user, req.OldPassword, client); wrong {
 		return httpio.NewBadRequestMessageWithError(err, "Old password incorrect")
+	} else if err != nil {
+		return err
 	}
 	if req.NewPassword == req.OldPassword {
 		return httpio.NewBadRequestMessage("The new password must differ from the old one")

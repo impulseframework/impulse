@@ -914,6 +914,22 @@ describe('the password change', () => {
     expect(errors).toEqual([]);
   });
 
+  it('resolves the refusal of a name at the limit of wrong old passwords with its code and the wait, through no error hook', async () => {
+    const { auth, errors } = authOver(
+      server({
+        change: { status: 429, body: { message: 'Too many sign-in attempts', code: 'too_many_attempts', retryAfter: 600 } },
+      }),
+    );
+    expect(await auth.changePassword('secret', 'another')).toEqual({
+      outcome: 'refused',
+      status: 429,
+      code: 'too_many_attempts',
+      message: 'Too many sign-in attempts',
+      retryAfter: 600,
+    });
+    expect(errors).toEqual([]);
+  });
+
   it('throws on a server whose list names no change path', async () => {
     const { auth } = authOver(server({ methods: { methods: [google], pending: pendingRoutes } }));
     await expect(auth.changePassword('old', 'new')).rejects.toThrow(/names no password change path/);
@@ -964,6 +980,22 @@ describe("removing the person's own password", () => {
       expect(errors).toEqual([]);
     });
   }
+
+  it('resolves the refusal of a name at the limit of wrong passwords with its code and the wait, through no error hook', async () => {
+    const { auth, errors } = authOver(
+      removing({
+        remove: { status: 429, body: { message: 'Too many sign-in attempts', code: 'too_many_attempts', retryAfter: 600 } },
+      }),
+    );
+    expect(await auth.removePassword('secret')).toEqual({
+      outcome: 'refused',
+      status: 429,
+      code: 'too_many_attempts',
+      message: 'Too many sign-in attempts',
+      retryAfter: 600,
+    });
+    expect(errors).toEqual([]);
+  });
 
   it('throws on a server whose list names no removal path, sending nothing', async () => {
     const { auth, transport } = authOver(server());

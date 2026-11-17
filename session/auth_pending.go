@@ -471,20 +471,16 @@ func (a *Auth[S, U, Tx]) confirmPending(ctx context.Context, w http.ResponseWrit
 }
 
 // checkConfirmation checks a confirmation's password for user under the attempt
-// limiter, counted under the user's name as a login is: the name or the client held is
-// refused before the hash, a wrong password counts, a match resets the name.
+// limiter, counted under the user's name as a login is (provePassword): the name or the
+// client held is refused before the hash, a wrong password counts, a match resets the
+// name.
 func (a *Auth[S, U, Tx]) checkConfirmation(ctx context.Context, user *sessionstorage.SessionUser, password string, client attempts.Client) error {
-	if err := a.limitAttempt(ctx, user.Username, client); err != nil {
-		return err
-	}
-	if _, err := a.registered().comparePassword(user.PasswordHash, password); err != nil {
-		a.recordFailure(ctx, user.Username, client)
-
+	wrong, err := a.provePassword(ctx, user, password, client)
+	if wrong {
 		return httpio.NewUnauthorizedMessageWithError(err, "Invalid Credentials")
 	}
-	a.attemptsSucceeded(ctx, user.Username)
 
-	return nil
+	return err
 }
 
 // linkPending links a confirmed pending identity to user and reports the link. The

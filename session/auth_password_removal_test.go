@@ -139,17 +139,19 @@ func TestAuth_RemoveUserPassword(t *testing.T) {
 		}
 	})
 
-	t.Run("a person under the password change mark removes the temporary password instead of changing it", func(t *testing.T) {
+	t.Run("a person who must change their password cannot remove it instead: the session is refused as every own-account route refuses it", func(t *testing.T) {
 		t.Parallel()
 		f := newAuthFixture(t, gomock.NewController(t))
 		f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil)
-		f.store.EXPECT().User(gomock.Any(), userID).Return(pat(true), nil).Times(2)
-		f.store.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, kept).Return(nil)
+		// The session's validation reads the user and finds the mark. The mock refuses
+		// the read a proof would make and the removal: the temporary password stands,
+		// and the mark with it.
+		f.store.EXPECT().User(gomock.Any(), userID).Return(pat(true), nil)
 
 		rr := httptest.NewRecorder()
 		f.password.RemoveUserPassword().ServeHTTP(rr, request(signedIn(), `{"password":"kept"}`))
-		if rr.Code != http.StatusOK {
-			t.Fatalf("RemoveUserPassword() under the mark = %d %s, want 200", rr.Code, rr.Body.String())
+		if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "Change your password to continue") {
+			t.Errorf("RemoveUserPassword() under the password change mark = %d %s, want 403 saying to change the password", rr.Code, rr.Body.String())
 		}
 	})
 
