@@ -3412,8 +3412,19 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   request that names nobody lists nobody's, and one that names people any other way is
   refused (400). A tenant's answers for a person of the tenant's own list of people,
   nothing for anyone else, and carries the two facts of the person's row
-  (`heldElsewhere`, `heldGlobally`) for a grant's condition. A role file grants it to
-  whoever reads the identities.
+  (`heldElsewhere`, `heldGlobally`) for a grant's condition, with `password`, which says
+  whether the row is the password. A role file grants it to whoever reads the
+  identities. Lodestar's and the skeletons' grant a tenant's administrator the list
+  under `password = false OR heldElsewhere = false`: the identities that count of
+  every person of the tenant, and the password only of a person no other tenant holds,
+  the condition `passwordChangeRequired` is read under. Whether a person another tenant
+  holds too has a password is then not the tenant's to learn, the page offers no
+  removal for them (it offers one by the rows), and the removal is the whole
+  application's administrator's, who reads the password in the whole application's
+  list. Every field of that grant is under the condition, so a tenant's administrator
+  cannot ask for the list sorted or filtered by one of them (a sort or filter field
+  needs an unconditional grant): the list comes in its declared order, the password
+  first.
 - A token is revoked with the rest of its device authorization; a token that is expired
   or already revoked is not found (404).
 - A role is assigned in the global scope, in one domain, or in every domain, and must

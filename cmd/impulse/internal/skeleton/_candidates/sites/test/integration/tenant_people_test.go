@@ -26,7 +26,9 @@ import (
 // (heldElsewhere = false AND heldGlobally = false). Without the condition north's
 // administrator could set a password on an account that also manages the application,
 // and sign in as it. The same reasoning hides the address and the directory's subject
-// of a person another tenant holds too (heldElsewhere = false), leaves a role held in
+// of a person another tenant holds too (heldElsewhere = false), and whether such a
+// person has a password (password = false OR heldElsewhere = false on the list of how a
+// person signs in, which lists everyone's identities that count), leaves a role held in
 // every tenant for the application's administrator to take (everyDomain = false), and
 // lets an invitation be withdrawn while it stands and not after (pending = true).
 //
@@ -54,6 +56,7 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "EndStaffTenantUserSessions", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "UnlinkStaffTenantSessionIdentity", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "RemoveStaffTenantPassword", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, staff.Roles(), "TenantAdministrator", "List", "StaffTenantSignInWays", "password = false OR heldElsewhere = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "RemoveStaffTenantRole", "everyDomain = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "WithdrawStaffTenantInvitation", "pending = true")
 
@@ -156,6 +159,22 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 			if _, got := row["subject"]; got != want {
 				t.Errorf("%s: the directory's subject in the %s is answered = %v, want %v: %v", name, where, got, want, row)
 			}
+		}
+	}
+
+	// How a person signs in is read under the same reasoning: the password is listed only
+	// of a person no other tenant holds. North does not learn whether sam, whom south
+	// holds too, has a password, as it does not learn whether sam must change it, and a
+	// page that offers the removal by these rows offers none for sam. The staff here sign
+	// in with a password alone, so the link written above is of a sign-in the login page
+	// does not offer: it is no way in, and no row for anyone.
+	for name, want := range map[string]bool{"nora": true, "gail": true, "sam": false} {
+		ways := tenantWays(ctx, t, member, north, ids[name])
+		if _, got := ways["password"]; got != want {
+			t.Errorf("%s: the password among the ways north reads = %v, want %v: %v", name, got, want, ways)
+		}
+		if ways[links[name]] != nil {
+			t.Errorf("%s: an identity that signs nobody in is among the ways north reads: %v", name, ways)
 		}
 	}
 
@@ -308,6 +327,29 @@ func tenantPost(ctx context.Context, b *browser, tenant, method string, body map
 	}
 
 	return b.do(ctx, http.MethodPost, "/api/tenants/"+tenant+"/"+method, encoded)
+}
+
+// tenantWays reads how one of the tenant's people signs in, as the browser b, on the site the browser is signed in to, and
+// answers the rows the browser's roles let it see by the way each names: "password",
+// or an identity's id.
+func tenantWays(ctx context.Context, t *testing.T, b *browser, tenant, userID string) map[string]map[string]any {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, "/api"+"/tenants/"+tenant+"/staff-tenant-sign-in-ways?filter=userId:eq:"+userID, nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET how %s signs in, in %s: status %d: %s", userID, tenant, status, body)
+	}
+	var rows []map[string]any
+	if err := json.Unmarshal(body, &rows); err != nil {
+		t.Fatalf("how %s signs in is not a list: %v: %s", userID, err, body)
+	}
+	byWay := make(map[string]map[string]any, len(rows))
+	for _, row := range rows {
+		way, _ := row["way"].(string)
+		byWay[way] = row
+	}
+
+	return byWay
 }
 
 // tenantRows reads one of the tenant's lists as the browser b, on the site the browser
