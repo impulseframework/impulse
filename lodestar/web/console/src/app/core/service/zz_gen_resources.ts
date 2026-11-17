@@ -741,14 +741,24 @@ export interface CrewSectorRoles {
   description?: string;
 }
 
-export interface CrewSignInMethods {
-  name: string;
-  label?: string;
-  admits?: string;
-  openSignUp?: boolean;
-  defaultRole?: string;
-  directoryGivesRoles?: boolean;
-  says?: string;
+export interface CrewSectorSignInWays {
+  userId: string;
+  way: string;
+  password?: boolean;
+  method?: string;
+  connection?: string;
+  through?: string;
+  heldElsewhere?: boolean;
+  heldGlobally?: boolean;
+}
+
+export interface CrewSignInWays {
+  userId: string;
+  way: string;
+  password?: boolean;
+  method?: string;
+  connection?: string;
+  through?: string;
 }
 
 export interface ExpenseManifests {
@@ -1891,21 +1901,38 @@ const resourceMap = defineResourceMap({
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
     ],
   },
-  [Resources.CrewSignInMethods]: {
-    route: 'crew-sign-in-methods',
+  [Resources.CrewSectorSignInWays]: {
+    route: 'sectors/{sectorID}/crew-sector-sign-in-ways',
     readDisabled: true,
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
     live: false,
     fields: [
-      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'label', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'admits', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'openSignUp', displayType: 'boolean', required: false, isIndex: false },
-      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'directoryGivesRoles', displayType: 'boolean', required: false, isIndex: false },
-      { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false, filterable: 'always' },
+      { fieldName: 'way', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'password', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'connection', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'through', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'heldElsewhere', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'heldGlobally', displayType: 'boolean', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewSignInWays]: {
+    route: 'crew-sign-in-ways',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false, filterable: 'always' },
+      { fieldName: 'way', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'password', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'connection', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'through', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.ExpenseManifests]: {
@@ -2091,7 +2118,8 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.Wings]: PermissionScopes.domain,
   [Resources.BriefingTemplates]: PermissionScopes.global,
   [Resources.CrewSectorRoles]: PermissionScopes.domain,
-  [Resources.CrewSignInMethods]: PermissionScopes.global,
+  [Resources.CrewSectorSignInWays]: PermissionScopes.domain,
+  [Resources.CrewSignInWays]: PermissionScopes.global,
   [Resources.ExpenseManifests]: PermissionScopes.domain,
   [Resources.PilotCards]: PermissionScopes.global,
   [Resources.SectorHazardBoards]: PermissionScopes.domain,

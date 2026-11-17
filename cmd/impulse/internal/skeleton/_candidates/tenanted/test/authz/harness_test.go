@@ -127,7 +127,8 @@ func (c *testConfigurer) Staff() *staff.Auth { return nil }
 func (c *testConfigurer) TenantDeclarations() resource.TenantDeclarations { return nil }
 
 // noSessionAPI stands where the matrix serves no session manager: a denied case is
-// answered before any method runs, so nothing here is ever hashed or mailed.
+// answered before any method runs, so nothing here is ever hashed or mailed, and the
+// one list it is asked through (how a person signs in) is asked about nobody.
 type noSessionAPI struct{}
 
 func (noSessionAPI) HashPassword(string) (string, error) {
@@ -140,6 +141,10 @@ func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationReques
 
 // SignInMethods names no method: the matrix registers none, and a denied case reads none.
 func (noSessionAPI) SignInMethods() []session.RegisteredMethod {
+	return nil
+}
+
+func (noSessionAPI) SignsInThrough(sessioninfo.AuthMethod, string) []string {
 	return nil
 }
 

@@ -47,9 +47,10 @@ type MethodList struct {
 	ChangeName string
 	// SignInMeans is the path of the Auth's SignInMeans handler, where a signed-in
 	// person's account page reads what they sign in with (whether they hold a password,
-	// and the directory sign-ins linked to them), or none. Without it the page offers
-	// the change and the removal of a password to everyone the password method serves,
-	// and the server's refusals say the rest.
+	// and the directory sign-ins that can sign them in), or none. The read answers in
+	// this list's labels. Without it the page offers the change of a password to
+	// everyone the password method serves and the removal to nobody, since it cannot
+	// say what a removal would leave the person.
 	SignInMeans string
 	// ChangeLook is the path of the Auth's ChangeLook handler, where a signed-in
 	// person's pages keep the look the person chose, or none.
@@ -315,7 +316,9 @@ func (m *methodsAnswer) withStanding(standing *standingInvitationAnswer) *method
 // advertise builds the methods answer from list, checking each entry against the
 // registry under the methods lock without closing registration: the first request
 // closes it, as for every handler. The names listed are remembered as the methods the
-// login page offers (signInMethods.listed).
+// login page offers (signInMethods.listed), and the list itself with its labels and
+// its sign-in means route (signInMethods.lists), so a read served beside it answers in
+// its words.
 func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	if list == nil || len(list.Methods) == 0 {
 		panic("session: Methods is given no sign-in method: list every method the login page offers, each with its label and the path its Login handler is mounted at")
@@ -348,6 +351,7 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 		}
 		answer.Methods = append(answer.Methods, ad)
 	}
+	listing := methodsListing{labels: make(map[string]string, len(list.Methods)), signInMeans: list.SignInMeans}
 	for _, m := range list.Methods {
 		if !slices.Contains(a.methods.listed, m.Name) {
 			a.methods.listed = append(a.methods.listed, m.Name)
@@ -355,8 +359,12 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 		if a.methods.labels == nil {
 			a.methods.labels = make(map[string]string, len(list.Methods))
 		}
-		a.methods.labels[m.Name] = m.Label
+		if _, labeled := a.methods.labels[m.Name]; !labeled {
+			a.methods.labels[m.Name] = m.Label
+		}
+		listing.labels[m.Name] = m.Label
 	}
+	a.methods.lists = append(a.methods.lists, listing)
 	passwordListed := seen[string(sessioninfo.MethodPassword)]
 	answer.Pending = pendingAnswerOf(&list.Pending)
 	answer.ChangePassword = changePasswordPathOf(list, passwordListed)

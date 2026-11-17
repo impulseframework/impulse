@@ -469,7 +469,6 @@ export const apiDescriptor = defineApiDescriptor({
       auth: 'Members',
       label: 'Members',
       tenant: 'Tenant',
-      signIns: [{ method: 'azure', label: 'Microsoft' }],
       sides: [
         {
           scope: 'global',

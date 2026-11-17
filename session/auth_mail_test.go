@@ -19,6 +19,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/azure"
 	"github.com/impulseframework/impulse/session/google"
 	internalcookie "github.com/impulseframework/impulse/session/internal/cookie"
@@ -1151,11 +1152,13 @@ func authSignUpCase1(t *testing.T) {
 	// The account is made by the store's sign-up, one transaction that reads the
 	// method's row, spends the link, writes the user and gives the default role: the
 	// handler creates no user and consumes no link of its own.
+	var created *securehash.Hash
 	f.store.EXPECT().SignUp(gomock.Any(), "password", gomock.Any(), link.ID, gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ string, u *sessionstorage.InsertSessionUser, _ impulse.UUID, _ signinflow.SignUpSeater[mockTx]) (impulse.UUID, error) {
 			if u.Username != "newbie" || u.PasswordHash == nil || u.Email == nil || *u.Email != "new@lakeside.edu" || !u.EmailVerified {
 				t.Errorf("SignUp() given %+v, want the chosen username, a hash and the address verified", u)
 			}
+			created = u.PasswordHash
 			// A role is held by an account's id, and a seed writes roles under an id it
 			// derives before the user exists (SeedUserID). A sign-up that chose the id it
 			// is created under, from the name or otherwise, could take roles written
@@ -1179,6 +1182,13 @@ func authSignUpCase1(t *testing.T) {
 	rr = f.serve(f.auth.SignUp().Complete(), http.MethodPost, "/sign-up/complete", map[string]string{"token": token, "password": "correct horse", "username": "newbie"}, nil)
 	if rr.Code != http.StatusOK || cookieNamed(rr, internalcookie.AuthCookieName) == nil {
 		t.Errorf("Complete() = %d %s, want a session", rr.Code, rr.Body.String())
+	}
+	// The sign-in rests on the password the account was created with, as a login rests
+	// on the one it checked: the session is inserted only while the account still holds
+	// it, so a password changed between the account and its session ends the sign-up's
+	// sign-in as it ends any other.
+	if want := proofOf(t, created); f.signedIn == nil || !bytes.Equal(f.signedIn.proven, want) {
+		t.Errorf("SignIn() after a sign-up given the proof %x, want %x: the proof of the password the account was created with", f.signedIn.proven, want)
 	}
 	if record := f.attemptsRecord("mail:new@lakeside.edu"); record != nil {
 		t.Errorf("the address's mail count after the sign-up was completed = %+v, want none", record)

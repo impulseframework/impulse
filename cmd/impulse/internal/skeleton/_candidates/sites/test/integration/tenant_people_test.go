@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"cloud.google.com/go/spanner"
@@ -175,10 +176,11 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 		{"rename-staff-tenant-user", func(name string) map[string]any {
 			return map[string]any{"userId": ids[name], "username": name + "-renamed"}
 		}},
-		// A person keeps one way in: a password is removed while an identity is linked, and
-		// an identity unlinked while a password is held. So the password the person was
-		// created with goes first, while the link stands, and the temporary one set next is
-		// what lets the link go further down.
+		// A person keeps one way in: a password is removed while an identity that can sign
+		// them in is linked, and an identity unlinked while a password is held. The staff
+		// here sign in with a password alone, so the link written above is of a sign-in the
+		// login page does not offer and signs nobody in: the removal is refused, the
+		// password stays, and the temporary one set next replaces it.
 		{"remove-staff-tenant-password", user},
 		{"set-staff-tenant-temporary-password", func(name string) map[string]any {
 			return map[string]any{"userId": ids[name], "password": "second-day-pass"}
@@ -217,10 +219,18 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	}
 
 	// An account north holds alone is north's to change: every method goes through for
-	// nora, in the order above.
+	// nora, in the order above, but the removal of her password, which is her one way in.
 	for _, m := range accountMethods {
-		if status, body := tenantPost(ctx, member, north, m.method, m.body("nora")); status != http.StatusNoContent {
-			t.Fatalf("%s on nora: status %d, want 204: %s", m.method, status, body)
+		want := http.StatusNoContent
+		if m.method == "remove-staff-tenant-password" {
+			want = http.StatusConflict
+		}
+		status, body := tenantPost(ctx, member, north, m.method, m.body("nora"))
+		if status != want {
+			t.Fatalf("%s on nora: status %d, want %d: %s", m.method, status, want, body)
+		}
+		if want == http.StatusConflict && !strings.Contains(string(body), "none of the identities linked to the user can sign them in any more") {
+			t.Errorf("%s on nora = %s, want it to say her identity signs nobody in", m.method, body)
 		}
 	}
 	// The last of the methods deleted the account.

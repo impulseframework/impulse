@@ -1,10 +1,14 @@
 package dbtype
 
 import (
+	"crypto/sha256"
+	"crypto/subtle"
 	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -40,12 +44,63 @@ var ErrLastSignInMethod = errors.New("sessionstorage: the identity is the user's
 // sessionstorage for its documentation.
 var ErrPasswordChanged = errors.New("sessionstorage: the user's password has changed since it was proved")
 
+// PasswordProof names the password a sign-in proved, without holding it: the SHA-256
+// of the password hash the password was compared against, in the text the users table
+// stores. Whatever is inserted on the strength of a password just entered (a session, a
+// pending sign-in, a confirmed link) carries it, and is inserted only while the user's
+// row still answers to it, compared in the inserting transaction (Check): a password
+// changed, reset or removed since it was proved gets nothing. A pending sign-in keeps it
+// in its row, for its completion to be held the same way; the hash itself is kept
+// nowhere but the users table, and its digest says nothing a guess could be tried
+// against, since the salt is part of what was digested. The nil proof is the sign-in no
+// password proved, which is held to nothing.
+type PasswordProof []byte
+
+// ProofOf is the proof of a password that was compared against hash: nil for no hash.
+func ProofOf(hash *securehash.Hash) (PasswordProof, error) {
+	if hash == nil {
+		return nil, nil
+	}
+	text, err := hash.MarshalText()
+	if err != nil {
+		return nil, errors.Wrap(err, "securehash.Hash.MarshalText()")
+	}
+
+	return ProofOfStored(string(text)), nil
+}
+
+// ProofOfStored is the proof a user row answers to whose password hash column holds
+// text.
+func ProofOfStored(text string) PasswordProof {
+	sum := sha256.Sum256([]byte(text))
+
+	return sum[:]
+}
+
+// Check answers nil while a user whose row answers to held (User.PasswordProof) still
+// holds the password p proved, and ErrPasswordChanged (a Conflict) once the row holds
+// another hash, or none. The nil proof proved nothing and is held to nothing.
+func (p PasswordProof) Check(held PasswordProof) error {
+	if p == nil {
+		return nil
+	}
+	if len(held) == 0 || subtle.ConstantTimeCompare(p, held) != 1 {
+		return httpio.NewConflictMessageWithError(ErrPasswordChanged, "the password has changed since it was checked: check it again and retry")
+	}
+
+	return nil
+}
+
 // User is the part of a user row the sign-in flow decides on.
 type User struct {
 	ID          impulse.UUID
 	Username    string
 	HasPassword bool
 	Disabled    bool
+	// PasswordProof is the proof the row's password hash answers to (ProofOfStored), nil
+	// for a user with no password, as UserIn and LockUserIn read it: what a sign-in's
+	// own proof is checked against in the transaction that inserts on its strength.
+	PasswordProof PasswordProof
 }
 
 // SignInConflict is a driver's classification of the error a sign-in's transaction

@@ -176,19 +176,13 @@ export interface StaffUserRoles {
   endsAt?: Date;
 }
 
-export interface StaffSignInMethods {
-  name: string;
-  label?: string;
-  admits?: string;
-  openSignUp?: boolean;
-  defaultRole?: string;
-  directoryGivesRoles?: boolean;
-  says?: string;
-}
-
-export interface StaffSignUpRoles {
-  name: string;
-  description?: string;
+export interface StaffSignInWays {
+  userId: string;
+  way: string;
+  password?: boolean;
+  method?: string;
+  connection?: string;
+  through?: string;
 }
 
 /** A feature flag: one declared flag's row, as the feature flags dialog lists it. */
@@ -484,33 +478,20 @@ const resourceMap = defineResourceMap({
       { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
-  [Resources.StaffSignInMethods]: {
-    route: 'staff-sign-in-methods',
+  [Resources.StaffSignInWays]: {
+    route: 'staff-sign-in-ways',
     readDisabled: true,
     createDisabled: true,
     updateDisabled: true,
     deleteDisabled: true,
     live: false,
     fields: [
-      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'label', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'admits', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'openSignUp', displayType: 'boolean', required: false, isIndex: false },
-      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false },
-      { fieldName: 'directoryGivesRoles', displayType: 'boolean', required: false, isIndex: false },
-      { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
-    ],
-  },
-  [Resources.StaffSignUpRoles]: {
-    route: 'staff-sign-up-roles',
-    readDisabled: true,
-    createDisabled: true,
-    updateDisabled: true,
-    deleteDisabled: true,
-    live: false,
-    fields: [
-      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
-      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false, filterable: 'always' },
+      { fieldName: 'way', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'password', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'connection', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'through', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.FeatureFlags]: {
@@ -556,7 +537,6 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffSessionUsers]: PermissionScopes.global,
   [Resources.StaffUserGroupRoles]: PermissionScopes.global,
   [Resources.StaffUserRoles]: PermissionScopes.global,
-  [Resources.StaffSignInMethods]: PermissionScopes.global,
-  [Resources.StaffSignUpRoles]: PermissionScopes.global,
+  [Resources.StaffSignInWays]: PermissionScopes.global,
   [Resources.FeatureFlags]: PermissionScopes.global,
 };

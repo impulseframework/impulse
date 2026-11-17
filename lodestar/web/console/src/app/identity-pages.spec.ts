@@ -102,16 +102,10 @@ describe("the library's pages over an auth's generated management", () => {
     );
   });
 
-  it("offer Remove password on a crew member's page above the identities they sign in with, where Unlink is offered, and none on a member's, who holds no password", () => {
-    const identitiesOf = (auth: string, scope: 'global' | 'domain'): ListViewConfig => {
+  it("offer Remove password on a crew member's page above the ways they sign in, only where the server lists a password and an identity that counts, and none on a member's, who holds no password", () => {
+    const childOf = (auth: string, scope: 'global' | 'domain', title: string): ListViewConfig | undefined => {
       const people = identityPages(apiDescriptor, resourceMeta, { auth, scope })[0];
-      const found = (people?.relatedConfigs as ListViewConfig[] | undefined)?.find(
-        (child) => child.title === 'Sign-in identities',
-      );
-      if (!found) {
-        throw new Error(`the ${auth} people page has no list of sign-in identities`);
-      }
-      return found;
+      return (people?.relatedConfigs as ListViewConfig[] | undefined)?.find((child) => child.title === title);
     };
     const offered = (presentations: false | MethodPresentation[] | undefined): [Method, string | undefined][] =>
       (presentations || []).map((presentation) => [presentation.method, presentation.label]);
@@ -119,39 +113,59 @@ describe("the library's pages over an auth's generated management", () => {
     for (const tt of [
       {
         scope: 'global' as const,
+        ways: Resources.CrewSignInWays,
         remove: Methods.RemoveCrewPassword,
         unlink: Methods.UnlinkCrewSessionIdentity,
         people: Resources.CrewSessionUsers,
       },
       {
         scope: 'domain' as const,
+        ways: Resources.CrewSectorSignInWays,
         remove: Methods.RemoveCrewSectorPassword,
         unlink: Methods.UnlinkCrewSectorSessionIdentity,
         people: Resources.CrewSectorUsers,
       },
     ]) {
-      const identities = identitiesOf('Crew', tt.scope);
-      expect(offered(identities.rowMethods)).toEqual([[tt.unlink, 'Unlink']]);
-      expect(offered(identities.listMethods)).toEqual([[tt.remove, 'Remove password']]);
+      // The list the removal is offered from is the generated one: how one person signs
+      // in, which the server filters by the person and judges itself.
+      const ways = childOf('Crew', tt.scope, 'Ways to sign in');
+      expect(ways?.primaryResource).toBe(tt.ways);
+      expect(offered(ways?.listMethods)).toEqual([[tt.remove, 'Remove password']]);
+      const filterable = resourceMeta(tt.ways as Resource).fields.find((field) => field.fieldName === 'userId');
+      expect(filterable?.filterable).toBe('always');
+      // The identities keep the unlink and carry no removal of their own.
+      const identities = childOf('Crew', tt.scope, 'Sign-in identities');
+      expect(offered(identities?.rowMethods)).toEqual([[tt.unlink, 'Unlink']]);
+      expect(identities?.listMethods ?? []).toEqual([]);
       // The method runs against the person the list sits under, named by the key of the
       // person's row, and takes nothing else: the page asks its question and no more.
       const meta = methodMeta(tt.remove as Method);
       expect(meta.target).toEqual({ resource: tt.people, key: { userId: 'id' } });
       expect(meta.fields.map((field) => field.fieldName)).toEqual(['userId']);
-      // The question names what is left by the words of the sign-in buttons: the crew's
-      // login page offers two Google registrations, and a Google identity names its
-      // method and not its registration, so both are named. The button is drawn only
-      // while an identity is linked, since the server refuses the removal otherwise.
-      const remove = identities.listMethods?.[0];
+      // The question names what is left by the words of the rows the server listed: the
+      // crew's login page offers two Google registrations, and the server names the one
+      // the person's identity comes through. The button is drawn only for a password
+      // and an identity that counts, since the server refuses the removal otherwise,
+      // and goes once the password's row does.
+      const remove = ways?.listMethods?.[0];
       const cadet = { id: 'u-1', username: 'cadet' };
+      const password = { userId: 'u-1', way: 'password', through: 'Password' };
+      const google = { userId: 'u-1', way: 'i-1', through: 'Lodestar' };
       const question = remove?.confirm as (person: RecordData, listed?: readonly RecordData[]) => string;
-      expect(question(cadet, [{ method: 'google' }])).toBe(
-        'Remove the password of cadet? They will sign in through Lodestar or Google only.',
+      expect(question(cadet, [password, google])).toBe(
+        'Remove the password of cadet? They will sign in through Lodestar only.',
       );
-      expect([remove?.when?.(cadet, [{ method: 'google' }]), remove?.when?.(cadet, [])]).toEqual([true, false]);
+      expect([
+        remove?.when?.(cadet, [password, google]),
+        remove?.when?.(cadet, [password]),
+        remove?.when?.(cadet, [google]),
+        remove?.when?.(cadet, []),
+      ]).toEqual([true, false, false, false]);
     }
-    // The members sign in through their directory alone: the generator describes no such method for them.
-    expect(identitiesOf('Members', 'global').listMethods).toEqual([]);
+    // The members sign in through their directory alone: the generator describes no such
+    // method and no such list for them.
+    expect(childOf('Members', 'global', 'Ways to sign in')).toBeUndefined();
+    expect(childOf('Members', 'global', 'Sign-in identities')?.listMethods ?? []).toEqual([]);
   });
 
   for (const side of sides) {

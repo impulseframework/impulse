@@ -148,10 +148,6 @@ type GeneratedHandlers interface {
 
 	InviteStaffUser() http.HandlerFunc
 
-	MakeStaffInviteOnly() http.HandlerFunc
-
-	OpenStaffSignUp() http.HandlerFunc
-
 	RemoveStaffGroupMember() http.HandlerFunc
 
 	RemoveStaffPassword() http.HandlerFunc
@@ -228,7 +224,7 @@ type GeneratedHandlers interface {
 	StaffSessionUsers() http.HandlerFunc
 	StaffSessionUser() http.HandlerFunc
 
-	StaffSignInMethods() http.HandlerFunc
+	StaffSignInWays() http.HandlerFunc
 
 	StaffTenantGroups() http.HandlerFunc
 	StaffTenantGroup() http.HandlerFunc
@@ -246,6 +242,8 @@ type GeneratedHandlers interface {
 	StaffTenantInvitation() http.HandlerFunc
 
 	StaffTenantRoles() http.HandlerFunc
+
+	StaffTenantSignInWays() http.HandlerFunc
 
 	StaffTenantUsers() http.HandlerFunc
 	StaffTenantUser() http.HandlerFunc
@@ -373,10 +371,6 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	r.Post("/api/tenants/{tenantID}/invite-staff-tenant-user", domainGuard(h.InviteStaffTenantUser()))
 
 	r.Post("/api/invite-staff-user", h.InviteStaffUser())
-
-	r.Post("/api/make-staff-invite-only", h.MakeStaffInviteOnly())
-
-	r.Post("/api/open-staff-sign-up", h.OpenStaffSignUp())
 
 	r.Post("/api/remove-staff-group-member", h.RemoveStaffGroupMember())
 
@@ -506,9 +500,9 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
 	bounded.Post("/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
 
-	staffSignInMethodsHandler := h.StaffSignInMethods()
-	bounded.Get("/api/staff-sign-in-methods", staffSignInMethodsHandler)
-	bounded.Post("/api/staff-sign-in-methods", staffSignInMethodsHandler)
+	staffSignInWaysHandler := h.StaffSignInWays()
+	bounded.Get("/api/staff-sign-in-ways", staffSignInWaysHandler)
+	bounded.Post("/api/staff-sign-in-ways", staffSignInWaysHandler)
 
 	staffTenantGroupsHandler := domainGuard(h.StaffTenantGroups())
 	bounded.Get("/api/tenants/{tenantID}/staff-tenant-groups", staffTenantGroupsHandler)
@@ -553,6 +547,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffTenantRolesHandler := domainGuard(h.StaffTenantRoles())
 	bounded.Get("/api/tenants/{tenantID}/staff-tenant-roles", staffTenantRolesHandler)
 	bounded.Post("/api/tenants/{tenantID}/staff-tenant-roles", staffTenantRolesHandler)
+
+	staffTenantSignInWaysHandler := domainGuard(h.StaffTenantSignInWays())
+	bounded.Get("/api/tenants/{tenantID}/staff-tenant-sign-in-ways", staffTenantSignInWaysHandler)
+	bounded.Post("/api/tenants/{tenantID}/staff-tenant-sign-in-ways", staffTenantSignInWaysHandler)
 
 	staffTenantUsersHandler := domainGuard(h.StaffTenantUsers())
 	bounded.Get("/api/tenants/{tenantID}/staff-tenant-users", staffTenantUsersHandler)

@@ -313,7 +313,8 @@ type db interface {
 	UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
 	// SetUserPassword updates the user password hash and the password change mark in one write, whatever the row holds.
 	SetUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
-	// ChangeUserPassword replaces the proven password hash with hash and clears the password change mark while the row still holds it.
+	// ChangeUserPassword replaces the proven password hash with hash, clears the password change mark and expires the user's
+	// sessions, in one transaction, while the row still holds the proven hash.
 	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
 	// ActivateUser activates a user
 	ActivateUser(ctx context.Context, id impulse.UUID) error
@@ -340,12 +341,13 @@ type db interface {
 	LinkIdentity(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
 	// UnlinkIdentity removes a link, refusing to remove a user's last means of sign-in.
 	UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error
-	// RemoveUserPassword removes a user's password and its change mark, refusing to
-	// remove a user's last means of sign-in.
-	RemoveUserPassword(ctx context.Context, userID impulse.UUID) error
+	// RemoveUserPassword removes a user's password and its change mark while one of the
+	// identities standing names is still linked to the user, refusing to remove a
+	// user's last means of sign-in otherwise.
+	RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error
 	// RemoveProvenUserPassword removes a user's password and its change mark as
 	// RemoveUserPassword does, while the row still holds the proven hash.
-	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash) error
+	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error
 	// DestroyUserSessions expires every session of a user, by UserId.
 	DestroyUserSessions(ctx context.Context, userID impulse.UUID) error
 	// TouchUserSignIn moves a user's LastSignInAt to the database's time, as its own write.

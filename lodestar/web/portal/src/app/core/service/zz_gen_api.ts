@@ -439,7 +439,6 @@ export const apiDescriptor = defineApiDescriptor({
       auth: 'Members',
       label: 'Members',
       tenant: 'Sector',
-      signIns: [{ method: 'google', label: 'Company directory' }],
       sides: [
         {
           scope: 'global',

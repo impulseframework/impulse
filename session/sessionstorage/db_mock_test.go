@@ -892,31 +892,31 @@ func (mr *MockdbMockRecorder) RedeemDeviceCode(ctx, deviceCodeHash, now, interva
 }
 
 // RemoveProvenUserPassword mocks base method.
-func (m *Mockdb) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash) error {
+func (m *Mockdb) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RemoveProvenUserPassword", ctx, userID, proven)
+	ret := m.ctrl.Call(m, "RemoveProvenUserPassword", ctx, userID, proven, standing)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // RemoveProvenUserPassword indicates an expected call of RemoveProvenUserPassword.
-func (mr *MockdbMockRecorder) RemoveProvenUserPassword(ctx, userID, proven any) *gomock.Call {
+func (mr *MockdbMockRecorder) RemoveProvenUserPassword(ctx, userID, proven, standing any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveProvenUserPassword", reflect.TypeOf((*Mockdb)(nil).RemoveProvenUserPassword), ctx, userID, proven)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveProvenUserPassword", reflect.TypeOf((*Mockdb)(nil).RemoveProvenUserPassword), ctx, userID, proven, standing)
 }
 
 // RemoveUserPassword mocks base method.
-func (m *Mockdb) RemoveUserPassword(ctx context.Context, userID impulse.UUID) error {
+func (m *Mockdb) RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "RemoveUserPassword", ctx, userID)
+	ret := m.ctrl.Call(m, "RemoveUserPassword", ctx, userID, standing)
 	ret0, _ := ret[0].(error)
 	return ret0
 }
 
 // RemoveUserPassword indicates an expected call of RemoveUserPassword.
-func (mr *MockdbMockRecorder) RemoveUserPassword(ctx, userID any) *gomock.Call {
+func (mr *MockdbMockRecorder) RemoveUserPassword(ctx, userID, standing any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveUserPassword", reflect.TypeOf((*Mockdb)(nil).RemoveUserPassword), ctx, userID)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveUserPassword", reflect.TypeOf((*Mockdb)(nil).RemoveUserPassword), ctx, userID, standing)
 }
 
 // RevokeMailLink mocks base method.

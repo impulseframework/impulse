@@ -225,7 +225,10 @@ func (a *Auth[S, U, Tx]) signUpComplete() http.HandlerFunc {
 		// carries the account's own: an invitation the browser also carries is accepted
 		// only where it was mailed to that address, and one mailed to another is refused
 		// (invitation_address) and left standing for the person it invites.
-		attempt := a.passwordAttempt(user)
+		attempt, err := a.passwordAttempt(user)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		attempt.identity.Email, attempt.identity.EmailVerified = addressOf(user.Email), true
 		outcome, err := a.signIn(ctx, w, attempt)
 		if err != nil {
@@ -257,5 +260,7 @@ func (a *Auth[S, U, Tx]) completeSignUp(ctx context.Context, token, username, pa
 	// The link reached the person: the address's mail count is reset.
 	a.clearMailLimit(ctx, link.Email)
 
-	return &sessionstorage.SessionUser{ID: id, Username: insert.Username, Email: insert.Email}, nil
+	// The hash goes with the user, so the sign-in that follows rests on the password the
+	// account was just created with (passwordAttempt).
+	return &sessionstorage.SessionUser{ID: id, Username: insert.Username, PasswordHash: insert.PasswordHash, Email: insert.Email}, nil
 }

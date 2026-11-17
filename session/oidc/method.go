@@ -285,12 +285,17 @@ func accountRule[Tx any](rule AccountRule[Tx]) signin.AccountRule[Tx] {
 // token against the provider's discovered configuration; the issuer is checked here
 // again, so an authenticator that did not cannot admit another provider's token. When
 // roles is set, the token's roles claim is reconciled. The method cannot tell which
-// addresses the provider admits, so it admits every one for an invitation.
+// addresses the provider admits, so it admits every one for an invitation; a link is
+// one of its own when it carries the registration's connection.
 func method(authn Authenticator, roles *signin.RoleReconciler, issuer, connection string, audience signin.Audience, attesting bool) *signin.Method {
 	m := &signin.Method{
 		Name:     sessioninfo.MethodOIDC,
 		LoginURL: authn.LoginURL,
 		Audience: audience,
+		// Every link the registration makes carries its one connection.
+		AdmitsConnection: func(linked string) bool {
+			return linked == connection
+		},
 		Begin: func(ctx context.Context, w http.ResponseWriter, r *http.Request, returnURL string) (string, error) {
 			hint, err := signin.LoginHint(r)
 			if err != nil {

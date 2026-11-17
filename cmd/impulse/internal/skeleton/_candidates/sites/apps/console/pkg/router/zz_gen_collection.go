@@ -291,6 +291,26 @@ func Collection() *resource.GeneratedCollection {
 				},
 			},
 			{
+				Name:        "StaffTenantSignInWays",
+				Scope:       accesstypes.DomainPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "connection", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "heldElsewhere", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "heldGlobally", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "method", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "password", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "through", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "userId"},
+					{Name: "way"},
+				},
+				Attributes: []resource.AttributeData{
+					{Name: "heldElsewhere", Column: "HeldElsewhere", Type: "bool"},
+					{Name: "heldGlobally", Column: "HeldGlobally", Type: "bool"},
+				},
+			},
+			{
 				Name:        "StaffTenantUserGroupRoles",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read},
@@ -494,16 +514,6 @@ func Collection() *resource.GeneratedCollection {
 				Attributes: []resource.AttributeData{
 					{Name: "role", Column: "Roles", Type: "string", List: true},
 				},
-			},
-			{
-				Name:        "MakeStaffInviteOnly",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-			},
-			{
-				Name:        "OpenStaffSignUp",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
 				Name:        "RemoveStaffGroupMember",
@@ -813,18 +823,17 @@ func Collection() *resource.GeneratedCollection {
 				QueryKeys: []accesstypes.Tag{"userId", "expired"},
 			},
 			{
-				Name:        "StaffSignInMethods",
+				Name:        "StaffSignInWays",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Computed:    true,
 				Permissions: []accesstypes.Permission{accesstypes.List},
 				Tags: []resource.TagData{
-					{Name: "admits", Permissions: []accesstypes.Permission{accesstypes.List}},
-					{Name: "defaultRole", Permissions: []accesstypes.Permission{accesstypes.List}},
-					{Name: "directoryGivesRoles", Permissions: []accesstypes.Permission{accesstypes.List}},
-					{Name: "label", Permissions: []accesstypes.Permission{accesstypes.List}},
-					{Name: "name"},
-					{Name: "openSignUp", Permissions: []accesstypes.Permission{accesstypes.List}},
-					{Name: "says", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "connection", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "method", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "password", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "through", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "userId"},
+					{Name: "way"},
 				},
 			},
 			{

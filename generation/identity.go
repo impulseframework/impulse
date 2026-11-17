@@ -67,9 +67,10 @@ type identityInstance struct {
 	// password marks an auth that declares the password method: the one kind of auth
 	// whose people may hold a password, and so be required to change it.
 	password bool
-	// signIns are the auth's directory sign-ins as its login page offers them, in
-	// declaration order: the method an identity linked through each carries, and the
-	// words its button carries. A page names a person's linked directories by them.
+	// signIns are the auth's sign-in registrations as its login page offers them, the
+	// password method among them, in declaration order: the name each is registered
+	// under and the words its button carries. The list of how a person signs in names
+	// each way by them (identity_signinways.go).
 	signIns []identitySignIn
 	// rolesSynced marks an auth whose roles a directory writes at every sign-in
 	// (SyncsRoles): the directory is the authority for every membership the auth holds,
@@ -307,9 +308,7 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 			inst.password = true
 			inst.usernameIsEmail = m.usernameIsEmail
 		}
-		if method := m.kind.identityMethod(); method != "" {
-			inst.signIns = append(inst.signIns, identitySignIn{Method: method, Label: m.label})
-		}
+		inst.signIns = append(inst.signIns, identitySignIn{Name: m.name, Label: m.label})
 		if m.syncsRoles {
 			inst.rolesSynced = true
 		}
@@ -733,6 +732,9 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// application has a tenant record.
 	files = append(files, inst.tenantMethodSources()...)
 	files = append(files, r.tenantComputedSources(inst)...)
+	// How a person signs in, the read the removal of a password is offered from, for
+	// the whole application and for a tenant.
+	files = append(files, r.signInWaySources(inst)...)
 	// The methods that manage the groups of people, the whole application's and one
 	// tenant's.
 	files = append(files, inst.groupMethodSources()...)

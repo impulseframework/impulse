@@ -2997,6 +2997,7 @@ the schema holds its table, so an Auth that issues no tokens has no tokens list:
 GET  <prefix>/crew-session-users, …/{id}                   List, Read on CrewSessionUsers (sort=username)
 GET  <prefix>/crew-sessions, …/{id}                        List, Read on CrewSessions (newest first)
 GET  <prefix>/crew-session-identities, …/{id}              List, Read on CrewSessionIdentities
+GET  <prefix>/crew-sign-in-ways?filter=userId:eq:{id}      List on CrewSignInWays (how one person signs in: the password, then the identities that count)
 GET  <prefix>/crew-session-tokens, …/{id}                  List, Read on CrewSessionTokens
 GET  <prefix>/crew-session-mail-links, …/{id}              List, Read on CrewSessionMailLinks
 GET  <prefix>/crew-session-impersonations, …/{sessionId}   List, Read on CrewSessionImpersonations
@@ -3016,6 +3017,7 @@ GET  <prefix>/sectors/{sectorID}/crew-sector-users, …/{id}         List, Read 
 GET  <prefix>/sectors/{sectorID}/crew-sector-user-roles, …/{id}    List, Read on CrewSectorUserRoles (sort=username,role)
 GET  <prefix>/sectors/{sectorID}/crew-sector-invitations, …/{id}   List, Read on CrewSectorInvitations (newest first)
 GET  <prefix>/sectors/{sectorID}/crew-sector-identities, …/{id}    List, Read on CrewSectorIdentities (newest first)
+GET  <prefix>/sectors/{sectorID}/crew-sector-sign-in-ways?filter=userId:eq:{id}   List on CrewSectorSignInWays (how one of the sector's people signs in)
 GET  <prefix>/sectors/{sectorID}/crew-sector-groups, …/{id}             List, Read on CrewSectorGroups (the sector's own groups)
 GET  <prefix>/sectors/{sectorID}/crew-sector-group-users, …/{id}        List, Read on CrewSectorGroupUsers
 GET  <prefix>/sectors/{sectorID}/crew-sector-group-roles, …/{id}        List, Read on CrewSectorGroupRoles
@@ -3080,9 +3082,10 @@ decides which methods exist: the two role methods, the two invitation methods, t
 create, and the list and the two methods of the sign-in methods ("Who may sign up",
 below) are left out for an Auth whose roles a directory writes (`SyncsRoles`), where the
 directory admits its own members and the first sign-in creates the row, the two password
-methods (and the create's `password`) for an Auth with no password method, as is the
-method that removes a person's password, which is also written only where the schema
-holds the identities table (the rule it keeps reads a person's identity links), the rename and
+methods (and the create's `password`) for an Auth with no password method, as are the
+method that removes a person's password and the list of how a person signs in, which are
+also written only where the schema holds the identities table (the rule they keep reads a
+person's identity links), the rename and
 the address set by hand for an Auth whose usernames are the addresses (`UsernameIsEmail`:
 the name is the address, and it changes when the person verifies a new one), and the
 token, impersonation, remembered-browser and unlock methods where the schema holds no
@@ -3476,6 +3479,26 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   asked of the database, never read into a row.
 - An identity link is removed unless it is the last way in of a user with no password
   (409).
+- A password is removed only from a user an identity that can sign them in is linked to
+  (409 otherwise, 400 for a user with no password). An identity counts when the session
+  library says a sign-in through it is possible (`AuthAPI.SignsInThrough`): its method
+  is a sign-in the Auth's login page offers, and a registration of that method takes the
+  connection it came through. One left from a sign-in the Auth no longer has does not
+  count, so the password stays the person's way in. The last super administrator is
+  held to the same rule.
+- How a person signs in is read by the same judgment (`CrewSignInWays`, and a tenant's
+  `CrewSectorSignInWays`): a row for the password where the person holds one (`way` is
+  `password`), and a row for each identity that counts, with the method and the
+  connection the identities list shows and the words the login page's button carries
+  for the sign-in it comes through (`through`: "Lodestar"; where two registrations of
+  one method both take the identity and nothing of it tells them apart, both, joined by
+  "or"). Never a hash, a subject or an address.
+  It is a computed list, asked for one person at a time (`filter=userId:eq:<id>`): a
+  request that names nobody lists nobody's, and one that names people any other way is
+  refused (400). A tenant's answers for a person of the tenant's own list of people,
+  nothing for anyone else, and carries the two facts of the person's row
+  (`heldElsewhere`, `heldGlobally`) for a grant's condition. A role file grants it to
+  whoever reads the identities.
 - A token is revoked with the rest of its device authorization; a token that is expired
   or already revoked is not found (404).
 - A role is assigned in the global scope, in one domain, or in every domain, and must
@@ -3783,12 +3806,9 @@ and in Lodestar.
 **The pages.** No application writes a page for an Auth's management. The generated API
 description (`zz_gen_api.ts`) carries an `identity` block beside its resources and
 methods: for each Auth whose management the outlet serves, the Auth's name and label,
-the tenant record's name where the application has one, the Auth's directory sign-ins
-(`signIns`: the method the identities linked through each carry and the words its
-button on the login page carries, so a page that removes a person's password says what
-is left to sign in through), and a side for each scope
+the tenant record's name where the application has one, and a side for each scope
 (`global`, the whole application's; `domain`, a tenant's) that names the lists by what
-each holds (`users`, `roles`, `identities`, `invitations`, and for the whole application
+each holds (`users`, `roles`, `identities`, `signInWays`, `invitations`, and for the whole application
 `sessions`, `signInAttempts`, `signInMethods` and `signUpRoles`) and the methods by what each does (`create`, `invite`,
 `withdrawInvitation`, `assignRole`, `removeRole`, `disable`, `enable`, `delete`,
 `rename`, `setEmail`, `setTemporaryPassword`, `requirePasswordChange`,
@@ -3801,15 +3821,16 @@ library builds the pages from the block at run time
 (`identityRoutes(apiDescriptor, resourceMeta, { auth, scope })`, from
 `@impulseframework/resource-angular/identity-pages`): the people with a menu on each row
 holding the methods the server lists for that row, a person's row page with the roles
-held and the sign-in identities under it (and the sessions, for the whole application),
-the invitations, and for the whole application the sessions, the failed sign-ins and
-the Sign-in page: one row for each sign-in method, Open sign-up on a method that is
-invite only and Make invite only on one that is open, each only where the caller holds
-the grant, the method's warning drawn by the method dialog, and a notice above the list
-while a method is open.
-Above a person's sign-in identities, where an identity is unlinked, the page offers
-Remove password for an Auth with a password method, while the server's answer for the
-person's row lists the method.
+held, the ways they sign in and the sign-in identities under it (and the sessions, for
+the whole application), the invitations, and for the whole application the sessions, the
+failed sign-ins and the Sign-in page: one row for each sign-in method, Open sign-up on a
+method that is invite only and Make invite only on one that is open, each only where the
+caller holds the grant, the method's warning drawn by the method dialog, and a notice
+above the list while a method is open. Above the ways a person signs in, the page offers
+Remove password for an Auth with a password method where the removal can happen: the
+server's answer for the person's row lists the method, and the list shows a password and
+an identity that counts. It asks first, naming what is left by the words of the rows, and
+the offer goes with the password once the list is read again.
 A period is picked and shown in days. The server keeps an end as the first instant the
 assignment no longer counts, and "until 1 December" means through the end of
 1 December: the dialog of a method that gives something for a period sends the day
@@ -3832,10 +3853,12 @@ another sector's; the roles given and taken; the create; the identities and the 
 `generated_identity_tenant_invitation_test.go` for the ones that need the session manager
 (the invitation, its withdrawal, the temporary password),
 `generated_identity_remove_password_test.go` holds the removal of a person's password at a
-sector, and `generated_identity_remove_password_skipauth_test.go` over the served
+sector and the list of how a person signs in beside it (the password and the identities
+that count, an identity of a retired sign-in left out, the sector's people alone), and
+`generated_identity_remove_password_skipauth_test.go` over the served
 application with the simulated directory (refused while the person holds no identity and
 for a role without the grant; once removed, the password signs nobody in and the directory
-does),
+does; the list in each state),
 `generated_identity_one_tenant_test.go` holds the rule of one tenant per person through a
 second client built with the option, since Lodestar itself lets a person hold roles in
 several sectors,

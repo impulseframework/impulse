@@ -89,10 +89,6 @@ type GeneratedHandlers interface {
 
 	InviteStaffUser() http.HandlerFunc
 
-	MakeStaffInviteOnly() http.HandlerFunc
-
-	OpenStaffSignUp() http.HandlerFunc
-
 	RemoveStaffGroupMember() http.HandlerFunc
 
 	RemoveStaffPassword() http.HandlerFunc
@@ -151,9 +147,7 @@ type GeneratedHandlers interface {
 	StaffSessionUsers() http.HandlerFunc
 	StaffSessionUser() http.HandlerFunc
 
-	StaffSignInMethods() http.HandlerFunc
-
-	StaffSignUpRoles() http.HandlerFunc
+	StaffSignInWays() http.HandlerFunc
 
 	StaffUserGroupRoles() http.HandlerFunc
 	StaffUserGroupRole() http.HandlerFunc
@@ -220,10 +214,6 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	r.Post("/api/give-staff-group-role", h.GiveStaffGroupRole())
 
 	r.Post("/api/invite-staff-user", h.InviteStaffUser())
-
-	r.Post("/api/make-staff-invite-only", h.MakeStaffInviteOnly())
-
-	r.Post("/api/open-staff-sign-up", h.OpenStaffSignUp())
 
 	r.Post("/api/remove-staff-group-member", h.RemoveStaffGroupMember())
 
@@ -335,13 +325,9 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
 	bounded.Post("/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
 
-	staffSignInMethodsHandler := h.StaffSignInMethods()
-	bounded.Get("/api/staff-sign-in-methods", staffSignInMethodsHandler)
-	bounded.Post("/api/staff-sign-in-methods", staffSignInMethodsHandler)
-
-	staffSignUpRolesHandler := h.StaffSignUpRoles()
-	bounded.Get("/api/staff-sign-up-roles", staffSignUpRolesHandler)
-	bounded.Post("/api/staff-sign-up-roles", staffSignUpRolesHandler)
+	staffSignInWaysHandler := h.StaffSignInWays()
+	bounded.Get("/api/staff-sign-in-ways", staffSignInWaysHandler)
+	bounded.Post("/api/staff-sign-in-ways", staffSignInWaysHandler)
 
 	staffUserGroupRolesHandler := h.StaffUserGroupRoles()
 	bounded.Get("/api/staff-user-group-roles", staffUserGroupRolesHandler)

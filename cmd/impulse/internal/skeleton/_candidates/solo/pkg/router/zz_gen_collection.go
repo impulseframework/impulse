@@ -114,16 +114,6 @@ func Collection() *resource.GeneratedCollection {
 				},
 			},
 			{
-				Name:        "MakeStaffInviteOnly",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-			},
-			{
-				Name:        "OpenStaffSignUp",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Permissions: []accesstypes.Permission{accesstypes.Execute},
-			},
-			{
 				Name:        "RemoveStaffGroupMember",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -431,31 +421,17 @@ func Collection() *resource.GeneratedCollection {
 				QueryKeys: []accesstypes.Tag{"userId", "expired"},
 			},
 			{
-				Name:        "StaffSignInMethods",
+				Name:        "StaffSignInWays",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Computed:    true,
 				Permissions: []accesstypes.Permission{accesstypes.List},
 				Tags: []resource.TagData{
-					{Name: "admits", Permissions: []accesstypes.Permission{accesstypes.List}},
-					{Name: "defaultRole", Permissions: []accesstypes.Permission{accesstypes.List}},
-					{Name: "directoryGivesRoles", Permissions: []accesstypes.Permission{accesstypes.List}},
-					{Name: "label", Permissions: []accesstypes.Permission{accesstypes.List}},
-					{Name: "name"},
-					{Name: "openSignUp", Permissions: []accesstypes.Permission{accesstypes.List}},
-					{Name: "says", Permissions: []accesstypes.Permission{accesstypes.List}},
-				},
-			},
-			{
-				Name:        "StaffSignUpRoles",
-				Scope:       accesstypes.GlobalPermissionScope,
-				Computed:    true,
-				Permissions: []accesstypes.Permission{accesstypes.List},
-				Tags: []resource.TagData{
-					{Name: "description", Permissions: []accesstypes.Permission{accesstypes.List}},
-					{Name: "name"},
-				},
-				Attributes: []resource.AttributeData{
-					{Name: "name", Column: "Name", Type: "string"},
+					{Name: "connection", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "method", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "password", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "through", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "userId"},
+					{Name: "way"},
 				},
 			},
 			{

@@ -153,6 +153,42 @@ func TestAudienceOf(t *testing.T) {
 	}
 }
 
+// TestMethod_AdmitsConnection proves the method says which links are its own: the ones
+// that carry the registration's connection, the issuer unless the configuration names
+// one, so a link left by another provider's registration is not taken for one this
+// registration signs in.
+func TestMethod_AdmitsConnection(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		connection string
+		linked     string
+		want       bool
+	}{
+		{name: "the registration's own connection, the issuer by default", linked: issuer, want: true},
+		{name: "another registration's connection", linked: "okta"},
+		{name: "no connection", linked: ""},
+		{name: "the connection the configuration names", connection: "lanterns-idp", linked: "lanterns-idp", want: true},
+		{name: "the issuer, once the configuration names a connection", connection: "lanterns-idp", linked: issuer},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := baseConfig(&fakeAuthenticator{})
+			cfg.Connection = tt.connection
+			m := build(t, cfg)
+			if m.AdmitsConnection == nil {
+				t.Fatal("AdmitsConnection = nil, want the method to tell its links from another's")
+			}
+			if got := m.AdmitsConnection(tt.linked); got != tt.want {
+				t.Errorf("AdmitsConnection(%q) = %v, want %v", tt.linked, got, tt.want)
+			}
+		})
+	}
+}
+
 // TestSignIn_refusals proves the misuses the registration reports at startup, each naming
 // its field.
 func TestSignIn_refusals(t *testing.T) {

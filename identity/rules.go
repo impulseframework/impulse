@@ -241,7 +241,7 @@ func (m *Manager) deleteAccount(ctx context.Context, txn resource.ReadWriteTrans
 		return err
 	}
 	for _, link := range links {
-		if err := m.store.DeleteIdentity(ctx, txn, link); err != nil {
+		if err := m.store.DeleteIdentity(ctx, txn, link.ID); err != nil {
 			return errors.Wrap(err, "identity.Store.DeleteIdentity()")
 		}
 	}

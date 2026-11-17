@@ -121,6 +121,13 @@ type Method struct {
 	// organizations it is limited to, or the kind of account it admits. It is what
 	// opening the method to sign-up admits.
 	Audience Audience
+	// AdmitsConnection reports whether an identity that came through connection (the
+	// Connection its link carries) could sign in through this registration as it is
+	// configured now: a tenant, a Workspace or a provider the registration still takes.
+	// The core asks it to judge whether a link is still a means of sign-in, before a
+	// person's password is removed on the strength of it. It is nil when the method
+	// cannot tell one connection from another, which admits.
+	AdmitsConnection func(connection string) bool
 }
 
 // Verified is the result of a method's completed round trip.

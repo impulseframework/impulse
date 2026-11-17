@@ -183,7 +183,10 @@ func eventsUp(p, who string) string {
 -- application's MFA step, held server-side. The browser's pending cookie carries only an
 -- opaque token; TokenHash is its SHA-256. A row is live until ExpiresAt or until a
 -- completion, cancellation or replacement consumes it (ConsumedAt), once. ExpiresAt is
--- the library's deadline, written as given.
+-- the library's deadline, written as given. PasswordProof is the SHA-256 of the
+-- password hash a password sign-in was compared against, never the hash itself, null
+-- for a sign-in no password proved: a row that carries one is inserted only while its
+-- user still holds that password, and completes only while they do.
 CREATE TABLE %[1]sSessionPendingSignIns (
     Id                    STRING(36) NOT NULL,
     TokenHash             BYTES(32) NOT NULL,
@@ -202,6 +205,7 @@ CREATE TABLE %[1]sSessionPendingSignIns (
     Organization          STRING(MAX) NOT NULL,
     UserId                STRING(36),
     Username              STRING(MAX) NOT NULL,
+    PasswordProof         BYTES(32),
     Tenant                STRING(MAX) NOT NULL,
     Events                BYTES(MAX) NOT NULL,
     RoleNames             ARRAY<STRING(MAX)>,

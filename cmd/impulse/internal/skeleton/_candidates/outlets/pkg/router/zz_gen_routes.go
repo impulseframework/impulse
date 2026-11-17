@@ -135,8 +135,6 @@ type GeneratedHandlers interface {
 
 	CreateStaffUser() http.HandlerFunc
 
-	CreateTenant() http.HandlerFunc
-
 	DeleteStaffGroup() http.HandlerFunc
 
 	DeleteStaffTenantGroup() http.HandlerFunc
@@ -177,10 +175,6 @@ type GeneratedHandlers interface {
 	InviteStaffTenantUser() http.HandlerFunc
 
 	InviteStaffUser() http.HandlerFunc
-
-	MakeStaffInviteOnly() http.HandlerFunc
-
-	OpenStaffSignUp() http.HandlerFunc
 
 	RemoveStaffGroupMember() http.HandlerFunc
 
@@ -258,7 +252,7 @@ type GeneratedHandlers interface {
 	StaffSessionUsers() http.HandlerFunc
 	StaffSessionUser() http.HandlerFunc
 
-	StaffSignInMethods() http.HandlerFunc
+	StaffSignInWays() http.HandlerFunc
 
 	StaffTenantGroups() http.HandlerFunc
 	StaffTenantGroup() http.HandlerFunc
@@ -276,6 +270,8 @@ type GeneratedHandlers interface {
 	StaffTenantInvitation() http.HandlerFunc
 
 	StaffTenantRoles() http.HandlerFunc
+
+	StaffTenantSignInWays() http.HandlerFunc
 
 	StaffTenantUsers() http.HandlerFunc
 	StaffTenantUser() http.HandlerFunc
@@ -356,8 +352,6 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	r.Post("/console/api/create-staff-user", h.CreateStaffUser())
 
-	bounded.Post("/console/api/create-tenant", h.CreateTenant())
-
 	r.Post("/console/api/delete-staff-group", h.DeleteStaffGroup())
 
 	r.Post("/console/api/tenants/{tenantID}/delete-staff-tenant-group", domainGuard(h.DeleteStaffTenantGroup()))
@@ -403,10 +397,6 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	r.Post("/console/api/tenants/{tenantID}/invite-staff-tenant-user", domainGuard(h.InviteStaffTenantUser()))
 
 	r.Post("/console/api/invite-staff-user", h.InviteStaffUser())
-
-	r.Post("/console/api/make-staff-invite-only", h.MakeStaffInviteOnly())
-
-	r.Post("/console/api/open-staff-sign-up", h.OpenStaffSignUp())
 
 	r.Post("/console/api/remove-staff-group-member", h.RemoveStaffGroupMember())
 
@@ -536,9 +526,9 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
 	bounded.Post("/console/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
 
-	staffSignInMethodsHandler := h.StaffSignInMethods()
-	bounded.Get("/console/api/staff-sign-in-methods", staffSignInMethodsHandler)
-	bounded.Post("/console/api/staff-sign-in-methods", staffSignInMethodsHandler)
+	staffSignInWaysHandler := h.StaffSignInWays()
+	bounded.Get("/console/api/staff-sign-in-ways", staffSignInWaysHandler)
+	bounded.Post("/console/api/staff-sign-in-ways", staffSignInWaysHandler)
 
 	staffTenantGroupsHandler := domainGuard(h.StaffTenantGroups())
 	bounded.Get("/console/api/tenants/{tenantID}/staff-tenant-groups", staffTenantGroupsHandler)
@@ -583,6 +573,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffTenantRolesHandler := domainGuard(h.StaffTenantRoles())
 	bounded.Get("/console/api/tenants/{tenantID}/staff-tenant-roles", staffTenantRolesHandler)
 	bounded.Post("/console/api/tenants/{tenantID}/staff-tenant-roles", staffTenantRolesHandler)
+
+	staffTenantSignInWaysHandler := domainGuard(h.StaffTenantSignInWays())
+	bounded.Get("/console/api/tenants/{tenantID}/staff-tenant-sign-in-ways", staffTenantSignInWaysHandler)
+	bounded.Post("/console/api/tenants/{tenantID}/staff-tenant-sign-in-ways", staffTenantSignInWaysHandler)
 
 	staffTenantUsersHandler := domainGuard(h.StaffTenantUsers())
 	bounded.Get("/console/api/tenants/{tenantID}/staff-tenant-users", staffTenantUsersHandler)
@@ -689,10 +683,6 @@ type GeneratedPortalHandlers interface {
 	CreateMembersGroup() http.HandlerFunc
 
 	CreateMembersTenantGroup() http.HandlerFunc
-
-	CreateMembersTenantUser() http.HandlerFunc
-
-	CreateMembersUser() http.HandlerFunc
 
 	DeleteMembersGroup() http.HandlerFunc
 
@@ -882,10 +872,6 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	r.Post("/portal/api/create-members-group", h.CreateMembersGroup())
 
 	r.Post("/portal/api/tenants/{tenantID}/create-members-tenant-group", domainGuard(h.CreateMembersTenantGroup()))
-
-	r.Post("/portal/api/tenants/{tenantID}/create-members-tenant-user", domainGuard(h.CreateMembersTenantUser()))
-
-	r.Post("/portal/api/create-members-user", h.CreateMembersUser())
 
 	r.Post("/portal/api/delete-members-group", h.DeleteMembersGroup())
 

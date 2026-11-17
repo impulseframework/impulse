@@ -141,6 +141,15 @@
               ]
             },
             {
+              "resource": "StaffSignInWays",
+              "fields": [
+                "password",
+                "method",
+                "connection",
+                "through"
+              ]
+            },
+            {
               "resource": "StaffSessionTokens",
               "fields": [
                 "clientId",

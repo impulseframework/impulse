@@ -14,8 +14,7 @@ import (
 func Test_identityOn(t *testing.T) {
 	t.Parallel()
 
-	fleetGoogle := []identitySignIn{{Method: "google", Label: "Fleet Google"}}
-	crew := &identityInstance{auth: "Crew", outlets: []string{"console", "admin"}, tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id"}, signIns: fleetGoogle}
+	crew := &identityInstance{auth: "Crew", outlets: []string{"console", "admin"}, tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id"}}
 	solo := &identityInstance{auth: "Staff", outlets: []string{"console"}}
 
 	names := func(names ...string) (resources []*tsAPIResource, methods []*tsAPIMethod) {
@@ -47,8 +46,8 @@ func Test_identityOn(t *testing.T) {
 			instances: []*identityInstance{crew},
 			served: []string{
 				"CrewSessionUsers", "CrewUserRoles", "CrewSessionIdentities", "CrewSessionMailLinks", "CrewSessions", "CrewSessionSignInAttempts",
-				"CrewSignInMethods",
-				"CrewSectorUsers", "CrewSectorUserRoles", "CrewSectorInvitations",
+				"CrewSignInMethods", "CrewSignInWays",
+				"CrewSectorUsers", "CrewSectorUserRoles", "CrewSectorInvitations", "CrewSectorSignInWays",
 				"DisableCrewUser", "EndCrewSession", "EndCrewUserSessions", "UnlockCrewSignIn", "UnlinkCrewSessionIdentity", "CreateCrewUser",
 				"RemoveCrewPassword", "OpenCrewSignUp", "MakeCrewInviteOnly",
 				"DisableCrewSectorUser", "AssignCrewSectorRole", "RemoveCrewSectorRole", "RevokeCrewSectorUserTrustedDevices", "RemoveCrewSectorPassword",
@@ -57,12 +56,13 @@ func Test_identityOn(t *testing.T) {
 				"Ships", "HailShip", "Sectors",
 			},
 			want: []*tsAPIIdentity{{
-				Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors", SignIns: fleetGoogle,
+				Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
 				Sides: []*tsAPIIdentitySide{
 					{
 						Scope: accesstypes.GlobalPermissionScope,
 						Lists: []identityPart{
 							part("users", "CrewSessionUsers"), part("roles", "CrewUserRoles"), part("identities", "CrewSessionIdentities"),
+							part("signInWays", "CrewSignInWays"),
 							part("invitations", "CrewSessionMailLinks"), part("sessions", "CrewSessions"), part("signInAttempts", "CrewSessionSignInAttempts"),
 							// The auth's sign-in methods, each open to sign-up or invite only. An
 							// application with tenants picks no default role, so it lists no roles
@@ -78,8 +78,12 @@ func Test_identityOn(t *testing.T) {
 					},
 					{
 						Scope: accesstypes.DomainPermissionScope,
-						// The schema holds no identities table for this auth: the tenant keeps no list of them.
-						Lists: []identityPart{part("users", "CrewSectorUsers"), part("roles", "CrewSectorUserRoles"), part("invitations", "CrewSectorInvitations")},
+						// The outlet serves no list of the identities a tenant's people hold; how each
+						// signs in is a list of its own, named where the outlet serves it.
+						Lists: []identityPart{
+							part("users", "CrewSectorUsers"), part("roles", "CrewSectorUserRoles"), part("signInWays", "CrewSectorSignInWays"),
+							part("invitations", "CrewSectorInvitations"),
+						},
 						Methods: []identityPart{
 							part("assignRole", "AssignCrewSectorRole"), part("removeRole", "RemoveCrewSectorRole"), part("disable", "DisableCrewSectorUser"),
 							part("revokeTrustedDevices", "RevokeCrewSectorUserTrustedDevices"), part("removePassword", "RemoveCrewSectorPassword"),
@@ -110,7 +114,7 @@ func Test_identityOn(t *testing.T) {
 			instances: []*identityInstance{crew},
 			served:    []string{"CrewSessionUsers", "CrewSectorUserRoles", "DisableCrewSectorUser"},
 			want: []*tsAPIIdentity{{
-				Auth: "Crew", Label: "Crew", Tenant: "Sector", SignIns: fleetGoogle,
+				Auth: "Crew", Label: "Crew", Tenant: "Sector",
 				Sides: []*tsAPIIdentitySide{{Scope: accesstypes.GlobalPermissionScope, Lists: []identityPart{part("users", "CrewSessionUsers")}}},
 			}},
 		},
@@ -137,7 +141,7 @@ func Test_identityOn(t *testing.T) {
 			data.Resources, data.Methods = names(tt.served...)
 			gen := &typescriptGenerator{client: &client{identity: tt.instances}, outletName: tt.outlet}
 
-			if diff := cmp.Diff(tt.want, gen.identityOn(data), cmp.AllowUnexported(identityPart{}, identitySignIn{})); diff != "" {
+			if diff := cmp.Diff(tt.want, gen.identityOn(data), cmp.AllowUnexported(identityPart{})); diff != "" {
 				t.Errorf("identityOn() mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -150,7 +154,6 @@ func Test_typescriptAPITemplate_identity(t *testing.T) {
 
 	data := &tsAPIData{Identity: []*tsAPIIdentity{{
 		Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
-		SignIns: []identitySignIn{{Method: "google", Label: "Fleet Google"}, {Method: "azure", Label: "Lakeside"}},
 		Sides: []*tsAPIIdentitySide{
 			{
 				Scope:   accesstypes.GlobalPermissionScope,
@@ -166,8 +169,7 @@ func Test_typescriptAPITemplate_identity(t *testing.T) {
 		t.Fatalf("generateTemplateOutput() error = %v", err)
 	}
 	for _, want := range []string{
-		"  identity: [\n    {\n      auth: 'Crew',\n      label: 'Crew',\n      tenant: 'Sector',\n      tenantResource: Resources.Sectors,\n" +
-			"      signIns: [{ method: 'google', label: 'Fleet Google' }, { method: 'azure', label: 'Lakeside' }],\n      sides: [",
+		"  identity: [\n    {\n      auth: 'Crew',\n      label: 'Crew',\n      tenant: 'Sector',\n      tenantResource: Resources.Sectors,\n      sides: [",
 		"          scope: 'global',\n          lists: { users: Resources.CrewSessionUsers, sessions: Resources.CrewSessions },\n          methods: { disable: Methods.DisableCrewUser },",
 		"          scope: 'domain',\n          lists: { users: Resources.CrewSectorUsers },\n          methods: {  },",
 	} {
@@ -200,20 +202,5 @@ func Test_authLabel(t *testing.T) {
 				t.Errorf("authLabel(%q) = %q, want %q", tt.auth, got, tt.want)
 			}
 		})
-	}
-}
-
-// Test_identityMethod pins the method an identity linked through each kind of
-// registration carries: the session library's own spelling, the persona provider's being
-// an OpenID Connect registration's, and none for the password method.
-func Test_identityMethod(t *testing.T) {
-	t.Parallel()
-
-	for kind, want := range map[authMethodKind]string{
-		methodPassword: "", methodGoogle: "google", methodAzure: "azure", methodWorkOS: "workos", methodOIDC: "oidc", methodPersona: "oidc",
-	} {
-		if got := kind.identityMethod(); got != want {
-			t.Errorf("%s.identityMethod() = %q, want %q", kind, got, want)
-		}
 	}
 }

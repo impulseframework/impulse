@@ -36,6 +36,7 @@ export const Resources = {
   CrewSectorIdentities: 'CrewSectorIdentities' as Resource,
   CrewSectorInvitations: 'CrewSectorInvitations' as Resource,
   CrewSectorRoles: 'CrewSectorRoles' as Resource,
+  CrewSectorSignInWays: 'CrewSectorSignInWays' as Resource,
   CrewSectorUserGroupRoles: 'CrewSectorUserGroupRoles' as Resource,
   CrewSectorUserRoles: 'CrewSectorUserRoles' as Resource,
   CrewSectorUsers: 'CrewSectorUsers' as Resource,
@@ -48,7 +49,7 @@ export const Resources = {
   CrewSessionTrustedDevices: 'CrewSessionTrustedDevices' as Resource,
   CrewSessionUsers: 'CrewSessionUsers' as Resource,
   CrewSessions: 'CrewSessions' as Resource,
-  CrewSignInMethods: 'CrewSignInMethods' as Resource,
+  CrewSignInWays: 'CrewSignInWays' as Resource,
   CrewUserGroupRoles: 'CrewUserGroupRoles' as Resource,
   CrewUserRoles: 'CrewUserRoles' as Resource,
   DistressCalls: 'DistressCalls' as Resource,
@@ -147,8 +148,6 @@ export const Methods = {
   InviteCrewUser: 'InviteCrewUser' as Method,
   IssueBulletin: 'IssueBulletin' as Method,
   LaunchMission: 'LaunchMission' as Method,
-  MakeCrewInviteOnly: 'MakeCrewInviteOnly' as Method,
-  OpenCrewSignUp: 'OpenCrewSignUp' as Method,
   PassFlightTest: 'PassFlightTest' as Method,
   ReleaseConsignment: 'ReleaseConsignment' as Method,
   RemoveCrewGroupMember: 'RemoveCrewGroupMember' as Method,
@@ -575,6 +574,29 @@ export namespace CrewSectorRoles {
   };
 }
 
+export namespace CrewSectorSignInWays {
+  export const fieldName = {
+    connection: 'connection' as FieldName,
+    heldElsewhere: 'heldElsewhere' as FieldName,
+    heldGlobally: 'heldGlobally' as FieldName,
+    method: 'method' as FieldName,
+    password: 'password' as FieldName,
+    through: 'through' as FieldName,
+    userId: 'userId' as FieldName,
+    way: 'way' as FieldName,
+  };
+  export const resourceName = {
+    connection: 'CrewSectorSignInWays.connection' as Resource,
+    heldElsewhere: 'CrewSectorSignInWays.heldElsewhere' as Resource,
+    heldGlobally: 'CrewSectorSignInWays.heldGlobally' as Resource,
+    method: 'CrewSectorSignInWays.method' as Resource,
+    password: 'CrewSectorSignInWays.password' as Resource,
+    through: 'CrewSectorSignInWays.through' as Resource,
+    userId: 'CrewSectorSignInWays.userId' as Resource,
+    way: 'CrewSectorSignInWays.way' as Resource,
+  };
+}
+
 export namespace CrewSectorUserGroupRoles {
   export const fieldName = {
     domainId: 'domainId' as FieldName,
@@ -881,24 +903,22 @@ export namespace CrewSessions {
   };
 }
 
-export namespace CrewSignInMethods {
+export namespace CrewSignInWays {
   export const fieldName = {
-    admits: 'admits' as FieldName,
-    defaultRole: 'defaultRole' as FieldName,
-    directoryGivesRoles: 'directoryGivesRoles' as FieldName,
-    label: 'label' as FieldName,
-    name: 'name' as FieldName,
-    openSignUp: 'openSignUp' as FieldName,
-    says: 'says' as FieldName,
+    connection: 'connection' as FieldName,
+    method: 'method' as FieldName,
+    password: 'password' as FieldName,
+    through: 'through' as FieldName,
+    userId: 'userId' as FieldName,
+    way: 'way' as FieldName,
   };
   export const resourceName = {
-    admits: 'CrewSignInMethods.admits' as Resource,
-    defaultRole: 'CrewSignInMethods.defaultRole' as Resource,
-    directoryGivesRoles: 'CrewSignInMethods.directoryGivesRoles' as Resource,
-    label: 'CrewSignInMethods.label' as Resource,
-    name: 'CrewSignInMethods.name' as Resource,
-    openSignUp: 'CrewSignInMethods.openSignUp' as Resource,
-    says: 'CrewSignInMethods.says' as Resource,
+    connection: 'CrewSignInWays.connection' as Resource,
+    method: 'CrewSignInWays.method' as Resource,
+    password: 'CrewSignInWays.password' as Resource,
+    through: 'CrewSignInWays.through' as Resource,
+    userId: 'CrewSignInWays.userId' as Resource,
+    way: 'CrewSignInWays.way' as Resource,
   };
 }
 
@@ -2207,18 +2227,6 @@ export namespace LaunchMission {
     missionId: 'missionId' as FieldName,
     shipId: 'shipId' as FieldName,
     pilotUserId: 'pilotUserId' as FieldName,
-  };
-}
-
-export namespace MakeCrewInviteOnly {
-  export const fieldName = {
-    name: 'name' as FieldName,
-  };
-}
-
-export namespace OpenCrewSignUp {
-  export const fieldName = {
-    name: 'name' as FieldName,
   };
 }
 

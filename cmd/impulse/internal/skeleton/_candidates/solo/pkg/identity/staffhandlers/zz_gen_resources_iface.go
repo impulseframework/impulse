@@ -16,8 +16,7 @@ type Resourcer interface {
 		staffresources.StaffRole | staffresources.StaffRoleGrant | staffresources.StaffSession |
 		staffresources.StaffSessionAuthEvent | staffresources.StaffSessionIdentity |
 		staffresources.StaffSessionMailLink | staffresources.StaffSessionSignInAttempt |
-		staffresources.StaffSessionSignInMethod | staffresources.StaffSessionToken |
-		staffresources.StaffSessionTrustedDevice | staffresources.StaffSessionUser |
-		staffresources.StaffUserGroupRole | staffresources.StaffUserRole |
-		staffidentity.StaffSignInMethod | staffidentity.StaffSignUpRole
+		staffresources.StaffSessionToken | staffresources.StaffSessionTrustedDevice |
+		staffresources.StaffSessionUser | staffresources.StaffUserGroupRole |
+		staffresources.StaffUserRole | staffidentity.StaffSignInWay
 }
