@@ -125,6 +125,35 @@ func TestRoleReconciler_reconcile(t *testing.T) {
 			wantHasRole: true,
 		},
 		{
+			name: "the directory makes nobody a super administrator: the name is ignored",
+			manager: &fakeRoleManager{
+				roles: map[accesstypes.PolicyScope][]accesstypes.Role{global: {"admin", accesstypes.SuperAdministrator}},
+			},
+			roleNames:   []string{"superadministrator", "admin"},
+			wantWrites:  []roleWrite{{call: "AddUserRoles", scope: global, roles: []accesstypes.Role{"admin"}}},
+			wantHasRole: true,
+		},
+		{
+			name: "the directory names the Super Administrator role alone: nothing is given and no role results",
+			manager: &fakeRoleManager{
+				roles: map[accesstypes.PolicyScope][]accesstypes.Role{global: {accesstypes.SuperAdministrator}},
+			},
+			roleNames: []string{"SuperAdministrator"},
+		},
+		{
+			name: "a super administrator keeps the role through a login whose directory does not name it",
+			manager: &fakeRoleManager{
+				roles: map[accesstypes.PolicyScope][]accesstypes.Role{global: {"admin", accesstypes.SuperAdministrator}},
+				held:  accesstypes.RoleCollection{global: {accesstypes.SuperAdministrator, "stale"}},
+			},
+			roleNames: []string{"admin"},
+			wantWrites: []roleWrite{
+				{call: "AddUserRoles", scope: global, roles: []accesstypes.Role{"admin"}},
+				{call: "DeleteUserRoles", scope: global, roles: []accesstypes.Role{"stale"}},
+			},
+			wantHasRole: true,
+		},
+		{
 			name: "a membership already held is left alone",
 			manager: &fakeRoleManager{
 				roles: map[accesstypes.PolicyScope][]accesstypes.Role{every: {"viewer"}},

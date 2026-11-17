@@ -748,3 +748,36 @@ func TestSite_webProcess(t *testing.T) {
 		})
 	}
 }
+
+// TestSiteApplyCopiesTheBrandDeclaration holds the report and the brief of a new site to
+// the brand: the site's browser workspace is a copy of the first site's, brand declaration
+// and all, so the report says the declaration still says what the first site's does, and
+// the brief says what to do about it.
+func TestSiteApplyCopiesTheBrandDeclaration(t *testing.T) {
+	t.Parallel()
+
+	files := flatSiteFiles(t)
+	files["web/console/brand.json"] = "{\n  \"name\": \"Beacon\",\n  \"logo\": \"logo.png\",\n  \"primaryColor\": \"#005cbb\"\n}\n"
+	a := beacon(t, files)
+	if _, err := (Site{Name: "portal", Existing: "console"}).Apply(t.Context(), a, &fakeExec{}); err != nil {
+		t.Fatalf("promotion: %v", err)
+	}
+	promoted, err := app.Discover(a.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	site := Site{Name: "kiosk"}
+	ch, err := site.Apply(t.Context(), promoted, &fakeExec{})
+	if err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	if want := "its titles, its brand declaration (brand.json) and its API prefix still say what the "; !strings.Contains(strings.Join(ch.Did, "\n"), want) {
+		t.Errorf("Did lacks %q:\n%s", want, strings.Join(ch.Did, "\n"))
+	}
+	meaning := site.Meaning()
+	for _, want := range []string{"Where it carries a brand declaration (`brand.json`), that is the first site's too", "run `impulse brand`", "(`maintenance.Brands`)"} {
+		if !strings.Contains(meaning, want) {
+			t.Errorf("Meaning() lacks %q:\n%s", want, meaning)
+		}
+	}
+}

@@ -12,7 +12,7 @@ import (
 	gomock "go.uber.org/mock/gomock"
 )
 
-func TestPasswordAuth_User(t *testing.T) {
+func Test_userStorage_User(t *testing.T) {
 	t.Parallel()
 	userID := impulse.Must(impulse.NewUUID())
 	tests := []struct {
@@ -64,7 +64,7 @@ func TestPasswordAuth_User(t *testing.T) {
 	}
 }
 
-func TestPasswordAuth_UserByUserName(t *testing.T) {
+func Test_userStorage_UserByUserName(t *testing.T) {
 	t.Parallel()
 	userID := impulse.Must(impulse.NewUUID())
 	tests := []struct {
@@ -116,7 +116,7 @@ func TestPasswordAuth_UserByUserName(t *testing.T) {
 	}
 }
 
-func TestPasswordAuth_CreateUser(t *testing.T) {
+func Test_userStorage_CreateUser(t *testing.T) {
 	t.Parallel()
 	userID := impulse.Must(impulse.NewUUID())
 	hash, err := securehash.New(securehash.Argon2()).Hash("password")
@@ -175,7 +175,7 @@ func TestPasswordAuth_CreateUser(t *testing.T) {
 	}
 }
 
-func TestPasswordAuth_SetUserUsername(t *testing.T) {
+func Test_userStorage_SetUserUsername(t *testing.T) {
 	t.Parallel()
 	userID := impulse.Must(impulse.NewUUID())
 	username := "<username>"
@@ -224,7 +224,7 @@ func TestPasswordAuth_SetUserUsername(t *testing.T) {
 	}
 }
 
-func TestPasswordAuth_SetUserPasswordHash(t *testing.T) {
+func Test_userStorage_SetUserPasswordHash(t *testing.T) {
 	t.Parallel()
 	userID := impulse.Must(impulse.NewUUID())
 	hash, err := securehash.New(securehash.Argon2()).Hash("password")
@@ -276,7 +276,7 @@ func TestPasswordAuth_SetUserPasswordHash(t *testing.T) {
 	}
 }
 
-func TestPassword_DeactivateUser(t *testing.T) {
+func Test_userStorage_DeactivateUser(t *testing.T) {
 	t.Parallel()
 
 	someErr := errors.New("some error")
@@ -329,7 +329,7 @@ func TestPassword_DeactivateUser(t *testing.T) {
 	}
 }
 
-func TestPassword_DeleteUser(t *testing.T) {
+func Test_userStorage_DeleteUser(t *testing.T) {
 	t.Parallel()
 
 	someErr := errors.New("some error")
@@ -382,7 +382,7 @@ func TestPassword_DeleteUser(t *testing.T) {
 	}
 }
 
-func TestPassword_ActivateUser(t *testing.T) {
+func Test_userStorage_ActivateUser(t *testing.T) {
 	t.Parallel()
 
 	someErr := errors.New("some error")
@@ -435,7 +435,7 @@ func TestPassword_ActivateUser(t *testing.T) {
 	}
 }
 
-func TestPassword_DestroyAllUserSessions(t *testing.T) {
+func Test_userStorage_DestroyAllUserSessions(t *testing.T) {
 	t.Parallel()
 
 	someErr := errors.New("some error")
@@ -482,7 +482,7 @@ func TestPassword_DestroyAllUserSessions(t *testing.T) {
 	}
 }
 
-func TestPasswordAuth_UpdateCustomSessionData(t *testing.T) {
+func Test_userStorage_UpdateCustomSessionData(t *testing.T) {
 	t.Parallel()
 
 	sessionID := impulse.Must(impulse.NewUUID())

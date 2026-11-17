@@ -49,11 +49,15 @@ func roleSessionUser(ctx context.Context) accesstypes.User {
 // decides: it admits the session's establishment, the sign-in's method and
 // connection the session's first auth event records
 // (sessioninfo.SessionData.EstablishedBy; signin.TenantDeclaration.Admits is
-// the decision), or the session's actor is the application's staff, holding a
-// grant in the global partition, who reach every tenant as the sign-in policy
-// admits them (signin.TenantPolicy). An impersonated session is established by
-// its impersonation event, so a directory-only tenant refuses it unless the
-// actor, the real person behind it, is staff. In a tenant the session does not
+// the decision), or the session's actor is a super administrator, a holder of
+// the Super Administrator role (SessionUserChecker.SuperAdministrator), who
+// enters every tenant whatever its sign-in settings say, as the sign-in policy
+// admits them (signin.TenantPolicy). Nobody else is exempt: a person holding
+// another global role, or a role in every tenant, is held to each tenant's
+// declaration like anyone. An impersonated session is established by its
+// impersonation event, so a directory-only tenant refuses it unless the
+// actor, the real person behind it, is a super administrator; whom the session
+// is viewed as changes nothing. In a tenant the session does not
 // reach it holds nothing: every check Denied, an empty digest, no foothold, and
 // the tenant is not listed, so the picker never offers it and the generated
 // domain guard refuses a direct request for it as it refuses a domain that is
@@ -76,13 +80,14 @@ func roleSessionUser(ctx context.Context) accesstypes.User {
 // every check Denied, an empty digest, no footholds, no domains — with the
 // same User(), so a deployment that mints role principals without a checker
 // is loud rather than permissive.
-func SessionPermissions[U UserPermissionChecker, R RolePermissions](
+func SessionPermissions[U SessionUserChecker, R RolePermissions](
 	ctx context.Context, forUser func(accesstypes.User) U, forRole func(accesstypes.Role) R, roster DomainRoster, declarations TenantDeclarations,
 ) UserPermissions {
 	principal := sessioninfo.PrincipalFromCtx(ctx)
 	mask := sessioninfo.MaskFromCtx(ctx)
 
 	var checker UserPermissionChecker
+	var userChecker SessionUserChecker
 	var user accesstypes.User
 	var isUser bool
 	if role, ok := principal.Role(); ok {
@@ -98,28 +103,34 @@ func SessionPermissions[U UserPermissionChecker, R RolePermissions](
 	} else {
 		user, _ = principal.User()
 		isUser = true
-		checker = forUser(user)
+		userChecker = forUser(user)
+		checker = userChecker
 	}
 
 	perms := rosterPermissions{UserPermissionChecker: checker, roster: roster}
 	if declarations != nil {
 		actor := sessioninfo.ActorUserFromCtx(ctx)
-		actorChecker := func() UserPermissionChecker {
+		actorChecker := func() SessionUserChecker {
 			// An ordinary session's actor is its user: the checker in hand answers for
 			// them. An impersonated or role-principal session is answered for by the
 			// real person behind it.
 			if isUser && user == actor {
-				return checker
+				return userChecker
 			}
 
 			return forUser(actor)
 		}
+		// An actor another application authenticated has no account here and holds no
+		// role of this one, whatever their name spells: the record names them by a
+		// name, which the question is never asked under.
+		imp, impersonated := sessioninfo.ImpersonationFromCtx(ctx)
 		establishment, _ := sessioninfo.DataFromCtx(ctx).EstablishedBy()
 		perms.admission = &admittedPermissions{
 			UserPermissionChecker: checker,
 			declarations:          declarations,
 			establishment:         establishment,
 			actor:                 actorChecker,
+			foreignActor:          impersonated && !imp.IsLocalActor(),
 			reached:               map[accesstypes.Domain]bool{},
 		}
 		perms.UserPermissionChecker = perms.admission
@@ -201,11 +212,11 @@ func (p rosterPermissions) Reaches(ctx context.Context, domain accesstypes.Domai
 // admittedPermissions attenuates a checker to the tenants the session reaches
 // (UserPermissions.Reaches): in a tenant whose declaration refuses the way the
 // session was established the session holds nothing — every check Denied, an
-// empty digest, no foothold — unless the session's actor is the application's
-// staff, who hold a grant in the global partition. The global partition is
-// never attenuated: a declaration is a tenant's. One value serves one request,
-// so a tenant's declaration is read once and the staff question asked once,
-// whatever is asked about the tenant after.
+// empty digest, no foothold — unless the session's actor is a super
+// administrator, the one person no tenant's sign-in settings bind. The global
+// partition is never attenuated: a declaration is a tenant's. One value serves
+// one request, so a tenant's declaration is read once and the super
+// administrator question asked once, whatever is asked about the tenant after.
 type admittedPermissions struct {
 	UserPermissionChecker
 	declarations TenantDeclarations
@@ -213,17 +224,23 @@ type admittedPermissions struct {
 	// connection; the zero event for a session that records none, which no directory
 	// admits and a tenant that is not directory only does.
 	establishment sessioninfo.AuthEvent
-	// actor builds the checker the staff question is asked of: the session's actor,
-	// the real person behind an impersonated or role-principal session.
-	actor func() UserPermissionChecker
+	// actor builds the checker the super administrator question is asked of: the
+	// session's actor, the real person behind an impersonated or role-principal
+	// session.
+	actor func() SessionUserChecker
+	// foreignActor marks a session whose actor another application authenticated:
+	// a person with no account here, who is no super administrator of this
+	// application.
+	foreignActor bool
 
 	mu      sync.Mutex
 	reached map[accesstypes.Domain]bool
-	staff   *bool
+	super   *bool
 }
 
 // Reaches reports whether the session may enter domain: the tenant's declaration
-// admits the session's establishment, or the session's actor is staff.
+// admits the session's establishment, or the session's actor is a super
+// administrator.
 func (a *admittedPermissions) Reaches(ctx context.Context, domain accesstypes.Domain) (bool, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -237,7 +254,7 @@ func (a *admittedPermissions) Reaches(ctx context.Context, domain accesstypes.Do
 	}
 	reaches := declaration.Admits(a.establishment.Method, a.establishment.Connection)
 	if !reaches {
-		reaches, err = a.isStaff(ctx)
+		reaches, err = a.actorIsSuperAdministrator(ctx)
 		if err != nil {
 			return false, err
 		}
@@ -247,19 +264,28 @@ func (a *admittedPermissions) Reaches(ctx context.Context, domain accesstypes.Do
 	return reaches, nil
 }
 
-// isStaff answers, once per value, whether the session's actor holds a grant in the
-// global partition. The caller holds the lock.
-func (a *admittedPermissions) isStaff(ctx context.Context) (bool, error) {
-	if a.staff != nil {
-		return *a.staff, nil
+// actorIsSuperAdministrator answers, once per value, whether the session's actor
+// holds the Super Administrator role: the one exemption from a tenant's sign-in
+// settings, and the question the sign-in policy asks of the person signing in
+// (accesstypes.RoleCollection.HoldsSuperAdministrator is the test both come to).
+// The caller holds the lock.
+func (a *admittedPermissions) actorIsSuperAdministrator(ctx context.Context) (bool, error) {
+	if a.super != nil {
+		return *a.super, nil
 	}
-	staff, err := a.actor().HasGrants(ctx, accesstypes.GlobalScope())
-	if err != nil {
-		return false, errors.Wrap(err, "resource.UserPermissionChecker.HasGrants()")
-	}
-	a.staff = &staff
+	if a.foreignActor {
+		super := false
+		a.super = &super
 
-	return staff, nil
+		return false, nil
+	}
+	super, err := a.actor().SuperAdministrator(ctx)
+	if err != nil {
+		return false, errors.Wrap(err, "resource.SessionUserChecker.SuperAdministrator()")
+	}
+	a.super = &super
+
+	return super, nil
 }
 
 // Check answers Denied for every resource in a tenant the session does not reach,

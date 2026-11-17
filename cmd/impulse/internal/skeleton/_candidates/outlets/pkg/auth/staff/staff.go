@@ -325,7 +325,10 @@ func (h *Handlers) TokensRevoke() http.HandlerFunc {
 // against the collection before it opens, so a release whose default roles are wrong does
 // not start, blocks until its first policy snapshot is loaded, and signals its policy
 // writes through the live service (access.WithChangeSignal over the policy kind), which it
-// refuses to open without.
+// refuses to open without. Beside the role file's roles the engine defines one of the
+// framework's in every auth, Super Administrator (accesstypes.SuperAdministrator), held
+// for the whole application alone: its holder gives and takes any role of the auth, enters
+// every tenant, and signs in with a second factor whatever the sign-in rule asks.
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
 	if settings.Signals == nil {
 		return nil, errors.New("staff.Settings.Signals is nil: the permission engine signals policy changes through the application's live service, which every application wires")
@@ -346,6 +349,9 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	accessClient, err := access.New(store,
 		access.WithDefaultRoles(settings.Collection, Roles()),
 		access.WithChangeSignal(access.ChangeSignalFunc(announcePolicy(settings.Signals), watchPolicy(settings.Signals))),
+		// What no role file takes from a super administrator: the methods that give and
+		// take the auth's roles, as the generated management names them.
+		access.WithSuperAdministratorMethods(staffidentity.SuperAdministratorMethods()...),
 	)
 	if err != nil {
 		return nil, errors.Wrap(err, "access.New()")
@@ -399,25 +405,37 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// declaration, read in the sign-in's transaction: a password is admitted unless
 	// every one of the person's tenants admits its people through directories only, a
 	// sign-in through a directory when one of their tenants declares it (its method and
-	// the connection its identities carry); the application's own staff (a global role,
-	// or one held in every tenant) are admitted on the library's checks.
+	// the connection its identities carry); a person who holds a role outside any one
+	// tenant (a global role, or one held in every tenant) is admitted on the library's
+	// checks, and a super administrator before any of it.
 	// A person who holds no tenant is refused (no_tenant), since the administrator
 	// creates tenants here; a record created by its own people (@tenant(creation:
 	// self-service) or both) adds signin.AdmitWithoutTenant().
 	// Which tenants the session then reaches is decided again, tenant by tenant, where
-	// its tenant list is computed (UserPermissions). The memberships are read outside
-	// the sign-in's transaction (resource.SignInRoles): the Spanner client refuses the
-	// engine's read under the transaction's context as a nested transaction. A sign-in
-	// the rule admits then carries a second factor (requireSecondFactor).
+	// its tenant list is computed (UserPermissions): a super administrator's session
+	// reaches every tenant, and nobody else's reaches one whose declaration their
+	// sign-in does not meet. The memberships are read outside the sign-in's transaction
+	// (resource.SignInRoles): the Spanner client refuses the engine's read under the
+	// transaction's context as a nested transaction. A sign-in the rule admits then
+	// carries a second factor (requireSecondFactor).
 	authSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(requireSecondFactor))
+
+	// A super administrator signs in with a second factor whatever the rule above asks
+	// of anyone else: the Auth is told who holds the role and holds their sign-in for
+	// the mailed code by a rule of the library's own, after the application's. The
+	// memberships are read outside the sign-in's transaction (resource.SignInRoles).
+	authSession.SetSuperAdministrators(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager())))
 
 	// The auth's identity client (pkg/identity, generated): the rules that manage the
 	// auth's people, over the engine that reads its memberships and the API of the session
 	// manager that signs them in, whose hasher makes the hash of a temporary password one
-	// of its methods sets. The client knows the roles that count as an
-	// administrator's (identity.WithAdministratorRoles), so a person who removes a role
-	// from themselves is judged by the rule on the last administrator.
-	identityClient, err := staffidentity.NewClient(accessClient, authSession.API(), identity.WithAdministratorRoles(AdministratorRoles()))
+	// of its methods sets. The client knows the roles that count as a
+	// tenant's administrator's (identity.WithAdministratorRoles, the ones held in every
+	// tenant), so a person who removes a role from themselves in a tenant is judged by
+	// the rule on the tenant's last administrator. The application's last administrator
+	// is its last super administrator, kept by the client's own rule.
+	_, tenantAdministrators := AdministratorRoles()
+	identityClient, err := staffidentity.NewClient(accessClient, authSession.API(), identity.WithAdministratorRoles(tenantAdministrators))
 	if err != nil {
 		return nil, errors.Wrap(err, "staffidentity.NewClient()")
 	}

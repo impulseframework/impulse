@@ -48,9 +48,8 @@ func asCallerThrough(ctx context.Context, auth string, user accesstypes.User) co
 	return asCaller(resource.WithAuth(ctx, auth), user)
 }
 
-// administrators are the roles the tests name as the administrators': Steward in the
-// global scope and Warden in a tenant.
-var administrators = WithAdministratorRoles([]accesstypes.Role{"Steward"}, []accesstypes.Role{"Warden"})
+// administrators are the roles the tests name as a tenant's administrators': Warden.
+var administrators = WithAdministratorRoles([]accesstypes.Role{"Warden"})
 
 // TestManager_DisableUser_ownAccount pins the rule that nobody disables themselves: the
 // request's caller is refused their own account, which is the one whose id the caller
@@ -95,9 +94,11 @@ func TestManager_DisableUser_ownAccount(t *testing.T) {
 }
 
 // TestManager_RemoveRole_lastAdministrator pins the rule on a person removing a role
-// from themselves: an administrator role nobody else would hold where it is held stays,
-// and every other role goes; without the administrator roles a person removes no role
-// from themselves; and the rule judges nobody but the caller.
+// from themselves: a tenant's administrator role nobody else would hold there stays,
+// and every other role goes, a role of the global scope among them, since the
+// application's last administrator is its last super administrator; without the
+// administrator roles a person removes no role from themselves in a tenant; and the
+// rule judges nobody but the caller.
 func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 	t.Parallel()
 
@@ -115,15 +116,15 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 		wantRemoved bool
 	}{
 		{
-			name: "the last administrator of the application keeps the role",
+			name: "a role of the global scope goes from its last holder: the application's last administrator is its last super administrator",
 			opts: []Option{administrators}, caller: dana, scope: globalScope, role: "Steward",
-			held:    []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, erin, "Reader")},
-			wantErr: httpio.HasForbidden,
+			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, erin, "Reader")},
+			wantRemoved: true,
 		},
 		{
-			name: "an administrator gives the role up once another holds it",
-			opts: []Option{administrators}, caller: dana, scope: globalScope, role: "Steward",
-			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, erin, "Steward")},
+			name:   "a role of the global scope goes without the administrator roles too",
+			caller: dana, scope: globalScope, role: "Steward",
+			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, dana, "Reader")},
 			wantRemoved: true,
 		},
 		{
@@ -163,21 +164,27 @@ func TestManager_RemoveRole_lastAdministrator(t *testing.T) {
 			wantRemoved: true,
 		},
 		{
-			name:   "without the administrator roles a person removes no role from themselves",
-			caller: dana, scope: globalScope, role: "Reader",
-			held:    []access.MembershipKey{membership(globalScope, dana, "Reader"), membership(globalScope, dana, "Steward")},
+			name:   "without the administrator roles a person removes no role from themselves in a tenant",
+			caller: dana, scope: alphaScope, role: "Reader",
+			held:    []access.MembershipKey{membership(alphaScope, dana, "Reader"), membership(globalScope, dana, "Steward")},
 			wantErr: httpio.HasForbidden,
 		},
 		{
-			name: "the rule judges nobody but the caller: another person removes the last administrator's role",
-			opts: []Option{administrators}, caller: erin, scope: globalScope, role: "Steward",
-			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, dana, "Reader")},
+			name:   "without the administrator roles a person removes no role from themselves in every tenant",
+			caller: dana, scope: everyScope, role: "Reader",
+			held:    []access.MembershipKey{membership(everyScope, dana, "Reader"), membership(globalScope, dana, "Steward")},
+			wantErr: httpio.HasForbidden,
+		},
+		{
+			name: "the rule judges nobody but the caller: another person removes the last administrator's role in the tenant",
+			opts: []Option{administrators}, caller: erin, scope: alphaScope, role: "Warden",
+			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(globalScope, dana, "Reader")},
 			wantRemoved: true,
 		},
 		{
 			name: "a call outside any request is the application's act",
-			opts: []Option{administrators}, scope: globalScope, role: "Steward",
-			held:        []access.MembershipKey{membership(globalScope, dana, "Steward"), membership(globalScope, dana, "Reader")},
+			opts: []Option{administrators}, scope: alphaScope, role: "Warden",
+			held:        []access.MembershipKey{membership(alphaScope, dana, "Warden"), membership(globalScope, dana, "Reader")},
 			wantRemoved: true,
 		},
 	}
@@ -361,9 +368,9 @@ func TestManager_RemoveRole_lastRole(t *testing.T) {
 func TestManager_callerOfAnotherAuth(t *testing.T) {
 	t.Parallel()
 
-	// dana is the one administrator and holds a second role, so the removal of the
-	// first leaves the account in place.
-	steward := access.NewMembershipKey(globalScope, dana, "Steward")
+	// dana is the one administrator of the tenant and holds a second role, so the
+	// removal of the first leaves the account in place.
+	warden := access.NewMembershipKey(alphaScope, dana, "Warden")
 	reader := access.NewMembershipKey(globalScope, dana, "Reader")
 	acts := []struct {
 		name       string
@@ -382,14 +389,14 @@ func TestManager_callerOfAnotherAuth(t *testing.T) {
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 				return m.DeleteUser(ctx, txn, userID)
 			},
-			wantWrites: []string{"delete user " + userID.String(), "delete membership " + membershipText(&reader), "delete membership " + membershipText(&steward)},
+			wantWrites: []string{"delete user " + userID.String(), "delete membership " + membershipText(&warden), "delete membership " + membershipText(&reader)},
 		},
 		{
 			name: "remove the last administrator's role",
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
-				return m.RemoveRole(ctx, txn, globalScope, userID, "Steward")
+				return m.RemoveRole(ctx, txn, alphaScope, userID, "Warden")
 			},
-			wantWrites: []string{"delete membership " + membershipText(&steward)},
+			wantWrites: []string{"delete membership " + membershipText(&warden)},
 		},
 	}
 	callers := []struct {
@@ -438,7 +445,7 @@ func TestManager_callerOfAnotherAuth(t *testing.T) {
 
 				store := &fakeStore{
 					usernames:   map[impulse.UUID]string{userID: "dana"},
-					memberships: map[access.MembershipKey]bool{steward: true, reader: true},
+					memberships: map[access.MembershipKey]bool{warden: true, reader: true},
 				}
 				m, _ := newManager(t, store, engineRoles, administrators)
 

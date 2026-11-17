@@ -369,7 +369,7 @@ jobs:
           docker run --rm -v "$PWD:/src" semgrep/semgrep@sha256:93963d9295a366f59e4850127b1550400ee7b388f04fe144e4a1f6325d96e01b \
             semgrep ci --config auto --max-target-bytes 500000 --baseline-commit "$(git merge-base HEAD "origin/$BASE_REF")" # 1.179.0
 
-  # impulse check with its regeneration (the generators start the Spanner emulator in a container, which the runner has), failing on a tree the checks changed, since what they regenerated or rewrote is not committed. It restores go-build's Go caches, as go-vuln does, and saves nothing.
+  # impulse check with its regeneration (the generators start the Spanner emulator in a container, which the runner has), failing on a tree the checks changed, since what they regenerated or rewrote is not committed. It restores go-build's Go caches, as go-vuln does, and saves nothing. The browser workspaces are installed first (bun ci, as their own jobs install them), since the check holds the browser files to the prettier a workspace pins and the formatter comes with the install: without it the check would say it was not run, and an unformatted file would pass.
   go-check:
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -405,6 +405,19 @@ jobs:
           restore-keys: |
             go-build-${{ runner.os }}-${{ hashFiles('go.sum') }}-
             go-build-${{ runner.os }}-
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.0
+      - name: Install the browser workspace at apps/console/web
+        # impulse check's prettier check runs the prettier the workspace pins, which this
+        # install brings; a workspace left uninstalled is one the check does not read.
+        working-directory: apps/console/web
+        run: bun ci
+      - name: Install the browser workspace at apps/portal/web
+        # impulse check's prettier check runs the prettier the workspace pins, which this
+        # install brings; a workspace left uninstalled is one the check does not read.
+        working-directory: apps/portal/web
+        run: bun ci
       - name: impulse check
         run: go tool impulse check
       - name: The tree is clean

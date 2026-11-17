@@ -191,6 +191,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangars/testHangarID", method: http.MethodGet},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangars/testHangarID", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangars", method: http.MethodPatch},
+		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes", method: http.MethodGet},
+		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes", method: http.MethodPost},
+		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/testHangarPassID", method: http.MethodGet},
+		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/testHangarPassID", method: http.MethodPost},
 		{url: "/droids/members-roles", method: http.MethodGet},
 		{url: "/droids/members-roles", method: http.MethodPost},
 		{url: "/droids/members-role-grants", method: http.MethodGet},
@@ -377,7 +381,9 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/issue-bulletin", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/launch-mission", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/pass-flight-test", method: http.MethodPost},
+		{url: "/droids/remove-crew-password", method: http.MethodPost},
 		{url: "/droids/remove-crew-role", method: http.MethodPost},
+		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-password", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-role", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/rename-crew-sector-user", method: http.MethodPost},
 		{url: "/droids/rename-crew-user", method: http.MethodPost},
@@ -492,6 +498,10 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangars/testHangarID", method: http.MethodGet},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangars/testHangarID", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangars", method: http.MethodPatch},
+		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes", method: http.MethodGet},
+		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes", method: http.MethodPost},
+		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/testHangarPassID", method: http.MethodGet},
+		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/testHangarPassID", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-boards", method: http.MethodGet},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-boards", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-boards/testMissionBoardID", method: http.MethodGet},
@@ -614,7 +624,9 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/launch-mission", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/pass-flight-test", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/release-consignment", method: http.MethodPost},
+		{url: "/portal/api/remove-crew-password", method: http.MethodPost},
 		{url: "/portal/api/remove-crew-role", method: http.MethodPost},
+		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-password", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-role", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/rename-crew-sector-user", method: http.MethodPost},
 		{url: "/portal/api/rename-crew-user", method: http.MethodPost},
@@ -770,6 +782,7 @@ func generatedRouteParameters() []string {
 		"distressCallID",
 		"feeByKindKindID",
 		"hangarID",
+		"hangarPassID",
 		"membersSectorIdentityID",
 		"membersSectorInvitationID",
 		"membersSectorUserID",
@@ -1368,6 +1381,26 @@ func generatedRouterTests() []*generatedRouterTest {
 			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangars", method: http.MethodPatch,
 			handlerFunc: "PatchHangars",
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes", method: http.MethodGet,
+			handlerFunc: "HangarPasses",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes", method: http.MethodPost,
+			handlerFunc: "HangarPasses",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/testHangarPassID", method: http.MethodGet,
+			handlerFunc: "HangarPass",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "hangarPassID": "testHangarPassID"},
+		},
+		{
+			url: "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/testHangarPassID", method: http.MethodPost,
+			handlerFunc: "HangarPass",
+			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000", "hangarPassID": "testHangarPassID"},
 		},
 		{
 			url: "/console/api/members-roles", method: http.MethodGet,
@@ -2888,6 +2921,14 @@ func (s *generatedHandlersStub) PatchHangars() http.HandlerFunc {
 	return s.record("PatchHangars")
 }
 
+func (s *generatedHandlersStub) HangarPasses() http.HandlerFunc {
+	return s.record("HangarPasses")
+}
+
+func (s *generatedHandlersStub) HangarPass() http.HandlerFunc {
+	return s.record("HangarPass")
+}
+
 func (s *generatedHandlersStub) HoldMission() http.HandlerFunc {
 	return s.record("HoldMission")
 }
@@ -3096,8 +3137,16 @@ func (s *generatedHandlersStub) ReleaseConsignment() http.HandlerFunc {
 	return s.record("ReleaseConsignment")
 }
 
+func (s *generatedHandlersStub) RemoveCrewPassword() http.HandlerFunc {
+	return s.record("RemoveCrewPassword")
+}
+
 func (s *generatedHandlersStub) RemoveCrewRole() http.HandlerFunc {
 	return s.record("RemoveCrewRole")
+}
+
+func (s *generatedHandlersStub) RemoveCrewSectorPassword() http.HandlerFunc {
+	return s.record("RemoveCrewSectorPassword")
 }
 
 func (s *generatedHandlersStub) RemoveCrewSectorRole() http.HandlerFunc {

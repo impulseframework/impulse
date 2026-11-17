@@ -239,7 +239,7 @@ type claims struct {
 const guestMarker = "#EXT#"
 
 // identityOf decodes the ID token's claims into the identity. A token without tid and
-// oid, or whose claims do not decode, is refused (claims_parse).
+// oid, or whose claims do not decode, is refused (parse_claims_failed).
 func identityOf(rawClaims json.RawMessage) (*Identity, error) {
 	c, err := oidc.DecodeClaims[claims](rawClaims)
 	if err != nil {

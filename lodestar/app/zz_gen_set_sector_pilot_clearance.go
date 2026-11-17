@@ -82,7 +82,7 @@ func (a *App) SetSectorPilotClearance() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
 		}
 
-		live.Publish(ctx, a.LiveService(), liveDerivations, domain, touched)
+		live.Publish(ctx, w, a.LiveService(), liveDerivations, domain, touched)
 
 		w.WriteHeader(http.StatusNoContent)
 

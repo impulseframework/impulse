@@ -454,6 +454,10 @@ func (s *generatedHandlersStub) InviteStaffUser() http.HandlerFunc {
 	return s.record("InviteStaffUser")
 }
 
+func (s *generatedHandlersStub) RemoveStaffPassword() http.HandlerFunc {
+	return s.record("RemoveStaffPassword")
+}
+
 func (s *generatedHandlersStub) RemoveStaffRole() http.HandlerFunc {
 	return s.record("RemoveStaffRole")
 }

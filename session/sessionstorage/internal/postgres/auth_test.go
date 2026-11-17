@@ -31,16 +31,16 @@ func TestAuth(t *testing.T) {
 
 // authSources maps an users suite schema to this package's migration sources.
 func authSources(schema drivertest.AuthSchema) []string {
-	legacy := []string{"file://../../../schema/postgresql/migrations", "file://../../../schema/postgresql/impersonation/migrations"}
+	base := []string{"file://../../../schema/postgresql/migrations", "file://../../../schema/postgresql/impersonation/migrations"}
 	switch schema {
-	case drivertest.LegacySessions:
-		return legacy
+	case drivertest.WithoutAuth:
+		return base
 	case drivertest.Auth:
-		return append(legacy, "file://../../../schema/postgresql/auth/migrations")
+		return append(base, "file://../../../schema/postgresql/auth/migrations")
 	case drivertest.AuthWithAppTables:
-		return append(legacy, "file://../../../schema/postgresql/auth/migrations", "file://testdata/auth_test/app_tables")
+		return append(base, "file://../../../schema/postgresql/auth/migrations", "file://testdata/auth_test/app_tables")
 	case drivertest.AuthUsernameIsEmail:
-		return append(legacy, "file://../../../schema/postgresql/auth/migrations", "file://testdata/auth_test/app_tables", "file://testdata/auth_test/username_is_email")
+		return append(base, "file://../../../schema/postgresql/auth/migrations", "file://testdata/auth_test/app_tables", "file://testdata/auth_test/username_is_email")
 	default:
 		panic("unknown schema")
 	}

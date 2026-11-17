@@ -51,20 +51,35 @@ type Client struct {
 // store: a role a method assigns is held to its rule, and it is told once a membership
 // is committed. sessions is the API of the session library's Auth that signs the
 // auth's people in (its API method): a password a method writes is hashed by that
-// Auth's password method. The options are the identity package's: the administrator
-// roles (identity.WithAdministratorRoles), which the rule on a person removing a role
-// from themselves reads, and one tenant per person (identity.WithOneTenantPerPerson),
-// which every role given in a tenant is then held to.
+// Auth's password method. The options are the identity package's: a tenant's
+// administrator roles (identity.WithAdministratorRoles), which the rule on a person
+// removing a role from themselves in a tenant reads, and one tenant per person
+// (identity.WithOneTenantPerPerson), which every role given in a tenant is then held to.
+//
+// The engine is the one built with the methods a super administrator always executes
+// (access.WithSuperAdministratorMethods(SuperAdministratorMethods()...)): the client
+// refuses one built without them.
 func NewClient(controller access.Controller, sessions identity.SessionAPI, opts ...identity.Option) (*Client, error) {
 	// A refusal that speaks of a tenant says the application's word for one, the tenant
 	// record's; it goes first, so an option the caller passes is the one kept.
 	opts = append([]identity.Option{identity.WithTenantWord("sector")}, opts...)
+	opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))
 	manager, err := identity.New(AuthName, store{}, controller, sessions, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.New()")
 	}
 
 	return &Client{manager: manager}, nil
+}
+
+// SuperAdministratorMethods are the methods that give and take the Crew auth's
+// roles for the whole application, in the global scope, in one domain or in every
+// domain. The auth's package hands them to its permission engine where it builds it
+// (access.WithSuperAdministratorMethods), and the Super Administrator role, which the
+// framework defines in every auth, then holds Execute on each whatever the role file
+// grants: a super administrator gives and takes any role of the auth for any person.
+func SuperAdministratorMethods() []accesstypes.Resource {
+	return []accesstypes.Resource{AssignCrewRole{}.Method(), RemoveCrewRole{}.Method()}
 }
 
 // AssignRole buffers the membership of user in role, held in scope, in the caller's

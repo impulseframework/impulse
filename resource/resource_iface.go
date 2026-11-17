@@ -33,8 +33,9 @@ type UserPermissions interface {
 	// Reaches reports whether the session may enter domain: the tenant's
 	// declaration (TenantDeclarations) admits the way the session was
 	// established, its sign-in's method and connection, or the session's
-	// actor is the application's staff, who hold a grant in the global
-	// partition and reach every tenant. It is the generated domain guard's
+	// actor is a super administrator, who holds the Super Administrator role
+	// and enters every tenant; nobody else is exempt from a tenant's sign-in
+	// settings. It is the generated domain guard's
 	// question before the foothold, and the attenuation behind every other
 	// answer: in a tenant the session does not reach it holds nothing —
 	// every check Denied, an empty digest, no foothold. Whether domain is a
@@ -86,6 +87,24 @@ type UserPermissionChecker interface {
 	HasGrants(ctx context.Context, scope accesstypes.Scope) (bool, error)
 
 	User() accesstypes.User
+}
+
+// SessionUserChecker is the checker SessionPermissions takes for a person: a
+// UserPermissionChecker that also says whether the person is a super
+// administrator. The session's reach into a tenant asks it of the session's
+// actor, so the answer is the real person's behind an impersonated session.
+//
+// The canonical implementation is the access package's request-bound checker
+// (Client.ForUser), which satisfies this interface structurally.
+type SessionUserChecker interface {
+	UserPermissionChecker
+
+	// SuperAdministrator reports whether the user holds the Super
+	// Administrator role (accesstypes.SuperAdministrator), the role the
+	// framework defines in every auth: its holder enters every tenant,
+	// whatever the tenant's sign-in settings say. Holding another role in the
+	// global partition, or a role in every tenant, is not it.
+	SuperAdministrator(ctx context.Context) (bool, error)
 }
 
 // RolePermissions is the permission surface of a session that operates as a

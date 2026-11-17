@@ -415,6 +415,10 @@ type servedRouterData struct {
 	// packages the named stores' types are declared in.
 	FileStores   []servedFileStore
 	StoreImports []string
+	// SecretFields are the application's stored secrets, as Struct.Field: New requires
+	// the resource client's secret keys for them before the server starts. None for an
+	// application that stores no secret, and then the router asks for none.
+	SecretFields []string
 	// ScheduledRoutes are the scheduled methods' routes, mounted under ScheduledPrefix
 	// behind SchedulerAuth; none without a scheduled method, and then the router carries
 	// no scheduled group.
@@ -599,6 +603,9 @@ type servedOutlet struct {
 	// ChangePassword is where the password change is mounted, told to the login page
 	// beside the methods; empty without a password method.
 	ChangePassword string
+	// RemovePassword is where the account page removes the person's own password, told
+	// to the browser beside the methods; empty without a password method.
+	RemovePassword string
 	// ForgetBrowser is where the account page forgets the remembered browser, told to
 	// the browser beside the methods.
 	ForgetBrowser string
@@ -886,6 +893,7 @@ func (r *resourceGenerator) servedRouterData(outlets []*routerOutlet, negativeTe
 		RequestLog:          r.requestLog,
 	}
 	data.FileStores, data.StoreImports = r.servedFileStores()
+	data.SecretFields = r.servedSecretFields()
 	if multiAuth {
 		for path := range authPaths {
 			data.AuthImports = append(data.AuthImports, path)
@@ -1141,13 +1149,15 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		switch m.kind {
 		case methodPassword:
 			sm.LoginPath = prefix + base + "/login"
-			sm.Handlers = []string{sm.Accessor + "Login", sm.Accessor + "Change"}
-			sm.Description = "The password method's login and password change (session.PasswordMethod); the change validates the session itself, outside ValidateSession"
+			sm.Handlers = []string{sm.Accessor + "Login", sm.Accessor + "Change", sm.Accessor + "Remove"}
+			sm.Description = "The password method's login, password change and password removal (session.PasswordMethod); the change and the removal validate the session themselves, outside ValidateSession"
 			guarded = append(guarded,
 				route(http.MethodPost, base+"/login", sm.Accessor+"Login", true),
 				route(http.MethodPost, base+"/change", sm.Accessor+"Change", true),
+				route(http.MethodPost, base+"/remove", sm.Accessor+"Remove", true),
 			)
 			so.ChangePassword = prefix + base + "/change"
+			so.RemovePassword = prefix + base + "/remove"
 		case methodGoogle, methodWorkOS, methodAzure, methodOIDC:
 			sm.LoginPath = prefix + base + "/login"
 			sm.Handlers = []string{sm.Accessor + "Login", sm.Accessor + "Callback"}
@@ -1516,10 +1526,16 @@ type Handlers interface {
 {{- if .ScheduledRoutes }}
 	GeneratedScheduledHandlers
 {{- end }}
-{{- if .FileStores }}
-	// ResourceClient is the client the generated handlers run against. The file
+{{- if or .FileStores .SecretFields }}
+	// ResourceClient is the client the generated handlers run against.
+{{- if .FileStores }} The file
 	// stores the generated code reads and writes are wired on it, and New refuses to
 	// start without them (resource.RequireFileStores).
+{{- end }}
+{{- if .SecretFields }} The application's
+	// secret keys are wired on it, which seal every stored secret, and New refuses to
+	// start without them (resource.RequireSecretKeys).
+{{- end }}
 	ResourceClient() resource.Client
 {{- end }}
 {{- range .SessionOutlets }}
@@ -1672,6 +1688,14 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 	// client, or the server does not start: an unwired store would otherwise surface
 	// on the first upload, file request or releasing delete.
 	if err := resource.RequireFileStores(h.ResourceClient(){{ range .FileStores }}, {{ .NameExpr }}{{ end }}); err != nil {
+		panic(fmt.Sprintf("router.New: %v", err))
+	}
+{{- end }}
+{{- if .SecretFields }}
+	// The application stores secrets, which the resource client seals with the
+	// application's secret keys, or the server does not start: a client built without
+	// them would otherwise surface on the first write of a secret.
+	if err := resource.RequireSecretKeys(h.ResourceClient(){{ range .SecretFields }}, "{{ . }}"{{ end }}); err != nil {
 		panic(fmt.Sprintf("router.New: %v", err))
 	}
 {{- end }}
@@ -1836,6 +1860,9 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			},
 {{- if $outlet.ChangePassword }}
 			ChangePassword: "{{ $outlet.ChangePassword }}",
+{{- end }}
+{{- if $outlet.RemovePassword }}
+			RemovePassword: "{{ $outlet.RemovePassword }}",
 {{- end }}
 			ForgetBrowser: "{{ $outlet.ForgetBrowser }}",
 			ChangeName: "{{ $outlet.ChangeName }}",
@@ -2975,13 +3002,29 @@ type routerHandlersStub struct {
 func (s *routerHandlersStub) ServerVersion() string {
 	return s.serverVersion
 }
-{{- if .FileStores }}
+{{- if or .FileStores .SecretFields }}
 
-// ResourceClient answers with a mock client carrying every file store New requires,
-// each a stub: the router test never reaches a store.
+// ResourceClient answers with a mock client carrying what New requires: every file
+// store, each a stub, and the secret keys of an application that stores a secret, built
+// from fixed bytes. The router test never reaches a store and never seals a value.
 func (s *routerHandlersStub) ResourceClient() resource.Client {
-	return resource.NewMockClient(nil, nil, nil{{ range .FileStores }}, {{ .OptionExpr }}{{ end }})
+	return resource.NewMockClient(nil, nil, nil{{ range .FileStores }}, {{ .OptionExpr }}{{ end }}{{ if .SecretFields }}, resource.WithSecretKeys(stubSecretKeys()){{ end }})
 }
+{{- end }}
+{{- if .SecretFields }}
+
+// stubSecretKeys builds the secret keys the router test's client carries, from fixed
+// bytes.
+func stubSecretKeys() *resource.SecretKeys {
+	keys, err := resource.NewSecretKeys(map[int][]byte{1: bytes.Repeat([]byte{1}, 32)})
+	if err != nil {
+		panic(err)
+	}
+
+	return keys
+}
+{{- end }}
+{{- if .FileStores }}
 
 // stubFileStore satisfies resource.FileStore for the router test.
 type stubFileStore struct{}

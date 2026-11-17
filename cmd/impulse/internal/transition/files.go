@@ -43,6 +43,9 @@ const (
 	// cleanupCommand is the job process's command for the cleanup, as pkg/jobs declares
 	// it and the scheduled method starts it.
 	cleanupCommand = "cleanup-files"
+	// databaseOpenFixedArguments is how many arguments the database driver's Open takes
+	// before the resource client's options: the context and the settings.
+	databaseOpenFixedArguments = 2
 )
 
 // The directories the wiring writes into: the rpc package a flat application gains, the
@@ -297,7 +300,10 @@ func (f Files) openStore(e *sourceEdit) error {
 	}
 	e.src = opened
 	e.gained = append(e.gained, "the opening")
-	if err := e.apply(app.ExtendCall(e.rel, e.src, dataConstructor, databaseOpenCall, "fileStoreOptions(files)...")); err != nil {
+	// The driver's Open takes the context and the settings, then the resource client's
+	// options: the store's join whatever options the call already passes (the secret
+	// keys, in the skeletons).
+	if err := e.apply(app.SpreadIntoCall(e.rel, e.src, dataConstructor, databaseOpenCall, databaseOpenFixedArguments, "fileStoreOptions(files)")); err != nil {
 		return err
 	}
 	e.gained = append(e.gained, "the resource client built over the store")

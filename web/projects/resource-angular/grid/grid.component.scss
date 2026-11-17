@@ -334,3 +334,16 @@ a[mat-icon-button] {
   vertical-align: middle;
   cursor: default;
 }
+
+// A yes-or-no value: a check for yes, and a quiet dash for no, so a column where no is
+// the usual answer shows its exceptions at a glance and a no is still not an empty cell.
+.data-col .cell-yes {
+  width: 20px;
+  height: 20px;
+  font-size: 20px;
+  vertical-align: middle;
+}
+
+.data-col .cell-no {
+  color: var(--mat-sys-on-surface-variant);
+}

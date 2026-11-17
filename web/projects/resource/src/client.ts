@@ -17,7 +17,10 @@ import {
   LiveOptions,
   LiveSession,
   LiveSubscription,
+  WriteChanges,
+  changesHeader,
   liveSubscription,
+  parseChangesHeader,
   subscribeHeader,
   versionParam,
   versionedUrl,
@@ -59,7 +62,12 @@ export interface ClientOptions {
    * answered without it, naming the regeneration that would serve it. `console.warn` by default.
    */
   warn?: Warn;
-  /** The live session's knobs (renewal interval, page events, the keepalive fetch); every one has a default. */
+  /**
+   * The live session's knobs: how long a page waits on other people's changes and how
+   * often it fetches for them at most (`changeWait`, `refetchInterval`), the renewal
+   * interval, the page and visibility events, the keepalive fetch; every one has a
+   * default.
+   */
   live?: LiveOptions;
   /**
    * The release this build of the application was made from, sent as the version header
@@ -474,12 +482,16 @@ export function createClient<G, D>(descriptor: ApiDescriptor, options: ClientOpt
   const baseUrl = options.baseUrl.replace(/\/+$/, '');
   const transport = options.transport ?? fetchTransport();
   const serverRelease = new Store<string | undefined>(undefined);
+  // The live session is built over the requester, and the requester hands it each
+  // write's answer: the session takes its place here below, before any request is made.
+  const session: { live?: LiveSession } = {};
   const requestResponse = createRequester(baseUrl, transport, {
     onError: options.onError,
     apiVersion: options.apiVersion,
     olderServerRetryDelays: options.olderServerRetryDelays,
     timeZone: options.timeZone,
     serverRelease,
+    wrote: (changes) => session.live?.wrote(changes),
   });
   const request: Requester = async <T>(method: HttpMethod, path: string, requestOptions?: RequestOptions): Promise<T> =>
     (await requestResponse<T>(method, path, requestOptions)).body;
@@ -489,6 +501,7 @@ export function createClient<G, D>(descriptor: ApiDescriptor, options: ClientOpt
   });
   const warn = warnOnce(options.warn);
   const live = new LiveSession({ ...options.live, request, baseUrl, routes: descriptor.live, warn });
+  session.live = live;
   const features = new FeatureState({
     request,
     route: descriptor.features?.route,
@@ -619,6 +632,8 @@ interface RequesterOptions {
   timeZone?: string;
   /** Where the release each answer names is kept, when the caller keeps it. */
   serverRelease?: Store<string | undefined>;
+  /** Who takes what a write's answer says it changed (the changes header): the live session. */
+  wrote?: (changes: WriteChanges) => void;
 }
 
 /**
@@ -630,7 +645,9 @@ interface RequesterOptions {
  * new instance); when the retries run out, or when this build is the older one, the
  * refusal is thrown as ApiVersionError, observed by the hook first. Every answer that names
  * the server's release in the version header, refusals included, is kept in `serverRelease`
- * before it is judged. A 503 that carries the
+ * before it is judged, and every answer that carries the changes header, a write's, is
+ * handed to `wrote` before the caller is answered, so the live pages the write changed
+ * fetch at once. A 503 that carries the
  * maintenance marker is the server down for maintenance and is judged the same way, before
  * the caller's declared answers, and thrown as MaintenanceError with the server's
  * Retry-After; a 503 without the marker is an ordinary error. Every other 4xx or 5xx the
@@ -651,6 +668,10 @@ function createRequester(baseUrl: string, transport: Transport, requester: Reque
       const named = response.headers?.[apiVersionHeader.toLowerCase()];
       if (named !== undefined && named !== '') {
         requester.serverRelease?.set(named);
+      }
+      const changes = parseChangesHeader(response.headers?.[changesHeader.toLowerCase()]);
+      if (changes) {
+        requester.wrote?.(changes);
       }
       const serverVersion = versionRefusal(response);
       if (serverVersion !== undefined) {

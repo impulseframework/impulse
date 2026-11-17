@@ -9,6 +9,15 @@
 // (-1 for no version), print the row before and after, and exit. None of them applies a
 // migration, so a force refuses -seed and -version. The pipeline passes them from the
 // operations workflow (bedrock deploy migrate); they work anywhere the job runs.
+//
+// -retire-secret <variable> retires one version of the application secret, named by the
+// variable the version is handed over in (APP_SECRET_KEY_1): every stored secret field
+// that names the version is opened and written again under the current version, and a
+// final read confirms none is left. It exits 0 only then, so the deployment disables the
+// version only when no stored value needs it; it prints how many values of each field it
+// wrote and never a value, refuses the current version, and is safe to run again. Its
+// environment is the migration's with one variable for each enabled version, the one
+// being retired among them. It applies no migration and goes with no other flag.
 package main
 
 import (
@@ -69,6 +78,9 @@ type options struct {
 	version   bool
 	force     versionFlag
 	forceData versionFlag
+	// retireSecret is the variable of the version of the application secret to retire
+	// (APP_SECRET_KEY_1); empty when the command is not asked to retire one.
+	retireSecret string
 }
 
 // versionFlag is a version to force: set once given, -1 meaning no version.
@@ -107,6 +119,7 @@ func parse(args []string, stderr io.Writer) (*options, error) {
 	fs.BoolVar(&o.version, "version", false, "print what the schema and data migrations tables say about the database (no version, a version, or dirty at one with the progress recorded) and exit; nothing is applied")
 	fs.Var(&o.force, "force", "set the schema migrations table to this `version`, clean, print the row before and after, and exit; -1 means no version; the next run continues from it")
 	fs.Var(&o.forceData, "force-data", "the same for the data migrations table")
+	fs.StringVar(&o.retireSecret, "retire-secret", "", "retire one version of the application secret, named by the `variable` it is handed over in (APP_SECRET_KEY_1): write every stored secret that names it again under the current version, confirm none is left, and exit; nothing is migrated")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return nil, errors.Wrap(err, "flag.FlagSet.Parse()")
@@ -119,6 +132,8 @@ func parse(args []string, stderr io.Writer) (*options, error) {
 	}
 	forcing := o.force.set || o.forceData.set
 	switch {
+	case o.retireSecret != "" && (forcing || o.seed || o.version):
+		return nil, errors.New("-retire-secret applies no migration and reports no version: it goes with no other flag")
 	case forcing && o.seed:
 		return nil, errors.New("-force and -force-data apply no migration: -seed cannot go with them")
 	case forcing && o.version:
@@ -144,6 +159,8 @@ func run(ctx context.Context, o *options, out io.Writer) error {
 		return report(ctx, settings, out)
 	case o.force.set || o.forceData.set:
 		return force(ctx, settings, o, out)
+	case o.retireSecret != "":
+		return retireSecret(ctx, o.retireSecret, out)
 	}
 
 	return migrate(ctx, settings, o.seed)
@@ -203,6 +220,24 @@ func row(ctx context.Context, settings config.DatabaseSettings, table deploy.Tab
 	}
 
 	return schema.String(), nil
+}
+
+// retireSecret retires one version of the application secret: it opens the data level,
+// whose resource client holds the secret keys built from every version in the
+// environment, and writes every stored secret that names the version again under the
+// current one.
+func retireSecret(ctx context.Context, variable string, out io.Writer) error {
+	data, err := config.NewDataConfiguration(ctx)
+	if err != nil {
+		return errors.Wrap(err, "config.NewDataConfiguration()")
+	}
+	defer data.Close()
+
+	if err := deploy.RetireSecret(ctx, data.ResourceClient(), variable, out); err != nil {
+		return errors.Wrap(err, "deploy.RetireSecret()")
+	}
+
+	return nil
 }
 
 // migrate is the deployment's migration step itself.

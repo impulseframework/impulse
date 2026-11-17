@@ -52,6 +52,7 @@ type signInRegistration struct {
 type methodHandlers struct {
 	login              http.HandlerFunc
 	changeUserPassword http.HandlerFunc
+	removeUserPassword http.HandlerFunc
 }
 
 // externalMethod is a registered redirect-based method with the account rules its
@@ -318,12 +319,15 @@ func (a *Auth[S, U, Tx]) register(reg *signInRegistration) methodHandlers {
 	a.methods.password = &settings
 	a.storage.SetUsernameIsEmail(settings.UsernameIsEmail)
 
-	return methodHandlers{login: a.serving(a.passwordLogin()), changeUserPassword: a.serving(a.changeUserPasswordHandler())}
+	return methodHandlers{
+		login: a.serving(a.passwordLogin()), changeUserPassword: a.serving(a.changeUserPasswordHandler()),
+		removeUserPassword: a.serving(a.removeUserPasswordHandler()),
+	}
 }
 
 // RegisterExternal registers a redirect-based sign-in method under its registration's
 // name and returns its handlers. It implements signin.Core: the method packages (azure,
-// google; workos under internal until v0.13.1) reach it through signin.Register, so an application never calls it
+// google; workos under internal) reach it through signin.Register, so an application never calls it
 // directly. It panics on a registration rule, as refuseRegistration documents, when
 // the registration has neither a standard account rule nor a custom one, when it
 // names a standard rule that does not exist, and when a registration that synchronizes
@@ -380,6 +384,7 @@ func registerMethod(auth signInRegistry, reg *signInRegistration) methodHandlers
 type PasswordMethod struct {
 	login              http.HandlerFunc
 	changeUserPassword http.HandlerFunc
+	removeUserPassword http.HandlerFunc
 }
 
 // PasswordSignIn registers username and password sign-in on auth and returns its
@@ -404,7 +409,7 @@ func PasswordSignIn(auth signInRegistry, options ...PasswordOption) *PasswordMet
 	}
 	h := registerMethod(auth, reg)
 
-	return &PasswordMethod{login: h.login, changeUserPassword: h.changeUserPassword}
+	return &PasswordMethod{login: h.login, changeUserPassword: h.changeUserPassword, removeUserPassword: h.removeUserPassword}
 }
 
 // Login accepts {"username", "password"}. On success it applies the sign-in policy and
@@ -421,6 +426,18 @@ func (m *PasswordMethod) Login() http.HandlerFunc { return m.login }
 // the session read and the logout, outside ValidateSession and behind
 // ValidateXSRFToken, and name its path to Methods (MethodList.ChangePassword).
 func (m *PasswordMethod) ChangeUserPassword() http.HandlerFunc { return m.changeUserPassword }
+
+// RemoveUserPassword accepts {"password"}, the signed-in user's current password, and
+// removes it: from then on they sign in through their identity links alone. The
+// password must match (400 otherwise), as a change asks, and a user with no identity
+// link keeps it, their last means of sign-in (409). The password change mark is
+// cleared with the password, and the user's sessions stand, this one among them. It
+// validates the session itself, as the change does, so it is routed beside it, outside
+// ValidateSession and behind ValidateXSRFToken; name its path to Methods
+// (MethodList.RemovePassword) for the account page to offer it.
+func (m *PasswordMethod) RemoveUserPassword() http.HandlerFunc {
+	return m.removeUserPassword
+}
 
 // frontChannelLogout handles a provider-initiated logout: it ends every live session
 // whose sign-in carried the provider's session id the request names (?sid=) under an

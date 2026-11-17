@@ -294,9 +294,11 @@ func TestThemeChoiceSurface(t *testing.T) {
 			file: "console/src/theme.scss",
 			want: []string{
 				"@use '@impulseframework/resource-angular/palettes';",
+				"@use './theme-colors' as brand;",
 				"@include theme.palettes(",
-				"'blue': (",
-				"primary: mat.$azure-palette,",
+				"'brand': (",
+				"primary: brand.$primary-palette,",
+				"tertiary: brand.$tertiary-palette,",
 				"'workspace': (",
 				"primary: palettes.$workspace-primary,",
 				"tertiary: palettes.$workspace-tertiary,",
@@ -310,7 +312,7 @@ func TestThemeChoiceSurface(t *testing.T) {
 			file: "console/src/app/app.config.ts",
 			want: []string{
 				"import { provideTheme } from '@impulseframework/resource-angular/ui-theme';",
-				"{ id: 'blue', label: 'Blue' },",
+				"{ id: 'brand', label: 'Lodestar' },",
 				"{ id: 'workspace', label: 'Workspace' },",
 				"{ id: 'violet', label: 'Violet' },",
 			},
@@ -323,7 +325,7 @@ func TestThemeChoiceSurface(t *testing.T) {
 		{
 			name: "the portal offers one palette and names none to provideTheme",
 			file: "portal/src/theme.scss",
-			want: []string{"@include theme.palettes(", "'blue': (", "primary: mat.$azure-palette,", "tertiary: mat.$blue-palette,"},
+			want: []string{"@use './theme-colors' as brand;", "@include theme.palettes(", "'brand': (", "primary: brand.$primary-palette,", "tertiary: brand.$tertiary-palette,"},
 		},
 		{
 			name: "the portal starts the service with no palette",

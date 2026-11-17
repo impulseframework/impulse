@@ -28,6 +28,28 @@ export const liveSubscriptionTtl = 300_000;
 export const liveChangeTtl = 600_000;
 
 /**
+ * The response header a write's answer carries when the write changed something the
+ * caller holds live: the write's id and the changes it published to the caller's own
+ * change set, as JSON, percent-encoded (see WriteChanges). The live session fetches what
+ * it names at once and does nothing when the feed reports the same write.
+ */
+export const changesHeader = 'X-Changes';
+
+/**
+ * How long the first change by someone else waits before the page fetches, in
+ * milliseconds: every change that arrives in the wait becomes part of the one fetch.
+ * The library's default; an application sets its own in LiveOptions.
+ */
+export const liveChangeWait = 2_000;
+
+/**
+ * The least time between two fetches a page makes for other people's changes, in
+ * milliseconds: while changes keep arriving, the page fetches once per interval. The
+ * library's default; an application sets its own in LiveOptions.
+ */
+export const liveRefetchInterval = 5_000;
+
+/**
  * What the session announces, once per client, when a page asks for live updates of an
  * API whose descriptor carries no live block: the request is served plain, and
  * regenerating the client API is what would serve it live.
@@ -58,7 +80,11 @@ export interface LiveIdentity {
  * global resource); a `resource` event names a resource alone and stands for every row
  * and list of it, sent when a request touched more rows than the server looks up one by
  * one. `at` is the change document's server timestamp as unix microseconds in decimal:
- * the version the refetch carries.
+ * the version the refetch carries. `write` is the id of the write that published the
+ * change, the last one's when several writes within a second became one document; the
+ * tab whose write it was learned the id from the write's answer, and takes the event
+ * for its own change. On the event a watcher receives for the tab's own write, which no
+ * feed has reported yet, `at` is the write's id, the version that fetch carries.
  */
 export interface ChangeEvent {
   kind: 'row' | 'list' | 'resource';
@@ -67,6 +93,77 @@ export interface ChangeEvent {
   domain?: string;
   deleted?: boolean;
   at: string;
+  write?: string;
+}
+
+/** A change as a write's answer names it: the row, list, or resource, with no timestamp, since no feed has reported it yet. */
+export type AnsweredChange = Omit<ChangeEvent, 'at' | 'write'>;
+
+/**
+ * What a write's answer tells the tab that wrote (the changes header): the write's id,
+ * which every change the write published carries in the feed, and the changes that went
+ * into the caller's own change set. `all` stands for the changes when the server had
+ * more than its header holds: the tab then fetches everything it holds live.
+ */
+export interface WriteChanges {
+  write: string;
+  changes: AnsweredChange[];
+  all: boolean;
+}
+
+/**
+ * Reads the changes header of a write's answer; undefined when the answer carries none,
+ * or one this client cannot read, which is then no different from a write that reached
+ * nothing the tab holds live: the feed reports the change and the page fetches for it as
+ * for anyone's.
+ */
+export function parseChangesHeader(value: string | undefined): WriteChanges | undefined {
+  if (value === undefined || value === '') {
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decodeURIComponent(value));
+  } catch {
+    return undefined;
+  }
+  if (typeof parsed !== 'object' || parsed === null) {
+    return undefined;
+  }
+  const { write, changes, all } = parsed as { write?: unknown; changes?: unknown; all?: unknown };
+  if (typeof write !== 'string' || write === '') {
+    return undefined;
+  }
+  const named: AnsweredChange[] = [];
+  for (const entry of Array.isArray(changes) ? (changes as unknown[]) : []) {
+    const change = answeredChange(entry);
+    if (change) {
+      named.push(change);
+    }
+  }
+  return { write, changes: named, all: all === true };
+}
+
+/** One entry of the changes header as a change; undefined for an entry of a shape this client does not know. */
+function answeredChange(entry: unknown): AnsweredChange | undefined {
+  if (typeof entry !== 'object' || entry === null) {
+    return undefined;
+  }
+  const { kind, resource, key, domain, deleted } = entry as Record<string, unknown>;
+  if ((kind !== 'row' && kind !== 'list' && kind !== 'resource') || typeof resource !== 'string') {
+    return undefined;
+  }
+  const change: AnsweredChange = { kind, resource };
+  if (typeof key === 'string') {
+    change.key = key;
+  }
+  if (typeof domain === 'string') {
+    change.domain = domain;
+  }
+  if (typeof deleted === 'boolean') {
+    change.deleted = deleted;
+  }
+  return change;
 }
 
 /**
@@ -110,7 +207,8 @@ export interface RenewResponse {
 
 /**
  * What a watcher does when its row or list changed: fetch it again with `version` as the
- * version parameter. `event` is the change that caused it, absent on a resync.
+ * version parameter. `event` is the change that caused it, the latest one when several
+ * became one fetch, absent on a resync.
  */
 export type LiveRefetch = (version: string, event?: ChangeEvent) => void;
 
@@ -119,6 +217,31 @@ export interface PageEvents {
   addEventListener(type: string, listener: (event: { persisted?: boolean }) => void): void;
   removeEventListener(type: string, listener: (event: { persisted?: boolean }) => void): void;
 }
+
+/** Whether the tab is shown, as the live session and a feed read it; the document, in a browser. */
+export interface VisibilityEvents {
+  readonly visibilityState: string;
+  addEventListener(type: string, listener: () => void): void;
+  removeEventListener(type: string, listener: () => void): void;
+}
+
+/**
+ * The clock the live session waits by: the time in milliseconds and a timer. The
+ * platform's by default (Date.now, setTimeout, clearTimeout); a spec passes its own and
+ * moves the time itself.
+ */
+export interface LiveClock {
+  now(): number;
+  setTimeout(run: () => void, delay: number): unknown;
+  clearTimeout(timer: unknown): void;
+}
+
+/** The platform's clock. */
+const platformClock: LiveClock = {
+  now: () => Date.now(),
+  setTimeout: (run, delay) => setTimeout(run, delay),
+  clearTimeout: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+};
 
 /**
  * Where the page-leave unsubscribe, which bypasses the transport, gets the XSRF token it
@@ -136,6 +259,17 @@ export interface LiveOptions {
   /** How often the tab renews its subscriptions; defaults to liveRenewInterval. */
   renewInterval?: number;
   /**
+   * How long the first change by someone else waits before the page fetches, in
+   * milliseconds, so that every change arriving in the wait becomes one fetch; defaults
+   * to liveChangeWait.
+   */
+  changeWait?: number;
+  /**
+   * The least time between two fetches a page makes for other people's changes, in
+   * milliseconds; defaults to liveRefetchInterval.
+   */
+  refetchInterval?: number;
+  /**
    * The XSRF echo on the page-leave unsubscribe, which bypasses the transport: the cookie
    * read under the server's default names, or under names given; a token source when the
    * application's HTTP layer knows the cookie (the Angular adapter passes one); `false`
@@ -146,6 +280,14 @@ export interface LiveOptions {
   fetch?: typeof fetch;
   /** Where pagehide and pageshow are heard; the window by default, nothing outside a browser. */
   page?: PageEvents;
+  /**
+   * Where the session reads whether the tab is shown and hears it change
+   * (visibilitychange); the document by default, and outside a browser nothing, where
+   * the tab counts as shown.
+   */
+  visibility?: VisibilityEvents;
+  /** The clock the waits run on; the platform's by default. */
+  clock?: LiveClock;
 }
 
 /** What createClient hands the live session beside the options. */
@@ -203,6 +345,40 @@ function versionKey(subscription: LiveSubscription): string {
     : `row|${subscription.resource}|${subscription.key}`;
 }
 
+/** What a resource-level version is kept under: every row and list of the resource is at least that version. */
+function resourceKey(resource: string): string {
+  return `resource|${resource}`;
+}
+
+/** What a change's version is kept under: its row, its list, or, for a resource-level change, its resource. */
+function changeKey(change: AnsweredChange): string {
+  if (change.kind === 'resource') {
+    return resourceKey(change.resource);
+  }
+  if (change.kind === 'row') {
+    return versionKey({ resource: change.resource, key: change.key ?? '' });
+  }
+  return versionKey({ resource: change.resource, domain: change.domain || undefined });
+}
+
+/**
+ * Whether a change reaches a subscription: a row change the row in every domain it was
+ * read in, since the row is one whatever domain that was; a list change the resource's
+ * list in its domain; a resource-level change every row and list of the resource.
+ */
+function reaches(change: AnsweredChange, subscription: LiveSubscription): boolean {
+  if (subscription.resource !== change.resource) {
+    return false;
+  }
+  if (change.kind === 'resource') {
+    return true;
+  }
+  if (change.kind === 'row') {
+    return subscription.key === (change.key ?? '');
+  }
+  return subscription.key === undefined && (subscription.domain || undefined) === (change.domain || undefined);
+}
+
 const base64url = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
 
 /** A fresh opaque id: 16 random bytes as 22 base64url characters. The tab id and the seed are minted with it. */
@@ -241,13 +417,43 @@ function later(a: string | undefined, b: string | undefined): string | undefined
 interface Watcher {
   subscription: LiveSubscription;
   refetch: LiveRefetch;
+  /** Whether something changed that the watcher has not fetched for yet. */
+  stale: boolean;
+  /** The latest change heard since the last fetch; undefined when a resync is what made the watcher stale. */
+  event?: ChangeEvent;
+  /** The timer of the wait that ends in the fetch for other people's changes, while one runs. */
+  timer?: unknown;
+  /** When the watcher last fetched for other people's changes, on the session's clock. */
+  groupedAt?: number;
+  /** Set when the watcher was released: nothing fetches for it any more. */
+  released: boolean;
+}
+
+/**
+ * The version a row, a list, or a resource is asked by: the latest change the feed
+ * reported for it (`at`, which never moves back), or the id of the tab's own write when
+ * that came after. `order` says which of two versions was taken last.
+ */
+interface Version {
+  value: string;
+  at?: string;
+  order: number;
 }
 
 /**
  * The tab's live session: the one place live state lives for a client. It mints the tab
- * id and the seed, holds the live rows and lists the pages watch, dispatches the feed's
- * events to them, renews the tab's subscriptions, unsubscribes when the page leaves, and
+ * id and the seed, holds the live rows and lists the pages watch, decides when each
+ * fetches again, renews the tab's subscriptions, unsubscribes when the page leaves, and
  * ends everything at logout.
+ *
+ * When a watched row or list fetches again. The tab's own write: at once, when the write
+ * is answered, since the answer names what the write changed (the changes header); the
+ * feed's later report of the same write fetches nothing. Somebody else's change: the
+ * first one starts a wait (`changeWait`, two seconds by default) and every change that
+ * arrives in it becomes the one fetch at its end, and while changes keep arriving the
+ * row or list fetches once per `refetchInterval` (five seconds by default). While the
+ * tab is hidden nothing fetches: the row or list remembers that something changed and
+ * fetches once when the tab is shown again.
  *
  * A live request (a list or read called with `{ live: true }`) carries the tab id in the
  * subscribe header and the version in the reserved parameter only while the session is
@@ -270,10 +476,20 @@ export class LiveSession {
   private timer: ReturnType<typeof setInterval> | undefined;
   /** The watchers by subscription (resource, key, domain), the grain the server renews at. */
   private readonly watchers = new Map<string, Set<Watcher>>();
-  /** The latest `at` seen per row or list (versionKey). Kept past the watcher's release, so a remount asks by the same version and the browser's cache can answer. */
-  private readonly lastSeen = new Map<string, string>();
-  /** The latest `at` of a resource-level event per resource: every row and list of it is at least that version. */
-  private readonly resourceSeen = new Map<string, string>();
+  /**
+   * The version per row or list (versionKey) and per resource (resourceKey). Kept past
+   * the watcher's release, so a remount asks by the same version and the browser's cache
+   * can answer.
+   */
+  private readonly versions = new Map<string, Version>();
+  private versionOrder = 0;
+  /**
+   * The ids of the tab's own writes, as their answers named them, each with when it was
+   * answered: an event the feed reports with one of them is the tab's own change, which
+   * it fetched for already. An id is kept for as long as the server keeps a change
+   * document.
+   */
+  private readonly ownWrites = new Map<string, number>();
   /** Subscriptions the server dropped at the last renewal; not renewed again until a watcher asks for them anew. */
   private readonly dropped = new Set<string>();
   private readonly request: Requester;
@@ -281,15 +497,20 @@ export class LiveSession {
   private readonly routes: LiveRoutes | undefined;
   private readonly warn: Warn;
   private readonly renewInterval: number;
+  private readonly changeWait: number;
+  private readonly refetchInterval: number;
   private readonly xsrf: XsrfOptions | XsrfTokenSource | false;
   private readonly keepaliveFetch: typeof fetch | undefined;
   private readonly page: PageEvents | undefined;
+  private readonly visibility: VisibilityEvents | undefined;
+  private readonly clock: LiveClock;
   private readonly onPageHide = (): void => this.leave();
   private readonly onPageShow = (event: { persisted?: boolean }): void => {
     if (event.persisted) {
       void this.renew().catch(() => undefined);
     }
   };
+  private readonly onVisibilityChange = (): void => this.shown();
 
   constructor(options: LiveSessionOptions) {
     this.request = options.request;
@@ -297,9 +518,13 @@ export class LiveSession {
     this.routes = options.routes;
     this.warn = options.warn ?? warnOnce();
     this.renewInterval = options.renewInterval ?? liveRenewInterval;
+    this.changeWait = options.changeWait ?? liveChangeWait;
+    this.refetchInterval = options.refetchInterval ?? liveRefetchInterval;
     this.xsrf = options.xsrf === undefined ? defaultXsrf : options.xsrf;
     this.keepaliveFetch = options.fetch ?? (typeof fetch === 'function' ? fetch.bind(globalThis) : undefined);
     this.page = options.page ?? (typeof window === 'undefined' ? undefined : window);
+    this.visibility = options.visibility ?? (typeof document === 'undefined' ? undefined : document);
+    this.clock = options.clock ?? platformClock;
   }
 
   /** Whether the API serves live subscriptions: its descriptor carries the live block naming the routes. */
@@ -338,13 +563,15 @@ export class LiveSession {
   }
 
   /**
-   * Holds a row or list live: `refetch` runs whenever the feed reports a change to it
-   * (or to its whole resource) and on every resync. Returns the release. Several watchers
-   * may hold one subscription; it stays current, and renewed, while any does.
+   * Holds a row or list live: `refetch` runs when the tab's own write changed it (at
+   * once), when the feed reports somebody else's change to it or to its whole resource
+   * (after the wait that groups such changes), and on every resync; never while the tab
+   * is hidden, and then once when it is shown again. Returns the release. Several
+   * watchers may hold one subscription; it stays current, and renewed, while any does.
    */
   watch(subscription: LiveSubscription, refetch: LiveRefetch): () => void {
     const key = subscriptionKey(subscription);
-    const watcher: Watcher = { subscription, refetch };
+    const watcher: Watcher = { subscription, refetch, stale: false, released: false };
     let held = this.watchers.get(key);
     if (!held) {
       held = new Set();
@@ -353,6 +580,8 @@ export class LiveSession {
     held.add(watcher);
     this.dropped.delete(key);
     return () => {
+      watcher.released = true;
+      this.settle(watcher);
       const current = this.watchers.get(key);
       if (!current) {
         return;
@@ -364,11 +593,21 @@ export class LiveSession {
     };
   }
 
-  /** The version a request for the row or list carries: the latest change seen for it, else the seed. */
+  /**
+   * The version a request for the row or list carries: the latest change taken for it or
+   * for its whole resource, the feed's (its `at`) or the tab's own write (its id), else
+   * the seed.
+   */
   version(subscription: LiveSubscription): string {
-    return (
-      later(this.lastSeen.get(versionKey(subscription)), this.resourceSeen.get(subscription.resource)) ?? this.seedValue
-    );
+    const own = this.versions.get(versionKey(subscription));
+    const whole = this.versions.get(resourceKey(subscription.resource));
+    if (!own || !whole) {
+      return (own ?? whole)?.value ?? this.seedValue;
+    }
+    if (own.value === own.at && whole.value === whole.at) {
+      return later(own.value, whole.value) ?? own.value;
+    }
+    return own.order > whole.order ? own.value : whole.value;
   }
 
   /**
@@ -399,44 +638,63 @@ export class LiveSession {
   }
 
   /**
-   * Dispatches one change: the watchers of the row or list it names refetch with its
-   * `at`; a row event reaches the row's watchers in every domain, since the row is one
-   * whatever domain it was read in; a resource event reaches every watcher of the
-   * resource. The version is recorded whether or not anything watches, so a page mounted
-   * later asks by it.
+   * Dispatches one change the feed reports. An event carrying the id of one of the
+   * tab's own writes is that write's echo: the tab fetched when the write was answered,
+   * so nothing happens. Any other is somebody else's change: its `at` becomes the
+   * version of the row or list it names, whether or not anything watches, so a page
+   * mounted later asks by it, and every watcher it reaches (a row event the row's
+   * watchers in every domain, a resource event every watcher of the resource) fetches
+   * after the wait that groups such changes: the first starts the wait, the rest join
+   * it.
    */
   dispatch(event: ChangeEvent): void {
-    if (event.kind === 'resource') {
-      this.resourceSeen.set(event.resource, later(this.resourceSeen.get(event.resource), event.at) ?? event.at);
-      this.refetchEach((subscription) => subscription.resource === event.resource, event);
+    if (event.write !== undefined && this.ownWrites.has(event.write)) {
       return;
     }
-    if (event.kind === 'row') {
-      const key = event.key ?? '';
-      this.record(versionKey({ resource: event.resource, key }), event.at);
-      this.refetchEach((subscription) => subscription.resource === event.resource && subscription.key === key, event);
-      return;
+    this.record(changeKey(event), event.at);
+    for (const watcher of this.reached(event)) {
+      this.changed(watcher, event);
     }
-    const domain = event.domain || undefined;
-    this.record(versionKey({ resource: event.resource, domain }), event.at);
-    this.refetchEach(
-      (subscription) =>
-        subscription.resource === event.resource &&
-        subscription.key === undefined &&
-        (subscription.domain || undefined) === domain,
-      event,
-    );
   }
 
-  /** Forgets every version seen, mints a fresh seed, and refetches every watched row and list by it. */
-  resync(): void {
-    this.seedValue = mintLiveId();
-    this.lastSeen.clear();
-    this.resourceSeen.clear();
-    for (const [, held] of this.watchers) {
-      for (const watcher of [...held]) {
-        watcher.refetch(this.seedValue);
+  /**
+   * Takes a write's answer: what the client calls with the changes header of every
+   * answer that carries one. The write's id is remembered, so the feed's report of the
+   * same write fetches nothing; the id becomes the version of every row and list the
+   * answer names; and each watcher they reach fetches at once, before the caller of the
+   * write is answered, whatever wait it was in for other people's changes, since the
+   * fetch shows those too. An answer that says `all` fetches everything the tab holds
+   * live by a fresh seed, as a resync does. Nothing happens while no feed runs: the
+   * pages are plain then.
+   */
+  wrote(answer: WriteChanges): void {
+    if (!this.feed) {
+      return;
+    }
+    const now = this.clock.now();
+    for (const [write, answeredAt] of this.ownWrites) {
+      if (now - answeredAt > liveChangeTtl) {
+        this.ownWrites.delete(write);
       }
+    }
+    this.ownWrites.set(answer.write, now);
+    const reached = answer.all ? this.reseed() : this.taken(answer);
+    // The versions are taken already, so a reload the write's caller makes itself asks
+    // by them. Each fetch runs in a microtask of its own: still before that caller
+    // continues, and a watcher that throws fails neither the write, which is committed,
+    // nor the watchers after it.
+    for (const watcher of reached) {
+      queueMicrotask(() => this.fetch(watcher, false));
+    }
+  }
+
+  /**
+   * Forgets every version seen, mints a fresh seed, and refetches every watched row and
+   * list by it: at once while the tab is shown, when it is shown again otherwise.
+   */
+  resync(): void {
+    for (const watcher of this.reseed()) {
+      this.fetch(watcher, false);
     }
   }
 
@@ -464,6 +722,9 @@ export class LiveSession {
     this.feedReleases = [feed.onChange((event) => this.dispatch(event)), feed.onResync(() => this.resync())];
     this.page?.addEventListener('pagehide', this.onPageHide);
     this.page?.addEventListener('pageshow', this.onPageShow);
+    // After the feed's own listener, which the feed added in its start: a tab shown
+    // again after the feed lost track resyncs first, and that fetch is the one fetch.
+    this.visibility?.addEventListener('visibilitychange', this.onVisibilityChange);
     this.timer = setInterval(() => {
       void this.renew().catch(() => undefined);
     }, this.renewInterval);
@@ -511,6 +772,12 @@ export class LiveSession {
     }
     this.page?.removeEventListener('pagehide', this.onPageHide);
     this.page?.removeEventListener('pageshow', this.onPageShow);
+    this.visibility?.removeEventListener('visibilitychange', this.onVisibilityChange);
+    for (const [, held] of this.watchers) {
+      for (const watcher of held) {
+        this.settle(watcher);
+      }
+    }
     const feed = this.feed;
     if (feed) {
       this.feed = undefined;
@@ -534,8 +801,8 @@ export class LiveSession {
         // The feed is being discarded either way.
       }
     }
-    this.lastSeen.clear();
-    this.resourceSeen.clear();
+    this.versions.clear();
+    this.ownWrites.clear();
     this.dropped.clear();
     this.seedValue = mintLiveId();
   }
@@ -574,20 +841,139 @@ export class LiveSession {
     return { [subscribeHeader]: this.tab };
   }
 
-  /** Records a version for a row or list, never moving it back. */
+  /**
+   * Takes a change the feed reported as the version of its row, list, or resource, never
+   * moving back: an event no later than the latest one taken changes nothing, since the
+   * fetch made for the later one, or for the tab's own write after it, shows it too.
+   */
   private record(key: string, at: string): void {
-    this.lastSeen.set(key, later(this.lastSeen.get(key), at) ?? at);
+    const current = this.versions.get(key);
+    if (current?.at !== undefined && later(current.at, at) === current.at) {
+      return;
+    }
+    this.versions.set(key, { value: at, at, order: ++this.versionOrder });
   }
 
-  /** Refetches every watcher whose subscription the predicate admits, each by its own version. */
-  private refetchEach(admits: (subscription: LiveSubscription) => boolean, event: ChangeEvent): void {
+  /** Mints a fresh seed, forgets every version seen, and answers every watcher, each now stale. */
+  private reseed(): Watcher[] {
+    this.seedValue = mintLiveId();
+    this.versions.clear();
+    const all: Watcher[] = [];
     for (const [, held] of this.watchers) {
-      for (const watcher of [...held]) {
-        if (admits(watcher.subscription)) {
-          watcher.refetch(this.version(watcher.subscription), event);
+      for (const watcher of held) {
+        watcher.stale = true;
+        watcher.event = undefined;
+        all.push(watcher);
+      }
+    }
+    return all;
+  }
+
+  /**
+   * Takes the changes of the tab's own write: the write's id becomes the version of
+   * each row, list, or resource the answer names, and the watchers they reach, each
+   * once and now stale, are answered.
+   */
+  private taken(answer: WriteChanges): Watcher[] {
+    const reached = new Set<Watcher>();
+    for (const change of answer.changes) {
+      const key = changeKey(change);
+      this.versions.set(key, { value: answer.write, at: this.versions.get(key)?.at, order: ++this.versionOrder });
+      for (const watcher of this.reached(change)) {
+        watcher.stale = true;
+        watcher.event = { ...change, at: answer.write, write: answer.write };
+        reached.add(watcher);
+      }
+    }
+    return [...reached];
+  }
+
+  /** The watchers a change reaches, in the order they began watching. */
+  private reached(change: AnsweredChange): Watcher[] {
+    const reached: Watcher[] = [];
+    for (const [, held] of this.watchers) {
+      for (const watcher of held) {
+        if (reaches(change, watcher.subscription)) {
+          reached.push(watcher);
         }
       }
     }
+    return reached;
+  }
+
+  /** Whether the tab is hidden, read when asked: a feed that resyncs as the tab is shown runs before the session hears of it. */
+  private get hidden(): boolean {
+    return this.visibility?.visibilityState === 'hidden';
+  }
+
+  /**
+   * Somebody else's change reached the watcher. The first since its last fetch starts
+   * the wait: `changeWait` from now, and no sooner than `refetchInterval` after the last
+   * fetch made for such changes; a change that finds the watcher waiting joins the wait.
+   * While the tab is hidden no wait starts: the watcher fetches when the tab is shown.
+   */
+  private changed(watcher: Watcher, event: ChangeEvent): void {
+    watcher.event = event;
+    if (watcher.stale) {
+      return;
+    }
+    watcher.stale = true;
+    if (this.hidden) {
+      return;
+    }
+    const now = this.clock.now();
+    const due = Math.max(now + this.changeWait, (watcher.groupedAt ?? -Infinity) + this.refetchInterval);
+    watcher.timer = this.clock.setTimeout(() => {
+      watcher.timer = undefined;
+      this.fetch(watcher, true);
+    }, due - now);
+  }
+
+  /**
+   * Fetches a stale watcher by its version, ending any wait it was in. A hidden tab
+   * fetches nothing: the watcher stays stale until the tab is shown. `grouped` says the
+   * fetch is the one made for other people's changes, which the next such fetch keeps
+   * its distance from.
+   */
+  private fetch(watcher: Watcher, grouped: boolean): void {
+    if (watcher.timer !== undefined) {
+      this.clock.clearTimeout(watcher.timer);
+      watcher.timer = undefined;
+    }
+    if (!watcher.stale || watcher.released || this.hidden) {
+      return;
+    }
+    const event = watcher.event;
+    watcher.stale = false;
+    watcher.event = undefined;
+    if (grouped) {
+      watcher.groupedAt = this.clock.now();
+    }
+    watcher.refetch(this.version(watcher.subscription), event);
+  }
+
+  /** The tab's visibility changed: shown, every watcher that went stale while it was hidden fetches, once. */
+  private shown(): void {
+    if (this.hidden) {
+      return;
+    }
+    for (const [, held] of this.watchers) {
+      for (const watcher of [...held]) {
+        if (watcher.stale) {
+          this.fetch(watcher, true);
+        }
+      }
+    }
+  }
+
+  /** Ends a watcher's wait and forgets that it was stale: it was released, or the session stopped. */
+  private settle(watcher: Watcher): void {
+    if (watcher.timer !== undefined) {
+      this.clock.clearTimeout(watcher.timer);
+      watcher.timer = undefined;
+    }
+    watcher.stale = false;
+    watcher.event = undefined;
   }
 }
 

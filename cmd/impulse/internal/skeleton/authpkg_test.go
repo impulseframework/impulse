@@ -23,8 +23,11 @@ var candidateAuths = map[string][]authpkg.Spec{
 	"sites":    {staffSpec("sites")},
 	"outlets": {staffSpec("outlets"), {
 		Module: candidateModule("outlets"), AuthDir: "pkg/auth", Name: "members",
-		Doc:     "the people who sign in through the organization's directory (OpenID Connect against Microsoft Entra), the portal's people",
-		Methods: []authpkg.Method{{Kind: app.MethodAzure, Name: "directory", Authority: app.AuthorityApplication}},
+		Doc: "the people who sign in through the organization's directory (OpenID Connect against Microsoft Entra), the portal's people",
+		// The portal's people are mailed in the portal's name, the one its brand declares
+		// (web/portal/brand.json), which impulse brand writes here.
+		Application: "Outlets Portal",
+		Methods:     []authpkg.Method{{Kind: app.MethodAzure, Name: "directory", Authority: app.AuthorityApplication}},
 		// The development member's domain role (cmd/bootstrap/users.json), in every domain:
 		// the one role that counts as an administrator's, and what the first one is seeded with.
 		AdministratorRoles: authpkg.AdministratorRoles{EveryDomain: []string{"TenantAdministrator"}},

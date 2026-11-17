@@ -34,6 +34,7 @@ type AuthDriver interface {
 	IdentitiesByUser(ctx context.Context, userID impulse.UUID) ([]*dbtype.SessionIdentity, error)
 	LinkIdentity(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
 	UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error
+	RemoveUserPassword(ctx context.Context, userID impulse.UUID) error
 	DestroyUserSessions(ctx context.Context, userID impulse.UUID) error
 	TouchUserSignIn(ctx context.Context, userID impulse.UUID) error
 	DestroySessionsByProviderSessionID(ctx context.Context, issuer, providerSessionID string) error
@@ -100,10 +101,11 @@ type AuthDriver interface {
 type AuthSchema int
 
 const (
-	// LegacySessions is the shipped sessions schema (Sessions, SessionUsers) and the
-	// impersonation migration, without the auth migrations. It lacks
-	// Sessions.UserId and AuthenticatedAt and the identities and auth events tables.
-	LegacySessions AuthSchema = iota
+	// WithoutAuth is the shipped sessions schema (Sessions, SessionUsers) and the
+	// impersonation migration, without the auth migrations: what a Preauth store runs
+	// on. It lacks Sessions.UserId and AuthenticatedAt and the identities and auth
+	// events tables.
+	WithoutAuth AuthSchema = iota
 	// Auth is the shipped sessions schema, the impersonation migration and the
 	// auth migrations.
 	Auth
@@ -321,7 +323,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		name string
 		run  func(ctx context.Context, t *testing.T, h *AuthHarness)
 	}{
-		{name: "a legacy schema keeps working: the user columns and events are never named", run: testLegacySchemaUnchanged},
+		{name: "a database without the auth set keeps working: the user columns and events are never named", run: testWithoutAuthSet},
 		{name: "user sessions record and read UserId and AuthenticatedAt", run: testSessionUserColumns},
 		{name: "the first auth event is the sign-in method, read with the session", run: testInitialAuthEvent},
 		{name: "a session insert records every auth event it carries, in order, in one write", run: testInitialAuthEvents},
@@ -347,6 +349,8 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
 		{name: "concurrent first sign-ins of one identity through a provisioning resolver all succeed and provision it once", run: testConcurrentFirstProvision},
 		{name: "links are managed outside sign-in, and the last means of sign-in stays", run: testLinkManagement},
+		{name: "a password is removed from a user that has an identity, with its change mark, and stays as the last means of sign-in", run: testPasswordRemoval},
+		{name: "a password's removal and the unlinking of the user's one identity, asked at once, leave the user one of the two", run: testPasswordRemovalRacesUnlink},
 		{name: "deleting a user deletes its identity links with it", run: testDeleteUserDeletesLinks},
 		{name: "DestroyUserSessions expires the user's sessions by UserId", run: testDestroyUserSessions},
 		{name: "AppendAuthEvent records a step-up after the sign-in", run: testAppendAuthEvent},
@@ -444,9 +448,9 @@ func mustSession(ctx context.Context, t *testing.T, d AuthDriver, id impulse.UUI
 // stored as given.
 var eventsOpts = cmp.Options{cmpopts.EquateEmpty()}
 
-func testLegacySchemaUnchanged(ctx context.Context, t *testing.T, h *AuthHarness) {
-	in := h.New(ctx, t, LegacySessions, AuthConfig{Impersonation: true})
-	user := createUser(ctx, t, in.Driver, "legacy@example.com")
+func testWithoutAuthSet(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, WithoutAuth, AuthConfig{Impersonation: true})
+	user := createUser(ctx, t, in.Driver, "user@example.com")
 
 	req := &sessioninfo.NewSessionRequest{
 		Reason: sessioninfo.ReasonLogin, Username: user.Username, UserID: user.ID,
@@ -454,19 +458,19 @@ func testLegacySchemaUnchanged(ctx context.Context, t *testing.T, h *AuthHarness
 	}
 	id, err := in.Driver.InsertSession(ctx, newInsertSession(user.Username), req)
 	if err != nil {
-		t.Fatalf("InsertSession() on the legacy schema error = %v", err)
+		t.Fatalf("InsertSession() without the auth set error = %v", err)
 	}
 	impID, err := in.Driver.InsertImpersonatedSession(ctx, newInsertSession(user.Username),
 		&sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonImpersonation, Username: user.Username, UserID: user.ID},
 		&dbtype.InsertImpersonation{ActorUsername: "actor", PrincipalKind: dbtype.PrincipalKindUser, PrincipalUserID: strPtr(user.Username), ExpiresAt: time.Now().Add(time.Hour)})
 	if err != nil {
-		t.Fatalf("InsertImpersonatedSession() on the legacy schema error = %v", err)
+		t.Fatalf("InsertImpersonatedSession() without the auth set error = %v", err)
 	}
 
 	for _, sid := range []impulse.UUID{id, impID} {
 		sess := mustSession(ctx, t, in.Driver, sid)
 		if sess.UserID.Valid || sess.AuthenticatedAt != nil || len(sess.AuthEvents) != 0 {
-			t.Errorf("Session() = UserID %v, AuthenticatedAt %v, AuthEvents %v; want none on a legacy driver", sess.UserID, sess.AuthenticatedAt, sess.AuthEvents)
+			t.Errorf("Session() = UserID %v, AuthenticatedAt %v, AuthEvents %v; want none on a driver without the auth schema", sess.UserID, sess.AuthenticatedAt, sess.AuthEvents)
 		}
 	}
 }

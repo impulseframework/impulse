@@ -129,6 +129,10 @@ func (a *App) InviteStaffUser() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).InviteStaffUser()
 }
 
+func (a *App) RemoveStaffPassword() http.HandlerFunc {
+	return staffhandlers.New(a, liveDerivations).RemoveStaffPassword()
+}
+
 func (a *App) RemoveStaffRole() http.HandlerFunc {
 	return staffhandlers.New(a, liveDerivations).RemoveStaffRole()
 }

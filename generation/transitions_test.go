@@ -681,12 +681,12 @@ func Test_rpcHandlerTemplate_transition(t *testing.T) {
 		if err != nil {
 			t.Fatalf("generateTemplateOutput() error = %v", err)
 		}
-		if want := `live.Publish(ctx, h.LiveService(), h.liveDerivations, "", touched)`; !strings.Contains(string(out), want) {
+		if want := `live.Publish(ctx, w, h.LiveService(), h.liveDerivations, "", touched)`; !strings.Contains(string(out), want) {
 			t.Errorf("an auth's handler lacks %q:\n%s", want, out)
 		}
 
 		// The application's own name the assembly in their package.
-		if want := `live.Publish(ctx, a.LiveService(), liveDerivations, "", touched)`; !strings.Contains(render(t, rpcMethod), want) {
+		if want := `live.Publish(ctx, w, a.LiveService(), liveDerivations, "", touched)`; !strings.Contains(render(t, rpcMethod), want) {
 			t.Errorf("the application's handler lacks %q", want)
 		}
 	})

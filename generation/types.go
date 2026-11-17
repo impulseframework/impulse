@@ -256,6 +256,10 @@ const (
 	// fileHoldersOutputName names the resources package's file holders file: every
 	// resource recording stored files' keys, for the orphaned-file cleanup.
 	fileHoldersOutputName = "file_holders"
+	// secretHoldersOutputName names the resources package's secret holders file: every
+	// resource storing a secret, for the retirement of a version of the application
+	// secret.
+	secretHoldersOutputName = "secret_holders"
 )
 
 // reservedOutput is one file the generator writes for itself: its name and what it
@@ -285,6 +289,7 @@ var reservedOutputStems = map[string]reservedOutput{
 	consolidatedHandlerOutputName: {file: generatedGoFileName(consolidatedHandlerOutputName), carries: "the consolidated handler"},
 	featuresOutputName:            {file: generatedGoFileName(featuresOutputName), carries: "the feature flags"},
 	fileHoldersOutputName:         {file: generatedGoFileName(fileHoldersOutputName), carries: "the file holders"},
+	secretHoldersOutputName:       {file: generatedGoFileName(secretHoldersOutputName), carries: "the secret holders"},
 	releaseOutputName:             {file: resource.ReleaseFileName, carries: "the release file"},
 }
 
@@ -2143,8 +2148,9 @@ func (f *resourceField) ImmutableTag() string {
 
 // SqltypeTag renders sqltype:"<column type>" onto a patch request-struct field whose
 // value the decoder sizes against its column's declared type (resource.HasValueLimit): a
-// string-kinded field on STRING(n), []byte on BYTES(n), a decimal on NUMERIC, and a
-// slice of one of those, named or not, on the matching ARRAY. The tag consults the Go
+// string-kinded field on STRING(n), []byte on BYTES(n), a decimal on NUMERIC, a slice of
+// one of those, named or not, on the matching ARRAY, and a stored secret on the BYTES(n)
+// its sealed form is stored in. The tag consults the Go
 // type and the column alone: a @typescript declaration on the type changes the
 // interface, never the limit. A field hidden from the patch wire (a key, an output-only
 // field), a view's field, and every other pair carry no tag, so the structs stay quiet
@@ -2175,11 +2181,17 @@ func (f *resourceField) TypescriptMaxLength() int {
 	if f.SqltypeTag() == "" {
 		return 0
 	}
-	if kind, _ := valueKindOf(f.GoType()); kind != resource.ValueKindString {
+	kind, _ := valueKindOf(f.GoType())
+	if kind != resource.ValueKindString && kind != resource.ValueKindSecret {
 		return 0
 	}
 	if !slices.Contains(maxLengthDisplayTypes, displayType(strings.ToLower(f.TypescriptDisplayType()))) {
 		return 0
+	}
+	if kind == resource.ValueKindSecret {
+		// The column holds the value sealed: the form is told the room left for the
+		// value itself. The decoder counts bytes, which a character is one or more of.
+		return resource.DeclaredLength(f.SpannerType) - resource.SecretOverhead
 	}
 
 	return resource.DeclaredLength(f.SpannerType)
@@ -2303,7 +2315,7 @@ const (
 	pageKeyword                 string = "page"                 // Declares the default and maximum page size of a list
 	attributeKeyword            string = "attribute"            // Declares an attribute binding on its anchor field: a column binding, or a join-path binding via a FK
 	domainKeyword               string = "domain"               // Declares the structural tenancy binding on its anchor field (bare, or via: a FK path to the tenant key)
-	subjectSetKeyword           string = "subjectSet"           // Declares subject-side set vocabulary (subject.<name>, used with IN) anchored on a user-id column
+	subjectSetKeyword           string = "subjectSet"           // Declares subject-side set vocabulary (subject.<name>, used with IN) anchored on a user-id column, or on a column its who: part names
 	subjectValueKeyword         string = "subjectValue"         // Declares subject-side scalar vocabulary (threshold comparisons) anchored on a unique user-id column
 	stateKeyword                string = "state"                // Marks a resource's state column (FK to its state enum table) and declares the initial state
 	stateRootKeyword            string = "stateRoot"            // Declares workflow membership on the member's anchoring FK field, naming the workflow root struct

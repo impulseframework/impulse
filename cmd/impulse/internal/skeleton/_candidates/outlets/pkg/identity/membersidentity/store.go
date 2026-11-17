@@ -108,6 +108,10 @@ func (store) SetPassword(_ context.Context, _ resource.ReadWriteTransaction, id 
 	return errors.Newf("the Members auth has no password method: user %s is given no password", id)
 }
 
+func (store) RemovePassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
+	return errors.Newf("the Members auth has no password method: user %s holds no password to remove", id)
+}
+
 func (store) ClearAttempts(ctx context.Context, txn resource.ReadWriteTransaction, name string) error {
 	// A delete of a row that does not exist is no error: a name with no count has
 	// nothing to clear.

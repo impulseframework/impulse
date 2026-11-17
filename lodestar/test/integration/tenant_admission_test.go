@@ -11,12 +11,11 @@ package integration
 // not directory only does.
 //
 // The deckhand is a crew member this suite provisions for itself, SectorCrew in Anvil and
-// Bastion and nothing in the global partition: every shipped persona holds CrewCommon
-// there, which the staff rule counts (a grant in the global partition reaches every
-// sector, as the sign-in policy admits the application's own staff), so the shipped
-// cast cannot show a refusal. The deckhand charts Anvil alone and Bastion is not there
-// for him; the pilot, CrewCommon in hand, keeps Bastion; the governor, headquarters'
-// staff, charts every sector and enters Bastion.
+// Bastion and nothing in the global partition. He charts Anvil alone and Bastion is not
+// there for him. A role in the global partition exempts nobody: the pilot, who holds
+// CrewCommon there and a role at Bastion, charts Anvil alone too. One person is exempt
+// from a sector's declaration, a super administrator: the governor, who holds the role
+// the framework defines in every auth, charts every sector and enters Bastion.
 
 import (
 	"context"
@@ -89,8 +88,9 @@ func TestTenantAdmission_sectorDeclarationsDecideTheChart(t *testing.T) {
 		{name: "nor through the consolidated patch, whose descent answers as it does an unknown sector", user: deckhand, method: http.MethodPatch, target: resourcesRoute, body: ghostWing, wantStatus: http.StatusBadRequest},
 		{name: "Bastion's digest is empty for the deckhand", user: deckhand, method: http.MethodGet, target: bastionDigest, wantStatus: http.StatusOK},
 		{name: "the hazard analyst's chart lights Anvil and Cinder: Cinder admits passwords beside its directory", user: "hazards", method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, wantChart: []accesstypes.Domain{anvil, cinder}},
-		{name: "the pilot holds CrewCommon in the global partition, which the staff rule counts, so Bastion stays lit for him", user: "pilot", method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, wantChart: []accesstypes.Domain{anvil, bastion}},
-		{name: "the governor, headquarters' staff, charts every sector", user: "governor", method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, wantChart: []accesstypes.Domain{anvil, bastion, cinder}},
+		{name: "the pilot holds CrewCommon in the global partition, which exempts nobody, so Bastion is dark for him too", user: "pilot", method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, wantChart: []accesstypes.Domain{anvil}},
+		{name: "and Bastion is not there for the pilot", user: "pilot", method: http.MethodGet, target: sectorPath(bastion, "wings"), wantStatus: http.StatusNotFound},
+		{name: "the governor, a super administrator, charts every sector", user: "governor", method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, wantChart: []accesstypes.Domain{anvil, bastion, cinder}},
 		{name: "and enters Bastion", user: "governor", method: http.MethodGet, target: sectorPath(bastion, "wings"), wantStatus: http.StatusOK},
 	}
 	for _, tt := range tests {

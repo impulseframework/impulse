@@ -45,6 +45,7 @@ export const Resources = {
   ExpenseManifests: 'ExpenseManifests' as Resource,
   FeatureFlags: 'FeatureFlags' as Resource,
   FeeByKinds: 'FeeByKinds' as Resource,
+  HangarPasses: 'HangarPasses' as Resource,
   Hangars: 'Hangars' as Resource,
   MembersRoleGrants: 'MembersRoleGrants' as Resource,
   MembersRoles: 'MembersRoles' as Resource,
@@ -128,7 +129,9 @@ export const Methods = {
   LaunchMission: 'LaunchMission' as Method,
   PassFlightTest: 'PassFlightTest' as Method,
   ReleaseConsignment: 'ReleaseConsignment' as Method,
+  RemoveCrewPassword: 'RemoveCrewPassword' as Method,
   RemoveCrewRole: 'RemoveCrewRole' as Method,
+  RemoveCrewSectorPassword: 'RemoveCrewSectorPassword' as Method,
   RemoveCrewSectorRole: 'RemoveCrewSectorRole' as Method,
   RenameCrewSectorUser: 'RenameCrewSectorUser' as Method,
   RenameCrewUser: 'RenameCrewUser' as Method,
@@ -766,6 +769,27 @@ export namespace FeeByKinds {
     missionCount: 'FeeByKinds.missionCount' as Resource,
     topFee: 'FeeByKinds.topFee' as Resource,
     totalFee: 'FeeByKinds.totalFee' as Resource,
+  };
+}
+
+export namespace HangarPasses {
+  export const fieldName = {
+    expiresAt: 'expiresAt' as FieldName,
+    hangarId: 'hangarId' as FieldName,
+    id: 'id' as FieldName,
+    levelId: 'levelId' as FieldName,
+    sectorId: 'sectorId' as FieldName,
+    squadronId: 'squadronId' as FieldName,
+    userId: 'userId' as FieldName,
+  };
+  export const resourceName = {
+    expiresAt: 'HangarPasses.expiresAt' as Resource,
+    hangarId: 'HangarPasses.hangarId' as Resource,
+    id: 'HangarPasses.id' as Resource,
+    levelId: 'HangarPasses.levelId' as Resource,
+    sectorId: 'HangarPasses.sectorId' as Resource,
+    squadronId: 'HangarPasses.squadronId' as Resource,
+    userId: 'HangarPasses.userId' as Resource,
   };
 }
 
@@ -1843,12 +1867,24 @@ export namespace ReleaseConsignment {
   };
 }
 
+export namespace RemoveCrewPassword {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+  };
+}
+
 export namespace RemoveCrewRole {
   export const fieldName = {
     userId: 'userId' as FieldName,
     role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+  };
+}
+
+export namespace RemoveCrewSectorPassword {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
   };
 }
 

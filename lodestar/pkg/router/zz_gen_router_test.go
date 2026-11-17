@@ -96,6 +96,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/console/api/user/persona/callback", suffix: "/user/persona/callback", method: http.MethodGet, handler: "PersonaCallback"},
 		{url: "/console/api/user/password/login", suffix: "/user/password/login", method: http.MethodPost, handler: "PasswordLogin", xsrf: true},
 		{url: "/console/api/user/password/change", suffix: "/user/password/change", method: http.MethodPost, handler: "PasswordChange", xsrf: true},
+		{url: "/console/api/user/password/remove", suffix: "/user/password/remove", method: http.MethodPost, handler: "PasswordRemove", xsrf: true},
 		{url: "/console/api/user/pending/confirm", suffix: "/user/pending/confirm", method: http.MethodPost, handler: "PendingConfirmWithPassword", xsrf: true},
 		{url: "/console/api/user/pending/cancel", suffix: "/user/pending/cancel", method: http.MethodPost, handler: "PendingCancel", xsrf: true},
 		{url: "/console/api/user/pending/code", suffix: "/user/pending/code", method: http.MethodPost, handler: "PendingSendCode", xsrf: true},
@@ -419,6 +420,10 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangars/testHangarID", method: http.MethodGet},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangars/testHangarID", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangars", method: http.MethodPatch},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes", method: http.MethodGet},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/testHangarPassID", method: http.MethodGet},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/testHangarPassID", method: http.MethodPost},
 		foreign{url: "/droids/members-roles", method: http.MethodGet},
 		foreign{url: "/droids/members-roles", method: http.MethodPost},
 		foreign{url: "/droids/members-role-grants", method: http.MethodGet},
@@ -605,7 +610,9 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/droids/issue-bulletin", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/launch-mission", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/pass-flight-test", method: http.MethodPost},
+		foreign{url: "/droids/remove-crew-password", method: http.MethodPost},
 		foreign{url: "/droids/remove-crew-role", method: http.MethodPost},
+		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-password", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-role", method: http.MethodPost},
 		foreign{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/rename-crew-sector-user", method: http.MethodPost},
 		foreign{url: "/droids/rename-crew-user", method: http.MethodPost},
@@ -720,6 +727,10 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangars/testHangarID", method: http.MethodGet},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangars/testHangarID", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangars", method: http.MethodPatch},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes", method: http.MethodGet},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes", method: http.MethodPost},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/testHangarPassID", method: http.MethodGet},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/hangar-passes/testHangarPassID", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-boards", method: http.MethodGet},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-boards", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/mission-boards/testMissionBoardID", method: http.MethodGet},
@@ -842,7 +853,9 @@ func TestGeneratedRouterNotFound(t *testing.T) {
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/launch-mission", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/pass-flight-test", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/release-consignment", method: http.MethodPost},
+		foreign{url: "/portal/api/remove-crew-password", method: http.MethodPost},
 		foreign{url: "/portal/api/remove-crew-role", method: http.MethodPost},
+		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-password", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-role", method: http.MethodPost},
 		foreign{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/rename-crew-sector-user", method: http.MethodPost},
 		foreign{url: "/portal/api/rename-crew-user", method: http.MethodPost},
@@ -1515,6 +1528,10 @@ func (s *routerDefaultSessionStub) PasswordChange() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PasswordChange")
 }
 
+func (s *routerDefaultSessionStub) PasswordRemove() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordRemove")
+}
+
 func (s *routerDefaultSessionStub) PendingConfirmWithPassword() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PendingConfirmWithPassword")
 }
@@ -1755,10 +1772,22 @@ func (s *routerHandlersStub) ServerVersion() string {
 	return s.serverVersion
 }
 
-// ResourceClient answers with a mock client carrying every file store New requires,
-// each a stub: the router test never reaches a store.
+// ResourceClient answers with a mock client carrying what New requires: every file
+// store, each a stub, and the secret keys of an application that stores a secret, built
+// from fixed bytes. The router test never reaches a store and never seals a value.
 func (s *routerHandlersStub) ResourceClient() resource.Client {
-	return resource.NewMockClient(nil, nil, nil, resource.WithFileStore(stubFileStore{}), resource.WithNamedFileStore[resources.Documents](stubFileStore{}))
+	return resource.NewMockClient(nil, nil, nil, resource.WithFileStore(stubFileStore{}), resource.WithNamedFileStore[resources.Documents](stubFileStore{}), resource.WithSecretKeys(stubSecretKeys()))
+}
+
+// stubSecretKeys builds the secret keys the router test's client carries, from fixed
+// bytes.
+func stubSecretKeys() *resource.SecretKeys {
+	keys, err := resource.NewSecretKeys(map[int][]byte{1: bytes.Repeat([]byte{1}, 32)})
+	if err != nil {
+		panic(err)
+	}
+
+	return keys
 }
 
 // stubFileStore satisfies resource.FileStore for the router test.

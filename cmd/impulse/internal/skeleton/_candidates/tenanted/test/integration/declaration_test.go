@@ -38,7 +38,7 @@ import (
 // account to the directory; the role is cleared with an explicit null, the way the
 // Sign-in page's picker clears it. A write through the API decides the next request,
 // since the records' write paths reload the roster after their commit; the
-// administrator, who holds a global role, keeps every tenant; and every edit leaves a
+// administrator, a super administrator, keeps every tenant; and every edit leaves a
 // change event. Under the session library's skipAuth build tag Google is simulated:
 // the callback signs in whoever APP_GOOGLE_USERNAME names, as a Workspace account whose
 // connection is the simulated Workspace's domain. The test sets that variable, so it
@@ -89,11 +89,11 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 
 	// The organizer is signed in through the same Workspace and administers both
 	// tenants. A tenant with no directory admits no directory session, so the person
-	// who sets a tenant's first directory after its creation is one of the
-	// application's own staff, who reach a tenant whatever it declares (throughStaff).
+	// who sets a tenant's first directory after its creation is a super administrator,
+	// the one person who enters a tenant whatever it declares (asSuperAdministrator).
 	t.Setenv("APP_GOOGLE_USERNAME", "organizer")
 	organizer := signedInThroughGoogle(ctx, t, s)
-	throughStaff(ctx, t, s, "organizer", north, south)
+	asSuperAdministrator(ctx, t, s, "organizer", north, south)
 	status, body = organizer.do(ctx, http.MethodPatch, "/api/resources", []byte(makeSouths))
 	if status != http.StatusOK {
 		t.Fatalf("making the Workspace south's directory: status %d: %s", status, body)
@@ -243,7 +243,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// password and seated in north alone, loses north at once (not listed, answered as a
 	// tenant that does not exist), and a fresh password sign-in is refused naming the
 	// rule, since every tenant of the member is directory only. The administrator, a
-	// global role, keeps north.
+	// super administrator, keeps north.
 	member := signedIn(ctx, t, s, memberUser)
 	if domains := userDomains(ctx, t, member); !slices.Equal(domains, []string{north}) {
 		t.Fatalf("the member's chart before = %v, want [%s]", domains, north)
@@ -259,7 +259,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		t.Errorf("GET north announcements as the member once north is directory only: status %d, want 404: %s", status, body)
 	}
 	if domains := userDomains(ctx, t, admin); !slices.Equal(domains, []string{north, south}) {
-		t.Errorf("the administrator's chart = %v, want both: a global role reaches every tenant", domains)
+		t.Errorf("the administrator's chart = %v, want both: a super administrator reaches every tenant", domains)
 	}
 	fresh := newBrowser(t, s)
 	if status, body := fresh.do(ctx, http.MethodGet, "/api/user/session", nil); status != http.StatusOK {
@@ -333,17 +333,18 @@ func directories(ctx context.Context, t *testing.T, b *browser, tenant string) [
 	return rows
 }
 
-// throughStaff makes the person, by the username of their account, an administrator of
-// the tenants named and one of the application's own staff: a holder of a role of the
-// whole application, whom a tenant's declaration does not keep out. A tenant with no
+// asSuperAdministrator makes the person, by the username of their account, an
+// administrator of the tenants named and a super administrator: the holder of the role
+// the framework defines in every auth, whose session enters a tenant whatever the
+// tenant's sign-in settings say. Nobody else is exempt from them, and a tenant with no
 // directory admits no directory session, so it is such a person who sets a tenant's
 // first directory once the tenant exists.
-func throughStaff(ctx context.Context, t *testing.T, s *served, username string, tenants ...accesstypes.Domain) {
+func asSuperAdministrator(ctx context.Context, t *testing.T, s *served, username string, tenants ...accesstypes.Domain) {
 	t.Helper()
 
 	user := accesstypes.User(accountID(ctx, t, s, username))
-	if err := s.access.UserManager().AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), user, "FeatureAdministrator"); err != nil {
-		t.Fatalf("AddUserRoles(%s, the whole application) error = %v", username, err)
+	if err := s.access.UserManager().AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), user, accesstypes.SuperAdministrator); err != nil {
+		t.Fatalf("AddUserRoles(%s, %s) error = %v", username, accesstypes.SuperAdministrator, err)
 	}
 	for _, tenant := range tenants {
 		if err := s.access.UserManager().AddUserRoles(ctx, accesstypes.DomainPolicyScope(tenant), user, "TenantAdministrator"); err != nil {

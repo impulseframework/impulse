@@ -68,6 +68,142 @@ func (w JoinPathWarning) String() string {
 		w.Resource, strings.Join(path, ", "), w.Table, w.Table)
 }
 
+// SubjectSetIndexWarning says no index of a subject set's table serves the set's
+// lookup by one of the columns that tie a row to the requester. A condition that
+// tests membership in the set finds the requester's rows by that column, within the
+// tenant where the row carries one, and matches the set's value; with no index whose
+// key leads with those columns the database reads the table for every check. One
+// warning is raised for each column the set's who: names (the annotated column, for a
+// set that writes none), since each is a lookup of its own. Index is the CREATE INDEX
+// statement the lookup wants: the tenant column first where the table has one, then
+// the column, then the value. A small table needs none; the application accepts the
+// warning as it accepts the others.
+type SubjectSetIndexWarning struct {
+	Resource string
+	Table    string
+	Set      string
+	// TenantColumn is the table's tenant column, empty where no column of the row
+	// names the tenant (a table outside every tenant, or one that resolves its tenant
+	// through a join path).
+	TenantColumn string
+	// Column is the column the lookup finds the requester's rows by, and Value the
+	// column the set yields, the foreign key a dotted value leaves through.
+	Column string
+	Value  string
+	Index  string
+}
+
+func (SubjectSetIndexWarning) warning() {}
+
+// String renders the one-line warning, names verbatim from the schema.
+func (w SubjectSetIndexWarning) String() string {
+	return fmt.Sprintf("%s declares subject.%s, which finds the requester's rows by %s with no index leading with %s, so every check of the set reads all of %s; wanted: %s",
+		w.Resource, w.Set, w.Column, strings.Join(lookupKey(w.TenantColumn, w.Column, w.Value), ", "), w.Table, w.Index)
+}
+
+// lookupKey is the key a subject set's lookup wants, in order: the tenant column
+// where the table has one, the column that ties the row to the requester, and the
+// value the set yields, each once.
+func lookupKey(tenantColumn, column, value string) []string {
+	var key []string
+	for _, name := range []string{tenantColumn, column, value} {
+		if name != "" && !slices.Contains(key, name) {
+			key = append(key, name)
+		}
+	}
+
+	return key
+}
+
+// subjectSetIndexWarnings reads one resource's subject sets against its table's
+// indexes: a warning for each column a set finds the requester's rows by that no
+// index serves. Warnings come in the order the sets are declared and, within a set,
+// the order its who: names its columns.
+func (c *client) subjectSetIndexWarnings(res *resourceInfo) []Warning {
+	if len(res.SubjectSets) == 0 {
+		return nil
+	}
+	table := c.pluralize(res.Name())
+	meta, ok := c.tableMap[table]
+	if !ok {
+		return nil
+	}
+	tenantColumn := ""
+	if res.DomainBinding != nil && len(res.DomainBinding.Path) == 0 {
+		tenantColumn = fieldColumn(res.DomainBinding.Anchor)
+	}
+
+	var warnings []Warning
+	for _, set := range res.SubjectSets {
+		value := fieldColumn(set.ValueField)
+		var seen []string
+		for _, test := range set.whoTests() {
+			column := fieldColumn(test.Field)
+			if slices.Contains(seen, column) {
+				continue
+			}
+			seen = append(seen, column)
+
+			key := lookupKey(tenantColumn, column, value)
+			if meta.servesLookup(key) {
+				continue
+			}
+			warnings = append(warnings, SubjectSetIndexWarning{
+				Resource:     res.Name(),
+				Table:        table,
+				Set:          set.Name,
+				TenantColumn: tenantColumn,
+				Column:       column,
+				Value:        value,
+				Index:        fmt.Sprintf("CREATE INDEX %sBy%s ON %s(%s)", table, strings.Join(key, ""), table, strings.Join(key, ", ")),
+			})
+		}
+	}
+
+	return warnings
+}
+
+// servesLookup reports whether some index of the table that is not null-filtered has
+// a key that leads with the given columns, in any order: the lookup binds each of
+// them by equality, so their order in the key does not matter to a seek, and neither
+// does a column's direction. Trailing key columns are allowed. A secondary index
+// counts with the primary key's columns after its own, since Spanner appends them to
+// every secondary index, and the PRIMARY_KEY index counts like any other.
+func (t *tableMetadata) servesLookup(columns []string) bool {
+	var primaryKey []indexColumn
+	for _, index := range t.Indexes {
+		if index.PrimaryKey {
+			primaryKey = index.Key
+		}
+	}
+
+	for _, index := range t.Indexes {
+		if index.NullFiltered || index.Search {
+			continue
+		}
+		key := make([]string, 0, len(index.Key)+len(primaryKey))
+		for _, column := range index.Key {
+			key = append(key, column.Column)
+		}
+		if !index.PrimaryKey {
+			for _, column := range primaryKey {
+				if !slices.Contains(key, column.Column) {
+					key = append(key, column.Column)
+				}
+			}
+		}
+		if len(key) < len(columns) {
+			continue
+		}
+		lead := key[:len(columns)]
+		if !slices.ContainsFunc(columns, func(column string) bool { return !slices.Contains(lead, column) }) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // maxBakedEnumerationRows is the row count above which an @enumerate table raises an
 // EnumerationSizeWarning. Every field keyed into the table carries the whole table in
 // the TypeScript metadata, a copy per field, and at about fifty bytes a row 500 rows
@@ -105,7 +241,8 @@ func (w EnumerationSizeWarning) String() string {
 
 // schemaWarnings reads the extracted table-backed resources against the table map for
 // the two shapes the perf study measured (README section 9): a listed bare-tenant
-// resource whose declared order no index serves, and a listed join-path resource. A
+// resource whose declared order no index serves, and a listed join-path resource; and
+// for a subject set whose lookup no index serves (subjectSetIndexWarnings). A
 // virtual resource is out (its index facts are tags, not schema), so is a resource whose
 // list handler is suppressed, so is a bare-tenant resource with no @order, whose
 // sort-less list is not sorted and is served by the tenant column's foreign-key backing
@@ -120,6 +257,9 @@ func (c *client) schemaWarnings(resources []*resourceInfo) []Warning {
 	for _, res := range sorted {
 		warnings = append(warnings, res.searchWarnings...)
 		warnings = append(warnings, res.publishWarnings...)
+		// A subject set is read by every check that names it, whether or not the
+		// resource declaring it is listed.
+		warnings = append(warnings, c.subjectSetIndexWarnings(res)...)
 		if res.IsVirtual || res.ListHandlerDisabled() || res.DomainBinding == nil {
 			continue
 		}

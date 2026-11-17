@@ -26,7 +26,7 @@ func main() {}
 func Main() error {
 	ctx := context.Background()
 	if maintenance.Requested() {
-		return maintenance.Serve(ctx)
+		return maintenance.Serve(ctx, nil)
 	}
 	conf, err := config.NewSiteConfiguration(ctx)
 	if err != nil {
@@ -76,7 +76,7 @@ func Main() error {
 	}
 	_ = conf
 	if maintenance.Requested() {
-		return maintenance.Serve(ctx)
+		return maintenance.Serve(ctx, nil)
 	}
 
 	return nil
@@ -137,7 +137,7 @@ func TestMaintenanceSwitch(t *testing.T) {
 			files:       map[string]string{"cmd/generate/main.go": flat, "main.go": mainWithoutSwitch},
 			wantStatus:  Fail,
 			wantSummary: "1 main(s) without the maintenance switch before the site configuration",
-			wantDetails: []string{"harbor/main.go: the main builds the site configuration without checking maintenance.Requested() first; add, before config.NewSiteConfiguration(ctx): if maintenance.Requested() { return maintenance.Serve(ctx) } (import github.com/impulseframework/impulse/resource/maintenance)"},
+			wantDetails: []string{"harbor/main.go: the main builds the site configuration without checking maintenance.Requested() first; add, before config.NewSiteConfiguration(ctx): if maintenance.Requested() { return maintenance.Serve(ctx, brands) } (import github.com/impulseframework/impulse/resource/maintenance), brands being the browser applications' brands by mount path, as the skeletons' mains hand them (maintenance.Brands{\"/\": brand.Console()}, from the pkg/brand impulse brand writes), or nil"},
 		},
 		{
 			name:        "a switch after the configuration is refused",
@@ -163,7 +163,7 @@ func TestMaintenanceSwitch(t *testing.T) {
 			},
 			wantStatus:  Fail,
 			wantSummary: "1 main(s) without the maintenance switch before the site configuration",
-			wantDetails: []string{"portal/main.go: the main builds the site configuration without checking maintenance.Requested() first; add, before config.NewSiteConfiguration(ctx): if maintenance.Requested() { return maintenance.Serve(ctx) } (import github.com/impulseframework/impulse/resource/maintenance)"},
+			wantDetails: []string{"portal/main.go: the main builds the site configuration without checking maintenance.Requested() first; add, before config.NewSiteConfiguration(ctx): if maintenance.Requested() { return maintenance.Serve(ctx, brands) } (import github.com/impulseframework/impulse/resource/maintenance), brands being the browser applications' brands by mount path, as the skeletons' mains hand them (maintenance.Brands{\"/\": brand.Console()}, from the pkg/brand impulse brand writes), or nil"},
 		},
 		{
 			name:        "a site with no main package is left to the sites check",

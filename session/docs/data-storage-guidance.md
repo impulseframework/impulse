@@ -30,14 +30,14 @@ data have different *destinations*.
 
 ## What the library gives you, per auth mode
 
-| | Auth (every method) | Legacy username/password | Legacy Azure OIDC | Preauth |
-|---|---|---|---|---|
-| Library user table | `SessionUsers` (UUID PK, username unique); external identities in `SessionIdentities`, keyed `(method, connection, subject)` | `SessionUsers` (UUID PK, username unique) | `OIDCUsers` (opt-in via `WithOIDCUsers()`; UUID PK, `(Tid, Oid)` unique) | none |
-| Stable identity anchor | `SessionUsers.Id` (UUID), whatever method signed the person in; every session carries it as `SessionData.UserID` | `SessionUsers.Id` (UUID) | `OIDCUsers.Id` (UUID over the immutable `(tid, oid)` pair); without the anchor, the `oid` claim via `req.Claims` | caller-defined |
-| Username mutability | mutable, tracked (`ChangeSessionUserUsername` updates in place) | mutable, tracked (`ChangeSessionUserUsername` updates in place) | mutable, tracked with the anchor (login upserts `Username` in place); **untracked** without it | caller-defined |
-| Custom session data | resolver typed to the store's transaction (`NewCustomSessionData`), fed `req.UserID`, `req.User`, `req.Identity` and `req.Claims`; per-call on `StartAuthenticatedSession` | resolver + per-call (`StartAuthenticatedSession`) | resolver fed raw verified claims (`req.Claims`) and, with the anchor, `req.UserID` | caller-supplied per-call (`Preauth.API().Login()`) |
-| Custom user data | per-call on `CreateSessionUser`, or written by a custom account rule's `signin.Provision` hook for a user it provisions; RMW `UpdateCustomUserData`; FK → `SessionUsers.Id` | per-call on `CreateSessionUser` + RMW `UpdateCustomUserData`, FK → `SessionUsers.Id` | login hook fed claims + current row (requires the anchor) + RMW, FK → `OIDCUsers.Id` | unsupported (no user record) |
-| Session regeneration | on password change (custom session data re-resolved with `ReasonRegeneration`; user data untouched) | on password change (custom session data re-resolved with `ReasonRegeneration`; user data untouched) | n/a today | n/a |
+| | Auth (every method) | Preauth |
+|---|---|---|
+| Library user table | `SessionUsers` (UUID PK, username unique); external identities in `SessionIdentities`, keyed `(method, connection, subject)` | none |
+| Stable identity anchor | `SessionUsers.Id` (UUID), whatever method signed the person in; every session carries it as `SessionData.UserID` | caller-defined |
+| Username mutability | mutable, tracked (`ChangeSessionUserUsername` updates in place) | caller-defined |
+| Custom session data | resolver typed to the store's transaction (`NewCustomSessionData`), fed `req.UserID`, `req.User`, `req.Identity` and `req.Claims`; per-call on `StartAuthenticatedSession` | caller-supplied per-call (`Preauth.API().Login()`) |
+| Custom user data | per-call on `CreateSessionUser`, or written by a custom account rule's `signin.Provision` hook for a user it provisions; RMW `UpdateCustomUserData`; FK → `SessionUsers.Id` | unsupported (no user record) |
+| Session regeneration | on password change (custom session data re-resolved with `ReasonRegeneration`; user data untouched) | n/a |
 
 **Auth sessions** (`NewAuth`, see the README's "Auth sessions" section) use the
 `SessionUsers` user for every sign-in method. The stable anchor is `SessionUsers.Id`,
@@ -50,9 +50,9 @@ off an identity's subject or email. Custom session data is resolved with `Reason
 `req.Identity` and `req.Claims` for the external methods, and with `ReasonPreauth` for
 a preauth stepping-stone row, which belongs to no user. A pending identity (a sign-in
 waiting for its confirmation or MFA) is a row of `SessionPendingSignIns`, not a
-session, and resolves no custom data until it completes. Custom user data works as for
-username/password; provision it in a custom account rule's
-`signin.Provision` hook, inside the session transaction.
+session, and resolves no custom data until it completes. Custom user data is written
+per call on `CreateSessionUser`, or in a custom account rule's `signin.Provision` hook,
+inside the transaction that creates the user.
 
 ## Patterns
 
@@ -60,56 +60,38 @@ username/password; provision it in a custom account rule's
 
 - **Auth:** key app user-data tables by `SessionUsers.Id`, whatever method signed
   the person in. An identity's subject or email is never a key: an identity is a link
-  to the user, and a user may hold several.
-- **Legacy username/password:** key app user-data tables by `SessionUsers.Id`. A
-  username change updates one column in one table; everything downstream holds.
-  For small extensions, the library now ships this pattern: custom user data
-  (FK → `SessionUsers.Id`, per-call on `CreateSessionUser`, RMW updates).
-- **Legacy Azure OIDC:** enable the library-managed anchor (`WithOIDCUsers()`) and key
-  by `OIDCUsers.Id` — a surrogate UUID over the immutable `(tid, oid)` pair.
-  Apps that manage their own user table instead key it by `oid` (single-tenant)
-  or the composite `(tid, oid)` (multi-tenant). `oid` is immutable per user per
-  tenant; it is the only rename-proof, recycle-proof anchor Azure gives us.
-  Username (`preferred_username` / UPN) is a mutable *attribute* on that row —
-  which is exactly how `OIDCUsers` treats it.
+  to the user, and a user may hold several. A username change leaves the id as it
+  is, so everything keyed by it holds. For small extensions, the library ships
+  this pattern: custom user data (FK → `SessionUsers.Id`, per-call on
+  `CreateSessionUser`, RMW updates).
 - **Preauth:** the library never sees claims or credentials, so the caller owns
   identity. Whatever string is passed as `username` becomes the identity for
   the session's lifetime — pass a stable identifier, or maintain the mapping
   yourself. Durable custom user data is deliberately unsupported here: keying
   it on a caller-supplied username string is AP-1.
 
-#### OIDC key choice: `oid` alone vs `(tid, oid)` composite
+#### Entra identities: the link is keyed by `(tid, oid)`
 
-What the claims mean:
+An `Auth` links an Entra identity to its user by the tenant id and the object
+id, the token's `tid` and `oid` claims: the link's connection is the tenant and
+its subject the object id (`sessioninfo.Identity`), and a token without both is
+refused (`parse_claims_failed`). The connection scopes the subject. One
+registration can admit several tenants, or any tenant (`azure.Tenants`,
+`azure.AnyTenant`), and an object id says whose account it is only together
+with the tenant that issued the token. The key is the pair under every shape of
+`Config.Tenants`, a single tenant included.
 
-- **`oid`** is the GUID of the user object in the Entra ID directory (tenant)
-  that issued the token. It is immutable for the life of that object and
-  unique **within that tenant**. It is the same value the Graph API reports
-  as the user's object id, so it correlates across all of your apps and with
-  directory tooling. (Prefer it over `sub`, which is pairwise — unique per
-  user *per application* — and therefore useless for correlating anything.)
-- **`tid`** is the GUID of the tenant the token was issued for.
+The same person reaching the application through two tenants arrives under two
+tenant ids, so as two identities. Whether they are one user is the account
+rules' answer, not a claim's: each identity is linked to the user a rule names
+(see P-2), and a user may hold several links.
 
-**Single-tenant app** (all users from one directory): `oid` alone is a
-sufficient primary key. `tid` is a constant, so including it in the key adds
-nothing. Cheap insurance if multi-tenancy is ever plausible: store `tid` as a
-plain column from day one — promoting it into the key later is then a schema
-change, not a data backfill.
-
-**Multi-tenant app** (sign-ins from multiple directories): the primary key
-must be the composite `(tid, oid)`. Two reasons:
-
-1. **Uniqueness is only guaranteed per tenant.** Microsoft's own guidance is
-   that a cross-tenant user identifier is the `tid` + `oid` pair; treating
-   `oid` as globally unique is relying on an accident of GUID generation, not
-   a contract.
-2. **The semantics are per-tenant anyway.** The same human reaching your app
-   through two tenants (home tenant, or as a guest in another) presents a
-   *different* `oid` per tenant. `(tid, oid)` makes each tenant-scoped
-   identity its own row — which is almost always what a multi-tenant app
-   wants. If the product genuinely needs "one human across tenants," that is
-   a user-linking feature the app builds on top, not something any claim
-   gives you.
+Neither claim is a key for the application's own tables. Those key by
+`SessionUsers.Id`, as above, whatever tenant or method signed the person in. An
+application that wants the directory's ids beside its rows, to correlate with
+directory tooling, stores them as plain columns: an account rule receives them
+as `azure.Identity.TenantID` and `ObjectID`, a custom session data resolver as
+`req.Identity.Connection` and `Subject`.
 
 ### P-2: JIT-provision user data inside the account rule's transaction
 
@@ -117,19 +99,15 @@ must be the composite `(tid, oid)`. Two reasons:
 by the application, and an unlinked one goes through the registration's account rules:
 the standard rule provisions the user alone, and a custom rule's
 `signin.Provision` creates the user and runs `onProvisioned` in the same
-transaction, where the application writes its own rows for it. On the legacy Azure
-type, with `WithOIDCUsers()` the pattern ships in the
-box — every OIDC login upserts the `OIDCUsers` anchor inside the session-insert
-transaction (provision on first login, rename-in-place, touch `UpdatedAt`), and
-the custom user data login hook runs in the same transaction with the claims
-and the user's current row in hand. A hook failure aborts the login atomically.
+transaction, where the application writes its own rows for it. An `onProvisioned`
+failure rolls that transaction back: no user, no link, and the sign-in fails.
 
 For app-owned tables, the same steps hand-rolled in the session-creation
 resolver (which runs inside the same database transaction as the session
 insert):
 
-1. Look up the user row by stable key (`oid` for OIDC, `SessionUsers.Id` for
-   password auth).
+1. Look up the user row by stable key (`SessionUsers.Id`, which the resolver
+   receives as `req.UserID`).
 2. Not found → provision the row.
 3. Found with a different username → **it's a rename**; update the username
    attribute in place. Continuity is preserved: no orphaned record, no cleanup
@@ -141,12 +119,12 @@ provisioning having succeeded.
 
 ### P-3: Carry the durable key as session data
 
-Return the stable user key (`oid`, or the user-table PK) from the resolver
+Return the stable user key (the user-table PK) from the resolver
 as a custom session data column. Every subsequent request can then reach the
 durable user record straight from the request context — no per-request
 username→key lookup, and no temptation to key anything else by username.
-With the OIDC anchor enabled this is one field copy: the resolver receives
-`req.UserID` already populated with the `OIDCUsers` record's ID.
+The library's own key needs no copy: the resolver receives it as `req.UserID`,
+and an `Auth` session that belongs to a user carries it as `SessionData.UserID`.
 
 ### P-4: Namespace usernames when multiple authorities mint them
 
@@ -170,13 +148,10 @@ Two failure modes, both silent:
   cleanup fires and *inherits their record* — a correctness and privacy
   failure.
 
-With password auth this is unforced error (the UUID exists; use it). With OIDC
-it was historically the path of least resistance because the library offered no
-user table — `Auth` users (and, on the legacy Azure type, the OIDC user anchor) remove
-the excuse. Note
-what stays fine: username as *session plumbing* (session rows, role sync,
-log attribution) is unaffected — sessions are per-login and roles re-derive
-from the token on every login.
+On an `Auth` this is an unforced error: every user has a UUID
+(`SessionUsers.Id`), whatever method signed the person in; use it. Note
+what stays fine: username as *session plumbing* (session rows, log
+attribution) is unaffected — sessions are per-login.
 
 ### AP-2: User data in the custom session data table
 
@@ -203,7 +178,8 @@ session state mid-flight, not for initial population.
 
 Any OIDC flow that compares usernames to decide "same user?" is wrong in both
 directions (renames split one person in two; recycling merges two people into
-one). Identity comparison is `oid` (or `(tid, oid)`) — always.
+one). Identity comparison is the link's key, `(method, connection, subject)`,
+which for Entra is `(tid, oid)` — always. An `Auth` makes it for every sign-in.
 
 ## Regeneration semantics
 
@@ -219,12 +195,11 @@ see AP-2.
 ## Open questions
 
 - **OQ-1:** ~~Should the library ever offer an optional, library-managed user
-  table for OIDC?~~ **Resolved — implemented:** the OIDC user anchor
-  (`WithOIDCUsers()`): an opt-in `OIDCUsers` table keyed per the "OIDC key
-  choice" section (surrogate UUID PK, unique `(Tid, Oid)`), maintained
-  just-in-time inside every login transaction, with `Username` as a mutable
-  attribute. Custom user data attaches to it (FK → `OIDCUsers.Id`) with a
-  claims-fed login hook. See the "OIDC user anchor" and "Custom user data"
+  table for OIDC?~~ **Resolved — implemented:** on an `Auth` every external
+  identity is linked to a `SessionUsers` user through `SessionIdentities`,
+  keyed `(method, connection, subject)`, with the username as a mutable
+  attribute of the user. Custom user data attaches to the user
+  (FK → `SessionUsers.Id`). See the "Auth sessions" and "Custom user data"
   sections of the README.
 - **OQ-2:** ~~Should the resolver be regeneration-aware?~~ **Resolved —
   implemented:** the resolver receives `NewSessionRequest.Reason`
@@ -233,10 +208,11 @@ see AP-2.
   data was deferred — adding a field to the request struct later is additive
   and non-breaking.
 - **OQ-3:** ~~Preauth has no custom session data support.~~ **Resolved —
-  implemented:** all three session types share the mechanism. Password auth:
-  resolver + per-call data on `StartAuthenticatedSession`; OIDC: resolver fed
-  raw verified claims; Preauth: caller-supplied per-call data on
-  `Preauth.API().Login()`, atomic with the insert.
+  implemented:** both session types share the mechanism. `Auth`: a resolver,
+  fed the user and, for an external method, the identity and its raw verified
+  claims, plus per-call data on `StartAuthenticatedSession`; Preauth:
+  caller-supplied per-call data on `Preauth.API().Login()`, atomic with the
+  insert.
 - **OQ-4:** ~~`StartAuthenticatedSession` vs `Preauth.Login` — do we need
   both?~~ **Resolved — keep both; boundary documented in godoc:**
   `StartAuthenticatedSession` requires an existing, non-disabled
@@ -245,5 +221,6 @@ see AP-2.
   record — the stepping-stone (e.g., MFA-pending) session. Each godoc names
   the other as the alternative.
 - **OQ-5:** ~~Multi-tenant OIDC: do we take a position on `(tid, oid)`
-  composite keys?~~ **Resolved:** the guidance takes a position — see
-  "OIDC key choice" under P-1.
+  composite keys?~~ **Resolved — implemented:** an `Auth` keys an Entra
+  identity's link by `(tid, oid)` under every tenant shape, and application
+  tables key by `SessionUsers.Id` — see "Entra identities" under P-1.

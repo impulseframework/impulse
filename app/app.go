@@ -12,6 +12,7 @@ package app
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/go-playground/errors/v5"
@@ -420,16 +421,27 @@ type EnvTag struct {
 	Name       string
 	Required   bool
 	HasDefault bool
-	// Secret reports the field's secret tag, secret:"true" or secret:"generated": the
-	// variable holds a credential that the infrastructure mounts from a secret store.
-	// Generated reports the second: a value the tooling makes and nobody types.
+	// Secret reports the field's secret tag, secret:"true", secret:"generated" or
+	// secret:"versioned": the variable holds a credential that the infrastructure mounts
+	// from a secret store. Generated reports the last two: a value the tooling makes and
+	// nobody types. Versioned reports the last: a generated secret kept in versions,
+	// every enabled one of which is handed to the service, each in a variable of its own
+	// named by Name, an underscore and the version's number (VersionedName); no variable
+	// is named Name itself.
 	Secret    bool
 	Generated bool
+	Versioned bool
 	// Origin names the framework settings struct that declares the variable when the
 	// application embeds one instead of declaring the field itself, as import path and
 	// type name (github.com/impulseframework/impulse/cloud/gcp.Settings); the tag stands at the
 	// embedding's line. Empty for a field the application declares.
 	Origin string
+}
+
+// VersionedName is the variable one version of a versioned secret is handed over in:
+// the declared name, an underscore and the version's number (APP_SECRET_KEY_2).
+func (t EnvTag) VersionedName(version int) string {
+	return t.Name + "_" + strconv.Itoa(version)
 }
 
 // Discover reads the application rooted at dir. dir must hold a go.mod.

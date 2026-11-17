@@ -3,6 +3,8 @@ package access
 import (
 	"log"
 	"time"
+
+	"github.com/impulseframework/impulse/accesstypes"
 )
 
 // Option configures optional Client behavior.
@@ -15,6 +17,7 @@ type clientOptions struct {
 	collection        PermissionCollection
 	roleFile          RoleFile
 	roleFileSet       bool
+	superMethods      []accesstypes.Resource
 }
 
 func defaultClientOptions() *clientOptions {
@@ -102,5 +105,23 @@ func WithDefaultRoles(collection PermissionCollection, file RoleFile) Option {
 		o.collection = collection
 		o.roleFile = file
 		o.roleFileSet = true
+	}
+}
+
+// WithSuperAdministratorMethods names the methods that give and take the
+// auth's roles for the whole application: the role methods of the auth's
+// generated management (its identity package's SuperAdministratorMethods).
+// The Super Administrator role, which every Client defines
+// (accesstypes.SuperAdministrator), holds Execute on each of them under no
+// condition, whatever the role file grants anybody: a super administrator
+// gives and takes any role of the auth for any person, in the global
+// partition and in every tenant, so one who can sign in can take the power
+// to fix what is broken. With a collection (WithDefaultRoles,
+// WithPermissionCollection) New refuses a method the release does not declare
+// at the global scope with Execute. Without the option the role is defined
+// and holds nothing of its own.
+func WithSuperAdministratorMethods(methods ...accesstypes.Resource) Option {
+	return func(o *clientOptions) {
+		o.superMethods = methods
 	}
 }

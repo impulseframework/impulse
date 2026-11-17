@@ -17,7 +17,7 @@
 -- 10 wingco, 11 engineer, 12 quartermaster, 13 supercargo, 14 salvor, 15 yeoman,
 -- 16 purser, 17 registrar, 18 photographer, 19 archivist, 20 assessor, 21 hazards,
 -- 22 dock, 23 watch, 24 harbormaster, 25 adjutant, 26 surveyor, 27 rigger, 28 bosun,
--- 29 droid-r7 (the service account). The members' accounts, the portal's people,
+-- 29 armorer, 30 droid-r7 (the service account). The members' accounts, the portal's people,
 -- f1000000-0000-4000-8000-0000000000NN: 01 client (Client Cleo of Halvard Freight),
 -- 02 surveyor (Ines Marrow of the Meridian Survey Office, who is not the crew's surveyor:
 -- the same username in two auths is two people).
@@ -97,11 +97,29 @@ INSERT INTO SquadronMemberships (SquadronId, UserId) VALUES ('50000000-0000-4000
 INSERT INTO SquadronMemberships (SquadronId, UserId) VALUES ('50000000-0000-4000-8000-000000000002', 'f0000000-0000-4000-8000-000000000004');
 INSERT INTO SquadronMemberships (SquadronId, UserId) VALUES ('50000000-0000-4000-8000-000000000003', 'f0000000-0000-4000-8000-000000000007');
 INSERT INTO SquadronMemberships (SquadronId, UserId) VALUES ('50000000-0000-4000-8000-000000000003', 'f0000000-0000-4000-8000-000000000004');
+-- The armorer serves Tongs and is no pilot: the membership is the one tie the hangar
+-- passes below reach him by.
+INSERT INTO SquadronMemberships (SquadronId, UserId) VALUES ('50000000-0000-4000-8000-000000000002', 'f0000000-0000-4000-8000-000000000029');
 
 INSERT INTO Hangars (Id, SectorId, Name, Zone) VALUES ('60000000-0000-4000-8000-000000000001', 'a1111111-1111-4111-8111-111111111111', 'Anvil Dock One', 'dock');
 INSERT INTO Hangars (Id, SectorId, Name, Zone) VALUES ('60000000-0000-4000-8000-000000000002', 'a1111111-1111-4111-8111-111111111111', 'Quarantine Bay', 'quarantine');
 INSERT INTO Hangars (Id, SectorId, Name, Zone) VALUES ('60000000-0000-4000-8000-000000000003', 'b2222222-2222-4222-8222-222222222222', 'Bastion Slip', 'dock');
 INSERT INTO Hangars (Id, SectorId, Name, Zone) VALUES ('60000000-0000-4000-8000-000000000004', 'c3333333-3333-4333-8333-333333333333', 'Cinder Yard', 'salvage');
+
+-- The hangar passes, each naming a squadron or a person at a level. For the armorer, who
+-- serves Tongs, the two pass sets (pkg/resources/hangar_passes.go) come out as:
+--   1  Tongs runs Anvil Dock One, standing: his through the squadron, so the dock is open
+--      to him and he runs it.
+--   2  Tongs visits the Quarantine Bay, standing: open to him, and not his to run.
+--   3  his own pass to run the Quarantine Bay expired on 2026-01-01: it no longer counts.
+--   4  Hammer runs the Quarantine Bay: he does not fly with Hammer, so the row is not his.
+--   5  Portcullis visits Bastion Slip: Bastion's row, never read in an Anvil request.
+-- So the hangars open to him are the dock and the bay, and the one he runs is the dock.
+INSERT INTO HangarPasses (Id, SectorId, HangarId, UserId, SquadronId, LevelId, ExpiresAt) VALUES ('61000000-0000-4000-8000-000000000001', 'a1111111-1111-4111-8111-111111111111', '60000000-0000-4000-8000-000000000001', NULL, '50000000-0000-4000-8000-000000000002', 'run', NULL);
+INSERT INTO HangarPasses (Id, SectorId, HangarId, UserId, SquadronId, LevelId, ExpiresAt) VALUES ('61000000-0000-4000-8000-000000000002', 'a1111111-1111-4111-8111-111111111111', '60000000-0000-4000-8000-000000000002', NULL, '50000000-0000-4000-8000-000000000002', 'visit', NULL);
+INSERT INTO HangarPasses (Id, SectorId, HangarId, UserId, SquadronId, LevelId, ExpiresAt) VALUES ('61000000-0000-4000-8000-000000000003', 'a1111111-1111-4111-8111-111111111111', '60000000-0000-4000-8000-000000000002', 'f0000000-0000-4000-8000-000000000029', NULL, 'run', TIMESTAMP '2026-01-01T00:00:00Z');
+INSERT INTO HangarPasses (Id, SectorId, HangarId, UserId, SquadronId, LevelId, ExpiresAt) VALUES ('61000000-0000-4000-8000-000000000004', 'a1111111-1111-4111-8111-111111111111', '60000000-0000-4000-8000-000000000002', NULL, '50000000-0000-4000-8000-000000000001', 'run', NULL);
+INSERT INTO HangarPasses (Id, SectorId, HangarId, UserId, SquadronId, LevelId, ExpiresAt) VALUES ('61000000-0000-4000-8000-000000000005', 'b2222222-2222-4222-8222-222222222222', '60000000-0000-4000-8000-000000000003', NULL, '50000000-0000-4000-8000-000000000003', 'visit', NULL);
 
 -- Two haulers carry cargo bays (an ARRAY<INT64> column, number[] in the console); every
 -- other ship takes the column's default, an empty array.

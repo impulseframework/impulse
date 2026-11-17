@@ -121,6 +121,10 @@ such action and a call is refused with how a directory is set.
   and `-force <n>` and `-force-data <n>` set a table to a version (-1 for no version), for
   the states the migration runner refuses to guess at; the pipeline passes them from the
   operations workflow (`bedrock migration`), and none of them applies a migration.
+  `-retire-secret APP_SECRET_KEY_1` retires a version of the application secret: it writes
+  every stored secret field that names the version again under the current one, confirms
+  none is left and exits 0 only then, so the deployment disables the version only when no
+  stored value needs it (see "Secret fields").
 - `cmd/generate` runs the three generators: console, portal, shared. `impulse check`'s
   sites-generators check fails the build when a generator reads a different schema or the
   shared generator misses a site.
@@ -207,6 +211,28 @@ through `CursorKey()`. In the browser, `@impulseframework/resource` follows the 
 surface; their List function may take the conditions, sort, or page it pushes down and the
 generated handler applies the rest.
 
+## Secret fields
+
+A field that holds a secret the application must use itself (an API key, a signing key) is
+declared `conditions:"secret"` and typed `resource.Secret`, on a `BYTES` column with room
+for the 41 bytes sealing adds: `APIKey *resource.Secret` on `ApiKey BYTES(105)` takes a key
+of up to 64 bytes. The field is never served, the form masks it, a change record names it
+without its values, and the database holds it encrypted: the resource client seals the
+value when it is written, and code that needs it opens it with the row's generated method
+(`row.OpenAPIKey(conf.SecretKeys())`, or `row.OpenAPIKeyIn(ctx, txn)` inside a
+transaction). The generator refuses a `secret` field typed a plain `string`.
+
+The key is the application secret, which `pkg/config` declares
+(`env:"APP_SECRET_KEY" secret:"versioned"`) and reads into the resource client's secret
+keys. It is kept in versions, each in a variable of its own: `.envrc.template` sets
+`APP_SECRET_KEY_1` to a development value, and a deployment generates the secret and hands
+the service every enabled version (`APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`), the highest the
+current one. An application with a secret field refuses to start without a version. A
+version is retired, before the deployment disables it, by the migrate command
+(`-retire-secret APP_SECRET_KEY_1`), which writes every stored value that names it again
+under the current version. The framework's `resource/README.md`, "Secrets at rest", has
+the whole of it.
+
 ## Running it
 
     cp .envrc.template .envrc && direnv allow
@@ -244,6 +270,11 @@ local yalc store, links them, and runs `bun install`; `weblib.sh restore` puts t
 `IMPULSE` to point elsewhere. Then `overmind start` runs everything, with `ng serve` for the console at
 http://127.0.0.1:4304 and the portal at http://127.0.0.1:4305.
 
+The browser files are held to the prettier the workspace pins (`.prettierrc`): `impulse
+check` names a file prettier would change, and `impulse check --only prettier --fix` formats
+it. Run that once after the first install: the files were written under this application's
+names before the formatter was there to wrap their lines.
+
 After a change in the framework's web packages, push the rebuilt packages, restart the dev
 server, and reload the page:
 
@@ -255,13 +286,30 @@ The packages are bundled with the application code rather than prebundled by Vit
 `prebundle` exclusion in `angular.json`), so a plain reload shows the new build in any
 browser profile: nothing is held behind an immutable URL, and no cache needs clearing.
 
-Each site's browser application installs as a progressive web app. The production build emits a service worker
-(`@angular/service-worker`, configured by its workspace's `ngsw-config.json`) that keeps the files of the
-build an open tab loaded, so a release never breaks a tab still running the previous build,
-and the library's update notice offers Reload when a new build is ready; the worker is off
-under `ng serve`. The manifest and the icons sit in its `public/` directory
-(`manifest.webmanifest`, `icons/`), a placeholder set to replace with the application's own
-mark. The server serves every bundle through the resource package's `BrowserApp`, which sets
+Each site's browser application installs as a progressive web app. The production build emits a
+service worker (`@angular/service-worker`, configured by its workspace's `ngsw-config.json`)
+that keeps the files of the build an open tab loaded, so a release never breaks a tab still
+running the previous build, and the library's update notice offers Reload when a new build is
+ready; the worker is off under `ng serve`. The manifest and the icons sit in its `public/`
+directory (`manifest.webmanifest`, `icons/`): a placeholder set, the skeleton's mark, until the
+application's own logo is in place.
+
+The brand is declared once, in each site's `brand.json` (`apps/console/web/brand.json`,
+`apps/portal/web/brand.json`: the console and the portal carry a brand each): the application's
+name, its logo (`logo.png` beside the declaration, a square PNG at least 512 pixels a side;
+`logoSvg` names the same logo as an SVG, which then is the favicon as it is), a primary color
+and, optionally, a background color. `impulse brand` writes from it the favicon and the app
+icons, the manifest's names and colors, the page's title and `theme-color`, the name the frame
+draws, the theme's first palette (generated from the primary color by Angular Material's own
+generator, once the workspace's packages are installed, into `src/_theme-colors.scss`), and what
+the server says: `pkg/brand`, the name and the logo each site's `main.go` hands to the
+maintenance page, and the name the mail says, the `Application` constant of the auth whose
+people sign in to it (`pkg/auth/staff`). The declaration the skeleton carries names the
+placeholder: put the application's own logo in its place, set the name and the colors, and run
+`impulse brand`, then again whenever the declaration changes; `impulse check` (`brand`) reminds
+while the placeholder is still there.
+
+The server serves every bundle through the resource package's `BrowserApp`, which sets
 the cache headers a worker needs; a build deployed without `ngsw.json` makes every installed
 worker unregister itself and drop its caches. `impulse check` (`installable`) holds the wiring.
 

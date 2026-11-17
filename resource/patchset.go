@@ -122,7 +122,9 @@ func (p *PatchSet[Resource]) Permitted(ctx context.Context, txn ReadWriteTransac
 // Set adds or updates a field's value in the PatchSet.
 func (p *PatchSet[Resource]) Set(field accesstypes.Field, value any) *PatchSet[Resource] {
 	p.data.Set(field, value)
-	p.querySet.AddField(field)
+	// The field alone: a query that reads a secret reads its row's key with it
+	// (QuerySet.AddField), and a patch that sets one writes the secret and nothing more.
+	p.querySet.addField(field)
 
 	return p
 }
@@ -165,6 +167,8 @@ func (p *PatchSet[Resource]) Data() map[accesstypes.Field]any {
 }
 
 // ToStruct returns an instance of Resource, with its struct fields populated with the contents of data.
+// A secret field the patch was given as text is left out: the struct's field holds the
+// bytes its column stores, and the value is sealed only when the patch is written.
 func (p *PatchSet[Resource]) ToStruct() *Resource {
 	var r Resource
 	t := reflect.TypeOf(r)
@@ -192,9 +196,12 @@ func (p *PatchSet[Resource]) ToStruct() *Resource {
 			continue
 		}
 		val := reflect.ValueOf(value)
-		if val.Type().AssignableTo(field.Type()) {
+		switch {
+		case val.Type().AssignableTo(field.Type()):
 			field.Set(val)
-		} else {
+		case p.querySet.rMeta.secret(fieldName):
+			// A secret given as text: the struct's field holds stored bytes alone.
+		default:
 			panic(errors.Newf("cannot assign value of type %s to field %s of type %s", val.Type(), fieldName, field.Type()))
 		}
 	}
@@ -265,6 +272,10 @@ func (p *PatchSet[Resource]) FromStruct(input any, skip ...string) error {
 					valToSet = fieldValue.Elem().Interface()
 				}
 			}
+		}
+		// A secret is given to a patch as text, whatever its field stores.
+		if !assignable && p.querySet.rMeta.secret(accesstypes.Field(fieldName)) {
+			assignable = secretTextType(fieldValue.Type())
 		}
 
 		if !assignable {
@@ -495,7 +506,7 @@ func (p *PatchSet[Resource]) bufferInsert(ctx context.Context, txn ReadWriteTran
 		}
 	}
 
-	patch, err := p.Resolve(txn.DBType())
+	patch, err := p.Resolve(txn.DBType(), secretKeysOf(txn))
 	if err != nil {
 		return errors.Wrap(err, "Resolve()")
 	}
@@ -549,7 +560,7 @@ func (p *PatchSet[Resource]) bufferUpdate(ctx context.Context, txn ReadWriteTran
 		}
 	}
 
-	patch, err := p.Resolve(txn.DBType())
+	patch, err := p.Resolve(txn.DBType(), secretKeysOf(txn))
 	if err != nil {
 		return errors.Wrap(err, "Resolve()")
 	}
@@ -587,7 +598,7 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadW
 		return err
 	}
 
-	patch, err := p.Resolve(txn.DBType())
+	patch, err := p.Resolve(txn.DBType(), secretKeysOf(txn))
 	if err != nil {
 		return errors.Wrap(err, "Resolve()")
 	}
@@ -789,7 +800,7 @@ func (p *PatchSet[Resource]) updateChangeSet(ctx context.Context, txn ReadWriteT
 		return nil, "", errors.Wrap(err, "Reader[Resource].Read()")
 	}
 
-	changeSet, err = p.Diff(&oldValues.Data)
+	changeSet, err = p.diff(&oldValues.Data, secretKeysOf(txn))
 	if err != nil {
 		return nil, "", errors.Wrap(err, "Diff()")
 	}
@@ -845,7 +856,12 @@ func (p *PatchSet[Resource]) deleteChangeSet(old any) (map[accesstypes.Field]Dif
 }
 
 // Resolve returns a map with the keys set to the database struct tags found on databaseType, and the values set to the values in patchSet.
-func (p *PatchSet[Resource]) Resolve(dbType DBType) (map[string]any, error) {
+// A field the resource declares a secret (conditions:"secret") is sealed here, with keys
+// and the row's primary key, so its column is never handed the value as it was given:
+// the write path passes the keys of its transaction's client, and a patch that sets a
+// secret is refused when there are none. A patch that sets no secret resolves with nil
+// keys.
+func (p *PatchSet[Resource]) Resolve(dbType DBType, keys *SecretKeys) (map[string]any, error) {
 	keySet := p.PrimaryKey()
 	if keySet.Len() == 0 {
 		return nil, errors.New("PatchSet must include at least one primary key in call to Resolve")
@@ -856,6 +872,13 @@ func (p *PatchSet[Resource]) Resolve(dbType DBType) (map[string]any, error) {
 		f, ok := p.querySet.rMeta.dbFieldMap(dbType)[structField]
 		if !ok {
 			return nil, errors.Newf("field %s not found in struct", structField)
+		}
+		if p.querySet.rMeta.secret(structField) {
+			sealed, err := p.sealSecret(keys, structField, f.fieldType, value)
+			if err != nil {
+				return nil, err
+			}
+			value = sealed
 		}
 		newMap[f.ColumnName] = value
 	}
@@ -875,8 +898,17 @@ func (p *PatchSet[Resource]) change(field accesstypes.Field, oldV, newV any) Dif
 
 // Diff returns a map of fields that have changed between old and patchSet. A field the
 // resource struct declares a secret (conditions:"secret") is in the map when it changed,
-// marked Secret, with neither value.
+// marked Secret, with neither value. Whether a secret changed cannot be told from its
+// stored bytes, which differ at every write: the write path opens what the row holds
+// and compares it with the value given, and Diff, which holds no keys, counts a secret
+// the patch sets as changed unless the row holds none and the patch sets none.
 func (p *PatchSet[Resource]) Diff(old any) (map[accesstypes.Field]DiffElem, error) {
+	return p.diff(old, nil)
+}
+
+// diff is Diff with the secret keys of the transaction the patch is written in, nil
+// when there are none.
+func (p *PatchSet[Resource]) diff(old any, keys *SecretKeys) (map[accesstypes.Field]DiffElem, error) {
 	oldValue := reflect.ValueOf(old)
 	oldType := reflect.TypeOf(old)
 
@@ -904,6 +936,18 @@ func (p *PatchSet[Resource]) Diff(old any) (map[accesstypes.Field]DiffElem, erro
 		oldV, foundInOld := oldMap[field]
 		if !foundInOld {
 			return nil, errors.Newf("Patcher.Diff(): field %s in patchSet does not exist in old", field)
+		}
+
+		if p.querySet.rMeta.secret(field) {
+			changed, err := p.secretChanged(keys, field, oldV, newV)
+			if err != nil {
+				return nil, err
+			}
+			if changed {
+				diff[field] = p.change(field, oldV, newV)
+			}
+
+			continue
 		}
 
 		if match, err := match(oldV, newV); err != nil {

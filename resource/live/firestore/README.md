@@ -23,8 +23,10 @@ everything outside the change sets.
 merge, so writes to one target within one second coalesce into one document. Fields:
 `kind` (`row`, `list` or `resource`), `resource`, `key` and `deleted` on a row
 document, `domain` on a list document, `at` (the server timestamp), `expires`
-(timestamp, ten minutes after the write). The browser queries
-`where at > lastSeen order by at` and may read only its own set.
+(timestamp, ten minutes after the write), `write` (the id of the write that published
+the document, the last one's when several became one document: the tab whose write it
+was learned the id from the write's answer and fetches nothing for the document). The
+browser queries `where at > lastSeen order by at` and may read only its own set.
 
 `application/signals` is the application's signals document: the one document the
 server's instances signal each other through. It has a field per kind (`features`,
@@ -119,7 +121,7 @@ The package's tests run against the Firestore emulator from the Cloud SDK emulat
 image, which db-initiator starts in a container with the package's rules
 (`NewFirestoreContainer` with `WithFirestoreRules`), as it starts the Spanner emulator
 the resource package's tests use; they skip under `-short`. They prove the record's
-lookups and expiry, the publisher's documents, coalescing and the bulk threshold, the
+lookups and expiry, the publisher's documents and the write's id on them, coalescing and the bulk threshold, the
 emulator token, and, through the emulator's REST API with an unsigned token for a uid,
 that a user reads their own change set and nothing else. The signals tests run two
 instances on one document in a database of their own per test: a signal of a kind

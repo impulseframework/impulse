@@ -560,3 +560,17 @@ func TestClientExpression(t *testing.T) {
 		})
 	}
 }
+
+// TestTenancyMeaningSaysToFormat holds the brief to the one step the command cannot take:
+// it writes browser files under the record's and the auth's names without wrapping them
+// again, so the brief says to format them once the web root's packages are installed.
+func TestTenancyMeaningSaysToFormat(t *testing.T) {
+	t.Parallel()
+
+	meaning := Tenancy{Table: "ServiceAreas"}.Meaning()
+	for _, want := range []string{"after the install, run `impulse check --only prettier --fix` once", "until then the `prettier` check names them"} {
+		if !strings.Contains(meaning, want) {
+			t.Errorf("Meaning() lacks %q:\n%s", want, meaning)
+		}
+	}
+}

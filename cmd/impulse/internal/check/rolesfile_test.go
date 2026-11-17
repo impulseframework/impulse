@@ -55,6 +55,18 @@ func TestRolesFileAccepted(t *testing.T) {
 			wantDetails: []string{"pkg/auth/staff/roles.json: role Administrator_Global: a role name is letters and digits starting with a capital letter, such as Administrator or TenantAdministrator; the scope is never part of the name"},
 		},
 		{
+			name:       "a role taking the name of the framework's role",
+			files:      withRoles(`{"roles": {"global": [{"name": "SuperAdministrator", "description": "Runs the application.", "permissions": {}}]}}`),
+			wantStatus: Fail, wantSummary: "1 role file(s) the permission engine would refuse at start",
+			wantDetails: []string{"pkg/auth/staff/roles.json: role SuperAdministrator: the name is reserved: every auth has the Super Administrator role, which the framework defines, and an application defines no role of that name; remove it from the global roles and give what it grants to a role of another name"},
+		},
+		{
+			name:       "a tenant role taking the name in another case",
+			files:      withRoles(`{"roles": {"domain": [{"name": "Superadministrator", "description": "Runs one tenant.", "permissions": {}}]}}`),
+			wantStatus: Fail, wantSummary: "1 role file(s) the permission engine would refuse at start",
+			wantDetails: []string{"pkg/auth/staff/roles.json: role Superadministrator: the name is reserved: every auth has the Super Administrator role, which the framework defines, and an application defines no role of that name; remove it from the domain roles and give what it grants to a role of another name"},
+		},
+		{
 			name: "a role with an empty description", files: withRoles(fixture("undescribed.json")),
 			wantStatus: Fail, wantSummary: "1 role file(s) the permission engine would refuse at start",
 			wantDetails: []string{"pkg/auth/staff/roles.json: role Auditor: a role carries a description, one or two plain sentences saying what the role is for"},

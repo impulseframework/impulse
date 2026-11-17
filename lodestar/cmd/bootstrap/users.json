@@ -6,6 +6,7 @@
       "password": "lodestar",
       "roles": {
         "global": [
+          "SuperAdministrator",
           "CrewCommon",
           "Headquarters",
           "BulletinOfficer",
@@ -467,6 +468,21 @@
           ]
         }
       }
+    },
+    {
+      "id": "f0000000-0000-4000-8000-000000000029",
+      "user": "armorer",
+      "password": "lodestar",
+      "roles": {
+        "global": [
+          "CrewCommon"
+        ],
+        "domains": {
+          "Anvil": [
+            "Armorer"
+          ]
+        }
+      }
     }
   ],
   "members": [
@@ -481,7 +497,7 @@
   ],
   "serviceAccounts": [
     {
-      "id": "f0000000-0000-4000-8000-000000000029",
+      "id": "f0000000-0000-4000-8000-000000000030",
       "user": "droid-r7",
       "roles": {
         "global": [],

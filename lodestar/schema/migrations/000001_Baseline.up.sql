@@ -253,6 +253,11 @@ CREATE TABLE FailReasons (
   Description STRING(MAX) NOT NULL,
 ) PRIMARY KEY (Id);
 
+CREATE TABLE PassLevels (
+  Id STRING(64) NOT NULL,
+  Description STRING(MAX) NOT NULL,
+) PRIMARY KEY (Id);
+
 CREATE TABLE Clients (
   Id STRING(36) NOT NULL,
   Name STRING(MAX) NOT NULL,
@@ -375,6 +380,39 @@ CREATE TABLE Hangars (
   Name_Lower STRING(MAX) AS (LOWER(Name)) STORED,
 ) PRIMARY KEY (Id);
 
+-- HangarPasses: who a hangar is open to. A pass names a person or a squadron, never both,
+-- at a level (visit, or run) and until it expires; no expiry is a standing pass. The two
+-- subject sets the resource struct declares read this table: the hangars open to the
+-- requester and the hangars the requester runs, each through a pass in their own name or
+-- in the name of a squadron they fly with. A pass goes with its hangar and with its
+-- squadron.
+CREATE TABLE HangarPasses (
+  Id STRING(36) NOT NULL,
+  SectorId STRING(36) NOT NULL,
+  HangarId STRING(36) NOT NULL,
+  UserId STRING(36),
+  SquadronId STRING(36),
+  LevelId STRING(64) NOT NULL,
+  ExpiresAt TIMESTAMP,
+
+  CONSTRAINT CK_HangarPasses_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
+  CONSTRAINT CK_HangarPasses_Holder CHECK ((UserId IS NULL) != (SquadronId IS NULL)),
+  CONSTRAINT FK_HangarPasses_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
+  CONSTRAINT FK_HangarPasses_HangarId FOREIGN KEY (HangarId) REFERENCES Hangars(Id) ON DELETE CASCADE,
+  CONSTRAINT FK_HangarPasses_SquadronId FOREIGN KEY (SquadronId) REFERENCES Squadrons(Id) ON DELETE CASCADE,
+  CONSTRAINT FK_HangarPasses_LevelId FOREIGN KEY (LevelId) REFERENCES PassLevels(Id),
+) PRIMARY KEY (Id);
+
+-- The lookups a check of the pass sets makes, one for each column a pass names its holder
+-- by: the sector, then the holder, then the hangar the set yields. Without them the
+-- generator warns, naming each (SubjectSetIndexWarning).
+CREATE INDEX HangarPassesBySectorIdUserIdHangarId ON HangarPasses(SectorId, UserId, HangarId);
+
+CREATE INDEX HangarPassesBySectorIdSquadronIdHangarId ON HangarPasses(SectorId, SquadronId, HangarId);
+
+-- The list's own order: a sector's passes by hangar.
+CREATE INDEX HangarPassesBySectorIdHangarId ON HangarPasses(SectorId, HangarId);
+
 CREATE TABLE Ships (
   Id STRING(36) NOT NULL,
   HangarId STRING(36) NOT NULL,
@@ -397,9 +435,12 @@ CREATE TABLE Ships (
   -- list filters or sorts by it.
   CargoBays ARRAY<INT64> NOT NULL DEFAULT (ARRAY<INT64>[]),
   -- TransponderKey is the key a ship's transponder signs its answers with: a secret. The
-  -- resource declares it conditions:"secret", so it is written and never served, and the
-  -- ship's log names a change of it without the value.
-  TransponderKey STRING(64),
+  -- resource declares it conditions:"secret" and types it resource.Secret, so it is
+  -- written and never served, the ship's log names a change of it without the value, and
+  -- the column holds it encrypted: BYTES, with room for the 64 bytes a key may be and the
+  -- 41 sealing adds (the version of the application secret that sealed it, the random
+  -- number drawn for the write, and the check).
+  TransponderKey BYTES(105),
 ) PRIMARY KEY (Id);
 
 CREATE UNIQUE INDEX ShipsByRegistry ON Ships(Registry);
@@ -1263,3 +1304,7 @@ INSERT INTO FailReasons (Id, Description) VALUES ('solar_weather', 'Solar weathe
 INSERT INTO FailReasons (Id, Description) VALUES ('aborted', 'Aborted');
 
 INSERT INTO FailReasons (Id, Description) VALUES ('recalled', 'Recalled');
+
+INSERT INTO PassLevels (Id, Description) VALUES ('visit', 'Visit');
+
+INSERT INTO PassLevels (Id, Description) VALUES ('run', 'Run');

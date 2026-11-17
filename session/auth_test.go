@@ -2631,6 +2631,9 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 		wantActorID     impulse.NullUUID
 		wantProviderSID string
 		wantBadRequest  bool
+		wantForbidden   bool
+		// wantErr is a failure that is neither refusal: no session is created.
+		wantErr bool
 		// wantPrincipal is the principal the record carries, where it is not the
 		// request's own text.
 		wantPrincipal accesstypes.Principal
@@ -2693,6 +2696,41 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 				store.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, httpio.NewNotFoundMessage("no such user"))
 			},
 		},
+		// A role principal's session carries the actor's own name. An actor from another
+		// application whose name is a user's here would hold a session under that
+		// user's name, so the name is looked up and the session refused when it is taken.
+		{
+			name:    "a role principal for an actor from another application whose name is a user's username is refused, and no session is created",
+			ctx:     context.Background,
+			request: &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Viewer")},
+			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
+				store.EXPECT().UserByUserName(gomock.Any(), "alice").Return(&sessionstorage.SessionUser{ID: aliceID, Username: "alice"}, nil)
+			},
+			wantForbidden: true,
+		},
+		{
+			name:    "a role principal for an actor from another application whose name cannot be looked up fails, and no session is created",
+			ctx:     context.Background,
+			request: &ImpersonationRequest{Actor: "alice", ActorRealm: "admin-portal", Principal: accesstypes.RolePrincipal("Viewer")},
+			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
+				store.EXPECT().UserByUserName(gomock.Any(), "alice").Return(nil, errors.New("the store is down"))
+			},
+			wantErr: true,
+		},
+		// An actor of this application holds the role session under their own name,
+		// which is their own user's: nobody is looked up by it.
+		{
+			name: "a role principal for an actor of this application is not held to the rule, and its record names the actor's account",
+			ctx: func() context.Context {
+				return context.WithValue(context.Background(), sessioninfo.CtxSessionInfo, source())
+			},
+			request: &ImpersonationRequest{Actor: "alice", Principal: accesstypes.RolePrincipal("Viewer")},
+			prepare: func(store *mock_sessionstorage.MockAuthStore[mockTx]) {
+				store.EXPECT().Session(gomock.Any(), sourceID).Return(source(), nil)
+			},
+			wantActorID:     impulse.NullUUIDFromUUID(aliceID),
+			wantProviderSID: "sid-1",
+		},
 		{
 			name: "an impersonation started on a validated session keeps its provider session id, so a provider-initiated logout reaches it, and its record names the actor's account",
 			ctx: func() context.Context {
@@ -2715,11 +2753,16 @@ func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 			f := newAuthFixture(t, ctrl)
 			f.store.EXPECT().ImpersonationEnabled().Return(true)
 			tt.prepare(f.store)
-			if tt.wantBadRequest {
+			if tt.wantBadRequest || tt.wantForbidden || tt.wantErr {
 				// No CreateImpersonatedSession is expected: the mock fails the test on one.
 				_, err := f.auth.API().StartImpersonatedSession(tt.ctx(), httptest.NewRecorder(), tt.request)
-				if !httpio.HasBadRequest(err) {
+				switch {
+				case tt.wantBadRequest && !httpio.HasBadRequest(err):
 					t.Errorf("StartImpersonatedSession() error = %v, want a bad request", err)
+				case tt.wantForbidden && !httpio.HasForbidden(err):
+					t.Errorf("StartImpersonatedSession() error = %v, want a forbidden", err)
+				case tt.wantErr && (err == nil || httpio.HasForbidden(err) || httpio.HasBadRequest(err)):
+					t.Errorf("StartImpersonatedSession() error = %v, want a failure that is no refusal", err)
 				}
 
 				return

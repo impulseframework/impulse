@@ -46,7 +46,11 @@ Next steps
      Once, for the browser apps: builds the framework's web packages, publishes them to the local
      yalc store, links them, and runs bun install. weblib.sh expects the framework checkout beside
      this application as impulse; set IMPULSE otherwise.
-  5. overmind start
+  5. impulse check --only prettier --fix
+     Once, after the install: formats the browser files with the prettier each web root pins,
+     which the install brings. They were written under your names and are not wrapped yet, and
+     impulse check fails on the ones it names until this has run.
+  6. overmind start
      Everything, with ng serve for the console at http://127.0.0.1:4300/.
 `,
 		},
@@ -78,7 +82,11 @@ Next steps
 				"     Once, for the browser apps: builds the framework's web packages, publishes them to the local\n" +
 				"     yalc store, links them, and runs bun install. weblib.sh expects the framework checkout beside\n" +
 				"     this application as impulse; set IMPULSE otherwise.\n" +
-				"  \x1b[1m6.\x1b[0m overmind start\n" +
+				"  \x1b[1m6.\x1b[0m impulse check --only prettier --fix\n" +
+				"     Once, after the install: formats the browser files with the prettier each web root pins,\n" +
+				"     which the install brings. They were written under your names and are not wrapped yet, and\n" +
+				"     impulse check fails on the ones it names until this has run.\n" +
+				"  \x1b[1m7.\x1b[0m overmind start\n" +
 				"     Everything, with ng serve for the console at http://127.0.0.1:4304/ and the portal at http://127.0.0.1:4305/portal/.\n",
 		},
 		{
@@ -108,9 +116,13 @@ Next steps
      Once, for the browser apps: builds the framework's web packages, publishes them to the local
      yalc store, links them, and runs bun install. weblib.sh expects the framework checkout beside
      this application as impulse; set IMPULSE otherwise.
-  5. overmind start
+  5. impulse check --only prettier --fix
+     Once, after the install: formats the browser files with the prettier each web root pins,
+     which the install brings. They were written under your names and are not wrapped yet, and
+     impulse check fails on the ones it names until this has run.
+  6. overmind start
      Everything, with ng serve for the console at http://127.0.0.1:4300/.
-  6. impulse add tenancy | impulse add outlet <name> --prefix <p> --auth <auth> | impulse add auth <name> --outlet <outlet>
+  7. impulse add tenancy | impulse add outlet <name> --prefix <p> --auth <auth> | impulse add auth <name> --outlet <outlet>
      Options are added one at a time from a clean tree; each ends in a handoff brief for the
      wiring the tool cannot do and a check that says when it is done.
 `,

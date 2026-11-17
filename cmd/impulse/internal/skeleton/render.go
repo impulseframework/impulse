@@ -53,10 +53,11 @@ type Options struct {
 	// Name is the application's name: what the candidate's own name stands for in the
 	// template, in the web workspace's package name (<candidate>-web), the environment
 	// template's service name and development database ids (<candidate>, <candidate>-dev),
-	// the README heading, the browser projects' titles and manifests, and the auth
-	// packages' Application constant, the name the mail an auth sends says. Rendering
-	// substitutes it in those slots (names.RenameApp) and the templates name the
-	// application nowhere else. Empty keeps the candidate's name.
+	// the README heading, the browser projects' titles and manifests, their brand
+	// declarations (brand.json) and the names the server's package holds from them
+	// (pkg/brand), and the auth packages' Application constant, the name the mail an auth
+	// sends says. Rendering substitutes it in those slots (names.RenameApp) and the
+	// templates name the application nowhere else. Empty keeps the candidate's name.
 	Name string
 }
 

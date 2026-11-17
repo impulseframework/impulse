@@ -67,6 +67,17 @@ func (a *App) PatchResources() http.HandlerFunc {
 	}
 	distressCallDecoder := NewDecoder[resources.DistressCall, distressCallRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
+	type hangarPassRequest struct {
+		ID         impulse.UUID     `json:"-"`
+		SectorID   impulse.UUID     `json:"-"`
+		HangarID   impulse.UUID     `json:"hangarId"`
+		UserID     *string          `json:"userId"     sqltype:"STRING(36)"`
+		SquadronID impulse.NullUUID `json:"squadronId"`
+		LevelID    string           `json:"levelId"    sqltype:"STRING(64)"`
+		ExpiresAt  *time.Time       `json:"expiresAt"`
+	}
+	hangarPassDecoder := NewDecoder[resources.HangarPass, hangarPassRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
+
 	type missionRequest struct {
 		ID                 impulse.UUID          `json:"-"`
 		SectorID           impulse.UUID          `json:"-"`
@@ -168,7 +179,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		LastRefitAt    *time.Time   `json:"-"`
 		UpdatedAt      *time.Time   `json:"-"`
 		CargoBays      []int64      `json:"cargoBays"`
-		TransponderKey *string      `json:"transponderKey" sqltype:"STRING(64)"`
+		TransponderKey *string      `json:"transponderKey" sqltype:"BYTES(105)"`
 	}
 	shipDecoder := NewDecoder[resources.Ship, shipRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
@@ -596,6 +607,38 @@ func (a *App) PatchResources() http.HandlerFunc {
 							id := httpio.Param[impulse.UUID](req, "id")
 							if err := resources.NewDistressCallDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.DistressCallDeletePatch.Buffer()")
+							}
+						}
+					case "hangar-passes":
+						patchSet, err := hangarPassDecoder.DecodeOperation(op, userPermissions, accesstypes.DomainScope(domain))
+						if err != nil {
+							return errors.Wrap(err, "hangarPassDecoder.DecodeOperation()")
+						}
+
+						req, err := op.ReqWithPattern("/sectors/{sectorID}/{resource}/{id}")
+						if err != nil {
+							return errors.Wrap(err, "op.ReqWithPattern()")
+						}
+
+						switch op.Type {
+						case resource.OperationCreate:
+							patch, err := resources.NewHangarPassCreatePatchFromPatchSet(patchSet)
+							if err != nil {
+								return errors.Wrap(err, "hangarPassCreatePatchFromPatchSet()")
+							}
+							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
+								return errors.Wrap(err, "resources.HangarPassCreatePatch.Buffer()")
+							}
+							resp["hangarPasses"] = append(resp["hangarPasses"], patch.ID())
+						case resource.OperationUpdate:
+							id := httpio.Param[impulse.UUID](req, "id")
+							if err := resources.NewHangarPassUpdatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+								return errors.Wrap(err, "resources.HangarPassUpdatePatch.Buffer()")
+							}
+						case resource.OperationDelete:
+							id := httpio.Param[impulse.UUID](req, "id")
+							if err := resources.NewHangarPassDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
+								return errors.Wrap(err, "resources.HangarPassDeletePatch.Buffer()")
 							}
 						}
 					case "missions":
@@ -1041,7 +1084,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		}); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		live.Publish(ctx, a.LiveService(), liveDerivations, "", touched)
+		live.Publish(ctx, w, a.LiveService(), liveDerivations, "", touched)
 		if tenantsWritten {
 			if err := a.TenantRoster().Reload(ctx); err != nil {
 				logger.FromCtx(ctx).Errorf("tenants: rereading the roster after the commit failed; this instance reloads on the tenants signal or at its backstop: %v", err)

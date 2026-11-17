@@ -32,6 +32,13 @@ type ArgSpec struct {
 	// following the key attach to it (`from: a, b` reads as from = [a, b])
 	// until the next named argument.
 	Multi []string
+
+	// Expressions is the subset of Keys whose value is an expression of the
+	// condition language, not a name: the commas inside its parentheses and
+	// its single-quoted strings are its own (`where: Level IN ('view', 'edit')`).
+	// An invocation of a spec that names one is split on the commas outside
+	// parentheses and outside quotes of either kind.
+	Expressions []string
 }
 
 // NamedArgs is one keyword invocation's parsed argument list: the leading
@@ -78,7 +85,7 @@ func (a Arg) ParseInvocations(spec *ArgSpec) ([]NamedArgs, error) {
 func parseInvocation(invocation string, spec *ArgSpec) (NamedArgs, error) {
 	args := NamedArgs{named: make(map[string][]string)}
 
-	parts, err := splitArguments(invocation)
+	parts, err := splitArguments(invocation, len(spec.Expressions) > 0)
 	if err != nil {
 		return NamedArgs{}, err
 	}
@@ -150,24 +157,42 @@ func parseInvocation(invocation string, spec *ArgSpec) (NamedArgs, error) {
 
 // splitArguments splits an invocation on the commas outside double quotes, so a
 // quoted value may carry a comma (`from: "a,b"`). An unclosed quote is an error.
-func splitArguments(invocation string) ([]string, error) {
+//
+// With expressions set, an argument may be an expression of the condition
+// language, and the commas inside its parentheses and its single-quoted strings
+// stay with it: `where: Level IN ('view', 'edit'), value: Team` is two arguments. A
+// string writes a quote inside it twice, which reads here as the string closing
+// and opening again, so it needs no case of its own.
+func splitArguments(invocation string, expressions bool) ([]string, error) {
 	var (
 		parts  []string
 		start  int
 		quoted bool
+		single bool
+		depth  int
 	)
 	for i := range len(invocation) {
-		switch invocation[i] {
-		case '"':
+		switch c := invocation[i]; {
+		case c == '"' && !single:
 			quoted = !quoted
-		case ',':
-			if !quoted {
+		case !expressions || quoted:
+			if c == ',' && !quoted {
 				parts = append(parts, invocation[start:i])
 				start = i + 1
 			}
+		case c == '\'':
+			single = !single
+		case single:
+		case c == '(':
+			depth++
+		case c == ')':
+			depth--
+		case c == ',' && depth == 0:
+			parts = append(parts, invocation[start:i])
+			start = i + 1
 		}
 	}
-	if quoted {
+	if quoted || single {
 		return nil, errors.Newf("unclosed quote in %q", invocation)
 	}
 

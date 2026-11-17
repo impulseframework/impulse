@@ -47,3 +47,8 @@ export enum FailReason {
   SolarWeather = 'solar_weather',
   Unrecoverable = 'unrecoverable',
 }
+
+export enum PassLevel {
+  Run = 'run',
+  Visit = 'visit',
+}

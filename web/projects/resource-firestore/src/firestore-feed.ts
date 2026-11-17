@@ -1,4 +1,11 @@
-import { ChangeEvent, ChangeFeed, LiveIdentity, liveChangeTtl, PageEvents } from '@impulseframework/resource';
+import {
+  ChangeEvent,
+  ChangeFeed,
+  LiveIdentity,
+  liveChangeTtl,
+  PageEvents,
+  VisibilityEvents,
+} from '@impulseframework/resource';
 import { deleteApp, FirebaseApp, initializeApp } from 'firebase/app';
 import { Auth, inMemoryPersistence, initializeAuth, signInWithCustomToken, signOut } from 'firebase/auth';
 import {
@@ -15,12 +22,8 @@ import {
   where,
 } from 'firebase/firestore';
 
-/** The document's visibility as the feed reads it; the document, in a browser. */
-export interface VisibilityEvents {
-  readonly visibilityState: string;
-  addEventListener(type: string, listener: () => void): void;
-  removeEventListener(type: string, listener: () => void): void;
-}
+/** The document's visibility as the feed reads it; the document, in a browser. The live session reads the same. */
+export type { VisibilityEvents };
 
 /** The knobs of the feed an application or a spec may turn. Every one has a default. */
 export interface FirestoreFeedOptions {
@@ -61,7 +64,9 @@ let instances = 0;
  * connects with the identity the server minted (`GET <prefix>/live/token`): the project,
  * the database, and either the emulator with a mock user token for the uid, or a custom
  * token signed in through Firebase Auth on an auth held in memory only, signed out at
- * stop. Each document becomes one ChangeEvent with `at` as unix microseconds.
+ * stop. Each document becomes one ChangeEvent with `at` as unix microseconds and
+ * `write`, the id of the write that published it, which is how the live session tells
+ * the tab's own change from somebody else's.
  *
  * The first snapshot of a listener primes the last change seen and emits nothing: at
  * start the backlog predates the page's own first fetch, and after an error the
@@ -371,7 +376,7 @@ function compare(a: TimestampLike, b: TimestampLike): number {
 /**
  * One change document as an event: `kind`, `resource`, and a resolved `at` are required
  * (a document whose server timestamp has not resolved, or of a shape this feed does not
- * know, is skipped); `key`, `domain`, and `deleted` ride along when present.
+ * know, is skipped); `key`, `domain`, `deleted`, and `write` ride along when present.
  */
 function toChange(data: DocumentData): Change | undefined {
   const kind = data['kind'];
@@ -389,6 +394,9 @@ function toChange(data: DocumentData): Change | undefined {
   }
   if (typeof data['deleted'] === 'boolean') {
     event.deleted = data['deleted'];
+  }
+  if (typeof data['write'] === 'string' && data['write'] !== '') {
+    event.write = data['write'];
   }
   return { event, at };
 }

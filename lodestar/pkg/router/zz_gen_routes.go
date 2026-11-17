@@ -54,6 +54,7 @@ const (
 	DistressCallID                    httpio.ParamType = "distressCallID"
 	FeeByKindKindID                   httpio.ParamType = "feeByKindKindID"
 	HangarID                          httpio.ParamType = "hangarID"
+	HangarPassID                      httpio.ParamType = "hangarPassID"
 	MembersSectorIdentityID           httpio.ParamType = "membersSectorIdentityID"
 	MembersSectorInvitationID         httpio.ParamType = "membersSectorInvitationID"
 	MembersSectorUserID               httpio.ParamType = "membersSectorUserID"
@@ -268,6 +269,9 @@ type GeneratedHandlers interface {
 	Hangar() http.HandlerFunc
 	PatchHangars() http.HandlerFunc
 
+	HangarPasses() http.HandlerFunc
+	HangarPass() http.HandlerFunc
+
 	HoldMission() http.HandlerFunc
 
 	InspectShip() http.HandlerFunc
@@ -352,7 +356,11 @@ type GeneratedHandlers interface {
 
 	ReleaseConsignment() http.HandlerFunc
 
+	RemoveCrewPassword() http.HandlerFunc
+
 	RemoveCrewRole() http.HandlerFunc
+
+	RemoveCrewSectorPassword() http.HandlerFunc
 
 	RemoveCrewSectorRole() http.HandlerFunc
 
@@ -761,6 +769,14 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	bounded.Patch("/console/api/sectors/{sectorID}/hangars", domainGuard(h.PatchHangars()))
 
+	hangarPassesHandler := domainGuard(h.HangarPasses())
+	bounded.Get("/console/api/sectors/{sectorID}/hangar-passes", hangarPassesHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/hangar-passes", hangarPassesHandler)
+
+	hangarPassHandler := domainGuard(h.HangarPass())
+	bounded.Get("/console/api/sectors/{sectorID}/hangar-passes/{hangarPassID}", hangarPassHandler)
+	bounded.Post("/console/api/sectors/{sectorID}/hangar-passes/{hangarPassID}", hangarPassHandler)
+
 	r.Post("/console/api/sectors/{sectorID}/hold-mission", domainGuard(h.HoldMission()))
 
 	r.Post("/console/api/sectors/{sectorID}/inspect-ship", domainGuard(h.InspectShip()))
@@ -949,7 +965,11 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	r.Post("/console/api/sectors/{sectorID}/release-consignment", domainGuard(h.ReleaseConsignment()))
 
+	r.Post("/console/api/remove-crew-password", h.RemoveCrewPassword())
+
 	r.Post("/console/api/remove-crew-role", h.RemoveCrewRole())
+
+	r.Post("/console/api/sectors/{sectorID}/remove-crew-sector-password", domainGuard(h.RemoveCrewSectorPassword()))
 
 	r.Post("/console/api/sectors/{sectorID}/remove-crew-sector-role", domainGuard(h.RemoveCrewSectorRole()))
 

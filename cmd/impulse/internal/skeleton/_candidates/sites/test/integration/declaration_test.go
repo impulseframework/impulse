@@ -32,8 +32,8 @@ import (
 // at reach time on the console and on the portal alike, at once, since the console's
 // write reloads the shared roster; a fresh password sign-in is refused naming the rule,
 // since every tenant of the member is directory only; its directory is not removed
-// while it is directory only; the administrator, a global role, keeps every tenant.
-// Every edit leaves a change event.
+// while it is directory only; the administrator, a super administrator, keeps every
+// tenant. Every edit leaves a change event.
 func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	t.Parallel()
 
@@ -122,7 +122,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		}
 	}
 	if domains := chart(ctx, t, admin); !slices.Equal(domains, []string{north, south}) {
-		t.Errorf("the administrator's chart = %v, want both: a global role reaches every tenant", domains)
+		t.Errorf("the administrator's chart = %v, want both: a super administrator reaches every tenant", domains)
 	}
 	fresh := newBrowser(t, s, s.console)
 	if status, body := fresh.do(ctx, http.MethodGet, "/api/user/session", nil); status != http.StatusOK {

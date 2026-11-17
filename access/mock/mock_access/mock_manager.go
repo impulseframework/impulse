@@ -211,6 +211,21 @@ func (mr *MockControllerMockRecorder) UserHasGrants(ctx, user, scope any) *gomoc
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserHasGrants", reflect.TypeOf((*MockController)(nil).UserHasGrants), ctx, user, scope)
 }
 
+// UserIsSuperAdministrator mocks base method.
+func (m *MockController) UserIsSuperAdministrator(ctx context.Context, user accesstypes.User) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UserIsSuperAdministrator", ctx, user)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// UserIsSuperAdministrator indicates an expected call of UserIsSuperAdministrator.
+func (mr *MockControllerMockRecorder) UserIsSuperAdministrator(ctx, user any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UserIsSuperAdministrator", reflect.TypeOf((*MockController)(nil).UserIsSuperAdministrator), ctx, user)
+}
+
 // UserManager mocks base method.
 func (m *MockController) UserManager() access.UserManager {
 	m.ctrl.T.Helper()

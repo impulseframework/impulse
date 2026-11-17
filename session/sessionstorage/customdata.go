@@ -23,11 +23,11 @@ import (
 // created.
 type NewSessionResolver[T, Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*T, error)
 
-// CustomSessionData is the custom session data configuration of an Auth store over Tx:
-// the table whose rows are T, keyed by the session, and the resolver that writes a
+// CustomSessionData is the custom session data configuration of a store over Tx: the
+// table whose rows are T, keyed by the session, and the resolver that writes a
 // session's row when the session is created. Build it with NewCustomSessionData and
-// attach it with Auth.WithCustomSessionData; a configuration typed to the other
-// driver's transaction does not compile there.
+// attach it with the store's WithCustomSessionData (Auth and Preauth each have one); a
+// configuration typed to the other driver's transaction does not compile there.
 type CustomSessionData[T, Tx any] struct {
 	tableName string
 	codec     *dbtype.CustomDataCodec
@@ -118,8 +118,8 @@ type customSessionData[Tx any] struct {
 // user record, untouched by logout, expiry and regeneration, and is read on demand,
 // never joined into the per-request session read. It is written per call on
 // CreateSessionUser and by UpdateCustomUserData, or by a custom account rule's
-// signin.Provision hook; there is no login hook. Build it with NewCustomUserData and
-// attach it with Auth.WithCustomUserData. It fits either driver: columns derive from
+// signin.Provision hook. Build it with NewCustomUserData and attach it with
+// Auth.WithCustomUserData. It fits either driver: columns derive from
 // U's `db:` tags on PostgreSQL and its `spanner:` tags on Spanner.
 type CustomUserData[U any] struct {
 	tableName string
@@ -179,7 +179,7 @@ func tagKeyFor[Tx any]() (string, error) {
 	case reflect.TypeFor[*cloudspanner.ReadWriteTransaction]():
 		return dbtype.SpannerTagKey, nil
 	default:
-		return "", errors.Newf("the transaction type %v is neither pgx.Tx (NewPostgresAuth) nor *spanner.ReadWriteTransaction (NewSpannerAuth)", reflect.TypeFor[Tx]())
+		return "", errors.Newf("the transaction type %v is neither pgx.Tx (a PostgreSQL store) nor *spanner.ReadWriteTransaction (a Spanner store)", reflect.TypeFor[Tx]())
 	}
 }
 

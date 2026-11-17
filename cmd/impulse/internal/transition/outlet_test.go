@@ -798,7 +798,8 @@ func TestChangeText(t *testing.T) {
 // TestOutletApplyConsoleUnderPath pins the copy from a console that already lives under
 // its own path, the shape every browser outlet takes once there are two: the new outlet's
 // project reads its own prefix and base path in place of the console's, and the console,
-// off the root already, does not move.
+// off the root already, does not move. The console declares a brand, so the report says
+// the copy still declares it.
 func TestOutletApplyConsoleUnderPath(t *testing.T) {
 	t.Parallel()
 
@@ -813,6 +814,7 @@ func TestOutletApplyConsoleUnderPath(t *testing.T) {
 	files["web/console/src/index.html"] = "<html>\n  <head>\n    <base href=\"/console/\" />\n  </head>\n</html>\n"
 	files["web/console/src/environments/environment.ts"] = "export const environment = {\n  production: false,\n  baseUrl: '/console/',\n  apiUrl: '/console/api',\n};\n"
 	files["web/console/public/manifest.webmanifest"] = "{\n  \"name\": \"Beacon\",\n  \"id\": \"/console/\",\n  \"scope\": \"./\",\n  \"start_url\": \"./\"\n}\n"
+	files["web/console/brand.json"] = "{\n  \"name\": \"Beacon\",\n  \"logo\": \"logo.png\",\n  \"primaryColor\": \"#005cbb\"\n}\n"
 	files["app/assets.go"] = "package app\n\nimport (\n\t\"net/http\"\n\n\t\"github.com/jtwatson/spaassets\"\n)\n\nfunc (a *App) DeepLink(next http.Handler) http.Handler { return spaassets.DeepLink(next, \"/console/\") }\n"
 	a := beacon(t, files)
 
@@ -823,7 +825,7 @@ func TestOutletApplyConsoleUnderPath(t *testing.T) {
 	wantDid := []string{
 		`cmd/generate/resourcegenerator/main.go: added WithRouterOutlet("kiosk", "kiosk/api", generation.Auth("example.com/acme/beacon/pkg/auth/staff", generation.PasswordMethod()), generation.WebApp("/kiosk"))`,
 		`cmd/generate/resourcegenerator/main.go: added GenerateTypescript("web/kiosk/src/app/core/service", ForOutlet("kiosk"), ...) with the default target's options`,
-		"copied the console browser project to web/kiosk, rewriting its API prefix (/console/api to /kiosk/api), base path (/kiosk/), and output paths; its titles still say console",
+		"copied the console browser project to web/kiosk, rewriting its API prefix (/console/api to /kiosk/api), base path (/kiosk/), and output paths; its titles and its brand declaration (brand.json) still say console",
 		"web/angular.json: added the kiosk project as a copy of console, serving under /kiosk on port 4301",
 		"web/package.json: added start:kiosk and extended build, lint, and test to the kiosk project",
 		"Procfile: added the kiosk process, a copy of console running start:kiosk",
@@ -839,6 +841,7 @@ func TestOutletApplyConsoleUnderPath(t *testing.T) {
 		"web/kiosk/proxy.conf.js":                     "'/kiosk/api/': {",
 		"web/kiosk/src/index.html":                    `<base href="/kiosk/" />`,
 		"web/kiosk/public/manifest.webmanifest":       "\"id\": \"/kiosk/\",\n  \"scope\": \"./\",\n  \"start_url\": \"./\"",
+		"web/kiosk/brand.json":                        "\"name\": \"Beacon\",",
 		"web/kiosk/src/environments/environment.ts":   "baseUrl: '/kiosk/',\n  apiUrl: '/kiosk/api',",
 		"web/console/src/environments/environment.ts": "baseUrl: '/console/',\n  apiUrl: '/console/api',",
 		"cmd/generate/resourcegenerator/main.go":      "\t\tgeneration.GenerateRoutes(\"pkg/router\", \"console/api\",\n",
@@ -875,5 +878,18 @@ func TestRootMount(t *testing.T) {
 				t.Errorf("rootMountRE.MatchString(%q) = %v, want %v", tt.line, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestOutletMeaningSaysToBrand holds the brief of a session outlet to saying what to do
+// about the brand the copied browser application still declares.
+func TestOutletMeaningSaysToBrand(t *testing.T) {
+	t.Parallel()
+
+	meaning := Outlet{Name: "portal", Prefix: "portal/api", Sessions: true}.Meaning()
+	for _, want := range []string{"carries a brand declaration (`brand.json` in its directory), it is the console's", "run `impulse brand`", "(`maintenance.Brands`, under `/portal`)"} {
+		if !strings.Contains(meaning, want) {
+			t.Errorf("Meaning() lacks %q:\n%s", want, meaning)
+		}
 	}
 }

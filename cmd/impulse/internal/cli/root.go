@@ -66,6 +66,7 @@ func newRoot() *cobra.Command {
 	root.AddCommand(newAudit())
 	root.AddCommand(newAdvise())
 	root.AddCommand(newRender())
+	root.AddCommand(newBrand())
 	root.AddCommand(newHandoff())
 	root.AddCommand(newAdd())
 	root.AddCommand(newRemove())

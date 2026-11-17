@@ -47,7 +47,10 @@ const subjectFactColumn = "fact"
 // the caller has no anchor row, a hop reaches no row, or the column is NULL. A
 // subject set's yields one row for each of the caller's anchor rows, restricted
 // to the request's partition where the anchor is partitioned, the value NULL
-// where the row's column, or a hop of its dotted path, has none.
+// where the row's column, or a hop of its dotted path, has none. Which rows are
+// the caller's anchor rows is the set's own definition, its who: and where:
+// parts, rendered by the piece a table's statement renders them with
+// (subjectSetRows).
 func subjectFactStatement(collection *GeneratedCollection, dbType DBType, partitioned bool, name string, set bool) (string, *paramRegistry, error) {
 	gen, err := loweredSQLGenerator(dbType)
 	if err != nil {
@@ -76,12 +79,11 @@ func subjectFactStatement(collection *GeneratedCollection, dbType DBType, partit
 		return "", nil, errors.Newf("subject.%s is not a declared subject set", name)
 	}
 	alias := registry.alias()
-	var where ExpressionNode = &loweredComparisonNode{
-		left:  columnComparand(alias, anchor.Binding.UserColumn),
-		op:    "=",
-		right: namedComparand(subjectParamName),
+	rows, err := lctx.subjectSetRows(&anchor, alias, registry)
+	if err != nil {
+		return "", nil, err
 	}
-	where = lctx.withAnchorTenancy(where, &anchor, alias, registry)
+	where := lctx.withAnchorTenancy(rows, &anchor, alias, registry)
 
 	value := columnComparand(alias, anchor.Binding.Column)
 	if len(anchor.Binding.Path) > 0 {
@@ -100,8 +102,10 @@ func subjectFactStatement(collection *GeneratedCollection, dbType DBType, partit
 }
 
 // subjectFactParams supplies the reserved parameters a fact's statement names: the
-// caller, and the request's partition where the anchor is filtered to it.
-func subjectFactParams(registry *paramRegistry, subject accesstypes.User, scope accesstypes.Scope) (map[string]any, error) {
+// caller, the request's partition where the anchor is filtered to it, and the
+// request's decision instant where a set's where: reads now, the instant the
+// permission check folded with.
+func subjectFactParams(registry *paramRegistry, subject accesstypes.User, scope accesstypes.Scope, env accesstypes.Environment) (map[string]any, error) {
 	params := make(map[string]any)
 	for _, param := range registry.boundParams() {
 		params[param.Name] = param.Value
@@ -116,6 +120,12 @@ func subjectFactParams(registry *paramRegistry, subject accesstypes.User, scope 
 				return nil, errors.New("a fact about the caller is filtered to the request's partition in a global request")
 			}
 			params[name] = string(domain)
+		case nowParamName:
+			now, ok := env.Now()
+			if !ok {
+				return nil, errors.New("a fact about the caller reads now but the request environment carries no decision instant")
+			}
+			params[name] = now
 		default:
 			return nil, errors.Newf("a fact about the caller references unknown named parameter %q", name)
 		}
@@ -127,7 +137,7 @@ func subjectFactParams(registry *paramRegistry, subject accesstypes.User, scope 
 // readSubjectFacts reads the facts about the caller that a computed resource's
 // conditions name: each subject set as the non-null values the caller's anchor
 // rows yield, each subject value as its one value, absent where there is none.
-func readSubjectFacts(ctx context.Context, source SubjectFactSource, collection *GeneratedCollection, scope accesstypes.Scope, subject accesstypes.User, sets, values []string) (setValues map[string][]any, scalarValues map[string]any, err error) {
+func readSubjectFacts(ctx context.Context, source SubjectFactSource, collection *GeneratedCollection, scope accesstypes.Scope, env accesstypes.Environment, subject accesstypes.User, sets, values []string) (setValues map[string][]any, scalarValues map[string]any, err error) {
 	if source.DBType() != SpannerDBType {
 		return nil, nil, errors.Newf("a condition on a computed resource reads a fact about the caller held in a table, and reading one is implemented for %s alone (the database is %s)", SpannerDBType, source.DBType())
 	}
@@ -138,7 +148,7 @@ func readSubjectFacts(ctx context.Context, source SubjectFactSource, collection 
 		if err != nil {
 			return nil, err
 		}
-		params, err := subjectFactParams(registry, subject, scope)
+		params, err := subjectFactParams(registry, subject, scope, env)
 		if err != nil {
 			return nil, err
 		}

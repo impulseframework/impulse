@@ -11,10 +11,13 @@
 // per subscriber into that user's change set, which the browser listens to and
 // answers with a refetch carrying the change's timestamp as the version parameter
 // (_v); a list or read response to such a request carries Cache-Control so a remount
-// inside the window is the browser's own. Subscriptions expire unless the tab renews
-// them through the renew route, where the server re-checks each against the user's
-// grants; a tab unsubscribes when it leaves, and a logout unsubscribes everything and
-// revokes the browser's identity.
+// inside the window is the browser's own. Every document a write publishes carries
+// the write's id, and the write's answer names the id and the documents that went
+// into the caller's own change set (ChangesHeader), so the tab that wrote fetches at
+// once and knows its own change when the change set reports it. Subscriptions expire
+// unless the tab renews them through the renew route, where the server re-checks each
+// against the user's grants; a tab unsubscribes when it leaves, and a logout
+// unsubscribes everything and revokes the browser's identity.
 //
 // A subscription and a change set belong to a principal id (PrincipalID): the name of the
 // auth the request came through, the separator "|", and the session principal's user name
@@ -72,6 +75,13 @@ const (
 	TokenRoute       = "live/token"
 	// LogAttribute is the request-log attribute every subscribing request carries.
 	LogAttribute = "subscribe"
+	// ChangesHeader is the response header a write's answer carries when the write
+	// changed something the caller holds live: the write's id and the change documents it
+	// published into the caller's own change set (Answer), as JSON, percent-encoded so a
+	// key or a domain outside ASCII travels in a header. The tab that wrote fetches what
+	// the header names at once and does nothing when its change set reports the same
+	// write.
+	ChangesHeader = "X-Changes"
 )
 
 // The principal id: what joins the auth's name to the principal, and how long it may be.
@@ -111,6 +121,12 @@ const (
 	// (register, renew, unsubscribe, revoke, token): past it the call fails as any
 	// failure of it does, so a backend that stops answering never holds a request open.
 	RecordTimeout = 5 * time.Second
+	// MaxChangesHeaderLength is the longest ChangesHeader value a write's answer
+	// carries, in bytes. A write that reached more of the caller's subscriptions than
+	// fit answers the write's id with All set, and the tab fetches everything it holds
+	// live, so the header never outgrows what a proxy in front of the application
+	// accepts in a response.
+	MaxChangesHeaderLength = 2048
 )
 
 // tabPattern is the shape of a tab id.
@@ -198,13 +214,16 @@ const (
 // ChangeDocument is one entry of a user's change set, as the publisher writes it and
 // the browser reads it: a row document carries the key and whether the row was
 // deleted, a list document the domain and no key, a resource document neither. The
-// implementation adds the server timestamp (at) and the expiry (expires).
+// implementation adds the server timestamp (at), the expiry (expires) and the id of
+// the write that published it (write, Writes.ID); a document several writes within one
+// second became carries the last one's. The JSON form is how a write's answer names a
+// document (Answer).
 type ChangeDocument struct {
-	Kind     ChangeKind
-	Resource accesstypes.Resource
-	Key      string
-	Domain   accesstypes.Domain
-	Deleted  bool
+	Kind     ChangeKind           `json:"kind"`
+	Resource accesstypes.Resource `json:"resource"`
+	Key      string               `json:"key,omitempty"`
+	Domain   accesstypes.Domain   `json:"domain,omitempty"`
+	Deleted  bool                 `json:"deleted,omitempty"`
 }
 
 // ID is the document's id for the given unix second: row|<resource>|<key>|<second>,

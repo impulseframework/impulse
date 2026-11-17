@@ -7,6 +7,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/accesstypes/condition"
 )
 
 // FieldTags describes the registration-relevant struct tags of a single request-struct
@@ -378,6 +379,9 @@ type GeneratedCollection struct {
 	// the renamed methods' former names, each within scope.
 	formerTags  map[accesstypes.PermissionScope]formerTagMap
 	formerNames map[accesstypes.PermissionScope]map[accesstypes.Resource]accesstypes.Resource
+	// setWheres are the subject sets' where: parts, compiled once at construction, by
+	// set name (subjectSetWhere).
+	setWheres map[string]condition.Expr
 }
 
 // newGeneratedCollection creates an empty, populatable GeneratedCollection.
@@ -408,6 +412,11 @@ func NewGeneratedCollection(data CollectionData) (*GeneratedCollection, error) {
 	if err := validateCollectionBindings(data.Resources); err != nil {
 		return nil, err
 	}
+	wheres, err := validateSubjectSetParts(data.Resources)
+	if err != nil {
+		return nil, err
+	}
+	g.setWheres = wheres
 
 	type resourceKey struct {
 		scope accesstypes.PermissionScope

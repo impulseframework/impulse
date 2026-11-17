@@ -7,7 +7,8 @@ import "github.com/impulseframework/impulse/session/signin"
 type UserRoleManager = signin.UserRoleManager
 
 // RoleSyncConfig is the required role-synchronization slot of the Microsoft Entra ID
-// method (azure.Config.RoleSync) and of the legacy OIDCAzure. See signin.RoleSyncConfig.
+// method (azure.Config.RoleSync) and of the generic OpenID Connect method
+// (oidc.Config.RoleSync). See signin.RoleSyncConfig.
 type RoleSyncConfig = signin.RoleSyncConfig
 
 // DisabledRoleSyncConfig is the type returned by DisableRoleSync. See

@@ -48,6 +48,11 @@ func TestPersonaCast(t *testing.T) {
 			wantStatus: Pass, wantSummary: "1 cast(s) name their personas and the roles seated: pkg/auth/staff/cast.json (2 persona(s))",
 		},
 		{
+			name:       "a persona who is a super administrator, the framework's role no role file defines",
+			files:      with(staffPersonaAuth, rolesDefined, `{"personas": [{"login": "root", "roles": ["SuperAdministrator", "Administrator"]}]}`),
+			wantStatus: Pass, wantSummary: "1 cast(s) name their personas and the roles seated: pkg/auth/staff/cast.json (1 persona(s))",
+		},
+		{
 			name: "a cast naming no role reads no role file", files: with(staffPersonaAuth, "", `{"personas": [{"login": "guest"}]}`),
 			wantStatus: Pass, wantSummary: "1 cast(s) name their personas and the roles seated: pkg/auth/staff/cast.json (1 persona(s))",
 		},

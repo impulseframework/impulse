@@ -19,7 +19,9 @@ import (
 )
 
 // ErrLastSignInMethod is returned when UnlinkIdentity would remove the last identity of
-// a user that has no password. It is a Conflict client message.
+// a user that has no password, and when RemoveUserPassword would remove the password of
+// a user that has no identity: either would leave the user no means of sign-in. It is a
+// Conflict client message.
 var ErrLastSignInMethod = dbtype.ErrLastSignInMethod
 
 // SessionIdentity is a stored link from an external identity to a user.
@@ -116,6 +118,12 @@ type AuthStore[Tx any] interface {
 	// UnlinkIdentity removes a link. It refuses to remove the last means of sign-in of
 	// a user that has no password.
 	UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error
+	// RemoveUserPassword removes a user's password, and with it the mark that the user
+	// must change it. It refuses to remove the last means of sign-in of a user that has
+	// no identity (ErrLastSignInMethod), in the transaction that removes the password,
+	// so a removal and an unlink that race cannot both go through. The user's sessions
+	// stand. A user that holds no password is a BadRequest.
+	RemoveUserPassword(ctx context.Context, userID impulse.UUID) error
 	// SetTokensTableName sets the name of the tokens table (SessionTokens).
 	SetTokensTableName(name string) error
 	// SetDeviceCodesTableName sets the name of the device codes table
@@ -886,6 +894,18 @@ func (a *Auth[Tx]) UnlinkIdentity(ctx context.Context, identityID impulse.UUID) 
 
 	if err := a.db.UnlinkIdentity(ctx, identityID); err != nil {
 		return errors.Wrap(err, "db.UnlinkIdentity()")
+	}
+
+	return nil
+}
+
+// RemoveUserPassword implements AuthStore.
+func (a *Auth[Tx]) RemoveUserPassword(ctx context.Context, userID impulse.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.RemoveUserPassword(ctx, userID); err != nil {
+		return errors.Wrap(err, "db.RemoveUserPassword()")
 	}
 
 	return nil

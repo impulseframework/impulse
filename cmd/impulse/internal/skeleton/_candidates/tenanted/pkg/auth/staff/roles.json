@@ -47,6 +47,9 @@
               "resource": "UnlinkStaffSessionIdentity"
             },
             {
+              "resource": "RemoveStaffPassword"
+            },
+            {
               "resource": "RevokeStaffSessionToken"
             },
             {
@@ -421,6 +424,10 @@
             },
             {
               "resource": "UnlinkStaffTenantSessionIdentity",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "RemoveStaffTenantPassword",
               "condition": "heldElsewhere = false AND heldGlobally = false"
             }
           ],

@@ -3,6 +3,7 @@ package access
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -21,6 +22,9 @@ type Client struct {
 	store       Store
 	defaults    *defaultRoles
 	collection  PermissionCollection
+	// superMethods are the methods the client was built to let a super
+	// administrator execute (WithSuperAdministratorMethods).
+	superMethods []accesstypes.Resource
 }
 
 // New creates a new Client over a policy store built by one of the store
@@ -47,19 +51,32 @@ func New(store Store, opts ...Option) (*Client, error) {
 		opt(options)
 	}
 
-	var defaults *defaultRoles
+	// Every Client defines the Super Administrator role, with or without a role
+	// file: the file's roles are compiled beside it.
+	config := &RoleConfig{}
 	if options.roleFileSet {
 		if options.collection == nil {
 			return nil, errors.New("access.WithDefaultRoles(): the collection must not be nil; the role file validates against what the release declares")
 		}
-		config, err := options.roleFile.Parse()
+		var err error
+		config, err = options.roleFile.Parse()
 		if err != nil {
 			return nil, errors.Wrap(err, "access.WithDefaultRoles()")
 		}
-		defaults, err = compileDefaultRoles(options.collection, config)
-		if err != nil {
-			return nil, errors.Wrap(err, "access.WithDefaultRoles(): the role file does not validate")
+	}
+	// The methods a super administrator always runs are the application's wiring, not
+	// the role file's content: one the release does not declare is refused as that,
+	// before the file's grants are compiled.
+	if _, err := superAdministratorRole(options.collection, options.superMethods); err != nil {
+		return nil, errors.Wrap(err, "access.New()")
+	}
+	defaults, err := compileDefaultRoles(options.collection, config, options.superMethods)
+	if err != nil {
+		if !options.roleFileSet {
+			return nil, errors.Wrap(err, "access.New()")
 		}
+
+		return nil, errors.Wrap(err, "access.WithDefaultRoles(): the role file does not validate")
 	}
 
 	manager := newStoreManager(store)
@@ -67,12 +84,13 @@ func New(store Store, opts ...Option) (*Client, error) {
 	manager.onPolicyChange = snapEngine.policyChanged
 
 	return &Client{
-		evaluator:   snapEngine,
-		snapEngine:  snapEngine,
-		userManager: newUserManager(manager, defaults, snapEngine),
-		store:       store,
-		defaults:    defaults,
-		collection:  options.collection,
+		evaluator:    snapEngine,
+		snapEngine:   snapEngine,
+		userManager:  newUserManager(manager, defaults, snapEngine),
+		store:        store,
+		defaults:     defaults,
+		collection:   options.collection,
+		superMethods: slices.Clone(options.superMethods),
 	}, nil
 }
 
@@ -328,6 +346,29 @@ func (c *Client) UserHasGrants(ctx context.Context, user accesstypes.User, scope
 	defer span.End()
 
 	return c.evaluator.userHasGrants(ctx, user, scope)
+}
+
+// UserIsSuperAdministrator reports whether user holds the Super Administrator
+// role (accesstypes.SuperAdministrator), answered from the in-memory policy
+// snapshot like the checks (safe inside transactions; no store read). It is
+// the question a session's reach into a tenant asks of the session's actor:
+// a super administrator enters every tenant, whatever the tenant's sign-in
+// settings say, and nobody else is exempt from them.
+func (c *Client) UserIsSuperAdministrator(ctx context.Context, user accesstypes.User) (bool, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	return c.evaluator.userIsSuperAdministrator(ctx, user)
+}
+
+// SuperAdministratorMethods returns the methods the client lets a super
+// administrator execute whatever the role file grants anybody: the ones it
+// was built with (WithSuperAdministratorMethods), none without the option.
+// The identity library holds the engine it is handed to the methods its
+// auth's generated management names (identity.New), so an application that
+// built the engine without them does not start.
+func (c *Client) SuperAdministratorMethods() []accesstypes.Resource {
+	return slices.Clone(c.superMethods)
 }
 
 // UserPermissionDigest returns user's structural grant enumeration within

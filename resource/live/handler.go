@@ -2,7 +2,12 @@ package live
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/json"
+	"maps"
 	"net/http"
+	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -169,17 +174,106 @@ func SetCacheControl(w http.ResponseWriter, r *http.Request) {
 // resources those rows reach (derivations, the generated value; nil reaches none). It is
 // bounded by PublishTimeout, a failure is logged, and the request answers either way.
 // Nothing happens for a request that committed nothing.
-func Publish(ctx context.Context, svc Service, derivations *Derivations, domain accesstypes.Domain, touched *resource.TouchedRows) {
+//
+// The request is one write: Publish mints its id, every document it publishes carries
+// it, and the documents that went into the caller's own change set are named on the
+// answer with it (ChangesHeader on w, which the handler has not written yet), so the tab
+// that wrote fetches them at once and knows the write when its change set reports it. A
+// request with no session principal (a machine's, a scheduled call's), and one that
+// reached nothing the caller holds live, answers without the header. So does a request
+// any of whose publishes failed: a publish that failed may have written some of its
+// documents, and a tab told the write's id would take those for changes it had fetched
+// for; told nothing, it fetches for every document that got through as for anyone's.
+func Publish(ctx context.Context, w http.ResponseWriter, svc Service, derivations *Derivations, domain accesstypes.Domain, touched *resource.TouchedRows) {
 	if touched.Empty() {
 		return
 	}
+	write := rand.Text()
+	caller := callerID(ctx)
+	own := make(Changes)
+	failed := false
 	ctx, cancel := context.WithTimeout(ctx, PublishTimeout)
 	defer cancel()
-	for changeDomain, rows := range touched.Rows(domain) {
-		if err := svc.Publish(ctx, changeDomain, derivations.Expand(rows)); err != nil {
+	byDomain := touched.Rows(domain)
+	for _, changeDomain := range slices.Sorted(maps.Keys(byDomain)) {
+		writes := derivations.Expand(byDomain[changeDomain])
+		writes.ID = write
+		changes, err := svc.Publish(ctx, changeDomain, writes)
+		if err != nil {
 			logger.FromCtx(ctx).Errorf("live: publishing the changes of domain %q failed; the pages refetch at their next change: %v", changeDomain, err)
+			failed = true
+
+			continue
+		}
+		for _, doc := range changes[caller] {
+			own.add(caller, doc)
 		}
 	}
+	if failed {
+		return
+	}
+	if err := setChangesHeader(w, Answer{Write: write, Changes: own[caller]}); err != nil {
+		logger.FromCtx(ctx).Errorf("live: naming the write's changes on its answer failed; the page fetches when its change set reports them: %v", err)
+	}
+}
+
+// Answer is what a write's answer tells the tab that wrote, in ChangesHeader: the
+// write's id, which every change document the write published carries, and the
+// documents that went into the caller's own change set, which the tab fetches at once.
+// All stands for the documents when naming them would outgrow MaxChangesHeaderLength:
+// the tab then fetches everything it holds live.
+type Answer struct {
+	Write   string           `json:"write"`
+	Changes []ChangeDocument `json:"changes,omitempty"`
+	All     bool             `json:"all,omitempty"`
+}
+
+// header renders the answer as ChangesHeader carries it: its JSON, percent-encoded.
+func (a Answer) header() (string, error) {
+	encoded, err := json.Marshal(a)
+	if err != nil {
+		return "", errors.Wrap(err, "json.Marshal()")
+	}
+
+	return url.PathEscape(string(encoded)), nil
+}
+
+// setChangesHeader names the write's changes on its answer. An answer naming no
+// document sets nothing, and one whose documents outgrow MaxChangesHeaderLength names
+// the write alone, with All.
+func setChangesHeader(w http.ResponseWriter, answer Answer) error {
+	if len(answer.Changes) == 0 {
+		return nil
+	}
+	value, err := answer.header()
+	if err != nil {
+		return err
+	}
+	if len(value) > MaxChangesHeaderLength {
+		value, err = Answer{Write: answer.Write, All: true}.header()
+		if err != nil {
+			return err
+		}
+	}
+	w.Header().Set(ChangesHeader, value)
+
+	return nil
+}
+
+// callerID is the principal id of the session the request speaks for, whose change set
+// a write's answer names documents of; empty for a request with no session principal
+// bound (a machine outlet's, a scheduled call's) and for one live pages refuse
+// (PrincipalID), neither of which holds a change set.
+func callerID(ctx context.Context) string {
+	if _, ok := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData); !ok {
+		return ""
+	}
+	id, err := PrincipalID(ctx)
+	if err != nil {
+		return ""
+	}
+
+	return id
 }
 
 // PrincipalID is the session principal's id as the subscription record, the change set

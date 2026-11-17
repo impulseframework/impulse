@@ -109,7 +109,7 @@ const (
 	wingForgeID = "40000000-0000-4000-8000-000000000001" // anvil
 
 	squadronHammerID     = "50000000-0000-4000-8000-000000000001" // Forge Wing, anvil: lead, veteran, wingco, dispatcher
-	squadronTongsID      = "50000000-0000-4000-8000-000000000002" // Forge Wing, anvil: dispatcher, pilot
+	squadronTongsID      = "50000000-0000-4000-8000-000000000002" // Forge Wing, anvil: dispatcher, pilot, armorer
 	squadronPortcullisID = "50000000-0000-4000-8000-000000000003" // Rampart Wing, bastion: dispatcher, pilot
 	squadronAshfallID    = "50000000-0000-4000-8000-000000000004" // Ember Wing, cinder
 
@@ -186,6 +186,28 @@ var testCursorKey = func() *resource.CursorKey {
 
 	return key
 }()
+
+// testSecretKeys are the secret keys the suites' resource clients seal the stored secret
+// fields with (a ship's transponder key), standing where production's data level reads
+// the application secret's versions from the environment: version 1 alone, built from
+// fixed bytes.
+var testSecretKeys = newTestSecretKeys(1)
+
+// newTestSecretKeys builds the key holder over the given versions of a test application
+// secret, each version's 32 bytes its own number repeated; the highest is the current
+// one, as it is for a deployment's.
+func newTestSecretKeys(versions ...byte) *resource.SecretKeys {
+	secrets := make(map[int][]byte, len(versions))
+	for _, version := range versions {
+		secrets[int(version)] = bytes.Repeat([]byte{version}, 32)
+	}
+	keys, err := resource.NewSecretKeys(secrets)
+	if err != nil {
+		panic(err)
+	}
+
+	return keys
+}
 
 // testCookieKey signs session cookies in the suites; any 32 bytes will do.
 const testCookieKey = "dGVzdC1jb29raWUta2V5LXRlc3QtY29va2llLWtleS0xMjM0NTY="
@@ -286,7 +308,8 @@ func (c *testConfigurer) CrewIdentity() *crewidentity.Client {
 	if c.crewAuth != nil {
 		return c.crewAuth.Identity()
 	}
-	client, err := crewidentity.NewClient(c.access, noSessionAPI{}, identity.WithAdministratorRoles(crew.AdministratorRoles()))
+	_, sectorAdministrators := crew.AdministratorRoles()
+	client, err := crewidentity.NewClient(c.access, noSessionAPI{}, identity.WithAdministratorRoles(sectorAdministrators))
 	if err != nil {
 		panic(err)
 	}
@@ -367,11 +390,12 @@ func (s *testStores) options() []resource.ClientOption {
 // every suite's requests go through the same App.
 func (c *testConfigurer) CursorKey() *resource.CursorKey { return testCursorKey }
 
-// ResourceClient is the client over the test database and the two stores, as
-// production's is: the generated frames read each store off it, and a committed
-// transaction's released objects are deleted from their store.
+// ResourceClient is the client over the test database, the two stores and the secret
+// keys, as production's is: the generated frames read each store off it, a committed
+// transaction's released objects are deleted from their store, and a write of a secret
+// field is sealed with the keys.
 func (c *testConfigurer) ResourceClient() resource.Client {
-	return resource.NewSpannerClient(c.db.Client, c.Stores().options()...)
+	return resource.NewSpannerClient(c.db.Client, append(c.Stores().options(), resource.WithSecretKeys(testSecretKeys))...)
 }
 
 func (c *testConfigurer) Access() access.Controller { return c.access }

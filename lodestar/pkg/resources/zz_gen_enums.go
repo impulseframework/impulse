@@ -49,3 +49,8 @@ const (
 	SolarWeatherFailReason  FailReason = "solar_weather"
 	UnrecoverableFailReason FailReason = "unrecoverable"
 )
+
+const (
+	RunPassLevel   PassLevel = "run"
+	VisitPassLevel PassLevel = "visit"
+)

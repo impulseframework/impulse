@@ -87,8 +87,8 @@ type Driver[Tx any] interface {
 // alone: the Spanner emulator allows one read-write transaction at a time, so a second
 // transaction or a read through another client inside the hook waits on the one it
 // runs in. A user the same transaction provisioned is buffered and not readable in it
-// (Spanner applies a buffered row at the commit), so the user is named by id and by
-// username, which is what the hook writes under.
+// (Spanner applies a buffered row at the commit), so the user is named by id, which is
+// what the hook writes under, and by username, for what it reports.
 //
 // committed, nil for none, is work the flow runs once that transaction has committed
 // and before the sign-in policy decides: telling a permission engine that its rows

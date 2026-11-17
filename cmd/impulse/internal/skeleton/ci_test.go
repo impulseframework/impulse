@@ -661,6 +661,85 @@ func TestLintJobs(t *testing.T) {
 	}
 }
 
+// The comment over the check job, and how it ends for an application with one browser
+// workspace and with several.
+const (
+	checkJobComment            = "  # impulse check with its regeneration (the generators start the Spanner emulator in a container, which the runner has), failing on a tree the checks changed, since what they regenerated or rewrote is not committed. It restores go-build's Go caches, as go-vuln does, and saves nothing."
+	oneWorkspaceInstalled      = " The browser workspace is installed first (bun ci, as its own job installs it), since the check holds the browser files to the prettier a workspace pins and the formatter comes with the install: without it the check would say it was not run, and an unformatted file would pass."
+	severalWorkspacesInstalled = " The browser workspaces are installed first (bun ci, as their own jobs install them), since the check holds the browser files to the prettier a workspace pins and the formatter comes with the install: without it the check would say it was not run, and an unformatted file would pass."
+)
+
+// TestCheckJobInstallsTheWorkspaces: go-check, the job that runs impulse check, installs
+// every browser workspace before the check, with Bun at the pinned version and the
+// lockfile's exact install the workspace's own job uses, so the check's prettier check
+// runs there: the formatter comes with the install, and a workspace left uninstalled is
+// one the check says it did not read, which fails nothing. An application without a
+// browser workspace installs nothing.
+func TestCheckJobInstallsTheWorkspaces(t *testing.T) {
+	t.Parallel()
+
+	const (
+		bun   = "      - uses: oven-sh/setup-bun@"
+		check = "      - name: impulse check\n        run: go tool impulse check\n"
+	)
+	tests := []struct {
+		name       string
+		a          func(t *testing.T) *app.App
+		workspaces []string
+	}{
+		{name: "the flat workspace", a: func(t *testing.T) *app.App { return renderCandidate(t, "solo") }, workspaces: []string{"web"}},
+		{name: "a workspace per site", a: func(t *testing.T) *app.App { return renderCandidate(t, "sites") }, workspaces: []string{"apps/console/web", "apps/portal/web"}},
+		{name: "no browser workspace", a: func(*testing.T) *app.App { return &app.App{} }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			pr, err := ci.Render(tt.a(t))
+			if err != nil {
+				t.Fatalf("Render() error = %v", err)
+			}
+			j := job(pr, "go-check")
+			at := strings.Index(j, check)
+			if at < 0 {
+				t.Fatalf("go-check does not run impulse check:\n%s", j)
+			}
+			if strings.Contains(j, "--only") || strings.Contains(j, "--fix") {
+				t.Errorf("go-check runs a part of impulse check, or lets it rewrite files:\n%s", j)
+			}
+			if len(tt.workspaces) == 0 {
+				if strings.Contains(j, "setup-bun") || strings.Contains(j, "bun ci") {
+					t.Errorf("go-check installs a browser workspace the application does not have:\n%s", j)
+				}
+
+				return
+			}
+			setup := strings.Index(j, bun)
+			if setup < 0 || !strings.Contains(j, bun[:len(bun)-1]+"@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0\n        with:\n          bun-version: "+ci.Bun+"\n") {
+				t.Fatalf("go-check does not set Bun up at the pinned version:\n%s", j)
+			}
+			last := setup
+			for _, dir := range tt.workspaces {
+				install := "      - name: Install the browser workspace at " + dir + "\n"
+				run := "        working-directory: " + dir + "\n        run: bun ci\n"
+				i := strings.Index(j, install)
+				switch {
+				case i < 0 || !strings.Contains(j[i:], run) || strings.Index(j[i:], run) > strings.Index(j[i+1:]+"      - ", "      - ")+1:
+					t.Errorf("go-check does not install the workspace at %s from its lockfile:\n%s", dir, j)
+				case i < last:
+					t.Errorf("go-check installs the workspace at %s out of the workspaces' order, or before Bun is set up:\n%s", dir, j)
+				case i > at:
+					t.Errorf("go-check installs the workspace at %s after impulse check ran, so its prettier check read nothing there:\n%s", dir, j)
+				}
+				last = i
+			}
+			if got := strings.Count(j, "        run: bun ci\n"); got != len(tt.workspaces) {
+				t.Errorf("go-check runs bun ci %d time(s), want once per workspace (%d):\n%s", got, len(tt.workspaces), j)
+			}
+		})
+	}
+}
+
 // TestSecurityScan: the scan workflow runs on the daily schedule and on demand, carries
 // the four jobs (refs, then go-vuln and image over the refs, then the report over both),
 // restores go-build's caches in go-vuln and saves nothing, runs govulncheck and Grype as
@@ -1156,6 +1235,9 @@ func TestCompare(t *testing.T) {
 			wantText: fmt.Sprintf(`.github/workflows/ci.yml:%d: the code renders "  cancel-in-progress: true"; the file has "  cancel-in-progress: false"`, lineOf(t, ci.File, "  cancel-in-progress: true")),
 		},
 		{
+			// The first line that differs is the check job's, which installs every
+			// workspace and says so of one workspace or of several; the missing job
+			// itself follows it.
 			name: "a workspace without its job",
 			app: func(t *testing.T) *app.App {
 				t.Helper()
@@ -1167,11 +1249,11 @@ func TestCompare(t *testing.T) {
 			},
 			want: &ci.Difference{
 				File: ci.File,
-				Line: lineOf(t, ci.File, "  # The browser gate, one fixed name over the per-workspace jobs so a repository rule can require it: it fails when any of them did not succeed, and passes with nothing to check in an application without a browser workspace."),
-				Want: "  # The browser workspace at apps/portal/web: bun installs from the lockfile exactly (bun ci), then the package scripts build, lint and test.",
-				Got:  "  # The browser gate, one fixed name over the per-workspace jobs so a repository rule can require it: it fails when any of them did not succeed, and passes with nothing to check in an application without a browser workspace.",
+				Line: lineOf(t, ci.File, checkJobComment+oneWorkspaceInstalled),
+				Want: checkJobComment + severalWorkspacesInstalled,
+				Got:  checkJobComment + oneWorkspaceInstalled,
 			},
-			wantText: fmt.Sprintf(`.github/workflows/ci.yml:%d: the code renders "  # The browser workspace at apps/portal/web: bun installs from the lockfile exactly (bun ci), then the package scripts build, lint and test."; the file has "  # The browser gate, one fixed name over the per-workspace jobs so a repository rule can require it: it fails when any of them did not succeed, and passes with nothing to check in an application without a browser workspace."`, lineOf(t, ci.File, "  # The browser gate, one fixed name over the per-workspace jobs so a repository rule can require it: it fails when any of them did not succeed, and passes with nothing to check in an application without a browser workspace.")),
+			wantText: fmt.Sprintf(`.github/workflows/ci.yml:%d: the code renders %q; the file has %q`, lineOf(t, ci.File, checkJobComment+oneWorkspaceInstalled), checkJobComment+severalWorkspacesInstalled, checkJobComment+oneWorkspaceInstalled),
 		},
 		{
 			name: "a file that ends early",

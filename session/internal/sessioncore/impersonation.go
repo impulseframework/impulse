@@ -61,8 +61,8 @@ type IdentityResolver struct {
 	User func(ctx context.Context, user accesstypes.User) (username string, userID impulse.UUID, err error)
 	// actor guards a role principal, whose session carries the actor's own username:
 	// it refuses when that name already belongs to a user in this store, so one
-	// name never means two users in one session table. Nil when the store has no
-	// username-keyed users.
+	// name never means two users in one session table. Nil when the store keeps no
+	// users.
 	Actor func(ctx context.Context, actor string) error
 	// Accounts reports a store whose people are accounts, named by id in the
 	// permission store: there a text that reads as an id is an account's, so an actor
@@ -71,9 +71,9 @@ type IdentityResolver struct {
 	Accounts bool
 }
 
-// IdentityAsGiven is the resolver for session types with no username-keyed local user
-// record (Preauth, OIDC): the principal's name is the username, the user ID is zero, and
-// no name can collide with a user.
+// IdentityAsGiven is the resolver of Preauth, which keeps no user record: the
+// principal's name is the username, the user ID is zero, and no name can collide with a
+// user.
 var IdentityAsGiven = IdentityResolver{
 	User: func(_ context.Context, user accesstypes.User) (string, impulse.UUID, error) {
 		return string(user), impulse.NilUUID, nil
@@ -181,16 +181,15 @@ func impersonatedIdentity(ctx context.Context, req *ImpersonationRequest, resolv
 	return resolve.User(ctx, user)
 }
 
-// UserStore is the user lookup the identity resolver and the session user check
-// need: the Auth store and the legacy password store both have it.
+// UserStore is the user lookup the identity resolver needs: the Auth store has it.
 type UserStore interface {
 	User(ctx context.Context, id impulse.UUID) (*sessionstorage.SessionUser, error)
 	UserByUserName(ctx context.Context, username string) (*sessionstorage.SessionUser, error)
 }
 
-// UserIdentity is the identity resolver of Auth and the legacy PasswordAuth, whose users are
-// SessionUsers records. A user principal resolves against storage. A foreign actor's
-// role principal is refused when the actor's name is already a user there.
+// UserIdentity is the identity resolver of Auth, whose users are SessionUsers records.
+// A user principal resolves against storage. A foreign actor's role principal is
+// refused when the actor's name is already a user there.
 func UserIdentity(storage UserStore) IdentityResolver {
 	return IdentityResolver{
 		User: func(ctx context.Context, user accesstypes.User) (string, impulse.UUID, error) {
@@ -253,27 +252,6 @@ func refuseShadowedActor(ctx context.Context, storage UserStore, actor string) e
 	default:
 		return errors.Wrap(err, "UserStore.UserByUserName()")
 	}
-}
-
-// SessionUserInfo resolves the validated session's user record for the request
-// context. A foreign actor's role-principal session has no local user — the actor is
-// not a user of this application — so no record is looked up and none can be disabled.
-// Every other session, a local actor's role-principal session included, must map to an
-// existing, enabled user.
-func SessionUserInfo(ctx context.Context, storage UserStore, sessInfo *sessioninfo.SessionInfo) (*sessioninfo.UserInfo, error) {
-	if imp, ok := ImpersonationInCtx(ctx); ok && imp.Principal.IsRole() && !imp.IsLocalActor() {
-		return &sessioninfo.UserInfo{Username: sessInfo.Username}, nil
-	}
-
-	user, err := storage.UserByUserName(ctx, sessInfo.Username)
-	if err != nil {
-		return nil, errors.Wrap(err, "UserStore.UserByUserName()")
-	}
-	if user.Disabled {
-		return nil, httpio.NewUnauthorizedMessage("Session Expired")
-	}
-
-	return &sessioninfo.UserInfo{ID: user.ID, Username: user.Username, Disabled: user.Disabled}, nil
 }
 
 // RefuseImpersonated guards the library's identity-mutating handlers. A self

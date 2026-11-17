@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"log"
+	"os"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -67,9 +68,12 @@ type DataConfiguration struct {
 	// resource client over it.
 	database  *database.Driver
 	cursorKey *resource.CursorKey
-	staff     *staff.Auth
-	tenants   *resource.TenantRoster
-	live      *liveservice.Service
+	// secretKeys seals and opens the stored secret fields; nil where the environment
+	// carries no version of the application secret.
+	secretKeys *resource.SecretKeys
+	staff      *staff.Auth
+	tenants    *resource.TenantRoster
+	live       *liveservice.Service
 }
 
 // NewDataConfiguration loads the core and data levels and opens their clients. The
@@ -85,9 +89,20 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 		return nil, errors.Wrap(err, "envconfig.ProcessWith()")
 	}
 
+	// The application secret's versions, each in a variable of its own named by the name
+	// dataConfig declares and the version's number (APP_SECRET_KEY_1, APP_SECRET_KEY_2):
+	// the keys the resource client seals every stored secret field with
+	// (conditions:"secret"), and a row's generated Open method opens one with. No version
+	// in the environment is no keys, which an application that stores a secret is refused
+	// for when its router is built, and no other.
+	secretKeys, err := resource.SecretKeysFromEnv("APP_SECRET_KEY", os.Environ())
+	if err != nil {
+		return nil, errors.Wrap(err, "resource.SecretKeysFromEnv()")
+	}
+
 	// The database driver: the Spanner client over the database the settings name, and
-	// the resource client over it.
-	db, err := database.Open(ctx, env.Database.Settings)
+	// the resource client over it, which holds the secret keys.
+	db, err := database.Open(ctx, env.Database.Settings, resource.WithSecretKeys(secretKeys))
 	if err != nil {
 		return nil, errors.Wrap(err, "database.Open()")
 	}
@@ -140,6 +155,7 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 		env:               env,
 		database:          db,
 		cursorKey:         cursorKey,
+		secretKeys:        secretKeys,
 		staff:             staffAuth,
 		live:              liveService,
 	}
@@ -176,6 +192,13 @@ func (c *DataConfiguration) ResourceClient() resource.Client {
 // CursorKey returns the key that seals list cursors.
 func (c *DataConfiguration) CursorKey() *resource.CursorKey {
 	return c.cursorKey
+}
+
+// SecretKeys returns the application's secret keys: what a row's generated Open method
+// opens a stored secret field with, outside a transaction. Nil where the environment
+// carries no version of the application secret, which opens nothing.
+func (c *DataConfiguration) SecretKeys() *resource.SecretKeys {
+	return c.secretKeys
 }
 
 // Access returns the permission engine the handlers check against.
@@ -289,6 +312,15 @@ type dataConfig struct {
 	// cryptographically secure random data. Unset, an ephemeral key is generated at
 	// startup.
 	CookieKey string `env:"APP_COOKIE_KEY" secret:"generated"`
+
+	// SecretKey declares the application secret: 32 random bytes kept in versions, which
+	// every stored secret field (conditions:"secret") is encrypted with. secret:"versioned"
+	// has the deployment generate it and hand the service every enabled version, each in
+	// a variable of its own named by this one and the version's number (APP_SECRET_KEY_1,
+	// APP_SECRET_KEY_2). No variable has this name itself, so the field stays empty: the
+	// versions are read into the key holder when the level opens
+	// (resource.SecretKeysFromEnv, under this name).
+	SecretKey string `env:"APP_SECRET_KEY" secret:"versioned"`
 
 	// PublicURL is the application's address as a browser reaches it, scheme and host
 	// with no path: every link the auths mail (an invitation, an address verification, a

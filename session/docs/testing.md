@@ -30,12 +30,14 @@ schema), which is how the scenarios prove a hook's write survives a refusal and 
 reads what the sign-in's resolver wrote in the same transaction. Both applications carry
 custom session and user data through the store's one configuration of each
 (`withCustomData`), so the resolver typed to the backend's transaction and the tables
-`testdata/<backend>/000002_CustomData` runs on both. Needs Docker.
+`testdata/<backend>/000002_CustomData` runs on both. A `Preauth` carries custom session
+data on both backends too (`TestPreauthSeams_CustomSessionData`, over the base set and
+`testdata/preauth/<backend>`). Needs Docker.
 
 **Public surface** (`surface_test.go` in the root package). One scenario table runs
-against `Preauth` and `Auth` (with password and WorkOS sign-in registered on it), and
-its copy in `legacy/surface_test.go` against `PasswordAuth` and `OIDCAzure`, built through their constructors, with real cookies and a
-mocked store. It exists because the types satisfy `basesession.Handlers` through
+against `Preauth` and `Auth` (with password and WorkOS sign-in registered on it), built
+through their constructors, with real cookies and a mocked store. It exists because
+the types satisfy `basesession.Handlers` through
 delegates, and a delegate forwarded to the wrong base method compiles. Add a scenario
 whenever a handler or middleware is added to the shared interface.
 
@@ -54,10 +56,9 @@ method once the Auth is in use, an external registration without an account rule
 table of panics in `TestAuth_RegistrationRefused`; the handler sets of the method types
 are asserted at compile time in `auth_methods_test.go`.
 
-**Legacy types** (`legacy`). The `PasswordAuth` and `OIDCAzure` suites moved with the
-types: their flows against mocked stores, their impersonation and custom user data cases
-and their half of the public-surface table. The shared machinery they and the root build
-on, `internal/sessioncore`, has its own unit tests for the custom data type checks.
+**Session core** (`internal/sessioncore`). The machinery the root package builds its
+session types on has its own unit tests: the custom data type checks
+(`customdata_test.go`) and the table-name options (`tablenames_test.go`).
 
 **Engine** (`internal/basesession`). The shared middleware and the impersonation
 lifecycle against mocked store and cookies. This is where a rule is exercised in its
@@ -74,10 +75,9 @@ divergence the suite exists to catch. Driver behavior that is not impersonation 
 lives in each driver's own `*_test.go`, which is where new conformance tables should be
 carved from next. Needs Docker.
 
-The users cases (`RunAuth`) apply the shipped migration sets as an application would,
-from both starting layouts: the base set plus the auth set, and the legacy Azure layout
-(the `oidc` set with the user anchor seeded from `testdata/auth_test/oidc_anchor_seed`)
-upgraded by the `auth-from-oidc` set. They give the application's hooks a `HookTx`, which each
+The users cases (`RunAuth`) apply the shipped migration sets as an application would:
+the base set, the impersonation set and the auth set. They give the application's
+hooks a `HookTx`, which each
 harness adapts to its backend's transaction, so a case can have the resolver, the policy
 and the custom session data resolver write and read rows as an application does. Those
 cases prepare the `AuthWithAppTables` schema: the shipped auth migrations plus

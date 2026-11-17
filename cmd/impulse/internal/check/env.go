@@ -16,7 +16,9 @@ import (
 // envTemplate verifies that every env tag without a default appears in the development
 // environment template, so a fresh checkout knows which variables it must set. The
 // variables a framework settings struct the configuration embeds declares are among the
-// tags, each naming the struct it came from.
+// tags, each naming the struct it came from. A versioned secret (secret:"versioned") is
+// handed over one variable for each version and none under its declared name, so the
+// template carries its first version (APP_SECRET_KEY_1).
 type envTemplate struct{}
 
 func (envTemplate) Name() string { return "env-template" }
@@ -48,12 +50,13 @@ func (c envTemplate) Run(_ context.Context, env *Env) Result {
 	var details, missing []string
 	seen := map[string]bool{}
 	for _, t := range a.EnvTags {
-		if t.HasDefault || declared[t.Name] || seen[t.Name] {
+		name := templateName(t)
+		if t.HasDefault || declared[name] || seen[name] {
 			continue
 		}
-		seen[t.Name] = true
-		missing = append(missing, t.Name)
-		details = append(details, fmt.Sprintf("%s:%d: %s%s is not in %s", t.File, t.Line, t.Name, tagNote(t), a.EnvTemplate))
+		seen[name] = true
+		missing = append(missing, name)
+		details = append(details, fmt.Sprintf("%s:%d: %s%s is not in %s", t.File, t.Line, name, tagNote(t), a.EnvTemplate))
 	}
 
 	if len(missing) == 0 {
@@ -75,12 +78,26 @@ func (c envTemplate) Run(_ context.Context, env *Env) Result {
 	return fail(c.Name(), fmt.Sprintf("%d variable(s) missing from %s (--fix adds them)", len(missing), a.EnvTemplate), details...)
 }
 
-// tagNote says what else the check knows of the variable: that it is required, and the
-// framework settings struct that declares it when the application embeds one.
+// templateName is the variable the template carries for a tag: its name, or, for a
+// versioned secret, the variable its first version is handed over in.
+func templateName(t app.EnvTag) string {
+	if t.Versioned {
+		return t.VersionedName(1)
+	}
+
+	return t.Name
+}
+
+// tagNote says what else the check knows of the variable: that it is required, that it
+// is the first version of a versioned secret, and the framework settings struct that
+// declares it when the application embeds one.
 func tagNote(t app.EnvTag) string {
 	var notes []string
 	if t.Required {
 		notes = append(notes, "required")
+	}
+	if t.Versioned {
+		notes = append(notes, "the first version of "+t.Name+", declared secret:\"versioned\"")
 	}
 	if t.Origin != "" {
 		notes = append(notes, "declared by the embedded "+t.Origin)

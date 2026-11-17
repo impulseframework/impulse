@@ -375,7 +375,7 @@ func (r *resourceGenerator) Generate() error {
 	if err := r.validateStores(); err != nil {
 		return err
 	}
-	if err := r.generateFileHolders(); err != nil {
+	if err := r.generateHolders(); err != nil {
 		return err
 	}
 

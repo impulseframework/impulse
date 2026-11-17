@@ -65,7 +65,11 @@ func TestHandler(t *testing.T) {
 				req.Header.Set(k, v)
 			}
 			rec := httptest.NewRecorder()
-			Handler().ServeHTTP(rec, req)
+			handler, err := Handler(nil)
+			if err != nil {
+				t.Fatalf("Handler() error = %v", err)
+			}
+			handler.ServeHTTP(rec, req)
 			res := rec.Result()
 			defer res.Body.Close()
 			if res.StatusCode != http.StatusServiceUnavailable {
@@ -87,6 +91,120 @@ func TestHandler(t *testing.T) {
 				t.Errorf("Content-Type = %q", res.Header.Get("Content-Type"))
 			case !tt.wantPage && len(body) != 0:
 				t.Errorf("body = %q, want none", body)
+			}
+		})
+	}
+}
+
+// TestHandlerBrands holds the page to the brand of the browser application a navigation
+// is under: the name in the title and the sentence, the logo in the page itself (every
+// request is answered 503, so none could fetch it), the longest mount path a path is
+// under, and the page with no name and no logo under none.
+func TestHandlerBrands(t *testing.T) {
+	t.Parallel()
+
+	logo := []byte("\x89PNG\r\n\x1a\nnot a real image")
+	const logoURL = `src="data:image/png;base64,iVBORw0KGgpub3QgYSByZWFsIGltYWdl"`
+	console := Brand{Name: "Harbor", Logo: logo}
+	portal := Brand{Name: "Harbor <Portal>"}
+	tests := []struct {
+		name   string
+		brands Brands
+		path   string
+		// wants are texts the page carries, and lacks texts it does not.
+		wants []string
+		lacks []string
+	}{
+		{
+			name: "an application at the root: every path is under its brand", brands: Brands{"/": console}, path: "/users/12",
+			wants: []string{"<title>Harbor is down for maintenance</title>", "<p>Harbor is being updated and is not available right now.</p>", logoURL},
+			lacks: []string{"This application"},
+		},
+		{
+			name: "two applications on one host: a path under the portal gets the portal's", brands: Brands{"/": console, "/portal": portal}, path: "/portal/orders",
+			wants: []string{"<title>Harbor &lt;Portal&gt; is down for maintenance</title>", "<p>Harbor &lt;Portal&gt; is being updated"},
+			lacks: []string{"<img", "<Portal>"},
+		},
+		{
+			name: "the mount path itself is under its brand", brands: Brands{"/console": console, "/portal": portal}, path: "/portal",
+			wants: []string{"<title>Harbor &lt;Portal&gt; is down for maintenance</title>"},
+		},
+		{
+			name: "a path that only starts like a mount path is not under it", brands: Brands{"/": console, "/portal": portal}, path: "/portals",
+			wants: []string{"<title>Harbor is down for maintenance</title>", logoURL},
+		},
+		{
+			name: "a path under no brand gets the page with no name and no logo", brands: Brands{"/console": console}, path: "/",
+			wants: []string{"<title>Down for maintenance</title>", "<p>This application is being updated and is not available right now.</p>"},
+			lacks: []string{"<img", "Harbor"},
+		},
+		{
+			name: "no brands: the page with no name and no logo", path: "/console/",
+			wants: []string{"<title>Down for maintenance</title>", "<p>This application is being updated and is not available right now.</p>"},
+			lacks: []string{"<img"},
+		},
+		{
+			name: "a brand with a name of spaces alone names nothing", brands: Brands{"/": {Name: "  "}}, path: "/",
+			wants: []string{"<title>Down for maintenance</title>", "<p>This application is being updated"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			handler, err := Handler(tt.brands)
+			if err != nil {
+				t.Fatalf("Handler() error = %v", err)
+			}
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.path, http.NoBody)
+			req.Header.Set("Sec-Fetch-Mode", "navigate")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			res := rec.Result()
+			defer res.Body.Close()
+			if res.StatusCode != http.StatusServiceUnavailable || res.Header.Get(Header) != HeaderValue {
+				t.Errorf("status = %d, %s = %q; want %d and %q", res.StatusCode, Header, res.Header.Get(Header), http.StatusServiceUnavailable, HeaderValue)
+			}
+			body, err := io.ReadAll(res.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(body), "<h1>Down for maintenance</h1>") {
+				t.Errorf("body lacks the page: %q", body)
+			}
+			for _, want := range tt.wants {
+				if !strings.Contains(string(body), want) {
+					t.Errorf("the page lacks %q:\n%s", want, body)
+				}
+			}
+			for _, lack := range tt.lacks {
+				if strings.Contains(string(body), lack) {
+					t.Errorf("the page carries %q:\n%s", lack, body)
+				}
+			}
+		})
+	}
+}
+
+// TestHandlerRefusesAMountPath holds a brand to a mount path as the generator program's
+// WebApp option spells one.
+func TestHandlerRefusesAMountPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		mount string
+	}{
+		{name: "no leading slash", mount: "console"},
+		{name: "a trailing slash", mount: "/console/"},
+		{name: "empty", mount: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := Handler(Brands{tt.mount: {Name: "Harbor"}})
+			want := `maintenance: the brand "Harbor" is given under "` + tt.mount + `", which is not a mount path: a mount path starts with "/" and ends without one, such as "/" or "/console"`
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("Handler() error = %v, want one saying %q", err, want)
 			}
 		})
 	}
@@ -121,8 +239,12 @@ func TestServe(t *testing.T) {
 			}
 			ctx, cancel := context.WithCancel(t.Context())
 			done := make(chan error, 1)
+			handler, err := Handler(nil)
+			if err != nil {
+				t.Fatalf("Handler() error = %v", err)
+			}
 			go func() {
-				done <- serve(ctx, listener)
+				done <- serve(ctx, listener, handler)
 			}()
 			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+listener.Addr().String()+tt.path, http.NoBody)
 			if err != nil {

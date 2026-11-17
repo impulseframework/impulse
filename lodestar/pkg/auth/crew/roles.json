@@ -694,6 +694,9 @@
               "resource": "UnlinkCrewSessionIdentity"
             },
             {
+              "resource": "RemoveCrewPassword"
+            },
+            {
               "resource": "RevokeCrewSessionToken"
             },
             {
@@ -982,6 +985,17 @@
                 "sectorId",
                 "name",
                 "zone"
+              ]
+            },
+            {
+              "resource": "HangarPasses",
+              "fields": [
+                "sectorId",
+                "hangarId",
+                "userId",
+                "squadronId",
+                "levelId",
+                "expiresAt"
               ]
             },
             {
@@ -1283,6 +1297,17 @@
               ]
             },
             {
+              "resource": "HangarPasses",
+              "fields": [
+                "sectorId",
+                "hangarId",
+                "userId",
+                "squadronId",
+                "levelId",
+                "expiresAt"
+              ]
+            },
+            {
               "resource": "Ships",
               "fields": [
                 "hangarId",
@@ -1500,6 +1525,16 @@
               ]
             },
             {
+              "resource": "HangarPasses",
+              "fields": [
+                "hangarId",
+                "userId",
+                "squadronId",
+                "levelId",
+                "expiresAt"
+              ]
+            },
+            {
               "resource": "Ships",
               "fields": [
                 "hangarId",
@@ -1612,6 +1647,13 @@
               ]
             },
             {
+              "resource": "HangarPasses",
+              "fields": [
+                "levelId",
+                "expiresAt"
+              ]
+            },
+            {
               "resource": "Ships",
               "fields": [
                 "hangarId",
@@ -1700,6 +1742,9 @@
             },
             {
               "resource": "Hangars"
+            },
+            {
+              "resource": "HangarPasses"
             },
             {
               "resource": "Ships"
@@ -1846,6 +1891,10 @@
             },
             {
               "resource": "UnlinkCrewSectorSessionIdentity",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "RemoveCrewSectorPassword",
               "condition": "heldElsewhere = false AND heldGlobally = false"
             }
           ]
@@ -3755,6 +3804,43 @@
           "Execute": [
             {
               "resource": "AttachRefitPhoto"
+            }
+          ]
+        }
+      },
+      {
+        "name": "Armorer",
+        "description": "Serves a squadron's ships where its hangar passes reach: sees the hangars a pass opens to them or to a squadron they fly with, and re-zones the ones a pass lets them run.",
+        "permissions": {
+          "List": [
+            {
+              "resource": "Hangars",
+              "fields": [
+                "sectorId",
+                "name",
+                "zone"
+              ],
+              "condition": "hangar IN subject.hangarsOpen"
+            }
+          ],
+          "Read": [
+            {
+              "resource": "Hangars",
+              "fields": [
+                "sectorId",
+                "name",
+                "zone"
+              ],
+              "condition": "hangar IN subject.hangarsOpen"
+            }
+          ],
+          "Update": [
+            {
+              "resource": "Hangars",
+              "fields": [
+                "zone"
+              ],
+              "condition": "hangar IN subject.hangarsRun"
             }
           ]
         }

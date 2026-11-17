@@ -20,7 +20,8 @@ import {
 // and what the library builds from it. Every list a page draws is a resource of the description; every column
 // and row page field is a field of that resource; every method a page presents is a
 // method of the description that runs against the listed resource's rows, or one the
-// page fills from the row with fields the method takes; and a child list is related to
+// page fills from the row with fields the method takes; a method offered above a list
+// names no row, or names the person the list sits under; and a child list is related to
 // its person by a field the server filters on.
 
 const sides: { name: string; auth: string; scope: 'global' | 'domain' }[] = [
@@ -84,6 +85,51 @@ describe("the library's pages over an auth's generated management", () => {
     );
   });
 
+  it("offer Remove password on a crew member's page above the identities they sign in with, where Unlink is offered, and none on a member's, who holds no password", () => {
+    const identitiesOf = (auth: string, scope: 'global' | 'domain'): ListViewConfig => {
+      const people = identityPages(apiDescriptor, resourceMeta, { auth, scope })[0];
+      const found = (people?.relatedConfigs as ListViewConfig[] | undefined)?.find(
+        (child) => child.title === 'Sign-in identities',
+      );
+      if (!found) {
+        throw new Error(`the ${auth} people page has no list of sign-in identities`);
+      }
+      return found;
+    };
+    const offered = (presentations: false | MethodPresentation[] | undefined): [Method, string | undefined][] =>
+      (presentations || []).map((presentation) => [presentation.method, presentation.label]);
+
+    for (const tt of [
+      {
+        scope: 'global' as const,
+        remove: Methods.RemoveCrewPassword,
+        unlink: Methods.UnlinkCrewSessionIdentity,
+        people: Resources.CrewSessionUsers,
+      },
+      {
+        scope: 'domain' as const,
+        remove: Methods.RemoveCrewSectorPassword,
+        unlink: Methods.UnlinkCrewSectorSessionIdentity,
+        people: Resources.CrewSectorUsers,
+      },
+    ]) {
+      const identities = identitiesOf('Crew', tt.scope);
+      expect(offered(identities.rowMethods)).toEqual([[tt.unlink, 'Unlink']]);
+      expect(offered(identities.listMethods)).toEqual([[tt.remove, 'Remove password']]);
+      // The method runs against the person the list sits under, named by the key of the
+      // person's row, and takes nothing else: the page asks its question and no more.
+      const meta = methodMeta(tt.remove as Method);
+      expect(meta.target).toEqual({ resource: tt.people, key: { userId: 'id' } });
+      expect(meta.fields.map((field) => field.fieldName)).toEqual(['userId']);
+      const question = identities.listMethods?.[0]?.confirm as (person: RecordData) => string;
+      expect(question({ id: 'u-1', username: 'cadet' })).toBe(
+        'Remove the password of cadet? They will sign in only through the sign-in identities listed here.',
+      );
+    }
+    // The members sign in through their directory alone: the generator describes no such method for them.
+    expect(identitiesOf('Members', 'global').listMethods).toEqual([]);
+  });
+
   for (const side of sides) {
     describe(side.name, () => {
       const pages = identityPages(apiDescriptor, resourceMeta, { auth: side.auth, scope: side.scope });
@@ -122,7 +168,15 @@ describe("the library's pages over an auth's generated management", () => {
           }
           for (const presentation of list.listMethods ?? []) {
             expect(Object.values(Methods)).toContain(presentation.method);
-            expect(methodMeta(presentation.method).target, presentation.method).toBeUndefined();
+            const target = methodMeta(presentation.method).target;
+            if (target) {
+              // A method that names a row, offered above a list: the list sits under a
+              // person, and the method runs against that person's row.
+              const people = pages.find((page) => (page.relatedConfigs as ListViewConfig[]).includes(list));
+              expect(target.resource, presentation.method).toBe(
+                (people?.parentConfig as ListViewConfig | undefined)?.primaryResource,
+              );
+            }
           }
         }
       });

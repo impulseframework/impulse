@@ -3,10 +3,15 @@ import { Domain, Resource } from './brands';
 import { AnyResourceHandle, createClient, Client } from './client';
 import { ApiDescriptor, ResourceDescriptor } from './descriptor';
 import {
+  AnsweredChange,
   ChangeEvent,
   ChangeFeed,
+  changesHeader,
+  liveChangeWait,
+  LiveClock,
   LiveIdentity,
   LiveOptions,
+  liveRefetchInterval,
   liveRenewLimit,
   LiveSubscription,
   liveSubscription,
@@ -14,17 +19,21 @@ import {
   noLiveRoutesWarning,
   PageEvents,
   pageIsLive,
+  parseChangesHeader,
   sameSubscription,
   subscribeHeader,
   unpublishedLiveWarning,
   versionedUrl,
+  VisibilityEvents,
 } from './live';
 import { TransportRequest } from './transport';
 import { ScriptedTransport, scriptedTransport } from '@impulseframework/resource/testing';
 
 // The tab's live session: a list or read asked to be live carries the tab's subscribe
 // header and the version parameter only while a feed runs; the feed's events reach the
-// watchers of the row or list they name and refetch by the event's version; renewal
+// watchers of the row or list they name and refetch by the event's version; the tab's
+// own write fetches at once and its echo in the feed fetches nothing, other people's
+// changes wait and become one fetch, and a hidden tab fetches when it is shown; renewal
 // carries the tab's current subscriptions and drops what the server drops; the page-leave
 // and logout paths unsubscribe; and a resync refetches everything by a fresh seed.
 
@@ -158,6 +167,74 @@ class FakePage implements PageEvents {
   }
 }
 
+/** A document stand-in: whether the tab is shown, set by the spec, and the visibilitychange listeners. */
+class FakeVisibility implements VisibilityEvents {
+  visibilityState = 'visible';
+  listeners = new Set<() => void>();
+
+  addEventListener(_type: string, listener: () => void): void {
+    this.listeners.add(listener);
+  }
+
+  removeEventListener(_type: string, listener: () => void): void {
+    this.listeners.delete(listener);
+  }
+
+  become(state: 'visible' | 'hidden'): void {
+    this.visibilityState = state;
+    for (const listener of [...this.listeners]) {
+      listener();
+    }
+  }
+}
+
+/** A clock the spec moves: the time, and the timers due as it advances, run in the order they fall due. */
+class FakeClock implements LiveClock {
+  time = 0;
+  private timers: { id: number; due: number; run: () => void }[] = [];
+  private nextId = 0;
+
+  now(): number {
+    return this.time;
+  }
+
+  setTimeout(run: () => void, delay: number): unknown {
+    const id = ++this.nextId;
+    this.timers.push({ id, due: this.time + Math.max(0, delay), run });
+    return id;
+  }
+
+  clearTimeout(timer: unknown): void {
+    this.timers = this.timers.filter((held) => held.id !== timer);
+  }
+
+  /** How many timers are waiting. */
+  get waiting(): number {
+    return this.timers.length;
+  }
+
+  /** Moves the time forward, running each timer that falls due on the way, at its own time. */
+  advance(milliseconds: number): void {
+    const until = this.time + milliseconds;
+    for (;;) {
+      const due = this.timers.filter((held) => held.due <= until).sort((a, b) => a.due - b.due || a.id - b.id)[0];
+      if (!due) {
+        break;
+      }
+      this.timers = this.timers.filter((held) => held !== due);
+      this.time = due.due;
+      due.run();
+    }
+    this.time = until;
+  }
+}
+
+/** The changes header as the server writes it for a write and what it changed in the caller's own change set. */
+function changesAnswer(write: string, changes: AnsweredChange[], all = false): Record<string, string> {
+  const answer = all ? { write, all } : { write, changes };
+  return { [changesHeader.toLowerCase()]: encodeURIComponent(JSON.stringify(answer)) };
+}
+
 /** The URL without its version parameter, and the version it carried. */
 function split(url: string): { url: string; version: string | undefined } {
   const mark = url.indexOf('?');
@@ -176,10 +253,17 @@ function split(url: string): { url: string; version: string | undefined } {
   };
 }
 
+/** One scripted answer: its body, status and headers, and what happens while the server works on it. */
+interface ScriptedPage {
+  rows?: unknown;
+  status?: number;
+  headers?: Record<string, string>;
+  /** Runs before the answer is returned: what reaches the tab while its request is still open. */
+  meanwhile?: () => void;
+}
+
 /** A transport scripted by URL with the version parameter set aside; the live routes answer themselves. */
-function scripted(
-  pages: Record<string, { rows?: unknown; status?: number; headers?: Record<string, string> }>,
-): ScriptedTransport {
+function scripted(pages: Record<string, ScriptedPage>): ScriptedTransport {
   return scriptedTransport((request) => {
     if (request.url === '/api/live/token') {
       return { status: 200, body: identity };
@@ -194,6 +278,7 @@ function scripted(
     if (!page) {
       return { status: 404, body: { message: `unscripted ${request.url}` } };
     }
+    page.meanwhile?.();
     return { status: page.status ?? 200, body: page.rows, headers: page.headers ?? {} };
   });
 }
@@ -205,16 +290,24 @@ interface Harness {
   transport: ScriptedTransport;
   feed: FakeFeed;
   page: FakePage;
+  /** Whether the tab is shown; shown unless the spec hides it. */
+  visibility: FakeVisibility;
+  /** The clock the session's waits run on; it moves when the spec moves it. */
+  clock: FakeClock;
+  /** Moves the clock far enough that every wait for other people's changes has ended. */
+  elapse(): void;
   keepalive: { url: string; init: RequestInit }[];
 }
 
 function harness(
-  pages: Record<string, { rows?: unknown; status?: number; headers?: Record<string, string> }>,
+  pages: Record<string, ScriptedPage>,
   api: ApiDescriptor = descriptor,
   live: Partial<LiveOptions> = {},
 ): Harness {
   const transport = scripted(pages);
   const page = new FakePage();
+  const visibility = new FakeVisibility();
+  const clock = new FakeClock();
   const keepalive: { url: string; init: RequestInit }[] = [];
   const warnings: string[] = [];
   const fetchStandIn = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -227,9 +320,11 @@ function harness(
     warn: (message) => warnings.push(message),
     // The zone header has its own suite (time-zone.spec); these pin the live headers alone.
     timeZone: '',
-    live: { renewInterval: 60 * 60 * 1000, page, fetch: fetchStandIn, xsrf: false, ...live },
+    live: { renewInterval: 60 * 60 * 1000, page, visibility, clock, fetch: fetchStandIn, xsrf: false, ...live },
   });
-  return { client, transport, feed: new FakeFeed(), page, keepalive, warnings };
+  const elapse = (): void =>
+    clock.advance(Math.max(live.changeWait ?? liveChangeWait, live.refetchInterval ?? liveRefetchInterval));
+  return { client, transport, feed: new FakeFeed(), page, visibility, clock, elapse, keepalive, warnings };
 }
 
 /** Each request as method, URL without the version, the version, and whether it carried the subscribe header. */
@@ -464,6 +559,9 @@ describe('dispatch', () => {
       deleted: false,
     };
     h.feed.emit(rowChange);
+    // Somebody else's change waits before it fetches (the waits have their own suite).
+    expect(refetches).toEqual([]);
+    h.elapse();
     expect(refetches).toEqual([{ who: 'row s1', version: '1700000000000001', event: rowChange }]);
     expect(live.version(ships.subscription(['s1']))).toBe('1700000000000001');
     expect(live.version(ships.subscription(['s2']))).toBe(live.seed);
@@ -472,12 +570,14 @@ describe('dispatch', () => {
 
     const listChange: ChangeEvent = { kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000000000002' };
     h.feed.emit(listChange);
+    h.elapse();
     expect(refetches).toEqual([{ who: 'anvil list', version: '1700000000000002', event: listChange }]);
     refetches.length = 0;
 
     // Another domain's list, and a global list event for a resource nobody watches: no watcher refetches.
     h.feed.emit({ kind: 'list', resource: 'Ships', domain: 'bastion', at: '1700000000000003' });
     h.feed.emit({ kind: 'list', resource: 'Berths', at: '1700000000000004' });
+    h.elapse();
     expect(refetches).toEqual([]);
     // The version was recorded anyway, for a page that mounts later.
     expect(live.version({ resource: 'Berths' })).toBe('1700000000000004');
@@ -485,6 +585,7 @@ describe('dispatch', () => {
     // A resource event reaches every row and list of the resource and no other.
     const bulk: ChangeEvent = { kind: 'resource', resource: 'Ships', at: '1700000000000005' };
     h.feed.emit(bulk);
+    h.elapse();
     expect(refetches.map((r) => [r.who, r.version])).toEqual([
       ['row s1', '1700000000000005'],
       ['row s2', '1700000000000005'],
@@ -495,6 +596,7 @@ describe('dispatch', () => {
 
     // An older row event after the bulk one does not move the version back.
     h.feed.emit({ kind: 'row', resource: 'Ships', key: 's1', at: '1700000000000004' });
+    h.elapse();
     expect(refetches.map((r) => [r.who, r.version])).toEqual([['row s1', '1700000000000005']]);
     await live.stop();
   });
@@ -515,6 +617,7 @@ describe('dispatch', () => {
     await live.start(h.feed);
     refetches.length = 0;
     h.feed.emit({ kind: 'row', resource: 'Ships', key: 's1', at: '1700000000000012' });
+    h.elapse();
     expect(refetches).toEqual([
       { who: 'anvil s1', version: '1700000000000012' },
       { who: 'bastion s1', version: '1700000000000012' },
@@ -539,7 +642,9 @@ describe('dispatch', () => {
     await h.client.live.start(h.feed);
     versions.length = 0;
     h.feed.emit({ kind: 'list', resource: 'ShipClasses', at: '1700000000000009' });
+    h.elapse();
     h.feed.emit({ kind: 'list', resource: 'ShipClasses', domain: '', at: '1700000000000010' });
+    h.elapse();
     expect(versions).toEqual(['1700000000000009', '1700000000000010']);
     await h.client.live.stop();
   });
@@ -551,6 +656,7 @@ describe('dispatch', () => {
     await h.client.live.start(h.feed);
     release();
     h.feed.emit({ kind: 'row', resource: 'Ships', key: 's1', at: '1700000000000011' });
+    h.elapse();
     expect(versions).toEqual([h.client.live.seed]);
     expect(h.client.live.version({ resource: 'Ships', key: 's1' })).toBe('1700000000000011');
     expect(h.client.live.subscriptions()).toEqual([]);
@@ -600,6 +706,566 @@ describe('a live request after a change', () => {
       { method: 'GET', url: second, version: undefined, subscribed: false },
     ]);
     await h.client.live.stop();
+  });
+});
+
+describe('parseChangesHeader', () => {
+  // The header as the server writes it: the answer's JSON, percent-encoded as Go's
+  // url.PathEscape does, which leaves the colon as it is. The server's test pins the
+  // same text for the same answer (TestAnswer_header in resource/live).
+  const fromTheServer =
+    '%7B%22write%22:%22W1%22%2C%22changes%22:%5B%7B%22kind%22:%22list%22%2C%22resource%22:%22Ships%22%2C%22domain%22:%22a%C3%B1vil%22%7D%2C' +
+    '%7B%22kind%22:%22row%22%2C%22resource%22:%22Ships%22%2C%22key%22:%22s%2F1%20%5C%22%C3%A9%5C%22%22%2C%22deleted%22:true%7D%2C' +
+    '%7B%22kind%22:%22resource%22%2C%22resource%22:%22MissionBoards%22%7D%5D%7D';
+
+  it('reads the write and its changes from the header as the server writes it', () => {
+    expect(parseChangesHeader(fromTheServer)).toEqual({
+      write: 'W1',
+      changes: [
+        { kind: 'list', resource: 'Ships', domain: 'añvil' },
+        { kind: 'row', resource: 'Ships', key: 's/1 "é"', deleted: true },
+        { kind: 'resource', resource: 'MissionBoards' },
+      ],
+      all: false,
+    });
+  });
+
+  const cases: { name: string; value: string | undefined; want: ReturnType<typeof parseChangesHeader> }[] = [
+    { name: 'no header', value: undefined, want: undefined },
+    { name: 'an empty header', value: '', want: undefined },
+    {
+      name: 'a write with more changes than the header holds says all',
+      value: '%7B%22write%22:%22W2%22%2C%22all%22:true%7D',
+      want: { write: 'W2', changes: [], all: true },
+    },
+    { name: 'text that is not percent-encoding', value: '%E0%A4%A', want: undefined },
+    { name: 'text that is not JSON', value: 'write=W1', want: undefined },
+    { name: 'JSON that is not an object', value: '%22W1%22', want: undefined },
+    { name: 'an answer naming no write', value: encodeURIComponent('{"changes":[]}'), want: undefined },
+    {
+      name: 'a change of a kind this client does not know is left out, the rest kept',
+      value: encodeURIComponent(
+        '{"write":"W3","changes":[{"kind":"column","resource":"Ships"},{"kind":"list","resource":"Ships"},7,{"kind":"row"}]}',
+      ),
+      want: { write: 'W3', changes: [{ kind: 'list', resource: 'Ships' }], all: false },
+    },
+  ];
+  for (const tt of cases) {
+    it(tt.name, () => {
+      expect(parseChangesHeader(tt.value)).toEqual(tt.want);
+    });
+  }
+});
+
+/** What a watcher fetched: who, by which version, for which event, and when on the spec's clock. */
+interface Fetch {
+  who: string;
+  version: string;
+  event?: ChangeEvent;
+  at: number;
+}
+
+/** Watches a subscription on the harness's session, recording every fetch into `fetches` under `who`. */
+function watching(h: Harness, fetches: Fetch[], who: string, subscription: LiveSubscription): () => void {
+  return h.client.live.watch(subscription, (version, event) => fetches.push({ who, version, event, at: h.clock.time }));
+}
+
+const refit = '/api/sectors/anvil/refit';
+
+describe("the tab's own write", () => {
+  it('fetches what the answer names at once, by the write, and the echo in the feed fetches nothing', async () => {
+    const h = harness({
+      [refit]: {
+        headers: changesAnswer('w-1', [
+          { kind: 'list', resource: 'Ships', domain: 'anvil' },
+          { kind: 'row', resource: 'Ships', key: 's1' },
+        ]),
+      },
+    });
+    const live = h.client.live;
+    const ships = h.client.domain(anvil).ships;
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', ships.subscription());
+    watching(h, fetches, 'row s1', ships.subscription(['s1']));
+    watching(h, fetches, 'row s2', ships.subscription(['s2']));
+    watching(h, fetches, 'bastion list', h.client.domain('bastion' as Domain).ships.subscription());
+    watching(h, fetches, 'classes list', h.client.shipClasses.subscription());
+    await live.start(h.feed);
+    fetches.length = 0;
+    h.clock.advance(60_000);
+
+    // The write is answered: the list and the row it changed are fetched before the
+    // caller goes on, with no time passing and no timer started.
+    await h.client.request('POST', 'sectors/anvil/refit', { body: { refitId: 'r1' } });
+    expect(fetches).toEqual([
+      {
+        who: 'anvil list',
+        version: 'w-1',
+        event: { kind: 'list', resource: 'Ships', domain: 'anvil', at: 'w-1', write: 'w-1' },
+        at: 60_000,
+      },
+      {
+        who: 'row s1',
+        version: 'w-1',
+        event: { kind: 'row', resource: 'Ships', key: 's1', at: 'w-1', write: 'w-1' },
+        at: 60_000,
+      },
+    ]);
+    expect(h.clock.waiting).toBe(0);
+    // A request the page makes itself right after asks by the same version.
+    expect(live.version(ships.subscription())).toBe('w-1');
+    expect(live.version(ships.subscription(['s1']))).toBe('w-1');
+    expect(live.version(ships.subscription(['s2']))).toBe(live.seed);
+    fetches.length = 0;
+
+    // The feed reports the same write: nothing is fetched, nothing waits, and the
+    // version stays the one the page holds its answer under.
+    h.feed.emit({ kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000000000100', write: 'w-1' });
+    h.feed.emit({ kind: 'row', resource: 'Ships', key: 's1', deleted: false, at: '1700000000000100', write: 'w-1' });
+    expect(h.clock.waiting).toBe(0);
+    h.elapse();
+    expect(fetches).toEqual([]);
+    expect(live.version(ships.subscription())).toBe('w-1');
+
+    // Somebody else's write to the same list afterwards is theirs: it waits, then fetches by its own version.
+    h.feed.emit({ kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000000000200', write: 'w-theirs' });
+    h.elapse();
+    expect(fetches.map((f) => [f.who, f.version])).toEqual([['anvil list', '1700000000000200']]);
+    await live.stop();
+  });
+
+  it('an echo that arrives before the answer starts a wait, and the answer ends it with the one fetch', async () => {
+    // The server publishes before it answers, and the feed may be the faster of the two.
+    const h: Harness = harness({
+      [refit]: {
+        headers: changesAnswer('w-1', [{ kind: 'list', resource: 'Ships', domain: 'anvil' }]),
+        meanwhile: () => {
+          h.feed.emit({ kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000000000100', write: 'w-1' });
+          // Not known for the tab's own yet: it waits as anyone's change does.
+          expect(h.clock.waiting).toBe(1);
+        },
+      },
+    });
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+
+    await h.client.request('POST', 'sectors/anvil/refit', { body: {} });
+    expect(fetches.map((f) => [f.who, f.version, f.at])).toEqual([['anvil list', 'w-1', 0]]);
+    expect(h.clock.waiting).toBe(0);
+    h.elapse();
+    expect(fetches).toHaveLength(1);
+    await h.client.live.stop();
+  });
+
+  it("a document somebody else's write joined within the second carries their write, and fetches", async () => {
+    const h = harness({
+      [refit]: { headers: changesAnswer('w-mine', [{ kind: 'list', resource: 'Ships', domain: 'anvil' }]) },
+    });
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+
+    await h.client.request('POST', 'sectors/anvil/refit', { body: {} });
+    expect(fetches).toHaveLength(1);
+    // One document for the list in that second: first the tab's own write, then, moved
+    // forward, the other person's.
+    h.feed.emit({ kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000000000100', write: 'w-mine' });
+    h.feed.emit({ kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000000000700', write: 'w-theirs' });
+    h.elapse();
+    expect(fetches.map((f) => f.version)).toEqual(['w-mine', '1700000000000700']);
+    await h.client.live.stop();
+  });
+
+  it("ends the wait the watcher was in for other people's changes: the one fetch shows those too", async () => {
+    const h = harness({
+      [refit]: { headers: changesAnswer('w-1', [{ kind: 'list', resource: 'Ships', domain: 'anvil' }]) },
+    });
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+
+    h.feed.emit({ kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000000000100', write: 'w-theirs' });
+    h.clock.advance(500);
+    expect(fetches).toEqual([]);
+    await h.client.request('POST', 'sectors/anvil/refit', { body: {} });
+    expect(fetches.map((f) => [f.version, f.at])).toEqual([['w-1', 500]]);
+    h.elapse();
+    expect(fetches).toHaveLength(1);
+    await h.client.live.stop();
+  });
+
+  it('a resource-level change of the write reaches every row and list of the resource, each once', async () => {
+    const h = harness({
+      [refit]: {
+        headers: changesAnswer('w-1', [
+          { kind: 'resource', resource: 'Ships' },
+          { kind: 'list', resource: 'Ships', domain: 'anvil' },
+        ]),
+      },
+    });
+    const ships = h.client.domain(anvil).ships;
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', ships.subscription());
+    watching(h, fetches, 'row s1', ships.subscription(['s1']));
+    watching(h, fetches, 'classes list', h.client.shipClasses.subscription());
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+    await h.client.request('POST', 'sectors/anvil/refit', { body: {} });
+    expect(fetches.map((f) => [f.who, f.version])).toEqual([
+      ['anvil list', 'w-1'],
+      ['row s1', 'w-1'],
+    ]);
+    await h.client.live.stop();
+  });
+
+  it('an answer that says all fetches everything the tab holds live by a fresh seed, and its echo fetches nothing', async () => {
+    const h = harness({ [refit]: { headers: changesAnswer('w-1', [], true) } });
+    const live = h.client.live;
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    watching(h, fetches, 'classes list', h.client.shipClasses.subscription());
+    await live.start(h.feed);
+    const seedBefore = live.seed;
+    fetches.length = 0;
+
+    await h.client.request('POST', 'sectors/anvil/refit', { body: {} });
+    expect(live.seed).not.toBe(seedBefore);
+    expect(fetches.map((f) => [f.who, f.version, f.event])).toEqual([
+      ['anvil list', live.seed, undefined],
+      ['classes list', live.seed, undefined],
+    ]);
+    h.feed.emit({ kind: 'resource', resource: 'Ships', at: '1700000000000100', write: 'w-1' });
+    h.elapse();
+    expect(fetches).toHaveLength(2);
+    await live.stop();
+  });
+
+  it('an answer naming nothing the tab watches fetches nothing, and the version is taken for a page mounted later', async () => {
+    const h = harness({
+      [refit]: { headers: changesAnswer('w-1', [{ kind: 'list', resource: 'Ships', domain: 'bastion' }]) },
+    });
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+    await h.client.request('POST', 'sectors/anvil/refit', { body: {} });
+    expect(fetches).toEqual([]);
+    expect(h.client.live.version({ resource: 'Ships', domain: 'bastion' })).toBe('w-1');
+    await h.client.live.stop();
+  });
+
+  it("a write answered with no header fetches nothing at once: the feed reports it and the page waits as for anyone's", async () => {
+    const h = harness({ [refit]: {} });
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+    await h.client.request('POST', 'sectors/anvil/refit', { body: {} });
+    expect(fetches).toEqual([]);
+    h.feed.emit({ kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000000000100', write: 'w-1' });
+    h.clock.advance(liveChangeWait);
+    expect(fetches.map((f) => f.version)).toEqual(['1700000000000100']);
+    await h.client.live.stop();
+  });
+
+  it("before a feed runs the pages are plain, and a write's answer fetches nothing", async () => {
+    const h = harness({
+      [refit]: { headers: changesAnswer('w-1', [{ kind: 'list', resource: 'Ships', domain: 'anvil' }]) },
+    });
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await h.client.request('POST', 'sectors/anvil/refit', { body: {} });
+    expect(fetches).toEqual([]);
+    expect(h.client.live.version({ resource: 'Ships', domain: 'anvil' })).toBe(h.client.live.seed);
+  });
+});
+
+describe("other people's changes", () => {
+  const listChange = (n: number): ChangeEvent => ({
+    kind: 'list',
+    resource: 'Ships',
+    domain: 'anvil',
+    at: String(1_700_000_000_000_000 + n),
+    write: `w-${n}`,
+  });
+
+  it('ten changes inside one second fetch once, two seconds after the first, by the last one', async () => {
+    const h = harness({});
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+    h.clock.advance(10_000);
+
+    // The first at 10 000, the tenth at 10 900.
+    for (let n = 0; n < 10; n++) {
+      h.feed.emit(listChange(n));
+      if (n < 9) {
+        h.clock.advance(100);
+      }
+    }
+    expect(h.clock.time).toBe(10_900);
+    expect(fetches).toEqual([]);
+    h.clock.advance(1_099);
+    expect(fetches).toEqual([]);
+    h.clock.advance(1);
+    expect(fetches).toEqual([{ who: 'anvil list', version: listChange(9).at, event: listChange(9), at: 12_000 }]);
+    // Nothing more follows on its own.
+    h.clock.advance(60_000);
+    expect(fetches).toHaveLength(1);
+    expect(h.clock.waiting).toBe(0);
+    await h.client.live.stop();
+  });
+
+  it('changes that never stop fetch once every five seconds', async () => {
+    const h = harness({});
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+
+    // A change every half second for half a minute.
+    for (let n = 0; n < 60; n++) {
+      h.feed.emit(listChange(n));
+      h.clock.advance(500);
+    }
+    expect(fetches.map((f) => f.at)).toEqual([2_000, 7_000, 12_000, 17_000, 22_000, 27_000]);
+    // Each fetch carries the latest change heard when it was made.
+    expect(fetches.map((f) => f.version)).toEqual([3, 13, 23, 33, 43, 53].map((n) => listChange(n).at));
+    await h.client.live.stop();
+  });
+
+  it('a change after a quiet stretch waits two seconds again, not five', async () => {
+    const h = harness({});
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+
+    h.feed.emit(listChange(0));
+    h.clock.advance(30_000);
+    h.feed.emit(listChange(1));
+    h.clock.advance(30_000);
+    expect(fetches.map((f) => f.at)).toEqual([2_000, 32_000]);
+    await h.client.live.stop();
+  });
+
+  it('each row and list waits on its own', async () => {
+    const h = harness({});
+    const ships = h.client.domain(anvil).ships;
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', ships.subscription());
+    watching(h, fetches, 'row s1', ships.subscription(['s1']));
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+
+    h.feed.emit(listChange(0));
+    h.clock.advance(1_500);
+    h.feed.emit({ kind: 'row', resource: 'Ships', key: 's1', at: '1700000000000900', write: 'w-row' });
+    h.clock.advance(5_000);
+    expect(fetches.map((f) => [f.who, f.at])).toEqual([
+      ['anvil list', 2_000],
+      ['row s1', 3_500],
+    ]);
+    await h.client.live.stop();
+  });
+
+  it("the tab's own write in the middle is fetched at once and does not move the next fetch for other people's changes", async () => {
+    const h = harness({
+      [refit]: { headers: changesAnswer('w-mine', [{ kind: 'list', resource: 'Ships', domain: 'anvil' }]) },
+    });
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+
+    h.feed.emit(listChange(0));
+    h.clock.advance(2_500);
+    await h.client.request('POST', 'sectors/anvil/refit', { body: {} });
+    h.clock.advance(500);
+    h.feed.emit(listChange(1));
+    h.clock.advance(10_000);
+    expect(fetches.map((f) => [f.version, f.at])).toEqual([
+      [listChange(0).at, 2_000],
+      ['w-mine', 2_500],
+      [listChange(1).at, 7_000],
+    ]);
+    await h.client.live.stop();
+  });
+
+  it('a watcher released while it waits is not fetched, and its timer is gone', async () => {
+    const h = harness({});
+    const fetches: Fetch[] = [];
+    const release = watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+    h.feed.emit(listChange(0));
+    expect(h.clock.waiting).toBe(1);
+    release();
+    expect(h.clock.waiting).toBe(0);
+    h.elapse();
+    expect(fetches).toEqual([]);
+    await h.client.live.stop();
+  });
+
+  it("an application's own times are honored", async () => {
+    const h = harness({}, descriptor, { changeWait: 300, refetchInterval: 1_000 });
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+
+    // A burst: one fetch, 300 ms after the first.
+    h.feed.emit(listChange(0));
+    h.clock.advance(100);
+    h.feed.emit(listChange(1));
+    h.clock.advance(199);
+    expect(fetches).toEqual([]);
+    h.clock.advance(1);
+    expect(fetches.map((f) => [f.version, f.at])).toEqual([[listChange(1).at, 300]]);
+    fetches.length = 0;
+
+    // A stream, a change every 100 ms from 300 to 4 000: once every second.
+    for (let n = 2; n < 40; n++) {
+      h.feed.emit(listChange(n));
+      h.clock.advance(100);
+    }
+    expect(h.clock.time).toBe(4_100);
+    expect(fetches.map((f) => f.at)).toEqual([1_300, 2_300, 3_300]);
+    await h.client.live.stop();
+  });
+
+  it('the defaults are two seconds and five', () => {
+    expect(liveChangeWait).toBe(2_000);
+    expect(liveRefetchInterval).toBe(5_000);
+  });
+});
+
+describe('a hidden tab', () => {
+  const listChange = (n: number): ChangeEvent => ({
+    kind: 'list',
+    resource: 'Ships',
+    domain: 'anvil',
+    at: String(1_700_000_000_000_000 + n),
+    write: `w-${n}`,
+  });
+
+  it('fetches nothing while hidden, and once when it is shown again', async () => {
+    const h = harness({});
+    const ships = h.client.domain(anvil).ships;
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', ships.subscription());
+    watching(h, fetches, 'row s1', ships.subscription(['s1']));
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+
+    h.visibility.become('hidden');
+    for (let n = 0; n < 20; n++) {
+      h.feed.emit(listChange(n));
+      h.clock.advance(3_000);
+    }
+    expect(fetches).toEqual([]);
+    expect(h.clock.waiting).toBe(0);
+
+    // Shown: the list, which changed, fetches once, by the last change; the row, which did not, does not.
+    h.visibility.become('visible');
+    expect(fetches).toEqual([{ who: 'anvil list', version: listChange(19).at, event: listChange(19), at: 60_000 }]);
+    h.elapse();
+    expect(fetches).toHaveLength(1);
+    await h.client.live.stop();
+  });
+
+  it('shown again with nothing changed fetches nothing', async () => {
+    const h = harness({});
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+    h.visibility.become('hidden');
+    h.clock.advance(60_000);
+    h.visibility.become('visible');
+    h.elapse();
+    expect(fetches).toEqual([]);
+    await h.client.live.stop();
+  });
+
+  it('hidden before its wait ended: nothing at the end of the wait, one fetch when shown', async () => {
+    const h = harness({});
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+
+    h.feed.emit(listChange(0));
+    h.clock.advance(1_000);
+    h.visibility.become('hidden');
+    h.clock.advance(10_000);
+    h.feed.emit(listChange(1));
+    h.clock.advance(10_000);
+    expect(fetches).toEqual([]);
+    h.visibility.become('visible');
+    expect(fetches.map((f) => [f.version, f.at])).toEqual([[listChange(1).at, 21_000]]);
+    await h.client.live.stop();
+  });
+
+  it("the tab's own write answered while hidden waits for the tab to be shown too", async () => {
+    const h = harness({
+      [refit]: { headers: changesAnswer('w-1', [{ kind: 'list', resource: 'Ships', domain: 'anvil' }]) },
+    });
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await h.client.live.start(h.feed);
+    fetches.length = 0;
+
+    h.visibility.become('hidden');
+    await h.client.request('POST', 'sectors/anvil/refit', { body: {} });
+    h.elapse();
+    expect(fetches).toEqual([]);
+    h.visibility.become('visible');
+    expect(fetches.map((f) => f.version)).toEqual(['w-1']);
+    await h.client.live.stop();
+  });
+
+  it('a resync while hidden fetches when the tab is shown, by the fresh seed, once', async () => {
+    const h = harness({});
+    const live = h.client.live;
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    await live.start(h.feed);
+    fetches.length = 0;
+
+    h.visibility.become('hidden');
+    h.feed.emit(listChange(0));
+    h.feed.resync();
+    expect(fetches).toEqual([]);
+    h.visibility.become('visible');
+    expect(fetches.map((f) => [f.version, f.event])).toEqual([[live.seed, undefined]]);
+    await live.stop();
+  });
+
+  it('a session started in a hidden tab makes its pages live when the tab is first shown', async () => {
+    const h = harness({});
+    const live = h.client.live;
+    const fetches: Fetch[] = [];
+    watching(h, fetches, 'anvil list', h.client.domain(anvil).ships.subscription());
+    h.visibility.become('hidden');
+    await live.start(h.feed);
+    expect(fetches).toEqual([]);
+    h.visibility.become('visible');
+    expect(fetches.map((f) => f.version)).toEqual([live.seed]);
+    await live.stop();
+  });
+
+  it('stops listening to the tab when the session stops', async () => {
+    const h = harness({});
+    await h.client.live.start(h.feed);
+    expect(h.visibility.listeners.size).toBe(1);
+    await h.client.live.stop();
+    expect(h.visibility.listeners.size).toBe(0);
   });
 });
 

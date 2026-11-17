@@ -18,8 +18,8 @@ var _ PreauthHandlers = &Preauth[NoCustomData]{}
 // Preauth handles session management for pre-authentication scenarios, with custom
 // session data typed as SessionData (caller-supplied at Login); use NoCustomData when
 // custom session data is not used. Preauth is trust-the-caller with no user record, so
-// it has no custom user data axis — durable per-user data needs a user anchor
-// (password auth's SessionUsers, or the OIDC user anchor).
+// it has no custom user data axis — durable per-user data needs a user record (an
+// Auth's SessionUsers).
 type Preauth[SessionData any] struct {
 	storage     sessionstorage.PreauthStore
 	baseSession *basesession.BaseSession
@@ -27,10 +27,12 @@ type Preauth[SessionData any] struct {
 
 // NewPreauth creates a new Preauth for the custom session data struct type SessionData
 // (use NoCustomData when custom session data is not used). The storage must carry a
-// custom session data configuration built for the same SessionData; a mismatch is a
-// construction error, as is any custom user data configuration — Preauth has no user
-// record to anchor durable data to. Preauth custom session data is caller-supplied at
-// Login (trust-the-caller); there is no resolver input source.
+// custom session data configuration built for the same SessionData, attached with the
+// store's WithCustomSessionData; a mismatch is a construction error, as is any custom
+// user data configuration — Preauth has no user record to anchor durable data to.
+// Preauth custom session data is caller-supplied at Login (trust-the-caller); a
+// resolver the configuration carries is asked for a session started with none, with
+// the reason and the username alone.
 // cookieKey: A Base64-encoded string representing at least 32 bytes
 // of cryptographically secure random data.
 func NewPreauth[SessionData any](storage sessionstorage.PreauthStore, cookieKey string, options ...PreauthOption) (*Preauth[SessionData], error) {
@@ -127,13 +129,15 @@ func (p *PreauthAPI[T]) shared() sessioncore.API[T, NoCustomData] {
 // Preauth is trust-the-caller: no user record is required or consulted, which makes it
 // the right tool for stepping-stone sessions (e.g. MFA-pending) where identity is not
 // yet fully established. For a full session backed by an existing user record after
-// external authentication, use PasswordAuth's StartAuthenticatedSession instead.
+// external authentication, use AuthAPI.StartAuthenticatedSession instead.
 //
 // Optional customData (at most one *T) is written atomically with the session insert —
 // the session and its custom data row land together or not at all. The library does not
 // validate the data beyond the custom session data configuration, which must be
-// attached to the storage for customData to be accepted. See the "Custom session data"
-// section of the README for the full lifecycle.
+// attached to the storage for customData to be accepted. Without customData, a resolver
+// the configuration carries runs in the insert's transaction with ReasonPreauth and
+// the username. See the "Custom session data" section of the README for the full
+// lifecycle.
 func (p *PreauthAPI[T]) Login(ctx context.Context, w http.ResponseWriter, username string, customData ...*T) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -167,9 +171,9 @@ func (p *PreauthAPI[T]) Login(ctx context.Context, w http.ResponseWriter, userna
 // transactional read-modify-write: mutate receives the current row (zero-value T when
 // no row exists), and the full row is written back; a mutate error aborts with nothing
 // written. It is intended for genuine mid-session updates only — initial population
-// belongs in the creation path (caller-supplied data on Login), which is atomic with
-// the session insert. See the "Custom session data" section of the README for the full
-// lifecycle.
+// belongs in the creation path (caller-supplied data on Login, or the resolver), which
+// is atomic with the session insert. See the "Custom session data" section of the
+// README for the full lifecycle.
 func (p *PreauthAPI[T]) UpdateCustomSessionData(ctx context.Context, sessionID impulse.UUID, mutate func(data *T) error) error {
 	return p.shared().UpdateCustomSessionData(ctx, sessionID, mutate)
 }

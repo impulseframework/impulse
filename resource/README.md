@@ -83,8 +83,8 @@ type Ship struct { ... }
 | `@upload` | `@rpc` struct | `max: 5MB`, and `store: S` for a named store | Declares the method as a multipart upload. Its `Execute` takes `resource.Files` third, `Execute(ctx, txn resource.ReadWriteTransaction, files resource.Files, client *Client)`, the transaction form only, since the transaction is what claims the files, and the declaration and the signature go together (either alone is a generation error). With `store: S`, the files go to the named store `S` (section 13) and `Execute` takes `resource.FilesIn[S]`, whose keys are `resource.Key[S]`; the declaration and the signature name one store or neither, and a mismatch is a generation error. The request is `multipart/form-data`: one part named `request` first, carrying the JSON the method's decoder reads exactly as for a JSON RPC, then one or more parts named `file`. `max` (a byte count or `KB`/`MB`/`GB`, 1024-based) bounds the whole body; over it is a 413 naming the maximum, no `file` part a 400, a body that is not multipart a 415. The frame streams each file to the method's store, read off the resource client, under a key it minted, runs the body with the files, and on any failure before commit deletes the objects it streamed and answers with the failure; after a commit nothing more happens, since the rows the body wrote claim the keys. The body records each key in a `@file` column of the same store, a `string` column for the default store and a `resource.Key[S]` column for `S`, whose generated setter takes the typed key, so a key of another store does not compile into it; a key recorded anywhere else is invisible to the release and is the orphaned-file cleanup's. An upload naming a store no `@file` column holds is refused at generation. Reading a file back is the `@file` route (section 13). A dry run streams nothing: the files describe the parts with empty keys. The TypeScript handle gains `upload(body, files)`, which refuses locally over the maximum. Examples: [AttachRefitPhoto](../lodestar/pkg/rpc/attach_refit_photo.go) on the default store, [AttachMissionDocument](../lodestar/pkg/rpc/attach_mission_document.go) on a named one. |
 | `@schedule` | `@rpc` struct | the cron expression in quotes, `zone: "<IANA zone>"` (UTC when absent), and `log: onEvent`: `@schedule("30 3 * * *", zone: "America/Denver")` | Declares the method a scheduled route: Cloud Scheduler calls it on the schedule, read in the zone. The expression is five fields separated by single spaces (minute, hour, day of the month, month, day of the week), each a comma list of `*`, a value, or a range, the `*` and the range optionally stepped (`*/15`, `1-5/2`), months and days of the week also by name (`JAN`, `MON`); an expression outside that, a zone the time zone database does not know, and `Local` are generation errors. A scheduled method takes no input: no field, no `@upload`, no `@permissionScope` (a domain scope is a path parameter, and a scheduled method checks no permission), no `@target` or `@transition`, no `@outlet`, `@feature`, `@formerly` or `@suppress`, each refused naming the struct, and it needs `GenerateRouter`. It is served at `POST /_scheduled/<method in kebab case>` behind the scheduler's token check alone, never on an outlet, never in the permission collection or a TypeScript client. `log:` is the method's own request log word (`always`, `onEvent`, `sampled` with `fraction:`, `never`), set ahead of its handler as a route's is (section 8, request logs and traces); a scheduled method's spans follow the front end, so `trace:` is refused here and on its `@rpc`. Section 19. Example: [PruneDroidReports](../lodestar/pkg/rpc/prune_droid_reports.go). |
 | `@file` | field of a `@resource`, `@virtual`, or keyed `@computed` struct (the column holding the store key); or a keyed `@computed` struct | none, `segment`, on a field `name: Field`, `type: Field`, and `log: onEvent`, `trace: off` | A row says which stored object is its file, and the generator serves that file under the row's read route: `GET <read route>/content` answers the bytes with their type, name, size, time, and validator, gated by `Read` on the resource and a `Read` grant on `content`, the route's own field, which the Collection registers with no column behind it (`columns=content` on a read stays a 400; a grant naming it is accepted by `access.MigrateRoles`). On a field, the annotation marks the column holding the store key: `@file` bare serves under `content`, `@file(thumbnail)` under its own segment, and `name:` and `type:` name sibling columns carrying the file's name and media type (a struct may carry several, one per segment). The column's type says which store holds the file: `string` or `*string` is the default store, `resource.Key[S]` or `*resource.Key[S]` the named store `S`, a type the application declares by embedding `resource.Store` (section 13); both are `STRING` columns, and the generated `FileKeys()` names each column with its store. The key column goes off the wire in both directions: never returned on read or list, never accepted on create or update, absent from the TypeScript interface and metadata; a `NOT NULL` key means a row is added by the `@upload` method that stores its file, so `Create` is not registered and the patch handlers refuse a create op naming that way in, while a nullable key leaves `Create` ordinary. On a keyed `@computed` struct, `@file` or `@file(segment)` declares a rendered file: the computed package declares `<Name><Segment>(ctx, key…, qSet *resource.QuerySet[Name], client resource.Client, computedClient *Client) (*resource.Content, error)` beside `Read<Name>`, checked at generation as `Read<Name>`'s callers are, and a nil content is 404. Deleting a row that carries a key, or pointing it at another object, releases the old object: the patch machinery records the key on the transaction and the executor deletes it from the column's store, wired on the resource client (`resource.WithFileStore`, `resource.WithNamedFileStore[S]`), once the commit lands, from every transaction the application runs; one row owns one object, and a row the database deletes by cascade releases nothing (section 13). Under a suppressed read route the declaration serves nothing and still names the key column, so the release and the orphaned-file cleanup see its keys. `log:` and `trace:` are the file route's own request log word and trace setting, as on `@rpc` (section 8, request logs and traces), refused under a suppressed read route, where no route carries them. Refused at generation, naming the struct: a key-less struct, an unknown sibling, two declarations on one segment, a name or type field that is not a `string` or `*string`, a key field that is none of `string`, `*string`, `resource.Key[S]` and `*resource.Key[S]`, a `resource.Key[S]` column without the declaration, the struct-scope form on a table or view, a rendered file under a suppressed read route, and a content function that is missing or has another signature. Examples: [MissionDocument.StoreKey](../lodestar/pkg/resources/mission_documents.go), a stored file; [ExpenseManifest](../lodestar/pkg/computedresources/expense_manifests.go), a rendered one. |
-| `@subjectSet` | user-id field of a `@resource` struct | `name, value: Field` | Declares subject-side set vocabulary: `subject.<name>` in grant conditions is the set of `value:` values on this table's rows whose annotated column matches the requesting user (`crew IN subject.crews`). The annotation designates the user-id column — no separate marker — and is repeatable per anchor; `value:` names the sibling Go field the set yields, dotted to continue through foreign-key hops with the same many-to-one validation as `via:`; every set is drawn in the package's `zz_gen_bindings.dot`: the requester enters the anchor once naming its sets, a bare set is listed in the anchor's box and points at its table when the column is a foreign key, and a dotted value continues as edges (see `@domain`). **Tenancy:** the rendered subject subquery is tenant-filtered by the anchor resource's own `@domain` binding, so a domain-scoped anchor must declare one — generation rejects it otherwise, because without it `subject.<name>` matches the user's rows from every tenant (a membership held at tenant B would satisfy conditions evaluated at tenant A). A global-scoped anchor is the deliberately shared pattern — a certification earned once applies everywhere — and stays unfiltered. Note the anchor's own binding is what counts: tenancy never arrives transitively from a domain-scoped parent table (see `@domain`). **Type:** the set's comparison type is derived from the `value:` column (the terminal of a dotted value) exactly as `@attribute`'s is, and a grant may test only an attribute of the same type for membership in it; `MigrateRoles` refuses the mismatch at deploy. Example: [SquadronMembership](../lodestar/pkg/resources/squadron_memberships.go). |
-| `@subjectValue` | user-id field of a `@resource` struct | `name, value: Field` | Declares subject-side scalar vocabulary for threshold comparisons (`amount <= subject.approvalLimit`). Same grammar — and the same tenancy rule, and the same place in `zz_gen_bindings.dot` — as `@subjectSet`, valid only where the annotated user-id column is the whole key of a unique index, the single-column primary key included, so the database enforces exactly one row per user; a column of a composite key or composite unique index does not qualify. **Type:** the value's comparison type is derived from the `value:` column as `@attribute`'s is, and a grant may compare it only against an attribute of the same type (`now` only against a timestamp-typed value); `MigrateRoles` refuses the mismatch at deploy. |
+| `@subjectSet` | user-id field of a `@resource` struct; with a `who:` written, one of the fields the `who:` names | `name, value: Field`, and the two optional parts `who: <tests>` and `where: <condition>` | Declares subject-side set vocabulary: `subject.<name>` in grant conditions is the set of `value:` values on this table's rows whose annotated column matches the requesting user (`crew IN subject.crews`). The annotation designates the user-id column — no separate marker — and is repeatable per anchor; `value:` names the sibling Go field the set yields, dotted to continue through foreign-key hops with the same many-to-one validation as `via:`; every set is drawn in the package's `zz_gen_bindings.dot`: the requester enters the anchor once naming its sets, a bare set is listed in the anchor's box and points at its table when the column is a foreign key, and a dotted value continues as edges (see `@domain`). **Tenancy:** the rendered subject subquery is tenant-filtered by the anchor resource's own `@domain` binding, so a domain-scoped anchor must declare one — generation rejects it otherwise, because without it `subject.<name>` matches the user's rows from every tenant (a membership held at tenant B would satisfy conditions evaluated at tenant A). A global-scoped anchor is the deliberately shared pattern — a certification earned once applies everywhere — and stays unfiltered. Note the anchor's own binding is what counts: tenancy never arrives transitively from a domain-scoped parent table (see `@domain`). **Type:** the set's comparison type is derived from the `value:` column (the terminal of a dotted value) exactly as `@attribute`'s is, and a grant may test only an attribute of the same type for membership in it; `MigrateRoles` refuses the mismatch at deploy. **The two parts:** a set's definition may say two more things, each in the language grant conditions are written in ([`accesstypes/condition`](../accesstypes/condition), whose package documentation states the grammar of both) over the fields of the same struct, named as Go fields. Both are optional, and a set that writes neither is the set described above and generates as it always has. `who:` says which rows are the requester's: one test or several joined by `OR`, each tying a column of the row to the requester, `Field = subject` or `Field IN subject.<another set>`. Left out, it is the annotated column equal to the requester. `where:` says which of those rows count: a condition over the row's own columns compared to literals and to `now`, with the comparisons, `IN (…)`, `IS NULL`, `AND`, `OR` and `NOT`, judged as every condition is, so a row counts only where it is TRUE. One table then yields a set for each level it records, an expired row drops out at its hour, and a set follows a person through any table that declares a set of its own: `@subjectSet(hangarsRun, value: HangarID, who: UserID = subject OR SquadronID IN subject.squadrons, where: LevelID = 'run' AND (ExpiresAt IS NULL OR ExpiresAt > now))`, written on one line or continued over the comment's next lines. A role file does not change: a grant names the set (`hangar IN subject.hangarsRun`) and nothing of the table behind it. Sets build on sets to any depth, and each keeps its own tenant filter: a set on a tenant-scoped table reads the request's tenant, a set on a global table reads every row, whichever of the two names the other, so a table kept outside every tenant answers the same in each. Both parts render inside the one `EXISTS` the set already is, the set a `who:` follows as that set's own `EXISTS` with the row's column where an attribute would stand. With a `who:` written the annotation sits on one of the fields the `who:` names, as every annotation that ties a row to the requester or the tenant sits on the column it reads. **Refused at generation**, naming the struct, the field and the set: a `who:` test that does not tie the row to the requester (a comparison to a literal, `!=`, a negated test, tests joined by `AND`), since a set of everyone's rows is one mistake away without it; a `who:` naming a field the struct does not have or one no condition can compare, comparing a column that is not a string to the requester, or writing one test twice; a `who:` naming a set no `@subjectSet` declares (the message lists the sets declared), a `@subjectValue`, or a set whose value type differs from the tested column's; sets that build on each other in a loop, a set on itself included, with the loop spelled out; the annotation on a field its `who:` does not name, with the fields it may sit on; a `where:` naming something that is not a field of the struct, or a field no condition can compare; a `where:` literal that does not fit the column it is compared to (a string against a number, a timestamp that is not RFC 3339, a date that is not `YYYY-MM-DD`, `now` against anything but a timestamp); a `where:` value that an enumerated column does not hold (a foreign key into an `@enumerate` table, or a field-scope `@enumerate` naming one), with the values it does hold; and a `where:` that names the requester (`subject`, `subject.<name>`) or a proposed value (`new.`), since the test that ties a row to the requester is the `who:` and a set's rows are read as the database holds them. **Index warning:** generation warns, and never refuses, when no index of the set's table serves the set's lookup, one warning for each column the `who:` names (the annotated column for a set that writes none), each naming the `CREATE INDEX` it wants: the tenant column first where the row carries one, then the column, then the value (section 9). One limit of the annotation's own syntax: an annotation ends at the parenthesis that closes it, counted without regard to quotes, so a string literal in a `where:` holds parentheses only in balanced pairs; one that does not is refused as an unclosed parenthesis or an unclosed quote. Examples: [SquadronMembership](../lodestar/pkg/resources/squadron_memberships.go), a set that writes neither part; [HangarPass](../lodestar/pkg/resources/hangar_passes.go), two sets on one table, each with both. |
+| `@subjectValue` | user-id field of a `@resource` struct | `name, value: Field` | Declares subject-side scalar vocabulary for threshold comparisons (`amount <= subject.approvalLimit`). Same grammar — and the same tenancy rule, and the same place in `zz_gen_bindings.dot` — as `@subjectSet`, valid only where the annotated user-id column is the whole key of a unique index, the single-column primary key included, so the database enforces exactly one row per user; a column of a composite key or composite unique index does not qualify. It takes neither `who:` nor `where:`, the parts of a `@subjectSet`: its one row is the requester's by the unique column, and generation refuses either on it. **Type:** the value's comparison type is derived from the `value:` column as `@attribute`'s is, and a grant may compare it only against an attribute of the same type (`now` only against a timestamp-typed value); `MigrateRoles` refuses the mismatch at deploy. |
 | `@manualAddResource` | `accesstypes.Resource` constant | `permission[, scope]` | Registers the permission on the resource in the generated Collection for a hand-written route with no generated handler. Repeatable. Scope is `global` or `domain`; omitted means the global default. An `@outlet` annotation on the same constant names the outlets the hand-written route is mounted under, so an outlet-filtered TypeScript target (`ForOutlet`) carries the registration only when it names that outlet; omitted means the default outlet. The constant's value is the resource name and must not contain `:` (reserved for access-defined markers like `accesstypes.GlobalResource`); generation rejects it. The registration reaches the TypeScript constants like a generated one: an `Execute` registration joins `Methods`, any other permission joins `Resources`. |
 | `@manualAddResourceSet` | `@resource` struct | comma list of `listHandler`, `readHandler`, `patchHandler`, or `allHandlers` | Declares that hand-written handlers register this resource's permission Sets for the given handler types; validated against the set of generated handlers. |
 | `@outlet` | `@resource`, `@virtual`, `@computed`, or `@rpc` struct; `accesstypes.Resource` constant carrying `@manualAddResource` | comma list of outlet names | Names the router outlets the struct's routes — or the constant's hand-written route — are registered under. Outlets are independent registration surfaces with their own route prefixes — the generator emits a `Generated<Name>Handlers` interface and `generated<Name>Routes` function per outlet, so the application composes different authentication and middleware around each (a browser app on one, a machine REST API on another). The default outlet is declared by `generation.GenerateRoutes` and carries the reserved name `default`; additional outlets are declared with `generation.WithRouterOutlet(name, routePrefix)`, and referencing an undeclared name is a generation error. An outlet serving browser sessions declares it (`WithRouterOutlet(name, prefix, Auth(pkg, flavor))` under the generated router, `ServesSessions()` under a hand-written one; section 8): the generated route tables register the permission-digest and user-domains routes under its prefix, and only a session-serving outlet may be the target of a `GenerateTypescript` call (`ForOutlet(name)`), which filters every emitted TypeScript file to that outlet's members — a client for a session-less outlet would have no permission channels and fail closed on every page, so it is a generation error. Without the annotation a struct is on the default outlet only; naming outlets replaces that default, so `@outlet(default, automation)` serves both while `@outlet(automation)` serves the automation outlet only. Consolidated resources get one consolidated patch dispatcher per outlet (`PatchResources`, `Patch<Name>Resources`), each bundling exactly that outlet's members. The generated router tests cover every outlet's routes and additionally prove isolation: a route's path under an outlet it is not attached to must 404. Example: [Consignment](../lodestar/pkg/resources/consignments.go). |
@@ -144,22 +144,31 @@ Values recognized in a `conditions` tag:
   envelope when the caller's Update grant covers it, since the envelope speaks for every
   field the caller may write, projected or not (section 4). Example:
   [DistressCall.Transcript](../lodestar/pkg/resources/distress_calls.go).
-- `secret` — the field holds a secret: a password, an API key, a signing key. It says
-  everything `input_only` says, since a secret is never served, and two things more. The
-  metadata entry is flagged `secret: true` beside `writeOnly: true`, so a form types the
-  value into a masked input whose toggle shows what is being typed; there is no stored
-  value for it to show, since the server returns none. And a change record names the
-  field as changed and keeps neither its old value nor its new one (`"Secret": true` in
-  the change set), where it keeps both for every other field, write-only ones included.
-  `input_only` alone does not mean secret: a write-only field can be something a person
-  files and the server does not serve back, which is read as it is typed and belongs in
-  the record. The generator refuses `secret` where the field cannot honor it: on a primary
-  key, on a field the server owns (`output_only`, an `@state` column, the tenant key), on
-  a view, on a foreign key or a field with a picker (`@enumerate`), and on a column that
-  is not one `STRING` or one `BYTES` value, since a form masks text as it is typed and
-  would draw a number, a date or a list in the open. A method's request field takes the
-  same word under the same rule (text or bytes, no picker), and the method's dialog draws
-  the same masked input (the generated temporary-password methods declare theirs so).
+- `secret` — the field holds a secret the application must use itself: an API key, a
+  signing key, a credential of another system. It says everything `input_only` says, since
+  a secret is never served, and three things more. The value is kept encrypted: the field
+  is typed `resource.Secret` (`*resource.Secret` where the column allows `NULL`) on a
+  `BYTES` column, the write path seals the value where it turns a patch into columns, and
+  code that needs the value opens it with the row's generated `Open<Field>` method
+  (section 23). The metadata entry is flagged `secret: true` beside `writeOnly: true`, so
+  a form types the value into a masked input whose toggle shows what is being typed;
+  there is no stored value for it to show, since the server returns none. And a change
+  record names the field as changed and keeps neither its old value nor its new one
+  (`"Secret": true` in the change set), where it keeps both for every other field,
+  write-only ones included. `input_only` alone does not mean secret: a write-only field
+  can be something a person files and the server does not serve back, which is read as it
+  is typed and belongs in the record. A value a caller presents to the application to be
+  let in (an application token, a password) is not a `secret` field either: the session
+  library stores those as hashes, since the application never needs the original back.
+  The generator refuses `secret` where the field cannot honor it: on a primary key, on a
+  field the server owns (`output_only`, an `@state` column, the tenant key), on a view, on
+  a foreign key or a field with a picker (`@enumerate`), on a field typed anything but
+  `resource.Secret` (a plain `string` or `[]byte` would be stored as it was typed; the
+  refusal names the type to give it), and on a column that is not `BYTES` with room for
+  the 41 bytes sealing adds. A method's request field takes the same word, unchanged: text
+  or bytes, no picker, and the method's dialog draws the same masked input (the generated
+  temporary-password methods declare theirs so). That value is never stored, so it is
+  never sealed, and a request field typed `resource.Secret` is refused.
   Example:
   [Ship.TransponderKey](../lodestar/pkg/resources/ships.go).
 - `output_only` — the server owns the value: returned to clients but never accepted from
@@ -186,8 +195,9 @@ client-supplied at all (e.g. a commit timestamp).
 These conditions describe the REST contract only: what an untrusted client can read and
 write over the wire. Application code calling the generated CRUD layer is not constrained
 by them — it can write any field; that path is guarded by code review, not by these
-rules. One part of `secret` is not the wire's alone: a change record leaves the value
-out whoever wrote it, application code included, since the patch layer writes the record. The `default_create_fn` / `output_only_update_fn` functions are not REST-specific,
+rules. Two parts of `secret` are not the wire's alone: the value is sealed and a change
+record leaves it out whoever wrote it, application code included, since the patch layer
+does both. The `default_create_fn` / `output_only_update_fn` functions are not REST-specific,
 however: they run inside the generated patch pipeline and fire for application code
 exactly as for REST requests. They fill a field the caller left unset — explicitly
 setting the field pre-empts them, which a REST client can never do for an output-only
@@ -373,7 +383,13 @@ does — the row is filtered, the cell masked, the write refused, the capability
 A number literal takes the attribute's storage type: exact against an `INT64` or a
 `NUMERIC` column, a double against a `FLOAT64` one. A join-path attribute renders as one
 scalar subquery per hop, a subject set as an `EXISTS` guarded by the attribute's nullness,
-so the database's own three-valued logic gives these readings; the reference evaluator in
+so the database's own three-valued logic gives these readings. A set's own definition
+renders inside that `EXISTS`: its `who:` as the tests that make a row the requester's
+(a test against another set is that set's `EXISTS` over the row's column, under that
+set's own tenant filter), its `where:` as a condition over the row's columns, then the
+match of the set's value to the attribute and the set's tenant filter, as before. A row
+is the requester's only where its `who:` is TRUE and counts only where its `where:` is
+TRUE, so a `NULL` in either drops the row; the reference evaluator in
 [`conditiontest`](../accesstypes/condition/conditiontest) states them in Go and the
 semantic differential in this package's tests compares the rendered SQL against it on the
 emulator over random conditions and rows.
@@ -507,11 +523,17 @@ this package supplies the two pieces that must know about it:
   session was established — its sign-in's method and connection, the session's first auth
   event (`sessioninfo.SessionData.EstablishedBy`; `signin.TenantDeclaration.Admits` is the
   decision, the same one the sign-in policy makes over every tenant of the person) — or
-  when the session's actor holds a grant in the global partition, the application's staff,
-  who reach every tenant as the sign-in policy admits them. A tenant that declares nothing
-  admits a password and refuses a sign-in through a directory. An impersonated session is
-  established by its impersonation event, so a directory-only tenant refuses it unless the
-  actor, the real person behind it, is staff. In a tenant the session does not reach it
+  when the session's actor is a super administrator, a holder of the role the access
+  library defines in every auth (`accesstypes.SuperAdministrator`), who reaches every
+  tenant whatever its declaration says; nobody else is exempt, a person holding another
+  role in the global partition or a role in every tenant included. The checker handed to
+  `SessionPermissions` answers the question (`SessionUserChecker.SuperAdministrator`,
+  which `access.UserChecker` implements), by the test the sign-in policy's first rule
+  asks (`accesstypes.RoleCollection.HoldsSuperAdministrator`). A tenant that declares
+  nothing admits a password and refuses a sign-in through a directory. An impersonated
+  session is established by its impersonation event, so a directory-only tenant refuses
+  it unless the actor, the real person behind it, is a super administrator; a super
+  administrator's session started by a person who is none is refused it. In a tenant the session does not reach it
   holds nothing — every `Check` Denied, an empty digest, no foothold — so `Domains`, the
   picker's list, is the roster filtered by the grant and the admission, the generated
   `DomainGuard` refuses a direct request for the tenant exactly as it refuses a domain
@@ -726,7 +748,7 @@ external method under its registration name, `GET user/<name>/login` and `GET
 user/<name>/callback` (`GET user/<name>/logout` too for Azure, the directory's
 front-channel logout). The sign-in's POSTs sit behind the outlet's XSRF guard alone, as
 the session library wires them: `POST user/password/login`, `POST user/password/change`,
-`POST user/pending/confirm`, `POST user/pending/cancel`, `POST user/pending/code` (mails
+`POST user/password/remove`, `POST user/pending/confirm`, `POST user/pending/cancel`, `POST user/pending/code` (mails
 the sign-in code to a sign-in that waits for the second factor), `POST
 user/pending/code/verify` and `POST user/pending/email` (the address a person who holds
 none gives for the code); a browser reaches them with the XSRF cookie its first request
@@ -735,7 +757,10 @@ was issued, echoed in the header. The password change
 itself, so it sits outside `ValidateSession`: a person whose operator-set password must
 change before anything else is served reaches it, and the methods route tells the login
 page where (`changePassword`), which renders the change form before the signed-in page
-(section 21).
+(section 21). The removal of a person's own password (`PasswordRemove`, the password
+method's `RemoveUserPassword`) is mounted beside it the same way, and the methods route
+names it as `removePassword`: where the person's account page posts the password as
+proof.
 
 **Machine outlets.** A machine outlet declares the auth whose `Auth` issues its tokens,
 `Tokens(importPath)`, the same `*session.Auth` a session outlet of the program binds to
@@ -1074,6 +1099,17 @@ much from the schema:
   seek where the anchor's key or an index leads with the user and a scan of the anchor,
   once per request, where none does: an anchor a computed resource's conditions read at
   volume carries an index by user.
+- A subject set's lookup wants an index on the set's table that leads with the tenant
+  column (where the row carries one), the column that ties the row to the requester, and
+  the value the set yields, in any order: the lookup binds each by equality. A set whose
+  `who:` names several columns is one lookup for each, so it wants one index for each.
+  Generation warns at every run for each column no index serves, naming the statement
+  (`SubjectSetIndexWarning`: `CREATE INDEX HangarPassesBySectorIdSquadronIdHangarId ON
+  HangarPasses(SectorId, SquadronId, HangarId)`). The primary key counts, and so does a
+  secondary index with the key columns Spanner appends to it; a null-filtered index and
+  a search index do not. It is a warning as the tenant list's is, accepted the way the
+  others are: a small table needs no index. A `where:` adds no lookup of its own; it
+  filters the rows the lookup finds.
 - A sort on a conditionally visible column runs over `CASE WHEN <condition> THEN column
   END`, which no index serves: the page sorts the partition. The `CASE` is dropped when
   the field's condition covers the whole row predicate (a role whose every grant on the
@@ -1781,16 +1817,61 @@ before its answer: for each row it wrote, the subscribers of the row get a row d
 and the subscribers of the resource's list in the row's domain a list document; above
 100 rows of one resource in one request, every subscriber of the resource gets one
 resource document instead. Writes to one target within one second coalesce. The publish
-is bounded by two seconds and a failure is logged; it never fails the request. A
+is bounded by two seconds and a failure is logged; it never fails the request. The
+write's answer then names what the write put into the caller's own change set, so the
+tab that wrote fetches at once (below). A
 request's calls on the subscription record and the identity (register, renew,
 unsubscribe, revoke, token) are bounded by five seconds (`live.RecordTimeout`), so a
 backend that stops answering never holds a request open. The
 browser listens to its own change set (`users/{uid}/changes`, timestamps after the last
 one it saw) and refetches the row or list with `_v=<the change's timestamp>` (section 4),
+or `_v=<the write's id>` for a write the tab made itself,
 and such a response carries `Cache-Control: private, max-age=300` so a remount inside
 the window is the browser's own; before any change arrived the client mints a seed at
 login, so a second user on a shared machine never hits the first's cached answers. Every
 other response stays uncached; the session and digest routes never carry the header.
+
+**Whose change it is, and when a page fetches.** A page shows a person's own change at
+once and groups other people's, and what tells the two apart is the write's id. A
+committed request is one write: `live.Publish` mints its id (26 random characters) once,
+whatever tenants its rows were written in, and every change document the write publishes
+carries it as `write`, in every subscriber's change set. A document that several writes
+within one second became carries the last one's, as it carries the last one's timestamp,
+so the tab that wrote first finds somebody else's id on the document and fetches for it.
+The change's time could not serve: it is Firestore's server timestamp, set when Firestore
+commits the document, which the server answering the write never learns; and the
+document's id is the target and the second, shared by everybody who wrote to the target
+in that second. The write's answer names the id and the documents that went into the
+caller's own change set, the ones its own tabs will hear of, in the response header
+`X-Changes` (`live.Answer`), as JSON, percent-encoded so a key or a tenant outside ASCII
+travels in a header; decoded:
+
+```
+X-Changes: {"write":"<id>","changes":[{"kind":"list","resource":"Ships","domain":"<domain>"},{"kind":"row","resource":"Ships","key":"<key>","deleted":true}]}
+```
+
+The generated write handlers hand `live.Publish` the answer they have yet to write, so
+every write path carries it: a resource's patch route, the consolidated patch, an RPC
+method and the create-your-tenant route. The header is at most 2048 bytes
+(`live.MaxChangesHeaderLength`); a write that reached more of the caller's subscriptions
+than fit answers `{"write":"<id>","all":true}`, and the tab fetches everything it holds
+live. An answer carries no header when the write reached nothing the caller holds live,
+when the request speaks for no session principal (a machine outlet's, a scheduled
+call's), and when a publish of the write failed (it may have written some of its
+documents, which a tab told the id would take for changes it had fetched for). Nothing
+is lost by the header's absence: the change set reports the change and the page fetches
+for it as for anyone's.
+
+The browser does the rest (the client library's README, "Live pages"). The tab that
+wrote fetches what the header names when the write is answered, without waiting for its
+change set, and does nothing when the change set reports a document carrying that
+write's id. A document carrying any other id, or none, is somebody else's change: the
+first one starts a wait of two seconds and everything that arrives in the wait becomes
+one fetch, and while changes keep arriving a page fetches at most once every five
+seconds. A tab that is not shown fetches nothing; it remembers that something changed
+and fetches once when it is shown again. The two times are the client library's
+defaults, and an application sets its own where it creates its client. The server holds
+none of this: it publishes each write as it always did, once.
 
 **Derived resources.** A virtual or computed resource has no rows of its own, so a commit
 reaches it through the tables it reads, which the generator records next to the resource:
@@ -1894,7 +1975,8 @@ checked when the server starts.
 
 **The seams** are in `resource/live`: `SubscriptionRecord` (register and renew in one
 batch, unsubscribe a tab or a principal, the subscribers of a row, of a list in a domain,
-of a resource), `ChangePublisher` (`Publish(ctx, domain, touched)`), `Identity` (the
+of a resource), `ChangePublisher` (`Publish(ctx, domain, writes)`, which answers the
+documents it wrote, per principal), `Identity` (the
 token payload and the revocation), `Signaler` and `Subscriber` (the signals below),
 bundled as `Service`; `Fanout` is the fan-out every publisher implementation writes, and
 `Fake` an in-memory service for tests. The Firestore implementation is the live driver,
@@ -1950,9 +2032,10 @@ Lodestar's wiring is [pkg/config/data.go](../lodestar/pkg/config/data.go) and
 **The names the client library mirrors**: the header `X-Subscribe`, the parameter `_v`,
 the routes `live/renew`, `live/unsubscribe` and `live/token` under the outlet's prefix,
 the renewal interval 120 s, the expiry 300 s, the cache header `Cache-Control: private,
-max-age=300`, the bulk threshold 100, and the change document's shape (`kind` of `row`,
-`list` or `resource`; `resource`; `key` and `deleted` on a row; `domain` on a list; `at`
-and `expires`). The generated descriptor names the routes per outlet:
+max-age=300`, the bulk threshold 100, the response header `X-Changes` and its JSON
+(`write`, `changes`, `all`), and the change document's shape (`kind` of `row`,
+`list` or `resource`; `resource`; `key` and `deleted` on a row; `domain` on a list; `at`,
+`expires` and `write`). The generated descriptor names the routes per outlet:
 `live: { renewRoute, unsubscribeRoute, tokenRoute }`.
 
 ## 15. Feature flags
@@ -2633,6 +2716,7 @@ POST <prefix>/require-crew-password-change    {"userId"}                       E
 POST <prefix>/end-crew-session                {"sessionId"}                    Execute on EndCrewSession, targeting CrewSessions
 POST <prefix>/end-crew-session-impersonation  {"sessionId"}                    Execute on EndCrewSessionImpersonation, targeting CrewSessionImpersonations
 POST <prefix>/unlink-crew-session-identity    {"identityId"}                   Execute on UnlinkCrewSessionIdentity, targeting CrewSessionIdentities
+POST <prefix>/remove-crew-password            {"userId"}                       Execute on RemoveCrewPassword, targeting CrewSessionUsers
 POST <prefix>/revoke-crew-session-token       {"tokenId"}                      Execute on RevokeCrewSessionToken, targeting CrewSessionTokens
 POST <prefix>/assign-crew-role                {"userId","role","domain","everyDomain"}   Execute on AssignCrewRole
 POST <prefix>/remove-crew-role                {"userId","role","domain","everyDomain"}   Execute on RemoveCrewRole
@@ -2642,6 +2726,7 @@ POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationI
 POST <prefix>/sectors/{sectorID}/assign-crew-sector-role   {"userId","role"}            Execute on AssignCrewSectorRole, targeting CrewSectorUsers
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-role   {"userId","role"}            Execute on RemoveCrewSectorRole, targeting CrewSectorUserRoles
 POST <prefix>/sectors/{sectorID}/unlink-crew-sector-session-identity   {"identityId"}   Execute on UnlinkCrewSectorSessionIdentity, targeting CrewSectorIdentities
+POST <prefix>/sectors/{sectorID}/remove-crew-sector-password           {"userId"}       Execute on RemoveCrewSectorPassword, targeting CrewSectorUsers
 POST <prefix>/sectors/{sectorID}/disable-crew-sector-user, enable-…, delete-…, rename-…, set-crew-sector-user-name, set-crew-sector-user-email,
      set-crew-sector-temporary-password, require-crew-sector-password-change, revoke-crew-sector-user-trusted-devices,
      end-crew-sector-user-sessions            the whole application's bodies                Execute on each, targeting CrewSectorUsers
@@ -2659,7 +2744,9 @@ method is written for an Auth with a password method or a registration that admi
 invited users alone (elsewhere a directory admits its own members and the first sign-in
 creates the row), the two role methods, the two invitation methods and the create are
 left out for an Auth whose roles a directory writes (`SyncsRoles`), the two password
-methods (and the create's `password`) for an Auth with no password method, the rename and
+methods (and the create's `password`) for an Auth with no password method, as is the
+method that removes a person's password, which is also written only where the schema
+holds the identities table (the rule it keeps reads a person's identity links), the rename and
 the address set by hand for an Auth whose usernames are the addresses (`UsernameIsEmail`:
 the name is the address, and it changes when the person verifies a new one), and the
 token, impersonation, remembered-browser and unlock methods where the schema holds no
@@ -2922,7 +3009,7 @@ and handed to the handler type, which returns it from an accessor named for the 
 // In the Auth's package, once its permission engine and session manager exist.
 identityClient, err := crewidentity.NewClient(accessClient,  // the Auth's permission engine
 	authSession.API(),                                        // the API of the session.Auth that signs its people in
-	identity.WithAdministratorRoles(AdministratorRoles()))    // the roles that administer: global, and in a tenant
+	identity.WithAdministratorRoles(tenantAdministrators))    // the roles that administer a tenant
 
 // In the handler type's package.
 func (a *App) CrewIdentity() *crewidentity.Client {
@@ -3011,24 +3098,38 @@ what an earlier method of the same transaction buffered, so the rule on a person
 role judges one removal per person per transaction. A temporary password is the one the session library has today: the
 operator chooses it and passes it on.
 
-**The rules on who is asking.** Who may run a method is the role file's to say. Three
+**The rules on who is asking.** Who may run a method is the role file's to say. Four
 rules of the user management are the methods' own, whatever the role file grants, and
 each judges the request's caller (a method an application runs in a transaction of its
 own, outside any request, has no caller and is the application's act):
 
 - Nobody disables or deletes their own account.
-- A person who removes a role from themselves keeps an administrator role nobody else
-  would hold where it is held. The application names its administrator roles when it
-  builds the client (`identity.WithAdministratorRoles(global, domain)`): the global ones
-  are judged among the holders in the global scope, a tenant's among the tenant's holders
-  and those who hold the role in every tenant. Without the option a person removes no
-  role from themselves.
+- A person who removes a role from themselves in a tenant keeps an administrator role
+  nobody else would hold there. The application names the roles that administer a tenant
+  when it builds the client (`identity.WithAdministratorRoles(domain)`): they are judged
+  among the tenant's holders and those who hold the role in every tenant. Without the
+  option a person removes no role from themselves in a tenant. A role held in the global
+  partition goes freely, since a super administrator gives it back.
+- The Super Administrator role (`accesstypes.SuperAdministrator`) is the framework's, in
+  every auth and in no role file, held in the global partition alone. Only a holder makes
+  or removes another: giving the role, taking it away, inviting a person to it and
+  deleting a holder's account each take a caller who holds it, and a caller who came
+  through another Auth (`Manages`) holds no role of this one. There is always one who can
+  sign in: the role is not taken from the last holder whose account is not disabled, and
+  that account is neither disabled nor deleted, whoever asks, the application's own
+  transactions included. What the role does is fixed where the engine is built: the
+  generated client names the methods that give and take the Auth's roles
+  (`crewidentity.SuperAdministratorMethods()`), the Auth's package hands them to the
+  engine (`access.WithSuperAdministratorMethods`), and a super administrator then runs
+  them whatever the role file grants, for any person, in the global scope, in one tenant
+  and in every tenant. The client refuses an engine built without them, so an
+  application that left the option out does not start.
 - The removal of a person's last role anywhere deletes the account, with its identity
   links and sessions, in the same transaction and whoever removed the role: an account
   nothing admits is not kept.
 
 A caller is named by the id of their account, as the permission store names anyone, and
-the first two rules take the caller for the person acted on only where the request came
+the first three rules take the caller for the person acted on only where the request came
 through the Auth being managed. An outlet's
 routes bind the name of the Auth that signs its people in to every request
 (`live.Subscribing(crew.Name)`, read back with `resource.AuthFrom`), and the client holds
@@ -3092,8 +3193,8 @@ each holds (`users`, `roles`, `identities`, `invitations`, and for the whole app
 `sessions` and `signInAttempts`) and the methods by what each does (`create`, `invite`,
 `withdrawInvitation`, `assignRole`, `removeRole`, `disable`, `enable`, `delete`,
 `rename`, `setEmail`, `setTemporaryPassword`, `requirePasswordChange`,
-`endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`, and for the whole
-application `endSession` and `unlockSignIn`). The names differ in every application
+`endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`, `removePassword`, and for
+the whole application `endSession` and `unlockSignIn`). The names differ in every application
 (`CrewSectorUsers`, `DisableCrewSectorUser`); the keys do not. A side names only
 what the outlet serves, so a method the Auth's shape leaves out, or a list the schema has
 no table for, is absent, and a side without its list of people is not listed. The Angular
@@ -3103,6 +3204,9 @@ library builds the pages from the block at run time
 holding the methods the server lists for that row, a person's row page with the roles
 held and the sign-in identities under it (and the sessions, for the whole application),
 the invitations, and for the whole application the sessions and the failed sign-ins.
+Above a person's sign-in identities, where an identity is unlinked, the page offers
+Remove password for an Auth with a password method, while the server's answer for the
+person's row lists the method.
 They are the library's list and row pages over these resources, drawn from a
 configuration the library writes; what a page offers is what the server answers the
 caller may do. Lodestar's console takes its accounts pages this way, once for each side.
@@ -3118,6 +3222,11 @@ allowed on a person the sector holds alone, refused on one it shares and not fou
 another sector's; the roles given and taken; the create; the identities and the unlink) with
 `generated_identity_tenant_invitation_test.go` for the ones that need the session manager
 (the invitation, its withdrawal, the temporary password),
+`generated_identity_remove_password_test.go` holds the removal of a person's password at a
+sector, and `generated_identity_remove_password_skipauth_test.go` over the served
+application with the simulated directory (refused while the person holds no identity and
+for a role without the grant; once removed, the password signs nobody in and the directory
+does),
 `generated_identity_one_tenant_test.go` holds the rule of one tenant per person through a
 second client built with the option, since Lodestar itself lets a person hold roles in
 several sectors,
@@ -3259,3 +3368,174 @@ generated patch offers which method, and which handler and which client takes wh
 operation. Lodestar serves both operations over a refit's tasks
 (`lodestar/test/integration/batch_decided_test.go`), and the browser client's specs are
 `web/projects/resource/src/batch.spec.ts` and `patch-or-add.types.spec.ts`.
+
+## 23. Secrets at rest
+
+A field declared `conditions:"secret"` is kept in the database encrypted. Anyone who can
+query the database, or read a backup or an export, reads bytes that open only inside the
+service. There is no plain kind: the generator refuses a stored secret that is not typed
+`resource.Secret`, so a new secret field cannot be stored as it was typed.
+
+```go
+// TransponderKey is the key the ship's transponder signs its answers with.
+TransponderKey *resource.Secret `spanner:"TransponderKey" conditions:"secret"`
+```
+
+```sql
+TransponderKey BYTES(105),  -- a key of up to 64 bytes, and the 41 sealing adds
+```
+
+**The application secret.** One secret of the application, 32 random bytes, kept in
+versions. It never encrypts anything itself: at start the service derives one working key
+for each use and each version from it with HKDF, under a fixed label naming the use and the
+version (the session library derives its cookie key the same way), so the keys that seal
+resource fields have no relation to the keys of any other use.
+
+**What a column holds.** One value of three parts: the version of the application secret
+that sealed it (one byte, 1 to 255), a random number drawn for the write (24 bytes), and
+the encrypted value with its 16-byte check. The cipher is XChaCha20-Poly1305
+(`golang.org/x/crypto/chacha20poly1305`). Sealing adds 41 bytes (`resource.SecretOverhead`),
+so a column that takes a value of up to n bytes is `BYTES(n+41)`, or `BYTES(MAX)`; the
+value limit a request is held to (section 11) and the form's `maxLength` are the column's
+length less 41, counted in bytes.
+
+**The context.** The row's primary key, every key column in key order, is mixed into the
+check when a value is sealed and again when it is opened. It is never stored: each
+operation takes it from the row it works on. Bytes copied onto another row do not open
+there. The table's and the column's names are left out, so renaming either breaks nothing;
+the key order is the key's own (the generated `SecretContext`), so reordering the struct's
+fields breaks nothing either. A key column the database stamps at commit cannot bind a
+secret, and a write of one is refused.
+
+**`resource.Secret`.** The field's type. It holds the stored bytes and nothing else, and
+goes in and out of the database unchanged, on Spanner and on PostgreSQL. It prints as
+`[secret]` in JSON, in a log line, through `fmt` and in an error's text; it refuses to be
+read from JSON; and it has no method that gives the value. `KeyVersion()` says which
+version sealed it.
+
+**`resource.SecretKeys`.** The key holder, built once at start from the versions of the
+application secret, and the one thing in the process that holds key material (it keeps the
+derived keys, not the versions it was built from). The highest version given is the current
+one. The data level builds it and hands it to the database client:
+
+```go
+keys, err := resource.SecretKeysFromEnv("APP_SECRET_KEY", os.Environ())
+// ...
+db, err := database.Open(ctx, env.Database.Settings, resource.WithSecretKeys(keys))
+```
+
+`resource.WithSecretKeys` is an option of the Spanner, PostgreSQL and mock clients alike
+(`resource.NewSpannerClient(db, resource.WithSecretKeys(keys))`); given twice, the client
+panics at construction. `resource.NewSecretKeys(map[int][]byte{1: ...})` builds the holder
+from fixed bytes, which is what a test does.
+
+**The configuration.** The application's configuration declares the secret beside its
+other variables, `secret:"versioned"`: a secret the deployment generates, of which the
+service is handed every enabled version.
+
+```go
+SecretKey string `env:"APP_SECRET_KEY" secret:"versioned"`
+```
+
+No variable has the declared name. Each version arrives in a variable of its own, the name
+and the version's number (`APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`), holding the version's 32
+bytes in Base64, and `resource.SecretKeysFromEnv` collects whichever are set, reading the
+whole environment so that no variable the name numbers is passed over. With none set
+it answers no keys and no error, so an application that stores no secret runs without the
+variable; a variable that is set and does not hold a version is an error naming the
+variable, never its value. A stored value names its version in one byte, so a secret has
+255 versions in its life: the variable of a version past 255 is an error at start. The development environment file carries `APP_SECRET_KEY_1` (a
+fixed development value in the skeletons' and Lodestar's `.envrc.template`), and
+`impulse check` (`env-template`) holds the template to it.
+
+**Writing.** No code of the author's. A request and a typed patch give the value as text
+(`patch.SetTransponderKey(&key)`; the generated request structs, the typed patches'
+setters and the TypeScript shapes carry a `string`), and the write path seals it where it
+turns the patch's fields into columns (`PatchSet.Resolve`), with the keys of its
+transaction's client and the row's primary key. The same value sealed twice gives different
+bytes. A secret set to the value its row already holds is still no change: the write path
+opens the stored value to compare, so the update that changes nothing writes no change
+record. A grant's condition never reads a secret: the proposed value is left out of the
+statement the conditions are judged in.
+
+**Using a value.** The generator writes two methods on the resource struct for each secret
+field. Both take the context from the row, so an author cannot pass another row's key, and
+a query that reads a secret field reads the row's key columns with it.
+
+```go
+ship, err := resources.NewShipQuery().AddColumns(resources.NewShipColumns().TransponderKey()).SetID(id).Read(ctx, txn)
+// ...
+key, err := ship.Data.OpenTransponderKey(keys)       // anywhere: opens, writes nothing
+key, err := ship.Data.OpenTransponderKeyIn(ctx, txn) // in a read-write transaction
+```
+
+**Rewriting under a new version.** A value that names an older version than the current
+one is written again under the current one the next time it is set, like any write, and
+the next time it is opened inside a read-write transaction (`Open<Field>In`, which takes
+the keys from the transaction's client). That rewrite is the stored bytes alone: the value
+does not change, so no permission is asked, no update function stamps the row and no change
+record is written, and it is buffered only when the row, read again inside the transaction,
+still holds the bytes that were opened, and never for a row a patch of the same transaction
+has already written, since no read sees a buffered write. `Open<Field>(keys)` never writes. At a rotation, a
+request already running on a revision that was not handed the new version can meet a value
+the new revision rewrote, and answers an error for that request.
+
+**Retiring a version.** A version of the application secret can be disabled once no
+stored value names it, and a value nobody sets or opens keeps the version that sealed it.
+The application's migrate command retires a version, named by the variable it is handed
+over in:
+
+```
+migrate -retire-secret APP_SECRET_KEY_1
+```
+
+The command opens the data level and calls `resource.RetireSecretVersion` with the
+application's secret holders, the generated `SecretHolders()` of each resources package
+(one `resource.SecretHolderOf[T]()` for each resource that stores a secret; nil for a
+package that stores none). Every stored value that names the version is opened and written
+again under the current version, a batch to a transaction, and a final read of every secret
+field finds none left. It exits 0 only then, and prints how many values of each field it
+wrote, never a value. Its environment is the migration's with one variable for each
+enabled version, the one being retired among them, since its values are opened under it.
+The current version, the highest the environment carries, is refused: new values are
+sealed under it. So is a variable that is not a version of the secret the keys were read
+from. A value that does not open (bytes moved from another row, or altered) fails the
+retirement, naming its resource, field and row, once every other value is written: set it
+again or clear it, and run the retirement again. A second run finds nothing to write and
+exits 0. The service keeps serving meanwhile: a value is written back only while its row
+still holds the bytes that were opened, read again inside the writing transaction, and the
+rewrite is the stored bytes alone, with no permission check, no update function and no
+change record. It runs on Spanner through the resource client and on PostgreSQL by
+statements of its own, the PostgreSQL client's transactions not being built.
+
+**Refusals.**
+
+- A stored field declared `secret` and typed a plain `string` or `[]byte`, or on a column
+  that is not `BYTES` with room for a sealed value: refused at generation, with the type
+  and the column to give it. A field typed `resource.Secret` and not declared `secret` is
+  refused the same way.
+- An application that stores a secret, whose resource client was built with no keys:
+  refused at start. The generated router's `New` calls `resource.RequireSecretKeys` with
+  every secret field and panics naming them and `resource.WithSecretKeys`. A write of a
+  secret through a transaction that holds no keys is an error too.
+- A value that names a version the service was not given: a
+  `*resource.UnknownSecretVersionError` when it is opened, naming the version and the
+  versions the service holds.
+- Bytes moved from another row, or altered: `resource.ErrSecretNotOpened` when they are
+  opened.
+- A configuration variable named as a version of a versioned secret is (`APP_SECRET_KEY_1`
+  beside `APP_SECRET_KEY` declared `secret:"versioned"`): refused when the application is
+  read (`impulse check`, the deployment's tooling), since the deployment hands the version
+  over under that name.
+
+**Tests.** `resource/secret_test.go` holds the type (nothing prints it), the key holder (a
+value opens on its row and on no other, under the version that sealed it and no version the
+holder was not given), the write path and the rewrite against a capturing transaction;
+`resource/secret_spanner_test.go` and `resource/secret_postgres_test.go` hold the column
+(no plain value, the change record names the field without its values) and a rotation over
+the emulator and a PostgreSQL container, and the retirement of a version on both;
+`resource/secret_retire_test.go` holds the retirement's refusals and its final check;
+`generation/secret_test.go` holds the refusals, the generated methods and the secret
+holders. Lodestar's ship carries a transponder key
+(`lodestar/test/integration/secret_test.go`), and its migrate command retires a version
+over the emulator (`lodestar/cmd/deployment/migrate/main_test.go`).

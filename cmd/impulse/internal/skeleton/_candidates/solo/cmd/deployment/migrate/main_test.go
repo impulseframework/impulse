@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"maps"
@@ -246,6 +247,43 @@ func TestExecute(t *testing.T) {
 			wantErr:  `"-2" is not a version`,
 		},
 		{
+			name:     "a retirement with another flag is refused before the database is touched",
+			missing:  true,
+			args:     []string{"-retire-secret", "APP_SECRET_KEY_1", "-seed"},
+			wantCode: exitRefused,
+			wantErr:  "-retire-secret applies no migration and reports no version: it goes with no other flag",
+		},
+		{
+			name:     "a retirement without its variable is refused",
+			missing:  true,
+			args:     []string{"-retire-secret"},
+			wantCode: exitRefused,
+			wantErr:  "flag needs an argument: -retire-secret",
+		},
+		{
+			name:    "a retirement of an older version of the application secret finds no value that names it and passes",
+			prepare: migrated,
+			args:    []string{"-retire-secret", "APP_SECRET_KEY_1"},
+			env:     map[string]string{"APP_SECRET_KEY_1": secretVersion(1), "APP_SECRET_KEY_2": secretVersion(2)},
+			wantOut: "Retired APP_SECRET_KEY_1: no stored value names version 1\n",
+		},
+		{
+			name:     "a retirement of the current version of the application secret is refused",
+			prepare:  migrated,
+			args:     []string{"-retire-secret", "APP_SECRET_KEY_2"},
+			env:      map[string]string{"APP_SECRET_KEY_1": secretVersion(1), "APP_SECRET_KEY_2": secretVersion(2)},
+			wantCode: exitFailed,
+			wantErr:  "APP_SECRET_KEY_2 is the current version of the application secret",
+		},
+		{
+			name:     "a retirement of a variable that is not a version of the application secret is refused",
+			prepare:  migrated,
+			args:     []string{"-retire-secret", "APP_COOKIE_KEY_1"},
+			env:      map[string]string{"APP_SECRET_KEY_1": secretVersion(1), "APP_SECRET_KEY_2": secretVersion(2)},
+			wantCode: exitFailed,
+			wantErr:  "APP_COOKIE_KEY_1 is not a version of the application secret",
+		},
+		{
 			name:     "a stray argument is refused",
 			missing:  true,
 			args:     []string{"-version", "extra"},
@@ -309,9 +347,10 @@ func TestExecute(t *testing.T) {
 
 // TestSeedAdministrator proves the foothold's rule, each case on a migrated database of
 // its own, by what the seed reports and what it leaves. The seed runs only while the
-// users table is empty, and it is two writes: the administrator's roles first, which the
-// permission store holds under an id the seed derives (session.SeedUserID, the same on
-// every run), then the user, created under that id. The user's row is what says the seed
+// users table is empty, and it is two writes: the administrator's roles first, the Super
+// Administrator role among them, which the permission store holds under an id the seed
+// derives (session.SeedUserID, the same on every run), then the user, created under that
+// id. The user's row is what says the seed
 // is done: a run that stopped between the two left the table empty, and the next run
 // writes the same memberships again, each left as it is, and creates the user. Once the
 // table holds a user nothing is seeded, whoever that user is and whatever it holds: a
@@ -434,7 +473,7 @@ func seededOnce(t *testing.T, auth *staff.Auth) {
 func stoppedBeforeTheUser(t *testing.T, auth *staff.Auth) {
 	t.Helper()
 
-	global, _ := staff.FirstAdministratorRoles()
+	global, _ := seededRoles()
 	manager := auth.Access().UserManager()
 	user := accesstypes.User(seedID().String())
 	if err := manager.AddUserRoles(t.Context(), accesstypes.GlobalPolicyScope(), user, global...); err != nil {
@@ -461,6 +500,16 @@ func someoneElse(t *testing.T, auth *staff.Auth) {
 	if _, err := auth.Session().API().CreateSessionUser(t.Context(), &session.CreateUserRequest{Username: "someone"}); err != nil {
 		t.Fatalf("session.AuthAPI.CreateSessionUser(someone) error = %v", err)
 	}
+}
+
+// seededRoles are the roles the seed writes for the first administrator, by where they
+// are held: the Super Administrator role, which the framework defines in every auth and
+// every first administrator holds, beside the application's own
+// (staff.FirstAdministratorRoles).
+func seededRoles() (global, everyDomain []accesstypes.Role) {
+	global, everyDomain = staff.FirstAdministratorRoles()
+
+	return append([]accesstypes.Role{accesstypes.SuperAdministrator}, global...), everyDomain
 }
 
 // seedID is the id the seed creates the first administrator under, which it derives from
@@ -514,7 +563,7 @@ func nothingSeeded(t *testing.T, data *config.DataConfiguration, before map[impu
 	}
 	holdsNoRole(t, data, accesstypes.User(seedID().String()), "the id the seed derives, which no user is under")
 	holdsNoRole(t, data, staff.Administrator, "the administrator's username: a role is held by the account")
-	global, _ := staff.FirstAdministratorRoles()
+	global, _ := seededRoles()
 	heldBy(t, data, accesstypes.GlobalPolicyScope(), global)
 }
 
@@ -531,7 +580,7 @@ func holdsAdministratorRoles(t *testing.T, data *config.DataConfiguration, id im
 	if err != nil {
 		t.Fatalf("access.UserManager.UserRoles(%s) error = %v", id, err)
 	}
-	global, _ := staff.FirstAdministratorRoles()
+	global, _ := seededRoles()
 	if got, want := sorted(roles[accesstypes.GlobalPolicyScope()]), sorted(global); !slices.Equal(got, want) {
 		t.Errorf("roles in the global partition = %v, want %v", got, want)
 	}
@@ -574,6 +623,12 @@ func holdsNoRole(t *testing.T, data *config.DataConfiguration, user accesstypes.
 			t.Errorf("roles held under %s (%s) in %v = %v, want none", user, whose, scope, held)
 		}
 	}
+}
+
+// secretVersion is one version of a test application secret as the deployment hands it
+// over: 32 bytes, the version's number repeated, in Base64.
+func secretVersion(version byte) string {
+	return base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{version}, 32))
 }
 
 // database creates a fresh database for the case and drops it when the case ends.

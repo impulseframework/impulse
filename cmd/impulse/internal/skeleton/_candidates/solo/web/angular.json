@@ -78,7 +78,11 @@
             "servePath": "/",
             "proxyConfig": "console/proxy.conf.js",
             "prebundle": {
-              "exclude": ["@impulseframework/resource", "@impulseframework/resource-angular", "@impulseframework/resource-firestore"]
+              "exclude": [
+                "@impulseframework/resource",
+                "@impulseframework/resource-angular",
+                "@impulseframework/resource-firestore"
+              ]
             }
           },
           "configurations": {

@@ -71,6 +71,8 @@ type fakeStore struct {
 	// impersonation records by session, true while one stands, and heldBy the sessions
 	// whose standing record names a username as its local actor.
 	usernames map[impulse.UUID]string
+	// disabled are the users that exist and cannot sign in.
+	disabled map[impulse.UUID]bool
 	// emails are the accounts of the users who have confirmed an address, by address.
 	emails  map[string]impulse.UUID
 	ended   map[impulse.UUID]bool
@@ -256,6 +258,15 @@ func (f *fakeStore) Username(_ context.Context, _ resource.ReadWriteTransaction,
 	return username, found, nil
 }
 
+func (f *fakeStore) UserDisabled(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) (disabled, found bool, err error) {
+	if err := f.fail("UserDisabled"); err != nil {
+		return false, false, err
+	}
+	_, found = f.usernames[id]
+
+	return f.disabled[id], found, nil
+}
+
 func (f *fakeStore) UserID(_ context.Context, _ resource.ReadWriteTransaction, username string) (id impulse.UUID, found bool, err error) {
 	if err := f.fail("UserID"); err != nil {
 		return impulse.NilUUID, false, err
@@ -342,6 +353,15 @@ func (f *fakeStore) SetPassword(_ context.Context, _ resource.ReadWriteTransacti
 		return err
 	}
 	f.writes = append(f.writes, "set password "+id.String()+" "+hash+" changeRequired="+boolText(changeRequired))
+
+	return nil
+}
+
+func (f *fakeStore) RemovePassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
+	if err := f.fail("RemovePassword"); err != nil {
+		return err
+	}
+	f.writes = append(f.writes, "remove password "+id.String())
 
 	return nil
 }

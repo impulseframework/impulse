@@ -430,6 +430,50 @@ describe('events', () => {
     await feed.stop();
   });
 
+  it("an event carries the id of the write that published its document, the later write's when two became one document", async () => {
+    const { feed, events } = harness();
+    await feed.start(emulated);
+    const l = listener();
+    l.next(added());
+    l.next(
+      added(
+        doc('list|Ships|anvil|1', {
+          kind: 'list',
+          resource: 'Ships',
+          domain: 'anvil',
+          at: at(1_700_000_001),
+          write: 'write-1',
+        }),
+      ),
+    );
+    l.next(
+      snapshot([
+        // The same document within its second: somebody else's write moved it forward and named itself.
+        {
+          type: 'modified',
+          doc: doc('list|Ships|anvil|1', {
+            kind: 'list',
+            resource: 'Ships',
+            domain: 'anvil',
+            at: at(1_700_000_001, 700_000),
+            write: 'write-2',
+          }),
+        },
+        // A document that names no write is somebody's change all the same.
+        {
+          type: 'added',
+          doc: doc('row|Ships|s1|2', { kind: 'row', resource: 'Ships', key: 's1', at: at(1_700_000_002), write: '' }),
+        },
+      ]),
+    );
+    expect(events).toEqual([
+      { kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000001000000', write: 'write-1' },
+      { kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000001000700', write: 'write-2' },
+      { kind: 'row', resource: 'Ships', key: 's1', at: '1700000002000000' },
+    ]);
+    await feed.stop();
+  });
+
   it("one commit's row and list documents, one timestamp, two snapshots: two events; the same two replayed: none", async () => {
     const { feed, events } = harness();
     await feed.start(emulated);

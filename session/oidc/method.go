@@ -240,7 +240,7 @@ type claims struct {
 }
 
 // identityOf decodes the ID token's claims into the identity. A token without sub, or
-// whose claims do not decode, is refused (claims_parse).
+// whose claims do not decode, is refused (parse_claims_failed).
 func identityOf(rawClaims json.RawMessage) (*Identity, error) {
 	c, err := DecodeClaims[claims](rawClaims)
 	if err != nil {

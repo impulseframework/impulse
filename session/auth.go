@@ -217,8 +217,8 @@ func nameTables[Tx any](storage sessionstorage.AuthStore[Tx], settings *authSett
 // for every method.
 //
 // Register sign-in methods with PasswordSignIn, azure.SignIn and google.SignIn after
-// NewAuth and before serving the first request (workos.SignIn once WorkOS returns to
-// the public API in v0.13.1). Each returns the method's handlers.
+// NewAuth and before serving the first request (the WorkOS method is in an internal
+// package, which an application cannot import). Each returns the method's handlers.
 //
 // Every session belongs to a user (SessionUsers). A sign-in either establishes a
 // session under a new session ID, becomes a pending identity that waits for a password
@@ -233,9 +233,16 @@ type Auth[SessionData, UserData, Tx any] struct {
 	baseSession *basesession.BaseSession
 	storage     sessionstorage.AuthStore[Tx]
 	settings    authSettings
-	// policy is the application's sign-in rule, nil when it set none: the library's
-	// own checks then decide. Set by SetSignInPolicy before the Auth is in use.
-	policy signin.Policy[Tx]
+	// policy is the rule a sign-in is decided by, nil when the library's own checks
+	// decide alone: the application's sign-in rule (applicationPolicy, set by
+	// SetSignInPolicy), with the rule on a super administrator's second factor after it
+	// once SetSuperAdministrators told the Auth who they are. Both are set before the
+	// Auth is in use.
+	policy            signin.Policy[Tx]
+	applicationPolicy signin.Policy[Tx]
+	// superAdministrators reports who holds the Super Administrator role, nil when the
+	// application set none. Set by SetSuperAdministrators before the Auth is in use.
+	superAdministrators signin.SuperAdministratorCheck
 	// signedIn is the application's after-sign-in hook, nil when it set none. Set by
 	// SetSignedInHook before the Auth is in use.
 	signedIn SignedInHook
@@ -265,9 +272,8 @@ type Auth[SessionData, UserData, Tx any] struct {
 }
 
 // NewAuth creates an Auth session for the given storage. The storage's custom session
-// and user data configurations must be built for SessionData and UserData. The
-// OIDC-only storage features (the OIDC user anchor and the custom user data login hook)
-// are refused. Tx is inferred from the storage: an application writes
+// and user data configurations must be built for SessionData and UserData. Tx is
+// inferred from the storage: an application writes
 // NewAuth[SessionData, UserData](store, cookieKey, options...).
 //
 // A sign-in is decided by the library's own checks: the user exists and is enabled,
@@ -390,10 +396,54 @@ func (a *Auth[SessionData, UserData, Tx]) SetSignInPolicy(policy signin.Policy[T
 	if a.methods.inUse.Load() {
 		panic("session: the sign-in policy was set after the Auth served a request: set it before serving")
 	}
-	if a.policy != nil {
+	if a.applicationPolicy != nil {
 		panic("session: the sign-in policy was set twice: one Auth has one rule")
 	}
-	a.policy = policy
+	a.applicationPolicy = policy
+	a.policy = a.decidingPolicy()
+}
+
+// SetSuperAdministrators tells the Auth who its super administrators are, the holders
+// of the Super Administrator role (accesstypes.SuperAdministrator), so that one always
+// signs in with a second factor, whether or not the application's sign-in rule asks
+// anyone for one: a sign-in the rule allows, or any sign-in where no rule is set, is
+// held for the code the library mails when the person holds the role, unless the
+// sign-in already carries a second factor as any account's may (the directory's
+// attestation, or a browser the person asked to be remembered). Pass
+// signin.SuperAdministrators over the access library's user manager. Set it after
+// NewAuth and before serving the first request; a nil check, a second check, or a check
+// set once the Auth is in use is a wiring mistake and panics, as SetSignInPolicy does.
+// So is an Auth that sends no mail: the code could not be sent, and a super
+// administrator held for it would never sign in.
+func (a *Auth[SessionData, UserData, Tx]) SetSuperAdministrators(check signin.SuperAdministratorCheck) {
+	if check == nil {
+		panic("session: SetSuperAdministrators was given nil: pass signin.SuperAdministrators over the access library's user manager")
+	}
+	if a.settings.mail == nil {
+		panic("session: SetSuperAdministrators was called on an Auth without mail: a super administrator's second factor is the code the Auth mails, so pass WithMail to NewAuth")
+	}
+	a.methods.mu.Lock()
+	defer a.methods.mu.Unlock()
+
+	if a.methods.inUse.Load() {
+		panic("session: the super administrators were set after the Auth served a request: set them before serving")
+	}
+	if a.superAdministrators != nil {
+		panic("session: the super administrators were set twice: one Auth has one role store")
+	}
+	a.superAdministrators = check
+	a.policy = a.decidingPolicy()
+}
+
+// decidingPolicy is the rule a sign-in is decided by: the application's rule, and after
+// it the super administrator's second factor where the Auth knows its super
+// administrators. The caller holds the methods' lock.
+func (a *Auth[SessionData, UserData, Tx]) decidingPolicy() signin.Policy[Tx] {
+	if a.superAdministrators == nil {
+		return a.applicationPolicy
+	}
+
+	return signin.SuperAdministratorFactor(a.applicationPolicy, a.superAdministrators)
 }
 
 // SetSignedInHook sets the application's after-sign-in hook, called once for every

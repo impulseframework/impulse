@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/lodestar/app"
+	"github.com/impulseframework/impulse/lodestar/pkg/brand"
 	"github.com/impulseframework/impulse/lodestar/pkg/config"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
 	"github.com/impulseframework/impulse/resource/maintenance"
@@ -33,7 +34,7 @@ func Main() error {
 	// database, no sessions, no secrets are opened. The deploy pipeline starts one before
 	// a release that replaces or interrupts the database.
 	if maintenance.Requested() {
-		if err := maintenance.Serve(ctx); err != nil {
+		if err := maintenance.Serve(ctx, maintenanceBrands()); err != nil {
 			return errors.Wrap(err, "maintenance.Serve()")
 		}
 
@@ -55,4 +56,17 @@ func Main() error {
 	}
 
 	return nil
+}
+
+// maintenanceBrands are the brands the maintenance page says whose it is with, by mount
+// path: under /portal it carries the name and the logo the portal declares
+// (web/portal/brand.json), and everywhere else the console's (web/console/brand.json),
+// the root included, since the root leads to the console. impulse brand writes both into
+// pkg/brand from the declarations.
+func maintenanceBrands() maintenance.Brands {
+	return maintenance.Brands{
+		"/":        brand.Console(),
+		"/console": brand.Console(),
+		"/portal":  brand.Portal(),
+	}
 }

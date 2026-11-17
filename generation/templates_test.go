@@ -870,7 +870,8 @@ func Test_routesTemplate_sessionOutletHandlers(t *testing.T) {
 // Test_handlerTemplates_live pins the live-page lines of the generated handlers: the
 // list and read handlers register before the query and set the cache header before the
 // answer, the mutation handlers collect what their transaction wrote and publish after
-// the commit, and the live routes delegate to the library's handlers.
+// the commit, handing the publish the answer they have yet to write so it names the
+// write's changes on it, and the live routes delegate to the library's handlers.
 func Test_handlerTemplates_live(t *testing.T) {
 	t.Parallel()
 
@@ -911,7 +912,7 @@ func Test_handlerTemplates_live(t *testing.T) {
 				"ctx, touched := resource.CollectTouchedRows(ctx)",
 				// What a handler publishes with is its home's to say: the application's
 				// assembly, or the field an auth's handlers keep the same value in.
-				`live.Publish(ctx, {{ .ReceiverName }}.LiveService(), {{ .Home.LiveDerivations }}, {{ if .Resource.IsDomainScoped }}domain{{ else }}""{{ end }}, touched)`,
+				`live.Publish(ctx, w, {{ .ReceiverName }}.LiveService(), {{ .Home.LiveDerivations }}, {{ if .Resource.IsDomainScoped }}domain{{ else }}""{{ end }}, touched)`,
 			},
 		},
 		{
@@ -919,7 +920,15 @@ func Test_handlerTemplates_live(t *testing.T) {
 			template: consolidatedPatchTemplate,
 			want: []string{
 				"ctx, touched := resource.CollectTouchedRows(ctx)",
-				`live.Publish(ctx, {{ .ReceiverName }}.LiveService(), liveDerivations, "", touched)`,
+				`live.Publish(ctx, w, {{ .ReceiverName }}.LiveService(), liveDerivations, "", touched)`,
+			},
+		},
+		{
+			name:     "tenant creation",
+			template: tenantCreationTemplate,
+			want: []string{
+				"ctx, touched := resource.CollectTouchedRows(ctx)",
+				`live.Publish(ctx, w, {{ .ReceiverName }}.LiveService(), liveDerivations, "", touched)`,
 			},
 		},
 		{
@@ -929,7 +938,7 @@ func Test_handlerTemplates_live(t *testing.T) {
 				`{{- template "rpcCollectTouched" $ }}`,
 				`{{- template "rpcPublish" $ }}`,
 				"ctx, touched := resource.CollectTouchedRows(ctx)",
-				`live.Publish(ctx, {{ $.ReceiverName }}.LiveService(), {{ $.Home.LiveDerivations }}, {{ if .RPCMethod.IsDomainScoped }}domain{{ else }}""{{ end }}, touched)`,
+				`live.Publish(ctx, w, {{ $.ReceiverName }}.LiveService(), {{ $.Home.LiveDerivations }}, {{ if .RPCMethod.IsDomainScoped }}domain{{ else }}""{{ end }}, touched)`,
 			},
 		},
 		{
