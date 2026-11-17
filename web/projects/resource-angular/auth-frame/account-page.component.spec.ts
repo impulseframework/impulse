@@ -1,7 +1,8 @@
 import { ApplicationRef } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
-import { TransportResponse } from '@impulseframework/resource';
+import { SignInMeans, TransportResponse } from '@impulseframework/resource';
+import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { ScriptedTransport } from '@impulseframework/resource/testing';
 import { firstValueFrom } from 'rxjs';
 import { Account } from './account';
@@ -374,6 +375,30 @@ describe('AccountPageComponent', () => {
     expect(fixture.componentInstance.removalConsequence()).toBe(
       'You will sign in through Lakeside or Fleet Google only.',
     );
+  });
+
+  it('offers no password section while what the person signs in with is still being read, so none is drawn and then taken away', async () => {
+    transport = specTransport({
+      methods: told,
+      session: { authenticated: true, username: 'gale' },
+      other: (url) => (url.pathname.startsWith('/api/user/') ? { status: 200, body: null } : undefined),
+    });
+    await TestBed.configureTestingModule({ providers: [provideFrameTesting(transport)] }).compileComponents();
+    // The read is held open: the page knows what the sign-in offers and not yet what the person holds.
+    let answer: (means: SignInMeans) => void = () => undefined;
+    const client = TestBed.inject(RESOURCE_CLIENT);
+    client.auth.signInMeans = () => new Promise<SignInMeans>((resolve) => (answer = resolve));
+    const account = TestBed.inject(Account);
+    const turn = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+    account.password();
+    await turn();
+    await turn();
+    expect([account.password(), account.removePassword()]).toEqual([false, false]);
+
+    answer({ password: true, directories: [{ name: 'google', label: 'Fleet Google' }] });
+    await turn();
+    expect([account.password(), account.removePassword()]).toEqual([true, true]);
   });
 
   it('goes on saying what is left once the password is removed, and offers nothing more to change', async () => {
