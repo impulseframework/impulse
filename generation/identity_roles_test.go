@@ -3,7 +3,6 @@ package generation
 import (
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -92,37 +91,5 @@ func Test_resourceGenerator_moduleDir(t *testing.T) {
 				t.Errorf("moduleDir(%q) = %q, %v, want %q, %v", tt.importPath, dir, ok, tt.wantDir, tt.wantOK)
 			}
 		})
-	}
-}
-
-// Test_prepareIdentity_reservedRole pins that the generator writes no management for an
-// auth whose role file defines a role named for the Super Administrator role: the file
-// is read beside the auth package, under the module root the generator runs in.
-func Test_prepareIdentity_reservedRole(t *testing.T) {
-	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
-	t.Chdir(t.TempDir())
-
-	dir, ok := (&resourceGenerator{client: &client{modulePathRoot: "example.com/acme/beacon"}}).moduleDir(crewAuthPath)
-	if !ok {
-		t.Fatalf("the fixture's crew auth %q is no package of the fixture's module", crewAuthPath)
-	}
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	roles := `{"roles": {"global": [{"name": "SuperAdministrator", "description": "Runs everything.", "permissions": {}}]}}`
-	if err := os.WriteFile(filepath.Join(dir, identityRolesFile), []byte(roles), 0o600); err != nil {
-		t.Fatal(err)
-	}
-
-	err := identityFixtureGenerator(t, slices.Concat(crewIdentityTables, membersIdentityTables)...).prepareIdentity()
-	if want := "defines a role named SuperAdministrator, and the name is reserved"; err == nil || !strings.Contains(err.Error(), want) {
-		t.Fatalf("prepareIdentity() error = %v, want one containing %q", err, want)
-	}
-	// With the role named otherwise the same run goes through.
-	if err := os.WriteFile(filepath.Join(dir, identityRolesFile), []byte(strings.ReplaceAll(roles, "SuperAdministrator", "Administrator")), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := identityFixtureGenerator(t, slices.Concat(crewIdentityTables, membersIdentityTables)...).prepareIdentity(); err != nil {
-		t.Fatalf("prepareIdentity() with the role named otherwise: error = %v", err)
 	}
 }

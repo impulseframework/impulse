@@ -291,7 +291,6 @@ func TestClient_UserIsSuperAdministrator(t *testing.T) {
 			}
 		})
 	}
-
 }
 
 // TestClient_UserIsSuperAdministrator_followsTheWrite pins that the answer follows the
