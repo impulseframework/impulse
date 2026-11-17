@@ -39,10 +39,13 @@ func policySignal(channel *signaltest.Channel) access.ChangeSignal {
 	)
 }
 
-// waitFor polls until check passes or the deadline expires.
-func waitFor(t *testing.T, timeout time.Duration, msg string, check func() bool) {
+// propagationWait is how long a change is given to reach the other instance.
+const propagationWait = 15 * time.Second
+
+// waitFor polls until check passes or propagationWait has gone by.
+func waitFor(t *testing.T, msg string, check func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
+	deadline := time.Now().Add(propagationWait)
 	for !check() {
 		if time.Now().After(deadline) {
 			t.Fatal(msg)
@@ -153,7 +156,7 @@ func Test_Client_policyPropagation(t *testing.T) {
 				// Both clients' watches must be subscribed before the writes,
 				// or the announces could be lost (and the pinned heartbeat
 				// would hide them).
-				waitFor(t, 15*time.Second, "the clients never subscribed to the policy kind", func() bool {
+				waitFor(t, "the clients never subscribed to the policy kind", func() bool {
 					return channel.Subscribers(policyKind) == 2
 				})
 			}
@@ -177,7 +180,7 @@ func Test_Client_policyPropagation(t *testing.T) {
 			}
 
 			// Cross-instance propagation.
-			waitFor(t, 15*time.Second, "policy change never reached the reader instance", func() bool {
+			waitFor(t, "policy change never reached the reader instance", func() bool {
 				decisions, err := reader.CheckUserResources(ctx, env, "erin", tenant1, "Read", "employees")
 				if err != nil {
 					t.Fatalf("reader CheckUserResources() error = %v", err)
@@ -215,19 +218,19 @@ func Test_Client_policyPropagation(t *testing.T) {
 			if !reads(writer, "gale") {
 				t.Fatal("the writer does not see its own group's role at once")
 			}
-			waitFor(t, 15*time.Second, "a group's members never held its role on the reader instance", func() bool {
+			waitFor(t, "a group's members never held its role on the reader instance", func() bool {
 				return reads(reader, "gale") && reads(reader, "hugo")
 			})
 			if err := mgr.DeleteGroupUsers(ctx, group, "hugo"); err != nil {
 				t.Fatalf("DeleteGroupUsers() error = %v", err)
 			}
-			waitFor(t, 15*time.Second, "a person who left the group kept its role on the reader instance", func() bool {
+			waitFor(t, "a person who left the group kept its role on the reader instance", func() bool {
 				return !reads(reader, "hugo") && reads(reader, "gale")
 			})
 			if err := mgr.DeleteGroupRoles(ctx, group, tenant1Policy, "Editor"); err != nil {
 				t.Fatalf("DeleteGroupRoles() error = %v", err)
 			}
-			waitFor(t, 15*time.Second, "a role taken from the group stayed with its member on the reader instance", func() bool {
+			waitFor(t, "a role taken from the group stayed with its member on the reader instance", func() bool {
 				return !reads(reader, "gale")
 			})
 			if !reads(reader, "erin") {
