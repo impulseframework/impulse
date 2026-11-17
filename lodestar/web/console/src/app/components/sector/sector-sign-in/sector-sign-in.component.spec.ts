@@ -29,12 +29,15 @@ import { SectorSignInComponent } from './sector-sign-in.component';
 // in the sector) who is signed in through an organization's directory is offered to
 // make it the sector's, and the request names no directory; signed in by password they
 // are offered no such action and told how a directory is set. They pick the directory's
-// default role from the sector's roles or clear it, remove the directory, and are told
-// headquarters sets directory only; headquarters (Update on the global Sectors record
-// too) turns it on once they confirm what the server says it would do, its sentence and
-// the people it names, and off on a plain confirmation; the server's refusal to turn it
-// on is shown in its own words and nothing is written; a session without the grants sees
-// the sentences and nothing is requested.
+// default role from the sector's roles or clear it, and remove the directory. Directory
+// only is the sector's own too: the marshal (Execute on SetSectorDirectoryOnly in the
+// sector) reads the switch in the sector and turns it on once they confirm what the
+// server says it would do, its sentence and the people it names to someone who may list
+// them, and off on a plain confirmation, each with the sector's method; the server's
+// refusal to turn it on is shown in its own words and nothing is written; headquarters,
+// who reads the global record and holds no grant on the method, sees the switch and
+// cannot turn it; a session without the grants sees the sentences and nothing is
+// requested.
 
 /** Anvil's id: a sector's key is an id its create generates, and the name is a field. */
 const anvilID = 'a1111111-1111-4111-8111-111111111111';
@@ -58,11 +61,13 @@ interface Digests {
 const marshalGrants: PermissionDigest = {
   SectorDirectories: { List: 'granted', Create: 'granted', Update: 'granted', Delete: 'granted' },
   CrewSectorRoles: { List: 'granted' },
+  SetSectorDirectoryOnly: { Execute: 'granted' },
 };
 const marshal: Digests = { global: {}, anvil: marshalGrants };
+/** Headquarters reads the global record and the sector's directory, and holds no grant on the sector's method. */
 const headquarters: Digests = {
   global: { Sectors: { Read: 'granted', Update: 'granted' } },
-  anvil: marshalGrants,
+  anvil: { SectorDirectories: { List: 'granted' } },
 };
 /** What the server says turning directory only on would do to Anvil: its sentence, the people it names, and the button's words. */
 const wouldKeepOut: DirectoryOnlyConsequence = {
@@ -70,6 +75,7 @@ const wouldKeepOut: DirectoryOnlyConsequence = {
   connection: 'example',
   sentence:
     'Only people who sign in through example will be able to enter this sector. 2 people seated here sign in another way and will lose access.',
+  count: 2,
   people: [
     { userId: 'u-1', username: 'gale', name: 'Gale Ferris' },
     { userId: 'u-2', username: 'hollis' },
@@ -108,8 +114,13 @@ function serverFor(world: World): (request: TransportRequest) => TransportRespon
         return { status: 200, body: { enabled: [] } };
       case `${environment.apiUrl}/sectors/${anvilID}`:
         return { status: 200, body: { id: anvilID, name: 'Anvil', directoryOnly: world.directoryOnly ?? false } };
-      case `${environment.apiUrl}/directory-only`:
+      // The switch is the sector's own: its state, what turning it on would do, and the method that turns it.
+      case `${environment.apiUrl}/sectors/${anvilID}/directory-only`:
+        return { status: 200, body: { directoryOnly: world.directoryOnly ?? false } };
+      case `${environment.apiUrl}/sectors/${anvilID}/directory-only/consequence`:
         return world.consequence ?? { status: 200, body: wouldKeepOut };
+      case `${environment.apiUrl}/sectors/${anvilID}/set-sector-directory-only`:
+        return world.write ?? { status: 200, body: undefined };
       case `${environment.apiUrl}/sectors/${anvilID}/sector-directories`:
         return { status: 200, body: world.directories ?? [] };
       case `${environment.apiUrl}/sectors/${anvilID}/crew-sector-roles`:
@@ -161,8 +172,14 @@ describe('SectorSignInComponent', () => {
     transport.requests
       .filter((r) => r.method === 'PATCH' && r.url.replace(/\?.*$/, '') === `${environment.apiUrl}/resources`)
       .flatMap((r) => r.body as unknown[]);
-  /** What the page asked the server about directory only, in order. */
-  const asked = (): string[] => transport.requests.map((r) => r.url).filter((url) => url.includes('/directory-only'));
+  /** What the page asked the server turning directory only on would do, in order. */
+  const asked = (): string[] =>
+    transport.requests.map((r) => r.url).filter((url) => url.includes('/directory-only/consequence'));
+  /** The bodies the page sent the sector's method that turns directory only, in order. */
+  const turned = (): unknown[] =>
+    transport.requests
+      .filter((r) => r.method === 'POST' && r.url.endsWith(`/sectors/${anvilID}/set-sector-directory-only`))
+      .map((r) => r.body);
   const inDialog = (selector: string): HTMLElement | null =>
     document.querySelector<HTMLElement>(`.cdk-overlay-container ${selector}`);
   const dialogText = (selector: string): string => inDialog(selector)?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
@@ -236,8 +253,9 @@ describe('SectorSignInComponent', () => {
     expect(texts('.directory')).toEqual(['Google Workspace example']);
     // A sector has one directory: the action is offered only while it has none.
     expect(element().querySelector('.make-directory')).toBeNull();
-    expect(element().querySelector('.directory-only')).toBeNull();
-    expect(texts('.empty')).toContain('Your role does not cover the sector record, which carries this setting.');
+    // The switch is the sector's own: its marshal sees it, read in the sector.
+    expect(toggle().getAttribute('aria-checked')).toBe('false');
+    expect(toggle().disabled).toBe(false);
 
     element().querySelector<HTMLButtonElement>('.remove-directory')?.click();
     await settle();
@@ -283,8 +301,8 @@ describe('SectorSignInComponent', () => {
     ).toEqual([]);
   });
 
-  it('headquarters turns directory only on once they confirm what the server says it would do', async () => {
-    await pageFor({ digests: headquarters, session: throughWorkspace, directories: [workspace] });
+  it("the sector's marshal turns directory only on, with the sector's method, once they confirm what the server says it would do", async () => {
+    await pageFor({ digests: marshal, session: throughWorkspace, directories: [workspace] });
 
     expect(toggle().getAttribute('aria-checked')).toBe('false');
     expect(texts('.directory-only')[0]).toContain('Every sign-in admitted');
@@ -296,8 +314,9 @@ describe('SectorSignInComponent', () => {
     toggle().click();
     await turn();
     // The page asked the server first, for this sector, and has written nothing.
-    expect(asked()).toEqual([`${environment.apiUrl}/directory-only?domain=${anvilID}`]);
+    expect(asked()).toEqual([`${environment.apiUrl}/sectors/${anvilID}/directory-only/consequence`]);
     expect(writes()).toEqual([]);
+    expect(turned()).toEqual([]);
     // The confirmation is the server's: its sentence, the people it names, and the words on the button.
     expect(dialogText('.impulse-action-title')).toBe('Make Anvil directory only?');
     expect(dialogText('.impulse-action-words')).toBe(`${wouldKeepOut.sentence} They are: Gale Ferris (gale), hollis.`);
@@ -308,12 +327,56 @@ describe('SectorSignInComponent', () => {
     inDialog('.impulse-action-confirm')!.click();
     await turn();
     await turn();
-    expect(writes()).toEqual([{ op: 'patch', path: `/sectors/${anvilID}`, value: { directoryOnly: true } }]);
+    // The sector's own method turns it: nothing is written to the global record.
+    expect(turned()).toEqual([{ directoryOnly: true }]);
+    expect(writes()).toEqual([]);
     expect(texts('.refusal')).toEqual([]);
   });
 
+  it('a person who may not list the people is told how many the switch keeps out and nobody by name', async () => {
+    const counted = { ...wouldKeepOut, people: [] };
+    await pageFor({
+      digests: marshal,
+      session: throughWorkspace,
+      directories: [workspace],
+      consequence: { status: 200, body: counted },
+    });
+
+    toggle().click();
+    await turn();
+    expect(dialogText('.impulse-action-words')).toBe(wouldKeepOut.sentence);
+  });
+
+  it('people the server names for part of the count are never passed off as all of them', async () => {
+    const partly = { ...wouldKeepOut, people: [wouldKeepOut.people[0]] };
+    await pageFor({
+      digests: marshal,
+      session: throughWorkspace,
+      directories: [workspace],
+      consequence: { status: 200, body: partly },
+    });
+
+    toggle().click();
+    await turn();
+    expect(dialogText('.impulse-action-words')).toBe(
+      `${wouldKeepOut.sentence} Of them, you may list: Gale Ferris (gale).`,
+    );
+  });
+
+  it("headquarters sees the switch as the record shows it and cannot turn it: it is the sector's own", async () => {
+    await pageFor({ digests: headquarters, session: throughWorkspace, directories: [workspace], directoryOnly: true });
+
+    expect(toggle().getAttribute('aria-checked')).toBe('true');
+    expect(toggle().disabled).toBe(true);
+    expect(texts('.declaration-card .empty')).toContain('A marshal of this sector sets this, in the sector.');
+    // The record showed the flag: the sector's own read is asked only by a person who may turn the switch.
+    expect(
+      transport.requests.map((r) => r.url.replace(/\?.*$/, '')).filter((u) => u.endsWith('/directory-only')),
+    ).toEqual([]);
+  });
+
   it('a person who cancels the confirmation writes nothing, and the switch stays off', async () => {
-    await pageFor({ digests: headquarters, session: throughWorkspace, directories: [workspace] });
+    await pageFor({ digests: marshal, session: throughWorkspace, directories: [workspace] });
 
     toggle().click();
     await turn();
@@ -322,6 +385,7 @@ describe('SectorSignInComponent', () => {
     await turn();
     expect(inDialog('.impulse-action-title')).toBeNull();
     expect(writes()).toEqual([]);
+    expect(turned()).toEqual([]);
     expect(toggle().getAttribute('aria-checked')).toBe('false');
     expect(toggle().disabled).toBe(false);
   });
@@ -330,7 +394,7 @@ describe('SectorSignInComponent', () => {
     const sentence =
       "Directory only is turned on by a person who is signed in through this sector's directory, Google Workspace example: that shows the directory works, and that you will not shut yourself out. You signed in with a password. Sign in through Google Workspace example and try again.";
     await pageFor({
-      digests: headquarters,
+      digests: marshal,
       directories: [workspace],
       consequence: { status: 409, body: { message: sentence } },
     });
@@ -340,12 +404,12 @@ describe('SectorSignInComponent', () => {
     await turn();
     expect(texts('.refusal')).toEqual([sentence]);
     expect(inDialog('.impulse-action-title')).toBeNull();
-    expect(writes()).toEqual([]);
+    expect(turned()).toEqual([]);
     expect(toggle().getAttribute('aria-checked')).toBe('false');
   });
 
   it('a sector with no directory is told to set one first', async () => {
-    await pageFor({ digests: headquarters });
+    await pageFor({ digests: marshal });
 
     expect(texts('.needs-directory')).toEqual([
       'Set a directory first: a sector with no directory cannot be directory only, since nobody could enter it.',
@@ -354,7 +418,7 @@ describe('SectorSignInComponent', () => {
   });
 
   it('turning directory only off is a plain confirmation, and asks the server nothing first', async () => {
-    await pageFor({ digests: headquarters, directories: [workspace], directoryOnly: true });
+    await pageFor({ digests: marshal, directories: [workspace], directoryOnly: true });
 
     expect(toggle().getAttribute('aria-checked')).toBe('true');
     expect(texts('.directory-only')[0]).toContain(
@@ -377,7 +441,8 @@ describe('SectorSignInComponent', () => {
     inDialog('.impulse-action-confirm')!.click();
     await turn();
     await turn();
-    expect(writes()).toEqual([{ op: 'patch', path: `/sectors/${anvilID}`, value: { directoryOnly: false } }]);
+    expect(turned()).toEqual([{ directoryOnly: false }]);
+    expect(writes()).toEqual([]);
   });
 
   it('a session without the grants sees the sentences, and nothing is requested under the sector', async () => {
@@ -385,7 +450,7 @@ describe('SectorSignInComponent', () => {
 
     expect(texts('.empty')).toEqual([
       'Your role in this sector does not cover its directory.',
-      'Your role does not cover the sector record, which carries this setting.',
+      'Your role does not cover this setting: a marshal of this sector sets it.',
     ]);
     expect(element().querySelector('.make-directory')).toBeNull();
     expect(
@@ -396,7 +461,7 @@ describe('SectorSignInComponent', () => {
   // Opened by its address (a reload, a bookmark), the page renders before the sector's
   // digest has loaded. It asks again when the digest arrives, and shows what it grants.
   it('opened before the digests load, it shows the directory once they arrive', async () => {
-    transport = scriptedTransport(serverFor({ digests: headquarters, directories: [workspace] }));
+    transport = scriptedTransport(serverFor({ digests: marshal, directories: [workspace] }));
     await TestBed.configureTestingModule({
       imports: [SectorSignInComponent],
       providers: [

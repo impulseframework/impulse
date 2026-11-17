@@ -85,21 +85,21 @@
     <mat-card-subtitle>Whether this sector admits its own directory's people and nobody else.</mat-card-subtitle>
   </mat-card-header>
   <mat-card-content>
-    @if (sector.value(); as row) {
+    @if (directoryOnly() !== undefined) {
       <mat-slide-toggle
         class="directory-only"
-        [checked]="row.directoryOnly"
+        [checked]="!!directoryOnly()"
         [disabled]="!canClose() || busy()"
-        (change)="$event.source.checked = !!row.directoryOnly; close($event.checked)">
-        @if (row.directoryOnly) {
+        (change)="$event.source.checked = !!directoryOnly(); close($event.checked)">
+        @if (directoryOnly()) {
           Directory only: only people who sign in through this sector's directory enter this sector.
         } @else {
           Every sign-in admitted: a person seated in this sector enters it however they signed in.
         }
       </mat-slide-toggle>
       @if (!canClose()) {
-        <p class="empty">Headquarters sets this, on the sector record.</p>
-      } @else if (row.directoryOnly) {
+        <p class="empty">A marshal of this sector sets this, in the sector.</p>
+      } @else if (directoryOnly()) {
         <p class="empty kept-out">
           Everyone else seated in this sector is kept out while this is on, and keeps their roles. The People page says
           who they are.
@@ -115,7 +115,7 @@
         </p>
       }
     } @else {
-      <p class="empty">Your role does not cover the sector record, which carries this setting.</p>
+      <p class="empty">Your role does not cover this setting: a marshal of this sector sets it.</p>
     }
   </mat-card-content>
 </mat-card>

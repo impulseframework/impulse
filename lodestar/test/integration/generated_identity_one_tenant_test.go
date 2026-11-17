@@ -366,7 +366,7 @@ func TestGeneratedIdentityOneTenantPerPerson(t *testing.T) {
 			var committed []func(context.Context)
 			_, err := s.db.ReadWriteTransaction(ctx, func(ctx context.Context, tx *spanner.ReadWriteTransaction) error {
 				committed = committed[:0]
-				seated, err := strict.DirectorySeated()(ctx, tx, newcomerID, newcomer, seat)
+				seated, err := strict.DirectorySeated().Seat(ctx, tx, newcomerID, newcomer, seat)
 				if err != nil {
 					return err
 				}

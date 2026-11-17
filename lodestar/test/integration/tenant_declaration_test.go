@@ -307,11 +307,12 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 		t.Fatalf("Anvil's directory once the default role is cleared = %+v, want the row with none", rows)
 	}
 
-	// Headquarters turns Bastion's directory only off, which is plain: the governor,
-	// signed in with a password, does it. The rigger's chart lights Bastion, with
-	// nothing closed, and the bosun signs in. The directory may be removed now.
-	openBastion := `[{"op":"patch","path":"/sectors/` + bastion + `","value":{"directoryOnly":false}}]`
-	if status, body := governor.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(openBastion)); status != http.StatusOK {
+	// Bastion's directory only is turned off with the sector's own method, which is
+	// plain: the governor, a marshal in every sector, signed in with a password, does
+	// it. The rigger's chart lights Bastion, with nothing closed, and the bosun signs
+	// in. The directory may be removed now.
+	setBastion := sectorPath(bastion, "set-sector-directory-only")
+	if status, body := governor.do(ctx, http.MethodPost, setBastion, []byte(`{"directoryOnly":false}`)); status != http.StatusOK {
 		t.Fatalf("turning Bastion's directory only off: status %d: %s", status, body)
 	}
 	if got, want := rigger.domains(ctx), []string{anvil, bastion}; !slices.Equal(got, want) {
@@ -328,8 +329,7 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 	}
 	// With no directory there is nothing to be only of: turning directory only on is
 	// refused, saying what to do first, and Bastion stays as it is.
-	closeBastion := `[{"op":"patch","path":"/sectors/` + bastion + `","value":{"directoryOnly":true}}]`
-	if status, body := governor.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(closeBastion)); status != http.StatusConflict || !strings.Contains(string(body), "This sector has no directory, so it cannot be directory only: nobody could enter it. Set its directory first") {
+	if status, body := governor.do(ctx, http.MethodPost, setBastion, []byte(`{"directoryOnly":true}`)); status != http.StatusConflict || !strings.Contains(string(body), "This sector has no directory, so it cannot be directory only: nobody could enter it. Set its directory first") {
 		t.Errorf("turning directory only on for a sector with no directory: status %d, want 409 saying to set its directory first: %s", status, body)
 	}
 	if got, want := rigger.domains(ctx), []string{anvil, bastion}; !slices.Equal(got, want) {

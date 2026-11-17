@@ -47,7 +47,7 @@ func Cast() (*cast.Cast, error) {
 // last: a run that stops between the two is repeated at the next start, a login another
 // instance made meanwhile carries the same id and the same roles, and the seed never
 // gives a role to an account it did not create. The persona sign-in links the provider's
-// identity to the login of the same name at the first sign-in (invited users only), so a
+// identity to the login of the same name at the first sign-in (seeded users only), so a
 // persona the seed never made is refused there. It answers how many logins it created.
 func (a *Auth) SeedCast(ctx context.Context) (int, error) {
 	cast, err := Cast()

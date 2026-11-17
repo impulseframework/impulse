@@ -817,7 +817,8 @@ r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Ember
 # Who may enter a sector is the record's declaration, data of the application: the
 # sector's directory (SectorDirectories, one row at most: a sign-in method and the
 # connection its identities carry) and whether its people enter through it only
-# (Sectors.directoryOnly). A sector has one directory and a directory belongs to one
+# (Sectors.directoryOnly, turned by the sector's marshal with SetSectorDirectoryOnly). A
+# sector has one directory and a directory belongs to one
 # sector: the seed makes the fleet's Google Workspace (google, example) Cinder's, and
 # makes Bastion directory only with the persona provider of the test environments (oidc,
 # persona) as its directory. A sector's sign-in settings restrict its own door alone: a
@@ -836,13 +837,16 @@ r=$(req client GET "$PORTAL/user-domains"); assert_py "cleo's portal lists Ember
 # super administrator, is signed in through the Workspace: he is refused a second sector
 # for it and a second directory for Bastion, removes it from Cinder, makes it Anvil's with
 # a create that names no directory, and is refused removing Bastion's while Bastion is
-# directory only. Turning directory only off is plain: headquarters does it by password,
-# the rigger's chart lights Bastion and the bosun signs in. Turning it on is held to two
-# rules, each refusal a sentence that says what to do: the sector has its directory, and
-# the person is signed in through that directory themselves. The governor, by password, is
-# refused on the write and on the read a page asks first; the rookie, a persona signed in
-# through the persona provider and made headquarters, is told what it would do, the
-# sentence and the people it names, and turns it on. While it is on, Bastion's list of its
+# directory only. The switch is the sector's own, a method in the sector's scope that its
+# marshal runs; the Sectors record, which headquarters writes, shows the flag and takes
+# no write of it. Turning it off is plain: the governor, a marshal in every sector, does
+# it by password, the rigger's chart lights Bastion and the bosun signs in. Turning it on
+# is held to two rules, each refusal a sentence that says what to do: the sector has its
+# directory, and the person is signed in through that directory themselves. The governor,
+# by password, is refused on the method and on the read a page asks first; the rookie, a
+# persona signed in through the persona provider and made a marshal of Bastion, is told
+# what it would do, the sentence, the count and the people it names to someone who lists
+# the sector's people, and turns it on. While it is on, Bastion's list of its
 # people says who it keeps out. The navigator makes the Workspace Cinder's again, and the
 # governor takes the roles back. A super administrator, the governor, keeps every sector
 # throughout: the one person no sector's sign-in settings shut out. The directory's row
@@ -902,16 +906,22 @@ REMOVE_BASTIONS="[{\"op\":\"remove\",\"path\":\"/sectors/$BASTION_ID/sector-dire
 r=$(req navigator PATCH "$API/resources" "$REMOVE_BASTIONS"); check "removing the directory of a sector that is directory only is refused: its people enter through it alone" 409 "$r"
 assert_py "and the refusal says what to do first" "$r" "'This sector is directory only' in rows['message'] and 'Turn directory only off first, then remove the directory.' in rows['message']"
 r=$(req governor GET "$API/sectors/$BASTION_ID/sector-directories"); assert_py "Bastion keeps its directory" "$r" "len(rows)==1"
-# The switch. While it is on, Bastion's list of its people says who it keeps out, and
-# the read a page asks before turning it on has nothing to turn on.
+# The switch. It is the sector's own: its marshal turns it with the sector's method
+# (SetSectorDirectoryOnly, in the sector's scope) and reads it in the sector, and the
+# global Sectors record shows the flag and never writes it. While it is on, Bastion's
+# list of its people says who it keeps out, and the read a page asks before turning it
+# on has nothing to turn on.
 KEPT_OUT='Has not signed in through persona, so cannot enter while this sector is directory only'
 r=$(req governor GET "$API/sectors/$BASTION_ID/crew-sector-users?limit=200"); assert_py "Bastion's list of its people keeps the rigger, whose row says she cannot enter while Bastion is directory only: the list is made from who holds a role there, not from who can sign in" "$r" "[u.get('cannotEnter') for u in rows if u['username']=='rigger']==['$KEPT_OUT']"
 assert_py "the bosun's and the pilot's rows say so too, and the governor's, a super administrator, says nothing" "$r" "[u.get('cannotEnter') for u in rows if u['username'] in ('bosun','pilot')]==['$KEPT_OUT','$KEPT_OUT'] and [u.get('cannotEnter') for u in rows if u['username']=='governor']==[None]"
-r=$(req governor GET "$API/directory-only?domain=$BASTION_ID"); check "asked what turning it on would do while it is on, the read is refused: there is nothing to turn on" 409 "$r"
+SWITCH="$API/sectors/$BASTION_ID/set-sector-directory-only"
+r=$(req governor GET "$API/sectors/$BASTION_ID/directory-only"); assert_py "the governor, a marshal in every sector, reads Bastion's switch in the sector: it is on" "$r" "rows=={'directoryOnly': True}"
+r=$(req governor GET "$API/sectors/$BASTION_ID/directory-only/consequence"); check "asked what turning it on would do while it is on, the read is refused: there is nothing to turn on" 409 "$r"
 assert_py "and says so, naming neither Bastion's directory nor its people" "$r" "rows['message']=='This sector is directory only already: only people who sign in through its directory enter it. There is nothing to turn on.'"
-OPEN_BASTION='[{"op":"patch","path":"/sectors/'"$BASTION_ID"'","value":{"directoryOnly":false}}]'
-CLOSE_BASTION='[{"op":"patch","path":"/sectors/'"$BASTION_ID"'","value":{"directoryOnly":true}}]'
-r=$(req governor PATCH "$API/resources" "$OPEN_BASTION"); check "headquarters turns Bastion's directory only off, which is plain: the governor does it by password (Update on Sectors, directoryOnly)" 200 "$r"
+r=$(req governor POST "$SWITCH" '{"directoryOnly":false}'); check "the governor turns Bastion's directory only off with the sector's method, which is plain: he does it by password (Execute on SetSectorDirectoryOnly in the sector)" 200 "$r"
+r=$(req governor GET "$API/sectors/$BASTION_ID/directory-only"); assert_py "and the switch reads off" "$r" "rows=={'directoryOnly': False}"
+r=$(req governor PATCH "$API/resources" '[{"op":"patch","path":"/sectors/'"$BASTION_ID"'","value":{"directoryOnly":true}}]'); check "the Sectors record shows the flag and never writes it: a patch of the record that carries it is refused, a super administrator's included" 400 "$r"
+r=$(req governor GET "$API/sectors/$BASTION_ID/directory-only"); assert_py "and nothing was written" "$r" "rows=={'directoryOnly': False}"
 r=$(req rigger GET "$API/user-domains"); assert_py "the rigger's chart lights Bastion at once, with nothing closed" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID'] and $CLOSED == {}"
 r=$(req governor GET "$API/sectors/$BASTION_ID/crew-sector-users?limit=200"); assert_py "and no row of Bastion's people says anything while it is off" "$r" "all(u.get('cannotEnter') is None for u in rows)"
 r=$(curl -s -c "$S/bosun.jar" -b "$S/bosun.jar" -H "X-XSRF-TOKEN: $(xsrf bosun)" -H 'Content-Type: application/json' -d '{"username":"bosun","password":"lodestar"}' -w '\n%{http_code}' "$API/user/password/login")
@@ -921,32 +931,36 @@ r=$(req bosun GET "$API/user/session"); assert_py "and the bosun signs in" "$r" 
 # Turning it on is held to its rules. The governor holds the grant and signed in with a
 # password: he is not signed in through Bastion's directory.
 NOT_THROUGH_IT='Directory only is turned on by a person who is signed in through this sector'"'"'s directory, OpenID Connect provider persona: that shows the directory works, and that you will not shut yourself out. You signed in with a password. Sign in through OpenID Connect provider persona and try again.'
-r=$(req governor GET "$API/directory-only?domain=$BASTION_ID"); check "the governor asks what turning it on would do, and is refused: he is not signed in through Bastion's directory" 409 "$r"
+r=$(req governor GET "$API/sectors/$BASTION_ID/directory-only/consequence"); check "the governor asks what turning it on would do, and is refused: he is not signed in through Bastion's directory" 409 "$r"
 assert_py "in a sentence that says why, and what to do" "$r" "rows['message']==\"$NOT_THROUGH_IT\""
-r=$(req governor PATCH "$API/resources" "$CLOSE_BASTION"); check "and the write is refused the same way: turning directory only on takes a person signed in through the sector's directory" 409 "$r"
+r=$(req governor POST "$SWITCH" '{"directoryOnly":true}'); check "and the method is refused the same way: turning directory only on takes a person signed in through the sector's directory" 409 "$r"
 assert_py "in the same words" "$r" "\"$NOT_THROUGH_IT\" in rows['message']"
 r=$(req rigger GET "$API/user-domains"); assert_py "nothing was written: the rigger still charts Bastion" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID']"
-r=$(req governor GET "$API/directory-only?domain=$DAWN_ID"); check "a sector with no directory cannot be directory only: Dawn has none" 409 "$r"
+r=$(req governor GET "$API/sectors/$DAWN_ID/directory-only/consequence"); check "a sector with no directory cannot be directory only: Dawn has none" 409 "$r"
 assert_py "and the refusal says to set its directory first" "$r" "'This sector has no directory, so it cannot be directory only: nobody could enter it. Set its directory first' in rows['message']"
-r=$(req governor PATCH "$API/resources" '[{"op":"patch","path":"/sectors/'"$DAWN_ID"'","value":{"directoryOnly":true}}]'); check "and the write is refused the same way" 409 "$r"
-r=$(req rigger GET "$API/directory-only?domain=$BASTION_ID"); check "the rigger holds no Update on the sector record: the read is refused by her grants, before any rule answers" 403 "$r"
+r=$(req governor POST "$API/sectors/$DAWN_ID/set-sector-directory-only" '{"directoryOnly":true}'); check "and the method is refused the same way" 409 "$r"
+r=$(req rigger GET "$API/sectors/$BASTION_ID/directory-only/consequence"); check "the rigger holds no grant on the sector's method: the read is refused by her grants, before any rule answers" 403 "$r"
+r=$(req rigger POST "$SWITCH" '{"directoryOnly":true}'); check "and so is the method" 403 "$r"
 # The rookie is a persona of the cast: his session came through the persona provider,
-# Bastion's directory. Made headquarters, he holds the grant and is signed in through it.
+# Bastion's directory. Made a marshal of Bastion, he holds the sector's method and is
+# signed in through its directory.
 login_through rookie "$API/user/persona/login?returnUrl=/console/dashboard" "$API/user/session"
 r=$(req rookie GET "$API/user/session"); assert_py "the rookie is signed in through the persona provider, an organization's directory to the sign-in rule" "$r" "rows['authenticated'] and rows['username']=='rookie' and rows['directory']=={'method':'oidc','connection':'persona'}"
 r=$(req governor GET "$API/crew-session-users?limit=200"); ROOKIE_ID=$(body "$r" | py "print([u['id'] for u in rows if u['username']=='rookie'][0])")
-r=$(req rookie GET "$API/directory-only?domain=$BASTION_ID"); check "a cadet holds no Update on the sector record: refused by his grants" 403 "$r"
-r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$ROOKIE_ID\",\"role\":\"Headquarters\"}"); check "the governor makes the rookie headquarters" 204 "$r"
-r=$(req rookie GET "$API/directory-only?domain=$BASTION_ID"); check "the rookie, signed in through Bastion's directory, asks what turning it on would do" 200 "$r"
-assert_py "the server writes the words: who will be able to enter, how many seated there will not, and what the button says" "$r" "rows['sentence']=='Only people who sign in through persona will be able to enter this sector. %d people seated here sign in another way and will lose access.' % len(rows['people']) and rows['confirm']=='Admit only people who sign in through persona'"
-assert_py "and names them, by username: the rigger, the bosun and the pilot among them, and neither the rookie, who signed in through the directory, nor the governor, a super administrator" "$r" "[p['username'] for p in rows['people']]==sorted(p['username'] for p in rows['people']) and {'rigger','bosun','pilot'} <= {p['username'] for p in rows['people']} and not {'rookie','governor'} & {p['username'] for p in rows['people']}"
+r=$(req rookie GET "$API/sectors/$BASTION_ID/directory-only/consequence"); check "a cadet holds no grant on the sector's method: refused by his grants, though he is signed in through its directory" 403 "$r"
+r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$ROOKIE_ID\",\"role\":\"SectorMarshal\",\"domain\":\"$BASTION_ID\"}"); check "the governor makes the rookie a marshal of Bastion alone: headquarters names a sector's marshal, which a marshal cannot" 204 "$r"
+r=$(req rookie POST "$SWITCH" '{}'); check "a body that does not say which way turns nothing" 400 "$r"
+r=$(req rookie GET "$API/sectors/$BASTION_ID/directory-only/consequence"); check "the rookie, signed in through Bastion's directory, asks what turning it on would do" 200 "$r"
+assert_py "the server writes the words: who will be able to enter, how many seated there will not, and what the button says" "$r" "rows['sentence']=='Only people who sign in through persona will be able to enter this sector. %d people seated here sign in another way and will lose access.' % rows['count'] and rows['count']>=len(rows['people']) and rows['confirm']=='Admit only people who sign in through persona'"
+assert_py "and names them to him, since a marshal lists the sector's people, by username: the rigger, the bosun and the pilot among them, and neither the rookie, who signed in through the directory, nor the governor, a super administrator" "$r" "[p['username'] for p in rows['people']]==sorted(p['username'] for p in rows['people']) and {'rigger','bosun','pilot'} <= {p['username'] for p in rows['people']} and not {'rookie','governor'} & {p['username'] for p in rows['people']}"
 r=$(req rigger GET "$API/user-domains"); assert_py "the read writes nothing: the rigger still charts Bastion" "$r" "$OPEN == ['$ANVIL_ID','$BASTION_ID']"
-r=$(req rookie PATCH "$API/resources" "$CLOSE_BASTION"); check "the rookie turns Bastion's directory only on: he is signed in through its directory" 200 "$r"
+r=$(req rookie POST "$SWITCH" '{"directoryOnly":true}'); check "the rookie turns Bastion's directory only on with the sector's method: he is its marshal, signed in through its directory" 200 "$r"
+r=$(req governor GET "$API/sectors/$BASTION_ID"); assert_py "and the Sectors record shows the flag" "$r" "rows['directoryOnly'] is True"
 r=$(req rigger GET "$API/user-domains"); assert_py "the rigger is kept out again at once, and her chart says why" "$r" "$OPEN == ['$ANVIL_ID'] and $CLOSED == {'$BASTION_ID': '$BY_PASSWORD'}"
 r=$(req bosun GET "$API/user-domains"); assert_py "the bosun's chart goes dark: the session stands, and reaches no sector, with Bastion closed" "$r" "$OPEN == [] and $CLOSED == {'$BASTION_ID': '$BY_PASSWORD'}"
 r=$(req rookie GET "$API/user-domains"); assert_py "the rookie, through Bastion's directory, enters it, and every other sector however he signed in" "$r" "$OPEN == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $CLOSED == {}"
 r=$(req rookie GET "$API/sectors/$BASTION_ID/missions"); check "Bastion's missions answer him" 200 "$r"
-r=$(req governor POST "$API/remove-crew-role" "{\"userId\":\"$ROOKIE_ID\",\"role\":\"Headquarters\"}"); check "the governor takes headquarters back from the rookie" 204 "$r"
+r=$(req governor POST "$API/remove-crew-role" "{\"userId\":\"$ROOKIE_ID\",\"role\":\"SectorMarshal\",\"domain\":\"$BASTION_ID\"}"); check "the governor takes the marshal's role back from the rookie" 204 "$r"
 r=$(req navigator PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$ANVIL_ID/sector-directories/$ANVIL_DIRECTORY\"}]"); check "the navigator removes Anvil's directory: Anvil is not directory only, and the Workspace is free again" 200 "$r"
 r=$(req navigator PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$CINDER_ID"'/sector-directories","value":{}}]'); check "the navigator makes the fleet's Workspace Cinder's directory again" 200 "$r"
 r=$(req governor GET "$API/sectors/$CINDER_ID/sector-directories"); assert_py "a row set from a sign-in names no default seat: a stranger from the fleet's directory is admitted by invitation only until one is named" "$r" "[(d['method'],d['connection'],d.get('defaultSeat')) for d in rows]==[('google','example',None)]"

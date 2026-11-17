@@ -669,8 +669,7 @@
               "fields": [
                 "name",
                 "region",
-                "established",
-                "directoryOnly"
+                "established"
               ]
             },
             {
@@ -2045,6 +2044,9 @@
             {
               "resource": "TakeCrewSectorGroupRole",
               "condition": "role != 'SectorMarshal'"
+            },
+            {
+              "resource": "SetSectorDirectoryOnly"
             }
           ]
         }
