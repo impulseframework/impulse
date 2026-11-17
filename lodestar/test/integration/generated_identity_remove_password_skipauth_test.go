@@ -4,6 +4,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -137,7 +138,7 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 		}
 	}
 	// The password no longer signs the pilot in, and the refusal is a wrong password's.
-	if status, body := stranger.login(ctx, "pilot", personaPassword); status != wrongStatus || string(body) != string(wrongBody) {
+	if status, body := stranger.login(ctx, "pilot", personaPassword); status != wrongStatus || !bytes.Equal(body, wrongBody) {
 		t.Errorf("the pilot's password after the removal: status %d %s, want what a wrong password gets: %d %s", status, body, wrongStatus, wrongBody)
 	}
 	// The directory signs the pilot in, by the link, with nothing left to confirm.
@@ -206,7 +207,7 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 	if sess := marshal.session(ctx); sess["authenticated"] != true || sess["username"] != "marshal" {
 		t.Errorf("the marshal's session after their own removal = %v, want it to stand", sess)
 	}
-	if status, body := stranger.login(ctx, "marshal", personaPassword); status != wrongStatus || string(body) != string(wrongBody) {
+	if status, body := stranger.login(ctx, "marshal", personaPassword); status != wrongStatus || !bytes.Equal(body, wrongBody) {
 		t.Errorf("the marshal's password after the removal: status %d %s, want what a wrong password gets: %d %s", status, body, wrongStatus, wrongBody)
 	}
 }

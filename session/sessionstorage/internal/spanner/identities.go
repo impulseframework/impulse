@@ -464,6 +464,10 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID im
 	return nil
 }
 
+// passwordHashColumn is the users table's column that holds a password's hash, which a
+// removal of the password writes empty.
+const passwordHashColumn = "PasswordHash"
+
 // RemoveUserPassword removes a user's password, and with it the mark that the user must
 // change it, refusing to remove the last means of sign-in of a user that has no
 // identity. The user's sessions stand. A user that holds no password is a BadRequest.
@@ -494,7 +498,7 @@ func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID im
 			return httpio.NewConflictMessageWithError(dbtype.ErrLastSignInMethod, "the user has no other means of sign-in: link a directory sign-in first")
 		}
 
-		removal := spanner.UpdateMap(s.userTableName, map[string]any{idColumn: userID, "PasswordHash": spanner.NullString{}, "PasswordChangeRequired": false})
+		removal := spanner.UpdateMap(s.userTableName, map[string]any{idColumn: userID, passwordHashColumn: spanner.NullString{}, "PasswordChangeRequired": false})
 		if err := txn.BufferWrite([]*spanner.Mutation{removal}); err != nil {
 			return errors.Wrap(err, "txn.BufferWrite()")
 		}

@@ -323,6 +323,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "concurrent first sign-ins of one identity through a provisioning resolver all succeed and provision it once", run: testConcurrentFirstProvision},
 		{name: "links are managed outside sign-in, and the last means of sign-in stays", run: testLinkManagement},
 		{name: "a password is removed from a user that has an identity, with its change mark, and stays as the last means of sign-in", run: testPasswordRemoval},
+		{name: "a password's removal and the unlinking of the user's one identity, asked at once, leave the user one of the two", run: testPasswordRemovalRacesUnlink},
 		{name: "deleting a user deletes its identity links with it", run: testDeleteUserDeletesLinks},
 		{name: "DestroyUserSessions expires the user's sessions by UserId", run: testDestroyUserSessions},
 		{name: "AppendAuthEvent records a step-up after the sign-in", run: testAppendAuthEvent},

@@ -847,6 +847,58 @@ func testPasswordRemoval(ctx context.Context, t *testing.T, h *AuthHarness) {
 	}
 }
 
+// testPasswordRemovalRacesUnlink holds the two refusals to each other. A user who holds
+// a password and one identity may lose either, and never both: the removal of the
+// password reads the identities and the unlinking reads the password, so the two, asked
+// at once, must run one at a time. One goes through, the other is refused as the user's
+// last means of sign-in, and the user is left with exactly one of the two. Several users
+// are raced, since one race may fall the right way by chance.
+func testPasswordRemovalRacesUnlink(ctx context.Context, t *testing.T, h *AuthHarness) {
+	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
+
+	const rounds = 12
+	for round := range rounds {
+		user := passwordUser(ctx, t, in.Driver, fmt.Sprintf("race-%d@lakeside.edu", round))
+		link := mustLink(ctx, t, in.Driver, user.ID, lakeside(fmt.Sprintf("idp_race_%d", round)))
+
+		var (
+			wg        sync.WaitGroup
+			removeErr error
+			unlinkErr error
+		)
+		wg.Go(func() {
+			removeErr = in.Driver.RemoveUserPassword(ctx, user.ID)
+		})
+		wg.Go(func() {
+			unlinkErr = in.Driver.UnlinkIdentity(ctx, link.ID)
+		})
+		wg.Wait()
+
+		refused := 0
+		for _, err := range []error{removeErr, unlinkErr} {
+			if errors.Is(err, dbtype.ErrLastSignInMethod) {
+				refused++
+			} else if err != nil {
+				t.Fatalf("round %d: RemoveUserPassword() error = %v, UnlinkIdentity() error = %v; want each to go through or be refused as the last means of sign-in", round, removeErr, unlinkErr)
+			}
+		}
+		if refused != 1 {
+			t.Errorf("round %d: RemoveUserPassword() error = %v, UnlinkIdentity() error = %v; want exactly one of the two refused", round, removeErr, unlinkErr)
+		}
+		left, err := in.Driver.User(ctx, user.ID)
+		if err != nil {
+			t.Fatalf("User() error = %v", err)
+		}
+		links, err := in.Driver.IdentitiesByUser(ctx, user.ID)
+		if err != nil {
+			t.Fatalf("IdentitiesByUser() error = %v", err)
+		}
+		if means := len(links); left.PasswordHash != nil && means != 0 || left.PasswordHash == nil && means != 1 {
+			t.Errorf("round %d: the user is left with a password = %t and %d identities, want exactly one means of sign-in", round, left.PasswordHash != nil, means)
+		}
+	}
+}
+
 func testDeleteUserDeletesLinks(ctx context.Context, t *testing.T, h *AuthHarness) {
 	in := h.New(ctx, t, Auth, AuthConfig{Auth: true})
 	sso := createUser(ctx, t, in.Driver, "gone@lakeside.edu")

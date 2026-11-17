@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"bytes"
 	"context"
 	"net/http"
 	"net/url"
@@ -88,7 +89,7 @@ func seamPasswordRemoval[Tx any](ctx context.Context, t *testing.T, a *authApp[T
 	wrongStatus, _, wrongBody := a.browser(t).primed(ctx).postLogin(ctx, "sam@lakeside.edu", "wrong")
 	for attempt := range 2 {
 		status, _, body := a.browser(t).primed(ctx).postLogin(ctx, "pat@lakeside.edu", seedPassword)
-		if status != http.StatusUnauthorized || status != wrongStatus || string(body) != string(wrongBody) {
+		if status != http.StatusUnauthorized || status != wrongStatus || !bytes.Equal(body, wrongBody) {
 			t.Errorf("password login %d after the removal = %d %s, want what a wrong password gets: %d %s", attempt+1, status, body, wrongStatus, wrongBody)
 		}
 	}
