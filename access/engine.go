@@ -105,4 +105,20 @@ type policyStore interface {
 	removeScopeWideGrant(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, perm accesstypes.Permission) error
 	roleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error)
 	roleGrantConditions(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (map[accesstypes.Permission]map[accesstypes.Resource][]string, error)
+
+	// Groups of people, their members and the roles each holds (groups.go).
+	addGroup(ctx context.Context, group *policy.GroupRow) (taken bool, err error)
+	describeGroup(ctx context.Context, group accesstypes.Group, description string) (bool, error)
+	deleteGroup(ctx context.Context, group accesstypes.Group) (bool, error)
+	group(ctx context.Context, group accesstypes.Group) (*policy.GroupRow, bool, error)
+	groups(ctx context.Context, scope accesstypes.PolicyScope) ([]policy.GroupRow, error)
+	userGroups(ctx context.Context, user accesstypes.User) ([]policy.GroupRow, error)
+	addGroupUser(ctx context.Context, group accesstypes.Group, user accesstypes.User) error
+	deleteGroupUser(ctx context.Context, group accesstypes.Group, user accesstypes.User) error
+	groupUsers(ctx context.Context, group accesstypes.Group) ([]accesstypes.User, error)
+	addGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) error
+	deleteGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) error
+	groupRoles(ctx context.Context, group accesstypes.Group) ([]policy.Membership, error)
+	// userGroupRoles lists every role held by a group the user is in.
+	userGroupRoles(ctx context.Context, user accesstypes.User) ([]policy.GroupRole, error)
 }

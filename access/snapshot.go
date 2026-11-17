@@ -656,8 +656,10 @@ func (s *snapshot) decide(grants grantMap, permID uint16, resource accesstypes.R
 // into an immutable snapshot, and reports what the store holds that this
 // release cannot use as written: a grant it skipped (SkippedGrant), a custom
 // role a default of the same name shadows, whose grants it skipped
-// (ShadowedRole), and memberships naming a role that is neither a default nor
-// a custom role in their scope, which grant nothing (OrphanedMembership). The
+// (ShadowedRole), a role a group holds that its members are not given
+// (SkippedGroupRole), and memberships naming a role that is neither a default
+// nor a custom role in their scope, which grant nothing (OrphanedMembership),
+// a person's own and the ones a group gives alike. The
 // findings are sorted for a stable report. defaults and collection may be
 // nil: no default roles, and grant names unchecked.
 func newSnapshot(records *policy.Records, defaults *defaultRoles, collection PermissionCollection, loadedAt time.Time) (*snapshot, []policyFinding, error) {
@@ -681,7 +683,11 @@ func newSnapshot(records *policy.Records, defaults *defaultRoles, collection Per
 	for _, g := range skipped {
 		findings = append(findings, g)
 	}
-	memberships, orphaned := resolvedMemberships(records.Memberships, defaults, customs)
+	// A group's roles become its members' before anything reads a membership:
+	// from here on the compiler knows people and roles alone.
+	folded, skippedRoles := foldGroups(records)
+	findings = append(findings, skippedRoles...)
+	memberships, orphaned := resolvedMemberships(folded, defaults, customs)
 	findings = append(findings, orphaned...)
 	sortFindings(findings)
 

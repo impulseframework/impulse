@@ -132,6 +132,22 @@ func TestDDL_keys(t *testing.T) {
 			`PRIMARY KEY ("Kind", "Axis", "DomainId", "Role", "Permission", "Resource", "Field", "Condition")`,
 			`FOREIGN KEY ("Kind", "Axis", "DomainId", "Role") REFERENCES "AccessRoles" ("Kind", "Axis", "DomainId", "Role") ON DELETE CASCADE`,
 		}},
+		{name: "groups are kept globally or in one domain", stmt: 4, want: []string{
+			`"Id" TEXT NOT NULL`, `"Name" TEXT NOT NULL`, `"Description" TEXT NOT NULL`,
+			`CONSTRAINT "AccessGroupsKind" CHECK ("Kind" IN ('global', 'domain'))`,
+			`PRIMARY KEY ("Id")`,
+		}},
+		{name: "a group's name is one group's where it is kept", stmt: 5, want: []string{`CREATE UNIQUE INDEX "AccessGroupsByName" ON "AccessGroups" ("Kind", "Axis", "DomainId", "Name")`}},
+		{name: "a member needs the group", stmt: 6, want: []string{
+			`CONSTRAINT "AccessGroupMembersGroup" FOREIGN KEY ("GroupId") REFERENCES "AccessGroups" ("Id")`,
+			`PRIMARY KEY ("GroupId", "UserId")`,
+		}},
+		{name: "group members by user", stmt: 7, want: []string{`CREATE INDEX "AccessGroupMembersByUserId" ON "AccessGroupMembers" ("UserId", "GroupId")`}},
+		{name: "a group's role needs the group", stmt: 8, want: []string{
+			`CONSTRAINT "AccessGroupRolesKind" CHECK ("Kind" IN ('global', 'domain', 'every'))`,
+			`CONSTRAINT "AccessGroupRolesGroup" FOREIGN KEY ("GroupId") REFERENCES "AccessGroups" ("Id")`,
+			`PRIMARY KEY ("GroupId", "Kind", "Axis", "DomainId", "Role")`,
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

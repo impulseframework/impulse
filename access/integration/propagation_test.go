@@ -189,6 +189,50 @@ func Test_Client_policyPropagation(t *testing.T) {
 			if got := len(channel.Signals()); (got > 0) != tt.withSignal {
 				t.Fatalf("channel saw %d signals, want some = %v", got, tt.withSignal)
 			}
+
+			// A group's changes travel the same way: a person put in a group
+			// holds the group's role on the other instance, a role taken from
+			// the group is lost there, and so is the role of a person who
+			// leaves the group.
+			reads := func(client *access.Client, user accesstypes.User) bool {
+				decisions, err := client.CheckUserResources(ctx, env, user, tenant1, "Read", "employees")
+				if err != nil {
+					t.Fatalf("CheckUserResources(%s) error = %v", user, err)
+				}
+
+				return decisions["employees"].IsGranted()
+			}
+			group, err := mgr.AddGroup(ctx, tenant1Policy, "Night shift", "The people who work after dark.")
+			if err != nil {
+				t.Fatalf("AddGroup() error = %v", err)
+			}
+			if err := mgr.AddGroupRoles(ctx, group, tenant1Policy, "Editor"); err != nil {
+				t.Fatalf("AddGroupRoles() error = %v", err)
+			}
+			if err := mgr.AddGroupUsers(ctx, group, "gale", "hugo"); err != nil {
+				t.Fatalf("AddGroupUsers() error = %v", err)
+			}
+			if !reads(writer, "gale") {
+				t.Fatal("the writer does not see its own group's role at once")
+			}
+			waitFor(t, 15*time.Second, "a group's members never held its role on the reader instance", func() bool {
+				return reads(reader, "gale") && reads(reader, "hugo")
+			})
+			if err := mgr.DeleteGroupUsers(ctx, group, "hugo"); err != nil {
+				t.Fatalf("DeleteGroupUsers() error = %v", err)
+			}
+			waitFor(t, 15*time.Second, "a person who left the group kept its role on the reader instance", func() bool {
+				return !reads(reader, "hugo") && reads(reader, "gale")
+			})
+			if err := mgr.DeleteGroupRoles(ctx, group, tenant1Policy, "Editor"); err != nil {
+				t.Fatalf("DeleteGroupRoles() error = %v", err)
+			}
+			waitFor(t, 15*time.Second, "a role taken from the group stayed with its member on the reader instance", func() bool {
+				return !reads(reader, "gale")
+			})
+			if !reads(reader, "erin") {
+				t.Error("erin, who holds the role by her own membership, lost it with the group's")
+			}
 		})
 	}
 }

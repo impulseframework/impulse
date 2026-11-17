@@ -168,9 +168,10 @@ func (u *userManager) DeleteUserRoles(ctx context.Context, scope accesstypes.Pol
 	return nil
 }
 
-// UserRoles returns user's memberships as stored, keyed by where each is
-// held: every membership with no scopes given, the memberships held in each
-// given scope otherwise.
+// UserRoles returns the roles user holds, keyed by where each is held: the
+// memberships of their own, as stored, and the roles of every group they are
+// in (heldThroughGroups). Every place with no scopes given, the roles held in
+// each given scope otherwise.
 func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, scopes ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -184,8 +185,6 @@ func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, scop
 		for _, m := range memberships {
 			userRoles[m.Scope] = append(userRoles[m.Scope], m.Role)
 		}
-
-		return userRoles, nil
 	}
 
 	for _, scope := range scopes {
@@ -195,6 +194,9 @@ func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, scop
 		}
 
 		userRoles[scope] = roles
+	}
+	if err := u.heldThroughGroups(ctx, user, userRoles, scopes); err != nil {
+		return nil, err
 	}
 
 	return userRoles, nil

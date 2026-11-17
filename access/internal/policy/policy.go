@@ -20,19 +20,21 @@ import (
 // SubjectKind discriminates who a grant or membership row refers to.
 type SubjectKind uint8
 
-// The two subject kinds: a role or a user.
+// The three subject kinds: a role, a user, or a group of people.
 const (
 	SubjectRole SubjectKind = iota
 	SubjectUser
+	SubjectGroup
 )
 
 // Subject is a grant target or membership holder. The typed stores only ever
-// produce role grant subjects and user members; the compiler additionally
-// supports user-direct grants and role-to-role membership (inheritance), so
-// the record model does too.
+// produce role grant subjects, and user and group members; the compiler
+// additionally supports user-direct grants and role-to-role membership
+// (inheritance), so the record model does too. A group is named by the id the
+// store keeps it under.
 type Subject struct {
 	Kind SubjectKind
-	Name string // bare (unprefixed) role or user name
+	Name string // bare (unprefixed) role or user name, or a group's id
 }
 
 // Grant is one normalized permission grant, held where its Scope says: the
@@ -62,9 +64,10 @@ type Grant struct {
 }
 
 // Membership is one normalized role membership, held where its Scope says.
-// Member is usually a user; a role member expresses role inheritance, which
-// the compiler folds at load time. The typed stores only ever produce user
-// members.
+// Member is usually a user. A group member is a role a group of people holds,
+// which the compiler folds at load time into a membership of each person in
+// the group; a role member expresses role inheritance, folded at load time
+// too. The typed stores produce user and group members.
 type Membership struct {
 	Scope  accesstypes.PolicyScope
 	Member Subject
@@ -89,11 +92,46 @@ type RoleRow struct {
 	Description string
 }
 
+// Group is one group of people: the id the store keeps it under and where it
+// is kept, the global partition or one tenant domain. A group is never kept in
+// every domain. Its name and description are not policy: the snapshot compiler
+// never reads them, so the record does not carry them and GroupRow does.
+type Group struct {
+	ID    accesstypes.Group
+	Scope accesstypes.PolicyScope
+}
+
+// GroupRow is one group as a store lists it: the record and the words people
+// read it by.
+type GroupRow struct {
+	Group
+
+	Name        string
+	Description string
+}
+
+// GroupMember is one person's place in a group.
+type GroupMember struct {
+	Group accesstypes.Group
+	User  accesstypes.User
+}
+
+// GroupRole is one role a group holds, with the group it belongs to as a
+// store's join returns it: the shape of the listing of what a person holds
+// through the groups they are in.
+type GroupRole struct {
+	Group Group
+	Scope accesstypes.PolicyScope
+	Role  accesstypes.Role
+}
+
 // Records is a reader's complete, store-agnostic output.
 type Records struct {
-	Grants      []Grant
-	Memberships []Membership
-	Roles       []Role
+	Grants       []Grant
+	Memberships  []Membership
+	Roles        []Role
+	Groups       []Group
+	GroupMembers []GroupMember
 }
 
 // RoleGrant is one stored grant row scoped to an already-known (scope, role):
@@ -116,6 +154,10 @@ func (r *Records) Hash() [sha256.Size]byte {
 	slices.SortFunc(memberships, compareMemberships)
 	roles := slices.Clone(r.Roles)
 	slices.SortFunc(roles, compareRoles)
+	groups := slices.Clone(r.Groups)
+	slices.SortFunc(groups, compareGroups)
+	members := slices.Clone(r.GroupMembers)
+	slices.SortFunc(members, compareGroupMembers)
 
 	h := sha256.New()
 	for _, g := range grants {
@@ -139,6 +181,16 @@ func (r *Records) Hash() [sha256.Size]byte {
 		hashString(h, "r")
 		hashScope(h, role.Scope)
 		hashString(h, string(role.Name))
+	}
+	for _, group := range groups {
+		hashString(h, "G")
+		hashString(h, string(group.ID))
+		hashScope(h, group.Scope)
+	}
+	for _, member := range members {
+		hashString(h, "M")
+		hashString(h, string(member.Group))
+		hashString(h, string(member.User))
 	}
 
 	return [sha256.Size]byte(h.Sum(nil))
@@ -167,6 +219,14 @@ func compareMemberships(a, b Membership) int {
 
 func compareRoles(a, b Role) int {
 	return cmpChain(CompareScopes(a.Scope, b.Scope), strings.Compare(string(a.Name), string(b.Name)))
+}
+
+func compareGroups(a, b Group) int {
+	return cmpChain(strings.Compare(string(a.ID), string(b.ID)), CompareScopes(a.Scope, b.Scope))
+}
+
+func compareGroupMembers(a, b GroupMember) int {
+	return cmpChain(strings.Compare(string(a.Group), string(b.Group)), strings.Compare(string(a.User), string(b.User)))
 }
 
 // CompareScopes orders two places policy is held by their stored column
@@ -224,6 +284,30 @@ func ScopeFromColumns(kind, axis, domain string) (accesstypes.PolicyScope, error
 	default:
 		return accesstypes.PolicyScope{}, errors.Newf("row is held in kind %q, which is not global, domain or every", kind)
 	}
+}
+
+// GroupColumns decomposes where a group is kept into the column triple the
+// stores persist, as ScopeColumns does for a membership. A group is kept in the
+// global partition or in one domain: every domain is refused, since a group
+// kept in every tenant would be every tenant's to manage and nobody's.
+func GroupColumns(s accesstypes.PolicyScope) (kind, axis, domain string, err error) {
+	if s.IsEveryDomain() {
+		return "", "", "", errors.New("a group is kept for the whole application or in one tenant, never in every tenant")
+	}
+	kind, axis, domain = ScopeColumns(s)
+
+	return kind, axis, domain, nil
+}
+
+// GroupFromColumns reassembles where a group is kept from its stored column
+// triple, refusing what ScopeFromColumns refuses and the every-domain kind,
+// which no store writes for a group.
+func GroupFromColumns(kind, axis, domain string) (accesstypes.PolicyScope, error) {
+	if kind == KindEvery {
+		return accesstypes.PolicyScope{}, errors.Newf("a group row is kept in kind %q, and a group is kept globally or in one domain", kind)
+	}
+
+	return ScopeFromColumns(kind, axis, domain)
 }
 
 // cmpChain returns the first non-zero comparison result.

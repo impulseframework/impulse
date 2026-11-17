@@ -50,6 +50,8 @@ type fakeStore struct {
 	roles       map[fakeRoleKey]string
 	memberships map[fakeMembership]bool
 	grants      map[fakeGrant]bool
+	// groups are the groups of people (fake_store_groups_test.go).
+	groups fakeGroups
 	// batchWrites counts InsertGrants calls, so tests can pin that a bulk
 	// write reached the store as one call.
 	batchWrites int
@@ -108,6 +110,7 @@ func (f *fakeStore) ReadPolicy(_ context.Context) (*policy.Records, error) {
 			Role:   m.role,
 		})
 	}
+	f.groupRecords(records)
 
 	return records, nil
 }

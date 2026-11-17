@@ -5,7 +5,8 @@
 // Spanner-backed deployments.
 //
 // Each Store owns three tables named {Prefix}{Store}{Roles|UserRoles|
-// RoleGrants} — defaults yield AccessRoles, AccessUserRoles, AccessRoleGrants.
+// RoleGrants} — defaults yield AccessRoles, AccessUserRoles, AccessRoleGrants —
+// and the three of the groups of people (groups.go).
 // Rows are partitioned by where the policy is held, persisted as the
 // structural column triple ("Kind", "Axis", "DomainId"): Kind names the global
 // partition, one domain or every domain — never a distinguished domain value
@@ -68,6 +69,16 @@ type tableNames struct {
 	rawUserRoles  string
 	rawRoleGrants string
 	rawUserIndex  string
+
+	groups       string
+	groupMembers string
+	groupRoles   string
+
+	rawGroups            string
+	rawGroupMembers      string
+	rawGroupRoles        string
+	rawGroupsByName      string
+	rawGroupMembersIndex string
 }
 
 func resolveNames(opts []Option) (tableNames, error) {
@@ -84,7 +95,16 @@ func resolveNames(opts []Option) (tableNames, error) {
 		rawUserRoles:  tables.UserRoles,
 		rawRoleGrants: tables.RoleGrants,
 		rawUserIndex:  tables.UserRolesByUserID,
+
+		rawGroups:            tables.Groups,
+		rawGroupMembers:      tables.GroupMembers,
+		rawGroupRoles:        tables.GroupRoles,
+		rawGroupsByName:      tables.GroupsByName,
+		rawGroupMembersIndex: tables.GroupMembersByUserID,
 	}
+	n.groups = pgx.Identifier{n.rawGroups}.Sanitize()
+	n.groupMembers = pgx.Identifier{n.rawGroupMembers}.Sanitize()
+	n.groupRoles = pgx.Identifier{n.rawGroupRoles}.Sanitize()
 	n.roles = pgx.Identifier{n.rawRoles}.Sanitize()
 	n.userRoles = pgx.Identifier{n.rawUserRoles}.Sanitize()
 	n.roleGrants = pgx.Identifier{n.rawRoleGrants}.Sanitize()
@@ -116,6 +136,9 @@ type Store struct {
 	sqlReadRoles           string
 	sqlReadGrants          string
 	sqlReadMemberships     string
+
+	// groups are the statements of the group tables (groups.go).
+	groups groupStatements
 }
 
 // New creates a Store on the application's existing pool. It validates the
@@ -151,6 +174,8 @@ func New(pool *pgxpool.Pool, opts ...Option) (*Store, error) {
 		sqlReadRoles:       fmt.Sprintf(`select "Kind", "Axis", "DomainId", "Role" from %s`, names.roles),
 		sqlReadGrants:      fmt.Sprintf(`select "Kind", "Axis", "DomainId", "Role", "Permission", "Resource", "Field", "Condition" from %s`, names.roleGrants),
 		sqlReadMemberships: fmt.Sprintf(`select "Kind", "Axis", "DomainId", "UserId", "Role" from %s`, names.userRoles),
+
+		groups: newGroupStatements(&names),
 	}, nil
 }
 
@@ -167,7 +192,7 @@ func (s *Store) DDL() []string {
 		return fmt.Sprintf(`CONSTRAINT %s CHECK ("Kind" IN ('%s', '%s', '%s'))`, quote(rawTable+"Kind"), policy.KindGlobal, policy.KindDomain, policy.KindEvery)
 	}
 
-	return []string{
+	return append([]string{
 		fmt.Sprintf(`CREATE TABLE %s (
   "Kind" TEXT NOT NULL,
   "Axis" TEXT NOT NULL,
@@ -203,11 +228,11 @@ func (s *Store) DDL() []string {
   FOREIGN KEY ("Kind", "Axis", "DomainId", "Role") REFERENCES %s ("Kind", "Axis", "DomainId", "Role") ON DELETE CASCADE,
   %s
 )`, n.roleGrants, n.roles, kindCheck(n.rawRoleGrants)),
-	}
+	}, s.groupDDL()...)
 }
 
-// ReadPolicy reads roles, grants and memberships inside one repeatable-read
-// transaction, so the row sets observe the same store state.
+// ReadPolicy reads roles, grants, memberships and the groups of people inside
+// one repeatable-read transaction, so the row sets observe the same store state.
 func (s *Store) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
@@ -283,6 +308,9 @@ func (s *Store) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 	})
 	if err != nil {
 		return nil, errors.Wrap(err, "pgx.CollectRows() memberships")
+	}
+	if err := s.readGroups(ctx, tx, records); err != nil {
+		return nil, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {

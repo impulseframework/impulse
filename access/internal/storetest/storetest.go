@@ -68,6 +68,7 @@ func Run(t *testing.T, store access.Store) {
 	t.Run("change grants", func(t *testing.T) { runChangeGrants(t, store) })
 	t.Run("global and every domain", func(t *testing.T) { runPartitions(t, store) })
 	t.Run("delete role", func(t *testing.T) { runDeleteRole(t, store) })
+	t.Run("groups", func(t *testing.T) { runGroups(t, store) })
 	t.Run("read policy", func(t *testing.T) { runReadPolicy(t, store) })
 }
 
@@ -593,6 +594,9 @@ func runReadPolicy(t *testing.T, store access.Store) {
 	userSubject := func(user accesstypes.User) policy.Subject {
 		return policy.Subject{Kind: policy.SubjectUser, Name: string(user)}
 	}
+	groupSubject := func(group accesstypes.Group) policy.Subject {
+		return policy.Subject{Kind: policy.SubjectGroup, Name: string(group)}
+	}
 	want := &policy.Records{
 		Roles: []policy.Role{
 			{Scope: tenant1, Name: admin},
@@ -610,6 +614,19 @@ func runReadPolicy(t *testing.T, store access.Store) {
 		Memberships: []policy.Membership{
 			{Scope: tenant1, Member: userSubject(alice), Role: viewer},
 			{Scope: everyDomain, Member: userSubject(carol), Role: chief},
+			// What runGroups left: the roles the two groups hold.
+			{Scope: tenant1, Member: groupSubject(nightGroup), Role: viewer},
+			{Scope: tenant2, Member: groupSubject(staffGroup), Role: editor},
+			{Scope: everyDomain, Member: groupSubject(staffGroup), Role: chief},
+		},
+		Groups: []policy.Group{
+			{ID: nightGroup, Scope: tenant1},
+			{ID: staffGroup, Scope: globalScope},
+		},
+		GroupMembers: []policy.GroupMember{
+			{Group: nightGroup, User: alice},
+			{Group: nightGroup, User: bob},
+			{Group: staffGroup, User: carol},
 		},
 	}
 	sortRecords(records)
@@ -658,5 +675,11 @@ func sortRecords(r *policy.Records) {
 			compareSubjects(a.Member, b.Member),
 			strings.Compare(string(a.Role), string(b.Role)),
 		)
+	})
+	slices.SortFunc(r.Groups, func(a, b policy.Group) int {
+		return strings.Compare(string(a.ID), string(b.ID))
+	})
+	slices.SortFunc(r.GroupMembers, func(a, b policy.GroupMember) int {
+		return cmpChain(strings.Compare(string(a.Group), string(b.Group)), strings.Compare(string(a.User), string(b.User)))
 	})
 }
