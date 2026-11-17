@@ -201,6 +201,15 @@
               ]
             },
             {
+              "resource": "CrewSignInWays",
+              "fields": [
+                "password",
+                "method",
+                "connection",
+                "through"
+              ]
+            },
+            {
               "resource": "CrewSessionTokens",
               "fields": [
                 "clientId",
@@ -1291,6 +1300,17 @@
                 "emailAtLink"
               ],
               "condition": "heldElsewhere = false"
+            },
+            {
+              "resource": "CrewSectorSignInWays",
+              "fields": [
+                "password",
+                "method",
+                "connection",
+                "through",
+                "heldElsewhere",
+                "heldGlobally"
+              ]
             },
             {
               "resource": "CrewSectorRoles",

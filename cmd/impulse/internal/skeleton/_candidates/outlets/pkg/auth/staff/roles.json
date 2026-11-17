@@ -155,6 +155,15 @@
               ]
             },
             {
+              "resource": "StaffSignInWays",
+              "fields": [
+                "password",
+                "method",
+                "connection",
+                "through"
+              ]
+            },
+            {
               "resource": "StaffSessionTokens",
               "fields": [
                 "clientId",
@@ -608,6 +617,17 @@
                 "emailAtLink"
               ],
               "condition": "heldElsewhere = false"
+            },
+            {
+              "resource": "StaffTenantSignInWays",
+              "fields": [
+                "password",
+                "method",
+                "connection",
+                "through",
+                "heldElsewhere",
+                "heldGlobally"
+              ]
             },
             {
               "resource": "StaffTenantRoles",

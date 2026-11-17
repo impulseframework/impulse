@@ -6,6 +6,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -119,7 +120,7 @@ func (m *Manager) RemovePassword(ctx context.Context, txn resource.ReadWriteTran
 	switch {
 	case len(links) == 0:
 		return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "the user has no other means of sign-in: link a directory sign-in first")
-	case len(m.signInRegistrations(links)) == 0:
+	case !m.linksSignIn(links):
 		return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod,
 			"none of the identities linked to the user can sign them in any more, so the password is their only means of sign-in: link a directory sign-in the login page offers first")
 	}
@@ -133,49 +134,60 @@ func (m *Manager) RemovePassword(ctx context.Context, txn resource.ReadWriteTran
 	return nil
 }
 
-// signInRegistrations names the sign-in registrations of the Auth's login page that the
-// links can sign their person in through, each once, in the order the links first reach
-// them: the session library's judgment of each link (SessionAPI.SignsInThrough). It is
-// empty when none of the links counts as a means of sign-in.
-func (m *Manager) signInRegistrations(links []Link) []string {
-	var names []string
-	for _, link := range links {
-		for _, name := range m.sessions.SignsInThrough(link.Method, link.Connection) {
-			if !slices.Contains(names, name) {
-				names = append(names, name)
-			}
-		}
-	}
-
-	return names
+// linksSignIn reports whether one of the links can sign its person in: the session
+// library's judgment of each (SessionAPI.SignsInThrough). A link left from a sign-in
+// method the Auth no longer offers, or from a connection none of its registrations
+// takes, is no means of sign-in.
+func (m *Manager) linksSignIn(links []Link) bool {
+	return slices.ContainsFunc(links, func(link Link) bool {
+		return len(m.sessions.SignsInThrough(link.Method, link.Connection)) > 0
+	})
 }
 
-// PasswordWay is the name of the password among the ways a person signs in
-// (SignInWay.Registration): the name the password method is registered under.
+// PasswordWay is the key of the password among the ways a person signs in
+// (SignInWay.Key): the name the password method is registered under.
 const PasswordWay = string(sessioninfo.MethodPassword)
 
 // SignInWay is one way a person signs in, as an administrator's page reads it: the
-// person's password, or a sign-in registration of the Auth's login page that an
-// identity linked to them can sign them in through.
+// person's password, or an identity linked to them that can sign them in. It carries
+// what the list of the person's identities shows of the identity and no more: never a
+// subject, an address or a hash.
 type SignInWay struct {
-	// Registration is the name the way is registered under on the Auth: PasswordWay
-	// for the password, the application's name for a directory sign-in ("google",
-	// "lakeside-entra").
-	Registration string
-	// Password says the way is the person's password; every other way is a directory
-	// sign-in.
+	// Password says the way is the person's password; every other way is an identity.
 	Password bool
+	// Identity is the linked identity, and Method and Connection the sign-in method
+	// and the connection it came through, as the list of the person's identities
+	// shows them. The password's are the zero id, the password method and no
+	// connection.
+	Identity   impulse.UUID
+	Method     sessioninfo.AuthMethod
+	Connection string
+	// Registrations names the sign-in registrations of the Auth's login page the
+	// identity can sign the person in through, in the page's order: one, except where
+	// the Auth has two registrations of the identity's method and nothing of the
+	// identity tells them apart. The password's is the password method's name alone.
+	Registrations []string
+}
+
+// Key names the way among the ways one person signs in: PasswordWay for the password,
+// and the identity's id for an identity.
+func (w *SignInWay) Key() string {
+	if w.Password {
+		return PasswordWay
+	}
+
+	return w.Identity.String()
 }
 
 // SignInWays lists how a person signs in: the password where they hold one, then each
-// sign-in registration of the Auth's login page that an identity linked to them can
-// sign them in through, once however many identities reach it. It is what a page needs
-// to offer the removal of a person's password only where RemovePassword would go
-// through, a password held and another way in, and to say what the removal leaves; an
-// identity that signs nobody in is no way and is not listed. The password's hash, an
-// identity's subject and everything else of either stay unread: the answer is whether,
-// and through what. found is false where no user holds the id. It reads and writes
-// nothing else, so it runs in any read.
+// identity linked to them that can sign them in, by the session library's judgment
+// (SessionAPI.SignsInThrough), with the registrations of the Auth's login page it comes
+// through. It is what a page needs to offer the removal of a person's password only
+// where RemovePassword would go through, a password held and an identity that counts,
+// and to say what the removal leaves; an identity that signs nobody in is no way and is
+// not listed. The password's hash, an identity's subject and everything else of either
+// stay unread: the answer is whether, and through what. found is false where no user
+// holds the id. It writes nothing, so it runs in any read.
 //
 // The caller guards who may ask about whom: the generated management serves it to a
 // person who may list the identities of the person asked about.
@@ -195,11 +207,36 @@ func (m *Manager) SignInWays(ctx context.Context, txn resource.ReadOnlyTransacti
 		return nil, false, errors.Wrap(err, "identity.Store.Identities()")
 	}
 	if hasPassword {
-		ways = append(ways, SignInWay{Registration: PasswordWay, Password: true})
+		ways = append(ways, SignInWay{Password: true, Method: sessioninfo.MethodPassword, Registrations: []string{PasswordWay}})
 	}
-	for _, name := range m.signInRegistrations(links) {
-		ways = append(ways, SignInWay{Registration: name})
+	for _, link := range links {
+		if names := m.sessions.SignsInThrough(link.Method, link.Connection); len(names) > 0 {
+			ways = append(ways, SignInWay{Identity: link.ID, Method: link.Method, Connection: link.Connection, Registrations: names})
+		}
 	}
 
 	return ways, true, nil
+}
+
+// filterEquals is the equality operator as a list's filter spells it.
+const filterEquals = "eq"
+
+// PersonNamed reads the one person a list kept per person was asked about, from the
+// conditions the request's filter holds on the person's id (resource.FilterShape.Take):
+// one equality. Such a list answers about one person at a time and holds no rows for a
+// request that names nobody, for which ok is false. A request that names people any
+// other way, by a set, a range or two conditions, is refused with what to send.
+func PersonNamed(list accesstypes.Resource, named []resource.Condition) (userID impulse.UUID, ok bool, err error) {
+	if len(named) == 0 {
+		return impulse.NilUUID, false, nil
+	}
+	if len(named) != 1 || named[0].Operator != filterEquals {
+		return impulse.NilUUID, false, httpio.NewBadRequestMessagef("%s is listed for one person at a time: filter it by the person's id alone (userId:eq:<id>)", list)
+	}
+	userID, isID := named[0].Value.(impulse.UUID)
+	if !isID {
+		return impulse.NilUUID, false, httpio.NewBadRequestMessagef("%s is listed for one person at a time: the filter on userId carries no id", list)
+	}
+
+	return userID, true, nil
 }

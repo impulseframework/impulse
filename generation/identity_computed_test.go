@@ -143,3 +143,53 @@ func Test_tenantComputedSources(t *testing.T) {
 		})
 	}
 }
+
+// Test_signInWaySources pins where the list of how a person signs in is declared: beside
+// the methods, in a file named for the resource, for an auth that declares the password
+// method over a schema that holds the identities, which is where the method that
+// removes a password is written. A tenant's is declared with the tenant's lists of its
+// people and their identities, and never without the whole application's, whose file
+// holds what the two share.
+func Test_signInWaySources(t *testing.T) {
+	t.Parallel()
+
+	ship := &identityTenant{name: "Ship", table: "Ships", key: "Id"}
+	everything := []identityTable{identityUsers, identityMemberships, identityIdentities}
+	tests := []struct {
+		name   string
+		inst   identityInstance
+		tables []identityTable
+		want   []string
+	}{
+		{name: "a password and the identities", inst: identityInstance{password: true}, tables: everything, want: []string{"crew_sign_in_ways"}},
+		{name: "a tenant record beside them", inst: identityInstance{password: true, tenant: ship}, tables: everything, want: []string{"crew_sign_in_ways", "crew_ship_sign_in_ways"}},
+		{name: "no password method: nobody holds a password to remove", inst: identityInstance{tenant: ship}, tables: everything},
+		{name: "no identities: nobody signs in another way", inst: identityInstance{password: true, tenant: ship}, tables: []identityTable{identityUsers, identityMemberships}},
+		{
+			name: "no memberships: a tenant keeps no list of people to hold the read to it",
+			inst: identityInstance{password: true, tenant: ship}, tables: []identityTable{identityUsers, identityIdentities}, want: []string{"crew_sign_in_ways"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			inst := tt.inst
+			inst.auth, inst.methods, inst.tables = "Crew", "pkg/identity/crewidentity", make(map[identityTable]bool)
+			for _, kind := range tt.tables {
+				inst.tables[kind] = true
+			}
+			r := identityFixtureGenerator(t)
+			var got []string
+			for i, file := range r.signInWaySources(&inst) {
+				if file.dir != inst.methods || file.tenant != (i == 1) {
+					t.Errorf("%s: tenant = %v in %q, want the whole application's first, then the tenant's, beside the methods", file.name, file.tenant, file.dir)
+				}
+				got = append(got, file.name)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("signInWaySources() (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

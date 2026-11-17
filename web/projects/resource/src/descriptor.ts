@@ -204,23 +204,7 @@ export interface IdentityDescriptor {
    * from a generator that predates it, and the pages show the key.
    */
   readonly tenantResource?: string;
-  /**
-   * The Auth's directory sign-ins as its login page offers them: the method the
-   * identities linked through each carry (`google`, `azure`, `workos`, `oidc`: the
-   * `method` of a row of the identities list) and the words its button carries. A page
-   * names the directories a person signs in through by them. An identity names its
-   * method and not its registration, so two registrations of one method are two entries
-   * with the same `method`. Absent for an Auth with no directory sign-in, or on a
-   * description from a generator that predates it.
-   */
-  readonly signIns?: readonly IdentitySignIn[];
   readonly sides: readonly IdentitySideDescriptor[];
-}
-
-/** One directory sign-in of an Auth: the method its identities carry, and the words its button on the login page carries. */
-export interface IdentitySignIn {
-  readonly method: string;
-  readonly label: string;
 }
 
 /**
@@ -237,16 +221,24 @@ export interface IdentitySideDescriptor {
 
 /**
  * The lists of a side, each a resource in `resources`: the people; the roles they hold
- * (one row for each role a person holds); the identities they sign in with; the
- * invitations (a tenant's) or every mailed link (the whole application's); and, for the
- * whole application alone, the sessions and the names whose sign-in is being counted or
- * is locked. Where the Auth keeps groups of people, the side also names the groups, the
+ * (one row for each role a person holds); the identities linked to them; the ways each
+ * signs in (their password and the identities that can sign them in, as the server
+ * judges it, listed for one person at a time); the invitations (a tenant's) or every
+ * mailed link (the whole application's); and, for the whole application alone, the
+ * sessions and the names whose sign-in is being counted or is locked. Where the Auth keeps groups of people, the side also names the groups, the
  * people in them, the roles they hold and the roles each person holds through one.
  */
 export interface IdentityLists {
   readonly users: string;
   readonly roles?: string;
   readonly identities?: string;
+  /**
+   * The ways a person signs in, for an Auth with a password method: the password, where
+   * the person holds one (the row whose `way` is `password`), and each linked identity
+   * that can sign them in, with the words the login page's button carries for it
+   * (`through`). The removal of a person's password is offered from it.
+   */
+  readonly signInWays?: string;
   readonly invitations?: string;
   readonly sessions?: string;
   readonly signInAttempts?: string;

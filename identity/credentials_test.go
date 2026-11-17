@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -275,15 +276,19 @@ func TestManager_RemovePassword(t *testing.T) {
 }
 
 // TestManager_SignInWays pins the read a page offers the removal of a password from: the
-// password where the person holds one, then each registration an identity linked to
-// them can sign them in through, once, and nothing for an identity that signs nobody
-// in. It is the judgment RemovePassword refuses by, so a page that offers the removal
-// only for a password and another way offers it only where it goes through.
+// password where the person holds one, then each identity linked to them that can sign
+// them in, with what the list of their identities shows of it and the registrations it
+// comes through, and nothing for an identity that signs nobody in. It is the judgment
+// RemovePassword refuses by, so a page that offers the removal only for a password and
+// an identity that counts offers it only where it goes through.
 func TestManager_SignInWays(t *testing.T) {
 	t.Parallel()
 
 	entra := sessioninfo.AuthMethod("azure")
-	password := SignInWay{Registration: "password", Password: true}
+	password := SignInWay{Password: true, Method: sessioninfo.MethodPassword, Registrations: []string{"password"}}
+	google := func(id impulse.UUID) SignInWay {
+		return SignInWay{Identity: id, Method: sessioninfo.MethodGoogle, Connection: "lakeside", Registrations: []string{"google"}}
+	}
 	tests := []struct {
 		name        string
 		passwords   map[impulse.UUID]bool
@@ -300,7 +305,7 @@ func TestManager_SignInWays(t *testing.T) {
 			name:       "a password and an identity: both ways",
 			passwords:  map[impulse.UUID]bool{userID: true},
 			identities: map[impulse.UUID]impulse.UUID{identityA: userID},
-			want:       []SignInWay{password, {Registration: "google"}},
+			want:       []SignInWay{password, google(identityA)},
 		},
 		{
 			name:      "a password alone",
@@ -311,21 +316,21 @@ func TestManager_SignInWays(t *testing.T) {
 			name:       "no password: the identities alone",
 			passwords:  map[impulse.UUID]bool{userID: false},
 			identities: map[impulse.UUID]impulse.UUID{identityA: userID},
-			want:       []SignInWay{{Registration: "google"}},
+			want:       []SignInWay{google(identityA)},
 		},
 		{
-			name:       "two identities through one registration are one way",
+			name:       "two identities through one registration are two ways, each named",
 			passwords:  map[impulse.UUID]bool{userID: false},
 			identities: map[impulse.UUID]impulse.UUID{identityA: userID, identityB: userID},
-			want:       []SignInWay{{Registration: "google"}},
+			want:       []SignInWay{google(identityA), google(identityB)},
 		},
 		{
-			name:        "an identity of a method the login page no longer offers is no way",
+			name:        "an identity of a method the login page no longer offers is no way, and the one beside it is",
 			passwords:   map[impulse.UUID]bool{userID: true},
-			identities:  map[impulse.UUID]impulse.UUID{identityA: userID},
+			identities:  map[impulse.UUID]impulse.UUID{identityA: userID, identityB: userID},
 			cameThrough: map[impulse.UUID]Link{identityA: {Method: entra, Connection: "lakeside"}},
 			unoffered:   map[sessioninfo.AuthMethod]bool{entra: true},
-			want:        []SignInWay{password},
+			want:        []SignInWay{password, google(identityB)},
 		},
 		{
 			name:        "an identity from a connection no registration takes is no way",
@@ -388,6 +393,71 @@ func TestManager_SignInWays(t *testing.T) {
 			}
 			if len(store.writes) != 0 {
 				t.Errorf("buffered writes = %v, want none: the read writes nothing", store.writes)
+			}
+		})
+	}
+}
+
+// TestSignInWay_Key pins the name of a way among the ways one person signs in: the
+// password's is the password method's, and an identity's is its id.
+func TestSignInWay_Key(t *testing.T) {
+	t.Parallel()
+
+	if got := (&SignInWay{Password: true}).Key(); got != "password" {
+		t.Errorf("the password's key = %q, want %q", got, "password")
+	}
+	if got := (&SignInWay{Identity: identityA}).Key(); got != identityA.String() {
+		t.Errorf("an identity's key = %q, want its id %q", got, identityA)
+	}
+}
+
+// TestPersonNamed pins what a list kept per person takes for the person: one equality
+// on their id. A request that names nobody is answered as a list of nobody, with no
+// refusal; one that names two people, everyone but one, a set or no id is refused as a
+// bad request that says what to send, so the list is never read for everyone.
+func TestPersonNamed(t *testing.T) {
+	t.Parallel()
+
+	equals := func(value any) resource.Condition {
+		return resource.Condition{Field: "UserID", Operator: "eq", Value: value}
+	}
+	tests := []struct {
+		name       string
+		named      []resource.Condition
+		want       impulse.UUID
+		wantNobody bool
+		wantErr    bool
+	}{
+		{name: "one person by id", named: []resource.Condition{equals(userID)}, want: userID},
+		{name: "nobody named", wantNobody: true},
+		{name: "two people named", named: []resource.Condition{equals(userID), equals(otherUser)}, wantErr: true},
+		{name: "everyone but one person", named: []resource.Condition{{Field: "UserID", Operator: "ne", Value: userID}}, wantErr: true},
+		{name: "a set of people", named: []resource.Condition{{Field: "UserID", Operator: "in", Values: []any{userID, otherUser}}}, wantErr: true},
+		{name: "a value that is no id", named: []resource.Condition{equals(userID.String())}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, ok, err := PersonNamed("CrewSignInWays", tt.named)
+			if tt.wantErr {
+				if !httpio.HasBadRequest(err) {
+					t.Fatalf("PersonNamed() error = %v, want a bad request", err)
+				}
+				if msg := httpio.Message(err); !strings.Contains(msg, "CrewSignInWays") || !strings.Contains(msg, "userId") {
+					t.Errorf("PersonNamed() message = %q, want it to name the list and the filter to send", msg)
+				}
+				if ok || got != impulse.NilUUID {
+					t.Errorf("PersonNamed() = %s, %t with a refusal, want nobody", got, ok)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("PersonNamed() error = %v", err)
+			}
+			if ok == tt.wantNobody || got != tt.want {
+				t.Errorf("PersonNamed() = %s, %t, want %s, %t", got, ok, tt.want, !tt.wantNobody)
 			}
 		})
 	}

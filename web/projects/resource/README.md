@@ -626,11 +626,11 @@ address a directory asserted at a sign-in, offered as a prefill and trusted for 
 
 An Auth whose management is generated (`GenerateIdentity`) is named in the descriptor's
 `identity` block: `auth`, `label`, `tenant` (the tenant record's name, where the application
-has one), `signIns` (the Auth's directory sign-ins, each the `method` its identities carry and
-the `label` its button on the login page carries, by which a page names the directories a
-person signs in through) and `sides`, one for each scope the outlet serves (`global` first, then `domain`),
-each with its `lists` (`users`, `roles`, `identities`, `invitations`, `sessions`,
-`signInAttempts`) and its `methods` (`create`, `invite`, `withdrawInvitation`, `assignRole`,
+has one) and `sides`, one for each scope the outlet serves (`global` first, then `domain`),
+each with its `lists` (`users`, `roles`, `identities`, `signInWays`, `invitations`, `sessions`,
+`signInAttempts`; `signInWays` is how one person signs in, the password and the identities
+that can sign them in as the server judges it, from which a page offers the removal of a
+password) and its `methods` (`create`, `invite`, `withdrawInvitation`, `assignRole`,
 `removeRole`, `disable`, `enable`, `delete`, `rename`, `setName`, `setEmail`, `setTemporaryPassword`,
 `requirePasswordChange`, `endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`,
 `removePassword`, `endSession`, `unlockSignIn`) by the names the generator gave them. Every key but `users` is
