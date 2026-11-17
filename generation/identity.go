@@ -89,6 +89,12 @@ type identityInstance struct {
 	// role of the whole application nor a tenant, so it carries no choice to open one
 	// of its methods.
 	createsTenant bool
+	// opensToDirectory marks the auth whose generated management judges the role a
+	// tenant is opened to its directory's people with: the session outlets that serve
+	// the directories record are this auth's, so the two methods that say how a tenant
+	// admits its directory's people ask this instance's client, and the instance
+	// declares the list the role is picked from (identityOpensToDirectory).
+	opensToDirectory bool
 	// session and policy name the auth's tables: the session library's and the
 	// permission store's, each by the library's own rule for the prefix.
 	session session.Tables
@@ -373,6 +379,7 @@ func (r *resourceGenerator) prepareIdentity() error {
 	for _, inst := range instances {
 		inst.tenant = tenant
 		inst.createsTenant = r.identityCreatesTenant(inst)
+		inst.opensToDirectory = r.identityOpensToDirectory(inst)
 		if err := inst.refuseListNamesTaken(); err != nil {
 			return err
 		}

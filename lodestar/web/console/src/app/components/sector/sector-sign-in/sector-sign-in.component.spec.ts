@@ -68,7 +68,7 @@ interface Digests {
 
 const marshalGrants: PermissionDigest = {
   SectorDirectories: { List: 'granted', Create: 'granted', Delete: 'granted' },
-  CrewSectorRoles: { List: 'granted' },
+  CrewSectorDirectoryRoles: { List: 'granted' },
   MakeSectorDirectoryOnly: { Execute: 'granted' },
   EndSectorDirectoryOnly: { Execute: 'granted' },
   OpenSectorToDirectory: { Execute: 'granted' },
@@ -151,7 +151,7 @@ function serverFor(world: World): (request: TransportRequest) => TransportRespon
         return { status: 200, body: { directoryOnly: world.directoryOnly ?? false } };
       case `${environment.apiUrl}/sectors/${anvilID}/sector-directories`:
         return { status: 200, body: world.directories ?? [] };
-      case `${environment.apiUrl}/sectors/${anvilID}/crew-sector-roles`:
+      case `${environment.apiUrl}/sectors/${anvilID}/crew-sector-directory-roles`:
         return { status: 200, body: sectorRoles };
       // Every write rides the consolidated route as one operation.
       case `${environment.apiUrl}/resources`:

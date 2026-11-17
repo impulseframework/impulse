@@ -1339,6 +1339,12 @@
               "condition": "name != 'SectorMarshal'"
             },
             {
+              "resource": "CrewSectorDirectoryRoles",
+              "fields": [
+                "description"
+              ]
+            },
+            {
               "resource": "SectorDirectories",
               "fields": [
                 "sectorId",

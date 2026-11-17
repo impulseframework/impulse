@@ -2808,9 +2808,15 @@ for no person: a grant whose condition reads the person a role is given to admit
 default role. A tenant with no directory is refused (409): there is nobody to open it
 to. `Make<Record>InviteOnly` is plain and declares no warning. Each method writes the
 column through the directories record's update patch, so the record's change events
-are the audit of who opened the door and when, and the browser metadata names the list
-of the tenant's roles as the role's picker, so the library's method dialog offers each
-role with its description.
+are the audit of who opened the door and when. The role is picked from a list of its own,
+`<Auth><Record>DirectoryRoles` (Lodestar's `CrewSectorDirectoryRoles`), a computed
+resource the generated management declares for the auth that judges the role: the roles
+of the tenant that the caller could give there directly
+(`identity.Manager.DirectoryRoles`, which asks the same grant for each role), and no
+other. The browser metadata names it as the role's picker, so the library's method
+dialog offers each role the method would take, with its description, and none it would
+refuse; a role file grants List on it to the role that holds the method, and writes no
+condition on it, since the grant of the method that gives a role is what the list reads.
 
 The role is judged through the generated management of one auth, so the two methods
 are written where the session outlets that serve the directories record are all of one

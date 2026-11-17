@@ -96,7 +96,8 @@ tenant's own grants (`TenantAdministrator`). Two say how the tenant admits its
 directory's people: `OpenTenantToDirectory`
 (`POST /api/tenants/{tenantID}/open-tenant-to-directory`) names the role each of them is
 given at their first sign-in through the directory, a role the caller could give
-directly, and `MakeTenantInviteOnly` clears it. Two turn directory only:
+directly, picked from the list of the roles they may give (`StaffTenantDirectoryRoles`),
+and `MakeTenantInviteOnly` clears it. Two turn directory only:
 `MakeTenantDirectoryOnly` (`POST /api/tenants/{tenantID}/make-tenant-directory-only`)
 and `EndTenantDirectoryOnly`; the `Tenants` record, which the application's
 `Administrator` writes, shows the flag and takes no write of it, and the page reads the

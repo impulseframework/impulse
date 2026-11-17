@@ -5,6 +5,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
@@ -63,4 +64,44 @@ func (m *Manager) DirectoryRole(ctx context.Context, txn resource.ReadWriteTrans
 	}
 
 	return nil
+}
+
+// DirectoryRoles lists the roles a tenant may be opened to its directory's people with,
+// as the dialog that opens it offers them: the roles that exist in the tenant
+// (TenantRoles) that the request's caller could give there directly, by the question
+// DirectoryRole asks of the grant of the method that gives a role (RoleGrants.MayGive,
+// for no person in particular), and no other. A page offers what the caller may do: a
+// role the list leaves out is one DirectoryRole refuses, and one it offers is one
+// DirectoryRole takes. The grant of a tenant's method may read a row, so the questions
+// are asked in the caller's transaction. A call outside any request is the
+// application's own and lists every role of the tenant; a manager a request reaches
+// without the role grants cannot judge it, which is an error and never a list.
+func (m *Manager) DirectoryRoles(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]access.RoleInfo, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	roles, err := m.TenantRoles(ctx, tenant)
+	if err != nil {
+		return nil, err
+	}
+	judged, err := m.judged(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !judged {
+		return roles, nil
+	}
+	scope := accesstypes.DomainPolicyScope(tenant)
+	offered := make([]access.RoleInfo, 0, len(roles))
+	for _, role := range roles {
+		may, err := m.grants.MayGive(ctx, txn, scope, impulse.NilUUID, role.Name)
+		if err != nil {
+			return nil, errors.Wrap(err, "identity.RoleGrants.MayGive()")
+		}
+		if may {
+			offered = append(offered, role)
+		}
+	}
+
+	return offered, nil
 }

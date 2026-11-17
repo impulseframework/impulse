@@ -929,7 +929,10 @@ people is the sector's own to say as well, with two more generated methods
 `{"role": "SectorCrew"}`) names the seat, behind a warning that says who will enter and
 with what role (the word `open`), and holds the role to one the caller could give
 directly (a marshal may not give `SectorMarshal`, so she may not make it the role
-everyone from the directory gets); `MakeSectorInviteOnly` clears it. The record's own
+everyone from the directory gets, and the list the role is picked from,
+`CrewSectorDirectoryRoles`, does not offer it to her: it lists the sector's roles she
+may give, by the grant of the method that gives one); `MakeSectorInviteOnly` clears it.
+The record's own
 update never writes the seat. The console's Sign-in page (Sector Ops menu, under the
 sector's URL) carries the declaration: a marshal signed in through his organization's
 directory makes it the sector's there with one button and removes it; a marshal signed

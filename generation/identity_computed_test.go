@@ -101,7 +101,8 @@ func Test_formatResourceInterfaceTypes_computed(t *testing.T) {
 
 // Test_tenantComputedSources pins where the roles of a tenant are declared: beside the
 // methods of an auth whose roles a tenant gives by hand, in a file named for the
-// resource, and nowhere else.
+// resource, and nowhere else. The roles a tenant may be opened to its directory's
+// people with are declared beside them for the auth whose management judges that role.
 func Test_tenantComputedSources(t *testing.T) {
 	t.Parallel()
 
@@ -116,6 +117,15 @@ func Test_tenantComputedSources(t *testing.T) {
 		{name: "a tenant gives roles by hand", inst: identityInstance{tenant: ship}, tables: []identityTable{identityUsers, identityMemberships}, want: []string{"crew_ship_roles"}},
 		{name: "a directory writes the roles: nobody picks one", inst: identityInstance{tenant: ship, rolesSynced: true}, tables: []identityTable{identityUsers, identityMemberships}},
 		{name: "no memberships: no role is held, so none is picked", inst: identityInstance{tenant: ship}, tables: []identityTable{identityUsers}},
+		{
+			name: "the auth that judges the role a tenant is opened to its directory with lists the roles the caller may give beside them",
+			inst: identityInstance{tenant: ship, opensToDirectory: true}, tables: []identityTable{identityUsers, identityMemberships},
+			want: []string{"crew_ship_roles", "crew_ship_directory_roles"},
+		},
+		{
+			name: "and never where a directory writes the roles",
+			inst: identityInstance{tenant: ship, rolesSynced: true, opensToDirectory: true}, tables: []identityTable{identityUsers, identityMemberships},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

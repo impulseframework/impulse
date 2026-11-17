@@ -89,7 +89,8 @@ methods, which `TenantAdministrator` holds and the page runs through the library
 method dialog: `OpenTenantToDirectory`
 (`POST /console/api/tenants/{tenantID}/open-tenant-to-directory`) names the role each of
 the directory's people is given at their first sign-in through it, a role the caller
-could give directly, and `MakeTenantInviteOnly` clears it; `MakeTenantDirectoryOnly`
+could give directly, picked from the list of the roles they may give
+(`StaffTenantDirectoryRoles`), and `MakeTenantInviteOnly` clears it; `MakeTenantDirectoryOnly`
 (`POST /console/api/tenants/{tenantID}/make-tenant-directory-only`) and
 `EndTenantDirectoryOnly` turn directory only (the `Tenants` record shows the flag and
 takes no write of it), which the server turns on only once the tenant has its directory

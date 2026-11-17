@@ -208,6 +208,12 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if status, body := open(admin, "Nobody", nil); status != http.StatusBadRequest || !strings.Contains(string(body), "is not a role of this tenant") {
 		t.Errorf("opening south with a role it does not have: status %d, want 400 saying so: %s", status, body)
 	}
+	// The role is picked from the roles the caller may give in the tenant, and no other
+	// (StaffTenantDirectoryRoles): the tenant's administrator gives every role of the
+	// tenant, so the list offers each.
+	if status, body := admin.do(ctx, http.MethodGet, "/api/tenants/"+south+"/staff-tenant-directory-roles", nil); status != http.StatusOK || !strings.Contains(string(body), `"name":"TenantAdministrator"`) {
+		t.Errorf("listing the roles the tenant may be opened with: status %d: %s, want 200 with TenantAdministrator among them", status, body)
+	}
 	opens := "Anyone who signs in through " + workspace.Connection + " will be able to enter this tenant without an invitation and gets the role TenantAdministrator."
 	if status, body := open(admin, "TenantAdministrator", map[string]string{"X-Warning": "true"}); status != http.StatusOK || !strings.Contains(string(body), opens) || !strings.Contains(string(body), "Open to people who sign in through "+workspace.Connection) {
 		t.Errorf("the warning of opening south to its directory: status %d: %s, want 200 saying %q under what the button does", status, body, opens)

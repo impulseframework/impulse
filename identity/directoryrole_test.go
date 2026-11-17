@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
@@ -116,6 +117,136 @@ func TestManager_DirectoryRole(t *testing.T) {
 		})
 		if !errors.Is(err, errStore) {
 			t.Errorf("DirectoryRole() error = %v, want the grants' own error", err)
+		}
+	})
+}
+
+// TestManager_DirectoryRoles pins the list the role a tenant is opened with is picked
+// from: the roles of the tenant that the request's caller could give there directly,
+// asked of the grant DirectoryRole asks, for no person in particular, and no other. The
+// list offers what the method takes: a role it leaves out is one DirectoryRole refuses.
+// A call outside any request is the application's own and lists every role of the
+// tenant; a manager that cannot ask refuses the request, never lists; and no tenant
+// named is an error.
+func TestManager_DirectoryRoles(t *testing.T) {
+	t.Parallel()
+
+	nobody := impulse.NilUUID.String()
+	reader := access.RoleInfo{Name: "Reader", Description: "the Reader role"}
+	warden := access.RoleInfo{Name: "Warden", Description: "the Warden role"}
+	tests := []struct {
+		name string
+		// noGive are the roles the caller may not give.
+		noGive []accesstypes.Role
+		// outside says the call is made outside any request.
+		outside   bool
+		want      []access.RoleInfo
+		wantAsked []string
+	}{
+		{
+			name: "a caller is listed the roles of the tenant they may give", noGive: []accesstypes.Role{"Warden"},
+			want: []access.RoleInfo{reader}, wantAsked: []string{"give domain/alpha " + nobody + " Reader", "give domain/alpha " + nobody + " Warden"},
+		},
+		{
+			name: "a caller who may give every role is listed every role of the tenant",
+			want: []access.RoleInfo{reader, warden}, wantAsked: []string{"give domain/alpha " + nobody + " Reader", "give domain/alpha " + nobody + " Warden"},
+		},
+		{
+			name: "a caller who may give none is listed none", noGive: []accesstypes.Role{"Reader", "Warden"},
+			want: []access.RoleInfo{}, wantAsked: []string{"give domain/alpha " + nobody + " Reader", "give domain/alpha " + nobody + " Warden"},
+		},
+		{name: "a call outside any request lists every role of the tenant and asks nothing", noGive: []accesstypes.Role{"Warden"}, outside: true, want: []access.RoleInfo{reader, warden}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := groupStore()
+			grants := &fakeGrants{noGive: tt.noGive}
+			m, _ := newManager(t, store, wardenRoles, WithRoleGrants(grants))
+
+			var got []access.RoleInfo
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				if !tt.outside {
+					ctx = asCallerThrough(ctx, managedAuth, erin)
+				}
+				var err error
+				got, err = m.DirectoryRoles(ctx, txn, "alpha")
+
+				return err
+			})
+			if err != nil {
+				t.Fatalf("DirectoryRoles() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("DirectoryRoles() mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantAsked, grants.asked); diff != "" {
+				t.Errorf("what the grants were asked (-want +got):\n%s", diff)
+			}
+			// Each role the list offers is one the method takes, and each it leaves out
+			// is one the method refuses.
+			for _, role := range []accesstypes.Role{"Reader", "Warden"} {
+				offered := false
+				for _, listed := range got {
+					offered = offered || listed.Name == role
+				}
+				err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+					if !tt.outside {
+						ctx = asCallerThrough(ctx, managedAuth, erin)
+					}
+
+					return m.DirectoryRole(ctx, txn, "alpha", role)
+				})
+				if offered != (err == nil) {
+					t.Errorf("the list offers %s = %v, and DirectoryRole() error = %v: the list offers what the method takes", role, offered, err)
+				}
+			}
+			if len(store.writes) != 0 {
+				t.Errorf("buffered writes = %v, want none: the list writes nothing", store.writes)
+			}
+		})
+	}
+
+	t.Run("a manager with no grants refuses a request it cannot judge", func(t *testing.T) {
+		t.Parallel()
+
+		m, _ := newManager(t, groupStore(), wardenRoles)
+		err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			_, err := m.DirectoryRoles(asCallerThrough(ctx, managedAuth, erin), txn, "alpha")
+
+			return err
+		})
+		if err == nil || !strings.Contains(err.Error(), "identity.WithRoleGrants") {
+			t.Errorf("DirectoryRoles() error = %v, want an error naming identity.WithRoleGrants", err)
+		}
+	})
+
+	t.Run("a grant that cannot be read fails the list", func(t *testing.T) {
+		t.Parallel()
+
+		m, _ := newManager(t, groupStore(), wardenRoles, WithRoleGrants(&fakeGrants{err: errStore}))
+		err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			_, err := m.DirectoryRoles(asCallerThrough(ctx, managedAuth, erin), txn, "alpha")
+
+			return err
+		})
+		if !errors.Is(err, errStore) {
+			t.Errorf("DirectoryRoles() error = %v, want the grants' own error", err)
+		}
+	})
+
+	t.Run("no tenant named is an error", func(t *testing.T) {
+		t.Parallel()
+
+		m, _ := newManager(t, groupStore(), wardenRoles, WithRoleGrants(&fakeGrants{}))
+		err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			_, err := m.DirectoryRoles(ctx, txn, "")
+
+			return err
+		})
+		if err == nil || !strings.Contains(err.Error(), "no tenant was named") {
+			t.Errorf("DirectoryRoles() error = %v, want one that says no tenant was named", err)
 		}
 	})
 }
