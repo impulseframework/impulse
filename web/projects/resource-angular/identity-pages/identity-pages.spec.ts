@@ -750,6 +750,7 @@ describe('identityPages, an Auth that keeps groups', () => {
       ['crew-mailed-links', 'Mailed links', 'forward_to_inbox', false],
       ['crew-sessions', 'Sessions', 'devices', false],
       ['crew-failed-sign-ins', 'Failed sign-ins', 'gpp_bad', false],
+      ['crew-sign-in', 'Sign-in', 'login', false],
     ]);
     expect(domain.map((page) => [page.routeData.route, page.page?.label, list(page).primaryResource])).toEqual([
       ['sectors/:sectorID/crew-people', 'People', 'CrewSectorUsers'],
@@ -763,7 +764,13 @@ describe('identityPages, an Auth that keeps groups', () => {
 
   it('leaves the Groups page and the roles through groups out where the Auth keeps none', () => {
     const without = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
-    expect(without.map((page) => page.page?.label)).toEqual(['Accounts', 'Mailed links', 'Sessions', 'Failed sign-ins']);
+    expect(without.map((page) => page.page?.label)).toEqual([
+      'Accounts',
+      'Mailed links',
+      'Sessions',
+      'Failed sign-ins',
+      'Sign-in',
+    ]);
     expect(children(without[0]).map((child) => child.title)).toEqual(['Roles held', 'Sign-in identities', 'Sessions']);
   });
 
