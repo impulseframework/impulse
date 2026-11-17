@@ -1672,6 +1672,12 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			body:         `{"notAFieldOfTheRecord":true}`,
 			wantStatuses: []int{http.StatusBadRequest},
 		},
+		{
+			name:         "CreateTenantOffered open",
+			method:       http.MethodGet,
+			target:       "/api/create-tenant",
+			wantStatuses: []int{http.StatusOK},
+		},
 	}
 
 	db, err := prepareDatabase(t.Context(), t)

@@ -1030,7 +1030,11 @@ tenant to the roster, so their next request stands in it, and a person who alrea
 tenant is refused, an administrator of one tenant never creating another. The generated
 client exports the route and the body's shape (`create<Record>Route`, `Create<Record>`) for
 the page, which each tenanted skeleton's console offers from its dashboard to a session
-without a tenant. The route is generated wherever it can serve: the record is on session
+without a tenant, and only while the route would serve: the dashboard asks the same route
+with `GET`, which answers whether the caller may create a tenant now
+(`Create<Record>Offered`, by the two facts the creation refuses on), and shows its card
+on a yes alone, so nobody is offered a dialog the server would refuse while every method is
+invite only. The route is generated wherever it can serve: the record is on session
 outlets of one auth whose management the program generates and whose roles no directory
 writes. `@tenant(creation: ...)`, which declared the choice in code, is refused at
 generation with what replaced it, so no application ships open sign-up by a line of code.
@@ -1208,7 +1212,11 @@ linked, anyone else is refused and nothing is written. An administrator opens a 
 sign-up on the auth's Sign-in page in the running application, where the server says how
 wide the method is (the slot: one organization's accounts, any Google account, an email
 address for the password method) and what a new person gets, and makes it invite only
-again there. Under the directory authority the directory decides: a person it gives a role
+again there. The choice holds for the width it was made for: a release that changes whom
+a method admits (another organization in its slot, a wider account kind) leaves the method
+invite only until an administrator opens it again, reading the new width in the warning.
+A registration given an account rule of its own in code (`signin.AccountRule`) is listed on
+the page as decided by the application, with nothing to choose. Under the directory authority the directory decides: a person it gives a role
 signs in, and nobody else. `--accounts`, which declared the rule, is refused with where the
 choice is made now.
 `--username-is-email` makes the password method's sign-in name the person's email address

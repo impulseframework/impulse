@@ -2830,6 +2830,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/console/api/create-sector", method: http.MethodGet,
+			handlerFunc: "CreateSectorOffered",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/console/api/directory-only", method: http.MethodGet,
 			handlerFunc: "DirectoryOnly",
 			parameters:  map[string]string{},
@@ -3025,6 +3030,10 @@ func (s *generatedHandlersStub) CreateCrewUser() http.HandlerFunc {
 
 func (s *generatedHandlersStub) CreateSector() http.HandlerFunc {
 	return s.record("CreateSector")
+}
+
+func (s *generatedHandlersStub) CreateSectorOffered() http.HandlerFunc {
+	return s.record("CreateSectorOffered")
 }
 
 func (s *generatedHandlersStub) CrewGroups() http.HandlerFunc {

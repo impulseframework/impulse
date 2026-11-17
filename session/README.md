@@ -366,6 +366,7 @@ method is registered under:
 |---|---|
 | `Name` | The registration's name (`password`, `google`, `entra`, ...). |
 | `OpenSignUp` | Whether the method is open to sign-up. |
+| `OpenedFor` | Whom the method admitted when it was opened, as its registration spells its audience (`signin.Audience.Key()`), or null. The row opens the method for that audience and no other. |
 | `DefaultRole` | The role a person who signs up through the method is given, or null. An application without tenants names one for every open method; an application with tenants names none, since a person who signs up there creates a tenant of their own. |
 | `UpdatedAt` | When the row was written, by the database's clock. |
 
@@ -384,7 +385,18 @@ who has such an account. `auth.API().SignInMethods()` lists the registrations wi
 that width in words (`signin.Audience.Words()`: "anyone with an account at
 lakeside.edu", "anyone with a Google account"), for the page where an administrator
 makes the choice and the warning they confirm. A method that synchronizes roles from
-its directory has no choice to make (`RegisteredMethod.SyncsRoles`).
+its directory has no choice to make (`RegisteredMethod.SyncsRoles`), and neither has a
+registration that carries an account rule of its own (`RegisteredMethod.OwnRule`): the
+application's code decides who signs in through it.
+
+The administrator who opens a method confirms a sentence that names whom it admits, and
+the row keeps that audience (`OpenedFor`). The row opens the method only while the
+registration's audience is the one it was opened for: a registration that code widens
+afterwards, from the organizations it named to any organization, say, or by one more
+organization, is invite only again until an administrator opens it for the audience it
+has now, and so is one that code narrows or changes in any other way. The same
+organizations named in another order are the same audience. A row that names no
+audience opens nothing.
 
 | The person | The method is invite only | The method is open |
 |---|---|---|
@@ -408,8 +420,9 @@ An open method whose row names a role on an Auth with no hook fails the sign-in 
 transaction, and no account is made holding nothing. The auth packages `impulse` writes
 set the hook, write the table with the group's other tables, and give every application
 the page where the choice is made; an application that wires its Auth by hand writes
-the row with `sessionstorage.AuthStore.SetSignInMethod` and lists them with
-`SignInMethods`. `session.WithSignInMethodsTableName` renames the table.
+the row with `sessionstorage.AuthStore.SetSignInMethod`, with `OpenedFor` the key of the
+registration's audience (`auth.API().SignInMethods()` answers each registration's), and
+lists them with `SignInMethods`. `session.WithSignInMethodsTableName` renames the table.
 
 ### The tenant policy
 

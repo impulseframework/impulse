@@ -410,13 +410,17 @@ class SideBuilder {
    * invitation is admitted, which an administrator chooses here. The whole application's
    * alone. A method that is invite only offers Open sign-up, and one that is open
    * offers Make invite only; a method whose directory gives the roles offers neither,
-   * and its row says why. The caller sees an action only while their roles grant the
-   * method, as on every list.
+   * nor does one whose registration carries a rule of its own, which the application's
+   * code decides, and the row says why. A method that was opened when its registration
+   * admitted someone else is invite only until it is opened again: the server says for
+   * whom it was opened, and the row offers Open sign-up. The caller sees an action only
+   * while their roles grant the method, as on every list.
    *
    * Opening a method is a warning the server writes for that method (who will be
    * admitted, and what each of them gets), confirmed by typing a word: the method
    * declares both, and the library's dialog draws them. Without tenants the dialog also
-   * asks for the role each new person gets, listed with its description; with tenants a
+   * asks for the role each new person gets, listed with its description, from the roles
+   * the caller may give a person directly, which is what the server lists; with tenants a
    * person who signs up creates a tenant of their own and gets no role here. While a
    * method is open the page says so above the list, in the warning colors.
    */
@@ -453,6 +457,7 @@ class SideBuilder {
           ...this.columns(resource, [
             ['name', 'Name'],
             ['directoryGivesRoles', 'Directory gives roles'],
+            ['ownRule', 'Decided by its own rule'],
           ]).map((column) => ({ ...column, hidden: true })),
         ],
         rowMethods: this.present([
@@ -462,8 +467,8 @@ class SideBuilder {
               label: 'Open sign-up',
               icon: 'public',
               // A method that is open already has nothing to open, and a directory that
-              // gives the roles decides who signs in.
-              when: (row) => row['openSignUp'] !== true && row['directoryGivesRoles'] !== true,
+              // gives the roles, or the registration's own rule, decides who signs in.
+              when: (row) => row['openSignUp'] !== true && !decidedElsewhere(row),
               fill: fromRow,
               labels: { defaultRole: 'Role each new person gets' },
               shows: { defaultRole: ['name', 'description'] },
@@ -1014,10 +1019,22 @@ class SideBuilder {
   }
 }
 
+/**
+ * Whether who signs in through a method is decided outside this page: by the directory
+ * that gives the roles, or by the account rule the registration carries in the
+ * application's code. Such a method is neither opened to sign-up nor made invite only.
+ */
+function decidedElsewhere(row: RecordData): boolean {
+  return row['directoryGivesRoles'] === true || row['ownRule'] === true;
+}
+
 /** What a sign-in method's row says of sign-up: who decides, or what an administrator chose. */
 function signUpChoice(row: RecordData): string {
   if (row['directoryGivesRoles'] === true) {
     return 'Set by the directory';
+  }
+  if (row['ownRule'] === true) {
+    return 'Set by the application';
   }
   return row['openSignUp'] === true ? 'Open' : 'Invite only';
 }

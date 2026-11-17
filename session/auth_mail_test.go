@@ -1102,7 +1102,8 @@ func authEmailCase4(t *testing.T) {
 func passwordMethodRows(f *authFixture, open bool, role string) {
 	var rows []*sessionstorage.SignInMethod
 	if open {
-		row := &sessionstorage.SignInMethod{Name: "password", OpenSignUp: true}
+		audience := passwordAudience().Key()
+		row := &sessionstorage.SignInMethod{Name: "password", OpenSignUp: true, OpenedFor: &audience}
 		if role != "" {
 			row.DefaultRole = &role
 		}
@@ -1153,8 +1154,8 @@ func authSignUpCase1(t *testing.T) {
 	// method's row, spends the link, writes the user and gives the default role: the
 	// handler creates no user and consumes no link of its own.
 	var created *securehash.Hash
-	f.store.EXPECT().SignUp(gomock.Any(), "password", gomock.Any(), link.ID, gomock.Any()).DoAndReturn(
-		func(_ context.Context, _ string, u *sessionstorage.InsertSessionUser, _ impulse.UUID, _ signinflow.SignUpSeater[mockTx]) (impulse.UUID, error) {
+	f.store.EXPECT().SignUp(gomock.Any(), "password", passwordAudience().Key(), gomock.Any(), link.ID, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _, _ string, u *sessionstorage.InsertSessionUser, _ impulse.UUID, _ signinflow.SignUpSeater[mockTx]) (impulse.UUID, error) {
 			if u.Username != "newbie" || u.PasswordHash == nil || u.Email == nil || *u.Email != "new@lakeside.edu" || !u.EmailVerified {
 				t.Errorf("SignUp() given %+v, want the chosen username, a hash and the address verified", u)
 			}
@@ -1215,6 +1216,7 @@ func authSignUpCase2(t *testing.T) {
 
 func authSignUpCase3(t *testing.T) {
 	t.Parallel()
+	audience, another := passwordAudience().Key(), signin.Audience{Organizations: []string{"lakeside.edu"}}.Key()
 
 	tests := []struct {
 		name string
@@ -1222,7 +1224,9 @@ func authSignUpCase3(t *testing.T) {
 	}{
 		{name: "no row"},
 		{name: "a row that says not open", rows: []*sessionstorage.SignInMethod{{Name: "password"}}},
-		{name: "another method's row", rows: []*sessionstorage.SignInMethod{{Name: "google", OpenSignUp: true}}},
+		{name: "another method's row", rows: []*sessionstorage.SignInMethod{{Name: "google", OpenSignUp: true, OpenedFor: &audience}}},
+		{name: "a row opened for another audience than the password method's", rows: []*sessionstorage.SignInMethod{{Name: "password", OpenSignUp: true, OpenedFor: &another}}},
+		{name: "a row that names no audience", rows: []*sessionstorage.SignInMethod{{Name: "password", OpenSignUp: true}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1262,7 +1266,7 @@ func authSignUpCase4(t *testing.T) {
 	links.insert(&sessionstorage.MailLink{TokenHash: hash, Kind: sessionstorage.MailLinkSignUp, Email: "new@lakeside.edu", ExpiresAt: time.Now().Add(time.Hour)})
 	// The store reads the method's row in the transaction that would make the account,
 	// and refuses: the handler asks nobody else, creates no user and signs nobody in.
-	f.store.EXPECT().SignUp(gomock.Any(), "password", gomock.Any(), links.last(t).ID, gomock.Any()).Return(impulse.NilUUID, signinflow.SignUpClosed())
+	f.store.EXPECT().SignUp(gomock.Any(), "password", passwordAudience().Key(), gomock.Any(), links.last(t).ID, gomock.Any()).Return(impulse.NilUUID, signinflow.SignUpClosed())
 
 	rr := f.serve(f.auth.SignUp().Complete(), http.MethodPost, "/sign-up/complete", map[string]string{"token": token, "password": "correct horse", "username": "newbie"}, nil)
 
@@ -1284,7 +1288,9 @@ func authSignUpCase5(t *testing.T) {
 			return nil, nil
 		}
 
-		return []*sessionstorage.SignInMethod{{Name: "password", OpenSignUp: true}}, nil
+		audience := passwordAudience().Key()
+
+		return []*sessionstorage.SignInMethod{{Name: "password", OpenSignUp: true, OpenedFor: &audience}}, nil
 	}).AnyTimes()
 	h := f.auth.Methods(&MethodList{
 		Methods:        []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/api/user/password/login"}},

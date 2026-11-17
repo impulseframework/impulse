@@ -37,7 +37,10 @@ const (
 // administrator creates tenants through the record's own create path (tenants_test.go)
 // and never here; and the body is held to the record, so a refused body writes nothing.
 // Made invite only again, the route refuses the next person and the tenant created
-// meanwhile stays its creator's.
+// meanwhile stays its creator's. The same route, read with GET, tells a page whether the
+// caller may create a tenant now, by the two facts the creation refuses on, so that the
+// page offers it only to a person the route would serve: true for a person who holds no
+// tenant while a method is open, and false for everyone else at every step.
 func TestSelfService_aSignedInStrangerCreatesTheirTenant(t *testing.T) {
 	t.Parallel()
 
@@ -60,6 +63,9 @@ func TestSelfService_aSignedInStrangerCreatesTheirTenant(t *testing.T) {
 	}
 	if names := slices.Sorted(maps.Values(tenantNames(ctx, t, admin))); !slices.Equal(names, []string{"North", "South"}) {
 		t.Fatalf("the tenants after the refused create = %v, want North and South alone", names)
+	}
+	if creationOffered(ctx, t, newcomer) {
+		t.Error("GET /api/create-tenant while every method is invite only says a tenant can be created, and the route refuses it")
 	}
 
 	// The administrator opens the password method. The warning says who will be admitted,
@@ -86,6 +92,24 @@ func TestSelfService_aSignedInStrangerCreatesTheirTenant(t *testing.T) {
 		t.Fatalf("POST /api/open-staff-sign-up: status %d: %s", status, body)
 	}
 
+	// Open: the page of a person who holds no tenant offers the creation, and the page of
+	// a person who holds one does not, the administrator included.
+	offers := []struct {
+		name    string
+		browser *browser
+		want    bool
+	}{
+		{name: "the newcomer, who holds no tenant", browser: newcomer, want: true},
+		{name: "the other stranger", browser: another, want: true},
+		{name: "the member of a tenant", browser: member, want: false},
+		{name: "the administrator, who holds every tenant", browser: admin, want: false},
+	}
+	for _, offer := range offers {
+		if got := creationOffered(ctx, t, offer.browser); got != offer.want {
+			t.Errorf("GET /api/create-tenant as %s, once a method is open: offered = %v, want %v", offer.name, got, offer.want)
+		}
+	}
+
 	// The newcomer names their tenant, by its name alone, and is answered the id the
 	// route generated for it.
 	status, body = newcomer.do(ctx, http.MethodPost, "/api/create-tenant", []byte(`{"name":"West"}`))
@@ -109,6 +133,9 @@ func TestSelfService_aSignedInStrangerCreatesTheirTenant(t *testing.T) {
 	// administrator, holding the domain role in every tenant, sees it too.
 	if domains := userDomains(ctx, t, newcomer); !slices.Equal(domains, []string{west}) {
 		t.Errorf("user-domains after = %v, want [%s]", domains, west)
+	}
+	if creationOffered(ctx, t, newcomer) {
+		t.Error("GET /api/create-tenant as the newcomer, who holds a tenant now, says another can be created")
 	}
 	reads := []struct {
 		name       string
@@ -163,6 +190,28 @@ func TestSelfService_aSignedInStrangerCreatesTheirTenant(t *testing.T) {
 	if domains := userDomains(ctx, t, newcomer); !slices.Equal(domains, []string{west}) {
 		t.Errorf("the newcomer's tenants once invite only again = %v, want [%s]: they keep what they have", domains, west)
 	}
+	if creationOffered(ctx, t, another) {
+		t.Error("GET /api/create-tenant once invite only again says a tenant can be created, and the route refuses it")
+	}
+}
+
+// creationOffered reads whether the browser's person may create a tenant of their own
+// now, as the page that offers the creation reads it: GET on the creation's own route.
+func creationOffered(ctx context.Context, t *testing.T, b *browser) bool {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, "/api/create-tenant", nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET /api/create-tenant: status %d: %s", status, body)
+	}
+	var answer struct {
+		Offered *bool `json:"offered"`
+	}
+	if err := json.Unmarshal(body, &answer); err != nil || answer.Offered == nil {
+		t.Fatalf("GET /api/create-tenant answered %s (%v), want whether a tenant can be created", body, err)
+	}
+
+	return *answer.Offered
 }
 
 // askWarning asks a method for its warning in place of running it, the way the library's

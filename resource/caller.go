@@ -121,6 +121,18 @@ func (q *QuerySet[Resource]) arm(caller *Caller, rSet *Set[Resource], requiredPe
 	q.EnableUserPermissionEnforcement(rSet, caller.Permissions, caller.Scope, requiredPermission)
 }
 
+// Caller returns the caller the query was checked as: the checker, the scope and the
+// environment its decode bound, with the collection its conditions resolve against. The
+// generated frame stamps the caller into the context for a method's body and not for a
+// list's, so a computed resource's List or Read function whose rows depend on what the
+// caller may do elsewhere stamps this one (WithCaller) and asks as the request's own
+// check did (Caller.Check, Caller.ExecuteGate): a list that offers what a method takes
+// lists what the method would accept from this caller. A QuerySet bound to no
+// permissions answers a zero Caller, which every question refuses.
+func (q *QuerySet[Resource]) Caller() *Caller {
+	return &Caller{Permissions: q.userPermissions, Scope: q.scope, Env: q.env, collection: q.collection}
+}
+
 // Enforce arms the query against the caller: Read and List run the read
 // permission gate the resource routes run (resource then requested fields, with
 // conditional grants riding the query) before touching the database. A zero

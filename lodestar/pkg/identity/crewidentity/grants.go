@@ -19,9 +19,11 @@ var _ identity.RoleGrants = grants{}
 
 // grants answers what the request's caller may do to a person's role
 // (identity.RoleGrants), by the grants of the methods of this package that give a role
-// and take one away. The rules of a group ask it, since a group gives nobody a power
-// that giving the role directly would not: a person put in a group is given the group's
-// roles, and is judged by the grant of the method that gives a role.
+// and take one away. The rules ask it of whatever gives a role without naming a person,
+// since none of it gives a power that giving the role directly would not: a person put
+// in a group is given the group's roles, and a sign-in method opened to sign-up gives
+// its default role to every person who signs up. Each is judged by the grant of the
+// method that gives a role.
 //
 // The answer is the one the method's own frame would reach for the same caller, asked
 // of the request's own check (resource.Caller.ExecuteGate): the method's Execute grant

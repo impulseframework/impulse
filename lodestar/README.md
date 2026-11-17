@@ -852,7 +852,10 @@ console's Sign-in page lists the crew's sign-in methods, each invite only until 
 governor opens it (Open sign-up, behind a warning in the server's words, "Anyone with a
 Google account will be able to sign up and create a sector of their own, without an
 invitation.", confirmed by typing a word) and invite only again when he closes it (Make
-invite only), and the create-sector route refuses while every method is invite only. Which
+invite only), and the create-sector route refuses while every method is invite only (read
+with `GET`, it tells a page whether the caller may chart a sector now). A method stays
+open for the accounts it admitted when it was opened: were a release to change whom the
+registration admits, the method would be invite only until the governor opened it again. Which
 sectors the session then reaches is decided again per sector where its chart is computed:
 every sector that seats the person, except a sector that is directory only and whose
 directory is not the one they signed in through, which stays on the chart marked closed

@@ -1917,6 +1917,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/console/api/create-tenant", method: http.MethodGet,
+			handlerFunc: "CreateTenantOffered",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/console/api/directory-only", method: http.MethodGet,
 			handlerFunc: "DirectoryOnly",
 			parameters:  map[string]string{},
@@ -2040,6 +2045,10 @@ func (s *generatedHandlersStub) CreateStaffUser() http.HandlerFunc {
 
 func (s *generatedHandlersStub) CreateTenant() http.HandlerFunc {
 	return s.record("CreateTenant")
+}
+
+func (s *generatedHandlersStub) CreateTenantOffered() http.HandlerFunc {
+	return s.record("CreateTenantOffered")
 }
 
 func (s *generatedHandlersStub) DeleteStaffGroup() http.HandlerFunc {

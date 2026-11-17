@@ -1863,6 +1863,42 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 		return httpio.NewEncoder(w).Ok(response{ {{- .Key.Name }}: id})
 	})
 }
+
+// {{ .OfferedHandlerFunc }} serves GET {{ .RoutePath }}: whether the caller may create a {{ .RecordLower }} of
+// their own now. A page offers a person only what they may do, so the page that offers
+// the create-your-{{ .RecordLower }} card asks this first and hides the card on a no. The answer is
+// the one {{ .HandlerFunc }} would reach for the same caller before it reads a body, by the
+// same two facts: the session holds a grant in no {{ .RecordLower }}, and an administrator has a
+// sign-in method of the {{ .Auth }} auth open to sign-up, read as committed. No grant admits the
+// call, which any signed-in person makes, and nothing is written. The POST decides again
+// in its own transaction: what is offered here may be refused there a moment later.
+func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .OfferedHandlerFunc }}() http.HandlerFunc {
+	type offer struct {
+		Offered bool ` + "`json:\"offered\"`" + `
+	}
+
+	identity := {{ .ReceiverName }}.{{ .IdentityAccessor }}()
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		// One {{ .RecordLower }} per person: a session holding a grant in any {{ .RecordLower }} is offered none.
+		held, err := {{ .ReceiverName }}.UserPermissions(r).Domains(ctx)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if len(held) > 0 {
+			return httpio.NewEncoder(w).Ok(offer{Offered: false})
+		}
+		open, err := identity.AnySignInMethodOpen(ctx, {{ .ReceiverName }}.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "{{ .IdentityAccessor }}().AnySignInMethodOpen()"))
+		}
+
+		return httpio.NewEncoder(w).Ok(offer{Offered: open})
+	})
+}
 `
 
 	// decodersTemplate re-exposes the library's Must* decoder constructors under the
@@ -3886,7 +3922,9 @@ export const apiDescriptor = defineApiDescriptor({
  * prefix, with the body below, through the application's HTTP client. A signed-in person who holds
  * no {{ .RecordLower }} creates one and becomes its administrator; a person who already holds one is
  * refused (403), and so is everyone while no sign-in method is open to sign-up.
- * The route generates the new {{ .RecordLower }}'s id and answers it.
+ * The route generates the new {{ .RecordLower }}'s id and answers it. A GET of the same route answers
+ * whether the person may create one now ({{ .RequestType }}Offered), which a page reads before it
+ * offers the route: a page offers only what the person may do.
  */
 export const {{ .RouteConstant }} = '{{ .Route }}';
 /** The body the create-your-{{ .RecordLower }} route takes: the {{ .Record }} record's fields, without its id. */
@@ -3898,6 +3936,14 @@ export interface {{ .RequestType }} {
 /** The answer of the create-your-{{ .RecordLower }} route: the id of the {{ .RecordLower }} it created, the domain of its addresses. */
 export interface {{ .RequestType }}Answer {
   {{ .KeyWire }}: string;
+}
+/**
+ * The answer of GET {{ .Route }}: whether the person may create a {{ .RecordLower }} of their own now.
+ * It is false for a person who holds a {{ .RecordLower }} already, and for everyone while no sign-in
+ * method is open to sign-up, the two refusals of the POST.
+ */
+export interface {{ .RequestType }}Offered {
+  offered: boolean;
 }
 {{- end }}
 

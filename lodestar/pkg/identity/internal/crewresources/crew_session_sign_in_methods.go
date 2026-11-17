@@ -13,10 +13,12 @@ type (
 	// CrewSessionSignInMethod is what an administrator chose for one sign-in method of
 	// the Crew auth: a row of CrewSessionSignInMethods, keyed by the name the
 	// method is registered under. OpenSignUp says the method admits a person who holds
-	// no account and no invitation, and DefaultRole names the role such a person is
-	// given with their account. A method with no row is invite only. The sign-in reads
-	// the row in its own transaction; OpenCrewSignUp and MakeCrewInviteOnly
-	// write it, and nothing else does.
+	// no account and no invitation, OpenedFor whom the method admitted when it was
+	// opened (the row opens the method for that audience alone, so a registration
+	// widened in code since is invite only until it is opened again), and DefaultRole
+	// names the role such a person is given with their account. A method with no row is
+	// invite only. The sign-in reads the row in its own transaction;
+	// OpenCrewSignUp and MakeCrewInviteOnly write it, and nothing else does.
 	//
 	// @resource
 	// @suppress(listHandler)
@@ -26,6 +28,7 @@ type (
 	CrewSessionSignInMethod struct {
 		Name        string    `spanner:"Name"`
 		OpenSignUp  bool      `spanner:"OpenSignUp"`
+		OpenedFor   *string   `spanner:"OpenedFor"`
 		DefaultRole *string   `spanner:"DefaultRole"`
 		UpdatedAt   time.Time `spanner:"UpdatedAt"`
 	}

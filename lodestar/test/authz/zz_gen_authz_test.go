@@ -4898,6 +4898,12 @@ Content-Type: application/json
 			body:         `{"notAFieldOfTheRecord":true}`,
 			wantStatuses: []int{http.StatusBadRequest},
 		},
+		{
+			name:         "CreateSectorOffered open",
+			method:       http.MethodGet,
+			target:       "/console/api/create-sector",
+			wantStatuses: []int{http.StatusOK},
+		},
 	}
 
 	db, err := prepareDatabase(t.Context(), t)

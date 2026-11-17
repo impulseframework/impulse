@@ -64,8 +64,11 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, opts 
 	// record's; it goes first, so an option the caller passes is the one kept.
 	opts = append([]identity.Option{identity.WithTenantWord("tenant")}, opts...)
 	opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))
-	// A change to a group is judged as the role changes it makes, by the grants of the
-	// methods that give a role and take one away (grants.go).
+	// What gives a person a role without naming them is judged as giving the role
+	// directly, by the grants of the methods that give a role and take one away
+	// (grants.go): a change to a group, as the role changes it makes, and the default
+	// role of a sign-in method opened to sign-up, which every person who signs up is
+	// given.
 	opts = append(opts, identity.WithRoleGrants(grants{}))
 	manager, err := identity.New(AuthName, store{}, controller, sessions, opts...)
 	if err != nil {

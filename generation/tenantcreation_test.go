@@ -347,6 +347,7 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		Record:              "Station",
 		RecordLower:         "station",
 		HandlerFunc:         "CreateStation",
+		OfferedHandlerFunc:  "CreateStationOffered",
 		RoutePath:           "/api/create-station",
 		Auth:                "Staff",
 		IdentityAccessor:    "StaffIdentity",
@@ -398,6 +399,14 @@ func Test_tenantCreationTemplate(t *testing.T) {
 		"a.LiveService().Signal(ctx, resource.KindTenants)",
 		// The answer carries the generated id.
 		"return httpio.NewEncoder(w).Ok(response{ID: id})",
+		// The route's GET answers whether the caller may create one now, by the two
+		// facts the POST refuses on, read as committed, and writes nothing.
+		"func (a *App) CreateStationOffered() http.HandlerFunc {",
+		"Offered bool `json:\"offered\"`",
+		"held, err := a.UserPermissions(r).Domains(ctx)",
+		"if len(held) > 0 {\n\t\t\treturn httpio.NewEncoder(w).Ok(offer{Offered: false})\n\t\t}",
+		"open, err := identity.AnySignInMethodOpen(ctx, a.ResourceClient())",
+		"return httpio.NewEncoder(w).Ok(offer{Offered: open})",
 	}, []string{
 		"Derived", "SetID", "SetDerived", "sessioninfo", "EstablishedBy",
 		// Nothing is removed after the commit: the row and the administrator's
@@ -506,29 +515,41 @@ func Test_accumulateTenantCreationRoute(t *testing.T) {
 			}
 			testRoutes := r.accumulateTenantCreationRoute(outlets, outletRoutes)
 
-			gotRoutes := map[string]*generatedRoute{}
-			for _, outlet := range outletRoutes {
-				routes := outlet.RoutesMap["CreateStation"]
-				if len(routes) == 0 {
-					continue
+			gotRoutes, gotOffered := map[string]*generatedRoute{}, map[string]*generatedRoute{}
+			for handler, got := range map[string]map[string]*generatedRoute{"CreateStation": gotRoutes, "CreateStationOffered": gotOffered} {
+				for _, outlet := range outletRoutes {
+					routes := outlet.RoutesMap[handler]
+					if len(routes) == 0 {
+						continue
+					}
+					if len(routes) != 1 {
+						t.Errorf("outlet %s registers %d routes under %s, want 1", outlet.Name, len(routes), handler)
+					}
+					got[outlet.Name] = routes[0]
 				}
-				if len(routes) != 1 {
-					t.Errorf("outlet %s registers %d routes, want 1", outlet.Name, len(routes))
-				}
-				gotRoutes[outlet.Name] = routes[0]
 			}
 			if diff := cmp.Diff(tt.wantRoutes, gotRoutes, cmp.AllowUnexported(generatedRoute{})); diff != "" {
 				t.Errorf("registered routes mismatch (-want +got):\n%s", diff)
 			}
-			if got, want := len(testRoutes), len(tt.wantRoutes); got != want {
-				t.Errorf("dispatch test routes = %d, want %d", got, want)
+			// Wherever the route is, its GET is beside it: the page asks it before it
+			// offers the route.
+			wantOffered := map[string]*generatedRoute{}
+			for outlet, route := range tt.wantRoutes {
+				wantOffered[outlet] = &generatedRoute{Method: "GET", Path: route.Path, HandlerFunc: "CreateStationOffered", TestURL: route.TestURL}
+			}
+			if diff := cmp.Diff(wantOffered, gotOffered, cmp.AllowUnexported(generatedRoute{})); diff != "" {
+				t.Errorf("registered routes of the GET mismatch (-want +got):\n%s", diff)
+			}
+			if got, want := len(testRoutes), 2*len(tt.wantRoutes); got != want {
+				t.Errorf("dispatch test routes = %d, want %d: the POST and the GET of each outlet", got, want)
 			}
 		})
 	}
 }
 
 // Test_tenantCreationAuthzCases pins the matrix's cases for the route: one no-grant
-// case per session outlet the record is on, named for the outlet off the default.
+// case per session outlet the record is on, named for the outlet off the default, and
+// beside each the route's GET, which anyone signed in may ask.
 func Test_tenantCreationAuthzCases(t *testing.T) {
 	t.Parallel()
 
@@ -539,7 +560,9 @@ func Test_tenantCreationAuthzCases(t *testing.T) {
 	})
 	want := []authzCase{
 		{Name: "CreateStation", Method: "http.MethodPost", URL: "/api/create-station", Body: tenantCreationRefusedBody, NoGrant: true},
+		{Name: "CreateStationOffered", Method: "http.MethodGet", URL: "/api/create-station", Open: true},
 		{Name: "CreateStation (members)", Method: "http.MethodPost", URL: "/members/create-station", Body: tenantCreationRefusedBody, NoGrant: true},
+		{Name: "CreateStationOffered (members)", Method: "http.MethodGet", URL: "/members/create-station", Open: true},
 	}
 	if diff := cmp.Diff(want, r.tenantCreationAuthzCases(), cmp.AllowUnexported(authzCase{})); diff != "" {
 		t.Errorf("tenantCreationAuthzCases() mismatch (-want +got):\n%s", diff)
@@ -598,6 +621,8 @@ func Test_apiClientData_tenantCreation(t *testing.T) {
 				"The route generates the new colony's id and answers it.",
 				"export interface CreateColony {\n  name: string;\n}",
 				"export interface CreateColonyAnswer {\n  id: string;\n}",
+				// What the page reads before it offers the route.
+				"export interface CreateColonyOffered {\n  offered: boolean;\n}",
 			},
 		},
 		{
@@ -608,6 +633,7 @@ func Test_apiClientData_tenantCreation(t *testing.T) {
 				"export const createStationRoute = 'create-station';",
 				"export interface CreateStation {\n  name: string;\n  motto?: string | null;\n  opened: string;\n}",
 				"export interface CreateStationAnswer {\n  id: string;\n}",
+				"export interface CreateStationOffered {\n  offered: boolean;\n}",
 			},
 			wantNotContains: []string{"derived"},
 		},

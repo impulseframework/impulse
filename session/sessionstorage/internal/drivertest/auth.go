@@ -156,6 +156,11 @@ type AuthConfig struct {
 	// sign-in method (MethodName), applied when Resolve is nil or answers
 	// signin.Standard; NoStandardRule for none.
 	Accounts Accounts
+	// Admits is whom the instance's sign-in method admits now, as its registration
+	// fixes it; the zero value is MethodAudience. A scenario of a registration that
+	// code changed after an administrator opened it names another audience here and
+	// writes the row itself, opened for the audience of before.
+	Admits Admits
 	// Resolve is the custom account rule the instance's SignIn runs with, which the
 	// harness adapts to the driver's transaction. Nil with NoStandardRule rejects every
 	// unlinked identity.
@@ -200,16 +205,69 @@ const (
 	Open
 )
 
+// MethodAudience is whom the instance's sign-in method (MethodName) admits, as its
+// registration would fix it: the people of one organization.
+func MethodAudience() signin.Audience {
+	return signin.Audience{Organizations: []string{"lakeside.edu"}}
+}
+
+// Admits is whom an instance's sign-in method admits now: one of the audiences the
+// scenarios turn on, named by a small value so that a configuration stays cheap to
+// hand around. The zero value is the audience of every scenario that does not turn on
+// it (MethodAudience).
+type Admits uint8
+
+const (
+	// AdmitsOneOrganization is MethodAudience: the people of lakeside.edu.
+	AdmitsOneOrganization Admits = iota
+	// AdmitsTwoOrganizations is the people of lakeside.edu and of acme.example.
+	AdmitsTwoOrganizations
+	// AdmitsAnyAccount is anyone with an account of the provider.
+	AdmitsAnyAccount
+	// AdmitsPersonalAccounts is the people of lakeside.edu, and personal accounts
+	// beside them.
+	AdmitsPersonalAccounts
+)
+
+// Audience is the audience the value names.
+func (a Admits) Audience() signin.Audience {
+	switch a {
+	case AdmitsTwoOrganizations:
+		return signin.Audience{Organizations: []string{"lakeside.edu", "acme.example"}}
+	case AdmitsAnyAccount:
+		return signin.Audience{Accounts: "a Google account"}
+	case AdmitsPersonalAccounts:
+		return signin.Audience{Organizations: []string{"lakeside.edu"}, Accounts: "a Microsoft personal account"}
+	default:
+		return MethodAudience()
+	}
+}
+
+// audience is whom the instance's method admits now, as the rule compares it with the
+// audience the method's row was opened for.
+func (cfg *AuthConfig) audience() string {
+	return cfg.Admits.Audience().Key()
+}
+
+// openedFor is the audience a row opened for audience keeps.
+func openedFor(audience signin.Audience) *string {
+	key := audience.Key()
+
+	return &key
+}
+
 // SeedSignInMethod writes the row an Open method has, with cfg's default role, through
-// the driver; a harness calls it once its driver is built. It writes nothing for any
-// other choice, so an invite-only instance runs with no row.
+// the driver; a harness calls it once its driver is built. The row is opened for the
+// audience the method has. It writes nothing for any other choice, so an invite-only
+// instance runs with no row.
 func SeedSignInMethod(ctx context.Context, t *testing.T, d AuthDriver, cfg AuthConfig) {
 	t.Helper()
 
 	if cfg.Accounts != Open {
 		return
 	}
-	m := &dbtype.SignInMethod{Name: MethodName, OpenSignUp: true}
+	audience := cfg.audience()
+	m := &dbtype.SignInMethod{Name: MethodName, OpenSignUp: true, OpenedFor: &audience}
 	if cfg.DefaultRole != "" {
 		m.DefaultRole = &cfg.DefaultRole
 	}
@@ -261,7 +319,7 @@ func NewSignUp[Tx any](
 	seat := adaptSignUp(cfg, adapt)
 
 	return func(ctx context.Context, user *dbtype.InsertSessionUser, linkID impulse.UUID) (impulse.UUID, error) {
-		id, err := signinflow.SignUp(ctx, d, MethodName, user, linkID, seat)
+		id, err := signinflow.SignUp(ctx, d, MethodName, cfg.audience(), user, linkID, seat)
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignUp()")
 		}
@@ -382,7 +440,7 @@ func NewSignIn[Tx any](
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "impulse.NewUUID()")
 		}
-		rules := signinflow.Rules[Tx]{Account: rule, Method: MethodName, Policy: policy, Accept: accept, SignUp: signUp, Directories: directories, Seat: seat, Proven: oneProof(proven)}
+		rules := signinflow.Rules[Tx]{Account: rule, Method: MethodName, Audience: cfg.audience(), Policy: policy, Accept: accept, SignUp: signUp, Directories: directories, Seat: seat, Proven: oneProof(proven)}
 		if err := signinflow.SignIn(ctx, d, id, insert, req, rules); err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
 		}
@@ -437,6 +495,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a driver whose sign-in methods table is not there says so: an error naming the table, never a method read as invite only", run: testSignInMethodsMissingTable},
 		{name: "an open method gives a person with no account its default role in the transaction that makes the account, once; a person an administrator created is linked and given nothing", run: testOpenMethodDefaultRole},
 		{name: "an open method that names no role makes the account and gives nothing", run: testOpenMethodWithoutRole},
+		{name: "a row opens its method for the audience it was opened for alone: a registration widened or narrowed in code since refuses a stranger and writes nothing, at a sign-in and at a password sign-up, and a row that names no audience opens nothing", run: testOpenRowOfAnotherAudience},
 		{name: "a person with an account, and a person with an invitation, sign in the same under either choice: the invitation's role, never the default role beside it", run: testEitherChoiceSameForAccountsAndInvitations},
 		{name: "a dead invitation carried through an open method gives nothing, and the person gets the method's default role", run: testOpenMethodDeadInvitation},
 		{name: "a default role on an Auth with no sign-up hook fails the sign-in in its transaction: no user is created", run: testOpenMethodHookMissing},
