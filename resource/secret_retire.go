@@ -222,9 +222,9 @@ type namedSecret struct {
 	stored Secret
 }
 
-// listNamedSecrets reads the key and one secret field of every row of R, a strong read
-// through the client's read-only transaction, and yields the values that name the
-// version. PostgreSQL is read by its own statement (postgresNamedSecrets).
+// listNamedSecrets reads the key and one secret field of every row of R in key order, a
+// strong read through the client's read-only transaction, and yields the values that
+// name the version. PostgreSQL is read by its own statement (postgresNamedSecrets).
 func listNamedSecrets[R Resourcer](ctx context.Context, client Client, field accesstypes.Field, version int, yield func(namedSecret) error) error {
 	var res R
 	rMeta := NewMetadata[R]()
@@ -238,9 +238,16 @@ func listNamedSecrets[R Resourcer](ctx context.Context, client Client, field acc
 		return postgresNamedSecrets(ctx, postgres, rMeta, field, version, KeySet{}, 0, yield)
 	}
 
-	// The field brings the row's key with it (QuerySet.AddField).
+	// The field brings the row's key with it (QuerySet.AddField), and the rows are read
+	// in key order, as PostgreSQL's pages are, so the values that do not open are named
+	// from the same end on both databases.
 	qSet := NewQuerySet(rMeta)
 	qSet.AddField(field)
+	order := make([]SortField, 0, len(rMeta.secretContext))
+	for _, part := range rMeta.secretContext {
+		order = append(order, SortField{Field: string(part), Direction: SortAscending})
+	}
+	qSet.SetSortFields(order)
 	stmt, err := qSet.stmt(client.DBType())
 	if err != nil {
 		return errors.Wrap(err, "QuerySet.stmt()")

@@ -378,10 +378,16 @@ func TestRetireSecretVersion_versionsPastOneByte(t *testing.T) {
 func TestRetireSecretVersion_valuesThatDoNotOpen(t *testing.T) {
 	t.Parallel()
 
+	// More values that do not open than a refusal names, each sealed for a row elsewhere.
+	const unopened = secretRetireReported + 2
 	keys, old := testSecretKeys(t, 1, 2), testSecretKeys(t, 1)
-	moved, err := old.Seal(KeySet{}.Add("Vault", "elsewhere").Add("Shelf", "shelf-1"), "moved-here")
-	if err != nil {
-		t.Fatalf("Seal() error = %v", err)
+	moved := make([]Secret, unopened)
+	for i := range moved {
+		sealed, err := old.Seal(KeySet{}.Add("Vault", "elsewhere").Add("Shelf", fmt.Sprintf("shelf-%02d", i)), "moved-here")
+		if err != nil {
+			t.Fatalf("Seal() error = %v", err)
+		}
+		moved[i] = sealed
 	}
 	fine, err := old.Seal(rowKey("row-1"), "open-sesame")
 	if err != nil {
@@ -391,7 +397,11 @@ func TestRetireSecretVersion_valuesThatDoNotOpen(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	pairs := NewMockReader[retiringPairRow](ctrl)
 	pairs.EXPECT().List(gomock.Any(), gomock.Any()).Return(func(yield func(*Row[retiringPairRow], error) bool) {
-		yield(&Row[retiringPairRow]{Data: retiringPairRow{Vault: "vault-1", Shelf: "shelf-1", Number: &moved}}, nil)
+		for i := range moved {
+			if !yield(&Row[retiringPairRow]{Data: retiringPairRow{Vault: "vault-1", Shelf: fmt.Sprintf("shelf-%02d", i), Number: &moved[i]}}, nil) {
+				return
+			}
+		}
 	})
 	rows := NewMockReader[retiringRow](ctrl)
 	rows.EXPECT().List(gomock.Any(), gomock.Any()).Return(func(yield func(*Row[retiringRow], error) bool) {
@@ -407,14 +417,18 @@ func TestRetireSecretVersion_valuesThatDoNotOpen(t *testing.T) {
 		t.Fatalf("RetireSecretVersion() = %+v, error %v; want the refusal of a value that does not open", got, err)
 	}
 	for _, want := range []string{
-		"APP_SECRET_KEY_1 is not retired: 1 stored value(s) name version 1 and do not open",
+		fmt.Sprintf("APP_SECRET_KEY_1 is not retired: %d stored value(s) name version 1 and do not open", unopened),
 		"Set each to its value again or clear it, then run the retirement again",
 		"Every value that opens was written again under version 2, 1 in all",
-		"SealedPairRows.Number, the row keyed Vault vault-1, Shelf shelf-1",
+		fmt.Sprintf("the first %d: SealedPairRows.Number, the row keyed Vault vault-1, Shelf shelf-00", secretRetireReported),
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("RetireSecretVersion() error = %v, want containing %q", err, want)
 		}
+	}
+	// The count is of every value that does not open; ten of them are named.
+	if named := strings.Count(err.Error(), "the row keyed "); named != secretRetireReported {
+		t.Errorf("the refusal names %d row(s), want %d", named, secretRetireReported)
 	}
 	if strings.Contains(err.Error(), "moved-here") || strings.Contains(err.Error(), "open-sesame") {
 		t.Errorf("the refusal carries a value: %v", err)
