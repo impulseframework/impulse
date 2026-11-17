@@ -504,3 +504,226 @@ describe('identityRoutes', () => {
     ]);
   });
 });
+
+// An Auth that keeps groups of people: the description names the groups, the people in
+// them, the roles they hold and the roles each person holds through one, on each side,
+// with the methods that manage them.
+describe('identityPages, an Auth that keeps groups', () => {
+  const groupMetas: Record<string, ResourceMeta> = {
+    ...metas,
+    CrewGroups: fields('id', 'kind', 'axis', 'domainId', 'name', 'description', 'updatedAt'),
+    CrewGroupUsers: fields('groupId', 'userId', 'username', 'name', 'groupName', 'createdAt'),
+    CrewGroupRoles: fields('groupId', 'kind', 'axis', 'domainId', 'role', 'createdAt'),
+    CrewUserGroupRoles: fields('userId', 'username', 'groupId', 'groupName', 'kind', 'axis', 'domainId', 'role'),
+    CrewSectorGroups: fields('id', 'domainId', 'name', 'description', 'updatedAt'),
+    CrewSectorGroupUsers: fields('domainId', 'groupId', 'userId', 'username', 'name', 'groupName', 'createdAt'),
+    CrewSectorGroupRoles: fields('domainId', 'groupId', 'groupName', 'role', 'createdAt'),
+    CrewSectorUserGroupRoles: fields('domainId', 'userId', 'username', 'groupId', 'groupName', 'role', 'globalGroup', 'everyDomain'),
+  };
+  const groupMeta = (resource: Resource): ResourceMeta => groupMetas[resource];
+  const [wholeApplication, tenant] = crew.sides;
+  const grouped: IdentityDescriptor = {
+    ...crew,
+    sides: [
+      {
+        ...wholeApplication,
+        lists: {
+          ...wholeApplication.lists,
+          groups: 'CrewGroups',
+          groupUsers: 'CrewGroupUsers',
+          groupRoles: 'CrewGroupRoles',
+          rolesThroughGroups: 'CrewUserGroupRoles',
+        },
+        methods: {
+          ...wholeApplication.methods,
+          createGroup: 'CreateCrewGroup',
+          describeGroup: 'DescribeCrewGroup',
+          deleteGroup: 'DeleteCrewGroup',
+          addGroupMember: 'AddCrewGroupMember',
+          removeGroupMember: 'RemoveCrewGroupMember',
+          giveGroupRole: 'GiveCrewGroupRole',
+          takeGroupRole: 'TakeCrewGroupRole',
+        },
+      },
+      {
+        ...tenant,
+        lists: {
+          ...tenant.lists,
+          groups: 'CrewSectorGroups',
+          groupUsers: 'CrewSectorGroupUsers',
+          groupRoles: 'CrewSectorGroupRoles',
+          rolesThroughGroups: 'CrewSectorUserGroupRoles',
+        },
+        methods: {
+          ...tenant.methods,
+          createGroup: 'CreateCrewSectorGroup',
+          describeGroup: 'DescribeCrewSectorGroup',
+          deleteGroup: 'DeleteCrewSectorGroup',
+          addGroupMember: 'AddCrewSectorGroupMember',
+          removeGroupMember: 'RemoveCrewSectorGroupMember',
+          giveGroupRole: 'GiveCrewSectorGroupRole',
+          takeGroupRole: 'TakeCrewSectorGroupRole',
+        },
+      },
+    ],
+  };
+  const groupDescriptor = { ...descriptor, identity: [grouped, members] } as ApiDescriptor;
+  const global = identityPages(groupDescriptor, groupMeta, { auth: 'Crew', scope: 'global' });
+  const domain = identityPages(groupDescriptor, groupMeta, { auth: 'Crew', scope: 'domain' });
+
+  it('builds a Groups page after the people on each side, with a row page for a group', () => {
+    expect(global.map((page) => [page.routeData.route, page.page?.label, page.page?.icon, page.routeData.hasViewRoute])).toEqual([
+      ['crew-accounts', 'Accounts', 'manage_accounts', true],
+      ['crew-groups', 'Groups', 'groups', true],
+      ['crew-mailed-links', 'Mailed links', 'forward_to_inbox', false],
+      ['crew-sessions', 'Sessions', 'devices', false],
+      ['crew-failed-sign-ins', 'Failed sign-ins', 'gpp_bad', false],
+    ]);
+    expect(domain.map((page) => [page.routeData.route, page.page?.label, list(page).primaryResource])).toEqual([
+      ['sectors/:sectorID/crew-people', 'People', 'CrewSectorUsers'],
+      ['sectors/:sectorID/crew-groups', 'Groups', 'CrewSectorGroups'],
+      ['sectors/:sectorID/crew-invitations', 'Invitations', 'CrewSectorInvitations'],
+    ]);
+    expect(identityPages(groupDescriptor, groupMeta, { auth: 'Crew', scope: 'domain', routes: { groups: 'sectors/:sectorID/groups' } })[1].routeData.route).toBe(
+      'sectors/:sectorID/groups',
+    );
+  });
+
+  it('leaves the Groups page and the roles through groups out where the Auth keeps none', () => {
+    const without = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'global' });
+    expect(without.map((page) => page.page?.label)).toEqual(['Accounts', 'Mailed links', 'Sessions', 'Failed sign-ins']);
+    expect(children(without[0]).map((child) => child.title)).toEqual(['Roles held', 'Sign-in identities', 'Sessions']);
+  });
+
+  it("lists the whole application's groups with where each is kept, and offers the methods that run against a group", () => {
+    const groups = list(global[1]);
+    expect(groups.title).toBe('Crew groups');
+    expect(columns(groups)).toEqual([
+      ['name', 'Name'],
+      ['description', 'Description'],
+      ['domainId', 'Kept in'],
+      ['kind', undefined],
+    ]);
+    const kept = groups.listColumns[2] as MultiColumnConfig;
+    expect(kept.additionalIds).toEqual([{ resource: 'Sectors', id: 'id', field: 'name' }]);
+    const keptIn = kept.fallback as (row: RecordData) => string;
+    expect(keptIn({ kind: 'global', domainId: '' })).toBe('The whole application');
+    expect(keptIn({ kind: 'domain', domainId: 's-1' })).toBe('Sector s-1');
+    expect(methodsOf(groups.rowMethods)).toEqual([
+      ['DescribeCrewGroup', 'Change the description'],
+      ['AddCrewGroupMember', 'Add a person'],
+      ['GiveCrewGroupRole', 'Give a role'],
+      ['DeleteCrewGroup', 'Delete'],
+    ]);
+    expect(methodsOf(groups.listMethods)).toEqual([['CreateCrewGroup', 'Add a group']]);
+    expect(presentation(groups.listMethods, 'CreateCrewGroup').labels).toEqual({ domain: 'Sector', everyDomain: 'In every sector' });
+    expect((presentation(groups.rowMethods, 'DeleteCrewGroup').confirm as (row: RecordData) => string)({ name: 'Deck crew' })).toBe(
+      'Delete Deck crew? A group that still has people in it or holds a role is not deleted: empty it first.',
+    );
+  });
+
+  it("draws a group's row page with the people in it and the roles it holds, each list under the group", () => {
+    expect(children(global[1]).map((child) => [child.title, child.primaryResource, child.parentRelation, child.showViewButton])).toEqual([
+      ['People in the group', 'CrewGroupUsers', { parentKey: 'id', childKey: 'groupId' }, false],
+      ['Roles the group holds', 'CrewGroupRoles', { parentKey: 'id', childKey: 'groupId' }, false],
+    ]);
+    const [people, roles] = children(global[1]);
+    expect(columns(people)).toEqual([
+      ['username', 'Username'],
+      ['name', 'Name'],
+      ['createdAt', 'Added'],
+    ]);
+    expect(methodsOf(people.rowMethods)).toEqual([['RemoveCrewGroupMember', 'Remove from the group']]);
+    expect(methodsOf(people.listMethods)).toEqual([['AddCrewGroupMember', 'Add a person']]);
+    expect((presentation(people.rowMethods, 'RemoveCrewGroupMember').confirm as (row: RecordData) => string)({ username: 'ada' })).toBe(
+      "Remove ada from the group? They keep the roles they hold themselves and lose the group's.",
+    );
+    expect(columns(roles)).toEqual([
+      ['role', 'Role'],
+      ['domainId', 'Held in'],
+      ['kind', undefined],
+      ['createdAt', 'Given'],
+    ]);
+    expect(methodsOf(roles.listMethods)).toEqual([['GiveCrewGroupRole', 'Give a role']]);
+  });
+
+  it("fills the whole application's method that takes a group's role away from the row, which names where the role is held", () => {
+    const roles = children(global[1])[1];
+    const take = presentation(roles.rowMethods, 'TakeCrewGroupRole');
+    const cases: { row: RecordData; body: Record<string, unknown>; question: string }[] = [
+      {
+        row: { groupId: 'g-1', role: 'Clerk', kind: 'global', domainId: '' },
+        body: { groupId: 'g-1', role: 'Clerk', domain: null, everyDomain: false },
+        question: 'Take Clerk away from the group? Everyone in the group loses it, unless they hold it some other way.',
+      },
+      {
+        row: { groupId: 'g-1', role: 'Cadet', kind: 'domain', domainId: 's-1' },
+        body: { groupId: 'g-1', role: 'Cadet', domain: 's-1', everyDomain: false },
+        question: 'Take Cadet in this sector away from the group? Everyone in the group loses it, unless they hold it some other way.',
+      },
+      {
+        row: { groupId: 'g-1', role: 'Archivist', kind: 'every', domainId: '' },
+        body: { groupId: 'g-1', role: 'Archivist', domain: null, everyDomain: true },
+        question: 'Take Archivist in every sector away from the group? Everyone in the group loses it, unless they hold it some other way.',
+      },
+    ];
+    for (const tt of cases) {
+      expect(take.fill?.(tt.row)).toEqual(tt.body);
+      expect((take.confirm as (row: RecordData) => string)(tt.row)).toBe(tt.question);
+    }
+  });
+
+  it("lists a tenant's own groups, whose roles are the tenant's alone, and runs each method against the row it names", () => {
+    const groups = list(domain[1]);
+    expect(groups.title).toBe('Groups');
+    expect(columns(groups)).toEqual([
+      ['name', 'Name'],
+      ['description', 'Description'],
+    ]);
+    expect(methodsOf(groups.rowMethods)).toEqual([
+      ['DescribeCrewSectorGroup', 'Change the description'],
+      ['AddCrewSectorGroupMember', 'Add a person'],
+      ['GiveCrewSectorGroupRole', 'Give a role'],
+      ['DeleteCrewSectorGroup', 'Delete'],
+    ]);
+    const [people, roles] = children(domain[1]);
+    expect([people.primaryResource, roles.primaryResource]).toEqual(['CrewSectorGroupUsers', 'CrewSectorGroupRoles']);
+    expect(columns(roles)).toEqual([
+      ['role', 'Role'],
+      ['createdAt', 'Given'],
+    ]);
+    // The tenant's method names the row of the role it takes away: nothing is filled.
+    const take = presentation(roles.rowMethods, 'TakeCrewSectorGroupRole');
+    expect(take.fill).toBeUndefined();
+    expect((take.confirm as (row: RecordData) => string)({ role: 'Cadet' })).toBe(
+      'Take Cadet away from the group? Everyone in the group loses it, unless they hold it some other way.',
+    );
+  });
+
+  it('says under a person which roles they hold themselves and which through which group', () => {
+    expect(children(global[0]).map((child) => [child.title, child.primaryResource, child.parentRelation])).toEqual([
+      ['Roles held', 'CrewUserRoles', { parentKey: 'id', childKey: 'userId' }],
+      ['Roles held through a group', 'CrewUserGroupRoles', { parentKey: 'id', childKey: 'userId' }],
+      ['Sign-in identities', 'CrewSessionIdentities', { parentKey: 'id', childKey: 'userId' }],
+      ['Sessions', 'CrewSessions', { parentKey: 'id', childKey: 'userId' }],
+    ]);
+    const through = children(global[0])[1];
+    expect(columns(through)).toEqual([
+      ['role', 'Role'],
+      ['groupName', 'Group'],
+      ['domainId', 'Held in'],
+      ['kind', undefined],
+    ]);
+    // A role held through a group is changed on the group's page: the list offers nothing.
+    expect(through.rowMethods).toBe(false);
+
+    const here = children(domain[0])[1];
+    expect([here.title, here.primaryResource, here.rowMethods]).toEqual(['Roles held here through a group', 'CrewSectorUserGroupRoles', false]);
+    expect(columns(here)).toEqual([
+      ['role', 'Role'],
+      ['groupName', 'Group'],
+      ['globalGroup', 'Group of the whole application'],
+      ['everyDomain', 'In every sector'],
+    ]);
+  });
+});
