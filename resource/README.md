@@ -804,7 +804,16 @@ method's target row: `EnforceView` judges a row the database holds, and
 `EnforceProposed` the values of a row the body proposes where the database holds none,
 by the condition language's own evaluator. A condition that reads an attribute the
 proposed row does not carry is an error, never a pass. The generated user management
-asks this way what a change to a group needs (section 21).
+asks this way what a change to a group needs (section 21), and which roles may be the
+default role of a sign-in method opened to sign-up.
+
+The frame stamps the caller for a method's body and not for a list's. A computed
+resource's `List` or `Read` function whose rows depend on what the caller may do
+elsewhere takes the caller from its query, `qSet.Caller()`: the checker, the scope and
+the environment the query was checked with. The generated list of the roles an open
+method's default role is picked from stamps it (`resource.WithCaller(ctx, qSet.Caller())`)
+and lists the roles the caller may give through the method that gives a role, so a
+picker offers what the method it feeds would accept.
 
 ## 8. The generated router
 

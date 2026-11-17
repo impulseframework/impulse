@@ -83,12 +83,12 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 	// The warning: the server's words for this method and the role named, the words for
 	// the button, and nothing written by asking. Before a role is picked it says a role
 	// is to be chosen.
-	status, body := warning(ctx, admin, "/api/open-staff-sign-up", `{"name":"password","defaultRole":"FeatureAdministrator"}`)
+	status, body := openWarning(ctx, admin, `{"name":"password","defaultRole":"FeatureAdministrator"}`)
 	var asked resource.Warning
 	if err := json.Unmarshal(body, &asked); status != http.StatusOK || err != nil || asked.Consequence != openConsequence || asked.Confirm != openConfirm {
 		t.Fatalf("the warning of opening the password method: status %d: %s, want %q on the button %q", status, body, openConsequence, openConfirm)
 	}
-	if status, body := warning(ctx, admin, "/api/open-staff-sign-up", `{"name":"password"}`); status != http.StatusOK || !strings.Contains(string(body), "Choose the role each of them gets.") {
+	if status, body := openWarning(ctx, admin, `{"name":"password"}`); status != http.StatusOK || !strings.Contains(string(body), "Choose the role each of them gets.") {
 		t.Errorf("the warning before a role is picked: status %d: %s, want 200 saying the role is to be chosen", status, body)
 	}
 	if rows := countRows(ctx, t, s, "StaffSessionSignInMethods"); rows != 0 {
@@ -152,7 +152,7 @@ func TestSignUp_whoGetsAnAccount(t *testing.T) {
 	}{
 		{name: "the list", do: func() (int, []byte) { return pat.do(ctx, http.MethodGet, "/api/staff-sign-in-methods", nil) }},
 		{name: "the warning", do: func() (int, []byte) {
-			return warning(ctx, pat, "/api/open-staff-sign-up", `{"name":"password","defaultRole":"Administrator"}`)
+			return openWarning(ctx, pat, `{"name":"password","defaultRole":"Administrator"}`)
 		}},
 		{name: "opening", do: func() (int, []byte) {
 			return pat.do(ctx, http.MethodPost, "/api/open-staff-sign-up", []byte(`{"name":"password","defaultRole":"Administrator"}`))
@@ -256,12 +256,13 @@ func signUpRoles(ctx context.Context, t *testing.T, b *browser) map[string]strin
 	return roles
 }
 
-// warning asks a method for its warning in place of running it, the way the library's
-// dialog does: the request goes to the method's own route with X-Warning.
-func warning(ctx context.Context, b *browser, path, body string) (status int, respBody []byte) {
+// openWarning asks the method that opens a sign-in method for its warning in place of
+// running it, the way the library's dialog does: the request goes to the method's own
+// route with X-Warning.
+func openWarning(ctx context.Context, b *browser, body string) (status int, respBody []byte) {
 	b.t.Helper()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.base+path, bytes.NewReader([]byte(body)))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, b.base+"/api/open-staff-sign-up", bytes.NewReader([]byte(body)))
 	if err != nil {
 		b.t.Fatal(err)
 	}

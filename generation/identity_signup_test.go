@@ -110,7 +110,11 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 		},
 		"crewidentity/crew_sign_up_roles.go": {
 			generationHeader, "// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)\ntype CrewSignUpRole struct {",
-			"// @primarykey\n\t// @attribute(name)\n\tName ", "Description string", `return "CrewSignUpRoles"`, "client.manager.SignUpRoles(ctx)",
+			"// @primarykey\n\t// @attribute(name)\n\tName ", "Description string", `return "CrewSignUpRoles"`,
+			// The list is read as the request's caller, whom the query was checked as:
+			// it lists the roles that caller may give.
+			"func ListCrewSignUpRole(ctx context.Context, qSet *resource.QuerySet[CrewSignUpRole], _ resource.Client, client *Client) iter.Seq2[*CrewSignUpRole, error] {",
+			"client.manager.SignUpRoles(resource.WithCaller(ctx, qSet.Caller()))",
 		},
 		// Opening a method declares the warning and the word; the default role is picked
 		// from the roles a person who signs up may be given, and is not required of the
@@ -131,11 +135,12 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 			"func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *identity.SignInMethodRow) error {",
 			// Either write is the generated patch's, buffered under the caller, which is
 			// what leaves the change event.
-			"crewresources.NewCrewSessionSignInMethodUpdatePatch(row.Name).", "crewresources.NewCrewSessionSignInMethodCreatePatch(row.Name).",
 			"patch.Buffer(ctx, txn, resource.UserEvent(ctx))",
-			// The row is read and written with the audience it was opened for.
+			// The row is read with the audience it was opened for, and each of the two
+			// writes, of a row that exists and of one that does not, writes it.
 			"Columns().Name().OpenSignUp().OpenedFor().DefaultRole())", "OpenedFor: row.Data.OpenedFor",
-			"SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole)",
+			"crewresources.NewCrewSessionSignInMethodUpdatePatch(row.Name).\n\t\t\tSetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole)",
+			"crewresources.NewCrewSessionSignInMethodCreatePatch(row.Name).\n\t\tSetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole)",
 		},
 		// The default role is judged by the grant of the method that gives a role: the
 		// package answers it, and the client hands the answers to the rules.
