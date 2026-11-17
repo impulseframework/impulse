@@ -714,6 +714,45 @@ CREATE TABLE CrewRoleGrants (
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, Permission, Resource, Field, Condition),
   INTERLEAVE IN PARENT CrewRoles ON DELETE CASCADE;
 
+-- The groups of people: a group holds roles the way a person does, and a person in it holds
+-- them wherever the group does. A group is kept for the whole application or in one sector
+-- (Kind global or domain); its members and the roles it holds each name it by its id, so a
+-- group goes only once both are empty.
+CREATE TABLE CrewGroups (
+  Id STRING(36) NOT NULL,
+  Kind STRING(16) NOT NULL,
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Name STRING(128) NOT NULL,
+  Description STRING(MAX) NOT NULL,
+  UpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT CrewGroupsKind CHECK (Kind IN ('global', 'domain')),
+) PRIMARY KEY (Id);
+
+CREATE UNIQUE INDEX CrewGroupsByName ON CrewGroups (Kind, Axis, DomainId, Name);
+
+CREATE TABLE CrewGroupMembers (
+  GroupId STRING(36) NOT NULL,
+  UserId STRING(320) NOT NULL,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT CrewGroupMembersGroup FOREIGN KEY (GroupId) REFERENCES CrewGroups (Id),
+) PRIMARY KEY (GroupId, UserId);
+
+CREATE INDEX CrewGroupMembersByUserId ON CrewGroupMembers (UserId, GroupId);
+
+CREATE TABLE CrewGroupRoles (
+  GroupId STRING(36) NOT NULL,
+  Kind STRING(16) NOT NULL,
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Role STRING(128) NOT NULL,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT CrewGroupRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
+  CONSTRAINT CrewGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES CrewGroups (Id),
+) PRIMARY KEY (GroupId, Kind, Axis, DomainId, Role);
+
+CREATE INDEX CrewGroupRolesByScope ON CrewGroupRoles (Kind, Axis, DomainId, Role);
+
 CREATE TABLE MembersRoles (
   Kind STRING(16) NOT NULL,
   Axis STRING(128) NOT NULL,
@@ -749,6 +788,43 @@ CREATE TABLE MembersRoleGrants (
   CONSTRAINT MembersRoleGrantsKind CHECK (Kind IN ('global', 'domain', 'every')),
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, Permission, Resource, Field, Condition),
   INTERLEAVE IN PARENT MembersRoles ON DELETE CASCADE;
+
+-- The members' store holds the group tables as every store does, and they stay empty: the
+-- directory writes a member's roles at every sign-in, and its own groups do that job.
+CREATE TABLE MembersGroups (
+  Id STRING(36) NOT NULL,
+  Kind STRING(16) NOT NULL,
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Name STRING(128) NOT NULL,
+  Description STRING(MAX) NOT NULL,
+  UpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT MembersGroupsKind CHECK (Kind IN ('global', 'domain')),
+) PRIMARY KEY (Id);
+
+CREATE UNIQUE INDEX MembersGroupsByName ON MembersGroups (Kind, Axis, DomainId, Name);
+
+CREATE TABLE MembersGroupMembers (
+  GroupId STRING(36) NOT NULL,
+  UserId STRING(320) NOT NULL,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT MembersGroupMembersGroup FOREIGN KEY (GroupId) REFERENCES MembersGroups (Id),
+) PRIMARY KEY (GroupId, UserId);
+
+CREATE INDEX MembersGroupMembersByUserId ON MembersGroupMembers (UserId, GroupId);
+
+CREATE TABLE MembersGroupRoles (
+  GroupId STRING(36) NOT NULL,
+  Kind STRING(16) NOT NULL,
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Role STRING(128) NOT NULL,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT MembersGroupRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
+  CONSTRAINT MembersGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES MembersGroups (Id),
+) PRIMARY KEY (GroupId, Kind, Axis, DomainId, Role);
+
+CREATE INDEX MembersGroupRolesByScope ON MembersGroupRoles (Kind, Axis, DomainId, Role);
 
 -- The feature flags: one row per flag the resources package declares (a resource.Feature
 -- constant), written by the deploy's resource.MigrateFeatures and flipped by SetFeature;

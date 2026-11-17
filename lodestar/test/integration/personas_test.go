@@ -1,4 +1,4 @@
-// Demonstrates: cell-masking, pii, tenancy.concealed, login-manifest.
+// Demonstrates: cell-masking, pii, tenancy.concealed, login-manifest, auth.groups.
 package integration
 
 // The persona-view suite (design plan §4): each persona's first screen, derived from
@@ -35,6 +35,14 @@ func TestDemoPersonaViews(t *testing.T) {
 		{name: "the marshal sees every Anvil mission", user: "marshal", target: sectorPath(anvil, "missions?limit=200"), wantStatus: http.StatusOK, wantRows: 30},
 		{name: "the marshal's second sector is concealed", user: "marshal", target: sectorPath(bastion, "missions"), wantStatus: http.StatusNotFound},
 		{name: "the cadet's board is the two low-hazard classes", user: "cadet", target: sectorPath(anvil, "missions?limit=200"), wantStatus: http.StatusOK, wantRows: 14},
+		// The deckhand holds no role in a sector of their own: Anvil's deck crew, a
+		// group kept in the sector, holds Cadet and SectorCrew there, and the deckhand
+		// is in it. What the group holds is the deckhand's wherever the group holds it,
+		// and nowhere else.
+		{name: "the deckhand's board is the cadet's, held through the deck crew alone", user: "deckhand", target: sectorPath(anvil, "missions?limit=200"), wantStatus: http.StatusOK, wantRows: 14},
+		{name: "the deckhand sees the sector's hangars as the deck crew does", user: "deckhand", target: sectorPath(anvil, "hangars"), wantStatus: http.StatusOK, wantRows: 2},
+		{name: "the deck crew holds nothing in Bastion, so the sector is concealed from the deckhand", user: "deckhand", target: sectorPath(bastion, "missions"), wantStatus: http.StatusNotFound},
+		{name: "the deck crew gives no hangar deck, as the cadet's own roles give none", user: "deckhand", target: sectorPath(anvil, "refits"), wantStatus: http.StatusForbidden},
 		{
 			name: "the archivist's fee is redacted until a mission completed",
 			user: "archivist", target: sectorPath(anvil, "missions?limit=200"), wantStatus: http.StatusOK, wantRows: 7,

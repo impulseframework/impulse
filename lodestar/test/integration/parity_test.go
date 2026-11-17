@@ -68,9 +68,21 @@ type demoAccount struct {
 	Roles demoRoles        `json:"roles"`
 }
 
+// demoGroup is one group of the crew as cmd/bootstrap/users.json declares it: where it is
+// kept (a sector by its name, none for the whole fleet), the roles it holds by where each
+// is held, and the personas in it by their usernames.
+type demoGroup struct {
+	Name        string             `json:"name"`
+	Description string             `json:"description"`
+	Domain      string             `json:"domain"`
+	Roles       demoRoles          `json:"roles"`
+	Members     []accesstypes.User `json:"members"`
+}
+
 // demoIdentities mirrors the bootstrap's identities file.
 type demoIdentities struct {
 	Users           []demoUser    `json:"users"`
+	Groups          []demoGroup   `json:"groups"`
 	Members         []demoAccount `json:"members"`
 	ServiceAccounts []demoAccount `json:"serviceAccounts"`
 }
@@ -237,6 +249,11 @@ func provisionDemoAccess(ctx context.Context, crewEngine, membersEngine *access.
 			return err
 		}
 	}
+	for i := range identities.Groups {
+		if err := seedDemoGroup(ctx, crewEngine, &identities.Groups[i]); err != nil {
+			return err
+		}
+	}
 	for _, account := range identities.ServiceAccounts {
 		held := accesstypes.User(account.ID.String())
 		if err := assignDemoRoles(ctx, crewEngine, held, account.Roles); err != nil {
@@ -319,6 +336,67 @@ func assignDemoRoles(ctx context.Context, client *access.Client, user accesstype
 		}
 		if err := client.UserManager().AddUserRoles(ctx, accesstypes.DomainPolicyScope(domain), user, domainRoles...); err != nil {
 			return fmt.Errorf("AddUserRoles(%s, %s): %w", user, name, err)
+		}
+	}
+
+	return nil
+}
+
+// seedDemoGroup creates one group of the crew as the bootstrap creates it: kept where the
+// file keeps it, holding its roles where each is held, with its personas in it, each by
+// the id of their account.
+func seedDemoGroup(ctx context.Context, client *access.Client, group *demoGroup) error {
+	manager := client.UserManager()
+	sector := func(name string) (accesstypes.PolicyScope, error) {
+		domain, ok := sectorsByName[name]
+		if !ok {
+			return accesstypes.PolicyScope{}, fmt.Errorf("group %s: no seeded sector is named %q", group.Name, name)
+		}
+
+		return accesstypes.DomainPolicyScope(domain), nil
+	}
+	kept := accesstypes.GlobalPolicyScope()
+	if group.Domain != "" {
+		var err error
+		if kept, err = sector(group.Domain); err != nil {
+			return err
+		}
+	}
+	id, err := manager.AddGroup(ctx, kept, group.Name, group.Description)
+	if err != nil {
+		return fmt.Errorf("AddGroup(%s): %w", group.Name, err)
+	}
+	if len(group.Roles.Global) > 0 {
+		if err := manager.AddGroupRoles(ctx, id, accesstypes.GlobalPolicyScope(), group.Roles.Global...); err != nil {
+			return fmt.Errorf("AddGroupRoles(%s, global): %w", group.Name, err)
+		}
+	}
+	if len(group.Roles.EveryDomain) > 0 {
+		if err := manager.AddGroupRoles(ctx, id, accesstypes.EveryDomainPolicyScope(), group.Roles.EveryDomain...); err != nil {
+			return fmt.Errorf("AddGroupRoles(%s, every domain): %w", group.Name, err)
+		}
+	}
+	for name, domainRoles := range group.Roles.Domains {
+		scope, err := sector(name)
+		if err != nil {
+			return err
+		}
+		if err := manager.AddGroupRoles(ctx, id, scope, domainRoles...); err != nil {
+			return fmt.Errorf("AddGroupRoles(%s, %s): %w", group.Name, name, err)
+		}
+	}
+	loadCast()
+	members := make([]accesstypes.User, 0, len(group.Members))
+	for _, username := range group.Members {
+		account, ok := crewAccounts[username]
+		if !ok {
+			return fmt.Errorf("group %s: %s names no crew account under the username %q", group.Name, usersPath, username)
+		}
+		members = append(members, accesstypes.User(account.String()))
+	}
+	if len(members) > 0 {
+		if err := manager.AddGroupUsers(ctx, id, members...); err != nil {
+			return fmt.Errorf("AddGroupUsers(%s): %w", group.Name, err)
 		}
 	}
 

@@ -72,6 +72,10 @@ const (
 // devIdentities is the file's shape.
 type devIdentities struct {
 	Users []devUser `json:"users"`
+	// Groups are the crew's groups of people: a group holds roles the way a persona does,
+	// and a persona in it holds them wherever the group does. The deckhand holds no role
+	// in a sector of their own: what they may do in Anvil is the deck crew's.
+	Groups []devGroup `json:"groups"`
 	// Members are the portal's people whom a row of the demo world names: the contact a
 	// client company's record belongs to, the client who filed a distress call. The
 	// directory proves who they are and names their roles at every sign-in (under the
@@ -106,6 +110,19 @@ type devUser struct {
 	User     string       `json:"user"`
 	Password string       `json:"password"`
 	Roles    devRoles     `json:"roles"`
+}
+
+// devGroup is one group of the crew: its name and description, the sector it is kept in
+// by the sector's name (none keeps it for the whole fleet), the roles it holds by where
+// each is held, and the personas in it by their usernames.
+//
+// Demonstrates: auth.groups.
+type devGroup struct {
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	Domain      string   `json:"domain"`
+	Roles       devRoles `json:"roles"`
+	Members     []string `json:"members"`
 }
 
 // devMember is one of the portal's people the demo world names: ID is the fixed id of
@@ -306,7 +323,7 @@ func resetData(ctx context.Context, settings config.DatabaseSettings) error {
 // and assigns the roles each holds under that id: the crew logins with their passwords,
 // the members without one (their roles are the directory's, written at their sign-in),
 // and the service accounts without one. The account comes first: a role is held by an
-// account.
+// account. The crew's groups follow its logins, each with its roles and its members.
 func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 	raw, err := os.ReadFile(usersPath)
 	if err != nil {
@@ -318,14 +335,22 @@ func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 	}
 
 	crewAPI := data.Crew().Session().API()
+	accounts := make(map[string]accesstypes.User, len(identities.Users))
 	for _, user := range identities.Users {
 		id, err := createAccount(ctx, crewAPI, &session.CreateUserRequest{Username: user.User, Password: &user.Password}, user.ID)
 		if err != nil {
 			return err
 		}
 		fmt.Printf("Created login %s (%s)\n", user.User, id)
+		accounts[user.User] = accesstypes.User(id.String())
 
 		if err := assignRoles(ctx, data.UserManager(), data.TenantRoster(), user.User, accesstypes.User(id.String()), user.Roles); err != nil {
+			return err
+		}
+	}
+
+	for i := range identities.Groups {
+		if err := seedGroup(ctx, data.UserManager(), data.TenantRoster(), &identities.Groups[i], accounts); err != nil {
 			return err
 		}
 	}
@@ -349,6 +374,66 @@ func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 		if err := assignRoles(ctx, data.UserManager(), data.TenantRoster(), account.User, accesstypes.User(id.String()), account.Roles); err != nil {
 			return err
 		}
+	}
+
+	return nil
+}
+
+// seedGroup creates one group of the crew where the file keeps it, gives it its roles
+// where each is held, and puts its personas in it, each by the account the bootstrap
+// created for them. The group comes first: a role and a member each name a group.
+func seedGroup(ctx context.Context, manager access.UserManager, sectors *resource.TenantRoster, group *devGroup, accounts map[string]accesstypes.User) error {
+	kept := accesstypes.GlobalPolicyScope()
+	if group.Domain != "" {
+		domain, err := sectors.Named(group.Domain)
+		if err != nil {
+			return errors.Wrapf(err, "resource.TenantRoster.Named(): group %s", group.Name)
+		}
+		kept = accesstypes.DomainPolicyScope(domain)
+	}
+	id, err := manager.AddGroup(ctx, kept, group.Name, group.Description)
+	if err != nil {
+		return errors.Wrapf(err, "access.UserManager.AddGroup(): group %s", group.Name)
+	}
+	fmt.Printf("Created group %s (%s)\n", group.Name, id)
+
+	if len(group.Roles.Global) > 0 {
+		if err := manager.AddGroupRoles(ctx, id, accesstypes.GlobalPolicyScope(), group.Roles.Global...); err != nil {
+			return errors.Wrapf(err, "access.UserManager.AddGroupRoles(): group %s in the global scope", group.Name)
+		}
+		fmt.Printf("Gave %v to the group %s in the global scope\n", group.Roles.Global, group.Name)
+	}
+	if len(group.Roles.EveryDomain) > 0 {
+		if err := manager.AddGroupRoles(ctx, id, accesstypes.EveryDomainPolicyScope(), group.Roles.EveryDomain...); err != nil {
+			return errors.Wrapf(err, "access.UserManager.AddGroupRoles(): group %s in every domain", group.Name)
+		}
+		fmt.Printf("Gave %v to the group %s in every domain\n", group.Roles.EveryDomain, group.Name)
+	}
+	for _, name := range slices.Sorted(maps.Keys(group.Roles.Domains)) {
+		domain, err := sectors.Named(name)
+		if err != nil {
+			return errors.Wrapf(err, "resource.TenantRoster.Named(): group %s", group.Name)
+		}
+		domainRoles := group.Roles.Domains[name]
+		if err := manager.AddGroupRoles(ctx, id, accesstypes.DomainPolicyScope(domain), domainRoles...); err != nil {
+			return errors.Wrapf(err, "access.UserManager.AddGroupRoles(): group %s in the sector %s (%s)", group.Name, name, domain)
+		}
+		fmt.Printf("Gave %v to the group %s in the sector %s (%s)\n", domainRoles, group.Name, name, domain)
+	}
+
+	members := make([]accesstypes.User, 0, len(group.Members))
+	for _, login := range group.Members {
+		account, ok := accounts[login]
+		if !ok {
+			return errors.Newf("%s: the group %s names the member %q, and the file carries no user of that name", usersPath, group.Name, login)
+		}
+		members = append(members, account)
+	}
+	if len(members) > 0 {
+		if err := manager.AddGroupUsers(ctx, id, members...); err != nil {
+			return errors.Wrapf(err, "access.UserManager.AddGroupUsers(): group %s", group.Name)
+		}
+		fmt.Printf("Put %v in the group %s\n", group.Members, group.Name)
 	}
 
 	return nil
