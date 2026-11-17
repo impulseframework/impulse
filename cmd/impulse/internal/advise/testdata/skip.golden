@@ -35,6 +35,12 @@ A line's kind is told by its wording. The reading is impulse's and fixed; the qu
 
 *Edits on offer:* the tenant column and its backfill migration, with `@domain` moved onto it; or the pinned acceptance for a table that stays small.
 
+**Subject set index warning** (`Warning: <Resource> declares subject.<set>, which finds the requester's rows by <column> with no index leading with <columns> ...; wanted: CREATE INDEX ...`). A `@subjectSet` finds the requester's rows of its table by the column the line names: the column the annotation sits on, or one of the columns its `who:` names, and a set whose `who:` names several columns raises a line for each. The lookup binds the tenant column where the row carries one, that column, and the value the set yields, and no index of the table leads with them, so every check of a condition that tests membership in the set reads the whole table. The primary key counts, and so does a secondary index with the key columns Spanner appends to it; a null-filtered index and a search index do not.
+
+*Question:* Whether the set's table grows. A table of a few rows a tenant never feels the read; a table of memberships or assignments, which grows with the people and with what they are assigned, does, on every request that checks the set.
+
+*Edits on offer:* the migration with the `CREATE INDEX` from the line; or the pinned acceptance in the program's warnings test for a table that stays small, said so in its doc.
+
 **Enumeration size warning** (`Warning: <Type> enumerates <n> rows of <Table>, above the <limit> a baked table may hold ...`). An `@enumerate` table is baked into the TypeScript metadata of every field keyed into it, one copy per field; the line gives the rows, the bytes, and the fields. Above the limit the browser carries that on every load. The alternative is a runtime resource: drop `@enumerate` from the type (the generated constants go with it) and expose the table with a `@resource` struct, whose picker reads it whole or paged under a `@page` maximum.
 
 *Question:* Whether the table is really an enumeration, a fixed short list the code names by constant, or a reference table that grows and should be a resource with a picker.
