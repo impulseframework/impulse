@@ -14,7 +14,9 @@ import (
 
 // identityFixtureGenerator is the two-auth fixture (the crew auth on the default
 // outlet, the members auth on the portal outlet, the default outlet managing members)
-// with the generated management turned on, over a schema holding the named tables.
+// with the generated management turned on, over a schema holding the named tables. A
+// mail links table carries the column an invitation that makes a tenant is kept in, as
+// the session library's schema declares it.
 func identityFixtureGenerator(t *testing.T, tables ...string) *resourceGenerator {
 	t.Helper()
 
@@ -26,6 +28,9 @@ func identityFixtureGenerator(t *testing.T, tables ...string) *resourceGenerator
 	r.tableMap = make(map[string]*tableMetadata, len(tables))
 	for _, table := range tables {
 		r.tableMap[table] = &tableMetadata{}
+		if strings.HasSuffix(table, "SessionMailLinks") {
+			r.tableMap[table].Columns = map[string]columnMeta{newTenantColumn: {SpannerType: "STRING(MAX)", IsNullable: true}}
+		}
 	}
 
 	return r
