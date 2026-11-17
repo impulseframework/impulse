@@ -929,7 +929,8 @@ type Hooks struct {
 	Root func(r chi.Router)
 	// One field per outlet, named after it. The hook runs inside the outlet's
 	// authenticated group (or the machine outlet's token-checked group): r already sits behind the outlet's
-	// guards, and generated registers the outlet's generated routes. Nil registers them
+	// guards, and generated registers the outlet's generated routes, behind the
+	// read-only mask the router mounts for them on a session outlet. Nil registers them
 	// directly.
 	Default func(r chi.Router, generated func(chi.Router))
 	Portal  func(r chi.Router, generated func(chi.Router))
@@ -952,7 +953,18 @@ root redirect.
 A session outlet's group is `BindAuth(<pkg>.Name)` (with two session auths), `NoCaching`,
 `CompressionMiddleware`, `StartSession`, `SetXSRFToken`; the session routes under the
 prefix; then the authenticated sub-group, `ValidateSession` and `ValidateXSRFToken`
-around the hook and the generated routes. The session routes, every one under
+around the hook and the generated routes. In that sub-group the routes a signed-in
+person calls on their own account (an invitation's acceptance, the address they add and
+verify, their tokens and device authorizations) stand in front of the hook: what a hook
+asks of a request, a tenant or a role say, gates the application's routes and never a
+person's own account. What must hold for every route the router registers there it
+mounts itself, wherever the hook registers the generated routes and whatever middleware
+it adds: the read-only mask of a session that views as
+someone else (`EnforceReadOnlyMask`) in front of the account routes and, behind the
+hook, in front of the generated routes, and each account route that writes refuses an
+impersonated session in its handler. A route the hook registers by hand carries what
+the hook gives it: an application that views as people mounts the mask on its own
+writes, and its route that ends a view in front of it. The session routes, every one under
 `<prefix>/user/`: `GET user/methods`, what the login page is told (`session.Auth.Methods`,
 handed the declared methods at the paths below, so the page and the router read one
 declaration); `GET user/session` and `DELETE user/session`; `GET user/pending`; and per
@@ -3751,7 +3763,11 @@ rules of the user management are the methods' own, whatever the role file grants
 each judges the request's caller (a method an application runs in a transaction of its
 own, outside any request, has no caller and is the application's act):
 
-- Nobody disables or deletes their own account.
+- Nobody disables or deletes their own account, which is the account of the real person
+  behind the session: a person who views as someone else is refused their own account,
+  which they could not get back. They are refused the account they view as too ("you
+  cannot disable the account you are viewing as"): a session that views as a person
+  does no more than that person may, and nobody disables or deletes themselves.
 - A person who removes a role from themselves in a tenant keeps an administrator role
   nobody else would hold there. The application names the roles that administer a tenant
   when it builds the client (`identity.WithAdministratorRoles(domain)`): they are judged

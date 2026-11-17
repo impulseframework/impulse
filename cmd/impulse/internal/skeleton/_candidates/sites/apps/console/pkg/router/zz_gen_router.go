@@ -8,8 +8,9 @@
 //	default (/api), sessions (password):
 //	  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means
 //	  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/password/remove, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look, POST /api/user/invitation, POST /api/user/invitation/sign-up, POST /api/user/sign-up, POST /api/user/sign-up/open, POST /api/user/sign-up/complete
-//	  + ValidateSession, ValidateXSRFToken, hooks.Default: POST /api/user/invitation/accept, POST /api/user/email, POST /api/user/email/verify
-//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1): hooks.Default, generatedRoutes
+//	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /api/user/invitation/accept, POST /api/user/email, POST /api/user/email/verify
+//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1): hooks.Default
+//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1), hooks.Default, EnforceReadOnlyMask: generatedRoutes
 //
 // hooks.Root's routes sit behind the every-request chain alone. Under an outlet's prefix
 // nothing else answers: an unknown path is 404. Outside every prefix the browser
@@ -62,6 +63,12 @@ type DefaultSession interface {
 	SetXSRFToken(next http.Handler) http.Handler
 	ValidateSession(next http.Handler) http.Handler
 	ValidateXSRFToken(next http.Handler) http.Handler
+	// EnforceReadOnlyMask refuses a write from a session that views as someone else
+	// read-only (session.Auth.EnforceReadOnlyMask). The router mounts it itself in front
+	// of the routes a signed-in person calls on their own account and of the outlet's
+	// generated routes, so it holds wherever the application's hook registers those and
+	// whether or not the hook mounts it.
+	EnforceReadOnlyMask(next http.Handler) http.Handler
 	// The session's own routes (session.Auth): read and ended.
 	Authenticated() http.HandlerFunc
 	Logout() http.HandlerFunc
@@ -126,9 +133,11 @@ type Hooks struct {
 	Root func(r chi.Router)
 	// Default runs inside the default outlet's authenticated group: r already sits behind
 	// session validation, and the XSRF guard, and generated registers
-	// the outlet's generated routes with the session routes a signed-in person calls on
-	// their own account, so middleware the hook puts around generated (a read-only
-	// backstop, say) stands in front of both. Nil registers them directly.
+	// the outlet's generated routes, behind the read-only mask the router mounts for
+	// them. The session routes a signed-in person calls on their own account stand in
+	// front of the hook: what it adds gates the application's routes alone. A route the
+	// hook registers by hand carries what the hook gives it and nothing more. Nil
+	// registers the generated routes directly.
 	Default func(r chi.Router, generated func(chi.Router))
 }
 
@@ -227,19 +236,30 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				},
 			}))
 
-			registerGenerated(r, hooks.Default, "Default", func(r chi.Router) {
-				// The session routes a signed-in person calls on their own account: the
-				// acceptance of an invitation the browser carries, the address they add and
-				// verify, and their tokens and device authorizations where the auth issues
-				// tokens. They are registered with the outlet's generated routes, inside
-				// whatever the application's hook wraps those in, so a read-only backstop
-				// mounted there (the session library's EnforceReadOnlyMask) stands in front
-				// of them too; each one that writes refuses an impersonated session itself.
-				r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/invitation/accept", h.InvitationAccept())
-				r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/email", h.EmailAdd())
-				r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/email/verify", h.EmailVerify())
+			// The session routes a signed-in person calls on their own account: the
+			// acceptance of an invitation the browser carries, the address they add and
+			// verify, and their tokens and device authorizations where the auth issues
+			// tokens. They stand in front of the application's hook, which gates the
+			// generated routes alone: a person reaches their own account whatever the
+			// application asks of them elsewhere. What holds for them is mounted here and
+			// in the handlers: the read-only mask of a session that views as someone else,
+			// and each one that writes refuses an impersonated session itself.
+			account := r.With(h.EnforceReadOnlyMask, resource.BodyLimit(BodyLimit))
+			account.Post("/api/user/invitation/accept", h.InvitationAccept())
+			account.Post("/api/user/email", h.EmailAdd())
+			account.Post("/api/user/email/verify", h.EmailVerify())
 
-				generatedRoutes(r, h)
+			// The generated routes register through the application's hook, behind the
+			// read-only mask, which is mounted here and not by the hook: a write from a
+			// session that views as someone else read-only is refused before any generated
+			// handler runs, wherever the hook puts the routes and whether or not one is
+			// written.
+			registerGenerated(r, hooks.Default, "Default", func(r chi.Router) {
+				r.Group(func(r chi.Router) {
+					r.Use(h.EnforceReadOnlyMask)
+
+					generatedRoutes(r, h)
+				})
 			})
 		})
 	})

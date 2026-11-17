@@ -19,14 +19,16 @@ type AppHandlers interface {
 	// The console's hand-written routes: the sector-scoped ship's log over the
 	// change-tracking table (registered through @manualAddResource(List, domain)), the
 	// impersonation mint route and the watch desk over the live impersonated sessions.
-	// EndImpersonation and EnforceReadOnlyMask are the session library's own, on the
-	// crew auth's session the App embeds; the generated router names the rest of that
-	// session (DefaultSession) and mounts neither of these, so the application names
-	// them here and mounts them inside the console's guards itself. The mission
-	// document download is generated: the @file on MissionDocument.StoreKey serves it
-	// under the read route.
+	// EndImpersonation is the session library's own, on the crew auth's session the App
+	// embeds; the generated router names the rest of that session (DefaultSession) and
+	// does not mount it, so the application names it here and mounts it inside the
+	// console's guards itself. The read-only mask (EnforceReadOnlyMask) is on
+	// DefaultSession: the generated router mounts it in front of the generated routes
+	// and of the routes a signed-in person calls on their own account, and AppHooks
+	// mounts it in front of the console's own routes below. The mission document
+	// download is generated: the @file on MissionDocument.StoreKey serves it under the
+	// read route.
 	EndImpersonation() http.HandlerFunc
-	EnforceReadOnlyMask(next http.Handler) http.Handler
 	ShipsLogEntries() http.HandlerFunc
 	Impersonate() http.HandlerFunc
 	ActiveImpersonations() http.HandlerFunc
@@ -84,14 +86,18 @@ func AppHooks(h AppHandlers) Hooks {
 		Root: func(r chi.Router) {
 			r.Get(BeaconRoute, h.SectorBeacon())
 		},
-		// The console: the read-only backstop mounted after session validation, so a
-		// view-as session that somehow issues a write is refused at the door before any
-		// handler runs; the generated routes register beneath it.
+		// The console: its own routes after session validation, and the generated routes
+		// registered beside them. The generated router mounts the read-only mask in front
+		// of the generated routes itself, so a view-as session that somehow issues a
+		// write is refused at the door before any generated handler runs, whatever this
+		// hook does; a route registered here by hand carries what the hook gives it.
 		Default: func(r chi.Router, generated func(chi.Router)) {
 			// Ending a view stays reachable from a read-only session: it ends the session,
-			// it writes nothing the mask protects, so it is mounted before the backstop.
+			// it writes nothing the mask protects, so it is mounted in front of the mask.
 			r.Post(consoleAPI+"/impersonate/end", h.EndImpersonation())
 
+			// The console's own routes sit behind the same mask: a read-only view starts
+			// no view of its own and revokes none.
 			r.Group(func(r chi.Router) {
 				r.Use(h.EnforceReadOnlyMask)
 
@@ -99,9 +105,9 @@ func AppHooks(h AppHandlers) Hooks {
 				r.Post(consoleAPI+"/impersonate", h.Impersonate())
 				r.Get(consoleAPI+"/impersonations", h.ActiveImpersonations())
 				r.Delete(ImpersonationRoute, h.RevokeImpersonation())
-
-				generated(r)
 			})
+
+			generated(r)
 		},
 		// The portal: the client statement beside the portal outlet's generated routes,
 		// behind the members auth. A client's session opens nothing under /console/api.
