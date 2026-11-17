@@ -210,6 +210,7 @@ func All() []Check {
 		webPins{},
 		testRunner{},
 		installable{},
+		brandIcons{},
 		ciWorkflow{},
 		paging{},
 		rpcExecute{},

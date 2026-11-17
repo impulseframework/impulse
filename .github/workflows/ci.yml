@@ -752,6 +752,33 @@ jobs:
               grep -q '^PASS  prettier' "$RUNNER_TEMP/prettier-report" || { echo "::error::$dir: the prettier check did not run over an installed web root"; exit 1; }
             fi
           done
+      - name: impulse brand over the rendered application
+        # impulse brand over the declarations the skeleton carries, where the browser
+        # packages are installed: Angular Material's theme-color schematic generates the
+        # palette of every browser application with every answer a flag, the theme takes
+        # it as its first palette, and each web root builds again with it, so a release of
+        # Angular Material that changes the schematic's flags or what it writes fails
+        # here. What the command wrote is then held to the prettier check, and a second
+        # run over the same declarations changes nothing.
+        if: ${{ env.RUN == 'true' && matrix.framework == 'head' && env.BROWSER_PART == 'true' }}
+        run: |
+          "$RUNNER_TEMP/impulse" brand --app app | tee "$RUNNER_TEMP/brand-report"
+          apps=$(grep -c '^[^ ].*(primary #' "$RUNNER_TEMP/brand-report" || true)
+          palettes=$(grep -c '^  written    .*/_theme-colors\.scss$' "$RUNNER_TEMP/brand-report" || true)
+          if [ "$apps" -eq 0 ] || [ "$apps" != "$palettes" ]; then
+            echo "::error::impulse brand wrote $palettes palette(s) for $apps browser application(s)"
+            exit 1
+          fi
+          for root in $(find app -path '*/node_modules' -prune -o -path '*web/package.json' -printf '%h\n' | sort); do
+            (cd "$root" && bun run build) || { echo "::error::$root: the build failed with the generated palette"; exit 1; }
+          done
+          "$RUNNER_TEMP/impulse" check --app app --only prettier | tee "$RUNNER_TEMP/prettier-report"
+          grep -q '^PASS  prettier' "$RUNNER_TEMP/prettier-report" || { echo "::error::what impulse brand wrote is not formatted as the web root's prettier formats it"; exit 1; }
+          "$RUNNER_TEMP/impulse" brand --app app | tee "$RUNNER_TEMP/brand-again"
+          if grep -q '^  \(written\|removed\|left\) ' "$RUNNER_TEMP/brand-again"; then
+            echo "::error::a second run of impulse brand over the same declarations changed files"
+            exit 1
+          fi
       - name: Save the Go caches
         # Always on master; on a pull request only when no entry for this go.sum was found.
         # The four candidates of a framework leg share the key, so the first to finish saves

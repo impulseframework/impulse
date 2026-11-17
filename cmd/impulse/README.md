@@ -501,7 +501,7 @@ impulse check --list
 | `web-wired` | Every browser application bound to a session outlet is bound to the outlet's auth: every `Resources.<Name>` its hand-written TypeScript takes from the generated constants is one its generated client exports; every request it makes for the pages of an auth's generated management (`identityRoutes` or `identityPages` naming `auth: '<Auth>'` and a `scope`) names an auth and a side the outlet's generated API description carries (`zz_gen_api.ts`, its `identity` entries, which a program without `GenerateIdentity` leaves empty); and the cookie its `withXsrfConfiguration` names is the XSRF cookie the outlet's auth issues (`<auth>-xsrf`, as `pkg/auth/<auth>` declares it; every auth's under a hand-written router). A site's browser application starts as a copy of the console's, bound to the console's auth; a stale resource name fails the browser's own build (TS2339), which no Go build sees, a request for pages the description does not carry is refused by the library when the application loads, which no build sees at all, and a stale cookie has the server refuse every mutating request. `impulse add auth --outlet <site>` rewrites the routes and the cookie in the sites layout, and each line under the check names the file, what it carries, and what to write. |
 | `login-pages` | Every auth bound to a browser outlet (an outlet declaring `Auth(...)` and `WebApp("<mount>")`) returns a refused or waiting sign-in to that outlet's login page: the `LoginURL` its settings construction on the data level names (`<auth>.Settings{...}`, outside tests) is the mount path joined with `/login` (`/login` at the root, `/console/login`, `/portal/login`), the session library's default `/login` standing for a construction naming none when the outlet declares a directory method (the password method answers its own post and sends nobody anywhere, so a password-only auth's construction may name none), and where the construction names `MailLoginURL` (`env.PublicURL + "<path>"`) the quoted path is the same page, so every mailed link opens it. The library sends a refused directory sign-in (`?code=`) and a sign-in waiting for its confirmation (`?pending=`) to `LoginURL`; a console moved from `/` to `/console/` that kept `/login` sends both to a page nothing serves, which no build or generation sees. When a machine outlet carries the auth's tokens (`Tokens("<module>/pkg/auth/<name>")`), the construction's `DevicePage` is the mount path joined with `/device` (`/console/device`), the page a device authorization sends a command-line client's person to for approval, the library's default `/device` standing for a construction naming none; a construction naming a `DevicePage` is held to the page whether or not a machine outlet carries the auth's tokens. A mismatch fails naming the file, the auth, what it holds and the outlet's page, with the value to set; a value that is not a string literal fails too, since the check cannot read it. An auth bound to no browser outlet is passed over with a reason, an auth whose settings no file outside tests builds warns, and an application whose outlets serve no browser application is skipped. |
 | `login-held` | Every login page rendering the library's login component (`<impulse-login-methods>`) holds its card back while the component's arrival reads are in flight: the page gives the component a template reference (`<impulse-login-methods #methods ...>`), reads its arriving signal (`methods.arriving()`, the component's word that the methods the server lists and the session are still being read), and, where the read binds a class on the card (`[class.arriving]="methods.arriving()"` on the `<mat-card class="login-card">`), a stylesheet of the page (the ones the component names in `styleUrl`/`styleUrls`, its inline `styles`, or the template's sibling) hides it (`.login-card.arriving { visibility: hidden }`); a page reading the signal another way (`@if`, `[hidden]`) holds its card as well. The component renders nothing while it is arriving, so a page that does not hold its card shows an empty card and then fills it, where a page shows nothing until it knows what it renders and then renders whole, the way a page loads, with no progress bar on every load. The skeletons' login pages carry the shape; an application's own login page takes it by hand, which no build or generation sees. A browser application rendering the component nowhere is a warning, since the check cannot read a login page of the application's own making. |
-| `maintenance-switch` | Every site's main checks `maintenance.Requested()` before it builds the site configuration (`config.NewSiteConfiguration`), and serves `maintenance.Serve(ctx)` when it is set: the deploy pipeline starts a maintenance revision of the application's own image with `APP_MAINTENANCE` set before a release that replaces or interrupts the database, and that revision must open no database, session store or secret. A main that builds the configuration first, or checks the switch after it, fails; a main that builds no site configuration is a warning, since the check cannot tell where the switch belongs. |
+| `maintenance-switch` | Every site's main checks `maintenance.Requested()` before it builds the site configuration (`config.NewSiteConfiguration`), and serves `maintenance.Serve(ctx, brands)` when it is set, with the brands of the browser applications it serves by mount path (`pkg/brand`, which `impulse brand` writes), so the page says whose it is: the deploy pipeline starts a maintenance revision of the application's own image with `APP_MAINTENANCE` set before a release that replaces or interrupts the database, and that revision must open no database, session store or secret. A main that builds the configuration first, or checks the switch after it, fails; a main that builds no site configuration is a warning, since the check cannot tell where the switch belongs. |
 | `session-tables` | Every session Auth constructed outside tests (`session.NewAuth`) reads tables a migration creates: its sessions, users, identities, pending sign-ins and sign-in attempts tables, the mail links, sign-in codes and trusted devices tables when it sends mail (`session.WithMail`), the tokens and device codes tables when a machine outlet names it as its issuer, and the auth events, impersonation and custom data tables when the storage attaches them. Two Auths never share a table. Every Auth registers at least one sign-in method (`session.PasswordSignIn`, `azure.SignIn`, `google.SignIn`, `oidc.SignIn` for the persona method), each under a registration name the scan can read, once; a method registered on an identifier that names no construction the scan sees is a finding. The report lists the auths, each named by its package when it lives in one (`pkg/auth/<name>`), with its methods (the registration name, the method behind it when the two differ, and a directory method's role-membership authority: directory for `RoleSync`, application for `DisableRoleSync`), its tables, and its session and XSRF cookies when named. |
 | `migrations-reader` | The schema sequence creates the `migrations_reader` database role and grants it select on the `SchemaMigrations` table (`CREATE ROLE migrations_reader`, `GRANT SELECT ON TABLE SchemaMigrations TO ROLE migrations_reader`, read statement by statement over the up files), which the pipeline's migration guard reads each environment's migration version through on a consolidation; the environment layer grants the test environment's deploy identity the role on the other environments' databases. The skeleton's first migration carries the statements; a sequence without them fails naming the migration to add at its next free index, which `impulse upgrade` writes. |
 | `auths-wired` | Every auth package (`pkg/auth/<name>`, constructing a session Auth) is constructed by the data level (`<name>.New` called outside tests), carries its role file (`pkg/auth/<name>/roles.json`, embedded by a `//go:embed roles.json` directive, exported as `<name>.Roles()`, and handed to the permission engine by an `access.WithDefaultRoles` call outside tests, in the package or on the data level; the file exists), and bound by a surface: an outlet declaring `Auth("<module>/pkg/auth/<name>", <methods>)` naming the methods the package registers (the generated router mounts the login routes of the methods declared, so a method declared but not registered, registered but not declared, or declared as another kind is a finding; the password method's `.OpenSignUp()` and `.UsernameIsEmail()` are said on the declaration and the registration both or neither, and a directory method's `.SyncsRoles()` is chained exactly where the registration's `RoleSync` writes the roles, since the generated management leaves a role to the directory on the declaration's word alone; a registration that writes the roles stands alone on its auth, so a second method beside it is a finding, and the session library refuses it at construction), or a package outside `config` and `cmd/` taking `*<name>.Auth`. An outlet bound to a package that is no auth package is a finding. No two auth packages issue the same cookie, session, XSRF or trusted-device, a name left unset being the session library's default (`auth`, `XSRF-TOKEN`, `auth-trusted`); the browser keeps one cookie of a name per host, so a login to one auth would overwrite the other's, and a browser one auth remembers after a sign-in code would forget the other's remembered browsers. A directory method that hands role membership to its directory (`RoleSync`) has no role writer in the application reaching its auth's store, since the directory removes those roles at the next sign-in. A role file handed to the engine that no test validates warns: a `_test.go` calling `access.ValidateRoles` while parsing the auth's `Roles()` is where the warnings the deploy prints are pinned as typed values, so without it a warning is accepted nowhere in code. Auths outside auth packages warn. |
@@ -522,6 +522,7 @@ impulse check --list
 | `web-pins` | Every web root (a directory holding `angular.json` whose `package.json` names the browser packages) pins `@impulseframework/resource`, `@impulseframework/resource-angular` and `@impulseframework/resource-firestore` at the version of the ledger step the application stands at, which is the step's release without its `v`, read from the framework pin in `go.mod` as `impulse upgrade` reads it, in every section that names them (dependencies, overrides). The server libraries and the browser packages of one release were written for each other, so a pin behind the step's fails, naming the file, the section, the package, what it holds and what the step pins; `impulse upgrade` moves it. A pin ahead of the step's warns and stays, as a Go pin bumped by hand ahead of its step does; a package the file does not name fails. A web root naming none of the library's packages is passed over, and an application whose pin reaches no step is skipped. |
 | `test-runner` | Every browser application project runs its component specs on Angular's unit-test builder, the runner `ng new` scaffolds (`@angular/build:unit-test`: Vitest under jsdom in Node, no browser): a `test` target on that builder, the spec tsconfig it reads (named in the target, or `tsconfig.spec.json` in the project root), and a package script running `ng test <project>`, so `bun run test` runs every project's specs once. A project with no `*.spec.ts` under its source root warns: the runner is wired and nothing runs on it yet. |
 | `installable` | Every browser application bound to a session outlet installs as a progressive web app, and the server serves it through the resource package's served browser app. On the browser side: `@angular/service-worker` is a dependency at the workspace's Angular line (the line of `@angular/core`); the project's production configuration names a worker config (`"serviceWorker": "ngsw-config.json"`) that exists, whose `navigationUrls` exclude the outlet's API under the mount (`!/api/**`, relative to the mount, so the login, callback and stored-file navigations reach the server; an API prefix outside the mount is outside the worker's scope and needs none); the app config provides the worker (`provideServiceWorker`) and the library's update provider (`provideAppUpdate`); `index.html` links the web app manifest, which parses with `id` the mount path with a trailing slash and `scope` and `start_url` `./`; and every icon the manifest declares is there with PNG dimensions matching its `sizes`, read from the file's header. The release reaches the browser: the project's build defines `APP_VERSION` (`"define": { "APP_VERSION": "'dev'" }` in its build options) and the workspace's `build` script redefines it from the `VERSION` environment variable (`ng build console --define \"APP_VERSION='${VERSION:-dev}'\"`, which the image's browser stage sets), so a release build stamps its release and any other `dev`; the app config provides it as `API_VERSION` (`{ provide: API_VERSION, useValue: APP_VERSION }`) and registers `apiVersionInterceptor` through `provideHttpClient(withInterceptors([...]))`, so every request carries the release in `X-Api-Version` and the server can refuse a build it no longer answers. On the server side: the application's hand-written handlers build the asset handlers from `resource.NewBrowserApp(dir, "<mount>")`, `github.com/jtwatson/spaassets` is imported nowhere and gone from `go.mod`. A project with none of the browser side warns as not installable; a project with part of it fails, naming the first missing piece by file. |
+| `brand` | A reminder, never a failure: every browser application carries an icon of its own. A new application starts with the skeleton's mark, in its favicon, its three app icons and the logo its brand declaration names (`brand.json`), and the check warns while any of them is still there, naming the browser application and the files, with what to do: put the application's own logo where the declaration names it, or declare the brand where there is no declaration, and run `impulse brand` (section impulse brand). It compares each file with the skeleton's own, so a mark redrawn by hand passes. |
 | `ci-workflow` | The committed `.github/workflows/ci.yml`, `.github/workflows/ci-cache.yml` and `.github/workflows/security-scan.yml` equal what impulse renders from the code: one browser job per workspace with the `web` gate over them, the jobs the `//impulse:ci` line puts on the larger runner and whether the test results are reused, the action and tool pins this impulse carries, and the daily security scan. A missing `ci.yml` fails: the pull requests run no checks at all; a missing `ci-cache.yml` fails: the checks start cold on every pull request; a missing `security-scan.yml` fails: nothing rescans the default branch and the latest release between pull requests. Once the files match, the check asks origin for its default branch and fails when `ci-cache.yml` does not fill it (declare it with `default-branch=<name>` on the `//impulse:ci` line); without a remote or a network it says it could not ask. A differing file fails naming the first differing line, what the code renders and what the file has; the fix is `impulse render`, since the file is impulse's: change the code or impulse, not the file. A browser workspace without its job is a difference like any other. An application that is a directory of a larger repository is skipped: GitHub runs the workflows at a repository's root alone, so a workflow in the application's own directory would never run. |
 | `paging` | No application code positions a list by offset: the generated query builders have no `Offset`, the server refuses the `offset` parameter, and pages are positioned by the cursor the `Link` header carries. Go code calling `.Offset(` or `SetOffset(` and browser code sending an `offset` query parameter are reported, so a hand-written caller is found before the upgrade breaks it; tests and specs are not read, since a spec describes the server's answer (whose page state carries an `offset` field) as often as a request. |
 | `rpc-execute` | Every `@rpc` struct declares `Execute` in one of the three forms the generator classifies by signature (`resource.ReadWriteTransaction` second for the transaction form, `resource.Client` for the client form, `resource.ReadWriteTransaction` second and `resource.Files` third for the upload form, or `resource.FilesIn[S]` where the method names its store; `error` the only or last result), and every generated RPC handler calls it. A handler an older generator could not type-check decodes and returns without running the method. A `TxnRunner` or `DBRunner` interface left in the RPC package warns: the generator reads the signature and no longer consults it, so delete it. |
@@ -662,6 +663,84 @@ requirements from the checkout; nothing is resolved through the module proxy, so
 impulse built from a checkout, which names no version the proxy serves, renders only this
 way. The browser packages take the latest release's version. That replace line is for
 development only; never commit it.
+
+## impulse brand
+
+`brand` writes an application's brand where the application carries it. Each browser
+application declares its brand once, in `brand.json` in its own directory (the Angular
+project's root: `web/console` in the flat layout, `apps/<site>/web` in the sites layout),
+beside its logo:
+
+```json
+{
+  "name": "Harbor",
+  "logo": "logo.png",
+  "logoSvg": "logo.svg",
+  "primaryColor": "#005cbb",
+  "backgroundColor": "#f6f7fb"
+}
+```
+
+- `name` is the application's name as people read it.
+- `logo` is the logo, a square PNG at least 512 pixels a side (and at most 4096), by its
+  path from the declaration. Every icon is scaled down from it, each pixel the average of
+  the logo's pixels it covers, and never up, which is why 512, the largest icon, is the
+  least it can be.
+- `logoSvg`, optional, is the same logo as an SVG, which becomes the favicon as it is.
+  The command draws no SVG: the PNG is the source of every other icon.
+- `primaryColor` is the brand's color, and `backgroundColor`, optional and white without
+  it, the color behind the installed application while it starts and behind the logo on
+  the icon a device cuts to its own shape. Both are a number sign and six hex digits.
+
+One brand per browser application: a console and a portal of one application carry their
+own, whether they share a workspace (`web/console/brand.json` and `web/portal/brand.json`
+in the flat layout) or have one each (the sites layout). A browser application with no
+`brand.json` is said to have none and left as it is; a declaration the command cannot
+write from (a logo that is not square or is too small, with the size wanted; a color that
+is not six hex digits; a field it does not know) is refused before anything is written.
+
+```sh
+impulse brand
+impulse brand --app path/to/app
+```
+
+From each declaration `brand` writes:
+
+| Where | What |
+| --- | --- |
+| `public/favicon.png`, `public/favicon.svg` | The favicon: the PNG at 96 pixels, and the SVG as it is where the brand names one. A `favicon.svg` the declaration no longer names is removed, since the page then links the PNG alone. The skeletons' worker configuration (`ngsw-config.json`) keeps whichever is there with the application's shell (`/favicon.*`). |
+| `public/icons/icon-192.png`, `icon-512.png`, `icon-512-maskable.png` | The app icons the manifest names. The maskable one is the logo scaled into its central 80% on the background color, so nothing of the logo is cut away whatever shape a device gives it. |
+| `public/manifest.webmanifest` | `name`, `short_name`, `theme_color` (the primary color) and `background_color`. |
+| `src/index.html` | The title, the `theme-color`, and the icon links: the PNG, then the SVG where there is one. |
+| `src/app/app.config.ts` | The name the frame draws (`provideFrame({ name })`) and the name of the brand's palette in the list the picker offers (`provideTheme`). |
+| `src/_theme-colors.scss`, `src/theme.scss` | The theme's first palette. Angular Material's own generator, the `theme-color` schematic of the version the workspace has installed, generates the palette from the primary color (`ng generate @angular/material:theme-color --primary-color=<color> --directory=<source root>/ --is-scss --include-high-contrast=false --interactive=false --force`, run through the workspace's own `ng`, every answer a flag and no prompt asked), so the palette is the one that version's components are drawn for and the brand's exact color is its source. The theme sheet takes it as its first palette, `'brand'`, in the place of the skeleton's, and the other palettes stay. Once the sheet carries the brand's palette it is left alone: a change of color changes the generated file only. |
+| `pkg/brand` | What the server says: each brand's name as a constant (`ConsoleName`) and its logo embedded (`console.png`, 192 pixels), behind an accessor (`brand.Console()`), named for the Angular project. A main hands them to the maintenance page by mount path, `maintenance.Serve(ctx, maintenance.Brands{"/": brand.Console()})`, and the page shows the name and the logo of the application a request is for. The source is composed whole on every run, and the logo's copy is written when the logo changed. |
+| `pkg/auth/<name>` | The name the mail an auth sends says, its `Application` constant, from the brand of the browser application the auth's people sign in to: the one receiving the client of the first browser outlet that declares the auth. |
+
+The server's part is written rather than read, because the server cannot embed the
+declaration where it sits: a browser application lies under the web workspace's own
+`go.mod`, the boundary that keeps Go's tools out of the installed packages, and `go:embed`
+refuses a file of another module. So the declaration stays in the browser application,
+where a designer changes a color without touching Go, and `brand` carries the name and
+the logo into the module. A brand no main hands to the maintenance page yet (the brand of
+a browser application `impulse add outlet` or `impulse add site` copied in) is named at
+the end of the run, with the line to add.
+
+The palette's generator needs the workspace's packages installed. Where they are not,
+everything else is written, the palette file is said to be missing with what to do, the
+theme keeps the palette it had, and the command exits non-zero: install the packages and
+run it again. A palette already generated from the declared color stands, so a run on a
+machine without the packages changes nothing once the brand is written. Where the
+workspace has a prettier installed, the generated palette is formatted with it, as
+`impulse check` (`prettier`) holds every browser file.
+
+The files are the application's after the first write. `brand` runs when asked, never as
+part of `impulse render`, and writes a file only where the declaration changed what it
+holds, so a second run over the same declaration writes nothing and a hand-tuned icon is
+kept until the logo or the background changes. A new application starts with a
+declaration under its own name, the skeleton's colors and the skeleton's logo;
+`impulse check` (`brand`) reminds, without failing, while a browser application still
+carries that logo or the icons cut from it.
 
 ## impulse upgrade
 
@@ -853,7 +932,10 @@ and a `GenerateTypescript` target for the outlet copied from the default target'
 console's browser project is copied to `web/<name>` with its API prefix, base path, and
 compiler output rewritten (and its XSRF cookie, when the auth is not the console's) and
 registered in `angular.json` (serving under `/<name>` on the next port), the package
-scripts, and the Procfile. A console that was alone at `/` moves when the second browser
+scripts, and the Procfile. The copy carries the console's brand declaration where the
+console has one (`brand.json`), which the report says: the brief names giving the new
+application its own and running `impulse brand`.
+A console that was alone at `/` moves when the second browser
 application arrives, since the generator refuses an application at `/` beside another (an
 installed application's scope is every URL under its start): it goes to `/console`, the
 name of its Angular project, with its API at `/console/api`, in the generator program
@@ -1226,7 +1308,9 @@ impulse add method staff persona
 `add site <name>` adds a site: a stand-alone application on a host of its own under
 `apps/<name>/`, with its own main package, handlers, router, resources (empty to start),
 authorization suite, and browser workspace, copied from the first site with the imports
-renamed; its generator program and directive; its serve and browser processes on the next
+renamed (its brand declaration with it, `brand.json`, which the report says and the brief
+names giving a brand of its own);
+its generator program and directive; its serve and browser processes on the next
 ports; its TypeScript target in the shared generator; and its router collection in the union
 the roles are reconciled against. The name is one word of lowercase letters and digits
 starting with a letter, at most 25 characters, and a name outside the rule is refused
@@ -1470,12 +1554,14 @@ A template's `go.mod` requires the framework at the placeholder `v0.0.0-skeleton
 with the version of the impulse that runs it (the zero pseudo-version with a `replace`
 under `--dev-root`), so no version is written into a template and nobody moves one by
 hand.
-A template names its application by its own candidate name in five places only: the
+A template names its application by its own candidate name in these places only: the
 workspace name in `package.json` and `bun.lock`, the service name and development
 database ids in `.envrc.template`, the README heading, and, in display form, each browser
-project's titles (the page title, the component title fields, the login card) and the
+project's titles (the page title, the component title fields, the login card), the
 `name` and `short_name` of its web app manifest (`public/manifest.webmanifest`, the
-portal's ending in Portal). Rendering puts the application's name there; everywhere
+portal's ending in Portal), the `name` of its brand declaration (`brand.json`) with the
+name constants of the server's brands package written from it (`pkg/brand/brand.go`), and
+the auth packages' `Application` constant. Rendering puts the application's name there; everywhere
 else the prose says "the application", since the candidate names are English words.
 The templates are therefore validated by rendering them and running the rendered
 application's build, tests, and `impulse check`, never in place, and under a module path
