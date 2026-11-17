@@ -6,6 +6,7 @@ package crewhandlers
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -24,6 +25,8 @@ func (h *Handlers) AssignCrewRole() http.HandlerFunc {
 		Role        string       `json:"role"`
 		Domain      *string      `json:"domain"`
 		EveryDomain bool         `json:"everyDomain"`
+		StartsAt    *time.Time   `json:"startsAt"`
+		EndsAt      *time.Time   `json:"endsAt"`
 	}
 
 	decoder := NewRPCDecoder[crewidentity.AssignCrewRole, request](h, accesstypes.Execute)

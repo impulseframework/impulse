@@ -22,6 +22,13 @@ type (
 	// (who: GroupID IN subject.groups). A group's id names one group in the whole
 	// application, so a row names a tenant's group only where the tenant's own rows do.
 	//
+	// StartsAt and EndsAt are the place's period: the first instant it counts and the
+	// first it no longer does, each empty for none. Outside its period a place gives the
+	// person none of the group's roles, and the set says so with its where: part, so a
+	// condition that tests subject.groups leaves the group out as the permission
+	// engine does. A row whose period has ended stands until its person next signs in,
+	// which removes it.
+	//
 	// @resource
 	// @suppress(readHandler)
 	// @suppress(patchHandler)
@@ -31,8 +38,10 @@ type (
 	CrewGroupMember struct {
 		// @attribute(group)
 		GroupID impulse.UUID `spanner:"GroupId"`
-		// @subjectSet(groups, value: GroupID)
-		UserID    string    `spanner:"UserId"`
-		CreatedAt time.Time `spanner:"CreatedAt"`
+		// @subjectSet(groups, value: GroupID, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))
+		UserID    string     `spanner:"UserId"`
+		CreatedAt time.Time  `spanner:"CreatedAt"`
+		StartsAt  *time.Time `spanner:"StartsAt"`
+		EndsAt    *time.Time `spanner:"EndsAt"`
 	}
 )

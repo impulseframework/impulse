@@ -32,6 +32,8 @@ type crewGroupUserRead struct {
 	Name      *string      `json:"name"`
 	GroupName string       `json:"groupName"`
 	CreatedAt time.Time    `json:"createdAt"`
+	StartsAt  *time.Time   `json:"startsAt"`
+	EndsAt    *time.Time   `json:"endsAt"`
 }
 
 var crewGroupUserReadSets resource.SetCache[CrewGroupUser, crewGroupUserRead]
@@ -158,6 +160,8 @@ func (c *CrewGroupUserColumns) All() *CrewGroupUserColumns {
 		"Name",
 		"GroupName",
 		"CreatedAt",
+		"StartsAt",
+		"EndsAt",
 	}
 
 	return c
@@ -195,6 +199,18 @@ func (c *CrewGroupUserColumns) GroupName() *CrewGroupUserColumns {
 
 func (c *CrewGroupUserColumns) CreatedAt() *CrewGroupUserColumns {
 	c.fields = append(c.fields, "CreatedAt")
+
+	return c
+}
+
+func (c *CrewGroupUserColumns) StartsAt() *CrewGroupUserColumns {
+	c.fields = append(c.fields, "StartsAt")
+
+	return c
+}
+
+func (c *CrewGroupUserColumns) EndsAt() *CrewGroupUserColumns {
+	c.fields = append(c.fields, "EndsAt")
 
 	return c
 }
@@ -315,6 +331,14 @@ func (c *crewGroupUserSort) GroupName() *CrewGroupUserSort {
 
 func (c *crewGroupUserSort) CreatedAt() *CrewGroupUserSort {
 	return c.addField("CreatedAt")
+}
+
+func (c *crewGroupUserSort) StartsAt() *CrewGroupUserSort {
+	return c.addField("StartsAt")
+}
+
+func (c *crewGroupUserSort) EndsAt() *CrewGroupUserSort {
+	return c.addField("EndsAt")
 }
 
 type CrewGroupUserSort struct {

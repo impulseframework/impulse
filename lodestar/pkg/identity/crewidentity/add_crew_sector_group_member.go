@@ -5,23 +5,30 @@ package crewidentity
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 )
 
 // AddCrewSectorGroupMember puts a person of the Crew auth in a group: the
 // person then holds the group's roles wherever the group holds them, and their next
 // request is served with them. The person is named by the id of their account, and an
-// id no user holds is refused. A person who is in the group already is left as they
-// are.
+// id no user holds is refused.
 //
 // It is a tenant's method: served under the address of one Sector, it names a
 // row of CrewSectorGroup, the tenant's own list of its groups. A group kept in
 // another tenant, or for the whole application, is not found there.
 // The person is picked from CrewSectorUser, the tenant's own list of the auth's
 // people.
+//
+// The place is given for a period where the request names one (StartsAt, EndsAt, each
+// optional): outside it the person holds none of the group's roles through it, and
+// nothing is written when it begins or ends. Putting in a person who is in the group
+// already gives their place the period of this request in place of the one it had, so a
+// request that names neither makes the place stand until they are taken out.
 //
 // @rpc
 // @permissionScope(domain)
@@ -34,16 +41,25 @@ type AddCrewSectorGroupMember struct {
 	//
 	// @enumerate(CrewSectorUsers)
 	UserID impulse.UUID
+	// StartsAt is the first instant it counts. Left out, it counts from now.
+	StartsAt *time.Time
+	// EndsAt is the first instant it no longer counts. Left out, it counts until it is
+	// taken away.
+	EndsAt *time.Time
 }
 
 // Execute buffers the person's place in the group into the caller's transaction.
 func (m *AddCrewSectorGroupMember) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
+	period, err := identity.RequestPeriod(m.StartsAt, m.EndsAt)
+	if err != nil {
+		return errors.Wrap(err, "identity.RequestPeriod()")
+	}
 	tenant, err := client.manager.Tenant(ctx)
 	if err != nil {
 		return errors.Wrap(err, "identity.Manager.Tenant()")
 	}
-	if err := tenant.AddGroupMember(ctx, txn, m.GroupID, m.UserID); err != nil {
-		return errors.Wrap(err, "identity.Tenant.AddGroupMember()")
+	if err := tenant.AddGroupMemberFor(ctx, txn, m.GroupID, m.UserID, period); err != nil {
+		return errors.Wrap(err, "identity.Tenant.AddGroupMemberFor()")
 	}
 
 	return nil

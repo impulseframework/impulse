@@ -22,6 +22,8 @@ func (h *Handlers) CrewGroupMembers() http.HandlerFunc {
 		GroupID   impulse.UUID `json:"groupId"   index:"true" perm:"-"`
 		UserID    string       `json:"userId"    index:"true" perm:"-"`
 		CreatedAt time.Time    `json:"createdAt"`
+		StartsAt  *time.Time   `json:"startsAt"`
+		EndsAt    *time.Time   `json:"endsAt"`
 	}
 
 	type response []map[string]any
@@ -74,6 +76,14 @@ func (h *Handlers) CrewGroupMembers() http.HandlerFunc {
 				case "CreatedAt":
 					if !row.Masked("createdAt") {
 						rmap["createdAt"] = rec.CreatedAt
+					}
+				case "StartsAt":
+					if !row.Masked("startsAt") {
+						rmap["startsAt"] = rec.StartsAt
+					}
+				case "EndsAt":
+					if !row.Masked("endsAt") {
+						rmap["endsAt"] = rec.EndsAt
 					}
 				}
 			}

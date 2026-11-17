@@ -3,7 +3,11 @@
 
 package crewresources
 
-import "github.com/impulseframework/impulse"
+import (
+	"time"
+
+	"github.com/impulseframework/impulse"
+)
 
 type (
 	// CrewUserGroupRole is one role a person of the Crew auth holds
@@ -15,6 +19,12 @@ type (
 	// The rows are the ones the permission engine gives the group's members: a row of
 	// the group roles table that names the Super Administrator role, or gives a group
 	// kept in one domain a role outside it, is not listed, as nobody holds it.
+	//
+	// StartsAt and EndsAt are the period the person holds the role for through the group:
+	// where the period of their place in the group and the period the group holds the
+	// role for meet, each end empty for none. A role either of whose two periods has
+	// ended, or whose two periods never meet, is not listed: the person does not hold it
+	// and will not. One that has not begun is listed with its start.
 	//
 	// @virtual
 	// @outlet(default)
@@ -35,7 +45,9 @@ type (
 		// @primarykey
 		DomainID string `spanner:"DomainId" index:"true"`
 		// @primarykey
-		Role string `spanner:"Role" index:"true"`
+		Role     string     `spanner:"Role"     index:"true"`
+		StartsAt *time.Time `spanner:"StartsAt"`
+		EndsAt   *time.Time `spanner:"EndsAt"`
 	}
 )
 
@@ -51,13 +63,19 @@ SELECT
   r.Kind AS Kind,
   r.Axis AS Axis,
   r.DomainId AS DomainId,
-  r.Role AS Role
+  r.Role AS Role,
+  COALESCE(GREATEST(r.StartsAt, m.StartsAt), r.StartsAt, m.StartsAt) AS StartsAt,
+  COALESCE(LEAST(r.EndsAt, m.EndsAt), r.EndsAt, m.EndsAt) AS EndsAt
 FROM CrewGroupRoles r
 JOIN CrewGroups g ON g.Id = r.GroupId
 JOIN CrewGroupMembers m ON m.GroupId = r.GroupId
 JOIN CrewSessionUsers u ON u.Id = m.UserId
 WHERE r.Role != 'SuperAdministrator'
   AND (g.Kind = 'global' OR (r.Kind = g.Kind AND r.Axis = g.Axis AND r.DomainId = g.DomainId))
+  AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
+  AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
+  AND (r.EndsAt IS NULL OR m.StartsAt IS NULL OR m.StartsAt < r.EndsAt)
+  AND (m.EndsAt IS NULL OR r.StartsAt IS NULL OR r.StartsAt < m.EndsAt)
 `
 
 // Subquery is the query the rows are read from.

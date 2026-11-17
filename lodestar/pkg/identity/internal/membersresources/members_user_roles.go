@@ -12,6 +12,11 @@ type (
 	// domain, or every domain), and UserID is the person: the id of their account, as
 	// text, which is how the permission store names anyone.
 	//
+	// StartsAt and EndsAt are the membership's period: the first instant it counts and
+	// the first it no longer does, each empty for none. Outside its period a membership
+	// grants nothing, and a row whose period has ended stands until its person next signs
+	// in, which removes it.
+	//
 	// @resource
 	// @suppress(readHandler)
 	// @suppress(patchHandler)
@@ -19,11 +24,13 @@ type (
 	// @order(UserID asc)
 	// @page(default: 25, max: 200)
 	MembersUserRole struct {
-		Kind      string    `spanner:"Kind"`
-		Axis      string    `spanner:"Axis"`
-		DomainID  string    `spanner:"DomainId"`
-		Role      string    `spanner:"Role"`
-		UserID    string    `spanner:"UserId"`
-		CreatedAt time.Time `spanner:"CreatedAt"`
+		Kind      string     `spanner:"Kind"`
+		Axis      string     `spanner:"Axis"`
+		DomainID  string     `spanner:"DomainId"`
+		Role      string     `spanner:"Role"`
+		UserID    string     `spanner:"UserId"`
+		CreatedAt time.Time  `spanner:"CreatedAt"`
+		StartsAt  *time.Time `spanner:"StartsAt"`
+		EndsAt    *time.Time `spanner:"EndsAt"`
 	}
 )

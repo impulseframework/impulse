@@ -3,7 +3,11 @@
 
 package crewresources
 
-import "github.com/impulseframework/impulse"
+import (
+	"time"
+
+	"github.com/impulseframework/impulse"
+)
 
 type (
 	// CrewSectorUserGroupRole is one role a person of the Crew auth holds in one
@@ -16,6 +20,12 @@ type (
 	// GlobalGroup says the group is kept for the whole application, so neither the group
 	// nor the role is this tenant's to change; EveryDomain says the group holds the role
 	// in every tenant alone.
+	//
+	// StartsAt and EndsAt are the period the person holds the role for through the group:
+	// where the period of their place in the group and the period the group holds the
+	// role for meet, each end empty for none. A role either of whose two periods has
+	// ended, or whose two periods never meet, is not listed: the person does not hold it
+	// and will not. One that has not begun is listed with its start.
 	//
 	// @virtual
 	// @permissionScope(domain)
@@ -33,9 +43,11 @@ type (
 		GroupID   impulse.UUID `spanner:"GroupId"   index:"true"`
 		GroupName string       `spanner:"GroupName" index:"true"`
 		// @primarykey
-		Role        string `spanner:"Role"        index:"true"`
-		GlobalGroup bool   `spanner:"GlobalGroup" index:"true"`
-		EveryDomain bool   `spanner:"EveryDomain" index:"true"`
+		Role        string     `spanner:"Role"        index:"true"`
+		GlobalGroup bool       `spanner:"GlobalGroup" index:"true"`
+		EveryDomain bool       `spanner:"EveryDomain" index:"true"`
+		StartsAt    *time.Time `spanner:"StartsAt"`
+		EndsAt      *time.Time `spanner:"EndsAt"`
 	}
 )
 
@@ -53,19 +65,24 @@ SELECT
   g.Name AS GroupName,
   t.Role AS Role,
   (g.Kind = 'global') AS GlobalGroup,
-  t.EveryDomain AS EveryDomain
+  t.EveryDomain AS EveryDomain,
+  COALESCE(GREATEST(t.StartsAt, m.StartsAt), t.StartsAt, m.StartsAt) AS StartsAt,
+  COALESCE(LEAST(t.EndsAt, m.EndsAt), t.EndsAt, m.EndsAt) AS EndsAt
 FROM (
-  SELECT r.DomainId AS DomainId, r.GroupId AS GroupId, r.Role AS Role, FALSE AS EveryDomain
+  SELECT r.DomainId AS DomainId, r.GroupId AS GroupId, r.Role AS Role, FALSE AS EveryDomain, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt
   FROM CrewGroupRoles r
   WHERE r.Kind = 'domain' AND r.Axis = ''
+    AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
   UNION ALL
-  SELECT s.Id AS DomainId, r.GroupId AS GroupId, r.Role AS Role, TRUE AS EveryDomain
+  SELECT s.Id AS DomainId, r.GroupId AS GroupId, r.Role AS Role, TRUE AS EveryDomain, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt
   FROM CrewGroupRoles r
   CROSS JOIN Sectors s
   WHERE r.Kind = 'every' AND r.Axis = ''
+    AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
     AND NOT EXISTS (
       SELECT 1 FROM CrewGroupRoles d
       WHERE d.GroupId = r.GroupId AND d.Kind = 'domain' AND d.Axis = r.Axis AND d.DomainId = s.Id AND d.Role = r.Role
+        AND (d.EndsAt IS NULL OR d.EndsAt > CURRENT_TIMESTAMP())
     )
 ) t
 JOIN CrewGroups g ON g.Id = t.GroupId
@@ -73,6 +90,9 @@ JOIN CrewGroupMembers m ON m.GroupId = t.GroupId
 JOIN CrewSessionUsers u ON u.Id = m.UserId
 WHERE t.Role != 'SuperAdministrator'
   AND (g.Kind = 'global' OR (NOT t.EveryDomain AND g.Kind = 'domain' AND g.Axis = '' AND g.DomainId = t.DomainId))
+  AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
+  AND (t.EndsAt IS NULL OR m.StartsAt IS NULL OR m.StartsAt < t.EndsAt)
+  AND (m.EndsAt IS NULL OR t.StartsAt IS NULL OR t.StartsAt < m.EndsAt)
 `
 
 // Subquery is the query the rows are read from.

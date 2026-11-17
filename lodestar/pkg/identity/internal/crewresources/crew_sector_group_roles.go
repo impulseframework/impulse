@@ -17,6 +17,10 @@ type (
 	// grant's condition (role), so a role file can say which roles its holder takes away
 	// from a group.
 	//
+	// StartsAt and EndsAt are the period the group holds the role for, each empty for
+	// none. A role that has ended is not listed: it is nobody's through the group. One
+	// that has not begun is listed, where it is given another period or taken away.
+	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet(default)
@@ -31,8 +35,10 @@ type (
 		GroupName string       `spanner:"GroupName" index:"true"`
 		// @primarykey
 		// @attribute(role)
-		Role      string    `spanner:"Role"      index:"true"`
-		CreatedAt time.Time `spanner:"CreatedAt"`
+		Role      string     `spanner:"Role"      index:"true"`
+		CreatedAt time.Time  `spanner:"CreatedAt"`
+		StartsAt  *time.Time `spanner:"StartsAt"`
+		EndsAt    *time.Time `spanner:"EndsAt"`
 	}
 )
 
@@ -45,11 +51,14 @@ SELECT
   r.GroupId AS GroupId,
   g.Name AS GroupName,
   r.Role AS Role,
-  r.CreatedAt AS CreatedAt
+  r.CreatedAt AS CreatedAt,
+  r.StartsAt AS StartsAt,
+  r.EndsAt AS EndsAt
 FROM CrewGroups g
 JOIN CrewGroupRoles r ON r.GroupId = g.Id
 WHERE g.Kind = 'domain' AND g.Axis = ''
   AND r.Kind = g.Kind AND r.Axis = g.Axis AND r.DomainId = g.DomainId
+  AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
 `
 
 // Subquery is the query the rows are read from.

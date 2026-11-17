@@ -62,6 +62,8 @@ export interface CrewGroupMembers {
   groupId: string;
   userId: string;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface CrewGroupRoles {
@@ -71,6 +73,8 @@ export interface CrewGroupRoles {
   domainId: string;
   role: string;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface CrewGroupUsers {
@@ -80,6 +84,8 @@ export interface CrewGroupUsers {
   name?: string;
   groupName?: string;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface CrewRoles {
@@ -117,6 +123,8 @@ export interface CrewSectorGroupRoles {
   groupName?: string;
   role: string;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface CrewSectorGroupUsers {
@@ -127,6 +135,8 @@ export interface CrewSectorGroupUsers {
   name?: string;
   groupName?: string;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface CrewSectorIdentities {
@@ -182,6 +192,8 @@ export interface CrewSectorUserGroupRoles {
   role: string;
   globalGroup?: boolean;
   everyDomain?: boolean;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface CrewSectorUserRoles {
@@ -191,6 +203,8 @@ export interface CrewSectorUserRoles {
   role: string;
   everyDomain?: boolean;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface CrewSessions {
@@ -308,6 +322,8 @@ export interface CrewUserGroupRoles {
   axis: string;
   domainId: string;
   role: string;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface CrewUserRoles {
@@ -317,6 +333,8 @@ export interface CrewUserRoles {
   role: string;
   userId: string;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface DistressCalls {
@@ -427,6 +445,8 @@ export interface MembersSectorUserRoles {
   role: string;
   everyDomain?: boolean;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface MembersSessions {
@@ -510,6 +530,8 @@ export interface MembersUserRoles {
   role: string;
   userId: string;
   createdAt?: Date;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 
 export interface Missions {
@@ -880,6 +902,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'groupId', primaryKey: { ordinalPosition: 0 }, displayType: 'enumerated', required: true, isIndex: true, filterable: 'always', enumeratedResource: Resources.CrewGroups },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.CrewGroupRoles]: {
@@ -896,6 +920,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'domainId', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'role', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.CrewGroupUsers]: {
@@ -908,6 +934,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.CrewRoles]: {
@@ -965,6 +993,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.CrewSectorGroupUsers]: {
@@ -978,6 +1008,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'groupName', displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.CrewSectorIdentities]: {
@@ -1045,6 +1077,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'role', primaryKey: { ordinalPosition: 2 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'globalGroup', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.CrewSectorUserRoles]: {
@@ -1057,6 +1091,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.CrewSessions]: {
@@ -1233,6 +1269,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'axis', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'domainId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'role', primaryKey: { ordinalPosition: 5 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.CrewUserRoles]: {
@@ -1249,6 +1287,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.DistressCalls]: {
@@ -1400,6 +1440,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'role', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'everyDomain', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.MembersSessions]: {
@@ -1534,6 +1576,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'role', primaryKey: { ordinalPosition: 3 }, displayType: 'string', required: true, isIndex: false },
       { fieldName: 'userId', primaryKey: { ordinalPosition: 4 }, displayType: 'string', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'createdAt', displayType: 'date', required: true, isIndex: false },
+      { fieldName: 'startsAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'endsAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.Missions]: {

@@ -26,6 +26,8 @@ func (h *Handlers) CrewGroupUsers() http.HandlerFunc {
 		Name      *string      `json:"name"`
 		GroupName string       `json:"groupName" index:"true"`
 		CreatedAt time.Time    `json:"createdAt"`
+		StartsAt  *time.Time   `json:"startsAt"`
+		EndsAt    *time.Time   `json:"endsAt"`
 	}
 
 	type response []map[string]any
@@ -91,6 +93,14 @@ func (h *Handlers) CrewGroupUsers() http.HandlerFunc {
 					if !row.Masked("createdAt") {
 						rmap["createdAt"] = rec.CreatedAt
 					}
+				case "StartsAt":
+					if !row.Masked("startsAt") {
+						rmap["startsAt"] = rec.StartsAt
+					}
+				case "EndsAt":
+					if !row.Masked("endsAt") {
+						rmap["endsAt"] = rec.EndsAt
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -120,6 +130,8 @@ func (h *Handlers) CrewGroupUser() http.HandlerFunc {
 		Name      *string      `json:"name"`
 		GroupName string       `json:"groupName"`
 		CreatedAt time.Time    `json:"createdAt"`
+		StartsAt  *time.Time   `json:"startsAt"`
+		EndsAt    *time.Time   `json:"endsAt"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewGroupUser, response](h, accesstypes.Read)
@@ -173,6 +185,14 @@ func (h *Handlers) CrewGroupUser() http.HandlerFunc {
 			case "CreatedAt":
 				if !row.Masked("createdAt") {
 					rmap["createdAt"] = rec.CreatedAt
+				}
+			case "StartsAt":
+				if !row.Masked("startsAt") {
+					rmap["startsAt"] = rec.StartsAt
+				}
+			case "EndsAt":
+				if !row.Masked("endsAt") {
+					rmap["endsAt"] = rec.EndsAt
 				}
 			}
 		}

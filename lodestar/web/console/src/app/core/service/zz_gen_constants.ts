@@ -313,12 +313,16 @@ export namespace Consignments {
 export namespace CrewGroupMembers {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
+    endsAt: 'endsAt' as FieldName,
     groupId: 'groupId' as FieldName,
+    startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
   };
   export const resourceName = {
     createdAt: 'CrewGroupMembers.createdAt' as Resource,
+    endsAt: 'CrewGroupMembers.endsAt' as Resource,
     groupId: 'CrewGroupMembers.groupId' as Resource,
+    startsAt: 'CrewGroupMembers.startsAt' as Resource,
     userId: 'CrewGroupMembers.userId' as Resource,
   };
 }
@@ -328,34 +332,42 @@ export namespace CrewGroupRoles {
     axis: 'axis' as FieldName,
     createdAt: 'createdAt' as FieldName,
     domainId: 'domainId' as FieldName,
+    endsAt: 'endsAt' as FieldName,
     groupId: 'groupId' as FieldName,
     kind: 'kind' as FieldName,
     role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
   };
   export const resourceName = {
     axis: 'CrewGroupRoles.axis' as Resource,
     createdAt: 'CrewGroupRoles.createdAt' as Resource,
     domainId: 'CrewGroupRoles.domainId' as Resource,
+    endsAt: 'CrewGroupRoles.endsAt' as Resource,
     groupId: 'CrewGroupRoles.groupId' as Resource,
     kind: 'CrewGroupRoles.kind' as Resource,
     role: 'CrewGroupRoles.role' as Resource,
+    startsAt: 'CrewGroupRoles.startsAt' as Resource,
   };
 }
 
 export namespace CrewGroupUsers {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
+    endsAt: 'endsAt' as FieldName,
     groupId: 'groupId' as FieldName,
     groupName: 'groupName' as FieldName,
     name: 'name' as FieldName,
+    startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
     createdAt: 'CrewGroupUsers.createdAt' as Resource,
+    endsAt: 'CrewGroupUsers.endsAt' as Resource,
     groupId: 'CrewGroupUsers.groupId' as Resource,
     groupName: 'CrewGroupUsers.groupName' as Resource,
     name: 'CrewGroupUsers.name' as Resource,
+    startsAt: 'CrewGroupUsers.startsAt' as Resource,
     userId: 'CrewGroupUsers.userId' as Resource,
     username: 'CrewGroupUsers.username' as Resource,
   };
@@ -430,16 +442,20 @@ export namespace CrewSectorGroupRoles {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
     domainId: 'domainId' as FieldName,
+    endsAt: 'endsAt' as FieldName,
     groupId: 'groupId' as FieldName,
     groupName: 'groupName' as FieldName,
     role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
   };
   export const resourceName = {
     createdAt: 'CrewSectorGroupRoles.createdAt' as Resource,
     domainId: 'CrewSectorGroupRoles.domainId' as Resource,
+    endsAt: 'CrewSectorGroupRoles.endsAt' as Resource,
     groupId: 'CrewSectorGroupRoles.groupId' as Resource,
     groupName: 'CrewSectorGroupRoles.groupName' as Resource,
     role: 'CrewSectorGroupRoles.role' as Resource,
+    startsAt: 'CrewSectorGroupRoles.startsAt' as Resource,
   };
 }
 
@@ -447,18 +463,22 @@ export namespace CrewSectorGroupUsers {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
     domainId: 'domainId' as FieldName,
+    endsAt: 'endsAt' as FieldName,
     groupId: 'groupId' as FieldName,
     groupName: 'groupName' as FieldName,
     name: 'name' as FieldName,
+    startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
     createdAt: 'CrewSectorGroupUsers.createdAt' as Resource,
     domainId: 'CrewSectorGroupUsers.domainId' as Resource,
+    endsAt: 'CrewSectorGroupUsers.endsAt' as Resource,
     groupId: 'CrewSectorGroupUsers.groupId' as Resource,
     groupName: 'CrewSectorGroupUsers.groupName' as Resource,
     name: 'CrewSectorGroupUsers.name' as Resource,
+    startsAt: 'CrewSectorGroupUsers.startsAt' as Resource,
     userId: 'CrewSectorGroupUsers.userId' as Resource,
     username: 'CrewSectorGroupUsers.username' as Resource,
   };
@@ -555,21 +575,25 @@ export namespace CrewSectorRoles {
 export namespace CrewSectorUserGroupRoles {
   export const fieldName = {
     domainId: 'domainId' as FieldName,
+    endsAt: 'endsAt' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
     globalGroup: 'globalGroup' as FieldName,
     groupId: 'groupId' as FieldName,
     groupName: 'groupName' as FieldName,
     role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
     domainId: 'CrewSectorUserGroupRoles.domainId' as Resource,
+    endsAt: 'CrewSectorUserGroupRoles.endsAt' as Resource,
     everyDomain: 'CrewSectorUserGroupRoles.everyDomain' as Resource,
     globalGroup: 'CrewSectorUserGroupRoles.globalGroup' as Resource,
     groupId: 'CrewSectorUserGroupRoles.groupId' as Resource,
     groupName: 'CrewSectorUserGroupRoles.groupName' as Resource,
     role: 'CrewSectorUserGroupRoles.role' as Resource,
+    startsAt: 'CrewSectorUserGroupRoles.startsAt' as Resource,
     userId: 'CrewSectorUserGroupRoles.userId' as Resource,
     username: 'CrewSectorUserGroupRoles.username' as Resource,
   };
@@ -579,16 +603,20 @@ export namespace CrewSectorUserRoles {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
     domainId: 'domainId' as FieldName,
+    endsAt: 'endsAt' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
     role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
     createdAt: 'CrewSectorUserRoles.createdAt' as Resource,
     domainId: 'CrewSectorUserRoles.domainId' as Resource,
+    endsAt: 'CrewSectorUserRoles.endsAt' as Resource,
     everyDomain: 'CrewSectorUserRoles.everyDomain' as Resource,
     role: 'CrewSectorUserRoles.role' as Resource,
+    startsAt: 'CrewSectorUserRoles.startsAt' as Resource,
     userId: 'CrewSectorUserRoles.userId' as Resource,
     username: 'CrewSectorUserRoles.username' as Resource,
   };
@@ -850,20 +878,24 @@ export namespace CrewUserGroupRoles {
   export const fieldName = {
     axis: 'axis' as FieldName,
     domainId: 'domainId' as FieldName,
+    endsAt: 'endsAt' as FieldName,
     groupId: 'groupId' as FieldName,
     groupName: 'groupName' as FieldName,
     kind: 'kind' as FieldName,
     role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
     axis: 'CrewUserGroupRoles.axis' as Resource,
     domainId: 'CrewUserGroupRoles.domainId' as Resource,
+    endsAt: 'CrewUserGroupRoles.endsAt' as Resource,
     groupId: 'CrewUserGroupRoles.groupId' as Resource,
     groupName: 'CrewUserGroupRoles.groupName' as Resource,
     kind: 'CrewUserGroupRoles.kind' as Resource,
     role: 'CrewUserGroupRoles.role' as Resource,
+    startsAt: 'CrewUserGroupRoles.startsAt' as Resource,
     userId: 'CrewUserGroupRoles.userId' as Resource,
     username: 'CrewUserGroupRoles.username' as Resource,
   };
@@ -874,16 +906,20 @@ export namespace CrewUserRoles {
     axis: 'axis' as FieldName,
     createdAt: 'createdAt' as FieldName,
     domainId: 'domainId' as FieldName,
+    endsAt: 'endsAt' as FieldName,
     kind: 'kind' as FieldName,
     role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
   };
   export const resourceName = {
     axis: 'CrewUserRoles.axis' as Resource,
     createdAt: 'CrewUserRoles.createdAt' as Resource,
     domainId: 'CrewUserRoles.domainId' as Resource,
+    endsAt: 'CrewUserRoles.endsAt' as Resource,
     kind: 'CrewUserRoles.kind' as Resource,
     role: 'CrewUserRoles.role' as Resource,
+    startsAt: 'CrewUserRoles.startsAt' as Resource,
     userId: 'CrewUserRoles.userId' as Resource,
   };
 }
@@ -1112,16 +1148,20 @@ export namespace MembersSectorUserRoles {
   export const fieldName = {
     createdAt: 'createdAt' as FieldName,
     domainId: 'domainId' as FieldName,
+    endsAt: 'endsAt' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
     role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
     createdAt: 'MembersSectorUserRoles.createdAt' as Resource,
     domainId: 'MembersSectorUserRoles.domainId' as Resource,
+    endsAt: 'MembersSectorUserRoles.endsAt' as Resource,
     everyDomain: 'MembersSectorUserRoles.everyDomain' as Resource,
     role: 'MembersSectorUserRoles.role' as Resource,
+    startsAt: 'MembersSectorUserRoles.startsAt' as Resource,
     userId: 'MembersSectorUserRoles.userId' as Resource,
     username: 'MembersSectorUserRoles.username' as Resource,
   };
@@ -1318,16 +1358,20 @@ export namespace MembersUserRoles {
     axis: 'axis' as FieldName,
     createdAt: 'createdAt' as FieldName,
     domainId: 'domainId' as FieldName,
+    endsAt: 'endsAt' as FieldName,
     kind: 'kind' as FieldName,
     role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
     userId: 'userId' as FieldName,
   };
   export const resourceName = {
     axis: 'MembersUserRoles.axis' as Resource,
     createdAt: 'MembersUserRoles.createdAt' as Resource,
     domainId: 'MembersUserRoles.domainId' as Resource,
+    endsAt: 'MembersUserRoles.endsAt' as Resource,
     kind: 'MembersUserRoles.kind' as Resource,
     role: 'MembersUserRoles.role' as Resource,
+    startsAt: 'MembersUserRoles.startsAt' as Resource,
     userId: 'MembersUserRoles.userId' as Resource,
   };
 }
@@ -1800,6 +1844,8 @@ export namespace AddCrewGroupMember {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
     userId: 'userId' as FieldName,
+    startsAt: 'startsAt' as FieldName,
+    endsAt: 'endsAt' as FieldName,
   };
 }
 
@@ -1807,6 +1853,8 @@ export namespace AddCrewSectorGroupMember {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
     userId: 'userId' as FieldName,
+    startsAt: 'startsAt' as FieldName,
+    endsAt: 'endsAt' as FieldName,
   };
 }
 
@@ -1816,6 +1864,8 @@ export namespace AssignCrewRole {
     role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+    startsAt: 'startsAt' as FieldName,
+    endsAt: 'endsAt' as FieldName,
   };
 }
 
@@ -1823,6 +1873,8 @@ export namespace AssignCrewSectorRole {
   export const fieldName = {
     userId: 'userId' as FieldName,
     role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
+    endsAt: 'endsAt' as FieldName,
   };
 }
 
@@ -2062,6 +2114,8 @@ export namespace GiveCrewGroupRole {
     role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+    startsAt: 'startsAt' as FieldName,
+    endsAt: 'endsAt' as FieldName,
   };
 }
 
@@ -2069,6 +2123,8 @@ export namespace GiveCrewSectorGroupRole {
   export const fieldName = {
     groupId: 'groupId' as FieldName,
     role: 'role' as FieldName,
+    startsAt: 'startsAt' as FieldName,
+    endsAt: 'endsAt' as FieldName,
   };
 }
 

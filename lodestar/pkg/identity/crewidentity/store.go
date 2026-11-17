@@ -5,6 +5,7 @@ package crewidentity
 
 import (
 	"context"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
@@ -933,4 +934,142 @@ func (store) TenantGroupRoles(ctx context.Context, txn resource.ReadWriteTransac
 	}
 
 	return keys, nil
+}
+
+// storedPeriod answers the period a row's two columns hold, as they are. A row written
+// past the rules with an end at or before its start never counts, and is read so.
+func storedPeriod(start, end *time.Time) accesstypes.Period {
+	var period accesstypes.Period
+	if start != nil {
+		period.Start = *start
+	}
+	if end != nil {
+		period.End = *end
+	}
+
+	return period
+}
+
+// SetMembershipPeriod writes both columns, an absent start or end as NULL: the period
+// handed replaces the one the membership had.
+func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period) error {
+	patch := crewresources.NewCrewUserRoleUpdatePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User)).
+		SetStartsAt(period.StartPtr()).
+		SetEndsAt(period.EndPtr())
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return errors.Wrap(err, "crewresources.CrewUserRoleUpdatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) (*identity.UserPeriods, error) {
+	periods := &identity.UserPeriods{Memberships: map[access.MembershipKey]accesstypes.Period{}, Places: map[access.GroupMemberKey]accesstypes.Period{}}
+	// The table's index by user leads with the person, the id of their account.
+	memberships := crewresources.NewCrewUserRoleQuery().
+		AddColumns(crewresources.NewCrewUserRoleColumns().Kind().Axis().DomainID().Role().UserID().StartsAt().EndsAt()).
+		Where(crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String()))
+	for row, err := range memberships.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewUserRoleQuery.List()")
+		}
+		key := access.MembershipKey{Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Role: accesstypes.Role(row.Data.Role), User: accesstypes.User(row.Data.UserID)}
+		periods.Memberships[key] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)
+	}
+	places := crewresources.NewCrewGroupMemberQuery().
+		AddColumns(crewresources.NewCrewGroupMemberColumns().GroupID().UserID().StartsAt().EndsAt()).
+		Where(crewresources.NewCrewGroupMemberQueryClause().UserID().Equal(userID.String()))
+	for row, err := range places.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewGroupMemberQuery.List()")
+		}
+		key := access.GroupMemberKey{Group: identity.GroupID(row.Data.GroupID), User: accesstypes.User(row.Data.UserID)}
+		periods.Places[key] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)
+	}
+
+	return periods, nil
+}
+
+// RemoveEnded buffers each removal under the source that says the assignment ended by
+// itself (identity.EndedByItself): it is what a change record of the row holds in place
+// of a person's act.
+func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction, memberships []access.MembershipKey, places []access.GroupMemberKey) error {
+	for i := range memberships {
+		key := &memberships[i]
+		patch := crewresources.NewCrewUserRoleDeletePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User))
+		if err := patch.Buffer(ctx, txn, identity.EndedByItself); err != nil {
+			return errors.Wrap(err, "crewresources.CrewUserRoleDeletePatch.Buffer()")
+		}
+	}
+	for _, place := range places {
+		id, err := groupID(place.Group)
+		if err != nil {
+			return err
+		}
+		if err := crewresources.NewCrewGroupMemberDeletePatch(id, string(place.User)).Buffer(ctx, txn, identity.EndedByItself); err != nil {
+			return errors.Wrap(err, "crewresources.CrewGroupMemberDeletePatch.Buffer()")
+		}
+	}
+
+	return nil
+}
+
+// SetGroupMemberPeriod writes both columns, an absent start or end as NULL: the period
+// handed replaces the one the place had.
+func (store) SetGroupMemberPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupMemberKey, period accesstypes.Period) error {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return err
+	}
+	patch := crewresources.NewCrewGroupMemberUpdatePatch(id, string(key.User)).
+		SetStartsAt(period.StartPtr()).
+		SetEndsAt(period.EndPtr())
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return errors.Wrap(err, "crewresources.CrewGroupMemberUpdatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+// SetGroupRolePeriod writes both columns, an absent start or end as NULL: the period
+// handed replaces the one the group's role had.
+func (store) SetGroupRolePeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupRoleKey, period accesstypes.Period) error {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return err
+	}
+	patch := crewresources.NewCrewGroupRoleUpdatePatch(id, key.Kind, key.Axis, key.Domain, string(key.Role)).
+		SetStartsAt(period.StartPtr()).
+		SetEndsAt(period.EndPtr())
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return errors.Wrap(err, "crewresources.CrewGroupRoleUpdatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) GroupPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (*identity.GroupPeriods, error) {
+	periods := &identity.GroupPeriods{Members: map[accesstypes.User]accesstypes.Period{}, Roles: map[access.GroupRoleKey]accesstypes.Period{}}
+	// Each table's key leads with the group: the lists are the rows under it.
+	members := crewresources.NewCrewGroupMemberQuery().
+		AddColumns(crewresources.NewCrewGroupMemberColumns().UserID().StartsAt().EndsAt()).
+		SetGroupID(id)
+	for row, err := range members.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewGroupMemberQuery.List()")
+		}
+		periods.Members[accesstypes.User(row.Data.UserID)] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)
+	}
+	roles := crewresources.NewCrewGroupRoleQuery().
+		AddColumns(crewresources.NewCrewGroupRoleColumns().GroupID().Kind().Axis().DomainID().Role().StartsAt().EndsAt()).
+		SetGroupID(id)
+	for row, err := range roles.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewGroupRoleQuery.List()")
+		}
+		key := access.GroupRoleKey{Group: identity.GroupID(row.Data.GroupID), Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Role: accesstypes.Role(row.Data.Role)}
+		periods.Roles[key] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)
+	}
+
+	return periods, nil
 }

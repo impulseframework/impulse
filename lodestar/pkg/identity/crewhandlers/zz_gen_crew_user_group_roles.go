@@ -6,6 +6,7 @@ package crewhandlers
 import (
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -27,6 +28,8 @@ func (h *Handlers) CrewUserGroupRoles() http.HandlerFunc {
 		Axis      string       `json:"axis"      perm:"-"`
 		DomainID  string       `json:"domainId"  index:"true" perm:"-"`
 		Role      string       `json:"role"      index:"true" perm:"-"`
+		StartsAt  *time.Time   `json:"startsAt"`
+		EndsAt    *time.Time   `json:"endsAt"`
 	}
 
 	type response []map[string]any
@@ -100,6 +103,14 @@ func (h *Handlers) CrewUserGroupRoles() http.HandlerFunc {
 					if !row.Masked("role") {
 						rmap["role"] = rec.Role
 					}
+				case "StartsAt":
+					if !row.Masked("startsAt") {
+						rmap["startsAt"] = rec.StartsAt
+					}
+				case "EndsAt":
+					if !row.Masked("endsAt") {
+						rmap["endsAt"] = rec.EndsAt
+					}
 				}
 			}
 			if capabilities := row.Capabilities(); capabilities != nil {
@@ -131,6 +142,8 @@ func (h *Handlers) CrewUserGroupRole() http.HandlerFunc {
 		Axis      string       `json:"axis"      index:"true" perm:"-"`
 		DomainID  string       `json:"domainId"  index:"true" perm:"-"`
 		Role      string       `json:"role"      index:"true" perm:"-"`
+		StartsAt  *time.Time   `json:"startsAt"`
+		EndsAt    *time.Time   `json:"endsAt"`
 	}
 
 	decoder := NewQueryDecoder[crewresources.CrewUserGroupRole, response](h, accesstypes.Read)
@@ -196,6 +209,14 @@ func (h *Handlers) CrewUserGroupRole() http.HandlerFunc {
 			case "Role":
 				if !row.Masked("role") {
 					rmap["role"] = rec.Role
+				}
+			case "StartsAt":
+				if !row.Masked("startsAt") {
+					rmap["startsAt"] = rec.StartsAt
+				}
+			case "EndsAt":
+				if !row.Masked("endsAt") {
+					rmap["endsAt"] = rec.EndsAt
 				}
 			}
 		}

@@ -6,6 +6,7 @@ package crewresources
 import (
 	"context"
 	"iter"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
@@ -33,6 +34,8 @@ type crewUserGroupRoleRead struct {
 	Axis      string       `json:"axis"      perm:"-"`
 	DomainID  string       `json:"domainId"  perm:"-"`
 	Role      string       `json:"role"      perm:"-"`
+	StartsAt  *time.Time   `json:"startsAt"`
+	EndsAt    *time.Time   `json:"endsAt"`
 }
 
 var crewUserGroupRoleReadSets resource.SetCache[CrewUserGroupRole, crewUserGroupRoleRead]
@@ -209,6 +212,8 @@ func (c *CrewUserGroupRoleColumns) All() *CrewUserGroupRoleColumns {
 		"Axis",
 		"DomainID",
 		"Role",
+		"StartsAt",
+		"EndsAt",
 	}
 
 	return c
@@ -258,6 +263,18 @@ func (c *CrewUserGroupRoleColumns) DomainID() *CrewUserGroupRoleColumns {
 
 func (c *CrewUserGroupRoleColumns) Role() *CrewUserGroupRoleColumns {
 	c.fields = append(c.fields, "Role")
+
+	return c
+}
+
+func (c *CrewUserGroupRoleColumns) StartsAt() *CrewUserGroupRoleColumns {
+	c.fields = append(c.fields, "StartsAt")
+
+	return c
+}
+
+func (c *CrewUserGroupRoleColumns) EndsAt() *CrewUserGroupRoleColumns {
+	c.fields = append(c.fields, "EndsAt")
 
 	return c
 }
@@ -398,6 +415,14 @@ func (c *crewUserGroupRoleSort) DomainID() *CrewUserGroupRoleSort {
 
 func (c *crewUserGroupRoleSort) Role() *CrewUserGroupRoleSort {
 	return c.addField("Role")
+}
+
+func (c *crewUserGroupRoleSort) StartsAt() *CrewUserGroupRoleSort {
+	return c.addField("StartsAt")
+}
+
+func (c *crewUserGroupRoleSort) EndsAt() *CrewUserGroupRoleSort {
+	return c.addField("EndsAt")
 }
 
 type CrewUserGroupRoleSort struct {

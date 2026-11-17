@@ -29,6 +29,8 @@ type crewGroupMemberRead struct {
 	GroupID   impulse.UUID `json:"groupId"   perm:"-"`
 	UserID    string       `json:"userId"    perm:"-"`
 	CreatedAt time.Time    `json:"createdAt"`
+	StartsAt  *time.Time   `json:"startsAt"`
+	EndsAt    *time.Time   `json:"endsAt"`
 }
 
 var crewGroupMemberReadSets resource.SetCache[CrewGroupMember, crewGroupMemberRead]
@@ -40,6 +42,8 @@ type crewGroupMemberWrite struct {
 	GroupID   impulse.UUID `json:"-"`
 	UserID    string       `json:"-"`
 	CreatedAt time.Time    `json:"createdAt"`
+	StartsAt  *time.Time   `json:"startsAt"`
+	EndsAt    *time.Time   `json:"endsAt"`
 }
 
 var crewGroupMemberWriteSets resource.SetCache[CrewGroupMember, crewGroupMemberWrite]
@@ -163,6 +167,8 @@ func (c *CrewGroupMemberColumns) All() *CrewGroupMemberColumns {
 		"GroupID",
 		"UserID",
 		"CreatedAt",
+		"StartsAt",
+		"EndsAt",
 	}
 
 	return c
@@ -182,6 +188,18 @@ func (c *CrewGroupMemberColumns) UserID() *CrewGroupMemberColumns {
 
 func (c *CrewGroupMemberColumns) CreatedAt() *CrewGroupMemberColumns {
 	c.fields = append(c.fields, "CreatedAt")
+
+	return c
+}
+
+func (c *CrewGroupMemberColumns) StartsAt() *CrewGroupMemberColumns {
+	c.fields = append(c.fields, "StartsAt")
+
+	return c
+}
+
+func (c *CrewGroupMemberColumns) EndsAt() *CrewGroupMemberColumns {
+	c.fields = append(c.fields, "EndsAt")
 
 	return c
 }
@@ -282,6 +300,14 @@ func (c *crewGroupMemberSort) UserID() *CrewGroupMemberSort {
 
 func (c *crewGroupMemberSort) CreatedAt() *CrewGroupMemberSort {
 	return c.addField("CreatedAt")
+}
+
+func (c *crewGroupMemberSort) StartsAt() *CrewGroupMemberSort {
+	return c.addField("StartsAt")
+}
+
+func (c *crewGroupMemberSort) EndsAt() *CrewGroupMemberSort {
+	return c.addField("EndsAt")
 }
 
 type CrewGroupMemberSort struct {
@@ -405,6 +431,46 @@ func (p *CrewGroupMemberCreatePatch) CreatedAtIsSet() bool {
 	return p.patchSet.IsSet("CreatedAt")
 }
 
+func (p *CrewGroupMemberCreatePatch) SetStartsAt(v *time.Time) *CrewGroupMemberCreatePatch {
+	if v != nil {
+		p.patchSet.Set("StartsAt", v)
+	} else {
+		p.patchSet.Set("StartsAt", nil)
+	}
+
+	return p
+}
+
+func (p *CrewGroupMemberCreatePatch) StartsAt() *time.Time {
+	v, _ := p.patchSet.Get("StartsAt").(*time.Time)
+
+	return v
+}
+
+func (p *CrewGroupMemberCreatePatch) StartsAtIsSet() bool {
+	return p.patchSet.IsSet("StartsAt")
+}
+
+func (p *CrewGroupMemberCreatePatch) SetEndsAt(v *time.Time) *CrewGroupMemberCreatePatch {
+	if v != nil {
+		p.patchSet.Set("EndsAt", v)
+	} else {
+		p.patchSet.Set("EndsAt", nil)
+	}
+
+	return p
+}
+
+func (p *CrewGroupMemberCreatePatch) EndsAt() *time.Time {
+	v, _ := p.patchSet.Get("EndsAt").(*time.Time)
+
+	return v
+}
+
+func (p *CrewGroupMemberCreatePatch) EndsAtIsSet() bool {
+	return p.patchSet.IsSet("EndsAt")
+}
+
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *CrewGroupMemberCreatePatch) Diff(got *CrewGroupMemberCreatePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
@@ -519,6 +585,46 @@ func (p *CrewGroupMemberUpdatePatch) CreatedAt() time.Time {
 
 func (p *CrewGroupMemberUpdatePatch) CreatedAtIsSet() bool {
 	return p.patchSet.IsSet("CreatedAt")
+}
+
+func (p *CrewGroupMemberUpdatePatch) SetStartsAt(v *time.Time) *CrewGroupMemberUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("StartsAt", v)
+	} else {
+		p.patchSet.Set("StartsAt", nil)
+	}
+
+	return p
+}
+
+func (p *CrewGroupMemberUpdatePatch) StartsAt() *time.Time {
+	v, _ := p.patchSet.Get("StartsAt").(*time.Time)
+
+	return v
+}
+
+func (p *CrewGroupMemberUpdatePatch) StartsAtIsSet() bool {
+	return p.patchSet.IsSet("StartsAt")
+}
+
+func (p *CrewGroupMemberUpdatePatch) SetEndsAt(v *time.Time) *CrewGroupMemberUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("EndsAt", v)
+	} else {
+		p.patchSet.Set("EndsAt", nil)
+	}
+
+	return p
+}
+
+func (p *CrewGroupMemberUpdatePatch) EndsAt() *time.Time {
+	v, _ := p.patchSet.Get("EndsAt").(*time.Time)
+
+	return v
+}
+
+func (p *CrewGroupMemberUpdatePatch) EndsAtIsSet() bool {
+	return p.patchSet.IsSet("EndsAt")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp

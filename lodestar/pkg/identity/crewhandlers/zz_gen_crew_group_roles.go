@@ -25,6 +25,8 @@ func (h *Handlers) CrewGroupRoles() http.HandlerFunc {
 		DomainID  string       `json:"domainId"  perm:"-"`
 		Role      string       `json:"role"      perm:"-"`
 		CreatedAt time.Time    `json:"createdAt"`
+		StartsAt  *time.Time   `json:"startsAt"`
+		EndsAt    *time.Time   `json:"endsAt"`
 	}
 
 	type response []map[string]any
@@ -89,6 +91,14 @@ func (h *Handlers) CrewGroupRoles() http.HandlerFunc {
 				case "CreatedAt":
 					if !row.Masked("createdAt") {
 						rmap["createdAt"] = rec.CreatedAt
+					}
+				case "StartsAt":
+					if !row.Masked("startsAt") {
+						rmap["startsAt"] = rec.StartsAt
+					}
+				case "EndsAt":
+					if !row.Masked("endsAt") {
+						rmap["endsAt"] = rec.EndsAt
 					}
 				}
 			}

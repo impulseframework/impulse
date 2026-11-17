@@ -19,6 +19,11 @@ type (
 	// a role file can show a person the people of the groups they are in themselves
 	// (group IN subject.groups).
 	//
+	// StartsAt and EndsAt are the period of the person's place in the group, each empty
+	// for none. A place that has ended is not listed: it gives the person nothing and
+	// goes at their next sign-in. One that has not begun is listed, where it is given
+	// another period or taken away.
+	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet(default)
@@ -36,6 +41,8 @@ type (
 		Name      *string      `spanner:"Name"`
 		GroupName string       `spanner:"GroupName" index:"true"`
 		CreatedAt time.Time    `spanner:"CreatedAt"`
+		StartsAt  *time.Time   `spanner:"StartsAt"`
+		EndsAt    *time.Time   `spanner:"EndsAt"`
 	}
 )
 
@@ -50,11 +57,14 @@ SELECT
   u.Username AS Username,
   u.Name AS Name,
   g.Name AS GroupName,
-  m.CreatedAt AS CreatedAt
+  m.CreatedAt AS CreatedAt,
+  m.StartsAt AS StartsAt,
+  m.EndsAt AS EndsAt
 FROM CrewGroups g
 JOIN CrewGroupMembers m ON m.GroupId = g.Id
 JOIN CrewSessionUsers u ON u.Id = m.UserId
 WHERE g.Kind = 'domain' AND g.Axis = ''
+  AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
 `
 
 // Subquery is the query the rows are read from.

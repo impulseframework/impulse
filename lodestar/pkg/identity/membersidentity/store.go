@@ -5,6 +5,7 @@ package membersidentity
 
 import (
 	"context"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
@@ -646,4 +647,81 @@ func (store) DeleteGroupRole(context.Context, resource.ReadWriteTransaction, *ac
 
 func (store) TenantGroupRoles(context.Context, resource.ReadWriteTransaction, accesstypes.Domain) ([]access.GroupRoleKey, error) {
 	return nil, nil
+}
+
+// storedPeriod answers the period a row's two columns hold, as they are. A row written
+// past the rules with an end at or before its start never counts, and is read so.
+func storedPeriod(start, end *time.Time) accesstypes.Period {
+	var period accesstypes.Period
+	if start != nil {
+		period.Start = *start
+	}
+	if end != nil {
+		period.End = *end
+	}
+
+	return period
+}
+
+// SetMembershipPeriod writes both columns, an absent start or end as NULL: the period
+// handed replaces the one the membership had.
+func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period) error {
+	patch := membersresources.NewMembersUserRoleUpdatePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User)).
+		SetStartsAt(period.StartPtr()).
+		SetEndsAt(period.EndPtr())
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return errors.Wrap(err, "membersresources.MembersUserRoleUpdatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) (*identity.UserPeriods, error) {
+	periods := &identity.UserPeriods{Memberships: map[access.MembershipKey]accesstypes.Period{}, Places: map[access.GroupMemberKey]accesstypes.Period{}}
+	// The table's index by user leads with the person, the id of their account.
+	memberships := membersresources.NewMembersUserRoleQuery().
+		AddColumns(membersresources.NewMembersUserRoleColumns().Kind().Axis().DomainID().Role().UserID().StartsAt().EndsAt()).
+		Where(membersresources.NewMembersUserRoleQueryClause().UserID().Equal(userID.String()))
+	for row, err := range memberships.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "membersresources.MembersUserRoleQuery.List()")
+		}
+		key := access.MembershipKey{Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Role: accesstypes.Role(row.Data.Role), User: accesstypes.User(row.Data.UserID)}
+		periods.Memberships[key] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)
+	}
+
+	return periods, nil
+}
+
+// RemoveEnded buffers each removal under the source that says the assignment ended by
+// itself (identity.EndedByItself): it is what a change record of the row holds in place
+// of a person's act.
+func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction, memberships []access.MembershipKey, places []access.GroupMemberKey) error {
+	for i := range memberships {
+		key := &memberships[i]
+		patch := membersresources.NewMembersUserRoleDeletePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User))
+		if err := patch.Buffer(ctx, txn, identity.EndedByItself); err != nil {
+			return errors.Wrap(err, "membersresources.MembersUserRoleDeletePatch.Buffer()")
+		}
+	}
+	if len(places) != 0 {
+		return errNoGroups
+	}
+
+	return nil
+}
+
+// The Members auth keeps no groups of people: no place and no group's role has a
+// period.
+
+func (store) SetGroupMemberPeriod(context.Context, resource.ReadWriteTransaction, *access.GroupMemberKey, accesstypes.Period) error {
+	return errNoGroups
+}
+
+func (store) SetGroupRolePeriod(context.Context, resource.ReadWriteTransaction, *access.GroupRoleKey, accesstypes.Period) error {
+	return errNoGroups
+}
+
+func (store) GroupPeriods(context.Context, resource.ReadOnlyTransaction, impulse.UUID) (*identity.GroupPeriods, error) {
+	return &identity.GroupPeriods{}, nil
 }

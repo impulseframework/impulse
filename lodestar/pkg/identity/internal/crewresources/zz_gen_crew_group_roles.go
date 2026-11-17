@@ -32,6 +32,8 @@ type crewGroupRoleRead struct {
 	DomainID  string       `json:"domainId"  perm:"-"`
 	Role      string       `json:"role"      perm:"-"`
 	CreatedAt time.Time    `json:"createdAt"`
+	StartsAt  *time.Time   `json:"startsAt"`
+	EndsAt    *time.Time   `json:"endsAt"`
 }
 
 var crewGroupRoleReadSets resource.SetCache[CrewGroupRole, crewGroupRoleRead]
@@ -46,6 +48,8 @@ type crewGroupRoleWrite struct {
 	DomainID  string       `json:"-"`
 	Role      string       `json:"-"`
 	CreatedAt time.Time    `json:"createdAt"`
+	StartsAt  *time.Time   `json:"startsAt"`
+	EndsAt    *time.Time   `json:"endsAt"`
 }
 
 var crewGroupRoleWriteSets resource.SetCache[CrewGroupRole, crewGroupRoleWrite]
@@ -208,6 +212,8 @@ func (c *CrewGroupRoleColumns) All() *CrewGroupRoleColumns {
 		"DomainID",
 		"Role",
 		"CreatedAt",
+		"StartsAt",
+		"EndsAt",
 	}
 
 	return c
@@ -245,6 +251,18 @@ func (c *CrewGroupRoleColumns) Role() *CrewGroupRoleColumns {
 
 func (c *CrewGroupRoleColumns) CreatedAt() *CrewGroupRoleColumns {
 	c.fields = append(c.fields, "CreatedAt")
+
+	return c
+}
+
+func (c *CrewGroupRoleColumns) StartsAt() *CrewGroupRoleColumns {
+	c.fields = append(c.fields, "StartsAt")
+
+	return c
+}
+
+func (c *CrewGroupRoleColumns) EndsAt() *CrewGroupRoleColumns {
+	c.fields = append(c.fields, "EndsAt")
 
 	return c
 }
@@ -357,6 +375,14 @@ func (c *crewGroupRoleSort) Role() *CrewGroupRoleSort {
 
 func (c *crewGroupRoleSort) CreatedAt() *CrewGroupRoleSort {
 	return c.addField("CreatedAt")
+}
+
+func (c *crewGroupRoleSort) StartsAt() *CrewGroupRoleSort {
+	return c.addField("StartsAt")
+}
+
+func (c *crewGroupRoleSort) EndsAt() *CrewGroupRoleSort {
+	return c.addField("EndsAt")
 }
 
 type CrewGroupRoleSort struct {
@@ -504,6 +530,46 @@ func (p *CrewGroupRoleCreatePatch) CreatedAtIsSet() bool {
 	return p.patchSet.IsSet("CreatedAt")
 }
 
+func (p *CrewGroupRoleCreatePatch) SetStartsAt(v *time.Time) *CrewGroupRoleCreatePatch {
+	if v != nil {
+		p.patchSet.Set("StartsAt", v)
+	} else {
+		p.patchSet.Set("StartsAt", nil)
+	}
+
+	return p
+}
+
+func (p *CrewGroupRoleCreatePatch) StartsAt() *time.Time {
+	v, _ := p.patchSet.Get("StartsAt").(*time.Time)
+
+	return v
+}
+
+func (p *CrewGroupRoleCreatePatch) StartsAtIsSet() bool {
+	return p.patchSet.IsSet("StartsAt")
+}
+
+func (p *CrewGroupRoleCreatePatch) SetEndsAt(v *time.Time) *CrewGroupRoleCreatePatch {
+	if v != nil {
+		p.patchSet.Set("EndsAt", v)
+	} else {
+		p.patchSet.Set("EndsAt", nil)
+	}
+
+	return p
+}
+
+func (p *CrewGroupRoleCreatePatch) EndsAt() *time.Time {
+	v, _ := p.patchSet.Get("EndsAt").(*time.Time)
+
+	return v
+}
+
+func (p *CrewGroupRoleCreatePatch) EndsAtIsSet() bool {
+	return p.patchSet.IsSet("EndsAt")
+}
+
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp
 func (p *CrewGroupRoleCreatePatch) Diff(got *CrewGroupRoleCreatePatch, opts ...cmp.Option) string {
 	return resource.PatchSetDiff(opts...)(p.patchSet, got.patchSet)
@@ -642,6 +708,46 @@ func (p *CrewGroupRoleUpdatePatch) CreatedAt() time.Time {
 
 func (p *CrewGroupRoleUpdatePatch) CreatedAtIsSet() bool {
 	return p.patchSet.IsSet("CreatedAt")
+}
+
+func (p *CrewGroupRoleUpdatePatch) SetStartsAt(v *time.Time) *CrewGroupRoleUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("StartsAt", v)
+	} else {
+		p.patchSet.Set("StartsAt", nil)
+	}
+
+	return p
+}
+
+func (p *CrewGroupRoleUpdatePatch) StartsAt() *time.Time {
+	v, _ := p.patchSet.Get("StartsAt").(*time.Time)
+
+	return v
+}
+
+func (p *CrewGroupRoleUpdatePatch) StartsAtIsSet() bool {
+	return p.patchSet.IsSet("StartsAt")
+}
+
+func (p *CrewGroupRoleUpdatePatch) SetEndsAt(v *time.Time) *CrewGroupRoleUpdatePatch {
+	if v != nil {
+		p.patchSet.Set("EndsAt", v)
+	} else {
+		p.patchSet.Set("EndsAt", nil)
+	}
+
+	return p
+}
+
+func (p *CrewGroupRoleUpdatePatch) EndsAt() *time.Time {
+	v, _ := p.patchSet.Get("EndsAt").(*time.Time)
+
+	return v
+}
+
+func (p *CrewGroupRoleUpdatePatch) EndsAtIsSet() bool {
+	return p.patchSet.IsSet("EndsAt")
 }
 
 // Diff is intended for unit testing, and reports the differences between two values using github.com/google/go-cmp/cmp

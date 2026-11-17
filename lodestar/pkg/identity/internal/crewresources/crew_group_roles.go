@@ -18,6 +18,11 @@ type (
 	// and no group holds the Super Administrator role: the methods refuse both, and the
 	// permission engine gives nobody a role from a row that says otherwise.
 	//
+	// StartsAt and EndsAt are the period the group holds the role for: the first instant
+	// it counts and the first it no longer does, each empty for none. Outside it the role
+	// is nobody's through the group. A row whose period has ended stands until the role
+	// is taken away or given again: it is no one person's, so no sign-in removes it.
+	//
 	// @resource
 	// @suppress(readHandler)
 	// @suppress(patchHandler)
@@ -32,5 +37,7 @@ type (
 		DomainID  string       `spanner:"DomainId"`
 		Role      string       `spanner:"Role"`
 		CreatedAt time.Time    `spanner:"CreatedAt"`
+		StartsAt  *time.Time   `spanner:"StartsAt"`
+		EndsAt    *time.Time   `spanner:"EndsAt"`
 	}
 )
