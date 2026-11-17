@@ -875,24 +875,28 @@ it is only of: the rigger charts Anvil alone, with Bastion marked closed, the bo
 refused at sign-in, the navigator, who came through the fleet's directory, reaches
 Cinder and every other sector that seats him and is not directory only, and a persona
 of the cast, who came through the persona provider, enters Bastion. The switch is the
-sector's own, turned by its marshal: a generated method in the sector's scope
-(`POST /console/api/sectors/{sectorID}/set-sector-directory-only` with
-`{"directoryOnly": true}` or `false`, Execute on `SetSectorDirectoryOnly`, which
-`SectorMarshal` holds beside the sector's directory), and the `Sectors` record, which
-headquarters writes in the global scope, shows the flag and takes no write of it: a
-create or a patch that carries it is refused. Turning it on is held to two rules
-(`resource.TenantDirectoryRules.DirectoryOnly`): the sector has its directory, and the
-person turning it on is signed in through that directory themselves, which shows the
-directory works and that they are not shutting themselves out; each refusal is a
-sentence that says what to do. Turning it off is plain. The marshal, who does not read
-the `Sectors` record, reads the switch in the sector
-(`GET /console/api/sectors/{sectorID}/directory-only`), and before turning it on the
-console asks the server what that would do
-(`GET /console/api/sectors/{sectorID}/directory-only/consequence`, the generated
-`App.DirectoryOnlyConsequence`): the sentence, the count of the people seated in the
-sector who sign in another way, and their names where the caller may list the sector's
-people (List on the sector's people lists and on their `username` and `name` fields); a caller who may not
-is told how many and no names. While it is on, the sector's People page says who
+sector's own, turned by its marshal with two generated methods in the sector's scope,
+which `SectorMarshal` holds beside the sector's directory: `MakeSectorDirectoryOnly`
+(`POST /console/api/sectors/{sectorID}/make-sector-directory-only`) turns it on and
+`EndSectorDirectoryOnly` (`.../end-sector-directory-only`) turns it off, each with an
+empty body. The `Sectors` record, which headquarters writes in the global scope, shows
+the flag and takes no write of it: a create or a patch that carries it is refused.
+Turning it on is held to two rules (`resource.TenantDirectoryRules.DirectoryOnly`): the
+sector has its directory, and the person turning it on is signed in through that
+directory themselves, which shows the directory works and that they are not shutting
+themselves out; each refusal is a sentence that says what to do. Turning it off is
+plain; while the switch is on, the sector's routes, these among them, answer the people
+the sector admits, so a sector whose directory has stopped working is opened again by a
+super administrator. The marshal, who does not read the `Sectors` record, reads the
+switch in the sector (`GET /console/api/sectors/{sectorID}/directory-only`, under the
+grant of either method). `MakeSectorDirectoryOnly` declares a warning
+(`@warning`'s mechanism, the word `close`): asked for it (`X-Warning: true`), the method
+answers what the call would do in place of running, the sentence with the count of the
+people seated in the sector who sign in another way, their names as a list where the
+caller may list the sector's people (List on the sector's people lists and on their
+`username` and `name` fields), and the words on the button; a caller who may list only
+some of them is told so in the sentence, and one who may list nobody is told how many
+and no names. While it is on, the sector's People page says who
 it keeps out, on the row of each person with no sign-in through the directory ("Has not
 signed in through persona, so cannot enter while this sector is directory only"); the
 list is made from who holds a role in the sector, so nobody disappears from it. The
@@ -915,12 +919,24 @@ seat again. The crew auth reads the sectors' directories with their seats throug
 generated `app.NewSectorDirectoryReader` (`SetDirectoryAdmission`, with the seat written
 by the auth's generated identity client in the transaction that links the account,
 `crewidentity.Client.DirectorySeated`); the members auth, whose directory names the
-roles, sets none. The console's Sign-in page (Sector Ops menu, under the sector's URL)
-carries the declaration: a marshal signed in through his organization's directory makes
-it the sector's there with one button, removes it, and picks its default seat from the
-sector's roles; a marshal signed in with a password is told how a directory is set and
-offered no button; the marshal sets directory only there, confirming the server's
-sentence and the people it names before it is turned on. A sector's
+roles, sets none. How a sector admits its directory's
+people is the sector's own to say as well, with two more generated methods
+`SectorMarshal` holds: `OpenSectorToDirectory`
+(`POST /console/api/sectors/{sectorID}/open-sector-to-directory` with
+`{"role": "SectorCrew"}`) names the seat, behind a warning that says who will enter and
+with what role (the word `open`), and holds the role to one the caller could give
+directly (a marshal may not give `SectorMarshal`, so she may not make it the role
+everyone from the directory gets); `MakeSectorInviteOnly` clears it. The record's own
+update never writes the seat. The console's Sign-in page (Sector Ops menu, under the
+sector's URL) carries the declaration: a marshal signed in through his organization's
+directory makes it the sector's there with one button and removes it; a marshal signed
+in with a password is told how a directory is set and offered no button. Everything
+else on the page is one of the four methods, run through the library's method dialog:
+opening the sector to its directory, with the role picked in the dialog beside what
+each role is for, and making it directory only each show the server's warning, with the
+people it names as a list, and hold the button until the word is typed; making it
+invite only and turning directory only off are plain confirmations, and a refusal is
+shown on the page with no dialog. A sector's
 creator is its first marshal however it is created: the create path seats the
 surveyor as `SectorMarshal` in Dawn in the transaction that writes the row, as the
 create-sector route seats the pioneer in Ember (`SectorAdministratorRoles`, from

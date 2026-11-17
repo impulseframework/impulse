@@ -1782,13 +1782,6 @@
           ],
           "Update": [
             {
-              "resource": "SectorDirectories",
-              "fields": [
-                "defaultSeat"
-              ],
-              "condition": "new.defaultSeat IS NULL OR new.defaultSeat != 'SectorMarshal'"
-            },
-            {
               "resource": "Wings",
               "fields": [
                 "name"
@@ -2084,7 +2077,16 @@
               "condition": "role != 'SectorMarshal'"
             },
             {
-              "resource": "SetSectorDirectoryOnly"
+              "resource": "MakeSectorDirectoryOnly"
+            },
+            {
+              "resource": "EndSectorDirectoryOnly"
+            },
+            {
+              "resource": "OpenSectorToDirectory"
+            },
+            {
+              "resource": "MakeSectorInviteOnly"
             }
           ]
         }

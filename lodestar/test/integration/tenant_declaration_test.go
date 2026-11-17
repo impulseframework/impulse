@@ -43,8 +43,9 @@ import (
 // which is plain; turned off, the rigger enters Bastion and the bosun signs in, the
 // directory comes off, and Bastion, with no directory, cannot be made directory only
 // again. The default role is the row's: with none named, a stranger from the fleet's
-// directory is refused by invitation only and no account is created; with SectorCrew
-// named on Anvil's row, the same stranger's next sign-in creates her seated there. The
+// directory is refused by invitation only and no account is created; once Anvil is
+// opened to its directory with SectorCrew, the same stranger's next sign-in creates her
+// seated there. The
 // roles a directory gave stand once it is removed. Every edit leaves a change event.
 // The directory sign-in sets a process variable, so the test does not run in parallel
 // with the other directory sign-ins (simulatedLogin). The rules of turning directory
@@ -257,8 +258,9 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 		t.Fatalf("Bastion's directory after the refused removal = %+v, want it kept", rows)
 	}
 
-	// The default role is the row's, set under Update on SectorDirectories, which the
-	// governor holds as marshal in every sector. Anvil's row names none, and no other
+	// The default role is the row's, set with the sector's own method
+	// (OpenSectorToDirectory), which the governor holds as marshal in every sector, and
+	// cleared with MakeSectorInviteOnly. Anvil's row names none, and no other
 	// sector has the directory, so a stranger from the fleet's directory is refused by
 	// invitation only: the browser lands on the login page with the code, no session
 	// opens, and no account is created.
@@ -279,9 +281,8 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 
 	// Anvil's row names SectorCrew, and the drifter's next sign-in creates her seated
 	// there: her chart lights Anvil, the sector whose directory she came through.
-	nameSeat := `[{"op":"patch","path":"` + anvilRow + `","value":{"defaultSeat":"SectorCrew"}}]`
-	if status, body := governor.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(nameSeat)); status != http.StatusOK {
-		t.Fatalf("naming Anvil's default role: status %d: %s", status, body)
+	if status, body := governor.do(ctx, http.MethodPost, sectorPath(anvil, "open-sector-to-directory"), []byte(`{"role":"SectorCrew"}`)); status != http.StatusOK {
+		t.Fatalf("opening Anvil to its directory with SectorCrew: status %d: %s", status, body)
 	}
 	if status, location := drifter.loginConsoleGoogle(ctx, drifterUser); status != http.StatusFound || location != consolePage {
 		t.Fatalf("the drifter's Google login once Anvil's row names a default role: status %d to %q, want %d to %q", status, location, http.StatusFound, consolePage)
@@ -297,22 +298,20 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 	if status, body := drifter.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"`+anvilRow+`"}]`)); status != http.StatusForbidden {
 		t.Errorf("removing Anvil's directory as the drifter, who holds no grant on the record: status %d, want 403: %s", status, body)
 	}
-	// Cleared with an explicit null, the way the Sign-in page clears it, the row names
-	// no default role again.
-	clearSeat := `[{"op":"patch","path":"` + anvilRow + `","value":{"defaultSeat":null}}]`
-	if status, body := governor.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(clearSeat)); status != http.StatusOK {
-		t.Fatalf("clearing Anvil's default role: status %d: %s", status, body)
+	// Made invite only, the way the Sign-in page does it, the row names no default role
+	// again.
+	if status, body := governor.do(ctx, http.MethodPost, sectorPath(anvil, "make-sector-invite-only"), []byte(`{}`)); status != http.StatusOK {
+		t.Fatalf("making Anvil invite only: status %d: %s", status, body)
 	}
 	if rows := directories(ctx, t, governor, anvil); len(rows) != 1 || rows[0].DefaultSeat != nil {
 		t.Fatalf("Anvil's directory once the default role is cleared = %+v, want the row with none", rows)
 	}
 
 	// Bastion's directory only is turned off with the sector's own method, which is
-	// plain: the governor, a marshal in every sector, signed in with a password, does
-	// it. The rigger's chart lights Bastion, with nothing closed, and the bosun signs
-	// in. The directory may be removed now.
-	setBastion := sectorPath(bastion, "set-sector-directory-only")
-	if status, body := governor.do(ctx, http.MethodPost, setBastion, []byte(`{"directoryOnly":false}`)); status != http.StatusOK {
+	// plain: the governor, a super administrator, whom no sector's sign-in settings
+	// shut out, does it signed in with a password. The rigger's chart lights Bastion,
+	// with nothing closed, and the bosun signs in. The directory may be removed now.
+	if status, body := governor.do(ctx, http.MethodPost, sectorPath(bastion, "end-sector-directory-only"), []byte(`{}`)); status != http.StatusOK {
 		t.Fatalf("turning Bastion's directory only off: status %d: %s", status, body)
 	}
 	if got, want := rigger.domains(ctx), []string{anvil, bastion}; !slices.Equal(got, want) {
@@ -329,7 +328,7 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 	}
 	// With no directory there is nothing to be only of: turning directory only on is
 	// refused, saying what to do first, and Bastion stays as it is.
-	if status, body := governor.do(ctx, http.MethodPost, setBastion, []byte(`{"directoryOnly":true}`)); status != http.StatusConflict || !strings.Contains(string(body), "This sector has no directory, so it cannot be directory only: nobody could enter it. Set its directory first") {
+	if status, body := governor.do(ctx, http.MethodPost, sectorPath(bastion, "make-sector-directory-only"), []byte(`{}`)); status != http.StatusConflict || !strings.Contains(string(body), "This sector has no directory, so it cannot be directory only: nobody could enter it. Set its directory first") {
 		t.Errorf("turning directory only on for a sector with no directory: status %d, want 409 saying to set its directory first: %s", status, body)
 	}
 	if got, want := rigger.domains(ctx), []string{anvil, bastion}; !slices.Equal(got, want) {

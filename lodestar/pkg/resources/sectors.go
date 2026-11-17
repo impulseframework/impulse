@@ -93,12 +93,12 @@ type (
 		Established civil.Date `spanner:"Established"`
 		// DirectoryOnly says the sector's people enter through its directory only: no
 		// other sign-in reaches the sector, and the flag closes this sector alone. The
-		// switch is the sector's own: the sector's marshal (SectorMarshal) turns it with
-		// the generated method SetSectorDirectoryOnly, in the sector's scope, which
-		// refuses turning it on until the sector has its directory, and unless the caller
-		// is signed in through it. The record shows the flag and its own write paths
-		// never write it, at charting or after: a new sector declares nothing beyond its
-		// creator's directory.
+		// switch is the sector's own: the sector's marshal (SectorMarshal) turns it with the
+		// generated methods of the sector's scope: MakeSectorDirectoryOnly, which refuses
+		// turning it on until the sector has its directory, and unless the caller is signed
+		// in through it, and EndSectorDirectoryOnly. The record shows the flag and its own
+		// write paths never write it, at charting or after: a new sector declares nothing
+		// beyond its creator's directory.
 		// @directoryOnly
 		DirectoryOnly bool `spanner:"DirectoryOnly"`
 	}
