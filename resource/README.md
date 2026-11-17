@@ -3095,7 +3095,10 @@ is removed per user per transaction.
 
 **Limits.** It runs on Spanner. A rule reads the rows as committed: a method does not see
 what an earlier method of the same transaction buffered, so the rule on a person's last
-role judges one removal per person per transaction. A temporary password is the one the session library has today: the
+role judges one removal per person per transaction, and the rule on the last super
+administrator one holder per transaction. Every generated route runs one method, which
+names one person, in a transaction of its own, so no request puts two in one; the limit
+is for an application that runs the methods in a transaction it opens itself. A temporary password is the one the session library has today: the
 operator chooses it and passes it on.
 
 **The rules on who is asking.** Who may run a method is the role file's to say. Four
@@ -3113,8 +3116,25 @@ own, outside any request, has no caller and is the application's act):
 - The Super Administrator role (`accesstypes.SuperAdministrator`) is the framework's, in
   every auth and in no role file, held in the global partition alone. Only a holder makes
   or removes another: giving the role, taking it away, inviting a person to it and
-  deleting a holder's account each take a caller who holds it, and a caller who came
-  through another Auth (`Manages`) holds no role of this one. There is always one who can
+  deleting a holder's account each take a caller who holds it, and so do disabling a
+  holder's account, which removes a super administrator in effect, and enabling one,
+  which makes one who can sign in. A caller who came
+  through another Auth (`Manages`) holds no role of this one. Only a holder changes how
+  another signs in, since each such act is a way to become the person or to shut them
+  out: setting a holder's temporary password, removing their password, requiring them to
+  change it, renaming them, setting their email address (where the code of their second
+  factor is mailed) and unlinking one of their sign-in identities each take a caller who
+  holds the role, whatever the role file grants; a holder acts on themselves and on
+  another holder as the role file allows. The caller these rules judge is the real
+  person behind the session: a person who views as a super administrator is not one. A
+  person given the role signs in again and meets the second factor afresh: giving it
+  ends every session they hold, revokes every bearer token of theirs, a device
+  authorization's among them, and forgets every browser they asked to be remembered,
+  in the same transaction, so nothing issued before the role acts with it; what the
+  giver holds stands. What an administrator set on the account before the role, a
+  password or an email address, is left as it is: nobody but a holder gives the role,
+  and the holder who gives it chooses whom to trust, the account as it stands
+  included. There is always one who can
   sign in: the role is not taken from the last holder whose account is not disabled, and
   that account is neither disabled nor deleted, whoever asks, the application's own
   transactions included. What the role does is fixed where the engine is built: the

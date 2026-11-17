@@ -13,8 +13,9 @@ import (
 	"github.com/impulseframework/impulse/app"
 )
 
-// staffAuth is a minimal auth package: it embeds its role file and hands it to the
-// permission engine itself.
+// staffAuth is a minimal auth package: it embeds its role file, hands it to the
+// permission engine itself, and tells its Auth who holds the Super Administrator role by
+// that engine.
 const staffAuth = `package staff
 
 import (
@@ -23,8 +24,10 @@ import (
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/access"
+	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/sessionstorage"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 const (
@@ -45,10 +48,11 @@ type Auth struct {
 }
 
 func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection) (*Auth, error) {
-	if _, err := access.New(nil, access.WithDefaultRoles(collection, Roles())); err != nil {
+	engine, err := access.New(nil, access.WithDefaultRoles(collection, Roles()))
+	if err != nil {
 		return nil, err
 	}
-	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key,
+	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))),
 		session.WithSessionTableName(TablePrefix+"Sessions"), session.WithUserTableName(TablePrefix+"SessionUsers"))
 	if err != nil {
 		return nil, err
@@ -61,12 +65,18 @@ func New(ctx context.Context, db *cloudspanner.Client, key string, collection ac
 func (a *Auth) Session() *Session { return a.session }
 `
 
-// The staff auth package in other shapes: handing its role file to nobody, exporting no
-// Roles(), and reading its role file without embedding it.
+// staffSuperAdministrators is what the staff auth's Auth is told about its super
+// administrators: the check over the engine the package opens, as add auth writes it.
+const staffSuperAdministrators = "session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager())))"
+
+// The staff auth package in other shapes: handing its role file to nobody (it opens no
+// engine, so its Auth is told of no super administrators), exporting no Roles(), and
+// reading its role file without embedding it.
 var (
-	staffAuthUnhanded = strings.Replace(staffAuth, "\tif _, err := access.New(nil, access.WithDefaultRoles(collection, Roles())); err != nil {\n\t\treturn nil, err\n\t}\n", "", 1)
-	staffAuthNoRoles  = strings.Replace(staffAuthUnhanded, "//go:embed roles.json\nvar roleFile access.RoleFile\n\n// Roles is the release's default roles for the staff auth.\nfunc Roles() access.RoleFile { return roleFile }\n\n", "", 1)
-	staffAuthNoEmbed  = strings.Replace(staffAuth, "//go:embed roles.json\nvar roleFile access.RoleFile\n", "var roleFile access.RoleFile\n", 1)
+	staffAuthUnhanded = strings.Replace(strings.Replace(staffAuth, "\tengine, err := access.New(nil, access.WithDefaultRoles(collection, Roles()))\n\tif err != nil {\n\t\treturn nil, err\n\t}\n", "", 1),
+		staffSuperAdministrators, "session.NoSuperAdministrators()", 1)
+	staffAuthNoRoles = strings.Replace(staffAuthUnhanded, "//go:embed roles.json\nvar roleFile access.RoleFile\n\n// Roles is the release's default roles for the staff auth.\nfunc Roles() access.RoleFile { return roleFile }\n\n", "", 1)
+	staffAuthNoEmbed = strings.Replace(staffAuth, "//go:embed roles.json\nvar roleFile access.RoleFile\n", "var roleFile access.RoleFile\n", 1)
 )
 
 const (
@@ -220,6 +230,7 @@ import (
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/access"
+	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/azure"
 	"github.com/impulseframework/impulse/session/sessionstorage"
@@ -243,10 +254,11 @@ type Auth struct {
 }
 
 func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection) (*Auth, error) {
-	if _, err := access.New(nil, access.WithDefaultRoles(collection, Roles())); err != nil {
+	engine, err := access.New(nil, access.WithDefaultRoles(collection, Roles()))
+	if err != nil {
 		return nil, err
 	}
-	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key,
+	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))),
 		session.WithSessionTableName(TablePrefix+"Sessions"), session.WithUserTableName(TablePrefix+"SessionUsers"))
 	if err != nil {
 		return nil, err
@@ -271,6 +283,7 @@ import (
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/access"
+	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 	"github.com/impulseframework/impulse/session/azure"
 	"github.com/impulseframework/impulse/session/sessionstorage"
@@ -294,10 +307,11 @@ type Auth struct {
 }
 
 func New(ctx context.Context, db *cloudspanner.Client, key string, collection access.PermissionCollection) (*Auth, error) {
-	if _, err := access.New(nil, access.WithDefaultRoles(collection, Roles())); err != nil {
+	engine, err := access.New(nil, access.WithDefaultRoles(collection, Roles()))
+	if err != nil {
 		return nil, err
 	}
-	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key,
+	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))),
 		session.WithSessionTableName(TablePrefix+"Sessions"), session.WithUserTableName(TablePrefix+"SessionUsers"))
 	if err != nil {
 		return nil, err
@@ -543,7 +557,7 @@ func TestAuthsWired(t *testing.T) {
 			wantStatus: Fail, wantSummary: "2 auth wiring problem(s)",
 			wantDetails: []string{
 				"cmd/generate/main.go:15: outlet default declares the azure method directory on the staff auth, but pkg/auth/staff registers no such method; the generated router would mount routes to handlers the App cannot supply (register it, or drop the declaration)",
-				"pkg/auth/staff/staff.go:39: the staff auth registers the password method password, but outlet default (cmd/generate/main.go:15) does not declare it, so its login route is mounted nowhere; declare generation.PasswordMethod() on the outlet's Auth option",
+				"pkg/auth/staff/staff.go:42: the staff auth registers the password method password, but outlet default (cmd/generate/main.go:15) does not declare it, so its login route is mounted nowhere; declare generation.PasswordMethod() on the outlet's Auth option",
 			},
 		},
 		{
@@ -576,8 +590,8 @@ func TestAuthsWired(t *testing.T) {
 			)),
 			wantStatus: Fail, wantSummary: "2 auth wiring problem(s)",
 			wantDetails: []string{
-				"cmd/generate/main.go:15: outlet default declares the password method with .OpenSignUp() on the staff auth, but pkg/auth/staff/staff.go:39 registers it without session.OpenSignUp(); the generated router would mount sign-up routes the method refuses (register it with the option, or drop .OpenSignUp())",
-				"cmd/generate/main.go:15: outlet default declares the password method with .UsernameIsEmail() on the staff auth, but pkg/auth/staff/staff.go:39 registers it without session.UsernameIsEmail(); the generated management would derive the address from a username the method does not hold to one (register it with the option, or drop .UsernameIsEmail())",
+				"cmd/generate/main.go:15: outlet default declares the password method with .OpenSignUp() on the staff auth, but pkg/auth/staff/staff.go:42 registers it without session.OpenSignUp(); the generated router would mount sign-up routes the method refuses (register it with the option, or drop .OpenSignUp())",
+				"cmd/generate/main.go:15: outlet default declares the password method with .UsernameIsEmail() on the staff auth, but pkg/auth/staff/staff.go:42 registers it without session.UsernameIsEmail(); the generated management would derive the address from a username the method does not hold to one (register it with the option, or drop .UsernameIsEmail())",
 			},
 		},
 		{
@@ -596,7 +610,7 @@ func TestAuthsWired(t *testing.T) {
 			},
 			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
 			wantDetails: []string{
-				"pkg/auth/members/members.go:40: the members auth registers the azure method directory with RoleSync, but outlet default (cmd/generate/main.go:15) does not declare .SyncsRoles(), so the generated management would offer the roles the directory writes as roles an administrator may remove, which the directory puts back at the next sign-in; chain .SyncsRoles() on the declaration",
+				"pkg/auth/members/members.go:42: the members auth registers the azure method directory with RoleSync, but outlet default (cmd/generate/main.go:15) does not declare .SyncsRoles(), so the generated management would offer the roles the directory writes as roles an administrator may remove, which the directory puts back at the next sign-in; chain .SyncsRoles() on the declaration",
 			},
 		},
 		{
@@ -615,7 +629,7 @@ func TestAuthsWired(t *testing.T) {
 			},
 			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
 			wantDetails: []string{
-				"cmd/generate/main.go:15: outlet default declares the azure method directory with .SyncsRoles() on the members auth, but pkg/auth/members/members.go:40 registers it with DisableRoleSync; the generated management would leave these people's roles to a directory that writes none (register it with RoleSync, or drop .SyncsRoles())",
+				"cmd/generate/main.go:15: outlet default declares the azure method directory with .SyncsRoles() on the members auth, but pkg/auth/members/members.go:42 registers it with DisableRoleSync; the generated management would leave these people's roles to a directory that writes none (register it with RoleSync, or drop .SyncsRoles())",
 			},
 		},
 		{
@@ -634,7 +648,7 @@ func TestAuthsWired(t *testing.T) {
 			},
 			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
 			wantDetails: []string{
-				"pkg/auth/members/members.go:41: the members auth registers the azure method directory with RoleSync beside password: a registration whose directory writes the roles stands alone on its auth, since the directory is then the authority for everyone the auth holds, and session.NewAuth refuses the second registration; give directory an auth of its own, or register it with DisableRoleSync and declare it without .SyncsRoles() so the application assigns the roles",
+				"pkg/auth/members/members.go:43: the members auth registers the azure method directory with RoleSync beside password: a registration whose directory writes the roles stands alone on its auth, since the directory is then the authority for everyone the auth holds, and session.NewAuth refuses the second registration; give directory an auth of its own, or register it with DisableRoleSync and declare it without .SyncsRoles() so the application assigns the roles",
 			},
 		},
 		{

@@ -223,15 +223,15 @@ func TestFiles_castRefusesTheFirstAdministratorsName(t *testing.T) {
 }
 
 // TestFiles_superAdministrator holds what every auth package writes for the role the
-// framework defines in every auth: the Auth is told who its super administrators are, so
-// their sign-in carries a second factor whatever the sign-in rule asks; the engine is
+// framework defines in every auth: the Auth is built told who its super administrators
+// are, so their sign-in carries a second factor whatever the sign-in rule asks; the engine is
 // built with the methods that give and take the auth's roles where the application
 // generates them; the first administrator is seeded holding the role; and a persona the
 // cast names a super administrator is seated in the global partition.
 func TestFiles_superAdministrator(t *testing.T) {
 	t.Parallel()
 	const (
-		told    = "authSession.SetSuperAdministrators(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager())))"
+		told    = "\t\tsettings.CookieKey,\n\t\tsession.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),\n"
 		methods = "access.WithSuperAdministratorMethods(%sidentity.SuperAdministratorMethods()...),"
 		seeded  = "global = append([]accesstypes.Role{accesstypes.SuperAdministrator}, global...)"
 		seated  = "case role == accesstypes.SuperAdministrator, definesRole(roles.Roles.Global, role):"

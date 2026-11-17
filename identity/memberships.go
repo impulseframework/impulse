@@ -62,7 +62,15 @@ func UserID(user accesstypes.User) (userID impulse.UUID, ok bool) {
 //
 // The Super Administrator role is given in the global scope alone, and by a caller who
 // holds it (requireSuperAdministrator): only a super administrator makes another. A
-// call outside any request is the application's own act and gives it.
+// call outside any request is the application's own act and gives it. Giving it ends
+// every session the person holds, revokes every bearer token of theirs and forgets every
+// browser remembered for their second factor, in the same transaction
+// (endWhatStoodBeforeTheRole): a super administrator signs in with a second factor and
+// their session enters every tenant, so the person signs in again as one, meets the
+// factor afresh, and nothing issued before the role carries it. The sessions of whoever
+// gave the role stand, and a person who holds the role already keeps theirs. What an
+// administrator set on the account before the role, a password or an address, is left as
+// it is: the super administrator who gives the role chooses whom to trust.
 func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -99,6 +107,12 @@ func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransact
 	}
 	if !inserted {
 		return nil
+	}
+	if role == accesstypes.SuperAdministrator {
+		// The membership is new: what the person holds began without the role.
+		if err := m.endWhatStoodBeforeTheRole(ctx, txn, userID); err != nil {
+			return err
+		}
 	}
 
 	return m.policyChangesAtCommit(txn)

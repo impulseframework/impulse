@@ -176,7 +176,7 @@ func (a *App) scanGoFile(abs, rel string) error {
 	}
 
 	if bytes.Contains(data, []byte(sessionImportPath)) {
-		auths, unattached, err := parseAuths(rel, data)
+		auths, unattached, err := parseAuths(rel, data, a.packagePath(path.Dir(rel)))
 		if err != nil {
 			return err
 		}

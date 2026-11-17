@@ -127,17 +127,26 @@ func TestDirectoryDefaultRole_aMarshalNamesNoMarshal(t *testing.T) {
 		t.Fatalf("Cinder's directory after the refused call = %+v, want none", rows)
 	}
 
-	// Signed in through the fleet's directory, the marshal is offered the action. Her
-	// session through it stands from before the removal (through, above), and the
+	// Signed in through the fleet's directory, the marshal is offered the action. The
 	// governor now makes her a super administrator, since a sector with no directory
 	// admits no directory session and a super administrator alone enters a sector
-	// whatever its sign-in settings say. The role carries no grant on the record: a
+	// whatever its sign-in settings say. Giving the role ends the sessions she holds,
+	// so she signs in again in both browsers: by her password, and through the fleet's
+	// directory, which her account is linked to from the sign-in above (through). The
+	// role carries no grant on the record: a
 	// create that names a default role is refused her whatever the role, and writes
 	// nothing; the create that names nothing makes the fleet's Workspace Cinder's, with
 	// no default role.
 	superAdministrator := jsonBody(t, map[string]any{"userId": crewAccountID(ctx, t, governor, "marshal"), "role": "SuperAdministrator"})
 	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), superAdministrator); status != http.StatusNoContent {
 		t.Fatalf("making the marshal a super administrator: status %d: %s", status, body)
+	}
+	marshal.signIn(ctx, "marshal")
+	if status, body := through.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
+		t.Fatalf("GET session before the marshal's Google login as a super administrator: status %d: %s", status, body)
+	}
+	if status, location := through.loginConsoleGoogle(ctx, "marshal"); status != http.StatusFound || location != consolePage {
+		t.Fatalf("the marshal's Google login as a super administrator: status %d to %q, want %d to %q", status, location, http.StatusFound, consolePage)
 	}
 	for _, role := range []string{"SectorMarshal", "SectorCrew"} {
 		if status, body := set(through, `"defaultSeat":"`+role+`"`); status != http.StatusForbidden {

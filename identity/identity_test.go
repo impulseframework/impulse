@@ -94,6 +94,8 @@ type fakeStore struct {
 	identities map[impulse.UUID]impulse.UUID
 	tokens     map[impulse.UUID]*Token
 	families   map[impulse.UUID][]impulse.UUID
+	// userTokens are the unrevoked tokens of each user.
+	userTokens map[impulse.UUID][]impulse.UUID
 	// nextID is the id InsertUser answers.
 	nextID impulse.UUID
 	// failOn names a call that fails.
@@ -238,6 +240,15 @@ func (f *fakeStore) FamilyTokens(_ context.Context, _ resource.ReadWriteTransact
 	}
 
 	return f.families[family], nil
+}
+
+// UserTokens lists the unrevoked tokens the fake holds for the user (userTokens).
+func (f *fakeStore) UserTokens(_ context.Context, _ resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
+	if err := f.fail("UserTokens"); err != nil {
+		return nil, err
+	}
+
+	return f.userTokens[userID], nil
 }
 
 func (f *fakeStore) RevokeToken(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, reason string) error {

@@ -617,10 +617,19 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// (session.WithMail): the invitations the auth's generated management sends, the
 	// verification of an address a person adds, and the sign-up links, each leading to
 	// the console's login page with its token in the query.
+	//
+	// The Auth is built knowing who holds the Super Administrator role
+	// (session.SuperAdministratorsBy, an argument no Auth is built without): a holder
+	// signs in with a second factor whatever the sign-in rule set below asks of anyone
+	// else, held for the mailed code by a rule of the library's own after the crew's.
+	// Here the crew's rule asks everyone already, so the library's changes nothing a
+	// person sees; it is what keeps the factor on a super administrator if the crew's
+	// rule is ever relaxed.
 	sessionStore := sessionstorage.NewSpannerAuth(db, sessionstorage.WithImpersonation(impersonation), sessionstorage.WithAuthEvents(events))
 	crewSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionStore,
 		settings.CookieKey,
+		session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),
 		session.WithSessionTableName(sessionsTable),
 		session.WithUserTableName(usersTable),
 		session.WithIdentitiesTableName(identitiesTable),
@@ -718,13 +727,6 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	//
 	// Demonstrates: tenancy.declaration, tenancy.directory-only, auth.second-factor.
 	crewSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))
-
-	// A super administrator signs in with a second factor whatever the rule above asks
-	// of anyone else: the Auth is told who holds the role and holds their sign-in for
-	// the mailed code by a rule of the library's own, after the crew's. Here the crew's
-	// rule asks everyone already, so the library's changes nothing a person sees; it is
-	// what keeps the factor on a super administrator if the crew's rule is ever relaxed.
-	crewSession.SetSuperAdministrators(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager())))
 
 	// The crew's identity client (pkg/identity, generated): the rules that manage the
 	// auth's people, over the engine that reads its memberships and the API of the

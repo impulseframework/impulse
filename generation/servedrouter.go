@@ -1472,7 +1472,7 @@ var (
 //	{{ .Name }} (/{{ .Prefix }}), {{ .AuthLabel }}{{ with .Words }}, {{ . }}{{ end }}:
 //	  {{ if .AuthPackage }}BindAuth({{ .AuthPackage }}.Name), {{ end }}NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: {{ range $i, $route := .OpenRoutes }}{{ if $i }}, {{ end }}{{ $route.Method }} {{ $route.Path }}{{ end }}
 //	  + ValidateXSRFToken: {{ range $i, $route := .GuardedRoutes }}{{ if $i }}, {{ end }}{{ $route.Method }} {{ $route.Path }}{{ end }}
-//	  + ValidateSession, ValidateXSRFToken: {{ range $i, $route := .ValidatedRoutes }}{{ if $i }}, {{ end }}{{ $route.Method }} {{ $route.Path }}{{ end }}
+//	  + ValidateSession, ValidateXSRFToken, hooks.{{ .HookField }}: {{ range $i, $route := .ValidatedRoutes }}{{ if $i }}, {{ end }}{{ $route.Method }} {{ $route.Path }}{{ end }}
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion{{ .OldestAnsweredNote }}: hooks.{{ .HookField }}, {{ .RoutesFunc }}
 {{- end }}
 {{- range .MountedBeneath }}
@@ -1695,7 +1695,9 @@ type Hooks struct {
 {{- else }}
 	// {{ .HookField }} runs inside the {{ .Name }} outlet's authenticated group: r already sits behind
 	// {{ if .AuthPackage }}BindAuth({{ .AuthPackage }}.Name), {{ end }}session validation, and the XSRF guard, and generated registers
-	// the outlet's generated routes. Nil registers them directly.
+	// the outlet's generated routes with the session routes a signed-in person calls on
+	// their own account, so middleware the hook puts around generated (a read-only
+	// backstop, say) stands in front of both. Nil registers them directly.
 {{- end }}
 	{{ .HookField }} func(r chi.Router, generated func(chi.Router))
 {{- end }}
@@ -1924,13 +1926,18 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				},
 			}))
 
-			// The session routes a signed-in person calls: the acceptance of an invitation
-			// the browser carries, and the address they add and verify.
+			registerGenerated(r, hooks.{{ .HookField }}, "{{ .HookField }}", func(r chi.Router) {
+				// The session routes a signed-in person calls on their own account: the
+				// acceptance of an invitation the browser carries, the address they add and
+				// verify, and their tokens and device authorizations where the auth issues
+				// tokens. They are registered with the outlet's generated routes, inside
+				// whatever the application's hook wraps those in, so a read-only backstop
+				// mounted there (the session library's EnforceReadOnlyMask) stands in front
+				// of them too; each one that writes refuses an impersonated session itself.
 {{- range .ValidatedRoutes }}
-			r.With(resource.BodyLimit(BodyLimit)).{{ Pascal .Method }}("{{ .Path }}", {{ $outlet.Receiver }}.{{ .Handler }}())
+				r.With(resource.BodyLimit(BodyLimit)).{{ Pascal .Method }}("{{ .Path }}", {{ $outlet.Receiver }}.{{ .Handler }}())
 {{- end }}
 
-			registerGenerated(r, hooks.{{ .HookField }}, "{{ .HookField }}", func(r chi.Router) {
 				{{ .RoutesFunc }}(r, h)
 			})
 		})

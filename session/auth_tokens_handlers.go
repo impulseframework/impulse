@@ -93,6 +93,9 @@ func (a *Auth[S, U, Tx]) tokenCreate() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
+		if err := sessioncore.RefuseImpersonated(ctx, a.baseSession, "ApplicationTokens().Create()", true); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		req, err := createTokenDecoder.Decode(r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -141,6 +144,9 @@ func (a *Auth[S, U, Tx]) tokenRevoke() http.HandlerFunc {
 
 		ctx, err := a.validateRequest(ctx)
 		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if err := sessioncore.RefuseImpersonated(ctx, a.baseSession, "ApplicationTokens().Revoke()", true); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		req, err := revokeTokenDecoder.Decode(r)

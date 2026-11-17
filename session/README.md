@@ -31,7 +31,7 @@ data: `Auth[SessionData, UserData, Tx]` (`Tx` is the storage's transaction type,
 inferred from the store) and `Preauth[SessionData]` (Preauth has no user record, so no
 user-data axis). An application that uses neither axis instantiates with
 the `NoCustomData` sentinel:
-`session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey)`.
+`session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, superAdministrators)`.
 
 ## Schema
 
@@ -173,18 +173,25 @@ DML what a later rule must read.
   **tenant policy** (`signin.TenantPolicy`), with its own rule chained after it when it
   has one; see "The tenant policy".
 - A **super administrator** signs in with a second factor whatever the sign-in policy
-  asks of anyone else. The Auth is told who holds the Super Administrator role with
-  `auth.SetSuperAdministrators(signin.SuperAdministrators(userManager))`, after `NewAuth`
-  and before serving (on Spanner over `resource.SignInRoles(userManager)`, as the tenant
-  policy is), and then decides every sign-in by the application's policy and, after it,
-  by a rule of its own (`signin.SuperAdministratorFactor`): a sign-in the policy allows
-  is held for the code the library mails (`sessioninfo.MethodEmailCode`) when the person
-  holds the role, with or without a policy of the application's. The directory's
-  attestation and a remembered browser satisfy it as for any account, and a refusal, or
-  a hold for a factor the policy names itself, stands as the policy decided it. The Auth
-  must send mail (`WithMail`): on one that sends none the call panics, since the code
-  could not be sent. The auth packages `impulse` writes set it; an Auth that is never
-  told holds nobody to it.
+  asks of anyone else. No Auth is built without a word on who holds the Super
+  Administrator role: it is `NewAuth`'s third argument, so an application that leaves it
+  out does not compile. An application whose people hold roles passes
+  `session.SuperAdministratorsBy(signin.SuperAdministrators(userManager))`, over the
+  access library's user manager, which it opens before the Auth (on Spanner over
+  `resource.SignInRoles(userManager)`, as the tenant policy is). The Auth then decides
+  every sign-in by the application's policy and, after it, by a rule of its own
+  (`signin.SuperAdministratorFactor`): a sign-in the policy allows is held for the code
+  the library mails (`sessioninfo.MethodEmailCode`) when the person holds the role, with
+  or without a policy of the application's. The directory's attestation and a remembered
+  browser satisfy it as for any account, and a refusal, or a hold for a factor the policy
+  names itself, stands as the policy decided it. Such an Auth must send mail
+  (`WithMail`): `NewAuth` refuses one that sends none, since the code could not be sent
+  and a holder would never sign in. It refuses the argument's zero value and a nil check
+  too, each saying what to pass. An application with no permission engine, and so no
+  role of any kind, passes `session.NoSuperAdministrators()`, and its Auth holds nobody
+  to the rule. The auth packages `impulse` writes pass the first, and `impulse check`
+  (`super-administrators`) fails an auth package with a role file that passes the
+  second, or that builds its check over another auth's engine.
 - The **account rules** decide an identity's first sign-in: an identity that is not
   linked to any user yet. A linked identity signs in by its link and never consults
   them. Each Entra and Google registration declares a **standard rule** in
@@ -319,7 +326,11 @@ func entraAccountRule(ctx context.Context, tx *spanner.ReadWriteTransaction, ide
 events, err := sessionstorage.NewAuthEventsTable("SessionAuthEvents")
 store := sessionstorage.NewSpannerAuth(client, sessionstorage.WithAuthEvents(events))
 
-auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey,
+// Who holds the Super Administrator role, over the access library's user manager: a
+// holder signs in with a second factor whatever the policy asks of anyone else.
+superAdministrators := session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(userManager)))
+
+auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey, superAdministrators,
     session.WithCookieName("partner_auth"),
     session.WithIdentityLinked(notifyLinked), // called after every identity link
     session.WithPendingHook(onPending),       // called when a sign-in becomes pending
@@ -1636,7 +1647,7 @@ absolute URL of its login page, where every mailed link leads
 (`?invitation=<token>`, `?verify=<token>`, `?signUp=<token>`):
 
 ```go
-auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey,
+auth, err := session.NewAuth[session.NoCustomData, session.NoCustomData](store, cookieKey, superAdministrators,
 	session.WithMail(sender, session.MailSettings{Application: "Harbor", LoginURL: "https://harbor.example.com/login"}))
 ```
 
@@ -2214,7 +2225,7 @@ if err != nil { /* non-struct T, no persistable fields, invalid identifier, rese
 
 store := sessionstorage.NewPostgresAuth(pool, sessionstorage.WithAuthEvents(events)).
     WithCustomSessionData(sessionData)
-auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey, signInPolicy)
+auth, err := session.NewAuth[MyData, session.NoCustomData](store, cookieKey, superAdministrators)
 ```
 
 With a `nil` resolver, name both types: `NewCustomSessionData[MyData, pgx.Tx]("SessionCustomData", nil)`;
@@ -2405,7 +2416,7 @@ userData, err := sessionstorage.NewCustomUserData[UserData]("UserCustomData")
 store := sessionstorage.NewPostgresAuth(pool, sessionstorage.WithAuthEvents(events)).
     WithCustomSessionData(sessionData).
     WithCustomUserData(userData)
-auth, err := session.NewAuth[MyData, UserData](store, cookieKey, signInPolicy)
+auth, err := session.NewAuth[MyData, UserData](store, cookieKey, superAdministrators)
 
 // Create: initial data lands atomically with the user insert (at most one value —
 // it is the complete row). Omit it for a plain insert (reads yield zero-value U).
@@ -2471,7 +2482,7 @@ auth, err := session.NewAuth[MyData, session.NoCustomData](
         sessionstorage.WithAuthEvents(events),
         sessionstorage.WithImpersonation(imp)).
         WithCustomSessionData(sessionData),
-    cookieKey, signInPolicy,
+    cookieKey, superAdministrators,
     session.WithImpersonationTimeout(time.Hour),        // hard cap; default one hour
     session.WithImpersonationAudit(func(ctx context.Context, e sessioninfo.ImpersonationEvent) error {
         return auditTrail.Record(ctx, e)                 // Started, Ended, IdentityOperationBlocked
@@ -2725,11 +2736,24 @@ Everything an impersonated session touches names the actor and the principal:
   record is looked up, by the username the session carries — a disabled actor's role
   session ends with their others.
   Preauth validates an impersonated session exactly as any other.
-- **Identity operations.** The library's own handlers refuse under impersonation:
-  `ChangeUserPassword` and `RemoveUserPassword` (the password method's on `Auth`) always,
-  since each would alter the impersonated user's credentials. Each refusal is an
-  `IdentityOperationBlocked` event. On `Auth` the user operations are `AuthAPI` methods
-  behind the application's own handlers, which guard them.
+- **Identity operations.** A person's own account is theirs alone: every handler of the
+  library's that writes to the signed-in person's account refuses a session that views
+  as them, whatever its mask, with 403 and an `IdentityOperationBlocked` event, before it
+  reads its body. They are `ChangeUserPassword` and `RemoveUserPassword` (the password
+  method's), `ChangeName`, `ChangeLook`, `ForgetBrowser`, `Email().Add()` and
+  `Email().Verify()` (the address the code of their second factor is mailed to),
+  `ApplicationTokens().Create()` and `ApplicationTokens().Revoke()`, `Device().Approve()`
+  and `Device().Deny()` (a token and an approved device act as the person for as long as
+  they live) and `Invitation().Accept()` (which gives the person roles). The routes that
+  only read (`ApplicationTokens().List()`, `Device().Lookup()`) answer a view, and
+  `Logout` and `EndImpersonation` end it. The generated router registers the routes it
+  mounts behind `ValidateSession` (the invitation's, the address's, the tokens' and the
+  device's) with the outlet's generated routes, inside whatever the application's hook
+  wraps those in, so a read-only backstop mounted there (`EnforceReadOnlyMask`) stands
+  in front of them too; the password's, the name's, the look's and the remembered
+  browser's validate the session themselves, outside the hook, and the handler's own
+  refusal is what answers a view there. On `Auth` the user operations are `AuthAPI`
+  methods behind the application's own handlers, which guard them.
 - **One name, one user.** A role principal's session carries the actor's own username,
   in the same session table as the sessions of the application's users, and belongs to
   no account. On an `Auth` what is a user's is found by the id of their account:

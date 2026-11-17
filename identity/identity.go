@@ -67,6 +67,8 @@ type Store interface {
 	Token(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (token *Token, found bool, err error)
 	// FamilyTokens lists the tokens of a family that are not revoked.
 	FamilyTokens(ctx context.Context, txn resource.ReadWriteTransaction, family impulse.UUID) ([]impulse.UUID, error)
+	// UserTokens lists the tokens of a user that are not revoked.
+	UserTokens(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error)
 	// RevokeToken buffers the revocation of one token, with the reason.
 	RevokeToken(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, reason string) error
 

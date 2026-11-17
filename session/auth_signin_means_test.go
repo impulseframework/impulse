@@ -33,7 +33,7 @@ func signInMeansAuth(t *testing.T) (*Auth[NoCustomData, NoCustomData, mockTx], *
 	store := mock_sessionstorage.NewMockAuthStore[mockTx](gomock.NewController(t))
 	store.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
 	store.EXPECT().SetUsernameIsEmail(gomock.Any()).AnyTimes()
-	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey)
+	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}

@@ -29,7 +29,7 @@ type trustedCookieHarness struct {
 func newTrustedCookieHarness(t *testing.T) *trustedCookieHarness {
 	t.Helper()
 
-	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey)
+	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey, NoSuperAdministrators())
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}

@@ -288,10 +288,14 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 
 	// One Auth session the directory establishes, which mails as the fleet
 	// (session.WithMail): the verification of an address, leading to the portal's login
-	// page with its token in the query.
+	// page with its token in the query. It is built knowing who holds the Super
+	// Administrator role (session.SuperAdministratorsBy): a holder signs in with a second
+	// factor whatever the rule set below asks of anyone else, by a rule of the library's
+	// own after the members'.
 	membersSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionstorage.NewSpannerAuth(db, sessionstorage.WithAuthEvents(events)),
 		settings.CookieKey,
+		session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),
 		session.WithSessionTableName(sessionsTable),
 		session.WithUserTableName(usersTable),
 		session.WithIdentitiesTableName(identitiesTable),
@@ -360,10 +364,6 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	//
 	// Demonstrates: auth.second-factor.
 	membersSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(requireSecondFactor))
-
-	// A super administrator signs in with a second factor whatever the rule above asks
-	// of anyone else, by a rule of the library's own after the members'.
-	membersSession.SetSuperAdministrators(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager())))
 
 	// The members' identity client (pkg/identity, generated): the lists of the auth's
 	// people and the methods that act on an account, over the engine that reads their
