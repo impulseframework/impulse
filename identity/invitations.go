@@ -75,7 +75,10 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 	if len(roles) == 0 {
 		return impulse.NilUUID, httpio.NewBadRequestMessage("at least one role is required: the roles are what the invitation gives")
 	}
-	req := &session.InvitationRequest{Email: email, Name: "", TenantID: "", RoleNames: make([]string, 0, len(roles)), InvitedByUserID: impulse.NullUUID{UUID: impulse.NilUUID, Valid: false}}
+	req := &session.InvitationRequest{
+		Email: email, Name: "", TenantID: "", RoleNames: make([]string, 0, len(roles)), NewTenant: nil,
+		InvitedByUserID: impulse.NullUUID{UUID: impulse.NilUUID, Valid: false},
+	}
 	if inv.Name != nil {
 		req.Name = *inv.Name
 	}
@@ -219,8 +222,8 @@ func (m *Manager) makesTenant(ctx context.Context, txn resource.ReadOnlyTransact
 	if err != nil {
 		return false, errors.Wrap(err, "identity.Store.InvitedTenants()")
 	}
-	for _, row := range standing {
-		if row.ID == invitationID {
+	for i := range standing {
+		if standing[i].ID == invitationID {
 			return true, nil
 		}
 	}

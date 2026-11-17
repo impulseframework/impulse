@@ -149,7 +149,7 @@ func (m *Manager) CheckInvitedTenant(ctx context.Context, client resource.Client
 	}
 	err := client.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 		if _, err := m.tenants.Make(ctx, txn, &NewTenant{
-			Fields: inv.Fields, DirectoryOnly: false, Directory: signin.Directory{}, DefaultRole: "", Source: "the check of an invitation, rolled back", Caller: caller,
+			Fields: inv.Fields, DirectoryOnly: false, Directory: signin.Directory{Method: "", Connection: ""}, DefaultRole: "", Source: "the check of an invitation, rolled back", Caller: caller,
 		}); err != nil {
 			return errors.Wrap(err, "identity.TenantMaker.Make()")
 		}
@@ -247,7 +247,11 @@ func (m *Manager) InviteTenant(ctx context.Context, txn resource.ReadWriteTransa
 // maker, and without the roles a tenant's first administrator is seated with.
 func (m *Manager) requireTenantMaker() error {
 	if m.tenants == nil {
-		return errors.Newf("the %s auth makes no %s from an invitation: its manager was built without identity.WithTenantMaker (the generated client of the auth that serves the tenant record takes the generated New<Record>Maker)", m.auth, m.tenantWord)
+		return errors.Newf(
+			"the %s auth makes no %s from an invitation: its manager was built without identity.WithTenantMaker "+
+				"(the generated client of the auth that serves the tenant record takes the generated New<Record>Maker)",
+			m.auth, m.tenantWord,
+		)
 	}
 	if m.administrators == nil || len(m.administrators.domain) == 0 {
 		return errors.Newf("the %s auth names no role that administers a %s (identity.WithAdministratorRoles): the person who accepts an invitation that makes one is seated with them", m.auth, m.tenantWord)
@@ -397,7 +401,7 @@ func (m *Manager) acceptTenantInvitation(ctx context.Context, txn resource.ReadW
 	}
 	directory := signin.Directory{Method: inv.SignInMethod, Connection: inv.SignInConnection}
 	if !directory.Organization() {
-		directory = signin.Directory{}
+		directory = signin.Directory{Method: "", Connection: ""}
 		if inv.NewTenant.DirectoryOnly {
 			return "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedOrganizationAccountRequired, httpio.NewUnauthorizedMessageWithError(signin.ErrOrganizationAccountRequired,
 				"This invitation is accepted with your organization's account, not with a password or a personal account. Sign in with your organization's account (Google Workspace or Microsoft Entra)."))

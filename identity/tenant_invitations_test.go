@@ -48,7 +48,7 @@ func (f *fakeMaker) Make(_ context.Context, txn resource.ReadWriteTransaction, t
 		return "", f.err
 	}
 	if err := resource.AfterCommit(txn, func(context.Context) { f.committed++ }); err != nil {
-		return "", err
+		return "", errors.Wrap(err, "resource.AfterCommit()")
 	}
 
 	return madeTenant, nil
@@ -440,13 +440,14 @@ func TestManager_acceptTenantInvitation(t *testing.T) {
 
 				return err
 			})
-			if tt.wantErr != nil {
+			switch {
+			case tt.wantErr != nil:
 				if err == nil || !tt.wantErr(err) {
 					t.Fatalf("acceptTenantInvitation() error = %v, want the refusal", err)
 				}
-			} else if err != nil {
+			case err != nil:
 				t.Fatalf("acceptTenantInvitation() error = %v", err)
-			} else if domain != madeTenant {
+			case domain != madeTenant:
 				t.Errorf("acceptTenantInvitation() = %q, want the tenant the maker made", domain)
 			}
 			if diff := cmp.Diff(tt.wantMade, tt.maker.made); diff != "" {
