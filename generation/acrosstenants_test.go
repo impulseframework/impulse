@@ -730,8 +730,8 @@ func Test_declarationTemplates_acrossTenants(t *testing.T) {
 		if got := strings.Count(out, "ListsAcrossTenants: true,"); got != 1 {
 			t.Errorf("the collection file marks %d resources, want Shipments alone:\n%s", got, out)
 		}
-		shipments := out[strings.Index(out, `Name:  "Shipments"`):]
-		if !strings.Contains(shipments, "ListsAcrossTenants: true,") {
+		_, shipments, found := strings.Cut(out, `Name:  "Shipments"`)
+		if !found || !strings.Contains(shipments, "ListsAcrossTenants: true,") {
 			t.Errorf("the mark is not on Shipments:\n%s", out)
 		}
 	})
