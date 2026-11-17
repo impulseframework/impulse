@@ -210,7 +210,7 @@ func setOpenedFor(ctx context.Context, t *testing.T, s *served, audience *string
 	if audience != nil {
 		value = cloudspanner.NullString{StringVal: *audience, Valid: true}
 	}
-	_, err := s.db.Client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *cloudspanner.ReadWriteTransaction) error {
+	_, err := s.db.ReadWriteTransaction(ctx, func(ctx context.Context, txn *cloudspanner.ReadWriteTransaction) error {
 		changed, err := txn.Update(ctx, cloudspanner.Statement{
 			SQL:    "UPDATE StaffSessionSignInMethods SET OpenedFor = @audience WHERE Name = 'password'",
 			Params: map[string]any{"audience": value},
