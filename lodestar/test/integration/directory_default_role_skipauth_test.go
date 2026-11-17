@@ -154,6 +154,28 @@ func TestDirectoryDefaultRole_openedWithARoleTheCallerMayGive(t *testing.T) {
 	if dry.StatusCode != http.StatusOK || seat() != "Pilot" {
 		t.Errorf("a dry run of opening Cinder with SectorCrew: status %d and the default role %q, want 200 and Pilot still", dry.StatusCode, seat())
 	}
+	// Either header takes the value true or is left off the request: a request that says
+	// anything else is refused and writes nothing, on the method that opens the sector
+	// and on the one that makes it invite only.
+	for _, header := range []string{"X-Dry-Run", "X-Warning"} {
+		for route, body := range map[string][]byte{
+			"open-sector-to-directory": jsonBody(t, map[string]string{"role": "SectorCrew"}),
+			"make-sector-invite-only":  []byte(`{}`),
+		} {
+			refused := marshal.doWith(ctx, http.MethodPost, sectorPath(cinder, route), body, map[string]string{header: "1"})
+			said, err := io.ReadAll(refused.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := refused.Body.Close(); err != nil {
+				t.Fatal(err)
+			}
+			want := "the " + header + ` header takes the value true, or is left off the request: \"1\" is not a value it takes, so the call was not run`
+			if refused.StatusCode != http.StatusBadRequest || !strings.Contains(string(said), want) || seat() != "Pilot" {
+				t.Errorf("%s with %s: 1: status %d %s and the default role %q, want 400 saying %s and Pilot still", route, header, refused.StatusCode, said, seat(), want)
+			}
+		}
+	}
 
 	// The record shows the role and never writes it: a patch that carries it is refused,
 	// to the marshal and to the governor, a super administrator who holds every grant.

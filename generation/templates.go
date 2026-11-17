@@ -1955,7 +1955,12 @@ func {{ GoCamel .Name }}DirectoryOnly({{ .ReceiverName }} *{{ .ApplicationName }
 		// and checked as the call is. Turning the switch on answers its warning in
 		// place of running the call: the transaction below rolls back. Turning it
 		// off declares none, so the request is refused and never runs the call.
-		asksWarning := resource.AsksWarning(r)
+		// The header takes the value true or is left off the request: any other value
+		// is refused here, and the call is not run.
+		asksWarning, err := resource.AsksWarning(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		if asksWarning && !only {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessagef("%s declares no warning: send the call without the {{ WarningHeader }} header", method))
 		}
@@ -1971,7 +1976,10 @@ func {{ GoCamel .Name }}DirectoryOnly({{ .ReceiverName }} *{{ .ApplicationName }
 		eventSource := resource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
-		dryRun := resource.IsDryRun(r)
+		dryRun, err := resource.IsDryRun(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		if err := {{ .ReceiverName }}.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			if asksWarning {
 				said, err := rules.DirectoryOnlyWarning(ctx, txn, domain,
@@ -2111,7 +2119,12 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Open.Name }}() http.Handl
 		// and checked as the call is, and answers the warning in place of running the
 		// call: the transaction below rolls back. The warning is read while the role is
 		// still being picked, so it is answered without one; the call is not.
-		asksWarning := resource.AsksWarning(r)
+		// The header takes the value true or is left off the request: any other value
+		// is refused here, and the call is not run.
+		asksWarning, err := resource.AsksWarning(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		var warning *resource.Warning
 		if role == "" && !asksWarning {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("Choose the role each person from the directory gets: a {{ .Word }} is not opened to its directory without one."))
@@ -2119,7 +2132,10 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .Open.Name }}() http.Handl
 		eventSource := resource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
-		dryRun := resource.IsDryRun(r)
+		dryRun, err := resource.IsDryRun(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		if err := {{ .ReceiverName }}.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			directory, err := rules.Directory(ctx, txn, domain)
 			if err != nil {
@@ -2197,7 +2213,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .InviteOnly.Name }}() http
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
-		if resource.AsksWarning(r) {
+		// The header takes the value true or is left off the request: any other value
+		// is refused here, and the call is not run.
+		asksWarning, err := resource.AsksWarning(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if asksWarning {
 			// The method declares no warning: a request that asks for one is refused,
 			// and never runs the call.
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("{{ .InviteOnly.Name }} declares no warning: send the call without the {{ WarningHeader }} header"))
@@ -2205,7 +2227,10 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .InviteOnly.Name }}() http
 		eventSource := resource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
-		dryRun := resource.IsDryRun(r)
+		dryRun, err := resource.IsDryRun(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		if err := {{ .ReceiverName }}.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			directory, err := rules.Directory(ctx, txn, domain)
 			if err != nil {
@@ -5256,7 +5281,12 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 			// A dry run (X-Dry-Run: true) runs the whole frame and the body, then
 			// rolls the transaction back: every refusal answers as the real call
 			// would, and a call that would have succeeded answers 200 with no body.
-			dryRun := resource.IsDryRun(r)
+			// The header takes the value true or is left off the request: any other
+			// value is refused here, and the call is not run.
+			dryRun, err := resource.IsDryRun(r)
+			if err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
 			if err := {{ $.ReceiverName }}.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				{{- template "rpcTargetFrame" $ }}
 				{{- template "rpcReadWarning" $ }}
@@ -5282,7 +5312,13 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 				{{- template "rpcTxnFailed" $ }}
 			}
 		{{- else }}
-		if resource.IsDryRun(r) {
+		// The X-Dry-Run header takes the value true or is left off the request: any
+		// other value is refused here, and the call is not run.
+		dryRun, err := resource.IsDryRun(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if dryRun {
 			// Effects outside a transaction cannot be rolled back, so there is
 			// nothing a dry run could promise here.
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("dry run is not supported: {{ .RPCMethod.Name }} runs outside a transaction"))
@@ -5389,7 +5425,10 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 		// commit is what claims them. A dry run (X-Dry-Run: true) streams nothing: the
 		// files describe the parts with empty keys, the body runs, and the transaction
 		// rolls back.
-		dryRun := resource.IsDryRun(r)
+		dryRun, err := resource.IsDryRun(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		store := {{ .ReceiverName }}.ResourceClient().FileStore({{ .RPCMethod.Upload.StoreNameExpr }})
 		{{- if .RPCMethod.Upload.Typed }}
 		files, err := resource.StreamInto[{{ .RPCMethod.Upload.StoreType }}](ctx, upload, store, dryRun)
@@ -5730,11 +5769,22 @@ for a warning never runs the call. */ -}}
 		// A request that asks for the method's warning (X-Warning: true) is decoded
 		// and checked as the call is, and answers what Warning writes for it in
 		// place of running the call: the transaction below rolls back.
-		asksWarning := resource.AsksWarning(r)
+		// The header takes the value true or is left off the request: any other value
+		// is refused here, and the call is not run.
+		asksWarning, err := resource.AsksWarning(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		var warning *resource.Warning
 		{{- else }}
 
-		if resource.AsksWarning(r) {
+		// The {{ WarningHeader }} header takes the value true or is left off the request: any
+		// other value is refused here, and the call is not run.
+		asksWarning, err := resource.AsksWarning(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if asksWarning {
 			// The method declares no warning (@warning): a request that asks for one
 			// is refused, and never runs the call.
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("{{ .RPCMethod.Name }} declares no warning: send the call without the {{ WarningHeader }} header"))

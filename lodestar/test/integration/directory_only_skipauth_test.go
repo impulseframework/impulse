@@ -313,6 +313,28 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	if status, got := state(warden, bastion); status != http.StatusOK || got != off {
 		t.Fatalf("Bastion's switch after the dry run: status %d %s, want 200 %s: a dry run writes nothing", status, got, off)
 	}
+	// Either header takes the value true or is left off the request. A request that says
+	// anything else is refused and turns nothing: a client that sends "1" to rehearse
+	// closing a sector is told so, and the sector stays open.
+	for _, header := range []string{"X-Dry-Run", "X-Warning"} {
+		for _, route := range []string{method[true], method[false]} {
+			refused := warden.doWith(ctx, http.MethodPost, sectorPath(bastion, route), []byte(`{}`), map[string]string{header: "1"})
+			said, err := io.ReadAll(refused.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := refused.Body.Close(); err != nil {
+				t.Fatal(err)
+			}
+			want := "the " + header + ` header takes the value true, or is left off the request: \"1\" is not a value it takes, so the call was not run`
+			if refused.StatusCode != http.StatusBadRequest || !strings.Contains(string(said), want) {
+				t.Errorf("%s with %s: 1: status %d %s, want 400 saying %s", route, header, refused.StatusCode, said, want)
+			}
+		}
+	}
+	if status, got := state(warden, bastion); status != http.StatusOK || got != off {
+		t.Fatalf("Bastion's switch after the refused headers: status %d %s, want 200 %s: a refused call turns nothing", status, got, off)
+	}
 
 	// The warden, signed in through Bastion's directory, asks the method for its warning.
 	// The server writes the words: who will be able to enter, how many of the people

@@ -775,6 +775,13 @@ warning refuses the header with 400 and does not run, so a client generated apar
 the server never runs a call it meant to ask about. A warning with no consequence, or
 with no words for the button, is the method's mistake and fails the request (500).
 
+`X-Warning` and `X-Dry-Run` each take the value `true`, in any case, or are left off the
+request. Every generated frame that reads either refuses any other value with 400,
+naming the header, the value it takes and what was sent, and does not run the call
+(`resource.AsksWarning`, `resource.IsDryRun`, each answering the refusal): `1`, `yes`,
+`false`, an empty value, and the header sent twice. A client that sends `X-Dry-Run: 1`
+to rehearse a write is told so, and writes nothing.
+
 The warning is no permission check and no second gate on the route: a script that
 holds the grant calls the method without asking. It is what stands between a person
 and a click, which is why the generator makes it the method's own and no page's: every

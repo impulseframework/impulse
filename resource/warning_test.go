@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/httpio"
 )
 
 // TestCheckWarning pins what a method's warning must carry before a frame answers it:
@@ -46,20 +47,44 @@ func TestCheckWarning(t *testing.T) {
 }
 
 // TestAsksWarning pins how a request asks for a method's warning in place of the call:
-// the X-Warning header saying true, in any case, and nothing else.
+// the X-Warning header saying true, in any case, or no such header. Any other value is
+// refused, so a request that meant to ask for the warning never runs the call instead.
 func TestAsksWarning(t *testing.T) {
 	t.Parallel()
 
+	runHeaderTests(t, WarningHeader, AsksWarning)
+}
+
+// TestIsDryRun pins how a request asks for a dry run: the X-Dry-Run header saying
+// true, in any case, or no such header. Any other value is refused, so a client that
+// sends "1" to rehearse a call is told so and never writes for real.
+func TestIsDryRun(t *testing.T) {
+	t.Parallel()
+
+	runHeaderTests(t, DryRunHeader, IsDryRun)
+}
+
+// runHeaderTests holds one of the two readers to the value its header takes.
+func runHeaderTests(t *testing.T, header string, asks func(r *http.Request) (bool, error)) {
+	t.Helper()
+
 	tests := []struct {
-		name   string
-		header map[string]string
+		name string
+		// values are the header's values as the request carries them, one for each time
+		// the header is sent; none for a request without the header.
+		values []string
 		want   bool
+		// wantRefused is the value the refusal quotes back.
+		wantRefused string
 	}{
-		{name: "the header says true", header: map[string]string{WarningHeader: "true"}, want: true},
-		{name: "in any case", header: map[string]string{"x-warning": "TRUE"}, want: true},
+		{name: "the header says true", values: []string{"true"}, want: true},
+		{name: "in any case", values: []string{"TRUE"}, want: true},
 		{name: "no header: the call itself"},
-		{name: "the header says false: the call itself", header: map[string]string{WarningHeader: "false"}},
-		{name: "an empty header: the call itself", header: map[string]string{WarningHeader: ""}},
+		{name: "the header says 1: refused, never the call itself", values: []string{"1"}, wantRefused: `"1"`},
+		{name: "the header says false: refused", values: []string{"false"}, wantRefused: `"false"`},
+		{name: "the header says yes: refused", values: []string{"yes"}, wantRefused: `"yes"`},
+		{name: "an empty header: refused", values: []string{""}, wantRefused: `""`},
+		{name: "the header sent twice: refused, whatever each says", values: []string{"true", "true"}, wantRefused: `"true, true"`},
 	}
 
 	for _, tt := range tests {
@@ -67,11 +92,26 @@ func TestAsksWarning(t *testing.T) {
 			t.Parallel()
 
 			r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/retire-ship", http.NoBody)
-			for name, value := range tt.header {
-				r.Header.Set(name, value)
+			for _, value := range tt.values {
+				r.Header.Add(strings.ToLower(header), value)
 			}
-			if got := AsksWarning(r); got != tt.want {
-				t.Errorf("AsksWarning() = %v, want %v", got, tt.want)
+			got, err := asks(r)
+			if tt.wantRefused != "" {
+				want := "the " + header + " header takes the value true, or is left off the request: " + tt.wantRefused + " is not a value it takes, so the call was not run"
+				if !httpio.HasBadRequest(err) || httpio.Message(err) != want {
+					t.Fatalf("error = %v, want the BadRequest %q", err, want)
+				}
+				if got {
+					t.Error("a refused header asked for something, want false")
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("got %v, want %v", got, tt.want)
 			}
 		})
 	}
