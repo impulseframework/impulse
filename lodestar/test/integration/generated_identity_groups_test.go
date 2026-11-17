@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/impulseframework/impulse/accesstypes"
@@ -125,6 +126,9 @@ func TestGeneratedIdentityGroups(t *testing.T) {
 	assertStatus(t, status, http.StatusForbidden, body)
 	status, body = doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/give-crew-group-role", role(string(accesstypes.SuperAdministrator)))
 	assertStatus(t, status, http.StatusBadRequest, body)
+	if !strings.Contains(string(body), "never to a group") {
+		t.Errorf("the refusal of the Super Administrator role for a sector's group = %s, want it to say the role is never a group's", body)
+	}
 	status, body = doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/give-crew-group-role", fmt.Sprintf(`{"groupId":%q,"role":"Pilot","domain":%q}`, group, bastion))
 	assertStatus(t, status, http.StatusBadRequest, body)
 	status, body = doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/give-crew-group-role", fmt.Sprintf(`{"groupId":%q,"role":"Pilot","everyDomain":true}`, group))
@@ -257,6 +261,15 @@ func TestGeneratedIdentityFleetGroups(t *testing.T) {
 	assertStatus(t, status, http.StatusNoContent, body)
 	if got := cinderRefits(); got != http.StatusOK {
 		t.Errorf("bo lists Cinder's refits through the fleet's group: status = %d, want 200", got)
+	}
+
+	// The fleet's group holds roles wherever a person can, the Super Administrator role
+	// excepted: it is given to a person, so that only a super administrator makes
+	// another and a place in a group makes none.
+	status, body = hq("give-crew-group-role", fmt.Sprintf(`{"groupId":%q,"role":%q}`, group, accesstypes.SuperAdministrator))
+	assertStatus(t, status, http.StatusBadRequest, body)
+	if !strings.Contains(string(body), "never to a group") {
+		t.Errorf("the refusal of the Super Administrator role for the fleet's group = %s, want it to say the role is never a group's", body)
 	}
 
 	// Cinder lists bo among its people, as one of the fleet's own, and the role among
