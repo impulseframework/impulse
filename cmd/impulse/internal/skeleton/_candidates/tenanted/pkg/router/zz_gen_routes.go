@@ -303,8 +303,17 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	// share one; a request carrying X-Subscribe is noted on its request log line and
 	// refused when its tab id is malformed. The auth's name is staff.Name.
 	r = r.With(live.Subscribing(staff.Name))
+	// A request that asks a call for a dry run (X-Dry-Run) or for its warning
+	// (X-Warning) asks that the call be held back, and a frame that never reads the
+	// header would run it for real. So every route registered on r from here on, and
+	// on the bounded group drawn from it, refuses such a request naming the header,
+	// and nothing runs. The routes whose frames answer the two headers
+	// themselves (a method's, an upload's, SetFeature's) register on asked, the router
+	// before the refusal.
+	asked := r
+	r = r.With(resource.NoDryRunOrWarning())
 	// The resource routes and the other JSON routes are bounded at BodyLimit; the live
-	// and RPC routes register on r itself and bound their own bodies.
+	// and RPC routes bound their own bodies and register beside the group.
 	bounded := r.With(resource.BodyLimit(BodyLimit))
 	domainGuard := h.DomainGuard()
 
@@ -314,9 +323,9 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	r.Post("/api/live/unsubscribe", h.LiveUnsubscribe())
 	r.Get("/api/live/token", h.LiveToken())
 
-	r.Post("/api/add-staff-group-member", h.AddStaffGroupMember())
+	asked.Post("/api/add-staff-group-member", h.AddStaffGroupMember())
 
-	r.Post("/api/tenants/{tenantID}/add-staff-tenant-group-member", domainGuard(h.AddStaffTenantGroupMember()))
+	asked.Post("/api/tenants/{tenantID}/add-staff-tenant-group-member", domainGuard(h.AddStaffTenantGroupMember()))
 
 	announcementsHandler := domainGuard(h.Announcements())
 	bounded.Get("/api/tenants/{tenantID}/announcements", announcementsHandler)
@@ -326,57 +335,57 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/tenants/{tenantID}/announcements/{announcementID}", announcementHandler)
 	bounded.Post("/api/tenants/{tenantID}/announcements/{announcementID}", announcementHandler)
 
-	r.Post("/api/assign-staff-role", h.AssignStaffRole())
+	asked.Post("/api/assign-staff-role", h.AssignStaffRole())
 
-	r.Post("/api/tenants/{tenantID}/assign-staff-tenant-role", domainGuard(h.AssignStaffTenantRole()))
+	asked.Post("/api/tenants/{tenantID}/assign-staff-tenant-role", domainGuard(h.AssignStaffTenantRole()))
 
-	r.Post("/api/create-staff-group", h.CreateStaffGroup())
+	asked.Post("/api/create-staff-group", h.CreateStaffGroup())
 
-	r.Post("/api/tenants/{tenantID}/create-staff-tenant-group", domainGuard(h.CreateStaffTenantGroup()))
+	asked.Post("/api/tenants/{tenantID}/create-staff-tenant-group", domainGuard(h.CreateStaffTenantGroup()))
 
-	r.Post("/api/tenants/{tenantID}/create-staff-tenant-user", domainGuard(h.CreateStaffTenantUser()))
+	asked.Post("/api/tenants/{tenantID}/create-staff-tenant-user", domainGuard(h.CreateStaffTenantUser()))
 
-	r.Post("/api/create-staff-user", h.CreateStaffUser())
+	asked.Post("/api/create-staff-user", h.CreateStaffUser())
 
 	bounded.Post("/api/create-tenant", h.CreateTenant())
 
 	bounded.Get("/api/create-tenant", h.CreateTenantOffered())
 
-	r.Post("/api/delete-staff-group", h.DeleteStaffGroup())
+	asked.Post("/api/delete-staff-group", h.DeleteStaffGroup())
 
-	r.Post("/api/tenants/{tenantID}/delete-staff-tenant-group", domainGuard(h.DeleteStaffTenantGroup()))
+	asked.Post("/api/tenants/{tenantID}/delete-staff-tenant-group", domainGuard(h.DeleteStaffTenantGroup()))
 
-	r.Post("/api/tenants/{tenantID}/delete-staff-tenant-user", domainGuard(h.DeleteStaffTenantUser()))
+	asked.Post("/api/tenants/{tenantID}/delete-staff-tenant-user", domainGuard(h.DeleteStaffTenantUser()))
 
-	r.Post("/api/delete-staff-user", h.DeleteStaffUser())
+	asked.Post("/api/delete-staff-user", h.DeleteStaffUser())
 
-	r.Post("/api/describe-staff-group", h.DescribeStaffGroup())
+	asked.Post("/api/describe-staff-group", h.DescribeStaffGroup())
 
-	r.Post("/api/tenants/{tenantID}/describe-staff-tenant-group", domainGuard(h.DescribeStaffTenantGroup()))
+	asked.Post("/api/tenants/{tenantID}/describe-staff-tenant-group", domainGuard(h.DescribeStaffTenantGroup()))
 
 	bounded.Get("/api/tenants/{tenantID}/directory-only", domainGuard(h.DirectoryOnly()))
 
-	r.Post("/api/tenants/{tenantID}/make-tenant-directory-only", domainGuard(h.MakeTenantDirectoryOnly()))
+	asked.Post("/api/tenants/{tenantID}/make-tenant-directory-only", domainGuard(h.MakeTenantDirectoryOnly()))
 
-	r.Post("/api/tenants/{tenantID}/end-tenant-directory-only", domainGuard(h.EndTenantDirectoryOnly()))
+	asked.Post("/api/tenants/{tenantID}/end-tenant-directory-only", domainGuard(h.EndTenantDirectoryOnly()))
 
-	r.Post("/api/tenants/{tenantID}/open-tenant-to-directory", domainGuard(h.OpenTenantToDirectory()))
+	asked.Post("/api/tenants/{tenantID}/open-tenant-to-directory", domainGuard(h.OpenTenantToDirectory()))
 
-	r.Post("/api/tenants/{tenantID}/make-tenant-invite-only", domainGuard(h.MakeTenantInviteOnly()))
+	asked.Post("/api/tenants/{tenantID}/make-tenant-invite-only", domainGuard(h.MakeTenantInviteOnly()))
 
-	r.Post("/api/tenants/{tenantID}/disable-staff-tenant-user", domainGuard(h.DisableStaffTenantUser()))
+	asked.Post("/api/tenants/{tenantID}/disable-staff-tenant-user", domainGuard(h.DisableStaffTenantUser()))
 
-	r.Post("/api/disable-staff-user", h.DisableStaffUser())
+	asked.Post("/api/disable-staff-user", h.DisableStaffUser())
 
-	r.Post("/api/tenants/{tenantID}/enable-staff-tenant-user", domainGuard(h.EnableStaffTenantUser()))
+	asked.Post("/api/tenants/{tenantID}/enable-staff-tenant-user", domainGuard(h.EnableStaffTenantUser()))
 
-	r.Post("/api/enable-staff-user", h.EnableStaffUser())
+	asked.Post("/api/enable-staff-user", h.EnableStaffUser())
 
-	r.Post("/api/end-staff-session", h.EndStaffSession())
+	asked.Post("/api/end-staff-session", h.EndStaffSession())
 
-	r.Post("/api/tenants/{tenantID}/end-staff-tenant-user-sessions", domainGuard(h.EndStaffTenantUserSessions()))
+	asked.Post("/api/tenants/{tenantID}/end-staff-tenant-user-sessions", domainGuard(h.EndStaffTenantUserSessions()))
 
-	r.Post("/api/end-staff-user-sessions", h.EndStaffUserSessions())
+	asked.Post("/api/end-staff-user-sessions", h.EndStaffUserSessions())
 
 	featureFlagsHandler := h.FeatureFlags()
 	bounded.Get("/api/feature-flags", featureFlagsHandler)
@@ -388,57 +397,57 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	bounded.Get("/api/features", h.Features())
 
-	r.Post("/api/give-staff-group-role", h.GiveStaffGroupRole())
+	asked.Post("/api/give-staff-group-role", h.GiveStaffGroupRole())
 
-	r.Post("/api/tenants/{tenantID}/give-staff-tenant-group-role", domainGuard(h.GiveStaffTenantGroupRole()))
+	asked.Post("/api/tenants/{tenantID}/give-staff-tenant-group-role", domainGuard(h.GiveStaffTenantGroupRole()))
 
-	r.Post("/api/tenants/{tenantID}/invite-staff-tenant-user", domainGuard(h.InviteStaffTenantUser()))
+	asked.Post("/api/tenants/{tenantID}/invite-staff-tenant-user", domainGuard(h.InviteStaffTenantUser()))
 
-	r.Post("/api/invite-staff-user", h.InviteStaffUser())
+	asked.Post("/api/invite-staff-user", h.InviteStaffUser())
 
-	r.Post("/api/make-staff-invite-only", h.MakeStaffInviteOnly())
+	asked.Post("/api/make-staff-invite-only", h.MakeStaffInviteOnly())
 
-	r.Post("/api/open-staff-sign-up", h.OpenStaffSignUp())
+	asked.Post("/api/open-staff-sign-up", h.OpenStaffSignUp())
 
-	r.Post("/api/remove-staff-group-member", h.RemoveStaffGroupMember())
+	asked.Post("/api/remove-staff-group-member", h.RemoveStaffGroupMember())
 
-	r.Post("/api/remove-staff-password", h.RemoveStaffPassword())
+	asked.Post("/api/remove-staff-password", h.RemoveStaffPassword())
 
-	r.Post("/api/remove-staff-role", h.RemoveStaffRole())
+	asked.Post("/api/remove-staff-role", h.RemoveStaffRole())
 
-	r.Post("/api/tenants/{tenantID}/remove-staff-tenant-group-member", domainGuard(h.RemoveStaffTenantGroupMember()))
+	asked.Post("/api/tenants/{tenantID}/remove-staff-tenant-group-member", domainGuard(h.RemoveStaffTenantGroupMember()))
 
-	r.Post("/api/tenants/{tenantID}/remove-staff-tenant-password", domainGuard(h.RemoveStaffTenantPassword()))
+	asked.Post("/api/tenants/{tenantID}/remove-staff-tenant-password", domainGuard(h.RemoveStaffTenantPassword()))
 
-	r.Post("/api/tenants/{tenantID}/remove-staff-tenant-role", domainGuard(h.RemoveStaffTenantRole()))
+	asked.Post("/api/tenants/{tenantID}/remove-staff-tenant-role", domainGuard(h.RemoveStaffTenantRole()))
 
-	r.Post("/api/tenants/{tenantID}/rename-staff-tenant-user", domainGuard(h.RenameStaffTenantUser()))
+	asked.Post("/api/tenants/{tenantID}/rename-staff-tenant-user", domainGuard(h.RenameStaffTenantUser()))
 
-	r.Post("/api/rename-staff-user", h.RenameStaffUser())
+	asked.Post("/api/rename-staff-user", h.RenameStaffUser())
 
-	r.Post("/api/require-staff-password-change", h.RequireStaffPasswordChange())
+	asked.Post("/api/require-staff-password-change", h.RequireStaffPasswordChange())
 
-	r.Post("/api/tenants/{tenantID}/require-staff-tenant-password-change", domainGuard(h.RequireStaffTenantPasswordChange()))
+	asked.Post("/api/tenants/{tenantID}/require-staff-tenant-password-change", domainGuard(h.RequireStaffTenantPasswordChange()))
 
-	r.Post("/api/revoke-staff-session-token", h.RevokeStaffSessionToken())
+	asked.Post("/api/revoke-staff-session-token", h.RevokeStaffSessionToken())
 
-	r.Post("/api/tenants/{tenantID}/revoke-staff-tenant-user-trusted-devices", domainGuard(h.RevokeStaffTenantUserTrustedDevices()))
+	asked.Post("/api/tenants/{tenantID}/revoke-staff-tenant-user-trusted-devices", domainGuard(h.RevokeStaffTenantUserTrustedDevices()))
 
-	r.Post("/api/revoke-staff-user-trusted-devices", h.RevokeStaffUserTrustedDevices())
+	asked.Post("/api/revoke-staff-user-trusted-devices", h.RevokeStaffUserTrustedDevices())
 
-	bounded.Post("/api/set-feature", h.SetFeature())
+	asked.With(resource.BodyLimit(BodyLimit)).Post("/api/set-feature", h.SetFeature())
 
-	r.Post("/api/set-staff-temporary-password", h.SetStaffTemporaryPassword())
+	asked.Post("/api/set-staff-temporary-password", h.SetStaffTemporaryPassword())
 
-	r.Post("/api/tenants/{tenantID}/set-staff-tenant-temporary-password", domainGuard(h.SetStaffTenantTemporaryPassword()))
+	asked.Post("/api/tenants/{tenantID}/set-staff-tenant-temporary-password", domainGuard(h.SetStaffTenantTemporaryPassword()))
 
-	r.Post("/api/tenants/{tenantID}/set-staff-tenant-user-email", domainGuard(h.SetStaffTenantUserEmail()))
+	asked.Post("/api/tenants/{tenantID}/set-staff-tenant-user-email", domainGuard(h.SetStaffTenantUserEmail()))
 
-	r.Post("/api/tenants/{tenantID}/set-staff-tenant-user-name", domainGuard(h.SetStaffTenantUserName()))
+	asked.Post("/api/tenants/{tenantID}/set-staff-tenant-user-name", domainGuard(h.SetStaffTenantUserName()))
 
-	r.Post("/api/set-staff-user-email", h.SetStaffUserEmail())
+	asked.Post("/api/set-staff-user-email", h.SetStaffUserEmail())
 
-	r.Post("/api/set-staff-user-name", h.SetStaffUserName())
+	asked.Post("/api/set-staff-user-name", h.SetStaffUserName())
 
 	staffGroupsHandler := h.StaffGroups()
 	bounded.Get("/api/staff-groups", staffGroupsHandler)
@@ -624,9 +633,9 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/staff-user-roles", staffUserRolesHandler)
 	bounded.Post("/api/staff-user-roles", staffUserRolesHandler)
 
-	r.Post("/api/take-staff-group-role", h.TakeStaffGroupRole())
+	asked.Post("/api/take-staff-group-role", h.TakeStaffGroupRole())
 
-	r.Post("/api/tenants/{tenantID}/take-staff-tenant-group-role", domainGuard(h.TakeStaffTenantGroupRole()))
+	asked.Post("/api/tenants/{tenantID}/take-staff-tenant-group-role", domainGuard(h.TakeStaffTenantGroupRole()))
 
 	tenantsHandler := h.Tenants()
 	bounded.Get("/api/tenants", tenantsHandler)
@@ -644,15 +653,15 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/tenants/{tenantID}/tenant-directories/{tenantDirectoryID}", tenantDirectoryHandler)
 	bounded.Post("/api/tenants/{tenantID}/tenant-directories/{tenantDirectoryID}", tenantDirectoryHandler)
 
-	r.Post("/api/unlink-staff-session-identity", h.UnlinkStaffSessionIdentity())
+	asked.Post("/api/unlink-staff-session-identity", h.UnlinkStaffSessionIdentity())
 
-	r.Post("/api/tenants/{tenantID}/unlink-staff-tenant-session-identity", domainGuard(h.UnlinkStaffTenantSessionIdentity()))
+	asked.Post("/api/tenants/{tenantID}/unlink-staff-tenant-session-identity", domainGuard(h.UnlinkStaffTenantSessionIdentity()))
 
-	r.Post("/api/unlock-staff-sign-in", h.UnlockStaffSignIn())
+	asked.Post("/api/unlock-staff-sign-in", h.UnlockStaffSignIn())
 
-	r.Post("/api/withdraw-staff-invitation", h.WithdrawStaffInvitation())
+	asked.Post("/api/withdraw-staff-invitation", h.WithdrawStaffInvitation())
 
-	r.Post("/api/tenants/{tenantID}/withdraw-staff-tenant-invitation", domainGuard(h.WithdrawStaffTenantInvitation()))
+	asked.Post("/api/tenants/{tenantID}/withdraw-staff-tenant-invitation", domainGuard(h.WithdrawStaffTenantInvitation()))
 
 	bounded.Patch("/api/resources", h.PatchResources())
 }

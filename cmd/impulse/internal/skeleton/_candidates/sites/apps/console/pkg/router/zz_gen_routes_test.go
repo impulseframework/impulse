@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/impulseframework/impulse/resource"
 )
 
 // TestGeneratedRoutes drives every generated route through NewTestRouter: each request
@@ -48,6 +49,38 @@ func TestGeneratedRoutes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestGeneratedDryRunAndWarning proves the refusal of a dry run and of a warning lands
+// on exactly the routes whose frames read neither header. A request that asks a call
+// for a dry run (X-Dry-Run: true) or for its warning (X-Warning: true) reaches the
+// handler of a method, an upload or SetFeature, whose frame answers the header itself,
+// and is refused (400) ahead of every other handler, which never runs: a frame that
+// does not read the header would run for real the call the request asked be held back.
+func TestGeneratedDryRunAndWarning(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range generatedRouterTests() {
+		for _, header := range []string{resource.DryRunHeader, resource.WarningHeader} {
+			t.Run(tt.method+"-url"+strings.ReplaceAll(tt.url, "/", "-")+"-"+header, func(t *testing.T) {
+				t.Parallel()
+
+				rec := newGeneratedCallRecorder()
+				router := NewTestRouter(newGeneratedHandlersStub(rec.RecordHandlerCall))
+				req := httptest.NewRequestWithContext(t.Context(), tt.method, tt.url, http.NoBody)
+				req.Header.Set(header, "true")
+				rr := httptest.NewRecorder()
+				router.ServeHTTP(rr, req)
+
+				if got, want := rec.handlers[tt.handlerFunc] == 1, tt.readsDryRunAndWarning; got != want {
+					t.Errorf("handler %s reached under %s = %v, want %v", tt.handlerFunc, header, got, want)
+				}
+				if !tt.readsDryRunAndWarning && rr.Code != http.StatusBadRequest {
+					t.Errorf("response.Code = %v under %s, want %v: the route's frame does not read the header", rr.Code, header, http.StatusBadRequest)
+				}
+			})
+		}
 	}
 }
 
@@ -133,6 +166,10 @@ type generatedRouterTest struct {
 	// selfBounded marks a route whose handler bounds its own body (live, RPC), which
 	// the router leaves off its bounded group.
 	selfBounded bool
+	// readsDryRunAndWarning marks a route whose frame answers a request that asks for a
+	// dry run or a warning itself (a method's, an upload's, SetFeature's), which the
+	// router leaves off its refusal of the two headers.
+	readsDryRunAndWarning bool
 }
 
 func generatedRouteParameters() []string {
@@ -747,8 +784,8 @@ func generatedRouterTests() []*generatedRouterTest {
 		},
 		{
 			url: "/api/set-feature", method: http.MethodPost,
-			handlerFunc: "SetFeature",
-			parameters:  map[string]string{},
+			handlerFunc: "SetFeature", readsDryRunAndWarning: true,
+			parameters: map[string]string{},
 		},
 		{
 			url: "/api/create-tenant", method: http.MethodPost,
@@ -767,22 +804,22 @@ func generatedRouterTests() []*generatedRouterTest {
 		},
 		{
 			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/make-tenant-directory-only", method: http.MethodPost,
-			handlerFunc: "MakeTenantDirectoryOnly", selfBounded: true,
+			handlerFunc: "MakeTenantDirectoryOnly", selfBounded: true, readsDryRunAndWarning: true,
 			parameters: map[string]string{},
 		},
 		{
 			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/end-tenant-directory-only", method: http.MethodPost,
-			handlerFunc: "EndTenantDirectoryOnly", selfBounded: true,
+			handlerFunc: "EndTenantDirectoryOnly", selfBounded: true, readsDryRunAndWarning: true,
 			parameters: map[string]string{},
 		},
 		{
 			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/open-tenant-to-directory", method: http.MethodPost,
-			handlerFunc: "OpenTenantToDirectory", selfBounded: true,
+			handlerFunc: "OpenTenantToDirectory", selfBounded: true, readsDryRunAndWarning: true,
 			parameters: map[string]string{},
 		},
 		{
 			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/make-tenant-invite-only", method: http.MethodPost,
-			handlerFunc: "MakeTenantInviteOnly", selfBounded: true,
+			handlerFunc: "MakeTenantInviteOnly", selfBounded: true, readsDryRunAndWarning: true,
 			parameters: map[string]string{},
 		},
 		{

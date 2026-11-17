@@ -359,8 +359,10 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 
 		// The session routes are bounded at BodyLimit, as the generated routes are. The
 		// login page reads what the outlet offers from the method list, at the paths
-		// mounted below; the sign-in's POSTs sit behind the XSRF guard.
-		bounded := r.With(resource.BodyLimit(BodyLimit))
+		// mounted below; the sign-in's POSTs sit behind the XSRF guard. None of them has
+		// a dry run or a warning, so a request that asks for either (X-Dry-Run,
+		// X-Warning) is refused naming the header, and nothing runs.
+		bounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())
 		guarded := bounded.With(h.ValidateXSRFToken)
 		// A method the Auth registers only where its provider is configured (persona): the
 		// surface has its handlers there and nil elsewhere, so its routes are mounted and
@@ -450,8 +452,9 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			// generated routes alone: a person reaches their own account whatever the
 			// application asks of them elsewhere. What holds for them is mounted here and
 			// in the handlers: the read-only mask of a session that views as someone else,
-			// and each one that writes refuses an impersonated session itself.
-			account := r.With(h.EnforceReadOnlyMask, resource.BodyLimit(BodyLimit))
+			// and each one that writes refuses an impersonated session itself. None has a
+			// dry run or a warning, and a request that asks for either is refused.
+			account := r.With(h.EnforceReadOnlyMask, resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())
 			account.Post("/console/api/user/invitation/accept", h.InvitationAccept())
 			account.Post("/console/api/user/email", h.EmailAdd())
 			account.Post("/console/api/user/email/verify", h.EmailVerify())
@@ -487,7 +490,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		r.Use(h.CompressionMiddleware())
 		r.Use(resource.ReleaseHeader(serverVersion))
 
-		bounded := r.With(resource.BodyLimit(BodyLimit))
+		bounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())
 		bounded.Post("/droids/oauth/device/authorize", h.DeviceAuthorize())
 		bounded.Post("/droids/oauth/token", h.DeviceToken())
 
@@ -518,8 +521,10 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 
 		// The session routes are bounded at BodyLimit, as the generated routes are. The
 		// login page reads what the outlet offers from the method list, at the paths
-		// mounted below; the sign-in's POSTs sit behind the XSRF guard.
-		bounded := r.With(resource.BodyLimit(BodyLimit))
+		// mounted below; the sign-in's POSTs sit behind the XSRF guard. None of them has
+		// a dry run or a warning, so a request that asks for either (X-Dry-Run,
+		// X-Warning) is refused naming the header, and nothing runs.
+		bounded := r.With(resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())
 		guarded := bounded.With(portalSession.ValidateXSRFToken)
 		bounded.Get("/portal/api/user/methods", portalSession.Methods(&session.MethodList{
 			Methods: []session.AdvertisedMethod{
@@ -577,8 +582,9 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			// generated routes alone: a person reaches their own account whatever the
 			// application asks of them elsewhere. What holds for them is mounted here and
 			// in the handlers: the read-only mask of a session that views as someone else,
-			// and each one that writes refuses an impersonated session itself.
-			account := r.With(portalSession.EnforceReadOnlyMask, resource.BodyLimit(BodyLimit))
+			// and each one that writes refuses an impersonated session itself. None has a
+			// dry run or a warning, and a request that asks for either is refused.
+			account := r.With(portalSession.EnforceReadOnlyMask, resource.BodyLimit(BodyLimit), resource.NoDryRunOrWarning())
 			account.Post("/portal/api/user/invitation/accept", portalSession.InvitationAccept())
 			account.Post("/portal/api/user/email", portalSession.EmailAdd())
 			account.Post("/portal/api/user/email/verify", portalSession.EmailVerify())

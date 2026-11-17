@@ -76,8 +76,17 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	// share one; a request carrying X-Subscribe is noted on its request log line and
 	// refused when its tab id is malformed. The auth's name is staff.Name.
 	r = r.With(live.Subscribing(staff.Name))
+	// A request that asks a call for a dry run (X-Dry-Run) or for its warning
+	// (X-Warning) asks that the call be held back, and a frame that never reads the
+	// header would run it for real. So every route registered on r from here on, and
+	// on the bounded group drawn from it, refuses such a request naming the header,
+	// and nothing runs. The routes whose frames answer the two headers
+	// themselves (a method's, an upload's, SetFeature's) register on asked, the router
+	// before the refusal.
+	asked := r
+	r = r.With(resource.NoDryRunOrWarning())
 	// The resource routes and the other JSON routes are bounded at BodyLimit; the live
-	// and RPC routes register on r itself and bound their own bodies.
+	// and RPC routes bound their own bodies and register beside the group.
 	bounded := r.With(resource.BodyLimit(BodyLimit))
 	domainGuard := h.DomainGuard()
 
@@ -105,7 +114,7 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	bounded.Get("/api/features", h.Features())
 
-	bounded.Post("/api/set-feature", h.SetFeature())
+	asked.With(resource.BodyLimit(BodyLimit)).Post("/api/set-feature", h.SetFeature())
 
 	bounded.Patch("/api/resources", h.PatchResources())
 }
