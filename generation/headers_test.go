@@ -41,7 +41,7 @@ func Test_frames_refuseAHeaderValueButTrue(t *testing.T) {
 			for _, at := range reads {
 				line := strings.LastIndex(tt.template[:at[0]], "\n") + 1
 				match := answered.FindStringSubmatch(tt.template[line:])
-				if match == nil || match[1] != match[4] || match[1] != match[5] {
+				if len(match) < 6 || match[1] != match[4] || match[1] != match[5] {
 					t.Errorf("a read of a header is not answered when it refuses:\n%s", firstLines(tt.template[line:], 4))
 				}
 			}

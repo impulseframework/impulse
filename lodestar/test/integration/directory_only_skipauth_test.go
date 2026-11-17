@@ -108,7 +108,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	// Bastion's list of its people keeps everyone who holds a role there, and says who
 	// the switch keeps out: the people with no sign-in through its directory.
 	keptOut := "Has not signed in through this sector's directory, so cannot enter while this sector is directory only"
-	people := cannotEnter(ctx, t, warden, bastion)
+	people := cannotEnter(ctx, t, warden)
 	for username, want := range map[string]string{"rigger": keptOut, "bosun": keptOut, "pilot": keptOut, "warden": "", "governor": ""} {
 		got, listed := people[username]
 		if !listed || got != want {
@@ -136,7 +136,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("writing the two Super Administrator rows outside their period: %v", err)
 	}
-	people = cannotEnter(ctx, t, warden, bastion)
+	people = cannotEnter(ctx, t, warden)
 	for username, when := range map[string]string{"pilot": "has ended", "bosun": "has not begun"} {
 		if got := people[username]; got != keptOut {
 			t.Errorf("Bastion's people: %s, whose Super Administrator assignment %s, is listed saying %q, want %q: an assignment outside its period exempts nobody", username, when, got, keptOut)
@@ -239,7 +239,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	if got := rigger.closed(ctx); len(got) != 0 {
 		t.Errorf("the sectors the rigger's chart names closed once Bastion is not directory only = %v, want none", got)
 	}
-	for username, sentence := range cannotEnter(ctx, t, warden, bastion) {
+	for username, sentence := range cannotEnter(ctx, t, warden) {
 		if sentence != "" {
 			t.Errorf("Bastion's people while it is not directory only: %s's row says %q, want nothing", username, sentence)
 		}
@@ -448,7 +448,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	if got := rigger.closed(ctx); !maps.Equal(got, byPassword) {
 		t.Errorf("the sectors the rigger's chart names closed = %v, want %v", got, byPassword)
 	}
-	if got := cannotEnter(ctx, t, warden, bastion)["rigger"]; got != keptOut {
+	if got := cannotEnter(ctx, t, warden)["rigger"]; got != keptOut {
 		t.Errorf("Bastion's people once it is directory only again: the rigger's row says %q, want %q", got, keptOut)
 	}
 	if got, want := warden.domains(ctx), []string{anvil, bastion, cinder}; !slices.Equal(got, want) {
@@ -469,14 +469,14 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	}
 }
 
-// cannotEnter reads a sector's list of its people as the browser's user: each person's
+// cannotEnter reads Bastion's list of its people as the browser's user: each person's
 // username with what their row says of the directory-only switch, empty for a person
 // it does not keep out.
-func cannotEnter(ctx context.Context, t *testing.T, b *browser, sector string) map[string]string {
+func cannotEnter(ctx context.Context, t *testing.T, b *browser) map[string]string {
 	t.Helper()
 
 	rows := map[string]string{}
-	for _, row := range crewSectorList(ctx, t, b, sector, sectorPeoplePath) {
+	for _, row := range crewSectorList(ctx, t, b, bastion, sectorPeoplePath) {
 		sentence, _ := row["cannotEnter"].(string)
 		rows[cell[string](t, row, "username")] = sentence
 	}
