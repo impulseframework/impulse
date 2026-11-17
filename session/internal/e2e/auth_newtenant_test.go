@@ -209,7 +209,7 @@ func runTenantInvitationSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamTenantInvitationByHand[Tx],
 		},
 		{
-			name: "the hook refusing to make the tenant ends the sign-in on its code, with no account made and the invitation standing",
+			name: "the hook refusing to make the tenant ends the sign-in on its code, with nothing of the sign-in written and the invitation standing",
 			run:  seamTenantInvitationHookRefuses[Tx],
 		},
 	}
@@ -373,9 +373,9 @@ func seamTenantInvitationHookRefuses[Tx any](ctx context.Context, t *testing.T, 
 	a.assertStanding(ctx, t, "after the hook refused", inv)
 
 	// An account with a password, where the invitation takes one: the account is made
-	// before the sign-in that carries the invitation to the hook, so the refusal takes
-	// it away again. No account is left that holds nothing, the invitation stands, and
-	// the same name signs up once the invitation can be accepted.
+	// in a step of its own before the sign-in that carries the invitation to the hook,
+	// so the refusal leaves it, signed in nowhere, and the invitation stands, as for any
+	// invitation whose acceptance fails at a sign-up.
 	open := a.inviteTenant(ctx, t, "lee@riverside.edu", takenDirectory, false)
 	lee := a.browser(t)
 	lee.prime(ctx)
@@ -389,7 +389,10 @@ func seamTenantInvitationHookRefuses[Tx any](ctx context.Context, t *testing.T, 
 	if refused.Code != string(sessioninfo.RefusedOrganizationHasTenant) {
 		t.Errorf("the refused sign-up carries the code %q, want %s", refused.Code, sessioninfo.RefusedOrganizationHasTenant)
 	}
-	a.assertNoRow(ctx, t, lee, "lee")
+	lee.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+	if !a.db.hasUser(ctx, t, "lee") {
+		t.Error("no user exists under lee after the refused sign-up, want the account the sign-up made before the sign-in")
+	}
 	a.assertStanding(ctx, t, "after the hook refused the sign-up", inv, open)
 
 	// A person signed in already accepts by hand: refused in words that say what to

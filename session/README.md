@@ -1649,11 +1649,10 @@ read the mailbox, and the account takes the address.
   (`organization_has_tenant`) is the code for an organization whose directory another
   tenant already has; `Invitation().Accept()` answers it 403 with a sentence that says
   what to do and nothing of that tenant, the browser still carrying the invitation.
-  Nothing is left behind by an acceptance that failed: the account
-  `Invitation().SignUp()` makes, in a transaction before the sign-in that runs the hook,
-  is deleted again where the invitation still stands after the sign-in failed, so no
-  account holds nothing, and the person signs up again once the invitation can be
-  accepted. An Auth with no acceptance hook (`SetInvitationAccepted`) never consumes an
+  An account `Invitation().SignUp()` made stays where the hook then refuses, as for any
+  invitation: it is created before the sign-in that carries the invitation, holds
+  nothing, and accepts the invitation by signing in once it can be accepted. An Auth
+  with no acceptance hook (`SetInvitationAccepted`) never consumes an
   invitation that makes a tenant, since nothing would make it: the sign-in that carries
   one and the acceptance by hand fail, and the invitation stands.
 

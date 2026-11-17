@@ -242,8 +242,7 @@ func TestAuth_InvitationNewTenant(t *testing.T) {
 	t.Run("an invitation that makes no tenant answers that it makes none", authNewTenantOpenPlain)
 	t.Run("a sign-up from an invitation entered through its directory only is refused before any account is created, the invitation standing and the browser still carrying it", authNewTenantSignUpRefused)
 	t.Run("a sign-up from an invitation that makes a tenant anyone may enter creates the account, and its sign-in carries the tenant", authNewTenantSignUp)
-	t.Run("a sign-up whose sign-in did not accept the invitation leaves no account: the invitation stands, and the account made for it is deleted", authNewTenantSignUpNotAccepted)
-	t.Run("a sign-up whose sign-in accepted the invitation and was refused afterwards keeps the account: the tenant is made, and the account is its administrator's", authNewTenantSignUpAcceptedThenRefused)
+	t.Run("a sign-up whose sign-in did not accept the invitation is answered the hook's refusal: the invitation stands, and the account the sign-up made before the sign-in stays, as for any invitation", authNewTenantSignUpNotAccepted)
 	t.Run("a signed-in person's acceptance tells the store how the session was established", authNewTenantAcceptEstablished)
 	t.Run("an acceptance the store refuses for a session that came through no organization's directory is 403 saying what to do, the browser still carrying the invitation", authNewTenantAcceptRefused)
 	t.Run("an acceptance the application refuses because the person's organization already has a tenant is 403 saying what to do and nothing of that tenant, the browser still carrying the invitation", authNewTenantAcceptOrganizationHasTenant)
@@ -353,11 +352,12 @@ func authNewTenantSignUpNotAccepted(t *testing.T) {
 	cookies, _ := tenantInvitation(t, f, recorder, links, false)
 	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).Return(&sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}, nil)
 	// The application's hook refuses to make the tenant: the sign-in's first transaction
-	// keeps nothing, so the invitation stands.
+	// keeps nothing, so the invitation stands. The account was made before the sign-in,
+	// in a step of its own, and stays: the mocked store expects no DeleteUser, and a
+	// call fails the test.
 	f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedOrganizationHasTenant, httpio.NewConflictMessage("Your organization is already set up here."))
 	})
-	f.store.EXPECT().DeleteUser(gomock.Any(), userID).Return(nil)
 
 	rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse", "username": "patl"}, cookies)
 
@@ -369,29 +369,6 @@ func authNewTenantSignUpNotAccepted(t *testing.T) {
 	}
 	if row := links.rows[0]; row.ConsumedAt != nil {
 		t.Error("the invitation was consumed, want it standing")
-	}
-}
-
-func authNewTenantSignUpAcceptedThenRefused(t *testing.T) {
-	t.Parallel()
-	userID, sessionID := newIDs()
-	f, recorder, links := newMailFixture(t, gomock.NewController(t))
-	cookies, _ := tenantInvitation(t, f, recorder, links, false)
-	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).Return(&sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}, nil)
-	// The acceptance committed, and the sign-in was refused after it: the invitation is
-	// spent and the tenant made. The mocked store expects no DeleteUser: a call fails
-	// the test.
-	f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
-		now := time.Now()
-		links.rows[0].ConsumedAt = &now
-
-		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedByPolicy, httpio.NewUnauthorizedMessage("the sign-in policy refused the sign-in"))
-	})
-
-	rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse", "username": "patl"}, cookies)
-
-	if rr.Code != http.StatusUnauthorized || cookieNamed(rr, internalcookie.AuthCookieName) != nil {
-		t.Errorf("SignUp() = %d %s, want the refusal and no session", rr.Code, rr.Body.String())
 	}
 }
 

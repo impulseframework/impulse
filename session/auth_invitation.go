@@ -388,31 +388,6 @@ func standingRefusalSentence(err error, inv *sessioninfo.Invitation) string {
 	return ""
 }
 
-// dropUnacceptedAccount deletes the account an invitation's sign-up just made when the
-// sign-in that followed did not accept the invitation. The acceptance is the sign-in's
-// first transaction: a refusal there (the application's hook refusing to seat the
-// person, or to make the tenant) keeps none of its writes and leaves the invitation
-// standing, and the account, made before it in a transaction of its own, would be left
-// holding nothing with the invited address verified. So the invitation is read again:
-// where it still stands the account goes, and the person signs up again once the
-// invitation can be accepted; where it was consumed the acceptance stands, and so does
-// the account, whatever refused the sign-in after it. A failure to read or to delete is
-// logged, and the sign-in's own refusal is what the person is answered.
-func (a *Auth[S, U, Tx]) dropUnacceptedAccount(ctx context.Context, inv *sessioninfo.Invitation, user *sessionstorage.SessionUser) {
-	standing, err := a.invitationOf(ctx)
-	if err != nil {
-		logger.FromCtx(ctx).Errorf("the invitation %s was not read after its sign-up was refused, so the account %s made for it is left: %v", inv.ID, user.ID, err)
-
-		return
-	}
-	if standing == nil || standing.ID != inv.ID {
-		return
-	}
-	if err := a.storage.DeleteUser(ctx, user.ID); err != nil {
-		logger.FromCtx(ctx).Errorf("the account %s, made for the invitation %s that its sign-up did not accept, was not deleted: %v", user.ID, inv.ID, err)
-	}
-}
-
 // invitationSignUp is Invitation().SignUp().
 func (a *Auth[S, U, Tx]) invitationSignUp() http.HandlerFunc {
 	type request struct {
@@ -457,10 +432,6 @@ func (a *Auth[S, U, Tx]) invitationSignUp() http.HandlerFunc {
 		}
 		outcome, err := a.signIn(ctx, w, at)
 		if err != nil {
-			// No account is left that holds nothing: where the sign-in did not accept
-			// the invitation, the account made for it goes.
-			a.dropUnacceptedAccount(ctx, inv, user)
-
 			return writeSignInError(ctx, w, err)
 		}
 
