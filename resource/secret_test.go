@@ -1456,3 +1456,66 @@ func TestPatchSetDiff_secret(t *testing.T) {
 		t.Errorf("PatchSetDiff() of two titles = %q, want the titles shown", got)
 	}
 }
+
+// A row its transaction already wrote is left alone whichever order the patch that wrote
+// it was keyed in. A patch of a row with a key of two columns sets the secret, keyed in
+// the key's order or in the other, and the value the row held when it was read before is
+// then opened inside the transaction. No read sees the patch's write: a rewrite would be
+// buffered after it, and the old value would win at commit.
+func TestOpenSecretIn_rowWrittenUnderAnotherKeyOrder(t *testing.T) {
+	t.Parallel()
+
+	const before, set = "4-8-15", "16-23-42"
+	keys := testSecretKeys(t, 1, 2)
+	part := map[accesstypes.Field]string{"Vault": "vault-1", "Shelf": "shelf-9"}
+	pairKey := KeySet{}.Add("Vault", part["Vault"]).Add("Shelf", part["Shelf"])
+	old, err := testSecretKeys(t, 1).Seal(pairKey, before)
+	if err != nil {
+		t.Fatalf("Seal() error = %v", err)
+	}
+
+	for name, order := range map[string][]accesstypes.Field{
+		"keyed in the key's order": {"Vault", "Shelf"},
+		"keyed in the other order": {"Shelf", "Vault"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			// A read inside the transaction answers the row as it is stored, which no
+			// buffered write has reached: it still holds the old value.
+			reader := NewMockReader[sealedPairRow](gomock.NewController(t))
+			reader.EXPECT().Read(gomock.Any(), gomock.Any()).
+				Return(&Row[sealedPairRow]{Data: sealedPairRow{Vault: part["Vault"], Shelf: part["Shelf"], Number: old}}, nil).AnyTimes()
+			buffered := &capturingTxn{}
+			txn := NewMockReadWriteTransaction(buffered, reader).WithSecretKeys(keys)
+
+			patch := NewPatchSet(NewMetadata[sealedPairRow]()).SetPatchType(UpdatePatchType)
+			for _, field := range order {
+				patch.SetKey(field, part[field])
+			}
+			patch.Set("Number", set)
+			columns, err := patch.Resolve(txn.DBType(), keys)
+			if err != nil {
+				t.Fatalf("Resolve() error = %v", err)
+			}
+			if err := txn.BufferMap(patch, columns); err != nil {
+				t.Fatalf("BufferMap() error = %v", err)
+			}
+
+			opened, err := OpenSecretIn[sealedPairRow](context.Background(), txn, pairKey, "Number", old)
+			if err != nil || opened != before {
+				t.Fatalf("OpenSecretIn() of the row as it was read before: error %v, want the value it held then", err)
+			}
+			if len(buffered.columns) != 1 {
+				t.Fatalf("the transaction buffered %d write(s) of the row, want its own alone: a rewrite after it puts the old value back at commit", len(buffered.columns))
+			}
+			written, ok := buffered.columns[0]["Number"].(Secret)
+			if !ok {
+				t.Fatalf("the transaction's write holds a %T, want the sealed value", buffered.columns[0]["Number"])
+			}
+			if got, err := keys.Open(pairKey, written); err != nil || got != set {
+				t.Errorf("the one write buffered is not the patch's own: error %v", err)
+			}
+		})
+	}
+}

@@ -63,6 +63,27 @@ type touchedRow struct {
 // attempt: a retried transaction runs its function again over a fresh record.
 type touchedRows struct {
 	rows []touchedRow
+	// matches holds each recorded row's key as two patches of one row both spell it
+	// (rowMatchKey), beside rows: what a row is found again by.
+	matches []string
+}
+
+// rowMatchKey spells a row's primary key the one way every patch of the row does,
+// whichever order the patch was keyed in: the key columns sorted by name, each column's
+// name and value preceded by its length. A patch names its key columns in the order its
+// SetKey calls came, so the key a page is told (RowKey) is no way to find a row again.
+func rowMatchKey(key KeySet) string {
+	parts := slices.Clone(key.Parts())
+	slices.SortFunc(parts, func(a, b KeyPart) int {
+		return strings.Compare(string(a.Key), string(b.Key))
+	})
+	var match strings.Builder
+	for _, part := range parts {
+		value := keyPartString(part.Value)
+		fmt.Fprintf(&match, "%d:%s=%d:%s;", len(part.Key), part.Key, len(value), value)
+	}
+
+	return match.String()
 }
 
 // newTouchedRows returns an empty record.
@@ -91,14 +112,16 @@ func (t *touchedRows) record(patch PatchSetMetadata) {
 	if scoped, ok := patch.(interface{ patchDomain() accesstypes.Domain }); ok {
 		row.domain = scoped.patchDomain()
 	}
-	if i := slices.IndexFunc(t.rows, func(r touchedRow) bool {
-		return r.resource == row.resource && r.change.Key == row.change.Key && r.domain == row.domain
-	}); i >= 0 {
-		t.rows[i].change.Deleted = row.change.Deleted
+	match := rowMatchKey(key)
+	for i, r := range t.rows {
+		if r.resource == row.resource && t.matches[i] == match && r.domain == row.domain {
+			t.rows[i].change.Deleted = row.change.Deleted
 
-		return
+			return
+		}
 	}
 	t.rows = append(t.rows, row)
+	t.matches = append(t.matches, match)
 }
 
 // find reports whether a patch of the transaction wrote the row the given patch names,
@@ -109,13 +132,9 @@ func (t *touchedRows) find(patch PatchSetMetadata) (written, deleted bool) {
 	if key.Len() == 0 {
 		return false, false
 	}
-	values := make([]any, 0, key.Len())
-	for _, part := range key.Parts() {
-		values = append(values, part.Value)
-	}
-	rowKey := RowKey(values...)
-	for _, row := range t.rows {
-		if row.resource == patch.Resource() && row.change.Key == rowKey {
+	match := rowMatchKey(key)
+	for i, row := range t.rows {
+		if row.resource == patch.Resource() && t.matches[i] == match {
 			written, deleted = true, row.change.Deleted
 		}
 	}
