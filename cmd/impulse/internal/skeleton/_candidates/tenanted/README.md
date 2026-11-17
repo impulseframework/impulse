@@ -193,7 +193,11 @@ Google account.
   administrator while its users table holds no rows, the foothold a deployed environment
   starts from: the staff auth's `administrator`, with the password the stack generates
   (`APP_STAFF_ADMINISTRATOR_PASSWORD`, a generated secret), holding the development
-  administrator's roles. A user that exists stops the seed; the auth's management
+  administrator's roles. The generated password is for the first sign-in alone: sign in
+  as `administrator` with it, give an email address and confirm it with the sign-in code
+  mailed there (the account starts with no address), then choose a new password, which
+  the login page asks for before it opens anything else; the generated password signs
+  nobody in after that. A user that exists stops the seed; the auth's management
   creates every user after the first, and the bootstrap creates the development logins
   instead. `cmd/deployment/migrate` is the deploy step;
   `cmd/bootstrap` reuses it to stand up an emulator database, seeds the development

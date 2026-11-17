@@ -157,7 +157,8 @@ func CheckRoles(ctx context.Context, client *access.Client, name string) error {
 // SeedAdministrators gives each auth its first administrator while its users table holds
 // no rows, the foothold a deployed environment starts from, and prints what it did. The
 // staff auth, whose people sign in with a password, gets the administrator user with the
-// password the stack generates (APP_STAFF_ADMINISTRATOR_PASSWORD); the members auth, whose
+// password the stack generates (APP_STAFF_ADMINISTRATOR_PASSWORD), which the first sign-in
+// changes before anything else is served; the members auth, whose
 // people the directory provisions and whose roles the application assigns, gets a user
 // without a password under the sign-in name the placement names
 // (APP_MEMBERS_ADMINISTRATOR), which that person's first sign-in through the directory

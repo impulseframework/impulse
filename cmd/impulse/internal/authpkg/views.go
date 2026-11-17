@@ -198,12 +198,13 @@ func Application(spec *Spec) string {
 }
 
 // The forms of the first administrator the deployment seeds while the auth's users table
-// holds no rows: a user named administrator with the password the stack generates, for an
-// auth with a password method; a user without a password under the sign-in name the
-// placement names, which that person's first sign-in links to, for an auth whose directory
-// methods leave role membership to the application. Either holds the administrator roles
-// from the seed, by the id of its account. An auth whose directory methods all follow the
-// directory's roles needs none.
+// holds no rows: a user named administrator with the password the stack generates, marked
+// for change at the first sign-in, for an auth with a password method; a user without a
+// password under the sign-in name the placement names, which that person's first sign-in
+// links to, for an auth whose directory methods leave role membership to the application,
+// who has no password to change. Either holds the administrator roles from the seed, by
+// the id of its account. An auth whose directory methods all follow the directory's roles
+// needs none.
 const (
 	FootholdPassword   = "password"
 	FootholdMembership = "membership"
