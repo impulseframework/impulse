@@ -12,8 +12,12 @@ import (
 // check has run: the checker that check ran with, the scope it ran in, and the
 // environment it sampled, so a body that arms a write or a read against the
 // caller evaluates the same facts the entry check did (the decision instant
-// included). The generated RPC handlers stamp it into the context before Execute
-// runs; a body reads it back with CallerFrom.
+// included). The generated handlers stamp it into the context before the
+// application's code runs: a method's frame before Execute and Warning, and a
+// computed resource's frames before its List function, its Read function and the
+// function that renders a file. That code reads it back with CallerFrom. Within such
+// a request a zero Caller is therefore never seen; no caller means a call the
+// application makes outside any request, or a handler that stamped none.
 type Caller struct {
 	// Permissions is the checker the entry check ran with: the session's user, or
 	// the role an act-as-role session assumed, behind the session's mask.
@@ -29,14 +33,18 @@ type Caller struct {
 
 type callerKey struct{}
 
-// WithCaller stamps the caller into the context for the body that runs under it.
+// WithCaller stamps the caller into the context for the code that runs under it. The
+// generated frames call it; a handler written by hand calls it too where what it runs
+// asks who the caller is.
 func WithCaller(ctx context.Context, caller *Caller) context.Context {
 	return context.WithValue(ctx, callerKey{}, caller)
 }
 
 // CallerFrom returns the caller the frame stamped, or a zero Caller when none
 // was: a mutation or query armed with a zero Caller refuses at execution instead
-// of running unchecked.
+// of running unchecked. Code that reads a zero Caller as a call of the
+// application's own, as the identity library's rules do, relies on every frame
+// that serves a person stamping one.
 func CallerFrom(ctx context.Context) *Caller {
 	if caller, ok := ctx.Value(callerKey{}).(*Caller); ok && caller != nil {
 		return caller
@@ -106,7 +114,8 @@ func RolePrincipalPermissions(role RolePermissions, actor accesstypes.User) User
 	return rosterPermissions{UserPermissionChecker: rolePrincipalPermissions{RolePermissions: role, user: actor}}
 }
 
-var errNoCaller = errors.New("no caller is stamped on the context: Enforce and Check run under a generated RPC handler, which stamps the caller before Execute, or under a hand-written handler that called resource.WithCaller")
+var errNoCaller = errors.New("no caller is stamped on the context: Enforce and Check run under a generated handler of a method or of a computed resource, " +
+	"which stamps the caller before the application's code, or under a hand-written handler that called resource.WithCaller")
 
 // arm binds the caller's checker, scope, environment, and collection to the query
 // set for one operation's evaluation, or records why it cannot.
@@ -122,12 +131,15 @@ func (q *QuerySet[Resource]) arm(caller *Caller, rSet *Set[Resource], requiredPe
 }
 
 // Caller returns the caller the query was checked as: the checker, the scope and the
-// environment its decode bound, with the collection its conditions resolve against. The
-// generated frame stamps the caller into the context for a method's body and not for a
-// list's, so a computed resource's List or Read function whose rows depend on what the
-// caller may do elsewhere stamps this one (WithCaller) and asks as the request's own
-// check did (Caller.Check, Caller.ExecuteGate): a list that offers what a method takes
-// lists what the method would accept from this caller. A QuerySet bound to no
+// environment its decode bound, with the collection its conditions resolve against. It
+// is what a computed resource's generated frames stamp into the context (WithCaller)
+// once the decode has checked the request, before the List function, the Read function
+// or the function that renders a file runs, as a method's frame stamps the caller for
+// its body. Such a function reads it with CallerFrom and asks as the request's own
+// check did (Caller.Check, Caller.ExecuteGate), so a list that offers what a method
+// takes lists what the method would accept from this caller, and nothing the function
+// calls mistakes the request for a call the application makes itself. A handler
+// written by hand over a computed query stamps it the same way. A QuerySet bound to no
 // permissions answers a zero Caller, which every question refuses.
 func (q *QuerySet[Resource]) Caller() *Caller {
 	return &Caller{Permissions: q.userPermissions, Scope: q.scope, Env: q.env, collection: q.collection}

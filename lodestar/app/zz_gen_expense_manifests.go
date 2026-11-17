@@ -41,6 +41,11 @@ func (a *App) ExpenseManifests() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
+		// The caller the request was checked as rides the context, as it does for a
+		// method's body: a List function that asks what the caller may do elsewhere
+		// is answered for that person, and never as a call the application makes
+		// outside any request.
+		ctx = resource.WithCaller(ctx, querySet.Caller())
 
 		// A live list registers before the query runs, so a commit that lands during
 		// the query is not missed; a refused request registers nothing.
@@ -112,6 +117,11 @@ func (a *App) ExpenseManifest() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
+		// The caller the request was checked as rides the context, as it does for a
+		// method's body: a Read function that asks what the caller may do elsewhere
+		// is answered for that person, and never as a call the application makes
+		// outside any request.
+		ctx = resource.WithCaller(ctx, querySet.Caller())
 
 		// A live row registers before the read runs, so a commit that lands during the
 		// read is not missed; a refused request registers nothing.
@@ -175,6 +185,10 @@ func (a *App) ExpenseManifestContent() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
+		// The caller the request was checked as rides the context, as it does for a
+		// method's body: the application's function that answers the file, or the row
+		// it is of, is answered for that person where it asks what the caller may do.
+		ctx = resource.WithCaller(ctx, querySet.Caller())
 
 		// A Read grant under a condition that reads the row is judged over the row
 		// the resource's own read function answers, before the file is rendered: a
