@@ -204,6 +204,10 @@ func (a *App) CrewUserRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewUserRoles()
 }
 
+func (a *App) CrewInvitedSectors() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).CrewInvitedSectors()
+}
+
 func (a *App) CrewSectorDirectoryRoles() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).CrewSectorDirectoryRoles()
 }
@@ -320,6 +324,10 @@ func (a *App) GiveCrewSectorGroupRole() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).GiveCrewSectorGroupRole()
 }
 
+func (a *App) InviteCrewSector() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).InviteCrewSector()
+}
+
 func (a *App) InviteCrewSectorUser() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).InviteCrewSectorUser()
 }
@@ -434,6 +442,10 @@ func (a *App) UnlockCrewSignIn() http.HandlerFunc {
 
 func (a *App) WithdrawCrewInvitation() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).WithdrawCrewInvitation()
+}
+
+func (a *App) WithdrawCrewInvitedSector() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).WithdrawCrewInvitedSector()
 }
 
 func (a *App) WithdrawCrewSectorInvitation() http.HandlerFunc {

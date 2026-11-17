@@ -53,7 +53,13 @@ func (h *Handlers) InviteStaffTenant() http.HandlerFunc {
 
 		p := (*staffidentity.InviteStaffTenant)(params)
 
-		if resource.AsksWarning(r) {
+		// The X-Warning header takes the value true or is left off the request: any
+		// other value is refused here, and the call is not run.
+		asksWarning, err := resource.AsksWarning(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if asksWarning {
 			// The method declares no warning (@warning): a request that asks for one
 			// is refused, and never runs the call.
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("InviteStaffTenant declares no warning: send the call without the X-Warning header"))
@@ -66,7 +72,13 @@ func (h *Handlers) InviteStaffTenant() http.HandlerFunc {
 		// Captured inside the transaction, encoded after it commits: under
 		// abort-and-retry the value is the committing attempt's.
 		var result *staffidentity.InviteStaffTenantResult
-		if resource.IsDryRun(r) {
+		// The X-Dry-Run header takes the value true or is left off the request: any
+		// other value is refused here, and the call is not run.
+		dryRun, err := resource.IsDryRun(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if dryRun {
 			// Effects outside a transaction cannot be rolled back, so there is
 			// nothing a dry run could promise here.
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("dry run is not supported: InviteStaffTenant runs outside a transaction"))
