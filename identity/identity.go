@@ -5,6 +5,16 @@
 // change them; each method's body is one call into this package, so the rules are
 // compiled and tested once and are the same for every auth of every application.
 //
+// How a tenant comes to exist is among the rules. Nobody creates a tenant directly: staff
+// of the auth a tenant is made through invite one person with the tenant's details
+// (Manager.InviteTenant, the details held to the tenant record's own create for the
+// sender by Manager.CheckInvitedTenant), and that person's first sign-in makes the
+// tenant through the application's generated maker (TenantMaker), seats them with the
+// roles that administer a tenant and, where they came through their organization's
+// directory, makes it the tenant's own, in the transaction that consumes the invitation.
+// Manager.InvitedTenants lists the invitations that still stand, and
+// Manager.WithdrawTenantInvitation withdraws one.
+//
 // Every rule runs inside the caller's transaction (resource.ReadWriteTransaction): a
 // generated handler's, or one an application opened to create a person beside its own
 // rows and commit them together. Nothing here commits, and nothing reads a row a sibling

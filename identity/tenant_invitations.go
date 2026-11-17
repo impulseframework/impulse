@@ -89,7 +89,7 @@ type TenantMaker interface {
 }
 
 // WithTenantMaker hands the manager what makes a tenant from an accepted invitation
-// (TenantMaker). The generated client of the auth whose people create tenants passes the
+// (TenantMaker). The generated client of the auth a tenant is made through passes the
 // one the application built with the generated New<Record>Maker; a manager without one
 // sends no tenant invitation and accepts none.
 func WithTenantMaker(maker TenantMaker) Option {

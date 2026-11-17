@@ -85,9 +85,9 @@ templates, this README, and the tool's source.
   makes a table the domain universe: its resource struct is the tenant record (`@tenant`),
   from which the generator derives the tenant segment tenant-scoped resources live under
   and emits the constructor of the tenant roster, the tenants as the running application
-  knows them, reloaded on the `tenants` signal so a tenant created on any instance is
+  knows them, reloaded on the `tenants` signal so a tenant made on any instance is
   usable at once, without a restart; a role held in every domain reaches every tenant. A
-  tenant's key is an id the record's create path generates, never a word a person types:
+  tenant's key is an id generated when the tenant is made, never a word a person types:
   it is the domain of every role held in the tenant and the tenant segment's value in
   every address, so it never changes and is never used twice, while the tenant's name is
   a field its administrators change, kept from a second tenant by a unique index. A
@@ -121,13 +121,19 @@ templates, this README, and the tool's source.
   same page under the chosen tenant; a URL naming a tenant the session cannot reach lands
   on a refusal page that shows the server's answer, never on another tenant.
 
-  Who may create a tenant is apart from who may enter one, and no declaration: an
-  administrator creates one under a Create grant on the record, and a person who signed
-  up holding no tenant creates their own through the generated create-your-tenant route
-  and becomes its administrator. The order is sign in first, then name the tenant, so
-  the route serves only while an administrator has a sign-in method of the outlet's auth
-  open to sign-up, which is chosen in the running application, on the auth's Sign-in
-  page.
+  How a tenant comes to exist is apart from who may enter one, and no declaration.
+  Nobody creates a tenant directly: the record's create is refused with a sentence that
+  says so. Staff bring an organization in by inviting one person, on the Invited tenants
+  page the library draws from the auth's generated management: the invitation carries
+  the tenant's details as staff entered them, held to the record's own create under the
+  sender's Create grant when it is sent, and the invited person's first sign-in makes
+  the tenant, makes them its administrator and, where they came through their
+  organization's directory, makes that directory the tenant's. A person who signed up
+  holding no tenant creates their own through the generated create-your-tenant route
+  and becomes its administrator. There the order is sign in first, then name the tenant,
+  so the route serves only while an administrator has a sign-in method of the outlet's
+  auth open to sign-up, which is chosen in the running application, on the auth's
+  Sign-in page.
 - **Levels**: the configuration chain in `pkg/config`, one level per kind of process, each
   embedding the one below it: **core** (every process), **data** (every process that opens
   the database), and **site** (one served site: its port and its built bundle). The site
@@ -968,8 +974,9 @@ not-found handler, and its browser application. The App's handlers the generated
 `<Outlet>Auth` middleware), the configuration, the members (`@outlet`), and the tests are
 the agent's, and the compiler, `outlet-wired`, `outlet-shape`, and `login-pages` hold it to them.
 
-`add tenancy` makes a flat, untenanted application tenanted. An administrator alone creates
-tenants, through the record's create path, unless the record says otherwise. The tenant table becomes the
+`add tenancy` makes a flat, untenanted application tenanted. Nobody creates a tenant
+directly: staff bring one in by inviting the person who will administer it, and that
+person's first sign-in makes it. The tenant table becomes the
 next schema migration, with two development tenants as a data migration under
 `schema/devseed`; the tenant-record struct joins the resource package as a global resource
 annotated `@tenant`, from which the generator derives the tenant segment and emits
@@ -978,16 +985,20 @@ annotated `@tenant`, from which the generator derives the tenant segment and emi
 program gains `WithConcealedDomains`; the data level gains the roster, built with that
 constructor over the live service's tenants signal and started where the configuration
 is built (a new `tenancy.go` plus a field and the start inserted into
-`DataConfiguration`), so a tenant created on any instance is usable at once, without a
+`DataConfiguration`), so a tenant made on any instance is usable at once, without a
 restart, and handed to each auth the level holds (`SetTenantNames`), so the invitation
 screen names the tenant an invitation seats a person in and not its id; the app exposes the roster and the roster's copy of the declarations to the
 generated code as `TenantRoster()` and `TenantDeclarations()` and hands the roster's
 `Domains` and the declarations to the session permissions (a new `tenancy.go` plus the
 `Configurer`, `App` and `UserPermissions` edits); and the browser app takes the tenant's
 shape: the tenant pages are copied in (the tenant's sign-in page, the configuration of All
-tenants, the library's list page over the record, and the New tenant dialog), the menu
-file gains the tenant menus ahead of its others (Tenants with All tenants and New tenant…,
-People with the tenant's side of the auth's people, and Tenant with Sign-in settings), the
+tenants, the library's list page over the record, and the dialog a person who signed up
+creates their own tenant through), the menu
+file gains the tenant menus ahead of its others (Tenants with All tenants,
+People with the tenant's side of the auth's people, and Tenant with Sign-in settings;
+the Invited tenants page, where staff bring a tenant in, is among the auth's pages the
+System menu already places, and the menu file's test, where it lists that menu's pages as
+the skeleton's does, gains it after Mailed links), the
 frame's configuration names the place outside every tenant (Configuration, with a gear),
 and routes still as the skeleton rendered them are written in the tenant shape, while the
 library's frame carries the tenant the URL names, the guard, the refusal page and the
@@ -1003,7 +1014,18 @@ package (`@tenantDirectory`, tenant-scoped, its directory set from a sign-in and
 typed), both records track changes, each auth's `Settings`
 carry the reader and its `New` sets the library's sign-in rule over it
 (`signin.TenantPolicy`, the memberships read through `resource.SignInRoles`), and the
-data level's settings literal passes the reader in. Every edit whose anchor the
+data level's settings literal passes the reader in. The auth a tenant is made through,
+the one whose outlets serve the record, where the application assigns its roles and
+generates its management, is handed what makes a tenant from an accepted invitation: its
+`Settings` gain `TenantMaker`, its `New` refuses a nil one with a sentence and passes it
+to the generated identity client as its third argument, and on a data level in the
+skeleton's shape the roster is built ahead of that auth in `NewDataConfiguration`
+(`tenants := <handlers>.New<Record>Roster(...)`), the auth's settings function gains a
+parameter the construction passes `<handlers>.New<Record>Maker(tenants, liveService)`
+through, and `startTenants` only starts the roster. On a level the command cannot
+follow (no live service field, a client the literal builds in place, an auth built
+elsewhere) the roster is built in `startTenants` as before and handing the maker in is
+recorded as the agent's, since the auth refuses to start without it. Every edit whose anchor the
 application lacks is recorded in the brief as the agent's. Which resources become
 tenant-scoped and how their rows are assigned, the bootstrap order, the harnesses, the
 tests, routes edited since the skeleton rendered them, the dashboard's tenant, the declaration's grants and
@@ -1015,9 +1037,20 @@ impulse add tenancy --agent
 impulse add tenancy --tenant-table Organizations
 ```
 
-Who may create a tenant is separate from who may enter one, and it is no declaration. An
-administrator creates one in every application: the record's create path under the Create
-grant on it. A person who signs up creates their own while an administrator has a sign-in
+How a tenant comes to exist is separate from who may enter one, and it is no declaration.
+Nobody creates a tenant directly: an `add` on the record's collection answers 400 with a
+sentence saying how one is made. Staff bring an organization in by inviting one person:
+the auth's generated `Invite<Auth><Record>` takes the person's address and the record's
+fields, each named for the record, with whether the tenant is entered through its
+directory only and the role its directory's people start with; sending it takes the
+method's grant and the Create grant on the record, and a name a tenant holds is refused
+there. The invited person's first sign-in makes the tenant, seats them with the roles
+that administer a tenant in the auth and, where they came through an organization's
+directory, makes it the tenant's own, in one transaction; `<Auth>Invited<Record>s` lists
+the invitations that still stand and `Withdraw<Auth>Invited<Record>` withdraws one. The
+library draws the page from the generated description, and each tenanted skeleton's role
+file gives its `Administrator` role the three, beside Create on the record. A person who
+signs up creates their own while an administrator has a sign-in
 method open to sign-up: every method starts invite only, and an administrator opens one on
 the auth's Sign-in page in the running application (`Open sign-up`, behind a warning that
 says who will be admitted and is confirmed by typing a word) and makes it invite only again
@@ -1142,7 +1175,11 @@ mount the auth's session group in the router. In a tenanted application the new 
 the settings copied from the source auth pass in); the auth whose session outlets serve
 the tenant record, and whose roles the application assigns, has the rule admit a person
 who holds no tenant yet (`signin.AdmitWithoutTenant`), since a person who signs up through
-it creates a tenant of their own.
+it creates a tenant of their own. That auth is the one a tenant is made through, so its
+`Settings` carry `TenantMaker` and its `New` passes it to the identity client; the
+construction copied from the source auth carries the maker only where the source is that
+auth too, an auth a tenant is not made through leaves it behind, and an auth that takes
+the default outlet over is handed none, which the brief records as the agent's.
 
 ```sh
 impulse add outlet partners --prefix partners/api --auth staff
