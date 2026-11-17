@@ -1062,7 +1062,9 @@ func Test_identityTenantUsersTemplate_directoryFacts(t *testing.T) {
 				"LEFT JOIN SectorDirectories td ON td.SectorId = ts.Id",
 				"SELECT 1 FROM CrewSessionIdentities di",
 				"WHERE di.UserId = u.Id AND di.Method = td.Method AND di.Connection = td.Connection",
-				"WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'",
+				// The super administrator is the person who holds the role now: the
+				// membership counts inside its period alone, as the sign-in rule reads it.
+				"WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'\n      AND (sa.StartsAt IS NULL OR sa.StartsAt <= CURRENT_TIMESTAMP()) AND (sa.EndsAt IS NULL OR sa.EndsAt > CURRENT_TIMESTAMP())\n  )",
 				") AS OutsideDirectory,",
 				"IF(ts.DirectoryOnly AND td.SectorId IS NOT NULL",
 				// The sentence speaks of the tenant's directory and never says its connection.

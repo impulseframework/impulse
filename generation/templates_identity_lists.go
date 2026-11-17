@@ -71,12 +71,23 @@ JOIN {{ .Tables.Users }} u ON u.Id = t.UserId`
 	// A sign-in through a directory is an identity linked to the account under the
 	// directory's method and connection, read by the identities table's index on the
 	// user; an auth that keeps no identities signs nobody in through a directory.
+	//
+	// The super administrator is the person who holds the role now: the membership
+	// counts inside its period alone (identitySourceData.Counting), as the sign-in rule
+	// and the session's reach read it, which ask the permission engine and its listing
+	// of what a person holds at the present. The exemption says who enters now, so a
+	// membership that has ended exempts nobody, and neither does one that has not begun
+	// (Standing, which the facts of where a person belongs use, would exempt a person
+	// the sign-in keeps out). The library's writes give the role no period
+	// (access.ValidatePeriod); the test is here so that a row written past them is read
+	// as every other reader reads it.
 	identityTenantOutsideDirectory = `td.{{ .TenantDirectory.TenantColumn }} IS NOT NULL{{ if .HasIdentities }} AND NOT EXISTS (
     SELECT 1 FROM {{ .Tables.Identities }} di
     WHERE di.UserId = u.Id AND di.Method = td.{{ .TenantDirectory.MethodColumn }} AND di.Connection = td.{{ .TenantDirectory.ConnectionColumn }}
   ){{ end }} AND NOT EXISTS (
     SELECT 1 FROM {{ .Policy.UserRoles }} sa
     WHERE sa.UserId = u.Id AND sa.Kind = {{ .KindGlobal }} AND sa.Role = {{ .SuperAdministratorRole }}
+      AND {{ .Counting "sa" }}
   )`
 
 	// identityTenantDirectoryFacts are the two columns a tenant's list of its people
