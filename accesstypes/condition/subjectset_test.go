@@ -91,7 +91,7 @@ func TestParseWhere(t *testing.T) {
 			want:   "Permission IN ('view', 'develop') AND (ExpiresAt IS NULL OR ExpiresAt > now)",
 		},
 		{name: "the orderings, NOT and a number", source: "NOT (Rank < 3) AND Seats >= 2.5 AND Active != false", want: "NOT Rank < 3 AND Seats >= 2.5 AND Active != false"},
-		{name: "the requester", source: "UserID = subject", wantErr: `where: "UserID = subject" names the requester; a where: reads the row's own columns alone, and the test that ties a row to the requester belongs in who:`},
+		{name: "the requester", source: "UserID = subject", wantErr: `where: "UserID = subject" names the requester; a where: reads the row's own columns alone, and the test that ties a row to the requester belongs in the who: part`},
 		{name: "a subject value", source: "Rank <= subject.rank", wantErr: `where: "Rank <= subject.rank" names the requester`},
 		{name: "a subject set", source: "Permission = 'x' AND GroupID IN subject.groups", wantErr: `where: "GroupID IN subject.groups" names the requester`},
 		{name: "a proposed value", source: "new.Permission = 'develop'", wantErr: `where: "new.Permission = 'develop'" reads a proposed value (new.); a set's rows are read as the database holds them, so name the column alone`},

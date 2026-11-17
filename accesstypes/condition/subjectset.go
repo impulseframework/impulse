@@ -80,7 +80,7 @@ func ParseWho(source string) ([]WhoTest, error) {
 	for _, operand := range operands {
 		test, ok := whoTest(operand)
 		if !ok {
-			return nil, fmt.Errorf("who: %q does not tie the row to the requester; %s, and a test over the row's other columns belongs in where:", operand.String(), whoShape)
+			return nil, fmt.Errorf("who: %q does not tie the row to the requester; %s, and a test over the row's other columns belongs in the where: part", operand.String(), whoShape)
 		}
 		tests = append(tests, test)
 	}
@@ -153,12 +153,12 @@ func ParseWhere(source string) (Expr, error) {
 			checkLeft(n, n.Left)
 			switch n.Right.(type) {
 			case Subject, SubjectValue:
-				refuse("%q names the requester; a where: reads the row's own columns alone, and the test that ties a row to the requester belongs in who:", n.String())
+				refuse("%q names the requester; a where: reads the row's own columns alone, and the test that ties a row to the requester belongs in the who: part", n.String())
 			}
 		case In:
 			checkLeft(n, n.Left)
 			if n.SubjectSet != "" {
-				refuse("%q names the requester; a where: reads the row's own columns alone, and the test that ties a row to the requester belongs in who:", n.String())
+				refuse("%q names the requester; a where: reads the row's own columns alone, and the test that ties a row to the requester belongs in the who: part", n.String())
 			}
 		case NullTest:
 			checkLeft(n, n.Left)

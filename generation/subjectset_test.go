@@ -276,12 +276,12 @@ func TestResolveSubjectSetParts_refusals(t *testing.T) {
 		{
 			name:       "a who: that filters and names the requester nowhere",
 			structName: "WhoLiteral",
-			want:       []string{"@subjectSet(everyones)", `who: "Level = 'lead'" does not tie the row to the requester`, "each who: test is written Column = subject or Column IN subject.<set>", "a test over the row's other columns belongs in where:"},
+			want:       []string{"@subjectSet(everyones)", `who: "Level = 'lead'" does not tie the row to the requester`, "each who: test is written Column = subject or Column IN subject.<set>", "a test over the row's other columns belongs in the where: part"},
 		},
 		{
 			name:       "a who: that joins a filter to the requester's test",
 			structName: "WhoWithFilter",
-			want:       []string{"@subjectSet(mixed)", "does not tie the row to the requester", "belongs in where:"},
+			want:       []string{"@subjectSet(mixed)", "does not tie the row to the requester", "belongs in the where: part"},
 		},
 		{
 			name:       "a who: that names everyone but the requester",
@@ -366,17 +366,17 @@ func TestResolveSubjectSetParts_refusals(t *testing.T) {
 		{
 			name:       "a where: comparing a column to the requester",
 			structName: "WhereRequester",
-			want:       []string{"@subjectSet(mine)", "names the requester", "belongs in who:"},
+			want:       []string{"@subjectSet(mine)", "names the requester", "belongs in the who: part"},
 		},
 		{
 			name:       "a where: testing a column against another set",
 			structName: "WhereOtherSet",
-			want:       []string{"@subjectSet(teamed)", "names the requester", "belongs in who:"},
+			want:       []string{"@subjectSet(teamed)", "names the requester", "belongs in the who: part"},
 		},
 		{
 			name:       "a where: comparing a column to a subject value",
 			structName: "WhereSubjectValue",
-			want:       []string{"@subjectSet(outranked)", "names the requester", "belongs in who:"},
+			want:       []string{"@subjectSet(outranked)", "names the requester", "belongs in the who: part"},
 		},
 		{
 			name:       "a where: reading a proposed value",
