@@ -5,12 +5,14 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
 	"testing"
 
 	cloudspanner "cloud.google.com/go/spanner"
+	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
@@ -18,28 +20,36 @@ import (
 // end on the served stack. A sector has one directory and a directory belongs to one
 // sector: the seed makes the fleet's directory (google, example) Cinder's, whose row
 // names SectorCrew as its default role, and makes Bastion admit its people through its
-// directory only. The rigger, by password, holding SectorCrew in Anvil and Bastion and
-// no global role, charts Anvil alone and Bastion answers her as a sector that does not
-// exist; the bosun, whose only sector is Bastion, is refused at sign-in naming the
-// rule; the navigator, through the fleet's directory on no manifest, is created at his
-// first sign-in seated at Cinder.
+// directory only, the persona provider's (oidc, persona). A sector's declaration
+// restricts its own door alone. The rigger, by password, holding SectorCrew in Anvil
+// and Bastion and no global role, charts Anvil alone; Bastion stays on her chart
+// marked closed, with the reason, and answers her as a sector that does not exist. The
+// bosun, whose only sector is Bastion, is refused at sign-in naming the rule; the
+// navigator, through the fleet's directory on no manifest, is created at his first
+// sign-in seated at Cinder.
 //
 // Nobody types a directory in. The governor, signed in with a password, is told by the
 // session read that he came through no directory, and his call is refused with how a
 // directory is set, as is a request that types a method and a connection. A caller who
 // holds no grant on the record is refused by the grants, as on any record, before a
-// rule answers. The
-// navigator, a marshal signed in through the fleet's Workspace, is refused a second
-// sector for it and refused setting it again where it is, each with what to do; once
-// Cinder's is removed the Workspace is free, and he makes it Bastion's with a create
-// that names no directory. Bastion is directory only, so its directory is not removed
-// until headquarters opens it to passwords. The default role is the row's: with none
-// named, a stranger from the fleet's directory is refused by invitation only and no
-// account is created; with SectorCrew named on Bastion's row, the same stranger's next
-// sign-in creates her seated there, and her directory session enters the sector a
-// password does not reach. The roles a directory gave stand once it is removed. Every
-// edit leaves a change event. The directory sign-in sets a process variable, so the
-// test does not run in parallel with the other directory sign-ins (simulatedLogin).
+// rule answers. The navigator, made a marshal in every sector, enters every sector that
+// is not directory only however he signed in, Anvil among them though the fleet's
+// Workspace is Cinder's, and Bastion is closed to him: its directory is not the one he
+// came through. He is refused a second sector for the Workspace and refused setting it
+// again where it is, and a super administrator, he is refused a second directory for
+// Bastion, each with what to do; once Cinder's is removed the Workspace is free, and
+// he makes it Anvil's with a create that names no directory. Bastion is directory
+// only, so its directory is not removed until headquarters turns directory only off,
+// which is plain; turned off, the rigger enters Bastion and the bosun signs in, the
+// directory comes off, and Bastion, with no directory, cannot be made directory only
+// again. The default role is the row's: with none named, a stranger from the fleet's
+// directory is refused by invitation only and no account is created; with SectorCrew
+// named on Anvil's row, the same stranger's next sign-in creates her seated there. The
+// roles a directory gave stand once it is removed. Every edit leaves a change event.
+// The directory sign-in sets a process variable, so the test does not run in parallel
+// with the other directory sign-ins (simulatedLogin). The rules of turning directory
+// only on, and what it does to the people it keeps out, are
+// TestDirectoryOnly_theSwitchIsHeldToItsRules's.
 //
 // Demonstrates: tenancy.declaration, tenancy.directory-only, tenancy.default-seat.
 func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
@@ -51,12 +61,17 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 	governor := newBrowser(t, s, consoleAPI)
 	governor.signIn(ctx, "governor")
 
-	// The rigger: a password session, admitted since Anvil admits passwords; Bastion,
-	// directory only, is not hers to enter.
+	// The rigger: a password session, admitted since Anvil is not directory only;
+	// Bastion, directory only, is not hers to enter, and since she holds a seat in it
+	// her chart names it closed, with the reason.
 	rigger := newBrowser(t, s, consoleAPI)
 	rigger.signIn(ctx, "rigger")
 	if got, want := rigger.domains(ctx), []string{anvil}; !slices.Equal(got, want) {
 		t.Errorf("the rigger's chart = %v, want %v: Bastion admits its people through its directory only", got, want)
+	}
+	byPassword := map[string]string{bastion: "Bastion admits only people who sign in through its own directory. You signed in with a password."}
+	if got := rigger.closed(ctx); !maps.Equal(got, byPassword) {
+		t.Errorf("the sectors the rigger's chart names closed = %v, want %v", got, byPassword)
 	}
 	if status, body := rigger.do(ctx, http.MethodGet, sectorPath(bastion, "wings"), nil); status != http.StatusNotFound {
 		t.Errorf("GET Bastion's wings as the rigger: status %d, want 404: %s", status, body)
@@ -81,15 +96,19 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 		t.Errorf("the bosun's refusal code = %q (err %v), want %q: %s", refusal.Code, err, sessioninfo.RefusedDirectoryOnly, body)
 	}
 
-	// The seed: the fleet's directory is Cinder's alone, and Anvil and Bastion have none.
+	// The seed: the fleet's directory is Cinder's alone, Bastion's is the persona
+	// provider, with no default role, and Anvil has none.
 	cinderRows := directories(ctx, t, governor, cinder)
 	if len(cinderRows) != 1 || cinderRows[0].Method != string(sessioninfo.MethodGoogle) || cinderRows[0].Connection != "example" || cinderRows[0].DefaultSeat == nil || *cinderRows[0].DefaultSeat != "SectorCrew" {
 		t.Fatalf("Cinder's directory = %+v, want the seeded fleet directory naming SectorCrew as its default role", cinderRows)
 	}
-	for name, sector := range map[string]string{"Anvil": anvil, "Bastion": bastion} {
-		if rows := directories(ctx, t, governor, sector); len(rows) != 0 {
-			t.Fatalf("%s's directory = %+v, want none: a directory belongs to one sector", name, rows)
-		}
+	bastionRows := directories(ctx, t, governor, bastion)
+	if len(bastionRows) != 1 || bastionRows[0].Method != string(sessioninfo.MethodOIDC) || bastionRows[0].Connection != crew.PersonaRegistration || bastionRows[0].DefaultSeat != nil {
+		t.Fatalf("Bastion's directory = %+v, want the seeded persona provider with no default role", bastionRows)
+	}
+	bastionRow := "/sectors/" + bastion + "/sector-directories/" + bastionRows[0].ID
+	if rows := directories(ctx, t, governor, anvil); len(rows) != 0 {
+		t.Fatalf("Anvil's directory = %+v, want none: a directory belongs to one sector", rows)
 	}
 
 	// The navigator: through the fleet's directory, on no manifest. The crew's roles are
@@ -143,19 +162,44 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 		t.Errorf("setting Anvil's directory as the rigger, who holds no grant on the record: status %d, want 403: %s", status, body)
 	}
 
-	// The navigator is made a marshal in every sector, which is no way into a sector
-	// that does not admit his session, and then a super administrator, by the governor,
-	// who is one: a sector with no directory admits no directory session, and a super
-	// administrator alone enters a sector whatever its sign-in settings say, so it is
-	// one who sets a sector's first directory once the sector exists.
+	// The navigator is made a marshal in every sector. A sector's sign-in settings
+	// restrict its own door alone: Anvil, which is not directory only, admits him
+	// however he signed in, though the fleet's Workspace is Cinder's directory and not
+	// its own; Bastion, directory only, is closed to a session that came through
+	// another sector's directory, and his chart says so.
 	navigatorID := crewAccountID(ctx, t, governor, navigatorUser)
 	marshalEverywhere := map[string]any{"userId": navigatorID, "role": "SectorMarshal", "everyDomain": true}
 	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), jsonBody(t, marshalEverywhere)); status != http.StatusNoContent {
 		t.Fatalf("making the navigator a marshal in every sector: status %d: %s", status, body)
 	}
-	if got, want := navigator.domains(ctx), []string{cinder}; !slices.Equal(got, want) {
-		t.Fatalf("the navigator's chart as a marshal in every sector = %v, want %v: nobody but a super administrator is exempt from a sector's declaration", got, want)
+	if got, want := navigator.domains(ctx), []string{anvil, cinder}; !slices.Equal(got, want) {
+		t.Fatalf("the navigator's chart as a marshal in every sector = %v, want %v: every sector that is not directory only admits him however he signed in", got, want)
 	}
+	throughTheWorkspace := map[string]string{bastion: "Bastion admits only people who sign in through its own directory. You signed in through Google Workspace example."}
+	if got := navigator.closed(ctx); !maps.Equal(got, throughTheWorkspace) {
+		t.Fatalf("the sectors the navigator's chart names closed = %v, want %v", got, throughTheWorkspace)
+	}
+	if status, body := navigator.do(ctx, http.MethodGet, sectorPath(bastion, "wings"), nil); status != http.StatusNotFound {
+		t.Errorf("GET Bastion's wings as the navigator, a marshal in every sector: status %d, want 404: %s", status, body)
+	}
+
+	// A sector has one directory, and a directory belongs to one sector: the fleet's
+	// Workspace is Cinder's, so setting it again there, and setting it on Anvil, are
+	// each refused with the rule and what to do.
+	if status, body := navigator.do(ctx, http.MethodPatch, consoleAPI+"/resources", makeDirectoryOf(cinder)); status != http.StatusConflict || !strings.Contains(string(body), "Google Workspace example is already this sector's directory.") {
+		t.Errorf("setting Cinder's directory a second time: status %d, want 409 saying it is the sector's already: %s", status, body)
+	}
+	status, body = navigator.do(ctx, http.MethodPatch, consoleAPI+"/resources", makeDirectoryOf(anvil))
+	if want := "Google Workspace example already has a sector here, and a directory belongs to one sector. Ask that sector's administrator to invite you."; status != http.StatusConflict || !strings.Contains(string(body), want) {
+		t.Errorf("setting Cinder's directory on Anvil: status %d, want 409 saying %q: %s", status, want, body)
+	}
+	if rows := directories(ctx, t, governor, anvil); len(rows) != 0 {
+		t.Errorf("Anvil's directory after the refusal = %+v, want none", rows)
+	}
+
+	// One person is exempt from a sector's sign-in settings, a super administrator,
+	// which the governor, who is one, makes the navigator: his chart lights Bastion.
+	// Bastion has its directory, so a second is refused, naming the one it has.
 	superAdministrator := map[string]any{"userId": navigatorID, "role": "SuperAdministrator"}
 	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), jsonBody(t, superAdministrator)); status != http.StatusNoContent {
 		t.Fatalf("making the navigator a super administrator: status %d: %s", status, body)
@@ -163,26 +207,20 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 	if got, want := navigator.domains(ctx), []string{anvil, bastion, cinder}; !slices.Equal(got, want) {
 		t.Fatalf("the navigator's chart as a super administrator = %v, want %v", got, want)
 	}
-
-	// A sector has one directory, and a directory belongs to one sector: the fleet's
-	// Workspace is Cinder's, so setting it again there, and setting it on Anvil or on
-	// Bastion, are each refused with the rule and what to do.
-	if status, body := navigator.do(ctx, http.MethodPatch, consoleAPI+"/resources", makeDirectoryOf(cinder)); status != http.StatusConflict || !strings.Contains(string(body), "Google Workspace example is already this sector's directory.") {
-		t.Errorf("setting Cinder's directory a second time: status %d, want 409 saying it is the sector's already: %s", status, body)
+	if got := navigator.closed(ctx); len(got) != 0 {
+		t.Errorf("the sectors a super administrator's chart names closed = %v, want none", got)
 	}
-	for name, sector := range map[string]string{"Anvil": anvil, "Bastion": bastion} {
-		status, body := navigator.do(ctx, http.MethodPatch, consoleAPI+"/resources", makeDirectoryOf(sector))
-		if want := "Google Workspace example already has a sector here, and a directory belongs to one sector. Ask that sector's administrator to invite you."; status != http.StatusConflict || !strings.Contains(string(body), want) {
-			t.Errorf("setting Cinder's directory on %s: status %d, want 409 saying %q: %s", name, status, want, body)
-		}
-		if rows := directories(ctx, t, governor, sector); len(rows) != 0 {
-			t.Errorf("%s's directory after the refusal = %+v, want none", name, rows)
-		}
+	status, body = navigator.do(ctx, http.MethodPatch, consoleAPI+"/resources", makeDirectoryOf(bastion))
+	if want := "This sector already has a directory, OpenID Connect provider persona. A sector has one directory: remove it first to set another."; status != http.StatusConflict || !strings.Contains(string(body), want) {
+		t.Errorf("setting a second directory on Bastion: status %d, want 409 saying %q: %s", status, want, body)
+	}
+	if rows := directories(ctx, t, governor, bastion); len(rows) != 1 || rows[0].ID != bastionRows[0].ID {
+		t.Errorf("Bastion's directory after the refusal = %+v, want the one it had", rows)
 	}
 
 	// Cinder's directory is removed: the role it gave the navigator stands, and the
-	// Workspace is free for another sector. The navigator makes it Bastion's, and the
-	// row carries the directory his session came through, which the request never named.
+	// Workspace is free for another sector. The navigator makes it Anvil's, and the row
+	// carries the directory his session came through, which the request never named.
 	removeCinders := `[{"op":"remove","path":"/sectors/` + cinder + `/sector-directories/` + cinderRows[0].ID + `"}]`
 	if status, body := navigator.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(removeCinders)); status != http.StatusOK {
 		t.Fatalf("removing Cinder's directory: status %d: %s", status, body)
@@ -190,14 +228,14 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 	if held := rolesHeldInSector(ctx, t, governor, cinder, navigatorUser); !slices.Contains(held, "SectorCrew") {
 		t.Errorf("the navigator's roles at Cinder once its directory is removed = %v, want SectorCrew to stand", held)
 	}
-	if status, body := navigator.do(ctx, http.MethodPatch, consoleAPI+"/resources", makeDirectoryOf(bastion)); status != http.StatusOK {
-		t.Fatalf("making the fleet's Workspace Bastion's directory: status %d: %s", status, body)
+	if status, body := navigator.do(ctx, http.MethodPatch, consoleAPI+"/resources", makeDirectoryOf(anvil)); status != http.StatusOK {
+		t.Fatalf("making the fleet's Workspace Anvil's directory: status %d: %s", status, body)
 	}
-	bastionRows := directories(ctx, t, governor, bastion)
-	if len(bastionRows) != 1 || bastionRows[0].Method != string(sessioninfo.MethodGoogle) || bastionRows[0].Connection != "example" || bastionRows[0].DefaultSeat != nil {
-		t.Fatalf("Bastion's directory = %+v, want the fleet's Workspace the navigator is signed in through, with no default role", bastionRows)
+	anvilRows := directories(ctx, t, governor, anvil)
+	if len(anvilRows) != 1 || anvilRows[0].Method != string(sessioninfo.MethodGoogle) || anvilRows[0].Connection != "example" || anvilRows[0].DefaultSeat != nil {
+		t.Fatalf("Anvil's directory = %+v, want the fleet's Workspace the navigator is signed in through, with no default role", anvilRows)
 	}
-	bastionRow := "/sectors/" + bastion + "/sector-directories/" + bastionRows[0].ID
+	anvilRow := "/sectors/" + anvil + "/sector-directories/" + anvilRows[0].ID
 
 	// Bastion is directory only: its people enter through its directory alone, so the
 	// directory is not removed, and the refusal says to turn directory only off first.
@@ -209,7 +247,7 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 	}
 
 	// The default role is the row's, set under Update on SectorDirectories, which the
-	// governor holds as marshal in every sector. Bastion's row names none, and no other
+	// governor holds as marshal in every sector. Anvil's row names none, and no other
 	// sector has the directory, so a stranger from the fleet's directory is refused by
 	// invitation only: the browser lands on the login page with the code, no session
 	// opens, and no account is created.
@@ -228,65 +266,69 @@ func TestTenantDeclaration_whoMayEnterASector(t *testing.T) {
 		t.Errorf("the drifter's account after the refusal = %v, want none created", row)
 	}
 
-	// Bastion's row names SectorCrew, and the drifter's next sign-in creates her seated
-	// there. Her session came through Bastion's directory, so it enters the sector a
-	// password does not reach: her chart lights Bastion, and the rigger's still does not.
-	nameSeat := `[{"op":"patch","path":"` + bastionRow + `","value":{"defaultSeat":"SectorCrew"}}]`
+	// Anvil's row names SectorCrew, and the drifter's next sign-in creates her seated
+	// there: her chart lights Anvil, the sector whose directory she came through.
+	nameSeat := `[{"op":"patch","path":"` + anvilRow + `","value":{"defaultSeat":"SectorCrew"}}]`
 	if status, body := governor.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(nameSeat)); status != http.StatusOK {
-		t.Fatalf("naming Bastion's default role: status %d: %s", status, body)
+		t.Fatalf("naming Anvil's default role: status %d: %s", status, body)
 	}
 	if status, location := drifter.loginConsoleGoogle(ctx, drifterUser); status != http.StatusFound || location != consolePage {
-		t.Fatalf("the drifter's Google login once Bastion's row names a default role: status %d to %q, want %d to %q", status, location, http.StatusFound, consolePage)
+		t.Fatalf("the drifter's Google login once Anvil's row names a default role: status %d to %q, want %d to %q", status, location, http.StatusFound, consolePage)
 	}
-	if got, want := drifter.domains(ctx), []string{bastion}; !slices.Equal(got, want) {
-		t.Errorf("the drifter's chart = %v, want %v: Bastion's row seats her, and her session came through its directory", got, want)
+	if got, want := drifter.domains(ctx), []string{anvil}; !slices.Equal(got, want) {
+		t.Errorf("the drifter's chart = %v, want %v: Anvil's row seats her", got, want)
 	}
-	if held := rolesHeldInSector(ctx, t, governor, bastion, drifterUser); !slices.Equal(held, []string{"SectorCrew"}) {
-		t.Errorf("the drifter's roles at Bastion = %v, want SectorCrew alone, given by the directory's default role", held)
+	if held := rolesHeldInSector(ctx, t, governor, anvil, drifterUser); !slices.Equal(held, []string{"SectorCrew"}) {
+		t.Errorf("the drifter's roles at Anvil = %v, want SectorCrew alone, given by the directory's default role", held)
 	}
-	if got, want := rigger.domains(ctx), []string{anvil}; !slices.Equal(got, want) {
-		t.Errorf("the rigger's chart with Bastion still directory only = %v, want %v", got, want)
-	}
-	// The drifter reaches Bastion and holds no Delete on the record: her removal is
-	// refused by her grants, as on any record, and not by the rule, whose sentence
-	// would tell her Bastion is directory only.
-	if status, body := drifter.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"`+bastionRow+`"}]`)); status != http.StatusForbidden || strings.Contains(string(body), "directory only") {
-		t.Errorf("removing Bastion's directory as the drifter, who holds no grant on the record: status %d, want 403 that says nothing of the rule: %s", status, body)
+	// The drifter reaches Anvil and holds no Delete on the record: her removal is
+	// refused by her grants, as on any record.
+	if status, body := drifter.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"`+anvilRow+`"}]`)); status != http.StatusForbidden {
+		t.Errorf("removing Anvil's directory as the drifter, who holds no grant on the record: status %d, want 403: %s", status, body)
 	}
 	// Cleared with an explicit null, the way the Sign-in page clears it, the row names
 	// no default role again.
-	clearSeat := `[{"op":"patch","path":"` + bastionRow + `","value":{"defaultSeat":null}}]`
+	clearSeat := `[{"op":"patch","path":"` + anvilRow + `","value":{"defaultSeat":null}}]`
 	if status, body := governor.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(clearSeat)); status != http.StatusOK {
-		t.Fatalf("clearing Bastion's default role: status %d: %s", status, body)
+		t.Fatalf("clearing Anvil's default role: status %d: %s", status, body)
 	}
-	if rows := directories(ctx, t, governor, bastion); len(rows) != 1 || rows[0].DefaultSeat != nil {
-		t.Fatalf("Bastion's directory once the default role is cleared = %+v, want the row with none", rows)
+	if rows := directories(ctx, t, governor, anvil); len(rows) != 1 || rows[0].DefaultSeat != nil {
+		t.Fatalf("Anvil's directory once the default role is cleared = %+v, want the row with none", rows)
 	}
 
-	// Headquarters opens Bastion to passwords: the rigger's chart lights it and the
-	// bosun signs in. The directory may be removed now, and the role it gave the drifter
-	// stands.
+	// Headquarters turns Bastion's directory only off, which is plain: the governor,
+	// signed in with a password, does it. The rigger's chart lights Bastion, with
+	// nothing closed, and the bosun signs in. The directory may be removed now.
 	openBastion := `[{"op":"patch","path":"/sectors/` + bastion + `","value":{"directoryOnly":false}}]`
 	if status, body := governor.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(openBastion)); status != http.StatusOK {
-		t.Fatalf("opening Bastion to passwords: status %d: %s", status, body)
+		t.Fatalf("turning Bastion's directory only off: status %d: %s", status, body)
 	}
 	if got, want := rigger.domains(ctx), []string{anvil, bastion}; !slices.Equal(got, want) {
-		t.Errorf("the rigger's chart once Bastion admits passwords = %v, want %v", got, want)
+		t.Errorf("the rigger's chart once Bastion is not directory only = %v, want %v", got, want)
+	}
+	if got := rigger.closed(ctx); len(got) != 0 {
+		t.Errorf("the sectors the rigger's chart names closed once Bastion is not directory only = %v, want none", got)
 	}
 	if status, body := bosun.login(ctx, "bosun", personaPassword); status != http.StatusOK {
-		t.Errorf("the bosun's password sign-in once Bastion admits passwords: status %d, want 200: %s", status, body)
+		t.Errorf("the bosun's password sign-in once Bastion is not directory only: status %d, want 200: %s", status, body)
 	}
 	if status, body := navigator.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"remove","path":"`+bastionRow+`"}]`)); status != http.StatusOK {
-		t.Errorf("removing Bastion's directory once it admits passwords: status %d: %s", status, body)
+		t.Errorf("removing Bastion's directory once it is not directory only: status %d: %s", status, body)
 	}
-	if held := rolesHeldInSector(ctx, t, governor, bastion, drifterUser); !slices.Equal(held, []string{"SectorCrew"}) {
-		t.Errorf("the drifter's roles at Bastion once its directory is removed = %v, want the role it gave to stand", held)
+	// With no directory there is nothing to be only of: turning directory only on is
+	// refused, saying what to do first, and Bastion stays as it is.
+	closeBastion := `[{"op":"patch","path":"/sectors/` + bastion + `","value":{"directoryOnly":true}}]`
+	if status, body := governor.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(closeBastion)); status != http.StatusConflict || !strings.Contains(string(body), "This sector has no directory, so it cannot be directory only: nobody could enter it. Set its directory first") {
+		t.Errorf("turning directory only on for a sector with no directory: status %d, want 409 saying to set its directory first: %s", status, body)
+	}
+	if got, want := rigger.domains(ctx), []string{anvil, bastion}; !slices.Equal(got, want) {
+		t.Errorf("the rigger's chart after the refusal = %v, want %v: nothing was written", got, want)
 	}
 
 	// Every edit is audited: the records' change events carry the declaration's writes.
 	events := changeEvents(ctx, t, s, "Sectors", "SectorDirectories")
-	if events["Sectors"] < 1 || events["SectorDirectories"] < 5 {
-		t.Errorf("change events = %v, want the flag write on Sectors and the two removals, the setting and the two default role writes on SectorDirectories", events)
+	if events["Sectors"] != 1 || events["SectorDirectories"] < 5 {
+		t.Errorf("change events = %v, want the one flag write on Sectors, the refused one leaving none, and the two removals, the setting and the two default role writes on SectorDirectories", events)
 	}
 }
 
@@ -316,7 +358,7 @@ func sessionDirectory(t *testing.T, sess map[string]any) *directoryOfSession {
 }
 
 // drifterUser is a stranger from the fleet's directory on no manifest, whom no row seats
-// until Bastion's names a default role.
+// until Anvil's names a default role.
 const drifterUser = "drifter"
 
 // sectorDirectory is a row of the directories record as the console lists it.

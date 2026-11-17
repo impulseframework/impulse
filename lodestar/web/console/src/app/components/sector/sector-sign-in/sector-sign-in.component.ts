@@ -1,13 +1,15 @@
 import { Component, computed, inject, input, resource, signal } from '@angular/core';
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
+import { MatDialog } from '@angular/material/dialog';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { injectApi } from '@app/api/api';
 import { Permissions, Resources } from '@app/service/zz_gen_constants';
 import { CrewSectorRoles, SectorDirectories, Sectors } from '@app/service/zz_gen_resources';
-import { Domain, Permission } from '@impulseframework/resource';
+import { DirectoryOnlyConsequence, directoryOnlyConsequence, Domain, Permission } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
+import { askInDialog } from '@impulseframework/resource-angular/dialogs';
 import { storeSignal } from '@impulseframework/resource-angular/resource-client';
 
 /**
@@ -19,14 +21,29 @@ export const directoryKinds: Readonly<Record<string, string>> = {
   google: 'Google Workspace',
   azure: 'Microsoft Entra tenant',
   workos: 'WorkOS connection',
+  oidc: 'OpenID Connect provider',
 };
+
+/**
+ * What the confirmation of directory only says: the server's sentence, then the people
+ * it names, each by their name where the account holds one. The words are the server's;
+ * the page adds only the list.
+ */
+export function consequenceWords(consequence: DirectoryOnlyConsequence): string {
+  const people = consequence.people.map((person) =>
+    person.name ? `${person.name} (${person.username})` : person.username,
+  );
+  return people.length === 0 ? consequence.sentence : `${consequence.sentence} They are: ${people.join(', ')}.`;
+}
 
 /**
  * The sector's sign-in page: who may enter the sector, as its declaration says. The
  * declaration is two things on the Sector record: the sector's directory (its row of
  * SectorDirectories: the organization its people sign in through, a sign-in method and
  * the connection its identities carry), and whether its people enter through it only
- * (the record's directory-only flag, which closes passwords).
+ * (the record's directory-only flag, which closes the sector to every sign-in but one
+ * through that directory, and closes nothing else: a person it keeps out still enters
+ * every other sector that seats them).
  *
  * A sector has one directory and a directory belongs to one sector, and nobody types
  * one in. It is set from a sign-in: a person who holds the sector's Create grant on
@@ -36,7 +53,10 @@ export const directoryKinds: Readonly<Record<string, string>> = {
  * account is offered no such action, and is told how a directory is set. The directory
  * is removed under the Delete grant, which the server refuses while the sector is
  * directory only. The flag is set under the Update grant on the global Sectors record,
- * headquarters'.
+ * headquarters'. The server allows turning it on only once the sector has its directory,
+ * and only to a person who is signed in through that directory themselves; before the
+ * page saves it, it asks the server what it would do and shows the server's sentence and
+ * the people it names for the person to confirm. Turning it off is a plain confirmation.
  *
  * The directory carries a default role, the role a person is given in the sector at
  * their first sign-in through it: the sector's marshal picks it from the sector's
@@ -56,6 +76,7 @@ export const directoryKinds: Readonly<Record<string, string>> = {
 export class SectorSignInComponent {
   private api = injectApi();
   private auth = inject(AuthService);
+  private dialog = inject(MatDialog);
   /**
    * The client's digest cache as a signal. The questions below read it, so they are asked
    * again when a digest loads: a page opened by its address asks before the sector's
@@ -183,11 +204,46 @@ export class SectorSignInComponent {
     });
   }
 
+  /**
+   * Turns directory only on or off, once the person confirms. Turning it on asks the
+   * server first what it would do, and the confirmation is the server's: its sentence,
+   * the people it names, and the words on the button. The server refuses a sector that
+   * has no directory and a person who is not signed in through the sector's directory,
+   * and its sentence is shown in place of a confirmation. Nothing is written until the
+   * person confirms.
+   */
   async close(directoryOnly: boolean): Promise<void> {
     await this.write(async () => {
+      const confirmed = directoryOnly ? await this.confirmOnly() : await this.confirmEverySignIn();
+      if (!confirmed) {
+        return;
+      }
       await this.api.sectors.patch([this.sectorID()], { directoryOnly });
       this.sector.reload();
     });
+  }
+
+  /** Asks the server what directory only would do to this sector, and the person whether to do it. */
+  private async confirmOnly(): Promise<boolean> {
+    const consequence = await directoryOnlyConsequence(this.api.request, this.sectorID() as Domain);
+    const name = this.sectorName();
+    const answer = await askInDialog(this.dialog, {
+      title: name ? `Make ${name} directory only?` : 'Turn directory only on?',
+      words: consequenceWords(consequence),
+      confirm: consequence.confirm,
+    });
+    return answer === true;
+  }
+
+  /** Asks the person whether this sector should admit every sign-in again. */
+  private async confirmEverySignIn(): Promise<boolean> {
+    const name = this.sectorName();
+    const answer = await askInDialog(this.dialog, {
+      title: name ? `Turn directory only off for ${name}?` : 'Turn directory only off?',
+      words: 'Everyone seated here will be able to enter again, however they sign in.',
+      confirm: 'Turn directory only off',
+    });
+    return answer === true;
   }
 
   private async write(act: () => Promise<void>): Promise<void> {
