@@ -92,19 +92,11 @@ type AuthMethodArg struct {
 	// Label is the label the declaration chains (.Labeled), or empty for the generation
 	// package's default.
 	Label string
-	// InvitedUsers is set when the declaration chains .InvitedUsers(): the directory
-	// admits only users an operator created.
-	InvitedUsers bool
 	// SyncsRoles is set when the declaration chains .SyncsRoles(): the directory writes
 	// the user's roles at every sign-in (its role groups, or the token's application
 	// roles), as the registration's RoleSync does, so the generated management shows them
 	// as the directory's and never writes them.
 	SyncsRoles bool
-	// OpenSignUp is set when the declaration chains .OpenSignUp(): the directory admits
-	// anyone it verifies, the rule a self-service tenant record needs; on the password
-	// method a stranger signs up from a link mailed to their address, and the router
-	// serves the sign-up routes.
-	OpenSignUp bool
 	// UsernameIsEmail is set when the declaration chains .UsernameIsEmail(): the
 	// password method's sign-in name is the person's email address, so the users
 	// surface derives the address from the username.
@@ -806,8 +798,8 @@ func exprText(expr ast.Expr) string {
 
 // readAuthMethod reads a sign-in method declaration: generation.PasswordMethod(), or
 // generation.GoogleMethod("name") and its kin with a string literal name, chained with
-// .Labeled("label"), .InvitedUsers(), .SyncsRoles(), .OpenSignUp() and .UsernameIsEmail()
-// or not. Anything else is not a declaration.
+// .Labeled("label"), .SyncsRoles() and .UsernameIsEmail() or not. Anything else is not a
+// declaration.
 func (r *reader) readAuthMethod(expr ast.Expr) (*AuthMethodArg, bool) {
 	call, label, flags, ok := splitChain(expr)
 	if !ok {
@@ -847,9 +839,7 @@ func (r *reader) readAuthMethod(expr ast.Expr) (*AuthMethodArg, bool) {
 		}
 		m.Label = text
 	}
-	m.InvitedUsers = flags[invitedUsersMethod]
 	m.SyncsRoles = flags[syncsRolesMethod]
-	m.OpenSignUp = flags[openSignUpMethod]
 	m.UsernameIsEmail = flags[usernameIsEmailMethod]
 
 	return m, true
@@ -857,8 +847,7 @@ func (r *reader) readAuthMethod(expr ast.Expr) (*AuthMethodArg, bool) {
 
 // splitChain separates the calls chained onto a method declaration from the declaration:
 // generation.GoogleMethod("x").Labeled("y").SyncsRoles() returns the GoogleMethod call,
-// the Labeled call and the flags chained (InvitedUsers, SyncsRoles, OpenSignUp,
-// UsernameIsEmail), in any order. An expression with nothing chained returns itself; a
+// the Labeled call and the flags chained (SyncsRoles, UsernameIsEmail), in any order. An expression with nothing chained returns itself; a
 // flag chained with arguments is not a declaration.
 func splitChain(expr ast.Expr) (declaration ast.Expr, label *ast.CallExpr, flags map[string]bool, ok bool) {
 	flags = map[string]bool{}
@@ -877,7 +866,7 @@ func splitChain(expr ast.Expr) (declaration ast.Expr, label *ast.CallExpr, flags
 		switch sel.Sel.Name {
 		case labeledMethod:
 			label = ce
-		case invitedUsersMethod, syncsRolesMethod, openSignUpMethod, usernameIsEmailMethod:
+		case syncsRolesMethod, usernameIsEmailMethod:
 			if len(ce.Args) != 0 {
 				return nil, nil, nil, false
 			}

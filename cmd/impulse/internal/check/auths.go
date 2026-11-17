@@ -332,11 +332,9 @@ func genericMethodNote(declared, registered string) string {
 // registers: a declaration the package does not register would mount routes to handlers
 // the App cannot supply, and a registration the outlet does not declare has routes
 // nowhere. The two must agree in name and method, and in the options the generated
-// management and the router read from the declaration: for the password method, a declaration
-// chaining .OpenSignUp() mounts the sign-up routes, which the registration serves only
-// with session.OpenSignUp(), and one chaining .UsernameIsEmail() has the management
-// derive the address from the username, which the registration does only with
-// session.UsernameIsEmail(); for a directory method, a declaration chaining .SyncsRoles()
+// management reads from the declaration: for the password method, a declaration chaining
+// .UsernameIsEmail() has the management derive the address from the username, which the
+// registration does only with session.UsernameIsEmail(); for a directory method, a declaration chaining .SyncsRoles()
 // has the management leave the person's roles to the directory, which is right only
 // where the registration's RoleSync writes them.
 func methodMismatches(o *app.Outlet, p *app.AuthPackage, auth *app.Auth) []string {
@@ -372,15 +370,9 @@ func methodMismatches(o *app.Outlet, p *app.AuthPackage, auth *app.Auth) []strin
 }
 
 // passwordMismatches compares the password method's declaration with its registration:
-// open sign-up and the username as the address are each said in both places or neither.
+// the username as the address is said in both places or neither.
 func passwordMismatches(o *app.Outlet, p *app.AuthPackage, declared *app.AuthMethodArg, registered *app.Method) []string {
 	var details []string
-	switch {
-	case declared.OpenSignUp && !registered.OpenSignUp:
-		details = append(details, fmt.Sprintf("%s: outlet %s declares the password method with .OpenSignUp() on the %s auth, but %s:%d registers it without session.OpenSignUp(); the generated router would mount sign-up routes the method refuses (register it with the option, or drop .OpenSignUp())", o.Pos, o.Name, p.Name, registered.File, registered.Line))
-	case !declared.OpenSignUp && registered.OpenSignUp:
-		details = append(details, fmt.Sprintf("%s:%d: the %s auth registers the password method with session.OpenSignUp(), but outlet %s (%s) does not declare .OpenSignUp(), so the sign-up routes are mounted nowhere and the login page offers no sign-up; chain .OpenSignUp() on the declaration", registered.File, registered.Line, p.Name, o.Name, o.Pos))
-	}
 	switch {
 	case declared.UsernameIsEmail && !registered.UsernameIsEmail:
 		details = append(details, fmt.Sprintf("%s: outlet %s declares the password method with .UsernameIsEmail() on the %s auth, but %s:%d registers it without session.UsernameIsEmail(); the generated management would derive the address from a username the method does not hold to one (register it with the option, or drop .UsernameIsEmail())", o.Pos, o.Name, p.Name, registered.File, registered.Line))

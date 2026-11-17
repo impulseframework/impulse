@@ -75,6 +75,9 @@ const (
 	DefaultPendingTable    = "SessionPendingSignIns"
 	DefaultAttemptsTable   = "SessionSignInAttempts"
 	DefaultMailLinksTable  = "SessionMailLinks"
+	// DefaultSignInMethodsTable is the table an administrator's choice for each sign-in
+	// method is kept in (open to sign-up, or invite only), which every sign-in reads.
+	DefaultSignInMethodsTable = "SessionSignInMethods"
 	// The tokens and device codes tables, read when a machine outlet names the Auth as
 	// the issuer of its tokens (Tokens in the generator program).
 	DefaultTokensTable      = "SessionTokens"
@@ -159,7 +162,7 @@ func parseAuths(rel string, src []byte) (auths []Auth, unattached []Method, err 
 					File: rel, Line: fset.Position(call.Pos()).Line, Var: assignedName(call, body),
 					SessionTable: DefaultSessionTable, UserTable: DefaultUserTable,
 					IdentitiesTable: DefaultIdentitiesTable, PendingTable: DefaultPendingTable,
-					AttemptsTable: DefaultAttemptsTable, MailLinksTable: DefaultMailLinksTable,
+					AttemptsTable: DefaultAttemptsTable, SignInMethodsTable: DefaultSignInMethodsTable, MailLinksTable: DefaultMailLinksTable,
 					TokensTable: DefaultTokensTable, DeviceCodesTable: DefaultDeviceCodesTable,
 					FactorCodesTable: DefaultFactorCodesTable, TrustedDevicesTable: DefaultTrustedDevicesTable, OptionsForwarded: call.Ellipsis.IsValid(),
 				}
@@ -183,8 +186,8 @@ func parseAuths(rel string, src []byte) (auths []Auth, unattached []Method, err 
 // (the first argument's identifier), its registration name (the second argument, a
 // literal or a constant of the file; the password method is always "password") and, for
 // a directory method, its authority from the configuration (the fourth argument), with
-// the tenant shape of a Microsoft registration; for the password method, the options
-// after the Auth (session.OpenSignUp(), session.UsernameIsEmail()).
+// the tenant shape of a Microsoft registration; for the password method, the option
+// after the Auth (session.UsernameIsEmail()).
 func readMethodCall(call *ast.CallExpr, kind, local, rel string, fset *token.FileSet, consts map[string]string, body *ast.BlockStmt, f *ast.File) Method {
 	m := Method{File: rel, Line: fset.Position(call.Pos()).Line, Kind: kind, Name: PasswordRegistration}
 	if len(call.Args) > 0 {
@@ -198,10 +201,7 @@ func readMethodCall(call *ast.CallExpr, kind, local, rel string, fset *token.Fil
 			if !ok {
 				continue
 			}
-			switch name, _ := qualifiedName(option.Fun, local); name {
-			case "OpenSignUp":
-				m.OpenSignUp = true
-			case "UsernameIsEmail":
+			if name, _ := qualifiedName(option.Fun, local); name == "UsernameIsEmail" {
 				m.UsernameIsEmail = true
 			}
 		}
@@ -578,6 +578,8 @@ func readAuthArg(auth *Auth, arg ast.Expr, pkg, storage string, consts map[strin
 				auth.PendingTable = s
 			case "WithSignInAttemptsTableName":
 				auth.AttemptsTable = s
+			case "WithSignInMethodsTableName":
+				auth.SignInMethodsTable = s
 			case "WithMailLinksTableName":
 				auth.MailLinksTable = s
 			case "WithTokensTableName":

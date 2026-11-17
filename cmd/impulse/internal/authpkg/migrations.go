@@ -19,9 +19,8 @@ const guidCheck = `r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 // Migrations renders the Auth session tables of an auth under its table prefix, for
 // Spanner, in the order they apply: the users first, since the sessions reference them,
 // then the sessions with the identities, auth events, pending sign-ins, sign-in attempts,
-// mail links, tokens, device codes, sign-in codes and trusted devices in one migration,
-// since a session set is one thing. The DDL is the
-// session library's base and auth schema sets (schema/spanner/migrations,
+// sign-in methods, mail links, tokens, device codes, sign-in codes and trusted devices in
+// one migration, since a session set is one thing. The DDL is the session library's base and auth schema sets (schema/spanner/migrations,
 // schema/spanner/auth/migrations) with the commit-timestamp options written inline. who
 // names the population for the comments. usernameIsEmail renders the users of a password
 // auth whose sign-in name is the address: the normalized address derives from the
@@ -167,8 +166,8 @@ CREATE INDEX %[1]sSessionIdentitiesByUserId ON %[1]sSessionIdentities(UserId) ST
 `, p, who, guidCheck) + eventsUp(p, who) + mailLinksUp(p, who) + tokensUp(p, who) + factorsUp(p, who)
 }
 
-// eventsUp creates the auth events, pending sign-ins and sign-in attempts tables, the
-// second part of the sessions migration; mailLinksUp follows it.
+// eventsUp creates the auth events, pending sign-ins, sign-in attempts and sign-in
+// methods tables, the second part of the sessions migration; mailLinksUp follows it.
 func eventsUp(p, who string) string {
 	return fmt.Sprintf(`CREATE TABLE %[1]sSessionAuthEvents (
     SessionId  STRING(36) NOT NULL,
@@ -232,6 +231,19 @@ CREATE TABLE %[1]sSessionSignInAttempts (
     WindowEndsAt TIMESTAMP NOT NULL,
     LockedUntil  TIMESTAMP,
     UpdatedAt    TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+) PRIMARY KEY (Name);
+
+-- The sign-in methods: what an administrator chose, in the running application, for one
+-- sign-in method of the auth, keyed by the name the method is registered under. OpenSignUp
+-- says the method admits a person who holds no account and no invitation; DefaultRole
+-- names the role such a person is given with their account, and holds nothing in an
+-- application whose people get their roles in a tenant. A method with no row is invite
+-- only, so the table starts empty and every method starts invite only.
+CREATE TABLE %[1]sSessionSignInMethods (
+    Name        STRING(MAX) NOT NULL,
+    OpenSignUp  BOOL NOT NULL,
+    DefaultRole STRING(MAX),
+    UpdatedAt   TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
 
 `, p, who, guidCheck)
@@ -417,6 +429,7 @@ func sessionsDown(p string) string {
 		"DROP INDEX %[1]sSessionMailLinksByKind;",
 		"DROP INDEX %[1]sSessionMailLinksByTokenHash;",
 		"DROP TABLE %[1]sSessionMailLinks;",
+		"DROP TABLE %[1]sSessionSignInMethods;",
 		"DROP TABLE %[1]sSessionSignInAttempts;",
 		"DROP INDEX %[1]sSessionPendingSignInsByExpiresAt;",
 		"DROP INDEX %[1]sSessionPendingSignInsByTokenHash;",

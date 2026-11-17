@@ -57,10 +57,12 @@ func (h *Handlers) DirectoryFrontChannelLogout() http.HandlerFunc {
 // The application is the authority for role membership (signin.DisableRoleSync): the
 // directory proves who someone is and the application decides what they may do, so a
 // sign-in neither reads nor changes the person's roles.
-// The account rule for an identity Microsoft verifies for the first time is the
-// library's standard one, members of the directory: the person becomes a user under their
-// user principal name, with no password, linked by the directory's immutable tenant and
-// object ids so a renamed account stays the same person.
+// A person Microsoft verifies for the first time, who has no account, needs an
+// invitation: the method is invite only until an administrator opens it to sign-up on
+// the application's Sign-in page, and anyone else is refused (not_invited). A person
+// admitted becomes a user under their user principal name, with no password, linked by
+// the directory's immutable tenant and object ids so a renamed account stays the same
+// person; a user created beforehand under that name is linked and signed in.
 func registerDirectory(authSession *Session, accessClient *access.Client, settings *Settings) (*azure.Method, error) {
 	tenants, err := directorySlot(settings)
 	if err != nil {
@@ -74,7 +76,6 @@ func registerDirectory(authSession *Session, accessClient *access.Client, settin
 		ClientSecret: settings.Directory.ClientSecret,
 		RedirectURL:  settings.Directory.RedirectURL,
 		RoleSync:     signin.DisableRoleSync(),
-		Accounts:     signin.MembersOfDirectory,
 		LoginURL:     settings.LoginURL,
 	}), nil
 }

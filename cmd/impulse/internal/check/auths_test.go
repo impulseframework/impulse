@@ -568,15 +568,14 @@ func TestAuthsWired(t *testing.T) {
 			},
 		},
 		{
-			name: "the program declares open sign-up the package does not register",
+			name: "the program declares the username as the address and the package does not register it",
 			files: with(without(), "cmd/generate/main.go", program("pkg/resources",
 				`generation.GenerateHandlers("app"),`,
 				`generation.GenerateRouter(),`,
-				`generation.GenerateRoutes("pkg/router", "api", generation.Auth("example.com/harbor/pkg/auth/staff", generation.PasswordMethod().OpenSignUp().UsernameIsEmail())),`,
+				`generation.GenerateRoutes("pkg/router", "api", generation.Auth("example.com/harbor/pkg/auth/staff", generation.PasswordMethod().UsernameIsEmail())),`,
 			)),
-			wantStatus: Fail, wantSummary: "2 auth wiring problem(s)",
+			wantStatus: Fail, wantSummary: "1 auth wiring problem(s)",
 			wantDetails: []string{
-				"cmd/generate/main.go:15: outlet default declares the password method with .OpenSignUp() on the staff auth, but pkg/auth/staff/staff.go:39 registers it without session.OpenSignUp(); the generated router would mount sign-up routes the method refuses (register it with the option, or drop .OpenSignUp())",
 				"cmd/generate/main.go:15: outlet default declares the password method with .UsernameIsEmail() on the staff auth, but pkg/auth/staff/staff.go:39 registers it without session.UsernameIsEmail(); the generated management would derive the address from a username the method does not hold to one (register it with the option, or drop .UsernameIsEmail())",
 			},
 		},

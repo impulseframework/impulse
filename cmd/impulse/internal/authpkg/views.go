@@ -24,10 +24,11 @@ type view struct {
 	Directory bool
 	// Application is the application's name as the auth's mail says it.
 	Application string
-	// OpenSignUp reports a password method whose strangers sign up from a mailed link,
-	// and UsernameIsEmail one whose sign-in name is the address, so a verified change
-	// of address renames the user; the roles are held by the account's id and stay.
-	OpenSignUp      bool
+	// Password reports an auth with the password method, whose strangers sign up from a
+	// mailed link while an administrator has the method open to sign-up, and
+	// UsernameIsEmail one whose sign-in name is the address, so a verified change of
+	// address renames the user; the roles are held by the account's id and stay.
+	Password        bool
 	UsernameIsEmail bool
 	// RolesSynced reports an auth with a registration whose directory writes the roles
 	// at every sign-in: the directory is the authority for everyone the auth holds, so
@@ -84,8 +85,6 @@ type methodView struct {
 	// place bedrock reads a Microsoft registration's tenant shape from.
 	SlotKind  string
 	SlotWords string
-	// AccountsExpr is the account rule as the Config takes it.
-	AccountsExpr string
 	// RoleSyncExpr is the role synchronization as the Config takes it.
 	RoleSyncExpr string
 	// Fields are the settings the method reads.
@@ -124,7 +123,7 @@ func newView(spec *Spec) *view {
 		if mv.Directory() {
 			v.Directory = true
 		} else {
-			v.OpenSignUp = v.OpenSignUp || mv.OpenSignUp()
+			v.Password = true
 			v.UsernameIsEmail = v.UsernameIsEmail || mv.UsernameIsEmail
 		}
 	}
@@ -258,14 +257,6 @@ func newMethodView(spec *Spec, m *Method) *methodView {
 	case app.MethodPersona:
 		personaView(mv)
 	}
-	switch m.accounts() {
-	case AccountsInvited:
-		mv.AccountsExpr = "signin.InvitedUsersOnly"
-	case AccountsOpen:
-		mv.AccountsExpr = "signin.OpenSignUp"
-	default:
-		mv.AccountsExpr = "signin.MembersOfDirectory"
-	}
 	mv.StdImports, mv.Imports = splitImports(mv.Imports)
 
 	return mv
@@ -391,7 +382,7 @@ func googleView(mv *methodView, m *Method, settings string) {
 	} else {
 		mv.RoleSyncExpr = "google.DisableRoleSync()"
 	}
-	mv.Imports = []string{netHTTP, "strings", accessImport, "github.com/impulseframework/impulse/session/google", signinImport}
+	mv.Imports = []string{netHTTP, "strings", accessImport, "github.com/impulseframework/impulse/session/google"}
 	if m.slot() == SlotListed {
 		mv.Imports = append(mv.Imports, "slices")
 	}

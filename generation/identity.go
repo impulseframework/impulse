@@ -76,6 +76,14 @@ type identityInstance struct {
 	// only until an administrator opens it, so its people may exist before their first
 	// sign-in, created by hand with no password.
 	invited bool
+	// createsTenant marks the auth whose people create a tenant of their own: the
+	// application has a tenant record, and the session outlets that serve the record
+	// are this auth's, so the create-your-tenant route seats the person who signed up
+	// through this auth's identity client (tenantCreationServes). Another auth of an
+	// application with tenants has nothing to give a person who signs up, neither a
+	// role of the whole application nor a tenant, so it carries no choice to open one
+	// of its methods.
+	createsTenant bool
 	// session and policy name the auth's tables: the session library's and the
 	// permission store's, each by the library's own rule for the prefix.
 	session session.Tables
@@ -342,6 +350,7 @@ func (r *resourceGenerator) prepareIdentity() error {
 	}
 	for _, inst := range instances {
 		inst.tenant = tenant
+		inst.createsTenant = r.identityCreatesTenant(inst)
 		if err := inst.refuseListNamesTaken(); err != nil {
 			return err
 		}

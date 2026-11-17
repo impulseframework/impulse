@@ -27,19 +27,19 @@ func smokeSpecs() []*Spec {
 			{Kind: app.MethodPassword},
 			{Kind: app.MethodAzure, Name: "entra-one", Authority: app.AuthorityDirectory},
 			{Kind: app.MethodAzure, Name: "entra-listed", Slot: SlotListed, Authority: app.AuthorityApplication},
-			{Kind: app.MethodAzure, Name: "entra-any-open", Slot: SlotAny, Accounts: AccountsOpen, Authority: app.AuthorityApplication},
-			{Kind: app.MethodAzure, Name: "entra-personal", Slot: SlotPersonal, Accounts: AccountsInvited, Authority: app.AuthorityApplication},
-			{Kind: app.MethodAzure, Name: "entra-one-personal", Slot: SlotOnePersonal, Accounts: AccountsInvited, Authority: app.AuthorityApplication},
-			{Kind: app.MethodAzure, Name: "entra-any-personal", Slot: SlotAnyPersonal, Accounts: AccountsOpen, Authority: app.AuthorityApplication},
+			{Kind: app.MethodAzure, Name: "entra-any-open", Slot: SlotAny, Authority: app.AuthorityApplication},
+			{Kind: app.MethodAzure, Name: "entra-personal", Slot: SlotPersonal, Authority: app.AuthorityApplication},
+			{Kind: app.MethodAzure, Name: "entra-one-personal", Slot: SlotOnePersonal, Authority: app.AuthorityApplication},
+			{Kind: app.MethodAzure, Name: "entra-any-personal", Slot: SlotAnyPersonal, Authority: app.AuthorityApplication},
 			{Kind: app.MethodGoogle, Name: "google-one", Authority: app.AuthorityDirectory},
-			{Kind: app.MethodGoogle, Name: "google-listed", Slot: SlotListed, Accounts: AccountsInvited, Authority: app.AuthorityApplication},
-			{Kind: app.MethodGoogle, Name: "google-anyws", Slot: SlotAnyWorkspace, Accounts: AccountsOpen, Authority: app.AuthorityApplication},
-			{Kind: app.MethodGoogle, Name: "google-any", Slot: SlotAny, Accounts: AccountsInvited, Authority: app.AuthorityApplication},
-			{Kind: app.MethodGoogle, Name: "google-mixed", Slot: SlotMixed, Accounts: AccountsOpen, Authority: app.AuthorityApplication},
+			{Kind: app.MethodGoogle, Name: "google-listed", Slot: SlotListed, Authority: app.AuthorityApplication},
+			{Kind: app.MethodGoogle, Name: "google-anyws", Slot: SlotAnyWorkspace, Authority: app.AuthorityApplication},
+			{Kind: app.MethodGoogle, Name: "google-any", Slot: SlotAny, Authority: app.AuthorityApplication},
+			{Kind: app.MethodGoogle, Name: "google-mixed", Slot: SlotMixed, Authority: app.AuthorityApplication},
 		}},
 		{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "tenants", Doc: "the people of the tenants", Methods: []Method{
 			{Kind: app.MethodPassword},
-			{Kind: app.MethodGoogle, Name: "google", Slot: SlotAny, Accounts: AccountsOpen, Authority: app.AuthorityApplication},
+			{Kind: app.MethodGoogle, Name: "google", Slot: SlotAny, Authority: app.AuthorityApplication},
 		}, TenantPolicy: &TenantPolicy{Record: "Tenant", Reader: "app.NewTenantDeclarationReader", AdmitWithoutTenant: true}},
 		{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "closed", Methods: []Method{
 			{Kind: app.MethodAzure, Name: "directory", Authority: app.AuthorityApplication},
@@ -50,7 +50,7 @@ func smokeSpecs() []*Spec {
 		}},
 		{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "partners", Doc: "the people of a partner organization, who sign in through its identity provider beside the invited", Methods: []Method{
 			{Kind: app.MethodPassword},
-			{Kind: app.MethodOIDC, Name: "okta", Accounts: AccountsInvited, Authority: app.AuthorityApplication},
+			{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityApplication},
 			{Kind: app.MethodOIDC, Name: "keycloak", Authority: app.AuthorityApplication},
 			{Kind: app.MethodPersona},
 		}},
@@ -200,7 +200,7 @@ func TestFiles_castRefusesTheFirstAdministratorsName(t *testing.T) {
 			{Kind: app.MethodPersona},
 		}}},
 		{name: "no password first administrator", want: false, spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "reviewers", Methods: []Method{
-			{Kind: app.MethodOIDC, Name: "okta", Accounts: AccountsInvited, Authority: app.AuthorityApplication},
+			{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityApplication},
 			{Kind: app.MethodPersona},
 		}}},
 	}
@@ -316,30 +316,24 @@ func TestValidate(t *testing.T) {
 		wantErr string
 	}{
 		{name: "password takes no slot", method: Method{Kind: app.MethodPassword, Slot: SlotAny}, wantErr: "takes no slot"},
-		{name: "password takes open sign-up", method: Method{Kind: app.MethodPassword, Accounts: AccountsOpen, UsernameIsEmail: true}},
-		{name: "password takes no invited rule", method: Method{Kind: app.MethodPassword, Accounts: AccountsInvited}, wantErr: "the password method takes open"},
 		{name: "username-is-email on a directory method", method: Method{Kind: app.MethodGoogle, Name: "x", Authority: app.AuthorityApplication, UsernameIsEmail: true}, wantErr: "username-is-email describes the password method"},
-		{name: "open sign-up needs an open slot", method: Method{Kind: app.MethodAzure, Name: "x", Accounts: AccountsOpen, Authority: app.AuthorityApplication}, wantErr: "open sign-up is for any organization"},
-		{name: "members with any tenant", method: Method{Kind: app.MethodAzure, Name: "x", Slot: SlotAny, Authority: app.AuthorityApplication}, wantErr: "sign up the world"},
 		{name: "role sync beyond one tenant", method: Method{Kind: app.MethodAzure, Name: "x", Slot: SlotListed, Authority: app.AuthorityDirectory}, wantErr: "role synchronization follows one tenant"},
 		{name: "google slot on azure", method: Method{Kind: app.MethodAzure, Name: "x", Slot: SlotMixed, Authority: app.AuthorityApplication}, wantErr: "a azure method takes"},
 		{name: "authority required", method: Method{Kind: app.MethodGoogle, Name: "x"}, wantErr: "authority"},
 		{name: "bad registration name", method: Method{Kind: app.MethodGoogle, Name: "Dir", Authority: app.AuthorityApplication}, wantErr: "registration"},
 		{name: "persona takes no slot", method: Method{Kind: app.MethodPersona, Name: "persona", Slot: SlotAny}, wantErr: "the persona method takes no slot"},
 		{name: "persona under the directory authority", method: Method{Kind: app.MethodPersona, Name: "persona", Authority: app.AuthorityDirectory}, wantErr: "the persona method takes the application authority alone"},
-		{name: "persona admitting open sign-up", method: Method{Kind: app.MethodPersona, Name: "persona", Accounts: AccountsOpen}, wantErr: "the persona method admits invited users only"},
 		{name: "persona with username-is-email", method: Method{Kind: app.MethodPersona, Name: "persona", UsernameIsEmail: true}, wantErr: "a persona signs in as the login its cast names"},
 		{name: "persona named password", method: Method{Kind: app.MethodPersona, Name: "password"}, wantErr: "is the password method's registration name"},
 		{name: "persona with nothing but its name", method: Method{Kind: app.MethodPersona, Name: "persona"}},
-		{name: "persona under the application authority, invited", method: Method{Kind: app.MethodPersona, Name: "reviewers", Authority: app.AuthorityApplication, Accounts: AccountsInvited}},
+		{name: "persona under the application authority", method: Method{Kind: app.MethodPersona, Name: "reviewers", Authority: app.AuthorityApplication}},
 		{name: "an identity provider without a name", method: Method{Kind: app.MethodOIDC, Authority: app.AuthorityApplication}, wantErr: "an identity provider's registration needs a name"},
 		{name: "an identity provider takes no slot", method: Method{Kind: app.MethodOIDC, Name: "okta", Slot: SlotOne, Authority: app.AuthorityApplication}, wantErr: "takes no slot: the provider is one organization's"},
 		{name: "an identity provider without an authority", method: Method{Kind: app.MethodOIDC, Name: "okta"}, wantErr: "authority"},
-		{name: "an identity provider admitting open sign-up", method: Method{Kind: app.MethodOIDC, Name: "okta", Accounts: AccountsOpen, Authority: app.AuthorityApplication}, wantErr: "open sign-up is for a method anyone can use"},
 		{name: "an identity provider with username-is-email", method: Method{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityApplication, UsernameIsEmail: true}, wantErr: "a provider's people sign in as the provider names them"},
 		{name: "an identity provider named password", method: Method{Kind: app.MethodOIDC, Name: "password", Authority: app.AuthorityApplication}, wantErr: "is the password method's registration name"},
 		{name: "an identity provider whose name is not a route segment", method: Method{Kind: app.MethodOIDC, Name: "Okta", Authority: app.AuthorityApplication}, wantErr: "registration"},
-		{name: "an identity provider under the application authority, invited", method: Method{Kind: app.MethodOIDC, Name: "okta", Accounts: AccountsInvited, Authority: app.AuthorityApplication}},
+		{name: "an identity provider under the application authority", method: Method{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityApplication}},
 		{name: "an identity provider whose token names the roles", method: Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory}},
 		{name: "a method impulse does not compose", method: Method{Kind: "ldap", Name: "ldap"}, wantErr: "password, azure, google, oidc or persona"},
 		{name: "fine", method: Method{Kind: app.MethodGoogle, Name: "directory", Authority: app.AuthorityDirectory}},
@@ -359,9 +353,10 @@ func TestValidate(t *testing.T) {
 }
 
 // TestDeclaration holds the declaration a generator program carries for a method to its
-// kind, registration name, account rule and authority: .InvitedUsers() under the
-// invited-users rule, .SyncsRoles() under the directory authority, .OpenSignUp() under
-// open sign-up, and .UsernameIsEmail() on the password method that takes it.
+// kind, registration name and authority: .SyncsRoles() under the directory authority,
+// and .UsernameIsEmail() on the password method that takes it. How wide a method is
+// chains nothing, since whether it admits a person with no invitation is chosen in the
+// running application.
 func TestDeclaration(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -371,19 +366,15 @@ func TestDeclaration(t *testing.T) {
 	}{
 		{name: "a Google Workspace whose groups write the roles", method: Method{Kind: app.MethodGoogle, Name: "directory", Authority: app.AuthorityDirectory}, want: `generation.GoogleMethod("directory").SyncsRoles()`},
 		{name: "a Google Workspace whose roles the application assigns", method: Method{Kind: app.MethodGoogle, Name: "directory", Authority: app.AuthorityApplication}, want: `generation.GoogleMethod("directory")`},
-		{name: "listed Workspaces admitting invited users", method: Method{Kind: app.MethodGoogle, Name: "listed", Slot: SlotListed, Accounts: AccountsInvited, Authority: app.AuthorityApplication}, want: `generation.GoogleMethod("listed").InvitedUsers()`},
-		{name: "any Google account under open sign-up", method: Method{Kind: app.MethodGoogle, Name: "sign-up", Slot: SlotAny, Accounts: AccountsOpen, Authority: app.AuthorityApplication}, want: `generation.GoogleMethod("sign-up").OpenSignUp()`},
-		{name: "one Workspace and any Google account, invited", method: Method{Kind: app.MethodGoogle, Name: "mixed", Slot: SlotMixed, Accounts: AccountsInvited, Authority: app.AuthorityApplication}, want: `generation.GoogleMethod("mixed").InvitedUsers()`},
+		{name: "any Google account, however wide", method: Method{Kind: app.MethodGoogle, Name: "sign-up", Slot: SlotAny, Authority: app.AuthorityApplication}, want: `generation.GoogleMethod("sign-up")`},
 		{name: "an Entra tenant whose application roles write the roles", method: Method{Kind: app.MethodAzure, Name: "entra", Authority: app.AuthorityDirectory}, want: `generation.AzureMethod("entra").SyncsRoles()`},
 		{name: "an Entra tenant whose roles the application assigns", method: Method{Kind: app.MethodAzure, Name: "entra", Authority: app.AuthorityApplication}, want: `generation.AzureMethod("entra")`},
-		{name: "an Entra tenant and personal accounts, invited", method: Method{Kind: app.MethodAzure, Name: "entra", Slot: SlotOnePersonal, Accounts: AccountsInvited, Authority: app.AuthorityApplication}, want: `generation.AzureMethod("entra").InvitedUsers()`},
-		{name: "any Entra tenant under open sign-up", method: Method{Kind: app.MethodAzure, Name: "entra", Slot: SlotAny, Accounts: AccountsOpen, Authority: app.AuthorityApplication}, want: `generation.AzureMethod("entra").OpenSignUp()`},
+		{name: "any Entra tenant, however wide", method: Method{Kind: app.MethodAzure, Name: "entra", Slot: SlotAny, Authority: app.AuthorityApplication}, want: `generation.AzureMethod("entra")`},
 		{name: "the password method", method: Method{Kind: app.MethodPassword, Name: app.PasswordRegistration}, want: `generation.PasswordMethod()`},
-		{name: "the password method signing strangers up by their address", method: Method{Kind: app.MethodPassword, Name: app.PasswordRegistration, Accounts: AccountsOpen, UsernameIsEmail: true}, want: `generation.PasswordMethod().OpenSignUp().UsernameIsEmail()`},
-		{name: "the persona method, whose personas are the invited users", method: Method{Kind: app.MethodPersona, Name: "persona"}, want: `generation.PersonaMethod("persona").InvitedUsers()`},
-		{name: "the persona method under another registration name", method: Method{Kind: app.MethodPersona, Name: "reviewers", Authority: app.AuthorityApplication, Accounts: AccountsInvited}, want: `generation.PersonaMethod("reviewers").InvitedUsers()`},
+		{name: "the password method whose sign-in name is the address", method: Method{Kind: app.MethodPassword, Name: app.PasswordRegistration, UsernameIsEmail: true}, want: `generation.PasswordMethod().UsernameIsEmail()`},
+		{name: "the persona method", method: Method{Kind: app.MethodPersona, Name: "persona"}, want: `generation.PersonaMethod("persona")`},
+		{name: "the persona method under another registration name", method: Method{Kind: app.MethodPersona, Name: "reviewers", Authority: app.AuthorityApplication}, want: `generation.PersonaMethod("reviewers")`},
 		{name: "an identity provider whose members the application gives roles", method: Method{Kind: app.MethodOIDC, Name: "okta", Authority: app.AuthorityApplication}, want: `generation.OIDCMethod("okta")`},
-		{name: "an identity provider admitting invited users", method: Method{Kind: app.MethodOIDC, Name: "okta", Accounts: AccountsInvited, Authority: app.AuthorityApplication}, want: `generation.OIDCMethod("okta").InvitedUsers()`},
 		{name: "an identity provider whose token names the roles", method: Method{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory}, want: `generation.OIDCMethod("company-sso").SyncsRoles()`},
 	}
 	for _, tt := range tests {
@@ -401,8 +392,8 @@ func TestDeclaration(t *testing.T) {
 
 // TestDeclarationMatchesMethodFile holds the declaration and the method file to the same
 // rule for every method of the smoke specs: the declaration chains .SyncsRoles() exactly
-// where the file registers the method with RoleSync, .InvitedUsers() exactly where it
-// admits invited users only, and .OpenSignUp() exactly where it admits open sign-up.
+// where the file registers the method with RoleSync. No method file names an account
+// rule: the registration takes none, and every method starts invite only.
 func TestDeclarationMatchesMethodFile(t *testing.T) {
 	t.Parallel()
 	for _, spec := range smokeSpecs() {
@@ -417,11 +408,10 @@ func TestDeclarationMatchesMethodFile(t *testing.T) {
 			if got, want := strings.Contains(file, ".RoleSync("), arg.SyncsRoles; got != want {
 				t.Errorf("%s/%s.go registers RoleSync = %v, and the declaration %s says SyncsRoles = %v", spec.Name, m.Name, got, m.Declaration(), want)
 			}
-			if got, want := strings.Contains(file, "signin.InvitedUsersOnly"), arg.InvitedUsers; got != want {
-				t.Errorf("%s/%s.go admits invited users only = %v, and the declaration %s says InvitedUsers = %v", spec.Name, m.Name, got, m.Declaration(), want)
-			}
-			if got, want := strings.Contains(file, "signin.OpenSignUp") || strings.Contains(file, "session.OpenSignUp()"), arg.OpenSignUp; got != want {
-				t.Errorf("%s/%s.go admits open sign-up = %v, and the declaration %s says OpenSignUp = %v", spec.Name, m.Name, got, m.Declaration(), want)
+			for _, retired := range []string{"Accounts:", "signin.InvitedUsersOnly", "signin.MembersOfDirectory", "signin.OpenSignUp", "session.OpenSignUp()"} {
+				if strings.Contains(file, retired) {
+					t.Errorf("%s/%s.go names %s: whether a method admits a person with no invitation is chosen in the running application, never in the method file", spec.Name, m.Name, retired)
+				}
 			}
 		}
 	}

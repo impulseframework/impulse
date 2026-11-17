@@ -139,11 +139,11 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 // Test_prepareIdentity_signUpWithTenants pins the part in an application with a tenant
 // record: a person who signs up creates a tenant of their own and holds no role of the
 // whole application, so opening a method names no default role and there is no list to
-// pick one from.
+// pick one from; and the one auth whose people create a tenant carries the choice.
 func Test_prepareIdentity_signUpWithTenants(t *testing.T) {
 	t.Chdir(t.TempDir())
 
-	r := identityFixtureGenerator(t, slices.Concat(crewEveryTable, membersIdentityTables)...)
+	r := identityFixtureGenerator(t, slices.Concat(crewEveryTable, membersIdentityTables, []string{"MembersSessionSignInMethods"})...)
 	r.resource = "pkg/resources"
 	r.tableMap["Ships"] = shipsTable()
 	writeResourcesPackage(t, "pkg/resources", map[string]string{"ships.go": shipTenantSource})
@@ -151,11 +151,17 @@ func Test_prepareIdentity_signUpWithTenants(t *testing.T) {
 		t.Fatalf("prepareIdentity() error = %v", err)
 	}
 
+	// The tenant record is served on the default outlet, the crew's: a person who signs
+	// up to the crew creates a ship of their own, so the crew carries the choice. The
+	// members sign in on the portal, where no ship is created, and the application
+	// assigns their roles in a ship: a person who signed up there would get nothing, so
+	// the members carry no choice, though their schema holds the table.
 	want := []string{
 		"crewidentity/crew_sign_in_methods.go",
 		"crewidentity/make_crew_invite_only.go",
 		"crewidentity/open_crew_sign_up.go",
 		"internal/crewresources/crew_session_sign_in_methods.go",
+		"internal/membersresources/members_session_sign_in_methods.go",
 	}
 	if diff := cmp.Diff(want, signUpFiles(t)); diff != "" {
 		t.Errorf("the sources of the sign-up part (-want +got):\n%s", diff)

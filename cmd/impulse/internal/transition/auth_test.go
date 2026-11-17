@@ -251,8 +251,8 @@ func TestAuthCommand(t *testing.T) {
 		want string
 	}{
 		{name: "password", auth: Auth{Name: "partners", Outlet: "default"}, want: "impulse add auth partners --outlet default"},
-		{name: "directory methods with their authority and account rule", auth: Auth{Name: "members", Methods: []authpkg.Method{{Kind: app.MethodPassword}, {Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication, Accounts: authpkg.AccountsInvited}}, Outlet: "portal"}, want: "impulse add auth members --method password --method google:workspace --authority application --accounts invited --outlet portal"},
-		{name: "the default account rule is not spelled", auth: Auth{Name: "members", Methods: []authpkg.Method{{Kind: app.MethodAzure, Name: "directory", Authority: AuthorityDirectory}}, Outlet: "portal"}, want: "impulse add auth members --method azure:directory --authority directory --outlet portal"},
+		{name: "directory methods with their authority", auth: Auth{Name: "members", Methods: []authpkg.Method{{Kind: app.MethodPassword}, {Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication}}, Outlet: "portal"}, want: "impulse add auth members --method password --method google:workspace --authority application --outlet portal"},
+		{name: "a directory method whose directory gives the roles", auth: Auth{Name: "members", Methods: []authpkg.Method{{Kind: app.MethodAzure, Name: "directory", Authority: AuthorityDirectory}}, Outlet: "portal"}, want: "impulse add auth members --method azure:directory --authority directory --outlet portal"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -274,21 +274,29 @@ func TestAuthMeaning(t *testing.T) {
 		never []string
 	}{
 		{
-			name:  "a password auth",
-			auth:  Auth{Name: "partners", Outlet: "default"},
-			wants: []string{"generation.PasswordMethod()"},
-			never: []string{"Invite its people", ".InvitedUsers()"},
+			name: "a password auth starts invite only, and the brief names the grants the choice needs",
+			auth: Auth{Name: "partners", Outlet: "default"},
+			wants: []string{
+				"generation.PasswordMethod()",
+				"Decide who may open a sign-in method to sign-up. Every method of the partners auth starts invite only",
+				"`OpenPartnersSignUp` opens one, after a warning that says who that admits for a method this wide, and `MakePartnersInviteOnly` closes it again",
+				"Grant List on `PartnersSignInMethods` to the roles that may see the choice, and Execute on the two methods to the role that may make it; a role without the grant sees no action",
+				"The password method's sign-up routes (`user/sign-up`, `/open`, `/complete`) are served whenever the auth has the method, and answer 404 while it is invite only",
+			},
+			never: []string{".InvitedUsers()", ".OpenSignUp()", "--accounts", "@tenant(creation"},
 		},
 		{
 			name:  "a directory auth admitting members of the directory",
 			auth:  Auth{Name: "partners", Methods: []authpkg.Method{{Kind: app.MethodAzure, Name: "directory", Authority: AuthorityDirectory}}, Outlet: "portal"},
-			wants: []string{`generation.AzureMethod("directory").SyncsRoles())`, "members of the directory, role membership the directory's", "its declaration chains `.SyncsRoles()` (the method file's `RoleSync`)"},
-			never: []string{"Invite its people", ".InvitedUsers()"},
+			wants: []string{`generation.AzureMethod("directory").SyncsRoles())`, "(`azure.SignIn`), role membership the directory's", "its declaration chains `.SyncsRoles()` (the method file's `RoleSync`)"},
+			// The directory decides who the auth's people are: nobody opens its method.
+			never: []string{"Decide who may open a sign-in method to sign-up", ".InvitedUsers()"},
 		},
 		{
-			name:  "a directory auth admitting invited users only names the Create grant the invitations need",
-			auth:  Auth{Name: "partners", Methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication, Accounts: authpkg.AccountsInvited}}, Outlet: "portal"},
-			wants: []string{`generation.GoogleMethod("workspace").InvitedUsers())`, "invited users only, role membership the application's", "Invite its people. The workspace registration(s) admit invited users only (`signin.InvitedUsersOnly`, and `.InvitedUsers()` on the declaration)", "the generated management of the partners auth creates them (the `CreatePartnersUser` method), so grant Execute on it to the role that invites in the role file"},
+			name:  "a directory auth whose roles the application assigns names the grants the invitations need",
+			auth:  Auth{Name: "partners", Methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication}}, Outlet: "portal"},
+			wants: []string{`generation.GoogleMethod("workspace"))`, "(`google.SignIn`), role membership the application's", "Every method of the partners auth starts invite only", "the generated management of the partners auth makes both (the `InvitePartnersUser` and `CreatePartnersUser` methods), so grant Execute on them to the role that invites in the role file"},
+			never: []string{".InvitedUsers()", "signin.InvitedUsersOnly"},
 		},
 	}
 	for _, tt := range tests {
@@ -333,9 +341,6 @@ func TestAuthValidate(t *testing.T) {
 		{name: "two methods", auth: Auth{Name: "partners", Methods: []authpkg.Method{{Kind: app.MethodPassword}, {Kind: app.MethodGoogle, Name: "google", Authority: AuthorityApplication}}, Outlet: "default"}},
 		{name: "a registration given twice", auth: Auth{Name: "partners", Methods: []authpkg.Method{{Kind: app.MethodAzure, Name: "directory", Authority: AuthorityApplication}, {Kind: app.MethodGoogle, Name: "directory", Authority: AuthorityApplication}}, Outlet: "default"}, wantErr: "given twice"},
 		{name: "an unknown method", auth: Auth{Name: "partners", Methods: []authpkg.Method{{Kind: "ldap", Name: "ldap", Authority: AuthorityApplication}}, Outlet: "default"}, wantErr: `"ldap" is not a sign-in method`},
-		{name: "an account rule on the password method alone", auth: Auth{Name: "partners", Methods: []authpkg.Method{{Kind: app.MethodPassword, Accounts: authpkg.AccountsInvited}}, Outlet: "default"}, wantErr: "the password method takes open (a stranger signs up from a link mailed to their address) or no rule"},
-		{name: "a made-up account rule", auth: Auth{Name: "partners", Methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication, Accounts: "anyone"}}, Outlet: "default"}, wantErr: `accounts "anyone": members, invited or open`},
-		{name: "open sign-up with the one organization add auth takes", auth: Auth{Name: "partners", Methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication, Accounts: authpkg.AccountsOpen}}, Outlet: "default"}, wantErr: "open sign-up is for any organization or personal accounts; a registration naming its Workspaces takes members or invited"},
 		{name: "the auth exists", auth: Auth{Name: "staff", Outlet: "default"}, wantErr: "the staff auth already exists"},
 		{name: "no auth package to write beside", auth: Auth{Name: "partners", Outlet: "default"}, bare: true, wantErr: "no auth package to write beside"},
 		{name: "no outlet", auth: Auth{Name: "partners"}, extra: routed, wantErr: "--outlet is required: the outlet the partners auth serves, whose declaration is pointed at the auth; the outlets are default, portal (impulse add outlet adds one)"},
@@ -389,7 +394,7 @@ func TestAuthApply(t *testing.T) {
 	// the generated reader of the tenant record's declaration, which the copy keeps.
 	declaredConfig := strings.Replace(authConfig, "&staff.Settings{CookieKey: cookieKey}", "&staff.Settings{CookieKey: cookieKey, TenantDeclarations: app.NewTenantDeclarationReader()}", 1)
 	declaredConfig = strings.Replace(declaredConfig, "\t\"example.com/acme/beacon/pkg/auth/staff\"\n", "\t\"example.com/acme/beacon/app\"\n\t\"example.com/acme/beacon/pkg/auth/staff\"\n", 1)
-	const tenantRecord = "package resources\n\ntype (\n\t// Tenant is the tenant record.\n\t//\n\t// @resource\n\t// @tenant(creation: both)\n\tTenant struct {\n\t\tID string `spanner:\"Id\"`\n\t}\n)\n"
+	const tenantRecord = "package resources\n\ntype (\n\t// Tenant is the tenant record.\n\t//\n\t// @resource\n\t// @tenant\n\tTenant struct {\n\t\tID string `spanner:\"Id\"`\n\t}\n)\n"
 
 	// A data level whose constructor builds no literal at all: the auth can be declared
 	// and imported, but not constructed.
@@ -398,7 +403,7 @@ func TestAuthApply(t *testing.T) {
 		"\treturn assemble(spannerClient, staffAuth), nil\n", 1)
 
 	const packageDid = "pkg/auth/partners: the partners auth package (foothold.go, partners.go, password.go), rendered from the skeleton's auth source: the Auth session over tables prefixed Partners, the partners permission store, and the methods password, each in its own file"
-	const migrationsDid = "schema/migrations: 000005_PartnersAccess, 000006_PartnersSessionUsers, 000007_PartnersSessions, the partners auth's tables: the access tables copied from the staff auth's under the Partners prefix, and the Auth session tables (sessions, users with their addresses, identities, auth events, pending sign-ins, sign-in attempts, mail links)"
+	const migrationsDid = "schema/migrations: 000005_PartnersAccess, 000006_PartnersSessionUsers, 000007_PartnersSessions, the partners auth's tables: the access tables copied from the staff auth's under the Partners prefix, and the Auth session tables (sessions, users with their addresses, identities, auth events, pending sign-ins, sign-in attempts, sign-in methods, mail links)"
 	const rolesDid = "pkg/auth/partners/roles.json: the partners auth's role file, empty: author its roles when its surfaces are bound"
 	const configDid = "pkg/config/data.go: the partners auth constructed on DataConfiguration beside the staff auth (field, construction, import), its settings in the construction's literal as the staff auth's are (an application composed before the staffSettings method); pkg/config/partners.go: its accessor Partners()"
 	const configSettingsDid = "pkg/config/data.go: the partners auth constructed on DataConfiguration beside the staff auth (field, construction, import), its settings built by dataConfig.partnersSettings, copied from staffSettings; pkg/config/partners.go: its accessor Partners()"
@@ -552,7 +557,7 @@ func TestAuthApply(t *testing.T) {
 			// client in New and sets the hooks a sign-in gives roles through from it.
 			extra: map[string]string{"pkg/config/data.go": declaredConfig, "pkg/resources/tenants.go": tenantRecord, programFile: strings.Replace(authRouterProgram, "\t\tgeneration.GenerateRouter(),\n", "\t\tgeneration.GenerateRouter(),\n\t\tgeneration.GenerateIdentity(\"pkg/identity\"),\n", 1)},
 			wantDid: []string{
-				packageDid + ", and the sign-in rule over the Tenant record's declaration (signin.TenantPolicy through the reader its settings carry, app.NewTenantDeclarationReader), admitting a person who holds no tenant yet (signin.AdmitWithoutTenant), since the record is created by its own people, and the directory admission over the record's directory rows (session.Auth.SetDirectoryAdmission through the directory reader its settings carry, app.NewTenantDirectoryReader: a stranger from a declared directory gets the row's default seat or is refused by invitation only)",
+				packageDid + ", and the sign-in rule over the Tenant record's declaration (signin.TenantPolicy through the reader its settings carry, app.NewTenantDeclarationReader), admitting a person who holds no tenant yet (signin.AdmitWithoutTenant), since a person who signs up through a method an administrator opened creates their own, and the directory admission over the record's directory rows (session.Auth.SetDirectoryAdmission through the directory reader its settings carry, app.NewTenantDirectoryReader: a stranger from a declared directory gets the row's default seat or is refused by invitation only)",
 				migrationsDid, rolesDid, configDid, "ran go generate ./...",
 			},
 			check: func(t *testing.T, a *app.App) {
@@ -568,7 +573,10 @@ func TestAuthApply(t *testing.T) {
 					"\t\taccess.WithSuperAdministratorMethods(partnersidentity.SuperAdministratorMethods()...),\n\t)",
 					"\t_, tenantAdministrators := AdministratorRoles()\n\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), identity.WithAdministratorRoles(tenantAdministrators))\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"partnersidentity.NewClient()\")\n\t}\n\n\t// The directory admission",
 					"\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())\n\n\t// An accepted invitation gives its roles",
-					"\tauthSession.SetInvitationAccepted(identityClient.InvitationAccepted())\n\n\treturn &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil\n",
+					"\tauthSession.SetInvitationAccepted(identityClient.InvitationAccepted())\n",
+					// The hook that gives a person who signs up their place: here they create a
+					// tenant of their own, so the comment says an open method names no role.
+					"\t// Here a person who signs up holds no role of the whole application: they create a\n\t// Tenant of their own, and an open method names no default role.\n\tauthSession.SetSignUpSeated(identityClient.SignedUp())\n\n\treturn &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil\n",
 					"func (a *Auth) Identity() *partnersidentity.Client {\n\treturn a.identity\n}\n",
 					"\t\"github.com/impulseframework/impulse/session/signin\"\n",
 				} {
@@ -603,7 +611,7 @@ func TestAuthApply(t *testing.T) {
 			auth:  Auth{Name: "partners", Methods: []authpkg.Method{{Kind: app.MethodAzure, Name: "directory", Authority: AuthorityApplication}}, Outlet: "default"},
 			extra: map[string]string{"pkg/config/data.go": authConfigEnv},
 			wantDid: []string{
-				"pkg/auth/partners: the partners auth package (directory.go, foothold.go, partners.go), rendered from the skeleton's auth source: the Auth session over tables prefixed Partners, the partners permission store, and the methods directory (azure, members of the directory, role membership the application's), each in its own file",
+				"pkg/auth/partners: the partners auth package (directory.go, foothold.go, partners.go), rendered from the skeleton's auth source: the Auth session over tables prefixed Partners, the partners permission store, and the methods directory (azure, role membership the application's), each in its own file",
 				migrationsDid, rolesDid,
 				"pkg/config/data.go: dataConfig reads the partners auth's directory registration from APP_PARTNERS_DIRECTORY_TENANT_ID, APP_PARTNERS_DIRECTORY_ADMINISTERED_TENANTS, APP_PARTNERS_DIRECTORY_CLIENT_ID, APP_PARTNERS_DIRECTORY_CLIENT_SECRET, APP_PARTNERS_DIRECTORY_REDIRECT_URL",
 				configDid,
@@ -618,7 +626,7 @@ func TestAuthApply(t *testing.T) {
 			check: func(t *testing.T, a *app.App) {
 				t.Helper()
 				pkg := read(t, a, "pkg/auth/partners/directory.go")
-				for _, want := range []string{`const DirectoryRegistration = "directory"`, "type DirectorySettings struct", "azure.Tenant(settings.Directory.TenantID)", "signin.DisableRoleSync()", "signin.MembersOfDirectory", "func (h *Handlers) DirectoryFrontChannelLogout()"} {
+				for _, want := range []string{`const DirectoryRegistration = "directory"`, "type DirectorySettings struct", "azure.Tenant(settings.Directory.TenantID)", "signin.DisableRoleSync()", "the method is invite only until an administrator opens it to sign-up", "func (h *Handlers) DirectoryFrontChannelLogout()"} {
 					if !strings.Contains(pkg, want) {
 						t.Errorf("directory.go lacks %q", want)
 					}
@@ -663,7 +671,7 @@ func TestAuthApply(t *testing.T) {
 			auth:  Auth{Name: "partners", Methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityDirectory}}, Outlet: "portal"},
 			extra: routed,
 			wantDid: []string{
-				"pkg/auth/partners: the partners auth package (partners.go, workspace.go), rendered from the skeleton's auth source: the Auth session over tables prefixed Partners, the partners permission store, and the methods workspace (google, members of the directory, role membership the directory's), each in its own file",
+				"pkg/auth/partners: the partners auth package (partners.go, workspace.go), rendered from the skeleton's auth source: the Auth session over tables prefixed Partners, the partners permission store, and the methods workspace (google, role membership the directory's), each in its own file",
 				programFile + `: the portal outlet's declaration names the partners auth with its methods, generation.Auth("example.com/acme/beacon/pkg/auth/partners", generation.GoogleMethod("workspace").SyncsRoles()), in place of the staff auth's, so the regenerated router mounts the auth's session group under /portal/api: one login route per method, the methods route its login page renders from, and the pending sign-in routes`,
 			},
 			// The flat layout's browser projects are left as they were: rebinding the
@@ -718,26 +726,28 @@ func TestAuthApply(t *testing.T) {
 			},
 		},
 		{
-			name:  "a Google auth admitting invited users only declares .InvitedUsers() and writes the rule to the method file",
-			auth:  Auth{Name: "partners", Methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication, Accounts: authpkg.AccountsInvited}}, Outlet: "portal"},
+			name:  "a Google auth whose roles the application assigns declares no account rule, and its method file names none",
+			auth:  Auth{Name: "partners", Methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "workspace", Authority: AuthorityApplication}}, Outlet: "portal"},
 			extra: routed,
 			wantDid: []string{
-				"pkg/auth/partners: the partners auth package (foothold.go, partners.go, workspace.go), rendered from the skeleton's auth source: the Auth session over tables prefixed Partners, the partners permission store, and the methods workspace (google, invited users only, role membership the application's), each in its own file",
-				programFile + `: the portal outlet's declaration names the partners auth with its methods, generation.Auth("example.com/acme/beacon/pkg/auth/partners", generation.GoogleMethod("workspace").InvitedUsers()), in place of the staff auth's, so the regenerated router mounts the auth's session group under /portal/api: one login route per method, the methods route its login page renders from, and the pending sign-in routes`,
+				"pkg/auth/partners: the partners auth package (foothold.go, partners.go, workspace.go), rendered from the skeleton's auth source: the Auth session over tables prefixed Partners, the partners permission store, and the methods workspace (google, role membership the application's), each in its own file",
+				programFile + `: the portal outlet's declaration names the partners auth with its methods, generation.Auth("example.com/acme/beacon/pkg/auth/partners", generation.GoogleMethod("workspace")), in place of the staff auth's, so the regenerated router mounts the auth's session group under /portal/api: one login route per method, the methods route its login page renders from, and the pending sign-in routes`,
 			},
 			check: func(t *testing.T, a *app.App) {
 				t.Helper()
 				pkg := read(t, a, "pkg/auth/partners/workspace.go")
-				for _, want := range []string{"signin.InvitedUsersOnly", "google.DisableRoleSync()", "google.Workspace(WorkspaceRegistration, settings.Workspace.HostedDomain)"} {
+				for _, want := range []string{"the method is invite only until an administrator opens it to sign-up", "google.DisableRoleSync()", "google.Workspace(WorkspaceRegistration, settings.Workspace.HostedDomain)"} {
 					if !strings.Contains(pkg, want) {
 						t.Errorf("workspace.go lacks %q", want)
 					}
 				}
-				if strings.Contains(pkg, "signin.MembersOfDirectory") {
-					t.Errorf("workspace.go admits members of the directory:\n%s", pkg)
+				for _, retired := range []string{"Accounts:", "signin.MembersOfDirectory", "signin.InvitedUsersOnly", "signin.OpenSignUp"} {
+					if strings.Contains(pkg, retired) {
+						t.Errorf("workspace.go names an account rule (%s), which no registration takes:\n%s", retired, pkg)
+					}
 				}
 				program := read(t, a, programFile)
-				if want := "\t\tgeneration.WithRouterOutlet(\"portal\", \"portal/api\",\n\t\t\tgeneration.Auth(\"example.com/acme/beacon/pkg/auth/partners\", generation.GoogleMethod(\"workspace\").InvitedUsers()),\n\t\t\tgeneration.WebApp(\"/portal\"),\n\t\t),"; !strings.Contains(program, want) {
+				if want := "\t\tgeneration.WithRouterOutlet(\"portal\", \"portal/api\",\n\t\t\tgeneration.Auth(\"example.com/acme/beacon/pkg/auth/partners\", generation.GoogleMethod(\"workspace\")),\n\t\t\tgeneration.WebApp(\"/portal\"),\n\t\t),"; !strings.Contains(program, want) {
 					t.Errorf("program lacks %q:\n%s", want, program)
 				}
 			},
@@ -756,7 +766,7 @@ func TestAuthApply(t *testing.T) {
 			check: func(t *testing.T, a *app.App) {
 				t.Helper()
 				pkg := read(t, a, "pkg/auth/employees/company-sso.go")
-				for _, want := range []string{`const CompanySsoRegistration = "company-sso"`, "ClientSecret: settings.CompanySso.ClientSecret,", "RoleSync:     signin.RoleSync(accessClient.UserManager()),", "Accounts:     signin.MembersOfDirectory,"} {
+				for _, want := range []string{`const CompanySsoRegistration = "company-sso"`, "ClientSecret: settings.CompanySso.ClientSecret,", "RoleSync:     signin.RoleSync(accessClient.UserManager()),", "the provider decides who\n// the method's people are, so the method has no invite-only or open choice"} {
 					if !strings.Contains(pkg, want) {
 						t.Errorf("company-sso.go lacks %q:\n%s", want, pkg)
 					}
@@ -1021,7 +1031,7 @@ func TestAuthApplyRebindsSiteWeb(t *testing.T) {
 		consoleMenus  = consoleSource + "app/app.menus.ts"
 		consoleConfig = consoleSource + "app/app.config.ts"
 	)
-	members := Auth{Name: "members", Methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "google", Authority: AuthorityApplication, Accounts: authpkg.AccountsInvited}}, Outlet: "portal"}
+	members := Auth{Name: "members", Methods: []authpkg.Method{{Kind: app.MethodGoogle, Name: "google", Authority: AuthorityApplication}}, Outlet: "portal"}
 	partners := Auth{Name: "partners", Outlet: "console"}
 	const (
 		renderedConfig = portalConfig + ": its HttpClient names the members auth's XSRF cookie (members-xsrf) in place of the staff auth's; the rest of the file is as it was"
@@ -1175,6 +1185,52 @@ func TestAuthApplyRebindsSiteWeb(t *testing.T) {
 						t.Errorf("%s still carries %q:\n%s", rel, never, text)
 					}
 				}
+			}
+		})
+	}
+}
+
+// Test_servesTenantRecord pins which auth's people create a tenant of their own: the
+// auth bound to an outlet the tenant record is served on, which is the default outlet
+// when the record names none. An auth bound to any other outlet has nobody who signs
+// up, so its sign-in rule refuses a person who holds no tenant.
+func Test_servesTenantRecord(t *testing.T) {
+	t.Parallel()
+
+	record := &app.TenantRecord{File: "pkg/resources/tenants.go", Name: "Tenant"}
+	tests := []struct {
+		name    string
+		members []app.OutletMember
+		site    *app.Site
+		outlet  string
+		want    bool
+	}{
+		{name: "the default outlet, the record naming none", site: &app.Site{TenantRecord: record}, outlet: app.DefaultOutletName, want: true},
+		{name: "another outlet, the record naming none", site: &app.Site{TenantRecord: record}, outlet: "portal"},
+		{
+			name:    "an outlet the record names",
+			members: []app.OutletMember{{File: "pkg/resources/tenants.go", Name: "Tenant", Outlets: []string{"default", "portal"}}},
+			site:    &app.Site{TenantRecord: record}, outlet: "portal", want: true,
+		},
+		{
+			name:    "an outlet the record does not name",
+			members: []app.OutletMember{{File: "pkg/resources/tenants.go", Name: "Tenant", Outlets: []string{"portal"}}},
+			site:    &app.Site{TenantRecord: record}, outlet: app.DefaultOutletName,
+		},
+		{
+			name:    "another struct's outlets say nothing of the record",
+			members: []app.OutletMember{{File: "pkg/resources/ships.go", Name: "Ship", Outlets: []string{"portal"}}},
+			site:    &app.Site{TenantRecord: record}, outlet: "portal",
+		},
+		{name: "a site without tenants", site: &app.Site{}, outlet: app.DefaultOutletName},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			a := &app.App{OutletMembers: tt.members}
+			if got := servesTenantRecord(a, tt.site, &app.Outlet{Name: tt.outlet}); got != tt.want {
+				t.Errorf("servesTenantRecord() = %v, want %v", got, tt.want)
 			}
 		})
 	}

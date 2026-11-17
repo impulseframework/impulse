@@ -422,7 +422,7 @@ func run() {
 	_, _ = gen.NewResourceGenerator(nil, "pkg/resources", nil,
 		gen.GenerateRouter(),
 		gen.GenerateRoutes("pkg/router", "api", gen.Auth("example.com/acme/pkg/auth/staff", gen.PasswordMethod(), gen.GoogleMethod("google")), gen.WebApp("/")),
-		gen.WithRouterOutlet("portal", "portal/api", gen.Auth("example.com/acme/pkg/auth/members", gen.GoogleMethod("directory").Labeled("Company directory").InvitedUsers(), gen.AzureMethod("entra").SyncsRoles())),
+		gen.WithRouterOutlet("portal", "portal/api", gen.Auth("example.com/acme/pkg/auth/members", gen.GoogleMethod("directory").Labeled("Company directory"), gen.AzureMethod("entra").SyncsRoles())),
 		gen.WithRouterOutlet("kiosk", "kiosk", gen.Auth("example.com/acme/pkg/auth/staff", gen.PasswordMethod(), gen.GoogleMethod("google"))),
 	)
 }
@@ -438,11 +438,11 @@ func run() {
 	}{
 		{
 			name: "every outlet bound to the package, after what the declaration chains", importPath: "example.com/acme/pkg/auth/staff", method: "google", flag: "SyncsRoles", wantCount: 2,
-			wantContain: []string{`gen.Auth("example.com/acme/pkg/auth/staff", gen.PasswordMethod(), gen.GoogleMethod("google").SyncsRoles()), gen.WebApp("/")`, `gen.WithRouterOutlet("kiosk", "kiosk", gen.Auth("example.com/acme/pkg/auth/staff", gen.PasswordMethod(), gen.GoogleMethod("google").SyncsRoles()))`, `gen.GoogleMethod("directory").Labeled("Company directory").InvitedUsers(), gen.AzureMethod("entra").SyncsRoles()`},
+			wantContain: []string{`gen.Auth("example.com/acme/pkg/auth/staff", gen.PasswordMethod(), gen.GoogleMethod("google").SyncsRoles()), gen.WebApp("/")`, `gen.WithRouterOutlet("kiosk", "kiosk", gen.Auth("example.com/acme/pkg/auth/staff", gen.PasswordMethod(), gen.GoogleMethod("google").SyncsRoles()))`, `gen.GoogleMethod("directory").Labeled("Company directory"), gen.AzureMethod("entra").SyncsRoles()`},
 		},
 		{
 			name: "a label and a flag already chained", importPath: "example.com/acme/pkg/auth/members", method: "directory", flag: "SyncsRoles", wantCount: 1,
-			wantContain: []string{`gen.GoogleMethod("directory").Labeled("Company directory").InvitedUsers().SyncsRoles(), gen.AzureMethod("entra").SyncsRoles()`, `gen.GoogleMethod("google")), gen.WebApp("/")`},
+			wantContain: []string{`gen.GoogleMethod("directory").Labeled("Company directory").SyncsRoles(), gen.AzureMethod("entra").SyncsRoles()`, `gen.GoogleMethod("google")), gen.WebApp("/")`},
 		},
 		{
 			name: "a declaration chaining the flag already", importPath: "example.com/acme/pkg/auth/members", method: "entra", flag: "SyncsRoles", wantCount: 0,
