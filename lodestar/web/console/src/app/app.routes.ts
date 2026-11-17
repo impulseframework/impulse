@@ -17,6 +17,7 @@ import { commendationsConfig } from './configs/commendations.config';
 import { distressCallsConfig } from './configs/distressCalls.config';
 import { missionDocumentsConfig } from './configs/missionDocuments.config';
 import { missionsConfig } from './configs/missions.config';
+import { missionsEverySectorConfig } from './configs/missionsEverySector.config';
 import { squadronsConfig } from './configs/squadrons.config';
 import { pilotsConfig, sectorPilotsConfig } from './configs/pilots.config';
 import { sectorsConfig } from './configs/sectors.config';
@@ -104,6 +105,14 @@ export const routes: Routes = [
           // Demonstrates: @feature.
           resourceRoutes(commendationsConfig, resourceMeta),
           resourceRoutes(sectorsConfig, resourceMeta),
+          // The missions of every sector the person reaches, on one page: Missions declares
+          // @listAcrossTenants, so its list is also served without the sector's segment, and
+          // the config says acrossTenants. resourceRoutes mounts the list alone, with no row
+          // route (a row's link leads into its sector) and no List guard (no one sector's
+          // grants speak for the page; the server leaves out what the person may not list).
+          //
+          // Demonstrates: list.across-tenants.
+          resourceRoutes(missionsEverySectorConfig, resourceMeta),
           // The crew's accounts across the whole service: the accounts with a person's row
           // page (the roles held, the linked identities and the sessions under it), every
           // mailed link, the sessions and the failed sign-ins. No page is written for them

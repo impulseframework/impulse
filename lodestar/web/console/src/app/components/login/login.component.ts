@@ -186,6 +186,13 @@ export const CREW_MANIFEST: Persona[] = [
     proves:
       'Charts new sectors: a sector she creates is served at once, on every instance, with no restart, migration or new login.',
   },
+  {
+    login: 'liaison',
+    name: 'Liaison Lark',
+    deck: 'Headquarters',
+    proves:
+      'Reads the missions of every sector she reaches on one page: a cadet’s board in Anvil, an archivist’s ledger in Cinder, each row under her roles in its own sector.',
+  },
 ];
 
 /**
