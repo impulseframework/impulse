@@ -7,7 +7,7 @@
 //	every request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams
 //	default (/console/api), sessions of the staff auth (password):
 //	  BindAuth(staff.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /console/api/user/methods, GET /console/api/user/session, DELETE /console/api/user/session, GET /console/api/user/pending
-//	  + ValidateXSRFToken: POST /console/api/user/password/login, POST /console/api/user/password/change, POST /console/api/user/pending/confirm, POST /console/api/user/pending/cancel, POST /console/api/user/pending/code, POST /console/api/user/pending/code/verify, POST /console/api/user/pending/email, POST /console/api/user/browser/forget, POST /console/api/user/name, POST /console/api/user/look, POST /console/api/user/invitation, POST /console/api/user/invitation/sign-up
+//	  + ValidateXSRFToken: POST /console/api/user/password/login, POST /console/api/user/password/change, POST /console/api/user/password/remove, POST /console/api/user/pending/confirm, POST /console/api/user/pending/cancel, POST /console/api/user/pending/code, POST /console/api/user/pending/code/verify, POST /console/api/user/pending/email, POST /console/api/user/browser/forget, POST /console/api/user/name, POST /console/api/user/look, POST /console/api/user/invitation, POST /console/api/user/invitation/sign-up
 //	  + ValidateSession, ValidateXSRFToken: POST /console/api/user/invitation/accept, POST /console/api/user/email, POST /console/api/user/email/verify, GET /console/api/user/tokens, POST /console/api/user/tokens, POST /console/api/user/tokens/revoke, GET /console/api/user/device, POST /console/api/user/device/approve, POST /console/api/user/device/deny
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1): hooks.Default, generatedRoutes
 //	portal (/portal/api), sessions of the members auth (directory):
@@ -142,9 +142,10 @@ type DefaultSession interface {
 	TokensCreate() http.HandlerFunc
 	// A token of the signed-in person's revoked (session.ApplicationTokenHandlers.Revoke).
 	TokensRevoke() http.HandlerFunc
-	// The password method's login and password change (session.PasswordMethod); the change validates the session itself, outside ValidateSession.
+	// The password method's login, password change and password removal (session.PasswordMethod); the change and the removal validate the session themselves, outside ValidateSession.
 	PasswordLogin() http.HandlerFunc
 	PasswordChange() http.HandlerFunc
+	PasswordRemove() http.HandlerFunc
 }
 
 // PortalSession is the portal outlet's session surface: the Auth's middleware and
@@ -278,6 +279,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				SendCode: "/console/api/user/pending/code", VerifyCode: "/console/api/user/pending/code/verify", EnrollEmail: "/console/api/user/pending/email",
 			},
 			ChangePassword: "/console/api/user/password/change",
+			RemovePassword: "/console/api/user/password/remove",
 			ForgetBrowser:  "/console/api/user/browser/forget",
 			ChangeName:     "/console/api/user/name",
 			ChangeLook:     "/console/api/user/look",
@@ -289,6 +291,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		bounded.Get("/console/api/user/pending", h.PendingStatus())
 		guarded.Post("/console/api/user/password/login", h.PasswordLogin())
 		guarded.Post("/console/api/user/password/change", h.PasswordChange())
+		guarded.Post("/console/api/user/password/remove", h.PasswordRemove())
 		guarded.Post("/console/api/user/pending/confirm", h.PendingConfirmWithPassword())
 		guarded.Post("/console/api/user/pending/cancel", h.PendingCancel())
 		guarded.Post("/console/api/user/pending/code", h.PendingSendCode())

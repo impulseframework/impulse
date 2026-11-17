@@ -70,6 +70,8 @@ type GeneratedHandlers interface {
 
 	InviteStaffUser() http.HandlerFunc
 
+	RemoveStaffPassword() http.HandlerFunc
+
 	RemoveStaffRole() http.HandlerFunc
 
 	RenameStaffUser() http.HandlerFunc
@@ -164,6 +166,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/api/features", h.Features())
 
 	r.Post("/api/invite-staff-user", h.InviteStaffUser())
+
+	r.Post("/api/remove-staff-password", h.RemoveStaffPassword())
 
 	r.Post("/api/remove-staff-role", h.RemoveStaffRole())
 

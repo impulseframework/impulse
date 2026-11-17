@@ -43,6 +43,9 @@ type Store interface {
 	// rendered it, and whether the person must change the password before anything
 	// else is served. An auth with no password method has no such write.
 	SetPassword(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, hash string, changeRequired bool) error
+	// RemovePassword buffers the removal of a user's password, and with it the mark that
+	// the person must change it. An auth with no password method has no such write.
+	RemovePassword(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
 	// ClearAttempts buffers the removal of the count of failed sign-ins kept under a
 	// name (session.SignInAttemptName); a name with no count is no error.
 	ClearAttempts(ctx context.Context, txn resource.ReadWriteTransaction, name string) error

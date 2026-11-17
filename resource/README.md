@@ -732,7 +732,7 @@ external method under its registration name, `GET user/<name>/login` and `GET
 user/<name>/callback` (`GET user/<name>/logout` too for Azure, the directory's
 front-channel logout). The sign-in's POSTs sit behind the outlet's XSRF guard alone, as
 the session library wires them: `POST user/password/login`, `POST user/password/change`,
-`POST user/pending/confirm`, `POST user/pending/cancel`, `POST user/pending/code` (mails
+`POST user/password/remove`, `POST user/pending/confirm`, `POST user/pending/cancel`, `POST user/pending/code` (mails
 the sign-in code to a sign-in that waits for the second factor), `POST
 user/pending/code/verify` and `POST user/pending/email` (the address a person who holds
 none gives for the code); a browser reaches them with the XSRF cookie its first request
@@ -741,7 +741,10 @@ was issued, echoed in the header. The password change
 itself, so it sits outside `ValidateSession`: a person whose operator-set password must
 change before anything else is served reaches it, and the methods route tells the login
 page where (`changePassword`), which renders the change form before the signed-in page
-(section 21).
+(section 21). The removal of a person's own password (`PasswordRemove`, the password
+method's `RemoveUserPassword`) is mounted beside it the same way, and the methods route
+names it as `removePassword`: where the person's account page posts the password as
+proof.
 
 **Machine outlets.** A machine outlet declares the auth whose `Auth` issues its tokens,
 `Tokens(importPath)`, the same `*session.Auth` a session outlet of the program binds to
@@ -2617,6 +2620,7 @@ POST <prefix>/require-crew-password-change    {"userId"}                       E
 POST <prefix>/end-crew-session                {"sessionId"}                    Execute on EndCrewSession, targeting CrewSessions
 POST <prefix>/end-crew-session-impersonation  {"sessionId"}                    Execute on EndCrewSessionImpersonation, targeting CrewSessionImpersonations
 POST <prefix>/unlink-crew-session-identity    {"identityId"}                   Execute on UnlinkCrewSessionIdentity, targeting CrewSessionIdentities
+POST <prefix>/remove-crew-password            {"userId"}                       Execute on RemoveCrewPassword, targeting CrewSessionUsers
 POST <prefix>/revoke-crew-session-token       {"tokenId"}                      Execute on RevokeCrewSessionToken, targeting CrewSessionTokens
 POST <prefix>/assign-crew-role                {"userId","role","domain","everyDomain"}   Execute on AssignCrewRole
 POST <prefix>/remove-crew-role                {"userId","role","domain","everyDomain"}   Execute on RemoveCrewRole
@@ -2626,6 +2630,7 @@ POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationI
 POST <prefix>/sectors/{sectorID}/assign-crew-sector-role   {"userId","role"}            Execute on AssignCrewSectorRole, targeting CrewSectorUsers
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-role   {"userId","role"}            Execute on RemoveCrewSectorRole, targeting CrewSectorUserRoles
 POST <prefix>/sectors/{sectorID}/unlink-crew-sector-session-identity   {"identityId"}   Execute on UnlinkCrewSectorSessionIdentity, targeting CrewSectorIdentities
+POST <prefix>/sectors/{sectorID}/remove-crew-sector-password           {"userId"}       Execute on RemoveCrewSectorPassword, targeting CrewSectorUsers
 POST <prefix>/sectors/{sectorID}/disable-crew-sector-user, enable-…, delete-…, rename-…, set-crew-sector-user-name, set-crew-sector-user-email,
      set-crew-sector-temporary-password, require-crew-sector-password-change, revoke-crew-sector-user-trusted-devices,
      end-crew-sector-user-sessions            the whole application's bodies                Execute on each, targeting CrewSectorUsers
@@ -2643,7 +2648,9 @@ method is written for an Auth with a password method or a registration that admi
 invited users alone (elsewhere a directory admits its own members and the first sign-in
 creates the row), the two role methods, the two invitation methods and the create are
 left out for an Auth whose roles a directory writes (`SyncsRoles`), the two password
-methods (and the create's `password`) for an Auth with no password method, the rename and
+methods (and the create's `password`) for an Auth with no password method, as is the
+method that removes a person's password, which is also written only where the schema
+holds the identities table (the rule it keeps reads a person's identity links), the rename and
 the address set by hand for an Auth whose usernames are the addresses (`UsernameIsEmail`:
 the name is the address, and it changes when the person verifies a new one), and the
 token, impersonation, remembered-browser and unlock methods where the schema holds no
@@ -3075,8 +3082,8 @@ each holds (`users`, `roles`, `identities`, `invitations`, and for the whole app
 `sessions` and `signInAttempts`) and the methods by what each does (`create`, `invite`,
 `withdrawInvitation`, `assignRole`, `removeRole`, `disable`, `enable`, `delete`,
 `rename`, `setEmail`, `setTemporaryPassword`, `requirePasswordChange`,
-`endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`, and for the whole
-application `endSession` and `unlockSignIn`). The names differ in every application
+`endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`, `removePassword`, and for
+the whole application `endSession` and `unlockSignIn`). The names differ in every application
 (`CrewSectorUsers`, `DisableCrewSectorUser`); the keys do not. A side names only
 what the outlet serves, so a method the Auth's shape leaves out, or a list the schema has
 no table for, is absent, and a side without its list of people is not listed. The Angular
@@ -3086,6 +3093,9 @@ library builds the pages from the block at run time
 holding the methods the server lists for that row, a person's row page with the roles
 held and the sign-in identities under it (and the sessions, for the whole application),
 the invitations, and for the whole application the sessions and the failed sign-ins.
+Above a person's sign-in identities, where an identity is unlinked, the page offers
+Remove password for an Auth with a password method, while the server's answer for the
+person's row lists the method.
 They are the library's list and row pages over these resources, drawn from a
 configuration the library writes; what a page offers is what the server answers the
 caller may do. Lodestar's console takes its accounts pages this way, once for each side.
@@ -3101,6 +3111,11 @@ allowed on a person the sector holds alone, refused on one it shares and not fou
 another sector's; the roles given and taken; the create; the identities and the unlink) with
 `generated_identity_tenant_invitation_test.go` for the ones that need the session manager
 (the invitation, its withdrawal, the temporary password),
+`generated_identity_remove_password_test.go` holds the removal of a person's password at a
+sector, and `generated_identity_remove_password_skipauth_test.go` over the served
+application with the simulated directory (refused while the person holds no identity and
+for a role without the grant; once removed, the password signs nobody in and the directory
+does),
 `generated_identity_one_tenant_test.go` holds the rule of one tenant per person through a
 second client built with the option, since Lodestar itself lets a person hold roles in
 several sectors,

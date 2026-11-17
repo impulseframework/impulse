@@ -7,7 +7,7 @@
 //	every request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams
 //	default (/api), sessions (password, google):
 //	  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/google/login, GET /api/user/google/callback
-//	  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look, POST /api/user/invitation, POST /api/user/invitation/sign-up
+//	  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/password/remove, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look, POST /api/user/invitation, POST /api/user/invitation/sign-up
 //	  + ValidateSession, ValidateXSRFToken: POST /api/user/invitation/accept, POST /api/user/email, POST /api/user/email/verify
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1): hooks.Default, generatedRoutes
 //
@@ -98,9 +98,10 @@ type DefaultSession interface {
 	EmailAdd() http.HandlerFunc
 	// The address verified from the mailed link (session.EmailHandlers.Verify).
 	EmailVerify() http.HandlerFunc
-	// The password method's login and password change (session.PasswordMethod); the change validates the session itself, outside ValidateSession.
+	// The password method's login, password change and password removal (session.PasswordMethod); the change and the removal validate the session themselves, outside ValidateSession.
 	PasswordLogin() http.HandlerFunc
 	PasswordChange() http.HandlerFunc
+	PasswordRemove() http.HandlerFunc
 	// The google registration's login and callback (google.Method).
 	GoogleLogin() http.HandlerFunc
 	GoogleCallback() http.HandlerFunc
@@ -171,6 +172,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				SendCode: "/api/user/pending/code", VerifyCode: "/api/user/pending/code/verify", EnrollEmail: "/api/user/pending/email",
 			},
 			ChangePassword: "/api/user/password/change",
+			RemovePassword: "/api/user/password/remove",
 			ForgetBrowser:  "/api/user/browser/forget",
 			ChangeName:     "/api/user/name",
 			ChangeLook:     "/api/user/look",
@@ -184,6 +186,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		bounded.Get("/api/user/google/callback", h.GoogleCallback())
 		guarded.Post("/api/user/password/login", h.PasswordLogin())
 		guarded.Post("/api/user/password/change", h.PasswordChange())
+		guarded.Post("/api/user/password/remove", h.PasswordRemove())
 		guarded.Post("/api/user/pending/confirm", h.PendingConfirmWithPassword())
 		guarded.Post("/api/user/pending/cancel", h.PendingCancel())
 		guarded.Post("/api/user/pending/code", h.PendingSendCode())

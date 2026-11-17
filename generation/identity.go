@@ -641,6 +641,12 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 			identitySourceFile{dir: inst.methods, name: fileStem("Set" + inst.auth + "TemporaryPassword"), template: identitySetTemporaryPasswordTemplate, needs: []identityTable{identityUsers}},
 		)
 	}
+	// A password is removed where an identity is unlinked: from a person who signs in
+	// through a directory, so the method is written where the schema holds the
+	// identities, for an auth whose people may hold a password.
+	if inst.password {
+		files = append(files, identitySourceFile{dir: inst.methods, name: fileStem(inst.removePasswordMethod(false)), template: identityRemovePasswordTemplate, needs: []identityTable{identityUsers, identityIdentities}})
+	}
 	// Where the username is the person's address it changes when the person verifies
 	// a new address, never by a rename, which the session library refuses there too.
 	// The address is the person's own entry there too, so nobody sets it by hand.

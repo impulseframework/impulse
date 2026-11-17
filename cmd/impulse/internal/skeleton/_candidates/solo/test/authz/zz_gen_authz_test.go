@@ -414,6 +414,21 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusForbidden},
 		},
 		{
+			name:         "RemoveStaffPassword denied",
+			method:       http.MethodPost,
+			target:       "/api/remove-staff-password",
+			body:         `{}`,
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "RemoveStaffPassword dry run denied",
+			method:       http.MethodPost,
+			target:       "/api/remove-staff-password",
+			body:         `{}`,
+			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
 			name:         "RemoveStaffRole denied",
 			method:       http.MethodPost,
 			target:       "/api/remove-staff-role",

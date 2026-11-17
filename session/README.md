@@ -100,7 +100,7 @@ each with its `SignIn` function and `Config`.
 
 | Method | Registration → handlers | Identity key (connection, subject) | Login parameters | Roles |
 | --- | --- | --- | --- | --- |
-| `password` | `PasswordSignIn(auth, options...)` → `*PasswordMethod`: `Login`, `ChangeUserPassword` | user ID | JSON `{"username", "password"}` | — |
+| `password` | `PasswordSignIn(auth, options...)` → `*PasswordMethod`: `Login`, `ChangeUserPassword`, `RemoveUserPassword` | user ID | JSON `{"username", "password"}` | — |
 | `azure` | `azure.SignIn(auth, name, rule, &azure.Config{...})` → `*azure.Method`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=`, `?prompt=select_account` | `signin.RoleSync(manager)` or `signin.DisableRoleSync()` |
 | `google` | `google.SignIn(auth, name, rule, &google.Config{...})` → `*google.Method`: `Login`, `Callback` | (the Workspace the `Workspaces` slot selects, `sub`) | `?returnUrl=`, `?login_hint=`, `?prompt=select_account` | `google.RoleSync(...)` or `google.DisableRoleSync()` |
 | `oidc` | `oidc.SignIn(auth, name, rule, &oidc.Config{...})` → `*oidc.Method`: `Login`, `Callback` | (`Config.Connection`, the issuer URL by default; `sub`) | `?returnUrl=`, `?login_hint=`, `?prompt=select_account` | `signin.RoleSync(manager)` (the `roles` claim) or `signin.DisableRoleSync()` |
@@ -503,6 +503,7 @@ r.Group(func(r chi.Router) {
     r.Post("/api/user/mfa", app.CompleteMFA) // an MFA step of the application's own: checks its code, then auth.API().CompletePending
     r.Post("/api/user/logout", auth.Logout())
     r.Post("/api/user/password", password.ChangeUserPassword()) // validates the session itself
+    r.Post("/api/user/password/remove", password.RemoveUserPassword()) // {"password"}: the person's own password, removed; validates the session itself
     r.Post("/api/user/name", auth.ChangeName())                 // {"name"}: the person's own name; validates the session itself
     r.Post("/api/user/look", auth.ChangeLook())                 // {"scheme", "palette"}: the look the person chose; validates the session itself
     r.Post("/api/user/invitation", auth.Invitation().Open())          // {"token"}: sets the invitation cookie
@@ -540,7 +541,10 @@ The pending handlers and the API's pending methods read the pending identity
 logout and the password change sit outside `ValidateSession`: they validate the session
 on their own, and they are what a user who must change their password reaches (see
 "Users and the forced password change"). The methods list names the password change
-route (`ChangePassword`) whenever it lists the password method.
+route (`ChangePassword`) whenever it lists the password method. The removal of a
+person's own password (`RemoveUserPassword`) validates the session itself too and is
+routed beside the change; the methods list names it where the application serves it
+(`RemovePassword`).
 
 ### What the login page is told
 
@@ -560,6 +564,7 @@ the password method is listed.
   "pending": {"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel",
               "sendCode": "/api/user/pending/code", "verifyCode": "/api/user/pending/code/verify", "enrollEmail": "/api/user/pending/email"},
   "changePassword": "/api/user/password",
+  "removePassword": "/api/user/password/remove",
   "usernameIsEmail": true,
   "invitation": {"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
                  "standing": {"email": "pat@lakeside.edu", "expiresAt": "2026-10-31T20:00:00Z", "usernameIsEmail": false, "methods": ["workos"],
@@ -588,6 +593,10 @@ the password method is listed.
   which the page posts `{"oldPassword", "newPassword"}` to when a sign-in finds the
   user must change their password (the session read's `passwordChangeRequired`). It is
   present whenever the password method is listed.
+- `removePassword` is the path of the password method's `RemoveUserPassword` handler,
+  present when the list names it (`MethodList.RemovePassword`, which needs the password
+  method listed): where a signed-in person's account page posts `{"password"}` to remove
+  their own password (see "Users and the forced password change").
 - `forgetBrowser`, `changeName` and `changeLook` are the paths of the `ForgetBrowser`,
   `ChangeName` and `ChangeLook` handlers, each present when the list names it
   (`MethodList.ForgetBrowser`, `MethodList.ChangeName`, `MethodList.ChangeLook`): where
@@ -866,8 +875,9 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
 - **User management is by ID**: `ChangeSessionUserPassword`, `SetSessionUserPassword`,
   `ResetSessionUserPassword`, `DeactivateSessionUser` and `DeleteSessionUser` destroy
   the user's sessions by `UserId`; `DeleteSessionUser` deletes its identity links with
-  it; `UnlinkIdentity` refuses a user's last means of sign-in. See "Users and the forced
-  password change".
+  it; `UnlinkIdentity` refuses a user's last means of sign-in, and
+  `RemoveSessionUserPassword` the password of a user no identity is linked to. See
+  "Users and the forced password change".
 - **Failed password attempts are limited** per name, known or not, and an attempt past
   the limit is refused with `too_many_attempts` and the wait before anything is read
   or hashed; **the after-sign-in hook** (`SetSignedInHook`) is told of every session a
@@ -918,6 +928,7 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `HashPassword(password)` | The hash of a password as the users table's `PasswordHash` column holds it, made by the password method's hasher, for a caller that writes the column in a transaction of its own (the generated user management). An empty password is refused. `SignInAttemptName(username)`, a package function, is the key of the name's row in the sign-in attempts table, for the same caller clearing the count beside the password. |
 | `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. |
 | `Identities(ctx, id)`, `UnlinkIdentity(ctx, identityID)` | The user's identity links; unlinking a password-less user's last link is refused (Conflict). |
+| `RemoveSessionUserPassword(ctx, id)` | Removes the user's password, an operator's act: the password then signs nobody in, and the user signs in through an identity linked to them. A user with no identity link keeps it, their last means of sign-in (Conflict, `sessionstorage.ErrLastSignInMethod`); a user with no password has none to remove (BadRequest). Clears the mark and the name's count of failed sign-ins; the user's sessions stand. `PasswordMethod.RemoveUserPassword()` is the person's own removal over HTTP, which asks for the password. |
 | `UserByEmail(ctx, email)`, `SetSessionUserEmail(ctx, id, email)` | The user holding an address, verified or not; an operator's entry of an address, unverified, or its removal (nil). See "Users and their email address". |
 | `SetSessionUserName(ctx, id, name)` | An operator's entry of the person's name, or its removal (nil). See "A person's name". |
 | `Invite(ctx, &InvitationRequest{Email, Name, Tenant, RoleNames, InvitedByUserID})`, `Invitations(ctx)`, `RevokeInvitation(ctx, id)` | An invitation mailed to an address; the invitations that stand; one withdrawn. See "Invitations". |
@@ -949,6 +960,24 @@ of a new application and every user an operator creates with a password carry th
 mark; the password a user chose through `ChangeSessionUserPassword` or
 `SetSessionUserPassword` clears it. A password-less user has nothing to change, so the
 mark without a password is refused.
+
+**Removing a password.** A person who signs in through a directory does not need the
+password they started with. Its removal follows the rule of an identity's unlinking,
+from the other side: an identity is not unlinked when it is the last means of sign-in
+of a user with no password, and a password is not removed from a user no identity is
+linked to (409, `sessionstorage.ErrLastSignInMethod`). An operator removes it with
+`RemoveSessionUserPassword(ctx, id)`; the person removes their own by posting
+`{"password"}`, the password as proof, to the password method's `RemoveUserPassword`
+handler, routed beside the change and named to the page as the methods list's
+`removePassword`. A wrong password answers 400, and a person with no identity link is
+told what to do first: sign in through their directory, which links it. The handler
+validates the session itself, so a person whose operator-set password must change
+reaches it, and refuses an impersonated session. Either way the removal takes the
+password and the mark with it, clears the count of failed sign-ins kept under the
+user's name, and ends no session: the sessions the user holds stand, the ones the
+password established among them, as they do when an identity is unlinked. From then on
+a sign-in with the password is refused exactly as a wrong password is, and counted the
+same way.
 
 ### Users and their email address
 
@@ -2590,8 +2619,8 @@ Everything an impersonated session touches names the actor and the principal:
   session ends with their others.
   Preauth validates an impersonated session exactly as any other.
 - **Identity operations.** The library's own handlers refuse under impersonation:
-  `ChangeUserPassword` (the password method's on `Auth`) always, since it would alter the
-  impersonated user's credentials. Each refusal is an
+  `ChangeUserPassword` and `RemoveUserPassword` (the password method's on `Auth`) always,
+  since each would alter the impersonated user's credentials. Each refusal is an
   `IdentityOperationBlocked` event. On `Auth` the user operations are `AuthAPI` methods
   behind the application's own handlers, which guard them.
 - **One name, one user.** A role principal's session carries the actor's own username,

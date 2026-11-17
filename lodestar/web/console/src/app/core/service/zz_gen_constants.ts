@@ -129,7 +129,9 @@ export const Methods = {
   LaunchMission: 'LaunchMission' as Method,
   PassFlightTest: 'PassFlightTest' as Method,
   ReleaseConsignment: 'ReleaseConsignment' as Method,
+  RemoveCrewPassword: 'RemoveCrewPassword' as Method,
   RemoveCrewRole: 'RemoveCrewRole' as Method,
+  RemoveCrewSectorPassword: 'RemoveCrewSectorPassword' as Method,
   RemoveCrewSectorRole: 'RemoveCrewSectorRole' as Method,
   RenameCrewSectorUser: 'RenameCrewSectorUser' as Method,
   RenameCrewUser: 'RenameCrewUser' as Method,
@@ -1865,12 +1867,24 @@ export namespace ReleaseConsignment {
   };
 }
 
+export namespace RemoveCrewPassword {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+  };
+}
+
 export namespace RemoveCrewRole {
   export const fieldName = {
     userId: 'userId' as FieldName,
     role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+  };
+}
+
+export namespace RemoveCrewSectorPassword {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
   };
 }
 

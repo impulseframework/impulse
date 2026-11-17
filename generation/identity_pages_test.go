@@ -48,7 +48,8 @@ func Test_identityOn(t *testing.T) {
 				"CrewSessionUsers", "CrewUserRoles", "CrewSessionIdentities", "CrewSessionMailLinks", "CrewSessions", "CrewSessionSignInAttempts",
 				"CrewSectorUsers", "CrewSectorUserRoles", "CrewSectorInvitations",
 				"DisableCrewUser", "EndCrewSession", "EndCrewUserSessions", "UnlockCrewSignIn", "UnlinkCrewSessionIdentity", "CreateCrewUser",
-				"DisableCrewSectorUser", "AssignCrewSectorRole", "RemoveCrewSectorRole", "RevokeCrewSectorUserTrustedDevices",
+				"RemoveCrewPassword",
+				"DisableCrewSectorUser", "AssignCrewSectorRole", "RemoveCrewSectorRole", "RevokeCrewSectorUserTrustedDevices", "RemoveCrewSectorPassword",
 				// Served by the outlet and no part of the auth's management; the tenant record
 				// is named, since a page reads a tenant's name from it.
 				"Ships", "HailShip", "Sectors",
@@ -64,7 +65,8 @@ func Test_identityOn(t *testing.T) {
 						},
 						Methods: []identityPart{
 							part("create", "CreateCrewUser"), part("disable", "DisableCrewUser"), part("endUserSessions", "EndCrewUserSessions"),
-							part("unlinkIdentity", "UnlinkCrewSessionIdentity"), part("endSession", "EndCrewSession"), part("unlockSignIn", "UnlockCrewSignIn"),
+							part("unlinkIdentity", "UnlinkCrewSessionIdentity"), part("removePassword", "RemoveCrewPassword"),
+							part("endSession", "EndCrewSession"), part("unlockSignIn", "UnlockCrewSignIn"),
 						},
 					},
 					{
@@ -73,7 +75,7 @@ func Test_identityOn(t *testing.T) {
 						Lists: []identityPart{part("users", "CrewSectorUsers"), part("roles", "CrewSectorUserRoles"), part("invitations", "CrewSectorInvitations")},
 						Methods: []identityPart{
 							part("assignRole", "AssignCrewSectorRole"), part("removeRole", "RemoveCrewSectorRole"), part("disable", "DisableCrewSectorUser"),
-							part("revokeTrustedDevices", "RevokeCrewSectorUserTrustedDevices"),
+							part("revokeTrustedDevices", "RevokeCrewSectorUserTrustedDevices"), part("removePassword", "RemoveCrewSectorPassword"),
 						},
 					},
 				},

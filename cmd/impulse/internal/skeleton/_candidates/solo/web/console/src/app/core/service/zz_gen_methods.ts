@@ -107,6 +107,15 @@ export interface InviteStaffUserResult {
   sent: boolean;
 }
 
+export interface RemoveStaffPasswordConfig {
+  userId: string | FieldPointer;
+}
+export interface RemoveStaffPassword {
+  userId: string;
+}
+/** The statuses RemoveStaffPassword declares; the method chooses one per response. */
+export type RemoveStaffPasswordStatus = 204;
+
 export interface RemoveStaffRoleConfig {
   userId: string | FieldPointer;
   role: string | FieldPointer;
@@ -385,6 +394,15 @@ const methodMap: MethodMap = {
       { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
       { fieldName: 'domain', displayType: 'string', optional: true },
+    ],
+  },
+  [Methods.RemoveStaffPassword]: {
+    route: 'remove-staff-password',
+    target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
   [Methods.RemoveStaffRole]: {

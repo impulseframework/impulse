@@ -360,6 +360,60 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID im
 	return nil
 }
 
+// RemoveUserPassword removes a user's password, and with it the mark that the user must
+// change it, refusing to remove the last means of sign-in of a user that has no
+// identity. The user's sessions stand. A user that holds no password is a BadRequest.
+func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID impulse.UUID) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if !s.users {
+		return errors.New("RemoveUserPassword needs the auth schema: use Auth storage")
+	}
+
+	txn, err := s.conn.Begin(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Begin()")
+	}
+	defer func() {
+		_ = txn.Rollback(ctx)
+	}()
+
+	// The user row is locked, as an unlink locks it, so a removal and an unlink of the
+	// user's last identity run one at a time and can't both leave it without a means of
+	// sign-in.
+	var hasPassword bool
+	lockUser := fmt.Sprintf(`SELECT "PasswordHash" IS NOT NULL FROM %s WHERE "Id" = $1 FOR UPDATE`, s.userTable())
+	if err := txn.QueryRow(ctx, lockUser, userID).Scan(&hasPassword); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+		}
+
+		return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
+	}
+	if !hasPassword {
+		return httpio.NewBadRequestMessage("the user has no password to remove")
+	}
+	var links int
+	if err := txn.QueryRow(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE "UserId" = $1`, s.identitiesTable()), userID).Scan(&links); err != nil {
+		return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
+	}
+	if links == 0 {
+		return httpio.NewConflictMessageWithError(dbtype.ErrLastSignInMethod, "the user has no other means of sign-in: link a directory sign-in first")
+	}
+
+	removal := fmt.Sprintf(`UPDATE %s SET "PasswordHash" = NULL, "PasswordChangeRequired" = FALSE WHERE "Id" = $1`, s.userTable())
+	if _, err := txn.Exec(ctx, removal, userID); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+
+	if err := txn.Commit(ctx); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Commit()")
+	}
+
+	return nil
+}
+
 // DestroyUserSessions expires every live session of a user by UserId. That covers
 // its own sessions, user-principal impersonations of it, and the sessions it holds as a
 // local actor. Their live impersonation records end Revoked.

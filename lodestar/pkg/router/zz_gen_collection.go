@@ -696,6 +696,12 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "Consignments",
 			},
 			{
+				Name:        "RemoveCrewSectorPassword",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Target:      "CrewSectorUsers",
+			},
+			{
 				Name:        "RemoveCrewSectorRole",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -1613,6 +1619,12 @@ func Collection() *resource.GeneratedCollection {
 				Order:        []accesstypes.Tag{"displayName"},
 				QueryKeys:    []accesstypes.Tag{"userId"},
 				RequiredTags: []accesstypes.Tag{"clearance", "displayName", "feeLimit", "userId"},
+			},
+			{
+				Name:        "RemoveCrewPassword",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Target:      "CrewSessionUsers",
 			},
 			{
 				Name:        "RemoveCrewRole",

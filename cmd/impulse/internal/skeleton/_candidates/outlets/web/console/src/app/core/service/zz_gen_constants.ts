@@ -56,7 +56,9 @@ export const Methods = {
   EndStaffUserSessions: 'EndStaffUserSessions' as Method,
   InviteStaffTenantUser: 'InviteStaffTenantUser' as Method,
   InviteStaffUser: 'InviteStaffUser' as Method,
+  RemoveStaffPassword: 'RemoveStaffPassword' as Method,
   RemoveStaffRole: 'RemoveStaffRole' as Method,
+  RemoveStaffTenantPassword: 'RemoveStaffTenantPassword' as Method,
   RemoveStaffTenantRole: 'RemoveStaffTenantRole' as Method,
   RenameStaffTenantUser: 'RenameStaffTenantUser' as Method,
   RenameStaffUser: 'RenameStaffUser' as Method,
@@ -620,12 +622,24 @@ export namespace InviteStaffUser {
   };
 }
 
+export namespace RemoveStaffPassword {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
+  };
+}
+
 export namespace RemoveStaffRole {
   export const fieldName = {
     userId: 'userId' as FieldName,
     role: 'role' as FieldName,
     domain: 'domain' as FieldName,
     everyDomain: 'everyDomain' as FieldName,
+  };
+}
+
+export namespace RemoveStaffTenantPassword {
+  export const fieldName = {
+    userId: 'userId' as FieldName,
   };
 }
 

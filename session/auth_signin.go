@@ -592,6 +592,67 @@ func (a *Auth[S, U, Tx]) changeUserPasswordHandler() http.HandlerFunc {
 	})
 }
 
+// removeUserPasswordHandler is the password method's remove-password handler: a
+// signed-in user removes their own password, proving it first as a change does. It
+// validates the session itself, as the change handler does, and is refused in an
+// impersonated session. The removal is AuthAPI.RemoveSessionUserPassword's, whose
+// refusal of a user's last means of sign-in is answered in words the person can act on.
+func (a *Auth[S, U, Tx]) removeUserPasswordHandler() http.HandlerFunc {
+	type request struct {
+		Password string `json:"password"`
+	}
+	decoder := sessioncore.NewDecoder[request]()
+
+	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		if _, validated := ctx.Value(sessioninfo.CtxUserInfo).(*sessioninfo.UserInfo); !validated {
+			var err error
+			if ctx, err = a.validate(ctx); err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
+		}
+		if err := sessioncore.RefuseImpersonated(ctx, a.baseSession, "RemoveUserPassword", true); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		req, err := decoder.Decode(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		if err := a.removeOwnPassword(ctx, sessioninfo.UserFromCtx(ctx).ID, req.Password); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+
+		return httpio.NewEncoder(w).Ok(nil)
+	})
+}
+
+// removeOwnPassword removes the password of the user who proves it: password must match
+// the one userID holds (BadRequest otherwise, as a change answers a wrong old password),
+// and the removal is AuthAPI.RemoveSessionUserPassword's. Its refusal of the last means
+// of sign-in is said to the person themselves, with what to do.
+func (a *Auth[S, U, Tx]) removeOwnPassword(ctx context.Context, userID impulse.UUID, password string) error {
+	user, err := a.storage.User(ctx, userID)
+	if err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
+	}
+	if _, err := sessioncore.ComparePassword(a.registered().hasher, user.PasswordHash, password); err != nil {
+		return httpio.NewBadRequestMessageWithError(err, "Password incorrect")
+	}
+	if err := a.API().RemoveSessionUserPassword(ctx, user.ID); err != nil {
+		if errors.Is(err, sessionstorage.ErrLastSignInMethod) {
+			return httpio.NewConflictMessageWithError(err, "Your password is your only way to sign in: sign in through your directory first, which links it to your account, then remove the password")
+		}
+
+		return err
+	}
+
+	return nil
+}
+
 // mfaResponse answers a sign-in step that may still wait for the application's MFA.
 // RedirectURL is where a PendingHook sends the browser.
 type mfaResponse struct {

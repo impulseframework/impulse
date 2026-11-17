@@ -711,6 +711,20 @@ func (mr *MockAuthStoreMockRecorder[Tx]) RedeemDeviceCode(ctx, deviceCodeHash, i
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedeemDeviceCode", reflect.TypeOf((*MockAuthStore[Tx])(nil).RedeemDeviceCode), ctx, deviceCodeHash, interval, access, refresh)
 }
 
+// RemoveUserPassword mocks base method.
+func (m *MockAuthStore[Tx]) RemoveUserPassword(ctx context.Context, userID impulse.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveUserPassword", ctx, userID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RemoveUserPassword indicates an expected call of RemoveUserPassword.
+func (mr *MockAuthStoreMockRecorder[Tx]) RemoveUserPassword(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveUserPassword", reflect.TypeOf((*MockAuthStore[Tx])(nil).RemoveUserPassword), ctx, userID)
+}
+
 // RevokeMailLink mocks base method.
 func (m *MockAuthStore[Tx]) RevokeMailLink(ctx context.Context, id impulse.UUID) error {
 	m.ctrl.T.Helper()

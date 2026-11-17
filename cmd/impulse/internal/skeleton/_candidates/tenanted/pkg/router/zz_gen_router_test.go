@@ -81,6 +81,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/api/user/google/callback", suffix: "/user/google/callback", method: http.MethodGet, handler: "GoogleCallback"},
 		{url: "/api/user/password/login", suffix: "/user/password/login", method: http.MethodPost, handler: "PasswordLogin", xsrf: true},
 		{url: "/api/user/password/change", suffix: "/user/password/change", method: http.MethodPost, handler: "PasswordChange", xsrf: true},
+		{url: "/api/user/password/remove", suffix: "/user/password/remove", method: http.MethodPost, handler: "PasswordRemove", xsrf: true},
 		{url: "/api/user/pending/confirm", suffix: "/user/pending/confirm", method: http.MethodPost, handler: "PendingConfirmWithPassword", xsrf: true},
 		{url: "/api/user/pending/cancel", suffix: "/user/pending/cancel", method: http.MethodPost, handler: "PendingCancel", xsrf: true},
 		{url: "/api/user/pending/code", suffix: "/user/pending/code", method: http.MethodPost, handler: "PendingSendCode", xsrf: true},
@@ -726,6 +727,10 @@ func (s *routerDefaultSessionStub) PasswordLogin() http.HandlerFunc {
 
 func (s *routerDefaultSessionStub) PasswordChange() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PasswordChange")
+}
+
+func (s *routerDefaultSessionStub) PasswordRemove() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "PasswordRemove")
 }
 
 func (s *routerDefaultSessionStub) PendingConfirmWithPassword() http.HandlerFunc {

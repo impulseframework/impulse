@@ -405,6 +405,16 @@ func (h *Handlers) PasswordChange() http.HandlerFunc {
 	return h.password.ChangeUserPassword()
 }
 
+// PasswordRemove is the password method's removal: {"password"} in from a signed-in
+// person who has moved to signing in through the fleet's directory and no longer wants
+// the password as a second way in. A person with no directory link keeps it, since
+// nothing else would sign them in. It validates the session itself, as the change does,
+// so the generated router mounts it beside the change, outside ValidateSession, behind
+// the XSRF guard.
+func (h *Handlers) PasswordRemove() http.HandlerFunc {
+	return h.password.RemoveUserPassword()
+}
+
 // GoogleLogin sends the browser to the fleet's Google directory.
 func (h *Handlers) GoogleLogin() http.HandlerFunc {
 	return h.google.Login()

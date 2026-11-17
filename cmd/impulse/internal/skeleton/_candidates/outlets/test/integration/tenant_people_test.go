@@ -52,6 +52,7 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "RevokeStaffTenantUserTrustedDevices", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "EndStaffTenantUserSessions", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "UnlinkStaffTenantSessionIdentity", "heldElsewhere = false AND heldGlobally = false")
+	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "RemoveStaffTenantPassword", "heldElsewhere = false AND heldGlobally = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "RemoveStaffTenantRole", "everyDomain = false")
 	provesGrant(t, staff.Roles(), "TenantAdministrator", "Execute", "WithdrawStaffTenantInvitation", "pending = true")
 
@@ -176,6 +177,11 @@ func TestTenantPeople_aTenantAdministratorActsOnTheTenantsOwnPeopleAlone(t *test
 		{"rename-staff-tenant-user", func(name string) map[string]any {
 			return map[string]any{"userId": ids[name], "username": name + "-renamed"}
 		}},
+		// A person keeps one way in: a password is removed while an identity is linked, and
+		// an identity unlinked while a password is held. So the password the person was
+		// created with goes first, while the link stands, and the temporary one set next is
+		// what lets the link go further down.
+		{"remove-staff-tenant-password", user},
 		{"set-staff-tenant-temporary-password", func(name string) map[string]any {
 			return map[string]any{"userId": ids[name], "password": "second-day-pass"}
 		}},
