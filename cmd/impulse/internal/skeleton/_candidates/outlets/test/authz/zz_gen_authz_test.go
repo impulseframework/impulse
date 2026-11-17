@@ -829,14 +829,14 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 		{
 			name:         "TenantDirectories denied",
 			method:       http.MethodGet,
-			target:       "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories",
+			target:       "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories?sort=id",
 			wantStatuses: []int{http.StatusNotFound},
 		},
 		{
 			name:         "TenantDirectories granted",
 			grants:       grants{accesstypes.List: true},
 			method:       http.MethodGet,
-			target:       "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories",
+			target:       "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories?sort=id",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{

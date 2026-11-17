@@ -28,8 +28,7 @@ func (a *App) SectorDirectories() http.HandlerFunc {
 
 	type response []map[string]any
 
-	decoder := NewQueryDecoder[resources.SectorDirectory, sectorDirectory](a, accesstypes.List).
-		WithPaging(resource.Paging{Order: []resource.SortField{{Field: "Method", Direction: resource.SortAscending}, {Field: "Connection", Direction: resource.SortAscending}}})
+	decoder := NewQueryDecoder[resources.SectorDirectory, sectorDirectory](a, accesstypes.List)
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -110,7 +109,7 @@ func (a *App) SectorDirectories() http.HandlerFunc {
 func (a *App) SectorDirectory() http.HandlerFunc {
 	type response struct {
 		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
-		SectorID    impulse.UUID `json:"sectorId"`
+		SectorID    impulse.UUID `json:"sectorId"    index:"true"`
 		Method      string       `json:"method"`
 		Connection  string       `json:"connection"`
 		DefaultSeat *string      `json:"defaultSeat"`

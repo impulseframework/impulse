@@ -320,7 +320,6 @@ export const apiDescriptor = defineApiDescriptor({
       keys: ['id'],
       operations: ['list', 'read', 'create', 'patch', 'remove', 'batch'],
       page: { default: 50 },
-      order: [{ field: 'method', direction: 'asc' }, { field: 'connection', direction: 'asc' }],
       patchable: ['defaultSeat'],
     },
     [Resources.StaffTenantRoles]: {

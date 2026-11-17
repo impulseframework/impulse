@@ -28,8 +28,7 @@ func (a *App) TenantDirectories() http.HandlerFunc {
 
 	type response []map[string]any
 
-	decoder := NewQueryDecoder[resources.TenantDirectory, tenantDirectory](a, accesstypes.List).
-		WithPaging(resource.Paging{Order: []resource.SortField{{Field: "Method", Direction: resource.SortAscending}, {Field: "Connection", Direction: resource.SortAscending}}})
+	decoder := NewQueryDecoder[resources.TenantDirectory, tenantDirectory](a, accesstypes.List)
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())

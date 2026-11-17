@@ -17,6 +17,7 @@ import (
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 	"github.com/impulseframework/impulse/tracer"
 )
 
@@ -41,11 +42,14 @@ var _ interface {
 // new membership as a foothold the session reaches, so the person's next request stands
 // in the sector; the tenants kind is signaled last, so every instance serves it at
 // once.
-// The sector's first directory is the one its creator came through: a person who
-// signed in through a directory (Google, Microsoft Entra, WorkOS) has it declared on the
-// new sector in the row's transaction (SectorDirectory), so the sector admits
-// them at once, one domain, one directory; a person who signed in by password declares
-// none, and the sector admits passwords as every sector declaring nothing does.
+// The sector's directory is the one its creator came through: a person who
+// signed in through an organization's directory (a Google Workspace, a Microsoft Entra
+// tenant) has it set on the new sector in the row's transaction
+// (SetSectorDirectory, which writes the SectorDirectory row), so the sector admits
+// them at once. A directory belongs to one sector: a person whose organization has a
+// sector already is refused (409) and nothing is written. A person who signed in by
+// password, or with a personal account, which is no organization's directory, sets
+// none, and the sector admits both as every sector with no directory does.
 // The roster must list the sector and its declaration before the membership is
 // probed: the probe asks what the next request asks, and a sector the roster does
 // not know admits nobody who came through a directory.
@@ -103,16 +107,16 @@ func (a *App) CreateSector() http.HandlerFunc {
 			if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "resources.SectorCreatePatch.Buffer()")
 			}
-			// The creator's directory, written with the row; none for a creator who came
-			// by password.
-			if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok && established.Method.ThroughDirectory() {
-				directory, err := resources.NewSectorDirectoryCreatePatch()
-				if err != nil {
-					return errors.Wrap(err, "resources.NewSectorDirectoryCreatePatch()")
-				}
-				directory.SetSectorID(id).SetMethod(string(established.Method)).SetConnection(established.Connection)
-				if err := directory.Buffer(ctx, txn, eventSource); err != nil {
-					return errors.Wrap(err, "resources.SectorDirectoryCreatePatch.Buffer()")
+			// The creator's directory, written with the row: the organization's directory
+			// the creator is signed in through, held to the rules of a sector's
+			// directory, so a directory another sector has refuses the creation and
+			// nothing is written. None for a creator who came by password or with a
+			// personal account, which is no organization's directory.
+			if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok {
+				if directory := (signin.Directory{Method: established.Method, Connection: established.Connection}); directory.Organization() {
+					if err := SetSectorDirectory(ctx, txn, id, directory, eventSource); err != nil {
+						return errors.Wrap(err, "SetSectorDirectory()")
+					}
 				}
 			}
 			// The first administrator: the person's membership of each role, in the row's
