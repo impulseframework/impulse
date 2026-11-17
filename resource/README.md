@@ -3014,7 +3014,10 @@ is removed per user per transaction.
 
 **Limits.** It runs on Spanner. A rule reads the rows as committed: a method does not see
 what an earlier method of the same transaction buffered, so the rule on a person's last
-role judges one removal per person per transaction. A temporary password is the one the session library has today: the
+role judges one removal per person per transaction, and the rule on the last super
+administrator one holder per transaction. Every generated route runs one method, which
+names one person, in a transaction of its own, so no request puts two in one; the limit
+is for an application that runs the methods in a transaction it opens itself. A temporary password is the one the session library has today: the
 operator chooses it and passes it on.
 
 **The rules on who is asking.** Who may run a method is the role file's to say. Four

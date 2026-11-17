@@ -117,6 +117,15 @@ func callerActor(ctx context.Context, caller *resource.Caller) (actor accesstype
 // sentence ("take the Super Administrator role from them", "disable their account").
 // It is refused whoever asks, a call outside any request included. A person who holds
 // the role and cannot sign in is nobody's way back in, so an act on them is not judged.
+//
+// The holders it counts are the committed ones, read in the transaction, as no read sees
+// a buffered write: two requests that each take a holder away at once are judged one
+// after the other by the database, and the second finds the first's commit. A
+// transaction that takes away one holder and then another would judge each against the
+// rows as they were before it. No request reaches that: every method the generated
+// management serves runs alone in a transaction of its own and names one person. An
+// application that runs these methods in a transaction it opens itself takes the role
+// from, disables or deletes one holder per transaction.
 func (m *Manager) refuseLastSuperAdministrator(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, act string) error {
 	last, err := m.lastSuperAdministrator(ctx, txn, userID)
 	if err != nil || !last {
