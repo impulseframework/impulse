@@ -811,11 +811,12 @@ read the headers, so the refusal is said once there and no frame repeats it. The
 generated router test (`TestGeneratedDryRunAndWarning`) sends both headers to every
 route in its table, the resources' routes and the ones beside them, and holds each to
 one side or the other; that a frame registered ahead of the refusal reads both headers
-is pinned on the generator's templates. The browser client sends the two headers only
-from a method's handle (`dryRun`, `warning`), to the method's own route. Two kinds of
-route stand outside: the files of the programs a release ships, which are downloads,
-and a route an application mounts beside the generated ones, which is its own and
-takes the middleware by naming it.
+is pinned on the generator's templates, and for `SetFeature` on its handler's test. The
+browser client sends the two headers only from a method's handle (`dryRun`, `warning`),
+to the method's own route. What stands outside the refusal serves no call: the files
+of a browser application and of the programs a release ships, and the redirect at the
+root. A route an application mounts beside the generated ones is its own, and takes
+the middleware by naming it.
 
 The warning is no permission check and no second gate on the route: a script that
 holds the grant calls the method without asking. It is what stands between a person

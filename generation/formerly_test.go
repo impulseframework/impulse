@@ -404,10 +404,12 @@ func Test_formerlyTemplates(t *testing.T) {
 			},
 			wantContains: []string{
 				"publishHandler := h.Publish()",
-				`r.Post("/api/publish", publishHandler)`,
-				`r.Post("/api/release", publishHandler)`,
-				`r.Post("/portal/api/publish", publishHandler)`,
-				`r.Post("/portal/api/release", publishHandler)`,
+				// A method's route and its former one register on asked, the router
+				// before the refusal of a dry run and a warning: the frame answers both.
+				`asked.Post("/api/publish", publishHandler)`,
+				`asked.Post("/api/release", publishHandler)`,
+				`asked.Post("/portal/api/publish", publishHandler)`,
+				`asked.Post("/portal/api/release", publishHandler)`,
 			},
 		},
 		{

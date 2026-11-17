@@ -4,29 +4,9 @@ package integration
 
 import (
 	"encoding/json"
-	"io"
 	"net/http"
-	"strings"
 	"testing"
-
-	"github.com/impulseframework/impulse/resource"
 )
-
-// assertHeldBack fails unless the response is the refusal of a request that asked a
-// call with no dry run or no warning for one: 400, naming the header. It closes the
-// body.
-func assertHeldBack(t *testing.T, resp *http.Response, header string) {
-	t.Helper()
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if want := "the " + header + " header asks for "; resp.StatusCode != http.StatusBadRequest || !strings.Contains(string(body), want) {
-		t.Errorf("%s %s under %s: answered %d %s, want 400 saying %q", resp.Request.Method, resp.Request.URL.Path, header, resp.StatusCode, body, want)
-	}
-}
 
 // lookOf is the look a session read answers, and whether the answer carries one.
 func lookOf(info map[string]any) (scheme, palette string, present bool) {
@@ -42,9 +22,7 @@ func lookOf(info map[string]any) (scheme, palette string, present bool) {
 // answered as kept and is what the session read of another browser of theirs answers, a
 // scheme that is neither light nor dark is refused, an impersonated session neither
 // writes the look of the person it acts as nor changes it, and the portal's people keep
-// theirs the same way. The session's own routes have no dry run and no warning, so a
-// request that asks one of them for either is refused naming the header and changes
-// nothing.
+// theirs the same way.
 //
 // Demonstrates: webapp.theme-choice.
 func TestLookFollowsThePerson(t *testing.T) {
@@ -67,17 +45,6 @@ func TestLookFollowsThePerson(t *testing.T) {
 	if scheme, palette, present := lookOf(first.session(ctx)); present {
 		t.Fatalf("a person who chose nothing: the session read answers the look %s/%s, want none", scheme, palette)
 	}
-	// The session's own routes have no dry run and no warning: a request that asks for
-	// either is refused naming the header, signed in or not, and the call is not run.
-	for _, header := range []string{resource.DryRunHeader, resource.WarningHeader} {
-		asks := map[string]string{header: "true"}
-		assertHeldBack(t, newBrowser(t, s, consoleAPI).doWith(ctx, http.MethodGet, consoleAPI+"/user/methods", nil, asks), header)
-		assertHeldBack(t, first.doWith(ctx, http.MethodPost, consoleAPI+"/user/look", []byte(`{"scheme":"light"}`), asks), header)
-	}
-	if scheme, palette, present := lookOf(first.session(ctx)); present {
-		t.Fatalf("after the refused requests the session read answers the look %s/%s, want none: the call was not run", scheme, palette)
-	}
-
 	status, body := first.do(ctx, http.MethodPost, consoleAPI+"/user/look", []byte(`{"scheme":"dark","palette":" workspace "}`))
 	assertStatus(t, status, http.StatusOK, body)
 	var kept map[string]any
