@@ -53,15 +53,18 @@ way to sign in before holding anything. `@tenant` alone keeps creation to an
 administrator, and `@tenant(creation: self-service)` to the person alone.
 
 Who may enter a tenant is the record's declaration, data of the application rather than
-deploy configuration: the directories the tenant admits its people through
-(`TenantDirectory`, one row each under `/api/tenants/{tenantID}/tenant-directories`: a
-sign-in method and the connection its identities carry, a Google Workspace by its domain
-or a Microsoft Entra tenant by its tenant id) and whether its people enter through them
-only (`Tenant.DirectoryOnly`, which closes passwords). The staff auth's sign-in rule is
+deploy configuration: the tenant's directory, the organization its people sign in
+through (`TenantDirectory`, one row at most under
+`/api/tenants/{tenantID}/tenant-directories`: a sign-in method and the connection its
+identities carry, a Google Workspace by its domain or a Microsoft Entra tenant by its
+tenant id) and whether its people enter through it only (`Tenant.DirectoryOnly`, which
+closes passwords). A tenant has one directory and a directory belongs to one tenant: the
+table's two unique indexes hold both, and the generated write paths refuse first, each
+with a sentence the person can act on. The staff auth's sign-in rule is
 the library's tenant policy over it (`signin.TenantPolicy`, handed the generated
 `app.NewTenantDeclarationReader`, which reads the declaration in the sign-in's own
-transaction): a sign-in through a directory is admitted when one of the person's tenants
-declares that directory, a password unless every one of their tenants is directory only,
+transaction): a sign-in through a directory is admitted when it is the directory of one
+of the person's tenants, a password unless every one of their tenants is directory only,
 staff (a global role) on the library's checks, and a person holding no tenant too, since
 the record lets a stranger sign in first and create their own. Which tenants the session
 then reaches is decided again per tenant where its tenant list is computed: the data
@@ -70,13 +73,23 @@ level's roster keeps every tenant's declaration beside its key
 records' generated write paths reload it after their commit and signal every instance,
 so a declaration edited anywhere decides the next request everywhere, and a tenant the
 session may not enter is not listed and answers as one that does not exist. The
-console's Sign-in page under the tenant (`/tenants/{tenantID}/sign-in`) lists, declares
-and withdraws directories under the tenant's own grants (`TenantAdministrator`) and
-flips directory only under the global record's Update grant (`Administrator`);
-both records write change events, the audit of every edit. A self-service tenant's
-first directory is the one its creator came through, written by the create-your-tenant
-route; the staff auth's google registration admits any Workspace account (its domain is
-the connection a tenant declares) beside any Google account.
+console's Sign-in page under the tenant (`/tenants/{tenantID}/sign-in`) shows the
+tenant's directory, sets it, picks its default role and removes it under the tenant's
+own grants (`TenantAdministrator`), and flips directory only under the global record's
+Update grant (`Administrator`); both records write change events, the audit of every
+edit. Nobody types a directory in. It is set from a sign-in: the create-your-tenant
+route sets the one its creator came through, refusing a creation from an organization
+that already has a tenant, and afterwards the page offers an administrator who is
+signed in through their organization's directory to make it the tenant's ("Make
+acme.example this tenant's directory"), with a create that names no directory, since the
+server sets the one the session came through. A session that came by password is
+offered no such action and its call is refused, as is a personal account, which is no
+organization's directory; the directory of a tenant that is directory only is not
+removed. A person is given the directory's default role at their first sign-in through
+it, whether their account is created then or stood before, once for the link between
+the account and the directory. The staff auth's google registration admits any
+Workspace account (its domain is the connection of the tenant's directory) beside any
+Google account.
 
 ## Layout
 
@@ -135,7 +148,7 @@ the connection a tenant declares) beside any Google account.
   (`staff.AdministratorRoles`), so neither the application nor a tenant is left with
   nobody to give the next role, and sets the client's two hooks on its session manager,
   through which a sign-in gives a role in the transaction of the step that causes it:
-  an accepted invitation's roles, and the default role of a directory a tenant declares.
+  an accepted invitation's roles, and the default role of a tenant's directory.
   No auth is open without them. The console writes no page for any of it: the library builds
   them from the API description (`identityRoutes` in `web/console/src/app/app.routes.ts`).
 - `pkg/deploy` holds the database steps a deployment runs: the schema migrations, then
