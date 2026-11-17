@@ -473,7 +473,7 @@ func seededOnce(t *testing.T, auth *staff.Auth) {
 func stoppedBeforeTheUser(t *testing.T, auth *staff.Auth) {
 	t.Helper()
 
-	global, _ := seededRoles()
+	global := seededRoles()
 	manager := auth.Access().UserManager()
 	user := accesstypes.User(seedID().String())
 	if err := manager.AddUserRoles(t.Context(), accesstypes.GlobalPolicyScope(), user, global...); err != nil {
@@ -502,14 +502,14 @@ func someoneElse(t *testing.T, auth *staff.Auth) {
 	}
 }
 
-// seededRoles are the roles the seed writes for the first administrator, by where they
-// are held: the Super Administrator role, which the framework defines in every auth and
-// every first administrator holds, beside the application's own
-// (staff.FirstAdministratorRoles).
-func seededRoles() (global, everyDomain []accesstypes.Role) {
-	global, everyDomain = staff.FirstAdministratorRoles()
+// seededRoles are the roles the seed writes for the first administrator: the Super
+// Administrator role, which the framework defines in every auth and every first
+// administrator holds, beside the application's own (staff.FirstAdministratorRoles). This
+// application has no tenants, so each is held for the whole application.
+func seededRoles() []accesstypes.Role {
+	global, _ := staff.FirstAdministratorRoles()
 
-	return append([]accesstypes.Role{accesstypes.SuperAdministrator}, global...), everyDomain
+	return append([]accesstypes.Role{accesstypes.SuperAdministrator}, global...)
 }
 
 // seedID is the id the seed creates the first administrator under, which it derives from
@@ -563,7 +563,7 @@ func nothingSeeded(t *testing.T, data *config.DataConfiguration, before map[impu
 	}
 	holdsNoRole(t, data, accesstypes.User(seedID().String()), "the id the seed derives, which no user is under")
 	holdsNoRole(t, data, staff.Administrator, "the administrator's username: a role is held by the account")
-	global, _ := seededRoles()
+	global := seededRoles()
 	heldBy(t, data, accesstypes.GlobalPolicyScope(), global)
 }
 
@@ -580,7 +580,7 @@ func holdsAdministratorRoles(t *testing.T, data *config.DataConfiguration, id im
 	if err != nil {
 		t.Fatalf("access.UserManager.UserRoles(%s) error = %v", id, err)
 	}
-	global, _ := seededRoles()
+	global := seededRoles()
 	if got, want := sorted(roles[accesstypes.GlobalPolicyScope()]), sorted(global); !slices.Equal(got, want) {
 		t.Errorf("roles in the global partition = %v, want %v", got, want)
 	}

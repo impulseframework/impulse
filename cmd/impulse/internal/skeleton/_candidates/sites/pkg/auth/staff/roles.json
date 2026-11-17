@@ -3,7 +3,7 @@
     "global": [
       {
         "name": "Administrator",
-        "description": "Manages the application's tenants and people: creates tenants, creates accounts and invites people, gives and takes roles, and sets temporary passwords.",
+        "description": "Manages the application's tenants and people: creates tenants, creates accounts and invites people, gives and takes roles, keeps groups of people, and sets temporary passwords.",
         "permissions": {
           "Create": [
             {
@@ -78,6 +78,27 @@
             },
             {
               "resource": "SetStaffUserName"
+            },
+            {
+              "resource": "CreateStaffGroup"
+            },
+            {
+              "resource": "DescribeStaffGroup"
+            },
+            {
+              "resource": "DeleteStaffGroup"
+            },
+            {
+              "resource": "AddStaffGroupMember"
+            },
+            {
+              "resource": "RemoveStaffGroupMember"
+            },
+            {
+              "resource": "GiveStaffGroupRole"
+            },
+            {
+              "resource": "TakeStaffGroupRole"
             }
           ],
           "List": [
@@ -204,6 +225,45 @@
                 "revokedAt",
                 "userId"
               ]
+            },
+            {
+              "resource": "StaffGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffGroupUsers",
+              "fields": [
+                "username",
+                "name",
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "StaffGroupRoles",
+              "fields": [
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "StaffUserGroupRoles",
+              "fields": [
+                "username",
+                "groupName",
+                "startsAt",
+                "endsAt"
+              ]
             }
           ],
           "Read": [
@@ -291,6 +351,17 @@
                 "revokedAt",
                 "userId"
               ]
+            },
+            {
+              "resource": "StaffGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt"
+              ]
             }
           ],
           "Update": [
@@ -341,7 +412,7 @@
     "domain": [
       {
         "name": "TenantAdministrator",
-        "description": "Runs one tenant: manages its people and the roles they hold there, declares the directories they sign in through, and posts its announcements.",
+        "description": "Runs one tenant: manages its people, their groups and the roles they hold there, declares the directories they sign in through, and posts its announcements.",
         "permissions": {
           "Create": [
             {
@@ -432,6 +503,27 @@
             {
               "resource": "RemoveStaffTenantPassword",
               "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "CreateStaffTenantGroup"
+            },
+            {
+              "resource": "DescribeStaffTenantGroup"
+            },
+            {
+              "resource": "DeleteStaffTenantGroup"
+            },
+            {
+              "resource": "AddStaffTenantGroupMember"
+            },
+            {
+              "resource": "RemoveStaffTenantGroupMember"
+            },
+            {
+              "resource": "GiveStaffTenantGroupRole"
+            },
+            {
+              "resource": "TakeStaffTenantGroupRole"
             }
           ],
           "List": [
@@ -524,6 +616,45 @@
               "fields": [
                 "description"
               ]
+            },
+            {
+              "resource": "StaffTenantGroups",
+              "fields": [
+                "name",
+                "description",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffTenantGroupUsers",
+              "fields": [
+                "username",
+                "name",
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "StaffTenantGroupRoles",
+              "fields": [
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "StaffTenantUserGroupRoles",
+              "fields": [
+                "username",
+                "groupName",
+                "globalGroup",
+                "everyDomain",
+                "startsAt",
+                "endsAt"
+              ]
             }
           ],
           "Read": [
@@ -610,6 +741,14 @@
                 "emailAtLink"
               ],
               "condition": "heldElsewhere = false"
+            },
+            {
+              "resource": "StaffTenantGroups",
+              "fields": [
+                "name",
+                "description",
+                "updatedAt"
+              ]
             }
           ],
           "Update": [

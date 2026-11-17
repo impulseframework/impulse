@@ -21,8 +21,12 @@ application's name opens the same page under the chosen tenant, and a URL naming
 the session cannot reach lands on the refusal page (`/tenants/{tenantID}/refused`), which
 shows the server's answer. The dashboard is every place's first page; the console manages
 the staff auth's people in both places the same way, the whole application's accounts at
-`/staff-accounts` and a tenant's people at `/tenants/{tenantID}/staff-people`. The library
-draws both from the API description (`identityRoutes` in the console's `app.routes.ts`,
+`/staff-accounts` and a tenant's people at `/tenants/{tenantID}/staff-people`. Groups of
+people are kept beside them (`/staff-groups`, `/tenants/{tenantID}/staff-groups`): a group
+holds roles the way a person does, a person in it holds the group's roles, and the role
+file gives a place's groups, their members and their roles to whoever manages its people
+(`Administrator` for the whole application, `TenantAdministrator` in a tenant). The library
+draws them from the API description (`identityRoutes` in the console's `app.routes.ts`,
 placed by `identityMenuPages` in its menu file), and a tenant's pages read the tenant from
 the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file (`app.menus.ts`)
 shows Tenants (All tenants and New tenant…) and System (the staff's accounts and Feature

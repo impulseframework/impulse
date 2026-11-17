@@ -41,8 +41,11 @@ what they hold.
   else holds it, and sets the client's hook on its session manager, through which a
   person who accepts an invitation is given its roles in the transaction that spends it:
   no auth is open without it. The console writes no page for any of it: the library builds
-  the accounts, mailed links, sessions and failed sign-ins pages from the API description
-  (`identityRoutes` in `web/console/src/app/app.routes.ts`).
+  the accounts, groups, mailed links, sessions and failed sign-ins pages from the API
+  description (`identityRoutes` in `web/console/src/app/app.routes.ts`). A group of people
+  holds roles the way a person does, and a person in it holds the group's roles; the role
+  file gives the groups, their members and their roles to the `Administrator`, who manages
+  the people.
 - `pkg/deploy` holds the database steps a deployment runs: the schema migrations, then
   the role policy check (`CheckRoles`), which prints what the store holds that this
   release cannot use as written. Then `MigrateFeatures` brings the `FeatureFlags` table to the
