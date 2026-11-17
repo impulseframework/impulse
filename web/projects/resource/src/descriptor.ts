@@ -73,6 +73,14 @@ export interface ResourceDescriptor {
    * zz_gen_api.ts narrows this string; absent on an ungated resource.
    */
   feature?: string;
+  /**
+   * Set on a tenant-scoped resource whose list is also served without the tenant's
+   * segment (`@listAcrossTenants`): one request reads its rows in every tenant the session
+   * reaches in which the person may list it, each row checked in its own tenant and
+   * naming it (`zzTenant`). The client hangs the list's handle off
+   * `client.acrossTenants`. Absent, the resource is listed inside one tenant alone.
+   */
+  acrossTenants?: boolean;
 }
 
 /** One generated RPC method as the client needs to address it. */
