@@ -19,7 +19,12 @@ import { listViewConfig, rootConfig } from '@impulseframework/resource-angular/t
 // show it to whoever may list the sectors, and a person who may list missions in no
 // sector opens an empty list (missionsEverySector.config.spec.ts).
 //
-// Demonstrates: list.across-tenants.
+// A list across tenants is plain unless its page asks, and this one asks (`live: true`):
+// the page holds one subscription over the sectors its list reads, so a mission booked or
+// changed in Anvil or in Cinder shows up on the liaison's page without a reload, and one
+// changed in Bastion never wakes it.
+//
+// Demonstrates: list.across-tenants, list.across-tenants.live.
 export const missionsEverySectorConfig = rootConfig({
   page: {
     label: 'Missions in every sector',
@@ -31,6 +36,7 @@ export const missionsEverySectorConfig = rootConfig({
     title: 'Missions in every sector',
     primaryResource: Resources.Missions,
     acrossTenants: true,
+    live: true,
     listColumns: [
       { id: Missions.fieldName.title },
       { id: Missions.fieldName.kindId, header: 'Kind' },

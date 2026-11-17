@@ -301,7 +301,8 @@ func (a *App) Mission() http.HandlerFunc {
 // the person holds the List grant (@listAcrossTenants): one filter, one order, one page
 // and one count across them, narrowed by the request's domains parameter. Each row is
 // checked under the person's grants in its own tenant and carries the tenant it is in
-// (resource.TenantProperty). The list is plain: it registers no live subscription.
+// (resource.TenantProperty). The list is plain unless the page asks for live: then it
+// registers one subscription over the set of tenants it reads.
 func (a *App) MissionsAcrossTenants() http.HandlerFunc {
 	type mission struct {
 		ID                 impulse.UUID          `json:"id"                 index:"true"                                                        perm:"-"`
@@ -336,6 +337,11 @@ func (a *App) MissionsAcrossTenants() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
+
+		// A page that asked for live registers before the query runs, so a commit that
+		// lands during the query is not missed: one subscription over the tenants the
+		// list reads for the person, and none of a tenant it does not.
+		live.SubscribeAcrossTenants(ctx, r, a.LiveService(), querySet)
 
 		res := resources.NewMissionQueryFromQuerySet(querySet)
 
@@ -437,6 +443,9 @@ func (a *App) MissionsAcrossTenants() http.HandlerFunc {
 		if err := page.WriteHeaders(w, r); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
+		// A request carrying the version parameter is a live refetch: the browser
+		// may cache the answer for the subscription's window.
+		live.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(resp)
 	})

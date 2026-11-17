@@ -1,4 +1,4 @@
-// Demonstrates: list.across-tenants.
+// Demonstrates: list.across-tenants, list.across-tenants.live.
 import { ApplicationRef } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute } from '@angular/router';
@@ -138,6 +138,13 @@ describe('the Missions in every sector page', () => {
         `/sectors/${cinder}/missions/${sweep}`,
         `/sectors/${anvil}/missions/${courier}`,
         `/sectors/${anvil}/missions/${hauler}`,
+      ]);
+    });
+
+    it('asks for live: one subscription over the sectors her list reads, whichever they are', () => {
+      expect(fixture.componentInstance.store.live()).toBe(true);
+      expect(TestBed.inject<ClientBase>(RESOURCE_CLIENT).live.subscriptions()).toEqual([
+        { resource: Resources.Missions, acrossTenants: true },
       ]);
     });
 
