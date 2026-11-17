@@ -93,6 +93,48 @@ func TestStore_isolation(t *testing.T) {
 	}
 }
 
+// TestStore_readsWhileATransactionIsOpen pins what the store's reads do while a
+// transaction of the application's is open on the same pool, under the same context:
+// they succeed. The store reads on a connection of its own, and the PostgreSQL client
+// marks no context, so nothing refuses the read as the Spanner client refuses one
+// under a transaction's context. The permission engine's reload on the check path
+// therefore works inside a transaction here, and a check made right after a local
+// policy write sees the write.
+func TestStore_readsWhileATransactionIsOpen(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	store, db := prepareStore(ctx, t)
+	scope := accesstypes.DomainPolicyScope("tenant1")
+	if err := store.InsertRole(ctx, scope, "Editor", "Edits the records of the tenant."); err != nil {
+		t.Fatalf("InsertRole() error = %v", err)
+	}
+
+	tx, err := db.Pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("pgxpool.Pool.Begin() error = %v", err)
+	}
+	defer func() {
+		if err := tx.Rollback(ctx); err != nil {
+			t.Errorf("pgx.Tx.Rollback() error = %v", err)
+		}
+	}()
+	if _, err := tx.Exec(ctx, "SELECT 1"); err != nil {
+		t.Fatalf("pgx.Tx.Exec() error = %v", err)
+	}
+
+	records, err := store.ReadPolicy(ctx)
+	if err != nil {
+		t.Fatalf("ReadPolicy() while a transaction is open error = %v, want the policy", err)
+	}
+	if len(records.Roles) != 1 {
+		t.Errorf("ReadPolicy() while a transaction is open read %d roles, want the one committed", len(records.Roles))
+	}
+	if roles, err := store.ListRoles(ctx, scope); err != nil || len(roles) != 1 {
+		t.Errorf("ListRoles() while a transaction is open = (%v, %v), want the one role", roles, err)
+	}
+}
+
 // TestDDL_keys pins the shape of the tables: Kind leads every key and is
 // checked against the three values the store writes; Axis is the second key
 // column of every table, declared NOT NULL and written "" for the default
