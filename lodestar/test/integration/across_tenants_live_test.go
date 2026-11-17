@@ -19,8 +19,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/lodestar/app"
 	"github.com/impulseframework/impulse/resource/live"
@@ -56,7 +54,6 @@ func TestAcrossTenants_live(t *testing.T) {
 	liaisonChanges := func() []string {
 		return changeNames(fake.Changes(principalID("liaison")))
 	}
-	ignoreExpiry := cmpopts.IgnoreFields(live.Subscription{}, "Expiry")
 
 	// Deliberately not a table: each step reads the record the previous one left.
 
@@ -82,12 +79,9 @@ func TestAcrossTenants_live(t *testing.T) {
 	if rows := decodeRows(t, rr.Body.Bytes()); len(rows) != 15 {
 		t.Errorf("rows = %d, want her fifteen", len(rows))
 	}
-	wantSub := live.Subscription{
-		Principal: principalID("liaison"), Tab: liveTabLiaison, Resource: "Missions",
-		Across: &live.TenantSet{Domains: []accesstypes.Domain{anvil, cinder}},
-	}
-	if diff := cmp.Diff([]live.Subscription{wantSub}, fake.Subscriptions(), ignoreExpiry); diff != "" {
-		t.Fatalf("the record after her live request mismatch (-want +got):\n%s", diff)
+	everySector := acrossName(principalID("liaison"), liveTabLiaison, nil, anvil, cinder)
+	if got, want := acrossSubscriptionNames(fake.Subscriptions()), []string{everySector}; !slices.Equal(got, want) {
+		t.Fatalf("the record after her live request = %v, want %v", got, want)
 	}
 
 	// A mission changes in each sector. Hers holds the two she lists, each as that
@@ -108,11 +102,10 @@ func TestAcrossTenants_live(t *testing.T) {
 	renewal := fmt.Sprintf(`{"tab":%q,"subscriptions":[{"resource":"Missions","acrossTenants":true},{"resource":"Missions","acrossTenants":true,"domains":%q}]}`, liveTabLiaison, bastion+","+cinder)
 	rr = doRequestRecordedWithHeaders(t, h, "liaison", http.MethodPost, consoleAPI+"/"+live.RenewRoute, renewal, liveHeaders(liveTabLiaison))
 	assertStatus(t, rr.Code, http.StatusOK, rr.Body.Bytes())
-	narrowed := wantSub
-	narrowed.Across = &live.TenantSet{Narrowed: []accesstypes.Domain{bastion, cinder}, Domains: []accesstypes.Domain{cinder}}
-	byNarrowing := cmpopts.SortSlices(func(a, b live.Subscription) bool { return len(a.Across.Narrowed) < len(b.Across.Narrowed) })
-	if diff := cmp.Diff([]live.Subscription{wantSub, narrowed}, fake.Subscriptions(), ignoreExpiry, byNarrowing); diff != "" {
-		t.Errorf("the record after her renewal mismatch (-want +got):\n%s", diff)
+	want = []string{everySector, acrossName(principalID("liaison"), liveTabLiaison, []accesstypes.Domain{bastion, cinder}, cinder)}
+	slices.Sort(want)
+	if got := acrossSubscriptionNames(fake.Subscriptions()); !slices.Equal(got, want) {
+		t.Errorf("the record after her renewal = %v, want %v", got, want)
 	}
 
 	// The yeoman may list missions in no sector: her live request registers nothing, and
@@ -129,6 +122,34 @@ func TestAcrossTenants_live(t *testing.T) {
 	if got := rr.Body.String(); !containsAll(got, `"dropped":[{"resource":"Missions","acrossTenants":true}]`, `"kept":[]`) {
 		t.Errorf("the yeoman's renewal answered %s, want the list dropped and nothing kept", got)
 	}
+}
+
+// acrossName spells the subscription of a list of missions across sectors: who holds it,
+// the tab, the page's filter on the sector (nil for every sector) and the set it covers.
+func acrossName(principal, tab string, narrowed []accesstypes.Domain, set ...accesstypes.Domain) string {
+	filter := "every sector"
+	if narrowed != nil {
+		filter = fmt.Sprintf("only %v", narrowed)
+	}
+
+	return fmt.Sprintf("%s|%s|Missions|%s|over %v", principal, tab, filter, set)
+}
+
+// acrossSubscriptionNames spells the record's subscriptions, sorted: a list across
+// sectors by acrossName, and any other as subscriptionNames spells it.
+func acrossSubscriptionNames(subs []live.Subscription) []string {
+	names := make([]string, 0, len(subs))
+	for _, sub := range subs {
+		if sub.Across == nil {
+			names = append(names, subscriptionNames([]live.Subscription{sub})...)
+
+			continue
+		}
+		names = append(names, acrossName(sub.Principal, sub.Tab, sub.Across.Narrowed, sub.Across.Domains...))
+	}
+	slices.Sort(names)
+
+	return names
 }
 
 // containsAll reports whether s holds every part.
