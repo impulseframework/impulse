@@ -63,7 +63,7 @@ func (c maintenanceSwitch) Run(_ context.Context, env *Env) Result {
 		case main.configured == token.NoPos:
 			unsure = append(unsure, fmt.Sprintf("%s: no call to config.%s found in the main package; the maintenance switch goes before the site configuration is built, wherever that is", main.file, siteConfiguration))
 		case main.requested == token.NoPos:
-			problems = append(problems, fmt.Sprintf("%s: the main builds the site configuration without checking maintenance.%s() first; add, before config.%s(ctx): if maintenance.%s() { return maintenance.Serve(ctx) } (import %s)", main.file, requestedCall, siteConfiguration, requestedCall, maintenancePath))
+			problems = append(problems, fmt.Sprintf("%s: the main builds the site configuration without checking maintenance.%s() first; add, before config.%s(ctx): if maintenance.%s() { return maintenance.Serve(ctx, brands) } (import %s), brands being the browser applications' brands by mount path, as the skeletons' mains hand them (maintenance.Brands{\"/\": brand.Console()}, from the pkg/brand impulse brand writes), or nil", main.file, requestedCall, siteConfiguration, requestedCall, maintenancePath))
 		case main.requested > main.configured:
 			problems = append(problems, fmt.Sprintf("%s: maintenance.%s() is checked after config.%s() builds the configuration, so a maintenance revision would open the database; move the check before it", main.file, requestedCall, siteConfiguration))
 		}

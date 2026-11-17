@@ -11,6 +11,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/portal/app"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/portal/pkg/router"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/pkg/brand"
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/pkg/config"
 	"github.com/impulseframework/impulse/resource/maintenance"
 	"github.com/impulseframework/impulse/resource/server"
@@ -28,9 +29,11 @@ func Main() error {
 
 	// A maintenance revision serves the maintenance page in place of the application: no
 	// database, no sessions, no secrets are opened. The deploy pipeline starts one before
-	// a release that replaces or interrupts the database.
+	// a release that replaces or interrupts the database. The page says the portal's name
+	// and shows its logo, which impulse brand writes into pkg/brand from the portal's
+	// brand.json.
 	if maintenance.Requested() {
-		if err := maintenance.Serve(ctx); err != nil {
+		if err := maintenance.Serve(ctx, maintenance.Brands{"/": brand.Portal()}); err != nil {
 			return errors.Wrap(err, "maintenance.Serve()")
 		}
 

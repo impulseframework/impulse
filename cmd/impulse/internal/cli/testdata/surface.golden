@@ -72,6 +72,8 @@ impulse advise
   --skip-generate bool
 impulse audit
   --app string (default .)
+impulse brand
+  --app string (default .)
 impulse check
   --app string (default .)
   --fix bool
@@ -167,6 +169,7 @@ checks:
   web-pins
   test-runner
   installable
+  brand
   ci-workflow
   paging
   rpc-execute
@@ -177,6 +180,7 @@ checks:
   file-store
   pins
   gofmt
+  prettier
   gowork-off
   shipped-programs
   regen

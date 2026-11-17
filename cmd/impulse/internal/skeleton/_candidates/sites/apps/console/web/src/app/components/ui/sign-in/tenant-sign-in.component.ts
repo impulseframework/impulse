@@ -36,7 +36,12 @@ const googleWorkspace: DirectoryMethod = {
  */
 export const directoryMethods: readonly DirectoryMethod[] = [
   googleWorkspace,
-  { value: 'azure', label: 'Microsoft Entra', connection: "the Entra tenant's id", example: '6f2c1b7e-3d4a-4c1e-9b2a-1f0e8d7c6b5a' },
+  {
+    value: 'azure',
+    label: 'Microsoft Entra',
+    connection: "the Entra tenant's id",
+    example: '6f2c1b7e-3d4a-4c1e-9b2a-1f0e8d7c6b5a',
+  },
   { value: 'workos', label: 'WorkOS', connection: "the connection's id", example: 'conn_01HXYZ' },
 ];
 
@@ -173,7 +178,9 @@ export class TenantSignInComponent {
     }
     const { method, connection } = this.form.getRawValue();
     await this.write(async () => {
-      await this.api.domain(this.tenantID() as Domain).tenantDirectories.create({ method, connection: connection.trim() });
+      await this.api
+        .domain(this.tenantID() as Domain)
+        .tenantDirectories.create({ method, connection: connection.trim() });
       this.form.controls.connection.reset();
       this.directories.reload();
     });
@@ -187,7 +194,9 @@ export class TenantSignInComponent {
   /** Sets the directory's default seat: a role of the tenant, or none (null clears the column). */
   async seat(directory: TenantDirectories, role: string): Promise<void> {
     await this.write(async () => {
-      await this.api.domain(this.tenantID() as Domain).tenantDirectories.patch([directory.id], { defaultSeat: role || null });
+      await this.api
+        .domain(this.tenantID() as Domain)
+        .tenantDirectories.patch([directory.id], { defaultSeat: role || null });
       this.directories.reload();
     });
   }

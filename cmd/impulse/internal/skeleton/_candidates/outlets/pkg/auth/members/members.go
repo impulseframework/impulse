@@ -59,7 +59,7 @@ const (
 	TablePrefix = "Members"
 	// Application is the application's name as the mail the auth sends says it: the
 	// subject and the first line of an invitation name it.
-	Application = "Outlets"
+	Application = "Outlets Portal"
 
 	// XSRFCookie is the cookie the auth issues its XSRF token in. It carries the auth's name
 	// so two auths on one host never overwrite each other's token; the browser echoes it in

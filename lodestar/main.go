@@ -31,9 +31,10 @@ func Main() error {
 
 	// A maintenance revision serves the maintenance page in place of the application: no
 	// database, no sessions, no secrets are opened. The deploy pipeline starts one before
-	// a release that replaces or interrupts the database.
+	// a release that replaces or interrupts the database. Lodestar's browser applications
+	// declare no brand yet (no brand.json), so the page names no application.
 	if maintenance.Requested() {
-		if err := maintenance.Serve(ctx); err != nil {
+		if err := maintenance.Serve(ctx, nil); err != nil {
 			return errors.Wrap(err, "maintenance.Serve()")
 		}
 

@@ -45,8 +45,7 @@
                 aria-label="Default seat"
                 [value]="directory.defaultSeat || invitationOnly"
                 [disabled]="busy()"
-                (selectionChange)="seat(directory, $event.value)"
-              >
+                (selectionChange)="seat(directory, $event.value)">
                 <mat-option [value]="invitationOnly">Invitation only</mat-option>
                 @for (role of roles.value(); track role.name) {
                   <mat-option [value]="role.name">{{ role.name }}</mat-option>
@@ -83,8 +82,8 @@
     <mat-card-header>
       <mat-card-title>Declare a directory</mat-card-title>
       <mat-card-subtitle>
-        A person who signs in through it enters this tenant when they hold a role here; a stranger gets the default
-        seat you pick, or is told to ask for an invitation.
+        A person who signs in through it enters this tenant when they hold a role here; a stranger gets the default seat
+        you pick, or is told to ask for an invitation.
       </mat-card-subtitle>
     </mat-card-header>
     <mat-card-content>
@@ -99,7 +98,12 @@
         </mat-form-field>
         <mat-form-field appearance="outline" class="connection">
           <mat-label>Connection</mat-label>
-          <input matInput formControlName="connection" name="connection" autocomplete="off" [placeholder]="chosen().example" />
+          <input
+            matInput
+            formControlName="connection"
+            name="connection"
+            autocomplete="off"
+            [placeholder]="chosen().example" />
           <mat-hint>{{ chosen().label }}: {{ chosen().connection }}, such as {{ chosen().example }}.</mat-hint>
         </mat-form-field>
         <button mat-flat-button type="submit" [disabled]="form.invalid || busy()">Declare</button>
@@ -119,8 +123,7 @@
         class="directory-only"
         [checked]="row.directoryOnly"
         [disabled]="!canClose() || busy()"
-        (change)="close($event.checked)"
-      >
+        (change)="close($event.checked)">
         @if (row.directoryOnly) {
           Directory only: people enter through the declared directories alone, and a password does not reach this
           tenant.

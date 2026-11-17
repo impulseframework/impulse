@@ -256,6 +256,9 @@ func (r *renderReport) write(w io.Writer) {
 		next("overmind start")
 		note("The first run compiles and bootstraps before it listens. Wait for \"Starting Server\",")
 		note("then sign in as admin with the password \"password\".")
+		if len(r.web) > 0 {
+			r.formatStep(next, note)
+		}
 		r.optionsStep(next, note)
 
 		return
@@ -270,6 +273,7 @@ func (r *renderReport) write(w io.Writer) {
 	note("Once, for the browser apps: builds the framework's web packages, publishes them to the local")
 	note("yalc store, links them, and runs bun install. weblib.sh expects the framework checkout beside")
 	note("this application as impulse; set IMPULSE otherwise.")
+	r.formatStep(next, note)
 	next("overmind start")
 	var urls []string
 	for _, ws := range r.web {
@@ -297,6 +301,17 @@ func (r *renderReport) writePorts(w io.Writer, bold func(string) string) {
 		fmt.Fprintf(w, "\n%s the server listens on :%s and the Spanner emulator on :%s.\n", bold("Ports:"), r.port, r.emulator)
 		fmt.Fprintf(w, "       Both are set in .envrc.template; change them there if either is taken.\n")
 	}
+}
+
+// formatStep says to format the browser files once the web roots' packages are installed.
+// The rendering wrote them under the application's own names and could not wrap the lines
+// again, since the formatter is the prettier each web root pins and exists only after the
+// install, which no rendering does; impulse check holds the files to it from then on.
+func (r *renderReport) formatStep(next, note func(format string, args ...any)) {
+	next("impulse check --only prettier --fix")
+	note("Once, after the install: formats the browser files with the prettier each web root pins,")
+	note("which the install brings. They were written under your names and are not wrapped yet, and")
+	note("impulse check fails on the ones it names until this has run.")
 }
 
 // optionsStep names the options an application takes on afterwards, when the report is

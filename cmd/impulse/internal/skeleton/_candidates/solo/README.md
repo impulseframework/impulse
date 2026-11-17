@@ -162,6 +162,11 @@ local yalc store, links them, and runs `bun install`; `weblib.sh restore` puts t
 `IMPULSE` to point elsewhere. Then `overmind start` runs everything, with `ng serve` for the console at
 http://127.0.0.1:4300 proxying `/api` to the server.
 
+The browser files are held to the prettier the workspace pins (`.prettierrc`): `impulse
+check` names a file prettier would change, and `impulse check --only prettier --fix` formats
+it. Run that once after the first install: the files were written under this application's
+names before the formatter was there to wrap their lines.
+
 After a change in the framework's web packages, push the rebuilt packages, restart the dev
 server, and reload the page:
 
@@ -175,11 +180,25 @@ browser profile: nothing is held behind an immutable URL, and no cache needs cle
 
 The console installs as a progressive web app. The production build emits a service worker
 (`@angular/service-worker`, configured by `web/ngsw-config.json`) that keeps the files of the
-build an open tab loaded, so a release never breaks a tab still running the previous build,
-and the library's update notice offers Reload when a new build is ready; the worker is off
-under `ng serve`. The manifest and the icons sit in `web/console/public/`
-(`manifest.webmanifest`, `icons/`), a placeholder set to replace with the application's own
-mark. The server serves every bundle through the resource package's `BrowserApp`, which sets
+build an open tab loaded, so a release never breaks a tab still running the previous build, and
+the library's update notice offers Reload when a new build is ready; the worker is off under `ng
+serve`. The manifest and the icons sit in `web/console/public/` (`manifest.webmanifest`,
+`icons/`): a placeholder set, the skeleton's mark, until the application's own logo is in place.
+
+The brand is declared once, in `web/console/brand.json`: the application's name, its logo
+(`logo.png` beside the declaration, a square PNG at least 512 pixels a side; `logoSvg` names the
+same logo as an SVG, which then is the favicon as it is), a primary color and, optionally, a
+background color. `impulse brand` writes from it the favicon and the app icons, the manifest's
+names and colors, the page's title and `theme-color`, the name the frame draws, the theme's
+first palette (generated from the primary color by Angular Material's own generator, once the
+workspace's packages are installed, into `src/_theme-colors.scss`), and what the server says:
+`pkg/brand`, the name and the logo `main.go` hands to the maintenance page, and the name the
+mail says, the `Application` constant of `pkg/auth/staff`. The declaration the skeleton carries
+names the placeholder: put the application's own logo in its place, set the name and the colors,
+and run `impulse brand`, then again whenever the declaration changes; `impulse check` (`brand`)
+reminds while the placeholder is still there.
+
+The server serves every bundle through the resource package's `BrowserApp`, which sets
 the cache headers a worker needs; a build deployed without `ngsw.json` makes every installed
 worker unregister itself and drop its caches. `impulse check` (`installable`) holds the wiring.
 

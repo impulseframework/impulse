@@ -678,6 +678,16 @@ jobs:
             (cd "dist/$p" && npm pack --silent --pack-destination "$RUNNER_TEMP/packs")
           done
           ls "$RUNNER_TEMP/packs"
+      - name: The formatting check refuses an unformatted file
+        # impulse check's prettier check, proven against the formatter itself where the
+        # browser packages are installed: a web root holding a line prettier would wrap
+        # fails the check by name, and --fix wraps it. The test skips where no prettier is
+        # installed, so this job, which has just installed one, requires it.
+        if: ${{ env.RUN == 'true' && matrix.framework == 'head' && env.BROWSER_PART == 'true' && matrix.candidate == 'solo' }}
+        working-directory: impulse
+        env:
+          IMPULSE_REQUIRE_PRETTIER: "1"
+        run: go test ./cmd/impulse/internal/check -run TestPrettierRefusesALineItWouldWrap -count=1 -v
       - name: Build, lint and test the browser apps
         # Every web root of the application (web/, or apps/<site>/web/ in the sites layout):
         # its production build, its lint and its specs. The solo head leg first composes
@@ -685,7 +695,11 @@ jobs:
         # people, whose browser files add tenancy writes in that record's words and for
         # that auth, and checks that application's browser app beside the rendered one;
         # its Go side is left with the obligations the brief names, so only its browser
-        # app is checked here.
+        # app is checked here. On the head leg each application's browser files are then
+        # held to the prettier its web roots pin (impulse check's prettier check, which the
+        # install makes runnable): the rendered skeleton as it was rendered, so a candidate
+        # file prettier would change fails here, and the composed application after the one
+        # --fix its next steps name, since its files were written under its own names.
         if: ${{ env.RUN == 'true' && steps.release.outputs.released != 'false' && env.BROWSER_PART == 'true' }}
         env:
           CANDIDATE: ${{ matrix.candidate }}
@@ -729,7 +743,42 @@ jobs:
               ) || { echo "::error::$root: the browser app failed to install, build, lint or test"; exit 1; }
               echo "::endgroup::"
             done
+            if [ "$FRAMEWORK" = head ]; then
+              if [ "$dir" = composed ]; then
+                "$RUNNER_TEMP/impulse" check --app "$dir" --only prettier --fix
+              fi
+              "$RUNNER_TEMP/impulse" check --app "$dir" --only prettier | tee "$RUNNER_TEMP/prettier-report"
+              # A check that did not run reports SKIP and exits 0, which is no proof.
+              grep -q '^PASS  prettier' "$RUNNER_TEMP/prettier-report" || { echo "::error::$dir: the prettier check did not run over an installed web root"; exit 1; }
+            fi
           done
+      - name: impulse brand over the rendered application
+        # impulse brand over the declarations the skeleton carries, where the browser
+        # packages are installed: Angular Material's theme-color schematic generates the
+        # palette of every browser application with every answer a flag, the theme takes
+        # it as its first palette, and each web root builds again with it, so a release of
+        # Angular Material that changes the schematic's flags or what it writes fails
+        # here. What the command wrote is then held to the prettier check, and a second
+        # run over the same declarations changes nothing.
+        if: ${{ env.RUN == 'true' && matrix.framework == 'head' && env.BROWSER_PART == 'true' }}
+        run: |
+          "$RUNNER_TEMP/impulse" brand --app app | tee "$RUNNER_TEMP/brand-report"
+          apps=$(grep -c '^[^ ].*(primary #' "$RUNNER_TEMP/brand-report" || true)
+          palettes=$(grep -c '^  written    .*/_theme-colors\.scss$' "$RUNNER_TEMP/brand-report" || true)
+          if [ "$apps" -eq 0 ] || [ "$apps" != "$palettes" ]; then
+            echo "::error::impulse brand wrote $palettes palette(s) for $apps browser application(s)"
+            exit 1
+          fi
+          for root in $(find app -path '*/node_modules' -prune -o -path '*web/package.json' -printf '%h\n' | sort); do
+            (cd "$root" && bun run build) || { echo "::error::$root: the build failed with the generated palette"; exit 1; }
+          done
+          "$RUNNER_TEMP/impulse" check --app app --only prettier | tee "$RUNNER_TEMP/prettier-report"
+          grep -q '^PASS  prettier' "$RUNNER_TEMP/prettier-report" || { echo "::error::what impulse brand wrote is not formatted as the web root's prettier formats it"; exit 1; }
+          "$RUNNER_TEMP/impulse" brand --app app | tee "$RUNNER_TEMP/brand-again"
+          if grep -q '^  \(written\|removed\|left\) ' "$RUNNER_TEMP/brand-again"; then
+            echo "::error::a second run of impulse brand over the same declarations changed files"
+            exit 1
+          fi
       - name: Save the Go caches
         # Always on master; on a pull request only when no entry for this go.sum was found.
         # The four candidates of a framework leg share the key, so the first to finish saves
