@@ -446,14 +446,15 @@ func (n *typeNaming) importOf(qualifier string) (string, bool) {
 }
 
 // tenantInvitationFields are the tenant record's fields an invitation carries, as the
-// load finds them: every field the wire may write at create, less the directory-only
-// switch and every secret. The maker reads them (tenantMakerData), and the reading
-// before the load is held to them.
+// load finds them: every field the wire may write at create, less every secret. The
+// directory-only switch is none of them: the wire never writes it (IsOutputOnly), and
+// the invitation carries it apart. The maker reads them (tenantMakerData), and the
+// reading before the load is held to them.
 func tenantInvitationFields(record *resourceInfo) []*resourceField {
 	var fields []*resourceField
 	for _, field := range record.Fields {
 		switch {
-		case field.IsPrimaryKey, field.IsOutputOnly(), field == record.DirectoryOnlyField, field.IsInputOnly():
+		case field.IsPrimaryKey, field.IsOutputOnly(), field.IsInputOnly():
 		default:
 			fields = append(fields, field)
 		}
