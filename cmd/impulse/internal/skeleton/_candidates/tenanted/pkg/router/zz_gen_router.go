@@ -8,7 +8,7 @@
 //	default (/api), sessions (password, google):
 //	  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/google/login, GET /api/user/google/callback
 //	  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/password/remove, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look, POST /api/user/invitation, POST /api/user/invitation/sign-up
-//	  + ValidateSession, ValidateXSRFToken: POST /api/user/invitation/accept, POST /api/user/email, POST /api/user/email/verify
+//	  + ValidateSession, ValidateXSRFToken, hooks.Default: POST /api/user/invitation/accept, POST /api/user/email, POST /api/user/email/verify
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1): hooks.Default, generatedRoutes
 //
 // hooks.Root's routes sit behind the every-request chain alone. Under an outlet's prefix
@@ -119,7 +119,9 @@ type Hooks struct {
 	Root func(r chi.Router)
 	// Default runs inside the default outlet's authenticated group: r already sits behind
 	// session validation, and the XSRF guard, and generated registers
-	// the outlet's generated routes. Nil registers them directly.
+	// the outlet's generated routes with the session routes a signed-in person calls on
+	// their own account, so middleware the hook puts around generated (a read-only
+	// backstop, say) stands in front of both. Nil registers them directly.
 	Default func(r chi.Router, generated func(chi.Router))
 }
 
@@ -215,13 +217,17 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				},
 			}))
 
-			// The session routes a signed-in person calls: the acceptance of an invitation
-			// the browser carries, and the address they add and verify.
-			r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/invitation/accept", h.InvitationAccept())
-			r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/email", h.EmailAdd())
-			r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/email/verify", h.EmailVerify())
-
 			registerGenerated(r, hooks.Default, "Default", func(r chi.Router) {
+				// The session routes a signed-in person calls on their own account: the
+				// acceptance of an invitation the browser carries, and the address they add
+				// and verify. They are registered with the outlet's generated routes, inside
+				// whatever the application's hook wraps those in, so a read-only backstop
+				// mounted there (the session library's EnforceReadOnlyMask) stands in front
+				// of them too; each refuses a session that views as the person itself.
+				r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/invitation/accept", h.InvitationAccept())
+				r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/email", h.EmailAdd())
+				r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/email/verify", h.EmailVerify())
+
 				generatedRoutes(r, h)
 			})
 		})
