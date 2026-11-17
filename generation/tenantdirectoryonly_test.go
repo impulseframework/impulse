@@ -328,11 +328,13 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 
 	const staffAuth = "example.com/app/pkg/auth/staff"
 	// staff is the generated management of the Staff auth: its people are listed in a
-	// tenant and its roles are given by hand.
+	// tenant, its roles are given by hand, and its sources were written for a
+	// directories record that carries the default seat, so its client is handed the
+	// role file's answers on giving a role.
 	staff := func(synced bool) *identityInstance {
 		return &identityInstance{
 			importPath: staffAuth, auth: "Staff", rolesSynced: synced,
-			tenant: &identityTenant{name: "Harbor", table: "Harbors", key: "Id", word: "harbor"},
+			tenant: &identityTenant{name: "Harbor", table: "Harbors", key: "Id", word: "harbor", directorySeat: "DefaultSeat"},
 			tables: map[identityTable]bool{identityUsers: true, identityMemberships: true},
 		}
 	}
@@ -434,7 +436,7 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			name:        "a record with a directories record and no switch serves the default role's methods alone",
 			structs:     []string{"Sector", "HarborDirectory"},
 			auths:       []string{staffAuth},
-			identity:    []*identityInstance{{importPath: staffAuth, auth: "Staff", tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector"}, tables: map[identityTable]bool{identityUsers: true, identityMemberships: true}}},
+			identity:    []*identityInstance{{importPath: staffAuth, auth: "Staff", tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id", word: "sector", directorySeat: "DefaultSeat"}, tables: map[identityTable]bool{identityUsers: true, identityMemberships: true}}},
 			wantRoutes:  map[string][]*generatedRoute{},
 			wantMethods: execute("MakeSectorInviteOnly", "OpenSectorToDirectory"),
 		},
@@ -443,7 +445,7 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			structs: []string{"Harbor", "HarborDirectory"},
 			auths:   []string{staffAuth, "example.com/app/pkg/auth/members"},
 			identity: []*identityInstance{staff(false), {
-				importPath: "example.com/app/pkg/auth/members", auth: "Members", tenant: &identityTenant{name: "Harbor", table: "Harbors", key: "Id", word: "harbor"},
+				importPath: "example.com/app/pkg/auth/members", auth: "Members", tenant: &identityTenant{name: "Harbor", table: "Harbors", key: "Id", word: "harbor", directorySeat: "DefaultSeat"},
 				tables: map[identityTable]bool{identityUsers: true, identityMemberships: true},
 			}},
 			wantRoutes:  map[string][]*generatedRoute{defaultOutletName: switchUnder("api"), "members": switchUnder("members")},
@@ -454,6 +456,18 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			name:        "an auth whose management the program does not generate serves none",
 			structs:     []string{"Harbor", "HarborDirectory"},
 			auths:       []string{staffAuth},
+			wantRoutes:  map[string][]*generatedRoute{defaultOutletName: switchUnder("api"), "members": switchUnder("members")},
+			wantCases:   slices.Concat(switchCases("api"), switchCases("members")),
+			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly"),
+		},
+		{
+			name:    "an auth whose client is handed no answers of the role file's grants serves none: the role could not be judged",
+			structs: []string{"Harbor", "HarborDirectory"},
+			auths:   []string{staffAuth},
+			identity: []*identityInstance{{
+				importPath: staffAuth, auth: "Staff", tenant: &identityTenant{name: "Harbor", table: "Harbors", key: "Id", word: "harbor"},
+				tables: map[identityTable]bool{identityUsers: true, identityMemberships: true},
+			}},
 			wantRoutes:  map[string][]*generatedRoute{defaultOutletName: switchUnder("api"), "members": switchUnder("members")},
 			wantCases:   slices.Concat(switchCases("api"), switchCases("members")),
 			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly"),
@@ -658,7 +672,7 @@ func Test_directoryOnlyClient(t *testing.T) {
 	r.genRoutes = true
 	r.defaultOutlet = routerOutlet{name: defaultOutletName, prefix: "api", servesSessions: true, auth: &outletAuth{importPath: staffAuth}}
 	r.identity = []*identityInstance{{
-		importPath: staffAuth, auth: "Staff", tenant: &identityTenant{name: "Harbor", table: "Harbors", key: "Id", word: "harbor"},
+		importPath: staffAuth, auth: "Staff", tenant: &identityTenant{name: "Harbor", table: "Harbors", key: "Id", word: "harbor", directorySeat: "DefaultSeat"},
 		tables: map[identityTable]bool{identityUsers: true, identityMemberships: true},
 	}}
 	served := resource.NewCollectionBuilder()
@@ -773,7 +787,8 @@ func Test_directoryOnlyClient(t *testing.T) {
 // Test_tenantDirectoryIn pins the reading of the directory-only switch and the
 // directories record off a package's syntax, before the packages are loaded: the
 // columns behind the annotated fields, and nothing where the record declares no switch,
-// the package no directories record, or a column cannot be read.
+// the package no directories record, or a column cannot be read; and the directories
+// record's default seat column, which is read with or without the switch.
 func Test_tenantDirectoryIn(t *testing.T) {
 	t.Parallel()
 
@@ -826,17 +841,45 @@ func Test_tenantDirectoryIn(t *testing.T) {
 		Connection string ` + "`spanner:\"Connection\"`" + `
 	}
 `
+	const directoriesSeated = `// HarborDirectory is the directories record.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @tenantDirectory
+	HarborDirectory struct {
+		ID string ` + "`spanner:\"Id\"`" + `
+		// @domain
+		HarborID string ` + "`spanner:\"HarborId\"`" + `
+		// @directoryMethod
+		Method string ` + "`spanner:\"Method\"`" + `
+		// @directoryConnection
+		Connection string ` + "`spanner:\"Connection\"`" + `
+		// Berth is the role everyone from the directory gets.
+		// @directoryDefaultSeat
+		Berth *string ` + "`spanner:\"DefaultSeat\"`" + `
+	}
+`
 	tests := []struct {
 		name    string
 		structs []string
 		want    *identityTenantDirectory
+		// wantSeat is the directories record's default seat column, which is read
+		// whether the record declares the switch or not.
+		wantSeat string
 	}{
 		{
 			name:    "the switch's column and the directories record's table and columns",
 			structs: []string{record, directories},
 			want:    &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
 		},
+		{
+			name:     "the default seat column of a directories record that carries one",
+			structs:  []string{record, directoriesSeated},
+			want:     &identityTenantDirectory{OnlyColumn: "DirectoryOnly", Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
+			wantSeat: "DefaultSeat",
+		},
 		{name: "a record that declares no switch", structs: []string{recordWithoutSwitch, directories}},
+		{name: "a record that declares no switch keeps its directories record's default seat", structs: []string{recordWithoutSwitch, directoriesSeated}, wantSeat: "DefaultSeat"},
 		{name: "a package with no directories record", structs: []string{record}},
 		{name: "a column the syntax does not name", structs: []string{record, directoriesUntagged}},
 	}
@@ -849,7 +892,7 @@ func Test_tenantDirectoryIn(t *testing.T) {
 			if err := os.WriteFile(filepath.Join(dir, "resources.go"), []byte(source), 0o600); err != nil {
 				t.Fatalf("os.WriteFile() error = %v", err)
 			}
-			got, err := tenantDirectoryIn(dir, "Harbor", func(name string) string {
+			got, seat, err := tenantDirectoryIn(dir, "Harbor", func(name string) string {
 				return strings.TrimSuffix(name, "y") + "ies"
 			})
 			if err != nil {
@@ -857,6 +900,49 @@ func Test_tenantDirectoryIn(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.want, got); diff != "" {
 				t.Errorf("tenantDirectoryIn() mismatch (-want +got):\n%s", diff)
+			}
+			if seat != tt.wantSeat {
+				t.Errorf("tenantDirectoryIn() default seat column = %q, want %q", seat, tt.wantSeat)
+			}
+		})
+	}
+}
+
+// Test_identityInstance_roleGrantsOfADirectorySeat pins who is handed the role file's
+// answers on giving a role where nothing else asks for them: the auth whose roles in a
+// tenant are given by hand, in an application whose directories record carries the
+// default seat. The role a tenant is opened to its directory's people with is judged
+// by those answers, so the methods that name it are written only for such an auth. An
+// auth whose directory writes its roles judges none, and neither does one in an
+// application that declares no default seat.
+func Test_identityInstance_roleGrantsOfADirectorySeat(t *testing.T) {
+	t.Parallel()
+
+	seated := &identityTenant{name: "Harbor", table: "Harbors", key: "Id", outlets: []string{"default"}, directorySeat: "DefaultSeat"}
+	unseated := &identityTenant{name: "Harbor", table: "Harbors", key: "Id", outlets: []string{"default"}}
+	tests := []struct {
+		name        string
+		tenant      *identityTenant
+		tables      []identityTable
+		rolesSynced bool
+		want        bool
+	}{
+		{name: "roles given by hand, and a default seat", tenant: seated, tables: []identityTable{identityUsers, identityMemberships}, want: true},
+		{name: "no default seat: nothing asks", tenant: unseated, tables: []identityTable{identityUsers, identityMemberships}},
+		{name: "roles a directory writes: nobody gives one by hand", tenant: seated, tables: []identityTable{identityUsers, identityMemberships}, rolesSynced: true},
+		{name: "no memberships: nobody holds a role", tenant: seated, tables: []identityTable{identityUsers}},
+		{name: "no tenant record", tables: []identityTable{identityUsers, identityMemberships}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			inst := &identityInstance{auth: "Crew", tenant: tt.tenant, rolesSynced: tt.rolesSynced, tables: make(map[identityTable]bool)}
+			for _, kind := range tt.tables {
+				inst.tables[kind] = true
+			}
+			if got := inst.judgesRoleChanges(); got != tt.want {
+				t.Errorf("judgesRoleChanges() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -972,21 +1058,26 @@ func Test_holdIdentityTenantDirectory(t *testing.T) {
 		structs []string
 		record  string
 		written *identityTenantDirectory
+		// seat is the default seat column the sources were written for: the fixture's
+		// directories record carries DefaultSeat, and its Breakwater none.
+		seat    string
 		wantErr string
 	}{
-		{name: "the same switch and directories record", structs: []string{"Harbor", "HarborDirectory"}, record: "Harbor", written: harbor},
-		{name: "no switch either way", structs: []string{"Sector", "HarborDirectory"}, record: "Sector"},
+		{name: "the same switch and directories record", structs: []string{"Harbor", "HarborDirectory"}, record: "Harbor", written: harbor, seat: "DefaultSeat"},
+		{name: "no switch either way", structs: []string{"Sector", "HarborDirectory"}, record: "Sector", seat: "DefaultSeat"},
 		{
 			name:    "written for a switch the load does not find",
 			structs: []string{"Sector", "HarborDirectory"},
 			record:  "Sector",
 			written: harbor,
+			seat:    "DefaultSeat",
 			wantErr: "was written for the switch DirectoryOnly over the directories table HarborDirectories (HarborId, Method, Connection)",
 		},
 		{
 			name:    "written for none, and the load finds a switch",
 			structs: []string{"Harbor", "HarborDirectory"},
 			record:  "Harbor",
+			seat:    "DefaultSeat",
 			wantErr: "was written for no directory-only switch",
 		},
 		{
@@ -994,7 +1085,23 @@ func Test_holdIdentityTenantDirectory(t *testing.T) {
 			structs: []string{"Harbor", "HarborDirectory"},
 			record:  "Harbor",
 			written: &identityTenantDirectory{OnlyColumn: "Closed", Table: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
+			seat:    "DefaultSeat",
 			wantErr: "was written for the switch Closed over the directories table HarborDirectories",
+		},
+		{
+			name:    "written for no default seat, and the load finds one",
+			structs: []string{"Harbor", "HarborDirectory"},
+			record:  "Harbor",
+			written: harbor,
+			wantErr: `the role grants were written for the directories record's default seat column "",`,
+		},
+		{
+			name:    "written for a default seat the load does not find",
+			structs: []string{"Harbor", "Breakwater"},
+			record:  "Harbor",
+			written: harbor,
+			seat:    "DefaultSeat",
+			wantErr: `the role grants were written for the directories record's default seat column "DefaultSeat",`,
 		},
 	}
 	for _, tt := range tests {
@@ -1011,7 +1118,7 @@ func Test_holdIdentityTenantDirectory(t *testing.T) {
 			r := &resourceGenerator{client: c, routePrefix: "api", applicationName: "App", receiverName: "a", domainRouteSegment: defaultDomainRouteSegment, domainRouteParam: defaultDomainRouteParam}
 			r.resource = "testdata/tenantfixture"
 			r.identityTree = "pkg/identity"
-			r.identity = []*identityInstance{{auth: "Crew", tenant: &identityTenant{name: tt.record, directory: tt.written}}}
+			r.identity = []*identityInstance{{auth: "Crew", tenant: &identityTenant{name: tt.record, directory: tt.written, directorySeat: tt.seat}}}
 
 			// The run's own step: the record's declaration resolves, then the reading
 			// before the load is held to it.

@@ -2799,7 +2799,11 @@ role with its description.
 The role is judged through the generated management of one auth, so the two methods
 are written where the session outlets that serve the directories record are all of one
 auth, the program generates that auth's management (`GenerateIdentity`), and the auth's
-roles are given by hand. Where they are not, the program writes neither method, and the
+roles are given by hand. The judgment is the one a method opened to sign-up is held to
+(section 21, "Who may sign up"): the role file's grant of the method that gives a role,
+which the generated management answers (`grants.go`) for an auth whose directories
+record carries the default seat, as it does for one that keeps groups or opens its
+methods to sign-up. Where they are not, the program writes neither method, and the
 application sets the column in its own code. One consequence:
 while a method is open to sign-up, a colleague of a tenant's creator who signs in from
 the directory that tenant already has gets no account and no second tenant, but the

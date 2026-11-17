@@ -84,7 +84,8 @@ func (i *identityInstance) picksDefaultRole() bool {
 
 // judgesRoleChanges reports whether the instance's client is handed the answers of the
 // role file's grants on the methods that give a role and take one away: a change to a
-// group is judged by them, and so is the default role of a method opened to sign-up.
+// group is judged by them, and so are the default role of a method opened to sign-up
+// and the role a tenant is opened to its directory's people with.
 // The file is written where the schema holds the tables its part needs
 // (roleGrantsSource).
 func (i *identityInstance) judgesRoleChanges() bool {
@@ -105,7 +106,9 @@ func (d *identitySourceData) JudgesRoleChanges() bool { return d.judgesRoleChang
 // roleGrantsSource is the source file of the answers the rules ask of the role file
 // (grants.go), by the grants of the methods that give a role and take one away: one
 // file, for an instance that keeps groups, whose changes are judged as the role changes
-// they make, and for one whose administrator picks the default role of an open method.
+// they make, for one whose administrator picks the default role of an open method, and
+// for one whose tenant's administrator picks the role everyone from the tenant's
+// directory gets (seatsDirectory).
 func (i *identityInstance) roleGrantsSource() []identitySourceFile {
 	var needs []identityTable
 	switch {
@@ -113,6 +116,8 @@ func (i *identityInstance) roleGrantsSource() []identitySourceFile {
 		needs = append(append(identityGroupTables(), identityUsers), identityMemberships)
 	case i.picksDefaultRole():
 		needs = []identityTable{identitySignInMethods, identityMemberships}
+	case i.seatsDirectory():
+		needs = []identityTable{identityMemberships}
 	default:
 		return nil
 	}

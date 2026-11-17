@@ -39,7 +39,11 @@ import (
 // outlets serve, so the methods are written where the session outlets that serve the
 // directories record are all of one Auth, the program generates that auth's management
 // (GenerateIdentity), and the auth's roles are given by hand. Where they are not, the
-// program writes no method, and the application sets the column in its own code.
+// program writes no method, and the application sets the column in its own code. The
+// judgment is the one a method opened to sign-up is held to: the role file's grant of
+// the method that gives a role (identity.RoleGrants.MayGive), which the generated
+// management answers for an auth whose directories record carries the default seat
+// (identityInstance.seatsDirectory, grants.go).
 
 // directoryRoleBodyField is the one body field of the method that opens a tenant to its
 // directory, as the wire names it.
@@ -96,8 +100,9 @@ func (s *directoryRoleServing) methods() []tenantOwnMethod {
 // directory's people are served, nil where the program writes none: the tenant record
 // declares no directories record or the record carries no default seat column; no
 // session outlet serves the directories record; the outlets that do are not all of one
-// Auth; the program does not generate that auth's management; or a directory writes the
-// auth's roles, so nobody gives one by hand.
+// Auth; the program does not generate that auth's management; a directory writes the
+// auth's roles, so nobody gives one by hand; or the auth's client is handed no answers
+// of the role file's grants (judgesRoleChanges), so the role could not be judged.
 func (r *resourceGenerator) directoryRole() *directoryRoleServing {
 	record := r.tenantRecord()
 	if record == nil || !record.HasDeclaration() || record.declaration.Directories.DirectoryDefaultSeatField == nil {
@@ -123,7 +128,7 @@ func (r *resourceGenerator) directoryRole() *directoryRoleServing {
 		if inst.importPath != auth.importPath {
 			continue
 		}
-		if !inst.picksRoles() || !inst.hasList(listPeopleSuffix) {
+		if !inst.picksRoles() || !inst.hasList(listPeopleSuffix) || !inst.judgesRoleChanges() {
 			return nil
 		}
 
