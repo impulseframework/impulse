@@ -582,7 +582,9 @@ address a directory asserted at a sign-in, offered as a prefill and trusted for 
 
 An Auth whose management is generated (`GenerateIdentity`) is named in the descriptor's
 `identity` block: `auth`, `label`, `tenant` (the tenant record's name, where the application
-has one) and `sides`, one for each scope the outlet serves (`global` first, then `domain`),
+has one), `signIns` (the Auth's directory sign-ins, each the `method` its identities carry and
+the `label` its button on the login page carries, by which a page names the directories a
+person signs in through) and `sides`, one for each scope the outlet serves (`global` first, then `domain`),
 each with its `lists` (`users`, `roles`, `identities`, `invitations`, `sessions`,
 `signInAttempts`) and its `methods` (`create`, `invite`, `withdrawInvitation`, `assignRole`,
 `removeRole`, `disable`, `enable`, `delete`, `rename`, `setName`, `setEmail`, `setTemporaryPassword`,
