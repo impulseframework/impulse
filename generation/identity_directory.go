@@ -19,8 +19,8 @@ import (
 // through that directory, and while the switch is on the row of a person who has none
 // says so. The same fact, asked before the switch is on, is who turning it on would
 // keep out: the generated identity client answers it (DirectoryOutsiders) for the read
-// a tenant's Sign-in page calls before it saves the switch
-// (resource.DirectoryOnlyHandler).
+// a tenant's Sign-in page calls before it turns the switch on
+// (resource.DirectoryOnlyReads).
 //
 // The sources of the generated management are written before the packages are loaded
 // (identity_lists.go), so the switch and the directories record are read off the

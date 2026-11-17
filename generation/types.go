@@ -243,7 +243,12 @@ const (
 	// tenantCreationOutputName names the handler package's file carrying the tenant
 	// record's create-your-tenant handler (Create<Record>), written where the record's
 	// creation shape admits self-service; a singular stem like the roster's.
-	tenantCreationOutputName      = "tenant_creation"
+	tenantCreationOutputName = "tenant_creation"
+	// tenantDirectoryOnlyOutputName names the handler package's file carrying the
+	// tenant record's directory-only switch: the method that turns it and its two
+	// reads, written where the record declares the switch; a singular stem like the
+	// roster's.
+	tenantDirectoryOnlyOutputName = "tenant_directory_only"
 	permissionsOutputName         = "permissions"
 	liveOutputName                = "live"
 	liveDerivationsOutputName     = "live_derivations"
@@ -292,6 +297,7 @@ var reservedOutputStems = map[string]reservedOutput{
 	domainGuardOutputName:         {file: generatedGoFileName(domainGuardOutputName), carries: "the domain guard"},
 	tenantRosterOutputName:        {file: generatedGoFileName(tenantRosterOutputName), carries: "the tenant roster constructor"},
 	tenantCreationOutputName:      {file: generatedGoFileName(tenantCreationOutputName), carries: "the create-your-tenant handler"},
+	tenantDirectoryOnlyOutputName: {file: generatedGoFileName(tenantDirectoryOnlyOutputName), carries: "the directory-only switch's handlers"},
 	permissionsOutputName:         {file: generatedGoFileName(permissionsOutputName), carries: "the permission endpoints"},
 	liveOutputName:                {file: generatedGoFileName(liveOutputName), carries: "the live handlers"},
 	decodersOutputName:            {file: generatedGoFileName(decodersOutputName), carries: "the decoders"},
@@ -1750,6 +1756,13 @@ type resourceField struct {
 	// stamps both from the directory the caller is signed in through.
 	IsDirectoryKey bool
 
+	// IsDirectoryOnly marks the tenant record's directory-only switch (@directoryOnly):
+	// it decodes output-only, on create and on update, since the switch is the tenant's
+	// own and is turned by the method the generator writes for it in the tenant's scope
+	// (Set<Record>DirectoryOnly), which holds it to its rules. The record's own write
+	// paths, which are global, show the switch and never write it.
+	IsDirectoryOnly bool
+
 	// IsFileKey marks the store-key column of a @file declaration: off the wire in
 	// both directions (json:"-" on the read and the patch structs, absent from the
 	// TypeScript interface and metadata), read by the file route's frame for itself.
@@ -2076,8 +2089,10 @@ func (f *resourceField) IsOutputOnly() bool {
 	// generated column: the database computes it, and refuses a write. The
 	// directories record's method and connection are the same shape as the
 	// tenant key: the generated create stamps them from the caller's sign-in,
-	// so the wire cannot type a directory in.
-	if f.IsState || f.IsTenantKey || f.IsFileKey || f.IsGenerated || f.IsDirectoryKey {
+	// so the wire cannot type a directory in. And the tenant record's
+	// directory-only switch: the tenant's own method turns it, held to its
+	// rules, so the record's global write paths cannot.
+	if f.IsState || f.IsTenantKey || f.IsFileKey || f.IsGenerated || f.IsDirectoryKey || f.IsDirectoryOnly {
 		return true
 	}
 

@@ -136,6 +136,13 @@ func (t *typescriptGenerator) validateOutletMemberReferences(resources []*resour
 // is a statement about the field and fails generation instead.
 func (t *typescriptGenerator) applyOutletFilter(resources []*resourceInfo, computedResources []*computedResource) ([]*resourceInfo, []*computedResource, error) {
 	t.outletExcludedTables = make(map[string]struct{})
+	// The method that turns the tenant record's directory-only switch is served with
+	// the record, so it leaves the outlet's constants with it.
+	for _, res := range resources {
+		if res.HoldsDirectoryOnly() && !res.OnOutlet(t.targetOutlet()) {
+			t.outletExcluded = append(t.outletExcluded, accesstypes.Resource(directoryOnlyMethodName(res.Name())))
+		}
+	}
 	resources = slices.DeleteFunc(resources, func(res *resourceInfo) bool {
 		return t.excludeFromOutlet(&res.outletMembership, t.pluralize(res.Name()), true)
 	})
@@ -537,10 +544,11 @@ func (t *typescriptGenerator) generateMethodMetadata() error {
 	log.Println("Starting method metadata generation...")
 
 	output, err := t.generateTemplateOutput(typescriptMethodsTemplate, typescriptMethodsTemplate, tsMethodsData{
-		File:         t,
-		RPCMethods:   t.rpcMethods,
-		GenPrefix:    genPrefix,
-		FeatureFlags: t.servesFeatureFlags(),
+		File:          t,
+		RPCMethods:    t.rpcMethods,
+		GenPrefix:     genPrefix,
+		FeatureFlags:  t.servesFeatureFlags(),
+		DirectoryOnly: t.directoryOnlyClientData(),
 	})
 	if err != nil {
 		return errors.Wrap(err, "generateTemplateOutput()")
@@ -871,6 +879,11 @@ func (t *typescriptGenerator) apiClientData() *tsAPIData {
 	if t.servesFeatureFlags() {
 		data.Resources = append(data.Resources, featureFlagsAPIResource())
 		data.Methods = append(data.Methods, setFeatureAPIMethod())
+	}
+	// The method that turns the tenant record's directory-only switch, served in the
+	// tenant's scope where the outlet serves the record, carried as a generated one is.
+	if only := t.directoryOnlyClientData(); only != nil {
+		data.Methods = append(data.Methods, directoryOnlyAPIMethod(only.Method))
 	}
 	// The generated management of the auths the outlet serves it for, named from the
 	// resources and the methods gathered above.

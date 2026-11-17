@@ -1532,7 +1532,7 @@ func (store) RevokeTrustedDevice(_ context.Context, _ resource.ReadWriteTransact
 // it on would shut out. A super administrator is never one of them. It reads the
 // {{ .TenantWord }}'s own list of its people ({{ .TenantUser }}, whose OutsideDirectory column is the
 // fact), in the caller's transaction, by username. The application's generated read of
-// what the switch would do asks every auth's client (resource.DirectoryOnlyHandler,
+// what the switch would do asks every auth's client (resource.DirectoryOnlyReads,
 // through resource.DirectoryOutsiders), and it sits beside the store because it reads
 // the auth's tables as the store does, through the declarations' own query types.
 func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryOutsider, error) {

@@ -65,7 +65,12 @@ func resolveTenantDeclaration(res *resourceInfo, pStruct *parser.Struct, annotat
 			if res.DirectoryOnlyField != nil {
 				return errors.Newf("struct %s field %s: @%s on a second column; field %s carries it already, and a tenant has one directory-only flag", res.Name(), field.Name(), directoryOnlyKeyword, res.DirectoryOnlyField.Name())
 			}
-			res.DirectoryOnlyField = res.fieldNamed(field.Name())
+			flag := res.fieldNamed(field.Name())
+			if flag == nil {
+				return errors.Newf("struct %s field %s: @%s on a field the resource does not carry as a column; the directory-only flag is the tenant record's BOOL column", res.Name(), field.Name(), directoryOnlyKeyword)
+			}
+			flag.IsDirectoryOnly = true
+			res.DirectoryOnlyField = flag
 		case fieldAnnotations.Has(tenantNameKeyword):
 			if err := res.setTenantNameColumn(field); err != nil {
 				return err

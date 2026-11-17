@@ -666,6 +666,9 @@ type tsMethodsData struct {
 	// FeatureFlags emits the library's SetFeature method: its body and result
 	// interfaces and its metadata.
 	FeatureFlags bool
+	// DirectoryOnly emits the method that turns the tenant record's directory-only
+	// switch: its body interfaces and its metadata. Nil where the outlet serves none.
+	DirectoryOnly *tsDirectoryOnly
 }
 
 type tsEnumsData struct {

@@ -4,20 +4,24 @@ import (
 	"go/format"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/access"
+	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
 )
 
-// Test_tenantRecord_updateHoldsDirectoryOnly pins the tenant record's generated update
-// and create for a record that declares the directory-only switch: a write of the switch
-// is held to its rules before the patch is buffered, the caller's grants asked first, in
-// the record's own handler and in the consolidated one, on a create as on an update; a
-// record that declares no switch asks nothing.
-func Test_tenantRecord_updateHoldsDirectoryOnly(t *testing.T) {
+// Test_tenantRecord_switchIsOutputOnly pins that the tenant record's own write paths
+// never write the directory-only switch, for a record that declares it: the field
+// decodes output-only, so neither the record's generated create nor its update takes it
+// from the wire, in the record's own handler and in the consolidated one, and neither
+// asks the rules of the switch, which the tenant's own method asks. The record still
+// shows the flag.
+func Test_tenantRecord_switchIsOutputOnly(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -50,6 +54,18 @@ func Test_tenantRecord_updateHoldsDirectoryOnly(t *testing.T) {
 			if got := record.HoldsDirectoryOnly(); got != tt.held {
 				t.Fatalf("HoldsDirectoryOnly() = %v, want %v", got, tt.held)
 			}
+			if tt.held {
+				field := record.DirectoryOnlyField
+				if !field.IsOutputOnly() {
+					t.Errorf("the switch's field %s is not output only: the record's global write paths could write it", field.Name())
+				}
+				if got := reflect.StructTag(field.JSONTagForPatch()).Get(jsonTagKey); got != "-" {
+					t.Errorf("the switch's field %s is %q in a create or update request, want \"-\": the wire must not write it", field.Name(), got)
+				}
+				if got := reflect.StructTag(field.JSONTag()).Get(jsonTagKey); got != "directoryOnly" {
+					t.Errorf("the switch's field %s reads as %q, want directoryOnly: the record still shows the flag", field.Name(), got)
+				}
+			}
 
 			standalone, err := r.handlerContent(PatchHandler, record)
 			if err != nil {
@@ -75,92 +91,85 @@ func Test_tenantRecord_updateHoldsDirectoryOnly(t *testing.T) {
 			if _, err := format.Source(consolidated); err != nil {
 				t.Fatalf("the rendered consolidated handler does not parse: %v\n%s", err, consolidated)
 			}
-
 			for name, out := range map[string]string{"the record's own handler": string(standalone), "the consolidated handler": string(consolidated)} {
-				if !tt.held {
-					assertContains(t, name, out, nil, []string{"DirectoryRules().DirectoryOnly(", `patchSet.IsSet("DirectoryOnly")`})
-
-					continue
-				}
-				// A create that carries the switch on turns it on, so it is held as an update
-				// is, under the key the create generated.
-				assertInOrder(t, out,
-					"case resource.OperationCreate:",
-					".NewHarborCreatePatchFromPatchSet(patchSet)",
-					`if patchSet.IsSet("DirectoryOnly") {`,
-					"if err := patchSet.Permitted(ctx, txn); err != nil {",
-					`if err := NewHarborDirectoryRules().DirectoryOnly(ctx, txn, accesstypes.Domain(patch.ID().String()), patchSet.Get("DirectoryOnly")); err != nil {`,
-					`return errors.Wrap(err, "resource.TenantDirectoryRules.DirectoryOnly()")`,
-					"if err := patch.Buffer(ctx, txn, eventSource); err != nil {",
-					"case resource.OperationUpdate:",
-				)
-				// The caller's grants answer before the rules do, and the rules before the
-				// write is buffered.
-				assertInOrder(t, out,
-					"case resource.OperationUpdate:",
-					`if patchSet.IsSet("DirectoryOnly") {`,
-					"if err := patchSet.Permitted(ctx, txn); err != nil {",
-					`if err := NewHarborDirectoryRules().DirectoryOnly(ctx, txn, accesstypes.Domain(id.String()), patchSet.Get("DirectoryOnly")); err != nil {`,
-					`return errors.Wrap(err, "resource.TenantDirectoryRules.DirectoryOnly()")`,
-					".NewHarborUpdatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource)",
-				)
+				assertContains(t, name, out, nil, []string{"DirectoryRules().DirectoryOnly(", `patchSet.IsSet("DirectoryOnly")`, "`json:\"directoryOnly\""})
 			}
 		})
 	}
 }
 
-// Test_tenantsTemplate_directoryOnly pins the read of what the directory-only switch
-// would do in the tenants file: the handler delegates to the library's with the record's
-// rules, its resource and the switch's field as grants name them, and every auth's
-// reader of the people the switch keeps out; a record that declares no switch gets no
-// handler.
-func Test_tenantsTemplate_directoryOnly(t *testing.T) {
+// Test_tenantDirectoryOnlyTemplate pins the handlers of the tenant record's
+// directory-only switch: the method runs in the tenant's scope to its own Execute
+// grant, asks the rules of the switch and then writes the flag through the record's
+// update patch, reloads the roster and signals the tenants kind; the two reads are the
+// library's, asked under the method's grant, with every auth's reader of the people
+// the switch keeps out and the list that decides whether the caller is told who they
+// are.
+func Test_tenantDirectoryOnlyTemplate(t *testing.T) {
 	t.Parallel()
 
-	data := func(directoryOnly *directoryOnlyData) *tenantsData {
-		return &tenantsData{
-			Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "HarborDirectory",
-			Declaration:         &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection"},
-			Directory:           harborDirectoryWrite(),
-			Word:                "harbor",
-			ResourcePackage:     "resources",
-			LocalPackageImports: `"example.com/app/pkg/resources"`,
-			ApplicationName:     "App",
-			ReceiverName:        "a",
-			DirectoryOnly:       directoryOnly,
+	data := func(people ...*directoryOnlyPeople) *directoryOnlyData {
+		return &directoryOnlyData{
+			Source: "resources", Package: "app", Name: "Harbor", Word: "harbor", Field: "DirectoryOnly",
+			Method: "SetHarborDirectoryOnly", MethodRoute: "set-harbor-directory-only",
+			StateFunc: "DirectoryOnly", ConsequenceFunc: "DirectoryOnlyConsequence", StateRoute: "directory-only", ConsequenceRoute: "directory-only/consequence",
+			DomainRoute: "harbors/{harborID}", KeyType: "impulse.UUID", KeyIsUUID: true, People: people,
+			LocalPackageImports: `"example.com/app/pkg/resources"` + "\n\t" + `"example.com/app/pkg/router"`,
+			ResourcePackage:     "resources", RouterPackage: "router", ApplicationName: "App", ReceiverName: "a",
 		}
 	}
+	textKey := data()
+	textKey.KeyType, textKey.KeyIsUUID, textKey.FlagType = "string", false, "resources.Flag"
 	tests := []struct {
 		name            string
-		data            *tenantsData
+		data            *directoryOnlyData
+		wantInOrder     []string
 		wantContains    []string
 		wantNotContains []string
 	}{
 		{
-			name: "the handler asks every auth's client who the switch keeps out",
-			data: data(&directoryOnlyData{HandlerFunc: "DirectoryOnly", Route: "directory-only", Resource: "Harbors", Tag: "directoryOnly", Field: "DirectoryOnly", Outsiders: []string{"StaffIdentity", "MembersIdentity"}}),
-			wantContains: []string{
-				`"net/http"`,
+			name: "the method asks its grant, then the rules, then writes the flag; the reads name each auth's people list",
+			data: data(
+				&directoryOnlyPeople{Accessor: "StaffIdentity", List: "StaffHarborUsers", Fields: []string{"username", "name"}},
+				&directoryOnlyPeople{Accessor: "MembersIdentity", List: "MemberHarborUsers", Fields: []string{"username", "name"}},
+			),
+			wantInOrder: []string{
+				"func (a *App) SetHarborDirectoryOnly() http.HandlerFunc {",
+				`resource.MustNewRPCDecoder[resource.SetDirectoryOnlyRequest](a, "SetHarborDirectoryOnly", accesstypes.Execute).WithCollection(router.Collection())`,
+				"domain := httpio.Param[accesstypes.Domain](r, router.Domain)",
+				"req, err := decoder.Decode(r, accesstypes.DomainScope(domain))",
+				"only, err := req.Turn()",
+				"id, err := impulse.UUIDFromString(string(domain))",
+				"if err := rules.DirectoryOnly(ctx, txn, domain, only); err != nil {",
+				"if err := resources.NewHarborUpdatePatch(id).SetDirectoryOnly(only).Buffer(ctx, txn, eventSource); err != nil {",
+				"return resource.ErrDryRun",
+				"if err := a.TenantRoster().Reload(ctx); err != nil {",
+				"if err := a.LiveService().Signal(ctx, resource.KindTenants); err != nil {",
 				"func (a *App) DirectoryOnly() http.HandlerFunc {",
-				`return resource.DirectoryOnlyHandler(a.ResourceClient(), NewHarborDirectoryRules(), a.UserPermissions, "Harbors", "directoryOnly",`,
-				"a.StaffIdentity().DirectoryOutsiders,",
-				"a.MembersIdentity().DirectoryOutsiders,",
-				"GET <prefix>/directory-only?domain=<harbor>",
+				"return harborDirectoryOnlyReads(a).State()",
+				"func (a *App) DirectoryOnlyConsequence() http.HandlerFunc {",
+				"return harborDirectoryOnlyReads(a).Consequence()",
+				`return resource.NewDirectoryOnlyReads(a.ResourceClient(), NewHarborDirectoryRules(), a.UserPermissions, "SetHarborDirectoryOnly", router.Domain,`,
+				`resource.DirectoryPeople{List: "StaffHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.StaffIdentity().DirectoryOutsiders},`,
+				`resource.DirectoryPeople{List: "MemberHarborUsers", Fields: []accesstypes.Tag{"username", "name"}, Outsiders: a.MembersIdentity().DirectoryOutsiders},`,
+			},
+			wantContains: []string{
+				"POST <prefix>/harbors/{harborID}/set-harbor-directory-only",
+				"GET\n// <prefix>/harbors/{harborID}/directory-only",
+				"GET <prefix>/harbors/{harborID}/directory-only/consequence",
 			},
 		},
 		{
-			name: "a program that generates no auth's management names no person",
-			data: data(&directoryOnlyData{HandlerFunc: "DirectoryOnly", Route: "directory-only", Resource: "Harbors", Tag: "directoryOnly", Field: "DirectoryOnly"}),
-			wantContains: []string{
-				"func (a *App) DirectoryOnly() http.HandlerFunc {",
-				"The program generates no auth's management, so the read names no person",
-			},
-			wantNotContains: []string{".DirectoryOutsiders,"},
+			name:            "a program that generates no auth's management counts and names no person",
+			data:            data(),
+			wantContains:    []string{"The program generates no auth's management, so the read counts and names no person"},
+			wantNotContains: []string{"resource.DirectoryPeople{"},
 		},
 		{
-			name:            "a record with no switch served to sessions gets no handler",
-			data:            data(nil),
-			wantNotContains: []string{"DirectoryOnlyHandler", `"net/http"`},
+			name:            "a record keyed by text, with a flag of a type named over a boolean",
+			data:            textKey,
+			wantContains:    []string{"id := string(domain)", "resources.NewHarborUpdatePatch(id).SetDirectoryOnly(resources.Flag(only)).Buffer(ctx, txn, eventSource)"},
+			wantNotContains: []string{"impulse.UUIDFromString"},
 		},
 	}
 	for _, tt := range tests {
@@ -168,59 +177,98 @@ func Test_tenantsTemplate_directoryOnly(t *testing.T) {
 			t.Parallel()
 
 			c := &client{}
-			out, err := c.generateTemplateOutput("tenantsTemplate", tenantsTemplate, tt.data)
+			out, err := c.generateTemplateOutput("tenantDirectoryOnlyTemplate", tenantDirectoryOnlyTemplate, tt.data)
 			if err != nil {
 				t.Fatalf("generateTemplateOutput() error = %v", err)
 			}
 			if _, err := format.Source(out); err != nil {
-				t.Fatalf("the rendered tenants file does not parse: %v\n%s", err, out)
+				t.Fatalf("the rendered file does not parse: %v\n%s", err, out)
 			}
-			assertContains(t, "the tenants file", string(out), tt.wantContains, tt.wantNotContains)
+			if len(tt.wantInOrder) > 0 {
+				assertInOrder(t, string(out), tt.wantInOrder...)
+			}
+			assertContains(t, "the switch's file", string(out), tt.wantContains, tt.wantNotContains)
 		})
+	}
+
+	// The tenants file no longer carries a read of the switch: the switch has its own file.
+	if strings.Contains(tenantsTemplate, "DirectoryOnlyHandler") || strings.Contains(tenantsTemplate, "NewDirectoryOnlyReads") {
+		t.Error("tenantsTemplate still serves a read of the directory-only switch")
 	}
 }
 
-// Test_accumulateDirectoryOnlyRoute pins the read's registration: a GET under the prefix
-// of every session outlet the tenant record is on, none on an API-key outlet, and none
-// at all for a record that declares no switch.
-func Test_accumulateDirectoryOnlyRoute(t *testing.T) {
+// Test_directoryOnlyRoutes pins where the switch is served and what registers it: the
+// method and its two reads under the tenant's own route, behind the domain guard, on
+// every session outlet the tenant record is on and on no API-key outlet; a denied case
+// for each in the authorization matrix, the method's dry run included; the method in
+// the collection with Execute in the tenant's scope; and nothing at all for a record
+// that declares no switch. An application's own method or registration under the
+// method's name is refused.
+func Test_directoryOnlyRoutes(t *testing.T) {
 	t.Parallel()
 
+	generator := func(t *testing.T, structs ...string) *resourceGenerator {
+		t.Helper()
+
+		r, err := declarationResources(t, structs...)
+		if err != nil {
+			t.Fatalf("declarationResources() error = %v", err)
+		}
+		r.genRoutes = true
+		r.defaultOutlet = routerOutlet{name: defaultOutletName, prefix: "api", servesSessions: true}
+		for _, res := range r.resources {
+			res.OutletNames = []string{defaultOutletName, "members", "machines"}
+		}
+		r.extraOutlets = []routerOutlet{
+			{name: "members", prefix: "members", servesSessions: true},
+			{name: "machines", prefix: "machines", apiKey: true},
+		}
+
+		return r
+	}
+	routesUnder := func(prefix string) []*generatedRoute {
+		base, testBase := "/"+prefix+"/harbors/{harborID}", "/"+prefix+"/harbors/"+domainTestValue
+
+		return []*generatedRoute{
+			{Method: "GET", Path: base + "/directory-only", HandlerFunc: "DirectoryOnly", DomainScoped: true, TestURL: testBase + "/directory-only"},
+			{Method: "GET", Path: base + "/directory-only/consequence", HandlerFunc: "DirectoryOnlyConsequence", DomainScoped: true, TestURL: testBase + "/directory-only/consequence"},
+			{Method: "POST", Path: base + "/set-harbor-directory-only", HandlerFunc: "SetHarborDirectoryOnly", DomainScoped: true, TestURL: testBase + "/set-harbor-directory-only", SelfBounded: true},
+		}
+	}
 	tests := []struct {
 		name       string
 		structs    []string
-		wantRoutes map[string]*generatedRoute
+		wantRoutes map[string][]*generatedRoute
+		wantCases  []string
+		wantMethod bool
 	}{
 		{
-			name:    "a record that declares the switch, on every session outlet it is on",
-			structs: []string{"Harbor", "HarborDirectory"},
-			wantRoutes: map[string]*generatedRoute{
-				defaultOutletName: {Method: "GET", Path: "/api/directory-only", HandlerFunc: "DirectoryOnly", TestURL: "/api/directory-only"},
-				"members":         {Method: "GET", Path: "/members/directory-only", HandlerFunc: "DirectoryOnly", TestURL: "/members/directory-only"},
+			name:       "a record that declares the switch, on every session outlet it is on",
+			structs:    []string{"Harbor", "HarborDirectory"},
+			wantRoutes: map[string][]*generatedRoute{defaultOutletName: routesUnder("api"), "members": routesUnder("members")},
+			wantCases: []string{
+				"GET /api/harbors/" + domainTestValue + "/directory-only",
+				"GET /api/harbors/" + domainTestValue + "/directory-only/consequence",
+				"POST /api/harbors/" + domainTestValue + "/set-harbor-directory-only {}",
+				"POST /api/harbors/" + domainTestValue + "/set-harbor-directory-only {} dry run",
+				"GET /members/harbors/" + domainTestValue + "/directory-only",
+				"GET /members/harbors/" + domainTestValue + "/directory-only/consequence",
+				"POST /members/harbors/" + domainTestValue + "/set-harbor-directory-only {}",
+				"POST /members/harbors/" + domainTestValue + "/set-harbor-directory-only {} dry run",
 			},
+			wantMethod: true,
 		},
 		{
-			name:       "a record that declares no switch registers no route",
+			name:       "a record that declares no switch registers nothing",
 			structs:    []string{"Sector", "HarborDirectory"},
-			wantRoutes: map[string]*generatedRoute{},
+			wantRoutes: map[string][]*generatedRoute{},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			r, err := declarationResources(t, tt.structs...)
-			if err != nil {
-				t.Fatalf("declarationResources() error = %v", err)
-			}
-			r.defaultOutlet = routerOutlet{name: defaultOutletName, prefix: "api", servesSessions: true}
-			for _, res := range r.resources {
-				res.OutletNames = []string{defaultOutletName, "members", "machines"}
-			}
-			r.extraOutlets = []routerOutlet{
-				{name: "members", prefix: "members", servesSessions: true},
-				{name: "machines", prefix: "machines", apiKey: true},
-			}
+			r := generator(t, tt.structs...)
 			outlets := r.allOutlets()
 			outletRoutes := make([]*outletRouteData, len(outlets))
 			for i, outlet := range outlets {
@@ -228,25 +276,82 @@ func Test_accumulateDirectoryOnlyRoute(t *testing.T) {
 			}
 			testRoutes := r.accumulateDirectoryOnlyRoute(outlets, outletRoutes)
 
-			gotRoutes := map[string]*generatedRoute{}
+			gotRoutes := map[string][]*generatedRoute{}
+			registered := 0
 			for _, outlet := range outletRoutes {
-				routes := outlet.RoutesMap["DirectoryOnly"]
-				if len(routes) == 0 {
-					continue
+				if routes := outlet.RoutesMap[directoryOnlyRoutesKey]; len(routes) > 0 {
+					gotRoutes[outlet.Name] = routes
+					registered += len(routes)
 				}
-				if len(routes) != 1 {
-					t.Errorf("outlet %s registers %d routes, want 1", outlet.Name, len(routes))
-				}
-				gotRoutes[outlet.Name] = routes[0]
 			}
 			if diff := cmp.Diff(tt.wantRoutes, gotRoutes, cmp.AllowUnexported(generatedRoute{})); diff != "" {
 				t.Errorf("registered routes mismatch (-want +got):\n%s", diff)
 			}
-			if got, want := len(testRoutes), len(tt.wantRoutes); got != want {
-				t.Errorf("the dispatch test takes %d routes, want %d", got, want)
+			if got := len(testRoutes); got != registered {
+				t.Errorf("the dispatch test takes %d routes, want every registered one, %d", got, registered)
+			}
+
+			var gotCases []string
+			for _, c := range r.directoryOnlyAuthzCases() {
+				if !c.DeniedOnly {
+					t.Errorf("the case %s carries a granted half; the matrix cannot set up a session through a directory", c.Name)
+				}
+				line := strings.TrimPrefix(c.Method, "http.Method")
+				line = strings.ToUpper(line) + " " + c.URL
+				if c.Body != "" {
+					line += " " + c.Body
+				}
+				if len(c.Headers) > 0 {
+					line += " dry run"
+				}
+				gotCases = append(gotCases, line)
+			}
+			if diff := cmp.Diff(tt.wantCases, gotCases); diff != "" {
+				t.Errorf("the matrix's cases mismatch (-want +got):\n%s", diff)
+			}
+
+			b := resource.NewCollectionBuilder()
+			if err := r.collectDirectoryOnlyRegistrations(b); err != nil {
+				t.Fatalf("collectDirectoryOnlyRegistrations() error = %v", err)
+			}
+			var gotMethods []resource.CollectionResource
+			for _, res := range b.Data().Resources {
+				gotMethods = append(gotMethods, resource.CollectionResource{Name: res.Name, Scope: res.Scope, Permissions: res.Permissions})
+			}
+			var wantMethods []resource.CollectionResource
+			if tt.wantMethod {
+				wantMethods = []resource.CollectionResource{{Name: "SetHarborDirectoryOnly", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.Execute}}}
+			}
+			if diff := cmp.Diff(wantMethods, gotMethods); diff != "" {
+				t.Errorf("the collection's registrations mismatch (-want +got):\n%s", diff)
 			}
 		})
 	}
+
+	t.Run("an application's registration under the method's name is refused", func(t *testing.T) {
+		t.Parallel()
+
+		r := generator(t, "Harbor", "HarborDirectory")
+		r.manualRegistrations = []ManualRegistration{{Resource: "SetHarborDirectoryOnly", Permission: accesstypes.Execute}}
+		err := r.collectDirectoryOnlyRegistrations(resource.NewCollectionBuilder())
+		if err == nil || !strings.Contains(err.Error(), "SetHarborDirectoryOnly is the method that turns the Harbor record's directory-only switch") {
+			t.Errorf("collectDirectoryOnlyRegistrations() error = %v, want the refusal naming the method and the record", err)
+		}
+	})
+
+	t.Run("a run that generates no routes registers no method", func(t *testing.T) {
+		t.Parallel()
+
+		r := generator(t, "Harbor", "HarborDirectory")
+		r.genRoutes = false
+		b := resource.NewCollectionBuilder()
+		if err := r.collectDirectoryOnlyRegistrations(b); err != nil {
+			t.Fatalf("collectDirectoryOnlyRegistrations() error = %v", err)
+		}
+		if got := b.Data().Resources; len(got) != 0 {
+			t.Errorf("the collection carries %v, want nothing", got)
+		}
+	})
 }
 
 // Test_tenantDirectoryIn pins the reading of the directory-only switch and the
