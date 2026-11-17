@@ -332,8 +332,9 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				"var given string",
 				// A name another harbor holds is refused where the answer says so, and
 				// not by the database at the commit.
-				"switch _, err := resources.NewHarborQuery().SetName(given).AddColumns(resources.NewHarborColumns().ID()).Read(ctx, txn); {",
-				`return "", httpio.NewConflictMessagef("a harbor with the name %v already exists: give the new one another", given)`,
+				"if patch.NameIsSet() {",
+				"switch _, err := resources.NewHarborQuery().SetName(patch.Name()).AddColumns(resources.NewHarborColumns().ID()).Read(ctx, txn); {",
+				`return "", httpio.NewConflictMessagef("a harbor with the name %v already exists: give the new one another", patch.Name())`,
 				"case !httpio.HasNotFound(err):",
 				"patch.SetName(given)",
 				`if value, ok := carried["Berths"]; ok {`,
@@ -372,6 +373,8 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 				"patch.SetDirectoryOnly(true)",
 				"patch.Enforce(tenant.Caller)",
 				"patch.Buffer(ctx, txn, tenant.Source)",
+				// The grants answer (the buffer) before a taken value is read for.
+				"resources.NewHarborQuery().SetName(patch.Name())",
 				"NewHarborDirectoryRules().Set(ctx, txn, domain, tenant.Directory)",
 				"directory.Buffer(ctx, txn, tenant.Source)",
 				"// The check a send makes: nothing commits, and nothing is owed after it.",

@@ -1633,11 +1633,11 @@ func New{{ $.Name }}Maker(roster *resource.TenantRoster, signals live.Service) i
 // Make buffers the {{ $.RecordLower }}'s row from the invitation's details, through the
 // record's create patch, so the record's own rules apply and its change event is written
 // with it. The details name the record's fields by their Go names; a name the record
-// does not carry on an invitation is refused, and so is a value another {{ $.RecordLower }}
-// holds under a unique index. At the check a send makes (tenant.Caller), the patch is
-// armed with the caller, so the record's Create grant, on the record and on each field
-// given, answers as it would for a create, and the transaction is rolled back by
-// whoever asked. A rule the database alone applies at a commit (a CHECK constraint, a
+// does not carry on an invitation is refused. At the check a send makes
+// (tenant.Caller), the patch is armed with the caller, so the record's Create grant, on
+// the record and on each field given, answers as it would for a create, and the
+// transaction is rolled back by whoever asked. A value another {{ $.RecordLower }} holds
+// under a unique index is refused once the grants have answered. A rule the database alone applies at a commit (a CHECK constraint, a
 // unique index over several columns) is not seen by the check: it refuses the first
 // sign-in's commit, and the invitation stands.
 {{- if $.Declaration }}
@@ -1671,16 +1671,6 @@ func (m *{{ GoCamel $.Name }}Maker) Make(ctx context.Context, txn resource.ReadW
 		if err := json.Unmarshal(value, &given); err != nil {
 			return "", httpio.NewBadRequestMessageWithError(err, "the {{ $.RecordLower }}'s {{ $field.Wire }} does not read")
 		}
-		{{- if $field.Unique }}
-		// The database keeps one {{ $.RecordLower }} to a {{ $field.Wire }} (a unique index), and
-		// refuses a second at the commit: it is refused here, where the answer says so.
-		switch _, err := {{ $.ResourcePackage }}.New{{ $.Name }}Query().Set{{ $field.Name }}(given).AddColumns({{ $.ResourcePackage }}.New{{ $.Name }}Columns().{{ $.Maker.Key }}()).Read(ctx, txn); {
-		case err == nil:
-			return "", httpio.NewConflictMessagef("a {{ $.RecordLower }} with the {{ $field.Wire }} %v already exists: give the new one another", given)
-		case !httpio.HasNotFound(err):
-			return "", errors.Wrap(err, "{{ $.ResourcePackage }}.{{ $.Name }}Query.Read()")
-		}
-		{{- end }}
 		patch.Set{{ $field.Name }}(given)
 		delete(carried, {{ printf "%q" $field.Name }})
 	}
@@ -1707,6 +1697,23 @@ func (m *{{ GoCamel $.Name }}Maker) Make(ctx context.Context, txn resource.ReadW
 	if err := patch.Buffer(ctx, txn, tenant.Source); err != nil {
 		return "", errors.Wrap(err, "{{ $.ResourcePackage }}.{{ $.Name }}CreatePatch.Buffer()")
 	}
+	{{- range $field := .Fields }}
+	{{- if $field.Unique }}
+	if patch.{{ $field.Name }}IsSet() {
+		// The database keeps one {{ $.RecordLower }} to a {{ $field.Wire }} (a unique index), and
+		// refuses a second at the commit: it is refused here, where the answer says so,
+		// and after the caller's grants have answered (the buffer above), so the answer
+		// tells nobody who may not create a {{ $.RecordLower }} which values are taken. The
+		// read sees what is committed, never the row just buffered.
+		switch _, err := {{ $.ResourcePackage }}.New{{ $.Name }}Query().Set{{ $field.Name }}(patch.{{ $field.Name }}()).AddColumns({{ $.ResourcePackage }}.New{{ $.Name }}Columns().{{ $.Maker.Key }}()).Read(ctx, txn); {
+		case err == nil:
+			return "", httpio.NewConflictMessagef("a {{ $.RecordLower }} with the {{ $field.Wire }} %v already exists: give the new one another", patch.{{ $field.Name }}())
+		case !httpio.HasNotFound(err):
+			return "", errors.Wrap(err, "{{ $.ResourcePackage }}.{{ $.Name }}Query.Read()")
+		}
+	}
+	{{- end }}
+	{{- end }}
 	{{- if $.Declaration }}
 	if hasDirectory {
 		// The directory the person came through becomes the {{ $.Word }}'s own, held to

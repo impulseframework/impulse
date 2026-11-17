@@ -37,7 +37,10 @@ type (
 	// record, and they are held to the rules the record's create applies when the
 	// invitation is sent: the caller needs the Create grant on the record and on each
 	// field given, as someone who created the {{ .TenantWord }} directly would. A secret
-	// field of the record is not among them: no invitation carries a secret.
+	// field of the record is not among them: no invitation carries a secret.{{ if or .TenantDirectoryOnly .TenantSeats }} What the
+	// invitation says beyond the record's fields ({{ if .TenantDirectoryOnly }}directory only{{ end }}{{ if and .TenantDirectoryOnly .TenantSeats }}, {{ end }}{{ if .TenantSeats }}the starting role{{ end }}) no Create
+	// grant covers: a role file withholds it by a condition on this method's grant, which
+	// reads each as the attribute its field declares.{{ end }}
 	//
 	// The message is sent once the invitation is committed, and the answer says whether
 	// it went (Sent). When it did not, the invitation is withdrawn, so no link stands
@@ -57,7 +60,12 @@ type (
 		// {{ .TenantName }}DirectoryOnly says the {{ .TenantWord }}'s people enter through its
 		// directory only. The invitation is then accepted through an organization's
 		// directory alone: a first sign-in by password or with a personal account is
-		// refused, and the invitation stands.
+		// refused, and the invitation stands. The switch is no field the record's
+		// Create grant covers, so a grant's condition reads it as new.directoryOnly: a
+		// role that may invite but not close a {{ .TenantWord }} to its directory is granted
+		// the method where new.directoryOnly = false.
+		//
+		// @attribute(directoryOnly)
 		{{ .TenantName }}DirectoryOnly bool
 		{{- end }}
 		{{- if .TenantSeats }}

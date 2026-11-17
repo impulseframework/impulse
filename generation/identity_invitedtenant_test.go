@@ -415,7 +415,9 @@ func Test_prepareIdentity_invitedTenant(t *testing.T) {
 		"CitadelWalled bool\n",
 		"CitadelGarrison int64\n",
 		"CitadelTowers []string\n",
-		"CitadelDirectoryOnly bool\n",
+		// What the invitation says beyond the record's fields, each named for a grant's
+		// condition: no Create grant covers either.
+		"// @attribute(directoryOnly)\n CitadelDirectoryOnly bool\n",
 		"// @attribute(role)\n DefaultRole *string\n",
 		"\"cloud.google.com/go/civil\"",
 		"\"example.com/acme/beacon/pkg/resources\"",
@@ -525,7 +527,7 @@ func Test_prepareIdentity_invitedTenant_shapes(t *testing.T) {
 		// one field is a plain type, so the sources import nothing for it.
 		assertContains(t, "invite_crew_citadel.go", identitySource(t, "crewidentity/invite_crew_citadel.go"),
 			[]string{"CitadelName string `validate:\"required\"`\n", "TenantName: fmt.Sprint(\"citadel\"),"},
-			[]string{"DirectoryOnly", "DefaultRole", "@attribute(role)", "pkg/resources\""})
+			[]string{"DirectoryOnly", "DefaultRole", "@attribute(role)", "@attribute(directoryOnly)", "pkg/resources\""})
 		assertContains(t, "crew_invited_citadels.go", identitySource(t, "crewidentity/crew_invited_citadels.go"),
 			[]string{"var crewInvitedCitadelFields = map[string]accesstypes.Tag{\n \"Name\": \"name\",\n}"},
 			[]string{"DirectoryOnly", "DefaultRole"})
