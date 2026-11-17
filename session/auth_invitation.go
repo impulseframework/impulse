@@ -254,6 +254,9 @@ func (a *Auth[S, U, Tx]) invitationAccept() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
+		if err := sessioncore.RefuseImpersonated(ctx, a.baseSession, "Invitation().Accept()", true); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		inv, err := a.invitationOf(ctx)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)

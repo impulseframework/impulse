@@ -45,6 +45,12 @@ type MethodList struct {
 	// ChangeName is the path of the Auth's ChangeName handler, where a signed-in
 	// person's account page writes their own name, or none.
 	ChangeName string
+	// SignInMeans is the path of the Auth's SignInMeans handler, where a signed-in
+	// person's account page reads what they sign in with (whether they hold a password,
+	// and the directory sign-ins linked to them), or none. Without it the page offers
+	// the change and the removal of a password to everyone the password method serves,
+	// and the server's refusals say the rest.
+	SignInMeans string
 	// ChangeLook is the path of the Auth's ChangeLook handler, where a signed-in
 	// person's pages keep the look the person chose, or none.
 	ChangeLook string
@@ -116,6 +122,7 @@ type methodsAnswer struct {
 	RemovePassword string                 `json:"removePassword,omitempty"`
 	ForgetBrowser  string                 `json:"forgetBrowser,omitempty"`
 	ChangeName     string                 `json:"changeName,omitempty"`
+	SignInMeans    string                 `json:"signInMeans,omitempty"`
 	ChangeLook     string                 `json:"changeLook,omitempty"`
 	// UsernameIsEmail says the password method's username is the email address, so
 	// the page asks for the address.
@@ -345,6 +352,9 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 		if !slices.Contains(a.methods.listed, m.Name) {
 			a.methods.listed = append(a.methods.listed, m.Name)
 		}
+		if a.methods.labels == nil {
+			a.methods.labels = make(map[string]string, len(list.Methods))
+		}
 		a.methods.labels[m.Name] = m.Label
 	}
 	passwordListed := seen[string(sessioninfo.MethodPassword)]
@@ -353,6 +363,7 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	answer.RemovePassword = removePasswordPathOf(list, passwordListed)
 	answer.ForgetBrowser = forgetBrowserPathOf(list)
 	answer.ChangeName = changeNamePathOf(list)
+	answer.SignInMeans = signInMeansPathOf(list)
 	answer.ChangeLook = changeLookPathOf(list)
 	answer.UsernameIsEmail = passwordListed && a.methods.usernameIsEmail()
 	answer.Invitation = invitationAnswerOf(list.Invitation, passwordListed)
@@ -459,6 +470,17 @@ func changeNamePathOf(list *MethodList) string {
 	}
 
 	return list.ChangeName
+}
+
+// signInMeansPathOf validates the route a person's sign-in means are read from: none, or
+// a canonical path.
+func signInMeansPathOf(list *MethodList) string {
+	if list.SignInMeans != "" && !advertisedPath(list.SignInMeans) {
+		panic(fmt.Sprintf("session: Methods is given the sign-in means route %q, which is not a canonical path in the application: "+
+			"give it the path its SignInMeans handler is mounted at, such as /api/user/sign-in-means", list.SignInMeans))
+	}
+
+	return list.SignInMeans
 }
 
 // forgetBrowserPathOf validates the forget-this-browser route: none, or a canonical path.

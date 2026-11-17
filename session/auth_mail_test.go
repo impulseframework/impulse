@@ -1312,7 +1312,7 @@ func TestNewAuth_Mail(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey, WithMail(tt.sender, tt.settings))
+			_, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey, NoSuperAdministrators(), WithMail(tt.sender, tt.settings))
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("NewAuth() error = %v, want %q", err, tt.want)
 			}
@@ -1321,7 +1321,7 @@ func TestNewAuth_Mail(t *testing.T) {
 
 	t.Run("the invitation cookie must differ from the session and pending cookies", func(t *testing.T) {
 		t.Parallel()
-		if _, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey, WithInvitationCookieName(defaultPendingCookieName)); err == nil {
+		if _, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey, NoSuperAdministrators(), WithInvitationCookieName(defaultPendingCookieName)); err == nil {
 			t.Error("NewAuth() with the pending cookie's name for the invitation cookie error = nil, want a refusal")
 		}
 	})
@@ -1346,7 +1346,7 @@ func TestAuth_ClaimVerifiedEmail(t *testing.T) {
 			store := mock_sessionstorage.NewMockAuthStore[mockTx](ctrl)
 			store.EXPECT().CustomUserDataType().Return(nil).AnyTimes()
 			store.EXPECT().ClaimVerifiedEmail(gomock.Any(), userID, "pat@lakeside.edu").Return(true, nil).Times(tt.claims)
-			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey)
+			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())
 			if err != nil {
 				t.Fatal(err)
 			}

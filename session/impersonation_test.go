@@ -332,7 +332,7 @@ func TestWithPrincipalResolver_AppliesToEverySessionType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewPreauth() error = %v", err)
 	}
-	auth, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, opt)
+	auth, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, NoSuperAdministrators(), opt)
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -424,7 +424,7 @@ func TestSessionAPIs_Logout_AnnouncesImpersonationEnd(t *testing.T) {
 			build: func(t *testing.T, ctrl *gomock.Controller, sessionID impulse.UUID, hook ImpersonationAuditHook) logoutAPI {
 				storage := newAuthStoreMock(ctrl)
 				storage.EXPECT().DestroySession(gomock.Any(), sessionID).Return(nil)
-				a, err := NewAuth[NoCustomData, NoCustomData](storage, cookieKey, WithImpersonationAudit(hook))
+				a, err := NewAuth[NoCustomData, NoCustomData](storage, cookieKey, NoSuperAdministrators(), WithImpersonationAudit(hook))
 				if err != nil {
 					t.Fatalf("NewAuth() error = %v", err)
 				}

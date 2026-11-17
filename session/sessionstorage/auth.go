@@ -24,6 +24,13 @@ import (
 // Conflict client message.
 var ErrLastSignInMethod = dbtype.ErrLastSignInMethod
 
+// ErrPasswordChanged is returned by the password writes that follow a proof of the
+// password (UpgradeUserPasswordHash, ChangeUserPassword and RemoveProvenUserPassword)
+// when the user no longer holds the hash that was proved: the password was changed,
+// reset or removed after the caller read it. Nothing is written, so the other write
+// stands whole. It is a Conflict client message.
+var ErrPasswordChanged = dbtype.ErrPasswordChanged
+
 // SessionIdentity is a stored link from an external identity to a user.
 type SessionIdentity struct {
 	ID          impulse.UUID           `spanner:"Id"          db:"Id"`
@@ -79,8 +86,18 @@ type AuthStore[Tx any] interface {
 	// SetUserPassword sets a user's password hash and whether the user must change the
 	// password before anything else is served (SessionUser.PasswordChangeRequired), in
 	// one write: true for a password an operator set, false for one the user chose.
-	// SetUserPasswordHash leaves the mark as it is.
+	// It follows no proof of the password it replaces and overwrites whatever the row
+	// holds: it is an operator's write, or the end of a flow that proved who the person
+	// is by other means. A user's own change is ChangeUserPassword.
 	SetUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
+	// ChangeUserPassword replaces the password a user proved with one the user chose,
+	// and clears the password change mark, in one write. proven is the hash the caller
+	// compared the user's old password against, and the write lands only while the row
+	// still holds it: a password changed, reset or removed since the caller read it
+	// stands as it is (ErrPasswordChanged), so a temporary password an operator set
+	// meanwhile is not overwritten on proof of the password it replaced. A write with no
+	// proven hash writes nothing, and one with no new hash is refused.
+	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
 	// CreateSession inserts a session that has no identity to resolve and returns its
 	// ID: a session the application starts for a user it authenticated itself, or a
 	// regeneration. A configured custom session data resolver runs inside the insert
@@ -123,8 +140,17 @@ type AuthStore[Tx any] interface {
 	// must change it. It refuses to remove the last means of sign-in of a user that has
 	// no identity (ErrLastSignInMethod), in the transaction that removes the password,
 	// so a removal and an unlink that race cannot both go through. The user's sessions
-	// stand. A user that holds no password is a BadRequest.
+	// stand. A user that holds no password is a BadRequest. It follows no proof of the
+	// password: it is an administrator's removal. A user's own removal is
+	// RemoveProvenUserPassword.
 	RemoveUserPassword(ctx context.Context, userID impulse.UUID) error
+	// RemoveProvenUserPassword removes the password a user proved, as RemoveUserPassword
+	// removes one. proven is the hash the caller compared the user's password against,
+	// and the removal goes through only while the row still holds it: a password
+	// changed, reset or removed since the caller read it stands as it is
+	// (ErrPasswordChanged), answered before the user's other means of sign-in are
+	// counted. A removal with no proven hash removes nothing.
+	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash) error
 	// SetTokensTableName sets the name of the tokens table (SessionTokens).
 	SetTokensTableName(name string) error
 	// SetDeviceCodesTableName sets the name of the device codes table
@@ -903,6 +929,21 @@ func (a *Auth[Tx]) SetUserPassword(ctx context.Context, id impulse.UUID, hash *s
 	return nil
 }
 
+// ChangeUserPassword implements AuthStore.
+func (a *Auth[Tx]) ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if hash == nil {
+		return errors.New("ChangeUserPassword needs the new password's hash: RemoveProvenUserPassword removes a password")
+	}
+	if err := a.db.ChangeUserPassword(ctx, id, proven, hash); err != nil {
+		return errors.Wrap(err, "db.ChangeUserPassword()")
+	}
+
+	return nil
+}
+
 // Identity implements AuthStore.
 func (a *Auth[Tx]) Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*SessionIdentity, error) {
 	ctx, span := tracer.Start(ctx)
@@ -981,6 +1022,18 @@ func (a *Auth[Tx]) RemoveUserPassword(ctx context.Context, userID impulse.UUID) 
 
 	if err := a.db.RemoveUserPassword(ctx, userID); err != nil {
 		return errors.Wrap(err, "db.RemoveUserPassword()")
+	}
+
+	return nil
+}
+
+// RemoveProvenUserPassword implements AuthStore.
+func (a *Auth[Tx]) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := a.db.RemoveProvenUserPassword(ctx, userID, proven); err != nil {
+		return errors.Wrap(err, "db.RemoveProvenUserPassword()")
 	}
 
 	return nil

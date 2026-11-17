@@ -123,7 +123,7 @@ func newRulesApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shap
 	googleIDP := oidctest.NewFakeIDP(t, "google-client")
 
 	recorder := &mail.Recorder{}
-	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey,
+	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(),
 		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook),
 		session.WithMail(recorder, session.MailSettings{Application: "Lakeside", LoginURL: "https://app.example/login"}))
 	if err != nil {

@@ -45,6 +45,34 @@ var (
 	})
 )
 
+// Test_identityInstances_signIns pins what an instance knows of its auth's directory
+// sign-ins: one for each registration through which an identity is linked, in
+// declaration order, with the method its identities carry and the words its button
+// carries. The password method links no identity and is none of them, and the persona
+// provider's identities are an OpenID Connect registration's.
+func Test_identityInstances_signIns(t *testing.T) {
+	t.Parallel()
+
+	r := identityFixtureGenerator(t, slices.Concat(crewIdentityTables, membersIdentityTables)...)
+	r.extraOutlets[1].auth = &outletAuth{importPath: membersAuthPath, methods: []AuthMethod{
+		GoogleMethod("google").Labeled("Fleet Google"), PasswordMethod(), AzureMethod("lakeside").Labeled("Lakeside"), PersonaMethod("persona").Labeled("Persona"),
+	}}
+	instances, err := r.identityInstances()
+	if err != nil {
+		t.Fatalf("identityInstances() error = %v", err)
+	}
+	var got []identitySignIn
+	for _, inst := range instances {
+		if inst.auth == "Members" {
+			got = inst.signIns
+		}
+	}
+	want := []identitySignIn{{Method: "google", Label: "Fleet Google"}, {Method: "azure", Label: "Lakeside"}, {Method: "oidc", Label: "Persona"}}
+	if diff := cmp.Diff(want, got, cmp.AllowUnexported(identitySignIn{})); diff != "" {
+		t.Errorf("the Members instance's sign-ins mismatch (-want +got):\n%s", diff)
+	}
+}
+
 // Test_identityInstances pins the derivation: one instance per declared auth, named for
 // the auth package, served on the auth's own outlet and on every outlet that manages it,
 // with three packages under the tree; the tables the schema holds; a directory that

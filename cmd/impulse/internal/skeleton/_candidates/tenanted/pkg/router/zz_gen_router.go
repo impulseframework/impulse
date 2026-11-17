@@ -6,9 +6,9 @@
 //
 //	every request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams
 //	default (/api), sessions (password, google):
-//	  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/google/login, GET /api/user/google/callback
+//	  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means, GET /api/user/google/login, GET /api/user/google/callback
 //	  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/password/remove, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look, POST /api/user/invitation, POST /api/user/invitation/sign-up
-//	  + ValidateSession, ValidateXSRFToken: POST /api/user/invitation/accept, POST /api/user/email, POST /api/user/email/verify
+//	  + ValidateSession, ValidateXSRFToken, hooks.Default: POST /api/user/invitation/accept, POST /api/user/email, POST /api/user/email/verify
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1): hooks.Default, generatedRoutes
 //
 // hooks.Root's routes sit behind the every-request chain alone. Under an outlet's prefix
@@ -85,6 +85,10 @@ type DefaultSession interface {
 	// ChangeName writes the signed-in person's own name, from their account page
 	// (session.Auth.ChangeName); it validates the session itself.
 	ChangeName() http.HandlerFunc
+	// SignInMeans answers what the signed-in person signs in with, a password or none
+	// and the directory sign-ins linked to them, to their account page
+	// (session.Auth.SignInMeans); it validates the session itself.
+	SignInMeans() http.HandlerFunc
 	// ChangeLook keeps the look the signed-in person chose, so it follows them to
 	// every browser (session.Auth.ChangeLook); it validates the session itself.
 	ChangeLook() http.HandlerFunc
@@ -119,7 +123,9 @@ type Hooks struct {
 	Root func(r chi.Router)
 	// Default runs inside the default outlet's authenticated group: r already sits behind
 	// session validation, and the XSRF guard, and generated registers
-	// the outlet's generated routes. Nil registers them directly.
+	// the outlet's generated routes with the session routes a signed-in person calls on
+	// their own account, so middleware the hook puts around generated (a read-only
+	// backstop, say) stands in front of both. Nil registers them directly.
 	Default func(r chi.Router, generated func(chi.Router))
 }
 
@@ -175,6 +181,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			RemovePassword: "/api/user/password/remove",
 			ForgetBrowser:  "/api/user/browser/forget",
 			ChangeName:     "/api/user/name",
+			SignInMeans:    "/api/user/sign-in-means",
 			ChangeLook:     "/api/user/look",
 			Invitation:     session.InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
 			Email:          session.EmailRoutes{Add: "/api/user/email", Verify: "/api/user/email/verify"},
@@ -182,6 +189,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		bounded.Get("/api/user/session", h.Authenticated())
 		bounded.Delete("/api/user/session", h.Logout())
 		bounded.Get("/api/user/pending", h.PendingStatus())
+		bounded.Get("/api/user/sign-in-means", h.SignInMeans())
 		bounded.Get("/api/user/google/login", h.GoogleLogin())
 		bounded.Get("/api/user/google/callback", h.GoogleCallback())
 		guarded.Post("/api/user/password/login", h.PasswordLogin())
@@ -215,13 +223,18 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				},
 			}))
 
-			// The session routes a signed-in person calls: the acceptance of an invitation
-			// the browser carries, and the address they add and verify.
-			r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/invitation/accept", h.InvitationAccept())
-			r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/email", h.EmailAdd())
-			r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/email/verify", h.EmailVerify())
-
 			registerGenerated(r, hooks.Default, "Default", func(r chi.Router) {
+				// The session routes a signed-in person calls on their own account: the
+				// acceptance of an invitation the browser carries, the address they add and
+				// verify, and their tokens and device authorizations where the auth issues
+				// tokens. They are registered with the outlet's generated routes, inside
+				// whatever the application's hook wraps those in, so a read-only backstop
+				// mounted there (the session library's EnforceReadOnlyMask) stands in front
+				// of them too; each one that writes refuses an impersonated session itself.
+				r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/invitation/accept", h.InvitationAccept())
+				r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/email", h.EmailAdd())
+				r.With(resource.BodyLimit(BodyLimit)).Post("/api/user/email/verify", h.EmailVerify())
+
 				generatedRoutes(r, h)
 			})
 		})

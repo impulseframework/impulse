@@ -289,12 +289,20 @@ func (a *Auth[S, U, Tx]) deviceLookup() http.HandlerFunc {
 
 // deviceDecide is Device().Approve() when approve is set, else Device().Deny().
 func (a *Auth[S, U, Tx]) deviceDecide(approve bool) http.HandlerFunc {
+	operation := "Device().Deny()"
+	if approve {
+		operation = "Device().Approve()"
+	}
+
 	return a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
 		ctx, err := a.validateRequest(ctx)
 		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if err := sessioncore.RefuseImpersonated(ctx, a.baseSession, operation, true); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		req, err := userCodeDecoder.Decode(r)

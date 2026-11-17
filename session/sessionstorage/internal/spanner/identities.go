@@ -9,6 +9,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
@@ -464,13 +465,18 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID im
 	return nil
 }
 
-// passwordHashColumn is the users table's column that holds a password's hash, which a
-// removal of the password writes empty.
-const passwordHashColumn = "PasswordHash"
+// passwordHashColumn and passwordChangeRequiredColumn are the users table's columns
+// that hold a password's hash and the mark that the user must change it: a removal of
+// the password writes the first empty and the second false.
+const (
+	passwordHashColumn           = "PasswordHash"
+	passwordChangeRequiredColumn = "PasswordChangeRequired"
+)
 
 // RemoveUserPassword removes a user's password, and with it the mark that the user must
 // change it, refusing to remove the last means of sign-in of a user that has no
 // identity. The user's sessions stand. A user that holds no password is a BadRequest.
+// It follows no proof of the password and removes whatever hash the row holds.
 func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -479,7 +485,38 @@ func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID im
 		return errors.New("RemoveUserPassword needs the auth schema: use Auth storage")
 	}
 
+	return s.removeUserPassword(ctx, userID, false, spanner.NullString{})
+}
+
+// RemoveProvenUserPassword removes the password a user proved (proven), as
+// RemoveUserPassword removes one. The row's hash is read in the transaction that removes
+// it, so the removal goes through only while the row still holds the proven one: a
+// password changed, reset or removed since the caller read it stands as it is
+// (ErrPasswordChanged, a Conflict).
+func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if !s.users {
+		return errors.New("RemoveProvenUserPassword needs the auth schema: use Auth storage")
+	}
+	provenHash, err := passwordHashValue(proven)
+	if err != nil {
+		return err
+	}
+
+	return s.removeUserPassword(ctx, userID, true, provenHash)
+}
+
+// removeUserPassword removes a user's password and its change mark in one transaction.
+// With followsProof set, the row must still hold proven, the hash the caller proved.
+func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID impulse.UUID, followsProof bool, proven spanner.NullString) error {
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		if followsProof {
+			if err := s.holdsProvenPasswordIn(ctx, txn, userID, proven); err != nil {
+				return err
+			}
+		}
 		// The user and its identities are read in the transaction that writes the user,
 		// as an unlink reads them: of a removal and an unlink of the user's last identity
 		// that race, Spanner aborts one, and its rerun sees what the other wrote.
@@ -498,7 +535,7 @@ func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID im
 			return httpio.NewConflictMessageWithError(dbtype.ErrLastSignInMethod, "the user has no other means of sign-in: link a directory sign-in first")
 		}
 
-		removal := spanner.UpdateMap(s.userTableName, map[string]any{idColumn: userID, passwordHashColumn: spanner.NullString{}, "PasswordChangeRequired": false})
+		removal := spanner.UpdateMap(s.userTableName, map[string]any{idColumn: userID, passwordHashColumn: spanner.NullString{}, passwordChangeRequiredColumn: false})
 		if err := txn.BufferWrite([]*spanner.Mutation{removal}); err != nil {
 			return errors.Wrap(err, "txn.BufferWrite()")
 		}

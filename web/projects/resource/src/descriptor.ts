@@ -196,7 +196,23 @@ export interface IdentityDescriptor {
    * from a generator that predates it, and the pages show the key.
    */
   readonly tenantResource?: string;
+  /**
+   * The Auth's directory sign-ins as its login page offers them: the method the
+   * identities linked through each carry (`google`, `azure`, `workos`, `oidc`: the
+   * `method` of a row of the identities list) and the words its button carries. A page
+   * names the directories a person signs in through by them. An identity names its
+   * method and not its registration, so two registrations of one method are two entries
+   * with the same `method`. Absent for an Auth with no directory sign-in, or on a
+   * description from a generator that predates it.
+   */
+  readonly signIns?: readonly IdentitySignIn[];
   readonly sides: readonly IdentitySideDescriptor[];
+}
+
+/** One directory sign-in of an Auth: the method its identities carry, and the words its button on the login page carries. */
+export interface IdentitySignIn {
+  readonly method: string;
+  readonly label: string;
 }
 
 /**

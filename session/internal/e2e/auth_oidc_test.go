@@ -68,7 +68,7 @@ func newOIDCApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) *oidc
 	googleRiversideIDP := oidctest.NewFakeIDP(t, "google-riverside-client")
 	gatewayIDP := oidctest.NewFakeIDP(t, "gateway-client")
 
-	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.WithIdentityLinked(h.identityLinked))
+	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(), session.WithIdentityLinked(h.identityLinked))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}

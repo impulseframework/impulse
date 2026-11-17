@@ -94,6 +94,7 @@ interface Server {
   enrollEmail: TransportResponse;
   change: TransportResponse;
   remove: TransportResponse;
+  means: TransportResponse;
   name: TransportResponse;
   look: TransportResponse;
   invitationOpen: TransportResponse;
@@ -118,6 +119,7 @@ function server(overrides: Partial<Server> = {}): Server {
     enrollEmail: { status: 200, body: codeMailed },
     change: { status: 200, body: undefined },
     remove: { status: 200, body: undefined },
+    means: { status: 200, body: { password: true, directories: [{ name: 'google', label: 'Fleet Google' }] } },
     name: { status: 200, body: { name: 'Nova Example' } },
     look: { status: 200, body: { scheme: 'dark', palette: 'workspace' } },
     invitationOpen: { status: 200, body: opened },
@@ -157,6 +159,8 @@ function transportOf(state: Server): ScriptedTransport {
         return state.change;
       case 'POST /console/api/user/password/remove':
         return state.remove;
+      case 'GET /console/api/user/sign-in-means':
+        return state.means;
       case 'POST /console/api/user/browser/forget':
         return { status: 200, body: undefined };
       case 'POST /console/api/user/name':
@@ -965,6 +969,60 @@ describe("removing the person's own password", () => {
     const { auth, transport } = authOver(server());
     await expect(auth.removePassword('secret')).rejects.toThrow(/names no remove-your-password path/);
     expect(sent(transport).filter((request) => request.startsWith('POST'))).toEqual([]);
+  });
+});
+
+describe('reading what the person signs in with', () => {
+  const meansPath = '/console/api/user/sign-in-means';
+  const reading = (overrides: Partial<Server> = {}): Server =>
+    server({ methods: { ...consoleList, signInMeans: meansPath }, ...overrides });
+
+  it('keeps the path the list names, and none on a list that names none', async () => {
+    expect(await authOver(reading()).auth.methods()).toEqual({ ...consoleList, signInMeans: meansPath });
+    expect(await authOver(server({ methods: { ...consoleList, signInMeans: '' } })).auth.methods()).toEqual(
+      consoleList,
+    );
+  });
+
+  it('reads the list, then the path it names, and answers the password and the directories by label', async () => {
+    const { auth, transport, errors } = authOver(reading());
+    expect(await auth.signInMeans()).toEqual({
+      password: true,
+      directories: [{ name: 'google', label: 'Fleet Google' }],
+    });
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`, `GET ${meansPath}`]);
+    expect(errors).toEqual([]);
+  });
+
+  it('answers a person with no password and no directory as the server says it', async () => {
+    const { auth } = authOver(reading({ means: { status: 200, body: { password: false, directories: [] } } }));
+    expect(await auth.signInMeans()).toEqual({ password: false, directories: [] });
+  });
+
+  it('answers nothing on a server whose list names no path, asking for nothing more', async () => {
+    const { auth, transport } = authOver(server());
+    expect(await auth.signInMeans()).toBeUndefined();
+    expect(sent(transport)).toEqual([`GET /console/api/${loginMethodsRoute}`]);
+  });
+
+  for (const tt of [
+    { name: 'nothing', body: undefined },
+    { name: 'no word on the password', body: { directories: [] } },
+    { name: 'no list of directories', body: { password: true } },
+  ]) {
+    it(`answers nothing where the server answers ${tt.name}, so a page takes no fact from it`, async () => {
+      const { auth } = authOver(reading({ means: { status: 200, body: tt.body } }));
+      expect(await auth.signInMeans()).toBeUndefined();
+    });
+  }
+
+  it('leaves out a directory the server names without a label', async () => {
+    const body = {
+      password: true,
+      directories: [{ name: 'google', label: '' }, { name: 'entra', label: 'Lakeside' }, null],
+    };
+    const { auth } = authOver(reading({ means: { status: 200, body } }));
+    expect(await auth.signInMeans()).toEqual({ password: true, directories: [{ name: 'entra', label: 'Lakeside' }] });
   });
 });
 

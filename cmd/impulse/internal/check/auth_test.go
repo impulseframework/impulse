@@ -39,28 +39,28 @@ func newSessions(client any, key string, opts ...session.AuthOption) {
 }
 
 const (
-	defaultAuth = `authA, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key)
+	defaultAuth = `authA, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators())
 	_ = session.PasswordSignIn(authA)`
-	customAuth = `partners, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client, sessionstorage.WithImpersonation(sessionstorage.NewImpersonationTable("Impersonations"))), key, session.WithSessionTableName("PartnerSessions"), session.WithUserTableName("PartnerUsers"), session.WithIdentitiesTableName("PartnerIdentities"), session.WithPendingSignInsTableName("PartnerPending"), session.WithSignInAttemptsTableName("PartnerAttempts"), session.WithSignInMethodsTableName("PartnerMethods"), session.WithCookieName("partner"))
+	customAuth = `partners, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client, sessionstorage.WithImpersonation(sessionstorage.NewImpersonationTable("Impersonations"))), key, session.NoSuperAdministrators(), session.WithSessionTableName("PartnerSessions"), session.WithUserTableName("PartnerUsers"), session.WithIdentitiesTableName("PartnerIdentities"), session.WithPendingSignInsTableName("PartnerPending"), session.WithSignInAttemptsTableName("PartnerAttempts"), session.WithSignInMethodsTableName("PartnerMethods"), session.WithCookieName("partner"))
 	_ = session.PasswordSignIn(partners)`
-	googleDirectory = `staff, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client, sessionstorage.WithAuthEvents(sessionstorage.NewAuthEventsTable("StaffEvents"))).WithCustomSessionData(sessionstorage.NewCustomSessionData[staffData, *spanner.ReadWriteTransaction]("StaffSessionData", nil)), key, session.WithSessionTableName("StaffSessions"), session.WithUserTableName("StaffUsers"), session.WithIdentitiesTableName("StaffIdentities"), session.WithPendingSignInsTableName("StaffPending"), session.WithSignInAttemptsTableName("StaffAttempts"), session.WithSignInMethodsTableName("StaffMethods"))
+	googleDirectory = `staff, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client, sessionstorage.WithAuthEvents(sessionstorage.NewAuthEventsTable("StaffEvents"))).WithCustomSessionData(sessionstorage.NewCustomSessionData[staffData, *spanner.ReadWriteTransaction]("StaffSessionData", nil)), key, session.NoSuperAdministrators(), session.WithSessionTableName("StaffSessions"), session.WithUserTableName("StaffUsers"), session.WithIdentitiesTableName("StaffIdentities"), session.WithPendingSignInsTableName("StaffPending"), session.WithSignInAttemptsTableName("StaffAttempts"), session.WithSignInMethodsTableName("StaffMethods"))
 	_, _ = google.SignIn(staff, "workspace", signin.MembersOfDirectory, &google.Config{Workspaces: google.Workspace("workspace", "example.com"), RoleSync: google.RoleSync(nil, "", nil)})`
-	partnersShared = `partners, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.WithUserTableName("PartnerUsers"), session.WithIdentitiesTableName("PartnerIdentities"), session.WithPendingSignInsTableName("PartnerPending"), session.WithSignInAttemptsTableName("PartnerAttempts"), session.WithSignInMethodsTableName("PartnerMethods"))
+	partnersShared = `partners, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators(), session.WithUserTableName("PartnerUsers"), session.WithIdentitiesTableName("PartnerIdentities"), session.WithPendingSignInsTableName("PartnerPending"), session.WithSignInAttemptsTableName("PartnerAttempts"), session.WithSignInMethodsTableName("PartnerMethods"))
 	_ = session.PasswordSignIn(partners)`
 	// defaultAttempts names every table but the sign-in attempts table, which the library
 	// then reads under its default name, the way an auth written before the limiter does.
-	defaultAttempts = `partners, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.WithSessionTableName("PartnerSessions"), session.WithUserTableName("PartnerUsers"), session.WithIdentitiesTableName("PartnerIdentities"), session.WithPendingSignInsTableName("PartnerPending"), session.WithSignInMethodsTableName("PartnerMethods"))
+	defaultAttempts = `partners, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators(), session.WithSessionTableName("PartnerSessions"), session.WithUserTableName("PartnerUsers"), session.WithIdentitiesTableName("PartnerIdentities"), session.WithPendingSignInsTableName("PartnerPending"), session.WithSignInMethodsTableName("PartnerMethods"))
 	_ = session.PasswordSignIn(partners)`
-	forwarded = `authA, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, opts...)
+	forwarded = `authA, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators(), opts...)
 	_ = session.PasswordSignIn(authA)`
 	// mailed sends mail (WithMail), so it reads its mail links table too, and registers
 	// the password method with the address as the sign-in name.
-	mailed = `staff, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.WithSessionTableName("StaffSessions"), session.WithUserTableName("StaffUsers"), session.WithIdentitiesTableName("StaffIdentities"), session.WithPendingSignInsTableName("StaffPending"), session.WithSignInAttemptsTableName("StaffAttempts"), session.WithSignInMethodsTableName("StaffMethods"), session.WithMailLinksTableName("StaffMailLinks"), session.WithFactorCodesTableName("StaffFactorCodes"), session.WithTrustedDevicesTableName("StaffTrustedDevices"), session.WithMail(nil, session.MailSettings{}))
+	mailed = `staff, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators(), session.WithSessionTableName("StaffSessions"), session.WithUserTableName("StaffUsers"), session.WithIdentitiesTableName("StaffIdentities"), session.WithPendingSignInsTableName("StaffPending"), session.WithSignInAttemptsTableName("StaffAttempts"), session.WithSignInMethodsTableName("StaffMethods"), session.WithMailLinksTableName("StaffMailLinks"), session.WithFactorCodesTableName("StaffFactorCodes"), session.WithTrustedDevicesTableName("StaffTrustedDevices"), session.WithMail(nil, session.MailSettings{}))
 	_ = session.PasswordSignIn(staff, session.UsernameIsEmail())`
-	noMethods      = `_, _ = session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key)`
-	unreadableName = `authA, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key)
+	noMethods      = `_, _ = session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators())`
+	unreadableName = `authA, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators())
 	_, _ = azure.SignIn(authA, registration(), signin.MembersOfDirectory, &azure.Config{Tenants: azure.AnyTenant()})`
-	registeredTwice = `authA, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key)
+	registeredTwice = `authA, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators())
 	_, _ = azure.SignIn(authA, "directory", signin.MembersOfDirectory, &azure.Config{Tenants: azure.AnyTenant()})
 	_, _ = google.SignIn(authA, "directory", signin.MembersOfDirectory, &google.Config{Workspaces: google.AnyWorkspace()})`
 	unattached = `_ = session.PasswordSignIn(other)`
@@ -105,7 +105,7 @@ type Session = session.Auth[session.NoCustomData, session.NoCustomData, *cloudsp
 
 func New(ctx context.Context, db *cloudspanner.Client, key string) (*Session, error) {
 	authSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
-		sessionstorage.NewSpannerAuth(db), key,
+		sessionstorage.NewSpannerAuth(db), key, session.NoSuperAdministrators(),
 		session.WithSessionTableName(sessionsTable),
 		session.WithUserTableName(usersTable),
 		session.WithIdentitiesTableName(identitiesTable),
@@ -148,7 +148,7 @@ func New(ctx context.Context, db *cloudspanner.Client, key string) (*session.Pas
 	` + definition + `
 
 	authSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
-		sessionstorage.NewSpannerAuth(db, sessionstorage.WithImpersonation(impersonation)), key,
+		sessionstorage.NewSpannerAuth(db, sessionstorage.WithImpersonation(impersonation)), key, session.NoSuperAdministrators(),
 		session.WithSessionTableName("CrewSessions"),
 		session.WithUserTableName("CrewSessionUsers"),
 		session.WithIdentitiesTableName("CrewSessionIdentities"),

@@ -76,14 +76,14 @@ func (plainSecretRow) DefaultConfig() Config {
 	return Config{}
 }
 
-// testSecretKeys builds a key holder from fixed bytes: version n of the application
-// secret is 32 bytes of n.
+// testSecretKeys builds a key holder from fixed bytes, each version's the bytes
+// testSecretVersion gives it.
 func testSecretKeys(t *testing.T, versions ...int) *SecretKeys {
 	t.Helper()
 
 	given := make(map[int][]byte, len(versions))
 	for _, version := range versions {
-		given[version] = bytes.Repeat([]byte{byte(version)}, applicationSecretSize) //nolint:gosec // a test's version, 1 to 255
+		given[version] = testSecretVersion(version)
 	}
 	keys, err := NewSecretKeys(given)
 	if err != nil {
@@ -91,6 +91,27 @@ func testSecretKeys(t *testing.T, versions ...int) *SecretKeys {
 	}
 
 	return keys
+}
+
+// testSecretVersion is version n of the tests' application secret: 32 bytes of n's low
+// byte, the first of them mixed with n's high byte. A version below 256 is 32 bytes of
+// n, and no two versions share a secret.
+func testSecretVersion(version int) []byte {
+	secret := bytes.Repeat([]byte{byte(version)}, applicationSecretSize) //nolint:gosec // the low byte is the one meant
+	secret[0] ^= byte(version >> 8)                                      //nolint:gosec // the high byte of a version of at most 65535
+
+	return secret
+}
+
+// storedVersion reads the version the stored bytes of a secret name as the layout has
+// it, apart from the code under test: their first two bytes, the high byte first; -1 for
+// bytes too few to name one.
+func storedVersion(stored []byte) int {
+	if len(stored) < 2 {
+		return -1
+	}
+
+	return int(stored[0])<<8 | int(stored[1])
 }
 
 func rowKey(id string) KeySet {
@@ -284,11 +305,11 @@ func TestSecretKeys_sealAndOpen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Seal() error = %v", err)
 	}
-	if got, want := len(sealed.sealed), SecretOverhead+len(plain); got != want || SecretOverhead != 41 {
-		t.Errorf("the stored value is %d bytes with an overhead of %d, want %d with 41", got, SecretOverhead, want)
+	if got, want := len(sealed.sealed), SecretOverhead+len(plain); got != want || SecretOverhead != 42 {
+		t.Errorf("the stored value is %d bytes with an overhead of %d, want %d with 42", got, SecretOverhead, want)
 	}
-	if sealed.KeyVersion() != 1 || sealed.sealed[0] != 1 {
-		t.Errorf("the stored value names version %d (first byte %d), want 1", sealed.KeyVersion(), sealed.sealed[0])
+	if sealed.KeyVersion() != 1 || !bytes.Equal(sealed.sealed[:2], []byte{0, 1}) {
+		t.Errorf("the stored value names version %d (first two bytes %v), want 1, written 0 1", sealed.KeyVersion(), sealed.sealed[:2])
 	}
 	if bytes.Contains(sealed.sealed, []byte(plain)) {
 		t.Error("the stored value carries the value as it was given")
@@ -482,11 +503,89 @@ func TestSecretKeys_versions(t *testing.T) {
 	}
 
 	// The same bytes under two versions are two keys: version 2 does not open a value
-	// whose first byte was changed to say 2.
+	// whose leading bytes were changed to say 2.
 	relabeled := Secret{sealed: bytes.Clone(old.sealed)}
-	relabeled.sealed[0] = 2
+	relabeled.sealed[0], relabeled.sealed[1] = 0, 2
 	if _, err := rotated.Open(rowKey("row-1"), relabeled); !errors.Is(err, ErrSecretNotOpened) {
 		t.Errorf("Open() of a value relabeled to another version: error = %v, want ErrSecretNotOpened", err)
+	}
+}
+
+// A stored value names its version in two bytes, the high byte first, so a secret's
+// versions run to 65535: a deployment's version numbers never repeat, and one byte's 255
+// would run out in a secret's life. A value sealed under a version one byte cannot name
+// opens and names that version, and it is told from the version that shares one of its
+// two bytes, which a reader of one byte would take it for.
+func TestSecretKeys_versionsPastOneByte(t *testing.T) {
+	t.Parallel()
+
+	const plain = "open-sesame"
+	tests := []struct {
+		version int
+		// named is the two bytes the stored value opens with.
+		named []byte
+		// lookalike is a version that shares one of the version's two bytes.
+		lookalike int
+	}{
+		{version: 1, named: []byte{0x00, 0x01}, lookalike: 257},
+		{version: 255, named: []byte{0x00, 0xff}, lookalike: 65535},
+		{version: 256, named: []byte{0x01, 0x00}, lookalike: 258},
+		{version: 257, named: []byte{0x01, 0x01}, lookalike: 1},
+		{version: 65280, named: []byte{0xff, 0x00}, lookalike: 256},
+		{version: 65535, named: []byte{0xff, 0xff}, lookalike: 65280},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("version %d", tt.version), func(t *testing.T) {
+			t.Parallel()
+
+			keys := testSecretKeys(t, tt.version)
+			sealed, err := keys.Seal(rowKey("row-1"), plain)
+			if err != nil {
+				t.Fatalf("Seal() error = %v", err)
+			}
+			if !bytes.Equal(sealed.sealed[:2], tt.named) || sealed.KeyVersion() != tt.version || storedVersion(sealed.sealed) != tt.version {
+				t.Errorf("the stored value opens with %v and names version %d, want %v and %d", sealed.sealed[:2], sealed.KeyVersion(), tt.named, tt.version)
+			}
+			if got, want := len(sealed.sealed), 2+24+len(plain)+16; got != want {
+				t.Errorf("the stored value is %d bytes, want %d: the version's two, the random number's 24, the value and the check's 16", got, want)
+			}
+			if opened, err := keys.Open(rowKey("row-1"), sealed); err != nil || opened != plain {
+				t.Errorf("Open() = %q, error %v, want %q", opened, err, plain)
+			}
+
+			// A service handed the lookalike alone says which version it lacks, by its
+			// whole number.
+			var unknown *UnknownSecretVersionError
+			if _, err := testSecretKeys(t, tt.lookalike).Open(rowKey("row-1"), sealed); !errors.As(err, &unknown) || unknown.Version != tt.version {
+				t.Errorf("Open() by a service holding version %d alone: error = %v, want an UnknownSecretVersionError naming %d", tt.lookalike, err, tt.version)
+			}
+
+			// A service handed both opens each value under its own version, and a value
+			// relabeled from one to the other does not open.
+			both := testSecretKeys(t, tt.version, tt.lookalike)
+			if opened, err := both.Open(rowKey("row-1"), sealed); err != nil || opened != plain {
+				t.Errorf("Open() by a service holding versions %d and %d = %q, error %v", tt.version, tt.lookalike, opened, err)
+			}
+			other, err := testSecretKeys(t, tt.lookalike).Seal(rowKey("row-1"), plain)
+			if err != nil {
+				t.Fatalf("Seal() under version %d: error = %v", tt.lookalike, err)
+			}
+			if opened, err := both.Open(rowKey("row-1"), other); err != nil || opened != plain || other.KeyVersion() != tt.lookalike {
+				t.Errorf("a value under version %d names %d and opens to %q, error %v", tt.lookalike, other.KeyVersion(), opened, err)
+			}
+			relabeled := Secret{sealed: bytes.Clone(sealed.sealed)}
+			copy(relabeled.sealed, other.sealed[:2])
+			if _, err := both.Open(rowKey("row-1"), relabeled); !errors.Is(err, ErrSecretNotOpened) {
+				t.Errorf("Open() of a value relabeled from version %d to %d: error = %v, want ErrSecretNotOpened", tt.version, tt.lookalike, err)
+			}
+		})
+	}
+
+	// Bytes too few to name a version name none.
+	for _, short := range [][]byte{nil, {}, {0x01}} {
+		if got := (Secret{sealed: short}).KeyVersion(); got != 0 {
+			t.Errorf("KeyVersion() of %d byte(s) = %d, want 0", len(short), got)
+		}
 	}
 }
 
@@ -531,8 +630,9 @@ func TestNewSecretKeys_refusals(t *testing.T) {
 		wantErr  string
 	}{
 		{name: "no version", versions: nil, wantErr: "no version of the application secret was given"},
-		{name: "version 0", versions: map[int][]byte{0: good}, wantErr: "version 0 of the application secret: a version is a number from 1 to 255"},
-		{name: "version 256", versions: map[int][]byte{256: good}, wantErr: "version 256 of the application secret: a version is a number from 1 to 255"},
+		{name: "version 0", versions: map[int][]byte{0: good}, wantErr: "version 0 of the application secret: a version is a number from 1 to 65535"},
+		{name: "version 65536", versions: map[int][]byte{65536: good}, wantErr: "version 65536 of the application secret: a version is a number from 1 to 65535"},
+		{name: "a negative version", versions: map[int][]byte{-1: good}, wantErr: "version -1 of the application secret: a version is a number from 1 to 65535"},
 		{name: "a short secret", versions: map[int][]byte{1: good, 2: good[:16]}, wantErr: "version 2 of the application secret holds 16 bytes; it is 32 random bytes"},
 	}
 	for _, tt := range tests {
@@ -552,8 +652,11 @@ func TestNewSecretKeys_refusals(t *testing.T) {
 		})
 	}
 
-	if keys, err := NewSecretKeys(map[int][]byte{255: good}); err != nil || keys.Current() != 255 {
-		t.Errorf("NewSecretKeys(version 255) error = %v", err)
+	// The last version one byte could name, the first it could not, and the last there is.
+	for _, version := range []int{255, 256, 65535} {
+		if keys, err := NewSecretKeys(map[int][]byte{version: good}); err != nil || keys.Current() != version {
+			t.Errorf("NewSecretKeys(version %d): current %d, error %v", version, keys.Current(), err)
+		}
 	}
 }
 
@@ -562,8 +665,8 @@ func TestNewSecretKeys_refusals(t *testing.T) {
 func TestSecretKeysFromEnv(t *testing.T) {
 	t.Parallel()
 
-	version := func(n byte) string {
-		return base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{n}, applicationSecretSize))
+	version := func(n int) string {
+		return base64.StdEncoding.EncodeToString(testSecretVersion(n))
 	}
 	// Versions 1 and 3: version 2 was retired, and neither the unnumbered name, a name
 	// that only begins the same, another variable's numbered name nor an entry with no
@@ -594,15 +697,39 @@ func TestSecretKeysFromEnv(t *testing.T) {
 		t.Errorf("a value sealed by the holder read from the environment = %q, error %v", opened, err)
 	}
 
+	// The versions one byte cannot name are versions like any other, up to the last a
+	// stored value can name, and the highest is the current one.
+	wide, err := SecretKeysFromEnv("APP_SECRET_KEY", []string{
+		"APP_SECRET_KEY_255=" + version(255),
+		"APP_SECRET_KEY_65535=" + version(65535),
+		"APP_SECRET_KEY_256=" + version(256),
+	})
+	if err != nil {
+		t.Fatalf("SecretKeysFromEnv() with versions past 255: error = %v", err)
+	}
+	if wide.Current() != 65535 || !cmp.Equal(wide.Versions(), []int{255, 256, 65535}) {
+		t.Errorf("current %d, versions %v, want 65535 and [255 256 65535]", wide.Current(), wide.Versions())
+	}
+	last, err := wide.Seal(rowKey("row-1"), "open-sesame")
+	if err != nil {
+		t.Fatalf("Seal() under version 65535: error = %v", err)
+	}
+	if opened, err := testSecretKeys(t, 65535).Open(rowKey("row-1"), last); err != nil || opened != "open-sesame" || last.KeyVersion() != 65535 {
+		t.Errorf("a value sealed under version 65535 names %d and opens to %q, error %v", last.KeyVersion(), opened, err)
+	}
+
 	// A version past the last one a stored value can name is refused, not passed over,
 	// whatever versions are missing below it: the service would go on sealing under an
-	// older version. So is a number written any way but plainly.
+	// older version. So is version 0, and a number written any way but plainly. Each
+	// refusal says the range.
+	const pastTheLast = " is set: a stored secret names the version that sealed it in two bytes, so the application secret's versions run from 1 to 65535, and this one is past the last"
+	const noVersion = " is set and names no version of the application secret: a version's variable ends in the version's number, 1 to 65535, written plainly (APP_SECRET_KEY_1)"
 	for variable, wantErr := range map[string]string{
-		"APP_SECRET_KEY_256":                     "APP_SECRET_KEY_256 is set: a stored secret names the version that sealed it in one byte",
-		"APP_SECRET_KEY_257":                     "APP_SECRET_KEY_257 is set: a stored secret names the version that sealed it in one byte",
-		"APP_SECRET_KEY_99999999999999999999999": "APP_SECRET_KEY_99999999999999999999999 is set: a stored secret names the version that sealed it in one byte",
-		"APP_SECRET_KEY_0":                       "APP_SECRET_KEY_0 is set and names no version of the application secret",
-		"APP_SECRET_KEY_01":                      "APP_SECRET_KEY_01 is set and names no version of the application secret",
+		"APP_SECRET_KEY_65536":                   "APP_SECRET_KEY_65536" + pastTheLast,
+		"APP_SECRET_KEY_65537":                   "APP_SECRET_KEY_65537" + pastTheLast,
+		"APP_SECRET_KEY_99999999999999999999999": "APP_SECRET_KEY_99999999999999999999999" + pastTheLast,
+		"APP_SECRET_KEY_0":                       "APP_SECRET_KEY_0" + noVersion,
+		"APP_SECRET_KEY_01":                      "APP_SECRET_KEY_01" + noVersion,
 	} {
 		if _, err := SecretKeysFromEnv("APP_SECRET_KEY", []string{"APP_SECRET_KEY_255=" + version(255), variable + "=" + version(1)}); err == nil || !strings.Contains(err.Error(), wantErr) {
 			t.Errorf("SecretKeysFromEnv() with %s in the environment: error = %v, want containing %q", variable, err, wantErr)
@@ -934,11 +1061,11 @@ func TestPatchSet_Apply_sealsThroughTheClient(t *testing.T) {
 }
 
 // sealedRequest mirrors the generated patch request struct of sealedRow: the secret as
-// the text a request carries, sized against a BYTES(45) column, which has room for four
-// bytes beside the 41 sealing adds.
+// the text a request carries, sized against a BYTES(46) column, which has room for four
+// bytes beside the 42 sealing adds.
 type sealedRequest struct {
 	Title      string  `json:"title"`
-	AccessCode *string `json:"accessCode" sqltype:"BYTES(45)"`
+	AccessCode *string `json:"accessCode" sqltype:"BYTES(46)"`
 }
 
 // A request's secret is decoded as text into the patch, sized against its column less
@@ -975,8 +1102,8 @@ func TestDecodeToPatch_secret(t *testing.T) {
 		t.Fatalf("Resolve() error = %v", err)
 	}
 	sealed, ok := columns["AccessCode"].(Secret)
-	if !ok || len(sealed.sealed) != 45 {
-		t.Fatalf("the column was given a %T of %d bytes, want the sealed value filling BYTES(45)", columns["AccessCode"], len(sealed.sealed))
+	if !ok || len(sealed.sealed) != 46 {
+		t.Fatalf("the column was given a %T of %d bytes, want the sealed value filling BYTES(46)", columns["AccessCode"], len(sealed.sealed))
 	}
 	if opened, err := keys.Open(rowKey("row-1"), sealed); err != nil || opened != "1234" {
 		t.Errorf("the decoded secret opens to %q, error %v", opened, err)

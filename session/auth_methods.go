@@ -81,8 +81,8 @@ type signInMethods[Tx any] struct {
 	// because the directory will not). refuseBeside holds the rule both ways.
 	syncing string
 	// listed holds the names Methods was given, the methods the login page offers, in
-	// the page's order; nil when the application wired its page without Methods.
-	// labels holds the words the page shows for each of them, by name.
+	// the page's order; nil when the application wired its page without Methods. labels
+	// holds the label Methods was given for each, the words its button carries.
 	listed []string
 	labels map[string]string
 	// hasher and autoUpgrade are the password method's settings. They keep their
@@ -175,7 +175,6 @@ func (a *Auth[S, U, Tx]) couldAdmitAddress(email string) bool {
 // default hasher and attempt limit, no external methods.
 func (m *signInMethods[Tx]) init(storage sessionstorage.AuthStore[Tx]) {
 	m.registered = make(map[string]bool)
-	m.labels = make(map[string]string)
 	m.hasher = securehash.New(securehash.Argon2())
 	m.autoUpgrade = true
 	m.attempts = attempts.New(sessioncore.DefaultAttemptLimit, storage)

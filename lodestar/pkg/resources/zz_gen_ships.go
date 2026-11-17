@@ -78,7 +78,7 @@ type shipWrite struct {
 	LastRefitAt    *time.Time   `json:"-"`
 	UpdatedAt      *time.Time   `json:"-"`
 	CargoBays      []int64      `json:"cargoBays"`
-	TransponderKey *string      `json:"transponderKey" sqltype:"BYTES(105)"`
+	TransponderKey *string      `json:"transponderKey" sqltype:"BYTES(106)"`
 }
 
 var shipWriteSets resource.SetCache[Ship, shipWrite]

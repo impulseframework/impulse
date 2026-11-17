@@ -497,7 +497,10 @@ class SideBuilder {
    * The identities a person signs in with, under the person's row. The person's password
    * is the one way in that is no row of the list: where the Auth has a password method,
    * its removal is offered above the list, beside the unlinking of an identity, and runs
-   * against the person the list sits under.
+   * against the person the list sits under. It is offered while the list shows an
+   * identity: the server refuses the removal for a person none is linked to, whose
+   * password is their only way in. The question names what is left by the words the
+   * sign-in buttons of the linked identities carry.
    */
   private identitiesOf(): ChildResourceConfig | undefined {
     const { lists, methods } = this.side;
@@ -534,13 +537,34 @@ class SideBuilder {
           {
             label: 'Remove password',
             icon: 'key_off',
-            confirm: (person) =>
-              `Remove the password of ${String(person['username'] ?? 'this person')}? They will sign in only through the sign-in identities listed here.`,
+            when: (_person, identities) => (identities?.length ?? 0) > 0,
+            confirm: (person, identities) =>
+              `Remove the password of ${String(person['username'] ?? 'this person')}? ${this.leftToSignInThrough(identities ?? [])}`,
           },
         ],
       ]),
       elements: [],
     });
+  }
+
+  /**
+   * What a person whose password is removed is left to sign in through, by the words the
+   * sign-in buttons carry: the Auth's directory sign-ins (the description's `signIns`)
+   * whose method one of the person's identities carries, in the login page's order. An
+   * identity names its method and not its registration, so two registrations of one
+   * method are both named. Where the description names none for the identities shown,
+   * the list under the question says it.
+   */
+  private leftToSignInThrough(identities: readonly RecordData[]): string {
+    const linked = new Set(identities.map((identity) => String(identity['method'] ?? '')));
+    const labels = (this.identity.signIns ?? [])
+      .filter((signIn) => linked.has(signIn.method))
+      .map((signIn) => signIn.label);
+    if (labels.length === 0) {
+      return 'They will sign in only through the sign-in identities listed here.';
+    }
+    const last = labels[labels.length - 1];
+    return `They will sign in through ${labels.length === 1 ? last : `${labels.slice(0, -1).join(', ')} or ${last}`} only.`;
   }
 
   /** A person's sessions, under the person's row: the whole application's alone. */

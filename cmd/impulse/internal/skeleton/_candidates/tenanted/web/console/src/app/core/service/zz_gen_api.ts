@@ -390,6 +390,7 @@ export const apiDescriptor = defineApiDescriptor({
       label: 'Staff',
       tenant: 'Tenant',
       tenantResource: Resources.Tenants,
+      signIns: [{ method: 'google', label: 'Google' }],
       sides: [
         {
           scope: 'global',

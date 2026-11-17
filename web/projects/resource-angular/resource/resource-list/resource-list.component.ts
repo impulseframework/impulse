@@ -286,7 +286,8 @@ export class ResourceListComponent implements OnInit {
    * that names no row is drawn when the digest grants the caller Execute on it in the
    * selected tenant. One that names a row (`@target`) runs against the row the list sits
    * under, so it is drawn when the server's answer for that row lists it: the page
-   * offers it only where the caller may run it on that row.
+   * offers it only where the caller may run it on that row, and where the page's own
+   * predicate, told the rows the list shows, does not say no.
    */
   listMethods = computed<OfferedMethod[]>(() => {
     const presentations = this.config().listMethods ?? [];
@@ -294,7 +295,7 @@ export class ResourceListComponent implements OnInit {
       .filter((presentation) => !presentation.hidden)
       .filter((presentation) =>
         this.store.methodMeta(presentation.method)?.target
-          ? parentOffers(this.relatedData(), presentation)
+          ? parentOffers(this.relatedData(), presentation, this.store.page().rows)
           : this.auth.hasPermission({ resource: presentation.method, permission: ExecutePermission }),
       )
       .map((presentation) => offered(presentation.method, this.store.methodMeta(presentation.method), presentations));
@@ -796,7 +797,7 @@ export class ResourceListComponent implements OnInit {
    * run the page says so and reads its rows again, by the page's own cursor.
    */
   runMethod(method: OfferedMethod, row?: RecordData): void {
-    openMethodDialog(this.dialog, method, row, this.relatedData()).subscribe((result) => {
+    openMethodDialog(this.dialog, method, row, this.relatedData(), this.store.page().rows).subscribe((result) => {
       if (!result) {
         return;
       }

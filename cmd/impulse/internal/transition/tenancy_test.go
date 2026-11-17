@@ -280,7 +280,7 @@ func TestTenancyApply(t *testing.T) {
 					"web/console/src/app/components/ui/sign-in/sign-in.routes.ts":                 "export const tenantSignInRoute",
 					"pkg/config/tenancy.go":                                                       "package config\n",
 					"app/tenancy.go":                                                              "package app\n",
-					"web/console/src/app/components/ui/new-tenant/new-tenant-dialog.component.ts": "export function openNewTenantDialog(dialog: MatDialog)",
+					"web/console/src/app/components/ui/new-tenant/new-tenant-dialog.component.ts": "export function openNewTenantDialog(",
 					"web/console/src/app/configs/tenants.config.ts":                               "export const tenantsConfig = rootConfig({",
 				} {
 					if got := read(t, a, rel); !strings.Contains(got, want) {
@@ -572,5 +572,42 @@ func TestTenancyMeaningSaysToFormat(t *testing.T) {
 		if !strings.Contains(meaning, want) {
 			t.Errorf("Meaning() lacks %q:\n%s", want, meaning)
 		}
+	}
+}
+
+// TestTenancyApply_whoIsAdmittedWithoutATenant pins which auth's sign-in rule admits a
+// person who holds no tenant once add tenancy has written the record: the auth the
+// default outlet binds, since the record is served there and a person who signs up to
+// it creates a tenant of their own through the generated route. An auth no outlet binds
+// keeps the refusal (TestTenancyApply pins it, on a program that declares no Auth).
+func TestTenancyApply_whoIsAdmittedWithoutATenant(t *testing.T) {
+	t.Parallel()
+
+	files := tenancyFiles()
+	files["pkg/config/data.go"] = authConfig
+	files["pkg/auth/staff/staff.go"] = staffPackage(t, "staff.go")
+	bound := strings.Replace(beaconProgram,
+		"\t\tgeneration.GenerateRoutes(\"pkg/router\", \"api\"),\n",
+		"\t\tgeneration.GenerateRoutes(\"pkg/router\", \"api\", generation.Auth(\"example.com/acme/beacon/pkg/auth/staff\", generation.PasswordMethod())),\n", 1)
+	if bound == beaconProgram {
+		t.Fatal("the fixture program no longer declares its routes as this test rewrites them")
+	}
+	files["cmd/generate/resourcegenerator/main.go"] = bound
+
+	a := beacon(t, files)
+	if _, err := (Tenancy{Table: "Tenants"}).Apply(t.Context(), a, &fakeExec{}); err != nil {
+		t.Fatalf("Apply() error = %v", err)
+	}
+	staff := read(t, a, "pkg/auth/staff/staff.go")
+	for _, want := range []string{
+		"\t// A person who holds no tenant is admitted too (signin.AdmitWithoutTenant): a\n\t// person who signs up through a sign-in method an administrator opened signs in\n\t// first and creates a tenant of their own, and keeps their account when the method\n\t// is made invite only again.",
+		"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()))\n",
+	} {
+		if !strings.Contains(staff, want) {
+			t.Errorf("staff.go lacks %q:\n%s", want, staff)
+		}
+	}
+	if refused := "A person who holds no tenant is refused (no_tenant)"; strings.Contains(staff, refused) {
+		t.Errorf("staff.go says %q of the auth whose people create a tenant of their own", refused)
 	}
 }

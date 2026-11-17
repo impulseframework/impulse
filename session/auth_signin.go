@@ -379,7 +379,10 @@ func (a *Auth[S, U, Tx]) passwordSignIn(ctx context.Context, w http.ResponseWrit
 // password, so an unknown name takes as long as a known one, and a missing user, a
 // wrong password and a password-less user are all invalid credentials, counted against
 // the name and the client alike. A match resets the name. An outdated hash is upgraded
-// when auto-upgrade is enabled, and a disabled user is refused after the match.
+// when auto-upgrade is enabled, in a write that names the hash this sign-in compared
+// against: a password changed, reset or removed since the user was read is left as it
+// is, and the next sign-in upgrades the hash it finds. A disabled user is refused after
+// the match.
 func (a *Auth[S, U, Tx]) checkCredentials(ctx context.Context, username, password string, client attempts.Client) (*sessionstorage.SessionUser, error) {
 	methods := a.registered()
 	if err := a.limitAttempt(ctx, username, client); err != nil {
@@ -406,9 +409,13 @@ func (a *Auth[S, U, Tx]) checkCredentials(ctx context.Context, username, passwor
 	}
 	a.attemptsSucceeded(ctx, username)
 	if upgrade && methods.autoUpgrade {
-		if err := a.setPasswordHash(ctx, user.ID, password); err != nil {
+		switch err := a.upgradePasswordHash(ctx, user.ID, user.PasswordHash, password); {
+		case errors.Is(err, sessionstorage.ErrPasswordChanged):
+			// The row holds another password than the one this sign-in read, or none:
+			// nothing was written, and the sign-in goes on as it would have.
+		case err != nil:
 			logger.FromCtx(ctx).Error(err)
-		} else {
+		default:
 			logger.FromCtx(ctx).Infof("auto-upgraded password hash for user %s, from %s to %s", user.Username, user.PasswordHash.KeyType(), methods.hasher.KeyType())
 		}
 	}
@@ -419,22 +426,25 @@ func (a *Auth[S, U, Tx]) checkCredentials(ctx context.Context, username, passwor
 	return user, nil
 }
 
-// setPasswordHash re-hashes a password the user already has (the hash upgrade), leaving
-// the password change mark as it is.
-func (a *Auth[S, U, Tx]) setPasswordHash(ctx context.Context, userID impulse.UUID, password string) error {
+// upgradePasswordHash re-hashes a password the user already has (the hash upgrade),
+// leaving the password change mark as it is. proven is the hash the password was just
+// compared against, and the store writes only while the user still holds it
+// (sessionstorage.ErrPasswordChanged otherwise).
+func (a *Auth[S, U, Tx]) upgradePasswordHash(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, password string) error {
 	hash, err := a.registered().hasher.Hash(password)
 	if err != nil {
 		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
 	}
-	if err := a.storage.SetUserPasswordHash(ctx, userID, hash); err != nil {
-		return errors.Wrap(err, "sessionstorage.AuthStore.SetUserPasswordHash()")
+	if err := a.storage.UpgradeUserPasswordHash(ctx, userID, proven, hash); err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.UpgradeUserPasswordHash()")
 	}
 
 	return nil
 }
 
 // setPassword sets a new password and whether the user must change it: true for a
-// password an operator set, false for one the user chose.
+// password an operator set, false for one the user chose. It follows no proof of the
+// password it replaces and overwrites whatever the user holds.
 func (a *Auth[S, U, Tx]) setPassword(ctx context.Context, userID impulse.UUID, password string, changeRequired bool) error {
 	hash, err := a.registered().hasher.Hash(password)
 	if err != nil {
@@ -597,8 +607,10 @@ func (a *Auth[S, U, Tx]) changeUserPasswordHandler() http.HandlerFunc {
 // removeUserPasswordHandler is the password method's remove-password handler: a
 // signed-in user removes their own password, proving it first as a change does. It
 // validates the session itself, as the change handler does, and is refused in an
-// impersonated session. The removal is AuthAPI.RemoveSessionUserPassword's, whose
-// refusal of a user's last means of sign-in is answered in words the person can act on.
+// impersonated session. The removal is the one AuthAPI.RemoveSessionUserPassword makes,
+// of the password that was proved and no other: its refusals of a user's last means of
+// sign-in and of a password that changed meanwhile are answered in words the person can
+// act on.
 func (a *Auth[S, U, Tx]) removeUserPasswordHandler() http.HandlerFunc {
 	type request struct {
 		Password string `json:"password"`
@@ -633,9 +645,12 @@ func (a *Auth[S, U, Tx]) removeUserPasswordHandler() http.HandlerFunc {
 }
 
 // removeOwnPassword removes the password of the user who proves it: password must match
-// the one userID holds (BadRequest otherwise, as a change answers a wrong old password),
-// and the removal is AuthAPI.RemoveSessionUserPassword's. Its refusal of the last means
-// of sign-in is said to the person themselves, with what to do.
+// the one userID holds (BadRequest otherwise, as a change answers a wrong old password).
+// The store is handed the hash the password matched and removes the password only while
+// the user still holds it, so a password an operator set meanwhile is not removed on
+// proof of the one it replaced (a Conflict that says to try again). The removal does
+// what AuthAPI.RemoveSessionUserPassword does, and its refusal of the last means of
+// sign-in is said to the person themselves, with what to do.
 func (a *Auth[S, U, Tx]) removeOwnPassword(ctx context.Context, userID impulse.UUID, password string) error {
 	user, err := a.storage.User(ctx, userID)
 	if err != nil {
@@ -644,13 +659,17 @@ func (a *Auth[S, U, Tx]) removeOwnPassword(ctx context.Context, userID impulse.U
 	if _, err := sessioncore.ComparePassword(a.registered().hasher, user.PasswordHash, password); err != nil {
 		return httpio.NewBadRequestMessageWithError(err, "Password incorrect")
 	}
-	if err := a.API().RemoveSessionUserPassword(ctx, user.ID); err != nil {
-		if errors.Is(err, sessionstorage.ErrLastSignInMethod) {
+	if err := a.storage.RemoveProvenUserPassword(ctx, user.ID, user.PasswordHash); err != nil {
+		switch {
+		case errors.Is(err, sessionstorage.ErrLastSignInMethod):
 			return httpio.NewConflictMessageWithError(err, "Your password is your only way to sign in: sign in through your directory first, which links it to your account, then remove the password")
+		case errors.Is(err, sessionstorage.ErrPasswordChanged):
+			return httpio.NewConflictMessageWithError(err, "Your password has changed since you entered it, so it was not removed: try again with your current password")
 		}
 
-		return err
+		return errors.Wrap(err, "sessionstorage.AuthStore.RemoveProvenUserPassword()")
 	}
+	a.clearAttempts(ctx, user.Username)
 
 	return nil
 }

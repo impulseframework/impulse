@@ -67,6 +67,10 @@ type identityInstance struct {
 	// password marks an auth that declares the password method: the one kind of auth
 	// whose people may hold a password, and so be required to change it.
 	password bool
+	// signIns are the auth's directory sign-ins as its login page offers them, in
+	// declaration order: the method an identity linked through each carries, and the
+	// words its button carries. A page names a person's linked directories by them.
+	signIns []identitySignIn
 	// rolesSynced marks an auth whose roles a directory writes at every sign-in
 	// (SyncsRoles): the directory is the authority for every membership the auth holds,
 	// so the instance carries no method that assigns or removes one.
@@ -290,6 +294,9 @@ func (r *resourceGenerator) newIdentityInstance(auth *outletAuth) (*identityInst
 		if m.kind == methodPassword {
 			inst.password = true
 			inst.usernameIsEmail = m.usernameIsEmail
+		}
+		if method := m.kind.identityMethod(); method != "" {
+			inst.signIns = append(inst.signIns, identitySignIn{Method: method, Label: m.label})
 		}
 		if m.syncsRoles {
 			inst.rolesSynced = true

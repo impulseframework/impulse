@@ -75,6 +75,9 @@ func (a *Auth[S, U, Tx]) emailAdd() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
+		if err := sessioncore.RefuseImpersonated(ctx, a.baseSession, "Email().Add()", true); err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		req, err := emailDecoder.Decode(r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -140,6 +143,9 @@ func (a *Auth[S, U, Tx]) emailVerify() http.HandlerFunc {
 
 		ctx, err := a.validateRequest(ctx)
 		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if err := sessioncore.RefuseImpersonated(ctx, a.baseSession, "Email().Verify()", true); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		req, err := tokenDecoder.Decode(r)

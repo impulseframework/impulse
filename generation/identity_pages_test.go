@@ -14,7 +14,8 @@ import (
 func Test_identityOn(t *testing.T) {
 	t.Parallel()
 
-	crew := &identityInstance{auth: "Crew", outlets: []string{"console", "admin"}, tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id"}}
+	fleetGoogle := []identitySignIn{{Method: "google", Label: "Fleet Google"}}
+	crew := &identityInstance{auth: "Crew", outlets: []string{"console", "admin"}, tenant: &identityTenant{name: "Sector", table: "Sectors", key: "Id"}, signIns: fleetGoogle}
 	solo := &identityInstance{auth: "Staff", outlets: []string{"console"}}
 
 	names := func(names ...string) (resources []*tsAPIResource, methods []*tsAPIMethod) {
@@ -56,7 +57,7 @@ func Test_identityOn(t *testing.T) {
 				"Ships", "HailShip", "Sectors",
 			},
 			want: []*tsAPIIdentity{{
-				Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
+				Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors", SignIns: fleetGoogle,
 				Sides: []*tsAPIIdentitySide{
 					{
 						Scope: accesstypes.GlobalPermissionScope,
@@ -109,7 +110,7 @@ func Test_identityOn(t *testing.T) {
 			instances: []*identityInstance{crew},
 			served:    []string{"CrewSessionUsers", "CrewSectorUserRoles", "DisableCrewSectorUser"},
 			want: []*tsAPIIdentity{{
-				Auth: "Crew", Label: "Crew", Tenant: "Sector",
+				Auth: "Crew", Label: "Crew", Tenant: "Sector", SignIns: fleetGoogle,
 				Sides: []*tsAPIIdentitySide{{Scope: accesstypes.GlobalPermissionScope, Lists: []identityPart{part("users", "CrewSessionUsers")}}},
 			}},
 		},
@@ -136,7 +137,7 @@ func Test_identityOn(t *testing.T) {
 			data.Resources, data.Methods = names(tt.served...)
 			gen := &typescriptGenerator{client: &client{identity: tt.instances}, outletName: tt.outlet}
 
-			if diff := cmp.Diff(tt.want, gen.identityOn(data), cmp.AllowUnexported(identityPart{})); diff != "" {
+			if diff := cmp.Diff(tt.want, gen.identityOn(data), cmp.AllowUnexported(identityPart{}, identitySignIn{})); diff != "" {
 				t.Errorf("identityOn() mismatch (-want +got):\n%s", diff)
 			}
 		})
@@ -149,6 +150,7 @@ func Test_typescriptAPITemplate_identity(t *testing.T) {
 
 	data := &tsAPIData{Identity: []*tsAPIIdentity{{
 		Auth: "Crew", Label: "Crew", Tenant: "Sector", TenantResource: "Sectors",
+		SignIns: []identitySignIn{{Method: "google", Label: "Fleet Google"}, {Method: "azure", Label: "Lakeside"}},
 		Sides: []*tsAPIIdentitySide{
 			{
 				Scope:   accesstypes.GlobalPermissionScope,
@@ -164,7 +166,8 @@ func Test_typescriptAPITemplate_identity(t *testing.T) {
 		t.Fatalf("generateTemplateOutput() error = %v", err)
 	}
 	for _, want := range []string{
-		"  identity: [\n    {\n      auth: 'Crew',\n      label: 'Crew',\n      tenant: 'Sector',\n      tenantResource: Resources.Sectors,\n      sides: [",
+		"  identity: [\n    {\n      auth: 'Crew',\n      label: 'Crew',\n      tenant: 'Sector',\n      tenantResource: Resources.Sectors,\n" +
+			"      signIns: [{ method: 'google', label: 'Fleet Google' }, { method: 'azure', label: 'Lakeside' }],\n      sides: [",
 		"          scope: 'global',\n          lists: { users: Resources.CrewSessionUsers, sessions: Resources.CrewSessions },\n          methods: { disable: Methods.DisableCrewUser },",
 		"          scope: 'domain',\n          lists: { users: Resources.CrewSectorUsers },\n          methods: {  },",
 	} {
@@ -197,5 +200,20 @@ func Test_authLabel(t *testing.T) {
 				t.Errorf("authLabel(%q) = %q, want %q", tt.auth, got, tt.want)
 			}
 		})
+	}
+}
+
+// Test_identityMethod pins the method an identity linked through each kind of
+// registration carries: the session library's own spelling, the persona provider's being
+// an OpenID Connect registration's, and none for the password method.
+func Test_identityMethod(t *testing.T) {
+	t.Parallel()
+
+	for kind, want := range map[authMethodKind]string{
+		methodPassword: "", methodGoogle: "google", methodAzure: "azure", methodWorkOS: "workos", methodOIDC: "oidc", methodPersona: "oidc",
+	} {
+		if got := kind.identityMethod(); got != want {
+			t.Errorf("%s.identityMethod() = %q, want %q", kind, got, want)
+		}
 	}
 }

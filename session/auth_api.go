@@ -217,7 +217,11 @@ func (p *AuthAPI[S, U, Tx]) ChangeSessionUserUsername(ctx context.Context, userI
 // regenerates its session.
 //
 // The old password must match and the new one must differ from it (BadRequest
-// otherwise). The password change mark is cleared, every session of the user is
+// otherwise). The store is handed the hash the old password matched and writes the new
+// one only while the user still holds it: a password that was changed, reset or removed
+// after this call read the user stands as it is, and the call answers a Conflict that
+// says to try again, with nothing written and no session destroyed. Once the password
+// is written and the password change mark cleared, every session of the user is
 // destroyed, by UserId, and the caller continues in a new session (ReasonRegeneration)
 // that records a password event.
 func (p *AuthAPI[S, U, Tx]) ChangeSessionUserPassword(ctx context.Context, w http.ResponseWriter, userID impulse.UUID, req *ChangeSessionUserPasswordRequest) error {
@@ -236,11 +240,19 @@ func (p *AuthAPI[S, U, Tx]) ChangeSessionUserPassword(ctx context.Context, w htt
 		return httpio.NewBadRequestMessage("The new password must differ from the old one")
 	}
 
+	hash, err := a.registered().hasher.Hash(req.NewPassword)
+	if err != nil {
+		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
+	}
+	if err := a.storage.ChangeUserPassword(ctx, user.ID, user.PasswordHash, hash); err != nil {
+		if errors.Is(err, sessionstorage.ErrPasswordChanged) {
+			return httpio.NewConflictMessageWithError(err, "Your password has changed since you entered it, so this change was not made: try again with your current password")
+		}
+
+		return errors.Wrap(err, "sessionstorage.AuthStore.ChangeUserPassword()")
+	}
 	if err := a.storage.DestroyUserSessions(ctx, user.ID); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.DestroyUserSessions()")
-	}
-	if err := a.setPassword(ctx, user.ID, req.NewPassword, false); err != nil {
-		return err
 	}
 	a.clearAttempts(ctx, user.Username)
 
@@ -286,9 +298,11 @@ func (p *AuthAPI[S, U, Tx]) ResetSessionUserPassword(ctx context.Context, userID
 // password, and the name's sign-in attempts are reset. The user's sessions stand, the
 // ones the password established among them, as a removed identity link's do.
 //
-// It asks for no proof: it is an administrator's removal, or the end of a flow of the
-// application's own that proved who the person is. A person removes their own through
-// the password method's RemoveUserPassword handler, which asks for the password first.
+// It asks for no proof and removes whatever password the user holds: it is an
+// administrator's removal, or the end of a flow of the application's own that proved who
+// the person is. A person removes their own through the password method's
+// RemoveUserPassword handler, which asks for the password first and removes that
+// password and no other.
 func (p *AuthAPI[S, U, Tx]) RemoveSessionUserPassword(ctx context.Context, userID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -329,7 +343,10 @@ func (p *AuthAPI[S, U, Tx]) HashPassword(password string) (string, error) {
 }
 
 // replacePassword sets a new password for userID with its change mark, destroys the
-// user's sessions and resets the name's sign-in attempts.
+// user's sessions and resets the name's sign-in attempts. It follows no proof of the
+// password it replaces, so it overwrites whatever the user holds, on purpose: the
+// caller is an operator, or a flow that proved who the person is by other means, and
+// its password is to stand whatever was changed a moment before.
 func (a *Auth[S, U, Tx]) replacePassword(ctx context.Context, userID impulse.UUID, password string, changeRequired bool) error {
 	user, err := a.storage.User(ctx, userID)
 	if err != nil {

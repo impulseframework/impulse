@@ -114,8 +114,10 @@ const signInConstructor = "SignIn"
 
 // parseAuths returns every session Auth construction in the file with the methods the
 // file registers on it, and the methods registered on an Auth the file does not
-// construct (attached at the package level).
-func parseAuths(rel string, src []byte) (auths []Auth, unattached []Method, err error) {
+// construct (attached at the package level). ownPkg is the file's package import path,
+// which an unqualified Roles() names where the construction's engine is handed its role
+// file.
+func parseAuths(rel string, src []byte, ownPkg string) (auths []Auth, unattached []Method, err error) {
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, rel, src, parser.SkipObjectResolution)
 	if err != nil {
@@ -168,6 +170,9 @@ func parseAuths(rel string, src []byte) (auths []Auth, unattached []Method, err 
 				}
 				for _, arg := range call.Args {
 					readAuthArg(&auth, arg, pkg, storage, consts, body)
+				}
+				if len(call.Args) > superAdministratorsArg {
+					auth.SuperAdministrators = readSuperAdministrators(call.Args[superAdministratorsArg], fset, f, pkg, ownPkg, body)
 				}
 				auths = append(auths, auth)
 			case methodPkgs[local] != "" && methodConstructors[methodPkgs[local]][name] != "":
@@ -549,6 +554,124 @@ func assignedValue(id *ast.Ident, body *ast.BlockStmt) ast.Expr {
 	})
 
 	return value
+}
+
+// superAdministratorsArg is where session.NewAuth takes its word on the super
+// administrators: after the storage and the cookie key.
+const superAdministratorsArg = 2
+
+// maxCheckSteps bounds how many assignments the reader follows from a super
+// administrators check back to the engine behind it.
+const maxCheckSteps = 8
+
+// readSuperAdministrators reads the argument that tells an Auth who its super
+// administrators are, written in the call or assigned to the identifier the call takes:
+// session.NoSuperAdministrators(), or session.SuperAdministratorsBy over a check, whose
+// expression it follows to the permission engine the enclosing function opens and the
+// role file that engine is handed. Anything else reads as no form.
+func readSuperAdministrators(arg ast.Expr, fset *token.FileSet, f *ast.File, pkg, ownPkg string, body *ast.BlockStmt) SuperAdministrators {
+	if id, ok := arg.(*ast.Ident); ok {
+		arg = assignedValue(id, body)
+	}
+	call, ok := arg.(*ast.CallExpr)
+	if !ok {
+		return SuperAdministrators{}
+	}
+	switch name, _ := qualifiedName(call.Fun, pkg); name {
+	case "NoSuperAdministrators":
+		return SuperAdministrators{Form: SuperAdministratorsNone}
+	case "SuperAdministratorsBy":
+	default:
+		return SuperAdministrators{}
+	}
+
+	r := checkReader{imports: fileImports(f), access: localImportName(f, accessImportPath), body: body, packages: map[string]bool{}}
+	r.read(call, 0)
+	read := SuperAdministrators{Form: SuperAdministratorsChecked}
+	for p := range r.packages {
+		read.Packages = append(read.Packages, p)
+	}
+	sort.Strings(read.Packages)
+	if r.engine == nil {
+		return read
+	}
+	read.EngineLine = fset.Position(r.engine.Pos()).Line
+	for _, option := range r.engine.Args {
+		if roles, ok := option.(*ast.CallExpr); ok && isQualified(roles.Fun, r.access, defaultRolesFunc) && len(roles.Args) == 2 {
+			read.RolesPackage = rolesCallPackage(roles.Args[1], r.imports, ownPkg)
+		}
+	}
+
+	return read
+}
+
+// checkReader follows the expression a super administrators check is built from, through
+// the identifiers the enclosing function assigns, to the permission engine behind it.
+type checkReader struct {
+	// imports are the file's imports by local name, and access the name the access
+	// library is imported under, or empty.
+	imports map[string]string
+	access  string
+	// body is the enclosing function's body, where the identifiers are assigned.
+	body *ast.BlockStmt
+	// engine is the first access.New call the expression leads to, and packages the
+	// import paths of the packages it names on the way there.
+	engine   *ast.CallExpr
+	packages map[string]bool
+}
+
+// read walks one expression: a package named before a selector is recorded, an
+// identifier the function assigned is followed into its value, and the walk stops at an
+// engine's construction, whose own arguments say nothing about the check. A function
+// written in place is not entered: what its body names says nothing of what it answers,
+// so a check written by hand leads to no engine.
+func (r *checkReader) read(expr ast.Expr, steps int) {
+	if expr == nil || steps > maxCheckSteps {
+		return
+	}
+	ast.Inspect(expr, func(n ast.Node) bool {
+		switch e := n.(type) {
+		case *ast.FuncLit:
+			return false
+		case *ast.CallExpr:
+			if r.access != "" && isQualified(e.Fun, r.access, engineNewFunc) {
+				if r.engine == nil {
+					r.engine = e
+				}
+
+				return false
+			}
+		case *ast.SelectorExpr:
+			// The selected name is a field or a method, never a variable of the function.
+			if id, ok := e.X.(*ast.Ident); ok {
+				if !r.follow(id, steps) {
+					if p, ok := r.imports[id.Name]; ok {
+						r.packages[p] = true
+					}
+				}
+			} else {
+				r.read(e.X, steps)
+			}
+
+			return false
+		case *ast.Ident:
+			r.follow(e, steps)
+		}
+
+		return true
+	})
+}
+
+// follow reads the value the function last assigned the identifier before its use, and
+// reports whether it assigned one.
+func (r *checkReader) follow(id *ast.Ident, steps int) bool {
+	value := assignedValue(id, r.body)
+	if value == nil {
+		return false
+	}
+	r.read(value, steps+1)
+
+	return true
 }
 
 // readAuthArg applies one constructor argument to the construction: a session option

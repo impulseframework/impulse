@@ -619,47 +619,63 @@ func TestSessionStorageDriver_SetUserUsername(t *testing.T) {
 	}
 }
 
-func TestSessionStorageDriver_SetUserPasswordHash(t *testing.T) {
+// TestSessionStorageDriver_UpgradeUserPasswordHash pins the hash upgrade against a row
+// the migrations' test data seeded: the write names the hash the row holds, as its text
+// stands in the column, and lands; a write that names another hash leaves the row as it
+// is.
+func TestSessionStorageDriver_UpgradeUserPasswordHash(t *testing.T) {
 	t.Parallel()
 
-	newHash := &securehash.Hash{}
-	if err := newHash.UnmarshalText([]byte("1$12288$3$1$UdvSMfwCubeTKv05/UpxwA==.tr8oe8g0VvfjQp3XpJonme6edSA4diQLLrS64ksf/TM=")); err != nil {
-		t.Fatal(err)
+	const (
+		seeded   = "1$12288$3$1$k5UDxGNpdI0XrTY59KZvXg==.JNUcFFjrpbAj9pr1L8HkV8aNkeACBbc3SV0SSAjoPwM="
+		upgraded = "1$12288$3$1$UdvSMfwCubeTKv05/UpxwA==.tr8oe8g0VvfjQp3XpJonme6edSA4diQLLrS64ksf/TM="
+	)
+	hashOf := func(text string) *securehash.Hash {
+		t.Helper()
+
+		hash := &securehash.Hash{}
+		if err := hash.UnmarshalText([]byte(text)); err != nil {
+			t.Fatal(err)
+		}
+
+		return hash
+	}
+	holds := func(text string) string {
+		return fmt.Sprintf(`SELECT PasswordHash = '%s' FROM SessionUsers WHERE Id = '27b43588-b743-4133-8730-e0439065a844'`, text)
 	}
 
 	tests := []struct {
 		name           string
 		id             impulse.UUID
-		hash           *securehash.Hash
+		proven         *securehash.Hash
 		sourceURL      []string
 		wantErr        bool
+		wantChanged    bool
 		preAssertions  []string
 		postAssertions []string
 	}{
 		{
-			name:      "success",
-			id:        impulse.Must(impulse.UUIDFromString("27b43588-b743-4133-8730-e0439065a844")),
-			hash:      newHash,
-			sourceURL: []string{"file://../../../schema/spanner/migrations", "file://testdata/users_test/valid_users"},
-			preAssertions: []string{
-				`
-					SELECT PasswordHash = '1$12288$3$1$k5UDxGNpdI0XrTY59KZvXg==.JNUcFFjrpbAj9pr1L8HkV8aNkeACBbc3SV0SSAjoPwM=' 
-					FROM SessionUsers 
-					WHERE Id = '27b43588-b743-4133-8730-e0439065a844'
-				`,
-			},
-			postAssertions: []string{
-				`
-					SELECT PasswordHash = '1$12288$3$1$UdvSMfwCubeTKv05/UpxwA==.tr8oe8g0VvfjQp3XpJonme6edSA4diQLLrS64ksf/TM='  
-					FROM SessionUsers
-					WHERE Id = '27b43588-b743-4133-8730-e0439065a844'
-				`,
-			},
+			name:           "success",
+			id:             impulse.Must(impulse.UUIDFromString("27b43588-b743-4133-8730-e0439065a844")),
+			proven:         hashOf(seeded),
+			sourceURL:      []string{"file://../../../schema/spanner/migrations", "file://testdata/users_test/valid_users"},
+			preAssertions:  []string{holds(seeded)},
+			postAssertions: []string{holds(upgraded)},
+		},
+		{
+			name:           "the row holds another hash than the proven one",
+			id:             impulse.Must(impulse.UUIDFromString("27b43588-b743-4133-8730-e0439065a844")),
+			proven:         hashOf(upgraded),
+			sourceURL:      []string{"file://../../../schema/spanner/migrations", "file://testdata/users_test/valid_users"},
+			wantErr:        true,
+			wantChanged:    true,
+			preAssertions:  []string{holds(seeded)},
+			postAssertions: []string{holds(seeded)},
 		},
 		{
 			name:      "user not found",
 			id:        impulse.Must(impulse.NewUUID()),
-			hash:      newHash,
+			proven:    hashOf(seeded),
 			sourceURL: []string{"file://../../../schema/spanner/migrations", "file://testdata/users_test/valid_users"},
 			wantErr:   true,
 		},
@@ -675,9 +691,12 @@ func TestSessionStorageDriver_SetUserPasswordHash(t *testing.T) {
 			c := NewSessionStorageDriver(conn.Client)
 
 			runAssertions(ctx, t, conn.Client, tt.preAssertions)
-			err = c.SetUserPasswordHash(ctx, tt.id, tt.hash)
+			err = c.UpgradeUserPasswordHash(ctx, tt.id, tt.proven, hashOf(upgraded))
 			if (err != nil) != tt.wantErr {
-				t.Errorf("SessionStorageDriver.SetUserPasswordHash() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("SessionStorageDriver.UpgradeUserPasswordHash() error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if errors.Is(err, dbtype.ErrPasswordChanged) != tt.wantChanged {
+				t.Errorf("SessionStorageDriver.UpgradeUserPasswordHash() error = %v, want ErrPasswordChanged = %t", err, tt.wantChanged)
 			}
 			runAssertions(ctx, t, conn.Client, tt.postAssertions)
 		})

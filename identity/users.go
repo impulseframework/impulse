@@ -135,8 +135,9 @@ func distinctRoles(roles []accesstypes.Role) []accesstypes.Role {
 // (EndUserSessions), in the caller's transaction: once it commits, the person's next
 // request is refused, and so is their next sign-in. The sign-in paths cache neither
 // fact. Nobody disables themselves: the request's caller is refused their own account.
-// And the last super administrator who can sign in is disabled by nobody
-// (refuseLastSuperAdministrator).
+// A super administrator's account is disabled by a super administrator alone, since it
+// removes one in effect (requireSuperAdministratorFor), and the last super administrator
+// who can sign in is disabled by nobody (refuseLastSuperAdministrator).
 //
 // Shared rule: disabling a user ends their sessions, which the session library's
 // DeactivateSessionUser does in two commits of its own.
@@ -145,6 +146,9 @@ func (m *Manager) DisableUser(ctx context.Context, txn resource.ReadWriteTransac
 	defer span.End()
 
 	if err := m.refuseOwnAccount(ctx, userID, "disable"); err != nil {
+		return err
+	}
+	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "disables a super administrator's account"); err != nil {
 		return err
 	}
 	if err := m.refuseLastSuperAdministrator(ctx, txn, userID, "disable their account"); err != nil {
@@ -163,11 +167,16 @@ func (m *Manager) DisableUser(ctx context.Context, txn resource.ReadWriteTransac
 }
 
 // EnableUser buffers the enabling of a disabled user, who may sign in again once it
-// commits. The sessions that ended when the user was disabled stay ended.
+// commits. The sessions that ended when the user was disabled stay ended. A super
+// administrator's account is enabled by a super administrator alone, since it makes one
+// who can sign in (requireSuperAdministratorFor).
 func (m *Manager) EnableUser(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "enables a super administrator's account"); err != nil {
+		return err
+	}
 	disabled := false
 	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: &disabled, PasswordChangeRequired: nil, Email: nil, Name: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
@@ -180,7 +189,9 @@ func (m *Manager) EnableUser(ctx context.Context, txn resource.ReadWriteTransact
 // it commits, every request of theirs is refused, on the sessions they hold and on new
 // ones, until they have changed it. The way out is theirs alone and takes the password
 // they hold, so the requirement is refused for a user who holds none: nothing they could
-// do would lift it.
+// do would lift it. It is required of a super administrator by a super administrator
+// alone: a holder who signs in through a directory and no longer knows the password is
+// shut out by it until someone sets them another (requireSuperAdministratorFor).
 //
 // Shared rule: the session library refuses the flag on a user without a password where
 // it creates one (CreateSessionUser), and reads it on every request.
@@ -194,6 +205,9 @@ func (m *Manager) RequirePasswordChange(ctx context.Context, txn resource.ReadWr
 	}
 	if !found {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "requires a super administrator to change their password"); err != nil {
+		return err
 	}
 	if !has {
 		return httpio.NewBadRequestMessage("a password change can only be required of a user that has a password")
@@ -216,6 +230,10 @@ func (m *Manager) RequirePasswordChange(ctx context.Context, txn resource.ReadWr
 // It is for an auth whose usernames are not the addresses: where they are, the address
 // is the username, and it changes when the person verifies a new one.
 //
+// A super administrator's address is set by a super administrator alone: it is where the
+// code of their second factor is mailed, so whoever sets it receives the code
+// (requireSuperAdministratorFor).
+//
 // Shared rule: the session library's SetSessionUserEmail, which writes the address bare
 // and clears the time it was verified.
 func (m *Manager) SetEmail(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, email *string) error {
@@ -230,6 +248,9 @@ func (m *Manager) SetEmail(ctx context.Context, txn resource.ReadWriteTransactio
 		return errors.Wrap(err, "identity.Store.Username()")
 	} else if !found {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "changes a super administrator's email address"); err != nil {
+		return err
 	}
 	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: nil, PasswordChangeRequired: nil, Email: &EmailChange{Address: bare}, Name: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")
