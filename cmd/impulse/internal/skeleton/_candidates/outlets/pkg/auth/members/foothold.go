@@ -41,7 +41,7 @@ func FirstAdministratorRoles() (global, everyDomain []accesstypes.Role) {
 // first comes from the administration surface. An empty name is refused while the table is
 // empty. The development bootstrap seeds the development identities instead.
 //
-// The account is seeded for the directory registration
+// The account is seeded for the directory registration, the auth's one directory method
 // (session.SeedUserIDThrough, over DirectoryRegistration): its id says which of the auth's
 // registrations the name is believed from. An account with no password that has never
 // signed in is tied to whoever signs in next by nothing but its name, and a directory
