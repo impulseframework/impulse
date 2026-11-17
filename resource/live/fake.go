@@ -127,14 +127,16 @@ func (f *Fake) SubscribersOfRow(_ context.Context, res accesstypes.Resource, key
 	})
 }
 
-// SubscribersOfList lists the live subscriptions to the resource's list in the domain.
+// SubscribersOfList lists the live subscriptions to the resource's list in the domain:
+// the ones whose set of tenants holds it, each as that tenant's list.
 func (f *Fake) SubscribersOfList(_ context.Context, res accesstypes.Resource, domain accesstypes.Domain) ([]Subscription, error) {
 	return f.lookup(func(sub Subscription) bool {
 		return sub.Resource == res && !sub.IsRow() && sub.Domain == domain
 	})
 }
 
-// SubscribersOfResource lists every live subscription to the resource.
+// SubscribersOfResource lists every live subscription to the resource, a list once for
+// each tenant of its set.
 func (f *Fake) SubscribersOfResource(_ context.Context, res accesstypes.Resource) ([]Subscription, error) {
 	return f.lookup(func(sub Subscription) bool {
 		return sub.Resource == res
@@ -142,7 +144,8 @@ func (f *Fake) SubscribersOfResource(_ context.Context, res accesstypes.Resource
 }
 
 // lookup answers one record query, counting it, over the live subscriptions in a stable
-// order.
+// order: each as the publisher is answered, once for each tenant of its set
+// (Subscription.PerTenant).
 func (f *Fake) lookup(match func(Subscription) bool) ([]Subscription, error) {
 	if f.Err != nil {
 		return nil, f.Err
@@ -151,9 +154,11 @@ func (f *Fake) lookup(match func(Subscription) bool) ([]Subscription, error) {
 	defer f.mu.Unlock()
 	f.lookups++
 	var found []Subscription
-	for _, sub := range f.subs {
-		if match(sub) {
-			found = append(found, sub)
+	for _, held := range f.subs {
+		for _, sub := range held.PerTenant() {
+			if match(sub) {
+				found = append(found, sub)
+			}
 		}
 	}
 	sortSubscriptions(found)

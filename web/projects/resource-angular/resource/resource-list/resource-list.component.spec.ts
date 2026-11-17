@@ -869,24 +869,25 @@ describe('ResourceListComponent', () => {
       expect(listRequests().map((request) => request.url)).toEqual(['/api/missions?count=true']);
     });
 
-    it('tells a page that asks for live that the list is plain, once, and subscribes to nothing', async () => {
+    it('is live when the page asks: one subscription over the tenants, held on the live session', async () => {
       await page(missions, { live: true });
       fixture.detectChanges();
       await settle();
 
-      expect(warnings).toEqual([
-        "Missions is listed across tenants, and a list across tenants is plain: the page asked for live and is read without a subscription. Remove live from the page's configuration",
-      ]);
-      expect(fixture.componentInstance.store.live()).toBe(false);
+      expect(warnings).toEqual([]);
+      expect(fixture.componentInstance.store.live()).toBe(true);
+      expect(TestBed.inject<ClientBase>(RESOURCE_CLIENT).live.subscriptions()).toEqual([{ resource: 'Missions', acrossTenants: true }]);
+      // No live session runs in this spec, so the request is plain, as a tenant's list is until one does.
       expect(Object.keys(listRequests()[0].headers ?? {}).map((name) => name.toLowerCase())).not.toContain('x-subscribe');
     });
 
-    it('is plain without a word from the page, and says nothing', async () => {
+    it('is plain without a word from the page, though the resource publishes its changes, and says nothing', async () => {
       await page(missions);
       fixture.detectChanges();
       await settle();
 
       expect(fixture.componentInstance.store.live()).toBe(false);
+      expect(TestBed.inject<ClientBase>(RESOURCE_CLIENT).live.subscriptions()).toEqual([]);
       expect(warnings).toEqual([]);
     });
 

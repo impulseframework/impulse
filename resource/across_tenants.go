@@ -164,14 +164,7 @@ func (d *QueryDecoder[Resource, Request]) DecodeAcrossTenants(request *http.Requ
 	if err != nil {
 		return nil, errors.Wrap(err, "resource.UserPermissions.Domains()")
 	}
-	candidates := make([]accesstypes.Domain, 0, len(reached))
-	for _, domain := range reached {
-		if narrowed == nil || slices.Contains(narrowed, domain) {
-			candidates = append(candidates, domain)
-		}
-	}
-	slices.Sort(candidates)
-	qSet.across = &acrossTenants[Resource]{narrowed: narrowed, candidates: slices.Compact(candidates)}
+	qSet.across = &acrossTenants[Resource]{narrowed: narrowed, candidates: candidateTenants(reached, narrowed)}
 
 	// A box in the URL stays there when the PII fields it would search are denied
 	// to this caller in every tenant the list may read (Decode).
@@ -192,6 +185,72 @@ func (d *QueryDecoder[Resource, Request]) DecodeAcrossTenants(request *http.Requ
 	}
 
 	return qSet, nil
+}
+
+// candidateTenants are the tenants a list across tenants may read: the ones the
+// session reaches, narrowed by the filter on the tenant when there is one, sorted,
+// each once.
+func candidateTenants(reached, narrowed []accesstypes.Domain) []accesstypes.Domain {
+	candidates := make([]accesstypes.Domain, 0, len(reached))
+	for _, domain := range reached {
+		if narrowed == nil || slices.Contains(narrowed, domain) {
+			candidates = append(candidates, domain)
+		}
+	}
+	slices.Sort(candidates)
+
+	return slices.Compact(candidates)
+}
+
+// TenantsListed returns what a live subscription to this list across tenants is held
+// over: set, the tenants the list may read (the session's reach, narrowed by the
+// request's filter on the tenant) in which the person holds the List grant on the
+// record, sorted; and narrowed, that filter as the request sent it, nil when it sent
+// none. It asks the grant alone, as Permitted asks it of one tenant's list: the field
+// and row rules run when the query does. It fails on a query that is not a list across
+// tenants.
+func (q *QuerySet[Resource]) TenantsListed(ctx context.Context) (set, narrowed []accesstypes.Domain, err error) {
+	if q.across == nil {
+		return nil, nil, errors.Newf("resource.QuerySet.TenantsListed(): the %s query is not a list across tenants; QueryDecoder.DecodeAcrossTenants decodes one", q.Resource())
+	}
+	set, err = tenantsListed(ctx, q.userPermissions, q.env, q.resourceSet.BaseResource(), q.across.candidates)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return set, slices.Clone(q.across.narrowed), nil
+}
+
+// TenantsListed is the set of tenants a list of the record across tenants reads for
+// the person: the tenants the session reaches (UserPermissions.Domains), narrowed to
+// the ones narrowed names when it is not nil, in which the person holds the List grant
+// on the record, sorted. The live renewal works a subscription's set out again with
+// it, as the list's own request worked it out (QuerySet.TenantsListed).
+func TenantsListed(ctx context.Context, perms UserPermissions, res accesstypes.Resource, narrowed []accesstypes.Domain) ([]accesstypes.Domain, error) {
+	reached, err := perms.Domains(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "resource.UserPermissions.Domains()")
+	}
+
+	return tenantsListed(ctx, perms, RequestEnvironment(), res, candidateTenants(reached, narrowed))
+}
+
+// tenantsListed keeps the candidates in which the person holds the List grant on the
+// record, granted or granted under a condition, which is what admits a tenant to a
+// list across tenants (decideTenant).
+func tenantsListed(ctx context.Context, perms UserPermissions, env accesstypes.Environment, res accesstypes.Resource, candidates []accesstypes.Domain) ([]accesstypes.Domain, error) {
+	set := make([]accesstypes.Domain, 0, len(candidates))
+	for _, domain := range candidates {
+		decisions, err := perms.Check(ctx, env, accesstypes.DomainScope(domain), accesstypes.List, res)
+		if err != nil {
+			return nil, errors.Wrap(err, "resource.UserPermissions.Check()")
+		}
+		if !decisions[res].IsDenied() {
+			set = append(set, domain)
+		}
+	}
+
+	return set, nil
 }
 
 // narrowedTenants reads the request's filter on the tenant, the domains

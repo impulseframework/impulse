@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'bun:test';
 import { Domain, Resource } from './brands';
-import { AnyResourceHandle, createClient, Client } from './client';
+import { AnyResourceHandle, acrossTenantsHandle, createClient, Client } from './client';
 import { ApiDescriptor, ResourceDescriptor } from './descriptor';
 import {
+  acrossTenantsSubscription,
   AnsweredChange,
   ChangeEvent,
   ChangeFeed,
@@ -1597,4 +1598,140 @@ describe('pageIsLive', () => {
       expect(warnings).toEqual(tt.announced ? [unpublishedLiveWarning('Ships')] : []);
     });
   }
+});
+
+// One subscription over a set of tenants: a list across tenants is plain unless the page
+// asks; asked, its request carries the tab's header as a tenant's list does, the tab
+// renews it as one subscription with the page's filter on the tenant, and a change to
+// the resource's list in any tenant it covers refetches it.
+describe('a live list across tenants', () => {
+  const api: ApiDescriptor = {
+    ...descriptor,
+    resources: { ...descriptor.resources, Ships: { ...descriptor.resources['Ships'], acrossTenants: true } },
+  };
+  const across = (h: Harness) => acrossTenantsHandle<Row, [string]>(h.client, 'Ships');
+  const listRequests = (h: Harness) =>
+    sent(h.transport.requests)
+      .filter((r) => r.url.startsWith('/api/ships'))
+      .map((r) => [r.url, r.version, r.subscribed]);
+
+  it('is plain unless the query asks, feed or no feed', async () => {
+    const h = harness({ '/api/ships': { rows: [] } }, api);
+    await across(h).list();
+    await across(h).list({ live: true });
+    await h.client.live.start(h.feed);
+    await across(h).list();
+    await across(h).page();
+    expect(listRequests(h)).toEqual([
+      ['/api/ships', undefined, false],
+      // Asked for live before a feed runs: plain, as a tenant's list is until then.
+      ['/api/ships', undefined, false],
+      ['/api/ships', undefined, false],
+      ['/api/ships', undefined, false],
+    ]);
+    expect(h.warnings).toEqual([]);
+    await h.client.live.stop();
+  });
+
+  it('asked for live, carries the header and the version, on the page and on its relations', async () => {
+    const first = '/api/ships?limit=1&domains=cinder%2Canvil';
+    const second = '/api/ships?domains=cinder%2Canvil&limit=1&cursor=v4.local.two';
+    const h = harness(
+      {
+        [first]: { rows: [{ id: 's1', zzTenant: 'cinder' }], headers: { link: `<${second}>; rel="next"` } },
+        [second]: { rows: [{ id: 's2', zzTenant: 'anvil' }] },
+      },
+      api,
+    );
+    await h.client.live.start(h.feed);
+    const page = await across(h).page({ limit: 1, domains: ['cinder', 'anvil'], live: true });
+    await page.next!();
+    // A change to the list in a tenant it covers is the version its next request asks by.
+    h.client.live.dispatch({ kind: 'list', resource: 'Ships', domain: 'cinder', at: '1700000000000030' });
+    await page.reload();
+    expect(listRequests(h)).toEqual([
+      [first, h.client.live.seed, true],
+      [second, h.client.live.seed, true],
+      [first, '1700000000000030', true],
+    ]);
+    await h.client.live.stop();
+  });
+
+  it('is one subscription whatever the tenants, and the page filter is part of which list it is', () => {
+    const h = harness({}, api);
+    expect(across(h).subscription()).toEqual({ resource: 'Ships', acrossTenants: true });
+    expect(across(h).subscription(['cinder', 'anvil', 'cinder'])).toEqual({
+      resource: 'Ships',
+      acrossTenants: true,
+      domains: 'anvil,cinder',
+    });
+    // Nothing can change a list of no tenant, so there is nothing to subscribe to.
+    expect(across(h).subscription([])).toBeUndefined();
+    expect(sameSubscription(across(h).subscription(), acrossTenantsSubscription(api.resources['Ships']))).toBe(true);
+    expect(sameSubscription(across(h).subscription(['anvil']), across(h).subscription())).toBe(false);
+    expect(sameSubscription(across(h).subscription(['anvil']), h.client.domain(anvil).ships.subscription())).toBe(false);
+  });
+
+  it('a list change in any tenant refetches it; a row change and another resource do not', async () => {
+    const h = harness({}, api);
+    const versions: string[] = [];
+    h.client.live.watch(across(h).subscription()!, (version) => versions.push(version));
+    await h.client.live.start(h.feed);
+    versions.length = 0;
+    h.feed.emit({ kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000000000041' });
+    h.elapse();
+    h.feed.emit({ kind: 'row', resource: 'Ships', key: 's1', at: '1700000000000042' });
+    h.feed.emit({ kind: 'list', resource: 'ShipClasses', at: '1700000000000043' });
+    h.elapse();
+    h.feed.emit({ kind: 'list', resource: 'Ships', domain: 'cinder', at: '1700000000000044' });
+    h.elapse();
+    h.feed.emit({ kind: 'resource', resource: 'Ships', at: '1700000000000045' });
+    h.elapse();
+    expect(versions).toEqual(['1700000000000041', '1700000000000044', '1700000000000045']);
+    // The version it asks by is the last one taken among the tenants' lists.
+    h.feed.emit({ kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000000000046' });
+    expect(h.client.live.version(across(h).subscription()!)).toBe('1700000000000046');
+    await h.client.live.stop();
+  });
+
+  it('narrowed to tenants it names, a change in another tenant is not its list', async () => {
+    const h = harness({}, api);
+    const narrowed: string[] = [];
+    const tenant: string[] = [];
+    h.client.live.watch(across(h).subscription(['anvil', 'cinder'])!, (version) => narrowed.push(version));
+    // The same person holds Bastion's own list in the same tab, so its changes arrive.
+    h.client.live.watch(h.client.domain('bastion' as Domain).ships.subscription(), (version) => tenant.push(version));
+    await h.client.live.start(h.feed);
+    narrowed.length = 0;
+    tenant.length = 0;
+    h.feed.emit({ kind: 'list', resource: 'Ships', domain: 'bastion', at: '1700000000000051' });
+    h.elapse();
+    h.feed.emit({ kind: 'list', resource: 'Ships', domain: 'cinder', at: '1700000000000052' });
+    h.elapse();
+    expect(tenant).toEqual(['1700000000000051']);
+    expect(narrowed).toEqual(['1700000000000052']);
+    expect(h.client.live.version(across(h).subscription(['anvil', 'cinder'])!)).toBe('1700000000000052');
+    await h.client.live.stop();
+  });
+
+  it('the renewal carries it as one subscription with its filter, and one the server drops is not renewed again', async () => {
+    const h = harness({}, api);
+    h.client.live.watch(across(h).subscription()!, () => undefined);
+    h.client.live.watch(across(h).subscription(['cinder', 'anvil'])!, () => undefined);
+    h.client.live.watch(h.client.domain(anvil).ships.subscription(), () => undefined);
+    await h.client.live.start(h.feed);
+    expect(h.client.live.subscriptions()).toEqual([
+      { resource: 'Ships', acrossTenants: true },
+      { resource: 'Ships', acrossTenants: true, domains: 'anvil,cinder' },
+      { resource: 'Ships', domain: 'anvil' },
+    ]);
+    await h.client.live.renew();
+    const renewals = h.transport.requests.filter((r) => r.url === '/api/live/renew');
+    expect((renewals.at(-1)!.body as { subscriptions: LiveSubscription[] }).subscriptions).toEqual([
+      { resource: 'Ships', acrossTenants: true },
+      { resource: 'Ships', acrossTenants: true, domains: 'anvil,cinder' },
+      { resource: 'Ships', domain: 'anvil' },
+    ]);
+    await h.client.live.stop();
+  });
 });

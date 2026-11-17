@@ -159,15 +159,15 @@ describe('a list across tenants', () => {
     expect(sent[0].body).toEqual({ filter: 'title:contains:beacon' });
   });
 
-  it('tells a page that asks for live that the list is plain, once, and subscribes to nothing', async () => {
+  it('is plain: a list nobody asked to be live carries no subscription, and none is announced', async () => {
     const { client, sent, warnings } = clientOver({ '/api/missions': { rows: [] } });
 
-    await client.acrossTenants.missions.list({ live: true });
+    await client.acrossTenants.missions.list();
+    // Asked for live while no live session runs, the list is read plain, as a tenant's
+    // list is (live.spec.ts pins the live list across tenants).
     await client.acrossTenants.missions.page({ live: true });
 
-    expect(warnings).toEqual([
-      'Missions is listed across tenants, and a list across tenants is plain: live was asked for and the list is read without a subscription. Reload the page to read it again, or drop live from the page',
-    ]);
+    expect(warnings).toEqual([]);
     for (const request of sent) {
       expect(request.url).toBe('/api/missions');
       expect(Object.keys(request.headers).map((name) => name.toLowerCase())).not.toContain('x-subscribe');

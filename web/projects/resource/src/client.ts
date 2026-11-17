@@ -18,6 +18,7 @@ import {
   LiveSession,
   LiveSubscription,
   WriteChanges,
+  acrossTenantsSubscription,
   changesHeader,
   liveSubscription,
   parseChangesHeader,
@@ -258,8 +259,10 @@ export type InTenant<Row> = Row & { readonly [TenantProperty]: Domain };
  * among those the list would read without it, down to one. A tenant the session does not
  * reach contributes nothing and is never an error. The list answers no capability
  * envelope: what a person may do with a row is asked on the row's page inside its
- * tenant. `live` is accepted and announced once: a list across tenants is plain, read
- * without a subscription.
+ * tenant. The list is plain unless the query says `live: true`: then the request
+ * registers one subscription over the set of tenants the list reads, however many they
+ * are, which the server works out again at each renewal, and a change to the resource's
+ * list in any of them refetches the page (`subscription`, beside `client.live.watch`).
  */
 export type AcrossTenantsQuery<Row, Key extends readonly unknown[] = readonly unknown[]> = Omit<
   ListQueryBase<Row>,
@@ -283,6 +286,13 @@ export interface AcrossTenantsHandle<Row, Key extends unknown[]> {
   keyOf(row: Row): Key;
   /** The tenant a row of the list is in. */
   tenantOf(row: InTenant<Row>): Domain;
+  /**
+   * What a live request of this handle subscribes to: the list across tenants, narrowed
+   * to `domains` when the page names tenants. Pass it to `client.live.watch` beside the
+   * refetch the change should run. Undefined for a list narrowed to no tenant, which
+   * nothing can change.
+   */
+  subscription(domains?: readonly (Domain | string)[]): LiveSubscription | undefined;
   /** One page of rows across the set of tenants, the resource's default page when the query names no limit. */
   list(query?: AcrossTenantsQuery<Row, Key>): Promise<InTenant<Row>[]>;
   /** One page with its neighbors: follow `next` and `prev` as the server names them. */
@@ -1052,13 +1062,12 @@ function createAcrossTenantsHandle<Row extends object, Key extends unknown[]>(
   // The list is served at the resource's own route, without the tenant's segment pair.
   const route = descriptor.route;
   const keyless = descriptor.keys.length === 0;
+  const subscription = (domains?: readonly (Domain | string)[]): LiveSubscription | undefined =>
+    domains !== undefined && domains.length === 0 ? undefined : acrossTenantsSubscription(descriptor, domains);
   const request = (query: AcrossTenantsQuery<Row> | undefined) => {
     const { domains, live, ...rest } = query ?? {};
-    if (live) {
-      client.warn(
-        `${descriptor.resource} is listed across tenants, and a list across tenants is plain: live was asked for and the list is read without a subscription. Reload the page to read it again, or drop live from the page`,
-      );
-    }
+    // Plain unless the page asks: the subscription is one over the set of tenants.
+    const wanted = live ? subscription(domains) : undefined;
     if (keyless) {
       delete (rest as PageQuery).limit;
       delete (rest as PageQuery).cursor;
@@ -1067,7 +1076,7 @@ function createAcrossTenantsHandle<Row extends object, Key extends unknown[]>(
     if (domains !== undefined) {
       params.set(DomainsQueryParam, domains.join(','));
     }
-    return { method, params, body };
+    return { method, params, body, wanted };
   };
   return {
     resource: descriptor.resource,
@@ -1075,14 +1084,25 @@ function createAcrossTenantsHandle<Row extends object, Key extends unknown[]>(
     url: () => `${client.baseUrl}/${route}`,
     keyOf: (row: Row) => descriptor.keys.map((field) => (row as Record<string, unknown>)[field]) as Key,
     tenantOf: (row: InTenant<Row>) => row[TenantProperty],
+    subscription,
     list: async (query?: AcrossTenantsQuery<Row>) => {
-      const { method, params, body } = request(query);
-      return (await client.request<InTenant<Row>[] | null>(method, route, { query: params, body })) ?? [];
+      const { method, params, body, wanted } = request(query);
+      return (
+        (await client.request<InTenant<Row>[] | null>(method, route, {
+          ...liveRequest(client.live, wanted, params),
+          body,
+        })) ?? []
+      );
     },
     page: (query?: AcrossTenantsQuery<Row>) => {
-      const { method, params, body } = request(query);
-      return pageOf<InTenant<Row>>(client, method, body, () =>
-        client.requestResponse(method, route, { query: params, body }),
+      const { method, params, body, wanted } = request(query);
+      // The live parts are read when each request is made, as a tenant's list reads them.
+      return pageOf<InTenant<Row>>(
+        client,
+        method,
+        body,
+        () => client.requestResponse(method, route, { ...liveRequest(client.live, wanted, params), body }),
+        wanted,
       );
     },
   };

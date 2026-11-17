@@ -202,9 +202,12 @@ of tenants is sent as written, which the server refuses. `page()` follows `next`
 
 The handle reads and does nothing else. It answers no capability envelope (the query type
 has no `capabilities`): what a person may do with a row is asked on the row's page inside
-its tenant, through `client.domain(tenantOf(row))`. It takes no live subscription: a query
-with `live: true` is told once, through the client's warning hook, that a list across
-tenants is plain, and is read as a plain one. `client.acrossTenants` is empty on an API
+its tenant, through `client.domain(tenantOf(row))`. It is plain unless the query asks: with
+`live: true` the request registers one subscription over the set of tenants the list
+reads, which the server works out then and again at each renewal, the query's `domains`
+travelling with it. `subscription(domains)` is what to hand `client.live.watch`: a change
+to the resource's list in any tenant the subscription covers refetches the page, by that
+change's version. `client.acrossTenants` is empty on an API
 that declares no such list, and `acrossTenantsHandle(client, 'Missions')` gives the
 handle by the resource's name to a page that learns its resources at run time, refusing
 a resource that is not declared for it.

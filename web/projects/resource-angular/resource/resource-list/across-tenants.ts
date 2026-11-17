@@ -16,14 +16,13 @@ export const acrossTenantsLinkKey = 'zzTenant:link';
  * Refuses a list configuration asking for a list across tenants the page cannot draw,
  * when the page is built, naming the resource: one over a resource the API does not
  * serve across tenants, and one that also asks to expand a row in place, which reads
- * the row in the page's tenant when the page has none. A page that asks for live is
- * told, once, that the list is plain. A configuration that does not ask for a list
- * across tenants passes untouched.
+ * the row in the page's tenant when the page has none. A configuration that does not ask
+ * for a list across tenants passes untouched.
  */
 export function refuseAcrossTenantsConfig(
   resource: Resource,
-  config: Pick<ListViewConfig, 'acrossTenants' | 'enableRowExpansion' | 'live'>,
-  client: Pick<ClientBase, 'descriptor' | 'warn'>,
+  config: Pick<ListViewConfig, 'acrossTenants' | 'enableRowExpansion'>,
+  client: Pick<ClientBase, 'descriptor'>,
 ): void {
   if (!config.acrossTenants) {
     return;
@@ -36,11 +35,6 @@ export function refuseAcrossTenantsConfig(
   if (config.enableRowExpansion) {
     throw new Error(
       `${resource}: enableRowExpansion is set on a list across tenants, but a row is read inside its own tenant: remove enableRowExpansion, and the row's View link opens it there`,
-    );
-  }
-  if (config.live === true) {
-    client.warn(
-      `${resource} is listed across tenants, and a list across tenants is plain: the page asked for live and is read without a subscription. Remove live from the page's configuration`,
     );
   }
 }

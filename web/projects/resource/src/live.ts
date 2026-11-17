@@ -191,11 +191,24 @@ export interface ChangeFeed {
  * its own record of the row ignores the domain, so two tabs reading one row in two domains
  * share it. A row of a global resource carries no domain. Filter, sort, and cursor are not
  * part of a subscription: any change to the resource in the domain refetches the page.
+ *
+ * A list across tenants (`acrossTenants`) is one subscription over a set of tenants the
+ * server works out, when the list is asked for and again at each renewal: the tenants the
+ * session reaches in which the person may list the resource, narrowed to `domains` when
+ * the page named tenants. It carries no key and no domain. A list change in any tenant it
+ * covers refetches the page, and the server sends none from a tenant outside its set.
  */
 export interface LiveSubscription {
   resource: string;
   key?: string;
   domain?: string;
+  /** Set on the subscription of a list across tenants. */
+  acrossTenants?: true;
+  /**
+   * The tenants a list across tenants was narrowed to, sorted, as the list's own `domains`
+   * parameter spells them: their keys separated by commas. Absent for every tenant.
+   */
+  domains?: string;
 }
 
 /** The server's answer to a renewal: the subscriptions it kept and the ones the digest no longer grants, echoed as sent. */
@@ -321,6 +334,22 @@ export function liveSubscription(
   return subscription;
 }
 
+/**
+ * The subscription of a handle's list across tenants: the resource, and the tenants the
+ * page narrowed the list to (`domains`), sorted, each once. Without `domains` the list is
+ * of every tenant the server works out.
+ */
+export function acrossTenantsSubscription(
+  descriptor: ResourceDescriptor,
+  domains?: readonly string[],
+): LiveSubscription {
+  const subscription: LiveSubscription = { resource: descriptor.resource, acrossTenants: true };
+  if (domains !== undefined) {
+    subscription.domains = [...new Set(domains)].sort().join(',');
+  }
+  return subscription;
+}
+
 /** Whether two subscriptions name the same row or list, in the same domain. */
 export function sameSubscription(a: LiveSubscription | undefined, b: LiveSubscription | undefined): boolean {
   if (a === undefined || b === undefined) {
@@ -329,9 +358,21 @@ export function sameSubscription(a: LiveSubscription | undefined, b: LiveSubscri
   return subscriptionKey(a) === subscriptionKey(b);
 }
 
-/** The subscription as the server distinguishes it: resource, key, and domain. */
+/**
+ * The subscription as the server distinguishes it: resource, key, and domain; a list
+ * across tenants by its resource and the tenants it was narrowed to.
+ */
 function subscriptionKey(subscription: LiveSubscription): string {
+  if (subscription.acrossTenants) {
+    const narrowed = subscription.domains === undefined ? 'every tenant' : `only:${subscription.domains}`;
+    return `${subscription.resource}||\u0000across tenants\u0000${narrowed}`;
+  }
   return `${subscription.resource}|${subscription.key ?? ''}|${subscription.domain ?? ''}`;
+}
+
+/** Whether a list across tenants covers the tenant, as far as the page can tell: it named the tenant, or named none. */
+function covers(subscription: LiveSubscription, domain: string): boolean {
+  return subscription.domains === undefined || subscription.domains.split(',').includes(domain);
 }
 
 /**
@@ -375,6 +416,11 @@ function reaches(change: AnsweredChange, subscription: LiveSubscription): boolea
   }
   if (change.kind === 'row') {
     return subscription.key === (change.key ?? '');
+  }
+  if (subscription.acrossTenants) {
+    // The server writes a list change into this change set only for a tenant some
+    // subscription of the person covers; one the page narrowed away is not its list's.
+    return covers(subscription, change.domain ?? '');
   }
   return subscription.key === undefined && (subscription.domain || undefined) === (change.domain || undefined);
 }
@@ -599,7 +645,9 @@ export class LiveSession {
    * the seed.
    */
   version(subscription: LiveSubscription): string {
-    const own = this.versions.get(versionKey(subscription));
+    const own = subscription.acrossTenants
+      ? this.acrossVersion(subscription)
+      : this.versions.get(versionKey(subscription));
     const whole = this.versions.get(resourceKey(subscription.resource));
     if (!own || !whole) {
       return (own ?? whole)?.value ?? this.seedValue;
@@ -613,7 +661,9 @@ export class LiveSession {
   /**
    * The tab's current live subscriptions, as the renewal sends them: every watched row and
    * list the server has not dropped, each as its resource, key, and domain and nothing
-   * else, since the server refuses a field it does not know.
+   * else, since the server refuses a field it does not know. A list across tenants is its
+   * resource, `acrossTenants`, and the tenants it was narrowed to: the page's filter
+   * travels with the renewal, and the server works the set out again from it.
    */
   subscriptions(): LiveSubscription[] {
     const current: LiveSubscription[] = [];
@@ -623,8 +673,16 @@ export class LiveSession {
       }
       const [first] = held;
       if (first) {
-        const { resource, key: rowKey, domain } = first.subscription;
+        const { resource, key: rowKey, domain, acrossTenants, domains } = first.subscription;
         const subscription: LiveSubscription = { resource };
+        if (acrossTenants) {
+          subscription.acrossTenants = true;
+          if (domains !== undefined) {
+            subscription.domains = domains;
+          }
+          current.push(subscription);
+          continue;
+        }
         if (rowKey !== undefined) {
           subscription.key = rowKey;
         }
@@ -655,6 +713,25 @@ export class LiveSession {
     for (const watcher of this.reached(event)) {
       this.changed(watcher, event);
     }
+  }
+
+  /**
+   * The version of a list across tenants: the one taken last among the versions of its
+   * resource's list in the tenants it covers, since a change to any of them is a change
+   * to it.
+   */
+  private acrossVersion(subscription: LiveSubscription): Version | undefined {
+    const prefix = `list|${subscription.resource}|`;
+    let latest: Version | undefined;
+    for (const [key, version] of this.versions) {
+      if (!key.startsWith(prefix) || !covers(subscription, key.slice(prefix.length))) {
+        continue;
+      }
+      if (!latest || version.order > latest.order) {
+        latest = version;
+      }
+    }
+    return latest;
   }
 
   /**

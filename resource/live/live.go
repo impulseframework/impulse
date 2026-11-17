@@ -52,7 +52,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"regexp"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/impulseframework/impulse/accesstypes"
@@ -143,13 +145,29 @@ func ValidTab(tab string) bool {
 // form, a compound key's parts joined with "/" in route order (resource.RowKey). Domain
 // is never a permission concept in the record: it says which list a list subscription
 // is of, and nothing else.
+//
+// A list is held over a set of tenants. One tenant's list is the set of that one tenant,
+// its Domain. A list across tenants (AcrossTenants) is one subscription over the set
+// the server worked out for the person, Domains: the tenants the session reaches in
+// which the person may list the resource, narrowed by the page's filter on the tenant
+// (Narrowed, nil for every tenant). It is one record per tab and list however many
+// tenants the set holds, and the same record again at each renewal, with the set as the
+// renewal worked it out. The publisher asks who is subscribed to the list in the tenant
+// a write was made in, and the record answers from the sets (InTenant).
 type Subscription struct {
 	Principal string
 	Tab       string
 	Resource  accesstypes.Resource
 	Key       string
 	Domain    accesstypes.Domain
-	Expiry    time.Time
+	// AcrossTenants marks the subscription of a list across tenants. Narrowed is the
+	// page's filter on the tenant, nil when the page asked for every tenant: with the
+	// resource it says which list the subscription is of. Domains is the set of tenants
+	// it covers.
+	AcrossTenants bool
+	Narrowed      []accesstypes.Domain
+	Domains       []accesstypes.Domain
+	Expiry        time.Time
 }
 
 // RowSubscription is the subscription a read registers: the row by resource and key.
@@ -163,30 +181,134 @@ func ListSubscription(res accesstypes.Resource, domain accesstypes.Domain) *Subs
 	return &Subscription{Resource: res, Domain: domain}
 }
 
+// AcrossTenantsSubscription is the subscription a list across tenants registers: the
+// resource's list over the set of tenants the server worked out for the person, and the
+// page's filter on the tenant (nil for every tenant), which says which list it is.
+func AcrossTenantsSubscription(res accesstypes.Resource, set, narrowed []accesstypes.Domain) *Subscription {
+	return &Subscription{Resource: res, AcrossTenants: true, Narrowed: narrowed, Domains: set}
+}
+
 // IsRow reports whether the subscription names a row.
 func (s *Subscription) IsRow() bool {
 	return s.Key != ""
 }
 
 // Normalized returns the subscription as the record keeps it: a row subscription
-// carries no domain.
+// carries no domain, and only a list across tenants carries a set of its own, sorted,
+// each tenant once, under no one domain.
 func (s *Subscription) Normalized() Subscription {
 	normalized := *s
 	if normalized.IsRow() {
 		normalized.Domain = ""
 	}
+	if normalized.IsRow() || !normalized.AcrossTenants {
+		normalized.AcrossTenants = false
+		normalized.Narrowed = nil
+		normalized.Domains = nil
+
+		return normalized
+	}
+	normalized.Domain = ""
+	normalized.Domains = sortedSet(normalized.Domains)
+	if normalized.Narrowed != nil {
+		normalized.Narrowed = sortedSet(normalized.Narrowed)
+	}
 
 	return normalized
 }
 
+// sortedSet returns the tenants sorted, each once, never nil.
+func sortedSet(domains []accesstypes.Domain) []accesstypes.Domain {
+	set := slices.Clone(domains)
+	if set == nil {
+		set = []accesstypes.Domain{}
+	}
+	slices.Sort(set)
+
+	return slices.Compact(set)
+}
+
+// Tenants is the set of tenants the record keeps the subscription under: the set of a
+// list across tenants, the one tenant of a tenant's list, and the empty domain alone
+// for a global resource's list and for a row.
+func (s *Subscription) Tenants() []accesstypes.Domain {
+	normalized := s.Normalized()
+	if normalized.AcrossTenants {
+		return normalized.Domains
+	}
+
+	return []accesstypes.Domain{normalized.Domain}
+}
+
+// InTenant returns the subscription as the publisher is answered for one tenant: a row
+// or one tenant's list as the record keeps it, and a list across tenants as that
+// tenant's list, which is what a change in the tenant names. ok is false when the
+// tenant is not in the subscription's set.
+func (s *Subscription) InTenant(domain accesstypes.Domain) (sub Subscription, ok bool) {
+	normalized := s.Normalized()
+	if !slices.Contains(normalized.Tenants(), domain) {
+		return Subscription{}, false
+	}
+
+	return Subscription{
+		Principal: normalized.Principal,
+		Tab:       normalized.Tab,
+		Resource:  normalized.Resource,
+		Key:       normalized.Key,
+		Domain:    domain,
+		Expiry:    normalized.Expiry,
+	}, true
+}
+
+// PerTenant returns the subscription once for each tenant of its set (InTenant): what
+// the record answers the publisher's question about a whole resource with.
+func (s *Subscription) PerTenant() []Subscription {
+	tenants := s.Tenants()
+	subs := make([]Subscription, 0, len(tenants))
+	for _, domain := range tenants {
+		if sub, ok := s.InTenant(domain); ok {
+			subs = append(subs, sub)
+		}
+	}
+
+	return subs
+}
+
+// The words a list across tenants is named by in a subscription's id.
+const (
+	everyTenant  = "every tenant"
+	onlyTenants  = "only:"
+	acrossMarker = "\x00across tenants\x00"
+)
+
 // ID is the subscription's document id: the first 32 hex characters of
 // sha256("principal|tab|resource|key|domain"), so the same interest of the same tab is
-// one document however often it is written.
+// one document however often it is written. A list across tenants is named by its
+// resource and the page's filter on the tenant, never by the set the server worked out,
+// so a renewal that comes to another set writes the same document.
 func (s *Subscription) ID() string {
 	normalized := s.Normalized()
-	sum := sha256.Sum256([]byte(normalized.Principal + "|" + normalized.Tab + "|" + string(normalized.Resource) + "|" + normalized.Key + "|" + string(normalized.Domain)))
+	name := normalized.Principal + "|" + normalized.Tab + "|" + string(normalized.Resource) + "|" + normalized.Key + "|" + string(normalized.Domain)
+	if normalized.AcrossTenants {
+		name += acrossMarker + narrowingName(normalized.Narrowed)
+	}
+	sum := sha256.Sum256([]byte(name))
 
 	return hex.EncodeToString(sum[:])[:32]
+}
+
+// narrowingName names the page's filter on the tenant in a subscription's id: every
+// tenant for a page that sent none, the tenants it named otherwise.
+func narrowingName(narrowed []accesstypes.Domain) string {
+	if narrowed == nil {
+		return everyTenant
+	}
+	names := make([]string, 0, len(narrowed))
+	for _, domain := range narrowed {
+		names = append(names, string(domain))
+	}
+
+	return onlyTenants + strings.Join(names, ",")
 }
 
 // TokenPayload is what the token route answers: how the browser connects to the

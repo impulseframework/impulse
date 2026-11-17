@@ -34,7 +34,7 @@ function client(): { descriptor: ApiDescriptor; warn: (message: string) => void;
 describe('refuseAcrossTenantsConfig', () => {
   it('passes a page that does not ask for a list across tenants', () => {
     const api = client();
-    expect(() => refuseAcrossTenantsConfig('Refits' as Resource, { enableRowExpansion: true, live: true }, api)).not.toThrow();
+    expect(() => refuseAcrossTenantsConfig('Refits' as Resource, { enableRowExpansion: true }, api)).not.toThrow();
     expect(api.warnings).toEqual([]);
   });
 
@@ -59,20 +59,11 @@ describe('refuseAcrossTenantsConfig', () => {
     );
   });
 
-  it('tells a page that asks for live that the list is plain, and builds it', () => {
+  it('builds a page over a declared resource and says nothing: whether it is live is the page\'s own choice', () => {
     const api = client();
     expect(() =>
-      refuseAcrossTenantsConfig('Missions' as Resource, { acrossTenants: true, enableRowExpansion: false, live: true }, api),
+      refuseAcrossTenantsConfig('Missions' as Resource, { acrossTenants: true, enableRowExpansion: false }, api),
     ).not.toThrow();
-    expect(api.warnings).toEqual([
-      "Missions is listed across tenants, and a list across tenants is plain: the page asked for live and is read without a subscription. Remove live from the page's configuration",
-    ]);
-  });
-
-  it('says nothing to a page that left live unset or switched it off', () => {
-    const api = client();
-    refuseAcrossTenantsConfig('Missions' as Resource, { acrossTenants: true, enableRowExpansion: false }, api);
-    refuseAcrossTenantsConfig('Missions' as Resource, { acrossTenants: true, enableRowExpansion: false, live: false }, api);
     expect(api.warnings).toEqual([]);
   });
 });

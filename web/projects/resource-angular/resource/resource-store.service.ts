@@ -122,17 +122,18 @@ export class ResourceStore {
    * plain.
    */
   live = computed(() =>
-    // A list across tenants is plain: its page takes no subscription, whatever the
-    // resource's metadata says of its changes.
+    // A list across tenants is plain unless its page asks: only `live: true` on the
+    // config makes it live, whatever the resource's metadata says of its changes.
     this.acrossTenants()
-      ? false
+      ? this.liveChoice() === true
       : pageIsLive(this.resourceName() || this.resourceMeta().route, this.liveChoice(), this.resourceMeta(), this.client.warn),
   );
   /**
    * Whether the store's list page reads the resource across tenants
    * (ListViewConfigOptions.acrossTenants): the page is asked of the client's list across
-   * tenants, bound to no tenant, with no column list, no capability answer and no
-   * subscription, and each row carries the tenant it is in.
+   * tenants, bound to no tenant, with no column list and no capability answer, and each
+   * row carries the tenant it is in. It is plain unless the page's config says
+   * `live: true`: then it holds one subscription over the tenants the list reads.
    */
   acrossTenants = signal(false);
   uuid = signal<string>('');
@@ -243,7 +244,8 @@ export class ResourceStore {
   });
 
   /**
-   * The list page's live subscription, the resource in the selected tenant, while the
+   * The list page's live subscription, the resource in the selected tenant (or, for a
+   * list across tenants, over the tenants the list reads), while the
    * page is live and has a route; undefined otherwise. Equal answers hold the watcher
    * still, so a filter or a sort changing re-registers nothing.
    */
@@ -351,6 +353,7 @@ export class ResourceStore {
             sort: acrossSorts.length > 0 ? (acrossSorts as ListQuery<RecordData>['sort']) : undefined,
             limit: query.limit,
             count: true,
+            live: query.live || undefined,
           }) as Promise<Page<RecordData>>,
         'first',
         0,
@@ -627,6 +630,10 @@ export class ResourceStore {
       return undefined;
     }
     const descriptor = this.descriptorFor(route);
+    if (this.acrossTenants()) {
+      // One subscription over the tenants the list reads, whichever tenant is selected.
+      return acrossTenantsHandle<RecordData>(this.client, descriptor.resource).subscription();
+    }
     const domain = this.scopedDomain(descriptor);
     if (descriptor.scope === 'domain' && domain === undefined) {
       return undefined;

@@ -473,8 +473,16 @@ the list is bound to the resource, the `domains` the request sent, the filter, t
 and the page size, and is refused on the tenant's own route as that route's are refused
 here; it is not bound to the set of tenants the session reaches, which is worked out
 again on every request, so a person seated in another tenant between two pages reads
-its rows from the next page on. The list is plain: it registers no live subscription
-(section 14). On PostgreSQL the membership renders as `= ANY(@array)` where Spanner's
+its rows from the next page on. The list is plain unless the page asks: a request that
+carries the subscribe header registers one live subscription over the set of tenants
+the list reads for the person, however many they are, where a tenant's own list is one
+over that tenant (section 14). The set is worked out when the list is asked for and
+again at each renewal, which carries the page's `domains` back, so a tenant the person
+was seated in or removed from since is in or out of it from the next renewal on. After
+a write the publisher asks what it asks of every list, who is subscribed to this list
+in this tenant, and the record answers from the sets: the page hears a change in a
+tenant of its set as that tenant's list changing and fetches once, and it is never
+woken by a change in a tenant the person cannot enter. On PostgreSQL the membership renders as `= ANY(@array)` where Spanner's
 is `IN UNNEST(@array)`.
 
 ## 5. The permission endpoints

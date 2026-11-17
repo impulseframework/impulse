@@ -11,9 +11,24 @@ sets read by the browser.
 `subscriptions/{id}` is the record. One document per subscription; the id is the
 first 32 hex characters of `sha256("principal|tab|resource|key|domain")`, so the same
 interest of the same tab is one document however often it is registered or renewed.
-Fields: `principal`, `tab`, `resource`, `key` (empty for a list), `domain` (empty for
-a row and for a global list), `expiry` (timestamp). No client reads it; the rules deny
-everything outside the change sets.
+Fields: `principal`, `tab`, `resource`, `key` (empty for a list), `domains` (an array,
+the set of tenants the subscription is held over), `expiry` (timestamp). No client
+reads it; the rules deny everything outside the change sets.
+
+A list is held over a set of tenants, and `domains` is the set. One tenant's list is
+the set of that one tenant, `["<tenant>"]`; a global resource's list and a row are
+the empty domain alone, `[""]`. A list across tenants (`@listAcrossTenants`, when its
+page asks for live) is one document whose `domains` holds every tenant the server
+worked out for the person: the tenants the session reaches in which the person may
+list the resource, narrowed by the page's filter on the tenant. Its id names the
+resource and that filter, never the set, so the renewal that works the set out again
+writes the same document with the new set. The publisher's question after a write,
+who is subscribed to this list in this tenant, is `domains array-contains <tenant>`:
+one tenant's list is found as a set of one, and a list across tenants by every tenant
+of its set, from its one document. Firestore indexes an array field once per element,
+so a subscription over n tenants adds n entries to each index that carries `domains`;
+a document's index entries are limited (40,000), which bounds the tenants one
+subscription can hold at several thousand.
 
 `users/{uid}/changes/{id}` is a user's change set; `uid` is the principal id
 (`live.PrincipalID`), the auth's name and the user name joined by `|`, such as
@@ -54,8 +69,8 @@ document needs no index and no time-to-live.
 
 `firestore.indexes.json` holds the three composite indexes the record's lookups use,
 all on `subscriptions`: `(resource, key, expiry)` for a row's subscribers,
-`(resource, domain, expiry)` for a list's, and `(resource, expiry)` for every
-subscriber of a resource, the bulk path's one lookup. The unsubscribe queries are
+`(resource, domains array-contains, expiry)` for a list's, and `(resource, expiry)` for
+every subscriber of a resource, the bulk path's one lookup. The unsubscribe queries are
 equality-only (`principal`, `principal` and `tab`) and need no composite index. The
 change sets query one field, `at`, which the default single-field index serves.
 

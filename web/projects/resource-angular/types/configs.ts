@@ -991,9 +991,11 @@ export interface ListViewConfigOptions extends BaseConfigOptions {
    * row shows, so the page asks for no column list and a cell the person may not read in
    * a row's tenant stays empty. The page reads: it offers no create, no delete and no
    * method, since every write stays inside one tenant, on the row's page; row expansion
-   * is refused when the page is built. It is plain: `live: true` here is announced once
-   * and ignored. A column that reads a referenced tenant-scoped resource shows nothing,
-   * since the page has no one tenant to read it in.
+   * is refused when the page is built. It is plain unless the page asks: only
+   * `live: true` makes it live, with one subscription over the tenants the list reads,
+   * where a tenant's list is live unless its page says otherwise. A column that reads a
+   * referenced tenant-scoped resource shows nothing, since the page has no one tenant to
+   * read it in.
    */
   acrossTenants?: boolean;
 }
