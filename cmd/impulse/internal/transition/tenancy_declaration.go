@@ -53,7 +53,9 @@ func (tn Tenancy) DirectoryReader() string { return "New" + tn.Record() + "Direc
 // what makes a tenant from an accepted invitation over the record's own create patch.
 // Nobody creates a tenant directly, so the auth whose people a tenant is made through
 // is handed it in its Settings and refuses to start without it.
-func (tn Tenancy) Maker() string { return "New" + tn.Record() + "Maker" }
+func (tn Tenancy) Maker() string {
+	return "New" + tn.Record() + "Maker"
+}
 
 // writeDirectoryRecord adds the directories record beside the tenant record.
 func (tn Tenancy) writeDirectoryRecord(a *app.App, resourceDir string, ch *Change) error {
