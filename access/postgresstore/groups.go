@@ -3,6 +3,7 @@ package postgresstore
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access/internal/policy"
@@ -30,6 +31,7 @@ type groupStatements struct {
 	deleteGroup    string
 	hasMembers     string
 	hasRoles       string
+	deleteEnded    []string
 	group          string
 	listGroups     string
 	insertMember   string
@@ -50,24 +52,31 @@ func newGroupStatements(n *tableNames) groupStatements {
 		insertGroup:    fmt.Sprintf(`insert into %s ("Id", "Kind", "Axis", "DomainId", "Name", "Description") values ($1, $2, $3, $4, $5, $6)`, n.groups),
 		setDescription: fmt.Sprintf(`update %s set "Description" = $2, "UpdatedAt" = now() where "Id" = $1`, n.groups),
 		deleteGroup:    fmt.Sprintf(`delete from %s where "Id" = $1`, n.groups),
-		hasMembers:     fmt.Sprintf(`select exists(select 1 from %s where "GroupId" = $1)`, n.groupMembers),
-		hasRoles:       fmt.Sprintf(`select exists(select 1 from %s where "GroupId" = $1)`, n.groupRoles),
-		group:          fmt.Sprintf(`select "Id", "Kind", "Axis", "DomainId", "Name", "Description" from %s where "Id" = $1`, n.groups),
-		listGroups:     fmt.Sprintf(`select "Id", "Kind", "Axis", "DomainId", "Name", "Description" from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 order by "Name"`, n.groups),
-		insertMember:   fmt.Sprintf(`insert into %s ("GroupId", "UserId") values ($1, $2) on conflict do nothing`, n.groupMembers),
-		deleteMember:   fmt.Sprintf(`delete from %s where "GroupId" = $1 and "UserId" = $2`, n.groupMembers),
-		listMembers:    fmt.Sprintf(`select "UserId" from %s where "GroupId" = $1 order by "UserId"`, n.groupMembers),
-		listUserGroups: fmt.Sprintf(`select g."Id", g."Kind", g."Axis", g."DomainId", g."Name", g."Description" from %s m join %s g on g."Id" = m."GroupId" where m."UserId" = $1 order by g."Id"`,
-			n.groupMembers, n.groups),
-		insertRole: fmt.Sprintf(`insert into %s ("GroupId", "Kind", "Axis", "DomainId", "Role") values ($1, $2, $3, $4, $5) on conflict do nothing`, n.groupRoles),
+		hasMembers:     fmt.Sprintf(`select exists(select 1 from %s where "GroupId" = $1 and %s)`, n.groupMembers, standing("")),
+		hasRoles:       fmt.Sprintf(`select exists(select 1 from %s where "GroupId" = $1 and %s)`, n.groupRoles, standing("")),
+		deleteEnded: []string{
+			fmt.Sprintf(`delete from %s where "GroupId" = $1 and %s`, n.groupMembers, ended),
+			fmt.Sprintf(`delete from %s where "GroupId" = $1 and %s`, n.groupRoles, ended),
+		},
+		group:      fmt.Sprintf(`select "Id", "Kind", "Axis", "DomainId", "Name", "Description" from %s where "Id" = $1`, n.groups),
+		listGroups: fmt.Sprintf(`select "Id", "Kind", "Axis", "DomainId", "Name", "Description" from %s where "Kind" = $1 and "Axis" = $2 and "DomainId" = $3 order by "Name"`, n.groups),
+		insertMember: fmt.Sprintf(`insert into %s ("GroupId", "UserId", "StartsAt", "EndsAt") values ($1, $2, $3, $4)
+on conflict ("GroupId", "UserId") do update set %s`, n.groupMembers, replacePeriod),
+		deleteMember: fmt.Sprintf(`delete from %s where "GroupId" = $1 and "UserId" = $2`, n.groupMembers),
+		listMembers:  fmt.Sprintf(`select "UserId" from %s where "GroupId" = $1 and %s order by "UserId"`, n.groupMembers, counting("")),
+		listUserGroups: fmt.Sprintf(`select g."Id", g."Kind", g."Axis", g."DomainId", g."Name", g."Description" from %s m join %s g on g."Id" = m."GroupId" where m."UserId" = $1 and %s order by g."Id"`,
+			n.groupMembers, n.groups, counting("m.")),
+		insertRole: fmt.Sprintf(`insert into %s ("GroupId", "Kind", "Axis", "DomainId", "Role", "StartsAt", "EndsAt") values ($1, $2, $3, $4, $5, $6, $7)
+on conflict ("GroupId", "Kind", "Axis", "DomainId", "Role") do update set %s`, n.groupRoles, replacePeriod),
 		deleteRole: fmt.Sprintf(`delete from %s where "GroupId" = $1 and "Kind" = $2 and "Axis" = $3 and "DomainId" = $4 and "Role" = $5`, n.groupRoles),
-		listRoles:  fmt.Sprintf(`select "Kind", "Axis", "DomainId", "Role" from %s where "GroupId" = $1 order by "Kind", "Axis", "DomainId", "Role"`, n.groupRoles),
+		listRoles: fmt.Sprintf(`select "Kind", "Axis", "DomainId", "Role", "StartsAt", "EndsAt" from %s where "GroupId" = $1 and %s order by "Kind", "Axis", "DomainId", "Role"`,
+			n.groupRoles, counting("")),
 		listUserRoles: fmt.Sprintf(`select g."Id", g."Kind", g."Axis", g."DomainId", r."Kind", r."Axis", r."DomainId", r."Role"
 from %s m join %s g on g."Id" = m."GroupId" join %s r on r."GroupId" = m."GroupId"
-where m."UserId" = $1 order by r."Kind", r."Axis", r."DomainId", r."Role", g."Id"`, n.groupMembers, n.groups, n.groupRoles),
+where m."UserId" = $1 and %s and %s order by r."Kind", r."Axis", r."DomainId", r."Role", g."Id"`, n.groupMembers, n.groups, n.groupRoles, counting("m."), counting("r.")),
 		readGroups:  fmt.Sprintf(`select "Id", "Kind", "Axis", "DomainId" from %s`, n.groups),
-		readMembers: fmt.Sprintf(`select "GroupId", "UserId" from %s`, n.groupMembers),
-		readRoles:   fmt.Sprintf(`select "GroupId", "Kind", "Axis", "DomainId", "Role" from %s`, n.groupRoles),
+		readMembers: fmt.Sprintf(`select "GroupId", "UserId", "StartsAt", "EndsAt" from %s`, n.groupMembers),
+		readRoles:   fmt.Sprintf(`select "GroupId", "Kind", "Axis", "DomainId", "Role", "StartsAt", "EndsAt" from %s`, n.groupRoles),
 	}
 }
 
@@ -94,6 +103,8 @@ func (s *Store) groupDDL() []string {
 		fmt.Sprintf(`CREATE TABLE %s (
   "GroupId" TEXT NOT NULL,
   "UserId" TEXT NOT NULL,
+  "StartsAt" TIMESTAMPTZ,
+  "EndsAt" TIMESTAMPTZ,
   "CreatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY ("GroupId", "UserId"),
   CONSTRAINT %s FOREIGN KEY ("GroupId") REFERENCES %s ("Id")
@@ -105,6 +116,8 @@ func (s *Store) groupDDL() []string {
   "Axis" TEXT NOT NULL,
   "DomainId" TEXT NOT NULL,
   "Role" TEXT NOT NULL,
+  "StartsAt" TIMESTAMPTZ,
+  "EndsAt" TIMESTAMPTZ,
   "CreatedAt" TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY ("GroupId", "Kind", "Axis", "DomainId", "Role"),
   CONSTRAINT %s CHECK ("Kind" IN ('%s', '%s', '%s')),
@@ -143,9 +156,11 @@ func (s *Store) readGroups(ctx context.Context, tx pgx.Tx, records *policy.Recor
 	}
 	records.GroupMembers, err = pgx.CollectRows(memberRows, func(row pgx.CollectableRow) (policy.GroupMember, error) {
 		var m policy.GroupMember
-		if err := row.Scan(&m.Group, &m.User); err != nil {
+		var start, end *time.Time
+		if err := row.Scan(&m.Group, &m.User, &start, &end); err != nil {
 			return policy.GroupMember{}, errors.Wrap(err, "pgx.CollectableRow.Scan()")
 		}
+		m.Period = periodOf(start, end)
 
 		return m, nil
 	})
@@ -160,7 +175,8 @@ func (s *Store) readGroups(ctx context.Context, tx pgx.Tx, records *policy.Recor
 	roles, err := pgx.CollectRows(roleRows, func(row pgx.CollectableRow) (policy.Membership, error) {
 		var m policy.Membership
 		var group, kind, axis, domain string
-		if err := row.Scan(&group, &kind, &axis, &domain, &m.Role); err != nil {
+		var start, end *time.Time
+		if err := row.Scan(&group, &kind, &axis, &domain, &m.Role, &start, &end); err != nil {
 			return policy.Membership{}, errors.Wrap(err, "pgx.CollectableRow.Scan()")
 		}
 		scope, err := policy.ScopeFromColumns(kind, axis, domain)
@@ -169,6 +185,7 @@ func (s *Store) readGroups(ctx context.Context, tx pgx.Tx, records *policy.Recor
 		}
 		m.Scope = scope
 		m.Member = policy.Subject{Kind: policy.SubjectGroup, Name: group}
+		m.Period = periodOf(start, end)
 
 		return m, nil
 	})
@@ -211,8 +228,9 @@ func (s *Store) SetGroupDescription(ctx context.Context, group accesstypes.Group
 }
 
 // DeleteGroup deletes the group's row and reports whether it was there. A
-// group that still has a member or a role is refused, checked in the delete's
-// own transaction; the foreign keys of the two tables stand behind the check.
+// group that still has a member or a role that has not ended is refused,
+// checked in the delete's own transaction; the ended ones go with the group,
+// and the foreign keys of the two tables stand behind the check.
 func (s *Store) DeleteGroup(ctx context.Context, group accesstypes.Group) (bool, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
@@ -228,7 +246,12 @@ func (s *Store) DeleteGroup(ctx context.Context, group accesstypes.Group) (bool,
 			return false, errors.Wrapf(err, "pgx.Tx.QueryRow() group %s", check.what)
 		}
 		if held {
-			return false, errors.Newf("group %s still has %s", group, check.what)
+			return false, errors.Wrapf(policy.ErrStillAssigned, "group %s still has %s", group, check.what)
+		}
+	}
+	for _, sql := range s.groups.deleteEnded {
+		if _, err := tx.Exec(ctx, sql, group); err != nil {
+			return false, errors.Wrap(err, "pgx.Tx.Exec() ended rows")
 		}
 	}
 	tag, err := tx.Exec(ctx, s.groups.deleteGroup, group)
@@ -294,11 +317,12 @@ func (s *Store) queryGroups(ctx context.Context, sql string, args ...any) ([]pol
 	return groups, nil
 }
 
-// InsertGroupMember adds one person to a group; adding one who is there is a
-// no-op. The group's row must exist.
-func (s *Store) InsertGroupMember(ctx context.Context, group accesstypes.Group, user accesstypes.User) error {
-	if _, err := s.pool.Exec(ctx, s.groups.insertMember, group, user); err != nil {
-		return errors.Wrap(err, "pgxpool.Pool.Exec() insert group member")
+// InsertGroupMember gives one person's place in a group its period: the person
+// is added where they are not in the group, and their place given the new
+// period where they are. The group's row must exist.
+func (s *Store) InsertGroupMember(ctx context.Context, group accesstypes.Group, user accesstypes.User, period accesstypes.Period) error {
+	if _, err := s.pool.Exec(ctx, s.groups.insertMember, group, user, period.StartPtr(), period.EndPtr()); err != nil {
+		return errors.Wrap(err, "pgxpool.Pool.Exec() assign group member")
 	}
 
 	return nil
@@ -314,7 +338,7 @@ func (s *Store) DeleteGroupMember(ctx context.Context, group accesstypes.Group, 
 	return nil
 }
 
-// ListGroupMembers returns the group's members, sorted.
+// ListGroupMembers returns the people in the group now, sorted.
 func (s *Store) ListGroupMembers(ctx context.Context, group accesstypes.Group) ([]accesstypes.User, error) {
 	rows, err := s.pool.Query(ctx, s.groups.listMembers, group)
 	if err != nil {
@@ -328,13 +352,13 @@ func (s *Store) ListGroupMembers(ctx context.Context, group accesstypes.Group) (
 	return users, nil
 }
 
-// InsertGroupRole adds one role a group holds in scope; adding one it holds
-// there is a no-op. The group's row must exist; the role is named by name
-// alone.
-func (s *Store) InsertGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) error {
+// InsertGroupRole gives one role a group holds in scope its period: the role is
+// added where the group does not hold it there, and given the new period where
+// it does. The group's row must exist; the role is named by name alone.
+func (s *Store) InsertGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
-	if _, err := s.pool.Exec(ctx, s.groups.insertRole, group, kind, axis, domain, role); err != nil {
-		return errors.Wrap(err, "pgxpool.Pool.Exec() insert group role")
+	if _, err := s.pool.Exec(ctx, s.groups.insertRole, group, kind, axis, domain, role, period.StartPtr(), period.EndPtr()); err != nil {
+		return errors.Wrap(err, "pgxpool.Pool.Exec() assign group role")
 	}
 
 	return nil
@@ -351,7 +375,8 @@ func (s *Store) DeleteGroupRole(ctx context.Context, group accesstypes.Group, sc
 	return nil
 }
 
-// ListGroupRoles returns the roles the group holds, sorted by scope then role.
+// ListGroupRoles returns the roles the group holds now, sorted by scope then
+// role.
 func (s *Store) ListGroupRoles(ctx context.Context, group accesstypes.Group) ([]policy.Membership, error) {
 	rows, err := s.pool.Query(ctx, s.groups.listRoles, group)
 	if err != nil {
@@ -359,8 +384,9 @@ func (s *Store) ListGroupRoles(ctx context.Context, group accesstypes.Group) ([]
 	}
 	roles, err := pgx.CollectRows(rows, func(row pgx.CollectableRow) (policy.Membership, error) {
 		var kind, axis, domain string
+		var start, end *time.Time
 		m := policy.Membership{Member: policy.Subject{Kind: policy.SubjectGroup, Name: string(group)}}
-		if err := row.Scan(&kind, &axis, &domain, &m.Role); err != nil {
+		if err := row.Scan(&kind, &axis, &domain, &m.Role, &start, &end); err != nil {
 			return policy.Membership{}, errors.Wrap(err, "pgx.CollectableRow.Scan()")
 		}
 		scope, err := policy.ScopeFromColumns(kind, axis, domain)
@@ -368,6 +394,7 @@ func (s *Store) ListGroupRoles(ctx context.Context, group accesstypes.Group) ([]
 			return policy.Membership{}, errors.Wrap(err, "policy.ScopeFromColumns()")
 		}
 		m.Scope = scope
+		m.Period = periodOf(start, end)
 
 		return m, nil
 	})
@@ -378,8 +405,8 @@ func (s *Store) ListGroupRoles(ctx context.Context, group accesstypes.Group) ([]
 	return roles, nil
 }
 
-// ListUserGroupRoles returns every role held by a group the user is in, each
-// with its group, read through the members' index by user.
+// ListUserGroupRoles returns every role held now by a group the user is in
+// now, each with its group, read through the members' index by user.
 func (s *Store) ListUserGroupRoles(ctx context.Context, user accesstypes.User) ([]policy.GroupRole, error) {
 	rows, err := s.pool.Query(ctx, s.groups.listUserRoles, user)
 	if err != nil {

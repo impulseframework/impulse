@@ -137,20 +137,20 @@ func groupMembers(t *testing.T, store access.Store) {
 	ctx := t.Context()
 	night, staff := nightRow(), staffRow()
 
-	if err := store.InsertGroupMember(ctx, spareGroup, alice); err == nil {
+	if err := store.InsertGroupMember(ctx, spareGroup, alice, accesstypes.Period{}); err == nil {
 		t.Error("InsertGroupMember() into a group that does not exist: want it refused")
 	}
 	for _, user := range []accesstypes.User{bob, alice, alice} {
-		if err := store.InsertGroupMember(ctx, nightGroup, user); err != nil {
+		if err := store.InsertGroupMember(ctx, nightGroup, user, accesstypes.Period{}); err != nil {
 			t.Fatalf("InsertGroupMember(%s) error = %v", user, err)
 		}
 	}
 	for _, group := range []accesstypes.Group{staffGroup, staffGroup} {
-		if err := store.InsertGroupMember(ctx, group, carol); err != nil {
+		if err := store.InsertGroupMember(ctx, group, carol, accesstypes.Period{}); err != nil {
 			t.Fatalf("InsertGroupMember() error = %v", err)
 		}
 	}
-	if err := store.InsertGroupMember(ctx, staffGroup, alice); err != nil {
+	if err := store.InsertGroupMember(ctx, staffGroup, alice, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertGroupMember() error = %v", err)
 	}
 	members, err := store.ListGroupMembers(ctx, nightGroup)
@@ -185,7 +185,7 @@ func groupRoles(t *testing.T, store access.Store) {
 	ctx := t.Context()
 	night, staff := nightRow(), staffRow()
 
-	if err := store.InsertGroupRole(ctx, spareGroup, tenant1, viewer); err == nil {
+	if err := store.InsertGroupRole(ctx, spareGroup, tenant1, viewer, accesstypes.Period{}); err == nil {
 		t.Error("InsertGroupRole() for a group that does not exist: want it refused")
 	}
 	held := []struct {
@@ -200,7 +200,7 @@ func groupRoles(t *testing.T, store access.Store) {
 		{staffGroup, globalScope, admin},
 	}
 	for _, h := range held {
-		if err := store.InsertGroupRole(ctx, h.group, h.scope, h.role); err != nil {
+		if err := store.InsertGroupRole(ctx, h.group, h.scope, h.role, accesstypes.Period{}); err != nil {
 			t.Fatalf("InsertGroupRole(%s, %s) error = %v", h.scope, h.role, err)
 		}
 	}
@@ -253,7 +253,7 @@ func groupEmptied(t *testing.T, store access.Store) {
 	if taken, err := store.InsertGroup(ctx, spare); err != nil || taken {
 		t.Fatalf("InsertGroup() = (%v, %v), want it written", taken, err)
 	}
-	if err := store.InsertGroupMember(ctx, spareGroup, bob); err != nil {
+	if err := store.InsertGroupMember(ctx, spareGroup, bob, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertGroupMember() error = %v", err)
 	}
 	if _, err := store.DeleteGroup(ctx, spareGroup); err == nil {
@@ -262,7 +262,7 @@ func groupEmptied(t *testing.T, store access.Store) {
 	if err := store.DeleteGroupMember(ctx, spareGroup, bob); err != nil {
 		t.Fatalf("DeleteGroupMember() error = %v", err)
 	}
-	if err := store.InsertGroupRole(ctx, spareGroup, tenant2, editor); err != nil {
+	if err := store.InsertGroupRole(ctx, spareGroup, tenant2, editor, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertGroupRole() error = %v", err)
 	}
 	if _, err := store.DeleteGroup(ctx, spareGroup); err == nil {

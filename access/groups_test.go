@@ -269,7 +269,7 @@ func Test_userManager_groupNeverGivesSuperAdministrator(t *testing.T) {
 	if err := manager.AddGroupUsers(ctx, staff, "mallory"); err != nil {
 		t.Fatalf("AddGroupUsers() error = %v", err)
 	}
-	if err := store.InsertGroupRole(ctx, staff, globalPolicy, accesstypes.SuperAdministrator); err != nil {
+	if err := store.InsertGroupRole(ctx, staff, globalPolicy, accesstypes.SuperAdministrator, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertGroupRole() error = %v", err)
 	}
 	client.PolicyChanged()

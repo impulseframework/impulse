@@ -229,7 +229,9 @@ func (u *userManager) DescribeGroup(ctx context.Context, group accesstypes.Group
 
 // DeleteGroup removes a group that has no member and holds no role. A group that still
 // has either is refused until it is emptied, so nobody loses a role by a group's
-// deletion: the people are removed and the roles taken first, each by its own act.
+// deletion: the people are removed and the roles taken first, each by its own act. A
+// member or a role whose period has ended gives nobody anything and goes with the group;
+// one whose period has not begun stands in the way like one that counts now.
 func (u *userManager) DeleteGroup(ctx context.Context, group accesstypes.Group) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -246,6 +248,11 @@ func (u *userManager) DeleteGroup(ctx context.Context, group accesstypes.Group) 
 		return httpio.NewConflictMessagef("the group still has %d member(s) and holds %d role(s): remove its members and take its roles away, then delete it", len(members), len(roles))
 	}
 	deleted, err := u.store.deleteGroup(ctx, group)
+	if errors.Is(err, policy.ErrStillAssigned) {
+		// The listings read what counts now: what stands in the way is a member
+		// or a role whose period has not begun.
+		return httpio.NewConflictMessage("the group has a member or holds a role whose period has not begun yet: remove its members and take its roles away, then delete it")
+	}
 	if err != nil {
 		return err
 	}
@@ -293,20 +300,29 @@ func groupInfos(rows []policy.GroupRow) []GroupInfo {
 	return groups
 }
 
-// AddGroupUsers puts users in group. Errors if the group does not exist or a user is
-// empty. A person who is in the group already is left as they are.
+// AddGroupUsers puts users in group, each with no period. Errors if the group does not
+// exist or a user is empty. A person who is in the group for a period is in it until
+// they are taken out.
 func (u *userManager) AddGroupUsers(ctx context.Context, group accesstypes.Group, users ...accesstypes.User) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	return u.assignGroupUsers(ctx, group, accesstypes.Period{}, users...)
+}
+
+// assignGroupUsers puts each user in group for the period.
+func (u *userManager) assignGroupUsers(ctx context.Context, group accesstypes.Group, period accesstypes.Period, users ...accesstypes.User) error {
 	if _, err := u.requireGroup(ctx, group); err != nil {
 		return err
 	}
 	if slices.Contains(users, "") {
 		return httpio.NewBadRequestMessage("user cannot be empty string")
 	}
+	if err := period.Validate(); err != nil {
+		return httpio.NewBadRequestMessage(err.Error())
+	}
 	for _, user := range users {
-		if err := u.store.addGroupUser(ctx, group, user); err != nil {
+		if err := u.store.addGroupUser(ctx, group, user, period); err != nil {
 			return err
 		}
 	}
@@ -328,7 +344,7 @@ func (u *userManager) DeleteGroupUsers(ctx context.Context, group accesstypes.Gr
 	return nil
 }
 
-// GroupUsers returns the people in group, sorted.
+// GroupUsers returns the people in group now, sorted.
 func (u *userManager) GroupUsers(ctx context.Context, group accesstypes.Group) ([]accesstypes.User, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -339,15 +355,24 @@ func (u *userManager) GroupUsers(ctx context.Context, group accesstypes.Group) (
 // AddGroupRoles gives group the roles, each held in scope. Errors if the group does not
 // exist, if a role is one the group may not hold there (the Super Administrator role
 // anywhere; for a group kept in one tenant, any role outside that tenant), or if a role
-// doesn't exist in scope, as AddRoleUsers defines it. A role the group holds there
-// already is left as it is.
+// doesn't exist in scope, as AddRoleUsers defines it. Each role is given with no period:
+// one the group holds there for a period is the group's until it is taken away.
 func (u *userManager) AddGroupRoles(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, roles ...accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	return u.assignGroupRoles(ctx, group, scope, accesstypes.Period{}, roles...)
+}
+
+// assignGroupRoles gives group each role in scope for the period, once every role is one
+// the group may hold there.
+func (u *userManager) assignGroupRoles(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, period accesstypes.Period, roles ...accesstypes.Role) error {
 	row, err := u.requireGroup(ctx, group)
 	if err != nil {
 		return err
+	}
+	if err := period.Validate(); err != nil {
+		return httpio.NewBadRequestMessage(err.Error())
 	}
 	for _, role := range roles {
 		if err := refuseGroupRole(row.Scope, scope, role); err != nil {
@@ -362,7 +387,7 @@ func (u *userManager) AddGroupRoles(ctx context.Context, group accesstypes.Group
 		}
 	}
 	for _, role := range roles {
-		if err := u.store.addGroupRole(ctx, group, scope, role); err != nil {
+		if err := u.store.addGroupRole(ctx, group, scope, role, period); err != nil {
 			return err
 		}
 	}
@@ -395,8 +420,8 @@ func (u *userManager) GroupRoles(ctx context.Context, group accesstypes.Group) (
 		return nil, err
 	}
 	roles := make(accesstypes.RoleCollection)
-	for _, m := range held {
-		roles[m.Scope] = append(roles[m.Scope], m.Role)
+	for i := range held {
+		roles[held[i].Scope] = append(roles[held[i].Scope], held[i].Role)
 	}
 
 	return roles, nil
@@ -497,8 +522,8 @@ func (m *storeManager) userGroups(ctx context.Context, user accesstypes.User) ([
 	return rows, nil
 }
 
-func (m *storeManager) addGroupUser(ctx context.Context, group accesstypes.Group, user accesstypes.User) error {
-	if err := m.store.InsertGroupMember(ctx, group, user); err != nil {
+func (m *storeManager) addGroupUser(ctx context.Context, group accesstypes.Group, user accesstypes.User, period accesstypes.Period) error {
+	if err := m.store.InsertGroupMember(ctx, group, user, period); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertGroupMember(): %q to group %s", user, group)
 	}
 	m.notifyPolicyChange()
@@ -524,8 +549,8 @@ func (m *storeManager) groupUsers(ctx context.Context, group accesstypes.Group) 
 	return users, nil
 }
 
-func (m *storeManager) addGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) error {
-	if err := m.store.InsertGroupRole(ctx, group, scope, role); err != nil {
+func (m *storeManager) addGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
+	if err := m.store.InsertGroupRole(ctx, group, scope, role, period); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertGroupRole(): role %q to group %s", role, group)
 	}
 	m.notifyPolicyChange()

@@ -77,7 +77,7 @@ func TestStore_isolation(t *testing.T) {
 	if err := adminStore.InsertRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "Editor", "Edits the records of the tenant."); err != nil {
 		t.Fatalf("InsertRole() error = %v", err)
 	}
-	if err := adminStore.InsertUserRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "alice", "Editor"); err != nil {
+	if err := adminStore.InsertUserRole(ctx, accesstypes.DomainPolicyScope("tenant1"), "alice", "Editor", accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 

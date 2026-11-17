@@ -51,6 +51,8 @@ const (
 	colResource    = "Resource"
 	colField       = "Field"
 	colCondition   = "Condition"
+	colStartsAt    = "StartsAt"
+	colEndsAt      = "EndsAt"
 	colCreatedAt   = "CreatedAt"
 	colUpdatedAt   = "UpdatedAt"
 
@@ -131,6 +133,7 @@ type Store struct {
 	// parameters — so no query text is assembled at call sites.
 	sqlDeleteRole          string
 	sqlRoleHasMembers      string
+	sqlDeleteEndedMembers  string
 	sqlRoleExists          string
 	sqlListRoles           string
 	sqlListUserRoles       string
@@ -158,19 +161,57 @@ func New(client *spanner.Client, opts ...Option) (*Store, error) {
 		names:  names,
 
 		sqlDeleteRole:          fmt.Sprintf("DELETE FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role", names.roles),
-		sqlRoleHasMembers:      fmt.Sprintf("SELECT 1 FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role LIMIT 1", names.userRoles),
+		sqlRoleHasMembers:      fmt.Sprintf("SELECT 1 FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s LIMIT 1", names.userRoles, standing("")),
+		sqlDeleteEndedMembers:  fmt.Sprintf("DELETE FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s", names.userRoles, ended),
 		sqlRoleExists:          fmt.Sprintf("SELECT 1 FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role", names.roles),
 		sqlListRoles:           fmt.Sprintf("SELECT Role, Description FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain ORDER BY Role", names.roles),
-		sqlListUserRoles:       fmt.Sprintf("SELECT Role FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND UserId = @user ORDER BY Role", names.userRoles),
-		sqlListUserMemberships: fmt.Sprintf("SELECT Kind, Axis, DomainId, Role FROM %s@{FORCE_INDEX=%s} WHERE UserId = @user ORDER BY Kind, Axis, DomainId, Role", names.userRoles, names.userIndex),
-		sqlListRoleUsers:       fmt.Sprintf("SELECT UserId FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role ORDER BY UserId", names.userRoles),
+		sqlListUserRoles:       fmt.Sprintf("SELECT Role FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND UserId = @user AND %s ORDER BY Role", names.userRoles, counting("")),
+		sqlListUserMemberships: fmt.Sprintf("SELECT Kind, Axis, DomainId, Role, StartsAt, EndsAt FROM %s@{FORCE_INDEX=%s} WHERE UserId = @user AND %s ORDER BY Kind, Axis, DomainId, Role", names.userRoles, names.userIndex, counting("")),
+		sqlListRoleUsers:       fmt.Sprintf("SELECT UserId FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s ORDER BY UserId", names.userRoles, counting("")),
 		sqlListRoleGrants:      fmt.Sprintf("SELECT Permission, Resource, Field, Condition FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role ORDER BY Permission, Resource, Field, Condition", names.roleGrants),
 		sqlReadRoles:           fmt.Sprintf("SELECT Kind, Axis, DomainId, Role FROM %s", names.roles),
 		sqlReadGrants:          fmt.Sprintf("SELECT Kind, Axis, DomainId, Role, Permission, Resource, Field, Condition FROM %s", names.roleGrants),
-		sqlReadMemberships:     fmt.Sprintf("SELECT Kind, Axis, DomainId, UserId, Role FROM %s", names.userRoles),
+		sqlReadMemberships:     fmt.Sprintf("SELECT Kind, Axis, DomainId, UserId, Role, StartsAt, EndsAt FROM %s", names.userRoles),
 
 		groups: newGroupStatements(&names),
 	}, nil
+}
+
+// An assignment (a person's role, a person's place in a group, a group's role)
+// carries a period in two nullable columns, StartsAt and EndsAt, and is read
+// in one of three ways at the database's present. It counts from its start
+// until its end: every listing of what a person or a group holds reads the
+// ones that count, so an assignment outside its period is left out while its
+// row is still there. It stands, counting now or later, until its end: a
+// deletion that assignments block reads the ones that stand. It has ended once
+// its end has passed, never to count again: the deletion takes those rows with
+// it, so an assignment nobody removed never stands in a deletion's way.
+
+// counting is the predicate of an assignment that counts now. alias is the
+// table's alias with its dot, "" for none.
+func counting(alias string) string {
+	return fmt.Sprintf("(%[1]sStartsAt IS NULL OR %[1]sStartsAt <= CURRENT_TIMESTAMP()) AND %[2]s", alias, standing(alias))
+}
+
+// standing is the predicate of an assignment that has not ended.
+func standing(alias string) string {
+	return fmt.Sprintf("(%[1]sEndsAt IS NULL OR %[1]sEndsAt > CURRENT_TIMESTAMP())", alias)
+}
+
+// ended is the predicate of an assignment whose end has passed.
+const ended = "EndsAt <= CURRENT_TIMESTAMP()"
+
+// periodOf reassembles an assignment's period from its two columns.
+func periodOf(start, end spanner.NullTime) accesstypes.Period {
+	var period accesstypes.Period
+	if start.Valid {
+		period.Start = start.Time.UTC()
+	}
+	if end.Valid {
+		period.End = end.Time.UTC()
+	}
+
+	return period
 }
 
 // DDL returns the canonical schema statements for this Store's tables,
@@ -201,6 +242,8 @@ func (s *Store) DDL() []string {
   DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
   UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   %s,
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId)`, n.userRoles, kindCheck(n.userRoles)),
@@ -272,7 +315,8 @@ func (s *Store) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 
 	err = txn.Query(ctx, spanner.Statement{SQL: s.sqlReadMemberships}).Do(func(row *spanner.Row) error {
 		var kind, axis, domain, user, role string
-		if err := row.Columns(&kind, &axis, &domain, &user, &role); err != nil {
+		var start, end spanner.NullTime
+		if err := row.Columns(&kind, &axis, &domain, &user, &role, &start, &end); err != nil {
 			return errors.Wrap(err, "spanner.Row.Columns()")
 		}
 		scope, err := policy.ScopeFromColumns(kind, axis, domain)
@@ -283,6 +327,7 @@ func (s *Store) ReadPolicy(ctx context.Context) (*policy.Records, error) {
 			Scope:  scope,
 			Member: policy.Subject{Kind: policy.SubjectUser, Name: user},
 			Role:   accesstypes.Role(role),
+			Period: periodOf(start, end),
 		})
 
 		return nil
@@ -311,16 +356,49 @@ func (s *Store) insertIgnoreExists(ctx context.Context, m *spanner.Mutation, wra
 	return nil
 }
 
-// InsertUserRole adds one user-role membership; adding an existing membership
-// is a no-op. The role is named by name alone: no role row is required, since
-// the release's default roles have none.
-func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
-	kind, axis, domain := policy.ScopeColumns(scope)
-	m := spanner.Insert(s.names.userRoles,
-		[]string{colKind, colAxis, colDomain, colRole, colUser, colCreatedAt},
-		[]any{kind, axis, domain, string(role), string(user), spanner.CommitTimestamp})
+// assign writes one assignment row with its period: the row is inserted where
+// its key is free, and where it is taken the period is replaced and the rest
+// of the row, its CreatedAt among it, left as it was. keyColumns and key name
+// the row; the read and the write share one transaction, so two assignments
+// of one key settle on one period.
+func (s *Store) assign(ctx context.Context, table string, keyColumns []string, key spanner.Key, period accesstypes.Period, wrap string) error {
+	values := append(slices.Clone([]any(key)), period.StartPtr(), period.EndPtr())
+	columns := append(slices.Clone(keyColumns), colStartsAt, colEndsAt)
+	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
+		var m *spanner.Mutation
+		switch _, err := txn.ReadRow(ctx, table, key, keyColumns[:1]); {
+		case err == nil:
+			m = spanner.Update(table, columns, values)
+		case spanner.ErrCode(err) == codes.NotFound:
+			m = spanner.Insert(table, append(columns, colCreatedAt), append(values, spanner.CommitTimestamp))
+		default:
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+		}
 
-	return s.insertIgnoreExists(ctx, m, "spanner.Client.Apply() insert user role")
+		if err := txn.BufferWrite([]*spanner.Mutation{m}); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.BufferWrite()")
+		}
+
+		return nil
+	})
+	if err != nil {
+		return errors.Wrap(err, wrap)
+	}
+
+	return nil
+}
+
+// InsertUserRole gives one user-role membership its period: the membership is
+// added where the user does not hold the role, and given the new period where
+// they do. The role is named by name alone: no role row is required, since the
+// release's default roles have none.
+func (s *Store) InsertUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
+	kind, axis, domain := policy.ScopeColumns(scope)
+
+	return s.assign(ctx, s.names.userRoles,
+		[]string{colKind, colAxis, colDomain, colRole, colUser},
+		spanner.Key{kind, axis, domain, string(role), string(user)},
+		period, "spanner.Client.ReadWriteTransaction() assign user role")
 }
 
 // DeleteUserRole removes one user-role membership; removing an absent
@@ -335,7 +413,7 @@ func (s *Store) DeleteUserRole(ctx context.Context, scope accesstypes.PolicyScop
 	return nil
 }
 
-// ListUserRoles returns the user's roles in scope, sorted.
+// ListUserRoles returns the roles the user holds in scope now, sorted.
 func (s *Store) ListUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User) ([]accesstypes.Role, error) {
 	kind, axis, domain := policy.ScopeColumns(scope)
 	stmt := spanner.Statement{SQL: s.sqlListUserRoles, Params: map[string]any{paramKind: kind, paramAxis: axis, paramDomain: domain, paramUser: string(user)}}
@@ -351,14 +429,15 @@ func (s *Store) ListUserRoles(ctx context.Context, scope accesstypes.PolicyScope
 	return roles, nil
 }
 
-// ListUserMemberships returns every membership the user holds, wherever it
-// is held, read through the user index and sorted by scope then role.
+// ListUserMemberships returns every membership the user holds now, wherever
+// it is held, read through the user index and sorted by scope then role.
 func (s *Store) ListUserMemberships(ctx context.Context, user accesstypes.User) ([]policy.Membership, error) {
 	stmt := spanner.Statement{SQL: s.sqlListUserMemberships, Params: map[string]any{paramUser: string(user)}}
 	memberships := make([]policy.Membership, 0)
 	err := s.client.Single().Query(ctx, stmt).Do(func(row *spanner.Row) error {
 		var kind, axis, domain, role string
-		if err := row.Columns(&kind, &axis, &domain, &role); err != nil {
+		var start, end spanner.NullTime
+		if err := row.Columns(&kind, &axis, &domain, &role, &start, &end); err != nil {
 			return errors.Wrap(err, "spanner.Row.Columns()")
 		}
 		scope, err := policy.ScopeFromColumns(kind, axis, domain)
@@ -369,6 +448,7 @@ func (s *Store) ListUserMemberships(ctx context.Context, user accesstypes.User) 
 			Scope:  scope,
 			Member: policy.Subject{Kind: policy.SubjectUser, Name: string(user)},
 			Role:   accesstypes.Role(role),
+			Period: periodOf(start, end),
 		})
 
 		return nil
@@ -380,7 +460,7 @@ func (s *Store) ListUserMemberships(ctx context.Context, user accesstypes.User) 
 	return memberships, nil
 }
 
-// ListRoleUsers returns the role's members in scope, sorted.
+// ListRoleUsers returns the people who hold the role in scope now, sorted.
 func (s *Store) ListRoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error) {
 	kind, axis, domain := policy.ScopeColumns(scope)
 	stmt := spanner.Statement{SQL: s.sqlListRoleUsers, Params: map[string]any{paramKind: kind, paramAxis: axis, paramDomain: domain, paramRole: string(role)}}
@@ -432,8 +512,9 @@ func (s *Store) ListRoles(ctx context.Context, scope accesstypes.PolicyScope) ([
 
 // DeleteRole deletes the (scope, role) row through DML so the affected count
 // is known. Its grants cascade (interleaved ON DELETE CASCADE); memberships
-// held in the scope block the delete, checked in the delete's own read-write
-// transaction since nothing in the schema ties a membership to a role row.
+// held in the scope that have not ended block the delete, checked in the
+// delete's own read-write transaction since nothing in the schema ties a
+// membership to a role row, and the ended ones go with the role.
 func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	kind, axis, domain := policy.ScopeColumns(scope)
 	params := map[string]any{paramKind: kind, paramAxis: axis, paramDomain: domain, paramRole: string(role)}
@@ -442,7 +523,7 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 		iter := txn.Query(ctx, spanner.Statement{SQL: s.sqlRoleHasMembers, Params: params})
 		defer iter.Stop()
 		if _, err := iter.Next(); err == nil {
-			return errors.Newf("role %q in scope %s still has members", role, scope)
+			return errors.Wrapf(policy.ErrStillAssigned, "role %q in scope %s still has members", role, scope)
 		} else if !errors.Is(err, iterator.Done) {
 			return errors.Wrap(err, "spanner.RowIterator.Next() role members")
 		}
@@ -452,6 +533,14 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
 		}
 		deleted = count > 0
+		if !deleted {
+			// No row of the role: the name may be a default role's, whose
+			// memberships are not this delete's to touch.
+			return nil
+		}
+		if _, err := txn.Update(ctx, spanner.Statement{SQL: s.sqlDeleteEndedMembers, Params: params}); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update() ended memberships")
+		}
 
 		return nil
 	})

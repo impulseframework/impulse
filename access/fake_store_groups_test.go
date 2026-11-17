@@ -23,19 +23,20 @@ type fakeGroupRole struct {
 
 // fakeGroups is the fake store's group tables, honoring the stores' contract:
 // a name held to one group where it is kept, members and roles that need the
-// group's row, and a delete refused until the group is emptied. The zero value
+// group's row, and a delete refused until the group is emptied. A member's row
+// and a role's each hold the period the assignment counts in. The zero value
 // is ready.
 type fakeGroups struct {
 	rows    map[accesstypes.Group]policy.GroupRow
-	members map[fakeGroupMember]bool
-	held    map[fakeGroupRole]bool
+	members map[fakeGroupMember]accesstypes.Period
+	held    map[fakeGroupRole]accesstypes.Period
 }
 
 func (g *fakeGroups) ready() {
 	if g.rows == nil {
 		g.rows = make(map[accesstypes.Group]policy.GroupRow)
-		g.members = make(map[fakeGroupMember]bool)
-		g.held = make(map[fakeGroupRole]bool)
+		g.members = make(map[fakeGroupMember]accesstypes.Period)
+		g.held = make(map[fakeGroupRole]accesstypes.Period)
 	}
 }
 
@@ -46,14 +47,15 @@ func (f *fakeStore) groupRecords(records *policy.Records) {
 	for _, row := range f.groups.rows {
 		records.Groups = append(records.Groups, row.Group)
 	}
-	for m := range f.groups.members {
-		records.GroupMembers = append(records.GroupMembers, policy.GroupMember{Group: m.group, User: m.user})
+	for m, period := range f.groups.members {
+		records.GroupMembers = append(records.GroupMembers, policy.GroupMember{Group: m.group, User: m.user, Period: period})
 	}
-	for r := range f.groups.held {
+	for r, period := range f.groups.held {
 		records.Memberships = append(records.Memberships, policy.Membership{
 			Scope:  r.scope,
 			Member: policy.Subject{Kind: policy.SubjectGroup, Name: string(r.group)},
 			Role:   r.role,
+			Period: period,
 		})
 	}
 }
@@ -117,14 +119,25 @@ func (f *fakeStore) SetGroupDescription(_ context.Context, group accesstypes.Gro
 func (f *fakeStore) DeleteGroup(_ context.Context, group accesstypes.Group) (bool, error) {
 	var deleted bool
 	err := f.locked(func() error {
+		for m, period := range f.groups.members {
+			if m.group == group && !period.Ended(f.now()) {
+				return errors.Wrapf(policy.ErrStillAssigned, "group %s still has members", group)
+			}
+		}
+		for r, period := range f.groups.held {
+			if r.group == group && !period.Ended(f.now()) {
+				return errors.Wrapf(policy.ErrStillAssigned, "group %s still has roles", group)
+			}
+		}
+		// The members and the roles that have ended go with the group.
 		for m := range f.groups.members {
 			if m.group == group {
-				return errors.Newf("group %s still has members", group)
+				delete(f.groups.members, m)
 			}
 		}
 		for r := range f.groups.held {
 			if r.group == group {
-				return errors.Newf("group %s still has roles", group)
+				delete(f.groups.held, r)
 			}
 		}
 		_, deleted = f.groups.rows[group]
@@ -165,12 +178,13 @@ func (f *fakeStore) ListGroups(_ context.Context, scope accesstypes.PolicyScope)
 	return groups, err
 }
 
-func (f *fakeStore) InsertGroupMember(_ context.Context, group accesstypes.Group, user accesstypes.User) error {
+func (f *fakeStore) InsertGroupMember(_ context.Context, group accesstypes.Group, user accesstypes.User, period accesstypes.Period) error {
 	return f.locked(func() error {
 		if _, ok := f.groups.rows[group]; !ok {
 			return errors.Newf("group %s does not exist", group)
 		}
-		f.groups.members[fakeGroupMember{group, user}] = true
+		f.groups.members[fakeGroupMember{group, user}] = period
+		f.writes++
 
 		return nil
 	})
@@ -187,8 +201,8 @@ func (f *fakeStore) DeleteGroupMember(_ context.Context, group accesstypes.Group
 func (f *fakeStore) ListGroupMembers(_ context.Context, group accesstypes.Group) ([]accesstypes.User, error) {
 	users := make([]accesstypes.User, 0)
 	err := f.locked(func() error {
-		for m := range f.groups.members {
-			if m.group == group {
+		for m, period := range f.groups.members {
+			if m.group == group && period.Contains(f.now()) {
 				users = append(users, m.user)
 			}
 		}
@@ -203,8 +217,8 @@ func (f *fakeStore) ListGroupMembers(_ context.Context, group accesstypes.Group)
 func (f *fakeStore) ListUserGroups(_ context.Context, user accesstypes.User) ([]policy.GroupRow, error) {
 	groups := make([]policy.GroupRow, 0)
 	err := f.locked(func() error {
-		for m := range f.groups.members {
-			if m.user == user {
+		for m, period := range f.groups.members {
+			if m.user == user && period.Contains(f.now()) {
 				groups = append(groups, f.groups.rows[m.group])
 			}
 		}
@@ -216,12 +230,13 @@ func (f *fakeStore) ListUserGroups(_ context.Context, user accesstypes.User) ([]
 	return groups, err
 }
 
-func (f *fakeStore) InsertGroupRole(_ context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) error {
+func (f *fakeStore) InsertGroupRole(_ context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
 	return f.locked(func() error {
 		if _, ok := f.groups.rows[group]; !ok {
 			return errors.Newf("group %s does not exist", group)
 		}
-		f.groups.held[fakeGroupRole{group, scope, role}] = true
+		f.groups.held[fakeGroupRole{group, scope, role}] = period
+		f.writes++
 
 		return nil
 	})
@@ -238,9 +253,9 @@ func (f *fakeStore) DeleteGroupRole(_ context.Context, group accesstypes.Group, 
 func (f *fakeStore) ListGroupRoles(_ context.Context, group accesstypes.Group) ([]policy.Membership, error) {
 	roles := make([]policy.Membership, 0)
 	err := f.locked(func() error {
-		for r := range f.groups.held {
-			if r.group == group {
-				roles = append(roles, policy.Membership{Scope: r.scope, Member: policy.Subject{Kind: policy.SubjectGroup, Name: string(group)}, Role: r.role})
+		for r, period := range f.groups.held {
+			if r.group == group && period.Contains(f.now()) {
+				roles = append(roles, policy.Membership{Scope: r.scope, Member: policy.Subject{Kind: policy.SubjectGroup, Name: string(group)}, Role: r.role, Period: period})
 			}
 		}
 		slices.SortFunc(roles, func(a, b policy.Membership) int {
@@ -260,12 +275,12 @@ func (f *fakeStore) ListGroupRoles(_ context.Context, group accesstypes.Group) (
 func (f *fakeStore) ListUserGroupRoles(_ context.Context, user accesstypes.User) ([]policy.GroupRole, error) {
 	roles := make([]policy.GroupRole, 0)
 	err := f.locked(func() error {
-		for m := range f.groups.members {
-			if m.user != user {
+		for m, in := range f.groups.members {
+			if m.user != user || !in.Contains(f.now()) {
 				continue
 			}
-			for r := range f.groups.held {
-				if r.group == m.group {
+			for r, held := range f.groups.held {
+				if r.group == m.group && held.Contains(f.now()) {
 					roles = append(roles, policy.GroupRole{Group: f.groups.rows[m.group].Group, Scope: r.scope, Role: r.role})
 				}
 			}

@@ -69,6 +69,7 @@ func Run(t *testing.T, store access.Store) {
 	t.Run("global and every domain", func(t *testing.T) { runPartitions(t, store) })
 	t.Run("delete role", func(t *testing.T) { runDeleteRole(t, store) })
 	t.Run("groups", func(t *testing.T) { runGroups(t, store) })
+	t.Run("periods", func(t *testing.T) { runPeriods(t, store) })
 	t.Run("read policy", func(t *testing.T) { runReadPolicy(t, store) })
 }
 
@@ -125,7 +126,7 @@ func runMemberships(t *testing.T, store access.Store) {
 
 	// A membership names its role by name alone: the release's default roles
 	// have no row, so no row is required.
-	if err := store.InsertUserRole(ctx, tenant1, alice, chief); err != nil {
+	if err := store.InsertUserRole(ctx, tenant1, alice, chief, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertUserRole() of a role with no row must succeed, got error = %v", err)
 	}
 
@@ -137,11 +138,11 @@ func runMemberships(t *testing.T, store access.Store) {
 		{alice, viewer},
 		{bob, editor},
 	} {
-		if err := store.InsertUserRole(ctx, tenant1, m.user, m.role); err != nil {
+		if err := store.InsertUserRole(ctx, tenant1, m.user, m.role, accesstypes.Period{}); err != nil {
 			t.Fatalf("InsertUserRole(%q, %q) error = %v", m.user, m.role, err)
 		}
 	}
-	if err := store.InsertUserRole(ctx, tenant1, alice, editor); err != nil {
+	if err := store.InsertUserRole(ctx, tenant1, alice, editor, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertUserRole() re-insert must be a no-op, got error = %v", err)
 	}
 
@@ -194,11 +195,11 @@ func runUserMemberships(t *testing.T, store access.Store) {
 		{globalScope, admin},
 		{everyDomain, chief},
 	} {
-		if err := store.InsertUserRole(ctx, m.scope, alice, m.role); err != nil {
+		if err := store.InsertUserRole(ctx, m.scope, alice, m.role, accesstypes.Period{}); err != nil {
 			t.Fatalf("InsertUserRole(%v, %q) error = %v", m.scope, m.role, err)
 		}
 	}
-	if err := store.InsertUserRole(ctx, everyDomain, carol, chief); err != nil {
+	if err := store.InsertUserRole(ctx, everyDomain, carol, chief, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 
@@ -515,7 +516,7 @@ func runDeleteRole(t *testing.T, store access.Store) {
 	}
 
 	// A membership in another scope does not block.
-	if err := store.InsertUserRole(ctx, tenant2, bob, editor); err != nil {
+	if err := store.InsertUserRole(ctx, tenant2, bob, editor, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 	if err := store.DeleteUserRole(ctx, tenant1, alice, editor); err != nil {
@@ -547,7 +548,7 @@ func runDeleteRole(t *testing.T, store access.Store) {
 	// Memberships block by name: a membership naming a role with no row still
 	// refuses the delete, and once it is gone the delete of the absent role
 	// is the no-op.
-	if err := store.InsertUserRole(ctx, tenant1, alice, chief); err != nil {
+	if err := store.InsertUserRole(ctx, tenant1, alice, chief, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 	if _, err := store.DeleteRole(ctx, tenant1, chief); err == nil {
@@ -579,7 +580,7 @@ func runReadPolicy(t *testing.T, store access.Store) {
 	if err := store.InsertGrant(ctx, tenant1, viewer, readPerm, widgets, "name", "owner = @subject"); err != nil {
 		t.Fatalf("InsertGrant() error = %v", err)
 	}
-	if err := store.InsertUserRole(ctx, everyDomain, carol, chief); err != nil {
+	if err := store.InsertUserRole(ctx, everyDomain, carol, chief, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertUserRole() error = %v", err)
 	}
 

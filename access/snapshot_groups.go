@@ -16,7 +16,9 @@ import (
 // check reads a person's grants exactly as it does without groups and costs
 // what it costs without them. Nothing of a group survives the fold: when a
 // person leaves a group, a group loses a role, or a group's rows are gone, the
-// next snapshot simply holds no membership from it.
+// next snapshot simply holds no membership from it. A person's place in a group
+// and a group's role may each carry a period, and the membership the fold makes
+// of the two counts while both do.
 
 // SkippedGroupRole reports a role the policy store holds for a group of people
 // that the running release does not give the group's members: the group's own
@@ -79,6 +81,8 @@ func groupRoleRefusal(kept, scope accesstypes.PolicyScope, role accesstypes.Role
 // reported. A person who holds a role of their own and through a group, or
 // through two groups, comes out with the membership more than once; the
 // compiler keeps a role once per person, so the two neither add up nor cancel.
+// Each folded membership carries the period in which the person's place and
+// the group's role both count.
 func foldGroups(records *policy.Records) ([]policy.Membership, []policyFinding) {
 	heldByGroup := func(m policy.Membership) bool { return m.Member.Kind == policy.SubjectGroup }
 	if !slices.ContainsFunc(records.Memberships, heldByGroup) {
@@ -90,16 +94,17 @@ func foldGroups(records *policy.Records) ([]policy.Membership, []policyFinding) 
 	for _, group := range records.Groups {
 		kept[group.ID] = group.Scope
 	}
-	members := make(map[accesstypes.Group][]accesstypes.User)
+	members := make(map[accesstypes.Group][]policy.GroupMember)
 	for _, member := range records.GroupMembers {
-		members[member.Group] = append(members[member.Group], member.User)
+		members[member.Group] = append(members[member.Group], member)
 	}
 
 	folded := make([]policy.Membership, 0, len(records.Memberships))
 	var findings []policyFinding
-	for _, m := range records.Memberships {
-		if !heldByGroup(m) {
-			folded = append(folded, m)
+	for i := range records.Memberships {
+		m := &records.Memberships[i]
+		if !heldByGroup(*m) {
+			folded = append(folded, *m)
 
 			continue
 		}
@@ -114,8 +119,13 @@ func foldGroups(records *policy.Records) ([]policy.Membership, []policyFinding) 
 
 			continue
 		}
-		for _, user := range members[group] {
-			folded = append(folded, policy.Membership{Scope: m.Scope, Member: policy.Subject{Kind: policy.SubjectUser, Name: string(user)}, Role: m.Role})
+		for _, member := range members[group] {
+			folded = append(folded, policy.Membership{
+				Scope:  m.Scope,
+				Member: policy.Subject{Kind: policy.SubjectUser, Name: string(member.User)},
+				Role:   m.Role,
+				Period: m.Period.Intersect(member.Period),
+			})
 		}
 	}
 

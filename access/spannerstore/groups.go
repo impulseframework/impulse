@@ -39,6 +39,7 @@ type groupStatements struct {
 	deleteGroup    string
 	hasMembers     string
 	hasRoles       string
+	deleteEnded    []string
 	group          string
 	listGroups     string
 	listMembers    string
@@ -54,21 +55,25 @@ func newGroupStatements(n *tableNames) groupStatements {
 	return groupStatements{
 		setDescription: fmt.Sprintf("UPDATE %s SET Description = @description, UpdatedAt = PENDING_COMMIT_TIMESTAMP() WHERE Id = @group", n.groups),
 		deleteGroup:    fmt.Sprintf("DELETE FROM %s WHERE Id = @group", n.groups),
-		hasMembers:     fmt.Sprintf("SELECT 1 FROM %s WHERE GroupId = @group LIMIT 1", n.groupMembers),
-		hasRoles:       fmt.Sprintf("SELECT 1 FROM %s WHERE GroupId = @group LIMIT 1", n.groupRoles),
-		group:          fmt.Sprintf("SELECT Id, Kind, Axis, DomainId, Name, Description FROM %s WHERE Id = @group", n.groups),
+		hasMembers:     fmt.Sprintf("SELECT 1 FROM %s WHERE GroupId = @group AND %s LIMIT 1", n.groupMembers, standing("")),
+		hasRoles:       fmt.Sprintf("SELECT 1 FROM %s WHERE GroupId = @group AND %s LIMIT 1", n.groupRoles, standing("")),
+		deleteEnded: []string{
+			fmt.Sprintf("DELETE FROM %s WHERE GroupId = @group AND %s", n.groupMembers, ended),
+			fmt.Sprintf("DELETE FROM %s WHERE GroupId = @group AND %s", n.groupRoles, ended),
+		},
+		group: fmt.Sprintf("SELECT Id, Kind, Axis, DomainId, Name, Description FROM %s WHERE Id = @group", n.groups),
 		listGroups: fmt.Sprintf("SELECT Id, Kind, Axis, DomainId, Name, Description FROM %s@{FORCE_INDEX=%s} WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain ORDER BY Name",
 			n.groups, n.groupsByName),
-		listMembers: fmt.Sprintf("SELECT UserId FROM %s WHERE GroupId = @group ORDER BY UserId", n.groupMembers),
-		listUserGroups: fmt.Sprintf("SELECT g.Id, g.Kind, g.Axis, g.DomainId, g.Name, g.Description FROM %s@{FORCE_INDEX=%s} m JOIN %s g ON g.Id = m.GroupId WHERE m.UserId = @user ORDER BY g.Id",
-			n.groupMembers, n.groupMembersIndex, n.groups),
-		listRoles: fmt.Sprintf("SELECT Kind, Axis, DomainId, Role FROM %s WHERE GroupId = @group ORDER BY Kind, Axis, DomainId, Role", n.groupRoles),
+		listMembers: fmt.Sprintf("SELECT UserId FROM %s WHERE GroupId = @group AND %s ORDER BY UserId", n.groupMembers, counting("")),
+		listUserGroups: fmt.Sprintf("SELECT g.Id, g.Kind, g.Axis, g.DomainId, g.Name, g.Description FROM %s@{FORCE_INDEX=%s} m JOIN %s g ON g.Id = m.GroupId WHERE m.UserId = @user AND %s ORDER BY g.Id",
+			n.groupMembers, n.groupMembersIndex, n.groups, counting("m.")),
+		listRoles: fmt.Sprintf("SELECT Kind, Axis, DomainId, Role, StartsAt, EndsAt FROM %s WHERE GroupId = @group AND %s ORDER BY Kind, Axis, DomainId, Role", n.groupRoles, counting("")),
 		listUserRoles: fmt.Sprintf(`SELECT g.Id, g.Kind, g.Axis, g.DomainId, r.Kind, r.Axis, r.DomainId, r.Role
 FROM %s@{FORCE_INDEX=%s} m JOIN %s g ON g.Id = m.GroupId JOIN %s r ON r.GroupId = m.GroupId
-WHERE m.UserId = @user ORDER BY r.Kind, r.Axis, r.DomainId, r.Role, g.Id`, n.groupMembers, n.groupMembersIndex, n.groups, n.groupRoles),
+WHERE m.UserId = @user AND %s AND %s ORDER BY r.Kind, r.Axis, r.DomainId, r.Role, g.Id`, n.groupMembers, n.groupMembersIndex, n.groups, n.groupRoles, counting("m."), counting("r.")),
 		readGroups:  fmt.Sprintf("SELECT Id, Kind, Axis, DomainId FROM %s", n.groups),
-		readMembers: fmt.Sprintf("SELECT GroupId, UserId FROM %s", n.groupMembers),
-		readRoles:   fmt.Sprintf("SELECT GroupId, Kind, Axis, DomainId, Role FROM %s", n.groupRoles),
+		readMembers: fmt.Sprintf("SELECT GroupId, UserId, StartsAt, EndsAt FROM %s", n.groupMembers),
+		readRoles:   fmt.Sprintf("SELECT GroupId, Kind, Axis, DomainId, Role, StartsAt, EndsAt FROM %s", n.groupRoles),
 	}
 }
 
@@ -93,6 +98,8 @@ func (s *Store) groupDDL() []string {
 		fmt.Sprintf(`CREATE TABLE %s (
   GroupId STRING(36) NOT NULL,
   UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT %sGroup FOREIGN KEY (GroupId) REFERENCES %s (Id),
 ) PRIMARY KEY (GroupId, UserId)`, n.groupMembers, n.groupMembers, n.groups),
@@ -103,6 +110,8 @@ func (s *Store) groupDDL() []string {
   Axis STRING(128) NOT NULL,
   DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT %sKind CHECK (Kind IN ('%s', '%s', '%s')),
   CONSTRAINT %sGroup FOREIGN KEY (GroupId) REFERENCES %s (Id),
@@ -133,10 +142,11 @@ func (s *Store) readGroups(ctx context.Context, txn *spanner.ReadOnlyTransaction
 
 	err = txn.Query(ctx, spanner.Statement{SQL: s.groups.readMembers}).Do(func(row *spanner.Row) error {
 		var group, user string
-		if err := row.Columns(&group, &user); err != nil {
+		var start, end spanner.NullTime
+		if err := row.Columns(&group, &user, &start, &end); err != nil {
 			return errors.Wrap(err, "spanner.Row.Columns()")
 		}
-		records.GroupMembers = append(records.GroupMembers, policy.GroupMember{Group: accesstypes.Group(group), User: accesstypes.User(user)})
+		records.GroupMembers = append(records.GroupMembers, policy.GroupMember{Group: accesstypes.Group(group), User: accesstypes.User(user), Period: periodOf(start, end)})
 
 		return nil
 	})
@@ -146,7 +156,8 @@ func (s *Store) readGroups(ctx context.Context, txn *spanner.ReadOnlyTransaction
 
 	err = txn.Query(ctx, spanner.Statement{SQL: s.groups.readRoles}).Do(func(row *spanner.Row) error {
 		var group, kind, axis, domain, role string
-		if err := row.Columns(&group, &kind, &axis, &domain, &role); err != nil {
+		var start, end spanner.NullTime
+		if err := row.Columns(&group, &kind, &axis, &domain, &role, &start, &end); err != nil {
 			return errors.Wrap(err, "spanner.Row.Columns()")
 		}
 		scope, err := policy.ScopeFromColumns(kind, axis, domain)
@@ -157,6 +168,7 @@ func (s *Store) readGroups(ctx context.Context, txn *spanner.ReadOnlyTransaction
 			Scope:  scope,
 			Member: policy.Subject{Kind: policy.SubjectGroup, Name: group},
 			Role:   accesstypes.Role(role),
+			Period: periodOf(start, end),
 		})
 
 		return nil
@@ -210,8 +222,9 @@ func (s *Store) SetGroupDescription(ctx context.Context, group accesstypes.Group
 }
 
 // DeleteGroup deletes the group's row and reports whether it was there. A
-// group that still has a member or a role is refused, checked in the delete's
-// own transaction; the foreign keys of the two tables stand behind the check.
+// group that still has a member or a role that has not ended is refused,
+// checked in the delete's own transaction; the ended ones go with the group,
+// and the foreign keys of the two tables stand behind the check.
 func (s *Store) DeleteGroup(ctx context.Context, group accesstypes.Group) (bool, error) {
 	params := map[string]any{paramGroup: string(group)}
 	var deleted bool
@@ -222,7 +235,12 @@ func (s *Store) DeleteGroup(ctx context.Context, group accesstypes.Group) (bool,
 				return err
 			}
 			if held {
-				return errors.Newf("group %s still has %s", group, check.what)
+				return errors.Wrapf(policy.ErrStillAssigned, "group %s still has %s", group, check.what)
+			}
+		}
+		for _, sql := range s.groups.deleteEnded {
+			if _, err := txn.Update(ctx, spanner.Statement{SQL: sql, Params: params}); err != nil {
+				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update() ended rows")
 			}
 		}
 		count, err := txn.Update(ctx, spanner.Statement{SQL: s.groups.deleteGroup, Params: params})
@@ -303,14 +321,14 @@ func (s *Store) queryGroups(ctx context.Context, stmt spanner.Statement) ([]poli
 	return groups, nil
 }
 
-// InsertGroupMember adds one person to a group; adding one who is there is a
-// no-op. The group's row must exist.
-func (s *Store) InsertGroupMember(ctx context.Context, group accesstypes.Group, user accesstypes.User) error {
-	m := spanner.Insert(s.names.groupMembers,
-		[]string{colGroupID, colUser, colCreatedAt},
-		[]any{string(group), string(user), spanner.CommitTimestamp})
-
-	return s.insertIgnoreExists(ctx, m, "spanner.Client.Apply() insert group member")
+// InsertGroupMember gives one person's place in a group its period: the person
+// is added where they are not in the group, and their place given the new
+// period where they are. The group's row must exist.
+func (s *Store) InsertGroupMember(ctx context.Context, group accesstypes.Group, user accesstypes.User, period accesstypes.Period) error {
+	return s.assign(ctx, s.names.groupMembers,
+		[]string{colGroupID, colUser},
+		spanner.Key{string(group), string(user)},
+		period, "spanner.Client.ReadWriteTransaction() assign group member")
 }
 
 // DeleteGroupMember removes one person from a group; removing one who is not
@@ -324,7 +342,7 @@ func (s *Store) DeleteGroupMember(ctx context.Context, group accesstypes.Group, 
 	return nil
 }
 
-// ListGroupMembers returns the group's members, sorted.
+// ListGroupMembers returns the people in the group now, sorted.
 func (s *Store) ListGroupMembers(ctx context.Context, group accesstypes.Group) ([]accesstypes.User, error) {
 	values, err := s.queryStrings(ctx, spanner.Statement{SQL: s.groups.listMembers, Params: map[string]any{paramGroup: string(group)}})
 	if err != nil {
@@ -338,16 +356,16 @@ func (s *Store) ListGroupMembers(ctx context.Context, group accesstypes.Group) (
 	return users, nil
 }
 
-// InsertGroupRole adds one role a group holds in scope; adding one it holds
-// there is a no-op. The group's row must exist; the role is named by name
-// alone.
-func (s *Store) InsertGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) error {
+// InsertGroupRole gives one role a group holds in scope its period: the role is
+// added where the group does not hold it there, and given the new period where
+// it does. The group's row must exist; the role is named by name alone.
+func (s *Store) InsertGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
 	kind, axis, domain := policy.ScopeColumns(scope)
-	m := spanner.Insert(s.names.groupRoles,
-		[]string{colGroupID, colKind, colAxis, colDomain, colRole, colCreatedAt},
-		[]any{string(group), kind, axis, domain, string(role), spanner.CommitTimestamp})
 
-	return s.insertIgnoreExists(ctx, m, "spanner.Client.Apply() insert group role")
+	return s.assign(ctx, s.names.groupRoles,
+		[]string{colGroupID, colKind, colAxis, colDomain, colRole},
+		spanner.Key{string(group), kind, axis, domain, string(role)},
+		period, "spanner.Client.ReadWriteTransaction() assign group role")
 }
 
 // DeleteGroupRole removes one role a group holds in scope; removing one it
@@ -362,20 +380,27 @@ func (s *Store) DeleteGroupRole(ctx context.Context, group accesstypes.Group, sc
 	return nil
 }
 
-// ListGroupRoles returns the roles the group holds, sorted by scope then role.
+// ListGroupRoles returns the roles the group holds now, sorted by scope then
+// role.
 func (s *Store) ListGroupRoles(ctx context.Context, group accesstypes.Group) ([]policy.Membership, error) {
 	roles := make([]policy.Membership, 0)
 	stmt := spanner.Statement{SQL: s.groups.listRoles, Params: map[string]any{paramGroup: string(group)}}
 	err := s.client.Single().Query(ctx, stmt).Do(func(row *spanner.Row) error {
 		var kind, axis, domain, role string
-		if err := row.Columns(&kind, &axis, &domain, &role); err != nil {
+		var start, end spanner.NullTime
+		if err := row.Columns(&kind, &axis, &domain, &role, &start, &end); err != nil {
 			return errors.Wrap(err, "spanner.Row.Columns()")
 		}
 		scope, err := policy.ScopeFromColumns(kind, axis, domain)
 		if err != nil {
 			return errors.Wrap(err, "policy.ScopeFromColumns()")
 		}
-		roles = append(roles, policy.Membership{Scope: scope, Member: policy.Subject{Kind: policy.SubjectGroup, Name: string(group)}, Role: accesstypes.Role(role)})
+		roles = append(roles, policy.Membership{
+			Scope:  scope,
+			Member: policy.Subject{Kind: policy.SubjectGroup, Name: string(group)},
+			Role:   accesstypes.Role(role),
+			Period: periodOf(start, end),
+		})
 
 		return nil
 	})
@@ -386,8 +411,8 @@ func (s *Store) ListGroupRoles(ctx context.Context, group accesstypes.Group) ([]
 	return roles, nil
 }
 
-// ListUserGroupRoles returns every role held by a group the user is in, each
-// with its group, read through the members' index by user.
+// ListUserGroupRoles returns every role held now by a group the user is in
+// now, each with its group, read through the members' index by user.
 func (s *Store) ListUserGroupRoles(ctx context.Context, user accesstypes.User) ([]policy.GroupRole, error) {
 	roles := make([]policy.GroupRole, 0)
 	stmt := spanner.Statement{SQL: s.groups.listUserRoles, Params: map[string]any{paramUser: string(user)}}

@@ -12,6 +12,7 @@ import (
 	"hash"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -68,10 +69,15 @@ type Grant struct {
 // which the compiler folds at load time into a membership of each person in
 // the group; a role member expresses role inheritance, folded at load time
 // too. The typed stores produce user and group members.
+//
+// Period is when the membership counts. The zero Period is no start and no
+// end, which is every membership a store wrote without one and every
+// inheritance edge.
 type Membership struct {
 	Scope  accesstypes.PolicyScope
 	Member Subject
 	Role   accesstypes.Role
+	Period accesstypes.Period
 }
 
 // Role is one custom role row: a role that exists where its Scope says
@@ -110,10 +116,13 @@ type GroupRow struct {
 	Description string
 }
 
-// GroupMember is one person's place in a group.
+// GroupMember is one person's place in a group, with the period it counts in:
+// the person holds the group's roles while their place and the group's role
+// both count.
 type GroupMember struct {
-	Group accesstypes.Group
-	User  accesstypes.User
+	Group  accesstypes.Group
+	User   accesstypes.User
+	Period accesstypes.Period
 }
 
 // GroupRole is one role a group holds, with the group it belongs to as a
@@ -124,6 +133,14 @@ type GroupRole struct {
 	Scope accesstypes.PolicyScope
 	Role  accesstypes.Role
 }
+
+// ErrStillAssigned is the refusal of a deletion that assignments stand in the
+// way of: a role that people hold now or will, a group that has a member or a
+// role now or will. A store wraps it, so the access package tells the refusal
+// from a failure and says it to the caller in words. The listings above the
+// store leave out an assignment whose period has not begun, so the store's own
+// check is the one that sees it.
+var ErrStillAssigned = errors.New("assignments that have not ended stand in the way")
 
 // Records is a reader's complete, store-agnostic output.
 type Records struct {
@@ -145,8 +162,9 @@ type RoleGrant struct {
 
 // Hash returns a canonical content hash of the records: independent of row
 // order (stores return rows in arbitrary order) but sensitive to any change
-// in effective policy. The heartbeat compares it to decide whether a fresh
-// read needs a recompile and snapshot swap.
+// in effective policy, an assignment's period among them. The heartbeat
+// compares it to decide whether a fresh read needs a recompile and snapshot
+// swap.
 func (r *Records) Hash() [sha256.Size]byte {
 	grants := slices.Clone(r.Grants)
 	slices.SortFunc(grants, compareGrants)
@@ -176,6 +194,7 @@ func (r *Records) Hash() [sha256.Size]byte {
 		hashByte(h, byte(m.Member.Kind))
 		hashString(h, m.Member.Name)
 		hashString(h, string(m.Role))
+		hashPeriod(h, m.Period)
 	}
 	for _, role := range roles {
 		hashString(h, "r")
@@ -191,6 +210,7 @@ func (r *Records) Hash() [sha256.Size]byte {
 		hashString(h, "M")
 		hashString(h, string(member.Group))
 		hashString(h, string(member.User))
+		hashPeriod(h, member.Period)
 	}
 
 	return [sha256.Size]byte(h.Sum(nil))
@@ -214,6 +234,7 @@ func compareMemberships(a, b Membership) int {
 		int(a.Member.Kind)-int(b.Member.Kind),
 		strings.Compare(a.Member.Name, b.Member.Name),
 		strings.Compare(string(a.Role), string(b.Role)),
+		comparePeriods(a.Period, b.Period),
 	)
 }
 
@@ -226,7 +247,13 @@ func compareGroups(a, b Group) int {
 }
 
 func compareGroupMembers(a, b GroupMember) int {
-	return cmpChain(strings.Compare(string(a.Group), string(b.Group)), strings.Compare(string(a.User), string(b.User)))
+	return cmpChain(strings.Compare(string(a.Group), string(b.Group)), strings.Compare(string(a.User), string(b.User)), comparePeriods(a.Period, b.Period))
+}
+
+// comparePeriods orders two periods by start then end. A store holds one row
+// for a membership's key, so the order only settles records built by hand.
+func comparePeriods(a, b accesstypes.Period) int {
+	return cmpChain(a.Start.Compare(b.Start), a.End.Compare(b.End))
 }
 
 // CompareScopes orders two places policy is held by their stored column
@@ -332,6 +359,22 @@ func hashString(h hash.Hash, s string) {
 
 func hashByte(h hash.Hash, b byte) {
 	h.Write([]byte{b})
+}
+
+// hashPeriod writes a period's two instants, each as the nanoseconds since the
+// epoch behind a byte that says whether it is there: no start and a start at
+// the epoch hash apart.
+func hashPeriod(h hash.Hash, p accesstypes.Period) {
+	for _, instant := range []time.Time{p.Start, p.End} {
+		var nanos [8]byte
+		if instant.IsZero() {
+			hashByte(h, 0)
+		} else {
+			hashByte(h, 1)
+			binary.BigEndian.PutUint64(nanos[:], uint64(instant.UnixNano()))
+		}
+		h.Write(nanos[:])
+	}
 }
 
 // hashScope writes a scope's structural triple (kind, axis, domain).

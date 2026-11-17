@@ -42,9 +42,10 @@ The `access.Store` interface the two subpackages implement is sealed: only this 
 - `Roles` holds custom roles only, each with the description it was created with.
 - `UserRoles` stands alone. A membership names its role by name alone, since a default role has no row to reference, so `InsertUserRole` writes by role name; the access package checks that the name resolves before it writes. An index led by the user (`{Prefix}{Store}UserRolesByUserID`) serves `ListUserMemberships`, which lists every membership a user holds wherever it is held.
 - `RoleGrants` belongs to its custom role: interleaved in `Roles` on Spanner and a foreign key on PostgreSQL, both with cascading delete. A grant needs its role's row, and deleting a custom role deletes its grants.
-- `DeleteRole` refuses while memberships held in that scope still name the role, checked in the same transaction as the delete.
+- `DeleteRole` refuses while memberships held in that scope that have not ended still name the role, checked in the same transaction as the delete, and takes the ended ones with the role.
+- A membership, a place in a group and a group's role each carry the period they count in, in two nullable columns, `StartsAt` and `EndsAt` (see Periods). An insert gives the row its period: it writes the row where the key is free, and where it is taken it replaces the period and leaves the rest of the row as it was. No row is written when a period begins or ends. The listings of what a person or a group holds return the rows that count at the database's present; `ReadPolicy` returns every row with its period.
 - `Groups` holds the groups of people, each under an id the access package generates, with where it is kept (`Kind` is `global` or `domain`, checked in the database: no group is kept in every domain), its name and its description. A unique index (`{Prefix}{Store}GroupsByName`) holds a name to one group where the group is kept.
-- `GroupMembers` holds the people in each group and `GroupRoles` the roles each group holds, a role named by name alone as a membership names it. Both reference their group (a foreign key in both stores), so `DeleteGroup` refuses a group that still has a member or holds a role, checked in the same transaction as the delete, and the database stands behind the check. An index led by the user (`{Prefix}{Store}GroupMembersByUserId`) serves the groups a person is in, and one led by where a role is held (`{Prefix}{Store}GroupRolesByScope`) serves the group roles held in one tenant.
+- `GroupMembers` holds the people in each group and `GroupRoles` the roles each group holds, a role named by name alone as a membership names it. Both reference their group (a foreign key in both stores), so `DeleteGroup` refuses a group that still has a member or holds a role that has not ended, checked in the same transaction as the delete, takes the ended ones with the group, and the database stands behind the check. An index led by the user (`{Prefix}{Store}GroupMembersByUserId`) serves the groups a person is in, and one led by where a role is held (`{Prefix}{Store}GroupRolesByScope`) serves the group roles held in one tenant.
 - `ReadPolicy` reads the custom roles, their grants, the memberships, and the groups with their members and roles, with one consistent view of the store, for the snapshot to compile.
 - Inserting an existing row and deleting an absent one are no-ops, and list results are sorted.
 
@@ -434,6 +435,57 @@ mgr.DeleteGroup(ctx, watch)
   the rows in a transaction of its own and then calls `Controller.PolicyChanged`, as
   `Membership` is for a person's own role
 
+### Periods
+
+A role assignment may carry a period, a start and an end, and counts only inside it: a
+role taken for a task goes away by itself, and nobody has to remember to remove it.
+
+```go
+mgr := client.UserManager()
+tenant1 := accesstypes.DomainPolicyScope("tenant1")
+
+// Until Friday noon, from now: no start is from the moment the role is given.
+friday := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+period, err := accesstypes.NewPeriod(nil, &friday)
+mgr.AssignUserRole(ctx, tenant1, "john.doe", "Editor", period)
+
+// Assigning again replaces the period; with none, the role stands until it is removed.
+mgr.AddUserRoles(ctx, tenant1, "john.doe", "Editor")
+
+// A person's place in a group and a group's role take a period the same way.
+mgr.AssignGroupUser(ctx, watch, "jane.roe", period)
+mgr.AssignGroupRole(ctx, watch, tenant1, "Editor", period)
+```
+
+- Each end of a period is optional: no start is from the moment the assignment is given,
+  and no end is until it is removed. The start is the first instant the assignment counts
+  and the end the first it does not. A period that ends at or before its start is refused
+- It holds at the moment, and nothing is written when a period begins or ends. A check
+  reads the assignments that count at its instant, the Environment's `now`, which is the
+  one a grant's condition folds with, and the engine's own clock where the Environment
+  carries none. `UserRoles`, which a sign-in decides a person by, `RoleUsers`, `GroupUsers`,
+  `GroupRoles` and `UserGroups` leave out an assignment outside its period while its row
+  still stands, read at the database's present
+- A check still costs what it did. The snapshot holds the assignments that count in a
+  window of time, from the latest start or end before its instant until the earliest after
+  it, and the first check past the window compiles the next one from the records it
+  already holds, with no store read. A store whose assignments carry no period compiles
+  one snapshot for all time
+- A person holds a group's role while their place in the group and the group's role both
+  count
+- Changing a period is assigning again: `AssignUserRole`, `AssignGroupUser` and
+  `AssignGroupRole` give the period handed, and the `Add` methods give none. Ending an
+  assignment now is removing it
+- The Super Administrator role takes no end, and no start either (`ValidatePeriod`):
+  there is always a super administrator, and a period could leave none
+- An assignment that has ended stands in nobody's way: `DeleteRole` and `DeleteGroup`
+  take the ended ones with what they delete, and refuse one whose period has not begun
+  as they refuse one that counts
+- Nothing here removes an ended row on a schedule. The identity library removes a
+  person's ended assignments at their next sign-in; until then the row counts for nothing
+- A caller that writes an assignment's row in a transaction of its own asks
+  `ValidatePeriod` before it writes, as it asks `Membership` or `GroupRole` for the key
+
 ### Role Management
 
 ```go
@@ -688,6 +740,9 @@ defines it too.
   directory's role synchronization neither gives the role nor takes it
 - No group holds it (see Groups): it is given to one person at a time, so the rule on who
   makes another super administrator has no way around it
+- It takes no end and no start (see Periods): `AssignUserRole` and `ValidatePeriod`
+  refuse any period on it, since there is always a super administrator and a period could
+  leave none
 
 **Note**: `CheckPolicy` writes nothing, so it is safe to run on every deploy and from any tool. A rollback's binary carries its own role file, and what the store holds that the older release cannot use is reported the same way.
 

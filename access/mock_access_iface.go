@@ -449,6 +449,48 @@ func (mr *MockUserManagerMockRecorder) AddUserRoles(ctx, scope, user any, roles 
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AddUserRoles", reflect.TypeOf((*MockUserManager)(nil).AddUserRoles), varargs...)
 }
 
+// AssignGroupRole mocks base method.
+func (m *MockUserManager) AssignGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AssignGroupRole", ctx, group, scope, role, period)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AssignGroupRole indicates an expected call of AssignGroupRole.
+func (mr *MockUserManagerMockRecorder) AssignGroupRole(ctx, group, scope, role, period any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignGroupRole", reflect.TypeOf((*MockUserManager)(nil).AssignGroupRole), ctx, group, scope, role, period)
+}
+
+// AssignGroupUser mocks base method.
+func (m *MockUserManager) AssignGroupUser(ctx context.Context, group accesstypes.Group, user accesstypes.User, period accesstypes.Period) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AssignGroupUser", ctx, group, user, period)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AssignGroupUser indicates an expected call of AssignGroupUser.
+func (mr *MockUserManagerMockRecorder) AssignGroupUser(ctx, group, user, period any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignGroupUser", reflect.TypeOf((*MockUserManager)(nil).AssignGroupUser), ctx, group, user, period)
+}
+
+// AssignUserRole mocks base method.
+func (m *MockUserManager) AssignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "AssignUserRole", ctx, scope, user, role, period)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// AssignUserRole indicates an expected call of AssignUserRole.
+func (mr *MockUserManagerMockRecorder) AssignUserRole(ctx, scope, user, role, period any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "AssignUserRole", reflect.TypeOf((*MockUserManager)(nil).AssignUserRole), ctx, scope, user, role, period)
+}
+
 // ChangeRoleGrants mocks base method.
 func (m *MockUserManager) ChangeRoleGrants(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, removals, additions []GrantRow) error {
 	m.ctrl.T.Helper()
