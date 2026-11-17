@@ -111,10 +111,11 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 		"crewidentity/crew_sign_up_roles.go": {
 			generationHeader, "// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)\ntype CrewSignUpRole struct {",
 			"// @primarykey\n\t// @attribute(name)\n\tName ", "Description string", `return "CrewSignUpRoles"`,
-			// The list is read as the request's caller, whom the query was checked as:
-			// it lists the roles that caller may give.
-			"func ListCrewSignUpRole(ctx context.Context, qSet *resource.QuerySet[CrewSignUpRole], _ resource.Client, client *Client) iter.Seq2[*CrewSignUpRole, error] {",
-			"client.manager.SignUpRoles(resource.WithCaller(ctx, qSet.Caller()))",
+			// The list asks with the context its frame hands it, which carries the
+			// request's caller (Test_computedResourceHandlerTemplate_caller): it lists
+			// the roles that caller may give.
+			"func ListCrewSignUpRole(ctx context.Context, _ *resource.QuerySet[CrewSignUpRole], _ resource.Client, client *Client) iter.Seq2[*CrewSignUpRole, error] {",
+			"client.manager.SignUpRoles(ctx)",
 		},
 		// Opening a method declares the warning and the word; the default role is picked
 		// from the roles a person who signs up may be given, and is not required of the
