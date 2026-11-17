@@ -461,7 +461,7 @@ method is registered under:
 |---|---|
 | `Name` | The registration's name (`password`, `google`, `entra`, ...). |
 | `OpenSignUp` | Whether the method is open to sign-up. |
-| `OpenedFor` | Whom the method admitted when it was opened, as its registration spells its audience (`signin.Audience.Key()`), or null. The row opens the method for that audience and no other. |
+| `OpenedFor` | Whom the method admitted when it was opened, as its registration spells its audience (`signin.Audience.Key()`): what identifies each organization and each kind of account it admits, never a name of theirs. Null for a row that keeps none. The row opens the method for that audience and no other. |
 | `DefaultRole` | The role a person who signs up through the method is given, or null. An application without tenants names one for every open method; an application with tenants names none, since a person who signs up there creates a tenant of their own. |
 | `UpdatedAt` | When the row was written, by the database's clock. |
 
@@ -489,9 +489,21 @@ the row keeps that audience (`OpenedFor`). The row opens the method only while t
 registration's audience is the one it was opened for: a registration that code widens
 afterwards, from the organizations it named to any organization, say, or by one more
 organization, is invite only again until an administrator opens it for the audience it
-has now, and so is one that code narrows or changes in any other way. The same
-organizations named in another order are the same audience. A row that names no
-audience opens nothing.
+has now, and so is one that code narrows or changes in any other way.
+
+Two audiences are compared by what identifies the people, never by what they are
+called (`signin.Audience.Identities`): a Microsoft Entra tenant by its tenant id, a
+Google Workspace by its domain, a generic OpenID Connect provider by its issuer, and
+each kind of account a method admits outside its organizations by its kind. A name is
+the application's to give, and a second organization can be given the first one's: a
+tenant listed beside another under the same label is one organization more, and a
+tenant put in another's place under its name is another audience, so each is invite
+only until it is opened again. An organization that is renamed, or listed in another
+order, is the same audience, and the method stays open. A row that keeps no audience
+opens nothing, and neither does a row whose `OpenedFor` is not the key of an audience.
+A sign-in method an application builds itself (`signin.Method`) gives its identities in
+`Audience.Identities`; one that gives none is compared by the names it gives, which
+then must be its organizations' alone.
 
 | The person | The method is invite only | The method is open |
 |---|---|---|

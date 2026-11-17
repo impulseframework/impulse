@@ -10,10 +10,12 @@ package e2e
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -117,8 +119,41 @@ func (r rolesNeverAsked) DeleteUserRoles(context.Context, accesstypes.PolicyScop
 func newRulesApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shape *rulesShape) *rulesApp[Tx] {
 	t.Helper()
 
-	h := &hooks[Tx]{rows: be.rows}
 	db, store := be.newStore(ctx, t)
+	a := rulesAppOver(t, be, shape, db, store)
+
+	// An administrator opens a method for the audience its registration has, so the
+	// methods are opened once they are registered, and a method the shape does not
+	// register has nothing to open.
+	registered := map[string]accounts{"entra": shape.entraAccounts}
+	if !shape.entraRoles {
+		registered["google"] = shape.googleAccounts
+	}
+	for name, chosen := range registered {
+		if chosen == openSignUp {
+			openMethod(ctx, t, store, a.api, name, shape.defaultRole)
+		}
+	}
+
+	return a
+}
+
+// release is the application of a later release over the same database: its
+// registrations are shape's, and the rows of the sign-in methods table stand as an
+// administrator wrote them under the release before. Nothing is opened here, whatever
+// shape says was chosen: a release changes code, and the choice is a row.
+func (a *rulesApp[Tx]) release(t *testing.T, be backend[Tx], shape *rulesShape) *rulesApp[Tx] {
+	t.Helper()
+
+	return rulesAppOver(t, be, shape, a.db, a.store)
+}
+
+// rulesAppOver builds the application of shape over a database that is there: the Auth,
+// its registrations against two fakes of their own, and the server.
+func rulesAppOver[Tx any](t *testing.T, be backend[Tx], shape *rulesShape, db appDB, store *sessionstorage.Auth[Tx]) *rulesApp[Tx] {
+	t.Helper()
+
+	h := &hooks[Tx]{rows: be.rows}
 	entraIDP := oidctest.NewFakeEntra(t, "entra-client")
 	googleIDP := oidctest.NewFakeIDP(t, "google-client")
 
@@ -181,19 +216,6 @@ func newRulesApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shap
 	})
 	server := httptest.NewTLSServer(r)
 	t.Cleanup(server.Close)
-
-	// An administrator opens a method for the audience its registration has, so the
-	// methods are opened once they are registered, and a method the shape does not
-	// register has nothing to open.
-	registered := map[string]accounts{"entra": shape.entraAccounts}
-	if workspace != nil {
-		registered["google"] = shape.googleAccounts
-	}
-	for name, chosen := range registered {
-		if chosen == openSignUp {
-			openMethod(ctx, t, store, auth.API(), name, shape.defaultRole)
-		}
-	}
 
 	return &rulesApp[Tx]{
 		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder},
@@ -408,6 +430,10 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 		{
 			name: "a Workspace and a tenant declared Attesting() attest by declaration, so the policy proceeds with an attested-by-declaration event under the connection; evidence still wins where the token carries it",
 			run:  seamRulesAttestedByDeclaration[Tx],
+		},
+		{
+			name: "opened for one tenant: a later release lists a second tenant under the label of the first, and the method is invite only for both until an administrator opens it again, while a person who has an account signs in as before",
+			run:  seamRulesOpenedForOneTenant[Tx],
 		},
 		{
 			name: "any Workspace, invite only: a pre-created person signs in from a Workspace the application never named under its domain as connection, a stranger from another Workspace is refused with not_invited, and an account outside any Workspace is refused",
@@ -790,6 +816,102 @@ func seamRulesListedTenants[Tx any](ctx context.Context, t *testing.T, be backen
 	o := a.browser(t)
 	assertRedirect(t, a.entraSignIn(ctx, o, azureClaims(otherTenant, "oid-o", "o@other.example")), "/login", url.Values{"code": {"unlisted_tenant"}})
 	a.assertNoRow(ctx, t, o, "o@other.example")
+}
+
+// seamRulesOpenedForOneTenant is the scenario "opened for one tenant". An administrator
+// opens the Entra method while its registration admits one tenant. A later release lists
+// a second tenant beside it and gives it the label the first one has, so the two
+// registrations read alike in words. They admit different people: the row was opened for
+// the first tenant's and counts for nobody of the second, whom nobody opened it for. The
+// method is invite only until it is opened again, which an administrator does reading
+// whom it admits now. A row that kept its audience in the earlier form, by the names of
+// its organizations, is the row that let the second tenant in: it opens nothing.
+func seamRulesOpenedForOneTenant[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	first := newRulesApp(ctx, t, be, &rulesShape{
+		tenants: azure.Tenant(azureTenant), entraAccounts: openSignUp,
+		workspaces: google.Workspace("lakeside", hostedDomain), googleAccounts: inviteOnly,
+	})
+	pat := first.browser(t)
+	assertRedirect(t, first.entraSignIn(ctx, pat, azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")), "/home", url.Values{})
+	patView := signedInAs(ctx, t, pat, "pat@lakeside.edu")
+
+	// The label a tenant listed by its id alone has, as the page says it.
+	var label string
+	for _, method := range first.api.SignInMethods() {
+		if method.Name == "entra" {
+			label = method.Audience.Organizations[0]
+		}
+	}
+	second := first.release(t, be, &rulesShape{
+		tenants:    azure.Tenants(azure.Tenant(azureTenant), azure.NamedTenant(riversideTenant, label)),
+		workspaces: google.Workspace("lakeside", hostedDomain), googleAccounts: inviteOnly,
+	})
+
+	// A stranger of the second tenant, and one of the first: nobody opened the method
+	// for the people it admits now.
+	river := second.browser(t)
+	assertRedirect(t, second.entraSignIn(ctx, river, azureClaims(riversideTenant, "oid-river", "river@riverside.edu")), "/login", url.Values{"code": {"not_invited"}})
+	second.assertNoRow(ctx, t, river, "river@riverside.edu")
+	kim := second.browser(t)
+	assertRedirect(t, second.entraSignIn(ctx, kim, azureClaims(azureTenant, "oid-kim", "kim@lakeside.edu")), "/login", url.Values{"code": {"not_invited"}})
+	second.assertNoRow(ctx, t, kim, "kim@lakeside.edu")
+
+	// A person who has an account is not signing up.
+	again := second.browser(t)
+	assertRedirect(t, second.entraSignIn(ctx, again, azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")), "/home", url.Values{})
+	if v := signedInAs(ctx, t, again, "pat@lakeside.edu"); v.UserID != patView.UserID {
+		t.Errorf("session user after the release = %s, want the account %s made before it", v.UserID, patView.UserID)
+	}
+
+	// Opened again, for the people the registration admits now.
+	openMethod(ctx, t, second.store, second.api, "entra", "")
+	assertRedirect(t, second.entraSignIn(ctx, river, azureClaims(riversideTenant, "oid-river", "river@riverside.edu")), "/home", url.Values{})
+	signedInAs(ctx, t, river, "river@riverside.edu")
+
+	// The row as it was kept before an audience was compared by what identifies its
+	// organizations: their names, each once, which the two registrations share. No
+	// migration reads such a row, and it opens the method for nobody.
+	earlier := earlierAudienceKey(t, second.api, "entra")
+	if err := second.store.SetSignInMethod(ctx, &sessionstorage.SignInMethod{Name: "entra", OpenSignUp: true, OpenedFor: &earlier}); err != nil {
+		t.Fatalf("SetSignInMethod(%q) error = %v", "entra", err)
+	}
+	for _, stranger := range []struct{ tenant, oid, email string }{
+		{tenant: riversideTenant, oid: "oid-lee", email: "lee@riverside.edu"},
+		{tenant: azureTenant, oid: "oid-sam", email: "sam@lakeside.edu"},
+	} {
+		b := second.browser(t)
+		assertRedirect(t, second.entraSignIn(ctx, b, azureClaims(stranger.tenant, stranger.oid, stranger.email)), "/login", url.Values{"code": {"not_invited"}})
+		second.assertNoRow(ctx, t, b, stranger.email)
+	}
+}
+
+// earlierAudienceKey is the audience the registration of a method has, as a row kept it
+// before the key compared what identifies whom the method admits: the names of its
+// organizations, each once and sorted, and the words for its accounts.
+func earlierAudienceKey[Tx any](t *testing.T, api *session.AuthAPI[appSessionData, appUserData, Tx], name string) string {
+	t.Helper()
+
+	for _, method := range api.SignInMethods() {
+		if method.Name != name {
+			continue
+		}
+		organizations := slices.Compact(slices.Sorted(slices.Values(method.Audience.Organizations)))
+		if organizations == nil {
+			organizations = []string{}
+		}
+		key, err := json.Marshal(struct {
+			Organizations []string `json:"organizations"`
+			Accounts      string   `json:"accounts"`
+		}{Organizations: organizations, Accounts: method.Audience.Accounts})
+		if err != nil {
+			t.Fatalf("json.Marshal() error = %v", err)
+		}
+
+		return string(key)
+	}
+	t.Fatalf("no sign-in method is registered under %q", name)
+
+	return ""
 }
 
 // seamRulesCustomRuleFirst is the scenario "a custom rule runs first".

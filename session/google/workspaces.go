@@ -119,9 +119,24 @@ func AnyGoogleAccount() WorkspaceSet {
 	return WorkspaceSet{anyAccount: true}
 }
 
+// What identifies whom the slot admits, as an audience's key spells it: a named
+// Workspace by each of its domains, the accounts of every Workspace, and every Google
+// account.
+const (
+	identityWorkspaceDomain = "google-workspace-domain:"
+	identityAnyWorkspace    = "google:any-workspace"
+	identityAnyAccount      = "google:any-account"
+)
+
 // audience is how wide the slot is, for the page where a method is opened to sign-up:
 // the domains of the Workspaces it names, and what an account outside them is called
 // when the slot admits any.
+//
+// What the audience is compared by is its identities: each domain of a named
+// Workspace, in lower case, never the name the application gives the Workspace, which
+// another Workspace can be given in its place. A slot that admits any Workspace, or
+// any Google account, admits its named Workspaces' people among everyone else's, so
+// its identity is the widest open entry alone.
 func (s WorkspaceSet) audience() signin.Audience {
 	var a signin.Audience
 	for _, w := range s.named {
@@ -130,8 +145,14 @@ func (s WorkspaceSet) audience() signin.Audience {
 	switch {
 	case s.anyAccount:
 		a.Accounts = "a Google account"
+		a.Identities = []string{identityAnyAccount}
 	case s.anyWorkspace:
 		a.Accounts = "a Google Workspace account"
+		a.Identities = []string{identityAnyWorkspace}
+	default:
+		for _, domain := range a.Organizations {
+			a.Identities = append(a.Identities, identityWorkspaceDomain+strings.ToLower(domain))
+		}
 	}
 
 	return a

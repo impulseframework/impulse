@@ -166,7 +166,7 @@ const widened = {
   defaultRole: '',
   directoryGivesRoles: false,
   ownRule: false,
-  says: 'Invite only: this method was opened for anyone with an account at acme.example, and it admits anyone with an account at acme.example or lakeside.edu now. Open it again to admit them.',
+  says: 'Invite only: the people this method admits have changed since it was opened, and it admits anyone with an account at acme.example or lakeside.edu now. Open it again to admit them.',
 };
 
 describe('the Sign-in page, drawn by the list', () => {
@@ -279,11 +279,11 @@ describe('the Sign-in page, drawn by the list', () => {
     expect(buttons).toEqual([1, 0]);
   });
 
-  it('says a method was opened for a narrower audience than it has now, and offers to open it again', async () => {
+  it('says the people a method admits have changed since it was opened, and offers to open it again', async () => {
     await create([widened], mayChoose);
 
     expect(cells()[0].slice(0, 3)).toEqual(['Acme', 'Anyone with an account at acme.example or lakeside.edu', 'Invite only']);
-    expect(cells()[0].join(' ')).toContain('this method was opened for anyone with an account at acme.example');
+    expect(cells()[0].join(' ')).toContain('the people this method admits have changed since it was opened, and it admits anyone with an account at acme.example or lakeside.edu now');
     expect(actionsOf(0).map((action) => [action.id, action.label])).toEqual([[open, 'Open sign-up']]);
     // Nothing is open: the page keeps no notice above the list.
     expect(element().querySelector('.notice')).toBeNull();
