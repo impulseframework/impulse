@@ -10,7 +10,7 @@ package integration
 // nothing. The harness's sessions record no sign-in, which a directory-only sector
 // refuses and every other sector admits.
 //
-// The deckhand is a crew member this suite provisions for itself, SectorCrew in Anvil and
+// The tallyman is a crew member this suite provisions for itself, SectorCrew in Anvil and
 // Bastion and nothing in the global partition. He charts Anvil alone and Bastion is not
 // there for him: it stays on his chart marked closed, with the reason, since he holds a
 // seat in it. A role in the global partition exempts nobody: the pilot, who holds
@@ -34,8 +34,8 @@ import (
 	"github.com/impulseframework/impulse/session/signin"
 )
 
-// deckhand is the suite's own crew member: held in two sectors, with no global role.
-const deckhand accesstypes.User = "deckhand"
+// tallyman is the suite's own crew member: held in two sectors, with no global role.
+const tallyman accesstypes.User = "tallyman"
 
 func TestTenantAdmission_sectorDeclarationsDecideTheChart(t *testing.T) {
 	t.Parallel()
@@ -58,10 +58,10 @@ func TestTenantAdmission_sectorDeclarationsDecideTheChart(t *testing.T) {
 	if err := provisionDemoAccess(ctx, crewEngine, membersEngine); err != nil {
 		t.Fatal(err)
 	}
-	if err := assignDemoRoles(ctx, crewEngine, deckhand, demoRoles{Domains: map[string][]accesstypes.Role{"Anvil": {"SectorCrew"}, "Bastion": {"SectorCrew"}}}); err != nil {
+	if err := assignDemoRoles(ctx, crewEngine, tallyman, demoRoles{Domains: map[string][]accesstypes.Role{"Anvil": {"SectorCrew"}, "Bastion": {"SectorCrew"}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := waitForDecision(ctx, crewEngine, deckhand, bastion, accesstypes.List, "Wings"); err != nil {
+	if err := waitForDecision(ctx, crewEngine, tallyman, bastion, accesstypes.List, "Wings"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -88,14 +88,14 @@ func TestTenantAdmission_sectorDeclarationsDecideTheChart(t *testing.T) {
 		wantClosed map[string]string
 	}{
 		{
-			name: "the deckhand's chart lights Anvil alone, and names Bastion closed with the reason: it admits its people through its directory only", user: deckhand, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK,
+			name: "the tallyman's chart lights Anvil alone, and names Bastion closed with the reason: it admits its people through its directory only", user: tallyman, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK,
 			wantChart:  []accesstypes.Domain{anvil},
 			wantClosed: map[string]string{bastion: "Bastion admits only people who sign in through its own directory. This session was not signed in through it."},
 		},
-		{name: "Anvil's wings answer the deckhand", user: deckhand, method: http.MethodGet, target: sectorPath(anvil, "wings"), wantStatus: http.StatusOK},
-		{name: "Bastion is not there for the deckhand: the guard refuses a sector the session may not enter as one that does not exist", user: deckhand, method: http.MethodGet, target: sectorPath(bastion, "wings"), wantStatus: http.StatusNotFound},
-		{name: "nor through the consolidated patch, whose descent answers as it does an unknown sector", user: deckhand, method: http.MethodPatch, target: resourcesRoute, body: ghostWing, wantStatus: http.StatusBadRequest},
-		{name: "Bastion's digest is empty for the deckhand", user: deckhand, method: http.MethodGet, target: bastionDigest, wantStatus: http.StatusOK},
+		{name: "Anvil's wings answer the tallyman", user: tallyman, method: http.MethodGet, target: sectorPath(anvil, "wings"), wantStatus: http.StatusOK},
+		{name: "Bastion is not there for the tallyman: the guard refuses a sector the session may not enter as one that does not exist", user: tallyman, method: http.MethodGet, target: sectorPath(bastion, "wings"), wantStatus: http.StatusNotFound},
+		{name: "nor through the consolidated patch, whose descent answers as it does an unknown sector", user: tallyman, method: http.MethodPatch, target: resourcesRoute, body: ghostWing, wantStatus: http.StatusBadRequest},
+		{name: "Bastion's digest is empty for the tallyman", user: tallyman, method: http.MethodGet, target: bastionDigest, wantStatus: http.StatusOK},
 		{name: "the hazard analyst's chart lights Anvil and Cinder: Cinder's directory closes it to nobody", user: "hazards", method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, wantChart: []accesstypes.Domain{anvil, cinder}},
 		{
 			name: "the pilot holds CrewCommon in the global partition, which exempts nobody, so Bastion is closed to him too", user: "pilot", method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK,
@@ -138,7 +138,7 @@ func TestTenantAdmission_sectorDeclarationsDecideTheChart(t *testing.T) {
 					t.Fatalf("decoding the digest %s: %v", body, err)
 				}
 				if len(digest) != 0 {
-					t.Errorf("Bastion's digest for the deckhand = %v, want empty", digest)
+					t.Errorf("Bastion's digest for the tallyman = %v, want empty", digest)
 				}
 			}
 		})
