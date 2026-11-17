@@ -478,6 +478,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "the tenant policy decides a sign-in by the person's memberships and the declarations their tenants make, read in the sign-in's transaction", run: testTenantPolicy},
 		{name: "a tenant's sign-in settings restrict its own door alone: a session reaches every tenant that seats the person but a directory-only tenant whose directory they did not sign in through", run: testTenantDoor},
 		{name: "a first link made on a name alone, to an account that has never signed in, is made only through the directory of the one tenant the account belongs to or with the account's own invitation", run: testFirstLinkByName},
+		{name: "an identity the application has not seen is linked on a name alone only as an account's first link, never as a second identity: a colleague is not linked into an account another person made under their name", run: testSecondIdentityByName},
 		{name: "a provisioned username that is taken is refused as a conflict, and nothing is linked", run: testProvisionUsernameTaken},
 		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
 		{name: "concurrent first sign-ins of one identity through a provisioning resolver all succeed and provision it once", run: testConcurrentFirstProvision},

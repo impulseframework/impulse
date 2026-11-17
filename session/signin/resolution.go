@@ -51,7 +51,12 @@ import (
 // carries the user's own invitation. Any other sign-in under the name is refused as a
 // person no user was created for is, since a directory asserts the names it likes. A
 // registration that declares its provider's names the application's own
-// (Registration.SeededUsers) links such a user on the name alone.
+// (Registration.SeededUsers) links such a user on the name alone. A user with no
+// password who already signs in through an identity is never linked a second one on
+// the name (ErrLinkSecondIdentity): a person may hold an account under another
+// person's sign-in name, and such a user has no password to confirm with. A user who
+// holds, verified, the address the method verified for the identity is the person, and
+// is linked on a connection they already sign in through.
 type AccountRule[Tx any] func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*Resolution, error)
 
 // Policy is the application's sign-in rule, asked once a sign-in's user is known and
@@ -178,8 +183,11 @@ func Standard(opts ...ResolutionOption) *Resolution {
 // sign-in provisioned) cannot confirm, so the rule's own evidence is the only
 // check: an untrusted link of an identity from another connection than the ones such
 // a user already signs in through is refused (ErrLinkCrossConnection); the same
-// connection, or a user with no identity yet, links (the standard rule's own link of
-// such a user, made on the name, is held to more: see AccountRule). Never
+// connection, or a user with no identity yet, links. The standard rule's own link of
+// such a user, made on the name, is held to more: it is made only as the user's first
+// identity unless the user holds the identity's verified address (ErrLinkSecondIdentity),
+// and in a tenanted application only when something vouches for it (see AccountRule).
+// Never
 // choose userID by an email address or another claim the identity's provider does not
 // verify, unless the connection itself is one the application trusts, and then say so
 // with trusted.
@@ -355,6 +363,17 @@ var (
 	// sessioninfo.RefusedIdentityRejected.
 	ErrLinkCrossConnection = errors.New(
 		"signin: an identity from another connection can't be linked to a user without a password unless the link is trusted")
+	// ErrLinkSecondIdentity is the cause when the standard rule matched a pre-created
+	// user by the sign-in name the identity asserts, for a user that has no password,
+	// already signs in through an identity on the same connection, and does not hold,
+	// verified, the address the method verified for the identity. A name proves
+	// nothing, and no confirmation can be asked of such a user, so the standard rule's
+	// match on a name is linked as a user's first identity and never as a second one:
+	// a user given a password confirms the link with it, a registration's own rule
+	// links it on its own evidence, or the application links it itself. The code is
+	// sessioninfo.RefusedIdentityRejected.
+	ErrLinkSecondIdentity = errors.New(
+		"signin: an identity the application has not seen can't be linked on its sign-in name to a user who already signs in through another identity")
 	// ErrEmailHeld is the cause when an account rule provisioned a new user for an
 	// identity whose verified address another user already holds verified: that user
 	// is the person, and the standard rule matches the person by the address before

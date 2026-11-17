@@ -204,9 +204,11 @@ DML what a later rule must read.
     matched without regard to case, or else the user who holds the identity's address
     verified, when the method verified the address (Google does, Entra does not), since
     a person is one user whichever way they sign in. The link is made after a password
-    confirmation when the user has a password, outright when the user has none and
-    signs in through no other connection yet. An address a user holds unverified is a
-    reservation, not a match.
+    confirmation when the user has a password, and outright when the user has none and
+    has never signed in: it is the user's first identity. A user with no password who
+    already signs in through an identity is linked no second one on the name, on the
+    same connection or another (see "Never a second identity on a name alone" below).
+    An address a user holds unverified is a reservation, not a match.
   - **A person who has none is decided by what an administrator chose for the method**,
     the registration's row of the sign-in methods table, read in the same transaction
     (see "Open to sign-up, or invite only"). A method with no row is **invite only**:
@@ -258,7 +260,7 @@ DML what a later rule must read.
   say nothing of the account (`invitation_only` through a directory some tenant has,
   `not_invited` through any other), and nothing is linked, seated or accepted. An
   account with a password keeps the confirmation above, and one that already signs in
-  through a connection keeps the rule on another connection. The rule is the standard
+  through an identity is linked no second one on the name (below). The rule is the standard
   rule's own: a registration's custom rule that answers `signin.Link` links on its own
   evidence, as before, and a registration of the generic OpenID Connect method that
   sets `Config.SeededUsers` declares its provider's names the application's own and
@@ -286,6 +288,31 @@ DML what a later rule must read.
   (`invitation_only`) and nothing is written, whether the method is open or not. A
   directory no tenant declares falls to what was chosen for the method, as above.
 
+  **Never a second identity on a name alone.** A name proves nothing about who holds an
+  account. Where a username is not an address, a person may sign up under a colleague's
+  sign-in name, sign in through the directory as themselves (the account holds their own
+  address, so the directory's sign-in finds it and the password confirms the link) and
+  remove the password. The account then has no password to confirm a link with and one
+  identity on the directory's connection, and the colleague's first sign-in through
+  that directory arrives under the account's name; with a method that writes one
+  connection for every account (any Google account, Microsoft personal accounts) every
+  account shares the connection. So the standard rule links an identity the application
+  has not seen, on its sign-in name, to a user without a password only as that user's
+  first identity. Where the user already signs in through one, the sign-in is refused
+  (`identity_rejected`: `signin.ErrLinkSecondIdentity` on the same connection,
+  `signin.ErrLinkCrossConnection` from another) and nothing is linked. A second identity
+  is linked on proof instead: a user who holds, verified, the address the method
+  verified for the identity is the person, and is linked on a connection they already
+  sign in through, as before; a user with a password confirms the link with it, as
+  above, so an administrator who gives the person a temporary password lets them
+  confirm it at their next sign-in; a registration's own rule that answers
+  `signin.Link` links on its own evidence, as before; and the application may link an
+  identity itself (the store's `LinkIdentity`). A directory that issues a person a new
+  subject under the same name (their directory account deleted and made again) is
+  therefore followed only where the account holds the address verified and the method
+  verifies it; elsewhere the sign-in is refused until the new identity is linked one
+  of those ways.
+
   The standard rule writes nothing for a guest of the directory (an Entra B2B guest,
   refused with `guest_account`: a guest's preferred username is an address the
   directory did not verify), for a token asserting no application role when the method
@@ -306,7 +333,9 @@ DML what a later rule must read.
   library asks for more when it can: a user who has a password must confirm with it
   (`Confirm`) unless the link is `trusted`; a user without a password cannot confirm,
   so an identity from another connection than the ones that user already signs in
-  through is refused unless the link is `trusted`. Never choose the user by an email or
+  through is refused unless the link is `trusted`. A rule's link on a connection the
+  user already signs in through is made on the rule's word, which the standard rule's
+  match by name does not have. Never choose the user by an email or
   another claim the provider does not verify.
 
 A sign-in runs in two transactions, the same on Spanner and PostgreSQL:
@@ -2251,7 +2280,7 @@ table is the wire contract:
 | `organization_mismatch` | `RefusedOrganizationMismatch` | WorkOS: the profile belongs to another organization than the login requested. |
 | `no_roles` | `RefusedNoRoles` | The directory asserted no role the application recognizes: refused before anything is resolved or written, or by role synchronization once the session stood, for a method that cannot tell beforehand. |
 | `no_email_claim` | `RefusedNoEmailClaim` | Google: the ID token carries no `email` claim. |
-| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, a password-less user who signs in through another connection was matched or linked without trust, provisioned a new user for an identity whose verified address another user holds verified, or the identity resolved to another user than it waited on. |
+| `identity_rejected` | `RefusedIdentityRejected` | Auth: the account rule rejected the identity (its own code wins when it sets one), linked a user that has a password without confirmation, a password-less user who signs in through another connection was matched or linked without trust, a password-less user who already signs in through an identity was matched by the sign-in name with no verified address to prove it, provisioned a new user for an identity whose verified address another user holds verified, or the identity resolved to another user than it waited on. |
 | `not_invited` | `RefusedNotInvited` | Auth: the sign-in method is invite only, and the person holds no account and carries no invitation. |
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |

@@ -178,8 +178,8 @@ type Rules[Tx any] struct {
 	Seat        DirectorySeater[Tx]
 	OnlyIn      OnlyInTenant[Tx]
 	// SeededUsers says the registration declared its provider's names the
-	// application's own (signin.Registration.SeededUsers): the standard rule's link of
-	// a user created ahead is then made on the name alone; see firstLink.
+	// application's own (signin.Registration.SeededUsers): the standard rule's first
+	// link of a user created ahead is then made on the name alone; see firstLink.
 	SeededUsers bool
 	// TrustedDevice reports whether the browser is a trusted device of the user, nil
 	// for none; see decideSignIn.
@@ -885,8 +885,7 @@ func resolveUnlinked[Tx any](
 // method did or it names none, and whether a link rests on the name alone: the
 // standard rule matched a user created ahead by the name, or the address, the identity
 // asserts, and nothing else ties the two (linkUser). A custom rule's own answer rests on
-// the rule's own evidence, and so does the link of a registration that declared its
-// provider's names the application's own.
+// the rule's own evidence.
 type accountDecision struct {
 	res          *signin.Resolution
 	byInvitation bool
@@ -963,11 +962,10 @@ func standardRule[Tx any](
 	}
 	switch {
 	case user != nil:
-		// Nothing but the name, or the address, ties the account to the identity,
-		// unless the registration declares the provider's names the application's own.
+		// Nothing but the name, or the address, ties the account to the identity.
 		res := signin.Link(user.ID, false, signin.Tenant(tenant), signin.Seats(defaultSeats(declared)...))
 
-		return accountDecision{res: res, onName: !rules.SeededUsers}, nil, nil
+		return accountDecision{res: res, onName: true}, nil, nil
 	case len(declared) > 0:
 		res, byInvitation, stop := declaredRule(req, declared, tenant)
 
@@ -1178,9 +1176,17 @@ func applyResolution[Tx any](
 // the user on the request, and consumes the invitation the sign-in carries unless the
 // user is disabled. An untrusted link to a user with a password, or from a connection
 // a password-less user does not sign in through, is a refusal (stop) and links
-// nothing. So is the standard rule's link, made on the name alone (onName), of a user
-// with no password and no link, in a tenanted application, that nothing vouches for
-// (firstLink).
+// nothing. So is the standard rule's link, made on the name alone (onName), in two
+// cases. A user with no password and no link, in a tenanted application, is linked only
+// when something vouches for it (firstLink). A user with no password who already signs
+// in through an identity is never linked a second one on the name: a name proves
+// nothing (where a username is not an address, a person may hold an account under a
+// colleague's sign-in name, link an identity of their own to it and remove its
+// password), and such a user has no password to confirm with, so the colleague's
+// sign-in would be linked into another person's account. A second identity is linked
+// on proof: the user holds, verified, the address the method verified for the identity
+// (holdsAddress), a user given a password confirms it, a registration's own rule links
+// on its own evidence, and the application may link one itself.
 func linkUser[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, res *signin.Resolution, onName bool, rules Rules[Tx],
 ) (live bool, stop, err error) {
@@ -1207,6 +1213,14 @@ func linkUser[Tx any](
 			}
 		case linksAnotherConnection(links, req.Identity):
 			return false, Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkCrossConnection, "identity from another connection needs a trusted link"), nil
+		case len(links) > 0 && onName:
+			proven, err := holdsAddress(ctx, d, tx, user.ID, req.Identity)
+			if err != nil {
+				return false, nil, err
+			}
+			if !proven {
+				return false, Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrLinkSecondIdentity, "the account under this sign-in name signs in through another identity"), nil
+			}
 		}
 	}
 	if err := d.LinkIdentityIn(ctx, tx, res.UserID(), req.Identity, res.Tenant()); err != nil {
@@ -1221,16 +1235,33 @@ func linkUser[Tx any](
 	return live, nil, err
 }
 
+// holdsAddress reports whether the user holds, verified, the address the method verified
+// for identity: the person proved the address to the application, and the directory
+// proved it of whoever signs in, so the two are one person whatever name the account is
+// under. An address the method did not verify, and one the user holds unverified or
+// not at all, prove nothing.
+func holdsAddress[Tx any](ctx context.Context, d Driver[Tx], tx Tx, userID impulse.UUID, identity *sessioninfo.Identity) (bool, error) {
+	if !identity.EmailVerified || identity.Email == "" {
+		return false, nil
+	}
+	holder, err := d.UserByVerifiedEmailIn(ctx, tx, identity.Email)
+	if err != nil {
+		return false, errors.Wrap(err, "Driver.UserByVerifiedEmailIn()")
+	}
+
+	return holder != nil && holder.ID == userID, nil
+}
+
 // firstLink decides the standard rule's link to a user who has no password and no link:
 // an account that exists ahead of its first sign-in (an administrator's create that gave
 // no password, a seed's), which nothing but its name ties to the person signing in. A
-// custom rule's link rests on the rule's own evidence and does not come here, and
-// neither does the link of a registration that declares its provider's names the
-// application's own (signin.Registration.SeededUsers). In an application whose tenants have
-// directories (rules.Directories), a directory asserts the names it likes, and an
-// organization's own provider is not held to any domain, so the name alone links
-// nothing. The link hands whoever the directory signs in everything the account holds,
-// so it is made when something vouches for it:
+// custom rule's link rests on the rule's own evidence and does not come here, and a
+// registration that declares its provider's names the application's own
+// (rules.SeededUsers, signin.Registration.SeededUsers) links such a user on the name. In
+// an application whose tenants have directories (rules.Directories), a directory
+// asserts the names it likes, and an organization's own provider is not held to any
+// domain, so the name alone links nothing. The link hands whoever the directory signs
+// in everything the account holds, so it is made when something vouches for it:
 //
 //   - the sign-in came through the directory of the one tenant the user belongs to
 //     (rules.OnlyIn): the user holds a role there and nothing anywhere else, so the
@@ -1251,7 +1282,7 @@ func linkUser[Tx any](
 func firstLink[Tx any](
 	ctx context.Context, d Driver[Tx], tx Tx, req *sessioninfo.NewSessionRequest, user *dbtype.User, rules Rules[Tx],
 ) (byInvitation bool, stop, err error) {
-	if rules.Directories == nil {
+	if rules.Directories == nil || rules.SeededUsers {
 		return false, nil, nil
 	}
 	declared, err := declaredDirectory(ctx, tx, req.Identity, rules.Directories)
@@ -1643,8 +1674,10 @@ func Refusal(code, fallback sessioninfo.LoginRefusalCode, cause error, message s
 // a connection the user does not sign in through yet is refused: the rule's evidence is
 // the only check, and a custom rule must say so with trusted. A connection the user
 // already signs in through, however many others they have, adds nothing and is not
-// checked. A user with no link at all links, unless the standard rule matched the user
-// on the name alone, which firstLink decides.
+// checked here. Where the standard rule matched the user on the name alone, linkUser
+// holds the link to more: a user with no link at all is firstLink's to decide, and one
+// who signs in through an identity already is linked no second one unless they hold
+// the identity's address verified.
 func linksAnotherConnection(links []*dbtype.SessionIdentity, identity *sessioninfo.Identity) bool {
 	for _, link := range links {
 		if link.Method == identity.Method && link.Connection == identity.Connection {
