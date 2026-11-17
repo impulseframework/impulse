@@ -872,3 +872,103 @@ func TestTenant_groups(t *testing.T) {
 		t.Errorf("buffered writes (-want +got):\n%s", diff)
 	}
 }
+
+// TestManager_groups_noWayToTheSuperAdministratorRole pins that a group is no way around
+// the rules of the Super Administrator role. The role is refused for a group whoever
+// asks, a super administrator among them. And where a row saying a group holds it stands
+// in the table all the same, written past the rules, a person in that group is no super
+// administrator: they give the role to nobody, an administrator who is none acts on how
+// they sign in as on anybody's, and putting a person in the group ends nothing of
+// theirs, since no role comes with the place that only its holder gives.
+func TestManager_groups_noWayToTheSuperAdministratorRole(t *testing.T) {
+	t.Parallel()
+
+	staffSuper := access.NewGroupRoleKey(GroupID(staffID), globalScope, accesstypes.SuperAdministrator)
+	// dana is a super administrator. erin is a steward and in the staff group, which the
+	// row written past the rules says holds the role. frank is an account that holds
+	// nothing.
+	newStore := func() *fakeStore {
+		store := groupStore()
+		store.usernames[frankID] = "frank"
+		store.disabled = map[impulse.UUID]bool{}
+		store.memberships[danaSuper] = true
+		store.memberships[erinSteward] = true
+		store.groupRoles[staffSuper] = true
+		store.groupMembers[memberKey(staffID, otherUser)] = true
+
+		return store
+	}
+	as := func(user accesstypes.User) func(context.Context) context.Context {
+		return func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, user) }
+	}
+	tests := []struct {
+		name string
+		ctx  func(context.Context) context.Context
+		// clean leaves the row written past the rules out of the store.
+		clean   bool
+		act     func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
+		wantErr func(error) bool
+		// wantSays is a part of the sentence a refusal reads.
+		wantSays   string
+		wantWrites []string
+	}{
+		{
+			name: "a super administrator gives the role to no group", ctx: as(dana), clean: true,
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.GiveGroupRole(ctx, txn, staffID, globalScope, accesstypes.SuperAdministrator)
+			},
+			wantErr: httpio.HasBadRequest, wantSays: "never to a group",
+		},
+		{
+			name: "a person in a group that a row says holds the role makes nobody a super administrator", ctx: as(erin),
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.AssignRole(ctx, txn, globalScope, frankID, accesstypes.SuperAdministrator)
+			},
+			wantErr: httpio.HasForbidden, wantSays: "only a super administrator gives the Super Administrator role",
+		},
+		{
+			name: "nor changes how a super administrator signs in", ctx: as(erin),
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.RenameUser(ctx, txn, userID, "dana.r")
+			},
+			wantErr: httpio.HasForbidden, wantSays: "only a super administrator renames a super administrator",
+		},
+		{
+			name: "and is nobody a super administrator alone acts on", ctx: as(User(frankID)),
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.RenameUser(ctx, txn, otherUser, "gale.r")
+			},
+			wantWrites: []string{"update user " + otherUser.String() + " username=gale.r"},
+		},
+		{
+			name: "a place in the group ends nothing the person holds", ctx: as(dana),
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.AddGroupMember(ctx, txn, staffID, frankID)
+			},
+			wantWrites: []string{"insert group member " + staffID.String() + " " + frankID.String()},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			store := newStore()
+			if tt.clean {
+				delete(store.groupRoles, staffSuper)
+			}
+			m, _ := newManager(t, store, superRoles)
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return tt.act(tt.ctx(ctx), txn, m)
+			})
+			switch {
+			case tt.wantErr == nil && err != nil:
+				t.Fatalf("error = %v, want the act done", err)
+			case tt.wantErr != nil && (err == nil || !tt.wantErr(err) || !strings.Contains(err.Error(), tt.wantSays)):
+				t.Fatalf("error = %v, want the refusal that says %q", err, tt.wantSays)
+			}
+			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
+				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
