@@ -69,23 +69,28 @@ SELECT
   (EXISTS (
     SELECT 1 FROM MembersUserRoles o
     WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
     SELECT 1 FROM MembersUserRoles o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   )) AS HeldElsewhere,
   EXISTS (
     SELECT 1 FROM MembersUserRoles g
     WHERE g.UserId = u.Id AND g.Kind = 'global'
+      AND (g.EndsAt IS NULL OR g.EndsAt > CURRENT_TIMESTAMP())
   ) AS HeldGlobally
 FROM (
   SELECT m.DomainId AS DomainId, m.UserId AS UserId
   FROM MembersUserRoles m
   WHERE m.Kind = 'domain' AND m.Axis = ''
+    AND (m.StartsAt IS NULL OR m.StartsAt <= CURRENT_TIMESTAMP()) AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
   UNION DISTINCT
   SELECT s.Id AS DomainId, m.UserId AS UserId
   FROM MembersUserRoles@{FORCE_INDEX=_BASE_TABLE} m
   CROSS JOIN Sectors s
   WHERE m.Kind = 'every' AND m.Axis = ''
+    AND (m.StartsAt IS NULL OR m.StartsAt <= CURRENT_TIMESTAMP()) AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
 ) t
 JOIN MembersSessionUsers u ON u.Id = t.UserId
 JOIN MembersSessionIdentities i ON i.UserId = u.Id

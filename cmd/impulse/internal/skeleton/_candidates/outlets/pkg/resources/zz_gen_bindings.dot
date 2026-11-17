@@ -8,17 +8,48 @@
 // continuing hop and `name: column ⇒ column` where the path terminates; a thin
 // grey edge points a bare binding on a foreign key at its table. Facts only: no
 // grant or condition is drawn.
+// A subject set that writes a who: or a where: part lists each under the set, in
+// the columns' names: who: says which rows are the requester's, where: which of
+// those rows count. A set that builds on another is a dashed edge from the
+// resource declaring that other set, labeled `name: column IN subject.other`.
 digraph Bindings {
 	rankdir=LR;
 	node [shape=box];
+	"MembersGroup" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersGroup</b></td></tr><tr><td align="left">group: Id</td></tr></table>>];
+	"MembersGroupMember" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersGroupMember</b></td></tr><tr><td align="left">group: GroupId</td></tr><tr><td align="left">subject.membersGroups: GroupId</td></tr><tr><td align="left">subject.membersGroups where: (StartsAt IS NULL OR StartsAt &lt;= now) AND (EndsAt IS NULL OR EndsAt &gt; now)</td></tr></table>>];
+	"MembersGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
+	"MembersGroupUser" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersGroupUser</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
+	"MembersTenantGroup" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersTenantGroup</b></td></tr><tr><td align="left">group: Id</td></tr></table>>];
+	"MembersTenantGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersTenantGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr><tr><td align="left">role: Role</td></tr></table>>];
+	"MembersTenantGroupUser" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersTenantGroupUser</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
 	"MembersTenantIdentity" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersTenantIdentity</b></td></tr><tr><td align="left">heldElsewhere: HeldElsewhere</td></tr><tr><td align="left">heldGlobally: HeldGlobally</td></tr></table>>];
 	"MembersTenantInvitation" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersTenantInvitation</b></td></tr><tr><td align="left">pending: Pending</td></tr><tr><td align="left">role: RoleNames</td></tr></table>>];
 	"MembersTenantUser" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersTenantUser</b></td></tr><tr><td align="left">heldElsewhere: HeldElsewhere</td></tr><tr><td align="left">heldGlobally: HeldGlobally</td></tr></table>>];
+	"MembersTenantUserGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersTenantUserGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
 	"MembersTenantUserRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersTenantUserRole</b></td></tr><tr><td align="left">everyDomain: EveryDomain</td></tr><tr><td align="left">role: Role</td></tr></table>>];
+	"MembersUserGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>MembersUserGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
+	"StaffGroup" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffGroup</b></td></tr><tr><td align="left">group: Id</td></tr></table>>];
+	"StaffGroupMember" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffGroupMember</b></td></tr><tr><td align="left">group: GroupId</td></tr><tr><td align="left">subject.staffGroups: GroupId</td></tr><tr><td align="left">subject.staffGroups where: (StartsAt IS NULL OR StartsAt &lt;= now) AND (EndsAt IS NULL OR EndsAt &gt; now)</td></tr></table>>];
+	"StaffGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
+	"StaffGroupUser" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffGroupUser</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
+	"StaffTenantGroup" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffTenantGroup</b></td></tr><tr><td align="left">group: Id</td></tr></table>>];
+	"StaffTenantGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffTenantGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr><tr><td align="left">role: Role</td></tr></table>>];
+	"StaffTenantGroupUser" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffTenantGroupUser</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
 	"StaffTenantIdentity" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffTenantIdentity</b></td></tr><tr><td align="left">heldElsewhere: HeldElsewhere</td></tr><tr><td align="left">heldGlobally: HeldGlobally</td></tr></table>>];
 	"StaffTenantInvitation" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffTenantInvitation</b></td></tr><tr><td align="left">pending: Pending</td></tr><tr><td align="left">role: RoleNames</td></tr></table>>];
 	"StaffTenantUser" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffTenantUser</b></td></tr><tr><td align="left">heldElsewhere: HeldElsewhere</td></tr><tr><td align="left">heldGlobally: HeldGlobally</td></tr></table>>];
+	"StaffTenantUserGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffTenantUserGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
 	"StaffTenantUserRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffTenantUserRole</b></td></tr><tr><td align="left">everyDomain: EveryDomain</td></tr><tr><td align="left">role: Role</td></tr></table>>];
+	"StaffUserGroupRole" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>StaffUserGroupRole</b></td></tr><tr><td align="left">group: GroupId</td></tr></table>>];
+	"subject" [shape=ellipse];
+	"subject" -> "MembersGroupMember" [style=dashed, label="membersGroups: UserId"];
+	"subject" -> "StaffGroupMember" [style=dashed, label="staffGroups: UserId"];
+	"MembersGroupMember" -> "MembersGroup" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="group"];
+	"MembersGroupMember" -> "MembersGroup" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="subject.membersGroups"];
+	"MembersGroupRole" -> "MembersGroup" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="group"];
+	"StaffGroupMember" -> "StaffGroup" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="group"];
+	"StaffGroupMember" -> "StaffGroup" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="subject.staffGroups"];
+	"StaffGroupRole" -> "StaffGroup" [color=gray55, fontcolor=gray35, arrowhead=vee, arrowsize=0.6, label="group"];
 	subgraph cluster_legend {
 		label="legend";
 		"declares a binding" [shape=box];

@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access/internal/policy"
@@ -44,12 +45,22 @@ type fakeGrant struct {
 // alone, FK-style enforcement of the role parent for grants, member-blocked
 // cascade-granted role deletes, and sorted listings. A grant's condition is
 // part of the grant row's identity, matching the stores' contract. A role
-// row holds the description it was created with.
+// row holds the description it was created with. An assignment's row holds its
+// period, replaced when the assignment is given again, and the listings leave
+// out the ones outside their period at the store's present.
 type fakeStore struct {
 	mu          sync.Mutex
 	roles       map[fakeRoleKey]string
-	memberships map[fakeMembership]bool
+	memberships map[fakeMembership]accesstypes.Period
 	grants      map[fakeGrant]bool
+	// clock is the store's present, the wall clock when nil: what a database's
+	// own clock is to the stores.
+	clock func() time.Time
+	// writes counts the calls that wrote a row or removed one, so a test can
+	// pin that a period began or ended with nothing written.
+	writes int
+	// groups are the groups of people (fake_store_groups_test.go).
+	groups fakeGroups
 	// batchWrites counts InsertGrants calls, so tests can pin that a bulk
 	// write reached the store as one call.
 	batchWrites int
@@ -75,9 +86,18 @@ func (f *fakeStore) setFail(err error) {
 func newFakeStore() *fakeStore {
 	return &fakeStore{
 		roles:       make(map[fakeRoleKey]string),
-		memberships: make(map[fakeMembership]bool),
+		memberships: make(map[fakeMembership]accesstypes.Period),
 		grants:      make(map[fakeGrant]bool),
 	}
+}
+
+// now is the store's present. The caller holds the lock.
+func (f *fakeStore) now() time.Time {
+	if f.clock != nil {
+		return f.clock()
+	}
+
+	return time.Now()
 }
 
 func (f *fakeStore) ReadPolicy(_ context.Context) (*policy.Records, error) {
@@ -101,24 +121,27 @@ func (f *fakeStore) ReadPolicy(_ context.Context) (*policy.Records, error) {
 			Condition: g.condition,
 		})
 	}
-	for m := range f.memberships {
+	for m, period := range f.memberships {
 		records.Memberships = append(records.Memberships, policy.Membership{
 			Scope:  m.scope,
 			Member: policy.Subject{Kind: policy.SubjectUser, Name: string(m.user)},
 			Role:   m.role,
+			Period: period,
 		})
 	}
+	f.groupRecords(records)
 
 	return records, nil
 }
 
-func (f *fakeStore) InsertUserRole(_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
+func (f *fakeStore) InsertUserRole(_ context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.failWith != nil {
 		return f.failWith
 	}
-	f.memberships[fakeMembership{scope, user, role}] = true
+	f.memberships[fakeMembership{scope, user, role}] = period
+	f.writes++
 
 	return nil
 }
@@ -130,6 +153,7 @@ func (f *fakeStore) DeleteUserRole(_ context.Context, scope accesstypes.PolicySc
 		return f.failWith
 	}
 	delete(f.memberships, fakeMembership{scope, user, role})
+	f.writes++
 
 	return nil
 }
@@ -141,8 +165,8 @@ func (f *fakeStore) ListUserRoles(_ context.Context, scope accesstypes.PolicySco
 		return nil, f.failWith
 	}
 	roles := make([]accesstypes.Role, 0)
-	for m := range f.memberships {
-		if m.scope == scope && m.user == user {
+	for m, period := range f.memberships {
+		if m.scope == scope && m.user == user && period.Contains(f.now()) {
 			roles = append(roles, m.role)
 		}
 	}
@@ -158,9 +182,9 @@ func (f *fakeStore) ListUserMemberships(_ context.Context, user accesstypes.User
 		return nil, f.failWith
 	}
 	memberships := make([]policy.Membership, 0)
-	for m := range f.memberships {
-		if m.user == user {
-			memberships = append(memberships, policy.Membership{Scope: m.scope, Member: policy.Subject{Kind: policy.SubjectUser, Name: string(user)}, Role: m.role})
+	for m, period := range f.memberships {
+		if m.user == user && period.Contains(f.now()) {
+			memberships = append(memberships, policy.Membership{Scope: m.scope, Member: policy.Subject{Kind: policy.SubjectUser, Name: string(user)}, Role: m.role, Period: period})
 		}
 	}
 	slices.SortFunc(memberships, func(a, b policy.Membership) int {
@@ -181,8 +205,8 @@ func (f *fakeStore) ListRoleUsers(_ context.Context, scope accesstypes.PolicySco
 		return nil, f.failWith
 	}
 	users := make([]accesstypes.User, 0)
-	for m := range f.memberships {
-		if m.scope == scope && m.role == role {
+	for m, period := range f.memberships {
+		if m.scope == scope && m.role == role && period.Contains(f.now()) {
 			users = append(users, m.user)
 		}
 	}
@@ -239,15 +263,21 @@ func (f *fakeStore) DeleteRole(_ context.Context, scope accesstypes.PolicyScope,
 	if f.failWith != nil {
 		return false, f.failWith
 	}
-	for m := range f.memberships {
-		if m.scope == scope && m.role == role {
-			return false, errors.Newf("role %q in scope %q still has members", role, scope)
+	for m, period := range f.memberships {
+		if m.scope == scope && m.role == role && !period.Ended(f.now()) {
+			return false, errors.Wrapf(policy.ErrStillAssigned, "role %q in scope %q still has members", role, scope)
 		}
 	}
 	if !f.hasRole(scope, role) {
 		return false, nil
 	}
 	delete(f.roles, fakeRoleKey{scope, role})
+	// The memberships of the role that have ended go with it.
+	for m := range f.memberships {
+		if m.scope == scope && m.role == role {
+			delete(f.memberships, m)
+		}
+	}
 	for g := range f.grants {
 		if g.scope == scope && g.role == role {
 			delete(f.grants, g)

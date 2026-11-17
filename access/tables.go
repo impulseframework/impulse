@@ -19,17 +19,31 @@ var (
 )
 
 // Tables names the tables one policy store keeps: the custom roles, the memberships and
-// the custom roles' grants, with the index the memberships are listed by user through.
+// the custom roles' grants, with the index the memberships are listed by user through,
+// and the groups of people with their members and the roles each group holds.
 type Tables struct {
 	Roles      string
 	UserRoles  string
 	RoleGrants string
 	// UserRolesByUserID is the index on the memberships that leads with the user.
 	UserRolesByUserID string
+	// Groups are the groups of people, GroupMembers each person's place in one and
+	// GroupRoles the roles a group holds.
+	Groups       string
+	GroupMembers string
+	GroupRoles   string
+	// GroupsByName is the unique index that holds a group's name to one group where the
+	// group is kept, GroupMembersByUserID the index on the members that leads with the
+	// user, and GroupRolesByScope the index on the groups' roles that leads with where a
+	// role is held, as the memberships' key does.
+	GroupsByName         string
+	GroupMembersByUserID string
+	GroupRolesByScope    string
 }
 
 // TablesWithPrefix answers the names of the policy store kept under prefix and store:
-// {prefix}{store}Roles, {prefix}{store}UserRoles and {prefix}{store}RoleGrants. It is the
+// {prefix}{store}Roles, {prefix}{store}UserRoles and {prefix}{store}RoleGrants, and
+// {prefix}{store}Groups, {prefix}{store}GroupMembers and {prefix}{store}GroupRoles. It is the
 // one rule both stores name their tables by, exported so whatever else names them (an
 // application's migrations, the code generator declaring the management resources over
 // them) cannot spell them another way. An application with several independent policy
@@ -48,5 +62,12 @@ func TablesWithPrefix(prefix, store string) (Tables, error) {
 		UserRoles:         base + "UserRoles",
 		RoleGrants:        base + "RoleGrants",
 		UserRolesByUserID: base + "UserRolesByUserId",
+
+		Groups:               base + "Groups",
+		GroupMembers:         base + "GroupMembers",
+		GroupRoles:           base + "GroupRoles",
+		GroupsByName:         base + "GroupsByName",
+		GroupMembersByUserID: base + "GroupMembersByUserId",
+		GroupRolesByScope:    base + "GroupRolesByScope",
 	}, nil
 }

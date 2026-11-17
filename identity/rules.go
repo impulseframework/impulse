@@ -84,9 +84,9 @@ func (m *Manager) refuseLastAdministrator(ctx context.Context, txn resource.Read
 	for _, held := range []accesstypes.PolicyScope{scope, accesstypes.EveryDomainPolicyScope()} {
 		for _, role := range roles {
 			at := access.NewMembershipKey(held, "", role)
-			holders, err := m.store.RoleHolders(ctx, txn, &access.RoleKey{Kind: at.Kind, Axis: at.Axis, Domain: at.Domain, Role: role})
+			holders, err := m.countingHolders(ctx, txn, &access.RoleKey{Kind: at.Kind, Axis: at.Axis, Domain: at.Domain, Role: role})
 			if err != nil {
-				return errors.Wrap(err, "identity.Store.RoleHolders()")
+				return err
 			}
 			for _, holder := range holders {
 				if holder != key.User {

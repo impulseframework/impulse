@@ -226,6 +226,9 @@ func (t *typescriptGenerator) parseResources(packageMap map[string]*packages.Pac
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := t.resolveRunSubjectSets(slices.Concat(resources, identityResources)); err != nil {
+		return nil, nil, err
+	}
 	// A declaration of an auth's generated management that serves no route has nothing
 	// for a browser: it is declared for the methods' own reads and writes.
 	identityResources = slices.DeleteFunc(identityResources, func(res *resourceInfo) bool {

@@ -35,8 +35,8 @@ func (m *storeManager) notifyPolicyChange() {
 	}
 }
 
-func (m *storeManager) addUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role) error {
-	if err := m.store.InsertUserRole(ctx, scope, user, role); err != nil {
+func (m *storeManager) addUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error {
+	if err := m.store.InsertUserRole(ctx, scope, user, role, period); err != nil {
 		return errors.Wrapf(err, "access.Store.InsertUserRole(): role %q to %q", role, user)
 	}
 	m.notifyPolicyChange()

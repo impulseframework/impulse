@@ -502,6 +502,56 @@
           ]
         }
       }
+    },
+    {
+      "id": "f0000000-0000-4000-8000-000000000032",
+      "user": "deckhand",
+      "password": "lodestar",
+      "roles": {
+        "global": [
+          "CrewCommon",
+          "ClientBrowser"
+        ]
+      }
+    },
+    {
+      "id": "f0000000-0000-4000-8000-000000000033",
+      "user": "relief",
+      "password": "lodestar",
+      "roles": {
+        "global": [
+          "CrewCommon",
+          "ClientBrowser"
+        ]
+      },
+      "tours": [
+        {
+          "domain": "Anvil",
+          "roles": [
+            "Cadet",
+            "SectorCrew"
+          ],
+          "days": 30
+        }
+      ]
+    }
+  ],
+  "groups": [
+    {
+      "name": "Deck crew",
+      "description": "The hands who work Anvil's deck: each flies as a cadet and sees the sector's wings and hangars.",
+      "domain": "Anvil",
+      "roles": {
+        "domains": {
+          "Anvil": [
+            "Cadet",
+            "SectorCrew"
+          ]
+        }
+      },
+      "members": [
+        "deckhand"
+      ]
     }
   ],
   "members": [

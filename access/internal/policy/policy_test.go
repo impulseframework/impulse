@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/impulseframework/impulse/accesstypes"
 )
@@ -130,6 +131,57 @@ func Test_Records_Hash(t *testing.T) {
 				t.Errorf("Hash() same as base = %v, want %v", gotSame, tt.wantSameHash)
 			}
 		})
+	}
+}
+
+// Test_Records_Hash_periods pins that an assignment's period is policy: a start
+// or an end given, changed or taken away changes the hash, on a person's own
+// membership, a group's role and a person's place in a group, so a period
+// replaced in the store reaches every instance's snapshot; a start and an end
+// of the same instant hash apart; and no start hashes apart from the earliest
+// instant there is.
+func Test_Records_Hash_periods(t *testing.T) {
+	t.Parallel()
+
+	tenant1 := accesstypes.DomainPolicyScope("tenant1")
+	noon := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	records := func(own, group, place accesstypes.Period) *Records {
+		return &Records{
+			Memberships: []Membership{
+				{Scope: tenant1, Member: Subject{Kind: SubjectUser, Name: "erin"}, Role: "Editor", Period: own},
+				{Scope: tenant1, Member: Subject{Kind: SubjectGroup, Name: "night"}, Role: "Editor", Period: group},
+			},
+			Groups:       []Group{{ID: "night", Scope: tenant1}},
+			GroupMembers: []GroupMember{{Group: "night", User: "bob", Period: place}},
+		}
+	}
+	none := accesstypes.Period{}
+	variants := map[string]accesstypes.Period{
+		"an end":                      {End: noon},
+		"a start":                     {Start: noon},
+		"a start and an end":          {Start: noon, End: noon.Add(time.Hour)},
+		"a later end":                 {End: noon.Add(time.Nanosecond)},
+		"a start at the Unix epoch":   {Start: time.Unix(0, 0).UTC()},
+		"an end at the Unix epoch":    {End: time.Unix(0, 0).UTC()},
+		"a start in another location": {Start: noon.In(time.FixedZone("east", 3600)).Add(time.Hour)},
+	}
+	seen := map[[32]byte]string{records(none, none, none).Hash(): "no period anywhere"}
+	for name, period := range variants {
+		for where, r := range map[string]*Records{
+			"a person's own membership": records(period, none, none),
+			"a group's role":            records(none, period, none),
+			"a place in a group":        records(none, none, period),
+		} {
+			label := name + " on " + where
+			if other, ok := seen[r.Hash()]; ok {
+				t.Errorf("%s hashes as %s does", label, other)
+			}
+			seen[r.Hash()] = label
+		}
+	}
+	// The same instant in another location is the same instant.
+	if records(accesstypes.Period{End: noon}, none, none).Hash() != records(accesstypes.Period{End: noon.In(time.FixedZone("east", 3600))}, none, none).Hash() {
+		t.Error("an end at one instant hashes apart by the location it was written in")
 	}
 }
 

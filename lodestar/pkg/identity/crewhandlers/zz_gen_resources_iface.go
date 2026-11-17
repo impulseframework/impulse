@@ -11,13 +11,16 @@ import (
 
 type Resourcer interface {
 	resource.Resourcer
-	crewresources.CrewRole | crewresources.CrewRoleGrant |
-		crewresources.CrewSectorIdentity | crewresources.CrewSectorInvitation |
-		crewresources.CrewSectorUser | crewresources.CrewSectorUserRole |
+	crewresources.CrewGroup | crewresources.CrewGroupMember | crewresources.CrewGroupRole |
+		crewresources.CrewGroupUser | crewresources.CrewRole | crewresources.CrewRoleGrant |
+		crewresources.CrewSectorGroup | crewresources.CrewSectorGroupRole |
+		crewresources.CrewSectorGroupUser | crewresources.CrewSectorIdentity |
+		crewresources.CrewSectorInvitation | crewresources.CrewSectorUser |
+		crewresources.CrewSectorUserGroupRole | crewresources.CrewSectorUserRole |
 		crewresources.CrewSession | crewresources.CrewSessionAuthEvent |
 		crewresources.CrewSessionIdentity | crewresources.CrewSessionImpersonation |
 		crewresources.CrewSessionMailLink | crewresources.CrewSessionSignInAttempt |
 		crewresources.CrewSessionToken | crewresources.CrewSessionTrustedDevice |
-		crewresources.CrewSessionUser | crewresources.CrewUserRole |
-		crewidentity.CrewSectorRole
+		crewresources.CrewSessionUser | crewresources.CrewUserGroupRole |
+		crewresources.CrewUserRole | crewidentity.CrewSectorRole
 }

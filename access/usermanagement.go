@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse/access/internal/policy"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/tracer"
@@ -36,8 +37,8 @@ func newUserManager(store policyStore, defaults *defaultRoles, evaluator evaluat
 	}
 }
 
-// AddRoleUsers assigns role to users, the memberships held in scope. Errors
-// if role doesn't exist in scope.
+// AddRoleUsers assigns role to users, the memberships held in scope, each with
+// no period. Errors if role doesn't exist in scope.
 func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, users ...accesstypes.User) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -58,7 +59,7 @@ func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.Policy
 			return httpio.NewBadRequestMessage("user cannot be empty string")
 		}
 
-		if err := u.store.addUserRole(ctx, scope, user, role); err != nil {
+		if err := u.store.addUserRole(ctx, scope, user, role, accesstypes.Period{}); err != nil {
 			return err
 		}
 	}
@@ -66,14 +67,24 @@ func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.Policy
 	return nil
 }
 
-// AddUserRoles assigns roles to user, the memberships held in scope. Errors
-// if any role doesn't exist in scope.
+// AddUserRoles assigns roles to user, the memberships held in scope, each with
+// no period: a role the user holds for a period is theirs until it is removed.
+// Errors if any role doesn't exist in scope.
 func (u *userManager) AddUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	return u.assignUserRoles(ctx, scope, user, accesstypes.Period{}, roles...)
+}
+
+// assignUserRoles gives user each role in scope for the period, once every role
+// is one the user may be given there for it.
+func (u *userManager) assignUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, period accesstypes.Period, roles ...accesstypes.Role) error {
 	for _, role := range roles {
 		if err := refuseSuperAdministratorOutsideGlobal(scope, role); err != nil {
+			return err
+		}
+		if err := ValidatePeriod(role, period); err != nil {
 			return err
 		}
 		roleFound, err := u.roleExists(ctx, scope, role)
@@ -90,7 +101,7 @@ func (u *userManager) AddUserRoles(ctx context.Context, scope accesstypes.Policy
 	}
 
 	for _, role := range roles {
-		if err := u.store.addUserRole(ctx, scope, user, role); err != nil {
+		if err := u.store.addUserRole(ctx, scope, user, role, period); err != nil {
 			return err
 		}
 	}
@@ -168,9 +179,10 @@ func (u *userManager) DeleteUserRoles(ctx context.Context, scope accesstypes.Pol
 	return nil
 }
 
-// UserRoles returns user's memberships as stored, keyed by where each is
-// held: every membership with no scopes given, the memberships held in each
-// given scope otherwise.
+// UserRoles returns the roles user holds now, keyed by where each is held: the
+// memberships of their own and the roles of every group they are in
+// (heldThroughGroups), less the ones outside their period. Every place with no
+// scopes given, the roles held in each given scope otherwise.
 func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, scopes ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -181,11 +193,9 @@ func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, scop
 		if err != nil {
 			return nil, err
 		}
-		for _, m := range memberships {
-			userRoles[m.Scope] = append(userRoles[m.Scope], m.Role)
+		for i := range memberships {
+			userRoles[memberships[i].Scope] = append(userRoles[memberships[i].Scope], memberships[i].Role)
 		}
-
-		return userRoles, nil
 	}
 
 	for _, scope := range scopes {
@@ -195,6 +205,9 @@ func (u *userManager) UserRoles(ctx context.Context, user accesstypes.User, scop
 		}
 
 		userRoles[scope] = roles
+	}
+	if err := u.heldThroughGroups(ctx, user, userRoles, scopes); err != nil {
+		return nil, err
 	}
 
 	return userRoles, nil
@@ -316,7 +329,8 @@ func listedOnce(roles []RoleInfo) []RoleInfo {
 }
 
 // DeleteRole removes a custom role held in scope with its grants. It refuses
-// a default role, and a role users are still assigned to in scope.
+// a default role, and a role users are assigned to in scope, now or for a
+// period that has not begun; assignments of it that have ended go with it.
 func (u *userManager) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -332,6 +346,11 @@ func (u *userManager) DeleteRole(ctx context.Context, scope accesstypes.PolicySc
 	}
 
 	deleted, err := u.store.deleteRole(ctx, scope, role)
+	if errors.Is(err, policy.ErrStillAssigned) {
+		// The listing above reads who holds the role now: what stands in the way
+		// is an assignment whose period has not begun.
+		return false, httpio.NewBadRequestMessagef("Users are assigned to the role for a period that has not begun yet. You cannot delete a role that has users assigned")
+	}
 	if err != nil {
 		return false, err
 	}

@@ -97,18 +97,30 @@ func TestGeneratedIdentityPublishesDerived(t *testing.T) {
 		return slices.Contains(changeNames(fake.Changes(principalID(user))), "resource|"+string(res)+"|||false")
 	}
 	lists := []live.WholeChange{{Resource: crewSectorIdentities, AllDomains: true}, {Resource: crewSectorRoles, AllDomains: true}, {Resource: crewSectorPeople, AllDomains: true}}
+	// The lists over the crew's groups name each person from the users table, so a
+	// commit that writes an account tells them too; one that writes a membership alone
+	// does not.
+	created := []live.WholeChange{
+		{Resource: "CrewGroupUsers", AllDomains: true},
+		{Resource: "CrewSectorGroupUsers", AllDomains: true},
+		{Resource: crewSectorIdentities, AllDomains: true},
+		{Resource: "CrewSectorUserGroupRoles", AllDomains: true},
+		{Resource: crewSectorRoles, AllDomains: true},
+		{Resource: crewSectorPeople, AllDomains: true},
+		{Resource: "CrewUserGroupRoles", AllDomains: true},
+	}
 
 	// The application's own route, with Lodestar's derivations. A person is created
 	// holding a role, so the commit writes the users table and the memberships table:
 	// the sector's people, the sector's roles and the identities of the sector's people
-	// all read them.
+	// all read them, and the lists over groups read the first.
 	username := "dana-" + identitySuffix()
 	status, body := doRequestAs(t, w.h, "governor", http.MethodPost, consoleAPI+"/create-crew-user", `{"username":"`+username+`","roles":["CrewCommon"]}`)
 	assertStatus(t, status, http.StatusOK, body)
 	// The methods that give a role name the person by the id of the account the create made.
 	danaID := cell[string](t, decodeRow(t, body), "id")
-	if got := wholeChanges(fake.Publishes()); !slices.Equal(got, lists) {
-		t.Fatalf("derived changes after the create = %v, want %v", got, lists)
+	if got := wholeChanges(fake.Publishes()); !slices.Equal(got, created) {
+		t.Fatalf("derived changes after the create = %v, want %v", got, created)
 	}
 	for _, user := range []accesstypes.User{liveHarbormaster, liveBastionPilot} {
 		if !told(user, crewSectorRoles) {

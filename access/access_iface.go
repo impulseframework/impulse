@@ -127,9 +127,20 @@ type UserManager interface {
 	// domain.
 	AddRoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role, users ...accesstypes.User) error
 
-	// AddUserRoles assigns roles to user, the memberships held in scope.
-	// Errors if any role doesn't exist in scope, as AddRoleUsers defines it.
+	// AddUserRoles assigns roles to user, the memberships held in scope, each
+	// with no period: it counts until it is removed, and a role the user held
+	// for a period loses the period. Errors if any role doesn't exist in
+	// scope, as AddRoleUsers defines it.
 	AddUserRoles(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, roles ...accesstypes.Role) error
+
+	// AssignUserRole gives user the role in scope for the period: the role
+	// counts from the period's start, where it has one, until its end, where
+	// it has one, with no row written in between. Assigning again is how a
+	// period changes: the period handed replaces the one the assignment had.
+	// Errors as AddUserRoles does, if the period ends at or before its start,
+	// and if it puts an end or a start on the Super Administrator role, which
+	// takes neither.
+	AssignUserRole(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, period accesstypes.Period) error
 
 	// DeleteRoleUsers removes users from role, the memberships held in scope.
 	// Errors if role doesn't exist.
@@ -145,15 +156,90 @@ type UserManager interface {
 	// held, the caller's reader of the roles table over that transaction; a
 	// default role needs no read. The caller commits the row and then calls
 	// Controller.PolicyChanged. A row to remove needs no check and is spelled
-	// by NewMembershipKey.
+	// by NewMembershipKey. A caller that writes the row with a period asks
+	// ValidatePeriod first.
 	Membership(ctx context.Context, scope accesstypes.PolicyScope, user accesstypes.User, role accesstypes.Role, held RoleReader) (MembershipKey, error)
 
-	// UserRoles returns user's memberships as stored, keyed by where each is
-	// held: a membership held in every domain is one entry under
-	// EveryDomainPolicyScope, never one per domain. With no scopes it lists
-	// every membership the user holds; with scopes, the memberships held in
-	// each, an entry per scope asked.
+	// UserRoles returns the roles user holds now, keyed by where each is held:
+	// the memberships of their own and the roles of every group they are in,
+	// each role listed once in each place, and none that is outside its
+	// period, whether or not its row is still there. A membership held in every
+	// domain is one entry under EveryDomainPolicyScope, never one per domain.
+	// With no scopes it lists every place the user holds a role in; with
+	// scopes, the roles held in each, an entry per scope asked. It is what a
+	// sign-in decides a person by, so a person who holds a role through a
+	// group alone is somebody. The Super Administrator role is listed only
+	// where the user's own membership holds it: no group gives it.
 	UserRoles(ctx context.Context, user accesstypes.User, scopes ...accesstypes.PolicyScope) (accesstypes.RoleCollection, error)
+
+	// AddGroup creates a group of people kept in scope, the global partition
+	// or one tenant domain, and answers the id the store names it by. The
+	// name is what people know the group by, held to one group where it is
+	// kept, and the description says who is in it; both are refused when
+	// empty. A group kept in every domain is refused.
+	AddGroup(ctx context.Context, scope accesstypes.PolicyScope, name, description string) (accesstypes.Group, error)
+
+	// DescribeGroup replaces the description of group. Errors if the group
+	// does not exist or the description is empty.
+	DescribeGroup(ctx context.Context, group accesstypes.Group, description string) error
+
+	// DeleteGroup removes group. Errors if the group does not exist, or still
+	// has a member or holds a role: a group goes once it is emptied. A member
+	// or a role whose period has ended goes with it.
+	DeleteGroup(ctx context.Context, group accesstypes.Group) error
+
+	// Groups returns the groups kept in scope, sorted by name.
+	Groups(ctx context.Context, scope accesstypes.PolicyScope) ([]GroupInfo, error)
+
+	// UserGroups returns the groups user is in, wherever each is kept.
+	UserGroups(ctx context.Context, user accesstypes.User) ([]GroupInfo, error)
+
+	// AddGroupUsers puts users in group, each with no period: each then holds
+	// the group's roles wherever the group holds them. Errors if the group
+	// does not exist.
+	AddGroupUsers(ctx context.Context, group accesstypes.Group, users ...accesstypes.User) error
+
+	// AssignGroupUser puts user in group for the period, replacing the period
+	// of a place that is there: the person holds the group's roles while their
+	// place and the group's role both count. Errors as AddGroupUsers does, and
+	// if the period ends at or before its start.
+	AssignGroupUser(ctx context.Context, group accesstypes.Group, user accesstypes.User, period accesstypes.Period) error
+
+	// DeleteGroupUsers takes users out of group.
+	DeleteGroupUsers(ctx context.Context, group accesstypes.Group, users ...accesstypes.User) error
+
+	// GroupUsers returns the people in group now.
+	GroupUsers(ctx context.Context, group accesstypes.Group) ([]accesstypes.User, error)
+
+	// AddGroupRoles gives group the roles, each held in scope, so every
+	// person in the group holds them there. A group kept for the whole
+	// application holds roles wherever a person can: globally, in one domain
+	// or in every domain. A group kept in one domain holds roles in that
+	// domain alone. No group holds the Super Administrator role. Errors if
+	// the group does not exist or a role doesn't exist in scope, as
+	// AddRoleUsers defines it. Each role is given with no period.
+	AddGroupRoles(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, roles ...accesstypes.Role) error
+
+	// AssignGroupRole gives group the role in scope for the period, replacing
+	// the period of one the group holds there. Errors as AddGroupRoles does,
+	// and if the period ends at or before its start.
+	AssignGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error
+
+	// DeleteGroupRoles takes the roles group holds in scope away from it.
+	DeleteGroupRoles(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, roles ...accesstypes.Role) error
+
+	// GroupRoles returns the roles group holds now, keyed by where each is
+	// held.
+	GroupRoles(ctx context.Context, group accesstypes.Group) (accesstypes.RoleCollection, error)
+
+	// GroupRole answers the key of the row that says group holds role in
+	// scope, for a caller that writes it inside a transaction of its own
+	// instead of through AddGroupRoles. kept is where the group is kept, read
+	// by the caller with the group's row. Errors as AddGroupRoles does. A
+	// custom role is read through held, as Membership reads it. The caller
+	// commits the row and then calls Controller.PolicyChanged. A row to
+	// remove needs no check and is spelled by NewGroupRoleKey.
+	GroupRole(ctx context.Context, group accesstypes.Group, kept, scope accesstypes.PolicyScope, role accesstypes.Role, held RoleReader) (GroupRoleKey, error)
 
 	// UserPermissions returns user's effective permissions in each scope —
 	// what the user holds there, from memberships held in the scope and in

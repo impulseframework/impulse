@@ -71,12 +71,24 @@ func UserID(user accesstypes.User) (userID impulse.UUID, ok bool) {
 // gave the role stand, and a person who holds the role already keeps theirs. What an
 // administrator set on the account before the role, a password or an address, is left as
 // it is: the super administrator who gives the role chooses whom to trust.
-func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) error {
+//
+// The membership is given for the period: it counts from the period's start, where it
+// has one, until its end, where it has one, and a membership the person holds already
+// is given the period handed in place of the one it had (periods.go). Whoever may give
+// the role gives it a period, and the Super Administrator role takes none
+// (access.ValidatePeriod). AssignRole gives the membership with no period.
+func (m *Manager) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role, period accesstypes.Period) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	if userID.IsNil() {
 		return httpio.NewBadRequestMessage("a role is given to a person: the user id is empty")
+	}
+	if err := access.ValidatePeriod(role, period); err != nil {
+		return errors.Wrap(err, "access.ValidatePeriod()")
+	}
+	if err := refuseEnded(period, "the role"); err != nil {
+		return err
 	}
 	if role == accesstypes.SuperAdministrator && !scope.IsGlobal() {
 		return httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, never in a %s or in every %s: give it with no %s named",
@@ -105,11 +117,16 @@ func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransact
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.InsertMembership()")
 	}
-	if !inserted {
+	changed, err := m.settleMembershipPeriod(ctx, txn, userID, &key, period, inserted)
+	if err != nil {
+		return err
+	}
+	if !inserted && !changed {
 		return nil
 	}
-	if role == accesstypes.SuperAdministrator {
-		// The membership is new: what the person holds began without the role.
+	if inserted && role == accesstypes.SuperAdministrator {
+		// The membership is new: what the person holds began without the role. One the
+		// person held already, whose period alone changed, ends nothing of theirs.
 		if err := m.endWhatStoodBeforeTheRole(ctx, txn, userID); err != nil {
 			return err
 		}
@@ -126,9 +143,9 @@ func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransact
 //
 // Two rules of the user management are held here. A person who removes a role from
 // themselves in a tenant is held to the rule on the tenant's last administrator
-// (refuseLastAdministrator). And a person left with no role anywhere is deleted with
-// their identity links and sessions in the same transaction (deleteWithLastRole),
-// whoever removed the role. The Super Administrator role has its own: it is taken away
+// (refuseLastAdministrator). And a person left with no role anywhere and no place in a
+// group is deleted with their identity links and sessions in the same transaction
+// (deleteWithLastRole), whoever removed the role. The Super Administrator role has its own: it is taken away
 // by a caller who holds it, and never from the last holder who can sign in, whoever
 // asks (requireSuperAdministrator, refuseLastSuperAdministrator).
 // Where a person belongs to one tenant (WithOneTenantPerPerson) there is a third: the
@@ -172,14 +189,21 @@ func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTr
 			return err
 		}
 	}
-	all, err := m.store.Memberships(ctx, txn, userID)
+	// What the person holds beside the membership: the roles of their own and the
+	// groups they are in. Where they belong is read from what has not ended (holds);
+	// the account is kept by every row that stands in the tables, ended or not (keeps).
+	all, err := m.holds(ctx, txn, userID)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.Memberships()")
+		return err
 	}
 	if err := m.refuseLeavingSeveralTenants(all, key); err != nil {
 		return err
 	}
-	if err := m.deleteWithLastRole(ctx, txn, userID, all, key); err != nil {
+	kept, err := m.keeps(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
+	if err := m.deleteWithLastRole(ctx, txn, userID, kept, key); err != nil {
 		return err
 	}
 	if err := m.store.DeleteMembership(ctx, txn, key); err != nil {

@@ -171,7 +171,7 @@ func (c *Client) CheckUser(ctx context.Context, env accesstypes.Environment, use
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	decision, err := c.evaluator.checkUser(ctx, user, scope, perm)
+	decision, err := c.evaluator.checkUser(ctx, env, user, scope, perm)
 	if err != nil {
 		return accesstypes.Denied(), err
 	}
@@ -214,7 +214,7 @@ func (c *Client) CheckUserResources(
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	resourceDecisions, err := c.evaluator.checkUserResources(ctx, user, scope, perm, resources...)
+	resourceDecisions, err := c.evaluator.checkUserResources(ctx, env, user, scope, perm, resources...)
 	if err != nil {
 		return nil, err
 	}
