@@ -1079,6 +1079,22 @@ func TestPatchSet_Apply_sealsThroughTheClient(t *testing.T) {
 		t.Errorf("a client with no keys buffered %d writes", len(unkeyed.columns))
 	}
 
+	// A client wired to an environment that carries no version (a command that opens the
+	// data level without the generated router) refuses the write by the name of the
+	// variable that is missing, not by the wiring, which is in place.
+	unset, err := SecretKeysFromEnv("APP_SECRET_KEY", []string{"PATH=/usr/bin"})
+	if err != nil {
+		t.Fatalf("SecretKeysFromEnv() error = %v", err)
+	}
+	unversioned := &capturingTxn{}
+	err = create().Apply(context.Background(), NewMockClient(unversioned, nil, nil, WithSecretKeys(unset)), "test")
+	if err == nil || !strings.Contains(err.Error(), "SealedRows.AccessCode is a secret and the transaction holds no secret keys to seal it with: no version of the application secret was handed over: APP_SECRET_KEY_1 is not set") || strings.Contains(err.Error(), "resource.WithSecretKeys") {
+		t.Errorf("Apply() on a client handed no version: error = %v, want the variable named and no word of the wiring", err)
+	}
+	if len(unversioned.columns) != 0 {
+		t.Errorf("a client handed no version buffered %d writes", len(unversioned.columns))
+	}
+
 	// A transaction built by hand is given the keys itself.
 	own := &capturingTxn{}
 	if err := create().Buffer(context.Background(), NewMockReadWriteTransaction(own).WithSecretKeys(keys), "test"); err != nil {

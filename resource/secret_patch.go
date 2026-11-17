@@ -138,8 +138,15 @@ func (p *PatchSet[Resource]) sealSecret(keys *SecretKeys, field accesstypes.Fiel
 	if given.null {
 		return nil, nil
 	}
-	if keys == nil {
-		return nil, errors.Newf("%s.%s is a secret and the transaction holds no secret keys to seal it with: build the resource client with resource.WithSecretKeys", p.Resource(), field)
+	if !keys.held() {
+		// A client wired to an environment that carries no version is told the variable
+		// that is missing; one that was given no holder, the wiring.
+		advice := "build the resource client with resource.WithSecretKeys"
+		if missing := keys.missingVersion(); missing != "" {
+			advice = missing
+		}
+
+		return nil, errors.Newf("%s.%s is a secret and the transaction holds no secret keys to seal it with: %s", p.Resource(), field, advice)
 	}
 
 	key, err := p.secretKey()

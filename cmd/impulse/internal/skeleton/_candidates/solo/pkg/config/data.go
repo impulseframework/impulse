@@ -91,9 +91,11 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 	// The application secret's versions, each in a variable of its own named by the name
 	// dataConfig declares and the version's number (APP_SECRET_KEY_1, APP_SECRET_KEY_2):
 	// the keys the resource client seals every stored secret field with
-	// (conditions:"secret"), and a row's generated Open method opens one with. No version
-	// in the environment is no keys, which an application that stores a secret is refused
-	// for when its router is built, and no other.
+	// (conditions:"secret"), and a row's generated Open method opens one with. With no
+	// version in the environment the holder holds no key: an application that stores a
+	// secret is refused for that when its router is built, by the name of the variable
+	// that is missing (APP_SECRET_KEY_1), and no other is. The name set with no number
+	// (APP_SECRET_KEY) is refused here, with the variable to use.
 	secretKeys, err := resource.SecretKeysFromEnv("APP_SECRET_KEY", os.Environ())
 	if err != nil {
 		return nil, errors.Wrap(err, "resource.SecretKeysFromEnv()")

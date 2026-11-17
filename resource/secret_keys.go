@@ -282,12 +282,23 @@ func (k *SecretKeys) OpenNullable(key KeySet, stored *Secret) (*string, error) {
 	return &plain, nil
 }
 
+// missingVersion says which variable a holder that was read from the environment
+// (SecretKeysFromEnv) and holds no key is missing, and what to set it to; empty for no
+// holder and for one that was not read from the environment.
+func (k *SecretKeys) missingVersion() string {
+	if k == nil || k.variable == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("no version of the application secret was handed over: %s_1 is not set. Set it to %d random bytes in Base64 (openssl rand -base64 %d makes one)", k.variable, applicationSecretSize, applicationSecretSize)
+}
+
 // errNoKeys is the refusal of sealing or opening with a holder that holds no key: one
 // read from an environment that carries no version names the variable that is missing,
 // and no holder at all names the wiring.
 func (k *SecretKeys) errNoKeys() error {
-	if k != nil && k.variable != "" {
-		return errors.Newf("no version of the application secret was handed over: %s_1 is not set. Set it to %d random bytes in Base64 (openssl rand -base64 %d makes one)", k.variable, applicationSecretSize, applicationSecretSize)
+	if missing := k.missingVersion(); missing != "" {
+		return errors.New(missing)
 	}
 
 	return errors.New("no secret keys: build them from the application secret's versions (resource.NewSecretKeys, resource.SecretKeysFromEnv) and hand them to the resource client with resource.WithSecretKeys")
@@ -406,6 +417,17 @@ func secretVariableOf(holder any) string {
 	}
 
 	return ""
+}
+
+// secretKeysGiven returns the holder a client or a transaction was given, whether or not
+// it holds a key: the write path seals with it, and a holder with no key refuses by the
+// name of the variable it was read under. nil when the client was given none.
+func secretKeysGiven(holder any) *SecretKeys {
+	if h, ok := holder.(secretKeyHolder); ok {
+		return h.secretKeys()
+	}
+
+	return nil
 }
 
 // secretKeysOf returns the secret keys a client or a transaction holds, nil when it

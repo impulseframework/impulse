@@ -130,9 +130,11 @@ func NewDataConfiguration(ctx context.Context) (*DataConfiguration, error) {
 	// turns a patch's fields into columns, and a row's generated Open method opens one
 	// with. Nothing else in the process holds key material. A value sealed under an older
 	// version still opens while the service is handed that version, and is written again
-	// under the current one when it is next set, or opened inside a transaction. No
-	// version in the environment is no keys: the migrate and bootstrap commands run so,
-	// and the server refuses to start, since its resources store a secret (router.New).
+	// under the current one when it is next set, or opened inside a transaction. With no
+	// version in the environment the holder holds no key: the migrate and bootstrap
+	// commands run so, and the server refuses to start, naming the variable that is
+	// missing (APP_SECRET_KEY_1), since its resources store a secret (router.New). The
+	// name set with no number (APP_SECRET_KEY) is refused here, with the variable to use.
 	//
 	// Demonstrates: secret.rotation.
 	secretKeys, err := resource.SecretKeysFromEnv("APP_SECRET_KEY", os.Environ())

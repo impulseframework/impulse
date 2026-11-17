@@ -506,7 +506,7 @@ func (p *PatchSet[Resource]) bufferInsert(ctx context.Context, txn ReadWriteTran
 		}
 	}
 
-	patch, err := p.Resolve(txn.DBType(), secretKeysOf(txn))
+	patch, err := p.Resolve(txn.DBType(), secretKeysGiven(txn))
 	if err != nil {
 		return errors.Wrap(err, "Resolve()")
 	}
@@ -560,7 +560,7 @@ func (p *PatchSet[Resource]) bufferUpdate(ctx context.Context, txn ReadWriteTran
 		}
 	}
 
-	patch, err := p.Resolve(txn.DBType(), secretKeysOf(txn))
+	patch, err := p.Resolve(txn.DBType(), secretKeysGiven(txn))
 	if err != nil {
 		return errors.Wrap(err, "Resolve()")
 	}
@@ -598,7 +598,7 @@ func (p *PatchSet[Resource]) bufferInsertOrUpdate(ctx context.Context, txn ReadW
 		return err
 	}
 
-	patch, err := p.Resolve(txn.DBType(), secretKeysOf(txn))
+	patch, err := p.Resolve(txn.DBType(), secretKeysGiven(txn))
 	if err != nil {
 		return errors.Wrap(err, "Resolve()")
 	}
