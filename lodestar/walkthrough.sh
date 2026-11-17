@@ -98,7 +98,7 @@ login_google() { # login_google <persona>: the crew auth's Google method, whose 
   login_through "$1" "$API/user/google/login?returnUrl=/console/dashboard" "$API/user/session"
 }
 
-login_sign_up() { # login_sign_up <persona>: the crew auth's sign-up registration (any Google account, open sign-up), whose simulated person is APP_SIGN_UP_USERNAME on the server
+login_sign_up() { # login_sign_up <persona>: the crew auth's sign-up registration (any Google account, which the governor opens to sign-up before the pioneer comes), whose simulated person is APP_SIGN_UP_USERNAME on the server
   login_through "$1" "$API/user/sign-up/login?returnUrl=/console/dashboard" "$API/user/session"
   # Any Google account is a directory nobody here administers, so nothing attests for her
   # and the sign-in waits for the code like a password's.
@@ -236,8 +236,12 @@ for p in governor marshal cadet pilot veteran lead dispatcher overseer booking w
 done
 login_portal client
 login_google navigator
+# Every sign-in method starts invite only, and whether one admits a person with no account
+# and no invitation is chosen in the running application: the governor opens the sign-up
+# registration, and only then does the pioneer, whom the fleet has never seen, get in.
+r=$(req governor POST "$API/open-crew-sign-up" '{"name":"sign-up"}'); check "the governor opens the sign-up registration to anyone with a Google account" 204 "$r"
 login_sign_up pioneer
-echo "--- personas logged in (crew by password, the navigator through the fleet's directory, the pioneer by signing up with any Google account, the client through the company directory; every directory simulated) ---"
+echo "--- personas logged in (crew by password, the navigator through the fleet's directory, the pioneer by signing up with any Google account once the governor has opened that registration, the client through the company directory; every directory simulated) ---"
 
 # ---- what each login page is told ----
 # Each outlet's methods route lists the sign-in methods its auth offers, in the order the
@@ -777,11 +781,11 @@ if [ -n "$SECOND_PID" ]; then
 fi
 
 # ---- a sector of one's own: self-service creation ----
-# Who may chart a sector is declared on the record, apart from who may enter one: Sectors
-# declares both ways (@tenant(creation: both)). The surveyor's is above. The pioneer's is
-# self-service: she signed in through the crew auth's sign-up registration (any Google
-# account, open sign-up: a person the auth has never seen becomes a crew login holding no
-# role and no sector) and names her own sector through the generated create-sector route,
+# A sector is charted two ways. The surveyor's is above. The pioneer's is self-service:
+# she signed in through the crew auth's sign-up registration (any Google account, opened
+# to sign-up by the governor above: a person the auth has never seen becomes a crew login
+# holding no role and no sector) and names her own sector through the generated
+# create-sector route, which serves while a sign-in method of the auth is open,
 # by the record's fields without its key (the route generates the id and answers it; a
 # body that names a key is refused), which writes the row, seats her as its marshal
 # (SectorMarshal, the roles the App names)
