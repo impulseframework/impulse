@@ -511,21 +511,26 @@ func (s *Store) ListRoles(ctx context.Context, scope accesstypes.PolicyScope) ([
 }
 
 // DeleteRole deletes the (scope, role) row through DML so the affected count
-// is known. Its grants cascade (interleaved ON DELETE CASCADE); memberships
-// held in the scope that have not ended block the delete, checked in the
-// delete's own read-write transaction since nothing in the schema ties a
-// membership to a role row, and the ended ones go with the role.
+// is known. Its grants cascade (interleaved ON DELETE CASCADE). Memberships
+// held in the scope that have not ended block the delete, and so does a group
+// that holds the role there, now or for a period that has not begun: each is
+// checked in the delete's own read-write transaction, since nothing in the
+// schema ties a membership or a group's role to a role row. The ended ones, a
+// person's and a group's, go with the role.
 func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	kind, axis, domain := policy.ScopeColumns(scope)
 	params := map[string]any{paramKind: kind, paramAxis: axis, paramDomain: domain, paramRole: string(role)}
 	var deleted bool
 	_, err := s.client.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		iter := txn.Query(ctx, spanner.Statement{SQL: s.sqlRoleHasMembers, Params: params})
-		defer iter.Stop()
-		if _, err := iter.Next(); err == nil {
+		if members, err := anyRow(ctx, txn, spanner.Statement{SQL: s.sqlRoleHasMembers, Params: params}); err != nil {
+			return errors.Wrap(err, "role members")
+		} else if members {
 			return errors.Wrapf(policy.ErrStillAssigned, "role %q in scope %s still has members", role, scope)
-		} else if !errors.Is(err, iterator.Done) {
-			return errors.Wrap(err, "spanner.RowIterator.Next() role members")
+		}
+		if held, err := anyRow(ctx, txn, spanner.Statement{SQL: s.groups.roleHeld, Params: params}); err != nil {
+			return errors.Wrap(err, "role groups")
+		} else if held {
+			return errors.Wrapf(policy.ErrHeldByGroup, "role %q in scope %s", role, scope)
 		}
 
 		count, err := txn.Update(ctx, spanner.Statement{SQL: s.sqlDeleteRole, Params: params})
@@ -541,6 +546,9 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 		if _, err := txn.Update(ctx, spanner.Statement{SQL: s.sqlDeleteEndedMembers, Params: params}); err != nil {
 			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update() ended memberships")
 		}
+		if _, err := txn.Update(ctx, spanner.Statement{SQL: s.groups.deleteEndedOf, Params: params}); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update() ended group roles")
+		}
 
 		return nil
 	})
@@ -549,6 +557,21 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 	}
 
 	return deleted, nil
+}
+
+// anyRow reports whether a statement of the transaction answers a row.
+func anyRow(ctx context.Context, txn *spanner.ReadWriteTransaction, stmt spanner.Statement) (bool, error) {
+	iter := txn.Query(ctx, stmt)
+	defer iter.Stop()
+	if _, err := iter.Next(); err != nil {
+		if errors.Is(err, iterator.Done) {
+			return false, nil
+		}
+
+		return false, errors.Wrap(err, "spanner.RowIterator.Next()")
+	}
+
+	return true, nil
 }
 
 // RoleExists reports whether the (scope, role) row exists.

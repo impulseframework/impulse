@@ -32,6 +32,7 @@ export function openMethodDialog(
     confirm: typeof confirm === 'function' ? confirm(from ?? {}, row ? undefined : listed) : confirm,
     ...(method.presentation?.labels ? { labels: method.presentation.labels } : {}),
     ...(method.presentation?.shows ? { shows: method.presentation.shows } : {}),
+    ...(method.presentation?.throughDay ? { throughDay: method.presentation.throughDay } : {}),
   };
   return dialog
     .open<MethodDialogComponent, MethodDialogData, MethodDialogResult>(MethodDialogComponent, { data, delayFocusTrap: false })

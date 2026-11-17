@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
@@ -26,9 +27,11 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 	id := userID.String()
 
 	tests := []struct {
-		name        string
-		inv         *sessioninfo.Invitation
-		held        []access.MembershipKey
+		name string
+		inv  *sessioninfo.Invitation
+		held []access.MembershipKey
+		// periods are the periods of the memberships the person holds.
+		periods     map[access.MembershipKey]accesstypes.Period
 		failOn      string
 		wantErr     func(error) bool
 		wantWrites  []string
@@ -57,6 +60,33 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 			wantReads:  []string{"role global/ Reader"},
 			wantWrites: []string{"insert membership every/ " + id + " Reader"},
 			// One membership was written, so the engine is told.
+			wantChanged: 1,
+		},
+		{
+			name: "a role the person holds for a period keeps its period: the invitation gives what is not held, and erases nothing",
+			inv:  &sessioninfo.Invitation{Email: "dana@example.com", TenantID: "alpha", RoleNames: []string{"Reader"}},
+			held: []access.MembershipKey{access.NewMembershipKey(alphaScope, dana, "Reader")},
+			periods: map[access.MembershipKey]accesstypes.Period{
+				access.NewMembershipKey(alphaScope, dana, "Reader"): {End: time.Now().Add(time.Hour)},
+			},
+		},
+		{
+			name: "a role the person holds for a period that has not begun keeps it too",
+			inv:  &sessioninfo.Invitation{Email: "dana@example.com", RoleNames: []string{"Steward"}},
+			held: []access.MembershipKey{access.NewMembershipKey(globalScope, dana, "Steward")},
+			periods: map[access.MembershipKey]accesstypes.Period{
+				access.NewMembershipKey(globalScope, dana, "Steward"): {Start: time.Now().Add(time.Hour)},
+			},
+		},
+		{
+			name: "a role whose period has ended is nothing the person holds: the invitation gives it afresh, with no period",
+			inv:  &sessioninfo.Invitation{Email: "dana@example.com", TenantID: "alpha", RoleNames: []string{"Reader"}},
+			held: []access.MembershipKey{access.NewMembershipKey(alphaScope, dana, "Reader")},
+			periods: map[access.MembershipKey]accesstypes.Period{
+				access.NewMembershipKey(alphaScope, dana, "Reader"): {End: time.Now().Add(-time.Hour)},
+			},
+			// The row stands, so the write of the membership finds it and the period is what changes.
+			wantWrites:  []string{"period of membership domain/alpha " + id + " Reader: none"},
 			wantChanged: 1,
 		},
 		{
@@ -89,6 +119,7 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 			for _, key := range tt.held {
 				store.memberships[key] = true
 			}
+			store.membershipPeriods = tt.periods
 			m, engine := newManager(t, store, engineRoles)
 
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
@@ -129,8 +160,10 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 	tests := []struct {
 		name  string
 		seats []signin.DirectorySeat
-		// held are the memberships the person holds before the sign-in, as committed.
+		// held are the memberships the person holds before the sign-in, as committed, and
+		// periods the periods of the ones that carry one.
 		held        []access.MembershipKey
+		periods     map[access.MembershipKey]accesstypes.Period
 		custom      []access.RoleKey
 		wantErr     func(error) bool
 		wantWrites  []string
@@ -154,6 +187,36 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 			name:  "a person who holds the default role itself in the tenant is given nothing",
 			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
 			held:  []access.MembershipKey{access.NewMembershipKey(accesstypes.DomainPolicyScope("alpha"), User(userID), "Reader")},
+		},
+		{
+			name:  "a person whose only role in the tenant has ended holds none there: the default role is given, though the ended row still stands",
+			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			held:  []access.MembershipKey{access.NewMembershipKey(alphaScope, User(userID), "Editor")},
+			periods: map[access.MembershipKey]accesstypes.Period{
+				access.NewMembershipKey(alphaScope, User(userID), "Editor"): {End: time.Now().Add(-time.Hour)},
+			},
+			wantWrites:  []string{"insert membership domain/alpha " + id + " Reader"},
+			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			wantChanged: 1,
+		},
+		{
+			name:  "a person whose default role itself has ended is given it again, with no period",
+			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			held:  []access.MembershipKey{access.NewMembershipKey(alphaScope, User(userID), "Reader")},
+			periods: map[access.MembershipKey]accesstypes.Period{
+				access.NewMembershipKey(alphaScope, User(userID), "Reader"): {End: time.Now().Add(-time.Hour)},
+			},
+			wantWrites:  []string{"period of membership domain/alpha " + id + " Reader: none"},
+			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			wantChanged: 1,
+		},
+		{
+			name:  "a person whose role in the tenant has not begun will hold it, and is given nothing beside it",
+			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			held:  []access.MembershipKey{access.NewMembershipKey(alphaScope, User(userID), "Editor")},
+			periods: map[access.MembershipKey]accesstypes.Period{
+				access.NewMembershipKey(alphaScope, User(userID), "Editor"): {Start: time.Now().Add(time.Hour)},
+			},
 		},
 		{
 			name:        "a role held for the whole application is no role in the tenant: the default role is given",
@@ -193,6 +256,7 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 			for _, key := range tt.held {
 				store.memberships[key] = true
 			}
+			store.membershipPeriods = tt.periods
 			m, engine := newManager(t, store, engineRoles)
 
 			var given []signin.DirectorySeat

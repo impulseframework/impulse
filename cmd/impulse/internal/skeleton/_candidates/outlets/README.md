@@ -38,7 +38,11 @@ Groups of people are kept beside them (`/staff-groups` on the console,
 tenant): a group holds roles the way a person does, a person in it holds the group's
 roles, and each auth's role file gives a place's groups, their members and their roles to
 whoever manages its people (`Administrator` for the whole application,
-`TenantAdministrator` in a tenant). The library draws them from the API description (`identityRoutes` in each application's
+`TenantAdministrator` in a tenant). A group gives
+nobody a power that giving the role directly would not: who is in a group, and what it
+holds, is changed by someone who may give or take those roles directly, and a tenant puts
+its own people in its groups, while an account from outside the tenant is put there from
+the whole application's accounts. The library draws them from the API description (`identityRoutes` in each application's
 `app.routes.ts`, placed by `identityMenuPages` in its menu file), and a tenant's pages read
 the tenant from the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file
 (`app.menus.ts`) shows Tenants (All tenants and New tenant…) and System (the staff's

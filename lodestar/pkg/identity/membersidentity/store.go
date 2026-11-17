@@ -720,6 +720,16 @@ func (store) TenantGroupRoles(context.Context, resource.ReadWriteTransaction, ac
 	return nil, nil
 }
 
+func (store) GroupsHolding(context.Context, resource.ReadWriteTransaction, *access.RoleKey) ([]impulse.UUID, error) {
+	return nil, nil
+}
+
+// TenantPerson is asked by the rules of a tenant's group alone, and here there are no
+// groups.
+func (store) TenantPerson(context.Context, resource.ReadWriteTransaction, accesstypes.Domain, impulse.UUID) (bool, error) {
+	return false, nil
+}
+
 // storedPeriod answers the period a row's two columns hold, as they are. A row written
 // past the rules with an end at or before its start never counts, and is read so.
 func storedPeriod(start, end *time.Time) accesstypes.Period {
@@ -762,6 +772,35 @@ func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, 
 	}
 
 	return periods, nil
+}
+
+// EndedAssignments reads past the declarations, as the read of a password does: what has
+// ended is the database's to say, by its own clock, the one the lists compare a period
+// with (CURRENT_TIMESTAMP). Each statement carries the comparison, so no instant of the
+// application server's decides what a sign-in removes.
+func (store) EndedAssignments(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]access.MembershipKey, []access.GroupMemberKey, error) {
+	user := accesstypes.User(userID.String())
+	var memberships []access.MembershipKey
+	held := spanner.Statement{
+		SQL:    "SELECT Kind, Axis, DomainId, Role FROM MembersUserRoles@{FORCE_INDEX=MembersUserRolesByUserId} WHERE UserId = @user AND EndsAt <= CURRENT_TIMESTAMP()",
+		Params: map[string]any{"user": string(user)},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, held).Do(func(row *spanner.Row) error {
+		key := access.MembershipKey{Kind: "", Axis: "", Domain: "", Role: "", User: user}
+		var role string
+		if err := row.Columns(&key.Kind, &key.Axis, &key.Domain, &role); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		key.Role = accesstypes.Role(role)
+		memberships = append(memberships, key)
+
+		return nil
+	}); err != nil {
+		return nil, nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+	var places []access.GroupMemberKey
+
+	return memberships, places, nil
 }
 
 // RemoveEnded buffers each removal under the source that says the assignment ended by

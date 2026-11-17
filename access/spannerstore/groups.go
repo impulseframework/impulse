@@ -46,6 +46,9 @@ type groupStatements struct {
 	listUserGroups string
 	listRoles      string
 	listUserRoles  string
+	listRoleGroups string
+	roleHeld       string
+	deleteEndedOf  string
 	readGroups     string
 	readMembers    string
 	readRoles      string
@@ -71,9 +74,15 @@ func newGroupStatements(n *tableNames) groupStatements {
 		listUserRoles: fmt.Sprintf(`SELECT g.Id, g.Kind, g.Axis, g.DomainId, r.Kind, r.Axis, r.DomainId, r.Role
 FROM %s@{FORCE_INDEX=%s} m JOIN %s g ON g.Id = m.GroupId JOIN %s r ON r.GroupId = m.GroupId
 WHERE m.UserId = @user AND %s AND %s ORDER BY r.Kind, r.Axis, r.DomainId, r.Role, g.Id`, n.groupMembers, n.groupMembersIndex, n.groups, n.groupRoles, counting("m."), counting("r.")),
-		readGroups:  fmt.Sprintf("SELECT Id, Kind, Axis, DomainId FROM %s", n.groups),
-		readMembers: fmt.Sprintf("SELECT GroupId, UserId, StartsAt, EndsAt FROM %s", n.groupMembers),
-		readRoles:   fmt.Sprintf("SELECT GroupId, Kind, Axis, DomainId, Role, StartsAt, EndsAt FROM %s", n.groupRoles),
+		listRoleGroups: fmt.Sprintf(`SELECT g.Id, g.Kind, g.Axis, g.DomainId, g.Name, g.Description
+FROM %s@{FORCE_INDEX=%s} r JOIN %s g ON g.Id = r.GroupId
+WHERE r.Kind = @kind AND r.Axis = @axis AND r.DomainId = @domain AND r.Role = @role AND %s ORDER BY g.Name, g.Id`, n.groupRoles, n.groupRolesIndex, n.groups, counting("r.")),
+		roleHeld: fmt.Sprintf("SELECT 1 FROM %s@{FORCE_INDEX=%s} WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s LIMIT 1",
+			n.groupRoles, n.groupRolesIndex, standing("")),
+		deleteEndedOf: fmt.Sprintf("DELETE FROM %s WHERE Kind = @kind AND Axis = @axis AND DomainId = @domain AND Role = @role AND %s", n.groupRoles, ended),
+		readGroups:    fmt.Sprintf("SELECT Id, Kind, Axis, DomainId FROM %s", n.groups),
+		readMembers:   fmt.Sprintf("SELECT GroupId, UserId, StartsAt, EndsAt FROM %s", n.groupMembers),
+		readRoles:     fmt.Sprintf("SELECT GroupId, Kind, Axis, DomainId, Role, StartsAt, EndsAt FROM %s", n.groupRoles),
 	}
 }
 
@@ -296,6 +305,17 @@ func (s *Store) ListGroups(ctx context.Context, scope accesstypes.PolicyScope) (
 // ListUserGroups returns the groups the user is in, sorted by id.
 func (s *Store) ListUserGroups(ctx context.Context, user accesstypes.User) ([]policy.GroupRow, error) {
 	return s.queryGroups(ctx, spanner.Statement{SQL: s.groups.listUserGroups, Params: map[string]any{paramUser: string(user)}})
+}
+
+// ListRoleGroups returns the groups that hold the role in scope now, sorted by
+// name then id, read through the group roles' index by scope.
+func (s *Store) ListRoleGroups(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]policy.GroupRow, error) {
+	kind, axis, domain := policy.ScopeColumns(scope)
+
+	return s.queryGroups(ctx, spanner.Statement{
+		SQL:    s.groups.listRoleGroups,
+		Params: map[string]any{paramKind: kind, paramAxis: axis, paramDomain: domain, paramRole: string(role)},
+	})
 }
 
 // queryGroups runs a statement that selects whole group rows.

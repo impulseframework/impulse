@@ -314,6 +314,110 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 	}
 }
 
+// Test_prepareIdentity_grants pins what an auth that keeps groups is written to judge a
+// change to a group by: the answers of the role file's grants on the methods that give a
+// role and take one away (identity.RoleGrants), which its client hands the library, and
+// the store's reads the rules of a group ask. An auth that keeps no groups is written
+// none of it.
+func Test_prepareIdentity_grants(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	r := identityFixtureGenerator(t, slices.Concat(crewEveryTable, crewGroupTables, membersIdentityTables)...)
+	if err := r.prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() error = %v", err)
+	}
+
+	requireLines(t, map[string][]string{
+		"crewidentity/grants.go": {
+			generationHeader, "var _ identity.RoleGrants = grants{}",
+			// The whole application's methods name no row: the request's fields settle the
+			// grant, the role in question among them.
+			"caller.ExecuteGate(ctx, AssignCrewRole{}.Method(), &AssignCrewRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})",
+			"return settled(gate, \"AssignCrewRole\")",
+			"caller.ExecuteGate(ctx, RemoveCrewRole{}.Method(), &RemoveCrewRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})",
+			"return settled(gate, \"RemoveCrewRole\")",
+			// A refusal is an answer, and anything else is an error, never a pass.
+			"case httpio.HasForbidden(err), httpio.HasNotFound(err):\n\t\treturn false, nil\n\tdefault:\n\t\treturn false, errors.Wrap(err, \"resource.Caller.ExecuteGate()\")",
+		},
+		"crewidentity/client.go": {"identity.WithRoleGrants(grants{})"},
+		"crewidentity/store.go": {
+			"func (store) GroupsHolding(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RoleKey) ([]impulse.UUID, error) {",
+			// No tenant, so nobody is a tenant's person.
+			"func (store) TenantPerson(context.Context, resource.ReadWriteTransaction, accesstypes.Domain, impulse.UUID) (bool, error) {\n\treturn false, nil\n}",
+			// What has ended is the database's to say, by its own clock.
+			"FROM CrewUserRoles@{FORCE_INDEX=CrewUserRolesByUserId} WHERE UserId = @user AND EndsAt <= CURRENT_TIMESTAMP()",
+			"FROM CrewGroupMembers@{FORCE_INDEX=CrewGroupMembersByUserId} WHERE UserId = @user AND EndsAt <= CURRENT_TIMESTAMP()",
+		},
+		// A group is no part of an auth that keeps none: nothing asks its grants.
+		"membersidentity/store.go": {
+			"func (store) GroupsHolding(context.Context, resource.ReadWriteTransaction, *access.RoleKey) ([]impulse.UUID, error) {\n\treturn nil, nil\n}",
+			"func (store) TenantPerson(context.Context, resource.ReadWriteTransaction, accesstypes.Domain, impulse.UUID) (bool, error) {\n\treturn false, nil\n}",
+		},
+	})
+	for _, line := range []string{"Ship", "EnforceView", "EnforceProposed"} {
+		if content := readTreeFile(t, "crewidentity/grants.go"); strings.Contains(content, line) {
+			t.Errorf("crewidentity/grants.go holds %q, a tenant's side, and the program declares no tenant:\n%s", line, content)
+		}
+	}
+	if files := identityTreeFiles(t, "pkg/identity"); slices.Contains(files, "membersidentity/grants.go") {
+		t.Errorf("membersidentity/grants.go is written, and the Members auth keeps no groups: %v", files)
+	}
+	if client := readTreeFile(t, "membersidentity/client.go"); strings.Contains(client, "WithRoleGrants") {
+		t.Errorf("membersidentity/client.go hands the library role grants, and the Members auth keeps no groups:\n%s", client)
+	}
+}
+
+// Test_prepareIdentity_grants_tenant pins a tenant's side of the same: a request made
+// under a tenant is answered by the grants of the tenant's own two methods, the one that
+// gives a role read against the person's row of the tenant's people and the one that
+// takes a role away against the row the removal would name; and the store reads whether
+// a person is one of the tenant's people from the tenant's own list.
+func Test_prepareIdentity_grants_tenant(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	r := identityFixtureGenerator(t, slices.Concat(crewEveryTable, crewGroupTables, membersIdentityTables)...)
+	r.resource = "pkg/resources"
+	r.tableMap["Ships"] = shipsTable()
+	writeResourcesPackage(t, "pkg/resources", map[string]string{"ships.go": shipTenantSource})
+	if err := r.prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() error = %v", err)
+	}
+
+	requireLines(t, map[string][]string{
+		"crewidentity/grants.go": {
+			// A request made under a tenant changes that tenant's roles alone.
+			"if tenant, inTenant := caller.Scope.Domain(); inTenant {\n\t\t// A request made under a tenant gives a role in that tenant alone.\n\t\tif scope != accesstypes.DomainPolicyScope(tenant) {\n\t\t\treturn false, nil\n\t\t}",
+			"caller.ExecuteGate(ctx, AssignCrewShipRole{}.Method(), &AssignCrewShipRole{UserID: userID, Role: string(role)})",
+			"people := resource.ExecuteTarget{Resource: \"CrewShipUsers\", Label: \"CrewShipUser\", PKColumns: []string{\"Id\"}, View: crewresources.CrewShipUser{}}",
+			"return granted(gate.EnforceView(ctx, txn, people, userID))",
+			"caller.ExecuteGate(ctx, RemoveCrewShipRole{}.Method(), &RemoveCrewShipRole{UserID: userID, Role: string(role)})",
+			"held := resource.ExecuteTarget{Resource: \"CrewShipUserRoles\", Label: \"CrewShipUserRole\", PKColumns: []string{\"UserId\", \"Role\"}, View: nil}",
+			"return granted(gate.EnforceProposed(ctx, txn, held, map[string]any{\"role\": string(role), \"everyDomain\": false}))",
+			// The whole application's request is answered by its own methods still.
+			"caller.ExecuteGate(ctx, AssignCrewRole{}.Method(), &AssignCrewRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})",
+		},
+		"crewidentity/store.go": {
+			"func (store) TenantPerson(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain, userID impulse.UUID) (bool, error) {",
+			"clause := crewresources.NewCrewShipUserQueryClause()",
+			"clause.ID().Equal(userID).And().DomainID().Equal(string(domain))",
+		},
+		// The tenant's method holds the person to the tenant's people in the library, so
+		// it reads no account of its own.
+		"crewidentity/add_crew_ship_group_member.go": {"The person is one the tenant already has: a row of CrewShipUser"},
+	})
+	if content := readTreeFile(t, "crewidentity/add_crew_ship_group_member.go"); strings.Contains(content, "RequireUser") {
+		t.Errorf("crewidentity/add_crew_ship_group_member.go reads the account of any id, and the tenant's method takes one of the tenant's people:\n%s", content)
+	}
+	// The attributes a condition on the grant of the tenant's removal reads are the two
+	// the row the grants propose carries: a third would be one the proposed row lacks.
+	roles := readTreeFile(t, "internal/crewresources/crew_ship_user_roles.go")
+	if got := strings.Count(roles, "// @attribute("); got != 2 || !strings.Contains(roles, "// @attribute(role)") || !strings.Contains(roles, "// @attribute(everyDomain)") {
+		t.Errorf("internal/crewresources/crew_ship_user_roles.go declares %d attributes, want role and everyDomain alone, the two the proposed row of a removal carries:\n%s", got, roles)
+	}
+}
+
 // Test_identityInstance_groupTables pins which instances keep groups: one whose schema
 // holds the three group tables beside its memberships. The tables are migrated together,
 // so some of them without the others is refused; an auth whose directory writes its

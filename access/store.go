@@ -165,9 +165,14 @@ type Store interface {
 	// group holds now, sorted by scope then role. ListUserGroupRoles returns
 	// every role held now by a group the user is in now, each with its group
 	// and where the group is kept: what the person holds through groups, as
-	// one read.
+	// one read. ListRoleGroups returns the groups that hold role in scope now,
+	// sorted by name then id: the groups a role is held through. DeleteRole
+	// refuses, wrapping policy.ErrHeldByGroup, while a group's row of the role
+	// in the scope has not ended, checked in the delete's own transaction, and
+	// takes the ended ones with the role.
 	InsertGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error
 	DeleteGroupRole(ctx context.Context, group accesstypes.Group, scope accesstypes.PolicyScope, role accesstypes.Role) error
 	ListGroupRoles(ctx context.Context, group accesstypes.Group) ([]policy.Membership, error)
 	ListUserGroupRoles(ctx context.Context, user accesstypes.User) ([]policy.GroupRole, error)
+	ListRoleGroups(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]policy.GroupRow, error)
 }

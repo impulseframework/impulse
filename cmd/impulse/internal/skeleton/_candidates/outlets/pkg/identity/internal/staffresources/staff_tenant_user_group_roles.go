@@ -19,7 +19,10 @@ type (
 	//
 	// GlobalGroup says the group is kept for the whole application, so neither the group
 	// nor the role is this tenant's to change; EveryDomain says the group holds the role
-	// in every tenant alone.
+	// in every tenant alone. A group that holds the role both ways, in the tenant and in
+	// every tenant, is one row: the one that counts now, so a row of the tenant's own
+	// that has not begun does not hide the role the person holds through every tenant
+	// today, and the tenant's own row where both count or neither does yet.
 	//
 	// StartsAt and EndsAt are the period the person holds the role for through the group:
 	// where the period of their place in the group and the period the group holds the
@@ -53,9 +56,11 @@ type (
 
 // staffTenantUserGroupRoleQuery selects the roles people hold in every tenant
 // through a group: the rows of StaffGroupRoles held in one tenant, and the ones
-// held in every tenant once per row of Tenants where the same group holds no
-// row of its own for the role in the tenant, each joined to its group, the group's
-// members and their accounts. A group kept in one tenant gives its roles there alone.
+// held in every tenant once per row of Tenants, each joined to its group, the
+// group's members and their accounts. Where a group holds a role both ways the query
+// answers one row, the one that counts now: the tenant's own row gives way to the row
+// held in every tenant while it has not begun and that one counts, and stands in front
+// of it otherwise. A group kept in one tenant gives its roles there alone.
 const staffTenantUserGroupRoleQuery = `
 SELECT
   t.DomainId AS DomainId,
@@ -73,6 +78,11 @@ FROM (
   FROM StaffGroupRoles r
   WHERE r.Kind = 'domain' AND r.Axis = ''
     AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
+    AND (((r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())) OR NOT EXISTS (
+      SELECT 1 FROM StaffGroupRoles e
+      WHERE e.GroupId = r.GroupId AND e.Kind = 'every' AND e.Axis = r.Axis AND e.Role = r.Role
+        AND (e.StartsAt IS NULL OR e.StartsAt <= CURRENT_TIMESTAMP()) AND (e.EndsAt IS NULL OR e.EndsAt > CURRENT_TIMESTAMP())
+    ))
   UNION ALL
   SELECT s.Id AS DomainId, r.GroupId AS GroupId, r.Role AS Role, TRUE AS EveryDomain, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt
   FROM StaffGroupRoles r
@@ -83,6 +93,7 @@ FROM (
       SELECT 1 FROM StaffGroupRoles d
       WHERE d.GroupId = r.GroupId AND d.Kind = 'domain' AND d.Axis = r.Axis AND d.DomainId = s.Id AND d.Role = r.Role
         AND (d.EndsAt IS NULL OR d.EndsAt > CURRENT_TIMESTAMP())
+        AND (((d.StartsAt IS NULL OR d.StartsAt <= CURRENT_TIMESTAMP()) AND (d.EndsAt IS NULL OR d.EndsAt > CURRENT_TIMESTAMP())) OR NOT ((r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())))
     )
 ) t
 JOIN StaffGroups g ON g.Id = t.GroupId

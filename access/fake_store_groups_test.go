@@ -272,6 +272,28 @@ func (f *fakeStore) ListGroupRoles(_ context.Context, group accesstypes.Group) (
 	return roles, err
 }
 
+func (f *fakeStore) ListRoleGroups(_ context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]policy.GroupRow, error) {
+	groups := make([]policy.GroupRow, 0)
+	err := f.locked(func() error {
+		for r, held := range f.groups.held {
+			if r.scope == scope && r.role == role && held.Contains(f.now()) {
+				groups = append(groups, f.groups.rows[r.group])
+			}
+		}
+		slices.SortFunc(groups, func(a, b policy.GroupRow) int {
+			if c := strings.Compare(a.Name, b.Name); c != 0 {
+				return c
+			}
+
+			return strings.Compare(string(a.ID), string(b.ID))
+		})
+
+		return nil
+	})
+
+	return groups, err
+}
+
 func (f *fakeStore) ListUserGroupRoles(_ context.Context, user accesstypes.User) ([]policy.GroupRole, error) {
 	roles := make([]policy.GroupRole, 0)
 	err := f.locked(func() error {

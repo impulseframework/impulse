@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
@@ -85,43 +86,74 @@ func (s *TargetedRPCDecoder[Request]) Decode(request *http.Request, scope access
 		return nil, nil, errors.Wrap(err, "structDecoder.Decode()")
 	}
 
-	userPermissions := s.userPermissions(request)
-	env := RequestEnvironment()
-	decisions, err := userPermissions.Check(request.Context(), env, scope, s.perm, s.res)
+	caller := &Caller{Permissions: s.userPermissions(request), Scope: scope, Env: RequestEnvironment(), collection: s.collection}
+	gate, err := caller.gateFor(request.Context(), s.res, s.perm, req)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "resource.UserPermissions.Check()")
+		return nil, nil, err
+	}
+
+	return req, gate, nil
+}
+
+// gateFor checks the caller's permission on a method in the caller's scope and
+// environment and answers the gate that carries the decision. Denied is Forbidden;
+// Granted and Conditional both admit. The atoms of a Conditional decision that read
+// the method's own request fields settle here, against request. What is left reads
+// the target row and rides the gate; a constant FALSE rides it too, so the row is
+// still looked for and a missing row is still NotFound.
+func (c *Caller) gateFor(ctx context.Context, method accesstypes.Resource, perm accesstypes.Permission, request any) (*ExecuteGate, error) {
+	decisions, err := c.Permissions.Check(ctx, c.Env, c.Scope, perm, method)
+	if err != nil {
+		return nil, errors.Wrap(err, "resource.UserPermissions.Check()")
 	}
 	if denied := decisions.DeniedResources(); len(denied) > 0 {
-		return nil, nil, httpio.NewForbiddenMessagef("user %s, scope %s, does not have %s on %s", userPermissions.User(), scope, s.perm, denied)
+		return nil, httpio.NewForbiddenMessagef("user %s, scope %s, does not have %s on %s", c.Permissions.User(), c.Scope, perm, denied)
 	}
 
 	gate := &ExecuteGate{
-		method:          s.res,
-		user:            userPermissions.User(),
-		userPermissions: userPermissions,
-		scope:           scope,
-		env:             env,
-		collection:      s.collection,
+		method:          method,
+		user:            c.Permissions.User(),
+		userPermissions: c.Permissions,
+		scope:           c.Scope,
+		env:             c.Env,
+		collection:      c.collection,
 	}
-	if decision, ok := decisions[s.res]; ok && decision.IsConditional() {
-		expr, err := conditionalExpr(s.res, decision)
+	if decision, ok := decisions[method]; ok && decision.IsConditional() {
+		expr, err := conditionalExpr(method, decision)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
-		// The atoms that read the method's own request fields
-		// settle here, against the request just decoded. What is left reads the
-		// target row and rides the gate; a constant FALSE rides it too, so the row
-		// is still looked for and a missing row is still NotFound.
-		expr, err = settleRequestFields(s.collection, s.res, expr, req)
+		expr, err = settleRequestFields(c.collection, method, expr, request)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 		if truth, constant := expr.(condition.Truth); !constant || !truth.Value {
 			gate.cond = expr
 		}
 	}
 
-	return req, gate, nil
+	return gate, nil
+}
+
+// ExecuteGate answers the caller's Execute decision on another method, for a request
+// the body builds in place of one a decoder read: what that method's own frame would
+// decide for the request, in the scope and the environment the caller was checked in.
+// A body that does through one method what another method does asks it, so the grant
+// of the method that does the thing directly judges the same thing done another way: a
+// person put in a group is given the group's roles, and is judged by the grant of the
+// method that gives a role.
+//
+// Denied is the Forbidden the method's own decode answers. The atoms of a conditional
+// grant that read the method's request fields (new.<name>) are settled against
+// request, a value of the method's own request struct. What is left reads the method's
+// target row and rides the gate: Settled says whether anything is left, and Enforce,
+// EnforceView or EnforceProposed judges it against the row.
+func (c *Caller) ExecuteGate(ctx context.Context, method accesstypes.Resource, request any) (*ExecuteGate, error) {
+	if c.IsZero() {
+		return nil, errNoCaller
+	}
+
+	return c.gateFor(ctx, method, accesstypes.Execute, request)
 }
 
 // ExecuteTarget describes the located row an ExecuteGate evaluates against.
@@ -172,6 +204,22 @@ type ExecuteGate struct {
 // method's body runs under.
 func (g *ExecuteGate) Caller() *Caller {
 	return &Caller{Permissions: g.userPermissions, Scope: g.scope, Env: g.env, collection: g.collection}
+}
+
+// Settled reports what the gate decides before any row is read. settled is true where
+// nothing of the grant's condition is left to judge against the target row: the grant
+// carries no condition, or its condition read the request's fields alone, and granted
+// says which way it went. Where settled is false the decision is the row's to make
+// (Enforce, EnforceView, EnforceProposed).
+func (g *ExecuteGate) Settled() (granted, settled bool) {
+	if g == nil || g.cond == nil {
+		return true, true
+	}
+	if truth, constant := g.cond.(condition.Truth); constant {
+		return truth.Value, true
+	}
+
+	return false, false
 }
 
 // targetKeyParam names the parameter of the key column at position i: the bare
@@ -272,6 +320,58 @@ func (g *ExecuteGate) EnforceView(ctx context.Context, txn ReadWriteTransaction,
 	}
 
 	return g.enforce(ctx, txn, target, pkValues)
+}
+
+// EnforceProposed judges the carried condition against a row the body proposes, where
+// the database holds no row to locate: a role a person holds through a group is no row
+// of the list of the roles held, and the method that takes a role away is granted on
+// the rows of that list. row holds the target's attributes by the names a condition
+// reads them, the target's @attribute declarations, each as the value the condition
+// language compares (a string, an int64, a float64, a bool, a time.Time or a
+// condition.Date, nil for no value).
+//
+// The condition is judged by the language's own evaluator (condition.Evaluate), the
+// statement of its meaning that the SQL rendering is held to, with the caller and the
+// decision instant the permission check folded with. A fact about the caller that is
+// held in a table (subject.<name>) is read through facts, the body's transaction. A
+// false or unknown answer is the frame's uniform refusal, and a grant with no
+// condition enforces nothing. A condition that reads an attribute row does not carry
+// is generated code out of step with the library, and fails as that.
+func (g *ExecuteGate) EnforceProposed(ctx context.Context, facts SubjectFactSource, target ExecuteTarget, row map[string]any) error {
+	if g == nil || g.cond == nil {
+		return nil
+	}
+	for _, name := range condition.Bindings(g.cond) {
+		if _, carried := row[name]; !carried {
+			return errors.Newf("method %s: its condition reads %q and the proposed row of %s carries no such attribute; regenerate", g.method, name, target.Resource)
+		}
+	}
+	image := &condition.Image{Pre: row, Post: nil, Subject: string(g.user), Now: time.Time{}, Zone: nil, SubjectSets: nil, SubjectValues: nil}
+	now, ok := g.env.Now()
+	if !ok && condition.UsesNow(g.cond) {
+		return errors.Newf("method %s: its condition references now but the request environment carries no decision instant", g.method)
+	}
+	image.Now = now
+	image.Zone, _ = g.env.Zone()
+	if sets, values := condition.SubjectSets(g.cond), condition.SubjectValues(g.cond); len(sets)+len(values) > 0 {
+		if g.collection == nil {
+			return errors.Newf("method %s carries a conditional Execute decision but no generated collection is wired to read the caller's facts with", g.method)
+		}
+		var err error
+		image.SubjectSets, image.SubjectValues, err = readSubjectFacts(ctx, facts, g.collection, g.scope, g.env, g.user, sets, values)
+		if err != nil {
+			return errors.Wrapf(err, "method %s", g.method)
+		}
+	}
+	truth, err := condition.Evaluate(g.cond, image)
+	if err != nil {
+		return errors.Wrapf(err, "method %s: condition.Evaluate()", g.method)
+	}
+	if !truth.Permits() {
+		return httpio.NewForbiddenMessagef("%s may not run against this %s", g.method, target.Label)
+	}
+
+	return nil
 }
 
 // enforce runs the gate's check-SELECT and answers what it found: NotFound for

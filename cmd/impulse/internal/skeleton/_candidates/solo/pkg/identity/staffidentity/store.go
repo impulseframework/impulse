@@ -962,6 +962,29 @@ func (store) TenantGroupRoles(ctx context.Context, txn resource.ReadWriteTransac
 	return keys, nil
 }
 
+func (store) GroupsHolding(ctx context.Context, txn resource.ReadWriteTransaction, key *access.RoleKey) ([]impulse.UUID, error) {
+	// The table's index by scope leads with where a role is held, then the role: the
+	// list is the rows under that scope and role, whichever group holds each.
+	query := staffresources.NewStaffGroupRoleQuery().
+		AddColumns(staffresources.NewStaffGroupRoleColumns().GroupID()).
+		SetKind(key.Kind).SetAxis(key.Axis).SetDomainID(key.Domain).SetRole(string(key.Role))
+	var ids []impulse.UUID
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "staffresources.StaffGroupRoleQuery.List()")
+		}
+		ids = append(ids, row.Data.GroupID)
+	}
+
+	return ids, nil
+}
+
+// The application has no tenant record, so no tenant keeps a list of the Staff
+// auth's people, and nobody is found in one.
+func (store) TenantPerson(context.Context, resource.ReadWriteTransaction, accesstypes.Domain, impulse.UUID) (bool, error) {
+	return false, nil
+}
+
 // storedPeriod answers the period a row's two columns hold, as they are. A row written
 // past the rules with an end at or before its start never counts, and is read so.
 func storedPeriod(start, end *time.Time) accesstypes.Period {
@@ -1014,6 +1037,50 @@ func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, 
 	}
 
 	return periods, nil
+}
+
+// EndedAssignments reads past the declarations, as the read of a password does: what has
+// ended is the database's to say, by its own clock, the one the lists compare a period
+// with (CURRENT_TIMESTAMP). Each statement carries the comparison, so no instant of the
+// application server's decides what a sign-in removes.
+func (store) EndedAssignments(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]access.MembershipKey, []access.GroupMemberKey, error) {
+	user := accesstypes.User(userID.String())
+	var memberships []access.MembershipKey
+	held := spanner.Statement{
+		SQL:    "SELECT Kind, Axis, DomainId, Role FROM StaffUserRoles@{FORCE_INDEX=StaffUserRolesByUserId} WHERE UserId = @user AND EndsAt <= CURRENT_TIMESTAMP()",
+		Params: map[string]any{"user": string(user)},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, held).Do(func(row *spanner.Row) error {
+		key := access.MembershipKey{Kind: "", Axis: "", Domain: "", Role: "", User: user}
+		var role string
+		if err := row.Columns(&key.Kind, &key.Axis, &key.Domain, &role); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		key.Role = accesstypes.Role(role)
+		memberships = append(memberships, key)
+
+		return nil
+	}); err != nil {
+		return nil, nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+	var places []access.GroupMemberKey
+	in := spanner.Statement{
+		SQL:    "SELECT GroupId FROM StaffGroupMembers@{FORCE_INDEX=StaffGroupMembersByUserId} WHERE UserId = @user AND EndsAt <= CURRENT_TIMESTAMP()",
+		Params: map[string]any{"user": string(user)},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, in).Do(func(row *spanner.Row) error {
+		var group string
+		if err := row.Columns(&group); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		places = append(places, access.GroupMemberKey{Group: accesstypes.Group(group), User: user})
+
+		return nil
+	}); err != nil {
+		return nil, nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+
+	return memberships, places, nil
 }
 
 // RemoveEnded buffers each removal under the source that says the assignment ended by

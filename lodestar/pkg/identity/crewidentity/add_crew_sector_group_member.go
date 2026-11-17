@@ -21,14 +21,23 @@ import (
 // It is a tenant's method: served under the address of one Sector, it names a
 // row of CrewSectorGroup, the tenant's own list of its groups. A group kept in
 // another tenant, or for the whole application, is not found there.
-// The person is picked from CrewSectorUser, the tenant's own list of the auth's
-// people.
+// The person is one the tenant already has: a row of CrewSectorUser, the tenant's
+// own list of the auth's people, which the request picks from and the method holds the
+// person to. An account that is not one of the tenant's people is not found here,
+// whatever it holds elsewhere; whoever manages the whole application's people puts such
+// an account into a tenant's group, through AddCrewGroupMember.
 //
 // The place is given for a period where the request names one (StartsAt, EndsAt, each
 // optional): outside it the person holds none of the group's roles through it, and
 // nothing is written when it begins or ends. Putting in a person who is in the group
 // already gives their place the period of this request in place of the one it had, so a
-// request that names neither makes the place stand until they are taken out.
+// request that names neither makes the place stand until they are taken out. Nobody
+// gives their own place a period that lasts longer than the one it has.
+//
+// A group gives nobody a power that giving the role directly would not: beside the
+// grant of this method, the change needs what the same roles given or taken away
+// directly need of the caller (the grants of AssignCrewSectorRole and RemoveCrewSectorRole, each read with the
+// role in question), and is refused where one of them would be.
 //
 // @rpc
 // @permissionScope(domain)
@@ -37,7 +46,7 @@ import (
 type AddCrewSectorGroupMember struct {
 	// @target(CrewSectorGroup)
 	GroupID impulse.UUID
-	// UserID is the person, picked from the people the caller may list.
+	// UserID is the person, one of the tenant's people.
 	//
 	// @enumerate(CrewSectorUsers)
 	UserID impulse.UUID
