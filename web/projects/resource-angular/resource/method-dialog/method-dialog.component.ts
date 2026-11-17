@@ -35,6 +35,8 @@ export interface MethodDialogData {
   confirm?: string;
   /** The words above an input, by the request field's name; a field not named is labeled with its name in words. */
   labels?: Record<string, string>;
+  /** The request fields picked as a day that mean through the end of that day: each is sent as the next day's first instant. */
+  throughDay?: readonly string[];
 }
 
 /** What a method dialog closes with once the method has run; a dialog dismissed closes with nothing. */
@@ -187,7 +189,9 @@ export class MethodDialogComponent {
     const turn = ++this.rehearsal;
     const values = metadataTypeCoercion(raw as RPCRecordData, this.meta);
     try {
-      await this.store.methodHandle(this.data.method).dryRun(requestBody(this.data.preset, this.asked, values));
+      await this.store
+        .methodHandle(this.data.method)
+        .dryRun(requestBody(this.data.preset, this.asked, values, this.data.throughDay));
       if (turn === this.rehearsal && !this.busy()) {
         this.refusal.set('');
       }
@@ -225,7 +229,7 @@ export class MethodDialogComponent {
     this.refusal.set('');
     try {
       const values = metadataTypeCoercion(this.form.getRawValue() as RPCRecordData, this.meta);
-      const body = requestBody(this.data.preset, this.asked, values);
+      const body = requestBody(this.data.preset, this.asked, values, this.data.throughDay);
       const handle = this.store.methodHandle(this.data.method);
       const answer = this.meta.upload
         ? await uploadHandle(handle, this.data.method).upload(body, this.files())
