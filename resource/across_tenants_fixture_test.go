@@ -12,6 +12,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"testing"
 
@@ -263,4 +264,203 @@ func renderTenant(t *testing.T, dbType DBType, target string, perms UserPermissi
 	}
 
 	return stmt
+}
+
+// The fixture's rows, the same on both databases. The requester is erin. West
+// is a yard her session never reaches, whatever she holds there.
+//
+// Her crews: blue in north, red in east. A crate of the blue team in east is
+// therefore not her crew's, which is what a subject set that follows the row
+// has to say.
+var (
+	acrossCrateRows = []acrossCrate{
+		{ID: "n1", Yard: "north", Label: "apple", Owner: "erin", Team: new("red"), Weight: 10, Value: new(int64(100))},
+		{ID: "n2", Yard: "north", Label: "pear", Owner: "omar", Team: new("blue"), Weight: 30, Value: new(int64(300))},
+		{ID: "n3", Yard: "north", Label: "fig", Owner: "erin", Weight: 50},
+		{ID: "s1", Yard: "south", Label: "kiwi", Owner: "erin", Team: new("red"), Weight: 20, Value: new(int64(200))},
+		{ID: "s2", Yard: "south", Label: "grape", Owner: "omar", Team: new("red"), Weight: 40, Value: new(int64(400))},
+		{ID: "s3", Yard: "south", Label: "plum", Owner: "erin", Team: new("blue"), Weight: 60, Value: new(int64(600))},
+		{ID: "e1", Yard: "east", Label: "caper", Owner: "omar", Team: new("red"), Weight: 25, Value: new(int64(250))},
+		{ID: "e2", Yard: "east", Label: "nut", Owner: "omar", Team: new("blue"), Weight: 35, Value: new(int64(350))},
+		{ID: "e3", Yard: "east", Label: "yam", Owner: "erin", Weight: 45, Value: new(int64(450))},
+		{ID: "w1", Yard: "west", Label: "grapefruit", Owner: "erin", Team: new("red"), Weight: 15, Value: new(int64(150))},
+	}
+	acrossSealRows = []acrossSeal{
+		{ID: "k1", CrateID: "n1", Mark: "wax"},
+		{ID: "k2", CrateID: "s1", Mark: "tape"},
+		{ID: "k3", CrateID: "e1", Mark: "wax"},
+		{ID: "k4", CrateID: "e2", Mark: "tape"},
+		{ID: "k5", CrateID: "w1", Mark: "wax"},
+	}
+	// acrossCrewRows are id, yard, person, team.
+	acrossCrewRows = [][4]string{
+		{"c1", "north", "erin", "blue"},
+		{"c2", "east", "erin", "red"},
+		{"c3", "east", "omar", "blue"},
+		{"c4", "west", "erin", "red"},
+	}
+	// acrossTagRows are id, crate, yard, name, team ("" for none).
+	acrossTagRows = [][5]string{
+		{"t1", "n2", "north", "grapple", ""},
+		{"t2", "e2", "east", "apex", "red"},
+		{"t3", "e3", "east", "apron", "blue"},
+		{"t4", "s3", "south", "apse", ""},
+		{"t5", "w1", "west", "apt", ""},
+	}
+)
+
+// searchRoles is the person the search tests run as: every grant in north; in
+// south no grant on the crates' label or on a tag's name; in east a tag's name
+// where the tag's team is one of her crews.
+func searchRoles() *acrossPermissions {
+	return &acrossPermissions{
+		reach: []accesstypes.Domain{"east", "north", "south"},
+		grants: map[accesstypes.Domain]accesstypes.Decisions{
+			"north": everyGrant(),
+			"south": {acrossCrates + ".label": accesstypes.Denied(), "CrateTags.name": accesstypes.Denied()},
+			"east":  {"CrateTags.name": conditionalOn("CrateTags.name", "team IN subject.crews")},
+			"west":  everyGrant(),
+		},
+	}
+}
+
+// sealRoles is the person the seals' tests run as: every grant in north and
+// south; in east a seal's mark where it is wax.
+func sealRoles() *acrossPermissions {
+	return &acrossPermissions{
+		reach: []accesstypes.Domain{"east", "north", "south"},
+		grants: map[accesstypes.Domain]accesstypes.Decisions{
+			"north": everyGrant(),
+			"south": everyGrant(),
+			"east":  {acrossSeals + ".mark": conditionalOn(acrossSeals+".mark", "mark = 'wax'")},
+			"west":  everyGrant(),
+		},
+	}
+}
+
+// sameRoles is a person who holds every grant in each of the three yards the
+// session reaches.
+func sameRoles() *acrossPermissions {
+	return &acrossPermissions{
+		reach: []accesstypes.Domain{"east", "north", "south"},
+		grants: map[accesstypes.Domain]accesstypes.Decisions{
+			"north": everyGrant(), "south": everyGrant(), "east": everyGrant(), "west": everyGrant(),
+		},
+	}
+}
+
+// acrossAnswer is one row of a list across tenants as a page shows it: its key,
+// the tenant it says it is in, and its value cell ("masked" where the cell is
+// masked, "null" where it is shown and holds no value, "" where the request did
+// not ask for the column).
+type acrossAnswer struct {
+	ID     string
+	Tenant accesstypes.Domain
+	Value  string
+}
+
+// acrossWalk is one list across tenants walked page by page on a database.
+type acrossWalk struct {
+	name   string
+	target string
+	perms  func() *acrossPermissions
+	// pages are the pages in order on Spanner; postgresPages where PostgreSQL's
+	// own NULL placement orders the walk differently, nil where it does not.
+	pages         [][]acrossAnswer
+	postgresPages [][]acrossAnswer
+	// total is the count the first page answers when the walk asks for one.
+	total int64
+}
+
+// The walks both databases run. differingRoles reads: every crate of north;
+// in south the crates erin owns (s1, s3), their value hidden; every crate of
+// east, the value of the red team's alone (e1).
+func acrossWalks() []acrossWalk {
+	north, south, east := accesstypes.Domain("north"), accesstypes.Domain("south"), accesstypes.Domain("east")
+
+	return []acrossWalk{
+		{
+			name:   "different roles in three tenants, paged in the declared order with a count",
+			target: "/crates?count=true",
+			perms:  differingRoles,
+			pages: [][]acrossAnswer{
+				{{"n1", north, "100"}, {"s1", south, "masked"}, {"e1", east, "250"}},
+				{{"n2", north, "300"}, {"e2", east, "masked"}, {"e3", east, "masked"}},
+				{{"n3", north, "null"}, {"s3", south, "masked"}},
+			},
+			total: 8,
+		},
+		{
+			// The value is NULL to the sort wherever it is masked: hidden in south,
+			// under a condition the row does not meet in east. Spanner places NULL
+			// last descending and PostgreSQL first.
+			name:   "sorted by a field hidden in one tenant and conditional in another, across the NULL region",
+			target: "/crates?columns=id,label&sort=value:desc&count=true",
+			perms:  differingRoles,
+			pages: [][]acrossAnswer{
+				{{"n2", north, ""}, {"e1", east, ""}, {"n1", north, ""}},
+				{{"e2", east, ""}, {"e3", east, ""}, {"n3", north, ""}},
+				{{"s1", south, ""}, {"s3", south, ""}},
+			},
+			postgresPages: [][]acrossAnswer{
+				{{"e2", east, ""}, {"e3", east, ""}, {"n3", north, ""}},
+				{{"s1", south, ""}, {"s3", south, ""}, {"n2", north, ""}},
+				{{"e1", east, ""}, {"n1", north, ""}},
+			},
+			total: 8,
+		},
+		{
+			name:   "narrowed to two tenants with a filter",
+			target: "/crates?count=true&domains=north,east&filter=weight:gte:30",
+			perms:  differingRoles,
+			pages: [][]acrossAnswer{
+				{{"n2", north, "300"}, {"e2", east, "masked"}, {"e3", east, "masked"}},
+				{{"n3", north, "null"}},
+			},
+			total: 4,
+		},
+		{
+			// A masked value matches no comparison: s1's 200 is hidden, e2's 350 and
+			// e3's 450 are not her crews'.
+			name:   "a filter on the field tests what the person sees",
+			target: "/crates?count=true&filter=value:gte:200",
+			perms:  differingRoles,
+			pages:  [][]acrossAnswer{{{"e1", east, "250"}, {"n2", north, "300"}}},
+			total:  2,
+		},
+		{
+			name:   "the same roles in three tenants",
+			target: "/crates?count=true&limit=5",
+			perms:  sameRoles,
+			pages: [][]acrossAnswer{
+				{{"n1", north, "100"}, {"s1", south, "200"}, {"e1", east, "250"}, {"n2", north, "300"}, {"e2", east, "350"}},
+				{{"s2", south, "400"}, {"e3", east, "450"}, {"n3", north, "null"}, {"s3", south, "600"}},
+			},
+			total: 9,
+		},
+		{
+			// The tenant's own list leaves a field no grant covers out of the
+			// columns nobody named, as it does today; it is masked only where the
+			// list reads another tenant that shows it.
+			name:   "a set of one tenant is the tenant's own list, each row naming it",
+			target: "/crates?count=true&domains=south",
+			perms:  differingRoles,
+			pages:  [][]acrossAnswer{{{"s1", south, ""}, {"s3", south, ""}}},
+			total:  2,
+		},
+		{
+			// apple and caper by their label; pear by its tag grapple; nut by its tag
+			// apex, a tag of her east crew. yam's tag apron is the blue team's, hers
+			// in north alone; grape's label and plum's tag are south's, where no
+			// grant covers either.
+			name:   "the search box across the set",
+			target: "/crates?count=true&filter=" + url.QueryEscape(`*:search:"ap"`),
+			perms:  searchRoles,
+			pages: [][]acrossAnswer{
+				{{"n1", north, "100"}, {"e1", east, "250"}, {"n2", north, "300"}},
+				{{"e2", east, "350"}},
+			},
+			total: 4,
+		},
+	}
 }
