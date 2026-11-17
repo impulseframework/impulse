@@ -9,6 +9,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // The rules of the Super Administrator role (accesstypes.SuperAdministrator), the one
@@ -24,11 +25,14 @@ import (
 //     whose account can sign in, and that account is neither disabled nor deleted,
 //     whoever asks.
 //
-// A caller is a person of the request (resource.CallerFrom). A method an application
-// runs in a transaction of its own has none, and may give the role: that is how a
-// deployment seeds its first administrator, and how an accepted invitation gives what
-// a super administrator wrote into it. No caller at all lifts the second rule alone;
-// the third holds for everyone.
+// A caller is a person of the request (resource.CallerFrom), and the person the second
+// rule judges is the real one behind the session, its actor: a session that views as a
+// super administrator is run by someone else, who holds what they hold themselves, and
+// a super administrator who views as someone else is a super administrator still. A
+// method an application runs in a transaction of its own has no caller, and may give
+// the role: that is how a deployment seeds its first administrator, and how an accepted
+// invitation gives what a super administrator wrote into it. No caller at all lifts the
+// second rule alone; the third holds for everyone.
 
 // superAdministratorKey is the membership that makes user a super administrator.
 func superAdministratorKey(user accesstypes.User) access.MembershipKey {
@@ -36,17 +40,19 @@ func superAdministratorKey(user accesstypes.User) access.MembershipKey {
 }
 
 // requireSuperAdministrator refuses an act that makes or removes a super administrator
-// unless the request's caller holds the role in this auth, read in the transaction.
-// act says what was asked, as the middle of a sentence ("gives the Super Administrator
-// role"). A caller who came through another auth is nobody of this one and holds no
-// role here; a call outside any request is the application's act and goes through.
+// unless the real person behind the request holds the role in this auth, read in the
+// transaction (callerActor). act says what was asked, as the middle of a sentence
+// ("gives the Super Administrator role"). A caller who came through another auth is
+// nobody of this one and holds no role here; a call outside any request is the
+// application's act and goes through.
 func (m *Manager) requireSuperAdministrator(ctx context.Context, txn resource.ReadWriteTransaction, act string) error {
 	caller := resource.CallerFrom(ctx)
 	if caller.IsZero() {
 		return nil
 	}
-	if auth, bound := resource.AuthFrom(ctx); !bound || auth == m.auth {
-		key := superAdministratorKey(caller.Permissions.User())
+	actor, local := callerActor(ctx, caller)
+	if auth, bound := resource.AuthFrom(ctx); local && (!bound || auth == m.auth) {
+		key := superAdministratorKey(actor)
 		held, err := m.store.HasMembership(ctx, txn, &key)
 		if err != nil {
 			return errors.Wrap(err, "identity.Store.HasMembership()")
@@ -57,6 +63,26 @@ func (m *Manager) requireSuperAdministrator(ctx context.Context, txn resource.Re
 	}
 
 	return httpio.NewForbiddenMessagef("only a super administrator %s, and you do not hold the Super Administrator role", act)
+}
+
+// callerActor is the real person behind the request, as the permission store names
+// them: the actor of an impersonated session (the person who started it, whoever it
+// views as and whatever role it acts as), and otherwise the caller the entry check ran
+// for. The entry check of an impersonated session runs with the grants of the person
+// viewed as, so it passes for anyone who views as a super administrator; who makes a
+// super administrator is the real person's to answer for. ok is false for an actor who
+// has no account here, a person of another application, who is named by a name and
+// holds no role of this auth whatever the name spells.
+func callerActor(ctx context.Context, caller *resource.Caller) (actor accesstypes.User, ok bool) {
+	sess, found := ctx.Value(sessioninfo.CtxSessionInfo).(*sessioninfo.SessionData)
+	if !found || sess.Impersonation == nil {
+		return caller.Permissions.User(), true
+	}
+	if !sess.Impersonation.ActorID.Valid {
+		return "", false
+	}
+
+	return User(sess.Impersonation.ActorID.UUID), true
 }
 
 // refuseLastSuperAdministrator refuses an act that would leave the auth with no super

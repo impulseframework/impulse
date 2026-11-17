@@ -12,6 +12,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // superRoles are the roles the engine of these tests holds: the fixture's, and the Super
@@ -30,6 +31,15 @@ var (
 	danaSteward = access.NewMembershipKey(globalScope, dana, "Steward")
 	erinSteward = access.NewMembershipKey(globalScope, erin, "Steward")
 )
+
+// viewedBy makes the request's session an impersonated one whose actor, the real person
+// behind it, is the account: the caller the context already carries is the person the
+// session views as, whose grants the entry check ran with.
+func viewedBy(ctx context.Context, actor impulse.UUID) context.Context {
+	session := &sessioninfo.SessionData{Impersonation: &sessioninfo.Impersonation{ActorID: impulse.NullUUIDFromUUID(actor)}}
+
+	return context.WithValue(ctx, sessioninfo.CtxSessionInfo, session)
+}
 
 // superStore is a store holding dana and erin as accounts that can sign in, with the
 // memberships held.
@@ -91,6 +101,35 @@ func TestManager_AssignRole_superAdministrator(t *testing.T) {
 		{
 			name:  "a caller who came through another auth holds no role of this one, whatever their id holds here",
 			ctx:   func(ctx context.Context) context.Context { return asCallerThrough(ctx, otherAuth, erin) },
+			held:  []access.MembershipKey{erinSuper},
+			scope: globalScope, role: accesstypes.SuperAdministrator,
+			wantErr: httpio.HasForbidden, wantSays: "only a super administrator gives",
+		},
+		{
+			name: "a person who views as a super administrator is not one: the session's actor is judged, not the person viewed as",
+			ctx: func(ctx context.Context) context.Context {
+				return viewedBy(asCallerThrough(ctx, managedAuth, erin), userID)
+			},
+			held:  []access.MembershipKey{erinSuper, danaSteward},
+			scope: globalScope, role: accesstypes.SuperAdministrator,
+			wantErr: httpio.HasForbidden, wantSays: "only a super administrator gives the Super Administrator role, and you do not hold the Super Administrator role",
+		},
+		{
+			name: "a super administrator who views as someone else is a super administrator still",
+			ctx: func(ctx context.Context) context.Context {
+				return viewedBy(asCallerThrough(ctx, managedAuth, dana), otherUser)
+			},
+			held:  []access.MembershipKey{erinSuper, danaSteward},
+			scope: globalScope, role: accesstypes.SuperAdministrator,
+			wantWrites: []string{given},
+		},
+		{
+			name: "an actor from another application holds no role here, whoever the session views as",
+			ctx: func(ctx context.Context) context.Context {
+				foreign := &sessioninfo.SessionData{Impersonation: &sessioninfo.Impersonation{Actor: string(erin), ActorRealm: "another-application"}}
+
+				return context.WithValue(asCallerThrough(ctx, managedAuth, erin), sessioninfo.CtxSessionInfo, foreign)
+			},
 			held:  []access.MembershipKey{erinSuper},
 			scope: globalScope, role: accesstypes.SuperAdministrator,
 			wantErr: httpio.HasForbidden, wantSays: "only a super administrator gives",
