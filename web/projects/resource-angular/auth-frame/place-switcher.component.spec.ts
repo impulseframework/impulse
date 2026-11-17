@@ -107,15 +107,18 @@ describe('PlaceSwitcherComponent', () => {
     expect(closed?.querySelector('.closed-name')?.textContent).toBe('Bastion');
     expect(closed?.querySelector('.closed-reason')?.textContent).toBe(reason);
     expect(closed?.querySelector('button')).toBeNull();
-    expect([...document.querySelectorAll('.menu-list button.item .label')].map((item) => item.textContent?.trim())).toEqual([
-      'Anvil',
-      'Cinder',
-    ]);
+    expect(
+      [...document.querySelectorAll('.menu-list button.item .label')].map((item) => item.textContent?.trim()),
+    ).toEqual(['Anvil', 'Cinder']);
   });
 
   it('opens the list for a person with one place and a tenant that is closed to this sign-in', async () => {
     await open({ FeatureFlags: { List: 'granted' } }, [
-      { domain: 'bastion', name: 'Bastion', closed: 'Bastion admits only people who sign in through its own directory.' },
+      {
+        domain: 'bastion',
+        name: 'Bastion',
+        closed: 'Bastion admits only people who sign in through its own directory.',
+      },
     ]);
     expect(fixture.componentInstance.listed()).toBe(true);
     expect(element().querySelector('button.switcher .name')?.textContent).toBe('Configuration');
@@ -125,7 +128,11 @@ describe('PlaceSwitcherComponent', () => {
   it('narrows the closed tenants with the places as the person types', async () => {
     await open({}, [
       { domain: 'anvil', name: 'Anvil' },
-      { domain: 'bastion', name: 'Bastion', closed: 'Bastion admits only people who sign in through its own directory.' },
+      {
+        domain: 'bastion',
+        name: 'Bastion',
+        closed: 'Bastion admits only people who sign in through its own directory.',
+      },
     ]);
     fixture.componentInstance.filter.set('anv');
     expect(fixture.componentInstance.closed()).toEqual([]);

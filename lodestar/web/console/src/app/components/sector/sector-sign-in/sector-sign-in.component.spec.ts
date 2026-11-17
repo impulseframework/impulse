@@ -162,8 +162,7 @@ describe('SectorSignInComponent', () => {
       .filter((r) => r.method === 'PATCH' && r.url.replace(/\?.*$/, '') === `${environment.apiUrl}/resources`)
       .flatMap((r) => r.body as unknown[]);
   /** What the page asked the server about directory only, in order. */
-  const asked = (): string[] =>
-    transport.requests.map((r) => r.url).filter((url) => url.includes('/directory-only'));
+  const asked = (): string[] => transport.requests.map((r) => r.url).filter((url) => url.includes('/directory-only'));
   const inDialog = (selector: string): HTMLElement | null =>
     document.querySelector<HTMLElement>(`.cdk-overlay-container ${selector}`);
   const dialogText = (selector: string): string => inDialog(selector)?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
@@ -284,7 +283,7 @@ describe('SectorSignInComponent', () => {
     ).toEqual([]);
   });
 
-  it("headquarters turns directory only on once they confirm what the server says it would do", async () => {
+  it('headquarters turns directory only on once they confirm what the server says it would do', async () => {
     await pageFor({ digests: headquarters, session: throughWorkspace, directories: [workspace] });
 
     expect(toggle().getAttribute('aria-checked')).toBe('false');

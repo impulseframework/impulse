@@ -297,7 +297,8 @@ describe("identityPages, a tenant's side", () => {
       resource === 'CrewSectorUsers'
         ? fields('id', 'domainId', 'username', 'name', 'lastSignInAt', 'heldElsewhere', 'heldGlobally', 'cannotEnter')
         : resourceMeta(resource);
-    const [kept] = identityPages(descriptor, withSwitch, { auth: 'Crew', scope: 'domain' });
+    // The pages are made once for a description, so this record's are asked of its own.
+    const [kept] = identityPages({ ...descriptor }, withSwitch, { auth: 'Crew', scope: 'domain' });
     expect(columns(list(kept)).at(-1)).toEqual(['cannotEnter', 'Cannot enter']);
     // A tenant record with no switch carries no such fact, and the page no such column.
     expect(columns(list(people)).map(([id]) => id)).not.toContain('cannotEnter');

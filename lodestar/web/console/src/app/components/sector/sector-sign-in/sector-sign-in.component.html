@@ -90,7 +90,7 @@
         class="directory-only"
         [checked]="row.directoryOnly"
         [disabled]="!canClose() || busy()"
-        (change)="$event.source.checked = row.directoryOnly; close($event.checked)">
+        (change)="$event.source.checked = !!row.directoryOnly; close($event.checked)">
         @if (row.directoryOnly) {
           Directory only: only people who sign in through this sector's directory enter this sector.
         } @else {

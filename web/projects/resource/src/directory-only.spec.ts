@@ -41,8 +41,14 @@ describe('directoryOnlyConsequence', () => {
     const transport = scriptedTransport({ status: 409, body: { message } });
     const client = createClient(descriptor, { baseUrl: '/api', transport });
 
-    const refused = directoryOnlyConsequence(client.request, 'acme' as Domain);
-    await expect(refused).rejects.toBeInstanceOf(ApiError);
-    await expect(refused).rejects.toMatchObject({ status: 409, message });
+    let caught: unknown;
+    try {
+      await directoryOnlyConsequence(client.request, 'acme' as Domain);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(ApiError);
+    expect((caught as ApiError).status).toBe(409);
+    expect((caught as ApiError).message).toBe(message);
   });
 });
