@@ -2,7 +2,7 @@
 import { ApiDescriptor, Client, ClientOptions, createClient, MethodHandle, ResourceHandle } from '@impulseframework/resource';
 import { Methods, Resources } from './zz_gen_constants';
 import { Announcements, MembersRoles, MembersRoleGrants, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTokens, MembersSessionTrustedDevices, MembersSessionUsers, MembersTenantIdentities, MembersTenantInvitations, MembersTenantUsers, MembersTenantUserRoles, MembersUserRoles, MembersTenantRoles, FeatureFlags } from './zz_gen_resources';
-import { AssignMembersRole, AssignMembersTenantRole, DeleteMembersTenantUser, DeleteMembersUser, DisableMembersTenantUser, DisableMembersUser, EnableMembersTenantUser, EnableMembersUser, EndMembersSession, EndMembersTenantUserSessions, EndMembersUserSessions, InviteMembersTenantUser, InviteMembersTenantUserResult, InviteMembersUser, InviteMembersUserResult, RemoveMembersRole, RemoveMembersTenantRole, RenameMembersTenantUser, RenameMembersUser, RevokeMembersSessionToken, RevokeMembersTenantUserTrustedDevices, RevokeMembersUserTrustedDevices, SetMembersTenantUserEmail, SetMembersTenantUserName, SetMembersUserEmail, SetMembersUserName, UnlinkMembersSessionIdentity, UnlinkMembersTenantSessionIdentity, UnlockMembersSignIn, WithdrawMembersInvitation, WithdrawMembersTenantInvitation, SetFeature, SetFeatureResult } from './zz_gen_methods';
+import { AssignMembersRole, AssignMembersTenantRole, CreateMembersTenantUser, CreateMembersTenantUserResult, CreateMembersUser, CreateMembersUserResult, DeleteMembersTenantUser, DeleteMembersUser, DisableMembersTenantUser, DisableMembersUser, EnableMembersTenantUser, EnableMembersUser, EndMembersSession, EndMembersTenantUserSessions, EndMembersUserSessions, InviteMembersTenantUser, InviteMembersTenantUserResult, InviteMembersUser, InviteMembersUserResult, RemoveMembersRole, RemoveMembersTenantRole, RenameMembersTenantUser, RenameMembersUser, RevokeMembersSessionToken, RevokeMembersTenantUserTrustedDevices, RevokeMembersUserTrustedDevices, SetMembersTenantUserEmail, SetMembersTenantUserName, SetMembersUserEmail, SetMembersUserName, UnlinkMembersSessionIdentity, UnlinkMembersTenantSessionIdentity, UnlockMembersSignIn, WithdrawMembersInvitation, WithdrawMembersTenantInvitation, SetFeature, SetFeatureResult } from './zz_gen_methods';
 
 /**
  * The fields a client may set when creating Announcements. Server-owned fields are
@@ -293,6 +293,8 @@ export const apiDescriptor = defineApiDescriptor({
   methods: {
     [Methods.AssignMembersRole]: { method: Methods.AssignMembersRole, property: 'assignMembersRole', route: 'assign-members-role', scope: 'global', statuses: [204] },
     [Methods.AssignMembersTenantRole]: { method: Methods.AssignMembersTenantRole, property: 'assignMembersTenantRole', route: 'assign-members-tenant-role', scope: 'domain', statuses: [204] },
+    [Methods.CreateMembersTenantUser]: { method: Methods.CreateMembersTenantUser, property: 'createMembersTenantUser', route: 'create-members-tenant-user', scope: 'domain', answers: true },
+    [Methods.CreateMembersUser]: { method: Methods.CreateMembersUser, property: 'createMembersUser', route: 'create-members-user', scope: 'global', answers: true },
     [Methods.DeleteMembersTenantUser]: { method: Methods.DeleteMembersTenantUser, property: 'deleteMembersTenantUser', route: 'delete-members-tenant-user', scope: 'domain', statuses: [204] },
     [Methods.DeleteMembersUser]: { method: Methods.DeleteMembersUser, property: 'deleteMembersUser', route: 'delete-members-user', scope: 'global', statuses: [204] },
     [Methods.DisableMembersTenantUser]: { method: Methods.DisableMembersTenantUser, property: 'disableMembersTenantUser', route: 'disable-members-tenant-user', scope: 'domain', statuses: [204] },
@@ -332,12 +334,12 @@ export const apiDescriptor = defineApiDescriptor({
         {
           scope: 'global',
           lists: { users: Resources.MembersSessionUsers, roles: Resources.MembersUserRoles, identities: Resources.MembersSessionIdentities, invitations: Resources.MembersSessionMailLinks, sessions: Resources.MembersSessions, signInAttempts: Resources.MembersSessionSignInAttempts },
-          methods: { invite: Methods.InviteMembersUser, withdrawInvitation: Methods.WithdrawMembersInvitation, assignRole: Methods.AssignMembersRole, removeRole: Methods.RemoveMembersRole, disable: Methods.DisableMembersUser, enable: Methods.EnableMembersUser, delete: Methods.DeleteMembersUser, rename: Methods.RenameMembersUser, setName: Methods.SetMembersUserName, setEmail: Methods.SetMembersUserEmail, endUserSessions: Methods.EndMembersUserSessions, revokeTrustedDevices: Methods.RevokeMembersUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersSessionIdentity, endSession: Methods.EndMembersSession, unlockSignIn: Methods.UnlockMembersSignIn },
+          methods: { create: Methods.CreateMembersUser, invite: Methods.InviteMembersUser, withdrawInvitation: Methods.WithdrawMembersInvitation, assignRole: Methods.AssignMembersRole, removeRole: Methods.RemoveMembersRole, disable: Methods.DisableMembersUser, enable: Methods.EnableMembersUser, delete: Methods.DeleteMembersUser, rename: Methods.RenameMembersUser, setName: Methods.SetMembersUserName, setEmail: Methods.SetMembersUserEmail, endUserSessions: Methods.EndMembersUserSessions, revokeTrustedDevices: Methods.RevokeMembersUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersSessionIdentity, endSession: Methods.EndMembersSession, unlockSignIn: Methods.UnlockMembersSignIn },
         },
         {
           scope: 'domain',
           lists: { users: Resources.MembersTenantUsers, roles: Resources.MembersTenantUserRoles, identities: Resources.MembersTenantIdentities, invitations: Resources.MembersTenantInvitations },
-          methods: { invite: Methods.InviteMembersTenantUser, withdrawInvitation: Methods.WithdrawMembersTenantInvitation, assignRole: Methods.AssignMembersTenantRole, removeRole: Methods.RemoveMembersTenantRole, disable: Methods.DisableMembersTenantUser, enable: Methods.EnableMembersTenantUser, delete: Methods.DeleteMembersTenantUser, rename: Methods.RenameMembersTenantUser, setName: Methods.SetMembersTenantUserName, setEmail: Methods.SetMembersTenantUserEmail, endUserSessions: Methods.EndMembersTenantUserSessions, revokeTrustedDevices: Methods.RevokeMembersTenantUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersTenantSessionIdentity },
+          methods: { create: Methods.CreateMembersTenantUser, invite: Methods.InviteMembersTenantUser, withdrawInvitation: Methods.WithdrawMembersTenantInvitation, assignRole: Methods.AssignMembersTenantRole, removeRole: Methods.RemoveMembersTenantRole, disable: Methods.DisableMembersTenantUser, enable: Methods.EnableMembersTenantUser, delete: Methods.DeleteMembersTenantUser, rename: Methods.RenameMembersTenantUser, setName: Methods.SetMembersTenantUserName, setEmail: Methods.SetMembersTenantUserEmail, endUserSessions: Methods.EndMembersTenantUserSessions, revokeTrustedDevices: Methods.RevokeMembersTenantUserTrustedDevices, unlinkIdentity: Methods.UnlinkMembersTenantSessionIdentity },
         },
       ],
     },
@@ -359,6 +361,7 @@ export interface GlobalApi {
   membersUserRoles: ResourceHandle<MembersUserRoles, MembersUserRolesKey, 'list'>;
   featureFlags: ResourceHandle<FeatureFlags, FeatureFlagsKey, 'list' | 'read'>;
   assignMembersRole: MethodHandle<AssignMembersRole>;
+  createMembersUser: MethodHandle<CreateMembersUser, CreateMembersUserResult>;
   deleteMembersUser: MethodHandle<DeleteMembersUser>;
   disableMembersUser: MethodHandle<DisableMembersUser>;
   enableMembersUser: MethodHandle<EnableMembersUser>;
@@ -386,6 +389,7 @@ export interface DomainApi {
   membersTenantUserRoles: ResourceHandle<MembersTenantUserRoles, MembersTenantUserRolesKey, 'list' | 'read'>;
   membersTenantRoles: ResourceHandle<MembersTenantRoles, MembersTenantRolesKey, 'list'>;
   assignMembersTenantRole: MethodHandle<AssignMembersTenantRole>;
+  createMembersTenantUser: MethodHandle<CreateMembersTenantUser, CreateMembersTenantUserResult>;
   deleteMembersTenantUser: MethodHandle<DeleteMembersTenantUser>;
   disableMembersTenantUser: MethodHandle<DisableMembersTenantUser>;
   enableMembersTenantUser: MethodHandle<EnableMembersTenantUser>;

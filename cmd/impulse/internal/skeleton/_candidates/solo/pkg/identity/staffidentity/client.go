@@ -142,3 +142,25 @@ func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.Re
 func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {
 	return c.manager.DirectorySeated("Staff")
 }
+
+// SignedUp answers the session library's hook for a sign-up through an open sign-in
+// method (session.Auth.SetSignUpSeated) over the Staff auth's tables: the default
+// role the method's row names is given to the person in the transaction that makes
+// their account, so no account is left holding nothing (identity.Manager.SignedUp). The
+// auth's package sets it where it sets the invitation's.
+func (c *Client) SignedUp() session.SignUpSeatedHook[*spanner.ReadWriteTransaction] {
+	return c.manager.SignedUp("Staff")
+}
+
+// AnySignInMethodOpen reports whether an administrator has a sign-in method of the
+// Staff auth open to sign-up now, read through reader: the caller's transaction,
+// or the application's client (identity.Manager.AnyMethodOpen). The generated
+// create-your-tenant route asks it in the transaction that writes the tenant's row.
+func (c *Client) AnySignInMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {
+	open, err := c.manager.AnyMethodOpen(ctx, reader)
+	if err != nil {
+		return false, errors.Wrap(err, "identity.Manager.AnyMethodOpen()")
+	}
+
+	return open, nil
+}

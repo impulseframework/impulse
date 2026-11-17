@@ -48,6 +48,14 @@ func Collection() *resource.GeneratedCollection {
 				Target: "StaffTenantUsers",
 			},
 			{
+				Name:        "CreateMembersTenantUser",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Attributes: []resource.AttributeData{
+					{Name: "role", Column: "Roles", Type: "string", List: true},
+				},
+			},
+			{
 				Name:        "CreateStaffTenantUser",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -489,6 +497,14 @@ func Collection() *resource.GeneratedCollection {
 				},
 			},
 			{
+				Name:        "CreateMembersUser",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Attributes: []resource.AttributeData{
+					{Name: "role", Column: "Roles", Type: "string", List: true},
+				},
+			},
+			{
 				Name:        "CreateStaffUser",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -584,6 +600,11 @@ func Collection() *resource.GeneratedCollection {
 				Attributes: []resource.AttributeData{
 					{Name: "role", Column: "Roles", Type: "string", List: true},
 				},
+			},
+			{
+				Name:        "MakeStaffInviteOnly",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
 				Name:        "MembersRoleGrants",
@@ -764,6 +785,11 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "userId"},
 				},
 				Order: []accesstypes.Tag{"userId"},
+			},
+			{
+				Name:        "OpenStaffSignUp",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
 				Name:        "RemoveMembersRole",
@@ -1023,6 +1049,21 @@ func Collection() *resource.GeneratedCollection {
 				},
 				Order:     []accesstypes.Tag{"createdAt"},
 				QueryKeys: []accesstypes.Tag{"userId", "expired"},
+			},
+			{
+				Name:        "StaffSignInMethods",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "admits", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "defaultRole", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "directoryGivesRoles", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "label", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "name"},
+					{Name: "openSignUp", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "says", Permissions: []accesstypes.Permission{accesstypes.List}},
+				},
 			},
 			{
 				Name:        "StaffUserRoles",

@@ -14,9 +14,10 @@ type Resourcer interface {
 	staffresources.StaffRole | staffresources.StaffRoleGrant | staffresources.StaffSession |
 		staffresources.StaffSessionAuthEvent | staffresources.StaffSessionIdentity |
 		staffresources.StaffSessionMailLink | staffresources.StaffSessionSignInAttempt |
-		staffresources.StaffSessionToken | staffresources.StaffSessionTrustedDevice |
-		staffresources.StaffSessionUser | staffresources.StaffTenantIdentity |
-		staffresources.StaffTenantInvitation | staffresources.StaffTenantUser |
-		staffresources.StaffTenantUserRole | staffresources.StaffUserRole |
+		staffresources.StaffSessionSignInMethod | staffresources.StaffSessionToken |
+		staffresources.StaffSessionTrustedDevice | staffresources.StaffSessionUser |
+		staffresources.StaffTenantIdentity | staffresources.StaffTenantInvitation |
+		staffresources.StaffTenantUser | staffresources.StaffTenantUserRole |
+		staffresources.StaffUserRole | staffidentity.StaffSignInMethod |
 		staffidentity.StaffTenantRole
 }

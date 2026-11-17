@@ -633,6 +633,16 @@ export interface CrewSectorRoles {
   description?: string;
 }
 
+export interface CrewSignInMethods {
+  name: string;
+  label?: string;
+  admits?: string;
+  openSignUp?: boolean;
+  defaultRole?: string;
+  directoryGivesRoles?: boolean;
+  says?: string;
+}
+
 export interface ExpenseManifests {
   missionId: string;
   title?: string;
@@ -1627,6 +1637,23 @@ const resourceMap = defineResourceMap({
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
     ],
   },
+  [Resources.CrewSignInMethods]: {
+    route: 'crew-sign-in-methods',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'label', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'admits', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'openSignUp', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'directoryGivesRoles', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
   [Resources.ExpenseManifests]: {
     route: 'sectors/{sectorID}/expense-manifests',
     createDisabled: true,
@@ -1801,6 +1828,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.Wings]: PermissionScopes.domain,
   [Resources.BriefingTemplates]: PermissionScopes.global,
   [Resources.CrewSectorRoles]: PermissionScopes.domain,
+  [Resources.CrewSignInMethods]: PermissionScopes.global,
   [Resources.ExpenseManifests]: PermissionScopes.domain,
   [Resources.PilotCards]: PermissionScopes.global,
   [Resources.SectorHazardBoards]: PermissionScopes.domain,

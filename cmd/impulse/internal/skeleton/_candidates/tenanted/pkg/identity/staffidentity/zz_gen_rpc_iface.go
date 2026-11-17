@@ -10,13 +10,14 @@ type Method interface {
 	AssignStaffRole | AssignStaffTenantRole | CreateStaffTenantUser | CreateStaffUser |
 		DeleteStaffTenantUser | DeleteStaffUser | DisableStaffTenantUser | DisableStaffUser |
 		EnableStaffTenantUser | EnableStaffUser | EndStaffSession | EndStaffTenantUserSessions |
-		EndStaffUserSessions | InviteStaffTenantUser | InviteStaffUser | RemoveStaffPassword |
-		RemoveStaffRole | RemoveStaffTenantPassword | RemoveStaffTenantRole |
-		RenameStaffTenantUser | RenameStaffUser | RequireStaffPasswordChange |
-		RequireStaffTenantPasswordChange | RevokeStaffSessionToken |
-		RevokeStaffTenantUserTrustedDevices | RevokeStaffUserTrustedDevices |
-		SetStaffTemporaryPassword | SetStaffTenantTemporaryPassword | SetStaffTenantUserEmail |
-		SetStaffTenantUserName | SetStaffUserEmail | SetStaffUserName |
-		UnlinkStaffSessionIdentity | UnlinkStaffTenantSessionIdentity | UnlockStaffSignIn |
-		WithdrawStaffInvitation | WithdrawStaffTenantInvitation
+		EndStaffUserSessions | InviteStaffTenantUser | InviteStaffUser | MakeStaffInviteOnly |
+		OpenStaffSignUp | RemoveStaffPassword | RemoveStaffRole | RemoveStaffTenantPassword |
+		RemoveStaffTenantRole | RenameStaffTenantUser | RenameStaffUser |
+		RequireStaffPasswordChange | RequireStaffTenantPasswordChange |
+		RevokeStaffSessionToken | RevokeStaffTenantUserTrustedDevices |
+		RevokeStaffUserTrustedDevices | SetStaffTemporaryPassword |
+		SetStaffTenantTemporaryPassword | SetStaffTenantUserEmail | SetStaffTenantUserName |
+		SetStaffUserEmail | SetStaffUserName | UnlinkStaffSessionIdentity |
+		UnlinkStaffTenantSessionIdentity | UnlockStaffSignIn | WithdrawStaffInvitation |
+		WithdrawStaffTenantInvitation
 }

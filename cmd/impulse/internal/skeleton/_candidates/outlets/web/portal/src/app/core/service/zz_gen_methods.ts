@@ -32,6 +32,44 @@ export interface AssignMembersTenantRole {
 /** The statuses AssignMembersTenantRole declares; the method chooses one per response. */
 export type AssignMembersTenantRoleStatus = 204;
 
+export interface CreateMembersTenantUserConfig {
+  username: string | FieldPointer;
+  name?: string | FieldPointer;
+  email?: string | FieldPointer;
+  roles: string[] | FieldPointer;
+}
+export interface CreateMembersTenantUser {
+  username: string;
+  name?: string;
+  email?: string;
+  roles: string[];
+}
+/** The result CreateMembersTenantUser answers with. */
+export interface CreateMembersTenantUserResult {
+  id: string;
+}
+
+export interface CreateMembersUserConfig {
+  username: string | FieldPointer;
+  name?: string | FieldPointer;
+  email?: string | FieldPointer;
+  roles: string[] | FieldPointer;
+  domain?: string | FieldPointer;
+  everyDomain: boolean | FieldPointer;
+}
+export interface CreateMembersUser {
+  username: string;
+  name?: string;
+  email?: string;
+  roles: string[];
+  domain?: string;
+  everyDomain: boolean;
+}
+/** The result CreateMembersUser answers with. */
+export interface CreateMembersUserResult {
+  id: string;
+}
+
 export interface DeleteMembersTenantUserConfig {
   userId: string | FieldPointer;
 }
@@ -391,6 +429,12 @@ export interface MethodMeta {
    * on a method that runs outside one, which refuses the header.
    */
   dryRun?: true;
+  /**
+   * Set on a method that warns before it runs (@warning): the server writes what the
+   * call will do (asked with X-Warning, nothing saved), and a dialog shows it in the
+   * warning style and holds its confirm button until the person has typed the word.
+   */
+  warning?: { typed: string };
   fields: RPCFieldMeta[];
 }
 
@@ -416,6 +460,30 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.MembersTenantRoles, required: true, attribute: 'role' },
+    ],
+  },
+  [Methods.CreateMembersTenantUser]: {
+    route: 'create-members-tenant-user',
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'username', displayType: 'string', required: true },
+      { fieldName: 'name', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.MembersTenantRoles, attribute: 'role' },
+    ],
+  },
+  [Methods.CreateMembersUser]: {
+    route: 'create-members-user',
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'username', displayType: 'string', required: true },
+      { fieldName: 'name', displayType: 'string', optional: true },
+      { fieldName: 'email', displayType: 'string', optional: true },
+      { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
+      { fieldName: 'domain', displayType: 'string', optional: true },
+      { fieldName: 'everyDomain', displayType: 'boolean' },
     ],
   },
   [Methods.DeleteMembersTenantUser]: {

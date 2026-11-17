@@ -16,6 +16,7 @@ type Resourcer interface {
 		membersresources.MembersSession | membersresources.MembersSessionAuthEvent |
 		membersresources.MembersSessionIdentity | membersresources.MembersSessionMailLink |
 		membersresources.MembersSessionSignInAttempt |
+		membersresources.MembersSessionSignInMethod |
 		membersresources.MembersSessionTrustedDevice | membersresources.MembersSessionUser |
 		membersresources.MembersUserRole
 }

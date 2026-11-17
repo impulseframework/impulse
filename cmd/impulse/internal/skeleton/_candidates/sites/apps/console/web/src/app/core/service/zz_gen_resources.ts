@@ -196,6 +196,16 @@ export interface TenantDirectories {
   defaultSeat?: string;
 }
 
+export interface StaffSignInMethods {
+  name: string;
+  label?: string;
+  admits?: string;
+  openSignUp?: boolean;
+  defaultRole?: string;
+  directoryGivesRoles?: boolean;
+  says?: string;
+}
+
 export interface StaffTenantRoles {
   name: string;
   description?: string;
@@ -513,6 +523,23 @@ const resourceMap = defineResourceMap({
       { fieldName: 'defaultSeat', displayType: 'string', required: false, isIndex: false, maxLength: 64 },
     ],
   },
+  [Resources.StaffSignInMethods]: {
+    route: 'staff-sign-in-methods',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'label', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'admits', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'openSignUp', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'directoryGivesRoles', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
   [Resources.StaffTenantRoles]: {
     route: 'tenants/{tenantID}/staff-tenant-roles',
     readDisabled: true,
@@ -578,6 +605,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffUserRoles]: PermissionScopes.global,
   [Resources.Tenants]: PermissionScopes.global,
   [Resources.TenantDirectories]: PermissionScopes.domain,
+  [Resources.StaffSignInMethods]: PermissionScopes.global,
   [Resources.StaffTenantRoles]: PermissionScopes.domain,
   [Resources.FeatureFlags]: PermissionScopes.global,
 };

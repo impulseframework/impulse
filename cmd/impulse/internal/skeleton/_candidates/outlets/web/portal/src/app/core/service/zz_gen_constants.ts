@@ -41,6 +41,8 @@ export const Resources = {
 export const Methods = {
   AssignMembersRole: 'AssignMembersRole' as Method,
   AssignMembersTenantRole: 'AssignMembersTenantRole' as Method,
+  CreateMembersTenantUser: 'CreateMembersTenantUser' as Method,
+  CreateMembersUser: 'CreateMembersUser' as Method,
   DeleteMembersTenantUser: 'DeleteMembersTenantUser' as Method,
   DeleteMembersUser: 'DeleteMembersUser' as Method,
   DisableMembersTenantUser: 'DisableMembersTenantUser' as Method,
@@ -486,6 +488,26 @@ export namespace AssignMembersTenantRole {
   export const fieldName = {
     userId: 'userId' as FieldName,
     role: 'role' as FieldName,
+  };
+}
+
+export namespace CreateMembersTenantUser {
+  export const fieldName = {
+    username: 'username' as FieldName,
+    name: 'name' as FieldName,
+    email: 'email' as FieldName,
+    roles: 'roles' as FieldName,
+  };
+}
+
+export namespace CreateMembersUser {
+  export const fieldName = {
+    username: 'username' as FieldName,
+    name: 'name' as FieldName,
+    email: 'email' as FieldName,
+    roles: 'roles' as FieldName,
+    domain: 'domain' as FieldName,
+    everyDomain: 'everyDomain' as FieldName,
   };
 }
 

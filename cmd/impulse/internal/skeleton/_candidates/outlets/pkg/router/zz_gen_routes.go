@@ -93,6 +93,8 @@ type GeneratedHandlers interface {
 
 	CreateStaffUser() http.HandlerFunc
 
+	CreateTenant() http.HandlerFunc
+
 	DeleteStaffTenantUser() http.HandlerFunc
 
 	DeleteStaffUser() http.HandlerFunc
@@ -119,6 +121,10 @@ type GeneratedHandlers interface {
 	InviteStaffTenantUser() http.HandlerFunc
 
 	InviteStaffUser() http.HandlerFunc
+
+	MakeStaffInviteOnly() http.HandlerFunc
+
+	OpenStaffSignUp() http.HandlerFunc
 
 	RemoveStaffPassword() http.HandlerFunc
 
@@ -181,6 +187,8 @@ type GeneratedHandlers interface {
 
 	StaffSessionUsers() http.HandlerFunc
 	StaffSessionUser() http.HandlerFunc
+
+	StaffSignInMethods() http.HandlerFunc
 
 	StaffTenantIdentities() http.HandlerFunc
 	StaffTenantIdentity() http.HandlerFunc
@@ -251,6 +259,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	r.Post("/console/api/create-staff-user", h.CreateStaffUser())
 
+	bounded.Post("/console/api/create-tenant", h.CreateTenant())
+
 	r.Post("/console/api/tenants/{tenantID}/delete-staff-tenant-user", domainGuard(h.DeleteStaffTenantUser()))
 
 	r.Post("/console/api/delete-staff-user", h.DeleteStaffUser())
@@ -282,6 +292,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	r.Post("/console/api/tenants/{tenantID}/invite-staff-tenant-user", domainGuard(h.InviteStaffTenantUser()))
 
 	r.Post("/console/api/invite-staff-user", h.InviteStaffUser())
+
+	r.Post("/console/api/make-staff-invite-only", h.MakeStaffInviteOnly())
+
+	r.Post("/console/api/open-staff-sign-up", h.OpenStaffSignUp())
 
 	r.Post("/console/api/remove-staff-password", h.RemoveStaffPassword())
 
@@ -383,6 +397,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Get("/console/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
 	bounded.Post("/console/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
 
+	staffSignInMethodsHandler := h.StaffSignInMethods()
+	bounded.Get("/console/api/staff-sign-in-methods", staffSignInMethodsHandler)
+	bounded.Post("/console/api/staff-sign-in-methods", staffSignInMethodsHandler)
+
 	staffTenantIdentitiesHandler := domainGuard(h.StaffTenantIdentities())
 	bounded.Get("/console/api/tenants/{tenantID}/staff-tenant-identities", staffTenantIdentitiesHandler)
 	bounded.Post("/console/api/tenants/{tenantID}/staff-tenant-identities", staffTenantIdentitiesHandler)
@@ -480,6 +498,10 @@ type GeneratedPortalHandlers interface {
 	AssignMembersRole() http.HandlerFunc
 
 	AssignMembersTenantRole() http.HandlerFunc
+
+	CreateMembersTenantUser() http.HandlerFunc
+
+	CreateMembersUser() http.HandlerFunc
 
 	DeleteMembersTenantUser() http.HandlerFunc
 
@@ -616,6 +638,10 @@ func generatedPortalRoutes(r chi.Router, h GeneratedPortalHandlers) {
 	r.Post("/portal/api/assign-members-role", h.AssignMembersRole())
 
 	r.Post("/portal/api/tenants/{tenantID}/assign-members-tenant-role", domainGuard(h.AssignMembersTenantRole()))
+
+	r.Post("/portal/api/tenants/{tenantID}/create-members-tenant-user", domainGuard(h.CreateMembersTenantUser()))
+
+	r.Post("/portal/api/create-members-user", h.CreateMembersUser())
 
 	r.Post("/portal/api/tenants/{tenantID}/delete-members-tenant-user", domainGuard(h.DeleteMembersTenantUser()))
 

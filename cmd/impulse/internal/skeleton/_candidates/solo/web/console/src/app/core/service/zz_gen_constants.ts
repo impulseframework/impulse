@@ -29,6 +29,8 @@ export const Resources = {
   StaffSessionTrustedDevices: 'StaffSessionTrustedDevices' as Resource,
   StaffSessionUsers: 'StaffSessionUsers' as Resource,
   StaffSessions: 'StaffSessions' as Resource,
+  StaffSignInMethods: 'StaffSignInMethods' as Resource,
+  StaffSignUpRoles: 'StaffSignUpRoles' as Resource,
   StaffUserRoles: 'StaffUserRoles' as Resource,
 };
 
@@ -41,6 +43,8 @@ export const Methods = {
   EndStaffSession: 'EndStaffSession' as Method,
   EndStaffUserSessions: 'EndStaffUserSessions' as Method,
   InviteStaffUser: 'InviteStaffUser' as Method,
+  MakeStaffInviteOnly: 'MakeStaffInviteOnly' as Method,
+  OpenStaffSignUp: 'OpenStaffSignUp' as Method,
   RemoveStaffPassword: 'RemoveStaffPassword' as Method,
   RemoveStaffRole: 'RemoveStaffRole' as Method,
   RenameStaffUser: 'RenameStaffUser' as Method,
@@ -303,6 +307,38 @@ export namespace StaffSessions {
   };
 }
 
+export namespace StaffSignInMethods {
+  export const fieldName = {
+    admits: 'admits' as FieldName,
+    defaultRole: 'defaultRole' as FieldName,
+    directoryGivesRoles: 'directoryGivesRoles' as FieldName,
+    label: 'label' as FieldName,
+    name: 'name' as FieldName,
+    openSignUp: 'openSignUp' as FieldName,
+    says: 'says' as FieldName,
+  };
+  export const resourceName = {
+    admits: 'StaffSignInMethods.admits' as Resource,
+    defaultRole: 'StaffSignInMethods.defaultRole' as Resource,
+    directoryGivesRoles: 'StaffSignInMethods.directoryGivesRoles' as Resource,
+    label: 'StaffSignInMethods.label' as Resource,
+    name: 'StaffSignInMethods.name' as Resource,
+    openSignUp: 'StaffSignInMethods.openSignUp' as Resource,
+    says: 'StaffSignInMethods.says' as Resource,
+  };
+}
+
+export namespace StaffSignUpRoles {
+  export const fieldName = {
+    description: 'description' as FieldName,
+    name: 'name' as FieldName,
+  };
+  export const resourceName = {
+    description: 'StaffSignUpRoles.description' as Resource,
+    name: 'StaffSignUpRoles.name' as Resource,
+  };
+}
+
 export namespace StaffUserRoles {
   export const fieldName = {
     axis: 'axis' as FieldName,
@@ -379,6 +415,19 @@ export namespace InviteStaffUser {
     name: 'name' as FieldName,
     roles: 'roles' as FieldName,
     domain: 'domain' as FieldName,
+  };
+}
+
+export namespace MakeStaffInviteOnly {
+  export const fieldName = {
+    name: 'name' as FieldName,
+  };
+}
+
+export namespace OpenStaffSignUp {
+  export const fieldName = {
+    name: 'name' as FieldName,
+    defaultRole: 'defaultRole' as FieldName,
   };
 }
 

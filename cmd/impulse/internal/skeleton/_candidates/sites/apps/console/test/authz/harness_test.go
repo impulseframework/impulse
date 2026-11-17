@@ -134,6 +134,11 @@ func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationReques
 	return nil, errors.New("the authorization matrix serves no session manager")
 }
 
+// SignInMethods names no method: the matrix registers none, and a denied case reads none.
+func (noSessionAPI) SignInMethods() []session.RegisteredMethod {
+	return nil
+}
+
 // StaffIdentity is the staff auth's identity client over the scripted engine: the matrix
 // drives the generated methods' routes as it drives every other, and a denied case is
 // answered before any of them runs.

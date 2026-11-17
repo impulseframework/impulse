@@ -36,14 +36,14 @@ export interface CreateStaffTenantUserConfig {
   username: string | FieldPointer;
   name?: string | FieldPointer;
   email?: string | FieldPointer;
-  password: string | FieldPointer;
+  password?: string | FieldPointer;
   roles: string[] | FieldPointer;
 }
 export interface CreateStaffTenantUser {
   username: string;
   name?: string;
   email?: string;
-  password: string;
+  password?: string;
   roles: string[];
 }
 /** The result CreateStaffTenantUser answers with. */
@@ -55,7 +55,7 @@ export interface CreateStaffUserConfig {
   username: string | FieldPointer;
   name?: string | FieldPointer;
   email?: string | FieldPointer;
-  password: string | FieldPointer;
+  password?: string | FieldPointer;
   roles: string[] | FieldPointer;
   domain?: string | FieldPointer;
   everyDomain: boolean | FieldPointer;
@@ -64,7 +64,7 @@ export interface CreateStaffUser {
   username: string;
   name?: string;
   email?: string;
-  password: string;
+  password?: string;
   roles: string[];
   domain?: string;
   everyDomain: boolean;
@@ -188,6 +188,24 @@ export interface InviteStaffUserResult {
   id: string;
   sent: boolean;
 }
+
+export interface MakeStaffInviteOnlyConfig {
+  name: string | FieldPointer;
+}
+export interface MakeStaffInviteOnly {
+  name: string;
+}
+/** The statuses MakeStaffInviteOnly declares; the method chooses one per response. */
+export type MakeStaffInviteOnlyStatus = 204;
+
+export interface OpenStaffSignUpConfig {
+  name: string | FieldPointer;
+}
+export interface OpenStaffSignUp {
+  name: string;
+}
+/** The statuses OpenStaffSignUp declares; the method chooses one per response. */
+export type OpenStaffSignUpStatus = 204;
 
 export interface RemoveStaffPasswordConfig {
   userId: string | FieldPointer;
@@ -491,6 +509,12 @@ export interface MethodMeta {
    * on a method that runs outside one, which refuses the header.
    */
   dryRun?: true;
+  /**
+   * Set on a method that warns before it runs (@warning): the server writes what the
+   * call will do (asked with X-Warning, nothing saved), and a dialog shows it in the
+   * warning style and holds its confirm button until the person has typed the word.
+   */
+  warning?: { typed: string };
   fields: RPCFieldMeta[];
 }
 
@@ -526,7 +550,7 @@ const methodMap: MethodMap = {
       { fieldName: 'username', displayType: 'string', required: true },
       { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'email', displayType: 'string', optional: true },
-      { fieldName: 'password', displayType: 'string', required: true },
+      { fieldName: 'password', displayType: 'string', optional: true },
       { fieldName: 'roles', displayType: 'enumerated[]', enumeratedResource: Resources.StaffTenantRoles, attribute: 'role' },
     ],
   },
@@ -538,7 +562,7 @@ const methodMap: MethodMap = {
       { fieldName: 'username', displayType: 'string', required: true },
       { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'email', displayType: 'string', optional: true },
-      { fieldName: 'password', displayType: 'string', required: true, secret: true },
+      { fieldName: 'password', displayType: 'string', optional: true, secret: true },
       { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Tenants, optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
@@ -644,6 +668,23 @@ const methodMap: MethodMap = {
       { fieldName: 'name', displayType: 'string', optional: true },
       { fieldName: 'roles', displayType: 'string[]', attribute: 'role' },
       { fieldName: 'domain', displayType: 'enumerated', enumeratedResource: Resources.Tenants, optional: true },
+    ],
+  },
+  [Methods.MakeStaffInviteOnly]: {
+    route: 'make-staff-invite-only',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'name', displayType: 'string', required: true },
+    ],
+  },
+  [Methods.OpenStaffSignUp]: {
+    route: 'open-staff-sign-up',
+    statuses: [204],
+    dryRun: true,
+    warning: { typed: 'open' },
+    fields: [
+      { fieldName: 'name', displayType: 'string', required: true },
     ],
   },
   [Methods.RemoveStaffPassword]: {

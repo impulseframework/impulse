@@ -30,10 +30,13 @@ var _ interface {
 } = (*App)(nil)
 
 // CreateSector serves the create-your-sector route, POST /console/api/create-sector: a signed-in person
-// who holds no sector creates one and becomes its administrator (@tenant(creation: both)).
-// No grant admits the call. The session must be established, which the router's session
-// group holds it to, and must hold a grant in no sector: a person creates one sector,
-// and the member or administrator of one is refused (403). The row is written first, in
+// who holds no sector creates one and becomes its administrator, while an administrator has
+// a sign-in method of the Crew auth open to sign-up. No grant admits the call. The session
+// must be established, which the router's session group holds it to, and must hold a
+// grant in no sector: a person creates one sector, and the member or administrator of
+// one is refused (403). Whether sign-up is open is read in the transaction that writes
+// the row, from the auth's sign-in methods table: while every method is invite only the
+// call is refused (403) and nothing is written. The row is written first, in
 // its own transaction, under an id the create generates, which the answer carries,
 // and the person's administrator membership is written in that transaction, through the
 // Crew auth's generated identity client, so the sector and its administrator are
@@ -95,6 +98,17 @@ func (a *App) CreateSector() http.HandlerFunc {
 		var id impulse.UUID
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			// Who is admitted: a person who signed up, which is a person with no sector
+			// while an administrator has a sign-in method open to sign-up. A person who
+			// holds an invitation to create a sector is the next admission, and is
+			// decided here, before the refusal, when that invitation exists.
+			open, err := identity.AnySignInMethodOpen(ctx, txn)
+			if err != nil {
+				return errors.Wrap(err, "CrewIdentity().AnySignInMethodOpen()")
+			}
+			if !open {
+				return httpio.NewForbiddenMessage("sign-up is not open, so you cannot create a sector of your own: ask an administrator of the application to create one for you, or to invite you to one")
+			}
 			patch, err := resources.NewSectorCreatePatch()
 			if err != nil {
 				return errors.Wrap(err, "resources.NewSectorCreatePatch()")

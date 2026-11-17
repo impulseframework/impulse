@@ -88,7 +88,7 @@ func TestSelfService_aSignedInStrangerCreatesTheirTenant(t *testing.T) {
 
 	// The newcomer names their tenant, by its name alone, and is answered the id the
 	// route generated for it.
-	status, body := newcomer.do(ctx, http.MethodPost, "/api/create-tenant", []byte(`{"name":"West"}`))
+	status, body = newcomer.do(ctx, http.MethodPost, "/api/create-tenant", []byte(`{"name":"West"}`))
 	if status != http.StatusOK {
 		t.Fatalf("POST /api/create-tenant: status %d: %s", status, body)
 	}

@@ -7,12 +7,12 @@ import "github.com/impulseframework/impulse/accesstypes"
 
 type Method interface {
 	Method() accesstypes.Resource
-	AssignMembersRole | AssignMembersTenantRole | DeleteMembersTenantUser | DeleteMembersUser |
-		DisableMembersTenantUser | DisableMembersUser | EnableMembersTenantUser |
-		EnableMembersUser | EndMembersSession | EndMembersTenantUserSessions |
-		EndMembersUserSessions | InviteMembersTenantUser | InviteMembersUser | RemoveMembersRole |
-		RemoveMembersTenantRole | RenameMembersTenantUser | RenameMembersUser |
-		RevokeMembersSessionToken | RevokeMembersTenantUserTrustedDevices |
+	AssignMembersRole | AssignMembersTenantRole | CreateMembersTenantUser | CreateMembersUser |
+		DeleteMembersTenantUser | DeleteMembersUser | DisableMembersTenantUser |
+		DisableMembersUser | EnableMembersTenantUser | EnableMembersUser | EndMembersSession |
+		EndMembersTenantUserSessions | EndMembersUserSessions | InviteMembersTenantUser |
+		InviteMembersUser | RemoveMembersRole | RemoveMembersTenantRole | RenameMembersTenantUser |
+		RenameMembersUser | RevokeMembersSessionToken | RevokeMembersTenantUserTrustedDevices |
 		RevokeMembersUserTrustedDevices | SetMembersTenantUserEmail | SetMembersTenantUserName |
 		SetMembersUserEmail | SetMembersUserName | UnlinkMembersSessionIdentity |
 		UnlinkMembersTenantSessionIdentity | UnlockMembersSignIn | WithdrawMembersInvitation |

@@ -8,9 +8,9 @@ import "github.com/impulseframework/impulse/accesstypes"
 type Method interface {
 	Method() accesstypes.Resource
 	AssignStaffRole | CreateStaffUser | DeleteStaffUser | DisableStaffUser | EnableStaffUser |
-		EndStaffSession | EndStaffUserSessions | InviteStaffUser | RemoveStaffPassword |
-		RemoveStaffRole | RenameStaffUser | RequireStaffPasswordChange | RevokeStaffSessionToken |
-		RevokeStaffUserTrustedDevices | SetStaffTemporaryPassword | SetStaffUserEmail |
-		SetStaffUserName | UnlinkStaffSessionIdentity | UnlockStaffSignIn |
-		WithdrawStaffInvitation
+		EndStaffSession | EndStaffUserSessions | InviteStaffUser | MakeStaffInviteOnly |
+		OpenStaffSignUp | RemoveStaffPassword | RemoveStaffRole | RenameStaffUser |
+		RequireStaffPasswordChange | RevokeStaffSessionToken | RevokeStaffUserTrustedDevices |
+		SetStaffTemporaryPassword | SetStaffUserEmail | SetStaffUserName |
+		UnlinkStaffSessionIdentity | UnlockStaffSignIn | WithdrawStaffInvitation
 }

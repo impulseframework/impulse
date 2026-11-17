@@ -7,7 +7,7 @@
 //	every request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams
 //	default (/console/api), sessions of the staff auth (password):
 //	  BindAuth(staff.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /console/api/user/methods, GET /console/api/user/session, DELETE /console/api/user/session, GET /console/api/user/pending, GET /console/api/user/sign-in-means
-//	  + ValidateXSRFToken: POST /console/api/user/password/login, POST /console/api/user/password/change, POST /console/api/user/password/remove, POST /console/api/user/pending/confirm, POST /console/api/user/pending/cancel, POST /console/api/user/pending/code, POST /console/api/user/pending/code/verify, POST /console/api/user/pending/email, POST /console/api/user/browser/forget, POST /console/api/user/name, POST /console/api/user/look, POST /console/api/user/invitation, POST /console/api/user/invitation/sign-up
+//	  + ValidateXSRFToken: POST /console/api/user/password/login, POST /console/api/user/password/change, POST /console/api/user/password/remove, POST /console/api/user/pending/confirm, POST /console/api/user/pending/cancel, POST /console/api/user/pending/code, POST /console/api/user/pending/code/verify, POST /console/api/user/pending/email, POST /console/api/user/browser/forget, POST /console/api/user/name, POST /console/api/user/look, POST /console/api/user/invitation, POST /console/api/user/invitation/sign-up, POST /console/api/user/sign-up, POST /console/api/user/sign-up/open, POST /console/api/user/sign-up/complete
 //	  + ValidateSession, ValidateXSRFToken, hooks.Default: POST /console/api/user/invitation/accept, POST /console/api/user/email, POST /console/api/user/email/verify, GET /console/api/user/tokens, POST /console/api/user/tokens, POST /console/api/user/tokens/revoke, GET /console/api/user/device, POST /console/api/user/device/approve, POST /console/api/user/device/deny
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1): hooks.Default, generatedRoutes
 //	portal (/portal/api), sessions of the members auth (directory):
@@ -130,6 +130,12 @@ type DefaultSession interface {
 	EmailAdd() http.HandlerFunc
 	// The address verified from the mailed link (session.EmailHandlers.Verify).
 	EmailVerify() http.HandlerFunc
+	// A sign-up started from an address, which is mailed its link (session.SignUpHandlers.Start).
+	SignUpStart() http.HandlerFunc
+	// The sign-up link opened (session.SignUpHandlers.Open).
+	SignUpOpen() http.HandlerFunc
+	// The sign-up completed with a password: the account created and signed in (session.SignUpHandlers.Complete).
+	SignUpComplete() http.HandlerFunc
 	// A command-line client's device authorization started (session.DeviceHandlers.Authorize): the client is told the code the person types; mounted under each machine outlet the auth issues tokens for.
 	DeviceAuthorize() http.HandlerFunc
 	// The device flow's token endpoint (session.DeviceHandlers.Token): the client's polls for its pair, and the refresh grant; mounted under each machine outlet the auth issues tokens for.
@@ -298,6 +304,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			ChangeLook:     "/console/api/user/look",
 			Invitation:     session.InvitationRoutes{Open: "/console/api/user/invitation", Accept: "/console/api/user/invitation/accept", SignUp: "/console/api/user/invitation/sign-up"},
 			Email:          session.EmailRoutes{Add: "/console/api/user/email", Verify: "/console/api/user/email/verify"},
+			SignUp:         session.SignUpRoutes{Start: "/console/api/user/sign-up", Open: "/console/api/user/sign-up/open", Complete: "/console/api/user/sign-up/complete"},
 		}))
 		bounded.Get("/console/api/user/session", h.Authenticated())
 		bounded.Delete("/console/api/user/session", h.Logout())
@@ -316,6 +323,9 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		guarded.Post("/console/api/user/look", h.ChangeLook())
 		guarded.Post("/console/api/user/invitation", h.InvitationOpen())
 		guarded.Post("/console/api/user/invitation/sign-up", h.InvitationSignUp())
+		guarded.Post("/console/api/user/sign-up", h.SignUpStart())
+		guarded.Post("/console/api/user/sign-up/open", h.SignUpOpen())
+		guarded.Post("/console/api/user/sign-up/complete", h.SignUpComplete())
 
 		r.Group(func(r chi.Router) {
 			r.Use(h.ValidateSession)

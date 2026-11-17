@@ -80,6 +80,8 @@ type GeneratedHandlers interface {
 
 	CreateStaffUser() http.HandlerFunc
 
+	CreateTenant() http.HandlerFunc
+
 	DeleteStaffTenantUser() http.HandlerFunc
 
 	DeleteStaffUser() http.HandlerFunc
@@ -106,6 +108,10 @@ type GeneratedHandlers interface {
 	InviteStaffTenantUser() http.HandlerFunc
 
 	InviteStaffUser() http.HandlerFunc
+
+	MakeStaffInviteOnly() http.HandlerFunc
+
+	OpenStaffSignUp() http.HandlerFunc
 
 	RemoveStaffPassword() http.HandlerFunc
 
@@ -168,6 +174,8 @@ type GeneratedHandlers interface {
 
 	StaffSessionUsers() http.HandlerFunc
 	StaffSessionUser() http.HandlerFunc
+
+	StaffSignInMethods() http.HandlerFunc
 
 	StaffTenantIdentities() http.HandlerFunc
 	StaffTenantIdentity() http.HandlerFunc
@@ -238,6 +246,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	r.Post("/api/create-staff-user", h.CreateStaffUser())
 
+	bounded.Post("/api/create-tenant", h.CreateTenant())
+
 	r.Post("/api/tenants/{tenantID}/delete-staff-tenant-user", domainGuard(h.DeleteStaffTenantUser()))
 
 	r.Post("/api/delete-staff-user", h.DeleteStaffUser())
@@ -269,6 +279,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	r.Post("/api/tenants/{tenantID}/invite-staff-tenant-user", domainGuard(h.InviteStaffTenantUser()))
 
 	r.Post("/api/invite-staff-user", h.InviteStaffUser())
+
+	r.Post("/api/make-staff-invite-only", h.MakeStaffInviteOnly())
+
+	r.Post("/api/open-staff-sign-up", h.OpenStaffSignUp())
 
 	r.Post("/api/remove-staff-password", h.RemoveStaffPassword())
 
@@ -369,6 +383,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	staffSessionUserHandler := h.StaffSessionUser()
 	bounded.Get("/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
 	bounded.Post("/api/staff-session-users/{staffSessionUserID}", staffSessionUserHandler)
+
+	staffSignInMethodsHandler := h.StaffSignInMethods()
+	bounded.Get("/api/staff-sign-in-methods", staffSignInMethodsHandler)
+	bounded.Post("/api/staff-sign-in-methods", staffSignInMethodsHandler)
 
 	staffTenantIdentitiesHandler := domainGuard(h.StaffTenantIdentities())
 	bounded.Get("/api/tenants/{tenantID}/staff-tenant-identities", staffTenantIdentitiesHandler)
