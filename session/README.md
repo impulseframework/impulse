@@ -564,6 +564,7 @@ r.Group(func(r chi.Router) {
     r.Post("/api/user/logout", auth.Logout())
     r.Post("/api/user/password", password.ChangeUserPassword()) // validates the session itself
     r.Post("/api/user/password/remove", password.RemoveUserPassword()) // {"password"}: the person's own password, removed; validates the session itself
+    r.Get("/api/user/sign-in-means", auth.SignInMeans())        // what the person signs in with: a password or none, the directory sign-ins linked; validates the session itself
     r.Post("/api/user/name", auth.ChangeName())                 // {"name"}: the person's own name; validates the session itself
     r.Post("/api/user/look", auth.ChangeLook())                 // {"scheme", "palette"}: the look the person chose; validates the session itself
     r.Post("/api/user/invitation", auth.Invitation().Open())          // {"token"}: sets the invitation cookie
@@ -657,6 +658,12 @@ the password method is listed.
   present when the list names it (`MethodList.RemovePassword`, which needs the password
   method listed): where a signed-in person's account page posts `{"password"}` to remove
   their own password (see "Users and the forced password change").
+- `signInMeans` is the path of the `SignInMeans` handler, present when the list names it
+  (`MethodList.SignInMeans`): where a signed-in person's account page reads what they
+  sign in with, `{"password": true, "directories": [{"name": "google", "label": "Fleet
+  Google"}]}`. The page hides the change and the removal of a password from a person
+  who holds none, offers the removal only where a directory sign-in is linked, and says
+  what the removal leaves by the label of the button the person signs in through.
 - `forgetBrowser`, `changeName` and `changeLook` are the paths of the `ForgetBrowser`,
   `ChangeName` and `ChangeLook` handlers, each present when the list names it
   (`MethodList.ForgetBrowser`, `MethodList.ChangeName`, `MethodList.ChangeLook`): where
@@ -988,6 +995,7 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `HashPassword(password)` | The hash of a password as the users table's `PasswordHash` column holds it, made by the password method's hasher, for a caller that writes the column in a transaction of its own (the generated user management). An empty password is refused. `SignInAttemptName(username)`, a package function, is the key of the name's row in the sign-in attempts table, for the same caller clearing the count beside the password. |
 | `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. |
 | `Identities(ctx, id)`, `UnlinkIdentity(ctx, identityID)` | The user's identity links; unlinking a password-less user's last link is refused (Conflict). |
+| `SignInMeans(ctx, id)` | What the user signs in with (`SignInMeans`): whether they hold a password, never its hash, and the sign-in methods the login page offers that an identity linked to them signs in through, each by the registration's name and the label its button carries, in the page's order. A link names its method and not its registration, so two listed registrations of one method both answer for a link of that method; a link of a method the page no longer offers names nothing, though the store still counts it as a means of sign-in. For an administrator's page; the caller guards who may ask about whom. `Auth.SignInMeans()` is the person's own read over HTTP. |
 | `RemoveSessionUserPassword(ctx, id)` | Removes the user's password, an operator's act: the password then signs nobody in, and the user signs in through an identity linked to them. A user with no identity link keeps it, their last means of sign-in (Conflict, `sessionstorage.ErrLastSignInMethod`); a user with no password has none to remove (BadRequest). Clears the mark and the name's count of failed sign-ins; the user's sessions stand. `PasswordMethod.RemoveUserPassword()` is the person's own removal over HTTP, which asks for the password. |
 | `UserByEmail(ctx, email)`, `SetSessionUserEmail(ctx, id, email)` | The user holding an address, verified or not; an operator's entry of an address, unverified, or its removal (nil). See "Users and their email address". |
 | `SetSessionUserName(ctx, id, name)` | An operator's entry of the person's name, or its removal (nil). See "A person's name". |
@@ -1040,6 +1048,14 @@ user's name, and ends no session: the sessions the user holds stand, the ones th
 password established among them, as they do when an identity is unlinked. From then on
 a sign-in with the password is refused exactly as a wrong password is, and counted the
 same way.
+
+**What the pages offer.** The server's refusals are the rule: no password to remove is
+a 400, and a last means of sign-in a 409. A page is told enough not to offer what would
+be refused. The person's account page reads `SignInMeans()` (the methods list's
+`signInMeans`): it shows the change and the removal only to a person who holds a
+password, the removal only where a directory sign-in is linked, and its question names
+what is left ("You will sign in through Fleet Google only."). A page that hides a
+button is a courtesy and decides nothing.
 
 **A write that follows a proof writes over the password that was proved, and no
 other.** Three writes are made on the strength of a password the person just entered:
