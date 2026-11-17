@@ -340,8 +340,10 @@ func (a *App) MissionsAcrossTenants() http.HandlerFunc {
 
 		// A page that asked for live registers before the query runs, so a commit that
 		// lands during the query is not missed: one subscription over the tenants the
-		// list reads for the person, and none of a tenant it does not.
-		live.SubscribeAcrossTenants(ctx, r, a.LiveService(), querySet)
+		// list reads for the person, and none of a tenant it does not. A set of more
+		// tenants than one subscription holds registers nothing, and the list is
+		// served plain.
+		liveness := live.SubscribeAcrossTenants(ctx, r, a.LiveService(), querySet)
 
 		res := resources.NewMissionQueryFromQuerySet(querySet)
 
@@ -443,9 +445,10 @@ func (a *App) MissionsAcrossTenants() http.HandlerFunc {
 		if err := page.WriteHeaders(w, r); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		// A request carrying the version parameter is a live refetch: the browser
-		// may cache the answer for the subscription's window.
-		live.SetCacheControl(w, r)
+		// A request carrying the version parameter is a live refetch: the browser may
+		// cache the answer for the subscription's window, unless the list is served
+		// plain, which no change would ever tell the browser to ask again.
+		liveness.SetCacheControl(w, r)
 
 		return httpio.NewEncoder(w).Ok(resp)
 	})
