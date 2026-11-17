@@ -549,6 +549,9 @@ func (r *resourceGenerator) extractResourcesBesideTheApplications(packageMap map
 	if err := r.holdIdentityTenant(); err != nil {
 		return err
 	}
+	if err := r.holdIdentityTenantDirectory(); err != nil {
+		return err
+	}
 	identityResources, err := r.identityResources(packageMap, pkg)
 	if err != nil {
 		return err
