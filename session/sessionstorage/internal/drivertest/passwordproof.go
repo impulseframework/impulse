@@ -191,7 +191,7 @@ func testProvenPasswordWriteAfterAnotherWrite(ctx context.Context, t *testing.T,
 		{
 			name: "a temporary password",
 			commit: func(userID impulse.UUID, _ *securehash.Hash) (*securehash.Hash, bool, error) {
-				return other, true, in.Driver.SetUserPassword(ctx, userID, other, true)
+				return other, true, in.Driver.ReplaceUserPassword(ctx, userID, other, true)
 			},
 		},
 		{
@@ -250,7 +250,7 @@ func testProvenPasswordWriteRacesReset(ctx context.Context, t *testing.T, h *Aut
 				writeErr error
 			)
 			wg.Go(func() {
-				resetErr = in.Driver.SetUserPassword(ctx, user.ID, temporary, true)
+				resetErr = in.Driver.ReplaceUserPassword(ctx, user.ID, temporary, true)
 			})
 			wg.Go(func() {
 				writeErr = w.write(ctx, in.Driver, user.ID, read, replacement)
@@ -258,7 +258,7 @@ func testProvenPasswordWriteRacesReset(ctx context.Context, t *testing.T, h *Aut
 			wg.Wait()
 
 			if resetErr != nil {
-				t.Fatalf("round %d: SetUserPassword() error = %v, want the operator's password set whatever else is asked", round, resetErr)
+				t.Fatalf("round %d: ReplaceUserPassword() error = %v, want the operator's password set whatever else is asked", round, resetErr)
 			}
 			if writeErr != nil && !errors.Is(writeErr, dbtype.ErrPasswordChanged) {
 				t.Fatalf("round %d: %s error = %v, want it to go through or find the password changed", round, w.name, writeErr)

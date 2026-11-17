@@ -646,7 +646,8 @@
                 "through",
                 "heldElsewhere",
                 "heldGlobally"
-              ]
+              ],
+              "condition": "password = false OR heldElsewhere = false"
             },
             {
               "resource": "StaffTenantRoles",

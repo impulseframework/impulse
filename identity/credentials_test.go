@@ -82,31 +82,78 @@ func TestManager_RequirePasswordChange(t *testing.T) {
 }
 
 // TestManager_UnlinkIdentity pins the session library's rule: a user who holds no
-// password keeps at least one identity, a user who holds one may lose every identity,
-// and the refusal carries the library's own sentinel.
+// password keeps an identity that can sign them in, by the judgment the removal of a
+// password is held to, so the last one that counts stays while only identities that
+// sign nobody in would remain and one of those goes from beside one that counts; a user
+// who holds a password may lose every identity; and the refusal carries the library's
+// own sentinel.
 func TestManager_UnlinkIdentity(t *testing.T) {
 	t.Parallel()
 
+	entra := sessioninfo.AuthMethod("azure")
+	lastMeans := func(message string) func(error) bool {
+		return func(err error) bool {
+			return httpio.HasConflict(err) && errors.Is(err, sessionstorage.ErrLastSignInMethod) && httpio.Message(err) == message
+		}
+	}
+	noOther := lastMeans("the user has no other means of sign-in: link another directory sign-in first, or give the user a password")
+	noOtherCounts := lastMeans(
+		"none of the other identities linked to the user can sign them in any more, so this one is their only means of sign-in: link a directory sign-in the login page offers first, or give the user a password")
 	tests := []struct {
 		name       string
 		identities map[impulse.UUID]impulse.UUID
 		passwords  map[impulse.UUID]bool
-		wantErr    func(error) bool
-		wantWrites []string
+		// cameThrough, unoffered and untaken say which identities sign nobody in (see
+		// fakeStore and fakeSessions).
+		cameThrough map[impulse.UUID]Link
+		unoffered   map[sessioninfo.AuthMethod]bool
+		untaken     map[string]bool
+		wantErr     func(error) bool
+		wantWrites  []string
 	}{
 		{
-			name:       "one of two identities of a user without a password",
+			name:       "one of two identities that sign in a user without a password",
 			identities: map[impulse.UUID]impulse.UUID{identityA: userID, identityB: userID},
 			passwords:  map[impulse.UUID]bool{userID: false},
 			wantWrites: []string{"delete identity " + identityA.String()},
 		},
 		{
-			name:       "the last identity of a user without a password is refused",
+			name:       "the last identity of a user without a password is refused, whatever another user holds",
 			identities: map[impulse.UUID]impulse.UUID{identityA: userID, identityB: otherUser},
 			passwords:  map[impulse.UUID]bool{userID: false},
-			wantErr: func(err error) bool {
-				return httpio.HasConflict(err) && errors.Is(err, sessionstorage.ErrLastSignInMethod)
-			},
+			wantErr:    noOther,
+		},
+		{
+			name:        "the last identity that signs in a user without a password is refused while one of a method the login page no longer offers remains",
+			identities:  map[impulse.UUID]impulse.UUID{identityA: userID, identityB: userID},
+			passwords:   map[impulse.UUID]bool{userID: false},
+			cameThrough: map[impulse.UUID]Link{identityB: {Method: entra, Connection: "lakeside"}},
+			unoffered:   map[sessioninfo.AuthMethod]bool{entra: true},
+			wantErr:     noOtherCounts,
+		},
+		{
+			name:        "the last identity that signs in a user without a password is refused while one from a connection no registration takes remains",
+			identities:  map[impulse.UUID]impulse.UUID{identityA: userID, identityB: userID},
+			passwords:   map[impulse.UUID]bool{userID: false},
+			cameThrough: map[impulse.UUID]Link{identityB: {Method: entra, Connection: "closed-directory"}},
+			untaken:     map[string]bool{"closed-directory": true},
+			wantErr:     noOtherCounts,
+		},
+		{
+			name:        "an identity that signs nobody in goes from beside one that signs the user in",
+			identities:  map[impulse.UUID]impulse.UUID{identityA: userID, identityB: userID},
+			passwords:   map[impulse.UUID]bool{userID: false},
+			cameThrough: map[impulse.UUID]Link{identityA: {Method: entra, Connection: "closed-directory"}},
+			untaken:     map[string]bool{"closed-directory": true},
+			wantWrites:  []string{"delete identity " + identityA.String()},
+		},
+		{
+			name:        "the last identity that signs in a user who holds a password goes, with one that signs nobody in remaining",
+			identities:  map[impulse.UUID]impulse.UUID{identityA: userID, identityB: userID},
+			passwords:   map[impulse.UUID]bool{userID: true},
+			cameThrough: map[impulse.UUID]Link{identityB: {Method: entra, Connection: "closed-directory"}},
+			untaken:     map[string]bool{"closed-directory": true},
+			wantWrites:  []string{"delete identity " + identityA.String()},
 		},
 		{
 			name:       "the last identity of a user who holds a password goes",
@@ -129,8 +176,9 @@ func TestManager_UnlinkIdentity(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			store := &fakeStore{identities: tt.identities, passwords: tt.passwords}
+			store := &fakeStore{identities: tt.identities, passwords: tt.passwords, cameThrough: tt.cameThrough}
 			m, _ := newManager(t, store, nil)
+			m.sessions = fakeSessions{unoffered: tt.unoffered, untaken: tt.untaken}
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				return m.UnlinkIdentity(ctx, txn, identityA)
 			})

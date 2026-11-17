@@ -1014,6 +1014,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		"crewidentity/crew_ship_sign_in_ways.go": {
 			generationHeader, "// @computed\n// @permissionScope(domain)\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Password desc, Through asc)\ntype CrewShipSignInWay struct {",
 			"// @attribute(heldElsewhere)\n\tHeldElsewhere bool", "// @attribute(heldGlobally)\n\tHeldGlobally bool", "return \"CrewShipSignInWays\"",
+			"// @attribute(password)\n\tPassword bool", "a grant under \"password = false OR heldElsewhere = false\" lists the",
 			"RemoveCrewShipPassword is refused unless the person holds a password and one identity", "for a row of CrewShipUser, the tenant's own list of the auth's people",
 			"func ListCrewShipSignInWay(ctx context.Context, qSet *resource.QuerySet[CrewShipSignInWay], db resource.Client, client *Client) iter.Seq2[*CrewShipSignInWay, error] {",
 			"domain, ok := qSet.Scope().Domain()", "identity.PersonNamed(qSet.Resource(), qSet.Filter().Take(\"UserID\"))",
