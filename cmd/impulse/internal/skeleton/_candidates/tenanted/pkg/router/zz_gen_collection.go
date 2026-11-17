@@ -215,6 +215,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read},
 				Tags: []resource.TagData{
+					{Name: "cannotEnter", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "createdAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "disabled", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "domainId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
@@ -225,6 +226,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "id"},
 					{Name: "lastSignInAt", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
+					{Name: "outsideDirectory", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "passwordChangeRequired", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "username", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 				},
@@ -234,7 +236,7 @@ func Collection() *resource.GeneratedCollection {
 				},
 				Domain:    &resource.DomainBindingData{Column: "DomainId"},
 				Order:     []accesstypes.Tag{"username"},
-				QueryKeys: []accesstypes.Tag{"domainId", "username", "heldElsewhere", "heldGlobally"},
+				QueryKeys: []accesstypes.Tag{"domainId", "username", "heldElsewhere", "heldGlobally", "outsideDirectory"},
 			},
 			{
 				Name:        "TenantDirectories",

@@ -253,7 +253,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 func setDirectoryOnly(ctx context.Context, t *testing.T, s *served, tenant string, on bool) {
 	t.Helper()
 
-	if _, err := s.db.Client.Apply(ctx, []*cloudspanner.Mutation{cloudspanner.Update("Tenants", []string{"Id", "DirectoryOnly"}, []any{tenant, on})}); err != nil {
+	if _, err := s.db.Apply(ctx, []*cloudspanner.Mutation{cloudspanner.Update("Tenants", []string{"Id", "DirectoryOnly"}, []any{tenant, on})}); err != nil {
 		t.Fatalf("writing %s's directory-only flag: %v", tenant, err)
 	}
 	if err := s.tenants.Reload(ctx); err != nil {

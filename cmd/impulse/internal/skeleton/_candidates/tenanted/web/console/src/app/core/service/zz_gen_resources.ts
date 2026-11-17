@@ -161,6 +161,8 @@ export interface StaffTenantUsers {
   lastSignInAt?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  outsideDirectory?: boolean;
+  cannotEnter?: string;
 }
 
 export interface StaffTenantUserRoles {
@@ -458,6 +460,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'outsideDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'cannotEnter', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.StaffTenantUserRoles]: {

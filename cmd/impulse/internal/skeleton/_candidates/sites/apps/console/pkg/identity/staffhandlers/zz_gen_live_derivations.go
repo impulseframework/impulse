@@ -34,8 +34,10 @@ var LiveDerivations = &live.Derivations{
 		}},
 		// StaffTenantUsers: the tables its query reads.
 		{Resource: staffresources.StaffTenantUser{}.Resource(), Tables: []live.SourceTable{
+			{Name: staffresources.StaffSessionIdentity{}.Resource(), Global: true},
 			{Name: staffresources.StaffSessionUser{}.Resource(), Global: true},
 			{Name: staffresources.StaffUserRole{}.Resource(), Global: true},
+			{Name: resources.TenantDirectory{}.Resource()},
 			{Name: resources.Tenant{}.Resource(), Global: true},
 		}},
 		// StaffTenantUserRoles: the tables its query reads.

@@ -425,6 +425,7 @@ export namespace MembersTenantUserRoles {
 
 export namespace MembersTenantUsers {
   export const fieldName = {
+    cannotEnter: 'cannotEnter' as FieldName,
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
     domainId: 'domainId' as FieldName,
@@ -435,10 +436,12 @@ export namespace MembersTenantUsers {
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
     name: 'name' as FieldName,
+    outsideDirectory: 'outsideDirectory' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
+    cannotEnter: 'MembersTenantUsers.cannotEnter' as Resource,
     createdAt: 'MembersTenantUsers.createdAt' as Resource,
     disabled: 'MembersTenantUsers.disabled' as Resource,
     domainId: 'MembersTenantUsers.domainId' as Resource,
@@ -449,6 +452,7 @@ export namespace MembersTenantUsers {
     id: 'MembersTenantUsers.id' as Resource,
     lastSignInAt: 'MembersTenantUsers.lastSignInAt' as Resource,
     name: 'MembersTenantUsers.name' as Resource,
+    outsideDirectory: 'MembersTenantUsers.outsideDirectory' as Resource,
     passwordChangeRequired: 'MembersTenantUsers.passwordChangeRequired' as Resource,
     username: 'MembersTenantUsers.username' as Resource,
   };
