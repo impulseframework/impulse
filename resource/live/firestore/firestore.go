@@ -82,6 +82,9 @@ type Service struct {
 	auth *fbauth.Client
 	cfg  Config
 	now  func() time.Time
+	// dial are gRPC dial options added to the emulator connection; the tests count the
+	// store's operations through one.
+	dial []grpc.DialOption
 	// instance identifies this process in the signals it writes: the Cloud Run revision
 	// or job execution when the platform names one, else the host, and the process id,
 	// so a reader of the document can say who signaled.
@@ -105,6 +108,14 @@ type Option func(*Service)
 func WithClock(now func() time.Time) Option {
 	return func(s *Service) {
 		s.now = now
+	}
+}
+
+// withDialOptions adds gRPC dial options to the connection the service opens to the
+// emulator. The tests count what a subscription costs the store through an interceptor.
+func withDialOptions(opts ...grpc.DialOption) Option {
+	return func(s *Service) {
+		s.dial = append(s.dial, opts...)
 	}
 }
 
@@ -152,10 +163,11 @@ func New(ctx context.Context, cfg Config, opts ...Option) (*Service, error) {
 	}
 
 	if cfg.EmulatorHost != "" {
-		conn, err := grpc.NewClient(cfg.EmulatorHost,
+		dial := append([]grpc.DialOption{
 			grpc.WithTransportCredentials(insecure.NewCredentials()),
 			grpc.WithPerRPCCredentials(emulatorCredentials{}),
-		)
+		}, s.dial...)
+		conn, err := grpc.NewClient(cfg.EmulatorHost, dial...)
 		if err != nil {
 			return nil, errors.Wrap(err, "grpc.NewClient()")
 		}
