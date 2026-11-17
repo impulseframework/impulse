@@ -3,6 +3,7 @@ package storetest
 import (
 	"testing"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/impulseframework/impulse/access"
@@ -256,8 +257,8 @@ func groupEmptied(t *testing.T, store access.Store) {
 	if err := store.InsertGroupMember(ctx, spareGroup, bob, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertGroupMember() error = %v", err)
 	}
-	if _, err := store.DeleteGroup(ctx, spareGroup); err == nil {
-		t.Fatal("DeleteGroup() of a group with a member: want it refused")
+	if _, err := store.DeleteGroup(ctx, spareGroup); !errors.Is(err, policy.ErrStillAssigned) {
+		t.Fatalf("DeleteGroup() of a group with a member: error = %v, want policy.ErrStillAssigned, which the manager words for the caller", err)
 	}
 	if err := store.DeleteGroupMember(ctx, spareGroup, bob); err != nil {
 		t.Fatalf("DeleteGroupMember() error = %v", err)
@@ -265,8 +266,8 @@ func groupEmptied(t *testing.T, store access.Store) {
 	if err := store.InsertGroupRole(ctx, spareGroup, tenant2, editor, accesstypes.Period{}); err != nil {
 		t.Fatalf("InsertGroupRole() error = %v", err)
 	}
-	if _, err := store.DeleteGroup(ctx, spareGroup); err == nil {
-		t.Fatal("DeleteGroup() of a group with a role: want it refused")
+	if _, err := store.DeleteGroup(ctx, spareGroup); !errors.Is(err, policy.ErrStillAssigned) {
+		t.Fatalf("DeleteGroup() of a group with a role: error = %v, want policy.ErrStillAssigned", err)
 	}
 	if _, found, err := store.Group(ctx, spareGroup); err != nil || !found {
 		t.Fatalf("Group() after the refused deletes = (found %v, %v), want the group still there", found, err)
