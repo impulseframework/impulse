@@ -164,8 +164,8 @@ func (a *App) PatchResources() http.HandlerFunc {
 	type sectorDirectoryRequest struct {
 		ID          impulse.UUID `json:"-"`
 		SectorID    impulse.UUID `json:"-"`
-		Method      string       `json:"method"      sqltype:"STRING(16)"`
-		Connection  string       `json:"connection"`
+		Method      string       `json:"-"`
+		Connection  string       `json:"-"`
 		DefaultSeat *string      `json:"defaultSeat" sqltype:"STRING(64)"`
 	}
 	sectorDirectoryDecoder := NewDecoder[resources.SectorDirectory, sectorDirectoryRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
@@ -179,7 +179,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		LastRefitAt    *time.Time   `json:"-"`
 		UpdatedAt      *time.Time   `json:"-"`
 		CargoBays      []int64      `json:"cargoBays"`
-		TransponderKey *string      `json:"transponderKey" sqltype:"STRING(64)"`
+		TransponderKey *string      `json:"transponderKey" sqltype:"BYTES(106)"`
 	}
 	shipDecoder := NewDecoder[resources.Ship, shipRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
@@ -819,6 +819,18 @@ func (a *App) PatchResources() http.HandlerFunc {
 							if err != nil {
 								return errors.Wrap(err, "sectorDirectoryCreatePatchFromPatchSet()")
 							}
+							// A directory is never typed in: the row takes the directory the caller is
+							// signed in through, held to the rules of a sector's directory. The
+							// caller's grants answer first, so a caller they refuse learns nothing
+							// from a rule.
+							if err := patchSet.Permitted(ctx, txn); err != nil {
+								return errors.Wrap(err, "resource.PatchSet.Permitted()")
+							}
+							directory, err := NewSectorDirectoryRules().FromSession(ctx, txn, domain)
+							if err != nil {
+								return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")
+							}
+							patch.SetMethod(string(directory.Method)).SetConnection(directory.Connection)
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.SectorDirectoryCreatePatch.Buffer()")
 							}
@@ -830,6 +842,14 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
+							// A sector that is directory only keeps its directory: its people
+							// enter through it alone. The caller's grants answer first.
+							if err := patchSet.Permitted(ctx, txn); err != nil {
+								return errors.Wrap(err, "resource.PatchSet.Permitted()")
+							}
+							if err := NewSectorDirectoryRules().Remove(ctx, txn, domain); err != nil {
+								return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
+							}
 							if err := resources.NewSectorDirectoryDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.SectorDirectoryDeletePatch.Buffer()")
 							}

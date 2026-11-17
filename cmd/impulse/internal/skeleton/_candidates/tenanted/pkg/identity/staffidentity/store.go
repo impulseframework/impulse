@@ -103,7 +103,7 @@ func (store) RenameSession(ctx context.Context, txn resource.ReadWriteTransactio
 
 // passwordWrite names the user row a password is written on. It is the one write that
 // goes past the declarations: the password hash is no field of any of them, so no read
-// returns it and nothing but SetPassword writes it.
+// returns it and nothing but SetPassword and RemovePassword writes it.
 type passwordWrite struct {
 	id impulse.UUID
 }
@@ -122,6 +122,17 @@ func (passwordWrite) Resource() accesstypes.Resource {
 
 func (store) SetPassword(_ context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, hash string, changeRequired bool) error {
 	row := map[string]any{"Id": id, "PasswordHash": hash, "PasswordChangeRequired": changeRequired}
+	if err := txn.BufferMap(passwordWrite{id: id}, row); err != nil {
+		return errors.Wrap(err, "resource.ReadWriteTransaction.BufferMap()")
+	}
+
+	return nil
+}
+
+func (store) RemovePassword(_ context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
+	// The password write with no hash: the column is left holding nothing, and the mark
+	// that the person must change the password goes with it.
+	row := map[string]any{"Id": id, "PasswordHash": spanner.NullString{}, "PasswordChangeRequired": false}
 	if err := txn.BufferMap(passwordWrite{id: id}, row); err != nil {
 		return errors.Wrap(err, "resource.ReadWriteTransaction.BufferMap()")
 	}
@@ -255,6 +266,22 @@ func (store) Username(ctx context.Context, txn resource.ReadWriteTransaction, id
 	}
 
 	return row.Data.Username, true, nil
+}
+
+func (store) UserDisabled(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (disabled, found bool, err error) {
+	row, err := staffresources.NewStaffSessionUserQuery().
+		AddColumns(staffresources.NewStaffSessionUserColumns().Disabled()).
+		SetID(id).
+		Read(ctx, txn)
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return false, false, nil
+		}
+
+		return false, false, errors.Wrap(err, "staffresources.StaffSessionUserQuery.Read()")
+	}
+
+	return row.Data.Disabled, true, nil
 }
 
 func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, username string) (id impulse.UUID, found bool, err error) {

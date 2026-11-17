@@ -476,6 +476,64 @@ func TestParseGeneratorNotAProgram(t *testing.T) {
 	}
 }
 
+// A variable named as a version of a versioned secret is refused, wherever the two are
+// declared: the deployment hands version 1 of APP_SECRET_KEY over as APP_SECRET_KEY_1.
+func Test_versionedSecretClash(t *testing.T) {
+	t.Parallel()
+
+	versioned := EnvTag{File: "pkg/config/data.go", Line: 4, Name: "APP_SECRET_KEY", Secret: true, Generated: true, Versioned: true}
+	tests := []struct {
+		name    string
+		tags    []EnvTag
+		wantErr string
+	}{
+		{name: "a versioned secret alone", tags: []EnvTag{versioned}},
+		{name: "a name that only begins the same", tags: []EnvTag{versioned, {File: "pkg/config/site.go", Line: 9, Name: "APP_SECRET_KEY_FILE"}, {File: "pkg/config/site.go", Line: 10, Name: "APP_SECRET_KEYS"}, {File: "pkg/config/site.go", Line: 11, Name: "APP_SECRET_KEY_1A"}}},
+		{name: "a numbered name beside a secret that is not versioned", tags: []EnvTag{{File: "pkg/config/data.go", Line: 4, Name: "APP_COOKIE_KEY", Secret: true, Generated: true}, {File: "pkg/config/data.go", Line: 5, Name: "APP_COOKIE_KEY_1"}}},
+		{
+			name:    "a version's variable declared after the secret",
+			tags:    []EnvTag{versioned, {File: "pkg/config/site.go", Line: 9, Name: "APP_SECRET_KEY_1"}},
+			wantErr: `pkg/config/site.go:9: APP_SECRET_KEY_1 is the variable version 1 of APP_SECRET_KEY is handed over in (pkg/config/data.go:4 declares APP_SECRET_KEY secret:"versioned", one variable for each version): give the field another name`,
+		},
+		{
+			name:    "a version's variable declared before the secret",
+			tags:    []EnvTag{{File: "pkg/config/config.go", Line: 7, Name: "APP_SECRET_KEY_12", Secret: true}, versioned},
+			wantErr: `pkg/config/config.go:7: APP_SECRET_KEY_12 is the variable version 12 of APP_SECRET_KEY is handed over in`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := versionedSecretClash(tt.tags)
+			switch {
+			case tt.wantErr == "" && err != nil:
+				t.Errorf("versionedSecretClash() error = %v, want none", err)
+			case tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)):
+				t.Errorf("versionedSecretClash() error = %v, want containing %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// Discover refuses the clash, reading the two declarations out of the application.
+func TestDiscover_versionedSecretClash(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.CopyFS(dir, os.DirFS(filepath.Join("testdata", "flat"))); err != nil {
+		t.Fatalf("copy fixture: %v", err)
+	}
+	extra := "package config\n\ntype secrets struct {\n\tSecretKey string `env:\"LIGHTHOUSE_SECRET_KEY\" secret:\"versioned\"`\n\tFirst     string `env:\"LIGHTHOUSE_SECRET_KEY_1\"`\n}\n"
+	if err := os.WriteFile(filepath.Join(dir, "pkg", "config", "secrets.go"), []byte(extra), 0o600); err != nil {
+		t.Fatalf("os.WriteFile() error = %v", err)
+	}
+	_, err := Discover(dir)
+	if want := "pkg/config/secrets.go:5: LIGHTHOUSE_SECRET_KEY_1 is the variable version 1 of LIGHTHOUSE_SECRET_KEY is handed over in"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("Discover() error = %v, want containing %q", err, want)
+	}
+}
+
 func TestParseEnvTagsSecret(t *testing.T) {
 	t.Parallel()
 
@@ -503,9 +561,17 @@ func TestParseEnvTagsSecret(t *testing.T) {
 			},
 		},
 		{
+			name: "the versioned value marks a generated secret kept in versions",
+			src:  "package config\n\ntype dataConfig struct {\n\tSecretKey string `env:\"APP_SECRET_KEY\" secret:\"versioned\"`\n\tCookieKey string `env:\"APP_COOKIE_KEY\" secret:\"generated\"`\n}\n",
+			want: []EnvTag{
+				{File: "pkg/config/data.go", Line: 4, Name: "APP_SECRET_KEY", Secret: true, Generated: true, Versioned: true},
+				{File: "pkg/config/data.go", Line: 5, Name: "APP_COOKIE_KEY", Secret: true, Generated: true},
+			},
+		},
+		{
 			name:    "another value is refused",
 			src:     "package config\n\ntype dataConfig struct {\n\tCookieKey string `env:\"APP_COOKIE_KEY\" secret:\"yes\"`\n}\n",
-			wantErr: `pkg/config/data.go:4: secret:"yes" on APP_COOKIE_KEY: the secret tag takes "true", "generated" or "false"`,
+			wantErr: `pkg/config/data.go:4: secret:"yes" on APP_COOKIE_KEY: the secret tag takes "true", "generated", "versioned" or "false"`,
 		},
 	}
 	for _, tt := range tests {

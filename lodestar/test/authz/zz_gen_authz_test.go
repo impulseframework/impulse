@@ -2452,7 +2452,7 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			name:         "PatchResources SectorDirectory update denied",
 			method:       http.MethodPatch,
 			target:       "/console/api/resources",
-			body:         `[{"op":"patch","path":"/sectors/7e57d0a1-0000-4000-8000-000000000000/sector-directories/00000000-0000-0000-0000-000000000001","value":{"method":"authz-test-value"}}]`,
+			body:         `[{"op":"patch","path":"/sectors/7e57d0a1-0000-4000-8000-000000000000/sector-directories/00000000-0000-0000-0000-000000000001","value":{"defaultSeat":"authz-test-value"}}]`,
 			wantStatuses: []int{http.StatusBadRequest},
 		},
 		{
@@ -3505,6 +3505,21 @@ Content-Type: application/json
 			wantStatuses: []int{http.StatusNotFound},
 		},
 		{
+			name:         "RemoveCrewPassword denied",
+			method:       http.MethodPost,
+			target:       "/console/api/remove-crew-password",
+			body:         `{}`,
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "RemoveCrewPassword dry run denied",
+			method:       http.MethodPost,
+			target:       "/console/api/remove-crew-password",
+			body:         `{}`,
+			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
 			name:         "RemoveCrewRole denied",
 			method:       http.MethodPost,
 			target:       "/console/api/remove-crew-role",
@@ -3518,6 +3533,21 @@ Content-Type: application/json
 			body:         `{}`,
 			headers:      map[string]string{"X-Dry-Run": "true"},
 			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "RemoveCrewSectorPassword denied",
+			method:       http.MethodPost,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-password",
+			body:         `{}`,
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "RemoveCrewSectorPassword dry run denied",
+			method:       http.MethodPost,
+			target:       "/console/api/sectors/7e57d0a1-0000-4000-8000-000000000000/remove-crew-sector-password",
+			body:         `{}`,
+			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusNotFound},
 		},
 		{
 			name:         "RemoveCrewSectorRole denied",

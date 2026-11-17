@@ -13,8 +13,9 @@ import (
 )
 
 // The tenant declaration: who may enter a tenant, kept on the tenant record as the
-// directories the tenant admits its people through (a child record, one row per
-// directory) and whether they are the only way in (a column on the record). The
+// directory its people sign in through (a child record, one row at most for a tenant,
+// and a directory in one tenant's row only) and whether it is the only way in (a
+// column on the record). The
 // sign-in rule reads it in the sign-in's transaction through the generated reader, and
 // every instance's roster keeps a copy that filters a session's tenant list.
 const (
@@ -61,21 +62,34 @@ import (
 )
 
 type (
-	// %[2]s is a directory a tenant admits its people through (@tenantDirectory),
-	// one row per declaration: the sign-in method the directory is reached through
-	// (google, azure or workos, as the session library spells them) and the connection
-	// the method's identities carry, which is what the session's first auth event
-	// records: a Google Workspace by its domain or by the name the registration gives
-	// it, a Microsoft Entra tenant by its tenant id. One domain, one directory by
-	// default; a second directory is an explicit second row. A tenant's own
-	// administrator declares its directories under the record's Create and Delete
-	// grants, and the change events are the audit.
+	// %[2]s is a tenant's directory (@tenantDirectory): the organization its people
+	// sign in through, as the sign-in method the directory is reached through (google,
+	// azure or workos, as the session library spells them) and the connection the
+	// method's identities carry, which is what the session's first auth event records:
+	// a Google Workspace by its domain or by the name the registration gives it, a
+	// Microsoft Entra tenant by its tenant id. A tenant has one directory and a
+	// directory belongs to one tenant: the table's two unique indexes hold both, and
+	// the generated write paths refuse first, each with a sentence the person can act
+	// on.
 	//
-	// DefaultSeat is what a stranger the directory vouches for gets at their first
-	// sign-in: the tenant's role they are seated with, or NULL, and the tenant admits
-	// them by invitation only (they are refused with no account, and an invitation is
-	// the way in). The tenant's administrator sets it on the Sign-in page, a picker
-	// over the tenant's roles.
+	// Nobody types a directory in. The row is written from a sign-in through the
+	// directory: the tenant's administrator, signed in through their organization's
+	// directory, makes it the tenant's on the Sign-in page, under the record's Create
+	// grant. The create takes no method and no connection from the request; the server
+	// reads both from the session, and refuses a session that came by password or with
+	// a personal account (a Google account outside every Workspace, a Microsoft
+	// personal account), which is no organization's directory. The administrator
+	// removes the directory under the Delete grant, which is refused while the tenant
+	// is directory only; the roles it gave stand, and the directory is free for another
+	// tenant. The change events are the audit.
+	//
+	// DefaultSeat is the role a person is given in the tenant at their first sign-in
+	// through the directory, whether their account is created then or stood before; or
+	// NULL, and the tenant admits the directory's people by invitation only (a stranger
+	// is refused with no account, and an invitation is the way in). It is given once
+	// for the link between the account and the directory: a person whose role an
+	// administrator removed is not given it back by signing in. The tenant's
+	// administrator sets it on the Sign-in page, a picker over the tenant's roles.
 	//
 	// The tenancy column is on the row itself (the bare @domain binding), as the
 	// directories record requires: a directory is the tenant's own declaration, stamped
@@ -99,7 +113,7 @@ type (
 )
 
 // Config enables change tracking: %[2]s mutations write DataChangeEvents rows in
-// the same transaction, the audit of every directory declared or withdrawn.
+// the same transaction, the audit of every directory set or removed.
 func (%[2]s) Config() resource.Config {
 	return %[4]s
 }
@@ -107,7 +121,7 @@ func (%[2]s) Config() resource.Config {
 	if err := writeNew(a, rel, src); err != nil {
 		return err
 	}
-	ch.didf("%s: the %s resource struct, the tenant's declared directories, tenant-scoped under /%s/{%sID}/%s", rel, tn.DirectoryRecord(), tn.Segment(), strcase.ToCamel(tn.Record()), tn.DirectorySegment())
+	ch.didf("%s: the %s resource struct, a tenant's directory, set from a sign-in and never typed, tenant-scoped under /%s/{%sID}/%s", rel, tn.DirectoryRecord(), tn.Segment(), strcase.ToCamel(tn.Record()), tn.DirectorySegment())
 
 	return nil
 }
@@ -321,7 +335,7 @@ func sessionVar(auth *app.Auth) string {
 func signInRule(session string, admission bool) string {
 	policy := fmt.Sprintf("\t// The sign-in rule: the library's tenant policy. A person's tenants are where they\n\t// hold a role (the engine's memberships), and what each tenant admits is its\n\t// declaration, read in the sign-in's transaction: a password is admitted unless\n\t// every one of the person's tenants admits its people through directories only, a\n\t// sign-in through a directory when one of their tenants declares it (its method and\n\t// the connection its identities carry); the application's own staff (a global role,\n\t// or one held in every tenant) are admitted on the library's checks.\n\t// A person who holds no tenant is refused (no_tenant), since the administrator\n\t// creates tenants here; a record created by its own people (@tenant(creation:\n\t// self-service) or both) adds signin.AdmitWithoutTenant().\n\t// Which tenants the session then reaches is decided again, tenant by tenant, where\n\t// its tenant list is computed (UserPermissions). The memberships are read outside\n\t// the sign-in's transaction (resource.SignInRoles): the Spanner client refuses the\n\t// engine's read under the transaction's context as a nested transaction.\n\t%s.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.%s))\n", session, declarationsAccessor)
 	if admission {
-		policy += fmt.Sprintf("\n\t// The directory admission: what a stranger gets at their first sign-in through a\n\t// directory a tenant declares, before the registration's account rule is reached.\n\t// The directory rows the tenants declare for the identity's connection decide: a\n\t// row with a default seat creates the person and gives them that role in the tenant\n\t// in one transaction (the identity client's DirectorySeated, which the session\n\t// library runs inside the transaction that creates the person), and the sign-in rule\n\t// then finds the membership; rows with none refuse them (invitation_only) and no\n\t// account is created, unless they followed an invitation link, which is the way in.\n\t// A person given a role ahead of their first sign-in has the account the role is\n\t// held by, which the sign-in links, and is no stranger. A directory no tenant\n\t// declares falls to the registration's rule. The auth's roles are the application's,\n\t// so the admission is set here; an auth whose directory writes the roles sets none.\n\t%s.SetDirectoryAdmission(settings.%s, identityClient.DirectorySeated())\n", session, directoriesAccessor)
+		policy += fmt.Sprintf("\n\t// The directory admission: what a person gets at their first sign-in through a\n\t// tenant's directory, before the registration's account rule is reached. The row of\n\t// the tenant whose directory the identity came through decides. A row with a default\n\t// seat creates a stranger and gives them that role in the tenant in one transaction\n\t// (the identity client's DirectorySeated, which the session library runs inside the\n\t// transaction that links the account to the directory), and the sign-in rule then\n\t// finds the membership; a row with none refuses a stranger (invitation_only) and no\n\t// account is created, unless they followed an invitation link, which is the way in.\n\t// A person whose account stood before is given the default seat too, at the sign-in\n\t// that links the account to the directory, where they hold no role in the tenant; a\n\t// role an administrator removes afterwards is not given back by signing in. A\n\t// directory no tenant has falls to the registration's rule. The auth's roles are the\n\t// application's, so the admission is set here; an auth whose directory writes the\n\t// roles sets none.\n\t%s.SetDirectoryAdmission(settings.%s, identityClient.DirectorySeated())\n", session, directoriesAccessor)
 	}
 
 	return policy

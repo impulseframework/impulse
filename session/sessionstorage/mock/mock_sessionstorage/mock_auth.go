@@ -19,6 +19,7 @@ import (
 	signinflow "github.com/impulseframework/impulse/session/internal/signinflow"
 	sessioninfo "github.com/impulseframework/impulse/session/sessioninfo"
 	sessionstorage "github.com/impulseframework/impulse/session/sessionstorage"
+	signin "github.com/impulseframework/impulse/session/signin"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -590,6 +591,20 @@ func (mr *MockAuthStoreMockRecorder[Tx]) InsertTrustedDevice(ctx, d any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "InsertTrustedDevice", reflect.TypeOf((*MockAuthStore[Tx])(nil).InsertTrustedDevice), ctx, d)
 }
 
+// LinkConfirmedIdentity mocks base method.
+func (m *MockAuthStore[Tx]) LinkConfirmedIdentity(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string, directories signin.DirectoryReader[Tx], seat signinflow.DirectorySeater[Tx]) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "LinkConfirmedIdentity", ctx, userID, username, identity, tenant, directories, seat)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// LinkConfirmedIdentity indicates an expected call of LinkConfirmedIdentity.
+func (mr *MockAuthStoreMockRecorder[Tx]) LinkConfirmedIdentity(ctx, userID, username, identity, tenant, directories, seat any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "LinkConfirmedIdentity", reflect.TypeOf((*MockAuthStore[Tx])(nil).LinkConfirmedIdentity), ctx, userID, username, identity, tenant, directories, seat)
+}
+
 // LinkIdentity mocks base method.
 func (m *MockAuthStore[Tx]) LinkIdentity(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*sessionstorage.SessionIdentity, error) {
 	m.ctrl.T.Helper()
@@ -709,6 +724,20 @@ func (m *MockAuthStore[Tx]) RedeemDeviceCode(ctx context.Context, deviceCodeHash
 func (mr *MockAuthStoreMockRecorder[Tx]) RedeemDeviceCode(ctx, deviceCodeHash, interval, access, refresh any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedeemDeviceCode", reflect.TypeOf((*MockAuthStore[Tx])(nil).RedeemDeviceCode), ctx, deviceCodeHash, interval, access, refresh)
+}
+
+// RemoveUserPassword mocks base method.
+func (m *MockAuthStore[Tx]) RemoveUserPassword(ctx context.Context, userID impulse.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveUserPassword", ctx, userID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RemoveUserPassword indicates an expected call of RemoveUserPassword.
+func (mr *MockAuthStoreMockRecorder[Tx]) RemoveUserPassword(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveUserPassword", reflect.TypeOf((*MockAuthStore[Tx])(nil).RemoveUserPassword), ctx, userID)
 }
 
 // RevokeMailLink mocks base method.

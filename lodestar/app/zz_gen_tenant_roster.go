@@ -4,8 +4,13 @@
 package app
 
 import (
+	"context"
+
 	"cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/lodestar/pkg/resources"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/signin"
 )
@@ -72,4 +77,42 @@ func NewSectorDeclarationReader() signin.DeclarationReader[*spanner.ReadWriteTra
 // auth's generated identity client's DirectorySeated).
 func NewSectorDirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTransaction] {
 	return resource.NewTenantDirectoryReader(&sectorDeclaration)
+}
+
+// NewSectorDirectoryRules builds the rules of a sector's directory
+// (resource.TenantDirectoryRules) over the Sector record's table and its declaration's
+// columns: a sector has one directory, a directory is one sector's, a personal account
+// is no directory, and the directory of a sector that is directory only is not removed.
+// Every write of the SectorDirectory record is held to them. The generated SectorDirectory
+// write paths ask them: the create stamps the directory the caller is signed in
+// through, which no request types, and the delete asks before it removes.
+func NewSectorDirectoryRules() *resource.TenantDirectoryRules {
+	return resource.NewTenantDirectoryRules("Sectors", "Id", &sectorDeclaration, "sector")
+}
+
+// SetSectorDirectory makes directory the sector's directory, in the caller's
+// transaction: the step every write that sets a sector's directory from a sign-in takes.
+// The directory is one a sign-in names, its method and its connection, never one a
+// person typed: the create-your-sector route hands the directory its creator came
+// through, and a caller inside a sign-in hands the identity's
+// (resource.NewSpannerReadWriteTransaction wraps the sign-in's transaction). The rules
+// are asked first (NewSectorDirectoryRules, Set), each refusal a Conflict that says what
+// to do: a personal account, a sector that has a directory, a directory another sector
+// has. Then the SectorDirectory row is buffered through the record's create patch, so its
+// change event is written with it. The caller reloads the roster and signals the
+// tenants kind once the transaction has committed, as the record's write paths do.
+func SetSectorDirectory(ctx context.Context, txn resource.ReadWriteTransaction, tenant impulse.UUID, directory signin.Directory, eventSource ...string) error {
+	if err := NewSectorDirectoryRules().Set(ctx, txn, accesstypes.Domain(tenant.String()), directory); err != nil {
+		return errors.Wrap(err, "resource.TenantDirectoryRules.Set()")
+	}
+	patch, err := resources.NewSectorDirectoryCreatePatch()
+	if err != nil {
+		return errors.Wrap(err, "resources.NewSectorDirectoryCreatePatch()")
+	}
+	patch.SetSectorID(tenant).SetMethod(string(directory.Method)).SetConnection(directory.Connection)
+	if err := patch.Buffer(ctx, txn, eventSource...); err != nil {
+		return errors.Wrap(err, "resources.SectorDirectoryCreatePatch.Buffer()")
+	}
+
+	return nil
 }

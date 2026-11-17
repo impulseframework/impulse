@@ -108,6 +108,10 @@ func (store) SetPassword(_ context.Context, _ resource.ReadWriteTransaction, id 
 	return errors.Newf("the Members auth has no password method: user %s is given no password", id)
 }
 
+func (store) RemovePassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
+	return errors.Newf("the Members auth has no password method: user %s holds no password to remove", id)
+}
+
 func (store) ClearAttempts(ctx context.Context, txn resource.ReadWriteTransaction, name string) error {
 	// A delete of a row that does not exist is no error: a name with no count has
 	// nothing to clear.
@@ -205,6 +209,22 @@ func (store) Username(ctx context.Context, txn resource.ReadWriteTransaction, id
 	}
 
 	return row.Data.Username, true, nil
+}
+
+func (store) UserDisabled(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (disabled, found bool, err error) {
+	row, err := membersresources.NewMembersSessionUserQuery().
+		AddColumns(membersresources.NewMembersSessionUserColumns().Disabled()).
+		SetID(id).
+		Read(ctx, txn)
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return false, false, nil
+		}
+
+		return false, false, errors.Wrap(err, "membersresources.MembersSessionUserQuery.Read()")
+	}
+
+	return row.Data.Disabled, true, nil
 }
 
 func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, username string) (id impulse.UUID, found bool, err error) {

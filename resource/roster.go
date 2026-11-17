@@ -60,18 +60,21 @@ type TenantDeclarationColumns struct {
 	// through its directories only, so a password does not reach it; empty when the
 	// record declares none, and every tenant admits a password.
 	DirectoryOnly string
-	// DirectoriesTable is the directories record's table, one row per directory a tenant
-	// admits its people through: TenantColumn holds the tenant's key, MethodColumn the
-	// sign-in method as sessioninfo.AuthMethod spells it (google, azure, workos) and
+	// DirectoriesTable is the directories record's table, one row for the directory a
+	// tenant admits its people through: TenantColumn holds the tenant's key, MethodColumn
+	// the sign-in method as sessioninfo.AuthMethod spells it (google, azure, workos) and
 	// ConnectionColumn the connection the method's identities carry (a Google Workspace
-	// by its domain, a Microsoft Entra tenant by its tenant id).
+	// by its domain, a Microsoft Entra tenant by its tenant id). A tenant has one
+	// directory and a directory is one tenant's: the schema holds both with a unique
+	// index on TenantColumn and one on MethodColumn and ConnectionColumn, and the record's
+	// write paths refuse each first (TenantDirectoryRules).
 	DirectoriesTable string
 	TenantColumn     string
 	MethodColumn     string
 	ConnectionColumn string
-	// DefaultSeatColumn is the directories record's column naming the role a person the
-	// directory vouches for is seated with in the tenant at their first sign-in, NULL or
-	// empty for none (the tenant admits its people through that directory by invitation
+	// DefaultSeatColumn is the directories record's column naming the role a person is
+	// seated with in the tenant at their first sign-in through its directory, NULL or
+	// empty for none (the tenant admits a stranger from its directory by invitation
 	// only); empty when the record carries no such column, and every directory admits
 	// by invitation only. Read by the sign-in's directory reader
 	// (NewTenantDirectoryReader), never by the roster.
@@ -428,16 +431,16 @@ func NewTenantDeclarationReader(table, keyColumn string, columns *TenantDeclarat
 	}
 }
 
-// NewTenantDirectoryReader returns the reader of every tenant's declaration of one
-// directory, for a first sign-in by a person no user was created for
-// (session.Auth.SetDirectoryAdmission, through signin.DirectoryReader): the directories
-// record's rows whose method and connection are the directory's, each as its tenant
-// with the directory's default seat (DefaultSeatColumn, "" where the record carries no
-// such column or the row names none), read in the sign-in's own transaction on
-// Spanner. The generated New<Record>DirectoryReader constructor supplies the columns;
-// an application calls that one. A directory no tenant declares answers nothing, and
-// so does a record that declares no directories. The reader has no side effects, as a
-// retried transaction needs.
+// NewTenantDirectoryReader returns the reader of the declaration of one directory, for
+// a person's first sign-in through it (session.Auth.SetDirectoryAdmission, through
+// signin.DirectoryReader): the directories record's row whose method and connection
+// are the directory's, as its tenant with the directory's default seat
+// (DefaultSeatColumn, "" where the record carries no such column or the row names
+// none), read in the sign-in's own transaction on Spanner. A directory is one tenant's,
+// so the answer names one tenant at most. The generated New<Record>DirectoryReader
+// constructor supplies the columns; an application calls that one. A directory no
+// tenant has answers nothing, and so does a record that declares no directories. The
+// reader has no side effects, as a retried transaction needs.
 func NewTenantDirectoryReader(columns *TenantDeclarationColumns) signin.DirectoryReader[*spanner.ReadWriteTransaction] {
 	return func(ctx context.Context, txn *spanner.ReadWriteTransaction, directory signin.Directory) ([]signin.DeclaredDirectory, error) {
 		if !columns.declared() {

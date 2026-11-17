@@ -17,7 +17,8 @@ import (
 // scope, in one domain (Domain), or in every domain (EveryDomain). The person is named
 // by the id of their account, and an id no user holds is refused: a role is held by an
 // account. The role must exist where it is given; a role the person holds there already
-// is left as it is. The person's next request is served with the role.
+// is left as it is. The person's next request is served with the role. The Super
+// Administrator role is given in the global scope alone, and by a super administrator.
 //
 // @rpc
 // @outlet(portal)

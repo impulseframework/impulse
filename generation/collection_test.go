@@ -1021,24 +1021,24 @@ func Test_requiredOnCreate(t *testing.T) {
 		want   []accesstypes.Tag
 	}{
 		{
-			// Lockbox: ID (the key), Name, Combination, Manifest, each NOT NULL here.
+			// Lockbox: ID (the key), Name, Combination, Hint, Manifest, each NOT NULL here.
 			name: "every column that takes no NULL, the key aside",
-			want: []accesstypes.Tag{"name", "combination", "manifest"},
+			want: []accesstypes.Tag{"name", "combination", "hint", "manifest"},
 		},
 		{
 			name:   "a nullable column is not required",
 			mutate: func(res *resourceInfo) { field(res, "Manifest").IsNullable = true },
-			want:   []accesstypes.Tag{"name", "combination"},
+			want:   []accesstypes.Tag{"name", "combination", "hint"},
 		},
 		{
 			name:   "a column with a default is not required",
 			mutate: func(res *resourceInfo) { field(res, "Name").HasDefault = true },
-			want:   []accesstypes.Tag{"combination", "manifest"},
+			want:   []accesstypes.Tag{"combination", "hint", "manifest"},
 		},
 		{
 			name:   "a field the server owns is not the client's to give",
 			mutate: func(res *resourceInfo) { field(res, "Name").IsState = true },
-			want:   []accesstypes.Tag{"combination", "manifest"},
+			want:   []accesstypes.Tag{"combination", "hint", "manifest"},
 		},
 		{
 			name:   "a view takes no create",

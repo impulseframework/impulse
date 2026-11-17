@@ -33,6 +33,15 @@ cp .envrc.template .envrc && direnv allow
 overmind start
 ```
 
+The environment file carries `APP_SECRET_KEY_1`, version 1 of the application secret, which
+a ship's transponder key is encrypted with (a secret field, `conditions:"secret"` on
+[Ship.TransponderKey](pkg/resources/ships.go): the column holds the key sealed, and nothing
+serves it back); the server refuses to start without a version, so an `.envrc` copied
+before the variable existed takes the line from the template. A deployment generates the
+secret and hands the service every enabled version (`APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`),
+and the migrate command retires one (`-retire-secret APP_SECRET_KEY_1`) by writing every key
+that names it again under the current version. Demonstrates: secret, secret.rotation.
+
 That starts a fresh Spanner emulator and a fresh Firestore emulator (the live service: the
 live pages' subscription record and change sets, [below](#live-pages), and the signals
 document the instances notify each other through,
@@ -115,10 +124,23 @@ built from the one worker configuration at `web/ngsw-config.json`) and a web app
 with the icons beside each under `public/icons/`), so a browser offers to install either
 app as a window of its own: the console under `/console/` and the portal under `/portal/`,
 each worker's scope its own mount, on one origin. The console's manifest names it
-Lodestar and the portal's Lodestar Portal; each carries the app's header color as its
-theme color and its page background as its background color. The dev server registers no
-worker: the worker is on in a production build alone, and the component specs never load
-the app config.
+Lodestar and the portal's Lodestar Client Portal; each carries the brand's primary color
+as its theme color and its page background as its background color. The dev server
+registers no worker: the worker is on in a production build alone, and the component specs
+never load the app config.
+
+Each app's name, icons and colors come from one declaration, the `brand.json` beside its
+logo (`web/console/brand.json` and `web/portal/brand.json`, each with its `logo.png`): the
+name, a square logo, the primary color and the page's background. `impulse brand` from the
+module root (with the web workspace's packages installed) writes the rest from it: the
+manifest's names and colors, the entry document's title, theme color and icon links, the
+favicon and the three icons, the name the frame shows, the first palette of
+`src/theme.scss` (generated into `src/_theme-colors.scss`, and offered under the brand's
+name where the app offers a choice), and for the server `pkg/brand`, the names and the
+logos `main.go` hands the maintenance page by mount path, with the name the mail of each
+app's auth says (`Application` in `pkg/auth/crew` and `pkg/auth/members`). To change any
+of it, change the declaration and run the command again; none of what it writes is edited
+by hand.
 
 An open tab survives a release. The worker keeps the files of the build the tab loaded, so
 a lazy chunk the tab asks for after a deploy is still found although the server no longer
@@ -610,7 +632,7 @@ Three **sectors** are the tenants: **Anvil** is home (nearly everyone holds a ro
 and the hangars are there), **Bastion** is where a role stops at a border, and also the
 sector that admits its people through its directory only (a password does not reach it),
 and **Cinder** is the dark sector only headquarters, the archivist, and the hazard analyst
-can see.
+can see, and the sector the fleet's Google Workspace is the directory of.
 Clients post **missions** with a hazard class, a fee, and a deadline. **Squadrons**
 (grouped into **wings**) claim them and fly **sorties** with **expenses**. **Ships** in
 **hangars** go through **refits** bay by bay. **Droids** post telemetry over their own
@@ -733,7 +755,7 @@ methods that change them (`pkg/identity/crewidentity`: create a user holding a r
 rename, disable, enable and delete one; set a temporary password and require a password
 change; reset the second factor; clear a lockout; invite an address and withdraw the
 invitation; assign and remove a role; end a session, all of a person's sessions or an
-impersonation; unlink an identity; revoke a token), and their handlers
+impersonation; unlink an identity; remove a password; revoke a token), and their handlers
 (`pkg/identity/crewhandlers`); the members get the same three, without the methods
 their auth has no use for (their roles are the directory's and the auth declares no
 password, so they have no create, no invitation, no role method and no password
@@ -743,9 +765,10 @@ method, each a route behind an Execute grant (`disable-crew-user`, …) and also
 the application makes in a transaction of its own, beside its own writes. No declaration
 carries a password hash or a token hash. The rules are the methods' own: an account
 is created holding a role and deleted with its last, nobody disables or deletes their
-own account, a person keeps an administrator role nobody else holds (the client is
-built with the crew's administrator roles, `identity.WithAdministratorRoles` in
-`pkg/config/data.go`), and an invitation is written in the method's transaction and
+own account, a person keeps a sector's administrator role nobody else holds there (the
+client is built with the roles that administer a sector, `identity.WithAdministratorRoles`
+in `pkg/auth/crew/crew.go`), the last super administrator who can sign in keeps the role
+and the account, and an invitation is written in the method's transaction and
 mailed once it has committed, the answer saying whether the message went. The
 console writes no page for any of it. The generated API description names each list and
 method of an auth's management by what it is, and the browser library builds the pages
@@ -753,7 +776,10 @@ from it (`identityRoutes` in
 [`web/console/src/app/app.routes.ts`](web/console/src/app/app.routes.ts)): the crew's
 accounts, mailed links, sessions and failed sign-ins, and the members', each in its own
 group of the navigation ("Crew accounts", "Members accounts"), with a person's row page
-holding the roles held, the sign-in identities and the sessions. A row's menu holds the
+holding the roles held, the sign-in identities and the sessions. Above a crew member's
+sign-in identities the page offers Remove password, for a person who has moved to the
+fleet's directory; the members sign in through their directory alone and have none to
+remove. A row's menu holds the
 methods the server says the caller may run on that row, so a role that holds no grant on
 a method sees no entry for it, and the members' pages offer nothing that gives a role,
 adds an account or invites one. Headquarters holds the grants
@@ -785,51 +811,81 @@ role but its own. The sector's People and Invitations pages ("Sector crew", unde
 sector's URL) are built by the library from the same description.
 
 Who may enter a sector is the sector record's declaration, data of the application
-rather than deploy configuration: the directories the sector admits its people through
-(`SectorDirectory`, one row each under `/console/api/sectors/{sectorID}/sector-directories`:
-a sign-in method and the connection its identities carry, the fleet's Google Workspace by
-the name both registrations give it, `example`) and whether its people enter through
-them only (`Sector.DirectoryOnly`, which closes passwords). Both auths' sign-in rule is
+rather than deploy configuration: the sector's directory (`SectorDirectory`, one row at
+most under `/console/api/sectors/{sectorID}/sector-directories`: a sign-in method and the
+connection its identities carry, the fleet's Google Workspace by the name both
+registrations give it, `example`) and whether its people enter through it only
+(`Sector.DirectoryOnly`, which closes passwords). A sector has one directory and a
+directory belongs to one sector: the schema holds each with a unique index
+(`SectorDirectoriesBySectorId`, `SectorDirectoriesByMethodConnection`), and the record's
+write paths ask the generated rules first (`app.NewSectorDirectoryRules`), so a refusal
+is a sentence a marshal can act on. Nobody types a directory in: the row's method and
+connection are stamped from the session of the marshal who makes the directory he is
+signed in through the sector's (the session read's `directory` names it), so a marshal
+signed in with a password is refused with how a directory is set, a request that names a
+method and a connection is refused as naming fields the record does not take, and a
+personal account (any Google account, which is how the pioneer signs up) is refused as
+no organization's directory. The directory of a sector that is directory only is not
+removed until headquarters opens the sector to passwords. Both auths' sign-in rule is
 the library's tenant policy over it (`signin.TenantPolicy`, handed the generated
 `app.NewSectorDeclarationReader`, which reads the declaration in the sign-in's own
 transaction): a sign-in through a directory is admitted when one of the person's sectors
-declares that directory, a password unless every one of their sectors is directory only,
-the fleet's staff (a global role, or one held in every sector) and a sign-in whose
-directory names the roles on the library's checks, and a person holding no sector too,
-since the pioneer signs up first and charts after. Which sectors the session then
-reaches is decided again per sector where its chart is computed: the data level's roster
+has that directory, a password unless every one of their sectors is directory only,
+a person who holds a role outside any one sector (a global role, or one held in every
+sector) and a sign-in whose directory names the roles on the library's checks, and a
+person holding no sector too, since the pioneer signs up first and charts after. Which
+sectors the session then reaches is decided again per sector where its chart is computed,
+and there one person alone is exempt from a sector's declaration: a super administrator,
+the holder of the role the framework defines in every auth (`SuperAdministrator`, in no
+role file), which the governor holds. His password session charts Bastion, where the
+dispatcher's and the archivist's, who hold global roles and a role there, do not; the
+rigger's session he starts by viewing as her enters it, and his own started by the
+marshal does not. The same person answers for who makes a super administrator: the
+marshal, viewing as the governor, is refused the role for herself. The data level's roster
 keeps every sector's declaration beside its key (`resource.TenantRoster.Declarations`,
 handed to `resource.SessionPermissions`), the records' write paths reload it after their
 commit and signal the other instances, so a declaration decides the next request, and
-the records' change events are the audit of every edit. The seed declares the fleet's
-directory on every sector, so the navigator and the client reach the sectors they hold a
-role in, and makes Bastion directory only: the rigger charts Anvil alone and the bosun is
-refused at sign-in. A self-service sector's first directory is the one its creator came
-through, written by the create-sector route with the row, so Ember admits the pioneer at
-once. Each directory row carries a default seat (`SectorDirectory.DefaultSeat`,
-`@directoryDefaultSeat`): the role a stranger the directory vouches for is seated with in
-that sector at their first sign-in, before the registration's account rule is reached.
+the records' change events are the audit of every edit. The seed makes the fleet's
+directory Cinder's, the one sector it can belong to, and makes Bastion directory only:
+the rigger charts Anvil alone, the bosun is refused at sign-in, and the navigator, who
+came through the fleet's directory, reaches Cinder. A self-service sector's directory is
+the organization's directory its creator came through, set by the create-sector route
+with the row through the step every such write takes (`app.SetSectorDirectory`); the
+pioneer signs up with a personal account, so Ember starts with none and admits her as it
+admits a password. The directory's row carries a default seat
+(`SectorDirectory.DefaultSeat`, `@directoryDefaultSeat`): the role a person is given in
+the sector at their first sign-in through its directory. A stranger the directory
+vouches for is created seated, before the registration's account rule is reached:
 Cinder's row names `SectorCrew`, so the navigator's first sign-in creates him seated
-there; Anvil's and Bastion's name none, so a stranger no row seats is refused by
-invitation only (`invitation_only`, the login page's sentence) and no account is created,
-unless they followed an invitation. The crew auth reads every sector's declaration of a
-directory with its seat through the generated `app.NewSectorDirectoryReader`
-(`SetDirectoryAdmission`, with the seat written by the auth's generated identity client
-in the transaction that creates the person, `crewidentity.Client.DirectorySeated`); the
-members auth, whose
-directory names the roles, sets none. The
-console's Sign-in page (Sector Ops menu, under the sector's URL) carries the declaration:
-the sector's marshal declares and withdraws directories there and picks each one's
-default seat from the sector's roles, headquarters sets directory only. A sector's
+there; with no seat named, a stranger is refused by invitation only (`invitation_only`,
+the login page's sentence) and no account is created, unless they followed an
+invitation. A person whose account stood before (a password persona, or someone another
+sector invited) is given the seat when the sign-in is linked to the account, once for a
+link and only where they hold no role in the sector: a second sign-in gives nothing, a
+seat a marshal removed is not given back, and a link deleted and made again gives the
+seat again. The crew auth reads the sectors' directories with their seats through the
+generated `app.NewSectorDirectoryReader` (`SetDirectoryAdmission`, with the seat written
+by the auth's generated identity client in the transaction that links the account,
+`crewidentity.Client.DirectorySeated`); the members auth, whose directory names the
+roles, sets none. The console's Sign-in page (Sector Ops menu, under the sector's URL)
+carries the declaration: a marshal signed in through his organization's directory makes
+it the sector's there with one button, removes it, and picks its default seat from the
+sector's roles; a marshal signed in with a password is told how a directory is set and
+offered no button; headquarters sets directory only. A sector's
 creator is its first marshal whatever the creation shape: the create path seats the
 surveyor as `SectorMarshal` in Dawn in the transaction that writes the row, as the
 create-sector route seats the pioneer in Ember (`SectorAdministratorRoles`, from
 `crew.AdministratorRoles`, written by the crew's generated identity client),
-and the last holder of an administrator role (`Headquarters` for the whole service,
-`SectorMarshal` in a sector, `identity.WithAdministratorRoles`) is refused leaving it
-until another holds it, so an operator creates a customer's sector, makes its first
-administrator and leaves. Demonstrates: tenancy.declaration, tenancy.directory-only,
-tenancy.creator-directory, tenancy.default-seat, tenancy.creator-seat.
+and the last holder of a sector's administrator role (`SectorMarshal`,
+`identity.WithAdministratorRoles`) is refused leaving it until another holds it, so an
+operator creates a customer's sector, makes its first administrator and leaves. The
+whole service is kept by the Super Administrator role instead: only a holder makes or
+removes another, a holder gives and takes any role of the crew whatever the role file
+grants (`access.WithSuperAdministratorMethods`, handed the generated
+`crewidentity.SuperAdministratorMethods`), and the last holder who can sign in keeps the
+role and the account, whoever asks. Demonstrates: tenancy.declaration,
+tenancy.directory-only, tenancy.creator-directory, tenancy.default-seat,
+tenancy.creator-seat, auth.super-administrator.
 
 ## The personas
 
@@ -850,7 +906,7 @@ watch desk then name the cadet by username; and
 
 | Login | Who | What their view proves |
 | --- | --- | --- |
-| `governor` | Governor Greer, headquarters | Every global role and Sector Marshal in all three sectors: the pruned pure-RBAC baseline. Runs the watch desk over every live impersonated session and can revoke one. Demonstrates: impersonation.active-list, impersonation.revoke, impersonation.act-as-role, computed.pushdown. |
+| `governor` | Governor Greer, headquarters | The fleet's super administrator (`SuperAdministrator`, the role the framework defines in every auth): the one person no sector's sign-in settings shut out, who gives any role of the crew to anyone and whose role and account stay while he is the last who can sign in. Beside it, every global role and Sector Marshal in all three sectors: the pruned pure-RBAC baseline. Runs the watch desk over every live impersonated session and can revoke one. Demonstrates: impersonation.active-list, impersonation.revoke, impersonation.act-as-role, computed.pushdown. |
 | `marshal` | Marshal Maren, Anvil | Full sector authority at Anvil, nothing at Bastion or Cinder (the fail-closed border); every transition including Scrap; the row-free `now` condition on IssueBulletin; the sector briefing with every fee; the sector's lists of the crew (its people, the roles held there, its invitations), with a person's address answered only where the person holds no role outside the sector (`heldElsewhere = false`); the roles the sector picks from, every one but the Marshal's own (`name != 'SectorMarshal'` on a computed list, judged over the rows its function yields); attaches mission documents through the `@upload` method and downloads them through the generated file route, whose gate is her Read grant on `content` (the client portal lists documents and holds no such grant). Demonstrates: tenancy.concealed, @transition.multi-from, condition.now, rpc.client-form, @upload, @file.stored, impersonation.view-as, auth.tenant-lists, computed.row-condition. |
 | `cadet` | Cadet Cass | `hazard IN (1, 2)`; the flight deck with only Claim lit; the two-input distress-call form (create-form narrowing). Demonstrates: execute-condition, create-form-narrowing, capability-envelope. |
 | `pilot` | Pilot Pax, clearance 3 | `hazard <= subject.clearance AND (requiredCert IS NULL OR requiredCert IN subject.certifications)`; `hangarZone != 'quarantine'` on ships and on HailShip, the touch that answers No Content. Demonstrates: @subjectValue, @subjectSet.global, @attribute.nullable-fk, @attribute.join-path, touch, @answers.no-content. |

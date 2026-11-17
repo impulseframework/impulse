@@ -31,7 +31,8 @@ func IsExternal(identity *sessioninfo.Identity) bool {
 }
 
 // ErrLastSignInMethod is returned when UnlinkIdentity would remove the last identity of
-// a user that has no password; see sessionstorage for its documentation.
+// a user that has no password, and when RemoveUserPassword would remove the password of
+// a user that has no identity; see sessionstorage for its documentation.
 var ErrLastSignInMethod = errors.New("sessionstorage: the identity is the user's last means of sign-in")
 
 // User is the part of a user row the sign-in flow decides on.

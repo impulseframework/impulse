@@ -130,7 +130,7 @@ func Test_applyClientOptions(t *testing.T) {
 					t.Fatalf("applyClientOptions() panic = %v, want containing %q", r, tt.wantPanic)
 				}
 			}()
-			stores := applyClientOptions(tt.opts)
+			stores, _ := applyClientOptions(tt.opts)
 			for _, name := range tt.wantNames {
 				if stores.get(name) == nil {
 					t.Errorf("store %q not wired", name)

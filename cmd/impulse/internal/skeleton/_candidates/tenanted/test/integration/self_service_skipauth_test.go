@@ -18,6 +18,12 @@ import (
 // Google is simulated: the login route sends the browser straight to the callback, and
 // the callback signs in whoever APP_GOOGLE_USERNAME names. The test sets that variable,
 // so it does not run in parallel.
+//
+// The new tenant's directory is the one its creator came through, set from the sign-in
+// in the row's transaction and never typed: the Workspace is Wander's from then on. A
+// directory belongs to one tenant, so a second person from the same Workspace, signed
+// in before Wander existed, is refused a tenant of their own with a sentence that says
+// the organization has one and what to do, and nothing is written.
 func TestSelfService_signInFirstThroughOpenSignUp(t *testing.T) {
 	ctx := t.Context()
 	s := newServed(ctx, t)
@@ -49,6 +55,10 @@ func TestSelfService_signInFirstThroughOpenSignUp(t *testing.T) {
 		t.Fatalf("GET /api/user/session after the sign-in: status %d: %s", status, body)
 	}
 
+	// A second person from the same Workspace signs in too, before any tenant has it.
+	t.Setenv("APP_GOOGLE_USERNAME", "rival")
+	rival := signedInThroughGoogle(ctx, t, s)
+
 	// Signed in and holding nothing, the stranger names their tenant and stands in it.
 	if domains := userDomains(ctx, t, b); len(domains) != 0 {
 		t.Fatalf("user-domains before = %v, want none", domains)
@@ -60,9 +70,32 @@ func TestSelfService_signInFirstThroughOpenSignUp(t *testing.T) {
 	if held := slices.Collect(maps.Values(names)); !slices.Equal(held, []string{"Wander"}) {
 		t.Fatalf("the tenants the stranger holds after = %v, want Wander alone", held)
 	}
+	workspace := sessionDirectory(ctx, t, b)
+	if workspace == nil {
+		t.Fatal("the wanderer's session reports no directory, want the Workspace the sign-in came through")
+	}
 	for wander := range names {
 		if status, body := b.do(ctx, http.MethodGet, "/api/tenants/"+wander+"/announcements", nil); status != http.StatusOK {
 			t.Errorf("GET Wander's announcements: status %d, want 200: %s", status, body)
 		}
+		// The Workspace the wanderer came through is Wander's directory.
+		if rows := directories(ctx, t, b, wander); len(rows) != 1 || rows[0] != *workspace {
+			t.Errorf("Wander's directory = %+v, want the Workspace %+v its creator signed in through", rows, *workspace)
+		}
+	}
+
+	// The Workspace has a tenant now, and a directory belongs to one: the rival is
+	// refused a tenant of their own, told the organization has one and what to do, and
+	// holds nothing after.
+	status, body = rival.do(ctx, http.MethodPost, "/api/create-tenant", []byte(`{"name":"Rival"}`))
+	if status != http.StatusConflict || !strings.Contains(string(body), "already has a tenant here, and a directory belongs to one tenant. Ask that tenant's administrator to invite you.") {
+		t.Errorf("POST /api/create-tenant from a Workspace that has a tenant: status %d, want 409 saying the organization has one: %s", status, body)
+	}
+	if domains := userDomains(ctx, t, rival); len(domains) != 0 {
+		t.Errorf("the rival's tenants after the refusal = %v, want none", domains)
+	}
+	admin := signedIn(ctx, t, s, adminUser)
+	if held := slices.Sorted(maps.Values(tenantNames(ctx, t, admin))); !slices.Equal(held, []string{"North", "South", "Wander"}) {
+		t.Errorf("the tenants after the refusal = %v, want North, South and Wander alone: the refused create wrote nothing", held)
 	}
 }

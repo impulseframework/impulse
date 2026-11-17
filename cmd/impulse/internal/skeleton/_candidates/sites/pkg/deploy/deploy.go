@@ -8,6 +8,7 @@ package deploy
 import (
 	"context"
 	"fmt"
+	"io"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -157,8 +158,8 @@ func CheckRoles(ctx context.Context, client *access.Client, name string) error {
 
 // SeedAdministrators gives the staff auth its first administrator while its users table
 // holds no rows, the foothold a deployed environment starts from, and prints what it did:
-// the administrator user with the password the stack generates
-// (APP_STAFF_ADMINISTRATOR_PASSWORD). It runs after the role check, so the memberships
+// the administrator user, the deployment's first super administrator, with the password
+// the stack generates (APP_STAFF_ADMINISTRATOR_PASSWORD). It runs after the role check, so the memberships
 // name roles the release ships, and seeds nothing while a user exists: every user after
 // the first comes from the administration surface, and the development bootstrap creates
 // its own logins instead.
@@ -168,7 +169,7 @@ func SeedAdministrators(ctx context.Context, data *config.DataConfiguration) err
 		return errors.Wrap(err, "staff.Auth.SeedAdministrator() with APP_STAFF_ADMINISTRATOR_PASSWORD")
 	}
 	global, everyDomain := staff.FirstAdministratorRoles()
-	reportSeed(staff.Name, seeded, fmt.Sprintf("%s holding %v in the global partition and %v in every domain", staff.Administrator, global, everyDomain))
+	reportSeed(staff.Name, seeded, fmt.Sprintf("%s, a super administrator, holding %v in the global partition and %v in every domain", staff.Administrator, global, everyDomain))
 
 	return nil
 }
@@ -197,6 +198,26 @@ func MigrateFeatures(ctx context.Context, client resource.Client) error {
 		return errors.Wrap(err, "resource.MigrateFeatures()")
 	}
 	fmt.Printf("Migrated the feature flags: %d declared\n", len(declared))
+
+	return nil
+}
+
+// RetireSecret retires one version of the application secret, named by the variable the
+// version is handed over in (APP_SECRET_KEY_1): every stored secret field that names the
+// version (every site's SecretHolders and the shared package's) is opened and written again under the current
+// version, and a final read confirms none is left, which is what makes the version safe
+// to disable. It prints how many values of each field it wrote, never a value. The client
+// holds the secret keys, built from every enabled version; the current version is
+// refused, and a second run writes nothing.
+func RetireSecret(ctx context.Context, client resource.Client, variable string, out io.Writer) error {
+	retirement, err := resource.RetireSecretVersion(ctx, client, variable, slices.Concat(consoleresources.SecretHolders(), portalresources.SecretHolders(), sharedresources.SecretHolders())...)
+	if err != nil {
+		return errors.Wrap(err, "resource.RetireSecretVersion()")
+	}
+	for _, field := range retirement.Fields {
+		fmt.Fprintf(out, "%s.%s: %d value(s) written again under version %d\n", field.Resource, field.Field, field.Rewritten, retirement.Current)
+	}
+	fmt.Fprintf(out, "Retired %s: no stored value names version %d\n", retirement.Variable, retirement.Version)
 
 	return nil
 }

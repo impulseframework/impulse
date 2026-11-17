@@ -8,10 +8,11 @@ import (
 )
 
 // UserResourceChecker is the engine surface a UserChecker delegates to: the
-// check call that answers enforcement, and the digest and foothold calls that
-// answer the frontend's advisory questions. *Client satisfies it; test
-// doubles that script permission checks satisfy it with the same check
-// method they already fake plus digest and foothold stubs.
+// check call that answers enforcement, the digest and foothold calls that
+// answer the frontend's advisory questions, and the question of who is a
+// super administrator. *Client satisfies it; test doubles that script
+// permission checks satisfy it with the same check method they already fake
+// plus digest, foothold and super administrator stubs.
 type UserResourceChecker interface {
 	CheckUserResources(
 		ctx context.Context, env accesstypes.Environment, user accesstypes.User, scope accesstypes.Scope, perm accesstypes.Permission, resources ...accesstypes.Resource,
@@ -20,6 +21,8 @@ type UserResourceChecker interface {
 	UserPermissionDigest(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (accesstypes.PermissionDigest, error)
 
 	UserHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error)
+
+	UserIsSuperAdministrator(ctx context.Context, user accesstypes.User) (bool, error)
 }
 
 // UserChecker is the request-bound permission checker for one user: the
@@ -81,6 +84,19 @@ func (u *UserChecker) HasGrants(ctx context.Context, scope accesstypes.Scope) (b
 	}
 
 	return has, nil
+}
+
+// SuperAdministrator reports whether the bound user holds the Super
+// Administrator role: the question the resource package asks of a session's
+// actor before it holds the session to a tenant's sign-in settings. It is a
+// pure delegate to UserIsSuperAdministrator.
+func (u *UserChecker) SuperAdministrator(ctx context.Context) (bool, error) {
+	is, err := u.checker.UserIsSuperAdministrator(ctx, u.user)
+	if err != nil {
+		return false, errors.Wrap(err, "access.UserResourceChecker.UserIsSuperAdministrator()")
+	}
+
+	return is, nil
 }
 
 // User returns the bound user.

@@ -471,6 +471,15 @@ export interface ReleaseConsignmentResult {
   releasedAt: Date;
 }
 
+export interface RemoveCrewPasswordConfig {
+  userId: string | FieldPointer;
+}
+export interface RemoveCrewPassword {
+  userId: string;
+}
+/** The statuses RemoveCrewPassword declares; the method chooses one per response. */
+export type RemoveCrewPasswordStatus = 204;
+
 export interface RemoveCrewRoleConfig {
   userId: string | FieldPointer;
   role: string | FieldPointer;
@@ -485,6 +494,15 @@ export interface RemoveCrewRole {
 }
 /** The statuses RemoveCrewRole declares; the method chooses one per response. */
 export type RemoveCrewRoleStatus = 204;
+
+export interface RemoveCrewSectorPasswordConfig {
+  userId: string | FieldPointer;
+}
+export interface RemoveCrewSectorPassword {
+  userId: string;
+}
+/** The statuses RemoveCrewSectorPassword declares; the method chooses one per response. */
+export type RemoveCrewSectorPasswordStatus = 204;
 
 export interface RemoveCrewSectorRoleConfig {
   userId: string | FieldPointer;
@@ -1300,6 +1318,15 @@ const methodMap: MethodMap = {
       { fieldName: 'consignmentId', displayType: 'uuid' },
     ],
   },
+  [Methods.RemoveCrewPassword]: {
+    route: 'remove-crew-password',
+    target: { resource: Resources.CrewSessionUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
   [Methods.RemoveCrewRole]: {
     route: 'remove-crew-role',
     statuses: [204],
@@ -1309,6 +1336,15 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'string', required: true },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+    ],
+  },
+  [Methods.RemoveCrewSectorPassword]: {
+    route: 'remove-crew-sector-password',
+    target: { resource: Resources.CrewSectorUsers, key: { userId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
   [Methods.RemoveCrewSectorRole]: {

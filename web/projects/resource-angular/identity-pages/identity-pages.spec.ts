@@ -340,6 +340,71 @@ describe("identityPages, a tenant's side", () => {
   });
 });
 
+describe("identityPages, a person's password", () => {
+  // An Auth with a password method: each side names the method that removes a person's password.
+  const withPassword = {
+    ...descriptor,
+    identity: [
+      {
+        ...crew,
+        sides: [
+          { ...crew.sides[0], methods: { ...crew.sides[0].methods, removePassword: 'RemoveCrewPassword' } },
+          { ...crew.sides[1], methods: { ...crew.sides[1].methods, removePassword: 'RemoveCrewSectorPassword' } },
+        ],
+      },
+      members,
+    ],
+  } as ApiDescriptor;
+  const identitiesOf = (pages: RootConfig[]): ListViewConfig => {
+    const found = children(pages[0]).find((child) => child.title === 'Sign-in identities');
+    if (!found) {
+      throw new Error('no list of sign-in identities');
+    }
+    return found;
+  };
+
+  for (const tt of [
+    {
+      name: "the whole application's side",
+      scope: 'global' as const,
+      remove: 'RemoveCrewPassword',
+      unlink: 'UnlinkCrewSessionIdentity',
+    },
+    {
+      name: "a tenant's side",
+      scope: 'domain' as const,
+      remove: 'RemoveCrewSectorPassword',
+      unlink: 'UnlinkCrewSectorSessionIdentity',
+    },
+  ]) {
+    it(`offers Remove password above the identities a person signs in with, where Unlink is offered, on ${tt.name}`, () => {
+      const pages = identityPages(withPassword, resourceMeta, { auth: 'Crew', scope: tt.scope });
+      const identities = identitiesOf(pages);
+      expect(methodsOf(identities.rowMethods)).toEqual([[tt.unlink, 'Unlink']]);
+      expect(methodsOf(identities.listMethods)).toEqual([[tt.remove, 'Remove password']]);
+      const remove = presentation(identities.listMethods, tt.remove);
+      // The method runs against the person the list sits under: the page fills nothing,
+      // and the question, asked of that person, says what is left to them.
+      expect(remove.fill).toBeUndefined();
+      expect((remove.confirm as (row: RecordData) => string)({ id: 'u-1', username: 'ada' })).toBe(
+        'Remove the password of ada? They will sign in only through the sign-in identities listed here.',
+      );
+      // It is offered there alone, not a second time among the methods of the person's row.
+      expect(presentation(list(pages[0]).rowMethods, tt.remove).hidden).toBe(true);
+    });
+  }
+
+  it('offers none where the description names no such method', () => {
+    for (const scope of ['global', 'domain'] as const) {
+      const pages = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope });
+      expect(identitiesOf(pages).listMethods).toEqual([]);
+      expect(methodsOf(list(pages[0]).rowMethods).map(([method]) => method)).not.toContain(
+        scope === 'global' ? 'RemoveCrewPassword' : 'RemoveCrewSectorPassword',
+      );
+    }
+  });
+});
+
 describe('identityPages, what an auth and an application decide', () => {
   it("draws nothing for what the auth's sign-in methods do not give", () => {
     const pages = identityPages(descriptor, resourceMeta, { auth: 'Members', scope: 'global' });

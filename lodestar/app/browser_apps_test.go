@@ -178,8 +178,8 @@ func TestBrowserAppsInstallable(t *testing.T) {
 		themeColor      string
 		backgroundColor string
 	}{
-		{name: "the console", project: "console", mount: "/console/", displayName: "Lodestar", themeColor: "#15161d", backgroundColor: "#f4f5f8"},
-		{name: "the portal", project: "portal", mount: "/portal/", displayName: "Lodestar Portal", themeColor: "#1f2331", backgroundColor: "#f7f6f2"},
+		{name: "the console", project: "console", mount: "/console/", displayName: "Lodestar", themeColor: "#005cbb", backgroundColor: "#f4f5f8"},
+		{name: "the portal", project: "portal", mount: "/portal/", displayName: "Lodestar Client Portal", themeColor: "#005cbb", backgroundColor: "#f7f6f2"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -294,7 +294,7 @@ func TestBrowserAppsWorkspace(t *testing.T) {
 				`"navigationUrls": ["/**", "!/**/*.*", "!/**/*__*", "!/**/*__*/**", "!/api/**"]`,
 				`"name": "app"`,
 				`"installMode": "prefetch"`,
-				`"files": ["/favicon.svg", "/index.html", "/manifest.webmanifest", "/*.css", "/*.js"]`,
+				`"files": ["/favicon.*", "/index.html", "/manifest.webmanifest", "/*.css", "/*.js"]`,
 				`"name": "assets"`,
 				`"installMode": "lazy"`,
 			},

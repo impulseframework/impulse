@@ -117,14 +117,15 @@ func (a *Auth) personaSeeded(ctx context.Context, login string, id impulse.UUID)
 
 // seatPersona writes a persona's memberships, held by the id of its login's account,
 // each role where the role file holds it: a global role in the global partition, a
-// domain role in every sector. A role the file does not define is refused, since the
-// seed names nothing the release does not.
+// domain role in every sector. The Super Administrator role is the framework's, in no
+// role file, and is held in the global partition. Any other role the file does not
+// define is refused, since the seed names nothing the release does not.
 func (a *Auth) seatPersona(ctx context.Context, roles *access.RoleConfig, p *cast.Persona, userID impulse.UUID) error {
 	var global, everyDomain []accesstypes.Role
 	for _, name := range p.Roles {
 		role := accesstypes.Role(name)
 		switch {
-		case definesRole(roles.Roles.Global, role):
+		case role == accesstypes.SuperAdministrator, definesRole(roles.Roles.Global, role):
 			global = append(global, role)
 		case definesRole(roles.Roles.Domain, role):
 			everyDomain = append(everyDomain, role)

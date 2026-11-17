@@ -128,6 +128,10 @@ type ClientOption func(*clientOptions)
 // clientOptions is what the options set.
 type clientOptions struct {
 	stores []wiredStore
+	// secretKeys are the keys WithSecretKeys handed over (secret_keys.go), and
+	// secretKeyOptions how many times an option did.
+	secretKeys       *SecretKeys
+	secretKeyOptions int
 }
 
 // wiredStore is one store as an option wired it, with the option that did, for the
@@ -158,15 +162,18 @@ func WithNamedFileStore[S NamedStore](store FileStore) ClientOption {
 	}
 }
 
-// applyClientOptions folds the options into the client's stores, refusing a store
-// wired twice and two stores on one location. Each refusal is a panic: the constructors
-// return no error and are used in struct literals, and a duplicate is a programming
-// error found the first time the application starts, the treatment Go gives a duplicate
-// HTTP route.
-func applyClientOptions(opts []ClientOption) *fileStores {
+// applyClientOptions folds the options into the client's stores and its secret keys,
+// refusing a store wired twice, two stores on one location, and the secret keys given
+// twice. Each refusal is a panic: the constructors return no error and are used in
+// struct literals, and a duplicate is a programming error found the first time the
+// application starts, the treatment Go gives a duplicate HTTP route.
+func applyClientOptions(opts []ClientOption) (*fileStores, *SecretKeys) {
 	var o clientOptions
 	for _, opt := range opts {
 		opt(&o)
+	}
+	if o.secretKeyOptions > 1 {
+		panic("resource: resource.WithSecretKeys is given twice; an application has one holder of its secret keys")
 	}
 	stores := newFileStores()
 	for _, w := range o.stores {
@@ -185,7 +192,7 @@ func applyClientOptions(opts []ClientOption) *fileStores {
 		stores.byName[w.name] = w
 	}
 
-	return stores
+	return stores, o.secretKeys
 }
 
 // fileStores is what a client holds: its wired stores by name, and by location where a

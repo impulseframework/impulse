@@ -427,6 +427,65 @@ func NewDataConfiguration() *DataConfiguration {
 	}
 }
 
+// A slice joins a call's variadic arguments: spread alone where the call passes none
+// yet, and in one append before the ones it already passes, a spread among them, since a
+// call cannot spread a slice beside other variadic arguments.
+func TestSpreadIntoCall(t *testing.T) {
+	t.Parallel()
+
+	const src = `package config
+
+func NewDataConfiguration() *DataConfiguration {
+	bare, err := database.Open(ctx, settings)
+	keyed, err := driver.Open(ctx, settings, resource.WithSecretKeys(keys))
+	two, err := other.Open(ctx, settings, first(), second())
+	spread, err := spreading.Open(ctx, settings, options...)
+	empty := build()
+	short, err := lacking.Open(ctx)
+
+	return nil
+}
+`
+	tests := []struct {
+		name     string
+		funcName string
+		callee   string
+		fixed    int
+		before   string
+		after    string
+		wantErr  string
+	}{
+		{name: "a call with no variadic argument yet", funcName: "NewDataConfiguration", callee: "database.Open", fixed: 2, before: "database.Open(ctx, settings)", after: "database.Open(ctx, settings, fileStoreOptions(files)...)"},
+		{name: "a call that already passes one", funcName: "NewDataConfiguration", callee: "driver.Open", fixed: 2, before: "driver.Open(ctx, settings, resource.WithSecretKeys(keys))", after: "driver.Open(ctx, settings, append(fileStoreOptions(files), resource.WithSecretKeys(keys))...)"},
+		{name: "a call that already passes two", funcName: "NewDataConfiguration", callee: "other.Open", fixed: 2, before: "other.Open(ctx, settings, first(), second())", after: "other.Open(ctx, settings, append(fileStoreOptions(files), first(), second())...)"},
+		{name: "a call that already spreads a slice", funcName: "NewDataConfiguration", callee: "spreading.Open", fixed: 2, before: "spreading.Open(ctx, settings, options...)", after: "spreading.Open(ctx, settings, append(fileStoreOptions(files), options...)...)"},
+		{name: "a call with no argument at all", funcName: "NewDataConfiguration", callee: "build", fixed: 0, before: "build()", after: "build(fileStoreOptions(files)...)"},
+		{name: "a call with fewer arguments than come before the variadic ones", funcName: "NewDataConfiguration", callee: "lacking.Open", fixed: 2, wantErr: "the lacking.Open call in function NewDataConfiguration passes 1 argument(s), fewer than the 2 that come before its variadic ones"},
+		{name: "a call the function does not make", funcName: "NewDataConfiguration", callee: "missing.Open", fixed: 2, wantErr: "makes no missing.Open call"},
+		{name: "a function the file lacks", funcName: "New", callee: "database.Open", fixed: 2, wantErr: "declares no"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := SpreadIntoCall("data.go", []byte(src), tt.funcName, tt.callee, tt.fixed, "fileStoreOptions(files)")
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("error = %v, want containing %q", err, tt.wantErr)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("error = %v", err)
+			}
+			if diff := cmp.Diff(strings.Replace(src, tt.before, tt.after, 1), string(got)); diff != "" {
+				t.Errorf("mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
 func TestExtendCallEmpty(t *testing.T) {
 	t.Parallel()
 

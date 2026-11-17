@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"maps"
@@ -257,6 +258,43 @@ func TestExecute(t *testing.T) {
 			wantErr:  `"-2" is not a version`,
 		},
 		{
+			name:     "a retirement with another flag is refused before the database is touched",
+			missing:  true,
+			args:     []string{"-retire-secret", "APP_SECRET_KEY_1", "-seed"},
+			wantCode: exitRefused,
+			wantErr:  "-retire-secret applies no migration and reports no version: it goes with no other flag",
+		},
+		{
+			name:     "a retirement without its variable is refused",
+			missing:  true,
+			args:     []string{"-retire-secret"},
+			wantCode: exitRefused,
+			wantErr:  "flag needs an argument: -retire-secret",
+		},
+		{
+			name:    "a retirement of an older version of the application secret finds no value that names it and passes",
+			prepare: migrated,
+			args:    []string{"-retire-secret", "APP_SECRET_KEY_1"},
+			env:     map[string]string{"APP_SECRET_KEY_1": secretVersion(1), "APP_SECRET_KEY_2": secretVersion(2)},
+			wantOut: "Retired APP_SECRET_KEY_1: no stored value names version 1\n",
+		},
+		{
+			name:     "a retirement of the current version of the application secret is refused",
+			prepare:  migrated,
+			args:     []string{"-retire-secret", "APP_SECRET_KEY_2"},
+			env:      map[string]string{"APP_SECRET_KEY_1": secretVersion(1), "APP_SECRET_KEY_2": secretVersion(2)},
+			wantCode: exitFailed,
+			wantErr:  "APP_SECRET_KEY_2 is the current version of the application secret",
+		},
+		{
+			name:     "a retirement of a variable that is not a version of the application secret is refused",
+			prepare:  migrated,
+			args:     []string{"-retire-secret", "APP_COOKIE_KEY_1"},
+			env:      map[string]string{"APP_SECRET_KEY_1": secretVersion(1), "APP_SECRET_KEY_2": secretVersion(2)},
+			wantCode: exitFailed,
+			wantErr:  "APP_COOKIE_KEY_1 is not a version of the application secret",
+		},
+		{
 			name:     "a stray argument is refused",
 			missing:  true,
 			args:     []string{"-version", "extra"},
@@ -465,8 +503,12 @@ type foothold struct {
 // one under the sign-in name the placement names.
 func footholds(data *config.DataConfiguration) []*foothold {
 	password := administratorPassword
+	// Each auth's first administrator holds the Super Administrator role, which the
+	// framework defines in every auth, beside the application's own roles.
 	staffGlobal, staffEveryDomain := staff.FirstAdministratorRoles()
+	staffGlobal = append([]accesstypes.Role{accesstypes.SuperAdministrator}, staffGlobal...)
 	membersGlobal, membersEveryDomain := members.FirstAdministratorRoles()
+	membersGlobal = append([]accesstypes.Role{accesstypes.SuperAdministrator}, membersGlobal...)
 
 	return []*foothold{
 		{
@@ -665,6 +707,12 @@ func (f *foothold) holdsNoRole(t *testing.T, user accesstypes.User, whose string
 			t.Errorf("the %s auth's roles held under %s (%s) in %v = %v, want none", f.auth, user, whose, scope, held)
 		}
 	}
+}
+
+// secretVersion is one version of a test application secret as the deployment hands it
+// over: 32 bytes, the version's number repeated, in Base64.
+func secretVersion(version byte) string {
+	return base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{version}, 32))
 }
 
 // database creates a fresh database for the case and drops it when the case ends.

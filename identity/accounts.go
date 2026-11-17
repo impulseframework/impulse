@@ -91,7 +91,9 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 // DeleteUser buffers the removal of a user, in the caller's transaction: every session
 // they hold is ended, their identity links and every membership they hold go, then the
 // row, and the permission engine is told once the transaction has committed. Nobody
-// deletes themselves: the request's caller is refused their own account.
+// deletes themselves: the request's caller is refused their own account. A super
+// administrator's account is deleted by a super administrator alone, and the last one
+// who can sign in by nobody (requireSuperAdministrator, refuseLastSuperAdministrator).
 //
 // Shared rule: the session library's DeleteSessionUser; the memberships are the user
 // management's, which removes every one the person holds with the account.
@@ -108,6 +110,20 @@ func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransact
 	}
 	if m.callerIs(ctx, userID) {
 		return httpio.NewForbiddenMessage("you cannot delete your own account")
+	}
+	// The account's roles go with it, the Super Administrator role among them: only a
+	// super administrator removes another, and never the last one who can sign in.
+	super, err := m.holdsSuperAdministrator(ctx, txn, userID)
+	if err != nil {
+		return err
+	}
+	if super {
+		if err := m.requireSuperAdministrator(ctx, txn, "deletes a super administrator's account, since the role goes with it"); err != nil {
+			return err
+		}
+		if err := m.refuseLastSuperAdministrator(ctx, txn, userID, "delete their account"); err != nil {
+			return err
+		}
 	}
 	held, err := m.store.Memberships(ctx, txn, userID)
 	if err != nil {

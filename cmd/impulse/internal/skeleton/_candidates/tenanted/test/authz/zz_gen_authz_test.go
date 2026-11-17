@@ -541,7 +541,7 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			name:         "PatchResources TenantDirectory update denied",
 			method:       http.MethodPatch,
 			target:       "/api/resources",
-			body:         `[{"op":"patch","path":"/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories/00000000-0000-0000-0000-000000000001","value":{"method":"authz-test-value"}}]`,
+			body:         `[{"op":"patch","path":"/tenants/7e57d0a1-0000-4000-8000-000000000000/tenant-directories/00000000-0000-0000-0000-000000000001","value":{"defaultSeat":"authz-test-value"}}]`,
 			wantStatuses: []int{http.StatusBadRequest},
 		},
 		{
@@ -777,6 +777,21 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusForbidden},
 		},
 		{
+			name:         "RemoveStaffPassword denied",
+			method:       http.MethodPost,
+			target:       "/api/remove-staff-password",
+			body:         `{}`,
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "RemoveStaffPassword dry run denied",
+			method:       http.MethodPost,
+			target:       "/api/remove-staff-password",
+			body:         `{}`,
+			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
 			name:         "RemoveStaffRole denied",
 			method:       http.MethodPost,
 			target:       "/api/remove-staff-role",
@@ -790,6 +805,21 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			body:         `{}`,
 			headers:      map[string]string{"X-Dry-Run": "true"},
 			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "RemoveStaffTenantPassword denied",
+			method:       http.MethodPost,
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-password",
+			body:         `{}`,
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "RemoveStaffTenantPassword dry run denied",
+			method:       http.MethodPost,
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/remove-staff-tenant-password",
+			body:         `{}`,
+			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusNotFound},
 		},
 		{
 			name:         "RemoveStaffTenantRole denied",

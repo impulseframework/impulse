@@ -54,9 +54,9 @@ type DirectorySeat struct {
 // by a DeclarationReader. A tenant that declares nothing, a nil or an empty
 // declaration, admits its people by password and through no directory.
 type TenantDeclaration struct {
-	// Directories are the directories the tenant admits its people through. One
-	// tenant has one directory as a rule; a second one is an explicit second
-	// declaration.
+	// Directories are the directories the tenant admits its people through. A tenant
+	// has one directory, and a directory is one tenant's: the application's schema and
+	// its write paths hold both, so the list carries one directory at most.
 	Directories []Directory
 	// DirectoryOnly says the tenant's people enter through its directories only: a
 	// password, or any other sign-in that is not through a directory, does not reach
@@ -69,17 +69,27 @@ type TenantDeclaration struct {
 // (sessioninfo.SessionData.EstablishedBy): a sign-in through a directory
 // (sessioninfo.AuthMethod.ThroughDirectory) when (method, connection) is one of the
 // declared directories; any other establishment, a password or a step the
-// application recorded under its own name, unless the tenant is directory only. The
+// application recorded under its own name, unless the tenant is directory only. A
+// personal account (Directory.PersonalAccounts: any Google account, a Microsoft
+// personal account) is no directory, which no tenant can declare, so a sign-in with
+// one is admitted as a password is. The
 // tenant policy decides with it at sign-in, over every tenant of the person, and the
 // application decides with it again when the session reaches one tenant, where the
 // session's tenant list is computed. It reads nothing: a nil declaration declares
 // nothing.
 func (d *TenantDeclaration) Admits(method sessioninfo.AuthMethod, connection string) bool {
-	if method.ThroughDirectory() {
+	if throughDirectory(method, connection) {
 		return d.declares(Directory{Method: method, Connection: connection})
 	}
 
 	return d == nil || !d.DirectoryOnly
+}
+
+// throughDirectory reports whether a sign-in by method through connection came through
+// a directory a tenant can declare: a directory method, and not one of the two values
+// that stand for everyone who is in no organization.
+func throughDirectory(method sessioninfo.AuthMethod, connection string) bool {
+	return method.ThroughDirectory() && !(Directory{Method: method, Connection: connection}).PersonalAccounts()
 }
 
 // declares reports whether directory is one of the declared directories.
@@ -133,21 +143,29 @@ type tenantPolicy[Tx any] struct {
 //
 // The rules, in order, once the user is known:
 //
-//  1. A person holding a role in the global partition or in every tenant domain is the
-//     application's own staff and is admitted on the library's own checks, as is a
-//     sign-in whose method synchronizes roles (the directory names the person's roles,
-//     and the synchronization, which runs once the session stands, refuses a person
-//     with none); the application's own directories are admitted by the registration's
-//     organization slot already.
-//  2. A person who is a member of no tenant is refused (no_tenant), unless the policy
+//  1. A super administrator, a person holding the Super Administrator role
+//     (accesstypes.RoleCollection.HoldsSuperAdministrator), is admitted on the
+//     library's own checks, whatever any tenant declares: the role is the way back in,
+//     and no tenant's sign-in settings shut its holder out. Nobody else is exempt from
+//     them. A sign-in whose method synchronizes roles is admitted here too (the
+//     directory names the person's roles, and the synchronization, which runs once the
+//     session stands, refuses a person with none); the application's own directories
+//     are admitted by the registration's organization slot already.
+//  2. A person holding a role outside any one tenant is admitted: in the global
+//     partition, which is no tenant's and which no declaration governs, or in every
+//     tenant domain, whose tenants the policy has no list of. It is no exemption: the
+//     session then reaches a tenant only where the tenant's declaration admits it, as
+//     anyone's does.
+//  3. A person who is a member of no tenant is refused (no_tenant), unless the policy
 //     was built with AdmitWithoutTenant.
-//  3. A sign-in through a directory (Entra, Google, WorkOS) is admitted when one of the
+//  4. A sign-in through a directory (Entra, Google, WorkOS) is admitted when one of the
 //     person's tenants declares the directory it came through, its (method,
 //     connection), and refused otherwise (connection_not_in_tenant).
-//  4. Any other sign-in, a password or a session the application starts for a user it
-//     authenticated itself, is admitted when one of the person's tenants admits its
-//     people other than through its directories, and refused when every one of them is
-//     directory only (directory_only).
+//  5. Any other sign-in, a password, a personal account (no tenant's directory) or a
+//     session the application starts for a user it authenticated itself, is admitted
+//     when one of the person's tenants admits its people other than through its
+//     directories, and refused when every one of them is directory only
+//     (directory_only).
 //
 // A refusal is a sessioninfo.LoginRefusal with its code, and errors.Is matches
 // ErrSignInDenied and the rule's own cause (ErrNoTenant, ErrConnectionNotInTenant,
@@ -184,8 +202,11 @@ func (p *tenantPolicy[Tx]) decide(ctx context.Context, tx Tx, req *sessioninfo.N
 	if err != nil {
 		return nil, errors.Wrap(err, "UserRoleManager.UserRoles()")
 	}
-	staff, tenants := membership(held)
-	if staff {
+	if held.HoldsSuperAdministrator() {
+		return Allow(), nil
+	}
+	outside, tenants := membership(held)
+	if outside {
 		return Allow(), nil
 	}
 	if len(tenants) == 0 {
@@ -206,23 +227,24 @@ func (p *tenantPolicy[Tx]) decide(ctx context.Context, tx Tx, req *sessioninfo.N
 			return Allow(), nil
 		}
 	}
-	if method.ThroughDirectory() {
+	if throughDirectory(method, connection) {
 		return denyBecause(sessioninfo.RefusedConnectionNotInTenant, ErrConnectionNotInTenant), nil
 	}
 
 	return denyBecause(sessioninfo.RefusedDirectoryOnly, ErrDirectoryOnly), nil
 }
 
-// membership reads the person's memberships: staff when a role is held in the global
-// partition or in every tenant domain, and the tenants where a role is held, in a
-// fixed order, so the declarations are read the same way at every sign-in.
-func membership(held accesstypes.RoleCollection) (staff bool, tenants []accesstypes.Domain) {
+// membership reads the person's memberships: outside when a role is held outside any
+// one tenant, in the global partition or in every tenant domain, and the tenants where
+// a role is held, in a fixed order, so the declarations are read the same way at every
+// sign-in.
+func membership(held accesstypes.RoleCollection) (outside bool, tenants []accesstypes.Domain) {
 	for scope, roles := range held {
 		if len(roles) == 0 {
 			continue
 		}
 		if scope.IsGlobal() || scope.IsEveryDomain() {
-			staff = true
+			outside = true
 
 			continue
 		}
@@ -232,7 +254,7 @@ func membership(held accesstypes.RoleCollection) (staff bool, tenants []accessty
 	}
 	slices.Sort(tenants)
 
-	return staff, tenants
+	return outside, tenants
 }
 
 // establishment is how the sign-in proves who the person is: the identity's method

@@ -8,7 +8,7 @@
 //	  by hand under /beacons/: request log on event, traces off
 //	default (/console/api), sessions of the crew auth (password, google, sign-up, persona):
 //	  BindAuth(crew.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /console/api/user/methods, GET /console/api/user/session, DELETE /console/api/user/session, GET /console/api/user/pending, GET /console/api/user/google/login, GET /console/api/user/google/callback, GET /console/api/user/sign-up/login, GET /console/api/user/sign-up/callback, GET /console/api/user/persona/login, GET /console/api/user/persona/callback
-//	  + ValidateXSRFToken: POST /console/api/user/password/login, POST /console/api/user/password/change, POST /console/api/user/pending/confirm, POST /console/api/user/pending/cancel, POST /console/api/user/pending/code, POST /console/api/user/pending/code/verify, POST /console/api/user/pending/email, POST /console/api/user/browser/forget, POST /console/api/user/name, POST /console/api/user/look, POST /console/api/user/invitation, POST /console/api/user/invitation/sign-up, POST /console/api/user/sign-up, POST /console/api/user/sign-up/open, POST /console/api/user/sign-up/complete
+//	  + ValidateXSRFToken: POST /console/api/user/password/login, POST /console/api/user/password/change, POST /console/api/user/password/remove, POST /console/api/user/pending/confirm, POST /console/api/user/pending/cancel, POST /console/api/user/pending/code, POST /console/api/user/pending/code/verify, POST /console/api/user/pending/email, POST /console/api/user/browser/forget, POST /console/api/user/name, POST /console/api/user/look, POST /console/api/user/invitation, POST /console/api/user/invitation/sign-up, POST /console/api/user/sign-up, POST /console/api/user/sign-up/open, POST /console/api/user/sign-up/complete
 //	  + ValidateSession, ValidateXSRFToken: POST /console/api/user/invitation/accept, POST /console/api/user/email, POST /console/api/user/email/verify, GET /console/api/user/tokens, POST /console/api/user/tokens, POST /console/api/user/tokens/revoke, GET /console/api/user/device, POST /console/api/user/device/approve, POST /console/api/user/device/deny
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.1.0): hooks.Default, generatedRoutes
 //	droids (/droids), bearer tokens of the crew auth:
@@ -59,7 +59,9 @@ type Handlers interface {
 	GeneratedScheduledHandlers
 	// ResourceClient is the client the generated handlers run against. The file
 	// stores the generated code reads and writes are wired on it, and New refuses to
-	// start without them (resource.RequireFileStores).
+	// start without them (resource.RequireFileStores). The application's
+	// secret keys are wired on it, which seal every stored secret, and New refuses to
+	// start without them (resource.RequireSecretKeys).
 	ResourceClient() resource.Client
 	// The default outlet's session surface: the crew auth's.
 	DefaultSession
@@ -169,9 +171,10 @@ type DefaultSession interface {
 	TokensCreate() http.HandlerFunc
 	// A token of the signed-in person's revoked (session.ApplicationTokenHandlers.Revoke).
 	TokensRevoke() http.HandlerFunc
-	// The password method's login and password change (session.PasswordMethod); the change validates the session itself, outside ValidateSession.
+	// The password method's login, password change and password removal (session.PasswordMethod); the change and the removal validate the session themselves, outside ValidateSession.
 	PasswordLogin() http.HandlerFunc
 	PasswordChange() http.HandlerFunc
+	PasswordRemove() http.HandlerFunc
 	// The google registration's login and callback (google.Method).
 	GoogleLogin() http.HandlerFunc
 	GoogleCallback() http.HandlerFunc
@@ -274,6 +277,12 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 	if err := resource.RequireFileStores(h.ResourceClient(), resource.DefaultStore, resource.StoreNameFor[resources.Documents]()); err != nil {
 		panic(fmt.Sprintf("router.New: %v", err))
 	}
+	// The application stores secrets, which the resource client seals with the
+	// application's secret keys, or the server does not start: a client built without
+	// them would otherwise surface on the first write of a secret.
+	if err := resource.RequireSecretKeys(h.ResourceClient(), "Ship.TransponderKey"); err != nil {
+		panic(fmt.Sprintf("router.New: %v", err))
+	}
 	r := chi.NewRouter()
 	// The release this server was built from: every outlet names it on each answer
 	// (X-Api-Version), and each session outlet's version check compares a browser
@@ -343,6 +352,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				SendCode: "/console/api/user/pending/code", VerifyCode: "/console/api/user/pending/code/verify", EnrollEmail: "/console/api/user/pending/email",
 			},
 			ChangePassword: "/console/api/user/password/change",
+			RemovePassword: "/console/api/user/password/remove",
 			ForgetBrowser:  "/console/api/user/browser/forget",
 			ChangeName:     "/console/api/user/name",
 			ChangeLook:     "/console/api/user/look",
@@ -359,6 +369,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		bounded.Get("/console/api/user/sign-up/callback", h.SignUpCallback())
 		guarded.Post("/console/api/user/password/login", h.PasswordLogin())
 		guarded.Post("/console/api/user/password/change", h.PasswordChange())
+		guarded.Post("/console/api/user/password/remove", h.PasswordRemove())
 		guarded.Post("/console/api/user/pending/confirm", h.PendingConfirmWithPassword())
 		guarded.Post("/console/api/user/pending/cancel", h.PendingCancel())
 		guarded.Post("/console/api/user/pending/code", h.PendingSendCode())

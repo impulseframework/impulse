@@ -137,6 +137,26 @@ func TestTenantDeclaration_Admits(t *testing.T) {
 			connection:  "alice@example.com",
 			want:        true,
 		},
+		{
+			name:       "any Google account is no directory: a tenant that declares nothing admits it as it admits a password",
+			method:     sessioninfo.MethodGoogle,
+			connection: GoogleAnyAccountConnection,
+			want:       true,
+		},
+		{
+			name:        "a Microsoft personal account is no directory: a tenant with a directory admits it unless it is directory only",
+			declaration: &TenantDeclaration{Directories: []Directory{lakesideEntra}},
+			method:      sessioninfo.MethodAzure,
+			connection:  MicrosoftPersonalAccountsConnection,
+			want:        true,
+		},
+		{
+			name:        "a directory-only tenant refuses a personal account",
+			declaration: &TenantDeclaration{Directories: []Directory{lakesideEntra}, DirectoryOnly: true},
+			method:      sessioninfo.MethodGoogle,
+			connection:  GoogleAnyAccountConnection,
+			want:        false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -184,17 +204,40 @@ func TestTenantPolicy(t *testing.T) {
 		wantRead []accesstypes.Domain
 	}{
 		{
-			name:        "a global role admits a sign-in through a directory no tenant declares",
+			name:        "a super administrator is admitted by password when every tenant of theirs is directory only, and no declaration is read",
+			held:        accesstypes.RoleCollection{global: {accesstypes.SuperAdministrator}, lakeside: member},
+			identity:    passwordIdentity,
+			declared:    map[accesstypes.Domain]*TenantDeclaration{"lakeside": {DirectoryOnly: true}},
+			wantOutcome: AllowSignIn,
+		},
+		{
+			name:        "a super administrator is admitted through a directory no tenant declares",
+			held:        accesstypes.RoleCollection{global: {accesstypes.SuperAdministrator}},
+			identity:    entraIdentity,
+			wantOutcome: AllowSignIn,
+		},
+		{
+			name:        "a global role is a place outside every tenant and admits a sign-in through a directory no tenant declares",
 			held:        accesstypes.RoleCollection{global: {"Administrator"}},
 			identity:    entraIdentity,
 			wantOutcome: AllowSignIn,
 		},
 		{
-			name:        "an every-domain role admits a password when every tenant is directory only",
+			name:        "a role held in every tenant admits a password whatever the one tenant read would say: the policy has no list of the others",
 			held:        accesstypes.RoleCollection{every: {"Auditor"}, lakeside: member},
 			identity:    passwordIdentity,
 			declared:    map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
 			wantOutcome: AllowSignIn,
+		},
+		{
+			name:        "the Super Administrator name held in a tenant makes nobody a super administrator",
+			held:        accesstypes.RoleCollection{lakeside: {accesstypes.SuperAdministrator}},
+			identity:    passwordIdentity,
+			declared:    map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
+			wantOutcome: DenySignIn,
+			wantCode:    sessioninfo.RefusedDirectoryOnly,
+			wantCause:   ErrDirectoryOnly,
+			wantRead:    []accesstypes.Domain{"lakeside"},
 		},
 		{
 			name:        "a sign-in whose method synchronizes roles is admitted without the store being asked",
@@ -277,6 +320,24 @@ func TestTenantPolicy(t *testing.T) {
 			wantCode:    sessioninfo.RefusedDirectoryOnly,
 			wantCause:   ErrDirectoryOnly,
 			wantRead:    []accesstypes.Domain{"lakeside", "riverside"},
+		},
+		{
+			name:        "a personal account is refused with directory_only when every tenant of the person is directory only: it is no directory a tenant could declare",
+			held:        accesstypes.RoleCollection{lakeside: member},
+			identity:    &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: GoogleAnyAccountConnection, Subject: "sub-pat"},
+			declared:    map[accesstypes.Domain]*TenantDeclaration{"lakeside": directoryOnly},
+			wantOutcome: DenySignIn,
+			wantCode:    sessioninfo.RefusedDirectoryOnly,
+			wantCause:   ErrDirectoryOnly,
+			wantRead:    []accesstypes.Domain{"lakeside"},
+		},
+		{
+			name:        "a personal account is admitted where a tenant of the person admits a password",
+			held:        accesstypes.RoleCollection{lakeside: member},
+			identity:    &sessioninfo.Identity{Method: sessioninfo.MethodGoogle, Connection: GoogleAnyAccountConnection, Subject: "sub-pat"},
+			declared:    map[accesstypes.Domain]*TenantDeclaration{},
+			wantOutcome: AllowSignIn,
+			wantRead:    []accesstypes.Domain{"lakeside"},
 		},
 		{
 			name:        "a session the application starts itself is held to directory only like a password",

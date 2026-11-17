@@ -385,6 +385,9 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 		// The password change validates the session itself: outside ValidateSession,
 		// behind the XSRF token, as the README prescribes.
 		r.With(auth.ValidateXSRFToken).Post("/password", password.ChangeUserPassword())
+		// The removal of a person's own password validates the session itself too, and
+		// sits beside the change.
+		r.With(auth.ValidateXSRFToken).Post("/password/remove", password.RemoveUserPassword())
 		// The login page's list: the two methods at the paths above, the pending
 		// routes mountAuth mounts and the password change route.
 		r.Get("/methods", auth.Methods(&session.MethodList{
@@ -397,6 +400,7 @@ func newPasswordWorkOSApp[Tx any](ctx context.Context, t *testing.T, be backend[
 				SendCode: "/pending/code/send", VerifyCode: "/pending/code/verify", EnrollEmail: "/pending/email",
 			},
 			ChangePassword: "/password",
+			RemovePassword: "/password/remove",
 		}))
 	})
 
@@ -764,6 +768,11 @@ func runPasswordWorkOSSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamForcedPasswordChange[Tx],
 		},
 		{
+			name:     "a person with a directory link removes their password: it no longer signs them in, the link does, their sessions stand and the name's failed attempts start over; a person with no link keeps it",
+			run:      seamPasswordRemoval[Tx],
+			password: []session.PasswordOption{session.AttemptLimit(2, time.Minute, 2*time.Second)},
+		},
+		{
 			name: "the store's one custom session data configuration resolves each session's row in the sign-in's transaction, and custom user data is written with the user and read on demand",
 			run:  seamCustomData[Tx],
 		},
@@ -828,6 +837,7 @@ func seamMethodsList[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], 
 			"sendCode": "/pending/code/send", "verifyCode": "/pending/code/verify", "enrollEmail": "/pending/email",
 		},
 		"changePassword": "/password",
+		"removePassword": "/password/remove",
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("GET /methods mismatch (-want +got):\n%s", diff)

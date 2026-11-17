@@ -39,8 +39,8 @@ func (a *App) PatchResources() http.HandlerFunc {
 	type tenantDirectoryRequest struct {
 		ID          impulse.UUID `json:"-"`
 		TenantID    impulse.UUID `json:"-"`
-		Method      string       `json:"method"      sqltype:"STRING(16)"`
-		Connection  string       `json:"connection"`
+		Method      string       `json:"-"`
+		Connection  string       `json:"-"`
 		DefaultSeat *string      `json:"defaultSeat" sqltype:"STRING(64)"`
 	}
 	tenantDirectoryDecoder := NewDecoder[resources.TenantDirectory, tenantDirectoryRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
@@ -213,6 +213,18 @@ func (a *App) PatchResources() http.HandlerFunc {
 							if err != nil {
 								return errors.Wrap(err, "tenantDirectoryCreatePatchFromPatchSet()")
 							}
+							// A directory is never typed in: the row takes the directory the caller is
+							// signed in through, held to the rules of a tenant's directory. The
+							// caller's grants answer first, so a caller they refuse learns nothing
+							// from a rule.
+							if err := patchSet.Permitted(ctx, txn); err != nil {
+								return errors.Wrap(err, "resource.PatchSet.Permitted()")
+							}
+							directory, err := NewTenantDirectoryRules().FromSession(ctx, txn, domain)
+							if err != nil {
+								return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")
+							}
+							patch.SetMethod(string(directory.Method)).SetConnection(directory.Connection)
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.TenantDirectoryCreatePatch.Buffer()")
 							}
@@ -224,6 +236,14 @@ func (a *App) PatchResources() http.HandlerFunc {
 							}
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
+							// A tenant that is directory only keeps its directory: its people
+							// enter through it alone. The caller's grants answer first.
+							if err := patchSet.Permitted(ctx, txn); err != nil {
+								return errors.Wrap(err, "resource.PatchSet.Permitted()")
+							}
+							if err := NewTenantDirectoryRules().Remove(ctx, txn, domain); err != nil {
+								return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
+							}
 							if err := resources.NewTenantDirectoryDeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.TenantDirectoryDeletePatch.Buffer()")
 							}
@@ -240,7 +260,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		}); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		live.Publish(ctx, a.LiveService(), liveDerivations, "", touched)
+		live.Publish(ctx, w, a.LiveService(), liveDerivations, "", touched)
 		if tenantsWritten {
 			if err := a.TenantRoster().Reload(ctx); err != nil {
 				logger.FromCtx(ctx).Errorf("tenants: rereading the roster after the commit failed; this instance reloads on the tenants signal or at its backstop: %v", err)

@@ -56,8 +56,9 @@ const (
 // wrote it, where every other key above is read off a generated request struct:
 // conditions:"secret" on a field. The generator turns the word into everything a client
 // meets (the field is never served, and its input is masked); the package reads it for
-// the one thing only it does with the value, which is to leave it out of the change
-// record (PatchSet.Diff).
+// the two things only it does with the value, which are to seal it where a patch's
+// fields become columns (PatchSet.Resolve, with the keys of the transaction's client) and
+// to leave it out of the change record (PatchSet.Diff).
 const (
 	conditionsTagKey = "conditions"
 	secretCondition  = "secret"

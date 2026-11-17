@@ -59,6 +59,8 @@ func scalarValueKind(t types.Type) resource.ValueKind {
 			return resource.ValueKindString
 		case decimalDecimalType, decimalNullDecimalType, spannerNullNumericType:
 			return resource.ValueKindDecimal
+		case resourceSecretType:
+			return resource.ValueKindSecret
 		case jsonRawMessageType, jsontextValueType:
 			return resource.ValueKindOther
 		}

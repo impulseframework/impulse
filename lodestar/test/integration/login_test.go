@@ -26,16 +26,18 @@ func TestLogin(t *testing.T) {
 		wantLogin   int
 		wantDomains []string
 		// wantBastion is the status of a sector-scoped request in Bastion: concealed
-		// (not found) for a login with no foothold there.
+		// (not found) for a login with no foothold there, and for one whose password
+		// session Bastion, which admits its people through its directory only, does not
+		// admit; the governor, a super administrator, is the one person exempt.
 		wantBastion int
 		// wantSectors is the status of the global sector list.
 		wantSectors int
 		// wantWings is the status of the Anvil wings list; zero means OK.
 		wantWings int
 	}{
-		{name: "the governor signs in and sees every sector", user: "governor", password: personaPassword, wantLogin: http.StatusOK, wantDomains: []string{anvil, bastion, cinder}, wantBastion: http.StatusOK, wantSectors: http.StatusOK},
+		{name: "the governor, a super administrator, signs in and sees every sector", user: "governor", password: personaPassword, wantLogin: http.StatusOK, wantDomains: []string{anvil, bastion, cinder}, wantBastion: http.StatusOK, wantSectors: http.StatusOK},
 		{name: "the marshal sees only Anvil; Bastion is concealed", user: "marshal", password: personaPassword, wantLogin: http.StatusOK, wantDomains: []string{anvil}, wantBastion: http.StatusNotFound, wantSectors: http.StatusOK},
-		{name: "the archivist reads every sector but cannot list the wings", user: "archivist", password: personaPassword, wantLogin: http.StatusOK, wantDomains: []string{anvil, bastion, cinder}, wantBastion: http.StatusForbidden, wantSectors: http.StatusOK, wantWings: http.StatusForbidden},
+		{name: "the archivist reads every sector that admits a password but cannot list the wings; Bastion, directory only, is concealed", user: "archivist", password: personaPassword, wantLogin: http.StatusOK, wantDomains: []string{anvil, cinder}, wantBastion: http.StatusNotFound, wantSectors: http.StatusOK, wantWings: http.StatusForbidden},
 		{name: "a wrong password is refused", user: "governor", password: "nope", wantLogin: http.StatusUnauthorized},
 	}
 	for _, tt := range tests {

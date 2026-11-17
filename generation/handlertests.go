@@ -543,7 +543,8 @@ func updateProbeField(res *resourceInfo) (name, value string, patchable bool, er
 			continue
 		}
 		patchable = true
-		value, ok := authzJSONValue(pkParamType{declared: f.Type(), underlying: f.UnderlyingType()})
+		// A stored secret is given as text, whatever its field stores.
+		value, ok := authzJSONValue(pkParamType{declared: f.RequestType(), underlying: f.RequestUnderlyingType()})
 		if !ok {
 			continue
 		}

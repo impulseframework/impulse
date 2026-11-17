@@ -75,6 +75,40 @@ func ({{ .Resource.Name }}) SearchBranches() []resource.SearchBranch {
 	}
 }
 {{- end }}
+{{- if .Resource.SecretFields }}
+
+// SecretContext names what a secret of the row is bound to: its primary key, column by
+// column in key order. A stored secret opens on the row it was written for and on no
+// other (resource.Secret).
+func ({{ .Resource.Name }}) SecretContext() []accesstypes.Field {
+	return []accesstypes.Field{
+	{{- range $field := .Resource.SecretContext }}
+		"{{ $field.Name }}",
+	{{- end }}
+	}
+}
+{{- range $field := .Resource.SecretFields }}
+
+// Open{{ $field.Name }} opens the row's {{ $field.Name }}: the value it was set to, from the
+// stored bytes, the application's secret keys and the row's own primary key, which a
+// query that reads the field reads with it. Bytes written for another row, or under a
+// version of the application secret the service was not given, are an error.
+{{- if $field.IsPointer }}
+// A row that holds no value answers nil.
+{{- end }}
+func (row *{{ $.Resource.Name }}) Open{{ $field.Name }}(keys *resource.SecretKeys) ({{ $field.PatchValueType }}, error) {
+	return keys.Open{{ if $field.IsPointer }}Nullable{{ end }}({{ $.Resource.SecretKeyExpr }}, row.{{ $field.Name }})
+}
+
+// Open{{ $field.Name }}In is Open{{ $field.Name }} inside a read-write transaction, with the
+// keys of the transaction's client: a value sealed under an older version of the
+// application secret is written back under the current one in the same transaction,
+// while the row still holds the bytes that were opened.
+func (row *{{ $.Resource.Name }}) Open{{ $field.Name }}In(ctx context.Context, txn resource.ReadWriteTransaction) ({{ $field.PatchValueType }}, error) {
+	return resource.Open{{ if $field.IsPointer }}Nullable{{ end }}SecretIn[{{ $.Resource.Name }}](ctx, txn, {{ $.Resource.SecretKeyExpr }}, "{{ $field.Name }}", row.{{ $field.Name }})
+}
+{{- end }}
+{{- end }}
 
 // {{ PrivateType .Resource.Name }}Read mirrors the wire shape the resource routes list
 // and read, so a query armed with Enforce meets the field permissions the routes
@@ -93,7 +127,7 @@ var {{ PrivateType .Resource.Name }}ReadSets resource.SetCache[{{ .Resource.Name
 // routes enforce; {{ PrivateType .Resource.Name }}WriteSets holds one Set per mutation.
 type {{ PrivateType .Resource.Name }}Write struct {
 	{{- range $field := .Resource.Fields }}
-	{{ $field.Name }} {{ $field.ResolvedType }} ` + "`{{ $field.JSONTagForPatch }} {{ $field.ImmutableTag }} {{ $field.SqltypeTag }} {{ $field.NullableTag }}`" + `
+	{{ $field.Name }} {{ $field.PatchValueType }} ` + "`{{ $field.JSONTagForPatch }} {{ $field.ImmutableTag }} {{ $field.SqltypeTag }} {{ $field.NullableTag }}`" + `
 	{{- end }}
 }
 
@@ -849,6 +883,45 @@ const (
 					}
 					{{- end }}`
 
+	// directoryStamped is spliced into the directories record's create, once the create
+	// patch is built and before it is buffered (patchSet, patch and domain, which the
+	// splice's place sets): a directory is never typed in, so the wire carries neither
+	// its method nor its connection, and the create stamps both from the directory the
+	// caller is signed in through, held to the rules of a tenant's directory
+	// (resource.TenantDirectoryRules.FromSession). A caller who came by password, or
+	// through a directory the tenant cannot take, is refused there and nothing is
+	// buffered. The caller's grants are asked before the rules
+	// (resource.PatchSet.Permitted), so a caller who may not create the record is
+	// refused as on any record, and learns nothing a rule's sentence says. The splice
+	// reads the resource as its dot.
+	directoryStamped = `// A directory is never typed in: the row takes the directory the caller is
+					// signed in through, held to the rules of a {{ .DirectoryTenantWord }}'s directory. The
+					// caller's grants answer first, so a caller they refuse learns nothing
+					// from a rule.
+					if err := patchSet.Permitted(ctx, txn); err != nil {
+						return errors.Wrap(err, "resource.PatchSet.Permitted()")
+					}
+					directory, err := {{ .DirectoryRules }}.FromSession(ctx, txn, domain)
+					if err != nil {
+						return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")
+					}
+					patch.Set{{ .DirectoryMethodField.Name }}(string(directory.Method)).Set{{ .DirectoryConnectionField.Name }}(directory.Connection)`
+
+	// directoryKept is spliced into the directories record's delete, before the row's
+	// removal is buffered (patchSet and domain, which the splice's place sets): the
+	// directory of a tenant that is directory only is not removed, since nobody could
+	// then enter the tenant (resource.TenantDirectoryRules.Remove). The caller's grants
+	// are asked before the rule, as on the create. The splice reads the resource as its
+	// dot.
+	directoryKept = `// A {{ .DirectoryTenantWord }} that is directory only keeps its directory: its people
+					// enter through it alone. The caller's grants answer first.
+					if err := patchSet.Permitted(ctx, txn); err != nil {
+						return errors.Wrap(err, "resource.PatchSet.Permitted()")
+					}
+					if err := {{ .DirectoryRules }}.Remove(ctx, txn, domain); err != nil {
+						return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
+					}`
+
 	// permissionsTemplate emits the application's permission endpoints — the
 	// PermissionDigest and UserDomains handlers — as one-line delegations to the
 	// library-owned handlers, so the endpoints' behavior lives in the resource
@@ -967,6 +1040,34 @@ func FileHolders() []resource.FileHolder {
 	{{- end }}
 	{{- range .Computed }}
 		resource.ComputedFileHolder("{{ .Resource }}"{{ range .Keys }}, resource.FileKey{Field: "{{ .Field }}", Store: {{ .StoreExpr }}}{{ end }}),
+	{{- end }}
+	}
+{{- else }}
+	return nil
+{{- end }}
+}
+`
+
+	// sealedHoldersTemplate emits the resources package's zz_gen_secret_holders.go: the
+	// holders a retirement of a version of the application secret reads and rewrites.
+	// It is named for what the holders keep sealed, since the linter reads a text
+	// constant named for a secret as a credential.
+	sealedHoldersTemplate = `// Code generated by resourcegeneration. DO NOT EDIT.
+// Source: {{ .Source }}
+
+package {{ .Package }}
+
+import "github.com/impulseframework/impulse/resource"
+
+// SecretHolders lists every resource that stores a secret (conditions:"secret"). The
+// migrate command hands them to resource.RetireSecretVersion when it is asked to retire
+// a version of the application secret (-retire-secret), which writes every stored value
+// that names the version again under the current one. Nil when no resource stores one.
+func SecretHolders() []resource.SecretHolder {
+{{- if .Holders }}
+	return []resource.SecretHolder{
+	{{- range .Holders }}
+		resource.SecretHolderOf[{{ . }}](),
 	{{- end }}
 	}
 {{- else }}
@@ -1378,10 +1479,18 @@ package {{ .Package }}
 
 import (
 {{- if .Declaration }}
+	"context"
+
 	"cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
 {{- end }}
-{{- if .Seat }}
+{{- if or .Seat .Declaration }}
 	{{ .LocalPackageImports }}
+{{- end }}
+{{- if .Declaration }}
+	"github.com/impulseframework/impulse"
+{{- end }}
+{{- if or .Seat .Declaration }}
 	"github.com/impulseframework/impulse/accesstypes"
 {{- end }}
 	"github.com/impulseframework/impulse/resource"
@@ -1473,6 +1582,44 @@ func New{{ .Name }}DeclarationReader() signin.DeclarationReader[*spanner.ReadWri
 func New{{ .Name }}DirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTransaction] {
 	return resource.NewTenantDirectoryReader(&{{ GoCamel .Name }}Declaration)
 }
+
+// New{{ .Name }}DirectoryRules builds the rules of a {{ .Word }}'s directory
+// (resource.TenantDirectoryRules) over the {{ .Name }} record's table and its declaration's
+// columns: a {{ .Word }} has one directory, a directory is one {{ .Word }}'s, a personal account
+// is no directory, and the directory of a {{ .Word }} that is directory only is not removed.
+// Every write of the {{ .Directories }} record is held to them. The generated {{ .Directories }}
+// write paths ask them: the create stamps the directory the caller is signed in
+// through, which no request types, and the delete asks before it removes.
+func New{{ .Name }}DirectoryRules() *resource.TenantDirectoryRules {
+	return resource.NewTenantDirectoryRules({{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, &{{ GoCamel .Name }}Declaration, {{ printf "%q" .Word }})
+}
+
+// Set{{ .Name }}Directory makes directory the {{ .Word }}'s directory, in the caller's
+// transaction: the step every write that sets a {{ .Word }}'s directory from a sign-in takes.
+// The directory is one a sign-in names, its method and its connection, never one a
+// person typed: the create-your-{{ .Word }} route hands the directory its creator came
+// through, and a caller inside a sign-in hands the identity's
+// (resource.NewSpannerReadWriteTransaction wraps the sign-in's transaction). The rules
+// are asked first (New{{ .Name }}DirectoryRules, Set), each refusal a Conflict that says what
+// to do: a personal account, a {{ .Word }} that has a directory, a directory another {{ .Word }}
+// has. Then the {{ .Directories }} row is buffered through the record's create patch, so its
+// change event is written with it. The caller reloads the roster and signals the
+// tenants kind once the transaction has committed, as the record's write paths do.
+func Set{{ .Name }}Directory(ctx context.Context, txn resource.ReadWriteTransaction, {{ .Directory.TenantParam }} {{ .Directory.TenantType }}, directory signin.Directory, eventSource ...string) error {
+	if err := New{{ .Name }}DirectoryRules().Set(ctx, txn, {{ .Directory.TenantDomain }}, directory); err != nil {
+		return errors.Wrap(err, "resource.TenantDirectoryRules.Set()")
+	}
+	patch, err := {{ .ResourcePackage }}.New{{ .Directories }}CreatePatch()
+	if err != nil {
+		return errors.Wrap(err, "{{ .ResourcePackage }}.New{{ .Directories }}CreatePatch()")
+	}
+	patch.Set{{ .Directory.TenantField }}({{ .Directory.TenantParam }}).Set{{ .Directory.MethodField }}(string(directory.Method)).Set{{ .Directory.ConnectionField }}(directory.Connection)
+	if err := patch.Buffer(ctx, txn, eventSource...); err != nil {
+		return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Directories }}CreatePatch.Buffer()")
+	}
+
+	return nil
+}
 {{- end }}
 `
 
@@ -1497,6 +1644,7 @@ import (
 	"github.com/impulseframework/impulse/logger"
 	{{- if .Directory }}
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 	{{- end }}
 	"github.com/go-playground/errors/v5"
 )
@@ -1523,11 +1671,14 @@ var _ interface {
 // in the {{ .RecordLower }}; the tenants kind is signaled last, so every instance serves it at
 // once.
 {{- if .Directory }}
-// The {{ .RecordLower }}'s first directory is the one its creator came through: a person who
-// signed in through a directory (Google, Microsoft Entra, WorkOS) has it declared on the
-// new {{ .RecordLower }} in the row's transaction ({{ .Directory.Record }}), so the {{ .RecordLower }} admits
-// them at once, one domain, one directory; a person who signed in by password declares
-// none, and the {{ .RecordLower }} admits passwords as every {{ .RecordLower }} declaring nothing does.
+// The {{ .RecordLower }}'s directory is the one its creator came through: a person who
+// signed in through an organization's directory (a Google Workspace, a Microsoft Entra
+// tenant) has it set on the new {{ .RecordLower }} in the row's transaction
+// (Set{{ .Record }}Directory, which writes the {{ .Directory.Record }} row), so the {{ .RecordLower }} admits
+// them at once. A directory belongs to one {{ .RecordLower }}: a person whose organization has a
+// {{ .RecordLower }} already is refused (409) and nothing is written. A person who signed in by
+// password, or with a personal account, which is no organization's directory, sets
+// none, and the {{ .RecordLower }} admits both as every {{ .RecordLower }} with no directory does.
 // The roster must list the {{ .RecordLower }} and its declaration before the membership is
 // probed: the probe asks what the next request asks, and a {{ .RecordLower }} the roster does
 // not know admits nobody who came through a directory.
@@ -1587,16 +1738,16 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 				return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Record }}CreatePatch.Buffer()")
 			}
 			{{- if .Directory }}
-			// The creator's directory, written with the row; none for a creator who came
-			// by password.
-			if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok && established.Method.ThroughDirectory() {
-				directory, err := {{ .ResourcePackage }}.New{{ .Directory.Record }}CreatePatch()
-				if err != nil {
-					return errors.Wrap(err, "{{ .ResourcePackage }}.New{{ .Directory.Record }}CreatePatch()")
-				}
-				directory.Set{{ .Directory.TenantField }}({{ .Directory.TenantValue }}).Set{{ .Directory.MethodField }}(string(established.Method)).Set{{ .Directory.ConnectionField }}(established.Connection)
-				if err := directory.Buffer(ctx, txn, eventSource); err != nil {
-					return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Directory.Record }}CreatePatch.Buffer()")
+			// The creator's directory, written with the row: the organization's directory
+			// the creator is signed in through, held to the rules of a {{ .RecordLower }}'s
+			// directory, so a directory another {{ .RecordLower }} has refuses the creation and
+			// nothing is written. None for a creator who came by password or with a
+			// personal account, which is no organization's directory.
+			if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok {
+				if directory := (signin.Directory{Method: established.Method, Connection: established.Connection}); directory.Organization() {
+					if err := Set{{ .Record }}Directory(ctx, txn, {{ .Directory.TenantValue }}, directory, eventSource); err != nil {
+						return errors.Wrap(err, "Set{{ .Record }}Directory()")
+					}
 				}
 			}
 			{{- end }}
@@ -2343,7 +2494,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 	patchTemplate = `func ({{ .ReceiverName }} *{{ .ApplicationName }}) Patch{{ Pluralize .Resource.Name }}() http.HandlerFunc {
 	type request struct {
 		{{- range $field := .Resource.Fields }}
-		{{ $field.Name }} {{ $field.Type}} ` + "`{{ $field.JSONTagForPatch }} {{ $field.ImmutableTag }} {{ $field.SqltypeTag }} {{ $field.NullableTag }} {{ $field.FeatureTag }} {{ $field.FormerlyTagForPatch }}`" + `
+		{{ $field.Name }} {{ $field.RequestType }} ` + "`{{ $field.JSONTagForPatch }} {{ $field.ImmutableTag }} {{ $field.SqltypeTag }} {{ $field.NullableTag }} {{ $field.FeatureTag }} {{ $field.FormerlyTagForPatch }}`" + `
 		{{- end }}
 	}
 	
@@ -2468,6 +2619,11 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 					if err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.New{{ .Resource.Name }}CreatePatchFromPatchSet()")
 					}
+					{{- if .Resource.IsTenantDirectory }}
+					{{- with .Resource }}
+					` + directoryStamped + `
+					{{- end }}
+					{{- end }}
 					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}CreatePatch.Buffer()")
 					}
@@ -2521,6 +2677,11 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 					}
 				{{- else }}
 					id := httpio.Param[{{ $PrimaryKeyType }}](op.Req, "id")
+					{{- if .Resource.IsTenantDirectory }}
+					{{- with .Resource }}
+					` + directoryKept + `
+					{{- end }}
+					{{- end }}
 					if err := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
@@ -2579,7 +2740,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 	{{- range $resource := .Resources }}
 	type {{ GoCamel $resource.Name }}Request struct {
 		{{- range $field := .Fields }}
-		{{ $field.Name }} {{ $field.Type}} ` + "`{{ $field.JSONTagForPatch }} {{ $field.ImmutableTag }} {{ $field.SqltypeTag }} {{ $field.NullableTag }} {{ $field.FeatureTag }} {{ $field.FormerlyTagForPatch }}`" + `
+		{{ $field.Name }} {{ $field.RequestType }} ` + "`{{ $field.JSONTagForPatch }} {{ $field.ImmutableTag }} {{ $field.SqltypeTag }} {{ $field.NullableTag }} {{ $field.FeatureTag }} {{ $field.FormerlyTagForPatch }}`" + `
 		{{- end }}
 	}
 	{{ GoCamel $resource.Name}}Decoder := NewDecoder[{{ $resourcePackage }}.{{ $resource.Name }}, {{ GoCamel $resource.Name }}Request]({{ $.ReceiverName }}, {{ $resource.PatchPermissionList }})
@@ -2782,6 +2943,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							if err != nil {
 								return errors.Wrap(err, "{{ GoCamel .Name}}CreatePatchFromPatchSet()")
 							}
+							{{- if .IsTenantDirectory }}
+							` + directoryStamped + `
+							{{- end }}
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}CreatePatch.Buffer()")
 							}
@@ -2840,6 +3004,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							}
 							{{- else }}
 							id := httpio.Param[{{ $primaryKeyType }}](req, "id")
+							{{- if .IsTenantDirectory }}
+							` + directoryKept + `
+							{{- end }}
 							if err := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}
@@ -5482,7 +5649,7 @@ func fieldAccessors(patchType patchType) string {
 	return fmt.Sprintf(`
 		{{- range $field := .Resource.Fields }}
 		{{ if not $field.IsPrimaryKey }}
-		func (p *{{ $field.Parent.Name }}%[1]sPatch) Set{{ $field.Name }}(v {{ $field.ResolvedType }}) *{{ $field.Parent.Name }}%[1]sPatch {
+		func (p *{{ $field.Parent.Name }}%[1]sPatch) Set{{ $field.Name }}(v {{ $field.PatchValueType }}) *{{ $field.Parent.Name }}%[1]sPatch {
 			{{ if $field.IsPointer -}}
 				if v != nil {
 					p.patchSet.Set("{{ $field.Name }}", v)
@@ -5497,11 +5664,11 @@ func fieldAccessors(patchType patchType) string {
 		}
 		{{ end }}
 
-		func (p *{{ $field.Parent.Name }}%[1]sPatch) {{ $field.Name }}() {{ $field.ResolvedType }} {
+		func (p *{{ $field.Parent.Name }}%[1]sPatch) {{ $field.Name }}() {{ $field.PatchValueType }} {
 		{{ if $field.IsPrimaryKey -}} 
 			v, _ := p.patchSet.Key("{{ $field.Name }}").({{ $field.ResolvedType }})
 		{{ else -}} 
-			v, _ := p.patchSet.Get("{{ $field.Name }}").({{ $field.ResolvedType }}) 
+			v, _ := p.patchSet.Get("{{ $field.Name }}").({{ $field.PatchValueType }}) 
 		{{ end }}
 
 			return v

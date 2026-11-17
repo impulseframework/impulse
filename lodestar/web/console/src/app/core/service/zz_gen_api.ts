@@ -4,7 +4,7 @@ import { AcrossTenantsHandle } from '@impulseframework/resource';
 import { Point } from 'geojson';
 import { Methods, Resources } from './zz_gen_constants';
 import { Clients, ClientContacts, ClientRosters, Commendations, Consignments, CrewRoles, CrewRoleGrants, CrewSectorIdentities, CrewSectorInvitations, CrewSectorUsers, CrewSectorUserRoles, CrewSessions, CrewSessionAuthEvents, CrewSessionIdentities, CrewSessionImpersonations, CrewSessionMailLinks, CrewSessionSignInAttempts, CrewSessionTokens, CrewSessionTrustedDevices, CrewSessionUsers, CrewUserRoles, DistressCalls, FeeByKinds, Hangars, HangarPasses, MembersRoles, MembersRoleGrants, MembersSectorIdentities, MembersSectorInvitations, MembersSectorUsers, MembersSectorUserRoles, MembersSessions, MembersSessionAuthEvents, MembersSessionIdentities, MembersSessionMailLinks, MembersSessionSignInAttempts, MembersSessionTrustedDevices, MembersSessionUsers, MembersUserRoles, Missions, MissionBoards, MissionDocuments, OpenMissionsBySquadrons, Pilots, PilotAssignments, PilotCertifications, Refits, RefitTasks, Sectors, SectorDirectories, SectorPilots, Ships, ShipClasses, Sorties, SortieExpenses, Squadrons, SquadronMemberships, SquadronRosters, Wings, BriefingTemplates, CrewSectorRoles, ExpenseManifests, PilotCards, SectorHazardBoards, ServiceLedgers, StandingOrders, FeatureFlags } from './zz_gen_resources';
-import { AssignCrewRole, AssignCrewSectorRole, AttachMissionDocument, AttachMissionDocumentResult, AttachRefitPhoto, BeginRefit, ClaimMission, CompileBriefing, CompileBriefingResult, CompleteMission, CompleteMissionAnswer, CreateCrewSectorUser, CreateCrewSectorUserResult, CreateCrewUser, CreateCrewUserResult, DeleteCrewSectorUser, DeleteCrewUser, DeleteMembersSectorUser, DeleteMembersUser, DisableCrewSectorUser, DisableCrewUser, DisableMembersSectorUser, DisableMembersUser, EnableCrewSectorUser, EnableCrewUser, EnableMembersSectorUser, EnableMembersUser, EndCrewSectorUserSessions, EndCrewSession, EndCrewSessionImpersonation, EndCrewUserSessions, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, FailFlightTest, FailMission, HailShip, HoldMission, InspectShip, InspectShipResult, InviteCrewSectorUser, InviteCrewSectorUserResult, InviteCrewUser, InviteCrewUserResult, IssueBulletin, LaunchMission, PassFlightTest, ReleaseConsignment, ReleaseConsignmentResult, RemoveCrewRole, RemoveCrewSectorRole, RenameCrewSectorUser, RenameCrewUser, RenameMembersSectorUser, RenameMembersUser, ReplaceMissionDocument, RequireCrewPasswordChange, RequireCrewSectorPasswordChange, ResumeMission, RevokeCrewSectorUserTrustedDevices, RevokeCrewSessionToken, RevokeCrewUserTrustedDevices, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, ScrapShip, SetCrewSectorTemporaryPassword, SetCrewSectorUserEmail, SetCrewSectorUserName, SetCrewTemporaryPassword, SetCrewUserEmail, SetCrewUserName, SetMembersSectorUserEmail, SetMembersSectorUserName, SetMembersUserEmail, SetMembersUserName, SetSectorPilotClearance, StandDownMission, StartFlightTest, UnlinkCrewSectorSessionIdentity, UnlinkCrewSessionIdentity, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockCrewSignIn, UnlockMembersSignIn, WithdrawCrewInvitation, WithdrawCrewSectorInvitation, SetFeature, SetFeatureResult } from './zz_gen_methods';
+import { AssignCrewRole, AssignCrewSectorRole, AttachMissionDocument, AttachMissionDocumentResult, AttachRefitPhoto, BeginRefit, ClaimMission, CompileBriefing, CompileBriefingResult, CompleteMission, CompleteMissionAnswer, CreateCrewSectorUser, CreateCrewSectorUserResult, CreateCrewUser, CreateCrewUserResult, DeleteCrewSectorUser, DeleteCrewUser, DeleteMembersSectorUser, DeleteMembersUser, DisableCrewSectorUser, DisableCrewUser, DisableMembersSectorUser, DisableMembersUser, EnableCrewSectorUser, EnableCrewUser, EnableMembersSectorUser, EnableMembersUser, EndCrewSectorUserSessions, EndCrewSession, EndCrewSessionImpersonation, EndCrewUserSessions, EndMembersSectorUserSessions, EndMembersSession, EndMembersUserSessions, FailFlightTest, FailMission, HailShip, HoldMission, InspectShip, InspectShipResult, InviteCrewSectorUser, InviteCrewSectorUserResult, InviteCrewUser, InviteCrewUserResult, IssueBulletin, LaunchMission, PassFlightTest, ReleaseConsignment, ReleaseConsignmentResult, RemoveCrewPassword, RemoveCrewRole, RemoveCrewSectorPassword, RemoveCrewSectorRole, RenameCrewSectorUser, RenameCrewUser, RenameMembersSectorUser, RenameMembersUser, ReplaceMissionDocument, RequireCrewPasswordChange, RequireCrewSectorPasswordChange, ResumeMission, RevokeCrewSectorUserTrustedDevices, RevokeCrewSessionToken, RevokeCrewUserTrustedDevices, RevokeMembersSectorUserTrustedDevices, RevokeMembersUserTrustedDevices, ScrapShip, SetCrewSectorTemporaryPassword, SetCrewSectorUserEmail, SetCrewSectorUserName, SetCrewTemporaryPassword, SetCrewUserEmail, SetCrewUserName, SetMembersSectorUserEmail, SetMembersSectorUserName, SetMembersUserEmail, SetMembersUserName, SetSectorPilotClearance, StandDownMission, StartFlightTest, UnlinkCrewSectorSessionIdentity, UnlinkCrewSessionIdentity, UnlinkMembersSectorSessionIdentity, UnlinkMembersSessionIdentity, UnlockCrewSignIn, UnlockMembersSignIn, WithdrawCrewInvitation, WithdrawCrewSectorInvitation, SetFeature, SetFeatureResult } from './zz_gen_methods';
 
 /** The feature flags the application declares, by name: what a route, a field or a method is gated behind. */
 export type Feature = 'commendations';
@@ -403,14 +403,10 @@ export type SectorsKey = [id: string];
  * absent; a server-generated key is absent, a client-assigned key is required.
  */
 export interface SectorDirectoriesCreate {
-  method: string;
-  connection: string;
   defaultSeat?: string | null;
 }
 /** The fields a client may change on SectorDirectories. Keys, server-owned, and immutable fields are absent. */
 export interface SectorDirectoriesPatch {
-  method?: string;
-  connection?: string;
   defaultSeat?: string | null;
 }
 /** The primary key of SectorDirectories, in route order. */
@@ -1163,7 +1159,7 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list', 'read', 'create', 'patch', 'remove', 'batch'],
       page: { default: 50 },
       order: [{ field: 'method', direction: 'asc' }, { field: 'connection', direction: 'asc' }],
-      patchable: ['method', 'connection', 'defaultSeat'],
+      patchable: ['defaultSeat'],
     },
     [Resources.SectorPilots]: {
       resource: Resources.SectorPilots,
@@ -1399,7 +1395,9 @@ export const apiDescriptor = defineApiDescriptor({
     [Methods.LaunchMission]: { method: Methods.LaunchMission, property: 'launchMission', route: 'launch-mission', scope: 'domain' },
     [Methods.PassFlightTest]: { method: Methods.PassFlightTest, property: 'passFlightTest', route: 'pass-flight-test', scope: 'domain' },
     [Methods.ReleaseConsignment]: { method: Methods.ReleaseConsignment, property: 'releaseConsignment', route: 'release-consignment', scope: 'domain', answers: true },
+    [Methods.RemoveCrewPassword]: { method: Methods.RemoveCrewPassword, property: 'removeCrewPassword', route: 'remove-crew-password', scope: 'global', statuses: [204] },
     [Methods.RemoveCrewRole]: { method: Methods.RemoveCrewRole, property: 'removeCrewRole', route: 'remove-crew-role', scope: 'global', statuses: [204] },
+    [Methods.RemoveCrewSectorPassword]: { method: Methods.RemoveCrewSectorPassword, property: 'removeCrewSectorPassword', route: 'remove-crew-sector-password', scope: 'domain', statuses: [204] },
     [Methods.RemoveCrewSectorRole]: { method: Methods.RemoveCrewSectorRole, property: 'removeCrewSectorRole', route: 'remove-crew-sector-role', scope: 'domain', statuses: [204] },
     [Methods.RenameCrewSectorUser]: { method: Methods.RenameCrewSectorUser, property: 'renameCrewSectorUser', route: 'rename-crew-sector-user', scope: 'domain', statuses: [204] },
     [Methods.RenameCrewUser]: { method: Methods.RenameCrewUser, property: 'renameCrewUser', route: 'rename-crew-user', scope: 'global', statuses: [204] },
@@ -1448,12 +1446,12 @@ export const apiDescriptor = defineApiDescriptor({
         {
           scope: 'global',
           lists: { users: Resources.CrewSessionUsers, roles: Resources.CrewUserRoles, identities: Resources.CrewSessionIdentities, invitations: Resources.CrewSessionMailLinks, sessions: Resources.CrewSessions, signInAttempts: Resources.CrewSessionSignInAttempts },
-          methods: { create: Methods.CreateCrewUser, invite: Methods.InviteCrewUser, withdrawInvitation: Methods.WithdrawCrewInvitation, assignRole: Methods.AssignCrewRole, removeRole: Methods.RemoveCrewRole, disable: Methods.DisableCrewUser, enable: Methods.EnableCrewUser, delete: Methods.DeleteCrewUser, rename: Methods.RenameCrewUser, setName: Methods.SetCrewUserName, setEmail: Methods.SetCrewUserEmail, setTemporaryPassword: Methods.SetCrewTemporaryPassword, requirePasswordChange: Methods.RequireCrewPasswordChange, endUserSessions: Methods.EndCrewUserSessions, revokeTrustedDevices: Methods.RevokeCrewUserTrustedDevices, unlinkIdentity: Methods.UnlinkCrewSessionIdentity, endSession: Methods.EndCrewSession, unlockSignIn: Methods.UnlockCrewSignIn },
+          methods: { create: Methods.CreateCrewUser, invite: Methods.InviteCrewUser, withdrawInvitation: Methods.WithdrawCrewInvitation, assignRole: Methods.AssignCrewRole, removeRole: Methods.RemoveCrewRole, disable: Methods.DisableCrewUser, enable: Methods.EnableCrewUser, delete: Methods.DeleteCrewUser, rename: Methods.RenameCrewUser, setName: Methods.SetCrewUserName, setEmail: Methods.SetCrewUserEmail, setTemporaryPassword: Methods.SetCrewTemporaryPassword, requirePasswordChange: Methods.RequireCrewPasswordChange, endUserSessions: Methods.EndCrewUserSessions, revokeTrustedDevices: Methods.RevokeCrewUserTrustedDevices, unlinkIdentity: Methods.UnlinkCrewSessionIdentity, removePassword: Methods.RemoveCrewPassword, endSession: Methods.EndCrewSession, unlockSignIn: Methods.UnlockCrewSignIn },
         },
         {
           scope: 'domain',
           lists: { users: Resources.CrewSectorUsers, roles: Resources.CrewSectorUserRoles, identities: Resources.CrewSectorIdentities, invitations: Resources.CrewSectorInvitations },
-          methods: { create: Methods.CreateCrewSectorUser, invite: Methods.InviteCrewSectorUser, withdrawInvitation: Methods.WithdrawCrewSectorInvitation, assignRole: Methods.AssignCrewSectorRole, removeRole: Methods.RemoveCrewSectorRole, disable: Methods.DisableCrewSectorUser, enable: Methods.EnableCrewSectorUser, delete: Methods.DeleteCrewSectorUser, rename: Methods.RenameCrewSectorUser, setName: Methods.SetCrewSectorUserName, setEmail: Methods.SetCrewSectorUserEmail, setTemporaryPassword: Methods.SetCrewSectorTemporaryPassword, requirePasswordChange: Methods.RequireCrewSectorPasswordChange, endUserSessions: Methods.EndCrewSectorUserSessions, revokeTrustedDevices: Methods.RevokeCrewSectorUserTrustedDevices, unlinkIdentity: Methods.UnlinkCrewSectorSessionIdentity },
+          methods: { create: Methods.CreateCrewSectorUser, invite: Methods.InviteCrewSectorUser, withdrawInvitation: Methods.WithdrawCrewSectorInvitation, assignRole: Methods.AssignCrewSectorRole, removeRole: Methods.RemoveCrewSectorRole, disable: Methods.DisableCrewSectorUser, enable: Methods.EnableCrewSectorUser, delete: Methods.DeleteCrewSectorUser, rename: Methods.RenameCrewSectorUser, setName: Methods.SetCrewSectorUserName, setEmail: Methods.SetCrewSectorUserEmail, setTemporaryPassword: Methods.SetCrewSectorTemporaryPassword, requirePasswordChange: Methods.RequireCrewSectorPasswordChange, endUserSessions: Methods.EndCrewSectorUserSessions, revokeTrustedDevices: Methods.RevokeCrewSectorUserTrustedDevices, unlinkIdentity: Methods.UnlinkCrewSectorSessionIdentity, removePassword: Methods.RemoveCrewSectorPassword },
         },
       ],
     },
@@ -1556,6 +1554,7 @@ export interface GlobalApi {
   endMembersUserSessions: MethodHandle<EndMembersUserSessions>;
   inviteCrewUser: MethodHandle<InviteCrewUser, InviteCrewUserResult>;
   issueBulletin: MethodHandle<IssueBulletin>;
+  removeCrewPassword: MethodHandle<RemoveCrewPassword>;
   removeCrewRole: MethodHandle<RemoveCrewRole>;
   renameCrewUser: MethodHandle<RenameCrewUser>;
   renameMembersUser: MethodHandle<RenameMembersUser>;
@@ -1635,6 +1634,7 @@ export interface DomainApi {
   launchMission: MethodHandle<LaunchMission>;
   passFlightTest: MethodHandle<PassFlightTest>;
   releaseConsignment: MethodHandle<ReleaseConsignment, ReleaseConsignmentResult>;
+  removeCrewSectorPassword: MethodHandle<RemoveCrewSectorPassword>;
   removeCrewSectorRole: MethodHandle<RemoveCrewSectorRole>;
   renameCrewSectorUser: MethodHandle<RenameCrewSectorUser>;
   renameMembersSectorUser: MethodHandle<RenameMembersSectorUser>;

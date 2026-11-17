@@ -414,6 +414,14 @@ type computedHolderKey struct {
 	StoreExpr string
 }
 
+// secretHoldersData feeds the resources package's zz_gen_secret_holders.go: the
+// resources that store a secret, by struct name.
+type secretHoldersData struct {
+	Source  string
+	Package string
+	Holders []string
+}
+
 // featuresData feeds the handler package's zz_gen_features.go: the feature flag
 // handlers as delegations to the library's.
 type featuresData struct {

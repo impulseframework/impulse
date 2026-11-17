@@ -32,6 +32,11 @@ type MethodList struct {
 	// operator set. It is required when the password method is listed, since every
 	// user an operator gives a password must change it, and refused when it is not.
 	ChangePassword string
+	// RemovePassword is the path of the password method's RemoveUserPassword handler,
+	// where a signed-in person's account page removes their password once they sign in
+	// through a directory, or none. It is refused when the password method is not
+	// listed.
+	RemovePassword string
 	// ForgetBrowser is the path of the Auth's ForgetBrowser handler, where a signed-in
 	// person's account page forgets the browser the second factor remembered for them,
 	// or none. The page shows the action only where the session says the browser is
@@ -107,6 +112,7 @@ type methodsAnswer struct {
 	Methods        []signin.Advertisement `json:"methods"`
 	Pending        *pendingAnswer         `json:"pending,omitempty"`
 	ChangePassword string                 `json:"changePassword,omitempty"`
+	RemovePassword string                 `json:"removePassword,omitempty"`
 	ForgetBrowser  string                 `json:"forgetBrowser,omitempty"`
 	ChangeName     string                 `json:"changeName,omitempty"`
 	ChangeLook     string                 `json:"changeLook,omitempty"`
@@ -177,7 +183,8 @@ type pendingAnswer struct {
 // method its name, the method behind it, how it starts (a form for the password
 // method, a redirect for an external one), its label and its path, in the list's
 // order, the pending sign-in routes when the list names them, and the password
-// change route when the password method is listed. When the list names the invitation
+// change route when the password method is listed, with the route that removes the
+// password when the list names it. When the list names the invitation
 // routes and the browser carries a live invitation (the cookie Invitation().Open()
 // set), the invitation block also reports it under "standing": the address it was
 // sent to, its tenant, when it stops being accepted, whether an account created from
@@ -202,7 +209,7 @@ type pendingAnswer struct {
 // that is not registered on this Auth, a name listed twice, a method without a label
 // or with a path that is not a canonical path in the application, a pending block
 // with some of its paths, the password method without the password change route, or
-// that route without the password method.
+// that route or the remove-password route without the password method.
 func (a *Auth[S, U, Tx]) Methods(list *MethodList) http.HandlerFunc {
 	answer := a.advertise(list)
 
@@ -314,6 +321,7 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	passwordListed := seen[string(sessioninfo.MethodPassword)]
 	answer.Pending = pendingAnswerOf(&list.Pending)
 	answer.ChangePassword = changePasswordPathOf(list, passwordListed)
+	answer.RemovePassword = removePasswordPathOf(list, passwordListed)
 	answer.ForgetBrowser = forgetBrowserPathOf(list)
 	answer.ChangeName = changeNamePathOf(list)
 	answer.ChangeLook = changeLookPathOf(list)
@@ -386,6 +394,22 @@ func changePasswordPathOf(list *MethodList, passwordListed bool) string {
 	}
 
 	return list.ChangePassword
+}
+
+// removePasswordPathOf validates the remove-your-password route: none, or a canonical
+// path beside a listed password method.
+func removePasswordPathOf(list *MethodList, passwordListed bool) string {
+	switch {
+	case list.RemovePassword == "":
+		return ""
+	case !passwordListed:
+		panic(fmt.Sprintf("session: Methods is given the remove-your-password route %q but lists no password method: drop it, or list the method", list.RemovePassword))
+	case !advertisedPath(list.RemovePassword):
+		panic(fmt.Sprintf("session: Methods is given the remove-your-password route %q, which is not a canonical path in the application: "+
+			"give it the path the password method's RemoveUserPassword handler is mounted at, such as /api/user/password/remove", list.RemovePassword))
+	}
+
+	return list.RemovePassword
 }
 
 // changeLookPathOf validates the keep-your-look route: none, or a canonical path.

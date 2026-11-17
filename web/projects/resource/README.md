@@ -522,6 +522,14 @@ password did not match, the new one is the old one). A login page that finds the
 session read renders the change form before it opens the application. A signed-in person
 changes their own password the same way, from their account page.
 
+A person who signs in through a directory can do without the password. Where the server
+serves its removal the methods list names the path as `removePassword`, and
+`removePassword(password)` posts the password there as proof, reading the list again first:
+`removed`, after which the password no longer signs the person in and the session they hold
+continues, or `refused` with the server's words (the password did not match, or no directory
+sign-in is linked to the person, whose password is then their only way in). A server whose
+list names no such path does not serve it, and the call throws saying so.
+
 A browser the second factor remembered (the person ticked "Remember this browser" at the
 emailed code) is forgotten from the account page: the session read carries
 `browserRemembered: true` while the browser holds the person's remembered entry, the list
@@ -608,7 +616,7 @@ each with its `lists` (`users`, `roles`, `identities`, `invitations`, `sessions`
 `signInAttempts`) and its `methods` (`create`, `invite`, `withdrawInvitation`, `assignRole`,
 `removeRole`, `disable`, `enable`, `delete`, `rename`, `setName`, `setEmail`, `setTemporaryPassword`,
 `requirePasswordChange`, `endUserSessions`, `revokeTrustedDevices`, `unlinkIdentity`,
-`endSession`, `unlockSignIn`) by the names the generator gave them. Every key but `users` is
+`removePassword`, `endSession`, `unlockSignIn`) by the names the generator gave them. Every key but `users` is
 optional: the block names what the outlet serves and nothing else. The lists and the methods
 are ordinary entries of `resources` and `methods`; the block says which is which, so a page
 over an Auth's people is written once for every application (`IdentityDescriptor`,

@@ -15,9 +15,10 @@ import (
 // engine accepts: the file parses the way the engine reads it when the release starts
 // (access.RoleFile.Parse), which settles everything the file decides on its own, with no
 // permission collection. Every role is named in the one grammar, letters and digits
-// starting with a capital letter, with the scope never part of the name; every role
-// carries a description saying what it is for; and every grant names a resource, with a
-// condition that parses. A file the engine would refuse stops the release at start, so
+// starting with a capital letter, with the scope never part of the name, and none takes
+// the name of the role the framework defines in every auth, SuperAdministrator, in any
+// case; every role carries a description saying what it is for; and every grant names a
+// resource, with a condition that parses. A file the engine would refuse stops the release at start, so
 // the refusal is a finding here, naming the file, the role and the rule. What the file
 // grants is validated against the collection by the engine and the validation test
 // auths-wired asks for; this reads the file alone.
@@ -31,7 +32,7 @@ func (rolesFileAccepted) Name() string {
 }
 
 func (rolesFileAccepted) Describe() string {
-	return "every auth package's role file (pkg/auth/<name>/roles.json) parses the way the permission engine reads it at start, with no permission collection: every role is named in the one grammar (letters and digits starting with a capital letter; the scope is never part of the name) and carries a description saying what it is for, and every grant names a resource with a condition that parses; a file the engine would refuse is a finding naming the file, the role and the rule"
+	return "every auth package's role file (pkg/auth/<name>/roles.json) parses the way the permission engine reads it at start, with no permission collection: every role is named in the one grammar (letters and digits starting with a capital letter; the scope is never part of the name), none takes the name the framework keeps for its own role (SuperAdministrator), and each carries a description saying what it is for, and every grant names a resource with a condition that parses; a file the engine would refuse is a finding naming the file, the role and the rule"
 }
 
 func (c rolesFileAccepted) Run(_ context.Context, env *Env) Result {

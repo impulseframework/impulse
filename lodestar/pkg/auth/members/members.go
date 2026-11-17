@@ -99,8 +99,9 @@ const (
 	factorCodesTable    = "MembersSessionFactorCodes"
 	trustedDevicesTable = "MembersSessionTrustedDevices"
 
-	// Application is the fleet's name as the mail the auth sends says it.
-	Application = "Lodestar"
+	// Application is the portal's name as the mail the auth sends says it: the name the
+	// portal's brand declares (web/portal/brand.json), which impulse brand writes here.
+	Application = "Lodestar Client Portal"
 )
 
 // rolesFile is the auth's default roles: what a client may do, in the lowercase names the
@@ -264,7 +265,15 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	if err != nil {
 		return nil, errors.Wrap(err, "spannerstore.New()")
 	}
-	accessClient, err := access.New(store, access.WithDefaultRoles(settings.Collection, Roles()), access.WithChangeSignal(settings.ChangeSignal))
+	// The members' engine defines the framework's Super Administrator role as every
+	// auth's does, and the generated management names no method that gives a role
+	// (membersidentity.SuperAdministratorMethods is empty): the directory's groups name
+	// a client's roles, and the sync neither gives nor takes that one.
+	accessClient, err := access.New(store,
+		access.WithDefaultRoles(settings.Collection, Roles()),
+		access.WithChangeSignal(settings.ChangeSignal),
+		access.WithSuperAdministratorMethods(membersidentity.SuperAdministratorMethods()...),
+	)
 	if err != nil {
 		return nil, errors.Wrap(err, "access.New()")
 	}
@@ -351,6 +360,10 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	//
 	// Demonstrates: auth.second-factor.
 	membersSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations).Then(requireSecondFactor))
+
+	// A super administrator signs in with a second factor whatever the rule above asks
+	// of anyone else, by a rule of the library's own after the members'.
+	membersSession.SetSuperAdministrators(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager())))
 
 	// The members' identity client (pkg/identity, generated): the lists of the auth's
 	// people and the methods that act on an account, over the engine that reads their

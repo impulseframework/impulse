@@ -694,6 +694,9 @@
               "resource": "UnlinkCrewSessionIdentity"
             },
             {
+              "resource": "RemoveCrewPassword"
+            },
+            {
               "resource": "RevokeCrewSessionToken"
             },
             {
@@ -1611,11 +1614,7 @@
               ]
             },
             {
-              "resource": "SectorDirectories",
-              "fields": [
-                "method",
-                "connection"
-              ]
+              "resource": "SectorDirectories"
             }
           ],
           "Update": [
@@ -1892,6 +1891,10 @@
             },
             {
               "resource": "UnlinkCrewSectorSessionIdentity",
+              "condition": "heldElsewhere = false AND heldGlobally = false"
+            },
+            {
+              "resource": "RemoveCrewSectorPassword",
               "condition": "heldElsewhere = false AND heldGlobally = false"
             }
           ]

@@ -69,7 +69,7 @@ import { applyFormatting, formatByDisplayType, formatDateString } from '../forma
 import { iconTemplateFields, resolveIconCell } from './icon-cell';
 import { DeleteResourceConfirmationModalComponent } from '../delete-resource-confirmation-modal/delete-resource-confirmation-modal.component';
 import { methodDoneMessage, openMethodDialog } from '../method-dialog/open-method-dialog';
-import { filledMethods, offered, OfferedMethod, rowMethods } from '../row-methods/row-methods';
+import { filledMethods, offered, OfferedMethod, parentOffers, rowMethods } from '../row-methods/row-methods';
 import { ResourceStore } from '../resource-store.service';
 import { SearchBoxComponent } from '../search-box/search-box.component';
 import {
@@ -291,15 +291,20 @@ export class ResourceListComponent implements OnInit {
     return rowMethodsConfig === false ? undefined : rowMethodsConfig;
   });
   /**
-   * The methods offered above the list: the ones the page names (`listMethods`), each
-   * drawn when the digest grants the caller Execute on it in the selected tenant.
+   * The methods offered above the list: the ones the page names (`listMethods`). One
+   * that names no row is drawn when the digest grants the caller Execute on it in the
+   * selected tenant. One that names a row (`@target`) runs against the row the list sits
+   * under, so it is drawn when the server's answer for that row lists it: the page
+   * offers it only where the caller may run it on that row.
    */
   listMethods = computed<OfferedMethod[]>(() => {
     const presentations = this.across() ? [] : (this.config().listMethods ?? []);
     return presentations
       .filter((presentation) => !presentation.hidden)
       .filter((presentation) =>
-        this.auth.hasPermission({ resource: presentation.method, permission: ExecutePermission }),
+        this.store.methodMeta(presentation.method)?.target
+          ? parentOffers(this.relatedData(), presentation)
+          : this.auth.hasPermission({ resource: presentation.method, permission: ExecutePermission }),
       )
       .map((presentation) => offered(presentation.method, this.store.methodMeta(presentation.method), presentations));
   });

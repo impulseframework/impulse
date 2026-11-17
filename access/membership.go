@@ -74,6 +74,9 @@ func (u *userManager) Membership(ctx context.Context, scope accesstypes.PolicySc
 	if held == nil {
 		return MembershipKey{}, errors.New("access.UserManager.Membership(): the reader of the roles table is nil; pass one over the transaction the membership is written in")
 	}
+	if err := refuseSuperAdministratorOutsideGlobal(scope, role); err != nil {
+		return MembershipKey{}, err
+	}
 	found, err := u.roleExistsBy(ctx, scope, role, func(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 		kind, axis, domain := policy.ScopeColumns(scope)
 		exists, err := held(ctx, RoleKey{Kind: kind, Axis: axis, Domain: domain, Role: role})

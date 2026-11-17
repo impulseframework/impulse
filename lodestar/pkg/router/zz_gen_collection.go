@@ -696,6 +696,12 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "Consignments",
 			},
 			{
+				Name:        "RemoveCrewSectorPassword",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Target:      "CrewSectorUsers",
+			},
+			{
 				Name:        "RemoveCrewSectorRole",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -756,19 +762,18 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
 				Tags: []resource.TagData{
-					{Name: "connection", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
+					{Name: "connection", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "defaultSeat", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 					{Name: "id"},
-					{Name: "method", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
+					{Name: "method", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "sectorId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 				},
 				Attributes: []resource.AttributeData{
 					{Name: "defaultSeat", Column: "DefaultSeat", Type: "string"},
 				},
-				Domain:       &resource.DomainBindingData{Column: "SectorId"},
-				Order:        []accesstypes.Tag{"method", "connection"},
-				QueryKeys:    []accesstypes.Tag{"sectorId", "method"},
-				RequiredTags: []accesstypes.Tag{"connection", "method"},
+				Domain:    &resource.DomainBindingData{Column: "SectorId"},
+				Order:     []accesstypes.Tag{"method", "connection"},
+				QueryKeys: []accesstypes.Tag{"sectorId", "method"},
 			},
 			{
 				Name:        "SectorHazardBoards",
@@ -1613,6 +1618,12 @@ func Collection() *resource.GeneratedCollection {
 				Order:        []accesstypes.Tag{"displayName"},
 				QueryKeys:    []accesstypes.Tag{"userId"},
 				RequiredTags: []accesstypes.Tag{"clearance", "displayName", "feeLimit", "userId"},
+			},
+			{
+				Name:        "RemoveCrewPassword",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Target:      "CrewSessionUsers",
 			},
 			{
 				Name:        "RemoveCrewRole",

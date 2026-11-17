@@ -208,8 +208,16 @@ func (a *App) InviteCrewUser() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).InviteCrewUser()
 }
 
+func (a *App) RemoveCrewPassword() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).RemoveCrewPassword()
+}
+
 func (a *App) RemoveCrewRole() http.HandlerFunc {
 	return crewhandlers.New(a, liveDerivations).RemoveCrewRole()
+}
+
+func (a *App) RemoveCrewSectorPassword() http.HandlerFunc {
+	return crewhandlers.New(a, liveDerivations).RemoveCrewSectorPassword()
 }
 
 func (a *App) RemoveCrewSectorRole() http.HandlerFunc {

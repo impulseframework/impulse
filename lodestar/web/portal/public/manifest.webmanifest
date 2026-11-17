@@ -1,11 +1,11 @@
 {
-  "name": "Lodestar Portal",
-  "short_name": "Lodestar Portal",
+  "name": "Lodestar Client Portal",
+  "short_name": "Lodestar Client Portal",
   "id": "/portal/",
   "scope": "./",
   "start_url": "./",
   "display": "standalone",
-  "theme_color": "#1f2331",
+  "theme_color": "#005cbb",
   "background_color": "#f7f6f2",
   "icons": [
     { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },

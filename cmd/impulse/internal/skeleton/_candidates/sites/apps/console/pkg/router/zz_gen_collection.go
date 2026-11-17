@@ -80,6 +80,12 @@ func Collection() *resource.GeneratedCollection {
 				},
 			},
 			{
+				Name:        "RemoveStaffTenantPassword",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Target:      "StaffTenantUsers",
+			},
+			{
 				Name:        "RemoveStaffTenantRole",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -236,16 +242,15 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
 				Tags: []resource.TagData{
-					{Name: "connection", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
+					{Name: "connection", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "defaultSeat", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 					{Name: "id"},
-					{Name: "method", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
+					{Name: "method", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "tenantId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 				},
-				Domain:       &resource.DomainBindingData{Column: "TenantId"},
-				Order:        []accesstypes.Tag{"method", "connection"},
-				QueryKeys:    []accesstypes.Tag{"tenantId", "method"},
-				RequiredTags: []accesstypes.Tag{"connection", "method"},
+				Domain:    &resource.DomainBindingData{Column: "TenantId"},
+				Order:     []accesstypes.Tag{"method", "connection"},
+				QueryKeys: []accesstypes.Tag{"tenantId", "method"},
 			},
 			{
 				Name:        "UnlinkStaffTenantSessionIdentity",
@@ -325,6 +330,12 @@ func Collection() *resource.GeneratedCollection {
 				Attributes: []resource.AttributeData{
 					{Name: "role", Column: "Roles", Type: "string", List: true},
 				},
+			},
+			{
+				Name:        "RemoveStaffPassword",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Target:      "StaffSessionUsers",
 			},
 			{
 				Name:        "RemoveStaffRole",

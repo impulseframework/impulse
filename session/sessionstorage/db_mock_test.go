@@ -877,6 +877,20 @@ func (mr *MockdbMockRecorder) RedeemDeviceCode(ctx, deviceCodeHash, now, interva
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RedeemDeviceCode", reflect.TypeOf((*Mockdb)(nil).RedeemDeviceCode), ctx, deviceCodeHash, now, interval, access, refresh)
 }
 
+// RemoveUserPassword mocks base method.
+func (m *Mockdb) RemoveUserPassword(ctx context.Context, userID impulse.UUID) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RemoveUserPassword", ctx, userID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// RemoveUserPassword indicates an expected call of RemoveUserPassword.
+func (mr *MockdbMockRecorder) RemoveUserPassword(ctx, userID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RemoveUserPassword", reflect.TypeOf((*Mockdb)(nil).RemoveUserPassword), ctx, userID)
+}
+
 // RevokeMailLink mocks base method.
 func (m *Mockdb) RevokeMailLink(ctx context.Context, id impulse.UUID, now time.Time) error {
 	m.ctrl.T.Helper()

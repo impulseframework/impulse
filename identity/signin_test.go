@@ -127,19 +127,49 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 	id := userID.String()
 
 	tests := []struct {
-		name        string
-		seats       []signin.DirectorySeat
+		name  string
+		seats []signin.DirectorySeat
+		// held are the memberships the person holds before the sign-in, as committed.
+		held        []access.MembershipKey
 		custom      []access.RoleKey
 		wantErr     func(error) bool
 		wantWrites  []string
+		wantGiven   []signin.DirectorySeat
 		wantChanged int
 	}{
+		{
+			name:        "a person who holds a role in another tenant is given the default role in the directory's tenant",
+			seats:       []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			held:        []access.MembershipKey{access.NewMembershipKey(accesstypes.DomainPolicyScope("beta"), User(userID), "Reader")},
+			wantWrites:  []string{"insert membership domain/alpha " + id + " Reader"},
+			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			wantChanged: 1,
+		},
+		{
+			name:  "a person who holds a role in the tenant keeps what they hold and is given nothing",
+			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			held:  []access.MembershipKey{access.NewMembershipKey(accesstypes.DomainPolicyScope("alpha"), User(userID), "Editor")},
+		},
+		{
+			name:  "a person who holds the default role itself in the tenant is given nothing",
+			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			held:  []access.MembershipKey{access.NewMembershipKey(accesstypes.DomainPolicyScope("alpha"), User(userID), "Reader")},
+		},
+		{
+			name:        "a role held for the whole application is no role in the tenant: the default role is given",
+			seats:       []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			held:        []access.MembershipKey{access.NewMembershipKey(accesstypes.GlobalPolicyScope(), User(userID), "Operator")},
+			wantWrites:  []string{"insert membership domain/alpha " + id + " Reader"},
+			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}},
+			wantChanged: 1,
+		},
 		{
 			name:  "each default role is given in its tenant, and the engine is told once",
 			seats: []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}, {Tenant: "beta", Role: "Auditor"}},
 			// beta's role is a custom one, read from the roles table.
 			custom:      []access.RoleKey{{Kind: "domain", Domain: "beta", Role: "Auditor"}},
 			wantWrites:  []string{"insert membership domain/alpha " + id + " Reader", "insert membership domain/beta " + id + " Auditor"},
+			wantGiven:   []signin.DirectorySeat{{Tenant: "alpha", Role: "Reader"}, {Tenant: "beta", Role: "Auditor"}},
 			wantChanged: 1,
 		},
 		{
@@ -160,10 +190,17 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 			for _, key := range tt.custom {
 				store.roles[key] = true
 			}
+			for _, key := range tt.held {
+				store.memberships[key] = true
+			}
 			m, engine := newManager(t, store, engineRoles)
 
+			var given []signin.DirectorySeat
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return m.giveDirectoryRoles(ctx, txn, userID, "dana", tt.seats)
+				var err error
+				given, err = m.giveDirectoryRoles(ctx, txn, userID, "dana", tt.seats)
+
+				return err
 			})
 			if tt.wantErr != nil {
 				if err == nil || !tt.wantErr(err) {
@@ -177,6 +214,11 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
+			if tt.wantErr == nil {
+				if diff := cmp.Diff(tt.wantGiven, given); diff != "" {
+					t.Errorf("seats given (-want +got):\n%s", diff)
+				}
 			}
 			if engine.changed != tt.wantChanged {
 				t.Errorf("the engine was told the policy changed %d time(s), want %d", engine.changed, tt.wantChanged)

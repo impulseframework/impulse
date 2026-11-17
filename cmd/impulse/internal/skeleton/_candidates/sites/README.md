@@ -32,16 +32,18 @@ menu holds Your account, Appearance and Sign out, and Help ends with About, whic
 the release.
 
 Who may enter a tenant is the record's declaration, data of the application rather than
-deploy configuration: the directories the tenant admits its people through
-(`TenantDirectory`, the console site's, one row each under
+deploy configuration: the tenant's directory, the organization its people sign in
+through (`TenantDirectory`, the console site's, one row at most under
 `/api/tenants/{tenantID}/tenant-directories`: a sign-in method and the connection its
 identities carry, a Google Workspace by its domain or a Microsoft Entra tenant by its
-tenant id) and whether its people enter through them only (`Tenant.DirectoryOnly`, which
-closes passwords). The staff auth's sign-in rule, one for both sites, is the library's
+tenant id) and whether its people enter through it only (`Tenant.DirectoryOnly`, which
+closes passwords). A tenant has one directory and a directory belongs to one tenant: the
+table's two unique indexes hold both, and the generated write paths refuse first, each
+with a sentence the person can act on. The staff auth's sign-in rule, one for both sites, is the library's
 tenant policy over it (`signin.TenantPolicy`, handed the console site's generated
 `NewTenantDeclarationReader`, which reads the declaration in the sign-in's own
-transaction): a sign-in through a directory is admitted when one of the person's tenants
-declares that directory, a password unless every one of their tenants is directory only,
+transaction): a sign-in through a directory is admitted when it is the directory of one
+of the person's tenants, a password unless every one of their tenants is directory only,
 staff (a global role) on the library's checks, and a person holding no tenant is refused.
 Which tenants the session then reaches is decided again per tenant where its tenant list
 is computed, on either site: the shared roster keeps every tenant's declaration beside
@@ -49,8 +51,13 @@ its key (`resource.TenantRoster.Declarations`, handed to `resource.SessionPermis
 both Apps), the console's write paths reload it after their commit and signal the other
 instances, so a declaration decides the next request on both sites, and the records'
 change events are the audit of every edit. The console's tenant pages carry the
-declaration at `/tenants/{tenantID}/sign-in`: the tenant's administrator declares and
-withdraws directories there, the application's administrator sets directory only.
+declaration at `/tenants/{tenantID}/sign-in`: the tenant's administrator sees the
+tenant's directory there, picks its default role and removes it, and the application's
+administrator sets directory only. Nobody types a directory in: it is set from a
+sign-in, by an administrator who is signed in through their organization's directory,
+whom the page offers to make it the tenant's. The staff auth signs in by password until
+a directory method joins it (`impulse add method`), so until then the page offers no
+such action and a call is refused with how a directory is set.
 
 ## Layout
 
@@ -114,6 +121,10 @@ withdraws directories there, the application's administrator sets directory only
   and `-force <n>` and `-force-data <n>` set a table to a version (-1 for no version), for
   the states the migration runner refuses to guess at; the pipeline passes them from the
   operations workflow (`bedrock migration`), and none of them applies a migration.
+  `-retire-secret APP_SECRET_KEY_1` retires a version of the application secret: it writes
+  every stored secret field that names the version again under the current one, confirms
+  none is left and exits 0 only then, so the deployment disables the version only when no
+  stored value needs it (see "Secret fields").
 - `cmd/generate` runs the three generators: console, portal, shared. `impulse check`'s
   sites-generators check fails the build when a generator reads a different schema or the
   shared generator misses a site.
@@ -199,6 +210,28 @@ through `CursorKey()`. In the browser, `@impulseframework/resource` follows the 
 `page()` and reads every row with `all()`. Computed resources answer the same query
 surface; their List function may take the conditions, sort, or page it pushes down and the
 generated handler applies the rest.
+
+## Secret fields
+
+A field that holds a secret the application must use itself (an API key, a signing key) is
+declared `conditions:"secret"` and typed `resource.Secret`, on a `BYTES` column with room
+for the 42 bytes sealing adds: `APIKey *resource.Secret` on `ApiKey BYTES(106)` takes a key
+of up to 64 bytes. The field is never served, the form masks it, a change record names it
+without its values, and the database holds it encrypted: the resource client seals the
+value when it is written, and code that needs it opens it with the row's generated method
+(`row.OpenAPIKey(conf.SecretKeys())`, or `row.OpenAPIKeyIn(ctx, txn)` inside a
+transaction). The generator refuses a `secret` field typed a plain `string`.
+
+The key is the application secret, which `pkg/config` declares
+(`env:"APP_SECRET_KEY" secret:"versioned"`) and reads into the resource client's secret
+keys. It is kept in versions, each in a variable of its own: `.envrc.template` sets
+`APP_SECRET_KEY_1` to a development value, and a deployment generates the secret and hands
+the service every enabled version (`APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`), the highest the
+current one. An application with a secret field refuses to start without a version. A
+version is retired, before the deployment disables it, by the migrate command
+(`-retire-secret APP_SECRET_KEY_1`), which writes every stored value that names it again
+under the current version. The framework's `resource/README.md`, "Secrets at rest", has
+the whole of it.
 
 ## Running it
 

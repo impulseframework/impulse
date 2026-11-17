@@ -5,12 +5,13 @@ import { TransportResponse } from '@impulseframework/resource';
 import { ScriptedTransport } from '@impulseframework/resource/testing';
 import { firstValueFrom } from 'rxjs';
 import { Account } from './account';
-import { AccountPageComponent, passwordsDiffer } from './account-page.component';
+import { AccountPageComponent, passwordRemovalConsequence, passwordsDiffer } from './account-page.component';
 import { passwordMethods, provideFrameTesting, SpecServer, specTransport } from './frame-testing';
 
 // The person's account page holds a section only where their sign-in offers it: their name
 // where the server serves its change and the session is their own, the password change
-// where the auth has the password method, forgetting this browser where it is remembered
+// where the auth has the password method, the removal of the password where the server
+// serves it and the session is their own, forgetting this browser where it is remembered
 // for them and the server serves forgetting it. A server that offers none of them leaves
 // the page saying there is nothing to change.
 
@@ -21,6 +22,8 @@ interface Setup {
   session?: Record<string, unknown>;
   /** What the server answers the change of the name with. */
   nameAnswer?: TransportResponse;
+  /** What the server answers the removal of the password with; unset, it removes it. */
+  removeAnswer?: TransportResponse;
 }
 
 describe('AccountPageComponent', () => {
@@ -38,7 +41,13 @@ describe('AccountPageComponent', () => {
     await TestBed.inject(ApplicationRef).whenStable();
   };
 
-  const open = async ({ methods = {}, remembered = false, session = {}, nameAnswer }: Setup): Promise<void> => {
+  const open = async ({
+    methods = {},
+    remembered = false,
+    session = {},
+    nameAnswer,
+    removeAnswer,
+  }: Setup): Promise<void> => {
     // The session the spec's server answers: a saved name is answered from then on, in an
     // answer of its own, as a server's every read is.
     const server: SpecServer = {
@@ -50,6 +59,9 @@ describe('AccountPageComponent', () => {
             server.session = { ...server.session, name: (nameAnswer.body as { name?: string } | null)?.name ?? null };
           }
           return nameAnswer;
+        }
+        if (url.pathname === passwordMethods.removePassword && removeAnswer) {
+          return removeAnswer;
         }
         return url.pathname.startsWith('/api/user/') ? { status: 200, body: null } : undefined;
       },
@@ -207,6 +219,116 @@ describe('AccountPageComponent', () => {
     expect(posted()).toEqual([passwordMethods.changePassword]);
     expect(text('.password .message')).toBe('Your password is changed.');
   });
+
+  // A sign-in that offers the password and one directory, and serves the password's removal.
+  const lakeside = {
+    name: 'lakeside',
+    method: 'workos',
+    kind: 'redirect',
+    label: 'Lakeside',
+    path: '/api/user/lakeside/login',
+  };
+  const removal = {
+    methods: [lakeside],
+    changePassword: passwordMethods.changePassword,
+    removePassword: passwordMethods.removePassword,
+  };
+
+  it('offers the removal of the password where the server serves it, under the change', async () => {
+    await open({ methods: removal });
+    expect(text('.password h2')).toBe('Change your password');
+    expect(text('.remove-password h2')).toBe('Remove your password');
+    expect(text('.remove-password p')).toBe('If you also sign in another way, you can do without a password.');
+    expect(text('.remove-password button.remove-submit')).toBe('Remove password');
+    expect(TestBed.inject(Account).removePassword()).toBe(true);
+  });
+
+  it('offers no removal where the server serves none', async () => {
+    await open({ methods: { methods: [lakeside], changePassword: passwordMethods.changePassword } });
+    expect(text('.password h2')).toBe('Change your password');
+    expect(element().querySelector('.remove-password')).toBeNull();
+    expect(TestBed.inject(Account).removePassword()).toBe(false);
+  });
+
+  it('offers no removal in a session that acts for someone else', async () => {
+    await open({
+      methods: removal,
+      session: {
+        impersonation: { actor: 'ops', principalKind: 'User', principal: 'gale', expiresAt: '2026-11-15T12:00:00Z' },
+      },
+    });
+    expect(text('.password h2')).toBe('Change your password');
+    expect(element().querySelector('.remove-password')).toBeNull();
+    expect(TestBed.inject(Account).removePassword()).toBe(false);
+  });
+
+  it('asks before it removes, saying what is left to sign in through, and asks the server nothing when the person keeps the password', async () => {
+    await open({ methods: removal });
+    type('removalPassword', 'old');
+    (element().querySelector('button.remove-submit') as HTMLButtonElement).click();
+    await settle();
+    expect(text('.remove-password .question')).toBe('Remove your password? You will sign in through Lakeside only.');
+    expect(text('.remove-password button.remove-confirm')).toBe('Remove password');
+    expect(posted()).toEqual([]);
+    (element().querySelector('button.remove-keep') as HTMLButtonElement).click();
+    await settle();
+    expect(element().querySelector('.remove-password .question')).toBeNull();
+    expect(box('removalPassword')).not.toBeNull();
+    expect(posted()).toEqual([]);
+  });
+
+  it('removes the password at the path the server names, with the password as proof, and says what is left', async () => {
+    await open({ methods: removal });
+    type('removalPassword', 'old');
+    fixture.componentInstance.askToRemovePassword();
+    await fixture.componentInstance.removePassword();
+    await settle();
+    expect(posted()).toEqual([passwordMethods.removePassword]);
+    expect(transport.requests.find((r) => r.method === 'POST')?.body).toEqual({ password: 'old' });
+    expect(text('.password h2')).toBe('Your password');
+    expect(text('.password .message')).toBe('Your password is removed. You will sign in through Lakeside only.');
+    // Nothing is left to change or to remove.
+    expect(box('oldPassword')).toBeNull();
+    expect(element().querySelector('.remove-password')).toBeNull();
+  });
+
+  it("shows the server's words when it refuses the removal, and leaves the password where it was", async () => {
+    const onlyWay = 'Your password is your only way to sign in: sign in through your directory first';
+    await open({ methods: removal, removeAnswer: { status: 409, body: { message: onlyWay } } });
+    type('removalPassword', 'old');
+    fixture.componentInstance.askToRemovePassword();
+    await fixture.componentInstance.removePassword();
+    await settle();
+    expect(posted()).toEqual([passwordMethods.removePassword]);
+    expect(text('.remove-password .message')).toBe(onlyWay);
+    expect(element().querySelector('.remove-password .question')).toBeNull();
+    expect(box('removalPassword')).not.toBeNull();
+    expect(text('.password h2')).toBe('Change your password');
+    expect(fixture.componentInstance.passwordRemoved()).toBe(false);
+  });
+
+  for (const tt of [
+    {
+      name: 'the one other way in by its words',
+      others: ['Lakeside'],
+      want: 'You will sign in through Lakeside only.',
+    },
+    { name: 'two by both', others: ['Lakeside', 'Google'], want: 'You will sign in through Lakeside or Google only.' },
+    {
+      name: 'several as a list',
+      others: ['Lakeside', 'Google', 'Entra'],
+      want: 'You will sign in through Lakeside, Google or Entra only.',
+    },
+    {
+      name: "the person's organization where the page knows of none",
+      others: [],
+      want: 'You will sign in through your organization only.',
+    },
+  ]) {
+    it(`says what removing the password leaves: ${tt.name}`, () => {
+      expect(passwordRemovalConsequence(tt.others)).toBe(tt.want);
+    });
+  }
 
   it('offers no forgetting where the browser is not remembered', async () => {
     await open({ methods: { forgetBrowser: passwordMethods.forgetBrowser }, remembered: false });

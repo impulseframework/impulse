@@ -82,6 +82,12 @@ func Collection() *resource.GeneratedCollection {
 				},
 			},
 			{
+				Name:        "RemoveStaffPassword",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+				Target:      "StaffSessionUsers",
+			},
+			{
 				Name:        "RemoveStaffRole",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},

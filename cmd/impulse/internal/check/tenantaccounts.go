@@ -31,7 +31,7 @@ const tenantAccountsName = "tenant-accounts"
 func (tenantAccounts) Name() string { return tenantAccountsName }
 
 func (tenantAccounts) Describe() string {
-	return "every grant a tenant's role carries on a generated method that changes a person's account (disable, enable, delete, rename, set the address, set a temporary password, require a password change, end the sessions, forget the trusted devices, unlink a sign-in identity) carries a condition that reads the person's row"
+	return "every grant a tenant's role carries on a generated method that changes a person's account (disable, enable, delete, rename, set the address, set a temporary password, require a password change, end the sessions, forget the trusted devices, unlink a sign-in identity, remove the password) carries a condition that reads the person's row"
 }
 
 // Meaning explains the obligation for the handoff brief.
@@ -64,6 +64,7 @@ var tenantAccountActs = []struct{ before, after string }{
 	{"End", "UserSessions"},
 	{"Revoke", "UserTrustedDevices"},
 	{"Unlink", "SessionIdentity"},
+	{"Remove", "Password"},
 }
 
 // tenantAccountMethods names the account-changing methods of one auth's management under

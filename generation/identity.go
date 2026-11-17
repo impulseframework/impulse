@@ -339,6 +339,9 @@ func (r *resourceGenerator) prepareIdentity() error {
 		if err := inst.refuseListNamesTaken(); err != nil {
 			return err
 		}
+		if err := r.refuseReservedRole(inst); err != nil {
+			return err
+		}
 		for _, dir := range []packageDir{inst.resources, inst.methods, inst.handlers} {
 			r.output.registerOutput(dir.Dir(), headerComment)
 		}
@@ -565,6 +568,14 @@ func (d *identitySourceData) Password() bool { return d.password }
 // answers none of the hooks that give one.
 func (d *identitySourceData) RolesSynced() bool { return d.rolesSynced }
 
+// GivesRoles reports whether the instance serves the methods that give and take the
+// auth's roles for the whole application (Assign<Auth>Role and Remove<Auth>Role): the
+// application assigns the roles, and the schema holds the memberships. They are the
+// methods a super administrator always executes.
+func (d *identitySourceData) GivesRoles() bool {
+	return !d.rolesSynced && d.has(identityMemberships)
+}
+
 // PasswordOnCreate says what a create does with a password: "required" where the
 // password is the auth's one way in, "optional" beside a registration that admits
 // invited users alone, and "none" where the auth has no password method.
@@ -640,6 +651,12 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 			identitySourceFile{dir: inst.methods, name: fileStem("Require" + inst.auth + "PasswordChange"), template: identityRequirePasswordChangeTemplate, needs: []identityTable{identityUsers}},
 			identitySourceFile{dir: inst.methods, name: fileStem("Set" + inst.auth + "TemporaryPassword"), template: identitySetTemporaryPasswordTemplate, needs: []identityTable{identityUsers}},
 		)
+	}
+	// A password is removed where an identity is unlinked: from a person who signs in
+	// through a directory, so the method is written where the schema holds the
+	// identities, for an auth whose people may hold a password.
+	if inst.password {
+		files = append(files, identitySourceFile{dir: inst.methods, name: fileStem(inst.removePasswordMethod(false)), template: identityRemovePasswordTemplate, needs: []identityTable{identityUsers, identityIdentities}})
 	}
 	// Where the username is the person's address it changes when the person verifies
 	// a new address, never by a rename, which the session library refuses there too.

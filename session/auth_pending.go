@@ -463,7 +463,7 @@ func (a *Auth[S, U, Tx]) confirmPending(ctx context.Context, w http.ResponseWrit
 		return nil, err
 	}
 
-	if err := a.linkPending(ctx, user.ID, p); err != nil {
+	if err := a.linkPending(ctx, user, p); err != nil {
 		return nil, err
 	}
 
@@ -487,11 +487,15 @@ func (a *Auth[S, U, Tx]) checkConfirmation(ctx context.Context, user *sessionsto
 	return nil
 }
 
-// linkPending links a confirmed pending identity to userID and reports the link. If the
+// linkPending links a confirmed pending identity to user and reports the link. The
+// confirmed link is the person's first sign-in through the identity's directory, so
+// the tenant whose directory it is gives them its default seat in the transaction that
+// makes the link, as a sign-in that links at once does (SetDirectoryAdmission). If the
 // identity was linked meanwhile, that is accepted for the same user and refused for
 // another.
-func (a *Auth[S, U, Tx]) linkPending(ctx context.Context, userID impulse.UUID, p *pendingState) error {
-	_, err := a.storage.LinkIdentity(ctx, userID, &p.Identity, p.Tenant)
+func (a *Auth[S, U, Tx]) linkPending(ctx context.Context, user *sessionstorage.SessionUser, p *pendingState) error {
+	userID := user.ID
+	err := a.storage.LinkConfirmedIdentity(ctx, userID, user.Username, &p.Identity, p.Tenant, a.directories, a.directorySeated)
 	switch {
 	case err == nil:
 		a.notifyLinked(ctx, userID, &p.Identity)
@@ -505,7 +509,7 @@ func (a *Auth[S, U, Tx]) linkPending(ctx context.Context, userID impulse.UUID, p
 
 		return signinflow.Refusal("", sessioninfo.RefusedIdentityRejected, signin.ErrIdentityRejected, "the identity is linked to another user")
 	default:
-		return errors.Wrap(err, "sessionstorage.AuthStore.LinkIdentity()")
+		return errors.Wrap(err, "sessionstorage.AuthStore.LinkConfirmedIdentity()")
 	}
 }
 

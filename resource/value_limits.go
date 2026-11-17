@@ -35,6 +35,12 @@ const (
 	// ValueKindDecimal is decimal.Decimal, a pointer to one, decimal.NullDecimal, or
 	// spanner.NullNumeric, sized by digit against NUMERIC.
 	ValueKindDecimal
+	// ValueKindSecret is the value of a secret field as a request carries it: text,
+	// sized by byte against the BYTES(n) column its sealed form is stored in, less the
+	// bytes sealing adds (SecretOverhead). The generator classifies a source field typed
+	// Secret as this kind; the runtime meets it as a string-kinded request field whose
+	// sqltype tag names a BYTES column, which nothing but a secret is.
+	ValueKindSecret
 )
 
 // GoogleSQL NUMERIC holds 38 digits of precision with 9 of scale: at most 29 digits
@@ -150,8 +156,16 @@ func newValueLimit(sqltype string, kind ValueKind, slice bool) (valueLimit, erro
 	}
 
 	switch kind {
-	case ValueKindString:
-		if ct.name != columnTypeString || ct.max == 0 {
+	case ValueKindString, ValueKindSecret:
+		if ct.name == columnTypeBytes && !ct.array {
+			// A secret's text on the column that stores it sealed.
+			if ct.max <= SecretOverhead {
+				return valueLimit{}, errors.Newf("column type %q has no rule for a secret: sealing adds %d bytes to the value", sqltype, SecretOverhead)
+			}
+
+			return valueLimit{kind: ValueKindSecret, max: ct.max - SecretOverhead, perElement: false, jsonField: ""}, nil
+		}
+		if kind != ValueKindString || ct.name != columnTypeString || ct.max == 0 {
 			return valueLimit{}, errors.Newf("column type %q has no rule for a string-kinded field", sqltype)
 		}
 	case ValueKindBytes:
@@ -309,6 +323,8 @@ func (l valueLimit) scalarExceeded(v reflect.Value) bool {
 		return utf8.RuneCountInString(v.String()) > l.max
 	case ValueKindBytes:
 		return v.Len() > l.max
+	case ValueKindSecret:
+		return len(v.String()) > l.max
 	case ValueKindDecimal:
 		switch d := v.Interface().(type) {
 		case decimal.Decimal:
@@ -384,7 +400,7 @@ func (l valueLimit) message() string {
 	switch l.kind {
 	case ValueKindString:
 		rule = fmt.Sprintf("limited to %s", plural(l.max, "character"))
-	case ValueKindBytes:
+	case ValueKindBytes, ValueKindSecret:
 		rule = fmt.Sprintf("limited to %s", plural(l.max, "byte"))
 	case ValueKindDecimal:
 		rule = fmt.Sprintf("limited to %d digits before the decimal point and %d after", numericIntegerDigits, numericScale)

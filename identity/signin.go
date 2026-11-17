@@ -7,6 +7,7 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
@@ -20,10 +21,11 @@ import (
 // The roles a sign-in gives.
 //
 // A person comes to hold a role at a sign-in, with no administrator signed in, in two
-// ways: they accept an invitation, which names roles, and they are a stranger from a
-// directory a tenant declares with a default role. Each role is written in the
-// transaction of the step that causes it: the invitation is spent and its roles given
-// together, or neither; the account is made and given its role together, or neither.
+// ways: they accept an invitation, which names roles, and they sign in for the first
+// time through the directory of a tenant that names a default role. Each role is
+// written in the transaction of the step that causes it: the invitation is spent and
+// its roles given together, or neither; the person's identity is linked to their
+// account and the account given its role together, or neither.
 // The session library runs a hook inside that transaction and hands it the transaction
 // (session.InvitationAcceptedHook, session.DirectorySeatedHook); the two functions here
 // answer those hooks over the manager's own membership write (AssignRole), so a role a
@@ -74,23 +76,30 @@ func (m *Manager) InvitationAccepted(auth string) session.InvitationAcceptedHook
 }
 
 // DirectorySeated answers the session library's hook for a directory's default role
-// (session.Auth.SetDirectoryAdmission): each default role the tenants' directory rows
-// name is buffered as a membership of the person in its tenant, in the transaction that
-// creates the person. A role that cannot be given fails the transaction, so no account
-// is left holding nothing.
+// (session.Auth.SetDirectoryAdmission): the default role of the tenant whose directory
+// the person signed in through is buffered as a membership of the person in the tenant,
+// in the transaction that links the person's identity to their account, which is their
+// first sign-in through the directory whether the account is made in it or stood
+// before. The role is given to a person who holds no role in the tenant: one who holds
+// a role there, by an invitation or by an administrator's hand, keeps what they hold
+// and is given nothing, so a link that is deleted and made again does not add the
+// default role beside the role the person was given since. A role that cannot be given
+// fails the transaction, so no account is left holding nothing and no link is left
+// that gave nothing.
 //
 // auth names the Auth in the log line a given role leaves.
 func (m *Manager) DirectorySeated(auth string) session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {
 	return func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
 		txn := resource.NewSpannerReadWriteTransaction(tx)
-		if err := m.giveDirectoryRoles(m.oneTenant.within(ctx, tx), txn, userID, username, seats); err != nil {
+		given, err := m.giveDirectoryRoles(m.oneTenant.within(ctx, tx), txn, userID, username, seats)
+		if err != nil {
 			return nil, err
 		}
 
 		return func(ctx context.Context) {
 			m.oneTenant.forget(tx)
 			txn.Committed(ctx)
-			for _, seat := range seats {
+			for _, seat := range given {
 				logger.FromCtx(ctx).Infof("%s: %q entered %s through its directory and holds %s", auth, username, seat.Tenant, seat.Role)
 			}
 		}, nil
@@ -139,18 +148,46 @@ func (m *Manager) giveInvitedRole(ctx context.Context, txn resource.ReadWriteTra
 	return nil
 }
 
-// giveDirectoryRoles buffers the memberships the tenants' directory rows give a person
-// at their first sign-in, each a role in a tenant: userID is who holds them, and
-// username what an error reads.
-func (m *Manager) giveDirectoryRoles(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, seats []signin.DirectorySeat) error {
+// giveDirectoryRoles buffers the memberships a tenant's directory row gives a person at
+// their first sign-in through the directory, each a role in a tenant, and answers the
+// seats it gave: userID is who holds them, and username what an error reads. A seat in
+// a tenant where the person holds a role already is not given: what the person holds
+// is read as committed, in the caller's transaction, once for the call.
+func (m *Manager) giveDirectoryRoles(
+	ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, seats []signin.DirectorySeat,
+) (given []signin.DirectorySeat, err error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if len(seats) == 0 {
+		return nil, nil
+	}
+	held, err := m.store.Memberships(ctx, txn, userID)
+	if err != nil {
+		return nil, errors.Wrap(err, "identity.Store.Memberships()")
+	}
 	for _, seat := range seats {
-		if err := m.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(seat.Tenant), userID, seat.Role); err != nil {
-			return errors.Wrapf(err, "the directory's default role gives %q the role %s in %s", username, seat.Role, seat.Tenant)
+		scope := accesstypes.DomainPolicyScope(seat.Tenant)
+		if inTenant(held, scope) {
+			continue
+		}
+		if err := m.AssignRole(ctx, txn, scope, userID, seat.Role); err != nil {
+			return nil, errors.Wrapf(err, "the directory's default role gives %q the role %s in %s", username, seat.Role, seat.Tenant)
+		}
+		given = append(given, seat)
+	}
+
+	return given, nil
+}
+
+// inTenant reports whether one of the memberships is held in the tenant scope names.
+func inTenant(held []access.MembershipKey, scope accesstypes.PolicyScope) bool {
+	want := access.NewMembershipKey(scope, "", "")
+	for i := range held {
+		if held[i].Kind == want.Kind && held[i].Axis == want.Axis && held[i].Domain == want.Domain {
+			return true
 		}
 	}
 
-	return nil
+	return false
 }

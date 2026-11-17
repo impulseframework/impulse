@@ -2,6 +2,7 @@
 package authz
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"fmt"
@@ -105,13 +106,13 @@ func (f *fakeAccess) decide(perm accesstypes.Permission, names []accesstypes.Res
 type testConfigurer struct {
 	db      *initiator.SpannerDB
 	g       grants
-	stores  []resource.ClientOption
+	options []resource.ClientOption
 	live    *live.Fake
 	tenants *resource.TenantRoster
 }
 
 func (c *testConfigurer) ResourceClient() resource.Client {
-	return resource.NewSpannerClient(c.db.Client, c.stores...)
+	return resource.NewSpannerClient(c.db.Client, c.options...)
 }
 
 // CursorKey seals the cursors the suites' paged lists issue; any key serves a test process.
@@ -235,15 +236,25 @@ func newTestHandler(t *testing.T, db *initiator.SpannerDB, g grants) http.Handle
 
 	// The two memory stores production opens from APP_FILE_STORE and
 	// APP_FILE_STORE_DOCUMENTS, wired as the data level wires them; the matrix never
-	// stores a file, and the generated router requires both at start.
-	stores := []resource.ClientOption{resource.WithFileStore(filestore.NewMem()), resource.WithNamedFileStore[resources.Documents](filestore.NewMem())}
+	// stores a file, and the generated router requires both at start. And the secret keys
+	// production builds from the application secret's versions, from fixed bytes here:
+	// the matrix writes a ship's transponder key, which the write path seals with them.
+	secretKeys, err := resource.NewSecretKeys(map[int][]byte{1: bytes.Repeat([]byte{1}, 32)})
+	if err != nil {
+		t.Fatalf("resource.NewSecretKeys() error = %v", err)
+	}
+	options := []resource.ClientOption{
+		resource.WithFileStore(filestore.NewMem()),
+		resource.WithNamedFileStore[resources.Documents](filestore.NewMem()),
+		resource.WithSecretKeys(secretKeys),
+	}
 
 	// The matrix's sector is added to the roster with Add, the generated matrix's
 	// contract: the empty schema holds no tenant row for Start to read.
-	tenants := app.NewSectorRoster(resource.NewSpannerClient(db.Client, stores...))
+	tenants := app.NewSectorRoster(resource.NewSpannerClient(db.Client, options...))
 	tenants.Add(router.TestDomain)
 
-	a := app.New(&testConfigurer{db: db, g: g, stores: stores, tenants: tenants})
+	a := app.New(&testConfigurer{db: db, g: g, options: options, tenants: tenants})
 	// The App reads its feature flags as it is built, so a suite that flips a flag
 	// before newTestHandler drives the App in that state; Start reports a copy that
 	// could not be read and follows the table until the test ends.

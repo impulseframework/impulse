@@ -100,7 +100,7 @@ each with its `SignIn` function and `Config`.
 
 | Method | Registration → handlers | Identity key (connection, subject) | Login parameters | Roles |
 | --- | --- | --- | --- | --- |
-| `password` | `PasswordSignIn(auth, options...)` → `*PasswordMethod`: `Login`, `ChangeUserPassword` | user ID | JSON `{"username", "password"}` | — |
+| `password` | `PasswordSignIn(auth, options...)` → `*PasswordMethod`: `Login`, `ChangeUserPassword`, `RemoveUserPassword` | user ID | JSON `{"username", "password"}` | — |
 | `azure` | `azure.SignIn(auth, name, rule, &azure.Config{...})` → `*azure.Method`: `Login`, `Callback`, `FrontChannelLogout` | (`tid`, `oid`) | `?returnUrl=`, `?prompt=select_account` | `signin.RoleSync(manager)` or `signin.DisableRoleSync()` |
 | `google` | `google.SignIn(auth, name, rule, &google.Config{...})` → `*google.Method`: `Login`, `Callback` | (the Workspace the `Workspaces` slot selects, `sub`) | `?returnUrl=`, `?login_hint=`, `?prompt=select_account` | `google.RoleSync(...)` or `google.DisableRoleSync()` |
 | `oidc` | `oidc.SignIn(auth, name, rule, &oidc.Config{...})` → `*oidc.Method`: `Login`, `Callback` | (`Config.Connection`, the issuer URL by default; `sub`) | `?returnUrl=`, `?login_hint=`, `?prompt=select_account` | `signin.RoleSync(manager)` (the `roles` claim) or `signin.DisableRoleSync()` |
@@ -172,6 +172,19 @@ DML what a later rule must read.
   factor". An application whose users belong to tenants sets the library's
   **tenant policy** (`signin.TenantPolicy`), with its own rule chained after it when it
   has one; see "The tenant policy".
+- A **super administrator** signs in with a second factor whatever the sign-in policy
+  asks of anyone else. The Auth is told who holds the Super Administrator role with
+  `auth.SetSuperAdministrators(signin.SuperAdministrators(userManager))`, after `NewAuth`
+  and before serving (on Spanner over `resource.SignInRoles(userManager)`, as the tenant
+  policy is), and then decides every sign-in by the application's policy and, after it,
+  by a rule of its own (`signin.SuperAdministratorFactor`): a sign-in the policy allows
+  is held for the code the library mails (`sessioninfo.MethodEmailCode`) when the person
+  holds the role, with or without a policy of the application's. The directory's
+  attestation and a remembered browser satisfy it as for any account, and a refusal, or
+  a hold for a factor the policy names itself, stands as the policy decided it. The Auth
+  must send mail (`WithMail`): on one that sends none the call panics, since the code
+  could not be sent. The auth packages `impulse` writes set it; an Auth that is never
+  told holds nobody to it.
 - The **account rules** decide an identity's first sign-in: an identity that is not
   linked to any user yet. A linked identity signs in by its link and never consults
   them. Each Entra and Google registration declares a **standard rule** in
@@ -198,16 +211,24 @@ DML what a later rule must read.
     It is for public applications and refused on a registration that serves one
     organization.
 
-  In a tenanted application the **tenants' declarations decide a stranger first**.
+  In a tenanted application the **tenant's declaration decides a stranger first**.
   With `auth.SetDirectoryAdmission(directoryLookup, seatHook)` (see "The
-  tenant policy"), a person no user was created for, from a directory some tenant
-  declares, is decided by that tenant's declaration before the registration's rule is
-  reached. A person the application gave a role ahead of their first sign-in is not
-  such a person: a role is held by an account, so they have a user under the sign-in
-  name, and the sign-in links to it before the tenants are asked. A
+  tenant policy"), a person no user was created for, from a tenant's directory, is
+  decided by that tenant's declaration before the registration's rule is reached. A
+  directory belongs to one tenant, so one declaration decides. A person an account
+  exists for already, because the application gave them a role ahead of their first
+  sign-in or another tenant invited them, is not such a person: the sign-in links to
+  that account, under the sign-in name. That link is their first sign-in through the
+  directory, so the tenant's default seat is given at it too, through the hook, in
+  the transaction that makes the link, whether the link is made at once or after
+  their password confirmed it. A
   declaration naming a **default seat** admits a stranger, who is provisioned and
-  seated with it in every tenant naming one, through the hook, in the transaction
-  that creates the account. A seat the invitation the sign-in consumes names too (the
+  seated with it in the tenant, through the hook, in the transaction
+  that creates the account and links it. The hook is called once for a link, never
+  for a sign-in that finds the link, and the application's hook gives the seat only
+  where the person holds none in the tenant (the generated identity client's does),
+  so a seat an administrator removed is not given back by signing in, and a link that
+  is deleted and made again gives it again. A seat the invitation the sign-in consumes names too (the
   same role in the same tenant) is given once, by the invitation, and is left out of
   what the hook is handed. A declaration naming none admits strangers by invitation only, the
   invitation the sign-in carries being the account as under
@@ -346,17 +367,34 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   decided before the policy, by the account rules, and in a tenanted application by
   the tenants' declarations first, through
   `auth.SetDirectoryAdmission(directoryLookup, seatHook)`.
-  `directoryLookup`, a `signin.DirectoryReader[Tx]`, reads every tenant's declaration
-  of the directory the identity came through, each with its **default seat**
-  (`signin.DeclaredDirectory`: the tenant and the role, `""` for none), in the
-  sign-in's first transaction; `seatHook`, a `session.DirectorySeatedHook[Tx]`,
-  seats the person with the seats the declarations name (`signin.DirectorySeat`),
-  inside the transaction that creates the user, which it is handed, so the account is
-  made and seated together or neither is, under the contract the invitation hook has
-  (see "Invitations"). A declared directory belongs to its tenant. A person
-  given a role ahead of their first sign-in has the account the role is held by,
-  and the sign-in links to it before the tenants are asked. A default seat admits and
-  seats a stranger, so rule 3 below then finds the membership. A stranger who
+  `directoryLookup`, a `signin.DirectoryReader[Tx]`, reads the declaration of the
+  tenant whose directory the identity came through, with its **default seat**
+  (`signin.DeclaredDirectory`: the tenant and the role, `""` for none; a directory
+  belongs to one tenant, which the application's schema holds, so the answer carries
+  one tenant at most), in the sign-in's first transaction; `seatHook`, a
+  `session.DirectorySeatedHook[Tx]`, seats the person with the seat the declaration
+  names (`signin.DirectorySeat`), inside the transaction that links the identity to
+  the user, which it is handed, so the link is made and the seat given together or
+  neither is, under the contract the invitation hook has (see "Invitations"). The
+  hook is called at a person's first sign-in through the directory, the one that
+  makes the link, whether the account is created in it or stood before: a person
+  given a role ahead of their first sign-in, or invited by another tenant, has an
+  account, which the sign-in links to at once when it holds no password and after
+  the pending confirmation (`Pending().Confirm()`) when it holds one, and the hook
+  runs in the transaction of that link (the storage's `LinkConfirmedIdentity` for
+  the confirmed one, which an `AuthStore` of the application's own must implement).
+  It is called once for a link: a later sign-in finds the link and calls nothing.
+  Whether the person is seated is the hook's to decide over what it is handed: the
+  generated identity client's gives the seat where the person holds no role in the
+  tenant, so a seat an administrator removed is not given back by signing in, and a
+  link that is deleted and made again gives it again. A personal account, one of the
+  two connections that stand for everyone who is in no organization
+  (`signin.Directory.PersonalAccounts`: any Google account,
+  `signin.GoogleAnyAccountConnection`, and Microsoft's personal accounts,
+  `signin.MicrosoftPersonalAccountsConnection`), is no tenant's directory: no
+  declaration is read for it, and it falls to the registration's account rule. A
+  default seat admits and seats a stranger, so rule 4 below then finds the
+  membership. A stranger who
   carries an invitation into the tenant that names the default seat's role is given
   it once, by the invitation hook: the two hooks write in one transaction and neither
   reads what the other wrote, so the seat hook is handed only the seats the
@@ -369,24 +407,34 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
 
 The rules, in order, once the user is known:
 
-1. A person holding a role in the global partition or in every tenant domain is the
-   application's staff and is admitted on the library's own checks; so is a sign-in
-   whose method synchronizes roles, since the directory names the person's roles and
-   the synchronization, which runs once the session stands, refuses a person with none.
-   The application's own directories are admitted by the registration's organization
-   slot already.
-2. A person who is a member of no tenant is refused (`no_tenant`), unless the policy
+1. A super administrator, a person holding the Super Administrator role
+   (`accesstypes.SuperAdministrator`, which the access library defines in every auth and
+   which is held in the global partition alone), is admitted on the library's own
+   checks, whatever any tenant declares: the role is the way back in, and no tenant's
+   sign-in settings shut its holder out. Nobody else is exempt from them. The policy and
+   the session's reach into a tenant ask the question through one function
+   (`accesstypes.RoleCollection.HoldsSuperAdministrator`). A sign-in whose method
+   synchronizes roles is admitted here too, since the directory names the person's
+   roles and the synchronization, which runs once the session stands, refuses a person
+   with none. The application's own directories are admitted by the registration's
+   organization slot already.
+2. A person holding a role outside any one tenant is admitted: in the global partition,
+   which is no tenant's and which no declaration governs, or in every tenant domain,
+   whose tenants the policy has no list of. It is no exemption: the session then
+   reaches a tenant only where the tenant's declaration admits it, as anyone's does.
+3. A person who is a member of no tenant is refused (`no_tenant`), unless the policy
    was built with `signin.AdmitWithoutTenant()`, which the self-service shape of an
    application needs: a stranger signs in, then creates their organization and its
    first membership, and until then the session reaches no tenant.
-3. A sign-in through a directory (Entra, Google, WorkOS) is admitted when one of the
+4. A sign-in through a directory (Entra, Google, WorkOS) is admitted when one of the
    person's tenants declares the directory it came through, and refused otherwise
    (`connection_not_in_tenant`).
-4. Any other sign-in, a password or a session the application starts for a user it
-   authenticated itself, is admitted when one of the person's tenants admits its people
+5. Any other sign-in, a password, a personal account (which is no tenant's directory)
+   or a session the application starts for a user it authenticated itself, is admitted
+   when one of the person's tenants admits its people
    other than through its directories, and refused when every one of them is directory
    only (`directory_only`): nothing would be reachable.
-5. Otherwise the sign-in is allowed. `signin.Policy.Then` chains the application's own
+6. Otherwise the sign-in is allowed. `signin.Policy.Then` chains the application's own
    rule after the tenant policy, for what the tenant policy cannot know; it is asked
    after an `Allow` and never after a `Deny` or a `RequireMFA`:
 
@@ -408,6 +456,18 @@ A refusal is a `sessioninfo.LoginRefusal` with its code, and `errors.Is` matches
 `signin.ErrSignInDenied` and the rule's own cause (`signin.ErrNoTenant`,
 `signin.ErrConnectionNotInTenant`, `signin.ErrDirectoryOnly`); a role store or reader
 error fails the sign-in (`internal_error`).
+
+A tenant's directory is an organization's: `signin.Directory.Organization` reports a
+directory method with a connection that names one organization, so neither a password
+nor a personal account (`signin.Directory.PersonalAccounts`, the two connections every
+account outside an organization carries). `Admits` and the policy treat a personal
+account as they treat a password: no tenant can have it as its directory, so it reaches
+a tenant unless the tenant is directory only. The session read (`Authenticated()`)
+answers `directory`, the method and the connection of the organization's directory the
+session was established through, and leaves it out for every other session: it is what
+an application offers a tenant's administrator to make the tenant's directory, which is
+set from the sign-in and never typed (the resource package's reference, "One directory,
+set from a sign-in").
 
 ### Registering sign-in methods
 
@@ -503,6 +563,7 @@ r.Group(func(r chi.Router) {
     r.Post("/api/user/mfa", app.CompleteMFA) // an MFA step of the application's own: checks its code, then auth.API().CompletePending
     r.Post("/api/user/logout", auth.Logout())
     r.Post("/api/user/password", password.ChangeUserPassword()) // validates the session itself
+    r.Post("/api/user/password/remove", password.RemoveUserPassword()) // {"password"}: the person's own password, removed; validates the session itself
     r.Post("/api/user/name", auth.ChangeName())                 // {"name"}: the person's own name; validates the session itself
     r.Post("/api/user/look", auth.ChangeLook())                 // {"scheme", "palette"}: the look the person chose; validates the session itself
     r.Post("/api/user/invitation", auth.Invitation().Open())          // {"token"}: sets the invitation cookie
@@ -540,7 +601,10 @@ The pending handlers and the API's pending methods read the pending identity
 logout and the password change sit outside `ValidateSession`: they validate the session
 on their own, and they are what a user who must change their password reaches (see
 "Users and the forced password change"). The methods list names the password change
-route (`ChangePassword`) whenever it lists the password method.
+route (`ChangePassword`) whenever it lists the password method. The removal of a
+person's own password (`RemoveUserPassword`) validates the session itself too and is
+routed beside the change; the methods list names it where the application serves it
+(`RemovePassword`).
 
 ### What the login page is told
 
@@ -560,6 +624,7 @@ the password method is listed.
   "pending": {"status": "/api/user/pending", "confirm": "/api/user/pending/confirm", "cancel": "/api/user/pending/cancel",
               "sendCode": "/api/user/pending/code", "verifyCode": "/api/user/pending/code/verify", "enrollEmail": "/api/user/pending/email"},
   "changePassword": "/api/user/password",
+  "removePassword": "/api/user/password/remove",
   "usernameIsEmail": true,
   "invitation": {"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
                  "standing": {"email": "pat@lakeside.edu", "expiresAt": "2026-10-31T20:00:00Z", "usernameIsEmail": false, "methods": ["workos"],
@@ -588,6 +653,10 @@ the password method is listed.
   which the page posts `{"oldPassword", "newPassword"}` to when a sign-in finds the
   user must change their password (the session read's `passwordChangeRequired`). It is
   present whenever the password method is listed.
+- `removePassword` is the path of the password method's `RemoveUserPassword` handler,
+  present when the list names it (`MethodList.RemovePassword`, which needs the password
+  method listed): where a signed-in person's account page posts `{"password"}` to remove
+  their own password (see "Users and the forced password change").
 - `forgetBrowser`, `changeName` and `changeLook` are the paths of the `ForgetBrowser`,
   `ChangeName` and `ChangeLook` handlers, each present when the list names it
   (`MethodList.ForgetBrowser`, `MethodList.ChangeName`, `MethodList.ChangeLook`): where
@@ -866,8 +935,9 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
 - **User management is by ID**: `ChangeSessionUserPassword`, `SetSessionUserPassword`,
   `ResetSessionUserPassword`, `DeactivateSessionUser` and `DeleteSessionUser` destroy
   the user's sessions by `UserId`; `DeleteSessionUser` deletes its identity links with
-  it; `UnlinkIdentity` refuses a user's last means of sign-in. See "Users and the forced
-  password change".
+  it; `UnlinkIdentity` refuses a user's last means of sign-in, and
+  `RemoveSessionUserPassword` the password of a user no identity is linked to. See
+  "Users and the forced password change".
 - **Failed password attempts are limited** per name, known or not, and an attempt past
   the limit is refused with `too_many_attempts` and the wait before anything is read
   or hashed; **the after-sign-in hook** (`SetSignedInHook`) is told of every session a
@@ -918,6 +988,7 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `HashPassword(password)` | The hash of a password as the users table's `PasswordHash` column holds it, made by the password method's hasher, for a caller that writes the column in a transaction of its own (the generated user management). An empty password is refused. `SignInAttemptName(username)`, a package function, is the key of the name's row in the sign-in attempts table, for the same caller clearing the count beside the password. |
 | `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. |
 | `Identities(ctx, id)`, `UnlinkIdentity(ctx, identityID)` | The user's identity links; unlinking a password-less user's last link is refused (Conflict). |
+| `RemoveSessionUserPassword(ctx, id)` | Removes the user's password, an operator's act: the password then signs nobody in, and the user signs in through an identity linked to them. A user with no identity link keeps it, their last means of sign-in (Conflict, `sessionstorage.ErrLastSignInMethod`); a user with no password has none to remove (BadRequest). Clears the mark and the name's count of failed sign-ins; the user's sessions stand. `PasswordMethod.RemoveUserPassword()` is the person's own removal over HTTP, which asks for the password. |
 | `UserByEmail(ctx, email)`, `SetSessionUserEmail(ctx, id, email)` | The user holding an address, verified or not; an operator's entry of an address, unverified, or its removal (nil). See "Users and their email address". |
 | `SetSessionUserName(ctx, id, name)` | An operator's entry of the person's name, or its removal (nil). See "A person's name". |
 | `Invite(ctx, &InvitationRequest{Email, Name, Tenant, RoleNames, InvitedByUserID})`, `Invitations(ctx)`, `RevokeInvitation(ctx, id)` | An invitation mailed to an address; the invitations that stand; one withdrawn. See "Invitations". |
@@ -932,7 +1003,9 @@ memberships again and creates the user. A seed that created the user first would
 give the roles, after a stopped run, to a user it found under a name, and a name is
 something anyone may come to hold. The generated seed of an auth's first administrator
 and the persona cast's seed work this way, and seed nothing for a user that exists,
-whatever it holds.
+whatever it holds. The first administrator is the deployment's first super administrator:
+the seed writes the Super Administrator role under the id beside the application's own
+administrator roles, since only a holder of that role makes another.
 
 **The forced password change.** A password an operator set, at creation
 (`PasswordChangeRequired`) or by a reset, is temporary: the user changes it before
@@ -949,6 +1022,24 @@ of a new application and every user an operator creates with a password carry th
 mark; the password a user chose through `ChangeSessionUserPassword` or
 `SetSessionUserPassword` clears it. A password-less user has nothing to change, so the
 mark without a password is refused.
+
+**Removing a password.** A person who signs in through a directory does not need the
+password they started with. Its removal follows the rule of an identity's unlinking,
+from the other side: an identity is not unlinked when it is the last means of sign-in
+of a user with no password, and a password is not removed from a user no identity is
+linked to (409, `sessionstorage.ErrLastSignInMethod`). An operator removes it with
+`RemoveSessionUserPassword(ctx, id)`; the person removes their own by posting
+`{"password"}`, the password as proof, to the password method's `RemoveUserPassword`
+handler, routed beside the change and named to the page as the methods list's
+`removePassword`. A wrong password answers 400, and a person with no identity link is
+told what to do first: sign in through their directory, which links it. The handler
+validates the session itself, so a person whose operator-set password must change
+reaches it, and refuses an impersonated session. Either way the removal takes the
+password and the mark with it, clears the count of failed sign-ins kept under the
+user's name, and ends no session: the sessions the user holds stand, the ones the
+password established among them, as they do when an identity is unlinked. From then on
+a sign-in with the password is refused exactly as a wrong password is, and counted the
+same way.
 
 ### Users and their email address
 
@@ -2590,8 +2681,8 @@ Everything an impersonated session touches names the actor and the principal:
   session ends with their others.
   Preauth validates an impersonated session exactly as any other.
 - **Identity operations.** The library's own handlers refuse under impersonation:
-  `ChangeUserPassword` (the password method's on `Auth`) always, since it would alter the
-  impersonated user's credentials. Each refusal is an
+  `ChangeUserPassword` and `RemoveUserPassword` (the password method's on `Auth`) always,
+  since each would alter the impersonated user's credentials. Each refusal is an
   `IdentityOperationBlocked` event. On `Auth` the user operations are `AuthAPI` methods
   behind the application's own handlers, which guard them.
 - **One name, one user.** A role principal's session carries the actor's own username,

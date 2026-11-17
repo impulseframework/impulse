@@ -357,7 +357,11 @@ type GeneratedHandlers interface {
 
 	ReleaseConsignment() http.HandlerFunc
 
+	RemoveCrewPassword() http.HandlerFunc
+
 	RemoveCrewRole() http.HandlerFunc
+
+	RemoveCrewSectorPassword() http.HandlerFunc
 
 	RemoveCrewSectorRole() http.HandlerFunc
 
@@ -966,7 +970,11 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 
 	r.Post("/console/api/sectors/{sectorID}/release-consignment", domainGuard(h.ReleaseConsignment()))
 
+	r.Post("/console/api/remove-crew-password", h.RemoveCrewPassword())
+
 	r.Post("/console/api/remove-crew-role", h.RemoveCrewRole())
+
+	r.Post("/console/api/sectors/{sectorID}/remove-crew-sector-password", domainGuard(h.RemoveCrewSectorPassword()))
 
 	r.Post("/console/api/sectors/{sectorID}/remove-crew-sector-role", domainGuard(h.RemoveCrewSectorRole()))
 

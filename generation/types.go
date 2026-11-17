@@ -266,6 +266,10 @@ const (
 	// fileHoldersOutputName names the resources package's file holders file: every
 	// resource recording stored files' keys, for the orphaned-file cleanup.
 	fileHoldersOutputName = "file_holders"
+	// secretHoldersOutputName names the resources package's secret holders file: every
+	// resource storing a secret, for the retirement of a version of the application
+	// secret.
+	secretHoldersOutputName = "secret_holders"
 )
 
 // reservedOutput is one file the generator writes for itself: its name and what it
@@ -295,6 +299,7 @@ var reservedOutputStems = map[string]reservedOutput{
 	consolidatedHandlerOutputName: {file: generatedGoFileName(consolidatedHandlerOutputName), carries: "the consolidated handler"},
 	featuresOutputName:            {file: generatedGoFileName(featuresOutputName), carries: "the feature flags"},
 	fileHoldersOutputName:         {file: generatedGoFileName(fileHoldersOutputName), carries: "the file holders"},
+	secretHoldersOutputName:       {file: generatedGoFileName(secretHoldersOutputName), carries: "the secret holders"},
 	releaseOutputName:             {file: resource.ReleaseFileName, carries: "the release file"},
 }
 
@@ -1331,14 +1336,15 @@ type resourceInfo struct {
 	// declares none, and every tenant admits a password.
 	DirectoryOnlyField *resourceField
 	// IsTenantDirectory marks the directories record (@tenantDirectory): the
-	// tenant-scoped resource whose rows are the directories a tenant admits its people
-	// through, one per declaration, with DirectoryMethodField (@directoryMethod) and
-	// DirectoryConnectionField (@directoryConnection) as its two columns, and
-	// DirectoryDefaultSeatField (@directoryDefaultSeat) as the column naming the role
-	// a stranger the directory vouches for is seated with at their first sign-in, nil
-	// where the record carries none and every tenant admits such strangers by
-	// invitation only. Its generated write paths keep every instance's tenant roster
-	// current, as the record's do.
+	// tenant-scoped resource whose row is the directory a tenant admits its people
+	// through, one for a tenant and one tenant's, with DirectoryMethodField
+	// (@directoryMethod) and DirectoryConnectionField (@directoryConnection) as its two
+	// columns, and DirectoryDefaultSeatField (@directoryDefaultSeat) as the column
+	// naming the role a person is seated with at their first sign-in through the
+	// directory, nil where the record carries none and every tenant admits a stranger
+	// from its directory by invitation only. Its generated write paths hold a row to the
+	// rules of a tenant's directory (resource.TenantDirectoryRules) and keep every
+	// instance's tenant roster current, as the record's do.
 	IsTenantDirectory         bool
 	DirectoryMethodField      *resourceField
 	DirectoryConnectionField  *resourceField
@@ -1347,6 +1353,10 @@ type resourceInfo struct {
 	// once the directories record is known to belong to it (validateTenantDeclaration);
 	// nil on every other resource and on a record whose package declares none.
 	declaration *tenantDeclaration
+	// directoryOf is the tenant record the directories record belongs to, set with the
+	// record's declaration; nil on every other resource. The directories record's
+	// generated write paths name the record's directory rules by it.
+	directoryOf *resourceInfo
 
 	// ListsAcrossTenants marks a tenant-scoped resource whose list is also served
 	// without the tenant's segment (@listAcrossTenants): one request reads its rows in
@@ -1734,6 +1744,12 @@ type resourceField struct {
 	// hop). Empty for fields outside any workflow.
 	WorkflowRoot string
 
+	// IsDirectoryKey marks the directories record's method and connection columns
+	// (@directoryMethod, @directoryConnection): they decode output-only, on create and
+	// on update, since a directory is never typed in. The record's generated create
+	// stamps both from the directory the caller is signed in through.
+	IsDirectoryKey bool
+
 	// IsFileKey marks the store-key column of a @file declaration: off the wire in
 	// both directions (json:"-" on the read and the patch structs, absent from the
 	// TypeScript interface and metadata), read by the file route's frame for itself.
@@ -2057,8 +2073,11 @@ func (f *resourceField) IsOutputOnly() bool {
 	// tenant-key column is the same shape: the framework stamps it from the
 	// request's domain partition, so the wire cannot write it. A @file key
 	// column too: only Go code writes it, as an @upload body does. And a
-	// generated column: the database computes it, and refuses a write.
-	if f.IsState || f.IsTenantKey || f.IsFileKey || f.IsGenerated {
+	// generated column: the database computes it, and refuses a write. The
+	// directories record's method and connection are the same shape as the
+	// tenant key: the generated create stamps them from the caller's sign-in,
+	// so the wire cannot type a directory in.
+	if f.IsState || f.IsTenantKey || f.IsFileKey || f.IsGenerated || f.IsDirectoryKey {
 		return true
 	}
 
@@ -2145,8 +2164,9 @@ func (f *resourceField) ImmutableTag() string {
 
 // SqltypeTag renders sqltype:"<column type>" onto a patch request-struct field whose
 // value the decoder sizes against its column's declared type (resource.HasValueLimit): a
-// string-kinded field on STRING(n), []byte on BYTES(n), a decimal on NUMERIC, and a
-// slice of one of those, named or not, on the matching ARRAY. The tag consults the Go
+// string-kinded field on STRING(n), []byte on BYTES(n), a decimal on NUMERIC, a slice of
+// one of those, named or not, on the matching ARRAY, and a stored secret on the BYTES(n)
+// its sealed form is stored in. The tag consults the Go
 // type and the column alone: a @typescript declaration on the type changes the
 // interface, never the limit. A field hidden from the patch wire (a key, an output-only
 // field), a view's field, and every other pair carry no tag, so the structs stay quiet
@@ -2177,11 +2197,17 @@ func (f *resourceField) TypescriptMaxLength() int {
 	if f.SqltypeTag() == "" {
 		return 0
 	}
-	if kind, _ := valueKindOf(f.GoType()); kind != resource.ValueKindString {
+	kind, _ := valueKindOf(f.GoType())
+	if kind != resource.ValueKindString && kind != resource.ValueKindSecret {
 		return 0
 	}
 	if !slices.Contains(maxLengthDisplayTypes, displayType(strings.ToLower(f.TypescriptDisplayType()))) {
 		return 0
+	}
+	if kind == resource.ValueKindSecret {
+		// The column holds the value sealed: the form is told the room left for the
+		// value itself. The decoder counts bytes, which a character is one or more of.
+		return resource.DeclaredLength(f.SpannerType) - resource.SecretOverhead
 	}
 
 	return resource.DeclaredLength(f.SpannerType)

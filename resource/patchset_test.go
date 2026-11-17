@@ -1148,7 +1148,7 @@ func TestPatchSet_Resolve(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			got, err := tt.patchSet.Resolve(tt.dbType)
+			got, err := tt.patchSet.Resolve(tt.dbType, nil)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("PatchSet.Resolve() error = %v, wantErr %v", err, tt.wantErr)
 				return
