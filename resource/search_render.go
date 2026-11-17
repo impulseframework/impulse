@@ -45,7 +45,7 @@ func (s *sqlGenerator) generateMatchSQL(cn *ConditionNode) (string, []QueryParam
 	if !ok {
 		return sqlFalse, nil, nil
 	}
-	if grant.condition != "" && !c.match.positional {
+	if grant.condition != "" && (grant.always || !c.match.positional) {
 		sql = fmt.Sprintf("(%s AND %s)", grant.condition, sql)
 	}
 
@@ -192,7 +192,7 @@ func (s *sqlGenerator) boxFieldSQL(field *searchField, term string, params *[]Qu
 	if !ok {
 		return "", false
 	}
-	if grant.condition != "" && !field.positional {
+	if grant.condition != "" && (grant.always || !field.positional) {
 		sql = fmt.Sprintf("(%s AND %s)", grant.condition, sql)
 	}
 
@@ -235,11 +235,27 @@ func (s *sqlGenerator) branchExistsSQL(branch *SearchBranch, key, term string, p
 	table := s.quoteIdentifier(branch.Table)
 	where := []string{fmt.Sprintf("%s.%s = %s", table, s.quoteIdentifier(branch.JoinColumn), parentKey)}
 	if branch.TenantColumn != "" {
-		where = append(where, fmt.Sprintf("%s.%s = @%s", table, s.quoteIdentifier(branch.TenantColumn), domainParamName))
+		where = append(where, s.branchTenancy(table, branch.TenantColumn))
 	}
 	where = append(where, match)
 
 	return fmt.Sprintf("EXISTS (SELECT 1 FROM %s WHERE %s)", table, strings.Join(where, " AND ")), true
+}
+
+// branchTenancy renders a @searchAlso branch's tenant filter over its child
+// table: the child row's tenant equal to the request's one tenant, or in a list
+// over several tenants a member of the set the list reads. The statement's
+// tenancy predicate binds the parameter either names.
+func (s *sqlGenerator) branchTenancy(table, column string) string {
+	tenant := table + "." + s.quoteIdentifier(column)
+	switch {
+	case !s.acrossTenants:
+		return fmt.Sprintf("%s = @%s", tenant, domainParamName)
+	case s.dialect == Spanner:
+		return fmt.Sprintf("%s IN UNNEST(@%s)", tenant, domainsParamName)
+	default:
+		return fmt.Sprintf("%s = ANY(@%s)", tenant, domainsParamName)
+	}
 }
 
 // disjunction joins alternatives with OR, FALSE where there is none.
@@ -343,7 +359,7 @@ func (s *sqlGenerator) termBranches(c *searchCondition, term, query, resource, k
 		table := s.quoteIdentifier(branch.Table)
 		where := []string{}
 		if branch.TenantColumn != "" {
-			where = append(where, fmt.Sprintf("(%s.%s = @%s)", table, s.quoteIdentifier(branch.TenantColumn), domainParamName))
+			where = append(where, "("+s.branchTenancy(table, branch.TenantColumn)+")")
 		}
 		if grant.condition != "" {
 			where = append(where, grant.condition)

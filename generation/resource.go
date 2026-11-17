@@ -569,7 +569,7 @@ func (r *resourceGenerator) extractResourcesBesideTheApplications(packageMap map
 		sortResources(r.resources)
 	}
 
-	return nil
+	return r.resolveRunSubjectSets(r.resources)
 }
 
 // extractAndGenerateRPC parses the RPC package into rpcMethods, the scheduled methods

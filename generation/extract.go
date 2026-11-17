@@ -105,7 +105,7 @@ func (c *client) structsToResources(structs []*parser.Struct, validators ...stru
 
 	// A subject set's who: may name another resource's set, so the sets it
 	// names are checked once every resource is extracted.
-	if err := resolveSubjectSetReferences(resources); err != nil {
+	if err := c.resolveExtractedSubjectSets(resources); err != nil {
 		return nil, err
 	}
 
@@ -208,6 +208,10 @@ func resolveVirtualAnnotations(resource *resourceInfo, pStruct *parser.Struct, a
 		return err
 	}
 
+	if err := resolveListAcrossTenants(resource, annotations); err != nil {
+		return err
+	}
+
 	// The read route is known only now, and a file hangs under it.
 	return resolveResourceFiles(resource, pStruct, annotations)
 }
@@ -285,7 +289,8 @@ func resolveResourceAnnotations(res *resourceInfo, annotations genlang.StructAnn
 		res.ValidateUpdateType = string(annotations.Struct.Get(validateUpdateTypeKeyword))
 	}
 
-	return nil
+	// The list across tenants reads the scope and the suppressions resolved above.
+	return resolveListAcrossTenants(res, annotations)
 }
 
 // resolveStructAnnotations applies a table-backed struct's annotations and then the
@@ -801,7 +806,7 @@ func (c *client) structsToRPCMethods(structs []*parser.Struct, validators ...str
 		// The annotations other kinds own: a resource's bindings, a view's table, and a
 		// field type's TypeScript type; and the masking tag, which a method's request
 		// never carries.
-		if err := errors.Join(rejectBindingAnnotations(s, annotations, "RPC method", attributeKeyword), rejectRowsOf(s, annotations, "RPC method"), rejectChangedBy(s, annotations, "RPC method"), rejectTypescriptAnnotation(s, annotations, "RPC method"), rejectMaskingTags(s, "RPC method"), rejectFileAnnotations(s, annotations, "RPC method"), rejectTenantAnnotation(s, annotations, "@"+rpcKeyword+" struct"), rejectSearchAlso(s, annotations, "RPC method"), rejectReservedMethodName(s)); err != nil {
+		if err := errors.Join(rejectBindingAnnotations(s, annotations, "RPC method", attributeKeyword), rejectRowsOf(s, annotations, "RPC method"), rejectChangedBy(s, annotations, "RPC method"), rejectTypescriptAnnotation(s, annotations, "RPC method"), rejectMaskingTags(s, "RPC method"), rejectFileAnnotations(s, annotations, "RPC method"), rejectTenantAnnotation(s, annotations, "@"+rpcKeyword+" struct"), rejectSearchAlso(s, annotations, "RPC method"), rejectListAcrossTenants(s, annotations, "RPC method"), rejectReservedMethodName(s)); err != nil {
 			errs = append(errs, err)
 
 			continue
@@ -1024,7 +1029,7 @@ func (c *client) structsToCompResources(structs []*parser.Struct, validators ...
 			continue
 		}
 
-		if err := errors.Join(rejectRPCOnlyAnnotations(s, annotations, "computed resource"), rejectTypescriptAnnotation(s, annotations, "computed resource"), rejectTenantAnnotation(s, annotations, "@"+computedKeyword+" struct"), rejectFormerlyAnnotations(s, annotations, "computed resource"), rejectSearchAlso(s, annotations, "computed resource"), c.rejectReservedResourceName(s, "computed resource")); err != nil {
+		if err := errors.Join(rejectRPCOnlyAnnotations(s, annotations, "computed resource"), rejectTypescriptAnnotation(s, annotations, "computed resource"), rejectTenantAnnotation(s, annotations, "@"+computedKeyword+" struct"), rejectFormerlyAnnotations(s, annotations, "computed resource"), rejectSearchAlso(s, annotations, "computed resource"), rejectListAcrossTenants(s, annotations, "computed resource"), c.rejectReservedResourceName(s, "computed resource")); err != nil {
 			resourceErrors = append(resourceErrors, err)
 
 			continue
@@ -1253,7 +1258,7 @@ func generatedSetMethods() []string {
 // reservedRowName reports whether a column or field name collides with one of
 // the row envelope's reserved names, returning the name it collides with.
 func reservedRowName(spannerTag, fieldName string) (string, bool) {
-	for _, reserved := range []string{reservedMaskedNamesColumn, reservedCapabilitiesProperty, reservedCapabilityChecksColumn} {
+	for _, reserved := range []string{reservedMaskedNamesColumn, reservedCapabilitiesProperty, reservedCapabilityChecksColumn, reservedTenantColumn} {
 		if strings.EqualFold(spannerTag, reserved) || strings.EqualFold(fieldName, reserved) {
 			return reserved, true
 		}

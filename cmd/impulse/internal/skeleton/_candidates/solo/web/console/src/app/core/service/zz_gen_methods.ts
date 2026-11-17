@@ -6,20 +6,54 @@ export interface FieldPointer {
   field: FieldName;
 }
 
+export interface AddStaffGroupMemberConfig {
+  groupId: string | FieldPointer;
+  userId: string | FieldPointer;
+  startsAt?: Date | FieldPointer;
+  endsAt?: Date | FieldPointer;
+}
+export interface AddStaffGroupMember {
+  groupId: string;
+  userId: string;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+/** The statuses AddStaffGroupMember declares; the method chooses one per response. */
+export type AddStaffGroupMemberStatus = 204;
+
 export interface AssignStaffRoleConfig {
   userId: string | FieldPointer;
   role: string | FieldPointer;
   domain?: string | FieldPointer;
   everyDomain: boolean | FieldPointer;
+  startsAt?: Date | FieldPointer;
+  endsAt?: Date | FieldPointer;
 }
 export interface AssignStaffRole {
   userId: string;
   role: string;
   domain?: string;
   everyDomain: boolean;
+  startsAt?: Date;
+  endsAt?: Date;
 }
 /** The statuses AssignStaffRole declares; the method chooses one per response. */
 export type AssignStaffRoleStatus = 204;
+
+export interface CreateStaffGroupConfig {
+  name: string | FieldPointer;
+  description: string | FieldPointer;
+  domain?: string | FieldPointer;
+}
+export interface CreateStaffGroup {
+  name: string;
+  description: string;
+  domain?: string;
+}
+/** The result CreateStaffGroup answers with. */
+export interface CreateStaffGroupResult {
+  id: string;
+}
 
 export interface CreateStaffUserConfig {
   username: string | FieldPointer;
@@ -44,6 +78,15 @@ export interface CreateStaffUserResult {
   id: string;
 }
 
+export interface DeleteStaffGroupConfig {
+  groupId: string | FieldPointer;
+}
+export interface DeleteStaffGroup {
+  groupId: string;
+}
+/** The statuses DeleteStaffGroup declares; the method chooses one per response. */
+export type DeleteStaffGroupStatus = 204;
+
 export interface DeleteStaffUserConfig {
   userId: string | FieldPointer;
 }
@@ -52,6 +95,17 @@ export interface DeleteStaffUser {
 }
 /** The statuses DeleteStaffUser declares; the method chooses one per response. */
 export type DeleteStaffUserStatus = 204;
+
+export interface DescribeStaffGroupConfig {
+  groupId: string | FieldPointer;
+  description: string | FieldPointer;
+}
+export interface DescribeStaffGroup {
+  groupId: string;
+  description: string;
+}
+/** The statuses DescribeStaffGroup declares; the method chooses one per response. */
+export type DescribeStaffGroupStatus = 204;
 
 export interface DisableStaffUserConfig {
   userId: string | FieldPointer;
@@ -89,6 +143,25 @@ export interface EndStaffUserSessions {
 /** The statuses EndStaffUserSessions declares; the method chooses one per response. */
 export type EndStaffUserSessionsStatus = 204;
 
+export interface GiveStaffGroupRoleConfig {
+  groupId: string | FieldPointer;
+  role: string | FieldPointer;
+  domain?: string | FieldPointer;
+  everyDomain: boolean | FieldPointer;
+  startsAt?: Date | FieldPointer;
+  endsAt?: Date | FieldPointer;
+}
+export interface GiveStaffGroupRole {
+  groupId: string;
+  role: string;
+  domain?: string;
+  everyDomain: boolean;
+  startsAt?: Date;
+  endsAt?: Date;
+}
+/** The statuses GiveStaffGroupRole declares; the method chooses one per response. */
+export type GiveStaffGroupRoleStatus = 204;
+
 export interface InviteStaffUserConfig {
   email: string | FieldPointer;
   name?: string | FieldPointer;
@@ -107,25 +180,16 @@ export interface InviteStaffUserResult {
   sent: boolean;
 }
 
-export interface MakeStaffInviteOnlyConfig {
-  name: string | FieldPointer;
+export interface RemoveStaffGroupMemberConfig {
+  groupId: string | FieldPointer;
+  userId: string | FieldPointer;
 }
-export interface MakeStaffInviteOnly {
-  name: string;
+export interface RemoveStaffGroupMember {
+  groupId: string;
+  userId: string;
 }
-/** The statuses MakeStaffInviteOnly declares; the method chooses one per response. */
-export type MakeStaffInviteOnlyStatus = 204;
-
-export interface OpenStaffSignUpConfig {
-  name: string | FieldPointer;
-  defaultRole: string | FieldPointer;
-}
-export interface OpenStaffSignUp {
-  name: string;
-  defaultRole: string;
-}
-/** The statuses OpenStaffSignUp declares; the method chooses one per response. */
-export type OpenStaffSignUpStatus = 204;
+/** The statuses RemoveStaffGroupMember declares; the method chooses one per response. */
+export type RemoveStaffGroupMemberStatus = 204;
 
 export interface RemoveStaffPasswordConfig {
   userId: string | FieldPointer;
@@ -221,6 +285,21 @@ export interface SetStaffUserName {
 }
 /** The statuses SetStaffUserName declares; the method chooses one per response. */
 export type SetStaffUserNameStatus = 204;
+
+export interface TakeStaffGroupRoleConfig {
+  groupId: string | FieldPointer;
+  role: string | FieldPointer;
+  domain?: string | FieldPointer;
+  everyDomain: boolean | FieldPointer;
+}
+export interface TakeStaffGroupRole {
+  groupId: string;
+  role: string;
+  domain?: string;
+  everyDomain: boolean;
+}
+/** The statuses TakeStaffGroupRole declares; the method chooses one per response. */
+export type TakeStaffGroupRoleStatus = 204;
 
 export interface UnlinkStaffSessionIdentityConfig {
   identityId: string | FieldPointer;
@@ -329,18 +408,24 @@ export interface MethodMeta {
    * on a method that runs outside one, which refuses the header.
    */
   dryRun?: true;
-  /**
-   * Set on a method that warns before it runs (@warning): the server writes what the
-   * call will do (asked with X-Warning, nothing saved), and a dialog shows it in the
-   * warning style and holds its confirm button until the person has typed the word.
-   */
-  warning?: { typed: string };
   fields: RPCFieldMeta[];
 }
 
 export type MethodMap = Record<Method, MethodMeta>;
 
 const methodMap: MethodMap = {
+  [Methods.AddStaffGroupMember]: {
+    route: 'add-staff-group-member',
+    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'userId', displayType: 'enumerated', enumeratedResource: Resources.StaffSessionUsers },
+      { fieldName: 'startsAt', displayType: 'date', optional: true },
+      { fieldName: 'endsAt', displayType: 'date', optional: true },
+    ],
+  },
   [Methods.AssignStaffRole]: {
     route: 'assign-staff-role',
     statuses: [204],
@@ -350,6 +435,18 @@ const methodMap: MethodMap = {
       { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
       { fieldName: 'domain', displayType: 'string', optional: true },
       { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'startsAt', displayType: 'date', optional: true },
+      { fieldName: 'endsAt', displayType: 'date', optional: true },
+    ],
+  },
+  [Methods.CreateStaffGroup]: {
+    route: 'create-staff-group',
+    answers: true,
+    dryRun: true,
+    fields: [
+      { fieldName: 'name', displayType: 'string', required: true },
+      { fieldName: 'description', displayType: 'string', required: true },
+      { fieldName: 'domain', displayType: 'string', optional: true },
     ],
   },
   [Methods.CreateStaffUser]: {
@@ -366,6 +463,15 @@ const methodMap: MethodMap = {
       { fieldName: 'everyDomain', displayType: 'boolean' },
     ],
   },
+  [Methods.DeleteStaffGroup]: {
+    route: 'delete-staff-group',
+    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'groupId', displayType: 'uuid' },
+    ],
+  },
   [Methods.DeleteStaffUser]: {
     route: 'delete-staff-user',
     target: { resource: Resources.StaffSessionUsers, key: { userId: 'id' } },
@@ -373,6 +479,16 @@ const methodMap: MethodMap = {
     dryRun: true,
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
+    ],
+  },
+  [Methods.DescribeStaffGroup]: {
+    route: 'describe-staff-group',
+    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'description', displayType: 'string', required: true },
     ],
   },
   [Methods.DisableStaffUser]: {
@@ -411,6 +527,20 @@ const methodMap: MethodMap = {
       { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
+  [Methods.GiveStaffGroupRole]: {
+    route: 'give-staff-group-role',
+    target: { resource: Resources.StaffGroups, key: { groupId: 'id' } },
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'role', displayType: 'string', required: true, attribute: 'role' },
+      { fieldName: 'domain', displayType: 'string', optional: true },
+      { fieldName: 'everyDomain', displayType: 'boolean' },
+      { fieldName: 'startsAt', displayType: 'date', optional: true },
+      { fieldName: 'endsAt', displayType: 'date', optional: true },
+    ],
+  },
   [Methods.InviteStaffUser]: {
     route: 'invite-staff-user',
     answers: true,
@@ -422,22 +552,14 @@ const methodMap: MethodMap = {
       { fieldName: 'domain', displayType: 'string', optional: true },
     ],
   },
-  [Methods.MakeStaffInviteOnly]: {
-    route: 'make-staff-invite-only',
+  [Methods.RemoveStaffGroupMember]: {
+    route: 'remove-staff-group-member',
+    target: { resource: Resources.StaffGroupUsers, key: { groupId: 'groupId', userId: 'userId' } },
     statuses: [204],
     dryRun: true,
     fields: [
-      { fieldName: 'name', displayType: 'string', required: true },
-    ],
-  },
-  [Methods.OpenStaffSignUp]: {
-    route: 'open-staff-sign-up',
-    statuses: [204],
-    dryRun: true,
-    warning: { typed: 'open' },
-    fields: [
-      { fieldName: 'name', displayType: 'string', required: true },
-      { fieldName: 'defaultRole', displayType: 'enumerated', enumeratedResource: Resources.StaffSignUpRoles },
+      { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'userId', displayType: 'uuid' },
     ],
   },
   [Methods.RemoveStaffPassword]: {
@@ -525,6 +647,17 @@ const methodMap: MethodMap = {
     fields: [
       { fieldName: 'userId', displayType: 'uuid' },
       { fieldName: 'name', displayType: 'string', optional: true },
+    ],
+  },
+  [Methods.TakeStaffGroupRole]: {
+    route: 'take-staff-group-role',
+    statuses: [204],
+    dryRun: true,
+    fields: [
+      { fieldName: 'groupId', displayType: 'uuid' },
+      { fieldName: 'role', displayType: 'string', required: true },
+      { fieldName: 'domain', displayType: 'string', optional: true },
+      { fieldName: 'everyDomain', displayType: 'boolean' },
     ],
   },
   [Methods.UnlinkStaffSessionIdentity]: {

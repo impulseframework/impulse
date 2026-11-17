@@ -5,17 +5,17 @@ package staffhandlers
 
 import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/identity/internal/staffresources"
-	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/identity/staffidentity"
 	"github.com/impulseframework/impulse/resource"
 )
 
 type Resourcer interface {
 	resource.Resourcer
-	staffresources.StaffRole | staffresources.StaffRoleGrant | staffresources.StaffSession |
+	staffresources.StaffGroup | staffresources.StaffGroupMember |
+		staffresources.StaffGroupRole | staffresources.StaffGroupUser |
+		staffresources.StaffRole | staffresources.StaffRoleGrant | staffresources.StaffSession |
 		staffresources.StaffSessionAuthEvent | staffresources.StaffSessionIdentity |
 		staffresources.StaffSessionMailLink | staffresources.StaffSessionSignInAttempt |
-		staffresources.StaffSessionSignInMethod | staffresources.StaffSessionToken |
-		staffresources.StaffSessionTrustedDevice | staffresources.StaffSessionUser |
-		staffresources.StaffUserRole | staffidentity.StaffSignInMethod |
-		staffidentity.StaffSignUpRole
+		staffresources.StaffSessionToken | staffresources.StaffSessionTrustedDevice |
+		staffresources.StaffSessionUser | staffresources.StaffUserGroupRole |
+		staffresources.StaffUserRole
 }

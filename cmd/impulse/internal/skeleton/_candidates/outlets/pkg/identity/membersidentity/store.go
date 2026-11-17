@@ -5,6 +5,7 @@ package membersidentity
 
 import (
 	"context"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
@@ -662,4 +663,411 @@ func (store) RevokeTrustedDevice(ctx context.Context, txn resource.ReadWriteTran
 	}
 
 	return nil
+}
+
+// groupID answers a group's id as the declarations hold it, from the text the permission
+// store names a group by.
+func groupID(group accesstypes.Group) (impulse.UUID, error) {
+	id, err := impulse.UUIDFromString(string(group))
+	if err != nil {
+		return impulse.NilUUID, errors.Wrap(err, "impulse.UUIDFromString()")
+	}
+
+	return id, nil
+}
+
+func (store) InsertGroup(ctx context.Context, txn resource.ReadWriteTransaction, group *access.GroupRow) (impulse.UUID, error) {
+	patch, err := membersresources.NewMembersGroupCreatePatch()
+	if err != nil {
+		return impulse.NilUUID, errors.Wrap(err, "membersresources.NewMembersGroupCreatePatch()")
+	}
+	patch.SetKind(group.Kind).SetAxis(group.Axis).SetDomainID(group.Domain).SetName(group.Name).SetDescription(group.Description).SetUpdatedAt(spanner.CommitTimestamp)
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return impulse.NilUUID, errors.Wrap(err, "membersresources.MembersGroupCreatePatch.Buffer()")
+	}
+
+	return patch.ID(), nil
+}
+
+func (store) Group(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (group *identity.Group, found bool, err error) {
+	row, err := membersresources.NewMembersGroupQuery().
+		AddColumns(membersresources.NewMembersGroupColumns().Kind().Axis().DomainID().Name()).
+		SetID(id).
+		Read(ctx, txn)
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return nil, false, nil
+		}
+
+		return nil, false, errors.Wrap(err, "membersresources.MembersGroupQuery.Read()")
+	}
+
+	return &identity.Group{Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Name: row.Data.Name}, true, nil
+}
+
+func (store) GroupNamed(ctx context.Context, txn resource.ReadWriteTransaction, place *access.GroupRow) (bool, error) {
+	// The table's unique index by name leads with where a group is kept, then the name.
+	clause := membersresources.NewMembersGroupQueryClause()
+	query := membersresources.NewMembersGroupQuery().
+		AddColumns(membersresources.NewMembersGroupColumns().ID()).
+		Where(clause.Kind().Equal(place.Kind).And().Axis().Equal(place.Axis).And().DomainID().Equal(place.Domain).And().Name().Equal(place.Name))
+	for _, err := range query.List(ctx, txn) {
+		if err != nil {
+			return false, errors.Wrap(err, "membersresources.MembersGroupQuery.List()")
+		}
+
+		return true, nil
+	}
+
+	return false, nil
+}
+
+func (store) DescribeGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, description string) error {
+	patch := membersresources.NewMembersGroupUpdatePatch(id).SetDescription(description).SetUpdatedAt(spanner.CommitTimestamp)
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return errors.Wrap(err, "membersresources.MembersGroupUpdatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
+	if err := membersresources.NewMembersGroupDeletePatch(id).Buffer(ctx, txn); err != nil {
+		return errors.Wrap(err, "membersresources.MembersGroupDeletePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) TenantGroups(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]impulse.UUID, error) {
+	// The table's index by name leads with where a group is kept: the list is the rows
+	// kept in the tenant.
+	at := access.NewGroupRoleKey("", accesstypes.DomainPolicyScope(domain), "")
+	clause := membersresources.NewMembersGroupQueryClause()
+	query := membersresources.NewMembersGroupQuery().
+		AddColumns(membersresources.NewMembersGroupColumns().ID()).
+		Where(clause.Kind().Equal(at.Kind).And().Axis().Equal(at.Axis).And().DomainID().Equal(at.Domain))
+	var ids []impulse.UUID
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "membersresources.MembersGroupQuery.List()")
+		}
+		ids = append(ids, row.Data.ID)
+	}
+
+	return ids, nil
+}
+
+func (store) GroupMembers(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) ([]accesstypes.User, error) {
+	// The table's key leads with the group: the list is the rows under it.
+	query := membersresources.NewMembersGroupMemberQuery().
+		AddColumns(membersresources.NewMembersGroupMemberColumns().UserID()).
+		SetGroupID(id)
+	var users []accesstypes.User
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "membersresources.MembersGroupMemberQuery.List()")
+		}
+		users = append(users, accesstypes.User(row.Data.UserID))
+	}
+
+	return users, nil
+}
+
+func (store) HasGroupMember(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupMemberKey) (bool, error) {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return false, err
+	}
+	_, err = membersresources.NewMembersGroupMemberQuery().
+		AddColumns(membersresources.NewMembersGroupMemberColumns().UserID()).
+		SetGroupID(id).SetUserID(string(key.User)).
+		Read(ctx, txn)
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return false, nil
+		}
+
+		return false, errors.Wrap(err, "membersresources.MembersGroupMemberQuery.Read()")
+	}
+
+	return true, nil
+}
+
+// InsertGroupMember is a create-unless-there: a person who is in the group, committed or
+// written earlier in this transaction, keeps the time they were put in it.
+func (store) InsertGroupMember(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupMemberKey) (bool, error) {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return false, err
+	}
+	patch := membersresources.NewMembersGroupMemberCreatePatch(id, string(key.User)).
+		SetCreatedAt(spanner.CommitTimestamp).
+		OrSkip()
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return false, errors.Wrap(err, "membersresources.MembersGroupMemberCreatePatch.Buffer()")
+	}
+
+	return !patch.RowSkipped(), nil
+}
+
+func (store) DeleteGroupMember(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupMemberKey) error {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return err
+	}
+	if err := membersresources.NewMembersGroupMemberDeletePatch(id, string(key.User)).Buffer(ctx, txn); err != nil {
+		return errors.Wrap(err, "membersresources.MembersGroupMemberDeletePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (s store) UserGroups(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]identity.GroupPlace, error) {
+	// The table's index by user leads with the person, the id of their account; where
+	// each group is kept is read off the group's own row.
+	query := membersresources.NewMembersGroupMemberQuery().
+		AddColumns(membersresources.NewMembersGroupMemberColumns().GroupID()).
+		Where(membersresources.NewMembersGroupMemberQueryClause().UserID().Equal(userID.String()))
+	var ids []impulse.UUID
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "membersresources.MembersGroupMemberQuery.List()")
+		}
+		ids = append(ids, row.Data.GroupID)
+	}
+	places := make([]identity.GroupPlace, 0, len(ids))
+	for _, id := range ids {
+		group, found, err := s.Group(ctx, txn, id)
+		if err != nil {
+			return nil, err
+		}
+		if found {
+			places = append(places, identity.GroupPlace{ID: id, Kind: group.Kind, Axis: group.Axis, Domain: group.Domain})
+		}
+	}
+
+	return places, nil
+}
+
+func (store) GroupRoles(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) ([]access.GroupRoleKey, error) {
+	// The table's key leads with the group: the list is the rows under it.
+	query := membersresources.NewMembersGroupRoleQuery().
+		AddColumns(membersresources.NewMembersGroupRoleColumns().GroupID().Kind().Axis().DomainID().Role()).
+		SetGroupID(id)
+	var keys []access.GroupRoleKey
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "membersresources.MembersGroupRoleQuery.List()")
+		}
+		keys = append(keys, access.GroupRoleKey{Group: identity.GroupID(row.Data.GroupID), Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Role: accesstypes.Role(row.Data.Role)})
+	}
+
+	return keys, nil
+}
+
+func (store) HasGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupRoleKey) (bool, error) {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return false, err
+	}
+	_, err = membersresources.NewMembersGroupRoleQuery().
+		AddColumns(membersresources.NewMembersGroupRoleColumns().Role()).
+		SetGroupID(id).SetKind(key.Kind).SetAxis(key.Axis).SetDomainID(key.Domain).SetRole(string(key.Role)).
+		Read(ctx, txn)
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return false, nil
+		}
+
+		return false, errors.Wrap(err, "membersresources.MembersGroupRoleQuery.Read()")
+	}
+
+	return true, nil
+}
+
+// InsertGroupRole is a create-unless-there: a role the group holds there, committed or
+// written earlier in this transaction, keeps the time it was given.
+func (store) InsertGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupRoleKey) (bool, error) {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return false, err
+	}
+	patch := membersresources.NewMembersGroupRoleCreatePatch(id, key.Kind, key.Axis, key.Domain, string(key.Role)).
+		SetCreatedAt(spanner.CommitTimestamp).
+		OrSkip()
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return false, errors.Wrap(err, "membersresources.MembersGroupRoleCreatePatch.Buffer()")
+	}
+
+	return !patch.RowSkipped(), nil
+}
+
+func (store) DeleteGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupRoleKey) error {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return err
+	}
+	patch := membersresources.NewMembersGroupRoleDeletePatch(id, key.Kind, key.Axis, key.Domain, string(key.Role))
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return errors.Wrap(err, "membersresources.MembersGroupRoleDeletePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) TenantGroupRoles(ctx context.Context, txn resource.ReadWriteTransaction, domain accesstypes.Domain) ([]access.GroupRoleKey, error) {
+	// The table's index by scope leads with where a role is held: the list is the rows
+	// under the tenant's own scope, whichever group holds each.
+	at := access.NewGroupRoleKey("", accesstypes.DomainPolicyScope(domain), "")
+	query := membersresources.NewMembersGroupRoleQuery().
+		AddColumns(membersresources.NewMembersGroupRoleColumns().GroupID().Kind().Axis().DomainID().Role()).
+		SetKind(at.Kind).SetAxis(at.Axis).SetDomainID(at.Domain)
+	var keys []access.GroupRoleKey
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "membersresources.MembersGroupRoleQuery.List()")
+		}
+		keys = append(keys, access.GroupRoleKey{Group: identity.GroupID(row.Data.GroupID), Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Role: accesstypes.Role(row.Data.Role)})
+	}
+
+	return keys, nil
+}
+
+// storedPeriod answers the period a row's two columns hold, as they are. A row written
+// past the rules with an end at or before its start never counts, and is read so.
+func storedPeriod(start, end *time.Time) accesstypes.Period {
+	var period accesstypes.Period
+	if start != nil {
+		period.Start = *start
+	}
+	if end != nil {
+		period.End = *end
+	}
+
+	return period
+}
+
+// SetMembershipPeriod writes both columns, an absent start or end as NULL: the period
+// handed replaces the one the membership had.
+func (store) SetMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.MembershipKey, period accesstypes.Period) error {
+	patch := membersresources.NewMembersUserRoleUpdatePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User)).
+		SetStartsAt(period.StartPtr()).
+		SetEndsAt(period.EndPtr())
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return errors.Wrap(err, "membersresources.MembersUserRoleUpdatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) (*identity.UserPeriods, error) {
+	periods := &identity.UserPeriods{Memberships: map[access.MembershipKey]accesstypes.Period{}, Places: map[access.GroupMemberKey]accesstypes.Period{}}
+	// The table's index by user leads with the person, the id of their account.
+	memberships := membersresources.NewMembersUserRoleQuery().
+		AddColumns(membersresources.NewMembersUserRoleColumns().Kind().Axis().DomainID().Role().UserID().StartsAt().EndsAt()).
+		Where(membersresources.NewMembersUserRoleQueryClause().UserID().Equal(userID.String()))
+	for row, err := range memberships.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "membersresources.MembersUserRoleQuery.List()")
+		}
+		key := access.MembershipKey{Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Role: accesstypes.Role(row.Data.Role), User: accesstypes.User(row.Data.UserID)}
+		periods.Memberships[key] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)
+	}
+	places := membersresources.NewMembersGroupMemberQuery().
+		AddColumns(membersresources.NewMembersGroupMemberColumns().GroupID().UserID().StartsAt().EndsAt()).
+		Where(membersresources.NewMembersGroupMemberQueryClause().UserID().Equal(userID.String()))
+	for row, err := range places.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "membersresources.MembersGroupMemberQuery.List()")
+		}
+		key := access.GroupMemberKey{Group: identity.GroupID(row.Data.GroupID), User: accesstypes.User(row.Data.UserID)}
+		periods.Places[key] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)
+	}
+
+	return periods, nil
+}
+
+// RemoveEnded buffers each removal under the source that says the assignment ended by
+// itself (identity.EndedByItself): it is what a change record of the row holds in place
+// of a person's act.
+func (store) RemoveEnded(ctx context.Context, txn resource.ReadWriteTransaction, memberships []access.MembershipKey, places []access.GroupMemberKey) error {
+	for i := range memberships {
+		key := &memberships[i]
+		patch := membersresources.NewMembersUserRoleDeletePatch(key.Kind, key.Axis, key.Domain, string(key.Role), string(key.User))
+		if err := patch.Buffer(ctx, txn, identity.EndedByItself); err != nil {
+			return errors.Wrap(err, "membersresources.MembersUserRoleDeletePatch.Buffer()")
+		}
+	}
+	for _, place := range places {
+		id, err := groupID(place.Group)
+		if err != nil {
+			return err
+		}
+		if err := membersresources.NewMembersGroupMemberDeletePatch(id, string(place.User)).Buffer(ctx, txn, identity.EndedByItself); err != nil {
+			return errors.Wrap(err, "membersresources.MembersGroupMemberDeletePatch.Buffer()")
+		}
+	}
+
+	return nil
+}
+
+// SetGroupMemberPeriod writes both columns, an absent start or end as NULL: the period
+// handed replaces the one the place had.
+func (store) SetGroupMemberPeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupMemberKey, period accesstypes.Period) error {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return err
+	}
+	patch := membersresources.NewMembersGroupMemberUpdatePatch(id, string(key.User)).
+		SetStartsAt(period.StartPtr()).
+		SetEndsAt(period.EndPtr())
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return errors.Wrap(err, "membersresources.MembersGroupMemberUpdatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+// SetGroupRolePeriod writes both columns, an absent start or end as NULL: the period
+// handed replaces the one the group's role had.
+func (store) SetGroupRolePeriod(ctx context.Context, txn resource.ReadWriteTransaction, key *access.GroupRoleKey, period accesstypes.Period) error {
+	id, err := groupID(key.Group)
+	if err != nil {
+		return err
+	}
+	patch := membersresources.NewMembersGroupRoleUpdatePatch(id, key.Kind, key.Axis, key.Domain, string(key.Role)).
+		SetStartsAt(period.StartPtr()).
+		SetEndsAt(period.EndPtr())
+	if err := patch.Buffer(ctx, txn); err != nil {
+		return errors.Wrap(err, "membersresources.MembersGroupRoleUpdatePatch.Buffer()")
+	}
+
+	return nil
+}
+
+func (store) GroupPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (*identity.GroupPeriods, error) {
+	periods := &identity.GroupPeriods{Members: map[accesstypes.User]accesstypes.Period{}, Roles: map[access.GroupRoleKey]accesstypes.Period{}}
+	// Each table's key leads with the group: the lists are the rows under it.
+	members := membersresources.NewMembersGroupMemberQuery().
+		AddColumns(membersresources.NewMembersGroupMemberColumns().UserID().StartsAt().EndsAt()).
+		SetGroupID(id)
+	for row, err := range members.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "membersresources.MembersGroupMemberQuery.List()")
+		}
+		periods.Members[accesstypes.User(row.Data.UserID)] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)
+	}
+	roles := membersresources.NewMembersGroupRoleQuery().
+		AddColumns(membersresources.NewMembersGroupRoleColumns().GroupID().Kind().Axis().DomainID().Role().StartsAt().EndsAt()).
+		SetGroupID(id)
+	for row, err := range roles.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "membersresources.MembersGroupRoleQuery.List()")
+		}
+		key := access.GroupRoleKey{Group: identity.GroupID(row.Data.GroupID), Kind: row.Data.Kind, Axis: row.Data.Axis, Domain: row.Data.DomainID, Role: accesstypes.Role(row.Data.Role)}
+		periods.Roles[key] = storedPeriod(row.Data.StartsAt, row.Data.EndsAt)
+	}
+
+	return periods, nil
 }

@@ -27,6 +27,27 @@ export function resourcePageRoute(resource: Resource): string | undefined {
   return resourcePages.get(resource);
 }
 
+/**
+ * Where each resource's rows open by a route of their own, registered by resourceRoutes
+ * for a page that carries a row route: the page's route as its config wrote it, under
+ * which `:key` is the row. A resource with none has no page a link to one of its rows
+ * could open, so a list that must link each row to its own route (a list across tenants)
+ * draws none. The first registration for a resource stands.
+ */
+const rowPages = new Map<Resource, string>();
+
+/** Records the page whose row route opens the resource's rows, as the config wrote its route. */
+export function registerRowPage(resource: Resource, route: string): void {
+  if (!rowPages.has(resource)) {
+    rowPages.set(resource, route);
+  }
+}
+
+/** The page whose row route opens the resource's rows, undefined when the application mounts none. */
+export function rowPageRoute(resource: Resource): string | undefined {
+  return rowPages.get(resource);
+}
+
 /** Resolves a registered route into the path a link or a navigation uses; `pageRouteResolver` builds one. */
 export type PageRouteResolver = (route: string) => string;
 

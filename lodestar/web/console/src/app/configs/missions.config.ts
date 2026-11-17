@@ -16,8 +16,10 @@ import { enumeratedConfig, field, listViewConfig, rootConfig, section } from '@i
 // over Clients carrying the contact count, and BriefingTemplates for the plain template
 // column, a computed catalog with no read route, so a picked template's name resolves
 // from the option list — and the configuration only narrows and presents those rows. A
-// persona without List on the view, or on a picker's resource, sees that request
-// refused, never a substitute resource.
+// persona without List on the view sees that request refused, never a substitute
+// resource. A persona with nothing on a picker's resource (the liaison in Cinder, an
+// Archivist, who reads a mission and not the client roster) is asked nothing of it: the
+// Client field shows the stored id, read-only, and says she has no access to that list.
 //
 // The list is paged by the server, and only there: the page asks for one page of the
 // board at the size the view's descriptor declares (no pageSize here, so the @page

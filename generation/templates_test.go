@@ -961,7 +961,7 @@ func Test_handlerTemplates_live(t *testing.T) {
 			name:     "live routes",
 			template: liveTemplate,
 			want: []string{
-				"return live.RenewHandler({{ .ReceiverName }}.LiveService(), {{ .ReceiverName }}.UserPermissions)",
+				"return live.RenewHandler({{ .ReceiverName }}.LiveService(), {{ .ReceiverName }}.UserPermissions{{ if .ListsAcrossTenants }}, live.WithListsAcrossTenants({{ .RouterPackage }}.Collection()){{ end }})",
 				"return live.UnsubscribeHandler({{ .ReceiverName }}.LiveService())",
 				"return live.TokenHandler({{ .ReceiverName }}.LiveService())",
 			},

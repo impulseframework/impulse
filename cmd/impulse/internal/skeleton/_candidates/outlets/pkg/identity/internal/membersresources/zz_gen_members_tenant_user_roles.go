@@ -32,6 +32,8 @@ type membersTenantUserRoleRead struct {
 	Role        string       `json:"role"        perm:"-"`
 	EveryDomain bool         `json:"everyDomain"`
 	CreatedAt   time.Time    `json:"createdAt"`
+	StartsAt    *time.Time   `json:"startsAt"`
+	EndsAt      *time.Time   `json:"endsAt"`
 }
 
 var membersTenantUserRoleReadSets resource.SetCache[MembersTenantUserRole, membersTenantUserRoleRead]
@@ -158,6 +160,8 @@ func (c *MembersTenantUserRoleColumns) All() *MembersTenantUserRoleColumns {
 		"Role",
 		"EveryDomain",
 		"CreatedAt",
+		"StartsAt",
+		"EndsAt",
 	}
 
 	return c
@@ -195,6 +199,18 @@ func (c *MembersTenantUserRoleColumns) EveryDomain() *MembersTenantUserRoleColum
 
 func (c *MembersTenantUserRoleColumns) CreatedAt() *MembersTenantUserRoleColumns {
 	c.fields = append(c.fields, "CreatedAt")
+
+	return c
+}
+
+func (c *MembersTenantUserRoleColumns) StartsAt() *MembersTenantUserRoleColumns {
+	c.fields = append(c.fields, "StartsAt")
+
+	return c
+}
+
+func (c *MembersTenantUserRoleColumns) EndsAt() *MembersTenantUserRoleColumns {
+	c.fields = append(c.fields, "EndsAt")
 
 	return c
 }
@@ -319,6 +335,14 @@ func (c *membersTenantUserRoleSort) EveryDomain() *MembersTenantUserRoleSort {
 
 func (c *membersTenantUserRoleSort) CreatedAt() *MembersTenantUserRoleSort {
 	return c.addField("CreatedAt")
+}
+
+func (c *membersTenantUserRoleSort) StartsAt() *MembersTenantUserRoleSort {
+	return c.addField("StartsAt")
+}
+
+func (c *membersTenantUserRoleSort) EndsAt() *MembersTenantUserRoleSort {
+	return c.addField("EndsAt")
 }
 
 type MembersTenantUserRoleSort struct {

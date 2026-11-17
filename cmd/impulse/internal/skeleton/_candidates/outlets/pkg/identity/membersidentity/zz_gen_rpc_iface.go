@@ -7,14 +7,19 @@ import "github.com/impulseframework/impulse/accesstypes"
 
 type Method interface {
 	Method() accesstypes.Resource
-	AssignMembersRole | AssignMembersTenantRole | CreateMembersTenantUser | CreateMembersUser |
-		DeleteMembersTenantUser | DeleteMembersUser | DisableMembersTenantUser |
-		DisableMembersUser | EnableMembersTenantUser | EnableMembersUser | EndMembersSession |
-		EndMembersTenantUserSessions | EndMembersUserSessions | InviteMembersTenantUser |
-		InviteMembersUser | RemoveMembersRole | RemoveMembersTenantRole | RenameMembersTenantUser |
-		RenameMembersUser | RevokeMembersSessionToken | RevokeMembersTenantUserTrustedDevices |
-		RevokeMembersUserTrustedDevices | SetMembersTenantUserEmail | SetMembersTenantUserName |
-		SetMembersUserEmail | SetMembersUserName | UnlinkMembersSessionIdentity |
-		UnlinkMembersTenantSessionIdentity | UnlockMembersSignIn | WithdrawMembersInvitation |
-		WithdrawMembersTenantInvitation
+	AddMembersGroupMember | AddMembersTenantGroupMember | AssignMembersRole |
+		AssignMembersTenantRole | CreateMembersGroup | CreateMembersTenantGroup |
+		DeleteMembersGroup | DeleteMembersTenantGroup | DeleteMembersTenantUser |
+		DeleteMembersUser | DescribeMembersGroup | DescribeMembersTenantGroup |
+		DisableMembersTenantUser | DisableMembersUser | EnableMembersTenantUser |
+		EnableMembersUser | EndMembersSession | EndMembersTenantUserSessions |
+		EndMembersUserSessions | GiveMembersGroupRole | GiveMembersTenantGroupRole |
+		InviteMembersTenantUser | InviteMembersUser | RemoveMembersGroupMember |
+		RemoveMembersRole | RemoveMembersTenantGroupMember | RemoveMembersTenantRole |
+		RenameMembersTenantUser | RenameMembersUser | RevokeMembersSessionToken |
+		RevokeMembersTenantUserTrustedDevices | RevokeMembersUserTrustedDevices |
+		SetMembersTenantUserEmail | SetMembersTenantUserName | SetMembersUserEmail |
+		SetMembersUserName | TakeMembersGroupRole | TakeMembersTenantGroupRole |
+		UnlinkMembersSessionIdentity | UnlinkMembersTenantSessionIdentity |
+		UnlockMembersSignIn | WithdrawMembersInvitation | WithdrawMembersTenantInvitation
 }

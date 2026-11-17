@@ -32,6 +32,8 @@ type crewSectorUserRoleRead struct {
 	Role        string       `json:"role"        perm:"-"`
 	EveryDomain bool         `json:"everyDomain"`
 	CreatedAt   time.Time    `json:"createdAt"`
+	StartsAt    *time.Time   `json:"startsAt"`
+	EndsAt      *time.Time   `json:"endsAt"`
 }
 
 var crewSectorUserRoleReadSets resource.SetCache[CrewSectorUserRole, crewSectorUserRoleRead]
@@ -158,6 +160,8 @@ func (c *CrewSectorUserRoleColumns) All() *CrewSectorUserRoleColumns {
 		"Role",
 		"EveryDomain",
 		"CreatedAt",
+		"StartsAt",
+		"EndsAt",
 	}
 
 	return c
@@ -195,6 +199,18 @@ func (c *CrewSectorUserRoleColumns) EveryDomain() *CrewSectorUserRoleColumns {
 
 func (c *CrewSectorUserRoleColumns) CreatedAt() *CrewSectorUserRoleColumns {
 	c.fields = append(c.fields, "CreatedAt")
+
+	return c
+}
+
+func (c *CrewSectorUserRoleColumns) StartsAt() *CrewSectorUserRoleColumns {
+	c.fields = append(c.fields, "StartsAt")
+
+	return c
+}
+
+func (c *CrewSectorUserRoleColumns) EndsAt() *CrewSectorUserRoleColumns {
+	c.fields = append(c.fields, "EndsAt")
 
 	return c
 }
@@ -319,6 +335,14 @@ func (c *crewSectorUserRoleSort) EveryDomain() *CrewSectorUserRoleSort {
 
 func (c *crewSectorUserRoleSort) CreatedAt() *CrewSectorUserRoleSort {
 	return c.addField("CreatedAt")
+}
+
+func (c *crewSectorUserRoleSort) StartsAt() *CrewSectorUserRoleSort {
+	return c.addField("StartsAt")
+}
+
+func (c *crewSectorUserRoleSort) EndsAt() *CrewSectorUserRoleSort {
+	return c.addField("EndsAt")
 }
 
 type CrewSectorUserRoleSort struct {

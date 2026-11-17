@@ -20,7 +20,8 @@ import (
 // names are taken from where the generator names them (the declarations, the lists, the
 // method sources), and a side names only what the outlet serves: a method the auth's
 // sign-in methods do not give, or a list the schema has no table for, is absent, and a
-// page draws nothing for it.
+// page draws nothing for it. The groups of people are named the same way, where the
+// auth keeps them.
 
 // The keys of the lists of a side.
 const (
@@ -32,6 +33,12 @@ const (
 	identityListSignInAttempts = "signInAttempts"
 	identityListSignInMethods  = "signInMethods"
 	identityListSignUpRoles    = "signUpRoles"
+	// The lists over the groups of people (identity_groups.go): the groups, the people
+	// of a group, the roles a group holds, and the roles people hold through a group.
+	identityListGroups        = "groups"
+	identityListGroupUsers    = "groupUsers"
+	identityListGroupRoles    = "groupRoles"
+	identityListThroughGroups = "rolesThroughGroups"
 )
 
 // identityPart is one list or method of a side: the key a page knows it by and the name
@@ -100,6 +107,10 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 			{identityListRoles, i.listName(listRolesSuffix)},
 			{identityListIdentities, i.listName(listIdentitiesSuffix)},
 			{identityListInvitations, i.listName(listInvitationsSuffix)},
+			{identityListGroups, i.groupListName(listGroupsSuffix, true)},
+			{identityListGroupUsers, i.groupListName(listGroupPeopleSuffix, true)},
+			{identityListGroupRoles, i.groupListName(listGroupRolesSuffix, true)},
+			{identityListThroughGroups, i.groupListName(listThroughGroupsSuffix, true)},
 		}
 	}
 	data := &identitySourceData{identityInstance: i}
@@ -113,6 +124,10 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 		{identityListSignInAttempts, data.SignInAttempt()},
 		{identityListSignInMethods, data.SignInMethod()},
 		{identityListSignUpRoles, data.SignUpRole()},
+		{identityListGroups, data.Group()},
+		{identityListGroupUsers, i.groupListName(listGroupPeopleSuffix, false)},
+		{identityListGroupRoles, data.GroupRole()},
+		{identityListThroughGroups, i.groupListName(listThroughGroupsSuffix, false)},
 	}
 }
 
@@ -141,6 +156,13 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 		{"revokeTrustedDevices", "Revoke" + subject + "UserTrustedDevices"},
 		{"unlinkIdentity", i.unlinkIdentityMethod(tenant)},
 		{"removePassword", i.removePasswordMethod(tenant)},
+		{"createGroup", "Create" + subject + "Group"},
+		{"describeGroup", "Describe" + subject + "Group"},
+		{"deleteGroup", "Delete" + subject + "Group"},
+		{"addGroupMember", "Add" + subject + "GroupMember"},
+		{"removeGroupMember", "Remove" + subject + "GroupMember"},
+		{"giveGroupRole", "Give" + subject + "GroupRole"},
+		{"takeGroupRole", "Take" + subject + "GroupRole"},
 	}
 	if !tenant {
 		data := &identitySourceData{identityInstance: i}

@@ -252,6 +252,23 @@ type Settings struct {
 	TenantDirectories signin.DirectoryReader[*cloudspanner.ReadWriteTransaction]
 }
 
+// required refuses settings that lack what the auth is not built without, each refusal
+// saying what the missing piece is for.
+func (s *Settings) required() error {
+	switch {
+	case s.ChangeSignal == nil:
+		return errors.New("crew.Settings.ChangeSignal is required: the engine announces and watches policy changes through it")
+	case s.TenantDeclarations == nil:
+		return errors.New("crew.Settings.TenantDeclarations is required: the sign-in rule reads what each sector declares about who may enter it through the generated reader (app.NewSectorDeclarationReader)")
+	case s.TenantDirectories == nil:
+		return errors.New("crew.Settings.TenantDirectories is required: the directory admission reads what each sector declares about one directory, its default seat included, through the generated reader (app.NewSectorDirectoryReader)")
+	case s.Mail.Sender == nil:
+		return errors.New("crew.Settings.Mail.Sender is required: the auth mails its invitations, address verifications and sign-up links through it (the configuration's driver, or mail.Log in development)")
+	}
+
+	return nil
+}
+
 // Session is the auth's session manager: one Auth session over the Spanner store, whose
 // hooks are typed to the store's transaction.
 type Session = session.Auth[session.NoCustomData, session.NoCustomData, *cloudspanner.ReadWriteTransaction]
@@ -569,17 +586,8 @@ func (h *Handlers) PendingEnrollEmail() http.HandlerFunc {
 // blocks until its first policy snapshot is loaded. It announces its policy writes and
 // watches the other instances' through the change signal, which is required.
 func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Auth, error) {
-	if settings.ChangeSignal == nil {
-		return nil, errors.New("crew.Settings.ChangeSignal is required: the engine announces and watches policy changes through it")
-	}
-	if settings.TenantDeclarations == nil {
-		return nil, errors.New("crew.Settings.TenantDeclarations is required: the sign-in rule reads what each sector declares about who may enter it through the generated reader (app.NewSectorDeclarationReader)")
-	}
-	if settings.TenantDirectories == nil {
-		return nil, errors.New("crew.Settings.TenantDirectories is required: the directory admission reads what each sector declares about one directory, its default seat included, through the generated reader (app.NewSectorDirectoryReader)")
-	}
-	if settings.Mail.Sender == nil {
-		return nil, errors.New("crew.Settings.Mail.Sender is required: the auth mails its invitations, address verifications and sign-up links through it (the configuration's driver, or mail.Log in development)")
+	if err := settings.required(); err != nil {
+		return nil, err
 	}
 	store, err := spannerstore.New(db, spannerstore.WithPrefix(TablePrefix))
 	if err != nil {
@@ -792,6 +800,15 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	crewSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
 	crewSession.SetInvitationAccepted(identityClient.InvitationAccepted())
 	crewSession.SetSignUpSeated(identityClient.SignedUp())
+	// What a sign-in clears. A role, a place in a group and a group's role given for a
+	// period count inside it alone, and nothing is written when one ends: the row goes
+	// when its person next signs in. The session library calls this hook once the
+	// session is committed, and the identity client removes the person's ended roles and
+	// places, nothing else and never the account; a failure is logged and the session
+	// stands. The members' roles are their directory's and carry no period: no hook.
+	//
+	// Demonstrates: auth.periods.
+	crewSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
 
 	// The machine outlet the auth issues tokens for, registered before the first
 	// request as the methods are: the droids' channel, whose token check the generated

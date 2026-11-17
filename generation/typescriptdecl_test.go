@@ -32,6 +32,11 @@ func Test_parseTypescriptDecl(t *testing.T) {
 			want: &tsImport{Name: "Document", From: "@contentful/rich-text-types"},
 		},
 		{
+			name: "a module whose name holds a parenthesis",
+			doc:  "@typescript(Point, from: \"geo)json\")\n",
+			want: &tsImport{Name: "Point", From: "geo)json"},
+		},
+		{
 			name: "a built-in alone",
 			doc:  "Code is a string on the wire.\n@typescript(string)\n",
 			want: &tsImport{Name: "string"},
@@ -65,6 +70,11 @@ func Test_parseTypescriptDecl(t *testing.T) {
 			name:    "an unknown argument",
 			doc:     "@typescript(Point, module: \"geojson\")\n",
 			wantErr: `unknown argument "module"`,
+		},
+		{
+			name:    "a module whose quote is never closed",
+			doc:     "@typescript(Point, from: \"geojson)\n",
+			wantErr: "unclosed double quote",
 		},
 		{
 			name:    "a second declaration",

@@ -21,6 +21,11 @@ type (
 	// the tenant's own row, with the other standing behind it. The role is read by a
 	// condition too (role), so a role file can say which roles its holder takes away.
 	//
+	// StartsAt and EndsAt are the role's period, the first instant it counts and the first
+	// it no longer does, each empty for none. A role that has ended is not listed: it
+	// grants nothing and goes at the person's next sign-in. One that has not begun is
+	// listed, where it is given another period or taken away.
+	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet(portal)
@@ -36,8 +41,10 @@ type (
 		// @attribute(role)
 		Role string `spanner:"Role" index:"true"`
 		// @attribute(everyDomain)
-		EveryDomain bool      `spanner:"EveryDomain" index:"true"`
-		CreatedAt   time.Time `spanner:"CreatedAt"`
+		EveryDomain bool       `spanner:"EveryDomain" index:"true"`
+		CreatedAt   time.Time  `spanner:"CreatedAt"`
+		StartsAt    *time.Time `spanner:"StartsAt"`
+		EndsAt      *time.Time `spanner:"EndsAt"`
 	}
 )
 
@@ -57,19 +64,24 @@ SELECT
   u.Username AS Username,
   t.Role AS Role,
   t.EveryDomain AS EveryDomain,
-  t.CreatedAt AS CreatedAt
+  t.CreatedAt AS CreatedAt,
+  t.StartsAt AS StartsAt,
+  t.EndsAt AS EndsAt
 FROM (
-  SELECT m.DomainId AS DomainId, m.UserId AS UserId, m.Role AS Role, FALSE AS EveryDomain, m.CreatedAt AS CreatedAt
+  SELECT m.DomainId AS DomainId, m.UserId AS UserId, m.Role AS Role, FALSE AS EveryDomain, m.CreatedAt AS CreatedAt, m.StartsAt AS StartsAt, m.EndsAt AS EndsAt
   FROM MembersUserRoles m
   WHERE m.Kind = 'domain' AND m.Axis = ''
+    AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
   UNION ALL
-  SELECT s.Id AS DomainId, m.UserId AS UserId, m.Role AS Role, TRUE AS EveryDomain, m.CreatedAt AS CreatedAt
+  SELECT s.Id AS DomainId, m.UserId AS UserId, m.Role AS Role, TRUE AS EveryDomain, m.CreatedAt AS CreatedAt, m.StartsAt AS StartsAt, m.EndsAt AS EndsAt
   FROM MembersUserRoles@{FORCE_INDEX=_BASE_TABLE} m
   CROSS JOIN Tenants s
   WHERE m.Kind = 'every' AND m.Axis = ''
+    AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
     AND NOT EXISTS (
       SELECT 1 FROM MembersUserRoles d
       WHERE d.Kind = 'domain' AND d.Axis = m.Axis AND d.DomainId = s.Id AND d.Role = m.Role AND d.UserId = m.UserId
+        AND (d.EndsAt IS NULL OR d.EndsAt > CURRENT_TIMESTAMP())
     )
 ) t
 JOIN MembersSessionUsers u ON u.Id = t.UserId

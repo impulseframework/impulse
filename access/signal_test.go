@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access/internal/signaltest"
+	"github.com/impulseframework/impulse/accesstypes"
 )
 
 // policyKind is the kind the tests' adapter publishes and follows, standing
@@ -194,7 +195,7 @@ func Test_snapshotEngine_policyPropagation(t *testing.T) {
 			writer, reader := newEngine(), newEngine()
 
 			for name, e := range map[string]*snapshotEngine{"writer": writer, "reader": reader} {
-				if got, err := e.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
+				if got, err := e.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets"); err != nil || got[0].granted {
 					t.Fatalf("%s checkUserResources() = (%v, %v), want widgets denied before the change", name, got, err)
 				}
 			}
@@ -209,11 +210,11 @@ func Test_snapshotEngine_policyPropagation(t *testing.T) {
 			grantWidgets(t, store)
 			writer.policyChanged()
 
-			if got, err := writer.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets"); err != nil || !got[0].granted {
+			if got, err := writer.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets"); err != nil || !got[0].granted {
 				t.Fatalf("writer checkUserResources() = (%v, %v), want granted immediately", got, err)
 			}
 			waitUntil(t, 5*time.Second, "the change never reached the reader engine", func() bool {
-				got, err := reader.checkUserResources(ctx, "erin", tenant1Scope, "List", "widgets")
+				got, err := reader.checkUserResources(ctx, accesstypes.NewEnvironment(), "erin", tenant1Scope, "List", "widgets")
 				if err != nil {
 					t.Fatalf("reader checkUserResources() error = %v", err)
 				}

@@ -16,6 +16,10 @@ type (
 	// the same person is a row in each tenant they hold a role in: the account's id is the
 	// key of a row within its tenant, and DomainId, the tenant, holds the row to it.
 	//
+	// A role counts inside its period alone: a person whose only role in the tenant has
+	// ended, or has not begun, is not one of its people, whether or not the role's row
+	// still stands. MembersSectorUserRole lists a role that has not begun, with its period.
+	//
 	// Two columns are facts about the person that no table holds, each under the name a
 	// grant's condition reads. HeldElsewhere (heldElsewhere) says the person also holds a
 	// role outside this tenant's own: in another tenant, or in every tenant. HeldGlobally
@@ -69,23 +73,28 @@ SELECT
   (EXISTS (
     SELECT 1 FROM MembersUserRoles o
     WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
     SELECT 1 FROM MembersUserRoles o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   )) AS HeldElsewhere,
   EXISTS (
     SELECT 1 FROM MembersUserRoles g
     WHERE g.UserId = u.Id AND g.Kind = 'global'
+      AND (g.EndsAt IS NULL OR g.EndsAt > CURRENT_TIMESTAMP())
   ) AS HeldGlobally
 FROM (
   SELECT m.DomainId AS DomainId, m.UserId AS UserId
   FROM MembersUserRoles m
   WHERE m.Kind = 'domain' AND m.Axis = ''
+    AND (m.StartsAt IS NULL OR m.StartsAt <= CURRENT_TIMESTAMP()) AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
   UNION DISTINCT
   SELECT s.Id AS DomainId, m.UserId AS UserId
   FROM MembersUserRoles@{FORCE_INDEX=_BASE_TABLE} m
   CROSS JOIN Sectors s
   WHERE m.Kind = 'every' AND m.Axis = ''
+    AND (m.StartsAt IS NULL OR m.StartsAt <= CURRENT_TIMESTAMP()) AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
 ) t
 JOIN MembersSessionUsers u ON u.Id = t.UserId
 `

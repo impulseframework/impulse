@@ -16,6 +16,10 @@ type (
 	// the same person is a row in each tenant they hold a role in: the account's id is the
 	// key of a row within its tenant, and DomainId, the tenant, holds the row to it.
 	//
+	// A role counts inside its period alone: a person whose only role in the tenant has
+	// ended, or has not begun, is not one of its people, whether or not the role's row
+	// still stands. StaffTenantUserRole lists a role that has not begun, with its period.
+	//
 	// Two columns are facts about the person that no table holds, each under the name a
 	// grant's condition reads. HeldElsewhere (heldElsewhere) says the person also holds a
 	// role outside this tenant's own: in another tenant, or in every tenant. HeldGlobally
@@ -69,23 +73,59 @@ SELECT
   (EXISTS (
     SELECT 1 FROM StaffUserRoles o
     WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
   ) OR EXISTS (
     SELECT 1 FROM StaffUserRoles o
     WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId
+      AND (o.EndsAt IS NULL OR o.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM StaffGroupMembers gm JOIN StaffGroups og ON og.Id = gm.GroupId
+    WHERE gm.UserId = u.Id AND og.Kind = 'domain' AND og.Axis = '' AND og.DomainId != t.DomainId
+      AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
   )) AS HeldElsewhere,
-  EXISTS (
+  (EXISTS (
     SELECT 1 FROM StaffUserRoles g
     WHERE g.UserId = u.Id AND g.Kind = 'global'
-  ) AS HeldGlobally
+      AND (g.EndsAt IS NULL OR g.EndsAt > CURRENT_TIMESTAMP())
+  ) OR EXISTS (
+    SELECT 1 FROM StaffGroupMembers gm JOIN StaffGroups gg ON gg.Id = gm.GroupId
+    WHERE gm.UserId = u.Id AND gg.Kind = 'global'
+      AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  )) AS HeldGlobally
 FROM (
   SELECT m.DomainId AS DomainId, m.UserId AS UserId
   FROM StaffUserRoles m
   WHERE m.Kind = 'domain' AND m.Axis = ''
+    AND (m.StartsAt IS NULL OR m.StartsAt <= CURRENT_TIMESTAMP()) AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
   UNION DISTINCT
   SELECT s.Id AS DomainId, m.UserId AS UserId
   FROM StaffUserRoles@{FORCE_INDEX=_BASE_TABLE} m
   CROSS JOIN Tenants s
   WHERE m.Kind = 'every' AND m.Axis = ''
+    AND (m.StartsAt IS NULL OR m.StartsAt <= CURRENT_TIMESTAMP()) AND (m.EndsAt IS NULL OR m.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT g.DomainId AS DomainId, gm.UserId AS UserId
+  FROM StaffGroups g
+  JOIN StaffGroupMembers gm ON gm.GroupId = g.Id
+  WHERE g.Kind = 'domain' AND g.Axis = ''
+    AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT r.DomainId AS DomainId, gm.UserId AS UserId
+  FROM StaffGroupRoles r
+  JOIN StaffGroups g ON g.Id = r.GroupId
+  JOIN StaffGroupMembers gm ON gm.GroupId = r.GroupId
+  WHERE r.Kind = 'domain' AND r.Axis = '' AND g.Kind = 'global' AND r.Role != 'SuperAdministrator'
+    AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
+    AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
+  UNION DISTINCT
+  SELECT s.Id AS DomainId, gm.UserId AS UserId
+  FROM StaffGroupRoles r
+  JOIN StaffGroups g ON g.Id = r.GroupId
+  JOIN StaffGroupMembers gm ON gm.GroupId = r.GroupId
+  CROSS JOIN Tenants s
+  WHERE r.Kind = 'every' AND r.Axis = '' AND g.Kind = 'global'
+    AND (r.StartsAt IS NULL OR r.StartsAt <= CURRENT_TIMESTAMP()) AND (r.EndsAt IS NULL OR r.EndsAt > CURRENT_TIMESTAMP())
+    AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
 ) t
 JOIN StaffSessionUsers u ON u.Id = t.UserId
 `

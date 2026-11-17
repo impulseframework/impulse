@@ -6,6 +6,7 @@ package staffhandlers
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -24,6 +25,8 @@ func (h *Handlers) AssignStaffRole() http.HandlerFunc {
 		Role        string       `json:"role"`
 		Domain      *string      `json:"domain"`
 		EveryDomain bool         `json:"everyDomain"`
+		StartsAt    *time.Time   `json:"startsAt"`
+		EndsAt      *time.Time   `json:"endsAt"`
 	}
 
 	decoder := NewRPCDecoder[staffidentity.AssignStaffRole, request](h, accesstypes.Execute)

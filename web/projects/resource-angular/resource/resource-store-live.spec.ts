@@ -51,6 +51,8 @@ const descriptor: ApiDescriptor = {
       operations: ['list', 'read'],
       page: { default: 25, max: 200 },
       order: [{ field: 'name', direction: 'asc' }],
+      // Ships is also listed across tenants (the last suite of this file).
+      acrossTenants: true,
     },
     ShipClasses: {
       resource: 'ShipClasses' as Resource,
@@ -685,5 +687,69 @@ describe('ResourceStore live by default', () => {
     store.liveChoice.set(true);
     await settle(() => false, 3);
     expect(warnings).toHaveLength(1);
+  });
+});
+
+// A list page across tenants is plain unless its config says live: then the store holds
+// one subscription over the tenants the list reads, the page's requests carry the tab's
+// header, and a change to the resource's list in any tenant requests the page again.
+describe('ResourceStore live list page across tenants', () => {
+  const acrossPage = '/api/ships?count=true';
+  const rows = { rows: [{ id: 's1', name: 'Kestrel', zzTenant: 'anvil' }], headers: { 'total-count': '1' } };
+  const listPage = (store: ResourceStore, live: boolean | undefined): void => {
+    store.resourceName.set('Ships' as Resource);
+    // The resource publishes its changes: a tenant's list of it is live by default.
+    store.resourceMeta.set({ route: 'sectors/{sectorID}/ships', live: true, fields: [] });
+    store.listColumns.set([{ id: 'name' } as ColumnConfig]);
+    store.acrossTenants.set(true);
+    store.liveChoice.set(live);
+    store.buildStorePage();
+  };
+
+  it('is plain unless the page asks: nothing subscribed and nothing asked again, feed or no feed', async () => {
+    const script = scripted({ [acrossPage]: rows });
+    const { store, client, feed, clock } = storeOver(script, signal<Domain | undefined>(undefined));
+    listPage(store, undefined);
+    await settle(() => store.pageStatus() === 'resolved');
+    await client.live.start(feed);
+    feed.emit({ kind: 'list', resource: 'Ships', domain: 'anvil', at: '1700000000000060' });
+    clock.elapse();
+    await settle(() => false, 5);
+    expect(store.live()).toBe(false);
+    expect(dataRequests(script.requests)).toEqual([{ url: acrossPage, version: undefined, subscribed: false }]);
+    expect(client.live.subscriptions()).toEqual([]);
+    await client.live.stop();
+  });
+
+  it('asked for live, holds one subscription over the tenants and requests the page again by a change in any of them', async () => {
+    const script = scripted({ [acrossPage]: rows });
+    const { store, client, feed, clock } = storeOver(script, signal<Domain | undefined>(undefined));
+    listPage(store, true);
+    await settle(() => store.pageStatus() === 'resolved');
+    expect(store.live()).toBe(true);
+    expect(dataRequests(script.requests)).toEqual([{ url: acrossPage, version: undefined, subscribed: false }]);
+    expect(client.live.subscriptions()).toEqual([{ resource: 'Ships', acrossTenants: true }]);
+
+    await client.live.start(feed);
+    await settle(() => script.requests.length >= 3 && store.pageStatus() === 'resolved');
+    expect(dataRequests(script.requests)[1]).toEqual({ url: acrossPage, version: client.live.seed, subscribed: true });
+
+    // A change to the resource's list in a tenant, whichever: the page again, by its version.
+    feed.emit({ kind: 'list', resource: 'Ships', domain: 'cinder', at: '1700000000000061' });
+    clock.elapse();
+    await settle(() => script.requests.length >= 4 && store.pageStatus() === 'resolved');
+    expect(dataRequests(script.requests)[2]).toEqual({
+      url: acrossPage,
+      version: '1700000000000061',
+      subscribed: true,
+    });
+
+    // A row of the resource, and another resource: nothing.
+    feed.emit({ kind: 'row', resource: 'Ships', key: 's1', at: '1700000000000062' });
+    feed.emit({ kind: 'list', resource: 'ShipClasses', at: '1700000000000063' });
+    clock.elapse();
+    await settle(() => false, 5);
+    expect(dataRequests(script.requests)).toHaveLength(3);
+    await client.live.stop();
   });
 });

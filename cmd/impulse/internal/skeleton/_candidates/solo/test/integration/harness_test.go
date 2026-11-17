@@ -98,6 +98,9 @@ type served struct {
 	access *access.Client
 	// db is the suite's database, where a suite reads what a request left behind.
 	db *initiator.SpannerDB
+	// auth is the staff auth the instance binds to, for a suite that creates a login of
+	// its own beside the development one.
+	auth *staff.Auth
 	// adminID is the development login's user id: what the methods of the auth's generated
 	// management name the login by, and what the permission store holds its role under.
 	adminID string
@@ -162,7 +165,7 @@ func newServed(ctx context.Context, t *testing.T) *served {
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
-	return &served{server: server, access: accessClient, db: db, adminID: adminID.String(), mail: sent, trusted: map[string]*http.Cookie{}}
+	return &served{server: server, access: accessClient, auth: auth, db: db, adminID: adminID.String(), mail: sent, trusted: map[string]*http.Cookie{}}
 }
 
 // testCookieKey signs session cookies in the suites; any 32 bytes will do.

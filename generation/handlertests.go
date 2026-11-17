@@ -195,8 +195,9 @@ func computedMatrixListQuery(res *computedResource) string {
 // (matrixListQuery), "" for none.
 func queryRouteCase(route *generatedRoute, pkTypes []pkParamType, listQuery string) (c authzCase, ok bool, err error) {
 	var permission string
+	lists := route.HandlerType == ListHandler || route.HandlerType == acrossTenantsHandler
 	switch route.HandlerType {
-	case ListHandler:
+	case ListHandler, acrossTenantsHandler:
 		permission = string(accesstypes.List)
 	case ReadHandler, fileHandler:
 		// A @file route is a read: Read on the resource opens it (the segment field
@@ -225,15 +226,16 @@ func queryRouteCase(route *generatedRoute, pkTypes []pkParamType, listQuery stri
 			url = strings.Replace(url, "{"+p.Key+"}", value, 1)
 		}
 	}
-	if route.HandlerType == ListHandler && listQuery != "" {
+	if lists && listQuery != "" {
 		url += "?" + listQuery
 	}
 
 	return authzCase{
-		Name:       route.HandlerFunc,
-		Method:     httpMethodConst(route.Method),
-		URL:        url,
-		Permission: permission,
+		Name:          route.HandlerFunc,
+		Method:        httpMethodConst(route.Method),
+		URL:           url,
+		Permission:    permission,
+		AcrossTenants: route.HandlerType == acrossTenantsHandler,
 	}, true, nil
 }
 
@@ -286,6 +288,14 @@ func (r *resourceGenerator) resourceAuthzCases() (cases []authzCase, err error) 
 			}
 			for _, route := range files {
 				c, _, err := queryRouteCase(route, pkTypes, "")
+				if err != nil {
+					return nil, err
+				}
+				c.Name = authzCaseName(c.Name, outlet)
+				cases = append(cases, c)
+			}
+			for _, route := range r.resourceAcrossTenantsRoutes(res, outlet.prefix) {
+				c, _, err := queryRouteCase(route, pkTypes, resourceMatrixListQuery(res))
 				if err != nil {
 					return nil, err
 				}

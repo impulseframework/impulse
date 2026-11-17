@@ -128,6 +128,43 @@ func registerPassword(authSession *Session) *session.PasswordMethod {
 }
 `
 
+// storageNamed constructs an Auth in an auth package over a storage the given statements
+// build and name store, each constructor on its own line with its error checked, the way
+// the session library's README writes it.
+func storageNamed(definition string) string {
+	return `package crew
+
+import (
+	"context"
+
+	cloudspanner "cloud.google.com/go/spanner"
+	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/sessionstorage"
+)
+
+type crewData struct{}
+
+func New(ctx context.Context, db *cloudspanner.Client, key string) (*session.PasswordMethod, error) {
+	` + definition + `
+
+	authSession, err := session.NewAuth[crewData, session.NoCustomData](
+		store, key, session.NoSuperAdministrators(),
+		session.WithSessionTableName("CrewSessions"),
+		session.WithUserTableName("CrewSessionUsers"),
+		session.WithIdentitiesTableName("CrewSessionIdentities"),
+		session.WithPendingSignInsTableName("CrewSessionPendingSignIns"),
+		session.WithSignInAttemptsTableName("CrewSessionSignInAttempts"),
+		session.WithSignInMethodsTableName("CrewSessionSignInMethods"),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return session.PasswordSignIn(authSession), nil
+}
+`
+}
+
 // impersonationNamed constructs an Auth in an auth package whose impersonation table is
 // defined by the given statements and handed to the storage by name, the way a caller
 // writes it to check NewImpersonationTable's error.
@@ -179,6 +216,10 @@ func TestSessionTables(t *testing.T) {
 		`generation.GenerateRoutes("pkg/router", "api", generation.Auth("example.com/harbor/pkg/config", generation.PasswordMethod()), generation.WebApp("/")),`,
 		`generation.WithRouterOutlet("machines", "machines", generation.Tokens("example.com/harbor/pkg/config")),`,
 	)
+	// The session library's README builds a custom data configuration on its own line,
+	// checks its error, and attaches it to a storage it then hands to the Auth by name.
+	const sessionDataNamed = "sessionData, err := sessionstorage.NewCustomSessionData[crewData, *cloudspanner.ReadWriteTransaction](\"CrewSessionData\", nil)\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\n\tstore := sessionstorage.NewSpannerAuth(db).WithCustomSessionData(sessionData)"
+	const userDataInTwoSteps = "userData, err := sessionstorage.NewCustomUserData[crewData](\"CrewUserData\")\n\tif err != nil {\n\t\treturn nil, err\n\t}\n\n\tstore := sessionstorage.NewSpannerAuth(db, sessionstorage.WithImpersonation(sessionstorage.NewImpersonationTable(\"CrewSessionImpersonations\")))\n\tstore = store.WithCustomUserData(userData)"
 	const crewTables = "CrewSessions, CrewSessionUsers, CrewSessionIdentities, CrewSessionPendingSignIns, CrewSessionSignInAttempts, CrewSessionSignInMethods, CrewSessionImpersonations"
 
 	tests := []struct {
@@ -396,6 +437,39 @@ func TestSessionTables(t *testing.T) {
 			},
 			wantStatus:  Pass,
 			wantSummary: "1 auth(s): crew: methods password; tables " + crewTables,
+		},
+		{
+			name: "custom session data built on its own line and attached to a storage held by name",
+			files: map[string]string{
+				"cmd/generate/main.go":                 site,
+				"pkg/auth/crew/crew.go":                storageNamed(sessionDataNamed),
+				"schema/migrations/000002_Crew.up.sql": tables("CrewSessions", "CrewSessionUsers", "CrewSessionIdentities", "CrewSessionPendingSignIns", "CrewSessionSignInAttempts", "CrewSessionSignInMethods", "CrewSessionData"),
+			},
+			wantStatus:  Pass,
+			wantSummary: "1 auth(s): crew: methods password; tables CrewSessions, CrewSessionUsers, CrewSessionIdentities, CrewSessionPendingSignIns, CrewSessionSignInAttempts, CrewSessionSignInMethods, CrewSessionData",
+		},
+		{
+			name: "custom session data built on its own line whose table no migration creates",
+			files: map[string]string{
+				"cmd/generate/main.go":                 site,
+				"pkg/auth/crew/crew.go":                storageNamed(sessionDataNamed),
+				"schema/migrations/000002_Crew.up.sql": tables("CrewSessions", "CrewSessionUsers", "CrewSessionIdentities", "CrewSessionPendingSignIns", "CrewSessionSignInAttempts", "CrewSessionSignInMethods"),
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 auth wiring problem(s)",
+			wantDetails: []string{
+				"pkg/auth/crew/crew.go:21: the crew auth reads table CrewSessionData, which no migration creates (the session library's schema is under " + schemaSets + ")",
+			},
+		},
+		{
+			name: "a storage held by name and given its custom user data in a second statement",
+			files: map[string]string{
+				"cmd/generate/main.go":                 site,
+				"pkg/auth/crew/crew.go":                storageNamed(userDataInTwoSteps),
+				"schema/migrations/000002_Crew.up.sql": tables("CrewSessions", "CrewSessionUsers", "CrewSessionIdentities", "CrewSessionPendingSignIns", "CrewSessionSignInAttempts", "CrewSessionSignInMethods", "CrewSessionImpersonations", "CrewUserData"),
+			},
+			wantStatus:  Pass,
+			wantSummary: "1 auth(s): crew: methods password; tables " + crewTables + ", CrewUserData",
 		},
 		{
 			name: "an impersonation table passed by a name NewImpersonationTable did not define",

@@ -26,9 +26,10 @@ import {
 // they hold, the method that disables one). These functions turn that description into
 // the configuration the library's list and row pages are drawn from, so an application
 // writes no page for it: the people with what the caller may do to each, a person's row
-// page with the roles and the identities under it, the invitations, and, for the whole
-// application, the sessions, the failed sign-ins and the Auth's sign-in methods, each
-// invite only or open to sign-up. What differs from one application
+// page with the roles and the identities under it, the groups of people with a group's
+// people and roles under it, the invitations, and, for the whole application, the
+// sessions, the failed sign-ins and the Auth's sign-in methods, each invite only or
+// open to sign-up. What differs from one application
 // to the next is read from the description: the Auth's name and label, the tenant
 // record's name, which side the pages are for, and what the Auth's sign-in methods give
 // (a list or a method the description does not name draws nothing).
@@ -39,7 +40,7 @@ import {
 // disabled account and Disable on an enabled one.
 
 /** The pages of one side of an Auth's management, by what each lists. */
-export type IdentityPage = 'users' | 'invitations' | 'sessions' | 'signInAttempts' | 'signIn';
+export type IdentityPage = 'users' | 'groups' | 'invitations' | 'sessions' | 'signInAttempts' | 'signIn';
 
 /** Which pages to build, and where they go. */
 export interface IdentityPagesOptions {
@@ -69,9 +70,9 @@ const made = new WeakMap<ApiDescriptor, Map<string, RootConfig[]>>();
 
 /**
  * The page configurations of one side of an Auth's management, in menu order: the
- * people, the invitations, and for the whole application the sessions, the failed
- * sign-ins and the sign-in methods, each with its label and icon. A page whose list the description does not
- * name is left out. The same request answers the same configurations. Refused, naming
+ * people, the groups, the invitations, and for the whole application the sessions, the
+ * failed sign-ins and the sign-in methods, each with its label and icon. A page whose list the description
+ * does not name is left out. The same request answers the same configurations. Refused, naming
  * what is missing: an Auth the description does not carry, a side it does not carry,
  * and a tenant's side on an API with no tenant segment.
  */
@@ -111,9 +112,14 @@ function buildPages(
     );
   }
   const build = new SideBuilder(descriptor, identity, side, resourceMeta, options);
-  return [build.people(), build.invitations(), build.sessions(), build.signInAttempts(), build.signIn()].filter(
-    (config): config is RootConfig => config !== undefined,
-  );
+  return [
+    build.people(),
+    build.groups(),
+    build.invitations(),
+    build.sessions(),
+    build.signInAttempts(),
+    build.signIn(),
+  ].filter((config): config is RootConfig => config !== undefined);
 }
 
 /**
@@ -164,7 +170,11 @@ class SideBuilder {
     this.base = this.tenant ? `${this.tenantSegment()}/${kebab(identity.auth)}` : kebab(identity.auth);
   }
 
-  /** The people, each with what the caller may do to them, and a person's row page with the roles and the identities under it. */
+  /**
+   * The people, each with what the caller may do to them, and a person's row page with
+   * the roles and the identities under it: the roles the person holds themselves, and
+   * beside them the ones they hold through a group, where the Auth keeps groups.
+   */
   people(): RootConfig {
     const { lists, methods } = this.side;
     const password = methods.setTemporaryPassword !== undefined || methods.requirePasswordChange !== undefined;
@@ -182,7 +192,7 @@ class SideBuilder {
       ['createdAt', 'Created'],
     ];
     const users = lists.users as Resource;
-    const related = [this.rolesOf(), this.identitiesOf(), this.sessionsOf()].filter(
+    const related = [this.rolesOf(), this.rolesThroughGroupsOf(), this.identitiesOf(), this.sessionsOf()].filter(
       (config): config is ChildResourceConfig => config !== undefined,
     );
     return rootConfig({
@@ -204,6 +214,67 @@ class SideBuilder {
             children: this.known(users, [...fields, ...more]).map(([name, label]) =>
               field({ name: name as FieldName, label, cols: 4 }),
             ),
+          }),
+        ],
+      }),
+      relatedConfigs: related,
+    });
+  }
+
+  /**
+   * The groups of people, each with what the caller may do to it, and a group's row page
+   * with the people in it and the roles it holds under it. Left out where the Auth
+   * keeps no groups.
+   */
+  groups(): RootConfig | undefined {
+    const { lists, methods } = this.side;
+    if (!lists.groups) {
+      return undefined;
+    }
+    const groups = lists.groups as Resource;
+    const fields: Named[] = [
+      ['name', 'Name'],
+      ['description', 'Description'],
+    ];
+    const named = (row: RecordData): string => String(row['name'] ?? 'this group');
+    const related = [this.peopleOfGroup(), this.rolesOfGroup()].filter((config): config is ChildResourceConfig => config !== undefined);
+    return rootConfig({
+      page: { label: 'Groups', icon: 'groups' },
+      routeData: { route: this.route('groups', 'groups'), hasViewRoute: true },
+      parentConfig: listViewConfig({
+        title: this.tenant ? 'Groups' : `${this.identity.label} groups`,
+        primaryResource: groups,
+        showRowCount: true,
+        listColumns: [
+          ...this.columns(groups, fields),
+          // Where the whole application's group is kept: the tenant by its name, where
+          // the tenant record can be read, and in words for a group of the whole
+          // application. A tenant's own list holds that tenant's groups alone.
+          ...(this.has(groups, 'kind')
+            ? [
+                this.tenantNamed('domainId' as FieldName, 'Kept in', (row) => this.heldIn(row)),
+                { id: 'kind' as FieldName, hidden: true },
+              ]
+            : []),
+        ],
+        rowMethods: this.present([
+          [methods.describeGroup, { label: 'Change the description', icon: 'edit' }],
+          [methods.addGroupMember, { label: 'Add a person', icon: 'person_add', labels: periodWords }],
+          [methods.giveGroupRole, { label: 'Give a role', icon: 'badge', labels: { ...this.where(), ...periodWords } }],
+          [
+            methods.deleteGroup,
+            {
+              label: 'Delete',
+              icon: 'delete',
+              confirm: (row) => `Delete ${named(row)}? A group that still has people in it or holds a role is not deleted: empty it first.`,
+            },
+          ],
+        ]),
+        listMethods: this.present([[methods.createGroup, { label: 'Add a group', icon: 'group_add', labels: this.where() }]]),
+        elements: [
+          section({
+            label: 'Group',
+            children: this.known(groups, fields).map(([name, label]) => field({ name: name as FieldName, label, cols: 6 })),
           }),
         ],
       }),
@@ -427,6 +498,7 @@ class SideBuilder {
             ['role', 'Role'],
             ['everyDomain', `In every ${this.tenantWord}`],
             ['createdAt', 'Given'],
+            ...periodColumns,
           ]),
           // Read with each row and not drawn: the list sits under the person, and the
           // question before a role is taken away names them.
@@ -466,7 +538,7 @@ class SideBuilder {
               { id: 'kind' as FieldName, hidden: true },
             ]
           : []),
-        ...this.columns(resource, [['createdAt', 'Given']]),
+        ...this.columns(resource, [['createdAt', 'Given'], ...periodColumns]),
       ],
       rowMethods: this.present([
         [
@@ -489,6 +561,154 @@ class SideBuilder {
           },
         ],
       ]),
+      elements: [],
+    });
+  }
+
+  /**
+   * The roles a person holds through a group, under the person's row beside the roles
+   * they hold themselves: each names its group, so the page says which roles are the
+   * person's own and which come through which group. Nothing is changed from here: a
+   * group's role is taken away on the group's page, and a person leaves a group there.
+   */
+  private rolesThroughGroupsOf(): ChildResourceConfig | undefined {
+    const { lists } = this.side;
+    if (!lists.rolesThroughGroups) {
+      return undefined;
+    }
+    const resource = lists.rolesThroughGroups as Resource;
+    const named: Named[] = [
+      ['role', 'Role'],
+      ['groupName', 'Group'],
+    ];
+    return listViewConfig({
+      title: this.tenant ? 'Roles held here through a group' : 'Roles held through a group',
+      primaryResource: resource,
+      parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
+      showViewButton: false,
+      collapsible: false,
+      listColumns: this.tenant
+        ? this.columns(resource, [
+            ...named,
+            ['globalGroup', 'Group of the whole application'],
+            ['everyDomain', `In every ${this.tenantWord}`],
+            ...periodColumns,
+          ])
+        : [
+            ...this.columns(resource, named),
+            ...(this.has(resource, 'kind')
+              ? [
+                  this.tenantNamed('domainId' as FieldName, 'Held in', (row) => this.heldIn(row)),
+                  { id: 'kind' as FieldName, hidden: true },
+                ]
+              : []),
+            ...this.columns(resource, periodColumns),
+          ],
+      rowMethods: false,
+      elements: [],
+    });
+  }
+
+  /** The people in a group, under the group's row. */
+  private peopleOfGroup(): ChildResourceConfig | undefined {
+    const { lists, methods } = this.side;
+    if (!lists.groupUsers) {
+      return undefined;
+    }
+    const resource = lists.groupUsers as Resource;
+    return listViewConfig({
+      title: 'People in the group',
+      primaryResource: resource,
+      parentRelation: { parentKey: 'id' as FieldName, childKey: 'groupId' as FieldName },
+      showViewButton: false,
+      collapsible: false,
+      listColumns: this.columns(resource, [
+        ['username', 'Username'],
+        ['name', 'Name'],
+        ['createdAt', 'Added'],
+        ...periodColumns,
+      ]),
+      rowMethods: this.present([
+        [
+          methods.removeGroupMember,
+          {
+            label: 'Remove from the group',
+            icon: 'person_remove',
+            confirm: (row) =>
+              `Remove ${String(row['username'] ?? 'this person')} from the group? They keep the roles they hold themselves and lose the group's.`,
+          },
+        ],
+      ]),
+      // The method runs against the group the list sits under.
+      listMethods: this.present([[methods.addGroupMember, { label: 'Add a person', icon: 'person_add', labels: periodWords }]]),
+      elements: [],
+    });
+  }
+
+  /** The roles a group holds, under the group's row. */
+  private rolesOfGroup(): ChildResourceConfig | undefined {
+    const { lists, methods } = this.side;
+    if (!lists.groupRoles) {
+      return undefined;
+    }
+    const resource = lists.groupRoles as Resource;
+    const lost = 'Everyone in the group loses it, unless they hold it some other way.';
+    // The method runs against the group the list sits under.
+    const give = this.present([[methods.giveGroupRole, { label: 'Give a role', icon: 'badge', labels: { ...this.where(), ...periodWords } }]]);
+    if (this.tenant) {
+      return listViewConfig({
+        title: 'Roles the group holds',
+        primaryResource: resource,
+        parentRelation: { parentKey: 'id' as FieldName, childKey: 'groupId' as FieldName },
+        showViewButton: false,
+        collapsible: false,
+        listColumns: this.columns(resource, [['role', 'Role'], ['createdAt', 'Given'], ...periodColumns]),
+        rowMethods: this.present([
+          [
+            methods.takeGroupRole,
+            { label: 'Take the role away', icon: 'remove_moderator', confirm: (row) => `Take ${String(row['role'])} away from the group? ${lost}` },
+          ],
+        ]),
+        listMethods: give,
+        elements: [],
+      });
+    }
+    // The whole application's group holds a role in the whole application, in one tenant
+    // or in every tenant: the method that takes one away takes the group's id and where
+    // the role is held, which the page fills from the row.
+    return listViewConfig({
+      title: 'Roles the group holds',
+      primaryResource: resource,
+      parentRelation: { parentKey: 'id' as FieldName, childKey: 'groupId' as FieldName },
+      showViewButton: false,
+      collapsible: false,
+      listColumns: [
+        ...this.columns(resource, [['role', 'Role']]),
+        ...(this.has(resource, 'kind')
+          ? [
+              this.tenantNamed('domainId' as FieldName, 'Held in', (row) => this.heldIn(row)),
+              { id: 'kind' as FieldName, hidden: true },
+            ]
+          : []),
+        ...this.columns(resource, [['createdAt', 'Given'], ...periodColumns]),
+      ],
+      rowMethods: this.present([
+        [
+          methods.takeGroupRole,
+          {
+            label: 'Take the role away',
+            icon: 'remove_moderator',
+            fill: (row) => ({
+              groupId: row['groupId'],
+              role: row['role'],
+              domain: row['kind'] === heldInOneTenant ? row['domainId'] : null,
+              everyDomain: row['kind'] === heldInEveryTenant,
+            }),
+            confirm: (row) => `Take ${String(row['role'])}${this.heldWhere(row)} away from the group? ${lost}`,
+          },
+        ],
+      ]),
+      listMethods: give,
       elements: [],
     });
   }
@@ -594,9 +814,9 @@ class SideBuilder {
       [
         methods.assignRole,
         this.tenant
-          ? { label: 'Give a role', icon: 'badge' }
+          ? { label: 'Give a role', icon: 'badge', labels: periodWords }
           : // The whole application's method takes the id of the person's account, which the row fills.
-            { label: 'Give a role', icon: 'badge', fill: (row) => ({ userId: row['id'] }), labels: this.where() },
+            { label: 'Give a role', icon: 'badge', fill: (row) => ({ userId: row['id'] }), labels: { ...this.where(), ...periodWords } },
       ],
       // A person has two names: the one people read, and the username they sign in under.
       [methods.setName, { label: 'Change the name', icon: 'person' }],
@@ -681,9 +901,9 @@ class SideBuilder {
   }
 
   /**
-   * Where a role of the whole application's list is held, in words, for a row whose
-   * tenant could not be named: a role held in one tenant falls back to the tenant's
-   * key, which is all the row carries.
+   * Where a role of the whole application's list is held, or a group of it is kept, in
+   * words, for a row whose tenant could not be named: a role held in one tenant falls
+   * back to the tenant's key, which is all the row carries.
    */
   private heldIn(row: RecordData): string {
     switch (row['kind']) {
@@ -798,6 +1018,20 @@ function openToSignUp(rows: RecordData[]): string | undefined {
     })
     .join('\n');
 }
+
+/**
+ * The period of a role, of a place in a group or of a group's role, as a list shows it
+ * and as a method that gives one asks for it: the first day it counts and the first day
+ * it no longer does. Each is empty where there is none, and a list that carries no
+ * period (an Auth whose schema holds none) shows neither.
+ */
+const periodColumns: Named[] = [
+  ['startsAt', 'From'],
+  ['endsAt', 'Until'],
+];
+
+/** The words for the two times of a method that gives something for a period. */
+const periodWords: Record<string, string> = { startsAt: 'From', endsAt: 'Until' };
 
 /** The columns of a session, beside whose it is. */
 const sessionColumns: Named[] = [

@@ -189,9 +189,9 @@ describe('pickerRefusal', () => {
   const cases: { name: string; error: unknown; want: string | undefined }[] = [
     { name: 'nothing while the picker works', error: undefined, want: undefined },
     {
-      name: 'a 403 says the picker is not available, in the server\'s words',
+      name: 'a 403 is not said here: the picker says a sentence of its own for it, never the server\'s words',
       error: new ApiError('GET', '/api/sectors/anvil/client-rosters', 403, { message: 'no List grant on ClientRosters' }),
-      want: 'This picker is not available to you: no List grant on ClientRosters',
+      want: undefined,
     },
     {
       name: 'a 400 says the server refused the request, in its words: the way out is on the struct or in the config',

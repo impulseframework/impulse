@@ -9,6 +9,6 @@ describe('the menu file', () => {
 
   it('names a page the routes carry and no menu places', () => {
     const withoutPeople: Menu[] = appMenus.filter((menu) => menu.label !== 'People');
-    expect(unplacedPages(routes, withoutPeople).map((page) => page.label)).toEqual(['People', 'Invitations']);
+    expect(unplacedPages(routes, withoutPeople).map((page) => page.label)).toEqual(['People', 'Groups', 'Invitations']);
   });
 });

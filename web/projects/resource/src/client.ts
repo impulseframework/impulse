@@ -3,6 +3,7 @@ import {
   DeletePermission,
   Domain,
   ExecutePermission,
+  ListAcrossTenantsPermission,
   Method,
   Permission,
   PermissionScope,
@@ -18,6 +19,7 @@ import {
   LiveSession,
   LiveSubscription,
   WriteChanges,
+  acrossTenantsSubscription,
   changesHeader,
   liveSubscription,
   parseChangesHeader,
@@ -29,7 +31,17 @@ import { BatchResult, Operation, OperationRoute, operationRoute } from './operat
 import { ClientResponse, PermissionStore, Requester, RequestOptions, ResponseRequester } from './permissions';
 import { Store } from './store';
 import { dryRunHeader, warningHeader } from './transport';
-import { LinkHeader, ListQuery, ReadOptions, TotalCountHeader, listSearchParams, parseLinkHeader, readSearchParams } from './query';
+import {
+  LinkHeader,
+  ListQuery,
+  ListQueryBase,
+  PageQuery,
+  ReadOptions,
+  TotalCountHeader,
+  listSearchParams,
+  parseLinkHeader,
+  readSearchParams,
+} from './query';
 import { readMode, wholeListQuery } from './reading';
 import {
   ApiError,
@@ -232,6 +244,67 @@ export interface Listable<Row, Key extends readonly unknown[] = readonly unknown
    * a key-less resource the one page is the whole list and has no neighbors.
    */
   page<Query extends ListQuery<Row, Key> | undefined = undefined>(query?: Query): Promise<Page<Returned<Row, Query>>>;
+}
+
+/** The reserved property a row of a list across tenants carries: the tenant the row is in. */
+export const TenantProperty = 'zzTenant';
+
+/** The query parameter that narrows a list across tenants: tenant keys, separated by commas. */
+export const DomainsQueryParam = 'domains';
+
+/** A row of a list across tenants: the row, and the tenant it is in. */
+export type InTenant<Row> = Row & { readonly [TenantProperty]: Domain };
+
+/**
+ * The query of a list across tenants: the list query, and `domains`, the tenants to read
+ * among those the list would read without it, down to one. A tenant the session does not
+ * reach contributes nothing and is never an error. The list answers no capability
+ * envelope: what a person may do with a row is asked on the row's page inside its
+ * tenant. The list is plain unless the query says `live: true`: then the request
+ * registers one subscription over the set of tenants the list reads, however many they
+ * are, which the server works out again at each renewal, and a change to the resource's
+ * list in any of them refetches the page (`subscription`, beside `client.live.watch`).
+ */
+export type AcrossTenantsQuery<Row, Key extends readonly unknown[] = readonly unknown[]> = Omit<
+  ListQueryBase<Row>,
+  'capabilities'
+> &
+  (Key extends readonly [] ? unknown : PageQuery) & { domains?: readonly (Domain | string)[] };
+
+/**
+ * The handle of a tenant-scoped resource's list across tenants (`@listAcrossTenants`),
+ * on `client.acrossTenants`: one filter, one sort, one page and one count over the rows
+ * of every tenant the session reaches in which the person may list the resource, each
+ * row checked under the person's grants in its own tenant. Reads only: a row is read,
+ * written and asked for its capabilities through `client.domain(tenantOf(row))`.
+ */
+export interface AcrossTenantsHandle<Row, Key extends unknown[]> {
+  readonly resource: Resource;
+  readonly descriptor: ResourceDescriptor;
+  /** The absolute URL of the list. */
+  url(): string;
+  /** The row's primary key, in route order. */
+  keyOf(row: Row): Key;
+  /** The tenant a row of the list is in. */
+  tenantOf(row: InTenant<Row>): Domain;
+  /**
+   * Whether the list has anything to show the person: the global digest's answer that
+   * they may list the resource in at least one tenant the session reaches
+   * (`ListAcrossTenantsPermission`). It is what a page of the list is shown by. False
+   * until the global digest has loaded.
+   */
+  can(): boolean;
+  /**
+   * What a live request of this handle subscribes to: the list across tenants, narrowed
+   * to `domains` when the page names tenants. Pass it to `client.live.watch` beside the
+   * refetch the change should run. Undefined for a list narrowed to no tenant, which
+   * nothing can change.
+   */
+  subscription(domains?: readonly (Domain | string)[]): LiveSubscription | undefined;
+  /** One page of rows across the set of tenants, the resource's default page when the query names no limit. */
+  list(query?: AcrossTenantsQuery<Row, Key>): Promise<InTenant<Row>[]>;
+  /** One page with its neighbors: follow `next` and `prev` as the server names them. */
+  page(query?: AcrossTenantsQuery<Row, Key>): Promise<Page<InTenant<Row>>>;
 }
 
 export interface Readable<Row, Key extends unknown[]> {
@@ -473,7 +546,9 @@ export interface ClientBase {
   batch(operations: Operation[]): Promise<BatchResult>;
   /**
    * Asks the right digest: the descriptor decides whether the target is global or
-   * domain-scoped; a domain-scoped target with no domain answers false.
+   * domain-scoped; a domain-scoped target with no domain answers false. Whether a
+   * resource may be listed across tenants (`ListAcrossTenantsPermission`) is the global
+   * digest's to answer, whatever domain is named.
    */
   can(permission: Permission, target: Resource | Method, domain?: Domain): boolean;
   /**
@@ -491,11 +566,17 @@ export interface ClientBase {
 
 /**
  * The client for one generated API: global handles on the root, domain-scoped handles
- * under `domain(...)`. The generated `Api` type fills in G and D.
+ * under `domain(...)`, and under `acrossTenants` the lists across tenants of the
+ * resources declared for it (empty where the API declares none). The generated `Api`
+ * type fills in G, D and A.
  */
-export type Client<G, D> = ClientBase & G & { domain(domain: Domain | string): DomainClient<D> };
+export type Client<G, D, A = Record<never, never>> = ClientBase &
+  G & { domain(domain: Domain | string): DomainClient<D>; readonly acrossTenants: A };
 
-export function createClient<G, D>(descriptor: ApiDescriptor, options: ClientOptions): Client<G, D> {
+export function createClient<G, D, A = Record<never, never>>(
+  descriptor: ApiDescriptor,
+  options: ClientOptions,
+): Client<G, D, A> {
   const baseUrl = options.baseUrl.replace(/\/+$/, '');
   const transport = options.transport ?? fetchTransport();
   const serverRelease = new Store<string | undefined>(undefined);
@@ -543,6 +624,9 @@ export function createClient<G, D>(descriptor: ApiDescriptor, options: ClientOpt
     requestResponse,
     batch: (operations) => batch(request, descriptor, operations),
     can: (permission, target, domain) => {
+      if (permission === ListAcrossTenantsPermission) {
+        return permissions.can({ resource: target, permission });
+      }
       const scope =
         descriptor.resources[target]?.scope ?? descriptor.methods[target]?.scope ?? (domain ? 'domain' : 'global');
       if (scope === 'domain' && !domain) {
@@ -565,6 +649,12 @@ export function createClient<G, D>(descriptor: ApiDescriptor, options: ClientOpt
   };
 
   const domains = new Map<string, DomainClient<D>>();
+  const acrossTenants: Record<string, unknown> = {};
+  for (const resource of Object.values(descriptor.resources)) {
+    if (resource.acrossTenants && resource.scope === 'domain') {
+      acrossTenants[resource.property] = createAcrossTenantsHandle(base, resource);
+    }
+  }
   const client = Object.assign(base, {
     domain: (domain: Domain | string): DomainClient<D> => {
       let bound = domains.get(domain);
@@ -574,7 +664,8 @@ export function createClient<G, D>(descriptor: ApiDescriptor, options: ClientOpt
       }
       return bound;
     },
-  }) as Client<G, D>;
+    acrossTenants: acrossTenants as A,
+  }) as Client<G, D, A>;
 
   attachHandles(client, base, 'global', undefined);
   return client;
@@ -969,6 +1060,83 @@ function createResourceHandle<Row extends object, Key extends unknown[]>(
     ops,
   };
   return handle;
+}
+
+/**
+ * The handle of a resource's list across tenants, by the resource's name: what a page
+ * that learns its resources at run time calls the list through, where code that knows
+ * the resource at build time reads the typed handle off `client.acrossTenants`. A
+ * resource the API does not describe, or one not declared for the list
+ * (`@listAcrossTenants`), is refused naming it.
+ */
+export function acrossTenantsHandle<Row extends object = Record<string, unknown>, Key extends unknown[] = string[]>(
+  client: ClientBase,
+  resource: Resource | string,
+): AcrossTenantsHandle<Row, Key> {
+  const descriptor = client.descriptor.resources[resource];
+  if (!descriptor) {
+    throw new Error(`this API declares no ${resource} resource; it cannot be listed across tenants from here`);
+  }
+  if (!descriptor.acrossTenants) {
+    throw new Error(
+      `${resource} is not listed across tenants: declare @listAcrossTenants on its struct and regenerate, or list it inside one tenant with client.domain(...)`,
+    );
+  }
+  return createAcrossTenantsHandle<Row, Key>(client, descriptor);
+}
+
+function createAcrossTenantsHandle<Row extends object, Key extends unknown[]>(
+  client: ClientBase,
+  descriptor: ResourceDescriptor,
+): AcrossTenantsHandle<Row, Key> {
+  // The list is served at the resource's own route, without the tenant's segment pair.
+  const route = descriptor.route;
+  const keyless = descriptor.keys.length === 0;
+  const subscription = (domains?: readonly (Domain | string)[]): LiveSubscription | undefined =>
+    domains !== undefined && domains.length === 0 ? undefined : acrossTenantsSubscription(descriptor, domains);
+  const request = (query: AcrossTenantsQuery<Row> | undefined) => {
+    const { domains, live, ...rest } = query ?? {};
+    // Plain unless the page asks: the subscription is one over the set of tenants.
+    const wanted = live ? subscription(domains) : undefined;
+    if (keyless) {
+      delete (rest as PageQuery).limit;
+      delete (rest as PageQuery).cursor;
+    }
+    const { method, params, body } = listRequest(rest as ListQuery<Row>);
+    if (domains !== undefined) {
+      params.set(DomainsQueryParam, domains.join(','));
+    }
+    return { method, params, body, wanted };
+  };
+  return {
+    resource: descriptor.resource,
+    descriptor,
+    url: () => `${client.baseUrl}/${route}`,
+    keyOf: (row: Row) => descriptor.keys.map((field) => (row as Record<string, unknown>)[field]) as Key,
+    tenantOf: (row: InTenant<Row>) => row[TenantProperty],
+    can: () => client.can(ListAcrossTenantsPermission, descriptor.resource),
+    subscription,
+    list: async (query?: AcrossTenantsQuery<Row>) => {
+      const { method, params, body, wanted } = request(query);
+      return (
+        (await client.request<InTenant<Row>[] | null>(method, route, {
+          ...liveRequest(client.live, wanted, params),
+          body,
+        })) ?? []
+      );
+    },
+    page: (query?: AcrossTenantsQuery<Row>) => {
+      const { method, params, body, wanted } = request(query);
+      // The live parts are read when each request is made, as a tenant's list reads them.
+      return pageOf<InTenant<Row>>(
+        client,
+        method,
+        body,
+        () => client.requestResponse(method, route, { ...liveRequest(client.live, wanted, params), body }),
+        wanted,
+      );
+    },
+  };
 }
 
 /**

@@ -3,7 +3,7 @@
     "global": [
       {
         "name": "Administrator",
-        "description": "Manages the application's people: creates accounts, invites people, gives and takes roles, and sets temporary passwords.",
+        "description": "Manages the application's people: creates accounts, invites people, gives and takes roles, keeps groups of people, and sets temporary passwords.",
         "permissions": {
           "Execute": [
             {
@@ -71,6 +71,27 @@
             },
             {
               "resource": "SetStaffUserName"
+            },
+            {
+              "resource": "CreateStaffGroup"
+            },
+            {
+              "resource": "DescribeStaffGroup"
+            },
+            {
+              "resource": "DeleteStaffGroup"
+            },
+            {
+              "resource": "AddStaffGroupMember"
+            },
+            {
+              "resource": "RemoveStaffGroupMember"
+            },
+            {
+              "resource": "GiveStaffGroupRole"
+            },
+            {
+              "resource": "TakeStaffGroupRole"
             }
           ],
           "List": [
@@ -101,7 +122,9 @@
             {
               "resource": "StaffUserRoles",
               "fields": [
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {
@@ -205,6 +228,45 @@
                 "revokedAt",
                 "userId"
               ]
+            },
+            {
+              "resource": "StaffGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt"
+              ]
+            },
+            {
+              "resource": "StaffGroupUsers",
+              "fields": [
+                "username",
+                "name",
+                "groupName",
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "StaffGroupRoles",
+              "fields": [
+                "createdAt",
+                "startsAt",
+                "endsAt"
+              ]
+            },
+            {
+              "resource": "StaffUserGroupRoles",
+              "fields": [
+                "username",
+                "groupName",
+                "startsAt",
+                "endsAt"
+              ]
             }
           ],
           "Read": [
@@ -284,6 +346,17 @@
                 "lastUsedAt",
                 "revokedAt",
                 "userId"
+              ]
+            },
+            {
+              "resource": "StaffGroups",
+              "fields": [
+                "kind",
+                "axis",
+                "domainId",
+                "name",
+                "description",
+                "updatedAt"
               ]
             }
           ]

@@ -6,6 +6,7 @@ package crewhandlers
 import (
 	"context"
 	"net/http"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -21,8 +22,10 @@ import (
 
 func (h *Handlers) AssignCrewSectorRole() http.HandlerFunc {
 	type request struct {
-		UserID impulse.UUID `json:"userId"`
-		Role   string       `json:"role"`
+		UserID   impulse.UUID `json:"userId"`
+		Role     string       `json:"role"`
+		StartsAt *time.Time   `json:"startsAt"`
+		EndsAt   *time.Time   `json:"endsAt"`
 	}
 
 	decoder := NewTargetedRPCDecoder[crewidentity.AssignCrewSectorRole, request](h, accesstypes.Execute)

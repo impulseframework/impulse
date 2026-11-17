@@ -146,24 +146,14 @@ func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWrit
 	return c.manager.DirectorySeated("Members")
 }
 
-// SignedUp answers the session library's hook for a sign-up through an open sign-in
-// method (session.Auth.SetSignUpSeated) over the Members auth's tables: the default
-// role the method's row names is given to the person in the transaction that makes
-// their account, so no account is left holding nothing (identity.Manager.SignedUp). The
-// auth's package sets it where it sets the invitation's.
-func (c *Client) SignedUp() session.SignUpSeatedHook[*spanner.ReadWriteTransaction] {
-	return c.manager.SignedUp("Members")
-}
-
-// AnySignInMethodOpen reports whether an administrator has a sign-in method of the
-// Members auth open to sign-up now, read through reader: the caller's transaction,
-// or the application's client (identity.Manager.AnyMethodOpen). The generated
-// create-your-tenant route asks it in the transaction that writes the tenant's row.
-func (c *Client) AnySignInMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {
-	open, err := c.manager.AnyMethodOpen(ctx, reader)
-	if err != nil {
-		return false, errors.Wrap(err, "identity.Manager.AnyMethodOpen()")
-	}
-
-	return open, nil
+// SignedIn answers the session library's hook for a sign-in that stands
+// (session.Auth.SetSignedInHook) over the Members auth's tables: the person's roles
+// and places in groups whose period has ended are removed (identity.Manager.SignedIn),
+// in a transaction of the hook's own on db, the application's database. Nothing else
+// removes them: no job runs on a schedule. The session library calls the hook once the
+// session is committed and logs an error it answers, so the removal neither fails a
+// sign-in nor undoes one; a sign-in with nothing to clear costs one read. The auth's
+// package sets it where it sets the invitation's.
+func (c *Client) SignedIn(db resource.Client) session.SignedInHook {
+	return c.manager.SignedIn("Members", db)
 }

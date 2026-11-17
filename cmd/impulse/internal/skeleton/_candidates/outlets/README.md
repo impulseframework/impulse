@@ -33,7 +33,12 @@ answer. The dashboard is every place's first page, and each application manages 
 auth's people in both places the same way: the whole application's accounts
 (`/staff-accounts` on the console, `/members-accounts` on the portal), a tenant's people
 under the tenant (`/tenants/{tenantID}/staff-people`, `/tenants/{tenantID}/members-people`).
-The library draws them from the API description (`identityRoutes` in each application's
+Groups of people are kept beside them (`/staff-groups` on the console,
+`/tenants/{tenantID}/staff-groups` and `/tenants/{tenantID}/members-groups` under the
+tenant): a group holds roles the way a person does, a person in it holds the group's
+roles, and each auth's role file gives a place's groups, their members and their roles to
+whoever manages its people (`Administrator` for the whole application,
+`TenantAdministrator` in a tenant). The library draws them from the API description (`identityRoutes` in each application's
 `app.routes.ts`, placed by `identityMenuPages` in its menu file), and a tenant's pages read
 the tenant from the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file
 (`app.menus.ts`) shows Tenants (All tenants and New tenant…) and System (the staff's

@@ -7,16 +7,20 @@ import "github.com/impulseframework/impulse/accesstypes"
 
 type Method interface {
 	Method() accesstypes.Resource
-	AssignCrewRole | AssignCrewSectorRole | CreateCrewSectorUser | CreateCrewUser |
-		DeleteCrewSectorUser | DeleteCrewUser | DisableCrewSectorUser | DisableCrewUser |
+	AddCrewGroupMember | AddCrewSectorGroupMember | AssignCrewRole | AssignCrewSectorRole |
+		CreateCrewGroup | CreateCrewSectorGroup | CreateCrewSectorUser | CreateCrewUser |
+		DeleteCrewGroup | DeleteCrewSectorGroup | DeleteCrewSectorUser | DeleteCrewUser |
+		DescribeCrewGroup | DescribeCrewSectorGroup | DisableCrewSectorUser | DisableCrewUser |
 		EnableCrewSectorUser | EnableCrewUser | EndCrewSectorUserSessions | EndCrewSession |
-		EndCrewSessionImpersonation | EndCrewUserSessions | InviteCrewSectorUser | InviteCrewUser |
-		MakeCrewInviteOnly | OpenCrewSignUp | RemoveCrewPassword | RemoveCrewRole |
+		EndCrewSessionImpersonation | EndCrewUserSessions | GiveCrewGroupRole |
+		GiveCrewSectorGroupRole | InviteCrewSectorUser | InviteCrewUser | RemoveCrewGroupMember |
+		RemoveCrewPassword | RemoveCrewRole | RemoveCrewSectorGroupMember |
 		RemoveCrewSectorPassword | RemoveCrewSectorRole | RenameCrewSectorUser | RenameCrewUser |
 		RequireCrewPasswordChange | RequireCrewSectorPasswordChange |
 		RevokeCrewSectorUserTrustedDevices | RevokeCrewSessionToken |
 		RevokeCrewUserTrustedDevices | SetCrewSectorTemporaryPassword | SetCrewSectorUserEmail |
 		SetCrewSectorUserName | SetCrewTemporaryPassword | SetCrewUserEmail | SetCrewUserName |
-		UnlinkCrewSectorSessionIdentity | UnlinkCrewSessionIdentity | UnlockCrewSignIn |
-		WithdrawCrewInvitation | WithdrawCrewSectorInvitation
+		TakeCrewGroupRole | TakeCrewSectorGroupRole | UnlinkCrewSectorSessionIdentity |
+		UnlinkCrewSessionIdentity | UnlockCrewSignIn | WithdrawCrewInvitation |
+		WithdrawCrewSectorInvitation
 }

@@ -381,6 +381,14 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		return nil, errors.Wrap(err, "staffidentity.NewClient()")
 	}
 
+	// A role, a place in a group and a group's role may each be given for a period, and
+	// count inside it alone. A row whose period has ended goes when its person next signs
+	// in: the session library calls the identity client's SignedIn once the session is
+	// committed, apart from the sign-in, so a failure is logged and the session stands.
+	// It removes the person's ended roles and places and nothing else, never the
+	// account, and no job runs on a schedule.
+	authSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))
+
 	// An accepted invitation gives its roles, in the tenant it names or for the whole
 	// application, in the transaction that consumes the invitation (the identity
 	// client's InvitationAccepted, which the session library runs inside it): the
