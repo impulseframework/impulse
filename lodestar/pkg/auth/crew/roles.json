@@ -1034,7 +1034,7 @@
       },
       {
         "name": "Surveyor",
-        "description": "Charts new sectors, by inviting the person who will run each, and corrects their records.",
+        "description": "Charts new sectors, by inviting the person who will run each, and corrects their records. Closing a sector to its directory is not the Surveyor's to say: an invitation of theirs never says directory only.",
         "permissions": {
           "List": [
             {
@@ -1075,7 +1075,8 @@
           ],
           "Execute": [
             {
-              "resource": "InviteCrewSector"
+              "resource": "InviteCrewSector",
+              "condition": "new.directoryOnly = false"
             },
             {
               "resource": "WithdrawCrewInvitedSector"
