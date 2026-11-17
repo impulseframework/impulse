@@ -18,17 +18,25 @@ import (
 // UnlinkIdentity buffers the removal of one identity, the link between a user and the
 // identity a directory verified for them, in the caller's transaction: once it commits,
 // a sign-in through that identity no longer reaches the user. The sessions established
-// through it stand. A user who holds no password keeps at least one identity, since
-// with none they could not sign in at all; a user who holds a password may lose every
-// one. A super administrator's identity is unlinked by a super administrator alone, since
-// it is a way they sign in (requireSuperAdministratorFor).
+// through it stand. A user who holds no password keeps an identity that can sign them
+// in, since with none they could not sign in at all: the unlink is refused unless
+// another identity linked to them is one the session library says a sign-in through is
+// possible (SessionAPI.SignsInThrough), the judgment the removal of a password is held
+// to (RemovePassword). The last identity that counts therefore stays while only ones
+// that sign nobody in would remain, left from a sign-in method the Auth no longer
+// offers or from a connection none of its registrations takes, and one of those goes
+// from beside an identity that counts. A user who holds a password may lose every one.
+// The rule holds for everyone, the last super administrator among them. A super
+// administrator's identity is unlinked by a super administrator alone, since it is a
+// way they sign in (requireSuperAdministratorFor).
 //
-// The count that rule reads is the committed one: a second unlink of the same user's
-// identities in one transaction does not see the first, as no read sees a buffered
-// write. Unlink one identity of a user per transaction.
+// The identities that rule reads are the committed ones, read in the transaction that
+// unlinks: a second unlink of the same user's identities in one transaction does not
+// see the first, as no read sees a buffered write. Unlink one identity of a user per
+// transaction.
 //
 // Shared rule: the session library's UnlinkIdentity, with its refusal
-// (sessionstorage.ErrLastSignInMethod).
+// (sessionstorage.ErrLastSignInMethod) and its judgment of the links that count.
 func (m *Manager) UnlinkIdentity(ctx context.Context, txn resource.ReadWriteTransaction, identityID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -55,8 +63,16 @@ func (m *Manager) UnlinkIdentity(ctx context.Context, txn resource.ReadWriteTran
 		if err != nil {
 			return errors.Wrap(err, "identity.Store.Identities()")
 		}
-		if len(links) <= 1 {
-			return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "the user has no other means of sign-in")
+		others := slices.DeleteFunc(slices.Clone(links), func(link Link) bool {
+			return link.ID == identityID
+		})
+		switch {
+		case len(others) == 0:
+			return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "the user has no other means of sign-in: link another directory sign-in first, or give the user a password")
+		case !m.linksSignIn(others):
+			return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod,
+				"none of the other identities linked to the user can sign them in any more, so this one is their only means of sign-in: "+
+					"link a directory sign-in the login page offers first, or give the user a password")
 		}
 	}
 	if err := m.store.DeleteIdentity(ctx, txn, identityID); err != nil {

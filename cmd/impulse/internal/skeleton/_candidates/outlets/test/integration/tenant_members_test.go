@@ -55,8 +55,10 @@ func TestTenantMembers_aTenantAdministratorActsOnTheTenantsOwnMembersAlone(t *te
 	ctx := t.Context()
 	s := newServed(ctx, t)
 
-	// The accounts, each with two identity links (a member with no password keeps one way
-	// in, so the one a test unlinks is not the last), and the roles.
+	// The accounts, each with two identity links, and the roles. A member with no password
+	// keeps a way in, so the link a test unlinks is not the last that signs them in: both
+	// are of the directory the portal signs in through, Microsoft's, under the tenant the
+	// registration admits.
 	ids := map[string]string{}
 	links := map[string]string{}
 	var rows []*spanner.Mutation
@@ -69,16 +71,16 @@ func TestTenantMembers_aTenantAdministratorActsOnTheTenantsOwnMembersAlone(t *te
 		rows = append(rows, spanner.InsertMap("MembersSessionUsers", map[string]any{
 			"Id": id.String(), "Username": name, "Name": name + " of north", "Email": name + "@example.com", "CreatedAt": spanner.CommitTimestamp,
 		}))
-		for _, connection := range []string{"first", "second"} {
+		for _, account := range []string{"first", "second"} {
 			link, err := impulse.NewUUID()
 			if err != nil {
 				t.Fatalf("impulse.NewUUID() error = %v", err)
 			}
-			if connection == "first" {
+			if account == "first" {
 				links[name] = link.String()
 			}
 			rows = append(rows, spanner.InsertMap("MembersSessionIdentities", map[string]any{
-				"Id": link.String(), "UserId": id.String(), "Method": "directory", "Connection": connection, "Subject": "subject-of-" + name,
+				"Id": link.String(), "UserId": id.String(), "Method": "azure", "Connection": directoryTenant, "Subject": account + "-subject-of-" + name,
 				"EmailAtLink": name + "@example.com", "CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
 			}))
 		}
@@ -124,7 +126,7 @@ func TestTenantMembers_aTenantAdministratorActsOnTheTenantsOwnMembersAlone(t *te
 			"list": identities[links[name]],
 			"read": tenantRow(ctx, t, client, north, "members-tenant-identities", links[name]),
 		} {
-			if row["method"] != "directory" {
+			if row["method"] != "azure" {
 				t.Errorf("%s: the %s of north's identities answers %v, want the link with the fields the grant carries with no condition", name, where, row)
 			}
 			if _, got := row["subject"]; got != want {

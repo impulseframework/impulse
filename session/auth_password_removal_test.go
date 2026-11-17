@@ -187,6 +187,48 @@ func TestAuth_PasswordRemoval_linksThatSignIn(t *testing.T) {
 	}
 }
 
+// TestAuthAPI_UnlinkIdentity_judgesTheOtherLinks pins what an unlink hands the store:
+// the judgment the removal of a password is held to (signsInThrough), which the store
+// asks about the user's other links in the transaction that unlinks. A link a sign-in
+// is still possible through counts, and a link that signs nobody in does not: a method
+// nothing is registered of, the tenant of a registration the page does not list, and a
+// Workspace the registration does not name. So the last link that counts is not
+// unlinked from a user with no password while only such links would remain.
+func TestAuthAPI_UnlinkIdentity_judgesTheOtherLinks(t *testing.T) {
+	t.Parallel()
+
+	type link struct {
+		method     sessioninfo.AuthMethod
+		connection string
+	}
+	want := map[link]bool{
+		{sessioninfo.MethodGoogle, "fleet"}:    true,
+		{sessioninfo.MethodAzure, tenantRiver}: true,
+		{sessioninfo.MethodOIDC, "okta"}:       false,
+		{sessioninfo.MethodAzure, tenantOther}: false,
+		{sessioninfo.MethodGoogle, "other"}:    false,
+	}
+
+	a, store := signInMeansAuth(t)
+	identityID := impulse.Must(impulse.NewUUID())
+	got := make(map[link]bool, len(want))
+	store.EXPECT().UnlinkIdentity(gomock.Any(), identityID, gomock.Not(gomock.Nil())).
+		DoAndReturn(func(_ context.Context, _ impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error {
+			for other := range want {
+				got[other] = signsIn(other.method, other.connection)
+			}
+
+			return nil
+		})
+
+	if err := a.API().UnlinkIdentity(context.Background(), identityID); err != nil {
+		t.Fatalf("UnlinkIdentity() error = %v", err)
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("the links the store was told count as a means of sign-in (-want +got):\n%s", diff)
+	}
+}
+
 // TestAuth_RemoveUserPassword pins the handler a person removes their own password
 // through: it validates the session itself, as the password change does, asks for the
 // password the person holds, hands the store the hash that password matched, so that

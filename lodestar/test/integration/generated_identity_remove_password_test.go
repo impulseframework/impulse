@@ -13,7 +13,11 @@ package integration
 //
 // Beside it is the list the removal is offered from: how a person of the sector signs
 // in (CrewSectorSignInWays), the password they hold and the identities that count,
-// which a page reads to offer the removal only where it would go through.
+// which a page reads to offer the removal only where it would go through. The Marshal's
+// grant lists the identities of every person of the sector and the password only of a
+// person no other sector holds (password = false OR heldElsewhere = false): whether a
+// person another sector holds too has a password is no more the sector's to learn than
+// whether they must change it, and the removal is not the sector's to offer.
 //
 // The people are the ones of the lists' suite (generated_identity_lists_test).
 
@@ -40,9 +44,10 @@ import (
 // caller with no grant, and not found for a person of another sector. The removal takes
 // the password and the requirement to change it, clears the count of failed sign-ins
 // kept under the person's name, and leaves the identity, which is then the person's
-// last way in. The list of how a person signs in says the same before anything is
-// asked: the password a person holds and the identities that count, for the sector's
-// people alone, with the facts of each person's row.
+// last way in, whatever identity that signs nobody in stands beside it. The list of how
+// a person signs in says the same before anything is asked: the password a person holds
+// and the identities that count, for the sector's people alone, with the facts of each
+// person's row, and without the password of a person another sector holds too.
 func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 	t.Parallel()
 	w := newTenantListsWorld(t)
@@ -50,9 +55,10 @@ func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 
 	// The grant this suite proves, pinned to the roles file (conditions-proven).
 	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "RemoveCrewSectorPassword", "heldElsewhere = false AND heldGlobally = false")
-	// The Marshal reads how a person signs in as they read the person's identities: with
-	// no condition.
-	provesGrant(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorSignInWays", "")
+	// The Marshal reads the identities that sign a person in for every person of the
+	// sector, and the password where they read that the person must change it: for a
+	// person no other sector holds.
+	provesGrant(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorSignInWays", "password = false OR heldElsewhere = false")
 
 	// The passwords, written as the session library writes one: ada, bo, di and fay each
 	// hold one they are still to change, and two failed sign-ins are counted under ada's
@@ -182,17 +188,32 @@ func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 		if got, want := waysOf(anvil, "ada"), []way{password, through("ada")}; !slices.Equal(got, want) {
 			t.Errorf("how ada signs in = %+v, want %+v", got, want)
 		}
-		// bo holds a role at Bastion too and fay one for the whole application: each row
-		// carries the fact, which a grant's condition reads.
-		boPassword, boIdentity := password, through("bo")
-		boPassword.HeldElsewhere, boIdentity.HeldElsewhere = true, true
-		if got, want := waysOf(anvil, "bo"), []way{boPassword, boIdentity}; !slices.Equal(got, want) {
-			t.Errorf("how bo signs in, as Anvil reads it = %+v, want %+v", got, want)
+		// bo holds a role at Bastion too. Each row carries the fact, which the grant's
+		// condition reads: the identity is listed, as bo's identities are, and the
+		// password is not, so Anvil does not learn that bo holds one.
+		boIdentity := through("bo")
+		boIdentity.HeldElsewhere = true
+		if got, want := waysOf(anvil, "bo"), []way{boIdentity}; !slices.Equal(got, want) {
+			t.Errorf("how bo signs in, as Anvil reads it = %+v, want %+v: the identity, and nothing of the password", got, want)
 		}
-		for _, row := range waysOf(anvil, "fay") {
-			if !row.HeldGlobally {
-				t.Errorf("fay's way %q says she holds no role for the whole application", row.Way)
-			}
+		// The password is there, and the whole application's administrator reads it in the
+		// whole application's list, where its removal is theirs.
+		status, body := doRequestAs(t, w.h, "governor", http.MethodGet, consoleAPI+"/crew-sign-in-ways?filter=userId:eq:"+w.ids["bo"], "")
+		assertStatus(t, status, http.StatusOK, body)
+		var whole []string
+		for _, row := range decodeRows(t, body) {
+			whole = append(whole, cell[string](t, row, "way"))
+		}
+		if want := []string{"password", links["bo"]}; !slices.Equal(whole, want) {
+			t.Errorf("how bo signs in, as the whole application's administrator reads it = %v, want %v", whole, want)
+		}
+		// fay holds a role for the whole application and none in another sector: the
+		// condition reads the other sectors alone, as the one on whether a person must
+		// change their password does, so her password is listed with her identity.
+		fayPassword, fayIdentity := password, through("fay")
+		fayPassword.HeldGlobally, fayIdentity.HeldGlobally = true, true
+		if got, want := waysOf(anvil, "fay"), []way{fayPassword, fayIdentity}; !slices.Equal(got, want) {
+			t.Errorf("how fay signs in, as Anvil reads it = %+v, want %+v", got, want)
 		}
 		// di is Bastion's: Anvil is answered nothing of her.
 		if got := waysOf(anvil, "di"); len(got) != 0 {
@@ -268,11 +289,41 @@ func TestGeneratedIdentitySectorRemovePassword(t *testing.T) {
 			t.Errorf("how ada signs in after the removal = %+v, want %+v", got, want)
 		}
 		// The identity stands, and is now ada's last way in.
-		unlink := fmt.Sprintf(`{"identityId":%q}`, links["ada"])
-		status, body = doRequestAs(t, w.h, "marshal", http.MethodPost, sectorPath(anvil, "unlink-crew-sector-session-identity"), unlink)
+		unlink := func(identity string) (int, []byte) {
+			return doRequestAs(t, w.h, "marshal", http.MethodPost, sectorPath(anvil, "unlink-crew-sector-session-identity"), fmt.Sprintf(`{"identityId":%q}`, identity))
+		}
+		status, body = unlink(links["ada"])
 		assertStatus(t, status, http.StatusConflict, body)
 		if _, err := w.db.Single().ReadRow(ctx, "CrewSessionIdentities", spanner.Key{links["ada"]}, []string{"Id"}); err != nil {
 			t.Errorf("ada's identity after the removal: %v, want it kept", err)
+		}
+	})
+	t.Run("the last identity that signs a person in is not unlinked while one that signs nobody in remains", func(t *testing.T) {
+		// ada holds no password now. An identity of a sign-in the auth no longer offers
+		// is linked to her again: it is a row, and no way in.
+		if _, err := w.db.Apply(ctx, []*spanner.Mutation{spanner.InsertMap("CrewSessionIdentities", map[string]any{
+			"Id": retired.String(), "UserId": w.ids["ada"], "Method": "workos", "Connection": "retired", "Subject": "retired-subject-of-ada",
+			"CreatedAt": spanner.CommitTimestamp, "LastUsedAt": spanner.CommitTimestamp,
+		})}); err != nil {
+			t.Fatalf("writing the identity of a retired sign-in: %v", err)
+		}
+		unlink := func(identity string) (int, []byte) {
+			return doRequestAs(t, w.h, "marshal", http.MethodPost, sectorPath(anvil, "unlink-crew-sector-session-identity"), fmt.Sprintf(`{"identityId":%q}`, identity))
+		}
+		// The directory's identity is still her one way in, and stays.
+		status, body := unlink(links["ada"])
+		assertStatus(t, status, http.StatusConflict, body)
+		if !strings.Contains(string(body), "none of the other identities linked to the user can sign them in any more") {
+			t.Errorf("the refusal = %s, want it to say the other identity signs nobody in", body)
+		}
+		if _, err := w.db.Single().ReadRow(ctx, "CrewSessionIdentities", spanner.Key{links["ada"]}, []string{"Id"}); err != nil {
+			t.Errorf("ada's identity after the refused unlink: %v, want it kept", err)
+		}
+		// The one that signs nobody in goes from beside it.
+		status, body = unlink(retired.String())
+		assertStatus(t, status, http.StatusNoContent, body)
+		if _, err := w.db.Single().ReadRow(ctx, "CrewSessionIdentities", spanner.Key{retired.String()}, []string{"Id"}); spanner.ErrCode(err) != codes.NotFound {
+			t.Errorf("the retired sign-in's identity after the unlink: err = %v, want not found", err)
 		}
 	})
 }

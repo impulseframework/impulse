@@ -34,8 +34,13 @@ import (
 // for a row of StaffTenantUser, the tenant's own list of the auth's people. A person
 // who holds no role in the tenant is no row there and has none here. Each row carries
 // the two facts of the person's row under the names a grant's condition reads
-// (heldElsewhere, heldGlobally), so the role file says what a tenant reads of a person
-// who is not the tenant's alone.
+// (heldElsewhere, heldGlobally), and says whether it is the password under the name
+// password, so the role file says what a tenant reads of a person who is not the
+// tenant's alone: a grant under "password = false OR heldElsewhere = false" lists the
+// identities of every person of the tenant and the password only of a person no other
+// tenant holds. Whether such a person has a password is then no more the tenant's to
+// learn than whether they must change it, and a page that offers the removal by the
+// rows offers none for them.
 //
 // It is a computed resource: which identities count is the session library's judgment
 // of the auth's registrations, which no table holds, so the identity package is asked
@@ -60,6 +65,7 @@ type StaffTenantSignInWay struct {
 	Way string `spanner:"Way"`
 	// Password says the way is the person's password. The list is ordered by it, the
 	// password first.
+	// @attribute(password)
 	Password bool `spanner:"Password"`
 	// Method and Connection are the identity's, as StaffTenantIdentity shows them. The
 	// password's are "password" and no connection.

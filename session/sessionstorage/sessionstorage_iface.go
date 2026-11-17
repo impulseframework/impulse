@@ -311,8 +311,9 @@ type db interface {
 	SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string) error
 	// UpgradeUserPasswordHash replaces the proven password hash with hash while the row still holds it, leaving the password change mark as it is.
 	UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
-	// SetUserPassword updates the user password hash and the password change mark in one write, whatever the row holds.
-	SetUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
+	// ReplaceUserPassword updates the user password hash and the password change mark, whatever the row holds, and expires
+	// the user's sessions, in one transaction.
+	ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
 	// ChangeUserPassword replaces the proven password hash with hash, clears the password change mark and expires the user's
 	// sessions, in one transaction, while the row still holds the proven hash.
 	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
@@ -339,8 +340,10 @@ type db interface {
 	IdentitiesByUser(ctx context.Context, userID impulse.UUID) ([]*dbtype.SessionIdentity, error)
 	// LinkIdentity links an identity to a user outside the sign-in flow.
 	LinkIdentity(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
-	// UnlinkIdentity removes a link, refusing to remove a user's last means of sign-in.
-	UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error
+	// UnlinkIdentity removes a link, refusing to remove the last means of sign-in of a
+	// user that has no password: another identity linked to the user must be one signsIn
+	// judges a means of sign-in, read in the transaction that unlinks.
+	UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error
 	// RemoveUserPassword removes a user's password and its change mark while one of the
 	// identities standing names is still linked to the user, refusing to remove a
 	// user's last means of sign-in otherwise.
