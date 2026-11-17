@@ -67,6 +67,14 @@ const descriptor: ApiDescriptor = {
     GiveRole: { method: 'GiveRole' as Method, property: 'giveRole', route: 'give-role', scope: 'domain', statuses: [204] },
     AddPerson: { method: 'AddPerson' as Method, property: 'addPerson', route: 'add-person', scope: 'domain' },
     SendNotice: { method: 'SendNotice' as Method, property: 'sendNotice', route: 'send-notice', scope: 'domain' },
+    OpenSignUp: { method: 'OpenSignUp' as Method, property: 'openSignUp', route: 'open-sign-up', scope: 'global', statuses: [204] },
+    DeleteArchive: {
+      method: 'DeleteArchive' as Method,
+      property: 'deleteArchive',
+      route: 'delete-archive',
+      scope: 'global',
+      statuses: [204],
+    },
     // A descriptor generated apart from the metadata: the metadata below declares an upload, this does not.
     ArchiveMissionDocument: {
       method: 'ArchiveMissionDocument' as Method,
@@ -131,6 +139,23 @@ const methodMeta: Record<string, MethodMeta> = {
       { fieldName: 'username', displayType: 'string', required: true },
       { fieldName: 'role', displayType: 'string', attribute: 'role' },
     ],
+  },
+  // Warns before it runs: the server writes what the call will do, and the word is typed. The role is the method's to require.
+  OpenSignUp: {
+    route: 'open-sign-up',
+    dryRun: true,
+    warning: { typed: 'open' },
+    fields: [
+      { fieldName: 'method', displayType: 'string', required: true },
+      { fieldName: 'defaultRole', displayType: 'string' },
+    ],
+  },
+  // Warns before it runs, and requires an input the row does not carry.
+  DeleteArchive: {
+    route: 'delete-archive',
+    dryRun: true,
+    warning: { typed: 'delete' },
+    fields: [{ fieldName: 'year', displayType: 'string', required: true }],
   },
   // Runs outside a transaction: the server refuses a dry run of it.
   SendNotice: { route: 'send-notice', fields: [{ fieldName: 'words', displayType: 'string', required: true, attribute: 'words' }] },
@@ -669,4 +694,167 @@ describe('declaredRefusal', () => {
       expect(declaredRefusal(tt.answer)).toBe(tt.want);
     });
   }
+});
+
+// A method that warns before it runs (@warning): the dialog asks the server what the call
+// will do before anything is saved, shows its words in the warning style, puts the
+// server's words on the confirm button, and holds the button until the word is typed.
+describe('MethodDialogComponent running a method that warns', () => {
+  /** What the server answers a request for the warning with, by its body; a test replaces it. */
+  let warning: (body: Record<string, unknown>) => TransportResponse | Promise<TransportResponse>;
+
+  const server = (): ScriptedTransport =>
+    scriptedTransport((request: TransportRequest): TransportResponse | Promise<TransportResponse> =>
+      request.headers?.['X-Warning'] === 'true'
+        ? warning(request.body as Record<string, unknown>)
+        : { status: 204, body: undefined },
+    );
+  /** The calls of the method so far, each as "warning" or "real" with its body. */
+  const calls = (o: Opened): [string, unknown][] =>
+    o.transport.requests.map((r) => [r.headers?.['X-Warning'] === 'true' ? 'warning' : 'real', r.body]);
+  const runButton = (o: Opened): HTMLButtonElement =>
+    (o.fixture.nativeElement as HTMLElement).querySelector('button.run') as HTMLButtonElement;
+  /** Lets the question asked as the dialog opened be answered, and draws the answer. */
+  const settle = async (o: Opened): Promise<void> => {
+    await o.fixture.whenStable();
+    o.fixture.detectChanges();
+  };
+
+  beforeEach(() => {
+    warning = (body) => ({
+      status: 200,
+      body: {
+        consequence:
+          'Anyone with a Google account will be able to sign in without an invitation.' +
+          (body['defaultRole'] ? ` Each of them gets the role ${String(body['defaultRole'])}.` : ''),
+        confirm: 'Open to anyone with a Google account',
+      },
+    });
+  });
+
+  it("asks the server as it opens, saves nothing, and shows the server's words in the warning style under a warning icon", async () => {
+    const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
+    await settle(o);
+
+    expect(calls(o)).toEqual([['warning', { method: 'google' }]]);
+    expect(text(o, '.warning .warning-consequence')).toBe(
+      'Anyone with a Google account will be able to sign in without an invitation.',
+    );
+    expect(text(o, '.warning mat-icon')).toBe('warning');
+    expect((o.fixture.nativeElement as HTMLElement).querySelector('.warning')?.getAttribute('role')).toBe('alert');
+    // The warning stands in the question's place: the page gave none.
+    expect(text(o, '.question')).toBe('');
+  });
+
+  it("puts the server's words on the confirm button and holds it until the word is typed", async () => {
+    const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
+    await settle(o);
+
+    expect(runButton(o).textContent?.trim()).toBe('Open to anyone with a Google account');
+    expect(text(o, '.typed-word mat-label')).toBe('Type open to confirm');
+    expect(runButton(o).disabled).toBe(true);
+
+    // Held: a click on the button's handler sends nothing.
+    await o.component.run();
+    expect(calls(o)).toHaveLength(1);
+
+    o.component.typed.setValue('ope');
+    o.fixture.detectChanges();
+    expect(runButton(o).disabled).toBe(true);
+
+    // The word, in any case and with a space after it.
+    o.component.typed.setValue('Open ');
+    o.fixture.detectChanges();
+    expect(runButton(o).disabled).toBe(false);
+    expect(runButton(o).classList.contains('warns')).toBe(true);
+
+    await o.component.run();
+    expect(calls(o)).toEqual([
+      ['warning', { method: 'google' }],
+      ['real', { method: 'google' }],
+    ]);
+    expect(o.closed).toEqual([{ answer: undefined }]);
+  });
+
+  it('asks again after a change, for the request as filled, and shows the newer answer', async () => {
+    const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
+    await settle(o);
+
+    o.component.form.controls['defaultRole'].setValue('Member');
+    await o.component.askWarning();
+    o.fixture.detectChanges();
+
+    expect(calls(o)).toEqual([
+      ['warning', { method: 'google' }],
+      ['warning', { method: 'google', defaultRole: 'Member' }],
+    ]);
+    expect(text(o, '.warning .warning-consequence')).toBe(
+      'Anyone with a Google account will be able to sign in without an invitation. Each of them gets the role Member.',
+    );
+  });
+
+  it('drops an answer that a later change overtook', async () => {
+    const release: (() => void)[] = [];
+    warning = (body) =>
+      new Promise<TransportResponse>((resolve) => {
+        release.push(() => resolve({ status: 200, body: { consequence: `for ${String(body['defaultRole'] ?? 'nobody')}`, confirm: 'Open' } }));
+      });
+    const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
+    o.component.form.controls['defaultRole'].setValue('Member');
+    const later = o.component.askWarning();
+
+    // The later question is answered first; the one asked at the opening comes back after it.
+    release[1]();
+    await later;
+    release[0]();
+    await settle(o);
+
+    expect(text(o, '.warning .warning-consequence')).toBe('for Member');
+  });
+
+  it("shows a refusal of the question in the server's words, and holds the button though the word is typed", async () => {
+    warning = () => ({ status: 403, body: { message: 'user ada, scope global, does not have Execute on [OpenSignUp]' } });
+    const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
+    await settle(o);
+
+    expect(text(o, '.refusal')).toBe('user ada, scope global, does not have Execute on [OpenSignUp]');
+    expect((o.fixture.nativeElement as HTMLElement).querySelector('.warning')).toBeNull();
+
+    o.component.typed.setValue('open');
+    o.fixture.detectChanges();
+    expect(runButton(o).disabled).toBe(true);
+    // No warning was shown: the button says the page's words, and the call is not sent.
+    expect(runButton(o).textContent?.trim()).toBe('Open sign-up');
+    await o.component.run();
+    expect(calls(o).filter(([kind]) => kind === 'real')).toEqual([]);
+  });
+
+  it('waits for an input the method requires before it asks, since the server would refuse the request for it', async () => {
+    const o = await open({ method: 'DeleteArchive', label: 'Delete the archive', preset: {} }, server());
+    await settle(o);
+    expect(calls(o)).toEqual([]);
+    expect(runButton(o).disabled).toBe(true);
+
+    o.component.form.controls['year'].setValue('2019');
+    await o.component.askWarning();
+    o.component.typed.setValue('delete');
+    o.fixture.detectChanges();
+
+    expect(calls(o)).toEqual([['warning', { year: '2019' }]]);
+    expect(runButton(o).disabled).toBe(false);
+  });
+
+  it('draws no warning and asks for no word on a method that declares none', async () => {
+    const o = await open(
+      { method: 'DisableCrewSectorUser', label: 'Disable', preset: { userId: 'u-1' } },
+      scriptedTransport({ status: 204, body: undefined }),
+    );
+    await settle(o);
+
+    expect(o.transport.requests).toEqual([]);
+    expect((o.fixture.nativeElement as HTMLElement).querySelector('.typed-word')).toBeNull();
+    expect(runButton(o).textContent?.trim()).toBe('Disable');
+    expect(runButton(o).disabled).toBe(false);
+    expect(runButton(o).classList.contains('warns')).toBe(false);
+  });
 });

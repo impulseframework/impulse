@@ -2084,7 +2084,9 @@ type grants map[accesstypes.Permission]bool
 // which runs before required-field validation, defaults, or row reads. Mutation
 // success paths need valid request bodies the generator does not synthesize yet and
 // are left to manual testing. A transaction-form RPC method carries a second denied
-// case under X-Dry-Run: a dry run refuses exactly as the real call does. The features
+// case under X-Dry-Run: a dry run refuses exactly as the real call does. A method that
+// declares a warning carries one more under X-Warning: its warning is refused as the
+// call is. The features
 // route is open to anyone signed in and carries one case: 200 without a grant.
 //
 // The suite runs on the migrated schema alone; no seed data is required, so it grows
@@ -3445,6 +3447,12 @@ export interface MethodMeta {
    * on a method that runs outside one, which refuses the header.
    */
   dryRun?: true;
+  /**
+   * Set on a method that warns before it runs (@warning): the server writes what the
+   * call will do (asked with X-Warning, nothing saved), and a dialog shows it in the
+   * warning style and holds its confirm button until the person has typed the word.
+   */
+  warning?: { typed: string };
   fields: RPCFieldMeta[];
 }
 
@@ -3474,6 +3482,9 @@ const methodMap: MethodMap = {
     {{- end }}
     {{- if $rpcMethod.IsTxnForm }}
     dryRun: true,
+    {{- end }}
+    {{- with $rpcMethod.Warning }}
+    warning: { typed: '{{ .Typed }}' },
     {{- end }}
     {{- if $rpcMethod.Fields }}
     fields: [
@@ -4610,6 +4621,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 
 		p := {{ .RPCMethod.RequestConverterName }}(*params)
 		{{- end }}
+		{{- template "rpcWarningAsked" $ }}
 		{{- template "rpcCollectTouched" $ }}
 		{{- template "rpcResultVars" $ }}
 		{{- if .RPCMethod.IsTxnForm }}
@@ -4619,6 +4631,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 			dryRun := resource.IsDryRun(r)
 			if err := {{ $.ReceiverName }}.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				{{- template "rpcTargetFrame" $ }}
+				{{- template "rpcReadWarning" $ }}
 				{{- if .RPCMethod.Answers -}}
 				answer, err := p.Execute(ctx, txn, {{ $.ReceiverName }}.RPCClient())
 				if err != nil {
@@ -4741,6 +4754,7 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 
 		p := {{ .RPCMethod.RequestConverterName }}(*params)
 		{{- end }}
+		{{- template "rpcWarningAsked" $ }}
 
 		// The files stream to the store the method names, wired on the resource client,
 		// under keys the frame minted; the body records the keys, and the transaction's
@@ -5065,11 +5079,56 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .RPCMethod.Name }}() http.
 					return httpio.NewEncoder(w).StatusCodeWithBody(refused, {{ .RPCMethod.ResponseExpr }})
 				}
 				{{- end }}
+				{{- if .RPCMethod.Warning }}
+				if asksWarning && resource.WarningAsked(err) {
+					return httpio.NewEncoder(w).Ok(warning)
+				}
+				{{- end }}
 				if dryRun && resource.DryRunRolledBack(err) {
 					return httpio.NewEncoder(w).Ok(nil)
 				}
 
 				return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
+{{- end }}
+
+{{- /* rpcWarningAsked is what every frame does with a request that asks for the
+method's warning (X-Warning: true), once the request is decoded and the caller
+checked: a method that declares one reads it inside its transaction
+(rpcReadWarning), and a method that declares none refuses, so a request that asks
+for a warning never runs the call. */ -}}
+{{- define "rpcWarningAsked" }}
+		{{- if .RPCMethod.Warning }}
+
+		// A request that asks for the method's warning (X-Warning: true) is decoded
+		// and checked as the call is, and answers what Warning writes for it in
+		// place of running the call: the transaction below rolls back.
+		asksWarning := resource.AsksWarning(r)
+		var warning *resource.Warning
+		{{- else }}
+
+		if resource.AsksWarning(r) {
+			// The method declares no warning (@warning): a request that asks for one
+			// is refused, and never runs the call.
+			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("{{ .RPCMethod.Name }} declares no warning: send the call without the {{ WarningHeader }} header"))
+		}
+		{{- end }}
+{{- end }}
+
+{{- define "rpcReadWarning" }}
+				{{- if .RPCMethod.Warning }}
+				if asksWarning {
+					said, err := p.Warning(ctx, txn, {{ $.ReceiverName }}.RPCClient())
+					if err != nil {
+						return errors.Wrap(err, "{{ .RPCMethod.Name }}.Warning()")
+					}
+					if err := resource.CheckWarning("{{ .RPCMethod.Name }}", said); err != nil {
+						return errors.Wrap(err, "resource.CheckWarning()")
+					}
+					warning = said
+
+					return resource.ErrWarningAsked
+				}
+				{{ end -}}
 {{- end }}
 
 {{- define "rpcChooseStatus" }}

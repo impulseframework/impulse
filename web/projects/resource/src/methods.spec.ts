@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import { Method } from './brands';
 import { createClient, MethodAnswer, MethodHandle, methodHandle } from './client';
 import { ApiDescriptor } from './descriptor';
-import { ApiError, Transport, dryRunHeader } from './transport';
+import { ApiError, Transport, dryRunHeader, warningHeader } from './transport';
 import { scriptedTransport } from '@impulseframework/resource/testing';
 
 // The method handle's contract for a method that declares its statuses (@answers):
@@ -158,6 +158,37 @@ describe('a method reached by its name', () => {
   it('refuses a name the API does not describe, naming it', () => {
     expect(() => methodHandle(client(scriptedTransport({ status: 200, body: null })), 'LaunchNothing')).toThrow(
       'LaunchNothing is no method of this API',
+    );
+  });
+});
+
+// The warning of a method that declares one (@warning): asked on the method's own route
+// under the warning header, so the server checks the request as it checks the call and
+// saves nothing.
+describe('a method asked for its warning', () => {
+  it("posts the body under the warning header and resolves with the server's words", async () => {
+    const transport = scriptedTransport({
+      status: 200,
+      body: { consequence: 'The mission is put on hold for everyone.', confirm: 'Hold the mission' },
+    });
+    const said = await api(transport).holdMission.warning({ missionId: 'm1', reason: 'weather' });
+
+    expect(said).toEqual({ consequence: 'The mission is put on hold for everyone.', confirm: 'Hold the mission' });
+    expect(transport.requests[0].url).toBe('/api/hold-mission');
+    expect(transport.requests[0].body).toEqual({ missionId: 'm1', reason: 'weather' });
+    expect(transport.requests[0].headers?.[warningHeader]).toBe('true');
+    expect(transport.requests[0].headers?.[dryRunHeader]).toBeUndefined();
+  });
+
+  it('rejects with the refusal the call itself would raise', async () => {
+    const transport = scriptedTransport({ status: 403, body: { message: 'user (lead) does not have (Execute) on HoldMission' } });
+    await expect(api(transport).holdMission.warning({ missionId: 'm1', reason: 'weather' })).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('refuses an answer that is no warning, naming the method and the way out', async () => {
+    const transport = scriptedTransport({ status: 200, body: undefined });
+    await expect(api(transport).holdMission.warning({ missionId: 'm1', reason: 'weather' })).rejects.toThrow(
+      'HoldMission answered no warning: its metadata declares one and the server wrote none; regenerate both',
     );
   });
 });

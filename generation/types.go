@@ -557,6 +557,11 @@ type rpcMethodInfo struct {
 	// filesStore is S for the typed form, nil for resource.Files.
 	takesFiles bool
 	filesStore *types.Named
+	// Warning is the method's validated @warning declaration: the warning its Warning
+	// method writes for a call is answered before the call is run, and the dialog a
+	// page runs the method through holds its confirm button for the typed word. Nil
+	// for a method that declares none.
+	Warning *rpcWarning
 	// Feature is the method's @feature: the flag its route and its digest entry are
 	// gated behind; nil when the method is not gated.
 	Feature *featureGate
@@ -2323,6 +2328,7 @@ const (
 	targetKeyword               string = "target"               // Marks the RPC field carrying the target row key; @target(Root) names the resource when no @transition does
 	answersKeyword              string = "answers"              // Declares the statuses an RPC method may answer with; its result chooses one per response through HTTPStatus()
 	uploadKeyword               string = "upload"               // Declares an RPC method as a multipart upload: @upload(max: 5MB[, store: S]); its Execute takes resource.Files, or resource.FilesIn[S] for the named store S
+	warningKeyword              string = "warning"              // Declares an RPC method that warns before it runs: @warning(typed: open); its Warning method writes the consequence of a call, and the dialog holds its confirm button until the word is typed
 	rowsOfKeyword               string = "rowsOf"               // Declares the table resource whose rows a virtual or computed view carries, one to one under the same key: @rowsOf(Missions)
 	changedByKeyword            string = "changedBy"            // Declares the tables whose changes change a virtual or computed resource, in place of what the generator reads off a virtual resource's query: @changedBy(Ships, DroidReports)
 	typescriptKeyword           string = "typescript"           // Declares the TypeScript type of a type used as a field, on the type's declaration: @typescript(Name, from: "module")
@@ -2369,6 +2375,7 @@ func resourceKeywords() map[string]genlang.KeywordOpts {
 		targetKeyword:               {genlang.ScanField: genlang.Exclusive},
 		answersKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		uploadKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
+		warningKeyword:              {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		rowsOfKeyword:               {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		changedByKeyword:            {genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
 		typescriptKeyword:           {genlang.ScanNamedType: genlang.ArgsRequired | genlang.Exclusive, genlang.ScanStruct: genlang.ArgsRequired | genlang.Exclusive},
