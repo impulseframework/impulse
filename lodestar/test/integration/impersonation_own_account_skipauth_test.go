@@ -16,9 +16,10 @@ import (
 // every account route that writes for the same things, with the rigger's own
 // verification link, token and codes in hand, and is refused each one: a view that
 // keeps Execute by the route itself, which names the impersonated session, and the
-// default view, which is read-only, by the console's read-only backstop, which the
-// routes are mounted behind. Nothing is written: the rigger's address, token and codes
-// stand, and the rigger then does each thing herself.
+// default view, which is read-only, by the read-only mask, which the generated router
+// mounts in front of the routes itself (they stand in front of the console's hook,
+// which mounts the mask for the console's own routes alone). Nothing is written: the
+// rigger's address, token and codes stand, and the rigger then does each thing herself.
 func TestImpersonatedSessions_ownAccountRoutes(t *testing.T) {
 	t.Parallel()
 
@@ -90,7 +91,7 @@ func TestImpersonatedSessions_ownAccountRoutes(t *testing.T) {
 			t.Errorf("%s in a view that keeps Execute: status %d, want 403 saying %q", route.operation, status, want)
 		}
 		if status, body := post(readOnly, route.path, route.body); status != http.StatusForbidden || !strings.Contains(body, "this session is read-only") {
-			t.Errorf("%s in a read-only view: status %d, want 403 from the read-only backstop", route.operation, status)
+			t.Errorf("%s in a read-only view: status %d, want 403 from the read-only mask", route.operation, status)
 		}
 	}
 

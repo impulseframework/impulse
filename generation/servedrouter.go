@@ -1469,8 +1469,9 @@ var (
 //	{{ .Name }} (/{{ .Prefix }}), {{ .AuthLabel }}{{ with .Words }}, {{ . }}{{ end }}:
 //	  {{ if .AuthPackage }}BindAuth({{ .AuthPackage }}.Name), {{ end }}NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: {{ range $i, $route := .OpenRoutes }}{{ if $i }}, {{ end }}{{ $route.Method }} {{ $route.Path }}{{ end }}
 //	  + ValidateXSRFToken: {{ range $i, $route := .GuardedRoutes }}{{ if $i }}, {{ end }}{{ $route.Method }} {{ $route.Path }}{{ end }}
-//	  + ValidateSession, ValidateXSRFToken, hooks.{{ .HookField }}: {{ range $i, $route := .ValidatedRoutes }}{{ if $i }}, {{ end }}{{ $route.Method }} {{ $route.Path }}{{ end }}
-//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion{{ .OldestAnsweredNote }}: hooks.{{ .HookField }}, {{ .RoutesFunc }}
+//	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: {{ range $i, $route := .ValidatedRoutes }}{{ if $i }}, {{ end }}{{ $route.Method }} {{ $route.Path }}{{ end }}
+//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion{{ .OldestAnsweredNote }}: hooks.{{ .HookField }}
+//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion{{ .OldestAnsweredNote }}, hooks.{{ .HookField }}, EnforceReadOnlyMask: {{ .RoutesFunc }}
 {{- end }}
 {{- range .MountedBeneath }}
 //	  by hand under {{ .Prefix }}: {{ .Words }}
@@ -1619,6 +1620,11 @@ type {{ .SessionInterface }} interface {
 	SetXSRFToken(next http.Handler) http.Handler
 	ValidateSession(next http.Handler) http.Handler
 	ValidateXSRFToken(next http.Handler) http.Handler
+	// EnforceReadOnlyMask refuses a write from a session that views as someone else
+	// read-only (session.Auth.EnforceReadOnlyMask). The router mounts it itself in front
+	// of the routes a signed-in person calls on their own account and of the outlet's
+	// generated routes, so it holds whatever the application's hook does.
+	EnforceReadOnlyMask(next http.Handler) http.Handler
 	// The session's own routes (session.Auth): read and ended.
 	Authenticated() http.HandlerFunc
 	Logout() http.HandlerFunc
@@ -1692,9 +1698,11 @@ type Hooks struct {
 {{- else }}
 	// {{ .HookField }} runs inside the {{ .Name }} outlet's authenticated group: r already sits behind
 	// {{ if .AuthPackage }}BindAuth({{ .AuthPackage }}.Name), {{ end }}session validation, and the XSRF guard, and generated registers
-	// the outlet's generated routes with the session routes a signed-in person calls on
-	// their own account, so middleware the hook puts around generated (a read-only
-	// backstop, say) stands in front of both. Nil registers them directly.
+	// the outlet's generated routes, behind the read-only mask the router mounts for
+	// them. The session routes a signed-in person calls on their own account stand in
+	// front of the hook: what it adds gates the application's routes alone. A route the
+	// hook registers by hand carries what the hook gives it and nothing more. Nil
+	// registers the generated routes directly.
 {{- end }}
 	{{ .HookField }} func(r chi.Router, generated func(chi.Router))
 {{- end }}
@@ -1923,19 +1931,30 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				},
 			}))
 
-			registerGenerated(r, hooks.{{ .HookField }}, "{{ .HookField }}", func(r chi.Router) {
-				// The session routes a signed-in person calls on their own account: the
-				// acceptance of an invitation the browser carries, the address they add and
-				// verify, and their tokens and device authorizations where the auth issues
-				// tokens. They are registered with the outlet's generated routes, inside
-				// whatever the application's hook wraps those in, so a read-only backstop
-				// mounted there (the session library's EnforceReadOnlyMask) stands in front
-				// of them too; each one that writes refuses an impersonated session itself.
+			// The session routes a signed-in person calls on their own account: the
+			// acceptance of an invitation the browser carries, the address they add and
+			// verify, and their tokens and device authorizations where the auth issues
+			// tokens. They stand in front of the application's hook, which gates the
+			// generated routes alone: a person reaches their own account whatever the
+			// application asks of them elsewhere. What holds for them is mounted here and
+			// in the handlers: the read-only mask of a session that views as someone else,
+			// and each one that writes refuses an impersonated session itself.
+			account := r.With({{ .Receiver }}.EnforceReadOnlyMask, resource.BodyLimit(BodyLimit))
 {{- range .ValidatedRoutes }}
-				r.With(resource.BodyLimit(BodyLimit)).{{ Pascal .Method }}("{{ .Path }}", {{ $outlet.Receiver }}.{{ .Handler }}())
+			account.{{ Pascal .Method }}("{{ .Path }}", {{ $outlet.Receiver }}.{{ .Handler }}())
 {{- end }}
 
-				{{ .RoutesFunc }}(r, h)
+			// The generated routes register through the application's hook, behind the
+			// read-only mask, which is mounted here and not by the hook: a write from a
+			// session that views as someone else read-only is refused before any generated
+			// handler runs, wherever the hook puts the routes and whether or not one is
+			// written.
+			registerGenerated(r, hooks.{{ .HookField }}, "{{ .HookField }}", func(r chi.Router) {
+				r.Group(func(r chi.Router) {
+					r.Use({{ .Receiver }}.EnforceReadOnlyMask)
+
+					{{ .RoutesFunc }}(r, h)
+				})
 			})
 		})
 	})
@@ -2094,10 +2113,13 @@ var routerRootChain = []string{"LogExporter", "SecurityHeaders"}
 
 // routerOutletChain is one outlet's middleware in order: group runs in front of the
 // outlet's session routes, or a machine outlet's device-flow endpoints; guards
-// additionally in front of its generated routes.
+// additionally in front of its hook and its generated routes; and mask, a session
+// outlet's read-only mask, last in front of the routes a signed-in person calls on
+// their own account and, behind the hook, in front of the generated routes.
 type routerOutletChain struct {
 	group  []string
 	guards []string
+	mask   []string
 }
 
 // routerOutletChains keys each outlet's chain by the prefix its routes sit under.
@@ -2112,6 +2134,7 @@ var routerOutletChains = map[string]routerOutletChain{
 	"{{ .NotFoundPrefix }}": {
 		group:  []string{ {{- if .AuthPackage }}"BindAuth(" + {{ .AuthPackage }}.Name + ")", {{ end }}"NoCaching", "CompressionMiddleware", "{{ .StubPrefix }}StartSession", "{{ .StubPrefix }}SetXSRFToken"},
 		guards: []string{"{{ .StubPrefix }}ValidateSession", "{{ .StubPrefix }}ValidateXSRFToken"},
+		mask:   []string{"{{ .StubPrefix }}EnforceReadOnlyMask"},
 	},
 {{- end }}
 {{- end }}
@@ -2188,8 +2211,8 @@ func serveGeneratedRouterRequest(t *testing.T, rec *routerCallRecorder, serverVe
 
 // TestGeneratedRouter drives every generated route through New: each request answers
 // 200 from exactly its own handler with its route parameters resolved, having passed the
-// every-request chain, its outlet's group, and its outlet's guards, in that order and
-// nothing else.
+// every-request chain, its outlet's group, its outlet's guards and, on a session outlet,
+// the read-only mask the router mounts for it, in that order and nothing else.
 func TestGeneratedRouter(t *testing.T) {
 	t.Parallel()
 
@@ -2216,7 +2239,7 @@ func TestGeneratedRouter(t *testing.T) {
 			}
 
 			chain := routerChainFor(t, tt.url)
-			want := slices.Concat(routerRootChain, chain.group, chain.guards)
+			want := slices.Concat(routerRootChain, chain.group, chain.guards, chain.mask)
 			if !slices.Equal(rec.chain, want) {
 				t.Errorf("middleware chain = %v, want %v", rec.chain, want)
 			}
@@ -2229,8 +2252,9 @@ func TestGeneratedRouter(t *testing.T) {
 // pending and sign-in routes answer behind the outlet's group and before its session
 // guard, a sign-in's POSTs behind the XSRF guard alone: a browser reaches them without
 // a validated session; the routes a signed-in person calls (an invitation's acceptance,
-// the address, the token page) answer behind both guards; and a machine outlet's
-// device-flow endpoints answer behind its group and before its token check.
+// the address, the token page) answer behind both guards and the read-only mask; and a
+// machine outlet's device-flow endpoints answer behind its group and before its token
+// check.
 func TestGeneratedRouterSessionRoutes(t *testing.T) {
 	t.Parallel()
 
@@ -2255,7 +2279,7 @@ func TestGeneratedRouterSessionRoutes(t *testing.T) {
 			want := slices.Concat(routerRootChain, chain.group)
 			switch {
 			case tt.validated:
-				want = append(want, chain.guards...)
+				want = slices.Concat(want, chain.guards, chain.mask)
 			case tt.xsrf:
 				want = append(want, chain.guards[1])
 			}
@@ -2527,7 +2551,8 @@ func TestGeneratedRouterScheduled(t *testing.T) {
 // TestGeneratedRouterHooks proves the seams sit where the chain comment says: Outermost
 // runs ahead of the logger, Root's routes sit behind the every-request chain alone, each
 // outlet's hook runs inside the outlet's guards with the generated routes registering
-// through it, and a hook that skips the generated registration is refused.
+// through it, behind the read-only mask the router mounts for them on a session outlet
+// whatever the hook does, and a hook that skips the generated registration is refused.
 func TestGeneratedRouterHooks(t *testing.T) {
 	t.Parallel()
 
@@ -2565,7 +2590,7 @@ func TestGeneratedRouterHooks(t *testing.T) {
 {{- end }}
 	}
 	// Every generated route registers through its outlet's hook, so it passes the
-	// hook's middleware too.
+	// hook's middleware too, and then the mask, which the hook does not mount.
 	for _, route := range generatedRouterTests() {
 		for prefix, chain := range routerOutletChains {
 			if !strings.HasPrefix(route.url, prefix) {
@@ -2574,7 +2599,7 @@ func TestGeneratedRouterHooks(t *testing.T) {
 			hook := prefixHookFields[prefix]
 			tests = append(tests, hookCase{
 				name: "a generated route registered through " + hook, url: route.url, method: route.method, handler: route.handlerFunc,
-				chain: slices.Concat(outermost, chain.group, chain.guards, []string{hook + "Hook"}),
+				chain: slices.Concat(outermost, chain.group, chain.guards, []string{hook + "Hook"}, chain.mask),
 			})
 
 			break
@@ -2615,6 +2640,81 @@ func TestGeneratedRouterHooks(t *testing.T) {
 	})
 }
 
+{{ if .SessionOutlets -}}
+// TestGeneratedRouterAccountRoutes proves the routes a signed-in person calls on their
+// own account stand in front of the application's hook. Under a hook that refuses every
+// request, as one that lets nobody through without a tenant or a role does, each of
+// them still answers from its own handler, behind the outlet's guards and the read-only
+// mask alone; and the outlet's generated routes are refused by the hook, before the
+// mask and before any handler.
+func TestGeneratedRouterAccountRoutes(t *testing.T) {
+	t.Parallel()
+
+	// refusing is a hook that gates everything registered through it: it records that
+	// it ran and answers 403.
+	refusing := func(rec *routerCallRecorder, name string) func(chi.Router, func(chi.Router)) {
+		return func(r chi.Router, generated func(chi.Router)) {
+			r.Use(func(http.Handler) http.Handler {
+				return rec.Middleware(name)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+					http.Error(w, "no tenant", http.StatusForbidden)
+				}))
+			})
+			generated(r)
+		}
+	}
+	hooksFor := func(rec *routerCallRecorder) Hooks {
+		return Hooks{
+{{- range .SessionOutlets }}
+			{{ .HookField }}: refusing(rec, "{{ .HookField }}Hook"),
+{{- end }}
+		}
+	}
+
+	for _, tt := range routerSessionRoutes() {
+		if !tt.validated {
+			continue
+		}
+		t.Run("in front of the hook "+tt.method+"-url"+strings.ReplaceAll(tt.url, "/", "-"), func(t *testing.T) {
+			t.Parallel()
+
+			rec := newRouterCallRecorder()
+			rr := serveGeneratedRouter(t, rec, hooksFor(rec), tt.method, tt.url)
+
+			if got := rr.Code; got != http.StatusOK {
+				t.Errorf("response.Code = %v, want %v: the hook gates the generated routes alone", got, http.StatusOK)
+			}
+			if cnt := rec.handlers[tt.handler]; cnt != 1 || len(rec.handlers) != 1 {
+				t.Fatalf("handler %s, expected 1 call, got: %v", tt.handler, rec.handlers)
+			}
+			chain := routerChainFor(t, tt.url)
+			if want := slices.Concat(routerRootChain, chain.group, chain.guards, chain.mask); !slices.Equal(rec.chain, want) {
+				t.Errorf("middleware chain = %v, want %v", rec.chain, want)
+			}
+		})
+	}
+	for _, probe := range routerVersionProbes() {
+		url := probe.prefix + "permission-digest"
+		t.Run("a generated route behind the hook GET-url"+strings.ReplaceAll(url, "/", "-"), func(t *testing.T) {
+			t.Parallel()
+
+			rec := newRouterCallRecorder()
+			rr := serveGeneratedRouter(t, rec, hooksFor(rec), http.MethodGet, url)
+
+			if got := rr.Code; got != http.StatusForbidden {
+				t.Errorf("response.Code = %v, want %v from the hook", got, http.StatusForbidden)
+			}
+			if cnt := len(rec.handlers); cnt != 0 {
+				t.Errorf("expected no handler called, got: %v", rec.handlers)
+			}
+			chain := routerChainFor(t, url)
+			if want := slices.Concat(routerRootChain, chain.group, chain.guards, []string{prefixHookFields[probe.prefix] + "Hook"}); !slices.Equal(rec.chain, want) {
+				t.Errorf("middleware chain = %v, want %v", rec.chain, want)
+			}
+		})
+	}
+}
+
+{{ end -}}
 // prefixHookFields names each outlet's hook by the prefix its routes sit under.
 var prefixHookFields = map[string]string{
 {{- range .Outlets }}
@@ -2977,6 +3077,10 @@ func (s *{{ $stub }}) ValidateSession(next http.Handler) http.Handler {
 
 func (s *{{ $stub }}) ValidateXSRFToken(next http.Handler) http.Handler {
 	return s.rec.Middleware(s.prefix + "ValidateXSRFToken")(next)
+}
+
+func (s *{{ $stub }}) EnforceReadOnlyMask(next http.Handler) http.Handler {
+	return s.rec.Middleware(s.prefix + "EnforceReadOnlyMask")(next)
 }
 {{ end }}
 {{- range .MachineOutlets }}

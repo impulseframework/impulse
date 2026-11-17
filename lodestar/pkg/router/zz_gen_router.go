@@ -9,8 +9,9 @@
 //	default (/console/api), sessions of the crew auth (password, google, sign-up, persona):
 //	  BindAuth(crew.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /console/api/user/methods, GET /console/api/user/session, DELETE /console/api/user/session, GET /console/api/user/pending, GET /console/api/user/sign-in-means, GET /console/api/user/google/login, GET /console/api/user/google/callback, GET /console/api/user/sign-up/login, GET /console/api/user/sign-up/callback, GET /console/api/user/persona/login, GET /console/api/user/persona/callback
 //	  + ValidateXSRFToken: POST /console/api/user/password/login, POST /console/api/user/password/change, POST /console/api/user/password/remove, POST /console/api/user/pending/confirm, POST /console/api/user/pending/cancel, POST /console/api/user/pending/code, POST /console/api/user/pending/code/verify, POST /console/api/user/pending/email, POST /console/api/user/browser/forget, POST /console/api/user/name, POST /console/api/user/look, POST /console/api/user/invitation, POST /console/api/user/invitation/sign-up, POST /console/api/user/sign-up, POST /console/api/user/sign-up/open, POST /console/api/user/sign-up/complete
-//	  + ValidateSession, ValidateXSRFToken, hooks.Default: POST /console/api/user/invitation/accept, POST /console/api/user/email, POST /console/api/user/email/verify, GET /console/api/user/tokens, POST /console/api/user/tokens, POST /console/api/user/tokens/revoke, GET /console/api/user/device, POST /console/api/user/device/approve, POST /console/api/user/device/deny
-//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.1.0): hooks.Default, generatedRoutes
+//	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /console/api/user/invitation/accept, POST /console/api/user/email, POST /console/api/user/email/verify, GET /console/api/user/tokens, POST /console/api/user/tokens, POST /console/api/user/tokens/revoke, GET /console/api/user/device, POST /console/api/user/device/approve, POST /console/api/user/device/deny
+//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.1.0): hooks.Default
+//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.1.0), hooks.Default, EnforceReadOnlyMask: generatedRoutes
 //	droids (/droids), bearer tokens of the crew auth:
 //	  BindAuth(crew.Name), NoCaching, CompressionMiddleware, ReleaseHeader: POST /droids/oauth/device/authorize, POST /droids/oauth/token
 //	  + ValidateToken: hooks.Droids, generatedDroidsRoutes, GET /droids/programs/*
@@ -18,8 +19,9 @@
 //	portal (/portal/api), sessions of the members auth (directory):
 //	  BindAuth(members.Name), NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /portal/api/user/methods, GET /portal/api/user/session, DELETE /portal/api/user/session, GET /portal/api/user/pending, GET /portal/api/user/sign-in-means, GET /portal/api/user/directory/login, GET /portal/api/user/directory/callback
 //	  + ValidateXSRFToken: POST /portal/api/user/pending/confirm, POST /portal/api/user/pending/cancel, POST /portal/api/user/pending/code, POST /portal/api/user/pending/code/verify, POST /portal/api/user/pending/email, POST /portal/api/user/browser/forget, POST /portal/api/user/name, POST /portal/api/user/look, POST /portal/api/user/invitation
-//	  + ValidateSession, ValidateXSRFToken, hooks.Portal: POST /portal/api/user/invitation/accept, POST /portal/api/user/email, POST /portal/api/user/email/verify
-//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion: hooks.Portal, generatedPortalRoutes
+//	  + ValidateSession, ValidateXSRFToken, EnforceReadOnlyMask: POST /portal/api/user/invitation/accept, POST /portal/api/user/email, POST /portal/api/user/email/verify
+//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion: hooks.Portal
+//	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion, hooks.Portal, EnforceReadOnlyMask: generatedPortalRoutes
 //	scheduled (/_scheduled), Cloud Scheduler's token:
 //	  NoCaching, CompressionMiddleware, ReleaseHeader, SchedulerAuth: generatedScheduledRoutes
 //
@@ -113,6 +115,11 @@ type DefaultSession interface {
 	SetXSRFToken(next http.Handler) http.Handler
 	ValidateSession(next http.Handler) http.Handler
 	ValidateXSRFToken(next http.Handler) http.Handler
+	// EnforceReadOnlyMask refuses a write from a session that views as someone else
+	// read-only (session.Auth.EnforceReadOnlyMask). The router mounts it itself in front
+	// of the routes a signed-in person calls on their own account and of the outlet's
+	// generated routes, so it holds whatever the application's hook does.
+	EnforceReadOnlyMask(next http.Handler) http.Handler
 	// The session's own routes (session.Auth): read and ended.
 	Authenticated() http.HandlerFunc
 	Logout() http.HandlerFunc
@@ -198,6 +205,11 @@ type PortalSession interface {
 	SetXSRFToken(next http.Handler) http.Handler
 	ValidateSession(next http.Handler) http.Handler
 	ValidateXSRFToken(next http.Handler) http.Handler
+	// EnforceReadOnlyMask refuses a write from a session that views as someone else
+	// read-only (session.Auth.EnforceReadOnlyMask). The router mounts it itself in front
+	// of the routes a signed-in person calls on their own account and of the outlet's
+	// generated routes, so it holds whatever the application's hook does.
+	EnforceReadOnlyMask(next http.Handler) http.Handler
 	// The session's own routes (session.Auth): read and ended.
 	Authenticated() http.HandlerFunc
 	Logout() http.HandlerFunc
@@ -263,9 +275,11 @@ type Hooks struct {
 	Root func(r chi.Router)
 	// Default runs inside the default outlet's authenticated group: r already sits behind
 	// BindAuth(crew.Name), session validation, and the XSRF guard, and generated registers
-	// the outlet's generated routes with the session routes a signed-in person calls on
-	// their own account, so middleware the hook puts around generated (a read-only
-	// backstop, say) stands in front of both. Nil registers them directly.
+	// the outlet's generated routes, behind the read-only mask the router mounts for
+	// them. The session routes a signed-in person calls on their own account stand in
+	// front of the hook: what it adds gates the application's routes alone. A route the
+	// hook registers by hand carries what the hook gives it and nothing more. Nil
+	// registers the generated routes directly.
 	Default func(r chi.Router, generated func(chi.Router))
 	// Droids runs inside the droids outlet's token group: r already sits behind
 	// BindAuth(crew.Name) and the token check, and generated registers the outlet's generated
@@ -273,9 +287,11 @@ type Hooks struct {
 	Droids func(r chi.Router, generated func(chi.Router))
 	// Portal runs inside the portal outlet's authenticated group: r already sits behind
 	// BindAuth(members.Name), session validation, and the XSRF guard, and generated registers
-	// the outlet's generated routes with the session routes a signed-in person calls on
-	// their own account, so middleware the hook puts around generated (a read-only
-	// backstop, say) stands in front of both. Nil registers them directly.
+	// the outlet's generated routes, behind the read-only mask the router mounts for
+	// them. The session routes a signed-in person calls on their own account stand in
+	// front of the hook: what it adds gates the application's routes alone. A route the
+	// hook registers by hand carries what the hook gives it and nothing more. Nil
+	// registers the generated routes directly.
 	Portal func(r chi.Router, generated func(chi.Router))
 }
 
@@ -425,25 +441,36 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				},
 			}))
 
-			registerGenerated(r, hooks.Default, "Default", func(r chi.Router) {
-				// The session routes a signed-in person calls on their own account: the
-				// acceptance of an invitation the browser carries, the address they add and
-				// verify, and their tokens and device authorizations where the auth issues
-				// tokens. They are registered with the outlet's generated routes, inside
-				// whatever the application's hook wraps those in, so a read-only backstop
-				// mounted there (the session library's EnforceReadOnlyMask) stands in front
-				// of them too; each one that writes refuses an impersonated session itself.
-				r.With(resource.BodyLimit(BodyLimit)).Post("/console/api/user/invitation/accept", h.InvitationAccept())
-				r.With(resource.BodyLimit(BodyLimit)).Post("/console/api/user/email", h.EmailAdd())
-				r.With(resource.BodyLimit(BodyLimit)).Post("/console/api/user/email/verify", h.EmailVerify())
-				r.With(resource.BodyLimit(BodyLimit)).Get("/console/api/user/tokens", h.TokensList())
-				r.With(resource.BodyLimit(BodyLimit)).Post("/console/api/user/tokens", h.TokensCreate())
-				r.With(resource.BodyLimit(BodyLimit)).Post("/console/api/user/tokens/revoke", h.TokensRevoke())
-				r.With(resource.BodyLimit(BodyLimit)).Get("/console/api/user/device", h.DeviceLookup())
-				r.With(resource.BodyLimit(BodyLimit)).Post("/console/api/user/device/approve", h.DeviceApprove())
-				r.With(resource.BodyLimit(BodyLimit)).Post("/console/api/user/device/deny", h.DeviceDeny())
+			// The session routes a signed-in person calls on their own account: the
+			// acceptance of an invitation the browser carries, the address they add and
+			// verify, and their tokens and device authorizations where the auth issues
+			// tokens. They stand in front of the application's hook, which gates the
+			// generated routes alone: a person reaches their own account whatever the
+			// application asks of them elsewhere. What holds for them is mounted here and
+			// in the handlers: the read-only mask of a session that views as someone else,
+			// and each one that writes refuses an impersonated session itself.
+			account := r.With(h.EnforceReadOnlyMask, resource.BodyLimit(BodyLimit))
+			account.Post("/console/api/user/invitation/accept", h.InvitationAccept())
+			account.Post("/console/api/user/email", h.EmailAdd())
+			account.Post("/console/api/user/email/verify", h.EmailVerify())
+			account.Get("/console/api/user/tokens", h.TokensList())
+			account.Post("/console/api/user/tokens", h.TokensCreate())
+			account.Post("/console/api/user/tokens/revoke", h.TokensRevoke())
+			account.Get("/console/api/user/device", h.DeviceLookup())
+			account.Post("/console/api/user/device/approve", h.DeviceApprove())
+			account.Post("/console/api/user/device/deny", h.DeviceDeny())
 
-				generatedRoutes(r, h)
+			// The generated routes register through the application's hook, behind the
+			// read-only mask, which is mounted here and not by the hook: a write from a
+			// session that views as someone else read-only is refused before any generated
+			// handler runs, wherever the hook puts the routes and whether or not one is
+			// written.
+			registerGenerated(r, hooks.Default, "Default", func(r chi.Router) {
+				r.Group(func(r chi.Router) {
+					r.Use(h.EnforceReadOnlyMask)
+
+					generatedRoutes(r, h)
+				})
 			})
 		})
 	})
@@ -541,19 +568,30 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 				},
 			}))
 
-			registerGenerated(r, hooks.Portal, "Portal", func(r chi.Router) {
-				// The session routes a signed-in person calls on their own account: the
-				// acceptance of an invitation the browser carries, the address they add and
-				// verify, and their tokens and device authorizations where the auth issues
-				// tokens. They are registered with the outlet's generated routes, inside
-				// whatever the application's hook wraps those in, so a read-only backstop
-				// mounted there (the session library's EnforceReadOnlyMask) stands in front
-				// of them too; each one that writes refuses an impersonated session itself.
-				r.With(resource.BodyLimit(BodyLimit)).Post("/portal/api/user/invitation/accept", portalSession.InvitationAccept())
-				r.With(resource.BodyLimit(BodyLimit)).Post("/portal/api/user/email", portalSession.EmailAdd())
-				r.With(resource.BodyLimit(BodyLimit)).Post("/portal/api/user/email/verify", portalSession.EmailVerify())
+			// The session routes a signed-in person calls on their own account: the
+			// acceptance of an invitation the browser carries, the address they add and
+			// verify, and their tokens and device authorizations where the auth issues
+			// tokens. They stand in front of the application's hook, which gates the
+			// generated routes alone: a person reaches their own account whatever the
+			// application asks of them elsewhere. What holds for them is mounted here and
+			// in the handlers: the read-only mask of a session that views as someone else,
+			// and each one that writes refuses an impersonated session itself.
+			account := r.With(portalSession.EnforceReadOnlyMask, resource.BodyLimit(BodyLimit))
+			account.Post("/portal/api/user/invitation/accept", portalSession.InvitationAccept())
+			account.Post("/portal/api/user/email", portalSession.EmailAdd())
+			account.Post("/portal/api/user/email/verify", portalSession.EmailVerify())
 
-				generatedPortalRoutes(r, h)
+			// The generated routes register through the application's hook, behind the
+			// read-only mask, which is mounted here and not by the hook: a write from a
+			// session that views as someone else read-only is refused before any generated
+			// handler runs, wherever the hook puts the routes and whether or not one is
+			// written.
+			registerGenerated(r, hooks.Portal, "Portal", func(r chi.Router) {
+				r.Group(func(r chi.Router) {
+					r.Use(portalSession.EnforceReadOnlyMask)
+
+					generatedPortalRoutes(r, h)
+				})
 			})
 		})
 	})

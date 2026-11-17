@@ -2902,12 +2902,14 @@ Everything an impersonated session touches names the actor and the principal:
   only read (`ApplicationTokens().List()`, `Device().Lookup()`) answer a view, and
   `Logout` and `EndImpersonation` end it. The generated router registers the routes it
   mounts behind `ValidateSession` (the invitation's, the address's, the tokens' and the
-  device's) with the outlet's generated routes, inside whatever the application's hook
-  wraps those in, so a read-only backstop mounted there (`EnforceReadOnlyMask`) stands
-  in front of them too; the password's, the name's, the look's and the remembered
-  browser's validate the session themselves, outside the hook, and the handler's own
-  refusal is what answers a view there. On `Auth` the user operations are `AuthAPI`
-  methods behind the application's own handlers, which guard them.
+  device's) in front of the application's hook, so what the hook asks of a request, a
+  tenant or a role say, gates the application's generated routes and never a person's
+  own account; and it mounts the read-only mask (`EnforceReadOnlyMask`) in front of
+  them itself, as it does in front of the generated routes behind the hook. The
+  password's, the name's, the look's and the remembered browser's validate the session
+  themselves, in front of the session check, and the handler's own refusal is what
+  answers a view there. On `Auth` the user operations are `AuthAPI` methods behind the
+  application's own handlers, which guard them.
 - **One name, one user.** A role principal's session carries the actor's own username,
   in the same session table as the sessions of the application's users, and belongs to
   no account. On an `Auth` what is a user's is found by the id of their account:
@@ -2950,10 +2952,15 @@ Everything an impersonated session touches names the actor and the principal:
   `ValidateSession`) refuses non-safe requests — anything but GET, HEAD, OPTIONS and
   TRACE — from a session whose mask is *read-only*: restricted, and allowing nothing
   beyond `List` and `Read`. The refusal is 403 with a `WriteBlocked` event naming the
-  method and path. It is an opt-in backstop that keeps a read-only session away from
+  method and path. It is a backstop that keeps a read-only session away from
   every mutating handler whether or not that handler consults the mask; it does not
   replace honoring the mask in permission checks (`Execute` reaches handlers by POST, and
-  a mask including `Execute` is not read-only). Ending a session is never a safe method
+  a mask including `Execute` is not read-only). The generated router mounts it by
+  itself in front of an outlet's generated routes, wherever the application's hook
+  registers them, and in front of the routes a signed-in person calls on their own
+  account; a route an application registers by hand, through the hook or on a router
+  of its own, is under it only where the application mounts it, as below. Ending a
+  session is never a safe method
   either — `EndImpersonation` is a POST, `Logout` a POST or DELETE — so the
   `EndImpersonation` route (and `Logout`) must be mounted outside the group that carries
   the backstop, in a validated group of their own, or a read-only view-as session could
