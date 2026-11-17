@@ -329,8 +329,11 @@ func listedOnce(roles []RoleInfo) []RoleInfo {
 }
 
 // DeleteRole removes a custom role held in scope with its grants. It refuses
-// a default role, and a role users are assigned to in scope, now or for a
-// period that has not begun; assignments of it that have ended go with it.
+// a default role, a role users are assigned to in scope, and a role a group
+// holds there, each now or for a period that has not begun; assignments of it
+// that have ended, a person's and a group's, go with it. A role deleted from
+// under a group would leave the group's row behind, and a role of the name
+// made again would at once be held by everyone in the group.
 func (u *userManager) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -346,6 +349,9 @@ func (u *userManager) DeleteRole(ctx context.Context, scope accesstypes.PolicySc
 	}
 
 	deleted, err := u.store.deleteRole(ctx, scope, role)
+	if errors.Is(err, policy.ErrHeldByGroup) {
+		return false, httpio.NewBadRequestMessagef("A group holds the role, now or for a period that has not begun yet. You cannot delete a role a group holds: take it away from the group first")
+	}
 	if errors.Is(err, policy.ErrStillAssigned) {
 		// The listing above reads who holds the role now: what stands in the way
 		// is an assignment whose period has not begun.
@@ -524,17 +530,73 @@ func (u *userManager) DeleteRoleGrant(ctx context.Context, scope accesstypes.Pol
 	return nil
 }
 
-// RoleUsers returns the users whose membership of role is held in scope.
+// RoleUsers returns the users who hold role in scope now, each once, sorted: by
+// a membership of their own held there, and through a group that holds the
+// role there (RoleHolders says which way).
 func (u *userManager) RoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	users, err := u.store.roleUsers(ctx, scope, role)
+	holders, err := u.RoleHolders(ctx, scope, role)
 	if err != nil {
 		return nil, err
 	}
+	users := make([]accesstypes.User, 0, len(holders))
+	for i := range holders {
+		users = append(users, holders[i].User)
+	}
 
 	return users, nil
+}
+
+// RoleHolders returns who holds role in scope now, sorted by user, each with
+// how they hold it: by a membership of their own held there (Own), through
+// the groups they are in that hold it there (Groups, sorted by name), or
+// both. A group's role its members do not hold (groupRoleRefusal) makes
+// nobody a holder.
+func (u *userManager) RoleHolders(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]RoleHolder, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	own, err := u.store.roleUsers(ctx, scope, role)
+	if err != nil {
+		return nil, err
+	}
+	byUser := make(map[accesstypes.User]*RoleHolder, len(own))
+	holder := func(user accesstypes.User) *RoleHolder {
+		if _, listed := byUser[user]; !listed {
+			byUser[user] = &RoleHolder{User: user, Own: false, Groups: nil}
+		}
+
+		return byUser[user]
+	}
+	for _, user := range own {
+		holder(user).Own = true
+	}
+	groups, err := u.store.roleGroups(ctx, scope, role)
+	if err != nil {
+		return nil, err
+	}
+	for _, group := range groupInfos(groups) {
+		if groupRoleRefusal(group.Scope, scope, role) != "" {
+			continue
+		}
+		members, err := u.store.groupUsers(ctx, group.ID)
+		if err != nil {
+			return nil, err
+		}
+		for _, user := range members {
+			h := holder(user)
+			h.Groups = append(h.Groups, group)
+		}
+	}
+	holders := make([]RoleHolder, 0, len(byUser))
+	for _, h := range byUser {
+		holders = append(holders, *h)
+	}
+	slices.SortFunc(holders, func(a, b RoleHolder) int { return strings.Compare(string(a.User), string(b.User)) })
+
+	return holders, nil
 }
 
 // RolePermissions returns the permissions role holds in scope, answered from

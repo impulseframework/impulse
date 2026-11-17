@@ -571,6 +571,11 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, opts 
 	opts = append([]identity.Option{identity.WithTenantWord({{ printf "%q" .TenantWord }})}, opts...)
 	{{- end }}
 	opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))
+	{{- if .KeepsGroups }}
+	// A change to a group is judged as the role changes it makes, by the grants of the
+	// methods that give a role and take one away (grants.go).
+	opts = append(opts, identity.WithRoleGrants(grants{}))
+	{{- end }}
 	manager, err := identity.New(AuthName, store{}, controller, sessions, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.New()")

@@ -493,9 +493,11 @@ func (s *Store) ListRoles(ctx context.Context, scope accesstypes.PolicyScope) ([
 }
 
 // DeleteRole deletes the (scope, role) row. Its grants cascade in the
-// database; memberships held in the scope block the delete, checked in the
-// delete's own transaction since nothing in the schema ties a membership to a
-// role row.
+// database. Memberships held in the scope that have not ended block the
+// delete, and so does a group that holds the role there, now or for a period
+// that has not begun: each is checked in the delete's own transaction, since
+// nothing in the schema ties a membership or a group's role to a role row. The
+// ended ones, a person's and a group's, go with the role.
 func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error) {
 	kind, axis, domain := policy.ScopeColumns(scope)
 	tx, err := s.pool.Begin(ctx)
@@ -513,6 +515,13 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 	if hasMembers {
 		return false, errors.Wrapf(policy.ErrStillAssigned, "role %q in scope %s still has members", role, scope)
 	}
+	var held bool
+	if err := tx.QueryRow(ctx, s.groups.roleHeld, kind, axis, domain, role).Scan(&held); err != nil {
+		return false, errors.Wrap(err, "pgx.Tx.QueryRow() role groups")
+	}
+	if held {
+		return false, errors.Wrapf(policy.ErrHeldByGroup, "role %q in scope %s", role, scope)
+	}
 	tag, err := tx.Exec(ctx, s.sqlDeleteRole, kind, axis, domain, role)
 	if err != nil {
 		return false, errors.Wrap(err, "pgx.Tx.Exec() delete role")
@@ -523,6 +532,9 @@ func (s *Store) DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, r
 		// are not this delete's to touch.
 		if _, err := tx.Exec(ctx, s.sqlDeleteEndedMembers, kind, axis, domain, role); err != nil {
 			return false, errors.Wrap(err, "pgx.Tx.Exec() ended memberships")
+		}
+		if _, err := tx.Exec(ctx, s.groups.deleteEndedOf, kind, axis, domain, role); err != nil {
+			return false, errors.Wrap(err, "pgx.Tx.Exec() ended group roles")
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {

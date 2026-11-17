@@ -275,8 +275,9 @@ type UserManager interface {
 	Roles(ctx context.Context, scope accesstypes.PolicyScope) ([]RoleInfo, error)
 
 	// DeleteRole removes a custom role held in scope with its grants. Returns
-	// false with an error if the role has members in scope, or is a default
-	// role. The delete is scoped to the given scope.
+	// false with an error if the role has members in scope, if a group holds
+	// it there, or if it is a default role. The delete is scoped to the given
+	// scope.
 	DeleteRole(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) (bool, error)
 
 	// AddRolePermission grants permission to role scope-wide: the permission is
@@ -326,9 +327,19 @@ type UserManager interface {
 	// in scope.
 	DeleteAllRolePermissions(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) error
 
-	// RoleUsers returns the users whose membership of role is held in scope,
-	// as stored.
+	// RoleUsers returns the users who hold role in scope now, each once,
+	// sorted: by a membership of their own held there, and through a group
+	// that holds the role there, as UserRoles lists what a person holds both
+	// ways. A person listed through a group alone keeps the role when a
+	// membership of their own is removed: it goes when they leave the group or
+	// the group loses the role. RoleHolders says which way each holds it.
 	RoleUsers(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]accesstypes.User, error)
+
+	// RoleHolders returns who holds role in scope now, sorted by user, each
+	// with how: by a membership of their own held there, through the groups
+	// they are in that hold the role there, or both. No group gives the Super
+	// Administrator role, so its holders hold it themselves.
+	RoleHolders(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]RoleHolder, error)
 
 	// RolePermissions returns the permissions role holds in scope — a place a
 	// request is — and how each is granted (scope-wide, on resources, or

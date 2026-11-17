@@ -3,6 +3,7 @@ package identity
 import (
 	"context"
 	"strings"
+	"time"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
@@ -125,34 +126,65 @@ func (m *Manager) giveInvitedRoles(ctx context.Context, txn resource.ReadWriteTr
 // for an invitation into the application, in the global scope for a role that exists
 // there and in every tenant otherwise. The membership write answers NotFound for a
 // role that does not exist where it is asked for, with nothing written, which is how
-// the kind is told.
+// the kind is told. A role the person holds there already is left as it stands
+// (giveUnlessHeld).
 func (m *Manager) giveInvitedRole(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, inv *sessioninfo.Invitation, role accesstypes.Role) error {
 	if inv.TenantID != "" {
-		if err := m.AssignRole(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(inv.TenantID)), userID, role); err != nil {
+		if err := m.giveUnlessHeld(ctx, txn, accesstypes.DomainPolicyScope(accesstypes.Domain(inv.TenantID)), userID, role); err != nil {
 			return errors.Wrapf(err, "the invitation to %s gives %q the role %s in %s", inv.Email, username, role, inv.TenantID)
 		}
 
 		return nil
 	}
-	err := m.AssignRole(ctx, txn, accesstypes.GlobalPolicyScope(), userID, role)
+	err := m.giveUnlessHeld(ctx, txn, accesstypes.GlobalPolicyScope(), userID, role)
 	if err == nil {
 		return nil
 	}
 	if !httpio.HasNotFound(err) {
 		return errors.Wrapf(err, "the invitation to %s gives %q the role %s", inv.Email, username, role)
 	}
-	if err := m.AssignRole(ctx, txn, accesstypes.EveryDomainPolicyScope(), userID, role); err != nil {
+	if err := m.giveUnlessHeld(ctx, txn, accesstypes.EveryDomainPolicyScope(), userID, role); err != nil {
 		return errors.Wrapf(err, "the invitation to %s gives %q the role %s, which exists neither globally nor in every tenant", inv.Email, username, role)
 	}
 
 	return nil
 }
 
+// giveUnlessHeld buffers the membership an accepted invitation gives, with no period,
+// unless the person holds the role in the scope already: a membership whose period has
+// not ended is left exactly as it is, its period included. An invitation gives a person
+// what they do not hold; it does not turn a role an administrator gave until Friday
+// into one that stands for good, nor one given from next month into one held today. A
+// role whose period has ended is nothing the person holds, whether or not its row still
+// stands, and is given afresh. The membership is read as committed.
+func (m *Manager) giveUnlessHeld(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) error {
+	key := access.NewMembershipKey(scope, User(userID), role)
+	held, err := m.store.HasMembership(ctx, txn, &key)
+	if err != nil {
+		return errors.Wrap(err, "identity.Store.HasMembership()")
+	}
+	if held {
+		periods, err := m.store.UserPeriods(ctx, txn, userID)
+		if err != nil {
+			return errors.Wrap(err, "identity.Store.UserPeriods()")
+		}
+		if !periods.Memberships[key].Ended(time.Now()) {
+			return nil
+		}
+	}
+
+	return m.AssignRole(ctx, txn, scope, userID, role)
+}
+
 // giveDirectoryRoles buffers the memberships a tenant's directory row gives a person at
 // their first sign-in through the directory, each a role in a tenant, and answers the
 // seats it gave: userID is who holds them, and username what an error reads. A seat in
 // a tenant where the person holds a role already is not given: what the person holds
-// is read as committed, in the caller's transaction, once for the call.
+// is read as committed, in the caller's transaction, once for the call. A role whose
+// period has ended is nothing the person holds, whether or not its row still stands: a
+// person whose only role in the tenant has ended is given the seat, as one who holds
+// none, and no reader waits for the row to be removed. A role that has not begun is one
+// the person will hold, and is not given a seat beside it.
 func (m *Manager) giveDirectoryRoles(
 	ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, username string, seats []signin.DirectorySeat,
 ) (given []signin.DirectorySeat, err error) {
@@ -162,9 +194,9 @@ func (m *Manager) giveDirectoryRoles(
 	if len(seats) == 0 {
 		return nil, nil
 	}
-	held, err := m.store.Memberships(ctx, txn, userID)
+	held, _, err := m.standing(ctx, txn, userID)
 	if err != nil {
-		return nil, errors.Wrap(err, "identity.Store.Memberships()")
+		return nil, err
 	}
 	for _, seat := range seats {
 		scope := accesstypes.DomainPolicyScope(seat.Tenant)

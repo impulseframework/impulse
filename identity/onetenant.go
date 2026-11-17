@@ -125,9 +125,6 @@ func (m *Manager) refuseInvitedElsewhere(ctx context.Context, txn resource.ReadW
 // makes them the application's own. held is what the person holds, as committed, the
 // membership being removed among it. A role held in one tenant is always taken.
 func (m *Manager) refuseLeavingSeveralTenants(held []access.MembershipKey, removed *access.MembershipKey) error {
-	if m.oneTenant == nil || inOneTenant(removed) {
-		return nil
-	}
 	left := make([]access.MembershipKey, 0, len(held))
 	for i := range held {
 		if held[i].Kind == removed.Kind && held[i].Axis == removed.Axis && held[i].Role == removed.Role {
@@ -135,6 +132,20 @@ func (m *Manager) refuseLeavingSeveralTenants(held []access.MembershipKey, remov
 			continue
 		}
 		left = append(left, held[i])
+	}
+
+	return m.refuseSeveralTenantsLeft(removed, left)
+}
+
+// refuseSeveralTenantsLeft is the rule of refuseLeavingSeveralTenants on what a person
+// is left holding: removed is what goes, a membership of their own or their place in a
+// group, spelled as a membership held where the group is kept, and left everything else
+// they hold. A place in a group kept for the whole application is a role held outside
+// the tenants, so the last one is not taken from a person who holds roles in more than
+// one tenant.
+func (m *Manager) refuseSeveralTenantsLeft(removed *access.MembershipKey, left []access.MembershipKey) error {
+	if m.oneTenant == nil || inOneTenant(removed) {
+		return nil
 	}
 	if !outsideTenants(left) && tenantCount(left) > 1 {
 		return httpio.NewConflictMessage(

@@ -61,6 +61,9 @@ type Client struct {
 // refuses one built without them.
 func NewClient(controller access.Controller, sessions identity.SessionAPI, opts ...identity.Option) (*Client, error) {
 	opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))
+	// A change to a group is judged as the role changes it makes, by the grants of the
+	// methods that give a role and take one away (grants.go).
+	opts = append(opts, identity.WithRoleGrants(grants{}))
 	manager, err := identity.New(AuthName, store{}, controller, sessions, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.New()")

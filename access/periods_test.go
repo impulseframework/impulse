@@ -504,3 +504,136 @@ func Test_userManager_DeleteRole_periods(t *testing.T) {
 		t.Errorf("the store holds %d memberships after the role went, want none: the ended one goes with it", len(store.memberships))
 	}
 }
+
+// Test_userManager_DeleteRole_heldByGroup pins that a role a group holds is not deleted
+// from under it. A role deleted there would leave the group's row behind, and a role of
+// the name made again would at once be held by everyone in the group. The group's row
+// stands in the way while it counts or will, whether or not the group has anyone in it,
+// and goes with the role once it has ended.
+func Test_userManager_DeleteRole_heldByGroup(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	_, manager, store := periodClient(t)
+	now := time.Now()
+	night := mustAddGroup(t, manager, tenant1Policy, "Night shift")
+
+	for _, held := range []struct {
+		name   string
+		period accesstypes.Period
+	}{
+		{name: "with no period"},
+		{name: "for a period that has not begun", period: accesstypes.Period{Start: now.Add(time.Hour)}},
+	} {
+		if err := manager.AssignGroupRole(ctx, night, tenant1Policy, "Editor", held.period); err != nil {
+			t.Fatalf("AssignGroupRole() error = %v", err)
+		}
+		deleted, err := manager.DeleteRole(ctx, tenant1Policy, "Editor")
+		if deleted || err == nil || !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), "A group holds the role") {
+			t.Errorf("DeleteRole() of a role an empty group holds %s = (%v, %v), want a bad request saying a group holds it", held.name, deleted, err)
+		}
+		if exists, err := store.RoleExists(ctx, tenant1Policy, "Editor"); err != nil || !exists {
+			t.Fatalf("Store.RoleExists() after the refusal = (%v, %v), want the role there", exists, err)
+		}
+	}
+
+	if err := manager.AssignGroupRole(ctx, night, tenant1Policy, "Editor", accesstypes.Period{End: now.Add(-time.Hour)}); err != nil {
+		t.Fatalf("AssignGroupRole() error = %v", err)
+	}
+	if deleted, err := manager.DeleteRole(ctx, tenant1Policy, "Editor"); err != nil || !deleted {
+		t.Fatalf("DeleteRole() of a role whose only holder is a group whose role has ended = (%v, %v), want it deleted", deleted, err)
+	}
+	if len(store.groups.held) != 0 {
+		t.Errorf("the store holds %d group roles after the role went, want none: the ended one goes with it", len(store.groups.held))
+	}
+
+	// The name made again is held by nobody: no row of the group was left behind.
+	if err := manager.AddRole(ctx, tenant1Policy, "Editor", aDescription); err != nil {
+		t.Fatalf("AddRole() error = %v", err)
+	}
+	if err := manager.AddGroupUsers(ctx, night, "bob"); err != nil {
+		t.Fatalf("AddGroupUsers() error = %v", err)
+	}
+	if roles, err := manager.UserRoles(ctx, "bob"); err != nil || len(roles) != 0 {
+		t.Errorf("UserRoles(bob) once the role is made again = (%v, %v), want none: the group no longer holds it", roles, err)
+	}
+}
+
+// Test_userManager_RoleHolders pins the list of who holds a role: the people who hold it
+// by a membership of their own and the people who hold it through a group, each once,
+// with how. Removing a person's own membership leaves what they hold through a group. A
+// place or a group's role outside its period makes nobody a holder, and no group makes
+// anybody a super administrator.
+func Test_userManager_RoleHolders(t *testing.T) {
+	t.Parallel()
+	ctx := t.Context()
+	_, manager, _ := periodClient(t)
+	now := time.Now()
+	night := mustAddGroup(t, manager, tenant1Policy, "Night shift")
+	day := mustAddGroup(t, manager, tenant1Policy, "Day shift")
+	nightInfo := GroupInfo{ID: night, Scope: tenant1Policy, Name: "Night shift", Description: "The people the tests put in Night shift."}
+	dayInfo := GroupInfo{ID: day, Scope: tenant1Policy, Name: "Day shift", Description: "The people the tests put in Day shift."}
+
+	if err := manager.AddUserRoles(ctx, tenant1Policy, "ann", "Editor"); err != nil {
+		t.Fatalf("AddUserRoles() error = %v", err)
+	}
+	if err := manager.AddUserRoles(ctx, tenant1Policy, "bob", "Editor"); err != nil {
+		t.Fatalf("AddUserRoles() error = %v", err)
+	}
+	for _, group := range []accesstypes.Group{night, day} {
+		if err := manager.AddGroupRoles(ctx, group, tenant1Policy, "Editor"); err != nil {
+			t.Fatalf("AddGroupRoles() error = %v", err)
+		}
+	}
+	if err := manager.AddGroupUsers(ctx, night, "bob", "cat"); err != nil {
+		t.Fatalf("AddGroupUsers() error = %v", err)
+	}
+	if err := manager.AddGroupUsers(ctx, day, "cat"); err != nil {
+		t.Fatalf("AddGroupUsers() error = %v", err)
+	}
+	// dee's place has ended and eve's has not begun: neither holds the role now.
+	if err := manager.AssignGroupUser(ctx, night, "dee", accesstypes.Period{End: now.Add(-time.Hour)}); err != nil {
+		t.Fatalf("AssignGroupUser() error = %v", err)
+	}
+	if err := manager.AssignGroupUser(ctx, night, "eve", accesstypes.Period{Start: now.Add(time.Hour)}); err != nil {
+		t.Fatalf("AssignGroupUser() error = %v", err)
+	}
+
+	want := []RoleHolder{
+		{User: "ann", Own: true},
+		{User: "bob", Own: true, Groups: []GroupInfo{nightInfo}},
+		{User: "cat", Groups: []GroupInfo{dayInfo, nightInfo}},
+	}
+	holders, err := manager.RoleHolders(ctx, tenant1Policy, "Editor")
+	if err != nil {
+		t.Fatalf("RoleHolders() error = %v", err)
+	}
+	if diff := cmp.Diff(want, holders, cmp.AllowUnexported(accesstypes.PolicyScope{})); diff != "" {
+		t.Errorf("RoleHolders() (-want +got):\n%s", diff)
+	}
+	users, err := manager.RoleUsers(ctx, tenant1Policy, "Editor")
+	if err != nil || !cmp.Equal(users, []accesstypes.User{"ann", "bob", "cat"}) {
+		t.Errorf("RoleUsers() = (%v, %v), want ann, bob and cat, each once", users, err)
+	}
+
+	// bob's own membership goes, and bob holds the role still: through the group.
+	if err := manager.DeleteUserRoles(ctx, tenant1Policy, "bob", "Editor"); err != nil {
+		t.Fatalf("DeleteUserRoles() error = %v", err)
+	}
+	users, err = manager.RoleUsers(ctx, tenant1Policy, "Editor")
+	if err != nil || !cmp.Equal(users, []accesstypes.User{"ann", "bob", "cat"}) {
+		t.Errorf("RoleUsers() once bob's own membership is removed = (%v, %v), want bob listed still: he holds the role through the group", users, err)
+	}
+
+	// The night shift's role ends: its people hold the role through the day shift alone.
+	if err := manager.AssignGroupRole(ctx, night, tenant1Policy, "Editor", accesstypes.Period{End: now.Add(-time.Hour)}); err != nil {
+		t.Fatalf("AssignGroupRole() error = %v", err)
+	}
+	want = []RoleHolder{{User: "ann", Own: true}, {User: "cat", Groups: []GroupInfo{dayInfo}}}
+	holders, err = manager.RoleHolders(ctx, tenant1Policy, "Editor")
+	if err != nil {
+		t.Fatalf("RoleHolders() error = %v", err)
+	}
+	if diff := cmp.Diff(want, holders, cmp.AllowUnexported(accesstypes.PolicyScope{})); diff != "" {
+		t.Errorf("RoleHolders() once the night shift's role has ended (-want +got):\n%s", diff)
+	}
+}

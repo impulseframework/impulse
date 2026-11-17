@@ -955,6 +955,56 @@ describe('identityPages, the period of an assignment', () => {
     }
   });
 
+  it('shows the end of a period as its last day, the day a person picked, and nothing where there is none', () => {
+    const shown = (config: ListViewConfig, id: string, row: RecordData): unknown => {
+      const column = config.listColumns.find((candidate) => candidate.id === id);
+      if (!column) {
+        throw new Error(`no column ${id}`);
+      }
+      return column.valueGetter ? column.valueGetter(row) : row[id];
+    };
+    // "Until 1 December", picked in the viewer's time zone, is kept as the first instant
+    // of 2 December there. The list reads the instant before it, which the table writes
+    // as a calendar date: 1 December.
+    const kept = new Date(2026, 11, 2).toISOString();
+    // Under a person the roles they hold and the ones held through a group; under a group its people and its roles.
+    const lists = [global[0], domain[0], global[1], domain[1]].flatMap((page) => children(page).slice(0, 2));
+    expect(lists).toHaveLength(8);
+    for (const config of lists) {
+      const until = new Date(shown(config, 'endsAt', { endsAt: kept }) as string);
+      expect([until.getFullYear(), until.getMonth(), until.getDate()], config.title).toEqual([2026, 11, 1]);
+      // An end kept by another caller at any instant shows the last day it falls on.
+      const afternoon = new Date(shown(config, 'endsAt', { endsAt: new Date(2026, 11, 1, 15, 30).toISOString() }) as string);
+      expect([afternoon.getMonth(), afternoon.getDate()], config.title).toEqual([11, 1]);
+      expect(shown(config, 'endsAt', { endsAt: null }), config.title).toBe('');
+      expect(shown(config, 'endsAt', {}), config.title).toBe('');
+      // The first day is the instant it is kept as.
+      expect(shown(config, 'startsAt', { startsAt: kept }), config.title).toBe(kept);
+    }
+  });
+
+  it('says in each method that gives something for a period that the day picked for its end is its last day', () => {
+    const asked: [RootConfig, string][] = [
+      [global[0], 'AssignCrewRole'],
+      [domain[0], 'AssignCrewSectorRole'],
+      [global[1], 'AddCrewGroupMember'],
+      [global[1], 'GiveCrewGroupRole'],
+      [domain[1], 'AddCrewSectorGroupMember'],
+      [domain[1], 'GiveCrewSectorGroupRole'],
+    ];
+    for (const [page, method] of asked) {
+      expect(presentation(list(page).rowMethods, method).throughDay, method).toEqual(['endsAt']);
+    }
+    for (const [side, add, give] of [
+      [global, 'AddCrewGroupMember', 'GiveCrewGroupRole'],
+      [domain, 'AddCrewSectorGroupMember', 'GiveCrewSectorGroupRole'],
+    ] as [RootConfig[], string, string][]) {
+      const [people, roles] = children(side[1]);
+      expect(presentation(people.listMethods, add).throughDay, add).toEqual(['endsAt']);
+      expect(presentation(roles.listMethods, give).throughDay, give).toEqual(['endsAt']);
+    }
+  });
+
   it('asks for the two days of a period under the same words, in each method that gives something for one', () => {
     const words = { startsAt: 'From', endsAt: 'Until' };
     const asked: [RootConfig, string, 'row' | 'list'][] = [
