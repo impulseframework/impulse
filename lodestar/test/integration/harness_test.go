@@ -196,10 +196,10 @@ var testSecretKeys = newTestSecretKeys(1)
 // newTestSecretKeys builds the key holder over the given versions of a test application
 // secret, each version's 32 bytes its own number repeated; the highest is the current
 // one, as it is for a deployment's.
-func newTestSecretKeys(versions ...int) *resource.SecretKeys {
+func newTestSecretKeys(versions ...byte) *resource.SecretKeys {
 	secrets := make(map[int][]byte, len(versions))
 	for _, version := range versions {
-		secrets[version] = bytes.Repeat([]byte{byte(version)}, 32)
+		secrets[int(version)] = bytes.Repeat([]byte{version}, 32)
 	}
 	keys, err := resource.NewSecretKeys(secrets)
 	if err != nil {

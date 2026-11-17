@@ -71,7 +71,7 @@ func TestSecretField(t *testing.T) {
 		}
 		key, err := ship.Data.OpenTransponderKey(keys)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("Ship.OpenTransponderKey(): %w", err)
 		}
 		if key == nil {
 			t.Fatalf("ship %s holds no key", shipID)
@@ -115,7 +115,7 @@ func TestSecretField(t *testing.T) {
 
 	// The stored bytes are bound to their ship: moved onto another ship's row, past the
 	// resource layer, they do not open there.
-	if _, err := db.Client.Apply(ctx, []*spanner.Mutation{
+	if _, err := db.Apply(ctx, []*spanner.Mutation{
 		spanner.Update("Ships", []string{"Id", "TransponderKey"}, []any{shipStubbornMuleID, stored(shipKingfisherID)}),
 	}); err != nil {
 		t.Fatalf("moving the stored bytes onto another ship: %v", err)
@@ -140,11 +140,11 @@ func TestSecretField(t *testing.T) {
 		ship, err := resources.NewShipQuery().AddColumns(resources.NewShipColumns().TransponderKey()).
 			SetID(impulse.Must(impulse.UUIDFromString(shipKingfisherID))).Read(ctx, txn)
 		if err != nil {
-			return err
+			return fmt.Errorf("ShipQuery.Read(): %w", err)
 		}
 		key, err := ship.Data.OpenTransponderKeyIn(ctx, txn)
 		if err != nil {
-			return err
+			return fmt.Errorf("Ship.OpenTransponderKeyIn(): %w", err)
 		}
 		if key == nil || *key != second {
 			t.Errorf("the key opened in the transaction is not the one that was set")
