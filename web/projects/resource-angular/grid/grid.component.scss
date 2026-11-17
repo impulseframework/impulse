@@ -4,6 +4,8 @@
 }
 
 .impulse-grid-host {
+  // The box the cut-short tooltip's anchor is positioned in.
+  position: relative;
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -65,6 +67,25 @@
 ::ng-deep .mat-mdc-menu-panel.impulse-grid-filter-menu {
   width: max-content;
   max-width: calc(100vw - 32px);
+}
+
+// The anchor of the tooltip that shows a cut-short text whole: laid over the text while
+// the tooltip is open (CutShortTooltipDirective), never seen and never in the pointer's way.
+.cut-short-anchor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+}
+
+// A whole value is longer than the line or two Material's 200px tooltip is made for: an
+// id would wrap. The tooltip renders in the document-level overlay container, so this
+// component style must cross encapsulation. A value taller than the tooltip scrolls in it.
+::ng-deep .mat-mdc-tooltip.impulse-grid-whole-text .mat-mdc-tooltip-surface {
+  max-width: min(480px, calc(100vw - 32px));
+  overflow-y: auto;
 }
 
 .header-cell .filter-trigger.mat-mdc-icon-button {

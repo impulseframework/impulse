@@ -1,6 +1,6 @@
 <div class="impulse-grid-host">
   <div class="impulse-grid-scroll" #scrollContainer (scroll)="onScroll($event)">
-    <table class="impulse-grid-table">
+    <table class="impulse-grid-table" #table>
       <thead>
         <tr class="impulse-grid-header-row">
           @if (selectionType() !== 'none') {
@@ -206,6 +206,7 @@
                       <a
                         mat-icon-button
                         [routerLink]="link"
+                        [attr.aria-label]="col.buttonConfig.label"
                         [matTooltip]="col.buttonConfig.label || ''"
                         [matTooltipPosition]="col.tooltipPosition || 'above'">
                         <mat-icon>{{ col.buttonConfig.icon || 'arrow_forward' }}</mat-icon>
@@ -215,6 +216,7 @@
                     <a
                       mat-icon-button
                       [routerLink]="'/' + col.buttonConfig.viewRoute + '/' + row[col.buttonConfig.keyField ?? 'id']"
+                      [attr.aria-label]="col.buttonConfig.label"
                       [matTooltip]="col.buttonConfig.label || ''"
                       [matTooltipPosition]="col.tooltipPosition || 'above'">
                       <mat-icon>{{ col.buttonConfig.icon || 'arrow_forward' }}</mat-icon>
@@ -281,6 +283,7 @@
       </div>
     }
   </div>
+  <span class="cut-short-anchor" [impulseCutShortTooltip]="table"></span>
 
   @if (page(); as position) {
     <div class="impulse-grid-pager">
