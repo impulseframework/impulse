@@ -226,8 +226,9 @@ export interface IdentitySideDescriptor {
  * judges it, listed for one person at a time); the invitations (a tenant's) or every
  * mailed link (the whole application's); and, for the whole application alone, the
  * sessions, the names whose sign-in is being counted or is locked, the Auth's sign-in
- * methods (each invite only or open to sign-up) and, in an application without tenants,
- * the roles a person who signs up may be given. Where the Auth keeps groups of people,
+ * methods (each invite only or open to sign-up), in an application without tenants
+ * the roles a person who signs up may be given, and, for the Auth whose people make the
+ * application's tenants, the invitations that make a tenant and still stand. Where the Auth keeps groups of people,
  * the side also names the groups, the people in them, the roles they hold and the roles
  * each person holds through one.
  */
@@ -255,6 +256,15 @@ export interface IdentityLists {
   readonly groupRoles?: string;
   /** The roles people hold through a group, beside `roles`, the ones each holds directly. */
   readonly rolesThroughGroups?: string;
+  /**
+   * The invitations that make a tenant and still stand, on the whole application's side
+   * of the Auth whose people make the tenants: staff bring an organization in by inviting
+   * one person, and no tenant exists until that person first signs in. Each row carries
+   * the invited address and the tenant's details as staff entered them, a field of the
+   * tenant record under the record's name (`sectorName`), present only where the caller
+   * may read that field on the record itself.
+   */
+  readonly invitedTenants?: string;
 }
 
 /**
@@ -269,7 +279,10 @@ export interface IdentityLists {
  * `describeGroup`, `deleteGroup`, `addGroupMember` and `giveGroupRole` run against a
  * group; `removeGroupMember` against a person's place in one; and `takeGroupRole`
  * against a role a group holds on a tenant's side, while the whole application's takes
- * the group's id and where the role is held.
+ * the group's id and where the role is held. `inviteTenant` names no row: it takes the
+ * invited address and the tenant record's fields, and sends the invitation whose first
+ * sign-in makes the tenant; `withdrawInvitedTenant` takes such an invitation's id
+ * (`invitationId`), which the page fills from its row.
  */
 export interface IdentityMethods {
   readonly create?: string;
@@ -300,6 +313,8 @@ export interface IdentityMethods {
   readonly removeGroupMember?: string;
   readonly giveGroupRole?: string;
   readonly takeGroupRole?: string;
+  readonly inviteTenant?: string;
+  readonly withdrawInvitedTenant?: string;
 }
 
 /** The route the enabled set of feature flags is read from, under the API prefix like every other route. */
