@@ -504,8 +504,8 @@ func TestInvitedSector(t *testing.T) {
 	if got := crewHolds(t, s.db, "gale-second"); len(got) != 0 {
 		t.Errorf("the person refused Gale holds %v, want nothing", got)
 	}
-	if row := crewAccount(ctx, t, governor, "gale-second"); row != nil {
-		t.Errorf("the refused sign-up left the account %v, want none: the name and the address stay free for the next invitation", row)
+	if row := crewAccount(ctx, t, governor, "gale-second"); row == nil {
+		t.Error("the refused sign-up left no account, want the one it made before the sign-in: it holds nothing, and accepts the next invitation by signing in")
 	}
 	if got := sectorNames(); !slices.Equal(got, []string{"Anvil", "Bastion", "Cinder", "Dawn", "Ember", "Gale"}) {
 		t.Errorf("the sectors after the refused acceptance = %v, want one Gale", got)
@@ -518,15 +518,15 @@ func TestInvitedSector(t *testing.T) {
 	}
 
 	// Headquarters sends the person another, with a name that is free. The sign-up
-	// that was refused left no account behind, so the person signs up again at this one,
-	// with the same name and address: the sector is made and they are its marshal.
+	// that was refused left them an account that holds nothing, so they accept this one
+	// by signing in with it: the sector is made and they are its marshal.
 	status, body, _ = inviteSector(ctx, t, governor, map[string]any{"email": "second@gale.example", "sectorName": "Squall", "sectorRegion": "Windward reach", "sectorEstablished": "2226-11-09"})
 	assertStatus(t, status, http.StatusOK, body)
 	_, squallToken := lastMailTo(t, s, "second@gale.example", "invitation")
 	galeSecond = newBrowser(t, s, consoleAPI)
 	openInvitation(ctx, t, galeSecond, squallToken)
-	if status, body := galeSecond.do(ctx, http.MethodPost, consoleAPI+"/user/invitation/sign-up", jsonBody(t, map[string]string{"username": "gale-second", "password": signUpPassword})); status != http.StatusOK {
-		t.Fatalf("signing up again at the next invitation, with the name the refused sign-up asked for: status %d: %s", status, body)
+	if status, body := galeSecond.login(ctx, "gale-second", signUpPassword); status != http.StatusOK {
+		t.Fatalf("signing in at the next invitation with the account the refused sign-up left: status %d: %s", status, body)
 	}
 	galeSecond.secondFactor(ctx, "gale-second")
 	squall := sectorNamed(ctx, t, governor, "Squall")
