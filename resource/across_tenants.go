@@ -541,14 +541,14 @@ func rowTenant(outer string, binding *DomainBindingData) func(registry *paramReg
 // the tenant column in the array, or for a record bound through a join path the
 // path's EXISTS chain ending at the tenant key in the array, the shape the
 // tenancy predicate of one tenant takes with the array where the tenant stood.
-func tenantMember(lctx *loweringContext, outer string, binding *DomainBindingData, array comparand, registry *paramRegistry) ExpressionNode {
+func tenantMember(lctx *loweringContext, outer string, binding *DomainBindingData, array *comparand, registry *paramRegistry) ExpressionNode {
 	if len(binding.Path) == 0 {
-		return &loweredMemberNode{left: columnComparand(outer, binding.Column), array: array}
+		return &loweredMemberNode{left: columnComparand(outer, binding.Column), array: *array}
 	}
 	anchorColumn := columnComparand(outer, binding.Column)
 	target, wrap := lctx.pathTarget(&anchorColumn, binding.Path, registry)
 
-	return wrap(&loweredMemberNode{left: target, array: array})
+	return wrap(&loweredMemberNode{left: target, array: *array})
 }
 
 // domainStrings spells tenants as the statement binds them.
@@ -638,45 +638,6 @@ func (q *QuerySet[Resource]) acrossPredicates(dbType DBType, registry *paramRegi
 		renderings = append(renderings, rendering)
 	}
 
-	// visible renders where a field's cells are shown: the groups whose tenants
-	// show it, each with the condition it is shown under there. everywhere says
-	// every row of the answer shows it, so the column renders bare. A positional
-	// field's sort and filter run on the real column wherever a grant covers the
-	// field at all, so its conditions are left out for them (conditional false).
-	visible := func(field accesstypes.Field, conditional bool) (sql string, everywhere bool, err error) {
-		var shown []int
-		everywhere = true
-		for i, group := range a.groups {
-			if group.hides(field) {
-				everywhere = false
-
-				continue
-			}
-			if conditional && renderings[i].conditions[field] != "" {
-				everywhere = false
-			}
-			shown = append(shown, i)
-		}
-		if everywhere {
-			return "", true, nil
-		}
-
-		terms := make([]string, 0, len(shown))
-		for _, i := range shown {
-			cond := ""
-			if conditional {
-				cond = renderings[i].conditions[field]
-			}
-			term, err := renderings[i].branch(cond)
-			if err != nil {
-				return "", false, err
-			}
-			terms = append(terms, term)
-		}
-
-		return disjunction(terms), false, nil
-	}
-
 	rendered := &renderedReadConditions{
 		overrides:       make(map[accesstypes.Field]string),
 		queryOverrides:  make(map[accesstypes.Field]string),
@@ -686,16 +647,75 @@ func (q *QuerySet[Resource]) acrossPredicates(dbType DBType, registry *paramRegi
 	if err != nil {
 		return nil, "", err
 	}
+	if err := q.maskAcrossTenants(dbType, gen, registry, renderings, rendered); err != nil {
+		return nil, "", err
+	}
+	if err := q.queryColumnsAcrossTenants(dbType, gen, renderings, rendered); err != nil {
+		return nil, "", err
+	}
 
-	fieldColumns, err := q.orderedDBFields(dbType)
+	domains := namedComparand(domainsParamName)
+	tenancy, err := gen.generateLowered(tenantMember(lctx, outer, binding, &domains, registry), registry)
 	if err != nil {
 		return nil, "", err
 	}
+
+	return rendered, "(" + tenancy + ")", nil
+}
+
+// shownAcrossTenants renders where a field's cells are shown in a list over
+// several tenants: the groups whose tenants show it, each with the condition it is
+// shown under there. everywhere says every row of the answer shows it, so the
+// column renders bare. A positional field's sort and filter run on the real column
+// wherever a grant covers the field at all, so its conditions are left out for
+// them (conditional false).
+func (q *QuerySet[Resource]) shownAcrossTenants(renderings []*groupRendering, field accesstypes.Field, conditional bool) (sql string, everywhere bool, err error) {
+	var shown []int
+	everywhere = true
+	for i, group := range q.across.groups {
+		if group.hides(field) {
+			everywhere = false
+
+			continue
+		}
+		if conditional && renderings[i].conditions[field] != "" {
+			everywhere = false
+		}
+		shown = append(shown, i)
+	}
+	if everywhere {
+		return "", true, nil
+	}
+
+	terms := make([]string, 0, len(shown))
+	for _, i := range shown {
+		cond := ""
+		if conditional {
+			cond = renderings[i].conditions[field]
+		}
+		term, err := renderings[i].branch(cond)
+		if err != nil {
+			return "", false, err
+		}
+		terms = append(terms, term)
+	}
+
+	return disjunction(terms), false, nil
+}
+
+// maskAcrossTenants renders the projection of a list over several tenants: for
+// each column some row of the answer does not show, the CASE that shows it where
+// its tenant does and fills it elsewhere, and the column's term of the mask.
+func (q *QuerySet[Resource]) maskAcrossTenants(dbType DBType, gen *sqlGenerator, registry *paramRegistry, renderings []*groupRendering, rendered *renderedReadConditions) error {
+	fieldColumns, err := q.orderedDBFields(dbType)
+	if err != nil {
+		return err
+	}
 	var maskTerms []string
 	for _, fieldColumn := range fieldColumns {
-		shown, everywhere, err := visible(fieldColumn.field, true)
+		shown, everywhere, err := q.shownAcrossTenants(renderings, fieldColumn.field, true)
 		if err != nil {
-			return nil, "", err
+			return err
 		}
 		if everywhere {
 			continue
@@ -712,29 +732,31 @@ func (q *QuerySet[Resource]) acrossPredicates(dbType DBType, registry *paramRegi
 		rendered.maskColumn = maskColumn(dbType, maskTerms)
 	}
 
+	return nil
+}
+
+// queryColumnsAcrossTenants renders the sort and filter columns of a list over
+// several tenants: a column some row of the answer does not show is read as the
+// column where its tenant shows it and as nothing elsewhere.
+func (q *QuerySet[Resource]) queryColumnsAcrossTenants(dbType DBType, gen *sqlGenerator, renderings []*groupRendering, rendered *renderedReadConditions) error {
 	dbFields := q.rMeta.dbFieldMap(dbType)
 	for _, field := range q.queryColumns() {
-		shown, everywhere, err := visible(field, !q.resourceSet.Positional(field))
+		shown, everywhere, err := q.shownAcrossTenants(renderings, field, !q.resourceSet.Positional(field))
 		if err != nil {
-			return nil, "", err
+			return err
 		}
 		if everywhere {
 			continue
 		}
 		dbField, ok := dbFields[field]
 		if !ok {
-			return nil, "", errors.Newf("query field %s not found in db struct", field)
+			return errors.Newf("query field %s not found in db struct", field)
 		}
 		rendered.queryOverrides[field] = fmt.Sprintf("CASE WHEN %s THEN %s END", shown, gen.quoteIdentifier(dbField.ColumnName))
 		rendered.queryConditions[field] = shown
 	}
 
-	tenancy, err := gen.generateLowered(tenantMember(lctx, outer, binding, namedComparand(domainsParamName), registry), registry)
-	if err != nil {
-		return nil, "", err
-	}
-
-	return rendered, "(" + tenancy + ")", nil
+	return nil
 }
 
 // renderGroup renders one group's part of a statement over several tenants: the
@@ -750,7 +772,8 @@ func (q *QuerySet[Resource]) renderGroup(
 		if rendered {
 			return member, nil
 		}
-		sql, err := gen.generateLowered(tenantMember(lctx, string(q.Resource()), binding, groupArray(registry, index, group), registry), registry)
+		array := groupArray(registry, index, group)
+		sql, err := gen.generateLowered(tenantMember(lctx, string(q.Resource()), binding, &array, registry), registry)
 		if err != nil {
 			return "", err
 		}

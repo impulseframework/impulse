@@ -214,10 +214,9 @@ func walkOnPostgres[Resource Resourcer, Request any](
 				row[tenantColumnName] = string(stmt.tenant)
 			}
 		}
-		size := int(qSet.page.size)
-		more := len(rows) > size
+		more := uint64(len(rows)) > qSet.page.size
 		if more {
-			rows = rows[:size]
+			rows = rows[:qSet.page.size]
 		}
 		pages = append(pages, rows)
 		if !more {

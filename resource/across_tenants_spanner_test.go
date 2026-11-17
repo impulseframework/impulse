@@ -55,7 +55,7 @@ func acrossSpannerClient(t *testing.T, name string) *SpannerClient {
 		}
 		mutations = append(mutations, spanner.InsertMap("CrateTags", tag))
 	}
-	if _, err := db.Client.Apply(context.Background(), mutations); err != nil {
+	if _, err := db.Apply(context.Background(), mutations); err != nil {
 		t.Fatalf("spanner.Client.Apply() error = %v", err)
 	}
 

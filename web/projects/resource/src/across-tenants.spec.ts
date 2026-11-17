@@ -44,8 +44,13 @@ interface Mission {
   fee?: string;
 }
 
-type Sector = { missions: AnyResourceHandle<Mission>; refits: AnyResourceHandle<{ id: string }> };
-type Across = { missions: AcrossTenantsHandle<Mission, [string]> };
+interface Sector {
+  missions: AnyResourceHandle<Mission>;
+  refits: AnyResourceHandle<{ id: string }>;
+}
+interface Across {
+  missions: AcrossTenantsHandle<Mission, [string]>;
+}
 
 interface Sent {
   method: string;
