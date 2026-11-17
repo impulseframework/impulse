@@ -90,19 +90,28 @@ so a declaration edited anywhere decides the next request everywhere, and a tena
 seats the person and that their session may not enter is listed as closed to this
 sign-in, with the reason, and answers as one that does not exist. The
 console's Sign-in page under the tenant (`/tenants/{tenantID}/sign-in`) shows the
-tenant's directory, sets it, picks its default role and removes it, and turns directory
-only on and off, all under the tenant's own grants (`TenantAdministrator`): the switch
-is the tenant's, a generated method in the tenant's scope
-(`POST /api/tenants/{tenantID}/set-tenant-directory-only`, Execute on
-`SetTenantDirectoryOnly`), and the `Tenants` record, which the application's
-`Administrator` writes, shows the flag and takes no write of it. The server allows
+tenant's directory, sets it and removes it, and changes everything else with the
+tenant's own generated methods, each run through the library's method dialog under the
+tenant's own grants (`TenantAdministrator`). Two say how the tenant admits its
+directory's people: `OpenTenantToDirectory`
+(`POST /api/tenants/{tenantID}/open-tenant-to-directory`) names the role each of them is
+given at their first sign-in through the directory, a role the caller could give
+directly, and `MakeTenantInviteOnly` clears it. Two turn directory only:
+`MakeTenantDirectoryOnly` (`POST /api/tenants/{tenantID}/make-tenant-directory-only`)
+and `EndTenantDirectoryOnly`; the `Tenants` record, which the application's
+`Administrator` writes, shows the flag and takes no write of it, and the page reads the
+switch in the tenant (`GET /api/tenants/{tenantID}/directory-only`). The server allows
 turning it on only once the tenant has its directory, and only to a person who is signed
-in through that directory themselves; the page reads the switch in the tenant
-(`GET /api/tenants/{tenantID}/directory-only`), and before turning it on asks the server
-what that would do (`GET /api/tenants/{tenantID}/directory-only/consequence`) and shows
-its sentence, the count of the people it would keep out and, to a person who may list
-the tenant's people, their names, for the person to confirm; the tenant's People page
-marks them for as long as it is on. Both records write change events, the audit of every
+in through that directory themselves. Opening the tenant and making it directory only
+each warn first: the dialog shows what the server says the call will do (who will
+enter and with what role; who will be able to enter, the count of the people it would
+keep out and, to a person who may list the tenant's people, their names as a list) and
+holds its button until the person has typed the method's word (`open`, `close`); a
+refusal is shown on the page and no dialog opens. Making the tenant invite only and
+turning directory only off are plain confirmations; while a tenant is directory only its
+routes answer the people it admits, so a tenant whose directory has stopped working is
+opened again by a super administrator. The tenant's People page marks the people it
+keeps out for as long as it is on. Both records write change events, the audit of every
 edit. Nobody types a directory in. It is set from a sign-in: the create-your-tenant
 route sets the one its creator came through, refusing a creation from an organization
 that already has a tenant, and afterwards the page offers an administrator who is

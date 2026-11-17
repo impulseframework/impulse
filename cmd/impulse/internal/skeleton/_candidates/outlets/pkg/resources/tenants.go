@@ -55,11 +55,11 @@ type (
 		// DirectoryOnly says the tenant's people enter through its directory only: no
 		// other sign-in reaches the tenant, and the flag closes this tenant alone. The
 		// switch is the tenant's own: the tenant's administrator (TenantAdministrator)
-		// turns it with the generated method SetTenantDirectoryOnly, in the tenant's
-		// scope, which refuses turning it on until the tenant has its directory, and
-		// unless the caller is signed in through it. The record shows the flag and its
-		// own write paths never write it, at creation or after: a new tenant declares
-		// nothing.
+		// turns it with the generated methods of the tenant's scope: MakeTenantDirectoryOnly,
+		// which refuses turning it on until the tenant has its directory, and unless the
+		// caller is signed in through it, and EndTenantDirectoryOnly. The record shows the
+		// flag and its own write paths never write it, at creation or after: a new tenant
+		// declares nothing.
 		// @directoryOnly
 		DirectoryOnly bool `spanner:"DirectoryOnly"`
 	}

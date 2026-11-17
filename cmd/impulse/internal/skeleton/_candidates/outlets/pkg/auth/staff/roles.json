@@ -441,10 +441,7 @@
         "permissions": {
           "Create": [
             {
-              "resource": "TenantDirectories",
-              "fields": [
-                "defaultSeat"
-              ]
+              "resource": "TenantDirectories"
             },
             {
               "resource": "Announcements",
@@ -550,7 +547,16 @@
               "resource": "TakeStaffTenantGroupRole"
             },
             {
-              "resource": "SetTenantDirectoryOnly"
+              "resource": "MakeTenantDirectoryOnly"
+            },
+            {
+              "resource": "EndTenantDirectoryOnly"
+            },
+            {
+              "resource": "OpenTenantToDirectory"
+            },
+            {
+              "resource": "MakeTenantInviteOnly"
             }
           ],
           "List": [
@@ -796,12 +802,6 @@
               "fields": [
                 "body",
                 "title"
-              ]
-            },
-            {
-              "resource": "TenantDirectories",
-              "fields": [
-                "defaultSeat"
               ]
             }
           ]

@@ -31,9 +31,11 @@ import (
 // alone, and a directory closes its tenant to nobody until the tenant is directory
 // only: north's leaves the member's password session where it was. Turning directory
 // only on is refused unless the person is signed in through the tenant's directory
-// themselves, and until the tenant has one, on the write and on the read that says what
-// it would do; the staff sign in by password, so here nobody can, and the suite sets
-// the flag in the table as a seed does. North admitting its people through its
+// themselves, and until the tenant has one, on the method and on the warning it
+// answers first, which says what it would do; the staff sign in by password, so here
+// nobody can, and the suite sets the flag in the table as a seed does. How a tenant
+// admits its directory's people is the tenant's own to say as well: opened to them with
+// a role, behind a warning, and made invite only again. North admitting its people through its
 // directory only refuses the member's password session at reach time on the console
 // and on the portal alike, at once, since both read the shared roster; north stays in
 // the member's list marked closed, with the reason, and its list of its people says
@@ -111,27 +113,30 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	}
 
 	// Directory only. Turning it on is refused unless the person is signed in through
-	// the tenant's directory themselves, on the read a page asks first and on the write,
+	// the tenant's directory themselves, on the warning a page asks first and on the method,
 	// in the same words, which say what to do. The staff sign in by password, so here
 	// nobody can turn it on until a directory method joins the staff auth. A tenant with
 	// no directory has nothing to be only of. Nothing is written.
-	// The switch is the tenant's own: three routes under the tenant, each asked under
-	// Execute on SetTenantDirectoryOnly there, which the tenant's administrator holds.
+	// The switch is the tenant's own: two methods and a read under the tenant, each
+	// method to Execute on it there, which the tenant's administrator holds, and the
+	// read under the grant of either.
 	turn := func(b *browser, tenant string, on bool) (int, []byte) {
-		value := "false"
+		method := "end-tenant-directory-only"
 		if on {
-			value = "true"
+			method = "make-tenant-directory-only"
 		}
 
-		return b.do(ctx, http.MethodPost, "/api/tenants/"+tenant+"/set-tenant-directory-only", []byte(`{"directoryOnly":`+value+`}`))
+		return b.do(ctx, http.MethodPost, "/api/tenants/"+tenant+"/"+method, []byte(`{}`))
 	}
 	state := func(b *browser, tenant string) (int, string) {
 		status, body := b.do(ctx, http.MethodGet, "/api/tenants/"+tenant+"/directory-only", nil)
 
 		return status, strings.TrimSpace(string(body))
 	}
-	consequence := func(b *browser, tenant string) (int, []byte) {
-		return b.do(ctx, http.MethodGet, "/api/tenants/"+tenant+"/directory-only/consequence", nil)
+	// warns asks the method that turns the switch on for its warning: what the call
+	// would do, in the server's words, with nothing saved.
+	warns := func(b *browser, tenant string) (int, []byte) {
+		return b.doWith(ctx, http.MethodPost, "/api/tenants/"+tenant+"/make-tenant-directory-only", []byte(`{}`), map[string]string{"X-Warning": "true"})
 	}
 	// The global record shows the flag and never writes it: a patch of the record that
 	// carries it is refused, the application's administrator's included.
@@ -140,14 +145,14 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		t.Errorf("patching the Tenants record's directoryOnly as the administrator: status %d, want 400, the record does not take the flag: %s", status, body)
 	}
 	notThroughIt := "Directory only is turned on by a person who is signed in through this tenant's directory, Google Workspace north.example: that shows the directory works, and that you will not shut yourself out. You signed in with a password. Sign in through Google Workspace north.example and try again."
-	if status, body := consequence(admin, north); status != http.StatusConflict || !strings.Contains(string(body), notThroughIt) {
+	if status, body := warns(admin, north); status != http.StatusConflict || !strings.Contains(string(body), notThroughIt) {
 		t.Errorf("asking what directory only would do to north, signed in with a password: status %d, want 409 saying %q: %s", status, notThroughIt, body)
 	}
 	if status, body := turn(admin, north, true); status != http.StatusConflict || !strings.Contains(string(body), notThroughIt) {
 		t.Errorf("turning north's directory only on, signed in with a password: status %d, want 409 saying %q: %s", status, notThroughIt, body)
 	}
 	noDirectory := "This tenant has no directory, so it cannot be directory only: nobody could enter it. Set its directory first: sign in through your organization's directory, make it this tenant's directory, then turn directory only on."
-	if status, body := consequence(admin, south); status != http.StatusConflict || !strings.Contains(string(body), noDirectory) {
+	if status, body := warns(admin, south); status != http.StatusConflict || !strings.Contains(string(body), noDirectory) {
 		t.Errorf("asking what directory only would do to south, which has no directory: status %d, want 409 saying %q: %s", status, noDirectory, body)
 	}
 	if status, body := turn(admin, south, true); status != http.StatusConflict || !strings.Contains(string(body), noDirectory) {
@@ -161,7 +166,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if status, got := state(member, north); status != http.StatusOK || got != `{"directoryOnly":false}` {
 		t.Errorf("north's switch as the member, its administrator, reads it: status %d %s, want 200 off", status, got)
 	}
-	if status, body := consequence(member, north); status != http.StatusConflict || !strings.Contains(string(body), notThroughIt) {
+	if status, body := warns(member, north); status != http.StatusConflict || !strings.Contains(string(body), notThroughIt) {
 		t.Errorf("asking what directory only would do as the member, signed in with a password: status %d, want 409 saying %q: %s", status, notThroughIt, body)
 	}
 	if status, body := turn(member, north, true); status != http.StatusConflict || !strings.Contains(string(body), notThroughIt) {
@@ -176,6 +181,44 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// The administrator reads the switch in the tenant.
 	if status, got := state(admin, north); status != http.StatusOK || got != `{"directoryOnly":false}` {
 		t.Errorf("north's switch as the administrator reads it: status %d %s, want 200 off", status, got)
+	}
+
+	// How north admits its directory's people is the tenant's own to say too, with two
+	// methods the tenant's administrator holds. Opening it names the role each of them
+	// is given at their first sign-in through the directory: asked for its warning
+	// first, the method says who will enter and with what role, and saves nothing; a
+	// role that is not one of the tenant's is refused. Making it invite only again is
+	// plain, and declares no warning.
+	open := func(role string, headers map[string]string) (int, []byte) {
+		return admin.doWith(ctx, http.MethodPost, "/api/tenants/"+north+"/open-tenant-to-directory", []byte(`{"role":"`+role+`"}`), headers)
+	}
+	inviteOnly := func(headers map[string]string) (int, []byte) {
+		return admin.doWith(ctx, http.MethodPost, "/api/tenants/"+north+"/make-tenant-invite-only", []byte(`{}`), headers)
+	}
+	opens := "Anyone who signs in through " + "north.example" + " will be able to enter this tenant without an invitation and gets the role TenantAdministrator."
+	if status, body := open("TenantAdministrator", map[string]string{"X-Warning": "true"}); status != http.StatusOK || !strings.Contains(string(body), opens) {
+		t.Errorf("the warning of opening north to its directory: status %d: %s, want 200 saying %q", status, body, opens)
+	}
+	if status, body := open("Nobody", nil); status != http.StatusBadRequest || !strings.Contains(string(body), "is not a role of this tenant") {
+		t.Errorf("opening north with a role it does not have: status %d, want 400 saying so: %s", status, body)
+	}
+	if rows := directories(ctx, t, admin, north); len(rows) != 1 || rows[0].DefaultSeat != nil {
+		t.Fatalf("north's directory after the warning and the refusal = %+v, want the one row naming no role: nothing was saved", rows)
+	}
+	if status, body := open("TenantAdministrator", nil); status != http.StatusOK {
+		t.Fatalf("opening north to its directory's people: status %d: %s", status, body)
+	}
+	if rows := directories(ctx, t, admin, north); len(rows) != 1 || rows[0].DefaultSeat == nil || *rows[0].DefaultSeat != "TenantAdministrator" {
+		t.Errorf("north's directory once it is opened = %+v, want the one row naming TenantAdministrator", rows)
+	}
+	if status, body := inviteOnly(map[string]string{"X-Warning": "true"}); status != http.StatusBadRequest || !strings.Contains(string(body), "declares no warning") {
+		t.Errorf("asking the method that makes north invite only for a warning: status %d, want 400 saying it declares none: %s", status, body)
+	}
+	if status, body := inviteOnly(nil); status != http.StatusOK {
+		t.Fatalf("making north invite only: status %d: %s", status, body)
+	}
+	if rows := directories(ctx, t, admin, north); len(rows) != 1 || rows[0].DefaultSeat != nil {
+		t.Errorf("north's directory once it is invite only = %+v, want the one row naming no role", rows)
 	}
 	if domains := chart(ctx, t, member); !slices.Equal(domains, []string{north}) {
 		t.Fatalf("the member's chart after the refusals = %v, want [%s]: nothing was written", domains, north)
@@ -207,7 +250,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// North's list of its people is made from who holds a role there, not from who can
 	// sign in: the member stays in it, and while north is directory only their row says
 	// they cannot enter; the administrator's, a super administrator, says nothing. The
-	// read a page asks before turning it on has nothing to turn on: it says so, and
+	// warning a page asks before turning it on has nothing to turn on: it says so, and
 	// names neither the directory nor the people.
 	keptOut := "Has not signed in through north.example, so cannot enter while this tenant is directory only"
 	people := tenantRows(ctx, t, admin, north, "staff-tenant-users")
@@ -218,7 +261,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		t.Errorf("north's people: the administrator's row is listed = %v saying %v, want listed saying nothing", listed, row["cannotEnter"])
 	}
 	onAlready := "This tenant is directory only already: only people who sign in through its directory enter it. There is nothing to turn on."
-	status, body = consequence(admin, north)
+	status, body = warns(admin, north)
 	if status != http.StatusConflict || !strings.Contains(string(body), onAlready) || strings.Contains(string(body), memberUser) || strings.Contains(string(body), "north.example") {
 		t.Errorf("asking what directory only would do to north while it is on: status %d: %s, want 409 saying %q and naming nobody", status, body, onAlready)
 	}
@@ -346,9 +389,10 @@ func chart(ctx context.Context, t *testing.T, b *browser) []string {
 
 // tenantDirectory is a row of the directories record as the console lists it.
 type tenantDirectory struct {
-	ID         string `json:"id"`
-	Method     string `json:"method"`
-	Connection string `json:"connection"`
+	ID          string  `json:"id"`
+	Method      string  `json:"method"`
+	Connection  string  `json:"connection"`
+	DefaultSeat *string `json:"defaultSeat"`
 }
 
 // directories lists the tenant's rows of the directories record on the console: one at most.

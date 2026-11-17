@@ -2,22 +2,15 @@ import { Component, computed, inject, input, resource, signal } from '@angular/c
 import { MatButtonModule } from '@angular/material/button';
 import { MatCardModule } from '@angular/material/card';
 import { MatDialog } from '@angular/material/dialog';
-import { MatSelectModule } from '@angular/material/select';
-import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { injectApi } from '@app/api/api';
-import { Permissions } from '@app/service/zz_gen_constants';
-import { StaffTenantRoles, TenantDirectories, Tenants } from '@app/service/zz_gen_resources';
-import {
-  DirectoryOnlyConsequence,
-  directoryOnlyConsequence,
-  DirectoryOnlyState,
-  directoryOnlyState,
-  Domain,
-  Permission,
-} from '@impulseframework/resource';
+import { Methods, Permissions } from '@app/service/zz_gen_constants';
+import { TenantDirectories, Tenants } from '@app/service/zz_gen_resources';
+import { DirectoryOnlyState, directoryOnlyState, Domain, Method, Permission } from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
-import { askInDialog } from '@impulseframework/resource-angular/dialogs';
+import { openMethodDialog } from '@impulseframework/resource-angular/resource';
 import { storeSignal } from '@impulseframework/resource-angular/resource-client';
+import { METHOD_META, MethodPresentation } from '@impulseframework/resource-angular/types';
+import { firstValueFrom } from 'rxjs';
 
 /**
  * What the directory a sign-in method reaches is called, by the method as the session
@@ -30,26 +23,6 @@ export const directoryKinds: Readonly<Record<string, string>> = {
   workos: 'WorkOS connection',
   oidc: 'OpenID Connect provider',
 };
-
-/**
- * What the confirmation of directory only says: the server's sentence, then the people
- * it names, each by their name where the account holds one. The words are the server's;
- * the page adds only the list. The server names a person only to someone who may list
- * the tenant's people, so the list can be shorter than the count the sentence gives, or
- * empty: the page then says so, and never passes a part of them off as all of them.
- */
-export function consequenceWords(consequence: DirectoryOnlyConsequence): string {
-  const people = consequence.people.map((person) =>
-    person.name ? `${person.name} (${person.username})` : person.username,
-  );
-  if (people.length === 0) {
-    return consequence.sentence;
-  }
-  if (people.length < consequence.count) {
-    return `${consequence.sentence} Of them, you may list: ${people.join(', ')}.`;
-  }
-  return `${consequence.sentence} They are: ${people.join(', ')}.`;
-}
 
 /**
  * The tenant's sign-in page: who may enter the tenant, as its declaration says. The
@@ -67,25 +40,33 @@ export function consequenceWords(consequence: DirectoryOnlyConsequence): string 
  * one the session came through. A session that came by password or with a personal
  * account is offered no such action, and is told how a directory is set. The directory
  * is removed under the Delete grant, which the server refuses while the tenant is
- * directory only. The switch is the tenant's own: the tenant's administrator turns it,
- * with the method SetTenantDirectoryOnly in the tenant's scope, and reads it as it
- * stands under the same grant, since a tenant's administrator does not read the global
- * Tenants record, which shows the flag to the application's administrator and never
- * writes it. The server allows turning it on only once the tenant has its directory, and
- * only to a person who is signed in through that directory themselves; before the page
- * turns it on, it asks the server what it would do and shows the server's sentence and
- * the people it names for the person to confirm. Turning it off is a plain confirmation.
+ * directory only.
  *
- * The directory carries a default role, the role a person is given in the tenant at
- * their first sign-in through it: the tenant's administrator picks it from the tenant's
- * roles, or none, under the Update grant on the row, and with none the directory's
- * people are told the tenant admits them by invitation only. The server reloads what
- * every instance knows after each write, so a change decides the next request at once,
- * and each write leaves a change event.
+ * Everything else the page changes is one of the tenant's own methods, run through the
+ * library's method dialog, which draws each from its generated metadata. Two say how the
+ * tenant admits its directory's people: OpenTenantToDirectory names the role each of them
+ * is given at their first sign-in through the directory, picked in the dialog from the
+ * tenant's roles with what each role is for, and MakeTenantInviteOnly clears it, after
+ * which a person from the directory enters once they are invited. Two turn directory
+ * only: MakeTenantDirectoryOnly and EndTenantDirectoryOnly; the switch is read as it
+ * stands under the grant of either, since a tenant's administrator does not read the
+ * global Tenants record, which shows the flag to the application's administrator and
+ * never writes it.
+ *
+ * Opening the tenant to its directory and making it directory only each change who
+ * enters the tenant for people nobody named, so each warns first: the dialog shows what
+ * the server says the call will do, in the server's words, with the people it names as
+ * a list of their own, and holds its button until the person has typed the word the
+ * method declares. The page asks for the warning before it opens the dialog, so a
+ * refusal (a tenant with no directory, a person who is not signed in through the
+ * tenant's directory) is shown on the page in the server's words and no dialog opens.
+ * Making the tenant invite only and turning directory only off are plain confirmations.
+ * The server reloads what every instance knows after each write, so a change decides
+ * the next request at once, and each write leaves a change event.
  */
 @Component({
   selector: 'app-tenant-sign-in',
-  imports: [MatButtonModule, MatCardModule, MatSelectModule, MatSlideToggleModule],
+  imports: [MatButtonModule, MatCardModule],
   templateUrl: './tenant-sign-in.component.html',
   styleUrl: './tenant-sign-in.component.scss',
 })
@@ -93,6 +74,7 @@ export class TenantSignInComponent {
   private api = injectApi();
   private auth = inject(AuthService);
   private dialog = inject(MatDialog);
+  private metaOf = inject(METHOD_META);
   /**
    * The client's digest cache as a signal. The questions below read it, so they are asked
    * again when a digest loads: a page opened by its address asks before the tenant's
@@ -103,8 +85,8 @@ export class TenantSignInComponent {
   /** The tenant the URL names, bound from the route. */
   tenantID = input.required<string>();
 
-  /** The picker's choice for a directory whose people are admitted by invitation only. */
-  readonly invitationOnly = '';
+  /** The tenant's own methods, as the client holds them for this tenant. */
+  private own = computed(() => this.api.domain(this.tenantID() as Domain));
 
   /** The tenant's row on the global record, for a person who reads it: its name and its directory-only flag. */
   tenant = resource({
@@ -115,11 +97,11 @@ export class TenantSignInComponent {
 
   /**
    * The tenant's directory-only switch as it stands, read in the tenant under the grant
-   * of the method that turns it: what the tenant's administrator, who does not read the
-   * global record, sees.
+   * of either method that turns it: what the tenant's administrator, who does not read
+   * the global record, sees.
    */
   switchState = resource({
-    params: () => ({ tenant: this.tenantID(), readable: this.canClose() }),
+    params: () => ({ tenant: this.tenantID(), readable: this.canMakeOnly() || this.canEndOnly() }),
     loader: ({ params }): Promise<DirectoryOnlyState | undefined> =>
       params.readable ? directoryOnlyState(this.api, params.tenant as Domain) : Promise.resolve(undefined),
   });
@@ -160,35 +142,23 @@ export class TenantSignInComponent {
    */
   sessionDirectory = computed(() => this.auth.sessionInfo().directory);
 
-  /** The tenant's roles, the default role's choices, listed where the digest grants List on them. */
-  roles = resource({
-    params: () => ({ tenant: this.tenantID(), listed: this.canListRoles() }),
-    loader: ({ params }): Promise<StaffTenantRoles[]> =>
-      params.listed ? this.api.domain(params.tenant as Domain).staffTenantRoles.list() : Promise.resolve([]),
-    defaultValue: [],
-  });
-
   canList = computed(() => this.directoriesAllow(Permissions.List));
-  canSeat = computed(() => this.directoriesAllow(Permissions.Update));
   canSet = computed(() => this.directoriesAllow(Permissions.Create));
   canRemove = computed(() => this.directoriesAllow(Permissions.Delete));
-  canClose = computed(() => {
-    this.permissions();
-    return this.api.domain(this.tenantID() as Domain).setTenantDirectoryOnly.can();
-  });
+  /** Whether the digest grants each of the tenant's own methods, asked again when a digest loads. */
+  canOpen = computed(() => this.permissions() && this.own().openTenantToDirectory.can());
+  canInviteOnly = computed(() => this.permissions() && this.own().makeTenantInviteOnly.can());
+  canMakeOnly = computed(() => this.permissions() && this.own().makeTenantDirectoryOnly.can());
+  canEndOnly = computed(() => this.permissions() && this.own().endTenantDirectoryOnly.can());
   private canReadTenant = computed(() => {
     this.permissions();
     return this.api.tenants.can(Permissions.Read);
-  });
-  private canListRoles = computed(() => {
-    this.permissions();
-    return this.api.domain(this.tenantID() as Domain).staffTenantRoles.can(Permissions.List);
   });
 
   /** Whether the digest grants permission on the tenant's directory, asked again when a digest loads. */
   private directoriesAllow(permission: Permission): boolean {
     this.permissions();
-    return this.api.domain(this.tenantID() as Domain).tenantDirectories.can(permission);
+    return this.own().tenantDirectories.can(permission);
   }
 
   /** True while a write is in flight. */
@@ -212,75 +182,104 @@ export class TenantSignInComponent {
    */
   async makeDirectory(): Promise<void> {
     await this.write(async () => {
-      await this.api.domain(this.tenantID() as Domain).tenantDirectories.create({});
+      await this.own().tenantDirectories.create({});
       this.directories.reload();
     });
   }
 
-  /** What the directory's people are given, as the row says. */
+  /** How the tenant admits its directory's people, as the row says. */
   seatOf(directory: TenantDirectories): string {
-    return directory.defaultSeat || 'Invitation only';
-  }
-
-  /** Sets the directory's default role: a role of the tenant, or none (null clears the column). */
-  async seat(directory: TenantDirectories, role: string): Promise<void> {
-    await this.write(async () => {
-      await this.api
-        .domain(this.tenantID() as Domain)
-        .tenantDirectories.patch([directory.id], { defaultSeat: role || null });
-      this.directories.reload();
-    });
+    return directory.defaultSeat
+      ? `Open to the directory's people: each is given the role ${directory.defaultSeat} at their first sign-in through it.`
+      : 'Invite only: a person from the directory enters once they are invited.';
   }
 
   /** Removes the tenant's directory, which the server refuses while the tenant is directory only. */
   async remove(directory: TenantDirectories): Promise<void> {
     await this.write(async () => {
-      await this.api.domain(this.tenantID() as Domain).tenantDirectories.remove([directory.id]);
+      await this.own().tenantDirectories.remove([directory.id]);
       this.directories.reload();
     });
   }
 
   /**
-   * Turns directory only on or off, once the person confirms, with the tenant's own
-   * method. Turning it on asks the server first what it would do, and the confirmation is
-   * the server's: its sentence, the people it names, and the words on the button. The
-   * server refuses a tenant that has no directory and a person who is not signed in
-   * through the tenant's directory, and its sentence is shown in place of a
-   * confirmation. Nothing is written until the person confirms.
+   * Opens the tenant to its directory's people, or changes the role they are given: the
+   * role is picked in the dialog, each with what it is for, and the server says what the
+   * choice will do before the person types the word and confirms. A tenant with no
+   * directory is refused before any dialog opens.
    */
-  async close(directoryOnly: boolean): Promise<void> {
+  async open(): Promise<void> {
+    await this.run(
+      Methods.OpenTenantToDirectory,
+      "Open to the directory's people",
+      { labels: { role: 'The role each of them gets' }, shows: { role: ['name', 'description'] } },
+      () => this.own().openTenantToDirectory.warning({ role: '' }),
+    );
+  }
+
+  /** Makes the tenant invite only for its directory's people, once the person confirms. */
+  async inviteOnly(): Promise<void> {
+    await this.run(Methods.MakeTenantInviteOnly, 'Make invite only', {
+      confirm:
+        'People who sign in through the directory will need an invitation to enter this tenant. The people it already seated keep their roles.',
+    });
+  }
+
+  /**
+   * Makes the tenant directory only. The server says what it will do, who will be able
+   * to enter and who of the people seated here will not, before the person types the
+   * word and confirms; it refuses a tenant that has no directory and a person who is not
+   * signed in through the tenant's directory, and its sentence is then shown on the page
+   * in place of a dialog.
+   */
+  async makeOnly(): Promise<void> {
+    const name = this.tenantName();
+    await this.run(
+      Methods.MakeTenantDirectoryOnly,
+      name ? `Make ${name} directory only` : 'Make directory only',
+      {},
+      () => this.own().makeTenantDirectoryOnly.warning({}),
+    );
+  }
+
+  /** Turns directory only off, once the person confirms: every sign-in is admitted again. */
+  async endOnly(): Promise<void> {
+    await this.run(Methods.EndTenantDirectoryOnly, 'Turn directory only off', {
+      confirm: 'Everyone seated here will be able to enter again, however they sign in.',
+    });
+  }
+
+  /**
+   * Runs one of the tenant's own methods through the library's method dialog, which
+   * draws it from the method's metadata and calls it in the tenant. A method that warns
+   * is asked for its warning first (`refusedBefore`): the server's refusal is shown on
+   * the page in its own words and no dialog opens. Once the method has run the page
+   * reads the tenant's declaration again.
+   */
+  private async run(
+    method: Method,
+    label: string,
+    presentation: Omit<MethodPresentation, 'method'>,
+    refusedBefore?: () => Promise<unknown>,
+  ): Promise<void> {
     await this.write(async () => {
-      const confirmed = directoryOnly ? await this.confirmOnly() : await this.confirmEverySignIn();
-      if (!confirmed) {
-        return;
+      if (refusedBefore) {
+        await refusedBefore();
       }
-      await this.api.domain(this.tenantID() as Domain).setTenantDirectoryOnly.execute({ directoryOnly });
-      this.switchState.reload();
-      this.tenant.reload();
+      const done = await firstValueFrom(
+        openMethodDialog(this.dialog, {
+          method,
+          meta: this.metaOf(method),
+          label,
+          presentation: { method, ...presentation },
+        }),
+      );
+      if (done) {
+        this.switchState.reload();
+        this.tenant.reload();
+        this.directories.reload();
+      }
     });
-  }
-
-  /** Asks the server what directory only would do to this tenant, and the person whether to do it. */
-  private async confirmOnly(): Promise<boolean> {
-    const consequence = await directoryOnlyConsequence(this.api, this.tenantID() as Domain);
-    const name = this.tenantName();
-    const answer = await askInDialog(this.dialog, {
-      title: name ? `Make ${name} directory only?` : 'Turn directory only on?',
-      words: consequenceWords(consequence),
-      confirm: consequence.confirm,
-    });
-    return answer === true;
-  }
-
-  /** Asks the person whether this tenant should admit every sign-in again. */
-  private async confirmEverySignIn(): Promise<boolean> {
-    const name = this.tenantName();
-    const answer = await askInDialog(this.dialog, {
-      title: name ? `Turn directory only off for ${name}?` : 'Turn directory only off?',
-      words: 'Everyone seated here will be able to enter again, however they sign in.',
-      confirm: 'Turn directory only off',
-    });
-    return answer === true;
   }
 
   private async write(act: () => Promise<void>): Promise<void> {

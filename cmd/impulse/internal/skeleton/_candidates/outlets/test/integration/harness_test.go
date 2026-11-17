@@ -440,6 +440,14 @@ func machine(ctx context.Context, t *testing.T, s *served, token, method, path s
 func (b *browser) do(ctx context.Context, method, path string, body []byte) (status int, respBody []byte) {
 	b.t.Helper()
 
+	return b.doWith(ctx, method, path, body, nil)
+}
+
+// doWith is do with headers of the request's own: a method asked for its warning
+// (X-Warning), which answers what the call would do and saves nothing.
+func (b *browser) doWith(ctx context.Context, method, path string, body []byte, headers map[string]string) (status int, respBody []byte) {
+	b.t.Helper()
+
 	req, err := http.NewRequestWithContext(ctx, method, b.base+path, bytes.NewReader(body))
 	if err != nil {
 		b.t.Fatal(err)
@@ -447,6 +455,9 @@ func (b *browser) do(ctx context.Context, method, path string, body []byte) (sta
 	req.Header.Set("Content-Type", "application/json")
 	if token := b.xsrfToken(); token != "" {
 		req.Header.Set("X-XSRF-TOKEN", token)
+	}
+	for name, value := range headers {
+		req.Header.Set(name, value)
 	}
 
 	resp, err := b.client.Do(req)
