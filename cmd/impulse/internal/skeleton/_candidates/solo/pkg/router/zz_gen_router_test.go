@@ -317,7 +317,8 @@ func TestGeneratedRouterWebApps(t *testing.T) {
 // runs ahead of the logger, Root's routes sit behind the every-request chain alone, each
 // outlet's hook runs inside the outlet's guards with the generated routes registering
 // through it, behind the read-only mask the router mounts for them on a session outlet
-// whatever the hook does, and a hook that skips the generated registration is refused.
+// whatever middleware the hook adds, and a hook that skips the generated registration is
+// refused.
 func TestGeneratedRouterHooks(t *testing.T) {
 	t.Parallel()
 

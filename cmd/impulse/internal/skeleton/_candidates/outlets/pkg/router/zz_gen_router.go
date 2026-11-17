@@ -95,7 +95,8 @@ type DefaultSession interface {
 	// EnforceReadOnlyMask refuses a write from a session that views as someone else
 	// read-only (session.Auth.EnforceReadOnlyMask). The router mounts it itself in front
 	// of the routes a signed-in person calls on their own account and of the outlet's
-	// generated routes, so it holds whatever the application's hook does.
+	// generated routes, so it holds wherever the application's hook registers those and
+	// whether or not the hook mounts it.
 	EnforceReadOnlyMask(next http.Handler) http.Handler
 	// The session's own routes (session.Auth): read and ended.
 	Authenticated() http.HandlerFunc
@@ -176,7 +177,8 @@ type PortalSession interface {
 	// EnforceReadOnlyMask refuses a write from a session that views as someone else
 	// read-only (session.Auth.EnforceReadOnlyMask). The router mounts it itself in front
 	// of the routes a signed-in person calls on their own account and of the outlet's
-	// generated routes, so it holds whatever the application's hook does.
+	// generated routes, so it holds wherever the application's hook registers those and
+	// whether or not the hook mounts it.
 	EnforceReadOnlyMask(next http.Handler) http.Handler
 	// The session's own routes (session.Auth): read and ended.
 	Authenticated() http.HandlerFunc
