@@ -242,8 +242,11 @@ func TestAuth_InvitationNewTenant(t *testing.T) {
 	t.Run("an invitation that makes no tenant answers that it makes none", authNewTenantOpenPlain)
 	t.Run("a sign-up from an invitation entered through its directory only is refused before any account is created, the invitation standing and the browser still carrying it", authNewTenantSignUpRefused)
 	t.Run("a sign-up from an invitation that makes a tenant anyone may enter creates the account, and its sign-in carries the tenant", authNewTenantSignUp)
+	t.Run("a sign-up whose sign-in did not accept the invitation leaves no account: the invitation stands, and the account made for it is deleted", authNewTenantSignUpNotAccepted)
+	t.Run("a sign-up whose sign-in accepted the invitation and was refused afterwards keeps the account: the tenant is made, and the account is its administrator's", authNewTenantSignUpAcceptedThenRefused)
 	t.Run("a signed-in person's acceptance tells the store how the session was established", authNewTenantAcceptEstablished)
 	t.Run("an acceptance the store refuses for a session that came through no organization's directory is 403 saying what to do, the browser still carrying the invitation", authNewTenantAcceptRefused)
+	t.Run("an acceptance the application refuses because the person's organization already has a tenant is 403 saying what to do and nothing of that tenant, the browser still carrying the invitation", authNewTenantAcceptOrganizationHasTenant)
 }
 
 func authNewTenantOpen(t *testing.T) {
@@ -343,6 +346,55 @@ func authNewTenantSignUp(t *testing.T) {
 	}
 }
 
+func authNewTenantSignUpNotAccepted(t *testing.T) {
+	t.Parallel()
+	userID, sessionID := newIDs()
+	f, recorder, links := newMailFixture(t, gomock.NewController(t))
+	cookies, _ := tenantInvitation(t, f, recorder, links, false)
+	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).Return(&sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}, nil)
+	// The application's hook refuses to make the tenant: the sign-in's first transaction
+	// keeps nothing, so the invitation stands.
+	f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
+		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedOrganizationHasTenant, httpio.NewConflictMessage("Your organization is already set up here."))
+	})
+	f.store.EXPECT().DeleteUser(gomock.Any(), userID).Return(nil)
+
+	rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse", "username": "patl"}, cookies)
+
+	if body := decoded(t, rr); rr.Code != http.StatusUnauthorized || body["code"] != string(sessioninfo.RefusedOrganizationHasTenant) {
+		t.Errorf("SignUp() = %d %s, want 401 on the hook's code", rr.Code, rr.Body.String())
+	}
+	if cookieNamed(rr, internalcookie.AuthCookieName) != nil {
+		t.Error("SignUp() set a session cookie, want nobody signed in")
+	}
+	if row := links.rows[0]; row.ConsumedAt != nil {
+		t.Error("the invitation was consumed, want it standing")
+	}
+}
+
+func authNewTenantSignUpAcceptedThenRefused(t *testing.T) {
+	t.Parallel()
+	userID, sessionID := newIDs()
+	f, recorder, links := newMailFixture(t, gomock.NewController(t))
+	cookies, _ := tenantInvitation(t, f, recorder, links, false)
+	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).Return(&sessionstorage.SessionUser{ID: userID, Username: "patl", Email: strPtr("pat@lakeside.edu")}, nil)
+	// The acceptance committed, and the sign-in was refused after it: the invitation is
+	// spent and the tenant made. The mocked store expects no DeleteUser: a call fails
+	// the test.
+	f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
+		now := time.Now()
+		links.rows[0].ConsumedAt = &now
+
+		return sessioninfo.NewLoginRefusal(sessioninfo.RefusedByPolicy, httpio.NewUnauthorizedMessage("the sign-in policy refused the sign-in"))
+	})
+
+	rr := f.serve(f.auth.Invitation().SignUp(), http.MethodPost, "/invitation/sign-up", map[string]string{"password": "correct horse", "username": "patl"}, cookies)
+
+	if rr.Code != http.StatusUnauthorized || cookieNamed(rr, internalcookie.AuthCookieName) != nil {
+		t.Errorf("SignUp() = %d %s, want the refusal and no session", rr.Code, rr.Body.String())
+	}
+}
+
 // expectSessionThrough makes sessionID a live session of user for the store, one that
 // records how it was established, oldest event first.
 func (f *authFixture) expectSessionThrough(sessionID impulse.UUID, user *sessionstorage.SessionUser, events ...sessioninfo.AuthEvent) {
@@ -417,6 +469,30 @@ func authNewTenantAcceptRefused(t *testing.T) {
 
 	if rr.Code != http.StatusForbidden || decoded(t, rr)["message"] != signinflow.OrganizationAccountMessage {
 		t.Errorf("Accept() = %d %s, want 403 saying to sign in with the organization's account", rr.Code, rr.Body.String())
+	}
+	if c := cookieNamed(rr, defaultInvitationCookieName); c != nil && c.Value == "" {
+		t.Error("Accept() deleted the invitation cookie, want it kept: the invitation stands")
+	}
+}
+
+func authNewTenantAcceptOrganizationHasTenant(t *testing.T) {
+	t.Parallel()
+	userID, sessionID := newIDs()
+	f, recorder, links := newMailFixture(t, gomock.NewController(t))
+	f.expectSessionThrough(sessionID, &sessionstorage.SessionUser{ID: userID, Username: "pat"}, sessioninfo.AuthEvent{Method: sessioninfo.MethodGoogle, Connection: "lakeside.edu"})
+	cookies, _ := tenantInvitation(t, f, recorder, links, false)
+	// The application's hook refuses in its own words, which may name what it likes: the
+	// answer is the library's sentence, which says nothing of the other tenant.
+	f.store.EXPECT().AcceptInvitation(gomock.Any(), userID, "pat", "", gomock.Any(), gomock.Any()).Return(
+		sessioninfo.NewLoginRefusal(sessioninfo.RefusedOrganizationHasTenant, httpio.NewConflictMessage("lakeside.edu already has the tenant Riverside High here")))
+
+	rr := f.asUser(f.auth.Invitation().Accept(), sessionID, nil, cookies)
+
+	if rr.Code != http.StatusForbidden || decoded(t, rr)["message"] != signinflow.OrganizationHasTenantMessage {
+		t.Errorf("Accept() = %d %s, want 403 saying the organization is set up already and what to do", rr.Code, rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "Riverside") {
+		t.Errorf("Accept() answered %s, want nothing of the tenant the organization has", rr.Body.String())
 	}
 	if c := cookieNamed(rr, defaultInvitationCookieName); c != nil && c.Value == "" {
 		t.Error("Accept() deleted the invitation cookie, want it kept: the invitation stands")

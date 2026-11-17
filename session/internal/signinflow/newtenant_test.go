@@ -3,6 +3,7 @@ package signinflow
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/go-playground/errors/v5"
@@ -223,6 +224,55 @@ func TestSignIn_anInvitationThatMakesATenant(t *testing.T) {
 		}
 		if len(store.users) != 0 || len(store.links) != 0 || len(store.granted) != 0 || store.sessions != 0 {
 			t.Errorf("the store holds %d user(s), %d link(s), grants %v and %d session(s), want nothing committed", len(store.users), len(store.links), store.granted, store.sessions)
+		}
+		if !store.invitations[inv.ID] || inv.Accepted {
+			t.Errorf("live = %t, Accepted = %t; want the invitation standing", store.invitations[inv.ID], inv.Accepted)
+		}
+	})
+}
+
+// TestInvitationThatMakesATenant_noAcceptor pins that an invitation that makes a tenant
+// is never consumed where nothing would make the tenant: with no acceptor the sign-in
+// that carries it and the acceptance by hand both fail, nothing is written, and the
+// invitation stands. An invitation that makes no tenant is accepted with no acceptor as
+// before: it has nothing to make.
+func TestInvitationThatMakesATenant_noAcceptor(t *testing.T) {
+	t.Parallel()
+
+	t.Run("a sign-in that carries it", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMemStore()
+		d := &memDriver{store: store}
+		inv := store.inviteTenant(stranger, false)
+
+		err := signInWith(t, d, through(sessioninfo.MethodGoogle, "lakeside.edu", inv), Rules[*memTx]{})
+
+		if err == nil || !strings.Contains(err.Error(), "has no acceptance hook to make it with") {
+			t.Fatalf("SignIn() error = %v, want the missing acceptance hook named", err)
+		}
+		if len(store.users) != 0 || len(store.links) != 0 || store.sessions != 0 {
+			t.Errorf("the store holds %d user(s), %d link(s) and %d session(s), want nothing committed", len(store.users), len(store.links), store.sessions)
+		}
+		if !store.invitations[inv.ID] || inv.Accepted {
+			t.Errorf("live = %t, Accepted = %t; want the invitation standing", store.invitations[inv.ID], inv.Accepted)
+		}
+	})
+
+	t.Run("an acceptance by hand", func(t *testing.T) {
+		t.Parallel()
+
+		store := newMemStore()
+		d := &memDriver{store: store}
+		id := impulse.Must(impulse.NewUUID())
+		store.users[id] = &memUser{username: "sam"}
+		inv := store.inviteTenant("sam@lakeside.edu", false)
+		inv.SignInMethod = sessioninfo.MethodPassword
+
+		err := AcceptInvitation[*memTx](t.Context(), d, id, "sam", "", inv, nil)
+
+		if err == nil || !strings.Contains(err.Error(), "has no acceptance hook to make it with") {
+			t.Fatalf("AcceptInvitation() error = %v, want the missing acceptance hook named", err)
 		}
 		if !store.invitations[inv.ID] || inv.Accepted {
 			t.Errorf("live = %t, Accepted = %t; want the invitation standing", store.invitations[inv.ID], inv.Accepted)

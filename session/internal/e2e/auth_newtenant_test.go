@@ -371,4 +371,48 @@ func seamTenantInvitationHookRefuses[Tx any](ctx context.Context, t *testing.T, 
 	assertRedirect(t, a.googleSignIn(ctx, b, googleClaims("sub-pat", "pat@lakeside.edu")), "/login", url.Values{"code": {"organization_has_tenant"}})
 	a.assertNoRow(ctx, t, b, "pat@lakeside.edu")
 	a.assertStanding(ctx, t, "after the hook refused", inv)
+
+	// An account with a password, where the invitation takes one: the account is made
+	// before the sign-in that carries the invitation to the hook, so the refusal takes
+	// it away again. No account is left that holds nothing, the invitation stands, and
+	// the same name signs up once the invitation can be accepted.
+	open := a.inviteTenant(ctx, t, "lee@riverside.edu", takenDirectory, false)
+	lee := a.browser(t)
+	lee.prime(ctx)
+	a.openInvitation(ctx, t, lee)
+	var refused struct {
+		Code string `json:"code"`
+	}
+	if err := json.Unmarshal(lee.expect(ctx, http.StatusUnauthorized, http.MethodPost, "/invitation/sign-up", map[string]string{"username": "lee", "password": seedPassword}, lee.xsrfToken()), &refused); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if refused.Code != string(sessioninfo.RefusedOrganizationHasTenant) {
+		t.Errorf("the refused sign-up carries the code %q, want %s", refused.Code, sessioninfo.RefusedOrganizationHasTenant)
+	}
+	a.assertNoRow(ctx, t, lee, "lee")
+	a.assertStanding(ctx, t, "after the hook refused the sign-up", inv, open)
+
+	// A person signed in already accepts by hand: refused in words that say what to
+	// do and nothing of the tenant their organization has, the invitation standing.
+	a.seed(ctx, t, "sam")
+	sam := a.browser(t)
+	sam.prime(ctx)
+	if status, _ := sam.loginAs(ctx, "sam"); status != http.StatusOK {
+		t.Fatalf("password login = %d, want 200", status)
+	}
+	forSam := a.inviteTenant(ctx, t, "sam@lakeside.edu", takenDirectory, false)
+	a.openInvitation(ctx, t, sam)
+	var byHand struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(sam.expect(ctx, http.StatusForbidden, http.MethodPost, "/invitation/accept", nil, sam.xsrfToken()), &byHand); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+	if byHand.Message != "Your organization is already set up in this application. Ask its administrator to invite you." {
+		t.Errorf("the refused acceptance by hand says %q, want that the organization is set up already and what to do", byHand.Message)
+	}
+	a.assertStanding(ctx, t, "after the acceptance by hand was refused", inv, open, forSam)
+	if handed := a.handed(); len(handed) != 0 {
+		t.Errorf("the hook kept %d invitations it refused, want none", len(handed))
+	}
 }

@@ -1611,7 +1611,15 @@ read the mailbox, and the account takes the address.
   a `sessioninfo.LoginRefusal` with a code of its own: the sign-in ends on that code,
   nothing is written and the invitation stands. `sessioninfo.RefusedOrganizationHasTenant`
   (`organization_has_tenant`) is the code for an organization whose directory another
-  tenant already has.
+  tenant already has; `Invitation().Accept()` answers it 403 with a sentence that says
+  what to do and nothing of that tenant, the browser still carrying the invitation.
+  Nothing is left behind by an acceptance that failed: the account
+  `Invitation().SignUp()` makes, in a transaction before the sign-in that runs the hook,
+  is deleted again where the invitation still stands after the sign-in failed, so no
+  account holds nothing, and the person signs up again once the invitation can be
+  accepted. An Auth with no acceptance hook (`SetInvitationAccepted`) never consumes an
+  invitation that makes a tenant, since nothing would make it: the sign-in that carries
+  one and the acceptance by hand fail, and the invitation stands.
 
   `DirectoryOnly` says the tenant is entered through its organization's directory
   alone, and the library holds the acceptance to it. A sign-in that carries such an

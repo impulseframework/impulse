@@ -373,6 +373,11 @@ func organizationAccountRefusal(inv *sessioninfo.Invitation) error {
 const OrganizationAccountMessage = "This invitation is accepted with your organization's account, not with a password or a personal account. " +
 	"Sign in with your organization's account (Google Workspace or Microsoft Entra)."
 
+// OrganizationHasTenantMessage is the sentence shown to a signed-in person whose
+// acceptance by hand was refused because the organization they signed in through
+// already has a tenant: it says what to do and nothing of that tenant.
+const OrganizationHasTenantMessage = "Your organization is already set up in this application. Ask its administrator to invite you."
+
 // addressRefusal is the refusal (invitation_address) of an acceptance of inv by an
 // account whose address, email, is not the invited one, compared without regard to
 // case and surrounding space. An account with no address ("") may accept when
@@ -487,11 +492,17 @@ func (w committedWork) run(ctx context.Context) {
 // grantConsumed runs the application's acceptor, nil for none, for the live invitation
 // the transaction consumed, inside that transaction, and answers what the acceptor
 // asks to have run once it has committed. A failed grant is the acceptor's error and
-// fails the transaction: the invitation stands.
+// fails the transaction: the invitation stands. An invitation that makes a tenant is
+// made by the acceptor and nothing else, so with no acceptor it is an error, and the
+// invitation stands: consuming it would spend the link and make nothing.
 func grantConsumed[Tx any](
 	ctx context.Context, tx Tx, userID impulse.UUID, username string, inv *sessioninfo.Invitation, accept InvitationAcceptor[Tx],
 ) (committed func(ctx context.Context), err error) {
 	if accept == nil {
+		if inv != nil && inv.NewTenant != nil {
+			return nil, errors.Newf("the invitation %s makes a tenant, and the Auth has no acceptance hook to make it with (SetInvitationAccepted): nothing is accepted", inv.ID)
+		}
+
 		return nil, nil
 	}
 	committed, err = accept(ctx, tx, userID, username, inv)
