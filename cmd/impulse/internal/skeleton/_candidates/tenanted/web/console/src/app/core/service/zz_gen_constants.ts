@@ -636,6 +636,7 @@ export namespace StaffTenantUserRoles {
 
 export namespace StaffTenantUsers {
   export const fieldName = {
+    cannotEnter: 'cannotEnter' as FieldName,
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
     domainId: 'domainId' as FieldName,
@@ -646,10 +647,12 @@ export namespace StaffTenantUsers {
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
     name: 'name' as FieldName,
+    outsideDirectory: 'outsideDirectory' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
+    cannotEnter: 'StaffTenantUsers.cannotEnter' as Resource,
     createdAt: 'StaffTenantUsers.createdAt' as Resource,
     disabled: 'StaffTenantUsers.disabled' as Resource,
     domainId: 'StaffTenantUsers.domainId' as Resource,
@@ -660,6 +663,7 @@ export namespace StaffTenantUsers {
     id: 'StaffTenantUsers.id' as Resource,
     lastSignInAt: 'StaffTenantUsers.lastSignInAt' as Resource,
     name: 'StaffTenantUsers.name' as Resource,
+    outsideDirectory: 'StaffTenantUsers.outsideDirectory' as Resource,
     passwordChangeRequired: 'StaffTenantUsers.passwordChangeRequired' as Resource,
     username: 'StaffTenantUsers.username' as Resource,
   };
