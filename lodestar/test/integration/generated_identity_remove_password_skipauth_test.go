@@ -29,6 +29,13 @@ import (
 // the requirement to change the password and the count of failed sign-ins go with it.
 // A role with no grant on the method is refused, and the person's own removal asks for
 // the password as proof.
+//
+// The person's account page offers the removal only where it can happen, from the read
+// the methods answer names beside it: what the person signs in with. It is held here
+// in each state the marshal passes through: a password alone, a password and the
+// directory, the directory alone. The crew's login page offers two Google
+// registrations, and an identity names its method and not its registration, so a
+// Google link answers both buttons. A browser with no session is answered nothing.
 func TestGeneratedIdentityRemovePassword(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -172,9 +179,27 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 	var methods struct {
 		ChangePassword string `json:"changePassword"`
 		RemovePassword string `json:"removePassword"`
+		SignInMeans    string `json:"signInMeans"`
 	}
 	if err := json.Unmarshal(body, &methods); err != nil || methods.RemovePassword != consoleAPI+"/user/password/remove" {
 		t.Fatalf("the methods answer names the removal at %q (%v), want %s/user/password/remove: %s", methods.RemovePassword, err, consoleAPI, body)
+	}
+	if methods.SignInMeans != consoleAPI+"/user/sign-in-means" {
+		t.Fatalf("the methods answer names the read of what a person signs in with at %q, want %s/user/sign-in-means: %s", methods.SignInMeans, consoleAPI, body)
+	}
+	// signsInWith holds the read's whole answer for the browser's person: nothing of the
+	// password but whether one is held.
+	signsInWith := func(b *browser, state, want string) {
+		t.Helper()
+
+		status, body := b.do(ctx, http.MethodGet, methods.SignInMeans, nil)
+		if got := strings.TrimSpace(string(body)); status != http.StatusOK || got != want {
+			t.Errorf("what the marshal signs in with, holding %s: status %d %s, want 200 %s", state, status, got, want)
+		}
+	}
+	const throughGoogle = `[{"name":"google","label":"Lodestar"},{"name":"sign-up","label":"Google"}]`
+	if status, body := stranger.do(ctx, http.MethodGet, methods.SignInMeans, nil); status != http.StatusUnauthorized || strings.Contains(string(body), "directories") {
+		t.Errorf("the read of what a person signs in with, asked with no session: status %d, want 401 and nothing of anyone: %s", status, body)
 	}
 	own := func(b *browser, password string) (int, []byte) {
 		proof, err := json.Marshal(map[string]string{"password": password})
@@ -187,12 +212,14 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 	marshal := newBrowser(t, s, consoleAPI)
 	marshal.signIn(ctx, "marshal")
 	marshalID := crewAccountID(ctx, t, hq, "marshal")
+	signsInWith(marshal, "a password alone", `{"password":true,"directories":[]}`)
 	status, body = own(marshal, personaPassword)
 	assertStatus(t, status, http.StatusConflict, body)
 	if !strings.Contains(string(body), "Your password is your only way to sign in") {
 		t.Errorf("the marshal's own removal with no identity = %s, want it to say the password is the only way in", body)
 	}
 	linkThroughDirectory("marshal")
+	signsInWith(marshal, "a password and the directory", `{"password":true,"directories":`+throughGoogle+`}`)
 	if status, body := own(marshal, "not the password"); status != http.StatusBadRequest {
 		t.Errorf("the marshal's own removal with a wrong password: status %d, want 400: %s", status, body)
 	}
@@ -207,6 +234,7 @@ func TestGeneratedIdentityRemovePassword(t *testing.T) {
 	if sess := marshal.session(ctx); sess["authenticated"] != true || sess["username"] != "marshal" {
 		t.Errorf("the marshal's session after their own removal = %v, want it to stand", sess)
 	}
+	signsInWith(marshal, "the directory alone", `{"password":false,"directories":`+throughGoogle+`}`)
 	if status, body := stranger.login(ctx, "marshal", personaPassword); status != wrongStatus || !bytes.Equal(body, wrongBody) {
 		t.Errorf("the marshal's password after the removal: status %d %s, want what a wrong password gets: %d %s", status, body, wrongStatus, wrongBody)
 	}

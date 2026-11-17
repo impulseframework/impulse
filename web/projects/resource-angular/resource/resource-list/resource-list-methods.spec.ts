@@ -114,6 +114,11 @@ const rows = [
 ];
 
 describe('ResourceListComponent row methods', () => {
+  /** The rows the list is served; a test of an empty list says so before it creates the list. */
+  let served: typeof rows;
+  beforeEach(() => {
+    served = rows;
+  });
   let fixture: ComponentFixture<ResourceListComponent>;
   let transport: ScriptedTransport;
   /** What the method dialog was opened with, and what it closes with. */
@@ -136,7 +141,7 @@ describe('ResourceListComponent row methods', () => {
         return { status: 200, body: digest };
       }
       if (url.pathname === '/api/sectors/anvil/sector-people') {
-        return { status: 200, body: rows, headers: { 'total-count': String(rows.length) } };
+        return { status: 200, body: served, headers: { 'total-count': String(served.length) } };
       }
       if (url.pathname === '/api/ships') {
         return { status: 200, body: [{ id: 's-1', name: 'Kestrel' }], headers: { 'total-count': '1' } };
@@ -385,6 +390,41 @@ describe('ResourceListComponent row methods', () => {
     expect(opened).toEqual([
       { method: 'DisablePerson', label: 'Disable', preset: { personId: 'u-9' }, confirm: 'Disable cy?' },
     ]);
+  });
+
+  // A method above a list that only makes sense while the list holds something: the
+  // page's predicate and its question are told the rows the list shows.
+  const whileListed: MethodPresentation = {
+    method: 'DisablePerson' as Method,
+    label: 'Disable',
+    when: (_parent, listed) => (listed?.length ?? 0) > 0,
+    confirm: (parent, listed) =>
+      `Disable ${String(parent['username'])}, listed with ${(listed ?? []).map((row) => String(row['username'])).join(' and ')}?`,
+  };
+
+  it('tells the predicate and the question of a method above a list the rows the list shows', async () => {
+    await create(
+      { primaryResource: people, listMethods: [whileListed] },
+      { DisablePerson: { Execute: 'granted' } },
+      under(false, ['DisablePerson']),
+    );
+
+    expect(fixture.componentInstance.listMethods().map((m) => m.label)).toEqual(['Disable']);
+    (element().querySelector('button.list-method') as HTMLButtonElement).click();
+    await settle();
+    expect(opened.map((data) => data.confirm)).toEqual(['Disable cy, listed with ada and bo?']);
+  });
+
+  it('draws no method above a list that shows no row where the predicate says the list must hold one', async () => {
+    served = [];
+    await create(
+      { primaryResource: people, listMethods: [whileListed] },
+      { DisablePerson: { Execute: 'granted' } },
+      under(false, ['DisablePerson']),
+    );
+
+    expect(fixture.componentInstance.listMethods()).toEqual([]);
+    expect(element().querySelector('button.list-method')).toBeNull();
   });
 
   for (const tt of [

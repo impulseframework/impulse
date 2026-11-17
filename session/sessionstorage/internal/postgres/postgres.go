@@ -757,27 +757,80 @@ func (s *SessionStorageDriver) renameUser(ctx context.Context, userID impulse.UU
 	return nil
 }
 
-// SetUserPasswordHash updates the user password hash
-func (s *SessionStorageDriver) SetUserPasswordHash(ctx context.Context, userID impulse.UUID, hash *securehash.Hash) error {
+// UpgradeUserPasswordHash replaces the password hash a sign-in proved (proven) with
+// hash, the same password under the hasher's current parameters, leaving the password
+// change mark as it is. The write names the proven hash, so it lands only while the row
+// still holds it: a password changed, reset or removed since the sign-in read it stands
+// as it is (ErrPasswordChanged, a Conflict).
+func (s *SessionStorageDriver) UpgradeUserPasswordHash(ctx context.Context, userID impulse.UUID, proven, hash *securehash.Hash) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
 	query := fmt.Sprintf(`
-		UPDATE %s SET "PasswordHash" = $2
-		WHERE "Id" = $1`, s.userTable())
+		UPDATE %s SET "PasswordHash" = $3
+		WHERE "Id" = $1 AND "PasswordHash" = $2`, s.userTable())
 
-	if cmdTag, err := s.conn.Exec(ctx, query, userID, hash); err != nil {
+	cmdTag, err := s.conn.Exec(ctx, query, userID, proven, hash)
+	if err != nil {
 		return errors.Wrap(err, "Queryer.Exec()")
-	} else if cmdTag.RowsAffected() == 0 {
-		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+	if cmdTag.RowsAffected() == 0 {
+		return s.passwordNotProven(ctx, userID)
 	}
 
 	return nil
 }
 
+// ChangeUserPassword replaces the password hash a user proved (proven) with hash, one
+// the user chose, and clears the password change mark. The write names the proven hash,
+// so it lands only while the row still holds it: a password changed, reset or removed
+// since the caller read it stands as it is (ErrPasswordChanged, a Conflict).
+func (s *SessionStorageDriver) ChangeUserPassword(ctx context.Context, userID impulse.UUID, proven, hash *securehash.Hash) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	query := fmt.Sprintf(`
+		UPDATE %s SET "PasswordHash" = $3, "PasswordChangeRequired" = FALSE
+		WHERE "Id" = $1 AND "PasswordHash" = $2`, s.userTable())
+
+	cmdTag, err := s.conn.Exec(ctx, query, userID, proven, hash)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Exec()")
+	}
+	if cmdTag.RowsAffected() == 0 {
+		return s.passwordNotProven(ctx, userID)
+	}
+
+	return nil
+}
+
+// passwordNotProven answers why a write that names a proven password hash wrote
+// nothing: there is no such user (NotFound), or the user holds another hash, or none
+// (ErrPasswordChanged, a Conflict). A hash compares to no absent one, so a write with
+// no proven hash lands here too.
+func (s *SessionStorageDriver) passwordNotProven(ctx context.Context, userID impulse.UUID) error {
+	var exists bool
+	query := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE "Id" = $1)`, s.userTable())
+	if err := s.conn.QueryRow(ctx, query, userID).Scan(&exists); err != nil {
+		return errors.Wrap(err, "Queryer.QueryRow().Scan()")
+	}
+	if !exists {
+		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+
+	return errPasswordChanged()
+}
+
+// errPasswordChanged is the refusal of a password write that follows a proof and finds
+// the row holding another hash than the proven one.
+func errPasswordChanged() error {
+	return httpio.NewConflictMessageWithError(dbtype.ErrPasswordChanged, "the password has changed since it was checked: check it again and retry")
+}
+
 // SetUserPassword sets a user's password hash and whether the user must change the
 // password before anything else is served, in one write: true for a password an
-// operator set, false for one the user chose.
+// operator set, false for one the user chose. It follows no proof of the password it
+// replaces and overwrites whatever the row holds.
 func (s *SessionStorageDriver) SetUserPassword(ctx context.Context, userID impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()

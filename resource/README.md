@@ -3187,7 +3187,10 @@ and in Lodestar.
 **The pages.** No application writes a page for an Auth's management. The generated API
 description (`zz_gen_api.ts`) carries an `identity` block beside its resources and
 methods: for each Auth whose management the outlet serves, the Auth's name and label,
-the tenant record's name where the application has one, and a side for each scope
+the tenant record's name where the application has one, the Auth's directory sign-ins
+(`signIns`: the method the identities linked through each carry and the words its
+button on the login page carries, so a page that removes a person's password says what
+is left to sign in through), and a side for each scope
 (`global`, the whole application's; `domain`, a tenant's) that names the lists by what
 each holds (`users`, `roles`, `identities`, `invitations`, and for the whole application
 `sessions` and `signInAttempts`) and the methods by what each does (`create`, `invite`,

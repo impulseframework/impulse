@@ -11,14 +11,16 @@ import { MethodDialogComponent, MethodDialogData, MethodDialogResult } from './m
  * `parent`, the row a list sits under, for a method offered above the list. A method
  * that names a row and is offered above a list runs against `parent`, whose key fills
  * the request as a row's does. The page's question for the method, where it gives one,
- * is asked of the same row. The answer is the dialog's: the method's result once it has
- * run, nothing when the dialog was dismissed.
+ * is asked of the same row, and for a method above a list it is told `listed`, the rows
+ * the list shows. The answer is the dialog's: the method's result once it has run,
+ * nothing when the dialog was dismissed.
  */
 export function openMethodDialog(
   dialog: MatDialog,
   method: OfferedMethod,
   row?: RecordData,
   parent?: RecordData,
+  listed?: readonly RecordData[],
 ): Observable<MethodDialogResult | undefined> {
   const confirm = method.presentation?.confirm;
   const from = row ?? parent;
@@ -27,7 +29,7 @@ export function openMethodDialog(
     method: method.method,
     label: method.label,
     preset: { ...(target ? targetBody(method.method, method.meta, target) : {}), ...filledBody(method, from) },
-    confirm: typeof confirm === 'function' ? confirm(from ?? {}) : confirm,
+    confirm: typeof confirm === 'function' ? confirm(from ?? {}, row ? undefined : listed) : confirm,
     ...(method.presentation?.labels ? { labels: method.presentation.labels } : {}),
   };
   return dialog

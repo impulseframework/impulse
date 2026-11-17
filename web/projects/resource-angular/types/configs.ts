@@ -77,11 +77,19 @@ export interface MethodPresentation {
   /**
    * Whether a row offers the method, beyond the server's answer for the row: for a
    * method that only makes sense in one state of the row (Enable on a disabled
-   * account). The server's answer still decides whether the caller may run it.
+   * account). The server's answer still decides whether the caller may run it. For a
+   * method above a list (`listMethods`) the row is the one the list sits under, and
+   * `listed` the rows the list shows: a method that only makes sense while the list
+   * holds something (the removal of a person's password, above the directory sign-ins
+   * linked to them) says so from them.
    */
-  when?: (row: RecordData) => boolean;
-  /** The question the dialog asks before a method that takes nothing but the row. */
-  confirm?: string | ((row: RecordData) => string);
+  when?: (row: RecordData, listed?: readonly RecordData[]) => boolean;
+  /**
+   * The question the dialog asks before a method that takes nothing but the row. For a
+   * method above a list it is asked of the row the list sits under, with `listed`, the
+   * rows the list shows.
+   */
+  confirm?: string | ((row: RecordData, listed?: readonly RecordData[]) => string);
   /** What the notice says once the method has run. */
   successMessage?: string;
   /**

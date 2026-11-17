@@ -8,6 +8,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/securehash"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/tracer"
@@ -363,6 +364,7 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID im
 // RemoveUserPassword removes a user's password, and with it the mark that the user must
 // change it, refusing to remove the last means of sign-in of a user that has no
 // identity. The user's sessions stand. A user that holds no password is a BadRequest.
+// It follows no proof of the password and removes whatever hash the row holds.
 func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID impulse.UUID) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -371,6 +373,28 @@ func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID im
 		return errors.New("RemoveUserPassword needs the auth schema: use Auth storage")
 	}
 
+	return s.removeUserPassword(ctx, userID, false, nil)
+}
+
+// RemoveProvenUserPassword removes the password a user proved (proven), as
+// RemoveUserPassword removes one. The hash is compared in the database under the lock
+// the removal holds on the user row, so the removal goes through only while the row
+// still holds it: a password changed, reset or removed since the caller read it stands
+// as it is (ErrPasswordChanged, a Conflict).
+func (s *SessionStorageDriver) RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if !s.users {
+		return errors.New("RemoveProvenUserPassword needs the auth schema: use Auth storage")
+	}
+
+	return s.removeUserPassword(ctx, userID, true, proven)
+}
+
+// removeUserPassword removes a user's password and its change mark in one transaction.
+// With followsProof set, the row must still hold proven, the hash the caller proved.
+func (s *SessionStorageDriver) removeUserPassword(ctx context.Context, userID impulse.UUID, followsProof bool, proven *securehash.Hash) error {
 	txn, err := s.conn.Begin(ctx)
 	if err != nil {
 		return errors.Wrap(err, "Queryer.Begin()")
@@ -381,15 +405,21 @@ func (s *SessionStorageDriver) RemoveUserPassword(ctx context.Context, userID im
 
 	// The user row is locked, as an unlink locks it, so a removal and an unlink of the
 	// user's last identity run one at a time and can't both leave it without a means of
-	// sign-in.
-	var hasPassword bool
-	lockUser := fmt.Sprintf(`SELECT "PasswordHash" IS NOT NULL FROM %s WHERE "Id" = $1 FOR UPDATE`, s.userTable())
-	if err := txn.QueryRow(ctx, lockUser, userID).Scan(&hasPassword); err != nil {
+	// sign-in. The same lock holds the hash still between the comparison with the proven
+	// one and the write.
+	var hasPassword, holdsProven bool
+	lockUser := fmt.Sprintf(`
+		SELECT "PasswordHash" IS NOT NULL, COALESCE("PasswordHash" = $2, FALSE)
+		FROM %s WHERE "Id" = $1 FOR UPDATE`, s.userTable())
+	if err := txn.QueryRow(ctx, lockUser, userID, proven).Scan(&hasPassword, &holdsProven); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 		}
 
 		return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
+	}
+	if followsProof && !holdsProven {
+		return errPasswordChanged()
 	}
 	if !hasPassword {
 		return httpio.NewBadRequestMessage("the user has no password to remove")

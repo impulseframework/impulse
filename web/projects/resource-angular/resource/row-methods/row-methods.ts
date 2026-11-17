@@ -131,14 +131,19 @@ export function filledMethods(
 /**
  * Whether the row a list sits under offers a method the page names above the list: a
  * method that names a row (`@target`) runs there against that row, so the row's
- * capability answer lists it and the page's row predicate does not say no. A list under
- * no row, and a row read without its capability answer, offer none.
+ * capability answer lists it and the page's row predicate does not say no. The
+ * predicate is asked of that row and told `listed`, the rows the list shows. A list
+ * under no row, and a row read without its capability answer, offer none.
  */
-export function parentOffers(parent: RecordData | undefined, presentation: MethodPresentation): boolean {
+export function parentOffers(
+  parent: RecordData | undefined,
+  presentation: MethodPresentation,
+  listed: readonly RecordData[] = [],
+): boolean {
   if (!parent || !rowCapabilities(parent)?.Execute?.includes(presentation.method)) {
     return false;
   }
-  return presentation.when?.(parent) !== false;
+  return presentation.when?.(parent, listed) !== false;
 }
 
 /**

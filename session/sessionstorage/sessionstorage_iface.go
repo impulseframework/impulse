@@ -103,8 +103,14 @@ type UserStore interface {
 	// SetUserUsername updates the user username and, atomically, the Username
 	// on every active session row for that user.
 	SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string) error
-	// SetUserPasswordHash updates the user password hash
-	SetUserPasswordHash(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error
+	// UpgradeUserPasswordHash replaces the password hash a sign-in proved with hash, the
+	// same password hashed under the hasher's current parameters, leaving the password
+	// change mark as it is. proven is the hash the sign-in compared the password
+	// against, and the write lands only while the row still holds it: a password
+	// changed, reset or removed since the sign-in read it stands as it is
+	// (ErrPasswordChanged), so an upgrade never puts an old password back. A write with
+	// no proven hash writes nothing, and one with no new hash is refused.
+	UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
 	// ActivateUser activates a user
 	ActivateUser(ctx context.Context, id impulse.UUID) error
 	// CreateUser creates a new user. customData is nil or *U for the configured custom
@@ -297,10 +303,12 @@ type db interface {
 	// SetUserUsername updates the user username and, atomically, the Username
 	// on every active session row for that user.
 	SetUserUsername(ctx context.Context, id impulse.UUID, newUsername string) error
-	// SetUserPasswordHash updates the user password hash, leaving the password change mark as it is.
-	SetUserPasswordHash(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error
-	// SetUserPassword updates the user password hash and the password change mark in one write.
+	// UpgradeUserPasswordHash replaces the proven password hash with hash while the row still holds it, leaving the password change mark as it is.
+	UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
+	// SetUserPassword updates the user password hash and the password change mark in one write, whatever the row holds.
 	SetUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
+	// ChangeUserPassword replaces the proven password hash with hash and clears the password change mark while the row still holds it.
+	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
 	// ActivateUser activates a user
 	ActivateUser(ctx context.Context, id impulse.UUID) error
 	// CreateUser creates a new user; non-nil customData (*U) is written atomically with the user insert.
@@ -329,6 +337,9 @@ type db interface {
 	// RemoveUserPassword removes a user's password and its change mark, refusing to
 	// remove a user's last means of sign-in.
 	RemoveUserPassword(ctx context.Context, userID impulse.UUID) error
+	// RemoveProvenUserPassword removes a user's password and its change mark as
+	// RemoveUserPassword does, while the row still holds the proven hash.
+	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash) error
 	// DestroyUserSessions expires every session of a user, by UserId.
 	DestroyUserSessions(ctx context.Context, userID impulse.UUID) error
 	// TouchUserSignIn moves a user's LastSignInAt to the database's time, as its own write.
