@@ -44,16 +44,51 @@ func (a *Auth) seedFoothold(ctx context.Context, req *session.CreateUserRequest)
 	passwordMethod     = "\tsession.PasswordSignIn(s)\n"
 )
 
-// cannotSignIn is the finding for a first administrator seeded for no registration.
-const cannotSignIn = "pkg/auth/staff/foothold.go:9: the first administrator the migrate command seeds for the staff auth cannot sign in: the application's tenants have directories, where a name alone links no account that has never signed in, and the auth registers no password method and seeds its administrator for no registration (session.SeedUserID); give the auth a password method for its first administrator (impulse add method staff password), or name the registration that is the deployment's own directory in seedFoothold: derive the id with session.SeedUserIDThrough(Name, the registration's constant, req.Username), which the sign-in rule links at that person's first sign-in through the registration while it admits one organization alone"
+// passwordFoothold is the foothold impulse add auth writes for an auth that starts with
+// the password method: the first administrator seeded with the password the
+// deployment generates. SeedAdministrator is declared on line 11.
+const passwordFoothold = `package staff
+
+import (
+	"context"
+
+	"github.com/impulseframework/impulse/session"
+)
+
+const Administrator = "administrator"
+
+func (a *Auth) SeedAdministrator(ctx context.Context, password string) (bool, error) {
+	return true, a.seedFoothold(ctx, &session.CreateUserRequest{Username: Administrator, Password: &password, PasswordChangeRequired: true})
+}
+
+func (a *Auth) seedFoothold(ctx context.Context, req *session.CreateUserRequest) error {
+	id := session.SeedUserID(Name, req.Username)
+	req.ID = &id
+
+	return nil
+}
+`
+
+// The findings for a first administrator seeded for no registration, by what the auth
+// lacks: the password method, or a seed that gives the account a password.
+const (
+	cannotSignInOpening = "pkg/auth/staff/foothold.go:9: the first administrator the migrate command seeds for the staff auth cannot sign in: the application's tenants have directories, where a name alone links no account that has never signed in, "
+	seedWithPassword    = "seed the administrator with a password, as impulse add auth writes SeedAdministrator for an auth that starts with the method (session.CreateUserRequest with Password and PasswordChangeRequired, the migrate command handing it the secret the deployment generates)"
+	nameRegistration    = ", or name the registration that is the deployment's own directory in seedFoothold: derive the id with session.SeedUserIDThrough(Name, the registration's constant, req.Username), which the sign-in rule links at that person's first sign-in through the registration while it admits one organization alone"
+	cannotSignIn        = cannotSignInOpening + "the auth registers no password method, and the seed names no registration (session.SeedUserID); give the auth a password method for its first administrator (impulse add method staff password) and " + seedWithPassword + nameRegistration
+	noPasswordSeeded    = cannotSignInOpening + "the auth registers the password method but its seed creates the account with no password (the session.CreateUserRequest in SeedAdministrator sets none), which nobody is there yet to give it, and the seed names no registration (session.SeedUserID); " + seedWithPassword + nameRegistration
+)
 
 // TestFirstAdministrator pins the rule on the first administrator an auth seeds where
 // the application's tenants have directories. The refusal is the case the rule exists
-// for: an auth with no password method that seeds its administrator for no
-// registration deploys an account nobody can sign in to, and the check fails naming
-// both ways out. Either way out passes: the password method, or a
-// session.SeedUserIDThrough the author wrote, which is taken as the author's word and
-// held only to naming a registration of the auth that admits one organization.
+// for: an auth that seeds its administrator with no password and for no registration
+// deploys an account nobody can sign in to, and the check fails naming both ways out.
+// Either way out passes: a password method with a seed that gives the account a
+// password, or a session.SeedUserIDThrough the author wrote in the seed, which is taken
+// as the author's word and held only to naming a registration of the auth that admits
+// one organization. The password method alone is no way out, since adding it leaves
+// the seed as it was; and what the package does outside the seed's two functions, for
+// some other account, is not taken for the seed's.
 func TestFirstAdministrator(t *testing.T) {
 	t.Parallel()
 
@@ -84,9 +119,39 @@ func TestFirstAdministrator(t *testing.T) {
 		wantDetails []string
 	}{
 		{
-			name:        "an auth with the password method signs its first administrator in with it",
+			name: "an auth with the password method that seeds its first administrator with a password",
+			edit: func(files map[string]string) {
+				files["pkg/auth/staff/foothold.go"] = passwordFoothold
+			},
 			wantStatus:  Pass,
-			wantSummary: "the first administrator can sign in: staff (signs in with a password)",
+			wantSummary: "the first administrator can sign in: staff (seeded with a password)",
+		},
+		{
+			name: "the password method beside a seed that gives no password: the administrator still cannot sign in",
+			edit: func(files map[string]string) {
+				files["pkg/auth/staff/foothold.go"] = plainFoothold
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
+			wantDetails: []string{noPasswordSeeded},
+		},
+		{
+			name: "a password given to another account outside the seed is not the seed's",
+			edit: func(files map[string]string) {
+				files["pkg/auth/staff/foothold.go"] = plainFoothold
+				files["pkg/auth/staff/operator.go"] = "package staff\n\nfunc (a *Auth) operator(password string) *session.CreateUserRequest {\n\treturn &session.CreateUserRequest{Username: \"operator\", Password: &password}\n}\n"
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
+			wantDetails: []string{noPasswordSeeded},
+		},
+		{
+			name: "the password method beside a seed the author names the registration of",
+			edit: func(files map[string]string) {
+				files["pkg/auth/staff/foothold.go"] = strings.Replace(plainFoothold, seedPlain, `id := session.SeedUserIDThrough(Name, "google", req.Username)`, 1)
+			},
+			wantStatus:  Pass,
+			wantSummary: "the first administrator can sign in: staff (seeded for the google registration)",
 		},
 		{
 			name: "no password method and a seed for no registration: the administrator cannot sign in",
@@ -105,6 +170,16 @@ func TestFirstAdministrator(t *testing.T) {
 			},
 			wantStatus:  Pass,
 			wantSummary: "the first administrator can sign in: staff (seeded for the google registration)",
+		},
+		{
+			name: "a registration named outside the seed, for some other account, is not the seed's",
+			edit: func(files map[string]string) {
+				directoryOnly(files, googleRegistration, seedPlain)
+				files["pkg/auth/staff/operator.go"] = "package staff\n\nfunc operatorID() string {\n\treturn session.SeedUserIDThrough(Name, \"google\", \"operator\").String()\n}\n"
+			},
+			wantStatus:  Fail,
+			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
+			wantDetails: []string{cannotSignIn},
 		},
 		{
 			name: "a seed that names the registration by a value the check cannot read is the author's word",
@@ -130,7 +205,7 @@ func TestFirstAdministrator(t *testing.T) {
 			},
 			wantStatus:  Fail,
 			wantSummary: "1 auth(s) seed a first administrator who cannot sign in",
-			wantDetails: []string{"pkg/auth/staff/foothold.go:9: the first administrator the migrate command seeds for the staff auth cannot sign in: it is seeded for the directory registration (session.SeedUserIDThrough), which admits more than one organization (any tenant), and the sign-in rule links a seeded account only through a registration of one organization and nobody else, since any of the others could present the name; register the deployment's own directory as one tenant (azure.Tenant) and seed for that registration, or give the auth a password method for its first administrator"},
+			wantDetails: []string{"pkg/auth/staff/foothold.go:9: the first administrator the migrate command seeds for the staff auth cannot sign in: it is seeded for the directory registration (session.SeedUserIDThrough), which admits more than one organization (any tenant), and the sign-in rule links a seeded account only through a registration of one organization and nobody else, since any of the others could present the name; register the deployment's own directory as one tenant (azure.Tenant) and seed for that registration, or give the auth a password method and seed the administrator with a password"},
 		},
 		{
 			name: "a seed for a Microsoft registration of one tenant",
