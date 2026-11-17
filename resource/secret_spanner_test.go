@@ -496,6 +496,18 @@ func TestSpannerClient_secret_retire(t *testing.T) {
 			}
 		}
 	}
+	// counted asserts the retirement's own count of the values that name each version:
+	// what its last read holds a version to before it is disabled.
+	counted := func(step string, want map[int]int) {
+		t.Helper()
+
+		for version, values := range want {
+			if got, err := holder.named(ctx, wide, "AccessCode", version); err != nil || got != values {
+				t.Errorf("%s: the retirement counts %d value(s) naming version %d, error %v; want %d", step, got, version, err, values)
+			}
+		}
+	}
+	counted("before the retirements", map[int]int{1: 0, 2: rows + 2, 256: 1, 258: 1, 65535: 1})
 	recorded = records()
 
 	// Retiring version 256 writes its one value again under version 65535, and no other.
@@ -536,6 +548,8 @@ func TestSpannerClient_secret_retire(t *testing.T) {
 			t.Errorf("%s names version %d once every older version is retired, want 65535", id, storedVersion(code))
 		}
 	}
+
+	counted("once every older version is retired", map[int]int{1: 0, 2: 0, 256: 0, 258: 0, 65535: rows + 5})
 
 	// A second run of each writes nothing, the last version there is cannot be retired,
 	// being the current one, and no retirement wrote a change record.
