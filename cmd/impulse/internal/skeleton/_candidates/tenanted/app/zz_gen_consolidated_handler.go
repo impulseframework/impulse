@@ -213,7 +213,12 @@ func (a *App) PatchResources() http.HandlerFunc {
 								return errors.Wrap(err, "tenantDirectoryCreatePatchFromPatchSet()")
 							}
 							// A directory is never typed in: the row takes the directory the caller is
-							// signed in through, held to the rules of a tenant's directory.
+							// signed in through, held to the rules of a tenant's directory. The
+							// caller's grants answer first, so a caller they refuse learns nothing
+							// from a rule.
+							if err := patchSet.Permitted(ctx, txn); err != nil {
+								return errors.Wrap(err, "resource.PatchSet.Permitted()")
+							}
 							directory, err := NewTenantDirectoryRules().FromSession(ctx, txn, domain)
 							if err != nil {
 								return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")
@@ -231,7 +236,10 @@ func (a *App) PatchResources() http.HandlerFunc {
 						case resource.OperationDelete:
 							id := httpio.Param[impulse.UUID](req, "id")
 							// A tenant that is directory only keeps its directory: its people
-							// enter through it alone.
+							// enter through it alone. The caller's grants answer first.
+							if err := patchSet.Permitted(ctx, txn); err != nil {
+								return errors.Wrap(err, "resource.PatchSet.Permitted()")
+							}
 							if err := NewTenantDirectoryRules().Remove(ctx, txn, domain); err != nil {
 								return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
 							}
