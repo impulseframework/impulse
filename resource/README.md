@@ -2615,10 +2615,19 @@ GET  <prefix>/crew-session-auth-events                     List on CrewSessionAu
 GET  <prefix>/crew-user-roles                              List on CrewUserRoles (the role memberships)
 GET  <prefix>/crew-roles                                   List on CrewRoles (the custom roles)
 GET  <prefix>/crew-role-grants                             List on CrewRoleGrants
+GET  <prefix>/crew-groups, …/{id}                          List, Read on CrewGroups (the groups of people, sort=name)
+GET  <prefix>/crew-group-members                           List on CrewGroupMembers
+GET  <prefix>/crew-group-roles                             List on CrewGroupRoles (the roles the groups hold)
+GET  <prefix>/crew-group-users, …/{id}                     List, Read on CrewGroupUsers (the people of the groups, with their names)
+GET  <prefix>/crew-user-group-roles, …/{id}                List, Read on CrewUserGroupRoles (the roles people hold through a group)
 GET  <prefix>/sectors/{sectorID}/crew-sector-users, …/{id}         List, Read on CrewSectorUsers (sort=username)
 GET  <prefix>/sectors/{sectorID}/crew-sector-user-roles, …/{id}    List, Read on CrewSectorUserRoles (sort=username,role)
 GET  <prefix>/sectors/{sectorID}/crew-sector-invitations, …/{id}   List, Read on CrewSectorInvitations (newest first)
 GET  <prefix>/sectors/{sectorID}/crew-sector-identities, …/{id}    List, Read on CrewSectorIdentities (newest first)
+GET  <prefix>/sectors/{sectorID}/crew-sector-groups, …/{id}             List, Read on CrewSectorGroups (the sector's own groups)
+GET  <prefix>/sectors/{sectorID}/crew-sector-group-users, …/{id}        List, Read on CrewSectorGroupUsers
+GET  <prefix>/sectors/{sectorID}/crew-sector-group-roles, …/{id}        List, Read on CrewSectorGroupRoles
+GET  <prefix>/sectors/{sectorID}/crew-sector-user-group-roles, …/{id}   List, Read on CrewSectorUserGroupRoles
 POST <prefix>/create-crew-user                {"username","name","email","password","roles","domain","everyDomain"} → {"id"}   Execute on CreateCrewUser
 POST <prefix>/rename-crew-user                {"userId","username"}            Execute on RenameCrewUser, targeting CrewSessionUsers
 POST <prefix>/delete-crew-user                {"userId"}                       Execute on DeleteCrewUser, targeting CrewSessionUsers
@@ -2640,6 +2649,13 @@ POST <prefix>/remove-crew-password            {"userId"}                       E
 POST <prefix>/revoke-crew-session-token       {"tokenId"}                      Execute on RevokeCrewSessionToken, targeting CrewSessionTokens
 POST <prefix>/assign-crew-role                {"userId","role","domain","everyDomain"}   Execute on AssignCrewRole
 POST <prefix>/remove-crew-role                {"userId","role","domain","everyDomain"}   Execute on RemoveCrewRole
+POST <prefix>/create-crew-group               {"name","description","domain"} → {"id"}   Execute on CreateCrewGroup
+POST <prefix>/describe-crew-group             {"groupId","description"}        Execute on DescribeCrewGroup, targeting CrewGroups
+POST <prefix>/delete-crew-group               {"groupId"}                      Execute on DeleteCrewGroup, targeting CrewGroups
+POST <prefix>/add-crew-group-member           {"groupId","userId"}             Execute on AddCrewGroupMember, targeting CrewGroups
+POST <prefix>/remove-crew-group-member        {"groupId","userId"}             Execute on RemoveCrewGroupMember, targeting CrewGroupUsers
+POST <prefix>/give-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on GiveCrewGroupRole, targeting CrewGroups
+POST <prefix>/take-crew-group-role            {"groupId","role","domain","everyDomain"}   Execute on TakeCrewGroupRole
 POST <prefix>/sectors/{sectorID}/create-crew-sector-user   {"username","name","email","password","roles"} → {"id"}   Execute on CreateCrewSectorUser
 POST <prefix>/sectors/{sectorID}/invite-crew-sector-user   {"email","name","roles"} → {"id","sent"}                  Execute on InviteCrewSectorUser
 POST <prefix>/sectors/{sectorID}/withdraw-crew-sector-invitation   {"invitationId"}     Execute on WithdrawCrewSectorInvitation, targeting CrewSectorInvitations
@@ -2647,6 +2663,13 @@ POST <prefix>/sectors/{sectorID}/assign-crew-sector-role   {"userId","role"}    
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-role   {"userId","role"}            Execute on RemoveCrewSectorRole, targeting CrewSectorUserRoles
 POST <prefix>/sectors/{sectorID}/unlink-crew-sector-session-identity   {"identityId"}   Execute on UnlinkCrewSectorSessionIdentity, targeting CrewSectorIdentities
 POST <prefix>/sectors/{sectorID}/remove-crew-sector-password           {"userId"}       Execute on RemoveCrewSectorPassword, targeting CrewSectorUsers
+POST <prefix>/sectors/{sectorID}/create-crew-sector-group          {"name","description"} → {"id"}   Execute on CreateCrewSectorGroup
+POST <prefix>/sectors/{sectorID}/describe-crew-sector-group        {"groupId","description"}   Execute on DescribeCrewSectorGroup, targeting CrewSectorGroups
+POST <prefix>/sectors/{sectorID}/delete-crew-sector-group          {"groupId"}          Execute on DeleteCrewSectorGroup, targeting CrewSectorGroups
+POST <prefix>/sectors/{sectorID}/add-crew-sector-group-member      {"groupId","userId"} Execute on AddCrewSectorGroupMember, targeting CrewSectorGroups
+POST <prefix>/sectors/{sectorID}/remove-crew-sector-group-member   {"groupId","userId"} Execute on RemoveCrewSectorGroupMember, targeting CrewSectorGroupUsers
+POST <prefix>/sectors/{sectorID}/give-crew-sector-group-role       {"groupId","role"}   Execute on GiveCrewSectorGroupRole, targeting CrewSectorGroups
+POST <prefix>/sectors/{sectorID}/take-crew-sector-group-role       {"groupId","role"}   Execute on TakeCrewSectorGroupRole, targeting CrewSectorGroupRoles
 POST <prefix>/sectors/{sectorID}/disable-crew-sector-user, enable-…, delete-…, rename-…, set-crew-sector-user-name, set-crew-sector-user-email,
      set-crew-sector-temporary-password, require-crew-sector-password-change, revoke-crew-sector-user-trusted-devices,
      end-crew-sector-user-sessions            the whole application's bodies                Execute on each, targeting CrewSectorUsers
@@ -2859,6 +2882,66 @@ with no role is refused by a grant that reads `new.role`, since no value never p
 The roles of an invitation's row are a list too, judged the same way: an invitation the
 whole application's administrator sent in the Marshal's role, alone or among others, is
 not the Marshal's to withdraw, and its row's Execute answer leaves the withdrawal out.
+
+**Groups of people.** Where the schema holds the permission store's three group tables
+under the Auth's prefix (`CrewGroups`, `CrewGroupMembers`, `CrewGroupRoles`; the store's
+`DDL()` has them), the generated management serves the Auth's groups. A group holds roles
+the way a person does, and a person put in a group holds the group's roles wherever the
+group holds them, at their next request, until they leave the group or the group loses
+the role. The permission engine folds a group's roles into its members when it compiles
+its snapshot, so a check, a sign-in, a tenant's list of its people and the picker of a
+person's tenants all see through a group with nothing more said. An Auth whose roles a
+directory writes (`SyncsRoles`) keeps no groups, whatever tables the schema holds: the
+directory's own groups do that job. The three tables are migrated together, and a schema
+holding some of them is refused at generation.
+
+- A group is kept for the whole application or in one tenant. A tenant's group is made
+  and managed under the tenant's address by the tenant's own roles, holds any account,
+  and holds roles in that tenant alone. A group kept for the whole application is
+  managed by the whole application's methods and holds a role in the global scope, in
+  one tenant or in every tenant; no tenant's group is ever given a role in another
+  tenant (400).
+- No group holds the Super Administrator role (400): a super administrator gives it to
+  one person at a time, so a group is no way around the rule that only a super
+  administrator makes another. The methods a super administrator always executes stay
+  the two that give and take a person's own role.
+- A group that still has a member or holds a role is not deleted (409): empty it first.
+  Nobody loses a role because a group was deleted. Deleting a tenant removes the
+  tenant's groups with their members and roles, and every role a group of the whole
+  application holds in it (`ClearTenant`); deleting a person takes them out of their
+  groups.
+- A place in a group keeps an account as a role of the person's own does: a person whose
+  last role is taken away stays while they are in a group, and a person taken out of
+  their last group who holds no role is deleted with their identity links and sessions.
+  Where a person belongs to one tenant (`identity.WithOneTenantPerPerson()`), a place in
+  a tenant's group counts as a role in that tenant.
+- The declaration over the members table declares a subject set, the ids of the groups
+  the caller is in: `subject.groups` (section 2, `@subjectSet`). Every list over groups
+  carries the group's id under the attribute `group`, so a role file holds a grant to
+  the caller's own groups (`group IN subject.groups`: Lodestar's sector crew see the
+  groups they are in and the people in them), and a table of the application's own
+  whose rows name a group follows a person through it in a set of its own
+  (`who: GroupID IN subject.groups`). An application with several Auths that keep
+  groups has one set for each, named for its Auth (`subject.crewGroups`,
+  `subject.staffGroups`), since `subject.<name>` is one namespace for the application.
+  The set holds every group the caller is in, whichever tenant keeps it: a group's id
+  names one group in the whole application, so a tenant's group counts in a condition
+  wherever a row names it, and a tenant's rows name a tenant's groups by the picker the
+  application offers.
+
+The lists: `CrewGroups` (the groups, with where each is kept), `CrewGroupUsers` (the
+people of the groups, with their names), `CrewGroupRoles` (the roles the groups hold)
+and `CrewUserGroupRoles` (the roles people hold through a group, which stands beside
+`CrewUserRoles`, the roles each holds themselves, so a page says which is which). A
+tenant has its own four (`CrewSectorGroups`, `CrewSectorGroupUsers`,
+`CrewSectorGroupRoles`, `CrewSectorUserGroupRoles`): the first three hold the tenant's
+own groups, and the last every role a person holds in the tenant through a group, with
+`globalGroup` where the group is the whole application's and so not the tenant's to
+change. The lists of what people hold leave out a row the engine gives nobody (the Super
+Administrator role in a group, a tenant's group with a role outside its tenant). A
+tenant's list of its people (`CrewSectorUsers`) holds who a group puts there: the
+members of its own groups, and the members of a group of the whole application that
+holds a role there, the latter with `heldGlobally`.
 
 **The rules** are the `identity` package's, written once over a `Store` the generated
 `crewidentity` package implements with the Auth's own typed queries and patches:
