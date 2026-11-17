@@ -326,9 +326,15 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 
 	// One Auth session every method establishes: one cookie, one session table, one
 	// middleware chain. The methods are registered on it below, before the first request.
+	// The Auth is built knowing who holds the Super Administrator role, which is why the
+	// permission engine opens first: a holder signs in with a second factor whatever the
+	// sign-in rule set below asks of anyone else, held for the mailed code by a rule of
+	// the library's own after the application's. The memberships are read outside the
+	// sign-in's transaction (resource.SignInRoles).
 	authSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionstorage.NewSpannerAuth(db, sessionstorage.WithAuthEvents(events)),
 		settings.CookieKey,
+		session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),
 		session.WithSessionTableName(sessionsTable),
 		session.WithUserTableName(usersTable),
 		session.WithIdentitiesTableName(identitiesTable),
@@ -354,12 +360,6 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 
 	// The sign-in rule: every session carries a second factor (requireSecondFactor).
 	authSession.SetSignInPolicy(requireSecondFactor)
-
-	// A super administrator signs in with a second factor whatever the rule above asks
-	// of anyone else: the Auth is told who holds the role and holds their sign-in for
-	// the mailed code by a rule of the library's own, after the application's. The
-	// memberships are read outside the sign-in's transaction (resource.SignInRoles).
-	authSession.SetSuperAdministrators(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager())))
 
 	// The auth's identity client (pkg/identity, generated): the rules that manage the
 	// auth's people, over the engine that reads its memberships and the API of the session

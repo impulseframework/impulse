@@ -159,7 +159,7 @@ func newAuthFixtureOf(t *testing.T, ctrl *gomock.Controller, withPassword bool, 
 
 		return signin.Allow(), nil
 	}
-	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, append([]AuthOption{WithIdentityLinked(hook)}, options...)...)
+	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, NoSuperAdministrators(), append([]AuthOption{WithIdentityLinked(hook)}, options...)...)
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -517,7 +517,7 @@ func TestNewAuth(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			a, err := NewAuth[NoCustomData, NoCustomData](tt.storage(ctrl), cookieKey, tt.options...)
+			a, err := NewAuth[NoCustomData, NoCustomData](tt.storage(ctrl), cookieKey, NoSuperAdministrators(), tt.options...)
 			switch {
 			case tt.wantErrHas != "":
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrHas) {
@@ -536,7 +536,7 @@ func TestNewAuth(t *testing.T) {
 func newBareAuth(t *testing.T, ctrl *gomock.Controller) *Auth[NoCustomData, NoCustomData, mockTx] {
 	t.Helper()
 
-	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey)
+	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, NoSuperAdministrators())
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -2524,7 +2524,7 @@ func TestAuth_WithoutPolicy(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	store := newAuthStoreMock(ctrl)
-	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey)
+	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}

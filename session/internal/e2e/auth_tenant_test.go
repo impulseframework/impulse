@@ -144,7 +144,7 @@ func newTenantApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], opt
 	entraIDP := oidctest.NewFakeEntra(t, "entra-client")
 	googleIDP := oidctest.NewFakeIDP(t, "google-client")
 
-	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey,
+	auth, err := session.NewAuth[appSessionData, appUserData](withCustomData(t, store, h), cookieKey, session.NoSuperAdministrators(),
 		session.WithIdentityLinked(h.identityLinked), session.WithPendingHook(h.pendingHook))
 	if err != nil {
 		t.Fatalf("session.NewAuth() error = %v", err)
