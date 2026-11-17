@@ -1601,6 +1601,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "label", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "name"},
 					{Name: "openSignUp", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "ownRule", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "says", Permissions: []accesstypes.Permission{accesstypes.List}},
 				},
 			},

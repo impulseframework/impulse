@@ -305,6 +305,7 @@ export interface StaffSignInMethods {
   openSignUp?: boolean;
   defaultRole?: string;
   directoryGivesRoles?: boolean;
+  ownRule?: boolean;
   says?: string;
 }
 
@@ -799,6 +800,7 @@ const resourceMap = defineResourceMap({
       { fieldName: 'openSignUp', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'directoryGivesRoles', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'ownRule', displayType: 'boolean', required: false, isIndex: false },
       { fieldName: 'says', displayType: 'string', required: false, isIndex: false },
     ],
   },

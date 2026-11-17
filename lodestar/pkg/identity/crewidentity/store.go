@@ -663,13 +663,13 @@ func (store) TenantInvitations(ctx context.Context, txn resource.ReadWriteTransa
 
 func (store) SignInMethodRows(ctx context.Context, reader resource.ReadOnlyTransaction) ([]identity.SignInMethodRow, error) {
 	query := crewresources.NewCrewSessionSignInMethodQuery().
-		AddColumns(crewresources.NewCrewSessionSignInMethodColumns().Name().OpenSignUp().DefaultRole())
+		AddColumns(crewresources.NewCrewSessionSignInMethodColumns().Name().OpenSignUp().OpenedFor().DefaultRole())
 	var rows []identity.SignInMethodRow
 	for row, err := range query.List(ctx, reader) {
 		if err != nil {
 			return nil, errors.Wrap(err, "crewresources.CrewSessionSignInMethodQuery.List()")
 		}
-		rows = append(rows, identity.SignInMethodRow{Name: row.Data.Name, OpenSignUp: row.Data.OpenSignUp, DefaultRole: row.Data.DefaultRole})
+		rows = append(rows, identity.SignInMethodRow{Name: row.Data.Name, OpenSignUp: row.Data.OpenSignUp, OpenedFor: row.Data.OpenedFor, DefaultRole: row.Data.DefaultRole})
 	}
 
 	return rows, nil
@@ -686,7 +686,7 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 	switch {
 	case err == nil:
 		patch := crewresources.NewCrewSessionSignInMethodUpdatePatch(row.Name).
-			SetOpenSignUp(row.OpenSignUp).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
+			SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
 		if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
 			return errors.Wrap(err, "crewresources.CrewSessionSignInMethodUpdatePatch.Buffer()")
 		}
@@ -696,7 +696,7 @@ func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransact
 		return errors.Wrap(err, "crewresources.CrewSessionSignInMethodQuery.Read()")
 	}
 	patch := crewresources.NewCrewSessionSignInMethodCreatePatch(row.Name).
-		SetOpenSignUp(row.OpenSignUp).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
+		SetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole).SetUpdatedAt(spanner.CommitTimestamp)
 	if err := patch.Buffer(ctx, txn, resource.UserEvent(ctx)); err != nil {
 		return errors.Wrap(err, "crewresources.CrewSessionSignInMethodCreatePatch.Buffer()")
 	}

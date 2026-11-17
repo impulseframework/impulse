@@ -603,7 +603,9 @@ export const apiDescriptor = defineApiDescriptor({
  * prefix, with the body below, through the application's HTTP client. A signed-in person who holds
  * no tenant creates one and becomes its administrator; a person who already holds one is
  * refused (403), and so is everyone while no sign-in method is open to sign-up.
- * The route generates the new tenant's id and answers it.
+ * The route generates the new tenant's id and answers it. A GET of the same route answers
+ * whether the person may create one now (CreateTenantOffered), which a page reads before it
+ * offers the route: a page offers only what the person may do.
  */
 export const createTenantRoute = 'create-tenant';
 /** The body the create-your-tenant route takes: the Tenant record's fields, without its id. */
@@ -613,6 +615,14 @@ export interface CreateTenant {
 /** The answer of the create-your-tenant route: the id of the tenant it created, the domain of its addresses. */
 export interface CreateTenantAnswer {
   id: string;
+}
+/**
+ * The answer of GET create-tenant: whether the person may create a tenant of their own now.
+ * It is false for a person who holds a tenant already, and for everyone while no sign-in
+ * method is open to sign-up, the two refusals of the POST.
+ */
+export interface CreateTenantOffered {
+  offered: boolean;
 }
 
 /** Handles for the global scope, available on the client root. */

@@ -15,7 +15,10 @@ import (
 // StaffSignUpRole is one role a person who signs up to the Staff auth may be
 // given: a role held for the whole application, the role file's or a custom one, with
 // its description. The Super Administrator role is not among them. The default role of
-// a sign-in method that is opened to sign-up is picked from the list.
+// a sign-in method that is opened to sign-up is picked from the list, which holds the
+// roles the caller may give a person directly (the grant of AssignStaffRole, asked
+// with each role) and no other: opening a method gives its default role to every person
+// who signs up.
 //
 // It is a computed resource: the role file's roles are held by the permission engine,
 // so the engine is asked and no query selects the list. The role file grants it like
