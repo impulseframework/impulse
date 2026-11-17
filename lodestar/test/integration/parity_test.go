@@ -37,6 +37,8 @@ import (
 	initiator "github.com/impulseframework/impulse/db"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/members"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/crewidentity"
+	"github.com/impulseframework/impulse/lodestar/pkg/identity/membersidentity"
 	"github.com/impulseframework/impulse/lodestar/pkg/router"
 )
 
@@ -188,18 +190,35 @@ func openEngine(db *initiator.SpannerDB, prefix string, roles access.RoleFile) (
 
 // openEngineWith opens an engine over the store with the given prefix and the release's
 // role file, with further engine options: the policy-signal suite's change signal and
-// heartbeat.
+// heartbeat. The engine is built as the auth's package builds it, with the methods a
+// super administrator always executes (the ones the auth's generated management names),
+// so the role does in the suites what it does served.
 func openEngineWith(db *initiator.SpannerDB, prefix string, roles access.RoleFile, opts ...access.Option) (*access.Client, error) {
 	store, err := spannerstore.New(db.Client, spannerstore.WithPrefix(prefix))
 	if err != nil {
 		return nil, fmt.Errorf("spannerstore.New(): %w", err)
 	}
-	client, err := access.New(store, append([]access.Option{access.WithDefaultRoles(router.Collection(), roles)}, opts...)...)
+	built := []access.Option{
+		access.WithDefaultRoles(router.Collection(), roles),
+		access.WithSuperAdministratorMethods(superAdministratorMethods(prefix)...),
+	}
+	client, err := access.New(store, append(built, opts...)...)
 	if err != nil {
 		return nil, fmt.Errorf("access.New(): %w", err)
 	}
 
 	return client, nil
+}
+
+// superAdministratorMethods are the methods that give and take the roles of the auth
+// whose store carries the prefix: the crew's, and none for the members, whose roles the
+// directory gives.
+func superAdministratorMethods(prefix string) []accesstypes.Resource {
+	if prefix == members.TablePrefix {
+		return membersidentity.SuperAdministratorMethods()
+	}
+
+	return crewidentity.SuperAdministratorMethods()
 }
 
 // provisionDemoAccess assigns the personas and the droid their roles in the crew store and

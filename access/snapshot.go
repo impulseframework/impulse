@@ -397,6 +397,16 @@ func (s *snapshot) userHasGrants(scope accesstypes.Scope, user accesstypes.User)
 	return len(s.userGrants(scope, user)) > 0
 }
 
+// userIsSuperAdministrator reports whether user holds the Super Administrator
+// role: a membership of their own held in the global partition, the one place
+// the role is held (accesstypes.RoleCollection.HoldsSuperAdministrator). A
+// role that inherits from it makes nobody a super administrator.
+func (s *snapshot) userIsSuperAdministrator(user accesstypes.User) bool {
+	held := accesstypes.RoleCollection{accesstypes.GlobalPolicyScope(): s.global.userRoles[user]}
+
+	return held.HoldsSuperAdministrator()
+}
+
 // roleHasGrants reports whether role holds at least one grant in scope, own
 // or inherited — the foothold a session operating as the role has there. A
 // role that exists but resolves to no grants has none.

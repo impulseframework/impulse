@@ -54,36 +54,34 @@ func (m *Manager) refuseOwnAccount(ctx context.Context, userID impulse.UUID, act
 	return nil
 }
 
-// refuseLastAdministrator judges a person's removal of a role from themselves. The role
-// goes unless it is an administrator role where it is held and nobody else would hold
-// one there after: the application is never left without an administrator, nor a tenant
-// without one of its own, and a person who gives a role up otherwise is given it back
-// by one who remains. In a tenant the holders counted are the tenant's and the ones who
-// hold the role in every tenant, the person's own membership in every tenant among
-// them. A role held in every tenant is no administrator role of the application, and
-// goes. Without the administrator roles (WithAdministratorRoles) a person removes no
-// role from themselves.
+// refuseLastAdministrator judges a person's removal of a role from themselves in a
+// tenant. The role goes unless it is an administrator role of the tenant and nobody
+// else would hold one there after: a tenant is never left without an administrator of
+// its own, and a person who gives a role up otherwise is given it back by one who
+// remains. The holders counted are the tenant's and the ones who hold the role in every
+// tenant, the person's own membership in every tenant among them. Without the
+// administrator roles (WithAdministratorRoles) a person removes no role from themselves
+// in a tenant or in every tenant.
+//
+// A role held in the global partition goes: the application's last administrator is its
+// last super administrator, whose role is kept by a rule of its own, whoever asks
+// (refuseLastSuperAdministrator), and a super administrator gives any other role back.
+// A role held in every tenant is no administrator role of one tenant, and goes.
 func (m *Manager) refuseLastAdministrator(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, key *access.MembershipKey) error {
+	if scope.IsGlobal() {
+		return nil
+	}
 	if m.administrators == nil {
 		return httpio.NewForbiddenMessage("you cannot remove a role from yourself")
 	}
-	_, inDomain := scope.Domain()
-	var (
-		roles  []accesstypes.Role
-		scopes []accesstypes.PolicyScope
-	)
-	switch {
-	case scope.IsGlobal():
-		roles, scopes = m.administrators.global, []accesstypes.PolicyScope{scope}
-	case inDomain:
-		roles, scopes = m.administrators.domain, []accesstypes.PolicyScope{scope, accesstypes.EveryDomainPolicyScope()}
-	default:
+	if _, inDomain := scope.Domain(); !inDomain {
 		return nil
 	}
+	roles := m.administrators.domain
 	if !slices.Contains(roles, key.Role) {
 		return nil
 	}
-	for _, held := range scopes {
+	for _, held := range []accesstypes.PolicyScope{scope, accesstypes.EveryDomainPolicyScope()} {
 		for _, role := range roles {
 			at := access.NewMembershipKey(held, "", role)
 			holders, err := m.store.RoleHolders(ctx, txn, &access.RoleKey{Kind: at.Kind, Axis: at.Axis, Domain: at.Domain, Role: role})
@@ -102,13 +100,10 @@ func (m *Manager) refuseLastAdministrator(ctx context.Context, txn resource.Read
 			}
 		}
 	}
-	if inDomain {
-		// The tenant's key is an id nobody reads, so the sentence does not print it; it
-		// says the application's word for a tenant.
-		return httpio.NewForbiddenMessagef("you are the last administrator of this %s: give another person the role before you remove your own", m.tenantWord)
-	}
 
-	return httpio.NewForbiddenMessage("you are the last administrator: give another person the role before you remove your own")
+	// The tenant's key is an id nobody reads, so the sentence does not print it; it
+	// says the application's word for a tenant.
+	return httpio.NewForbiddenMessagef("you are the last administrator of this %s: give another person the role before you remove your own", m.tenantWord)
 }
 
 // deleteAccount buffers the removal of a user: every session they hold is ended first

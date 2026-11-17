@@ -154,8 +154,8 @@ func CheckRoles(ctx context.Context, client *access.Client, name string) error {
 
 // SeedAdministrators gives the staff auth its first administrator while its users table
 // holds no rows, the foothold a deployed environment starts from, and prints what it did:
-// the administrator user with the password the stack generates
-// (APP_STAFF_ADMINISTRATOR_PASSWORD). It runs after the role check, so the memberships
+// the administrator user, the deployment's first super administrator, with the password
+// the stack generates (APP_STAFF_ADMINISTRATOR_PASSWORD). It runs after the role check, so the memberships
 // name roles the release ships, and seeds nothing while a user exists: every user after
 // the first comes from the administration surface, and the development bootstrap creates
 // its own logins instead.
@@ -165,7 +165,7 @@ func SeedAdministrators(ctx context.Context, data *config.DataConfiguration) err
 		return errors.Wrap(err, "staff.Auth.SeedAdministrator() with APP_STAFF_ADMINISTRATOR_PASSWORD")
 	}
 	global, _ := staff.FirstAdministratorRoles()
-	reportSeed(staff.Name, seeded, fmt.Sprintf("%s holding %v in the global partition", staff.Administrator, global))
+	reportSeed(staff.Name, seeded, fmt.Sprintf("%s, a super administrator, holding %v in the global partition", staff.Administrator, global))
 
 	return nil
 }

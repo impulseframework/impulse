@@ -42,6 +42,9 @@ func (u *userManager) AddRoleUsers(ctx context.Context, scope accesstypes.Policy
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
+	if err := refuseSuperAdministratorOutsideGlobal(scope, role); err != nil {
+		return err
+	}
 	roleFound, err := u.roleExists(ctx, scope, role)
 	if err != nil {
 		return err
@@ -70,6 +73,9 @@ func (u *userManager) AddUserRoles(ctx context.Context, scope accesstypes.Policy
 	defer span.End()
 
 	for _, role := range roles {
+		if err := refuseSuperAdministratorOutsideGlobal(scope, role); err != nil {
+			return err
+		}
 		roleFound, err := u.roleExists(ctx, scope, role)
 		if err != nil {
 			return err
@@ -236,6 +242,9 @@ func (u *userManager) AddRole(ctx context.Context, scope accesstypes.PolicyScope
 	}
 	if strings.TrimSpace(description) == "" {
 		return httpio.NewBadRequestMessagef("role %q carries no description; a role carries one or two plain sentences saying what it is for", string(role))
+	}
+	if isSuperAdministratorName(role) {
+		return httpio.NewConflictMessagef("role %s: %s; choose another name", string(role), superAdministratorReserved)
 	}
 	if u.defaults.exists(scope, role) {
 		return httpio.NewConflictMessagef("role %q is one of the release's default roles; a custom role cannot take its name", string(role))
@@ -590,6 +599,19 @@ func (u *userManager) ResolveRole(ctx context.Context, scope accesstypes.PolicyS
 	default:
 		return "", false, httpio.NewConflictMessagef("role %q matches %d roles in scope %s that differ only in case (%v); a directory names roles without regard to case, so rename all but one", name, len(matches), scope, matches)
 	}
+}
+
+// refuseSuperAdministratorOutsideGlobal refuses a membership of the Super
+// Administrator role held anywhere but the global partition: a tenant has no
+// super administrator, and the role is no tenant's to give. Every write of a
+// membership asks it first, so the refusal says the rule instead of answering
+// that the role does not exist there.
+func refuseSuperAdministratorOutsideGlobal(scope accesstypes.PolicyScope, role accesstypes.Role) error {
+	if role != accesstypes.SuperAdministrator || scope.IsGlobal() {
+		return nil
+	}
+
+	return httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, never in a tenant or in every tenant: give it with no tenant named", string(role))
 }
 
 // roleExists reports whether role exists in scope under exactly that spelling:

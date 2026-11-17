@@ -160,15 +160,27 @@ const (
 
 // AdministratorRoles are the roles whose holders administer, by where they are held:
 // Headquarters in the whole service, SectorMarshal in a sector (the governor holds it
-// in every sector). The auth's generated management judges a person who takes a role
-// from themselves by them (identity.WithAdministratorRoles, the last-owner rule): a
-// marshal leaves a sector once another marshal holds it, and the last one is refused;
-// and the Sector record's create gives the creator the sector's
-// (app.SectorAdministratorRoles).
+// in every sector). The auth's generated management judges a person who takes a
+// sector's role from themselves by the sector's (identity.WithAdministratorRoles, the
+// last-owner rule): a marshal leaves a sector once another marshal holds it, and the
+// last one is refused; and the Sector record's create gives the creator the sector's
+// (app.SectorAdministratorRoles). The whole service is kept by the role the framework
+// defines in every auth instead, Super Administrator (accesstypes.SuperAdministrator),
+// which the governor holds: its last holder keeps the role and the account, whoever
+// asks.
 //
 // Demonstrates: tenancy.creator-seat.
 func AdministratorRoles() (global, everyDomain []accesstypes.Role) {
 	return []accesstypes.Role{"Headquarters"}, []accesstypes.Role{"SectorMarshal"}
+}
+
+// sectorAdministratorRoles are the roles that administer a sector, the ones
+// AdministratorRoles names as held in every sector: what the identity client judges a
+// person who takes a sector's role from themselves by.
+func sectorAdministratorRoles() []accesstypes.Role {
+	_, everyDomain := AdministratorRoles()
+
+	return everyDomain
 }
 
 // rolesFile is the auth's default roles: the release's own policy for the crew, which
@@ -572,7 +584,16 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	if err != nil {
 		return nil, errors.Wrap(err, "spannerstore.New()")
 	}
-	accessClient, err := access.New(store, access.WithDefaultRoles(settings.Collection, Roles()), access.WithChangeSignal(settings.ChangeSignal))
+	// Beside the role file's roles the engine defines the framework's own in every
+	// auth, Super Administrator (accesstypes.SuperAdministrator), held for the whole
+	// service alone. What no role file takes from its holder is named here: the methods
+	// that give and take the crew's roles, as the generated management names them
+	// (access.WithSuperAdministratorMethods), so a super administrator gives any role of
+	// the crew to anyone, in headquarters and in every sector.
+	//
+	// Demonstrates: auth.super-administrator.
+	accessClient, err := access.New(store, access.WithDefaultRoles(settings.Collection, Roles()), access.WithChangeSignal(settings.ChangeSignal),
+		access.WithSuperAdministratorMethods(crewidentity.SuperAdministratorMethods()...))
 	if err != nil {
 		return nil, errors.Wrap(err, "access.New()")
 	}
@@ -698,21 +719,30 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// Demonstrates: tenancy.declaration, tenancy.directory-only, auth.second-factor.
 	crewSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))
 
+	// A super administrator signs in with a second factor whatever the rule above asks
+	// of anyone else: the Auth is told who holds the role and holds their sign-in for
+	// the mailed code by a rule of the library's own, after the crew's. Here the crew's
+	// rule asks everyone already, so the library's changes nothing a person sees; it is
+	// what keeps the factor on a super administrator if the crew's rule is ever relaxed.
+	crewSession.SetSuperAdministrators(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager())))
+
 	// The crew's identity client (pkg/identity, generated): the rules that manage the
 	// auth's people, over the engine that reads its memberships and the API of the
 	// session manager that signs them in, whose hasher makes the hash of a temporary
 	// password one of its methods sets. A membership one of its methods commits is
 	// announced by that engine, on this instance at the commit and on every other
-	// through the policy signal. The client knows the crew's administrator roles
-	// (identity.WithAdministratorRoles), so a person who removes a role from themselves
-	// is judged by the rule on the last administrator: headquarters is never left
-	// without a holder, nor a sector without a marshal. The store under it writes a
+	// through the policy signal. The client knows the roles that administer a sector
+	// (identity.WithAdministratorRoles, the ones held in every sector), so a person who
+	// removes a role from themselves in a sector is judged by the rule on its last
+	// administrator: no sector is left without a marshal. The service as a whole is
+	// kept by the client's own rule on the last super administrator, whose role and
+	// account stay whoever asks. The store under it writes a
 	// membership as a create that leaves a row that is there alone (the generated create
 	// patch's OrSkip), so a role given twice is written once and keeps the time it was
 	// first given.
 	//
 	// Demonstrates: auth.generated-identity, OrSkip.
-	identityClient, err := crewidentity.NewClient(accessClient, crewSession.API(), identity.WithAdministratorRoles(AdministratorRoles()))
+	identityClient, err := crewidentity.NewClient(accessClient, crewSession.API(), identity.WithAdministratorRoles(sectorAdministratorRoles()))
 	if err != nil {
 		return nil, errors.Wrap(err, "crewidentity.NewClient()")
 	}

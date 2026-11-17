@@ -20,6 +20,7 @@ package identity
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/go-playground/errors/v5"
@@ -71,6 +72,10 @@ type Store interface {
 
 	// Username reads a user's username; found is false where no user holds the id.
 	Username(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (username string, found bool, err error)
+	// UserDisabled reads whether a user is disabled; found is false where no user holds
+	// the id. The rule on the last super administrator reads it: a holder of the role
+	// who cannot sign in is nobody's way back in.
+	UserDisabled(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (disabled, found bool, err error)
 	// UserID reads the id of the user who holds a username, compared as the auth
 	// compares names at a sign-in; found is false where none does. It is how a new
 	// name is found taken. The permission store names a person by the id of their
@@ -241,9 +246,14 @@ type Manager struct {
 	store    Store
 	access   access.Controller
 	sessions SessionAPI
-	// administrators are the roles whose holders administer the application and a
-	// tenant, nil where the application named none (WithAdministratorRoles).
+	// administrators are the roles whose holders administer a tenant, nil where the
+	// application named none (WithAdministratorRoles). The application as a whole is
+	// administered by the holders of the Super Administrator role, which needs no naming.
 	administrators *administratorRoles
+	// superMethods are the methods that give and take the auth's roles for the whole
+	// application, which the permission engine must let a super administrator execute
+	// (WithSuperAdministratorMethods); New holds the engine to it.
+	superMethods []accesstypes.Resource
 	// oneTenant is set where a person belongs to one tenant (WithOneTenantPerPerson),
 	// and holds what the hooks of a sign-in have given so far; nil where a person may
 	// hold roles in several tenants.
@@ -256,23 +266,42 @@ type Manager struct {
 	now func() time.Time
 }
 
-// administratorRoles are the roles whose holders administer, by where they are held.
+// administratorRoles are the roles whose holders administer a tenant.
 type administratorRoles struct {
-	global []accesstypes.Role
 	domain []accesstypes.Role
 }
 
 // Option configures a manager.
 type Option func(*Manager)
 
-// WithAdministratorRoles names the roles whose holders administer: global, the ones
-// held in the global scope, and domain, the ones held in a tenant. The rule on a
-// person removing a role from themselves reads them (RemoveRole): nobody gives up an
-// administrator role nobody else would hold. Without them a person removes no role
-// from themselves at all.
-func WithAdministratorRoles(global, domain []accesstypes.Role) Option {
+// WithAdministratorRoles names the roles whose holders administer a tenant: the domain
+// roles a person holds in the tenant, or in every tenant. The rule on a person removing
+// a role from themselves in a tenant reads them (RemoveRole): nobody gives up a tenant's
+// administrator role nobody else would hold there. Without them a person removes no
+// role from themselves in a tenant at all.
+//
+// The application as a whole needs no such list: its last administrator is the last
+// super administrator, the holder of the role the framework defines
+// (accesstypes.SuperAdministrator), who is protected whoever asks. A person gives up any
+// other role they hold in the global partition, since a super administrator gives it
+// back.
+func WithAdministratorRoles(domain []accesstypes.Role) Option {
 	return func(m *Manager) {
-		m.administrators = &administratorRoles{global: global, domain: domain}
+		m.administrators = &administratorRoles{domain: domain}
+	}
+}
+
+// WithSuperAdministratorMethods names the methods that give and take the auth's roles
+// for the whole application, the ones the auth's generated management serves. A super
+// administrator gives and takes any role whatever the role file grants, which the
+// permission engine provides when it is built with the same methods
+// (access.WithSuperAdministratorMethods). New holds the access library's engine to it
+// and refuses one built without them, so an application that forgot the option does not
+// start with a super administrator who can be locked out of the roles. The generated
+// client passes the methods; an application does not.
+func WithSuperAdministratorMethods(methods ...accesstypes.Resource) Option {
+	return func(m *Manager) {
+		m.superMethods = methods
 	}
 }
 
@@ -308,10 +337,42 @@ func New(auth string, store Store, controller access.Controller, sessions Sessio
 	if sessions == nil {
 		return nil, errors.New("identity.New(): the session API is nil; pass the API of the Auth that signs the auth's people in (session.Auth.API), whose hasher a password written here is checked by")
 	}
-	m := &Manager{auth: auth, store: store, access: controller, sessions: sessions, administrators: nil, oneTenant: nil, tenantWord: "tenant", now: time.Now}
+	m := &Manager{auth: auth, store: store, access: controller, sessions: sessions, administrators: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", now: time.Now}
 	for _, opt := range opts {
 		opt(m)
 	}
+	if err := m.requireSuperAdministratorMethods(); err != nil {
+		return nil, err
+	}
 
 	return m, nil
+}
+
+// superAdministratorEngine is the access library's own engine as New holds it to the
+// methods: it says which methods it was built to let a super administrator execute
+// (access.Client.SuperAdministratorMethods). A controller that does not say, such as the
+// scripted one a test stands in for the engine, answers its checks as scripted and is
+// held to nothing.
+type superAdministratorEngine interface {
+	SuperAdministratorMethods() []accesstypes.Resource
+}
+
+// requireSuperAdministratorMethods refuses a permission engine that was not built to let
+// a super administrator execute the methods that give and take the auth's roles
+// (WithSuperAdministratorMethods): the engine says what it was built with, so nothing is
+// read from the database.
+func (m *Manager) requireSuperAdministratorMethods() error {
+	engine, says := m.access.(superAdministratorEngine)
+	if !says {
+		return nil
+	}
+	built := engine.SuperAdministratorMethods()
+	for _, method := range m.superMethods {
+		if !slices.Contains(built, method) {
+			return errors.Newf("identity.New(): the permission engine of the %s auth does not let a super administrator execute %s, a method that gives or takes the auth's roles; %s",
+				m.auth, method, "build the engine with access.WithSuperAdministratorMethods and the methods the auth's generated management names (its SuperAdministratorMethods)")
+		}
+	}
+
+	return nil
 }

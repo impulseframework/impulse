@@ -50,6 +50,12 @@ type Controller interface {
 	// application's tenant list by (see Client.UserHasGrants).
 	UserHasGrants(ctx context.Context, user accesstypes.User, scope accesstypes.Scope) (bool, error)
 
+	// UserIsSuperAdministrator reports whether user holds the Super
+	// Administrator role, answered from the in-memory policy snapshot: the
+	// question a session's reach into a tenant asks of the session's actor
+	// (see Client.UserIsSuperAdministrator).
+	UserIsSuperAdministrator(ctx context.Context, user accesstypes.User) (bool, error)
+
 	// UserPermissionDigest returns user's structural grant enumeration within
 	// scope — the frontend digest payload: resource → permission → granted or
 	// conditional, denied targets absent, nothing folded (see

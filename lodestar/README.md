@@ -756,9 +756,10 @@ method, each a route behind an Execute grant (`disable-crew-user`, …) and also
 the application makes in a transaction of its own, beside its own writes. No declaration
 carries a password hash or a token hash. The rules are the methods' own: an account
 is created holding a role and deleted with its last, nobody disables or deletes their
-own account, a person keeps an administrator role nobody else holds (the client is
-built with the crew's administrator roles, `identity.WithAdministratorRoles` in
-`pkg/config/data.go`), and an invitation is written in the method's transaction and
+own account, a person keeps a sector's administrator role nobody else holds there (the
+client is built with the roles that administer a sector, `identity.WithAdministratorRoles`
+in `pkg/auth/crew/crew.go`), the last super administrator who can sign in keeps the role
+and the account, and an invitation is written in the method's transaction and
 mailed once it has committed, the answer saying whether the message went. The
 console writes no page for any of it. The generated API description names each list and
 method of an auth's management by what it is, and the browser library builds the pages
@@ -810,10 +811,17 @@ the library's tenant policy over it (`signin.TenantPolicy`, handed the generated
 `app.NewSectorDeclarationReader`, which reads the declaration in the sign-in's own
 transaction): a sign-in through a directory is admitted when one of the person's sectors
 declares that directory, a password unless every one of their sectors is directory only,
-the fleet's staff (a global role, or one held in every sector) and a sign-in whose
-directory names the roles on the library's checks, and a person holding no sector too,
-since the pioneer signs up first and charts after. Which sectors the session then
-reaches is decided again per sector where its chart is computed: the data level's roster
+a person who holds a role outside any one sector (a global role, or one held in every
+sector) and a sign-in whose directory names the roles on the library's checks, and a
+person holding no sector too, since the pioneer signs up first and charts after. Which
+sectors the session then reaches is decided again per sector where its chart is computed,
+and there one person alone is exempt from a sector's declaration: a super administrator,
+the holder of the role the framework defines in every auth (`SuperAdministrator`, in no
+role file), which the governor holds. His password session charts Bastion, where the
+dispatcher's and the archivist's, who hold global roles and a role there, do not; the
+rigger's session he starts by viewing as her enters it, and his own started by the
+marshal does not. The same person answers for who makes a super administrator: the
+marshal, viewing as the governor, is refused the role for herself. The data level's roster
 keeps every sector's declaration beside its key (`resource.TenantRoster.Declarations`,
 handed to `resource.SessionPermissions`), the records' write paths reload it after their
 commit and signal the other instances, so a declaration decides the next request, and
@@ -841,11 +849,16 @@ creator is its first marshal whatever the creation shape: the create path seats 
 surveyor as `SectorMarshal` in Dawn in the transaction that writes the row, as the
 create-sector route seats the pioneer in Ember (`SectorAdministratorRoles`, from
 `crew.AdministratorRoles`, written by the crew's generated identity client),
-and the last holder of an administrator role (`Headquarters` for the whole service,
-`SectorMarshal` in a sector, `identity.WithAdministratorRoles`) is refused leaving it
-until another holds it, so an operator creates a customer's sector, makes its first
-administrator and leaves. Demonstrates: tenancy.declaration, tenancy.directory-only,
-tenancy.creator-directory, tenancy.default-seat, tenancy.creator-seat.
+and the last holder of a sector's administrator role (`SectorMarshal`,
+`identity.WithAdministratorRoles`) is refused leaving it until another holds it, so an
+operator creates a customer's sector, makes its first administrator and leaves. The
+whole service is kept by the Super Administrator role instead: only a holder makes or
+removes another, a holder gives and takes any role of the crew whatever the role file
+grants (`access.WithSuperAdministratorMethods`, handed the generated
+`crewidentity.SuperAdministratorMethods`), and the last holder who can sign in keeps the
+role and the account, whoever asks. Demonstrates: tenancy.declaration,
+tenancy.directory-only, tenancy.creator-directory, tenancy.default-seat,
+tenancy.creator-seat, auth.super-administrator.
 
 ## The personas
 
@@ -866,7 +879,7 @@ watch desk then name the cadet by username; and
 
 | Login | Who | What their view proves |
 | --- | --- | --- |
-| `governor` | Governor Greer, headquarters | Every global role and Sector Marshal in all three sectors: the pruned pure-RBAC baseline. Runs the watch desk over every live impersonated session and can revoke one. Demonstrates: impersonation.active-list, impersonation.revoke, impersonation.act-as-role, computed.pushdown. |
+| `governor` | Governor Greer, headquarters | The fleet's super administrator (`SuperAdministrator`, the role the framework defines in every auth): the one person no sector's sign-in settings shut out, who gives any role of the crew to anyone and whose role and account stay while he is the last who can sign in. Beside it, every global role and Sector Marshal in all three sectors: the pruned pure-RBAC baseline. Runs the watch desk over every live impersonated session and can revoke one. Demonstrates: impersonation.active-list, impersonation.revoke, impersonation.act-as-role, computed.pushdown. |
 | `marshal` | Marshal Maren, Anvil | Full sector authority at Anvil, nothing at Bastion or Cinder (the fail-closed border); every transition including Scrap; the row-free `now` condition on IssueBulletin; the sector briefing with every fee; the sector's lists of the crew (its people, the roles held there, its invitations), with a person's address answered only where the person holds no role outside the sector (`heldElsewhere = false`); the roles the sector picks from, every one but the Marshal's own (`name != 'SectorMarshal'` on a computed list, judged over the rows its function yields); attaches mission documents through the `@upload` method and downloads them through the generated file route, whose gate is her Read grant on `content` (the client portal lists documents and holds no such grant). Demonstrates: tenancy.concealed, @transition.multi-from, condition.now, rpc.client-form, @upload, @file.stored, impersonation.view-as, auth.tenant-lists, computed.row-condition. |
 | `cadet` | Cadet Cass | `hazard IN (1, 2)`; the flight deck with only Claim lit; the two-input distress-call form (create-form narrowing). Demonstrates: execute-condition, create-form-narrowing, capability-envelope. |
 | `pilot` | Pilot Pax, clearance 3 | `hazard <= subject.clearance AND (requiredCert IS NULL OR requiredCert IN subject.certifications)`; `hangarZone != 'quarantine'` on ships and on HailShip, the touch that answers No Content. Demonstrates: @subjectValue, @subjectSet.global, @attribute.nullable-fk, @attribute.join-path, touch, @answers.no-content. |

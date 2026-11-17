@@ -133,18 +133,25 @@ type tenantPolicy[Tx any] struct {
 //
 // The rules, in order, once the user is known:
 //
-//  1. A person holding a role in the global partition or in every tenant domain is the
-//     application's own staff and is admitted on the library's own checks, as is a
-//     sign-in whose method synchronizes roles (the directory names the person's roles,
-//     and the synchronization, which runs once the session stands, refuses a person
-//     with none); the application's own directories are admitted by the registration's
-//     organization slot already.
-//  2. A person who is a member of no tenant is refused (no_tenant), unless the policy
+//  1. A super administrator, a person holding the Super Administrator role
+//     (accesstypes.RoleCollection.HoldsSuperAdministrator), is admitted on the
+//     library's own checks, whatever any tenant declares: the role is the way back in,
+//     and no tenant's sign-in settings shut its holder out. Nobody else is exempt from
+//     them. A sign-in whose method synchronizes roles is admitted here too (the
+//     directory names the person's roles, and the synchronization, which runs once the
+//     session stands, refuses a person with none); the application's own directories
+//     are admitted by the registration's organization slot already.
+//  2. A person holding a role outside any one tenant is admitted: in the global
+//     partition, which is no tenant's and which no declaration governs, or in every
+//     tenant domain, whose tenants the policy has no list of. It is no exemption: the
+//     session then reaches a tenant only where the tenant's declaration admits it, as
+//     anyone's does.
+//  3. A person who is a member of no tenant is refused (no_tenant), unless the policy
 //     was built with AdmitWithoutTenant.
-//  3. A sign-in through a directory (Entra, Google, WorkOS) is admitted when one of the
+//  4. A sign-in through a directory (Entra, Google, WorkOS) is admitted when one of the
 //     person's tenants declares the directory it came through, its (method,
 //     connection), and refused otherwise (connection_not_in_tenant).
-//  4. Any other sign-in, a password or a session the application starts for a user it
+//  5. Any other sign-in, a password or a session the application starts for a user it
 //     authenticated itself, is admitted when one of the person's tenants admits its
 //     people other than through its directories, and refused when every one of them is
 //     directory only (directory_only).
@@ -184,8 +191,11 @@ func (p *tenantPolicy[Tx]) decide(ctx context.Context, tx Tx, req *sessioninfo.N
 	if err != nil {
 		return nil, errors.Wrap(err, "UserRoleManager.UserRoles()")
 	}
-	staff, tenants := membership(held)
-	if staff {
+	if held.HoldsSuperAdministrator() {
+		return Allow(), nil
+	}
+	outside, tenants := membership(held)
+	if outside {
 		return Allow(), nil
 	}
 	if len(tenants) == 0 {
@@ -213,16 +223,17 @@ func (p *tenantPolicy[Tx]) decide(ctx context.Context, tx Tx, req *sessioninfo.N
 	return denyBecause(sessioninfo.RefusedDirectoryOnly, ErrDirectoryOnly), nil
 }
 
-// membership reads the person's memberships: staff when a role is held in the global
-// partition or in every tenant domain, and the tenants where a role is held, in a
-// fixed order, so the declarations are read the same way at every sign-in.
-func membership(held accesstypes.RoleCollection) (staff bool, tenants []accesstypes.Domain) {
+// membership reads the person's memberships: outside when a role is held outside any
+// one tenant, in the global partition or in every tenant domain, and the tenants where
+// a role is held, in a fixed order, so the declarations are read the same way at every
+// sign-in.
+func membership(held accesstypes.RoleCollection) (outside bool, tenants []accesstypes.Domain) {
 	for scope, roles := range held {
 		if len(roles) == 0 {
 			continue
 		}
 		if scope.IsGlobal() || scope.IsEveryDomain() {
-			staff = true
+			outside = true
 
 			continue
 		}
@@ -232,7 +243,7 @@ func membership(held accesstypes.RoleCollection) (staff bool, tenants []accessty
 	}
 	slices.Sort(tenants)
 
-	return staff, tenants
+	return outside, tenants
 }
 
 // establishment is how the sign-in proves who the person is: the identity's method

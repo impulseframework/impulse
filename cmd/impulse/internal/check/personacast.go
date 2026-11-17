@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/access"
+	"github.com/impulseframework/impulse/accesstypes"
 
 	"github.com/impulseframework/impulse/app"
 	"github.com/impulseframework/impulse/cast"
@@ -22,7 +23,10 @@ import (
 // persona, every login lowercase letters, digits, dots, underscores and hyphens starting
 // with a letter, no login twice), and every role a persona names is a role the auth's
 // role file defines, since SeedCast seats each persona in its roles and a role the file
-// does not define grants nothing. An Auth without the persona method holds no cast.
+// does not define grants nothing, or the Super Administrator role, which the framework
+// defines in every auth and no role file does (accesstypes.SuperAdministrator): SeedCast
+// seats that persona in the global partition, the one place the role is held. An Auth
+// without the persona method holds no cast.
 type personaCast struct{}
 
 // personaCastName is the check's name.
@@ -33,7 +37,7 @@ func (personaCast) Name() string {
 }
 
 func (personaCast) Describe() string {
-	return "every Auth registering the persona method (oidc.SignIn) has its cast beside it (pkg/auth/<name>/cast.json): the file parses the way the migrate command seeds it and the deploy registers it (at least one persona, logins in the one grammar, no login twice), and every role a persona names is defined in the auth's role file"
+	return "every Auth registering the persona method (oidc.SignIn) has its cast beside it (pkg/auth/<name>/cast.json): the file parses the way the migrate command seeds it and the deploy registers it (at least one persona, logins in the one grammar, no login twice), and every role a persona names is defined in the auth's role file or is the framework's SuperAdministrator"
 }
 
 func (c personaCast) Run(_ context.Context, env *Env) Result {
@@ -89,7 +93,8 @@ func registersPersona(auth *app.Auth) bool {
 
 // undefinedRoles is one finding per role a persona names that the auth's role file does
 // not define, and one when the roles cannot be read at all while a persona names one. A
-// cast naming no role reads no role file.
+// cast naming no role reads no role file. The Super Administrator role is defined by
+// the framework in every auth, so a persona names it with no role file defining it.
 func undefinedRoles(a *app.App, dir, castRel string, declared *cast.Cast) []string {
 	named := false
 	for i := range declared.Personas {
@@ -107,7 +112,7 @@ func undefinedRoles(a *app.App, dir, castRel string, declared *cast.Cast) []stri
 	for i := range declared.Personas {
 		p := &declared.Personas[i]
 		for _, role := range p.Roles {
-			if !defined[role] {
+			if !defined[role] && accesstypes.Role(role) != accesstypes.SuperAdministrator {
 				details = append(details, fmt.Sprintf("%s: persona %s names role %s, which %s does not define", castRel, p.Login, role, rolesRel))
 			}
 		}

@@ -27,7 +27,7 @@ import (
 // their next sign-in creates them seated with it in the tenant; and the seat is cleared
 // with an explicit null, the way the Sign-in page's picker clears it. A declaration
 // written through the API decides the next request, since the records' write paths
-// reload the roster after their commit; the administrator, who holds a global role,
+// reload the roster after their commit; the administrator, a super administrator,
 // keeps every tenant; and every edit leaves a change event. Under the session library's
 // skipAuth build tag Google is simulated: the callback signs in whoever
 // APP_GOOGLE_USERNAME names, as a Workspace account whose connection is the simulated
@@ -139,7 +139,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// password and seated in north alone, loses north at once (not listed, answered as a
 	// tenant that does not exist), and a fresh password sign-in is refused naming the
 	// rule, since every tenant of the member is directory only. The administrator, a
-	// global role, keeps north.
+	// super administrator, keeps north.
 	member := signedIn(ctx, t, s, memberUser)
 	if domains := userDomains(ctx, t, member); !slices.Equal(domains, []string{north}) {
 		t.Fatalf("the member's chart before = %v, want [%s]", domains, north)
@@ -155,7 +155,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		t.Errorf("GET north announcements as the member once north is directory only: status %d, want 404: %s", status, body)
 	}
 	if domains := userDomains(ctx, t, admin); !slices.Equal(domains, []string{north, south}) {
-		t.Errorf("the administrator's chart = %v, want both: a global role reaches every tenant", domains)
+		t.Errorf("the administrator's chart = %v, want both: a super administrator reaches every tenant", domains)
 	}
 	fresh := newBrowser(t, s)
 	if status, body := fresh.do(ctx, http.MethodGet, "/api/user/session", nil); status != http.StatusOK {

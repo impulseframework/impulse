@@ -404,8 +404,14 @@ func Test_prepareIdentity(t *testing.T) {
 			// The roles a sign-in gives are the manager's, handed the session library's transaction.
 			"func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.ReadWriteTransaction] {", `return c.manager.InvitationAccepted("Crew")`,
 			"func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {", `return c.manager.DirectorySeated("Crew")`,
+			// The methods a super administrator always executes are the two that give and
+			// take the auth's roles, and the manager holds the engine to them.
+			"return []accesstypes.Resource{AssignCrewRole{}.Method(), RemoveCrewRole{}.Method()}", "opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))",
 		},
-		"crewidentity/store.go":                                  {`row := map[string]any{"Id": id, "PasswordHash": spanner.NullString{}, "PasswordChangeRequired": false}`, "crewresources.NewCrewSessionImpersonationUpdatePatch(sessionID).SetEndedAt(&endedAt).SetEndReason(&reason)", `"SELECT PasswordHash IS NOT NULL FROM CrewSessionUsers WHERE Id = @id"`, `"SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)"`, "crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn)", `"SELECT Id FROM CrewSessionUsers WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL"`, "crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String())", `"Kind":      string(sessionstorage.MailLinkInvitation),`, "txn.BufferMap(invitationWrite{id: row.ID}, columns)", "crewresources.NewCrewSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)"},
+		// An auth whose directory writes its roles serves no method that gives one, so a
+		// super administrator has none to be given.
+		"membersidentity/client.go":                              {"func SuperAdministratorMethods() []accesstypes.Resource {\n\treturn nil\n}", "// The auth's roles are not given by hand here, so there are none."},
+		"crewidentity/store.go":                                  {"AddColumns(crewresources.NewCrewSessionUserColumns().Disabled()).", `row := map[string]any{"Id": id, "PasswordHash": spanner.NullString{}, "PasswordChangeRequired": false}`, "crewresources.NewCrewSessionImpersonationUpdatePatch(sessionID).SetEndedAt(&endedAt).SetEndReason(&reason)", `"SELECT PasswordHash IS NOT NULL FROM CrewSessionUsers WHERE Id = @id"`, `"SELECT Id FROM CrewSessionUsers WHERE NormalizedUsername = NORMALIZE_AND_CASEFOLD(@username)"`, "crewresources.NewCrewSessionUserDeletePatch(id).Buffer(ctx, txn)", `"SELECT Id FROM CrewSessionUsers WHERE NormalizedEmail = NORMALIZE_AND_CASEFOLD(@email) AND EmailVerifiedAt IS NOT NULL"`, "crewresources.NewCrewUserRoleQueryClause().UserID().Equal(userID.String())", `"Kind":      string(sessionstorage.MailLinkInvitation),`, "txn.BufferMap(invitationWrite{id: row.ID}, columns)", "crewresources.NewCrewSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)"},
 		"internal/crewresources/crew_role_grants.go":             {`ResourceName string    ` + "`spanner:\"Resource\"`", "// @suppress(readHandler)"},
 		"internal/crewresources/crew_session_tokens.go":          {"CrewSessionToken struct {", "RevokedAt     *time.Time"},
 		"crewidentity/create_crew_user.go":                       {"Roles       []string", "Domain      *string", "EveryDomain bool", "client.manager.CreateUser(ctx, txn, account)"},
@@ -427,7 +433,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/assign_crew_role.go":                      {"UserID impulse.UUID", "client.manager.RequireUser(ctx, txn, m.UserID)", "client.manager.AssignRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))"},
 		"crewidentity/remove_crew_role.go":                      {"UserID      impulse.UUID", "client.manager.RemoveRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))"},
 		"internal/crewresources/crew_session_impersonations.go": {"ActorUserID     *impulse.UUID `spanner:\"ActorUserId\"`"},
-		"membersidentity/store.go":                              {"var _ identity.Store = store{}", "the Members auth has no password method: user %s holds no password to remove", "membersresources.NewMembersRoleQuery()", `"example.com/acme/beacon/pkg/identity/internal/membersresources"`, "the schema holds no table MembersSessionImpersonations", "the schema holds no table MembersSessionTokens", "the schema holds no table MembersSessionIdentities"},
+		"membersidentity/store.go":                              {"var _ identity.Store = store{}", "func (store) UserDisabled(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (disabled, found bool, err error) {", "the Members auth has no password method: user %s holds no password to remove", "membersresources.NewMembersRoleQuery()", `"example.com/acme/beacon/pkg/identity/internal/membersresources"`, "the schema holds no table MembersSessionImpersonations", "the schema holds no table MembersSessionTokens", "the schema holds no table MembersSessionIdentities"},
 		// The handlers are constructed over the application with its live derivations,
 		// which they keep to publish with.
 		"crewhandlers/handlers.go": {"CrewIdentity() *crewidentity.Client", `"example.com/acme/beacon/pkg/identity/crewidentity"`, "liveDerivations *live.Derivations", "func New(deps Deps, derivations *live.Derivations) *Handlers {", "return &Handlers{Deps: deps, liveDerivations: derivations}"},
@@ -483,7 +489,9 @@ func Test_prepareIdentity(t *testing.T) {
 // Test_prepareIdentity_noMemberships pins the store of an auth whose schema holds no
 // memberships table. The store still stands for identity.Store, so what would read the
 // table is a stub with the interface's own signature: a person's memberships are asked
-// for by the id of their account there too, as in the store that reads the table.
+// for by the id of their account there too, as in the store that reads the table. A
+// read of who holds a membership answers nobody, since the methods that disable and
+// delete an account are generated for such an auth and ask it.
 func Test_prepareIdentity_noMemberships(t *testing.T) {
 	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
 	t.Chdir(t.TempDir())
@@ -505,6 +513,10 @@ func Test_prepareIdentity_noMemberships(t *testing.T) {
 				"var _ identity.Store = store{}",
 				"the schema holds no table MembersUserRoles: the Members auth's memberships are not managed here",
 				"func (store) Memberships(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]access.MembershipKey, error) {",
+				// Disabling or deleting an account asks whether the person is the last
+				// super administrator: with no memberships table nobody is, and the
+				// read answers so rather than failing the method.
+				"func (store) HasMembership(context.Context, resource.ReadWriteTransaction, *access.MembershipKey) (bool, error) {\n\treturn false, nil\n}",
 			},
 			wantNot: []string{
 				"func (store) Memberships(context.Context, resource.ReadWriteTransaction, string)",
@@ -1110,5 +1122,37 @@ func Test_identityInstance_createsUsers(t *testing.T) {
 				t.Errorf("createsUsers() = %t, want %t", got, tt.want)
 			}
 		})
+	}
+}
+
+// Test_prepareIdentity_reservedRole pins that the generator writes no management for an
+// auth whose role file defines a role named for the Super Administrator role: the file
+// is read beside the auth package, under the module root the generator runs in.
+func Test_prepareIdentity_reservedRole(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	dir, ok := (&resourceGenerator{client: &client{modulePathRoot: "example.com/acme/beacon"}}).moduleDir(crewAuthPath)
+	if !ok {
+		t.Fatalf("the fixture's crew auth %q is no package of the fixture's module", crewAuthPath)
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	roles := `{"roles": {"global": [{"name": "SuperAdministrator", "description": "Runs everything.", "permissions": {}}]}}`
+	if err := os.WriteFile(filepath.Join(dir, identityRolesFile), []byte(roles), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := identityFixtureGenerator(t, slices.Concat(crewIdentityTables, membersIdentityTables)...).prepareIdentity()
+	if want := "defines a role named SuperAdministrator, and the name is reserved"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("prepareIdentity() error = %v, want one containing %q", err, want)
+	}
+	// With the role named otherwise the same run goes through.
+	if err := os.WriteFile(filepath.Join(dir, identityRolesFile), []byte(strings.ReplaceAll(roles, "SuperAdministrator", "Administrator")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := identityFixtureGenerator(t, slices.Concat(crewIdentityTables, membersIdentityTables)...).prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() with the role named otherwise: error = %v", err)
 	}
 }

@@ -607,6 +607,39 @@ the kind: `access.GrantWarning`, `access.RequiredFieldWarning` and
 - Warns, without rejecting, when a role holds a conditional Delete, Update, or targeted Execute on a row it can neither Read nor List, a Create on a resource without a field every create must be given, or a conditional List on a concealing field the resource sorts or filters by (see Warnings)
 - A release that introduces a default role under a custom role's name shadows the custom role, and a release that retires a default role leaves its memberships holding nothing; both are reported, and the store is left as it is
 
+### The Super Administrator Role
+
+Beside the role file's roles, every client defines one role of the framework's own:
+`SuperAdministrator` (`accesstypes.SuperAdministrator`), the way back in when everything
+else is broken. It is in no role file and needs none; a client built without a role file
+defines it too.
+
+- The name is reserved in any case: a role file that defines a role of that name, global
+  or domain, does not validate (`RoleFile.Parse`, `ValidateRoles` and `New` refuse it, so
+  `impulse check` and the release's start do), and `AddRole` refuses it as a custom role
+  anywhere
+- It is held in the global partition alone: `AddUserRoles`, `AddRoleUsers` and `Membership`
+  refuse a membership of it in one tenant or in every tenant
+- `Roles` lists it among the global roles with the framework's description, and it holds
+  nothing of its own unless the client is built with
+  `access.WithSuperAdministratorMethods(methods...)`: the methods that give and take the
+  auth's roles, which the auth's generated management names
+  (`<auth>identity.SuperAdministratorMethods()`). The role then holds Execute on each,
+  under no condition, whatever the role file grants anybody, so a super administrator
+  gives and takes any role of the auth for any person. With a collection, `New` refuses a
+  method the release does not declare at the global scope with Execute.
+  `Client.SuperAdministratorMethods` answers what the client was built with, and the
+  identity library refuses an engine built without the methods its auth names
+- `Client.UserIsSuperAdministrator` and `UserChecker.SuperAdministrator` answer whether a
+  person holds it, from the snapshot, by the one test of who is a super administrator
+  (`accesstypes.RoleCollection.HoldsSuperAdministrator`): the question a session's reach
+  into a tenant asks of its actor, and the sign-in policy's first rule asks of the person
+  signing in. A super administrator's session enters every tenant whatever the tenant's
+  sign-in settings say, and nobody else is exempt from them
+- Who may hold it is the identity library's rule, not this one's: only a holder makes or
+  removes another, and the last holder who can sign in keeps the role and the account. A
+  directory's role synchronization neither gives the role nor takes it
+
 **Note**: `CheckPolicy` writes nothing, so it is safe to run on every deploy and from any tool. A rollback's binary carries its own role file, and what the store holds that the older release cannot use is reported the same way.
 
 ### Warnings

@@ -51,7 +51,9 @@ type Invitation struct {
 // role is deleted by the rule on an account nothing admits. Every role must exist
 // where the acceptance seats it: in the tenant for an invitation into one, and in the
 // global scope or in every tenant for an invitation into the application. The
-// request's caller is recorded as its sender where they are a user of the auth.
+// request's caller is recorded as its sender where they are a user of the auth. An
+// invitation that gives the Super Administrator role is written by a caller who holds
+// it (requireSuperAdministrator); the acceptance then gives what it wrote.
 //
 // Where a person belongs to one tenant (WithOneTenantPerPerson), an invitation into a
 // tenant is refused when a user already holds the address and holds a role in another
@@ -92,6 +94,11 @@ func (m *Manager) Invite(ctx context.Context, txn resource.ReadWriteTransaction,
 		}
 		if !exists {
 			return impulse.NilUUID, httpio.NewBadRequestMessagef("role %q does not exist where the invitation gives it", role)
+		}
+		if role == accesstypes.SuperAdministrator {
+			if err := m.requireSuperAdministrator(ctx, txn, "invites a person to the Super Administrator role"); err != nil {
+				return impulse.NilUUID, err
+			}
 		}
 		req.RoleNames = append(req.RoleNames, string(role))
 	}

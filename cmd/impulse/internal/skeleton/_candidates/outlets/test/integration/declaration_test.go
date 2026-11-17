@@ -21,7 +21,7 @@ import (
 // is refused naming the rule when none of their tenants does; a tenant whose people
 // enter through its directories only refuses a console password session at reach time
 // and, when every tenant of the person is such, at sign-in, while the directory session
-// keeps the tenant; the administrator, who holds a global role, keeps every tenant. A
+// keeps the tenant; the administrator, a super administrator, keeps every tenant. A
 // declaration written through the API decides the next request, since the records' write
 // paths reload the roster after their commit, and every edit leaves a change event. The
 // portal's simulated sign-in sets a process variable, so the test does not run in
@@ -82,8 +82,8 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// North admits its people through its directories only: the staff member, signed in
 	// by password and seated in north alone, loses north at once (not listed, answered as
 	// a tenant that does not exist), and a fresh password sign-in is refused naming the
-	// rule, since every tenant of theirs is directory only. The administrator, a global
-	// role, keeps every tenant, and the portal's member, who came through the directory,
+	// rule, since every tenant of theirs is directory only. The administrator, a super
+	// administrator, keeps every tenant, and the portal's member, who came through the directory,
 	// keeps north.
 	member := newBrowser(t, s, consoleAPI)
 	member.signIn(ctx, memberUser)
@@ -101,7 +101,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		t.Errorf("GET north announcements as the staff member once north is directory only: status %d, want 404: %s", status, body)
 	}
 	if domains := chart(ctx, t, admin, consoleAPI); !slices.Equal(domains, []string{north, south}) {
-		t.Errorf("the administrator's chart = %v, want both: a global role reaches every tenant", domains)
+		t.Errorf("the administrator's chart = %v, want both: a super administrator reaches every tenant", domains)
 	}
 	if domains := chart(ctx, t, client, portalAPI); !slices.Equal(domains, []string{north}) {
 		t.Errorf("the portal member's chart once north is directory only = %v, want [%s]: the directory session is admitted", domains, north)

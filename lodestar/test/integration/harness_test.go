@@ -286,7 +286,8 @@ func (c *testConfigurer) CrewIdentity() *crewidentity.Client {
 	if c.crewAuth != nil {
 		return c.crewAuth.Identity()
 	}
-	client, err := crewidentity.NewClient(c.access, noSessionAPI{}, identity.WithAdministratorRoles(crew.AdministratorRoles()))
+	_, sectorAdministrators := crew.AdministratorRoles()
+	client, err := crewidentity.NewClient(c.access, noSessionAPI{}, identity.WithAdministratorRoles(sectorAdministrators))
 	if err != nil {
 		panic(err)
 	}

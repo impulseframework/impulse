@@ -339,6 +339,9 @@ func (r *resourceGenerator) prepareIdentity() error {
 		if err := inst.refuseListNamesTaken(); err != nil {
 			return err
 		}
+		if err := r.refuseReservedRole(inst); err != nil {
+			return err
+		}
 		for _, dir := range []packageDir{inst.resources, inst.methods, inst.handlers} {
 			r.output.registerOutput(dir.Dir(), headerComment)
 		}
@@ -564,6 +567,14 @@ func (d *identitySourceData) Password() bool { return d.password }
 // every sign-in: no role is given at a sign-in by the application's hand, so the client
 // answers none of the hooks that give one.
 func (d *identitySourceData) RolesSynced() bool { return d.rolesSynced }
+
+// GivesRoles reports whether the instance serves the methods that give and take the
+// auth's roles for the whole application (Assign<Auth>Role and Remove<Auth>Role): the
+// application assigns the roles, and the schema holds the memberships. They are the
+// methods a super administrator always executes.
+func (d *identitySourceData) GivesRoles() bool {
+	return !d.rolesSynced && d.has(identityMemberships)
+}
 
 // PasswordOnCreate says what a create does with a password: "required" where the
 // password is the auth's one way in, "optional" beside a registration that admits

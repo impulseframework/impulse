@@ -1,6 +1,7 @@
 package authpkg
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -216,6 +217,92 @@ func TestFiles_castRefusesTheFirstAdministratorsName(t *testing.T) {
 			}
 			if got := strings.Contains(string(cast), refusal); got != tt.want {
 				t.Errorf("%s refuses a persona named as the first administrator = %v, want %v", CastGoFile, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestFiles_superAdministrator holds what every auth package writes for the role the
+// framework defines in every auth: the Auth is told who its super administrators are, so
+// their sign-in carries a second factor whatever the sign-in rule asks; the engine is
+// built with the methods that give and take the auth's roles where the application
+// generates them; the first administrator is seeded holding the role; and a persona the
+// cast names a super administrator is seated in the global partition.
+func TestFiles_superAdministrator(t *testing.T) {
+	t.Parallel()
+	const (
+		told    = "authSession.SetSuperAdministrators(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager())))"
+		methods = "access.WithSuperAdministratorMethods(%sidentity.SuperAdministratorMethods()...),"
+		seeded  = "global = append([]accesstypes.Role{accesstypes.SuperAdministrator}, global...)"
+		seated  = "case role == accesstypes.SuperAdministrator, definesRole(roles.Roles.Global, role):"
+		tenants = "identity.WithAdministratorRoles(tenantAdministrators)"
+	)
+	tests := []struct {
+		name string
+		spec *Spec
+		// wantMethods says the engine is handed the generated management's methods,
+		// wantSeeded that a first administrator is seeded, and wantSeated that the
+		// package holds a cast.
+		wantMethods, wantSeeded, wantSeated bool
+	}{
+		{
+			name: "a password auth with its generated management", wantMethods: true, wantSeeded: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", IdentityDir: "pkg/identity", Methods: []Method{{Kind: app.MethodPassword}}},
+		},
+		{
+			name: "a password auth with no generated management", wantSeeded: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "staff", Methods: []Method{{Kind: app.MethodPassword}}},
+		},
+		{
+			name: "a directory auth whose roles the application gives", wantMethods: true, wantSeeded: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "members", IdentityDir: "pkg/identity", Methods: []Method{
+				{Kind: app.MethodAzure, Name: "directory", Authority: app.AuthorityApplication},
+			}},
+		},
+		{
+			name: "a directory auth whose roles the directory gives seeds nobody", wantMethods: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "employees", IdentityDir: "pkg/identity", Methods: []Method{
+				{Kind: app.MethodOIDC, Name: "company-sso", Authority: app.AuthorityDirectory},
+			}},
+		},
+		{
+			name: "an auth with a cast", wantMethods: true, wantSeeded: true, wantSeated: true,
+			spec: &Spec{Module: "example.com/beacon", AuthDir: "pkg/auth", Name: "crew", IdentityDir: "pkg/identity", Methods: []Method{
+				{Kind: app.MethodPassword},
+				{Kind: app.MethodPersona},
+			}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			files, err := Files(tt.spec)
+			if err != nil {
+				t.Fatalf("Files(%s) error = %v", tt.spec.Name, err)
+			}
+			auth := string(files[tt.spec.Name+".go"])
+			if !strings.Contains(auth, told) {
+				t.Errorf("%s.go does not tell the Auth who its super administrators are: it lacks %q", tt.spec.Name, told)
+			}
+			if got := strings.Contains(auth, fmt.Sprintf(methods, tt.spec.Name)); got != tt.wantMethods {
+				t.Errorf("%s.go hands the engine the methods that give and take the auth's roles = %v, want %v", tt.spec.Name, got, tt.wantMethods)
+			}
+			if got := strings.Contains(auth, tenants); got != (tt.wantMethods && tt.wantSeeded) {
+				t.Errorf("%s.go names the tenant's administrator roles alone to the identity client = %v, want %v", tt.spec.Name, got, tt.wantMethods && tt.wantSeeded)
+			}
+			foothold, ok := files[footholdFile]
+			if ok != tt.wantSeeded {
+				t.Fatalf("Files(%s) wrote a %s = %v, want %v", tt.spec.Name, footholdFile, ok, tt.wantSeeded)
+			}
+			if ok && !strings.Contains(string(foothold), seeded) {
+				t.Errorf("%s does not seed the first administrator with the Super Administrator role: it lacks %q", footholdFile, seeded)
+			}
+			cast, ok := files[CastGoFile]
+			if ok != tt.wantSeated {
+				t.Fatalf("Files(%s) wrote a %s = %v, want %v", tt.spec.Name, CastGoFile, ok, tt.wantSeated)
+			}
+			if ok && !strings.Contains(string(cast), seated) {
+				t.Errorf("%s does not seat a super administrator persona in the global partition: it lacks %q", CastGoFile, seated)
 			}
 		})
 	}
