@@ -253,8 +253,8 @@ class SideBuilder {
         ],
         rowMethods: this.present([
           [methods.describeGroup, { label: 'Change the description', icon: 'edit' }],
-          [methods.addGroupMember, { label: 'Add a person', icon: 'person_add' }],
-          [methods.giveGroupRole, { label: 'Give a role', icon: 'badge', labels: this.where() }],
+          [methods.addGroupMember, { label: 'Add a person', icon: 'person_add', labels: periodWords }],
+          [methods.giveGroupRole, { label: 'Give a role', icon: 'badge', labels: { ...this.where(), ...periodWords } }],
           [
             methods.deleteGroup,
             {
@@ -409,6 +409,7 @@ class SideBuilder {
             ['role', 'Role'],
             ['everyDomain', `In every ${this.tenantWord}`],
             ['createdAt', 'Given'],
+            ...periodColumns,
           ]),
           // Read with each row and not drawn: the list sits under the person, and the
           // question before a role is taken away names them.
@@ -448,7 +449,7 @@ class SideBuilder {
               { id: 'kind' as FieldName, hidden: true },
             ]
           : []),
-        ...this.columns(resource, [['createdAt', 'Given']]),
+        ...this.columns(resource, [['createdAt', 'Given'], ...periodColumns]),
       ],
       rowMethods: this.present([
         [
@@ -498,7 +499,12 @@ class SideBuilder {
       showViewButton: false,
       collapsible: false,
       listColumns: this.tenant
-        ? this.columns(resource, [...named, ['globalGroup', 'Group of the whole application'], ['everyDomain', `In every ${this.tenantWord}`]])
+        ? this.columns(resource, [
+            ...named,
+            ['globalGroup', 'Group of the whole application'],
+            ['everyDomain', `In every ${this.tenantWord}`],
+            ...periodColumns,
+          ])
         : [
             ...this.columns(resource, named),
             ...(this.has(resource, 'kind')
@@ -507,6 +513,7 @@ class SideBuilder {
                   { id: 'kind' as FieldName, hidden: true },
                 ]
               : []),
+            ...this.columns(resource, periodColumns),
           ],
       rowMethods: false,
       elements: [],
@@ -530,6 +537,7 @@ class SideBuilder {
         ['username', 'Username'],
         ['name', 'Name'],
         ['createdAt', 'Added'],
+        ...periodColumns,
       ]),
       rowMethods: this.present([
         [
@@ -543,7 +551,7 @@ class SideBuilder {
         ],
       ]),
       // The method runs against the group the list sits under.
-      listMethods: this.present([[methods.addGroupMember, { label: 'Add a person', icon: 'person_add' }]]),
+      listMethods: this.present([[methods.addGroupMember, { label: 'Add a person', icon: 'person_add', labels: periodWords }]]),
       elements: [],
     });
   }
@@ -557,7 +565,7 @@ class SideBuilder {
     const resource = lists.groupRoles as Resource;
     const lost = 'Everyone in the group loses it, unless they hold it some other way.';
     // The method runs against the group the list sits under.
-    const give = this.present([[methods.giveGroupRole, { label: 'Give a role', icon: 'badge', labels: this.where() }]]);
+    const give = this.present([[methods.giveGroupRole, { label: 'Give a role', icon: 'badge', labels: { ...this.where(), ...periodWords } }]]);
     if (this.tenant) {
       return listViewConfig({
         title: 'Roles the group holds',
@@ -565,10 +573,7 @@ class SideBuilder {
         parentRelation: { parentKey: 'id' as FieldName, childKey: 'groupId' as FieldName },
         showViewButton: false,
         collapsible: false,
-        listColumns: this.columns(resource, [
-          ['role', 'Role'],
-          ['createdAt', 'Given'],
-        ]),
+        listColumns: this.columns(resource, [['role', 'Role'], ['createdAt', 'Given'], ...periodColumns]),
         rowMethods: this.present([
           [
             methods.takeGroupRole,
@@ -596,7 +601,7 @@ class SideBuilder {
               { id: 'kind' as FieldName, hidden: true },
             ]
           : []),
-        ...this.columns(resource, [['createdAt', 'Given']]),
+        ...this.columns(resource, [['createdAt', 'Given'], ...periodColumns]),
       ],
       rowMethods: this.present([
         [
@@ -696,9 +701,9 @@ class SideBuilder {
       [
         methods.assignRole,
         this.tenant
-          ? { label: 'Give a role', icon: 'badge' }
+          ? { label: 'Give a role', icon: 'badge', labels: periodWords }
           : // The whole application's method takes the id of the person's account, which the row fills.
-            { label: 'Give a role', icon: 'badge', fill: (row) => ({ userId: row['id'] }), labels: this.where() },
+            { label: 'Give a role', icon: 'badge', fill: (row) => ({ userId: row['id'] }), labels: { ...this.where(), ...periodWords } },
       ],
       // A person has two names: the one people read, and the username they sign in under.
       [methods.setName, { label: 'Change the name', icon: 'person' }],
@@ -870,6 +875,20 @@ class SideBuilder {
     return `${route.segment}/:${route.param}`;
   }
 }
+
+/**
+ * The period of a role, of a place in a group or of a group's role, as a list shows it
+ * and as a method that gives one asks for it: the first day it counts and the first day
+ * it no longer does. Each is empty where there is none, and a list that carries no
+ * period (an Auth whose schema holds none) shows neither.
+ */
+const periodColumns: Named[] = [
+  ['startsAt', 'From'],
+  ['endsAt', 'Until'],
+];
+
+/** The words for the two times of a method that gives something for a period. */
+const periodWords: Record<string, string> = { startsAt: 'From', endsAt: 'Until' };
 
 /** The columns of a session, beside whose it is. */
 const sessionColumns: Named[] = [

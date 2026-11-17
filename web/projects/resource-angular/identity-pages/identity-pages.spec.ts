@@ -199,7 +199,8 @@ describe("identityPages, the whole application's side", () => {
   it("fills the id of the person's account in the method that gives a role, which names no target row, and names the tenant in the application's word", () => {
     const give = presentation(list(people).rowMethods, 'AssignCrewRole');
     expect(give.fill?.({ username: 'ada', id: 'u-1' })).toEqual({ userId: 'u-1' });
-    expect(give.labels).toEqual({ domain: 'Sector', everyDomain: 'In every sector' });
+    // A role is given for a period: the dialog asks for its two days in plain words.
+    expect(give.labels).toEqual({ domain: 'Sector', everyDomain: 'In every sector', startsAt: 'From', endsAt: 'Until' });
     expect(presentation(list(people).listMethods, 'CreateCrewUser').labels).toEqual({ domain: 'Sector', everyDomain: 'In every sector' });
   });
 
@@ -725,5 +726,104 @@ describe('identityPages, an Auth that keeps groups', () => {
       ['globalGroup', 'Group of the whole application'],
       ['everyDomain', 'In every sector'],
     ]);
+  });
+});
+
+// A role, a place in a group and a group's role may each be given for a period. The lists
+// whose rows carry one show it, from the first day it counts until the first day it no
+// longer does, and the methods that give one ask for the two days under the same words.
+// The lists of the suites above carry none, as an Auth whose schema holds none, and show
+// neither column.
+describe('identityPages, the period of an assignment', () => {
+  const periodMetas: Record<string, ResourceMeta> = {
+    ...metas,
+    CrewUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt', 'startsAt', 'endsAt'),
+    CrewSectorUserRoles: fields('domainId', 'userId', 'username', 'role', 'everyDomain', 'createdAt', 'startsAt', 'endsAt'),
+    CrewGroups: fields('id', 'kind', 'axis', 'domainId', 'name', 'description', 'updatedAt'),
+    CrewGroupUsers: fields('groupId', 'userId', 'username', 'name', 'groupName', 'createdAt', 'startsAt', 'endsAt'),
+    CrewGroupRoles: fields('groupId', 'kind', 'axis', 'domainId', 'role', 'createdAt', 'startsAt', 'endsAt'),
+    CrewUserGroupRoles: fields('userId', 'username', 'groupId', 'groupName', 'kind', 'axis', 'domainId', 'role', 'startsAt', 'endsAt'),
+    CrewSectorGroups: fields('id', 'domainId', 'name', 'description', 'updatedAt'),
+    CrewSectorGroupUsers: fields('domainId', 'groupId', 'userId', 'username', 'name', 'groupName', 'createdAt', 'startsAt', 'endsAt'),
+    CrewSectorGroupRoles: fields('domainId', 'groupId', 'groupName', 'role', 'createdAt', 'startsAt', 'endsAt'),
+    CrewSectorUserGroupRoles: fields('domainId', 'userId', 'username', 'groupId', 'groupName', 'role', 'globalGroup', 'everyDomain', 'startsAt', 'endsAt'),
+  };
+  const periodMeta = (resource: Resource): ResourceMeta => periodMetas[resource];
+  const [wholeApplication, tenant] = crew.sides;
+  const timed: IdentityDescriptor = {
+    ...crew,
+    sides: [
+      {
+        ...wholeApplication,
+        lists: { ...wholeApplication.lists, groups: 'CrewGroups', groupUsers: 'CrewGroupUsers', groupRoles: 'CrewGroupRoles', rolesThroughGroups: 'CrewUserGroupRoles' },
+        methods: { ...wholeApplication.methods, addGroupMember: 'AddCrewGroupMember', giveGroupRole: 'GiveCrewGroupRole' },
+      },
+      {
+        ...tenant,
+        lists: {
+          ...tenant.lists,
+          groups: 'CrewSectorGroups',
+          groupUsers: 'CrewSectorGroupUsers',
+          groupRoles: 'CrewSectorGroupRoles',
+          rolesThroughGroups: 'CrewSectorUserGroupRoles',
+        },
+        methods: { ...tenant.methods, addGroupMember: 'AddCrewSectorGroupMember', giveGroupRole: 'GiveCrewSectorGroupRole' },
+      },
+    ],
+  };
+  const timedDescriptor = { ...descriptor, identity: [timed, members] } as ApiDescriptor;
+  const global = identityPages(timedDescriptor, periodMeta, { auth: 'Crew', scope: 'global' });
+  const domain = identityPages(timedDescriptor, periodMeta, { auth: 'Crew', scope: 'domain' });
+  const period: [string, string][] = [
+    ['startsAt', 'From'],
+    ['endsAt', 'Until'],
+  ];
+  const drawn = (config: ListViewConfig): [string, string | undefined][] =>
+    config.listColumns.filter((column) => !column.hidden && column.header !== undefined).map((column) => [column.id, column.header]);
+
+  it("shows the period of each role under a person, the person's own and the ones held through a group", () => {
+    const [own, through] = children(global[0]);
+    expect([own.title, through.title]).toEqual(['Roles held', 'Roles held through a group']);
+    expect(drawn(own).slice(-3)).toEqual([['createdAt', 'Given'], ...period]);
+    expect(drawn(through).slice(-2)).toEqual(period);
+
+    const [here, hereThrough] = children(domain[0]);
+    expect([here.title, hereThrough.title]).toEqual(['Roles held here', 'Roles held here through a group']);
+    expect(drawn(here)).toEqual([['role', 'Role'], ['everyDomain', 'In every sector'], ['createdAt', 'Given'], ...period]);
+    expect(drawn(hereThrough).slice(-2)).toEqual(period);
+  });
+
+  it("shows the period of each place in a group and of each role a group holds, on the group's page", () => {
+    for (const side of [global, domain]) {
+      const [people, roles] = children(side[1]);
+      expect([people.title, roles.title]).toEqual(['People in the group', 'Roles the group holds']);
+      expect(drawn(people)).toEqual([['username', 'Username'], ['name', 'Name'], ['createdAt', 'Added'], ...period]);
+      expect(drawn(roles).slice(-3)).toEqual([['createdAt', 'Given'], ...period]);
+    }
+  });
+
+  it('asks for the two days of a period under the same words, in each method that gives something for one', () => {
+    const words = { startsAt: 'From', endsAt: 'Until' };
+    const asked: [RootConfig, string, 'row' | 'list'][] = [
+      [global[0], 'AssignCrewRole', 'row'],
+      [domain[0], 'AssignCrewSectorRole', 'row'],
+      [global[1], 'AddCrewGroupMember', 'row'],
+      [global[1], 'GiveCrewGroupRole', 'row'],
+      [domain[1], 'AddCrewSectorGroupMember', 'row'],
+      [domain[1], 'GiveCrewSectorGroupRole', 'row'],
+    ];
+    for (const [page, method, where] of asked) {
+      const offered = where === 'row' ? list(page).rowMethods : list(page).listMethods;
+      expect(presentation(offered, method).labels, method).toEqual(expect.objectContaining(words));
+    }
+    // Above the lists under a group, where the same two methods are offered again.
+    for (const [side, add, give] of [
+      [global, 'AddCrewGroupMember', 'GiveCrewGroupRole'],
+      [domain, 'AddCrewSectorGroupMember', 'GiveCrewSectorGroupRole'],
+    ] as [RootConfig[], string, string][]) {
+      const [people, roles] = children(side[1]);
+      expect(presentation(people.listMethods, add).labels, add).toEqual(words);
+      expect(presentation(roles.listMethods, give).labels, give).toEqual(expect.objectContaining(words));
+    }
   });
 });
