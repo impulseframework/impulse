@@ -286,8 +286,10 @@ func TestExecute(t *testing.T) {
 // version 1 is the only version, version 2 is added, and -retire-secret
 // APP_SECRET_KEY_1 writes every key again under version 2, reports how many, and exits 0;
 // every key then names version 2 and opens to what it was set to under version 2 alone;
-// a second run writes nothing; retiring the current version fails; and no run prints a
-// key.
+// a second run writes nothing; retiring the current version fails; after a later
+// rotation to version 300, past the last number one byte could name, version 2 is
+// retired the same way; a variable whose number no stored value can name is refused with
+// the range; and no run prints a key.
 //
 // Demonstrates: secret.rotation.
 func TestExecute_retireSecret(t *testing.T) {
@@ -295,8 +297,9 @@ func TestExecute_retireSecret(t *testing.T) {
 	ctx := t.Context()
 	db := database(t)
 	t.Setenv("GOOGLE_CLOUD_SPANNER_DATABASE_NAME", path.Base(db.DatabaseName()))
-	secretVersion := func(version byte) []byte {
-		return bytes.Repeat([]byte{version}, 32)
+	// secretVersion is one version of a test application secret: 32 bytes that say which.
+	secretVersion := func(version int) []byte {
+		return fmt.Appendf(nil, "%032d", version)
 	}
 	run := func(wantCode int, args ...string) (stdout, stderr string) {
 		t.Helper()
@@ -379,8 +382,33 @@ func TestExecute_retireSecret(t *testing.T) {
 	}
 	named(2, second)
 
+	// A deployment's version numbers never repeat, and a rotation that fails uses one up,
+	// so in time a secret's versions pass 255. The next rotation hands the service
+	// version 300: retiring version 2 writes the keys again under it, and they open
+	// under version 300 alone.
+	t.Setenv("APP_SECRET_KEY_300", base64.StdEncoding.EncodeToString(secretVersion(300)))
+	third, err := resource.NewSecretKeys(map[int][]byte{300: secretVersion(300)})
+	if err != nil {
+		t.Fatalf("resource.NewSecretKeys() error = %v", err)
+	}
+	past, stderr := run(0, "-retire-secret", "APP_SECRET_KEY_2")
+	if want := "Ships.TransponderKey: 3 value(s) written again under version 300\nRetired APP_SECRET_KEY_2: no stored value names version 2\n"; past != want || stderr != "" {
+		t.Errorf("the retirement under version 300: stdout %q, stderr %q; want %q and nothing on stderr", past, stderr, want)
+	}
+	named(300, third)
+
+	// A variable whose number no stored value can name, 0 or one past the last, is
+	// refused with the range a version's number takes, and writes nothing.
+	for _, variable := range []string{"APP_SECRET_KEY_0", "APP_SECRET_KEY_65536"} {
+		out, refusal := run(exitFailed, "-retire-secret", variable)
+		if out != "" || !strings.Contains(refusal, variable) || !strings.Contains(refusal, "the version's number, 1 to 65535") {
+			t.Errorf("retiring %s: stdout %q, stderr %q; want a refusal that says the range and nothing written", variable, out, refusal)
+		}
+	}
+	named(300, third)
+
 	for _, key := range keys {
-		if strings.Contains(stdout+again, key) {
+		if strings.Contains(stdout+again+past, key) {
 			t.Errorf("a retirement printed a key")
 		}
 	}

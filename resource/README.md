@@ -90,12 +90,12 @@ type Ship struct { ... }
 | `@outlet` | `@resource`, `@virtual`, `@computed`, or `@rpc` struct; `accesstypes.Resource` constant carrying `@manualAddResource` | comma list of outlet names | Names the router outlets the struct's routes — or the constant's hand-written route — are registered under. Outlets are independent registration surfaces with their own route prefixes — the generator emits a `Generated<Name>Handlers` interface and `generated<Name>Routes` function per outlet, so the application composes different authentication and middleware around each (a browser app on one, a machine REST API on another). The default outlet is declared by `generation.GenerateRoutes` and carries the reserved name `default`; additional outlets are declared with `generation.WithRouterOutlet(name, routePrefix)`, and referencing an undeclared name is a generation error. An outlet serving browser sessions declares it (`WithRouterOutlet(name, prefix, Auth(pkg, flavor))` under the generated router, `ServesSessions()` under a hand-written one; section 8): the generated route tables register the permission-digest and user-domains routes under its prefix, and only a session-serving outlet may be the target of a `GenerateTypescript` call (`ForOutlet(name)`), which filters every emitted TypeScript file to that outlet's members — a client for a session-less outlet would have no permission channels and fail closed on every page, so it is a generation error. Without the annotation a struct is on the default outlet only; naming outlets replaces that default, so `@outlet(default, automation)` serves both while `@outlet(automation)` serves the automation outlet only. Consolidated resources get one consolidated patch dispatcher per outlet (`PatchResources`, `Patch<Name>Resources`), each bundling exactly that outlet's members. The generated router tests cover every outlet's routes and additionally prove isolation: a route's path under an outlet it is not attached to must 404. Example: [Consignment](../lodestar/pkg/resources/consignments.go). |
 | `@permissionScope` | `@resource`, `@virtual`, `@computed`, or `@rpc` struct | `global` or `domain` | Sets the permission scope used by all of the resource's registrations. Default: `global`. It also selects the domain the generated handlers evaluate permissions in: global-scoped handlers pass `accesstypes.GlobalDomain`, while domain-scoped handlers read it from a required `/<tenants>/{<tenant>ID}/` route segment pair between the route prefix and the resource path (pair-style, so domain values can never collide with resource or method route names). Both names derive from the package's `@tenant` record: the segment is the record's route name and the parameter its key's route parameter (`Sector` keyed by `ID` gives `/sectors/{sectorID}/`), and a tenant-scoped resource in a package with no `@tenant` record is refused. Domain-scoped routes are wrapped in the generated `DomainGuard`, which asks the application's tenant roster (`TenantRoster().Has`, section 16) and answers 404 for a domain the roster does not hold before the handler runs, and the same 404 for a tenant the session does not reach (`UserPermissions.Reaches`: the tenant's declaration does not admit the way the session was established, section 6). With `generation.WithConcealedDomains()` the guard asks the caller's foothold next (`UserPermissions.HasGrants` in the domain): a domain where the requesting user holds zero grants answers identically to a domain that does not exist (404 on routes, 400 in consolidated op paths), so refusals never confirm a tenant; any grant in the domain restores ordinary 403s (`access.Client.UserHasGrants` answers the foothold question from the in-memory snapshot, so the check stays legal inside the consolidated mutation transaction). Tenant identifiers must be a single URL-safe path segment and must never contain `:` (the character is reserved for access-defined markers; `accesstypes.GlobalDomain` is `access:global`); a URL domain is pure data, and `accesstypes.DomainScope` routes it to a tenant partition by construction, so no value can address the global partition. In the consolidated patch handler, a domain-scoped resource's operations carry the domain in the path exactly as the URL grammar does (`{"op":"patch","path":"/sectors/sector-alpha/berths/…"}`); global operations stay domainless, an unknown domain in an operation path is a 400, and cross-domain batches are legal (each operation is checked in its own partition; the batch is one transaction). Example: [Sector](../lodestar/pkg/resources/sectors.go). |
 | `@tenant` | `@resource` struct | none, or `creation: administrator`, `self-service` or `both` (section 16), and `label: "<word>"`: `@tenant(label: "Service district")` | The struct is the tenant record: the table whose rows are the tenants, one per package. Its route name is the segment tenant-scoped routes are served under and its key's route parameter is the domain parameter (`Sector` keyed by `ID` gives `/sectors/{sectorID}/…`); the generator emits `New<Record>Roster(client, opts...)` into the handler package, which builds the `resource.TenantRoster` the generated `DomainGuard` and the consolidated dispatcher ask (section 16); and the record's generated create and delete paths add and remove the tenant in the roster after their commit and signal the tenants kind, so a tenant created at run time is served by every instance without a restart or a release. The record must be global, table-backed, and keyed by one id its own create path generates (`ID impulse.UUID`, whose text is the domain in every tenant-scoped URL; what people call the tenant is its `@tenantName` column, changed like any field): `@tenant` on a `@permissionScope(domain)` struct, on a compound key, on a key that is not an id the create path generates (a typed string, a foreign key, an interleaved table), on a `@virtual`, `@computed` or `@rpc` struct, or on a second struct is refused naming the rule, and a tenant-scoped resource, view, computed resource or method in a package with no `@tenant` record is refused (`a tenant-scoped resource needs a tenant record; annotate it @tenant`). A key cannot change on update. The record names what the screen calls a tenant: the generated browser descriptor carries the word, one and many (`domainRoute.word`), for the frame's place switcher and menus, from the record's name in words (`Sector` reads "Sector" and "Sectors", `ShipClass` "Ship class" and "Ship classes"), or from `label:` where an application in production changes the word without renaming its tables; the plural is the generator's, as it spells the table. A label is letters, digits, single spaces and hyphens, starting with a letter; any other is refused. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
-| `@directoryOnly` | field of the `@tenant` record, a `bool` column | none | The tenant's people enter through its directories only: a password, or any sign-in that is not through a directory, does not reach a tenant whose flag is true. The flag is half of what the tenant record declares about who may enter a tenant (section 16); the other half is the directories record (`@tenantDirectory`), which the flag needs, since a tenant whose people enter through its directories only needs directories to enter through. Whoever holds the record's Update grant on the column sets it, and the record's change events are the audit. The generated create-your-tenant route (`@tenant(creation: ...)`) leaves it out of its body: a new tenant declares nothing beyond its creator's directory. Refused on a resource that is not the tenant record, on a column that is not a `bool`, and on a second column. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
+| `@directoryOnly` | field of the `@tenant` record, a `bool` column | none | The tenant's people enter through its directory only: a password, or any sign-in that is not through a directory, does not reach a tenant whose flag is true. The flag is half of what the tenant record declares about who may enter a tenant (section 16); the other half is the directories record (`@tenantDirectory`), which the flag needs, since a tenant whose people enter through its directory only needs a directory to enter through, and the directory of such a tenant is not removed until the flag is turned off. Whoever holds the record's Update grant on the column sets it, and the record's change events are the audit. The generated create-your-tenant route (`@tenant(creation: ...)`) leaves it out of its body: a new tenant declares nothing beyond its creator's directory. Refused on a resource that is not the tenant record, on a column that is not a `bool`, and on a second column. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
 | `@tenantName` | field of the `@tenant` record, a `string` or `*string` column | none | The tenant's name as its people know it. The generated `New<Record>Roster` reads the column beside the key (`resource.WithTenantNames`), and the generated `UserDomains` handler names each tenant of the session's tenant list from the roster (`resource.WithDomainNames`), so a tenant's own people see its name in the place switcher without holding Read on the record, a global resource; without it the list names each tenant by its key. The generated browser metadata names the column on the record (`nameField`), so a picker over the tenant record lists tenants by name and the people pages name the tenant a role or an invitation is in. Refused on a resource that is not the tenant record, on a column that is not a string, and on a second column. Example: [Sector](../lodestar/pkg/resources/sectors.go). |
-| `@tenantDirectory` | `@resource` struct, `@permissionScope(domain)` | none | The struct is the directories record: the tenant-scoped table whose rows are the directories a tenant admits its people through, one row per declaration (one domain, one directory by default; a second directory is a second row), each naming the sign-in method (`@directoryMethod`) and the connection (`@directoryConnection`). Its tenant is the bare `@domain` column, the tenant's key on the row itself, so a tenant's administrator declares its own directories under the record's Create and Delete grants, and the record's change events are the audit. With it the generated `New<Record>Roster` reads what each tenant declares beside its key (`resource.WithTenantDeclarations`), `New<Record>DeclarationReader` reads one tenant's declaration in the sign-in's transaction for `signin.TenantPolicy`, the record's write paths reload the roster after their commit and signal the tenants kind as the tenant record's do, and the create-your-tenant route declares the creator's directory on the new tenant. Refused on a global resource, on the tenant record itself, on a second struct, with a join-path `@domain`, and without either column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
-| `@directoryMethod` | field of the `@tenantDirectory` record, a `string` column | none | The column holds the sign-in method a directory is reached through, as `sessioninfo.AuthMethod` spells it: `google`, `azure` or `workos`. Refused off the directories record, on a column that is not a string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
-| `@directoryConnection` | field of the `@tenantDirectory` record, a `string` column | none | The column holds the connection a directory's identities carry, the value the session's first auth event records beside the method: a Google Workspace by its domain (the registration admitting any Workspace writes the account's domain), a Microsoft Entra tenant by its tenant id, a WorkOS connection by its id. Refused off the directories record, on a column that is not a string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
-| `@directoryDefaultSeat` | field of the `@tenantDirectory` record, a `string` or `*string` column | none | The column names the role a stranger the directory vouches for is seated with in the tenant at their first sign-in, chosen by the tenant's administrator from the tenant's roles on its Sign-in page; NULL (or empty) says the tenant admits the directory's strangers by invitation only: they are refused with the `invitation_only` refusal and no account is created, and an invitation link is the way in. A directories record without the column admits every stranger by invitation only. With it the generated `New<Record>DirectoryReader` answers every tenant's declaration of a directory with its seat, which the auth's directory admission reads (`session.Auth.SetDirectoryAdmission`) before the method's account rule, and the seat is written through `resource.SeatDeclared` once the sign-in's transaction has committed (section 16). Refused off the directories record, on a column that is neither a string nor a nullable string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
+| `@tenantDirectory` | `@resource` struct, `@permissionScope(domain)` | none | The struct is the directories record: the tenant-scoped table that holds each tenant's directory, the organization its people sign in through, as the sign-in method (`@directoryMethod`) and the connection (`@directoryConnection`). A tenant has one directory and a directory belongs to one tenant: the generator refuses a record whose table has no unique index on the tenant column alone, or none on the method and the connection together, naming the index to add, and the generated write paths refuse first, each with a sentence the person can act on (`resource.TenantDirectoryRules`, section 16). Nobody types a directory in: the method and the connection are output-only, the record's generated create sets both from the directory the caller is signed in through and refuses a session that came by password or with a personal account (any Google account, a Microsoft personal account), and its generated delete is refused while the tenant is directory only. The record's key is an id its create generates. Its tenant is the bare `@domain` column, the tenant's key on the row itself, so a tenant's administrator sets and removes its own directory under the record's Create and Delete grants, and the record's change events are the audit. With it the generated `New<Record>Roster` reads what each tenant declares beside its key (`resource.WithTenantDeclarations`), `New<Record>DeclarationReader` reads one tenant's declaration in the sign-in's transaction for `signin.TenantPolicy`, the record's write paths reload the roster after their commit and signal the tenants kind as the tenant record's do, and the generator emits `Set<Record>Directory`, the one step that sets a tenant's directory from a sign-in, which the create-your-tenant route calls with the directory its creator came through. Refused on a global resource, on the tenant record itself, on a second struct, with a join-path `@domain`, without either column, with a key that is not a generated id, and without either unique index. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
+| `@directoryMethod` | field of the `@tenantDirectory` record, a `string` column | none | The column holds the sign-in method a directory is reached through, as `sessioninfo.AuthMethod` spells it: `google`, `azure` or `workos`. The column is output-only: the generated create sets it from the caller's session, and no request writes it. Refused off the directories record, on a column that is not a string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
+| `@directoryConnection` | field of the `@tenantDirectory` record, a `string` column | none | The column holds the connection a directory's identities carry, the value the session's first auth event records beside the method: a Google Workspace by its domain (the registration admitting any Workspace writes the account's domain), a Microsoft Entra tenant by its tenant id, a WorkOS connection by its id. The column is output-only, as the method is. Refused off the directories record, on a column that is not a string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
+| `@directoryDefaultSeat` | field of the `@tenantDirectory` record, a `string` or `*string` column | none | The column names the role a person is given in the tenant at their first sign-in through the tenant's directory, whether their account is created then or stood before, chosen by the tenant's administrator from the tenant's roles on its Sign-in page; NULL (or empty) says the tenant admits the directory's people by invitation only: a stranger is refused with the `invitation_only` refusal and no account is created, and an invitation link is the way in. A directories record without the column admits every stranger by invitation only. The role is given once for the link between the account and the directory: a person whose role an administrator removes is not given it back by signing in, and a link that is deleted and made again gives it again where the person holds no role in the tenant. With it the generated `New<Record>DirectoryReader` answers the tenant whose directory an identity came through with its seat, which the auth's directory admission reads (`session.Auth.SetDirectoryAdmission`) before the method's account rule, and the role is given by the Auth's generated identity client in the transaction that links the account to the directory (section 16). Refused off the directories record, on a column that is neither a string nor a nullable string, and on a second column. Example: [SectorDirectory](../lodestar/pkg/resources/sector_directories.go). |
 | `@page` | `@resource`, `@virtual`, or `@computed` struct | `default: N` and/or `max: M` | Declares the list's page sizes: the page a request without `limit` receives, and the largest page a request may ask for. Both are positive integers; the default never exceeds the maximum, and a maximum alone must be at least the generator-wide default of 50. Undeclared, the list serves pages of 50 with no maximum. A request over the maximum is refused with a 400 naming it, never clamped, and a resource with a maximum refuses `limit=all`. The maximum is also the switch a picker reads: a resource with none is small enough to load whole, read in one request with `limit=all` and sort optional; a resource with a maximum is paged, one server page at a time, so its list needs an order (`@order`, or `sort` on the request) and a picker over it reads the chosen row by key, which is why a bounded picker source may not suppress its read (`@enumerate`). Declaring the maximum is the deliberate choice; nothing decides at runtime from an observed size. Refused on a `@computed` or `@virtual` struct with no `@primarykey`, naming the struct and the two ways out (declare the key, or drop `@page`): without a key the resource is a whole read-only list, with no read route and no paging, so a page size on it is a contradiction. The generated TypeScript descriptor carries both numbers. Example: [Mission](../lodestar/pkg/resources/missions.go). |
 | `@order` | `@resource`, `@virtual`, or `@computed` struct | comma list of `Field [asc\|desc]` | Declares the order a list takes when the request carries no `sort`, naming Go fields of the struct; the direction defaults to `asc`. The primary key is appended at runtime so the order is total, and a request's `sort` replaces the declared order for that request. The declaration is optional, and every paged request needs an order from somewhere: a resource that declares none serves a request without `sort` only as the whole list (`limit=all`), which is not sorted — its table or view statement carries no `ORDER BY` and the rows arrive in the database's own order, a computed list keeps the order its body yielded — and refuses a bare GET or a `limit` with a 400 naming the resource and the way out (section 4). A nullable column renders as the plain direction and sorts in its database's own `NULL` placement, so an index on the column serves the order: Spanner places `NULL` first ascending and last descending, PostgreSQL last ascending and first descending. A computed resource follows the same placement: its handler sorts and pages the body's rows where the application's database would. On a computed resource only a leaf field may be named (a nested field is opaque). The generated TypeScript descriptor carries the declared order (`order: [{ field, direction }]`, JSON names), so a browser client knows a request without a `sort` is already ordered and pages by cursor; to a resource that declares none it sends a `sort` of its own or asks `limit=all`. On a table-backed resource with a bare `@domain`, generation warns when no index leads with the tenant column and then these columns in this order and direction, naming the index it wants (section 9). Example: [Mission](../lodestar/pkg/resources/missions.go). |
 
@@ -165,7 +165,7 @@ Values recognized in a `conditions` tag:
   a foreign key or a field with a picker (`@enumerate`), on a field typed anything but
   `resource.Secret` (a plain `string` or `[]byte` would be stored as it was typed; the
   refusal names the type to give it), and on a column that is not `BYTES` with room for
-  the 41 bytes sealing adds. A method's request field takes the same word, unchanged: text
+  the 42 bytes sealing adds. A method's request field takes the same word, unchanged: text
   or bytes, no picker, and the method's dialog draws the same masked input (the generated
   temporary-password methods declare theirs so). That value is never stored, so it is
   never sealed, and a request field typed `resource.Secret` is refused.
@@ -1053,7 +1053,9 @@ much from the schema:
   columns, in order and direction, and names the `CREATE INDEX` it wants; the primary
   key is not named because Spanner appends it to every secondary index. A resource
   with no `@order` is silent: its sort-less list is not sorted, and the backing index on
-  the tenant column serves it.
+  the tenant column serves it. So is a resource whose table a unique index on the tenant
+  column alone holds to one row for a tenant (a tenant's directory, for one): one row
+  has nothing to sort.
 - A nullable `@order` column renders as the plain direction with no stated `NULL`
   placement, so the same composite index serves it. Each database keeps its own placement
   (Spanner sorts `NULL` first ascending and last descending, PostgreSQL the reverse) and
@@ -2259,9 +2261,10 @@ table; the generated paths never call it.
 
 **The declaration.** Who may enter a tenant is data on the tenant record, read in two
 places. The record declares it with two annotations (section 1): `@directoryOnly` on a
-bool column, which says the tenant's people enter through its directories only (a
+bool column, which says the tenant's people enter through its directory only (a
 password does not reach it), and `@tenantDirectory` on a second, tenant-scoped resource
-whose rows are the directories the tenant admits its people through, one row each, with
+that holds the tenant's directory, the organization its people sign in through, one row
+for a tenant, with
 `@directoryMethod` on its sign-in method column (`google`, `azure`, `workos`, as the
 session library spells them) and `@directoryConnection` on the column carrying the
 connection the method's identities record (a Google Workspace by its domain or by the
@@ -2285,40 +2288,117 @@ declarations in one read, and `Declarations(ctx, domain)` answers from the copy,
 a tenant the roster does not hold, which is what `SessionPermissions` takes as its fifth
 argument (section 6): a tenant is offered to a session only when its declaration admits
 the way the session was established, or the session's actor holds a grant in the global
-partition. A tenant that declares nothing admits its people by password and through no
-directory. A self-service record's create route (`@tenant(creation: ...)`) declares the
-creator's directory on the new tenant in the row's transaction, when the creator came
-through one, beside the creator's administrator membership, and reloads the roster
-before it waits on that membership, so the wait's probe asks what the next request asks.
+partition. A tenant with no directory admits its people by password and through no
+directory. A self-service record's create route (`@tenant(creation: ...)`) sets the
+directory its creator came through on the new tenant in the row's transaction, when the
+creator came through an organization's directory, beside the creator's administrator
+membership, and reloads the roster before it waits on that membership, so the wait's
+probe asks what the next request asks.
 
-**The default seat.** What a stranger from a declared directory gets at a first sign-in
-is the directory row's to say, before the method's account rule is reached. The
-directories record may carry one more column, `@directoryDefaultSeat` (section 1), a
-nullable string naming a role of the tenant: a person no user exists for who signs in
-through a directory a tenant declares is created and seated with that role in that
-tenant, and signed in; where the row names none (NULL, the default, and every row of a
-record without the column), they are refused with the `invitation_only` refusal and no
-account is created, unless they followed an invitation link, which is the way past. A
-person already seated in a declaring tenant, or holding a global or every-domain role,
-is let through as before, and the directory a stranger comes through that no tenant
-declares falls to the method's rule (members, invited, open). The generator emits
+**One directory, set from a sign-in.** A tenant has one directory, and a directory, its
+method and its connection together, belongs to one tenant. The schema holds both with
+two unique indexes on the directories table, one on the tenant column and one on the
+method and the connection, and the generator refuses a directories record whose table
+lacks either, naming the statement to add:
+
+```sql
+CREATE UNIQUE INDEX TenantDirectoriesByTenantId ON TenantDirectories(TenantId);
+CREATE UNIQUE INDEX TenantDirectoriesByMethodConnection ON TenantDirectories(Method, Connection);
+```
+
+The indexes refuse two writes that race, at the commit, where a unique index can only
+say that a value exists. The generated write paths refuse first, through
+`resource.TenantDirectoryRules`, which the roster file builds for the record
+(`New<Record>DirectoryRules`), each refusal a Conflict (409) whose sentence says what is
+wrong and what to do, in the record's own word for a tenant:
+
+- a second directory for a tenant: "This tenant already has a directory, Google
+  Workspace acme.example. A tenant has one directory: remove it first to set another.";
+- a directory another tenant has: "Google Workspace acme.example already has a tenant
+  here, and a directory belongs to one tenant. Ask that tenant's administrator to invite
+  you." The sentence says the organization has a tenant, which a rule of one tenant for
+  a directory cannot keep from being learned; it does not say which;
+- a personal account, one of the two values that stand for everyone who is in no
+  organization (any Google account, `accounts.google.com`, and Microsoft's personal
+  accounts, the consumer tenant id; `signin.Directory.PersonalAccounts`): "A personal
+  Google account is not an organization's directory, so it cannot be a tenant's
+  directory. Sign in with your organization's account (Google Workspace or Microsoft
+  Entra) and try again.";
+- removing the directory of a tenant that is directory only: "This tenant is directory
+  only: its people sign in through its directory alone, so nobody could enter it
+  without one. Turn directory only off first, then remove the directory." Once removed,
+  the roles the directory gave stand, and the directory is free for another tenant.
+
+The caller's grants answer before a rule does: the generated create and delete ask
+`PatchSet.Permitted` first, the check `Buffer` opens with (the permission on the record
+and on each field the request names), so a caller who holds no grant for the write is
+refused with the Forbidden (403) any record answers, and learns nothing a rule's
+sentence says.
+
+Nobody types a directory in. The record's method and connection are output-only, so a
+request that names either is refused as naming fields the record does not take, and
+the generated create (the record's `add`, under its Create grant in the tenant) sets
+both from the session: `TenantDirectoryRules.FromSession` answers the directory the
+caller is signed in through, held to the rules, and refuses a session that came through
+none ("You are signed in with a password. A directory is set by signing in through it:
+sign in with your organization's account (Google Workspace or Microsoft Entra), then
+make it the directory."). The person who sets a directory is therefore always a member
+of the organization; no other proof that a tenant controls it is asked for. The session
+read (`GET .../user/session`) carries `directory`, the method and the connection of the
+organization's directory the session came through, absent for a password, a personal
+account and an impersonation, which is what a tenant's Sign-in page offers its
+administrator to make the tenant's ("Make acme.example this tenant's directory") and
+what tells it to offer nothing. A write that sets a directory in code, from a sign-in,
+takes one step: the generated `Set<Record>Directory(ctx, txn, tenant, directory)`, which
+asks the rules and buffers the row through the record's create patch, so its change
+event is written with it. The create-your-tenant route calls it with the directory its
+creator came through, so a creation from an organization that already has a tenant is
+refused with the sentence above and nothing is written; a caller inside a sign-in hands
+it the identity's method and connection over the sign-in's transaction
+(`resource.NewSpannerReadWriteTransaction`). The rules read what is committed, on
+Spanner; their statements render for PostgreSQL too (`$1`, `$2`, `$3`), where the two
+unique indexes hold the rules as they do on Spanner.
+
+**The default seat.** What a person gets at their first sign-in through a tenant's
+directory is the directory row's to say, before the method's account rule is reached.
+The directories record may carry one more column, `@directoryDefaultSeat` (section 1), a
+nullable string naming a role of the tenant. A person no user exists for who signs in
+through a tenant's directory is created and seated with that role in the tenant, and
+signed in; where the row names none (NULL, the default, and every row of a record
+without the column), they are refused with the `invitation_only` refusal and no account
+is created, unless they followed an invitation link, which is the way past. A person
+whose account stood before, made by another tenant's invitation or before the tenant
+set its directory or named a role, is given the role too: the sign-in that links their
+account to the directory is their first through it, whether the directory's identity
+is linked at once or after their password confirmed it, and the link gives the default
+role where they hold no role in the tenant. Who is the directory's person is decided by
+how they signed in, the link between the account and the directory, never by their
+address. The role is given once for a link: a second sign-in finds the link and gives
+nothing, so a person whose role an administrator removes is not seated again by signing
+in, and an administrator who wants one person out removes the role and leaves the link,
+or disables the account. A link that is deleted and made again is a first sign-in
+again, and gives the default role where the person holds no role in the tenant. A
+person whose link was made before the tenant named a default role is given a role by
+hand. A directory no tenant has falls to the method's rule (members, invited, open),
+and so does a personal account, which is no tenant's directory. The generator emits
 `New<Record>DirectoryReader()`, a `signin.DirectoryReader[*spanner.ReadWriteTransaction]`
-reading every tenant's declaration of one directory with its seat in the sign-in's own
-transaction, and the application hands it, with the seat hook, to each auth whose roles
-are the application's own:
+reading the tenant whose directory an identity came through with its seat in the
+sign-in's own transaction, and the application hands it, with the seat hook, to each
+auth whose roles are the application's own:
 `authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())`.
 An auth whose directory names the roles (a registration that syncs them) sets no
 admission: its directory is the authority on who holds what, and a default seat would
 be overwritten at the next sign-in.
 The role is written the way an accepted invitation's roles are, by the Auth's generated
-identity client in the transaction that creates the person (section 21, "At a sign-in"),
-so the account and its role are committed together or not at all, and the sign-in
+identity client in the transaction that links the account to the directory (section 21,
+"At a sign-in"), so the link and its role are committed together or not at all, and the
+sign-in
 policy, which decides after the commit, finds the membership. The tenant's administrator
 sets the row's seat on the Sign-in page, a picker over the tenant's roles, and the
 record's change events are the audit of who opened the door and when. One consequence:
 in a self-service application a colleague of a tenant's creator who signs in from the
-directory that tenant already declared gets no account and no second tenant, but the
-invitation-only answer.
+directory that tenant already has gets no account and no second tenant, but the
+invitation-only answer, or the tenant's default role where its row names one.
 
 **The creator's seat.** The person who creates a tenant is its first administrator,
 whatever the creation shape: the record's create path (the standalone patch handler and
@@ -2948,13 +3028,14 @@ the resources and Execute on the methods to the roles that manage people, in the
 every other resource uses.
 
 **At a sign-in.** A person comes to hold a role with no administrator signed in in two
-ways: they accept an invitation, which names roles, and they are a stranger from a
-directory a tenant declares with a default role (section 16). The session library runs a
+ways: they accept an invitation, which names roles, and they sign in for the first time
+through the directory of a tenant that names a default role (section 16). The session library runs a
 hook inside the transaction of each step and hands it the transaction, and the client
 answers both hooks over its own membership write, so a role a sign-in gives is held to
 the rule a role given by hand is and is committed with the step that causes it: the
-invitation is spent and its roles given together, or neither; the account is made and
-given its role together, or neither. The Auth's package sets them on its session manager
+invitation is spent and its roles given together, or neither; the account is linked to
+the directory and given its role together, or neither, and a person who holds a role in
+the tenant already is given nothing. The Auth's package sets them on its session manager
 where it builds the client, so no Auth is open without them:
 
 ```go
@@ -3314,7 +3395,7 @@ TransponderKey *resource.Secret `spanner:"TransponderKey" conditions:"secret"`
 ```
 
 ```sql
-TransponderKey BYTES(105),  -- a key of up to 64 bytes, and the 41 sealing adds
+TransponderKey BYTES(106),  -- a key of up to 64 bytes, and the 42 sealing adds
 ```
 
 **The application secret.** One secret of the application, 32 random bytes, kept in
@@ -3324,12 +3405,15 @@ version (the session library derives its cookie key the same way), so the keys t
 resource fields have no relation to the keys of any other use.
 
 **What a column holds.** One value of three parts: the version of the application secret
-that sealed it (one byte, 1 to 255), a random number drawn for the write (24 bytes), and
-the encrypted value with its 16-byte check. The cipher is XChaCha20-Poly1305
-(`golang.org/x/crypto/chacha20poly1305`). Sealing adds 41 bytes (`resource.SecretOverhead`),
-so a column that takes a value of up to n bytes is `BYTES(n+41)`, or `BYTES(MAX)`; the
-value limit a request is held to (section 11) and the form's `maxLength` are the column's
-length less 41, counted in bytes.
+that sealed it (two bytes, the high byte first, 1 to 65535), a random number drawn for the
+write (24 bytes), and the encrypted value with its 16-byte check. The cipher is
+XChaCha20-Poly1305 (`golang.org/x/crypto/chacha20poly1305`). Sealing adds 42 bytes
+(`resource.SecretOverhead`), so a column that takes a value of up to n bytes is
+`BYTES(n+42)`, or `BYTES(MAX)`; the value limit a request is held to (section 11) and the
+form's `maxLength` are the column's length less 42, counted in bytes. The version takes
+two bytes because a deployment's version numbers never repeat, and a rotation that fails
+uses one up: the 255 versions one byte names would run out in a secret's life, with no
+way forward.
 
 **The context.** The row's primary key, every key column in key order, is mixed into the
 check when a value is sealed and again when it is opened. It is never stored: each
@@ -3375,10 +3459,12 @@ bytes in Base64, and `resource.SecretKeysFromEnv` collects whichever are set, re
 whole environment so that no variable the name numbers is passed over. With none set
 it answers no keys and no error, so an application that stores no secret runs without the
 variable; a variable that is set and does not hold a version is an error naming the
-variable, never its value. A stored value names its version in one byte, so a secret has
-255 versions in its life: the variable of a version past 255 is an error at start. The development environment file carries `APP_SECRET_KEY_1` (a
-fixed development value in the skeletons' and Lodestar's `.envrc.template`), and
-`impulse check` (`env-template`) holds the template to it.
+variable, never its value. A stored value names its version in two bytes, so a secret's
+versions run from 1 to 65535: the variable of a version past 65535, or of version 0
+(`APP_SECRET_KEY_65536`, `APP_SECRET_KEY_0`), is an error at start that says the range.
+The development environment file carries `APP_SECRET_KEY_1` (a fixed development value in
+the skeletons' and Lodestar's `.envrc.template`), and `impulse check` (`env-template`)
+holds the template to it.
 
 **Writing.** No code of the author's. A request and a typed patch give the value as text
 (`patch.SetTransponderKey(&key)`; the generated request structs, the typed patches'
@@ -3431,7 +3517,8 @@ wrote, never a value. Its environment is the migration's with one variable for e
 enabled version, the one being retired among them, since its values are opened under it.
 The current version, the highest the environment carries, is refused: new values are
 sealed under it. So is a variable that is not a version of the secret the keys were read
-from. A value that does not open (bytes moved from another row, or altered) fails the
+from, and one whose number is 0 or past 65535, with the range a version's number takes. A
+value that does not open (bytes moved from another row, or altered) fails the
 retirement, naming its resource, field and row, once every other value is written: set it
 again or clear it, and run the retirement again. A second run finds nothing to write and
 exits 0. The service keeps serving meanwhile: a value is written back only while its row
@@ -3462,11 +3549,14 @@ statements of its own, the PostgreSQL client's transactions not being built.
 
 **Tests.** `resource/secret_test.go` holds the type (nothing prints it), the key holder (a
 value opens on its row and on no other, under the version that sealed it and no version the
-holder was not given), the write path and the rewrite against a capturing transaction;
-`resource/secret_spanner_test.go` and `resource/secret_postgres_test.go` hold the column
-(no plain value, the change record names the field without its values) and a rotation over
-the emulator and a PostgreSQL container, and the retirement of a version on both;
-`resource/secret_retire_test.go` holds the retirement's refusals and its final check;
+holder was not given, the versions one byte cannot name among them), the write path and
+the rewrite against a capturing transaction; `resource/secret_spanner_test.go` and
+`resource/secret_postgres_test.go` hold the column (no plain value, the change record
+names the field without its values) and a rotation over the emulator and a PostgreSQL
+container, and the retirement of a version on both, of versions 256 and 258 under version
+65535 as of version 1 under version 2; `resource/secret_retire_test.go` holds the
+retirement's refusals, its final check, and that it tells a version from one that shares
+one of its two bytes;
 `generation/secret_test.go` holds the refusals, the generated methods and the secret
 holders. Lodestar's ship carries a transponder key
 (`lodestar/test/integration/secret_test.go`), and its migrate command retires a version

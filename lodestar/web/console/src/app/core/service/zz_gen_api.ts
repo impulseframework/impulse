@@ -402,14 +402,10 @@ export type SectorsKey = [id: string];
  * absent; a server-generated key is absent, a client-assigned key is required.
  */
 export interface SectorDirectoriesCreate {
-  method: string;
-  connection: string;
   defaultSeat?: string | null;
 }
 /** The fields a client may change on SectorDirectories. Keys, server-owned, and immutable fields are absent. */
 export interface SectorDirectoriesPatch {
-  method?: string;
-  connection?: string;
   defaultSeat?: string | null;
 }
 /** The primary key of SectorDirectories, in route order. */
@@ -1161,7 +1157,7 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list', 'read', 'create', 'patch', 'remove', 'batch'],
       page: { default: 50 },
       order: [{ field: 'method', direction: 'asc' }, { field: 'connection', direction: 'asc' }],
-      patchable: ['method', 'connection', 'defaultSeat'],
+      patchable: ['defaultSeat'],
     },
     [Resources.SectorPilots]: {
       resource: Resources.SectorPilots,

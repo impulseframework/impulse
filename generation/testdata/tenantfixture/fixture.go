@@ -242,6 +242,56 @@ type (
 		Connection string `spanner:"Connection"`
 	}
 
+	// Causeway is a directories record whose table carries no unique index on the tenant
+	// column: nothing in the schema keeps a harbor to one directory.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @tenantDirectory
+	Causeway struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		HarborID impulse.UUID `spanner:"HarborId"`
+		// @directoryMethod
+		Method string `spanner:"Method"`
+		// @directoryConnection
+		Connection string `spanner:"Connection"`
+	}
+
+	// Seawall is a directories record whose table carries no unique index on the method
+	// and the connection together: nothing in the schema keeps a directory to one
+	// harbor. The index the table does carry, on the harbor with the two, keeps neither
+	// rule.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @tenantDirectory
+	Seawall struct {
+		ID impulse.UUID `spanner:"Id"`
+		// @domain
+		HarborID impulse.UUID `spanner:"HarborId"`
+		// @directoryMethod
+		Method string `spanner:"Method"`
+		// @directoryConnection
+		Connection string `spanner:"Connection"`
+	}
+
+	// Pontoon is a directories record keyed by a name the request would have to type:
+	// a directory is set from a sign-in, which names no key.
+	//
+	// @resource
+	// @permissionScope(domain)
+	// @tenantDirectory
+	Pontoon struct {
+		Name string `spanner:"Name"`
+		// @domain
+		HarborID impulse.UUID `spanner:"HarborId"`
+		// @directoryMethod
+		Method string `spanner:"Method"`
+		// @directoryConnection
+		Connection string `spanner:"Connection"`
+	}
+
 	// Lighthouse is a directories record whose tenant column is a nullable string:
 	// neither the id nor its text, so the create-your-tenant route has no value to
 	// hand it.

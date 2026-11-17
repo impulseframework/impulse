@@ -110,7 +110,7 @@ func (a *App) SectorDirectories() http.HandlerFunc {
 func (a *App) SectorDirectory() http.HandlerFunc {
 	type response struct {
 		ID          impulse.UUID `json:"id"          index:"true" perm:"-"`
-		SectorID    impulse.UUID `json:"sectorId"`
+		SectorID    impulse.UUID `json:"sectorId"    index:"true"`
 		Method      string       `json:"method"`
 		Connection  string       `json:"connection"`
 		DefaultSeat *string      `json:"defaultSeat"`

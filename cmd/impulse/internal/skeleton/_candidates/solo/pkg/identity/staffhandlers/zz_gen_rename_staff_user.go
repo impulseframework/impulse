@@ -89,7 +89,7 @@ func (h *Handlers) RenameStaffUser() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "spanner.Client.ReadWriteTransaction()"))
 		}
 
-		live.Publish(ctx, h.LiveService(), h.liveDerivations, "", touched)
+		live.Publish(ctx, w, h.LiveService(), h.liveDerivations, "", touched)
 
 		w.WriteHeader(http.StatusNoContent)
 

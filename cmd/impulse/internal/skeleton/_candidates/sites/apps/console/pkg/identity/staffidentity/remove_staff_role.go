@@ -18,10 +18,12 @@ import (
 // every domain (EveryDomain). A role the person does not hold there is no error. The
 // person's next request is served without it.
 //
-// A person who removes a role from themselves keeps an administrator role nobody else
-// would hold where it is held (identity.WithAdministratorRoles names them). A person
-// left with no role anywhere is deleted with their identity links and sessions, in the
-// same transaction: an account nothing admits is not kept.
+// A person who removes a role from themselves in a domain keeps an administrator role
+// nobody else would hold there (identity.WithAdministratorRoles names them). The Super
+// Administrator role is taken away by a super administrator alone, and never from the
+// last one who can sign in. A person left with no role anywhere is deleted with their
+// identity links and sessions, in the same transaction: an account nothing admits is
+// not kept.
 //
 // @rpc
 // @outlet(default)

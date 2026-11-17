@@ -528,18 +528,20 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	}
 {{- if .DirectoryAdmission}}
 
-	// The directory admission: what a stranger gets at their first sign-in through a
-	// directory a tenant declares, before the registration's account rule is reached.
-	// The directory rows the tenants declare for the identity's connection decide: a
-	// row with a default seat creates the person and gives them that role in the tenant
-	// in one transaction (the identity client's DirectorySeated, which the session
-	// library runs inside the transaction that creates the person), and the sign-in rule
-	// then finds the membership; rows with none refuse them (invitation_only) and no
+	// The directory admission: what a person gets at their first sign-in through a
+	// tenant's directory, before the registration's account rule is reached. The row of
+	// the tenant whose directory the identity came through decides. A row with a default
+	// seat creates a stranger and gives them that role in the tenant in one transaction
+	// (the identity client's DirectorySeated, which the session library runs inside the
+	// transaction that links the account to the directory), and the sign-in rule then
+	// finds the membership; a row with none refuses a stranger (invitation_only) and no
 	// account is created, unless they followed an invitation link, which is the way in.
-	// A person given a role ahead of their first sign-in has the account the role is
-	// held by, which the sign-in links, and is no stranger. A directory no tenant
-	// declares falls to the registration's rule. The auth's roles are the application's,
-	// so the admission is set here; an auth whose directory writes the roles sets none.
+	// A person whose account stood before is given the default seat too, at the sign-in
+	// that links the account to the directory, where they hold no role in the tenant; a
+	// role an administrator removes afterwards is not given back by signing in. A
+	// directory no tenant has falls to the registration's rule. The auth's roles are the
+	// application's, so the admission is set here; an auth whose directory writes the
+	// roles sets none.
 	authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
 {{- end}}
 {{- if not .RolesSynced}}

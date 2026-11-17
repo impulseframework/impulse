@@ -152,6 +152,9 @@ type served struct {
 	adminID, memberID, clientID string
 	// db is the test database, for the suites that read a table directly.
 	db *initiator.SpannerDB
+	// tenants is the roster the stack serves from, for a suite that writes what a
+	// tenant declares in code, as a sign-in would, and reloads it as a write path does.
+	tenants *resource.TenantRoster
 	// mail is the recorder the staff auth sends its mail to, where a suite reads the
 	// sign-in code a sign-in waits for.
 	mail *mail.Recorder
@@ -229,7 +232,7 @@ func newServed(ctx context.Context, t *testing.T) *served {
 		LoginURL:       "/portal/login",
 		Directory:      members.DirectorySettings{TenantID: "00000000-0000-0000-0000-000000000000", AdministeredTenants: "00000000-0000-0000-0000-000000000000", RedirectURL: "http://" + server.Listener.Addr().String() + portalAPI + "/user/directory/callback"},
 		// The declaration reader the sign-in rule reads with; the development seed
-		// declares the directory above on both tenants.
+		// makes the directory above north's.
 		TenantDeclarations: app.NewTenantDeclarationReader(),
 		TenantDirectories:  app.NewTenantDirectoryReader(),
 	})
@@ -302,7 +305,7 @@ func newServed(ctx context.Context, t *testing.T) *served {
 	server.Config.Handler = router.New(a, router.Hooks{})
 	server.Start()
 
-	return &served{server: server, access: accessClient, members: membersAccess, adminID: ids[adminUser], memberID: ids[memberUser], clientID: clientID, db: db, mail: sent, trusted: map[string]*http.Cookie{}}
+	return &served{server: server, access: accessClient, tenants: roster, members: membersAccess, adminID: ids[adminUser], memberID: ids[memberUser], clientID: clientID, db: db, mail: sent, trusted: map[string]*http.Cookie{}}
 }
 
 // waitForDomains blocks until the engine's snapshot reports the user's footholds in

@@ -4,11 +4,11 @@ package integration
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/url"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
@@ -21,8 +21,12 @@ import (
 // skipAuth tag as APP_SIGN_UP_USERNAME), and then names her own sector through the
 // generated create-sector route, standing in it at once.
 //
-// Ember's first directory is the one she came through, written by the route in the
-// row's transaction, so Ember admits her Google session at once.
+// She signs up with a personal Google account, which stands for everyone who is in no
+// organization and so is no sector's directory: the route sets none on Ember, Ember
+// admits her as it admits a password, the session read reports no directory for her,
+// and her attempt to make her account Ember's directory is refused with what to do. A
+// person who charts a sector while signed in through an organization's directory has
+// it set on the new sector in the row's transaction (the tenanted skeleton proves it).
 //
 // Any Google account is a directory the fleet does not administer, so her sign-up
 // waits for the second factor: the browser lands on the login page with the pending
@@ -68,21 +72,24 @@ func TestSelfServiceSignUp_signInFirstThenChart(t *testing.T) {
 	if status, body := b.do(ctx, http.MethodGet, consoleAPI+"/sectors/"+ember+"/missions", nil); status != http.StatusOK {
 		t.Errorf("GET Ember's flight deck: status %d, want 200: %s", status, body)
 	}
-	// Ember declares the directory she came through, and nothing else: her Google
-	// session is admitted by it, which is why her chart lights Ember at all.
-	status, body = b.do(ctx, http.MethodGet, consoleAPI+"/sectors/"+ember+"/sector-directories", nil)
-	if status != http.StatusOK {
-		t.Fatalf("GET Ember's directories: status %d: %s", status, body)
+	// Ember has no directory: a personal Google account is nobody's, so the route set
+	// none, and her chart lights Ember because a personal account is admitted as a
+	// password is. The session read reports no directory for her.
+	if rows := directories(ctx, t, b, ember); len(rows) != 0 {
+		t.Errorf("Ember's directory = %+v, want none: the pioneer signed up with a personal Google account", rows)
 	}
-	var declared []struct {
-		Method     string `json:"method"`
-		Connection string `json:"connection"`
+	if got := sessionDirectory(t, b.session(ctx)); got != nil {
+		t.Errorf("the pioneer's session reports the directory %+v, want none: a personal account is no organization's directory", got)
 	}
-	if err := json.Unmarshal(body, &declared); err != nil {
-		t.Fatalf("Ember's directories are not a list: %v: %s", err, body)
+	// She is Ember's marshal, and making her personal account Ember's directory is
+	// refused with what to do; nothing is written.
+	makeEmbers := `[{"op":"add","path":"/sectors/` + ember + `/sector-directories","value":{}}]`
+	status, body = b.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(makeEmbers))
+	if want := "A personal Google account is not an organization's directory, so it cannot be a sector's directory. Sign in with your organization's account (Google Workspace or Microsoft Entra) and try again."; status != http.StatusConflict || !strings.Contains(string(body), want) {
+		t.Errorf("making a personal Google account Ember's directory: status %d, want 409 saying %q: %s", status, want, body)
 	}
-	if len(declared) != 1 || declared[0].Method != "google" || declared[0].Connection == "" {
-		t.Errorf("Ember's directories = %+v, want the one Google directory the pioneer came through", declared)
+	if rows := directories(ctx, t, b, ember); len(rows) != 0 {
+		t.Errorf("Ember's directory after the refusal = %+v, want none", rows)
 	}
 	// One sector per person: a second is refused.
 	if status, body := b.do(ctx, http.MethodPost, createSectorRoute, []byte(chartEmberAgain)); status != http.StatusForbidden {

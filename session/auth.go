@@ -594,7 +594,16 @@ func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationA
 // person in place of the username, which stays what identifies them. look is the look
 // the person chose ({"scheme", "palette"}, each present where they chose it), present
 // when the user holds one: what their pages draw themselves in on every browser.
+// directory is the organization's directory the session was established through
+// ({"method", "connection"}: a Google Workspace by its connection, a Microsoft Entra
+// tenant by its tenant id), present for a sign-in through one and absent for a
+// password, for a personal account, which is no organization's directory, and for an
+// impersonated session: what a page offers the person to make a tenant's directory.
 func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
+	type directory struct {
+		Method     sessioninfo.AuthMethod `json:"method"`
+		Connection string                 `json:"connection"`
+	}
 	type response struct {
 		Authenticated          bool                               `json:"authenticated"`
 		Username               string                             `json:"username"`
@@ -609,6 +618,9 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 		// factor for the person, so their account page offers to forget it (ForgetBrowser).
 		// Never for an impersonated session, which may not forget it.
 		BrowserRemembered bool `json:"browserRemembered"`
+		// Directory is the organization's directory the session was established
+		// through, nil for any other session.
+		Directory *directory `json:"directory,omitempty"`
 	}
 
 	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -626,6 +638,12 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 
 		imp, _ := sessioninfo.ImpersonationFromCtx(ctx)
 		user := sessioninfo.UserFromCtx(ctx)
+		var through *directory
+		if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok {
+			if d := (signin.Directory{Method: established.Method, Connection: established.Connection}); d.Organization() {
+				through = &directory{Method: d.Method, Connection: d.Connection}
+			}
+		}
 
 		return httpio.NewEncoder(w).Ok(response{
 			Authenticated:          true,
@@ -638,6 +656,7 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 			EmailHint:              a.emailHint(ctx, user),
 			Impersonation:          basesession.NewImpersonationResponse(imp),
 			BrowserRemembered:      imp == nil && user != nil && browserRemembered(ctx, user.ID),
+			Directory:              through,
 		})
 	}))
 }
@@ -702,32 +721,43 @@ func (a *Auth[S, U, Tx]) ValidateSession(next http.Handler) http.Handler {
 }
 
 // DirectorySeatedHook is the application's half of a directory's default seat: it
-// seats the user a first sign-in provisions, named by id (the key an application's
-// memberships are held under) and by username (what a log line reads), with seats, the default seats of the
-// directories the tenants declared for the identity's connection, inside the
-// transaction that provisions the user, which it is handed: the account is made and
-// seated together, or neither. A seat the invitation this sign-in consumes names too
-// (the same role in the same tenant) is not among seats: InvitationAcceptedHook gives
-// it, in the same transaction, and the two hooks never write one membership twice. The
-// hook is not called for no seats. It is held to what InvitationAcceptedHook is: tx alone
-// for its reads and writes, the user not readable in it, a committed function (nil for
-// none) the library runs once the transaction has committed and before the sign-in
-// policy decides, and an error that fails the transaction and ends the sign-in, so no
-// account is left holding nothing.
+// seats the user at their first sign-in through a tenant's directory, named by id (the
+// key an application's memberships are held under) and by username (what a log line
+// reads), with seats, the default seat of the tenant whose directory the identity came
+// through, inside the transaction that links the identity to the user, which it is
+// handed: the link is made and the person seated together, or neither. The first
+// sign-in through a directory is the one that makes the link, whether it makes the
+// account too or the account stood before (a person another tenant invited, or one
+// created ahead), and whether the link is made at once or once the user's password has
+// confirmed it. The library calls the hook once for a link: a later sign-in finds the
+// link and gives nothing, so a seat an administrator removed is not given back, and a
+// link that was deleted and is made again is a first sign-in again. The hook gives a
+// seat only where the person holds no role in the tenant, which it alone can read: a
+// person who holds one keeps what they hold. A seat the invitation this sign-in
+// consumes names too (the same role in the same tenant) is not among seats:
+// InvitationAcceptedHook gives it, in the same transaction, and the two hooks never
+// write one membership twice. The hook is not called for no seats. It is held to what
+// InvitationAcceptedHook is: tx alone for its reads and writes, a user the transaction
+// made not readable in it, a committed function (nil for none) the library runs once
+// the transaction has committed and before the sign-in policy decides, and an error
+// that fails the transaction and ends the sign-in, so no account is left holding
+// nothing and no link is left that gave nothing.
 type DirectorySeatedHook[Tx any] = func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (committed func(ctx context.Context), err error)
 
-// SetDirectoryAdmission sets what a tenanted application gives a first sign-in
-// through a directory by a person no user was created for: reader, which reads
-// every tenant's declaration of the directory the identity came through
-// (signin.DirectoryReader), and hook, which seats the person with the default seats
-// the declarations name. With them the standard account rules ask the tenants first: a
-// directory some tenant declares belongs to that tenant, and its declaration decides
-// before the registration's own rule. A default seat admits a stranger with it, and a
-// declaration naming none refuses a stranger by invitation only (invitation_only,
-// unless the sign-in carries an invitation), with no account created. A person the
-// application gave a role ahead of their first sign-in is no stranger: a role is held
-// by an account, and the sign-in links the identity to the account under its sign-in
-// name before the tenants are asked. A directory no tenant declares falls to the
+// SetDirectoryAdmission sets what a tenanted application gives a person's first
+// sign-in through a tenant's directory: reader, which reads the declaration of the
+// directory the identity came through (signin.DirectoryReader: the tenant whose
+// directory it is, since a directory belongs to one tenant), and hook, which seats the
+// person with the default seat the declaration names. With them the standard account
+// rules ask the tenant first: its declaration decides before the registration's own
+// rule. A default seat admits a stranger with it, and a declaration naming none
+// refuses a stranger by invitation only (invitation_only, unless the sign-in carries
+// an invitation), with no account created. A person who has an account (one another
+// tenant invited, or one the application created ahead) is no stranger: the sign-in
+// links the identity to the account under its sign-in name, and the default seat is
+// given with the link when they hold no role in the tenant. A directory no tenant
+// declares, and a personal account, which is no organization's directory
+// (signin.Directory.PersonalAccounts), fall to the
 // registration's rule as without them. Set the two after NewAuth and before serving
 // the first request; a nil reader or hook, a second call, or a call once the Auth is
 // in use is a wiring mistake and panics, as SetSignInPolicy does.

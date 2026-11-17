@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql/driver"
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"log/slog"
 
@@ -14,8 +15,9 @@ import (
 // A secret the application must use itself (an API key it presents to another service,
 // a signing key) is kept encrypted. Its field is typed Secret and declared
 // conditions:"secret", its column is BYTES, and what the column holds is one value of
-// three parts: the version of the application secret that wrote it (one byte), a random
-// number drawn for the write (24 bytes), and the encrypted value with its 16-byte check.
+// three parts: the version of the application secret that wrote it (two bytes, the high
+// byte first), a random number drawn for the write (24 bytes), and the encrypted value
+// with its 16-byte check.
 // The row's primary key is mixed into the check and never stored, so a value opens on
 // the row it was written for and on no other.
 //
@@ -30,9 +32,11 @@ const secretRedaction = "[secret]"
 
 // The layout of a stored secret.
 const (
-	// secretVersionSize is the leading byte naming the version of the application
-	// secret the value was sealed under.
-	secretVersionSize = 1
+	// secretVersionSize is the two leading bytes naming the version of the application
+	// secret the value was sealed under, the high byte first: versions 1 to 65535. A
+	// deployment's version numbers never repeat, and a rotation that fails uses one up,
+	// so the 255 one byte names would run out in a secret's life.
+	secretVersionSize = 2
 	// secretNonceSize is the random number drawn for each write.
 	secretNonceSize = chacha20poly1305.NonceSizeX
 	// SecretOverhead is how many bytes sealing adds to a value: the version, the random
@@ -41,6 +45,13 @@ const (
 	// less this.
 	SecretOverhead = secretVersionSize + secretNonceSize + chacha20poly1305.Overhead
 )
+
+// secretVersionPrefix is how a stored value names a version of the application secret:
+// the version's number in its two leading bytes, the high byte first. Seal writes it,
+// and a retirement on PostgreSQL finds a version's values by it.
+func secretVersionPrefix(version int) []byte {
+	return binary.BigEndian.AppendUint16(make([]byte, 0, secretVersionSize), uint16(version)) //nolint:gosec // a version is 1 to 65535, checked where the holder is built and where a version's variable is read
+}
 
 // Secret is the type of a resource field that holds a secret (conditions:"secret"): the
 // bytes its column stores and nothing else. It goes in and out of the database
@@ -58,13 +69,14 @@ func (s Secret) IsZero() bool {
 }
 
 // KeyVersion returns the version of the application secret the value was sealed under,
-// which its first byte names; 0 for a Secret that holds no value.
+// which its first two bytes name; 0 for a Secret that holds no value, or too few bytes
+// to name a version.
 func (s Secret) KeyVersion() int {
-	if len(s.sealed) == 0 {
+	if len(s.sealed) < secretVersionSize {
 		return 0
 	}
 
-	return int(s.sealed[0])
+	return int(binary.BigEndian.Uint16(s.sealed))
 }
 
 // Equal reports whether two Secrets hold the same stored bytes. Two writes of one value

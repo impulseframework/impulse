@@ -58,6 +58,18 @@ func TestSecretField(t *testing.T) {
 
 		return readColumn[[]byte](ctx, t, db, "Ships", spanner.Key{shipID}, "TransponderKey")
 	}
+	// storedVersion is the version of the application secret the stored key names: its
+	// first two bytes, the high byte first.
+	storedVersion := func(shipID string) int {
+		t.Helper()
+
+		sealed := stored(shipID)
+		if len(sealed) < 2 {
+			t.Fatalf("the column holds %d byte(s), too few to name a version", len(sealed))
+		}
+
+		return int(sealed[0])<<8 | int(sealed[1])
+	}
 	// opened reads a ship through the resource layer and opens its key the way application
 	// code does, with the keys the data level holds: the ship's generated method takes the
 	// row's own primary key, which the query reads with the secret.
@@ -108,7 +120,7 @@ func TestSecretField(t *testing.T) {
 	status, body = set(fmt.Sprintf(`{"transponderKey":%q}`, second))
 	assertStatus(t, status, http.StatusOK, body)
 	holds(shipKingfisherID, second, testSecretKeys)
-	// A key longer than the column takes (64 bytes, the column's 105 less the 41 sealing
+	// A key longer than the column takes (64 bytes, the column's 106 less the 42 sealing
 	// adds) is refused before anything is sealed.
 	status, body = set(fmt.Sprintf(`{"transponderKey":%q}`, strings.Repeat("k", 65)))
 	assertStatus(t, status, http.StatusBadRequest, body)
@@ -129,7 +141,7 @@ func TestSecretField(t *testing.T) {
 	// writes nothing.
 	rotated := newTestSecretKeys(1, 2)
 	holds(shipKingfisherID, second, rotated)
-	if version := stored(shipKingfisherID)[0]; version != 1 {
+	if version := storedVersion(shipKingfisherID); version != 1 {
 		t.Fatalf("the stored key names version %d before it is used in a transaction, want 1", version)
 	}
 	// Opened inside a transaction of a client that holds both versions, it is written
@@ -155,7 +167,7 @@ func TestSecretField(t *testing.T) {
 	if err != nil {
 		t.Fatalf("opening the key in a transaction: %v", err)
 	}
-	if version := stored(shipKingfisherID)[0]; version != 2 {
+	if version := storedVersion(shipKingfisherID); version != 2 {
 		t.Errorf("the stored key names version %d after it was used in a transaction, want the current one, 2", version)
 	}
 	holds(shipKingfisherID, second, rotated)
