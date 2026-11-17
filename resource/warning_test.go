@@ -66,7 +66,7 @@ func TestAsksWarning(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			r := httptest.NewRequest(http.MethodPost, "/api/retire-ship", http.NoBody)
+			r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/api/retire-ship", http.NoBody)
 			for name, value := range tt.header {
 				r.Header.Set(name, value)
 			}
