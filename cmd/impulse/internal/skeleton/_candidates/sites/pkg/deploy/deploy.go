@@ -208,7 +208,9 @@ func MigrateFeatures(ctx context.Context, client resource.Client) error {
 // version, and a final read confirms none is left, which is what makes the version safe
 // to disable. It prints how many values of each field it wrote, never a value. The client
 // holds the secret keys, built from every enabled version; the current version is
-// refused, and a second run writes nothing.
+// refused, and a second run writes nothing. The retirement reads the packages named here
+// and no other: a resources package the application gains is added to this call, and
+// impulse check (secret-holders) fails until it is.
 func RetireSecret(ctx context.Context, client resource.Client, variable string, out io.Writer) error {
 	retirement, err := resource.RetireSecretVersion(ctx, client, variable, slices.Concat(consoleresources.SecretHolders(), portalresources.SecretHolders(), sharedresources.SecretHolders())...)
 	if err != nil {

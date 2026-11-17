@@ -736,9 +736,35 @@ func TestSecretKeysFromEnv(t *testing.T) {
 		}
 	}
 
-	// No version at all is no keys and no error: an application with no secret runs.
-	if keys, err := SecretKeysFromEnv("APP_SECRET_KEY", []string{"PATH=/usr/bin", "APP_COOKIE_KEY=" + version(9)}); err != nil || keys != nil {
-		t.Errorf("SecretKeysFromEnv() with no version = %v, error %v, want neither", keys, err)
+	// No version at all is no error: an application with no secret runs. The holder it
+	// answers holds no key, and says which variable is missing where a key is needed.
+	for name, environ := range map[string][]string{
+		"no variable of the name":    {"PATH=/usr/bin", "APP_COOKIE_KEY=" + version(9)},
+		"the name itself, set empty": {"PATH=/usr/bin", "APP_SECRET_KEY="},
+	} {
+		none, err := SecretKeysFromEnv("APP_SECRET_KEY", environ)
+		if err != nil || none == nil || none.held() || none.Current() != 0 || len(none.Versions()) != 0 {
+			t.Fatalf("SecretKeysFromEnv() with %s: holder %v, error %v; want a holder that holds no key and no error", name, none, err)
+		}
+		const want = "no version of the application secret was handed over: APP_SECRET_KEY_1 is not set"
+		if _, err := none.Seal(rowKey("row-1"), "open-sesame"); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Seal() by a holder read from an environment with %s: error = %v, want containing %q", name, err, want)
+		}
+		if _, err := none.Open(rowKey("row-1"), sealed); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Open() by a holder read from an environment with %s: error = %v, want containing %q", name, err, want)
+		}
+	}
+
+	// The name itself holding a value, with no numbered version beside it, is the secret
+	// put in the wrong variable: it is never read, so it is refused by name with the
+	// variable to use, and its value is not quoted. Beside a numbered version it is
+	// passed over, as above.
+	_, err = SecretKeysFromEnv("APP_SECRET_KEY", []string{"PATH=/usr/bin", "APP_SECRET_KEY=" + version(1)})
+	if want := "APP_SECRET_KEY is set, and the application secret is read one variable for each version, never from the name itself: name the variable APP_SECRET_KEY_1"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Errorf("SecretKeysFromEnv() with the name itself holding a value: error = %v, want containing %q", err, want)
+	}
+	if err != nil && strings.Contains(err.Error(), version(1)) {
+		t.Errorf("the refusal quotes the variable's value: %v", err)
 	}
 
 	short := base64.StdEncoding.EncodeToString([]byte("too-short-a-secret"))
@@ -1053,6 +1079,22 @@ func TestPatchSet_Apply_sealsThroughTheClient(t *testing.T) {
 		t.Errorf("a client with no keys buffered %d writes", len(unkeyed.columns))
 	}
 
+	// A client wired to an environment that carries no version (a command that opens the
+	// data level without the generated router) refuses the write by the name of the
+	// variable that is missing, not by the wiring, which is in place.
+	unset, err := SecretKeysFromEnv("APP_SECRET_KEY", []string{"PATH=/usr/bin"})
+	if err != nil {
+		t.Fatalf("SecretKeysFromEnv() error = %v", err)
+	}
+	unversioned := &capturingTxn{}
+	err = create().Apply(context.Background(), NewMockClient(unversioned, nil, nil, WithSecretKeys(unset)), "test")
+	if err == nil || !strings.Contains(err.Error(), "SealedRows.AccessCode is a secret and the transaction holds no secret keys to seal it with: no version of the application secret was handed over: APP_SECRET_KEY_1 is not set") || strings.Contains(err.Error(), "resource.WithSecretKeys") {
+		t.Errorf("Apply() on a client handed no version: error = %v, want the variable named and no word of the wiring", err)
+	}
+	if len(unversioned.columns) != 0 {
+		t.Errorf("a client handed no version buffered %d writes", len(unversioned.columns))
+	}
+
 	// A transaction built by hand is given the keys itself.
 	own := &capturingTxn{}
 	if err := create().Buffer(context.Background(), NewMockReadWriteTransaction(own).WithSecretKeys(keys), "test"); err != nil {
@@ -1161,10 +1203,24 @@ func TestRequireSecretKeys(t *testing.T) {
 	if err := RequireSecretKeys(unkeyed); err != nil {
 		t.Errorf("RequireSecretKeys() for an application with no secret: error = %v", err)
 	}
-	const want = "the application stores secrets (SealedRows.AccessCode, Vaults.Combination) and its resource client was built with no secret keys: build them from the application secret's versions (resource.NewSecretKeys, resource.SecretKeysFromEnv) and wire them on the client with resource.WithSecretKeys"
+	// A client that was never given a holder names the wiring, and the variable an
+	// application made from a skeleton reads.
+	const want = "the application stores secrets (SealedRows.AccessCode, Vaults.Combination) and its resource client was built with no secret keys: read the versions of the application secret from the environment with resource.SecretKeysFromEnv (an application made from a skeleton reads APP_SECRET_KEY_1, APP_SECRET_KEY_2 and so on) and wire them on the client with resource.WithSecretKeys"
 	for name, client := range map[string]Client{"no option": unkeyed, "nil keys": nilKeys} {
 		if err := RequireSecretKeys(client, "SealedRows.AccessCode", "Vaults.Combination"); err == nil || !strings.HasSuffix(err.Error(), want) {
 			t.Errorf("RequireSecretKeys() on a client with %s: error = %v, want %q", name, err, want)
+		}
+	}
+	// A client wired to an environment that carries no version names the variable that
+	// is missing, under whatever name the application declares.
+	for _, name := range []string{"APP_SECRET_KEY", "FLEET_KEY"} {
+		none, err := SecretKeysFromEnv(name, []string{"PATH=/usr/bin"})
+		if err != nil {
+			t.Fatalf("SecretKeysFromEnv() error = %v", err)
+		}
+		want := "the application stores secrets (SealedRows.AccessCode) and was handed no version of the application secret: " + name + "_1 is not set. Set it to 32 random bytes in Base64 (openssl rand -base64 32 makes one)"
+		if err := RequireSecretKeys(NewMockClient(nil, nil, nil, WithSecretKeys(none)), "SealedRows.AccessCode"); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("RequireSecretKeys() on a client wired to an environment with no version: error = %v, want containing %q", err, want)
 		}
 	}
 	if err := RequireSecretKeys(nil, "SealedRows.AccessCode"); err == nil {
@@ -1410,5 +1466,156 @@ func TestQuerySet_AddField_aSecretBringsItsKey(t *testing.T) {
 	plain := NewQuerySet(NewMetadata[sealedPairRow]()).AddField("Shelf")
 	if got := plain.Fields(); !cmp.Equal(got, []accesstypes.Field{"Shelf"}) {
 		t.Errorf("the fields of a query for a key column = %v, want it alone", got)
+	}
+}
+
+// A difference between two patches in a secret field is reported, and neither value is
+// printed: the generated Patch.Diff of every resource compares through PatchSetDiff, and
+// what it answers goes to a test's log or an error.
+func TestPatchSetDiff_secret(t *testing.T) {
+	t.Parallel()
+
+	patch := func(title, code string) *PatchSet[sealedRow] {
+		p := NewPatchSet(NewMetadata[sealedRow]()).SetPatchType(UpdatePatchType)
+		p.SetKey("ID", "row-1")
+		p.Set("Title", title)
+		p.Set("AccessCode", &code)
+
+		return p
+	}
+	diff := PatchSetDiff()
+
+	if got := diff(patch("sealed", "open-sesame"), patch("sealed", "open-sesame")); got != "" {
+		t.Errorf("PatchSetDiff() of two patches setting the same secret = %q, want no difference", got)
+	}
+
+	got := diff(patch("sealed", "open-sesame"), patch("sealed", "close-sesame"))
+	if want := "Value mismatch for field AccessCode, (-want +got):\n- [secret]\n+ [secret]"; got != want {
+		t.Errorf("PatchSetDiff() of two patches setting different secrets = %q, want %q", got, want)
+	}
+	for _, leak := range []string{"open-sesame", "close-sesame", "sesame"} {
+		if strings.Contains(got, leak) {
+			t.Errorf("PatchSetDiff() prints the secret: %q", got)
+		}
+	}
+
+	// A secret set on one side and cleared on the other, and one given as its stored
+	// bytes, are differences too, shown the same way.
+	cleared := patch("sealed", "open-sesame")
+	cleared.Set("AccessCode", (*string)(nil))
+	if got := diff(patch("sealed", "open-sesame"), cleared); !strings.Contains(got, "- [secret]\n+ [secret]") || strings.Contains(got, "sesame") {
+		t.Errorf("PatchSetDiff() of a secret set and a secret cleared = %q, want the difference with neither value", got)
+	}
+
+	// A field that is no secret is still shown as it is.
+	if got := diff(patch("sealed", "open-sesame"), patch("unsealed", "open-sesame")); !strings.Contains(got, "Value mismatch for field Title") || !strings.Contains(got, "unsealed") {
+		t.Errorf("PatchSetDiff() of two titles = %q, want the titles shown", got)
+	}
+}
+
+// A row its transaction already wrote is left alone whichever order the patch that wrote
+// it was keyed in. A patch of a row with a key of two columns sets the secret, keyed in
+// the key's order or in the other, and the value the row held when it was read before is
+// then opened inside the transaction. No read sees the patch's write: a rewrite would be
+// buffered after it, and the old value would win at commit.
+func TestOpenSecretIn_rowWrittenUnderAnotherKeyOrder(t *testing.T) {
+	t.Parallel()
+
+	const before, set = "4-8-15", "16-23-42"
+	keys := testSecretKeys(t, 1, 2)
+	part := map[accesstypes.Field]string{"Vault": "vault-1", "Shelf": "shelf-9"}
+	pairKey := KeySet{}.Add("Vault", part["Vault"]).Add("Shelf", part["Shelf"])
+	old, err := testSecretKeys(t, 1).Seal(pairKey, before)
+	if err != nil {
+		t.Fatalf("Seal() error = %v", err)
+	}
+
+	for name, order := range map[string][]accesstypes.Field{
+		"keyed in the key's order": {"Vault", "Shelf"},
+		"keyed in the other order": {"Shelf", "Vault"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			// A read inside the transaction answers the row as it is stored, which no
+			// buffered write has reached: it still holds the old value.
+			reader := NewMockReader[sealedPairRow](gomock.NewController(t))
+			reader.EXPECT().Read(gomock.Any(), gomock.Any()).
+				Return(&Row[sealedPairRow]{Data: sealedPairRow{Vault: part["Vault"], Shelf: part["Shelf"], Number: old}}, nil).AnyTimes()
+			buffered := &capturingTxn{}
+			txn := NewMockReadWriteTransaction(buffered, reader).WithSecretKeys(keys)
+
+			patch := NewPatchSet(NewMetadata[sealedPairRow]()).SetPatchType(UpdatePatchType)
+			for _, field := range order {
+				patch.SetKey(field, part[field])
+			}
+			patch.Set("Number", set)
+			columns, err := patch.Resolve(txn.DBType(), keys)
+			if err != nil {
+				t.Fatalf("Resolve() error = %v", err)
+			}
+			if err := txn.BufferMap(patch, columns); err != nil {
+				t.Fatalf("BufferMap() error = %v", err)
+			}
+
+			opened, err := OpenSecretIn[sealedPairRow](context.Background(), txn, pairKey, "Number", old)
+			if err != nil || opened != before {
+				t.Fatalf("OpenSecretIn() of the row as it was read before: error %v, want the value it held then", err)
+			}
+			if len(buffered.columns) != 1 {
+				t.Fatalf("the transaction buffered %d write(s) of the row, want its own alone: a rewrite after it puts the old value back at commit", len(buffered.columns))
+			}
+			written, ok := buffered.columns[0]["Number"].(Secret)
+			if !ok {
+				t.Fatalf("the transaction's write holds a %T, want the sealed value", buffered.columns[0]["Number"])
+			}
+			if got, err := keys.Open(pairKey, written); err != nil || got != set {
+				t.Errorf("the one write buffered is not the patch's own: error %v", err)
+			}
+		})
+	}
+}
+
+// unsealedRow is sealedRow's table as a resource that declares no secret: its
+// AccessCode is a string like any other.
+type unsealedRow struct {
+	ID         string  `spanner:"Id"`
+	Title      string  `spanner:"Title"`
+	AccessCode *string `spanner:"AccessCode"`
+}
+
+func (unsealedRow) Resource() accesstypes.Resource {
+	return "SealedRows"
+}
+
+func (unsealedRow) DefaultConfig() Config {
+	return Config{}
+}
+
+// A request's text is sized as a secret only where the resource declares the field one.
+// The same request struct, its field tagged with a BYTES(n) column, is a secret's on the
+// resource that declares it and a stale struct on one that does not: a string-kinded
+// field on BYTES(n) that is no secret has no rule, so nothing sizes it by mistake at the
+// column's length less what sealing adds.
+func TestNewSet_secretValueLimit(t *testing.T) {
+	t.Parallel()
+
+	sealed, err := NewSet[sealedRow, sealedRequest](accesstypes.Update)
+	if err != nil {
+		t.Fatalf("NewSet() on the resource that declares the secret: error = %v", err)
+	}
+	if got, want := sealed.valueLimits["AccessCode"], (valueLimit{kind: ValueKindSecret, max: 4, perElement: false, jsonField: "accessCode"}); got != want {
+		t.Errorf("the secret's limit = %+v, want %+v", got, want)
+	}
+
+	const stale = `sqltype:"BYTES(46)" on field AccessCode is not supported: regenerate this struct`
+	if _, err := NewSet[unsealedRow, sealedRequest](accesstypes.Update); err == nil || !strings.Contains(err.Error(), stale) {
+		t.Errorf("NewSet() on a resource that declares no secret: error = %v, want containing %q", err, stale)
+	}
+	if _, err := newUnenforcedSet[unsealedRow, sealedRequest](); err == nil || !strings.Contains(err.Error(), stale) {
+		t.Errorf("newUnenforcedSet() on a resource that declares no secret: error = %v, want containing %q", err, stale)
+	}
+	if HasValueLimit("BYTES(64)", ValueKindString, false) {
+		t.Error(`HasValueLimit("BYTES(64)", a string) = true, want no rule: the generator would tag a field that is no secret`)
 	}
 }

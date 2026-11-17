@@ -37,6 +37,15 @@ type Badges []string
 // @typescript(HandleText, from: "handles")
 type Handle string
 
+// Fingerprint is a named string type that stores itself as bytes: string-kinded on a
+// BYTES(n) column, and no secret, so nothing sizes it against the column.
+type Fingerprint string
+
+// EncodeSpanner stores the fingerprint as its bytes.
+func (f Fingerprint) EncodeSpanner() (any, error) {
+	return []byte(f), nil
+}
+
 // Struct-level annotations only parse from a TypeSpec doc comment, so the struct sits
 // in a grouped type block like real project sources do.
 type (
@@ -46,7 +55,8 @@ type (
 	// immutable sized string, an output-only sized string hidden from the patch wire, a
 	// named slice of strings, a named slice of a named string, a named slice of
 	// decimals, a named byte slice, a declared type over a named slice and over a named
-	// string, and a string key into another resource (a picker).
+	// string, a string key into another resource (a picker), and a named string type
+	// stored as bytes.
 	//
 	// @resource
 	Parcel struct {
@@ -72,5 +82,6 @@ type (
 		Awards     Badges              `spanner:"Awards"`
 		Nick       Handle              `spanner:"Nick"`
 		CategoryID string              `spanner:"CategoryId"`
+		Token      Fingerprint         `spanner:"Token"`
 	}
 )
