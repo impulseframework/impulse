@@ -32,8 +32,8 @@ type (
 	// NULL, and the tenant admits the directory's people by invitation only (a stranger
 	// is refused with no account, and an invitation is the way in). It is given once
 	// for the link between the account and the directory: a person whose role an
-	// administrator removed is not given it back by signing in. The tenant's
-	// administrator sets it on the Sign-in page, a picker over the tenant's roles.
+	// administrator removed is not given it back by signing in. The record shows it and
+	// its own update never writes it: the tenant's own methods name it and clear it.
 	//
 	// The tenancy column is on the row itself (the bare @domain binding), as the
 	// directories record requires: a directory is the tenant's own declaration, stamped

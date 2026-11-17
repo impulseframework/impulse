@@ -55,6 +55,14 @@ type Registration[Tx any] struct {
 	// the method builds it over the rule the application gave its registration, typed
 	// to the method's identity.
 	AccountRule AccountRule[Tx]
+	// SeededUsers declares that the provider's names are the application's own: an
+	// identity of this registration under the name of a user created ahead is that
+	// user, so the standard rule links the user on the name alone, whatever tenant has
+	// the provider as its directory and whatever the user holds. It is for the provider
+	// a deployment runs for the accounts it seeds, as the persona provider of the test
+	// environments is for the cast, and never for an organization's directory, whose
+	// names are the organization's to assert.
+	SeededUsers bool
 	// Build builds the method over the registration's state cookie, which carries the
 	// browser's half of a round trip to the provider; the core names it for the
 	// registration.

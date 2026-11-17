@@ -690,8 +690,7 @@
               "fields": [
                 "name",
                 "region",
-                "established",
-                "directoryOnly"
+                "established"
               ]
             },
             {
@@ -1784,13 +1783,6 @@
           ],
           "Update": [
             {
-              "resource": "SectorDirectories",
-              "fields": [
-                "defaultSeat"
-              ],
-              "condition": "new.defaultSeat IS NULL OR new.defaultSeat != 'SectorMarshal'"
-            },
-            {
               "resource": "Wings",
               "fields": [
                 "name"
@@ -2084,6 +2076,18 @@
             {
               "resource": "TakeCrewSectorGroupRole",
               "condition": "role != 'SectorMarshal'"
+            },
+            {
+              "resource": "MakeSectorDirectoryOnly"
+            },
+            {
+              "resource": "EndSectorDirectoryOnly"
+            },
+            {
+              "resource": "OpenSectorToDirectory"
+            },
+            {
+              "resource": "MakeSectorInviteOnly"
             }
           ]
         }

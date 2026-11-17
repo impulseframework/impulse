@@ -10,6 +10,7 @@ package drivertest
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +19,7 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
@@ -27,17 +29,41 @@ import (
 // application seats a person: the hook writes through the transaction that provisions
 // the user, so its row is committed with the account or not at all, and what it knows
 // in memory (an application's permission engine) it is told once the transaction has
-// committed. fail, while set, is the error the hook answers after its write.
+// committed. fail, while set, is the error the hook answers after its write. ahead is
+// the roles an administrator gave before a person's first sign-in, by the id of the
+// account: the tenants the account holds a role in itself, which are all it holds.
 type seatings struct {
 	mu  sync.Mutex
 	got map[string][]signin.DirectorySeat
 	// given counts the hook's calls that committed, by username.
 	given map[string]int
 	fail  error
+	ahead map[impulse.UUID][]accesstypes.Domain
 }
 
 func newSeatings() *seatings {
-	return &seatings{got: map[string][]signin.DirectorySeat{}, given: map[string]int{}}
+	return &seatings{got: map[string][]signin.DirectorySeat{}, given: map[string]int{}, ahead: map[impulse.UUID][]accesstypes.Domain{}}
+}
+
+// roleAhead gives the account a role in tenant ahead of its first sign-in, as an
+// administrator of the tenant does for one of its people.
+func (s *seatings) roleAhead(userID impulse.UUID, tenant accesstypes.Domain) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.ahead[userID] = append(s.ahead[userID], tenant)
+}
+
+// onlyIn reports whether tenant is the only place the account holds anything, as the
+// rule on a first link made on a name alone asks: every role it was given ahead is in
+// tenant, and one was given.
+func (s *seatings) onlyIn(_ context.Context, _ HookTx, userID impulse.UUID, tenant accesstypes.Domain) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	ahead := s.ahead[userID]
+
+	return len(ahead) > 0 && !slices.ContainsFunc(ahead, func(held accesstypes.Domain) bool { return held != tenant }), nil
 }
 
 // hook is the seater: it writes the seats granted to username to HookRecords under
@@ -134,29 +160,42 @@ func testDirectorySeatAtFirstLink(ctx context.Context, t *testing.T, h *AuthHarn
 	lakesideDirectory := signin.Directory{Method: sessioninfo.MethodAzure, Connection: "tenant-1"}
 	cfg := AuthConfig{
 		Auth: true, Accounts: Open, Accept: acc.hook, Policy: policy,
-		Admission: &DirectoryAdmission{Directories: declaringOnly(t, lakesideDirectory, signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook},
+		Admission: &DirectoryAdmission{
+			Directories: declaringOnly(t, lakesideDirectory, signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook, OnlyIn: rec.onlyIn,
+		},
 	}
 	in := h.New(ctx, t, AuthWithAppTables, cfg)
 
-	// Pat's account came from another tenant's invitation: it stands, holding what
-	// Riverside gave it, before Pat ever signs in through Lakeside's directory.
+	// Pat's account stands before Pat ever signs in: Riverside's administrator created
+	// it ahead, with no password, and Riverside's invitation was mailed to its address.
 	const name = "pat@lakeside.edu"
 	pat := createUser(ctx, t, in.Driver, name)
 	invitation := insertInvitation(ctx, t, in.Driver, name, "riverside", []string{"Teacher"}, tokenHash(1))
-	if err := in.Accept(ctx, pat.ID, name, "", invitationOf(invitation)); err != nil {
-		t.Fatalf("accepting Riverside's invitation: %v", err)
-	}
-	assertAccepted(t, acc, "accepted:"+name, pat.ID.String()+" "+name+" riverside Teacher")
 	if seats := rec.of(name); seats != nil {
 		t.Fatalf("seats before the first sign-in through the directory = %v, want none", seats)
 	}
 
-	// The first sign-in through Lakeside's directory links the identity to the account
-	// and gives it Lakeside's default seat in the one transaction, and the hook's
-	// committed function has run before the policy decides.
+	// Lakeside's directory asserting Pat's name is not enough to link the account: Pat
+	// holds no role in Lakeside, and the sign-in carries nothing of Pat's.
 	identity := entra("oid-pat", name)
-	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity}
+	bare := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity}
+	assertRefused(t, signInRequest(ctx, in, bare), sessioninfo.RefusedInvitationOnly, signin.ErrInvitationOnly)
+	assertNoLink(ctx, t, in.Driver, identity)
+	if seats := rec.of(name); seats != nil {
+		t.Fatalf("seats after the refused sign-in = %v, want none", seats)
+	}
+
+	// Pat follows Riverside's invitation and signs in through Lakeside's directory: the
+	// invitation mailed to the account's address vouches for the link, so the identity
+	// is linked to the account, the invitation accepted, and Lakeside's default seat
+	// given in the one transaction, and the hook's committed function has run before
+	// the policy decides.
+	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity, Invitation: invitationOf(invitation)}
 	assertNewlyLinked(ctx, t, in.Driver, signInRequest(ctx, in, req), req, identity, pat, "tenant-1")
+	if !req.Invitation.Accepted {
+		t.Error("Invitation.Accepted = false after the sign-in that carried Riverside's invitation, want accepted")
+	}
+	assertAccepted(t, acc, "accepted:"+name, pat.ID.String()+" "+name+" riverside Teacher")
 	want := []signin.DirectorySeat{{Tenant: "lakeside", Role: "Member"}}
 	if diff := cmp.Diff(want, rec.of(name)); diff != "" {
 		t.Errorf("seats granted at the first sign-in through the directory (-want +got):\n%s", diff)
@@ -280,13 +319,15 @@ func testDirectorySeatHookFailsAtLink(ctx context.Context, t *testing.T, h *Auth
 	rec.failing(failure)
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
 		Auth: true, Accounts: Open,
-		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook},
+		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside", DefaultSeat: "Member"}), Seat: rec.hook, OnlyIn: rec.onlyIn},
 	})
 
-	// A user created ahead, with no password, is linked by the sign-in itself: the
-	// seat cannot be given, so the transaction fails and the link is not made.
+	// A user created ahead in Lakeside, with no password, is linked by the sign-in
+	// through Lakeside's directory itself: the seat cannot be given, so the transaction
+	// fails and the link is not made.
 	const name = "pat@lakeside.edu"
 	pat := createUser(ctx, t, in.Driver, name)
+	rec.roleAhead(pat.ID, "lakeside")
 	identity := entra("oid-pat", name)
 	req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity}
 	err := signInRequest(ctx, in, req)
@@ -372,7 +413,7 @@ func testDirectoryInvitationOnly(ctx context.Context, t *testing.T, h *AuthHarne
 	acc := newAcceptances()
 	in := h.New(ctx, t, AuthWithAppTables, AuthConfig{
 		Auth: true, Accounts: Open, Accept: acc.hook,
-		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside"}), Seat: rec.hook},
+		Admission: &DirectoryAdmission{Directories: declaring(signin.DeclaredDirectory{Tenant: "lakeside"}), Seat: rec.hook, OnlyIn: rec.onlyIn},
 	})
 
 	// The stranger is refused and nothing is written, though the method is open to
@@ -385,10 +426,12 @@ func testDirectoryInvitationOnly(ctx context.Context, t *testing.T, h *AuthHarne
 		t.Errorf("seats granted to the refused stranger = %v, want none", seats)
 	}
 
-	// A person given a role ahead of their first sign-in is no stranger: a role is held
-	// by an account, and the user under the sign-in name is linked, as before. The
-	// declaration names no default seat, so the link gives nothing.
+	// A person given a role in the tenant ahead of their first sign-in is no stranger: a
+	// role is held by an account, and the tenant's own directory vouches for the
+	// tenant's own people, so the user under the sign-in name is linked. The declaration
+	// names no default seat, so the link gives nothing.
 	kim := createUser(ctx, t, in.Driver, "kim@lakeside.edu")
+	rec.roleAhead(kim.ID, "lakeside")
 	kimIdentity := entra("oid-kim", "kim@lakeside.edu")
 	kimReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: "kim@lakeside.edu", Identity: kimIdentity}
 	assertNewlyLinked(ctx, t, in.Driver, signInRequest(ctx, in, kimReq), kimReq, kimIdentity, kim, "tenant-1")

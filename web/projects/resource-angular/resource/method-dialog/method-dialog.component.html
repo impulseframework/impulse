@@ -6,7 +6,16 @@
   @if (warned(); as warning) {
     <div class="warning" role="alert">
       <mat-icon class="warning-icon" aria-hidden="true">warning</mat-icon>
-      <p class="warning-consequence">{{ warning.consequence }}</p>
+      <div class="warning-words">
+        <p class="warning-consequence">{{ warning.consequence }}</p>
+        @if (warning.names?.length) {
+          <ul class="warning-names">
+            @for (name of warning.names; track $index) {
+              <li>{{ name }}</li>
+            }
+          </ul>
+        }
+      </div>
     </div>
   }
   @if (elements.length > 0) {

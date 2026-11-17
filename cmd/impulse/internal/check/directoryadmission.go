@@ -24,12 +24,14 @@ import (
 // assigns (one registering no method with RoleSync, whose directory would write them)
 // sets the directory admission on its session Auth (SetDirectoryAdmission, over the
 // generated directory reader), so a stranger from a declared directory is created seated
-// with the row's role or refused with no account; and a role in a role file handed to the permission
-// engine grants Update on the directories record with the default seat field, so the
-// tenant's administrator chooses the seat on the Sign-in page. The generator holds the
-// record's shape and the session library refuses an admission over nothing, but the
-// column, the call and the grant are each taken by hand, which nothing compiles
-// against, and this check holds them.
+// with the row's role or refused with no account; and a role in a role file handed to the
+// permission engine grants Execute on the two generated methods that say how a tenant
+// admits its directory's people (Open<Record>ToDirectory, which names the role behind
+// its warning, and Make<Record>InviteOnly, which clears it), so the tenant's
+// administrator makes the choice on the Sign-in page. The record's own update never
+// writes the role. The generator holds the record's shape and the session library
+// refuses an admission over nothing, but the column, the call and the grants are each
+// taken by hand, which nothing compiles against, and this check holds them.
 type directoryAdmission struct{}
 
 func (directoryAdmission) Name() string {
@@ -37,22 +39,29 @@ func (directoryAdmission) Name() string {
 }
 
 func (directoryAdmission) Describe() string {
-	return "an application whose tenant record declares directories (@tenantDirectory) has a column annotated @directoryDefaultSeat on the directories record, every auth whose roles the application assigns (one registering no method with RoleSync) calls SetDirectoryAdmission, and a role in a role file handed to the permission engine grants Update on the directories record with its default seat field"
+	return "an application whose tenant record declares directories (@tenantDirectory) has a column annotated @directoryDefaultSeat on the directories record, every auth whose roles the application assigns (one registering no method with RoleSync) calls SetDirectoryAdmission, and a role in a role file handed to the permission engine grants Execute on the methods that open a tenant to its directory and make it invite only (Open<Record>ToDirectory, Make<Record>InviteOnly)"
 }
 
 // The directory admission's shape as the application wires it: the method set on the
 // session Auth, the Settings field carrying the generated directory reader, the
-// reader's constructor around the tenant record, and the permission the default seat is
-// chosen under.
+// reader's constructor around the tenant record, and the permission the two methods
+// that say how a tenant admits its directory's people are run under.
 const (
 	admissionMethod         = "SetDirectoryAdmission"
 	directoriesSetting      = "TenantDirectories"
 	directoryReaderPrefix   = "New"
 	directoryReaderSuffix   = "DirectoryReader"
-	defaultSeatPermission   = "Update"
+	admissionPermission     = "Execute"
 	directoryDefaultSeatTag = "@directoryDefaultSeat"
 	tenantDirectoryTag      = "@tenantDirectory"
 )
+
+// admissionMethods are the two generated methods that say how the record admits its
+// directory's people, as the generator names them: the one that opens the tenant to
+// them with a role, and the one that makes it invite only.
+func admissionMethods(record string) []string {
+	return []string{"Open" + record + "ToDirectory", "Make" + record + "InviteOnly"}
+}
 
 // directoriesOf is one site's directories record with the site declaring it.
 type directoriesOf struct {
@@ -80,7 +89,7 @@ func (c directoryAdmission) Run(_ context.Context, env *Env) Result {
 	var details, records, grants []string
 	for _, d := range declared {
 		if d.record.DefaultSeatField == "" {
-			details = append(details, fmt.Sprintf("%s:%d: %s declares no column annotated %s; the tenant directory record carries a nullable DefaultSeat column (STRING(64), annotated %s; a migration adds it to the directories table), what a stranger the directory vouches for is seated with at their first sign-in, chosen by the tenant's administrator on the Sign-in page", d.record.File, d.record.Line, d.record.Name, directoryDefaultSeatTag, directoryDefaultSeatTag))
+			details = append(details, fmt.Sprintf("%s:%d: %s declares no column annotated %s; the tenant directory record carries a nullable DefaultSeat column (STRING(64), annotated %s; a migration adds it to the directories table), what a stranger the directory vouches for is seated with at their first sign-in, named by the tenant's administrator on the Sign-in page", d.record.File, d.record.Line, d.record.Name, directoryDefaultSeatTag, directoryDefaultSeatTag))
 
 			continue
 		}
@@ -207,45 +216,65 @@ func callsMethod(f *ast.File, method string) bool {
 	return found
 }
 
-// grantFindings holds the directories record to its grant: a role in a role file handed
-// to the permission engine grants Update on the record with its default seat field.
-// granted names the grant for the summary; details carries the finding when no role
-// file grants it, or one cannot be read.
+// grantFindings holds the directories record to its grants: a role in a role file handed
+// to the permission engine grants Execute on each of the two methods that say how the
+// tenant admits its directory's people. granted names the grants for the summary;
+// details carries a finding for each method no role file grants, or for a file that
+// cannot be read. A site with no tenant record resolved names the methods by their
+// shape.
 func grantFindings(a *app.App, d *directoriesOf) (granted, details []string) {
-	resource := resourceOf(d.site, d.record.Name)
-	field := d.record.DefaultSeatName
-	var read []string
-	for _, f := range engineRolesFiles(a) {
+	record := "<Record>"
+	if d.site.TenantRecord != nil {
+		record = d.site.TenantRecord.Name
+	}
+	files := engineRolesFiles(a)
+	read := make([]string, 0, len(files))
+	for _, f := range files {
 		read = append(read, f.Path)
-		ok, err := grantsField(a.Abs(f.Path), defaultSeatPermission, resource, field)
-		if err != nil {
-			details = append(details, fmt.Sprintf("%s: cannot be read: %v", f.Path, errors.Cause(err)))
-
-			continue
-		}
-		if ok {
-			return []string{fmt.Sprintf("%s on %s.%s granted in %s", defaultSeatPermission, resource, field, f.Path)}, details
-		}
 	}
 	where := "no role in " + strings.Join(read, ", ")
 	if len(read) == 0 {
 		where = "no role file reaches access.WithDefaultRoles (see auths-wired), so no role"
 	}
-	details = append(details, fmt.Sprintf("%s:%d: %s grants %s on %s with the field %s; the administrator role's grants on the directory record carry %s on Create, List and Read and gain %s on it, so the tenant's administrator chooses the default seat on the Sign-in page", d.record.File, d.record.Line, where, defaultSeatPermission, resource, field, field, defaultSeatPermission))
+	unreadable := map[string]bool{}
+	for _, method := range admissionMethods(record) {
+		in := ""
+		for _, f := range files {
+			ok, err := grantsMethod(a.Abs(f.Path), method)
+			if err != nil {
+				if !unreadable[f.Path] {
+					unreadable[f.Path] = true
+					details = append(details, fmt.Sprintf("%s: cannot be read: %v", f.Path, errors.Cause(err)))
+				}
 
-	return nil, details
+				continue
+			}
+			if ok {
+				in = f.Path
+
+				break
+			}
+		}
+		if in == "" {
+			details = append(details, fmt.Sprintf("%s:%d: %s grants %s on %s; the tenant's administrator role (a domain role) holds it, beside the other method that says how a %s admits its directory's people, so the tenant's administrator opens the tenant to its directory and makes it invite only again on the Sign-in page; the record's own update never writes the default seat", d.record.File, d.record.Line, where, admissionPermission, method, strings.ToLower(record)))
+
+			continue
+		}
+		granted = append(granted, fmt.Sprintf("%s on %s granted in %s", admissionPermission, method, in))
+	}
+
+	return granted, details
 }
 
-// grantsField reports whether a role of the file grants the permission on the resource
-// with the field.
-func grantsField(abs, permission, resource, field string) (bool, error) {
+// grantsMethod reports whether a role of the file grants Execute on the method.
+func grantsMethod(abs, method string) (bool, error) {
 	doc, err := readRolesFile(abs)
 	if err != nil {
 		return false, err
 	}
 	for _, role := range slices.Concat(doc.Roles.Global, doc.Roles.Domain) {
-		for _, g := range role.Permissions[permission] {
-			if g.Resource == resource && slices.Contains(g.Fields, field) {
+		for _, g := range role.Permissions[admissionPermission] {
+			if g.Resource == method {
 				return true, nil
 			}
 		}
@@ -293,5 +322,5 @@ func isVowel(b byte) bool {
 
 // Meaning explains the invariant for the brief.
 func (directoryAdmission) Meaning() string {
-	return "A tenant that has a directory decides what a person gets at their first sign-in through it: the directories record (the struct annotated `@tenantDirectory`, the skeletons' `TenantDirectory` in `pkg/resources/tenant_directories.go`) carries a nullable default seat column (`DefaultSeat *string`, annotated `@directoryDefaultSeat`, STRING(64) in the directories table, which a migration adds), the tenant's role the person is given, or NULL, and the tenant admits the directory's people by invitation only. Every auth whose roles the application assigns (the password method, and a directory method registered with `DisableRoleSync`; an auth whose one registration carries `RoleSync` is the directory's) carries the generated directory reader in its Settings (`TenantDirectories`, built with `New<Record>DirectoryReader` on the data level) and sets the admission on its session Auth beside its sign-in policy, `authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())`, the last argument the hook of the identity client the auth builds from its generated management (`<auth>identity.NewClient`), which gives the role in the transaction that links the person's account to the directory, so a stranger from a tenant's directory is created holding the row's role, or refused with no account (`invitation_only`), before the registration's account rule, and a person whose account stood before is given the role at the sign-in that links the account, where they hold no role in the tenant; an auth whose directory writes the roles sets none. The tenant's administrator chooses the seat on the Sign-in page, so the administrator role's grants on the directories record carry the default seat field on Create, List and Read and gain Update on it (`pkg/auth/<auth>/roles.json`). Each piece is taken by hand, which nothing compiles against, and this check holds them."
+	return "A tenant that has a directory decides what a person gets at their first sign-in through it: the directories record (the struct annotated `@tenantDirectory`, the skeletons' `TenantDirectory` in `pkg/resources/tenant_directories.go`) carries a nullable default seat column (`DefaultSeat *string`, annotated `@directoryDefaultSeat`, STRING(64) in the directories table, which a migration adds), the tenant's role the person is given, or NULL, and the tenant admits the directory's people by invitation only. Every auth whose roles the application assigns (the password method, and a directory method registered with `DisableRoleSync`; an auth whose one registration carries `RoleSync` is the directory's) carries the generated directory reader in its Settings (`TenantDirectories`, built with `New<Record>DirectoryReader` on the data level) and sets the admission on its session Auth beside its sign-in policy, `authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())`, the last argument the hook of the identity client the auth builds from its generated management (`<auth>identity.NewClient`), which gives the role in the transaction that links the person's account to the directory, so a stranger from a tenant's directory is created holding the row's role, or refused with no account (`invitation_only`), before the registration's account rule, and a person whose account stood before is given the role at the sign-in that links the account, where they hold no role in the tenant; an auth whose directory writes the roles sets none. The tenant's administrator makes the choice on the Sign-in page with two methods the generator writes in the tenant's scope, so the administrator role (`pkg/auth/<auth>/roles.json`) holds Execute on both: `Open<Record>ToDirectory`, which names the role behind a warning the person reads and confirms by typing a word, and holds the role to one the caller could give directly, and `Make<Record>InviteOnly`, which clears it. The record shows the default seat on List and Read and its own update never writes it. Each piece is taken by hand, which nothing compiles against, and this check holds them."
 }

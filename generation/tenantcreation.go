@@ -377,7 +377,8 @@ type tenantCreationField struct {
 // carries them: every field the wire may write at create, required where the column
 // is. The key is not among them: the create generates it, and the answer carries it.
 // Nor is the directory-only flag: a new tenant declares nothing beyond its creator's
-// directory, and whoever holds the record's Update grant sets the flag after.
+// directory, and the tenant's administrator turns the switch after, with the tenant's
+// own method (tenantdirectoryonly.go).
 func tenantCreationFields(record *resourceInfo) (key *tenantCreationField, fields []*tenantCreationField, setters []string) {
 	for _, field := range record.Fields {
 		switch {

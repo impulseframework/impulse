@@ -382,7 +382,7 @@ func TestManager_signInHooks_oneTenantPerPerson(t *testing.T) {
 		m, store := build(t)
 		tx := new(spanner.ReadWriteTransaction)
 
-		if _, err := m.DirectorySeated("Staff")(t.Context(), tx, userID, "dana", seat("alpha")); err != nil {
+		if _, err := m.DirectorySeated("Staff").Seat(t.Context(), tx, userID, "dana", seat("alpha")); err != nil {
 			t.Fatalf("the directory's default role: error = %v", err)
 		}
 		_, err := m.InvitationAccepted("Staff")(t.Context(), tx, userID, "dana", invitation("beta", "Reader"))
@@ -397,7 +397,7 @@ func TestManager_signInHooks_oneTenantPerPerson(t *testing.T) {
 		m, store := build(t)
 		tx := new(spanner.ReadWriteTransaction)
 
-		if _, err := m.DirectorySeated("Staff")(t.Context(), tx, userID, "dana", seat("alpha")); err != nil {
+		if _, err := m.DirectorySeated("Staff").Seat(t.Context(), tx, userID, "dana", seat("alpha")); err != nil {
 			t.Fatalf("the directory's default role: error = %v", err)
 		}
 		if _, err := m.InvitationAccepted("Staff")(t.Context(), tx, userID, "dana", invitation("alpha", "Writer")); err != nil {
@@ -413,7 +413,7 @@ func TestManager_signInHooks_oneTenantPerPerson(t *testing.T) {
 		t.Parallel()
 		m, _ := build(t)
 
-		if _, err := m.DirectorySeated("Staff")(t.Context(), new(spanner.ReadWriteTransaction), userID, "dana", seat("alpha")); err != nil {
+		if _, err := m.DirectorySeated("Staff").Seat(t.Context(), new(spanner.ReadWriteTransaction), userID, "dana", seat("alpha")); err != nil {
 			t.Fatalf("the directory's default role: error = %v", err)
 		}
 		// That attempt aborted. The next one finds no default role, and its invitation
@@ -427,7 +427,7 @@ func TestManager_signInHooks_oneTenantPerPerson(t *testing.T) {
 		t.Parallel()
 		m, _ := build(t)
 
-		committed, err := m.DirectorySeated("Staff")(t.Context(), new(spanner.ReadWriteTransaction), userID, "dana", seat("alpha", "beta"))
+		committed, err := m.DirectorySeated("Staff").Seat(t.Context(), new(spanner.ReadWriteTransaction), userID, "dana", seat("alpha", "beta"))
 		assertOtherTenant(t, err)
 		if committed != nil {
 			t.Error("a hook that failed answered a committed function")
@@ -462,7 +462,7 @@ func TestManager_signInHooks_oneTenantPerPerson(t *testing.T) {
 		m, store := build(t)
 		tx := new(spanner.ReadWriteTransaction)
 
-		if _, err := m.DirectorySeated("Staff")(t.Context(), tx, userID, "dana", seat("alpha")); err != nil {
+		if _, err := m.DirectorySeated("Staff").Seat(t.Context(), tx, userID, "dana", seat("alpha")); err != nil {
 			t.Fatalf("the directory's default role: error = %v", err)
 		}
 		if _, err := m.InvitationAccepted("Staff")(t.Context(), tx, userID, "dana", invitation("", "Steward")); err != nil {
@@ -484,7 +484,7 @@ func TestManager_signInHooks_oneTenantPerPerson(t *testing.T) {
 			return len(m.oneTenant.notes)
 		}
 
-		committed, err := m.DirectorySeated("Staff")(t.Context(), new(spanner.ReadWriteTransaction), userID, "dana", seat("alpha"))
+		committed, err := m.DirectorySeated("Staff").Seat(t.Context(), new(spanner.ReadWriteTransaction), userID, "dana", seat("alpha"))
 		if err != nil || noted() != 1 {
 			t.Fatalf("the hook's error = %v with %d transaction(s) noted, want the one", err, noted())
 		}
@@ -495,7 +495,7 @@ func TestManager_signInHooks_oneTenantPerPerson(t *testing.T) {
 
 		// A transaction that never commits: its note goes with the sign-in's context.
 		ctx, cancel := context.WithCancel(t.Context())
-		if _, err := m.DirectorySeated("Staff")(ctx, new(spanner.ReadWriteTransaction), userID, "dana", seat("alpha")); err != nil || noted() != 1 {
+		if _, err := m.DirectorySeated("Staff").Seat(ctx, new(spanner.ReadWriteTransaction), userID, "dana", seat("alpha")); err != nil || noted() != 1 {
 			t.Fatalf("the hook's error = %v with %d transaction(s) noted, want the one", err, noted())
 		}
 		cancel()

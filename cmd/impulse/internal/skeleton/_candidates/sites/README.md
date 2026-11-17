@@ -66,10 +66,20 @@ both Apps), the console's write paths reload it after their commit and signal th
 instances, so a declaration decides the next request on both sites, and the records'
 change events are the audit of every edit. The console's tenant pages carry the
 declaration at `/tenants/{tenantID}/sign-in`: the tenant's administrator sees the
-tenant's directory there, picks its default role and removes it, and the application's
-administrator sets directory only, which the server allows only once the tenant has its
-directory and only to a person signed in through it, after the page has shown the
-server's sentence and the people it would keep out. Nobody types a directory in: it is set from a
+tenant's directory there and removes it, and changes everything else with the tenant's own generated
+methods, which `TenantAdministrator` holds and the page runs through the library's
+method dialog: `OpenTenantToDirectory`
+(`POST /api/tenants/{tenantID}/open-tenant-to-directory`) names the role each of
+the directory's people is given at their first sign-in through it, a role the caller
+could give directly, and `MakeTenantInviteOnly` clears it; `MakeTenantDirectoryOnly`
+(`POST /api/tenants/{tenantID}/make-tenant-directory-only`) and
+`EndTenantDirectoryOnly` turn directory only (the `Tenants` record shows the flag and
+takes no write of it), which the server turns on only once the tenant has its directory
+and only for a person signed in through it. Opening the tenant and making it directory
+only each warn first: the dialog shows the server's sentence (who will enter and with
+what role; the count of the people it would keep out and, to a person who may list the
+tenant's people, their names as a list) and holds its button until the person has typed
+the method's word; the other two are plain confirmations. Nobody types a directory in: it is set from a
 sign-in, by an administrator who is signed in through their organization's directory,
 whom the page offers to make it the tenant's. The staff auth signs in by password until
 a directory method joins it (`impulse add method`), so until then the page offers no

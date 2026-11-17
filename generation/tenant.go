@@ -11,7 +11,6 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/generation/parser"
 	"github.com/impulseframework/impulse/generation/parser/genlang"
-	"github.com/impulseframework/impulse/resource"
 )
 
 // The tenant record (@tenant) is the global, table-backed resource whose rows are the
@@ -260,23 +259,6 @@ type tenantsData struct {
 	RouterPackage       string
 	ApplicationName     string
 	ReceiverName        string
-	// DirectoryOnly is the read of what turning the record's directory-only switch on
-	// would do (tenantdirectoryonly.go), nil where the record declares no switch or no
-	// outlet serves it to sessions.
-	DirectoryOnly *directoryOnlyData
-}
-
-// directoryOnlyData feeds the read of the directory-only switch's consequence in the
-// tenants file: the handler's name and route, the record's resource and the switch's
-// field as grants name them, the field's name, and the application's accessors of the
-// identity clients the read asks who the switch keeps out.
-type directoryOnlyData struct {
-	HandlerFunc string
-	Route       string
-	Resource    string
-	Tag         string
-	Field       string
-	Outsiders   []string
 }
 
 // generateTenants emits the tenant record's roster constructor, New<Record>Roster, into
@@ -310,16 +292,6 @@ func (r *resourceGenerator) generateTenants() error {
 		RouterPackage:       r.router.Package(),
 		ApplicationName:     r.applicationName,
 		ReceiverName:        r.receiverName,
-	}
-	if len(r.directoryOnlyOutlets()) > 0 {
-		data.DirectoryOnly = &directoryOnlyData{
-			HandlerFunc: directoryOnlyHandlerFunc,
-			Route:       resource.DirectoryOnlyRoute,
-			Resource:    r.pluralize(tenant.Name()),
-			Tag:         strcase.NewCaser(false, nil, nil).ToCamel(tenant.DirectoryOnlyField.Name()),
-			Field:       tenant.DirectoryOnlyField.Name(),
-			Outsiders:   r.directoryOnlyOutsiders(),
-		}
 	}
 	if field := tenant.TenantNameField; field != nil {
 		data.NameColumn, _ = field.LookupTag(spannerTagKey)

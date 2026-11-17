@@ -131,14 +131,15 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	var (
 		rule             signin.AccountRule[Tx]
 		method, audience string
+		seeded           bool
 	)
 	if m, ok := a.registered().external[at.registration]; ok {
-		rule, method, audience = m.rule, m.name, m.Audience.Key()
+		rule, method, audience, seeded = m.rule, m.name, m.Audience.Key(), m.seededUsers
 	}
 	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (impulse.UUID, error) {
 		id, err := a.storage.SignIn(ctx, req, sessionstorage.SignInRules[Tx]{
-			Account: rule, Method: method, Audience: audience, Policy: a.policy, Accept: a.acceptInvitation, SignUp: a.signUpSeated,
-			Directories: a.directories, Seat: a.directorySeated, TrustedDevice: a.trustedDeviceOf, Proven: at.proof,
+			Account: rule, Method: method, Audience: audience, SeededUsers: seeded, Policy: a.policy, Accept: a.acceptInvitation, SignUp: a.signUpSeated,
+			Directories: a.directories, Seat: a.directorySeated, OnlyIn: a.directoryOnlyIn, TrustedDevice: a.trustedDeviceOf, Proven: at.proof,
 		})
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.SignIn()")

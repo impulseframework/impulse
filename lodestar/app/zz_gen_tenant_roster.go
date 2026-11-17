@@ -5,7 +5,6 @@ package app
 
 import (
 	"context"
-	"net/http"
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
@@ -30,12 +29,13 @@ var _ interface {
 // the roster reads beside the keys and the sign-in's readers read in its own
 // transaction.
 var sectorDeclaration = resource.TenantDeclarationColumns{
-	DirectoryOnly:     "DirectoryOnly",
-	DirectoriesTable:  "SectorDirectories",
-	TenantColumn:      "SectorId",
-	MethodColumn:      "Method",
-	ConnectionColumn:  "Connection",
-	DefaultSeatColumn: "DefaultSeat",
+	DirectoryOnly:        "DirectoryOnly",
+	DirectoriesTable:     "SectorDirectories",
+	TenantColumn:         "SectorId",
+	MethodColumn:         "Method",
+	ConnectionColumn:     "Connection",
+	DirectoriesKeyColumn: "Id",
+	DefaultSeatColumn:    "DefaultSeat",
 }
 
 // NewSectorRoster builds the application's tenant roster over the Sector record
@@ -116,23 +116,4 @@ func SetSectorDirectory(ctx context.Context, txn resource.ReadWriteTransaction, 
 	}
 
 	return nil
-}
-
-// DirectoryOnly serves the read a sector's Sign-in page calls before it saves the
-// directory-only switch (Sector.DirectoryOnly), GET <prefix>/directory-only?domain=<sector>
-// on every outlet that serves sessions and the Sector record: what turning the switch on
-// would do, in words the server writes (resource.DirectoryOnlyConsequence: only people
-// who sign in through the sector's directory will be able to enter, and how many of the
-// people seated in it will lose access, each named), or the refusal the write itself
-// would answer, in the same words: a sector with no directory, a caller who is not signed
-// in through it. It is asked under the grant the write is, Update on Sectors and on its
-// directoryOnly field, and writes nothing (resource.DirectoryOnlyHandler).
-// The people are read through the generated identity client of each auth whose people a
-// sector seats (DirectoryOutsiders): everyone who holds a role in the sector and has no
-// sign-in through its directory, a super administrator left out.
-func (a *App) DirectoryOnly() http.HandlerFunc {
-	return resource.DirectoryOnlyHandler(a.ResourceClient(), NewSectorDirectoryRules(), a.UserPermissions, "Sectors", "directoryOnly",
-		a.CrewIdentity().DirectoryOutsiders,
-		a.MembersIdentity().DirectoryOutsiders,
-	)
 }

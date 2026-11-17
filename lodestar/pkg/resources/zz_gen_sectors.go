@@ -44,7 +44,7 @@ type sectorWrite struct {
 	Name          string       `json:"name"`
 	Region        string       `json:"region"`
 	Established   civil.Date   `json:"established"`
-	DirectoryOnly bool         `json:"directoryOnly"`
+	DirectoryOnly bool         `json:"-"`
 }
 
 var sectorWriteSets resource.SetCache[Sector, sectorWrite]

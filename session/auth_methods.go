@@ -61,6 +61,9 @@ type externalMethod[Tx any] struct {
 	*signin.Method
 	name string
 	rule signin.AccountRule[Tx]
+	// seededUsers is the registration's declaration that its provider's names are the
+	// application's own (signin.Registration.SeededUsers).
+	seededUsers bool
 }
 
 // signInMethods are an Auth's registered sign-in methods. Registration writes them
@@ -384,7 +387,7 @@ func (a *Auth[S, U, Tx]) RegisterExternal(reg *signin.Registration[Tx]) signin.H
 		a.methods.syncing = reg.Name
 	}
 	a.methods.registered[reg.Name] = true
-	a.methods.external[reg.Name] = &externalMethod[Tx]{Method: m, name: reg.Name, rule: reg.AccountRule}
+	a.methods.external[reg.Name] = &externalMethod[Tx]{Method: m, name: reg.Name, rule: reg.AccountRule, seededUsers: reg.SeededUsers}
 
 	h := signin.Handlers{Login: a.serving(a.externalLogin(m)), Callback: a.serving(a.externalCallback(reg.Name, reg.Issuers, m))}
 	if reg.FrontChannelLogout {

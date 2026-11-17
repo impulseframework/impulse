@@ -834,6 +834,29 @@ describe('MethodDialogComponent running a method that warns', () => {
     expect(text(o, '.question')).toBe('');
   });
 
+  it('lists the names the server gives under its sentences, and draws no list where it gives none', async () => {
+    const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
+    await settle(o);
+    expect((o.fixture.nativeElement as HTMLElement).querySelector('.warning .warning-names')).toBeNull();
+
+    warning = () => ({
+      status: 200,
+      body: {
+        consequence: '2 people seated here sign in another way and will lose access.',
+        names: ['Bosun Bram (bosun)', 'Rigger Rook (rigger)'],
+        confirm: 'Admit only people who sign in through the directory',
+      },
+    });
+    await o.component.askWarning();
+    await settle(o);
+
+    expect(text(o, '.warning .warning-consequence')).toBe(
+      '2 people seated here sign in another way and will lose access.',
+    );
+    const names = Array.from((o.fixture.nativeElement as HTMLElement).querySelectorAll('.warning .warning-names li'));
+    expect(names.map((li) => li.textContent?.trim())).toEqual(['Bosun Bram (bosun)', 'Rigger Rook (rigger)']);
+  });
+
   it("puts the server's words on the confirm button and holds it until the word is typed", async () => {
     const o = await open({ method: 'OpenSignUp', label: 'Open sign-up', preset: { method: 'google' } }, server());
     await settle(o);

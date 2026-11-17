@@ -283,9 +283,8 @@ func TestSignInRoles_directorySeatGivenWithTheAccountOrNotAtAll(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("Cinder's directories = %+v, want the seeded fleet directory alone", rows)
 	}
-	nameSeat := `[{"op":"patch","path":"/sectors/` + cinder + `/sector-directories/` + rows[0].ID + `","value":{"defaultSeat":"` + string(role) + `"}}]`
-	if status, body := hq.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(nameSeat)); status != http.StatusOK {
-		t.Fatalf("naming Cinder's default seat: status %d: %s", status, body)
+	if status, body := hq.do(ctx, http.MethodPost, sectorPath(cinder, "open-sector-to-directory"), jsonBody(t, map[string]string{"role": string(role)})); status != http.StatusOK {
+		t.Fatalf("opening Cinder to its directory with the role: status %d: %s", status, body)
 	}
 	if _, err := manager.DeleteRole(ctx, held, role); err != nil {
 		t.Fatalf("access.UserManager.DeleteRole() error = %v", err)

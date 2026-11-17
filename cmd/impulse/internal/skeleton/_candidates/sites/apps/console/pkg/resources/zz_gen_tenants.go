@@ -39,7 +39,7 @@ var tenantReadSets resource.SetCache[Tenant, tenantRead]
 type tenantWrite struct {
 	ID            impulse.UUID `json:"-"`
 	Name          string       `json:"name"`
-	DirectoryOnly bool         `json:"directoryOnly"`
+	DirectoryOnly bool         `json:"-"`
 }
 
 var tenantWriteSets resource.SetCache[Tenant, tenantWrite]
