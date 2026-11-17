@@ -7,8 +7,9 @@ package integration
 // no role. After a write the publisher asks what it always asked, who is subscribed to
 // this list in this sector, and is answered from the sets: a mission changed in Anvil or
 // in Cinder reaches her change set as that sector's list, a mission changed in Bastion
-// never does. The renewal works her set out again, and drops the subscription of a person
-// who may list missions in no sector.
+// never does. The renewal works her set out again, keeps no subscription over a set of
+// sectors for a resource that is not declared for it, and drops the subscription of a
+// person who may list missions in no sector.
 //
 // Demonstrates: list.across-tenants.live.
 
@@ -106,6 +107,19 @@ func TestAcrossTenants_live(t *testing.T) {
 	slices.Sort(want)
 	if got := acrossSubscriptionNames(fake.Subscriptions()); !slices.Equal(got, want) {
 		t.Errorf("the record after her renewal = %v, want %v", got, want)
+	}
+
+	// Squadrons are not declared for listing across sectors, though she may list them in
+	// Anvil: a renewal that asks for them as one subscription over her sectors is not
+	// kept, and the record holds what it held.
+	undeclared := fmt.Sprintf(`{"tab":%q,"subscriptions":[{"resource":"Squadrons","acrossTenants":true},{"resource":"Missions","acrossTenants":true}]}`, liveTabLiaison)
+	rr = doRequestRecordedWithHeaders(t, h, "liaison", http.MethodPost, consoleAPI+"/"+live.RenewRoute, undeclared, liveHeaders(liveTabLiaison))
+	assertStatus(t, rr.Code, http.StatusOK, rr.Body.Bytes())
+	if got := rr.Body.String(); !containsAll(got, `"dropped":[{"resource":"Squadrons","acrossTenants":true}]`, `"kept":[{"resource":"Missions","acrossTenants":true}]`) {
+		t.Errorf("the renewal answered %s, want the squadrons dropped and the missions kept", got)
+	}
+	if got := acrossSubscriptionNames(fake.Subscriptions()); !slices.Equal(got, want) {
+		t.Errorf("the record after a renewal naming an undeclared resource = %v, want %v", got, want)
 	}
 
 	// The yeoman may list missions in no sector: her live request registers nothing, and

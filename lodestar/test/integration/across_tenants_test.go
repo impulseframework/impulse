@@ -14,11 +14,13 @@ package integration
 // lists under each sector's own route, which the list across sectors must equal row for
 // row. The matrix beside it asks the same route as the rest of the cast: a person of one
 // sector, one who holds every sector, one who may list missions nowhere, and the client
-// on the portal's outlet.
+// on the portal's outlet. The last test pins who the list's page is for: the people the
+// global permission digest answers ListAcrossTenants on Missions for.
 //
 // Demonstrates: list.across-tenants.
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"reflect"
@@ -351,4 +353,89 @@ func TestAcrossTenants_matrix(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestAcrossTenants_whoThePageIsFor pins what the console's Missions in every sector page
+// is shown by: the global permission digest answers ListAcrossTenants on Missions for a
+// person who may list missions in at least one sector the session reaches, and for nobody
+// else. It is the same people the list has rows' sectors for, so the page's menu entry and
+// its route, which ask the digest, and the list agree. A sector's own digest never carries
+// the answer: it speaks for that sector.
+func TestAcrossTenants_whoThePageIsFor(t *testing.T) {
+	t.Parallel()
+
+	_, h, _ := sharedWorld(t)
+
+	// digest reads a person's permission digest on an outlet, global or one sector's.
+	digest := func(t *testing.T, user accesstypes.User, api, sector string) accesstypes.PermissionDigest {
+		t.Helper()
+
+		target := api + "/permission-digest"
+		if sector != "" {
+			target += "?domain=" + sector
+		}
+		status, body := doRequestAs(t, h, user, http.MethodGet, target, "")
+		assertStatus(t, status, http.StatusOK, body)
+		var got accesstypes.PermissionDigest
+		if err := json.Unmarshal(body, &got); err != nil {
+			t.Fatalf("json.Unmarshal() error = %v: %s", err, body)
+		}
+
+		return got
+	}
+
+	tests := []struct {
+		name string
+		user accesstypes.User
+		api  string
+		want bool
+	}{
+		{name: "the liaison lists missions in Anvil and in Cinder", user: "liaison", api: consoleAPI, want: true},
+		{name: "the cadet lists them in her one sector", user: "cadet", api: consoleAPI, want: true},
+		{name: "the governor lists them in every sector", user: "governor", api: consoleAPI, want: true},
+		{name: "the yeoman may list missions in no sector, though she lists the sectors", user: "yeoman", api: consoleAPI, want: false},
+		{name: "the armorer reaches Anvil and may not list its missions", user: "armorer", api: consoleAPI, want: false},
+		{name: "the client, on the portal's outlet, lists her company's", user: "client", api: portalAPI, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := digest(t, tt.user, tt.api, "")
+			state, held := got["Missions"][resource.ListAcrossTenants]
+			if held != tt.want || (held && state != accesstypes.DigestGranted) {
+				t.Errorf("the global digest answers Missions %s = %q, held %t; want held %t, granted: %v", resource.ListAcrossTenants, state, held, tt.want, got["Missions"])
+			}
+			// The answer is the list's: rows for exactly the people it is held for.
+			list := missionsAcross
+			if tt.api == portalAPI {
+				list = portalAPI + "/missions"
+			}
+			if rows, _ := acrossList(t, h, tt.user, list+"?limit=200"); (len(rows) > 0) != tt.want {
+				t.Errorf("the list across sectors answers %d rows, and the digest says the page is hers = %t", len(rows), tt.want)
+			}
+		})
+	}
+
+	t.Run("a sector's digest speaks for that sector alone", func(t *testing.T) {
+		t.Parallel()
+
+		got := digest(t, "liaison", consoleAPI, anvil)
+		if _, held := got["Missions"][resource.ListAcrossTenants]; held {
+			t.Errorf("Anvil's digest carries %s on Missions: %v", resource.ListAcrossTenants, got["Missions"])
+		}
+		if _, lists := got["Missions"][accesstypes.List]; !lists {
+			t.Errorf("Anvil's digest does not let the liaison list missions there: %v", got["Missions"])
+		}
+	})
+
+	t.Run("no other resource carries the answer: only Missions is declared", func(t *testing.T) {
+		t.Parallel()
+
+		for res, entry := range digest(t, "governor", consoleAPI, "") {
+			if _, held := entry[resource.ListAcrossTenants]; held && res != "Missions" {
+				t.Errorf("the global digest answers %s on %s, which is not declared for listing across sectors", resource.ListAcrossTenants, res)
+			}
+		}
+	})
 }

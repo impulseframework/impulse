@@ -108,8 +108,9 @@ export const routes: Routes = [
           // The missions of every sector the person reaches, on one page: Missions declares
           // @listAcrossTenants, so its list is also served without the sector's segment, and
           // the config says acrossTenants. resourceRoutes mounts the list alone, with no row
-          // route (a row's link leads into its sector) and no List guard (no one sector's
-          // grants speak for the page; the server leaves out what the person may not list).
+          // route (a row's link leads to the mission inside its sector) and no one sector's
+          // List guard: the route opens for whoever may list missions in at least one sector
+          // they reach, as the server tells the global digest, and turns anyone else away.
           //
           // Demonstrates: list.across-tenants.
           resourceRoutes(missionsEverySectorConfig, resourceMeta),

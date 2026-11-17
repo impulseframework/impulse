@@ -292,6 +292,12 @@ assert_py "every row names its sector: Anvil's low-hazard missions with no fee, 
 r=$(req liaison GET "$API/missions?domains=$BASTION_ID"); assert_py "Bastion asked for by name answers no row and no refusal: a sector she does not reach is never named" "$r" "rows==[]"
 r=$(req yeoman GET "$API/missions"); check "the yeoman may list missions in no sector: an empty list, not a refusal" 200 "$r"
 assert_py "and it is empty" "$r" "rows==[]"
+# Who the Missions in every sector page is for: the server tells the global digest whether
+# a person may list missions in at least one sector they reach, and the page's menu entry
+# and route ask that. A sector's own digest never says it.
+r=$(req liaison GET "$API/permission-digest"); assert_py "the global digest tells the liaison's page she lists missions somewhere" "$r" "rows.get('Missions',{}).get('ListAcrossTenants')=='granted'"
+r=$(req liaison GET "$API/permission-digest?domain=$ANVIL_ID"); assert_py "Anvil's digest speaks for Anvil: List on missions, and no word of the other sectors" "$r" "'List' in rows.get('Missions',{}) and 'ListAcrossTenants' not in rows.get('Missions',{})"
+r=$(req yeoman GET "$API/permission-digest"); assert_py "the yeoman lists the sectors and missions in none of them: her digest names her no list across sectors" "$r" "'List' in rows.get('Sectors',{}) and 'ListAcrossTenants' not in rows.get('Missions',{})"
 # The assessor's grid sorts by a hazard it does not display. The key is a named variant
 # of INT64 (HazardLevel), concealing, hers only while a mission is open, and left out of
 # columns=, so every page turns on the cursor's copy decoded into the field's own type,
