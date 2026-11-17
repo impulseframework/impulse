@@ -160,39 +160,28 @@ func parseInvocation(invocation string, spec *ArgSpec) (NamedArgs, error) {
 //
 // With expressions set, an argument may be an expression of the condition
 // language, and the commas inside its parentheses and its single-quoted strings
-// stay with it: `where: Level IN ('view', 'edit'), value: Team` is two arguments. A
-// string writes a quote inside it twice, which reads here as the string closing
-// and opening again, so it needs no case of its own.
+// stay with it: `where: Level IN ('view', 'edit'), value: Team` is two arguments.
+// What is quoted is decided by quotes, which the scanner ends an annotation by too.
 func splitArguments(invocation string, expressions bool) ([]string, error) {
 	var (
-		parts  []string
-		start  int
-		quoted bool
-		single bool
-		depth  int
+		parts []string
+		start int
+		depth int
 	)
+	quoted := newQuotes(expressions)
 	for i := range len(invocation) {
 		switch c := invocation[i]; {
-		case c == '"' && !single:
-			quoted = !quoted
-		case !expressions || quoted:
-			if c == ',' && !quoted {
-				parts = append(parts, invocation[start:i])
-				start = i + 1
-			}
-		case c == '\'':
-			single = !single
-		case single:
-		case c == '(':
+		case quoted.read(c):
+		case expressions && c == '(':
 			depth++
-		case c == ')':
+		case expressions && c == ')':
 			depth--
 		case c == ',' && depth == 0:
 			parts = append(parts, invocation[start:i])
 			start = i + 1
 		}
 	}
-	if quoted || single {
+	if _, _, open := quoted.unclosed(); open {
 		return nil, errors.Newf("unclosed quote in %q", invocation)
 	}
 

@@ -12,6 +12,12 @@ const (
 	ArgsRequired keywordFlag = 1 << iota // ArgsRequired requires a keyword to have an accompanying argument.
 	NoArgs                               // NoArgs requires a keyword to be called without arguments.
 	Exclusive                            // Exclusive limits the keyword to a single use per instance of field or struct.
+
+	// Expressions marks a keyword whose arguments may hold an expression of the condition
+	// language, as the arguments an ArgSpec that names Expressions parses do. In them a
+	// single quote opens and closes a string; in any other keyword's arguments it is an
+	// apostrophe.
+	Expressions
 )
 
 // KeywordOpts is used to configure the flags for keywords based on the scan mode (struct, field, named type, or constant).
