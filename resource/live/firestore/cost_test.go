@@ -2,6 +2,7 @@ package firestore_test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -85,7 +86,7 @@ func (q *countedQuery) RecvMsg(m any) error {
 		q.counter.add(storeCost{Read: 1})
 	}
 
-	return err
+	return err //nolint:wrapcheck // the stream's own error, io.EOF among them, is what its reader compares
 }
 
 // TestService_cost pins what live lists and rows cost the store: the documents the
@@ -133,6 +134,14 @@ func TestService_cost(t *testing.T) {
 		return live.Writes{ID: "write-1", Rows: map[accesstypes.Resource][]resource.RowChange{res: changes}}
 	}
 
+	publish := func(ctx context.Context, domain accesstypes.Domain, writes live.Writes) error {
+		if _, err := svc.Publish(ctx, domain, writes); err != nil {
+			return fmt.Errorf("Publish(): %w", err)
+		}
+
+		return nil
+	}
+
 	anvilList := live.Subscription{Principal: marshal, Tab: "t1", Resource: hangars, Domain: "anvil", Expiry: expiry}
 	steps := []struct {
 		name       string
@@ -174,9 +183,7 @@ func TestService_cost(t *testing.T) {
 		{
 			name: "a row is written in the tenant: the list's two subscribers and the row's one are read, each is told",
 			run: func(ctx context.Context) error {
-				_, err := svc.Publish(ctx, "anvil", rows(hangars, 1))
-
-				return err
+				return publish(ctx, "anvil", rows(hangars, 1))
 			},
 			want:       storeCost{Queries: 2, Read: 3, Written: 3},
 			wantStored: 4,
@@ -184,9 +191,7 @@ func TestService_cost(t *testing.T) {
 		{
 			name: "a row nobody holds is written in the other tenant: its list's one subscriber is read and told",
 			run: func(ctx context.Context) error {
-				_, err := svc.Publish(ctx, "bastion", live.Writes{ID: "write-2", Rows: map[accesstypes.Resource][]resource.RowChange{hangars: {{Key: "other"}}}})
-
-				return err
+				return publish(ctx, "bastion", live.Writes{ID: "write-2", Rows: map[accesstypes.Resource][]resource.RowChange{hangars: {{Key: "other"}}}})
 			},
 			want:       storeCost{Queries: 2, Read: 1, Written: 1},
 			wantStored: 4,
@@ -194,9 +199,7 @@ func TestService_cost(t *testing.T) {
 		{
 			name: "a row is written in a tenant nobody lists: two queries, nothing read, nothing written",
 			run: func(ctx context.Context) error {
-				_, err := svc.Publish(ctx, "cinder", live.Writes{ID: "write-3", Rows: map[accesstypes.Resource][]resource.RowChange{hangars: {{Key: "other"}}}})
-
-				return err
+				return publish(ctx, "cinder", live.Writes{ID: "write-3", Rows: map[accesstypes.Resource][]resource.RowChange{hangars: {{Key: "other"}}}})
 			},
 			want:       storeCost{Queries: 2},
 			wantStored: 4,
@@ -204,9 +207,7 @@ func TestService_cost(t *testing.T) {
 		{
 			name: "over the threshold in the tenant: one query reads the resource's four subscribers, three are told",
 			run: func(ctx context.Context) error {
-				_, err := svc.Publish(ctx, "anvil", rows(hangars, live.BulkThreshold+1))
-
-				return err
+				return publish(ctx, "anvil", rows(hangars, live.BulkThreshold+1))
 			},
 			want:       storeCost{Queries: 1, Read: 4, Written: 3},
 			wantStored: 4,
@@ -225,9 +226,7 @@ func TestService_cost(t *testing.T) {
 		{
 			name: "the global row is written: the list's query also reads the row's document, as it always has",
 			run: func(ctx context.Context) error {
-				_, err := svc.Publish(ctx, "", rows(clients, 1))
-
-				return err
+				return publish(ctx, "", rows(clients, 1))
 			},
 			want:       storeCost{Queries: 2, Read: 3, Written: 2},
 			wantStored: 6,

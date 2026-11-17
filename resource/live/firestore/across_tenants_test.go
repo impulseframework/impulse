@@ -214,6 +214,8 @@ const (
 // the proof that the (resource, domains array-contains, expiry) index serves the
 // lookup. It is skipped unless the environment names the project.
 func TestService_acrossTenants_lookups_realDatabase(t *testing.T) {
+	t.Parallel()
+
 	project := os.Getenv(realProjectEnv)
 	if project == "" {
 		t.Skipf("set %s (and %s, for a database other than the default) to run the set lookups against a real Firestore database", realProjectEnv, realDatabaseEnv)

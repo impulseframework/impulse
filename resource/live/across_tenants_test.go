@@ -125,10 +125,12 @@ func TestSubscription_acrossTenants(t *testing.T) {
 			wantTenants: []accesstypes.Domain{"bastion", "cinder"},
 		},
 		{
-			name:        "a set on a subscription that is not a list across tenants is not a set: its domain is",
-			sub:         Subscription{Principal: "dispatcher", Tab: "t1", Resource: "Hangars", Domain: "anvil", Domains: []accesstypes.Domain{"bastion"}},
-			wantTenants: []accesstypes.Domain{"anvil"},
-			wantIn:      &Subscription{Principal: "dispatcher", Tab: "t1", Resource: "Hangars", Domain: "anvil"},
+			name: "a row is a row whatever set it is handed with: the key decides",
+			sub: Subscription{
+				Principal: "dispatcher", Tab: "t1", Resource: "Hangars", Key: "h1",
+				Across: &TenantSet{Domains: []accesstypes.Domain{"bastion"}},
+			},
+			wantTenants: []accesstypes.Domain{""},
 		},
 	}
 	for _, tt := range sets {
@@ -168,7 +170,7 @@ func TestSubscribeAcrossTenants(t *testing.T) {
 			header: "tab-1",
 			list:   acrossList{set: []accesstypes.Domain{"cinder", "anvil"}},
 			want: []Subscription{
-				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Hangars", AcrossTenants: true, Domains: []accesstypes.Domain{"anvil", "cinder"}},
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Hangars", Across: &TenantSet{Domains: []accesstypes.Domain{"anvil", "cinder"}}},
 			},
 		},
 		{
@@ -176,7 +178,7 @@ func TestSubscribeAcrossTenants(t *testing.T) {
 			header: "tab-1",
 			list:   acrossList{set: []accesstypes.Domain{"cinder"}, narrowed: []accesstypes.Domain{"cinder", "bastion"}},
 			want: []Subscription{
-				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Hangars", AcrossTenants: true, Narrowed: []accesstypes.Domain{"bastion", "cinder"}, Domains: []accesstypes.Domain{"cinder"}},
+				{Principal: "crew|dispatcher", Tab: "tab-1", Resource: "Hangars", Across: &TenantSet{Narrowed: []accesstypes.Domain{"bastion", "cinder"}, Domains: []accesstypes.Domain{"cinder"}}},
 			},
 		},
 		{
@@ -369,7 +371,7 @@ func TestRenewHandler_acrossTenants(t *testing.T) {
 		if diff := cmp.Diff([]SubscriptionRequest{{Resource: "Hangars", AcrossTenants: true}}, resp.Kept); diff != "" {
 			t.Errorf("kept mismatch (-want +got):\n%s", diff)
 		}
-		want := []Subscription{{Principal: "crew|liaison", Tab: "tab-1", Resource: "Hangars", AcrossTenants: true, Domains: []accesstypes.Domain{"anvil", "cinder"}}}
+		want := []Subscription{{Principal: "crew|liaison", Tab: "tab-1", Resource: "Hangars", Across: &TenantSet{Domains: []accesstypes.Domain{"anvil", "cinder"}}}}
 		if diff := cmp.Diff(want, fake.Subscriptions(), ignoreExpiry); diff != "" {
 			t.Errorf("the record mismatch (-want +got):\n%s", diff)
 		}
@@ -387,7 +389,7 @@ func TestRenewHandler_acrossTenants(t *testing.T) {
 		if status, _, answer := renew(t, fake, perms("bastion", "cinder", "dawn"), body); status != http.StatusOK {
 			t.Fatalf("status = %d: %s", status, answer)
 		}
-		want := []Subscription{{Principal: "crew|liaison", Tab: "tab-1", Resource: "Hangars", AcrossTenants: true, Domains: []accesstypes.Domain{"cinder", "dawn"}}}
+		want := []Subscription{{Principal: "crew|liaison", Tab: "tab-1", Resource: "Hangars", Across: &TenantSet{Domains: []accesstypes.Domain{"cinder", "dawn"}}}}
 		if diff := cmp.Diff(want, fake.Subscriptions(), ignoreExpiry); diff != "" {
 			t.Errorf("the record mismatch (-want +got):\n%s", diff)
 		}
@@ -417,10 +419,10 @@ func TestRenewHandler_acrossTenants(t *testing.T) {
 			t.Errorf("kept %v, dropped %v, want both kept", resp.Kept, resp.Dropped)
 		}
 		want := []Subscription{
-			{Principal: "crew|liaison", Tab: "tab-1", Resource: "Hangars", AcrossTenants: true, Domains: []accesstypes.Domain{"anvil", "cinder"}},
-			{Principal: "crew|liaison", Tab: "tab-1", Resource: "Hangars", AcrossTenants: true, Narrowed: []accesstypes.Domain{"bastion", "cinder"}, Domains: []accesstypes.Domain{"cinder"}},
+			{Principal: "crew|liaison", Tab: "tab-1", Resource: "Hangars", Across: &TenantSet{Domains: []accesstypes.Domain{"anvil", "cinder"}}},
+			{Principal: "crew|liaison", Tab: "tab-1", Resource: "Hangars", Across: &TenantSet{Narrowed: []accesstypes.Domain{"bastion", "cinder"}, Domains: []accesstypes.Domain{"cinder"}}},
 		}
-		if diff := cmp.Diff(want, fake.Subscriptions(), ignoreExpiry, cmpopts.SortSlices(func(a, b Subscription) bool { return len(a.Narrowed) < len(b.Narrowed) })); diff != "" {
+		if diff := cmp.Diff(want, fake.Subscriptions(), ignoreExpiry, cmpopts.SortSlices(func(a, b Subscription) bool { return len(a.Across.Narrowed) < len(b.Across.Narrowed) })); diff != "" {
 			t.Errorf("the record mismatch (-want +got):\n%s", diff)
 		}
 	})

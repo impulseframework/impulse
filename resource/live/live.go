@@ -147,27 +147,31 @@ func ValidTab(tab string) bool {
 // is of, and nothing else.
 //
 // A list is held over a set of tenants. One tenant's list is the set of that one tenant,
-// its Domain. A list across tenants (AcrossTenants) is one subscription over the set
-// the server worked out for the person, Domains: the tenants the session reaches in
-// which the person may list the resource, narrowed by the page's filter on the tenant
-// (Narrowed, nil for every tenant). It is one record per tab and list however many
-// tenants the set holds, and the same record again at each renewal, with the set as the
-// renewal worked it out. The publisher asks who is subscribed to the list in the tenant
-// a write was made in, and the record answers from the sets (InTenant).
+// its Domain. A list across tenants (Across) is one subscription over the set the
+// server worked out for the person: the tenants the session reaches in which the
+// person may list the resource, narrowed by the page's filter on the tenant. It is one
+// record per tab and list however many tenants the set holds, and the same record again
+// at each renewal, with the set as the renewal worked it out. The publisher asks who is
+// subscribed to the list in the tenant a write was made in, and the record answers from
+// the sets (InTenant).
 type Subscription struct {
 	Principal string
 	Tab       string
 	Resource  accesstypes.Resource
 	Key       string
 	Domain    accesstypes.Domain
-	// AcrossTenants marks the subscription of a list across tenants. Narrowed is the
-	// page's filter on the tenant, nil when the page asked for every tenant: with the
-	// resource it says which list the subscription is of. Domains is the set of tenants
-	// it covers.
-	AcrossTenants bool
-	Narrowed      []accesstypes.Domain
-	Domains       []accesstypes.Domain
-	Expiry        time.Time
+	// Across is set on the subscription of a list across tenants, and holds its set.
+	Across *TenantSet
+	Expiry time.Time
+}
+
+// TenantSet is what the subscription of a list across tenants is held over. Narrowed
+// is the page's filter on the tenant, nil when the page asked for every tenant: with
+// the resource it says which list the subscription is of. Domains is the set of tenants
+// the subscription covers, as the server worked it out.
+type TenantSet struct {
+	Narrowed []accesstypes.Domain
+	Domains  []accesstypes.Domain
 }
 
 // RowSubscription is the subscription a read registers: the row by resource and key.
@@ -185,7 +189,7 @@ func ListSubscription(res accesstypes.Resource, domain accesstypes.Domain) *Subs
 // resource's list over the set of tenants the server worked out for the person, and the
 // page's filter on the tenant (nil for every tenant), which says which list it is.
 func AcrossTenantsSubscription(res accesstypes.Resource, set, narrowed []accesstypes.Domain) *Subscription {
-	return &Subscription{Resource: res, AcrossTenants: true, Narrowed: narrowed, Domains: set}
+	return &Subscription{Resource: res, Across: &TenantSet{Narrowed: narrowed, Domains: set}}
 }
 
 // IsRow reports whether the subscription names a row.
@@ -201,18 +205,17 @@ func (s *Subscription) Normalized() Subscription {
 	if normalized.IsRow() {
 		normalized.Domain = ""
 	}
-	if normalized.IsRow() || !normalized.AcrossTenants {
-		normalized.AcrossTenants = false
-		normalized.Narrowed = nil
-		normalized.Domains = nil
+	if normalized.IsRow() || normalized.Across == nil {
+		normalized.Across = nil
 
 		return normalized
 	}
 	normalized.Domain = ""
-	normalized.Domains = sortedSet(normalized.Domains)
-	if normalized.Narrowed != nil {
-		normalized.Narrowed = sortedSet(normalized.Narrowed)
+	set := &TenantSet{Domains: sortedSet(normalized.Across.Domains)}
+	if normalized.Across.Narrowed != nil {
+		set.Narrowed = sortedSet(normalized.Across.Narrowed)
 	}
+	normalized.Across = set
 
 	return normalized
 }
@@ -233,8 +236,8 @@ func sortedSet(domains []accesstypes.Domain) []accesstypes.Domain {
 // for a global resource's list and for a row.
 func (s *Subscription) Tenants() []accesstypes.Domain {
 	normalized := s.Normalized()
-	if normalized.AcrossTenants {
-		return normalized.Domains
+	if normalized.Across != nil {
+		return normalized.Across.Domains
 	}
 
 	return []accesstypes.Domain{normalized.Domain}
@@ -289,8 +292,8 @@ const (
 func (s *Subscription) ID() string {
 	normalized := s.Normalized()
 	name := normalized.Principal + "|" + normalized.Tab + "|" + string(normalized.Resource) + "|" + normalized.Key + "|" + string(normalized.Domain)
-	if normalized.AcrossTenants {
-		name += acrossMarker + narrowingName(normalized.Narrowed)
+	if normalized.Across != nil {
+		name += acrossMarker + narrowingName(normalized.Across.Narrowed)
 	}
 	sum := sha256.Sum256([]byte(name))
 

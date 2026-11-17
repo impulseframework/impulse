@@ -134,15 +134,15 @@ func RenewHandler(svc Service, userPermissions func(r *http.Request) resource.Us
 		subs := make([]Subscription, 0, len(kept))
 		for i, sub := range kept {
 			renewed := Subscription{
-				Principal:     principal,
-				Tab:           req.Tab,
-				Resource:      accesstypes.Resource(sub.Resource),
-				Key:           sub.Key,
-				Domain:        accesstypes.Domain(sub.Domain),
-				AcrossTenants: sub.AcrossTenants,
-				Narrowed:      sub.narrowed(),
-				Domains:       sets[i],
-				Expiry:        expiry,
+				Principal: principal,
+				Tab:       req.Tab,
+				Resource:  accesstypes.Resource(sub.Resource),
+				Key:       sub.Key,
+				Domain:    accesstypes.Domain(sub.Domain),
+				Expiry:    expiry,
+			}
+			if sub.AcrossTenants {
+				renewed.Across = &TenantSet{Narrowed: sub.narrowed(), Domains: sets[i]}
 			}
 			subs = append(subs, renewed.Normalized())
 		}
