@@ -45,30 +45,6 @@ func upgradeGoMod(pin string) string {
 	return "module example.com/acme/beacon\n\ngo 1.26.6\n\nrequire (\n\t" + ledger.FrameworkModule + " " + pin + "\n\tgithub.com/go-chi/chi/v5 v5.3.2\n)\n\ntool " + check.ImpulseModule + "\n"
 }
 
-// upgradeGenerator is a generator program declaring one auth as given, at line 15.
-func upgradeGenerator(auth string) string {
-	return `package main
-
-import (
-	"context"
-
-	"github.com/impulseframework/impulse/generation"
-)
-
-func newGenerator(ctx context.Context) (*generation.ResourceGenerator, error) {
-	return generation.NewResourceGenerator(
-		ctx,
-		"pkg/resources",
-		[]string{"file://schema/migrations"},
-		generation.GenerateRoutes("pkg/router", "api",
-			` + auth + `,
-			generation.WebApp("/"),
-		),
-	)
-}
-`
-}
-
 // markerRecipe moves the marker file from "old" to "new": the old form is the word old.
 type markerRecipe struct{}
 
@@ -381,8 +357,8 @@ var (
 // moved (in process, by the pinned release, and on the pin-only move), the pin after the
 // move held to the step (a release go refuses stops the step with go's words; a pin below
 // the step's version, or dropped by the tidy, is refused naming what go.mod holds; one
-// carried beyond it stays, noted), and the refusals (a legacy auth, a dirty tree, a pin
-// newer than the running impulse, a pinned render, check or handoff that could not run).
+// carried beyond it stays, noted), and the refusals (a dirty tree, a pin newer than the
+// running impulse, a pinned render, check or handoff that could not run).
 func TestUpgrade(t *testing.T) {
 	t.Parallel()
 
@@ -524,31 +500,6 @@ func TestUpgrade(t *testing.T) {
 			wantFiles:   map[string]string{"web/package.json": webPackageJSON("0.3.0", "0.3.0", "0.3.0")},
 			wantBunDirs: []string{"web"},
 			wantErr:     `bun install in web failed: error: package "@impulseframework/resource-angular@0.3.0" not found; web/package.json holds the step's web pins and bun.lock does not yet: fix what the install reports, run bun install there, and run impulse upgrade again once the tree is committed or restored`,
-		},
-		{
-			name:    "an application on a single-method session type is refused before anything moves, a dry run too",
-			goMod:   upgradeGoMod("v0.1.0"),
-			files:   map[string]string{"cmd/generate/resourcegenerator/generator.go": upgradeGenerator(`generation.Auth("example.com/acme/beacon/pkg/auth/members", generation.Password)`)},
-			steps:   upgradeLedger(),
-			running: check.Build{Version: "v0.3.1", FromModule: true},
-			dryRun:  true,
-			wantErr: "beacon declares the auth example.com/acme/beacon/pkg/auth/members with generation.Password (cmd/generate/resourcegenerator/generator.go:15), a single-method session type of the framework's earlier releases, which this module does not carry: no recipe moves an application off it. Re-create the application from the skeleton (impulse new, then impulse add for its options) and bring its resources over; nothing moved",
-		},
-		{
-			name:    "an application on a single-method session type is refused with no command run",
-			goMod:   upgradeGoMod("v0.1.0"),
-			files:   map[string]string{"cmd/generate/resourcegenerator/generator.go": upgradeGenerator(`generation.Auth("example.com/acme/beacon/pkg/auth/members", generation.Password)`)},
-			steps:   upgradeLedger(),
-			running: check.Build{Version: "v0.3.1", FromModule: true},
-			wantErr: "no recipe moves an application off it",
-		},
-		{
-			name:    "an application declaring its methods walks as before",
-			goMod:   upgradeGoMod("v0.3.0"),
-			files:   map[string]string{"cmd/generate/resourcegenerator/generator.go": upgradeGenerator(`generation.Auth("example.com/acme/beacon/pkg/auth/staff", generation.PasswordMethod())`)},
-			steps:   upgradeLedger(),
-			running: check.Build{Version: "v0.3.0", FromModule: true},
-			wantOut: []string{"beacon stands at step 3 of 3, the ledger's last, and pins impulse v0.3.0, the running impulse: nothing to do."},
 		},
 		{
 			name:    "at the last step and the running impulse: nothing to do",

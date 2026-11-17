@@ -636,7 +636,7 @@ func readStorageArg(auth *Auth, call *ast.CallExpr, storage string, consts map[s
 					auth.AuthEventsTable = s
 				}
 			}
-		case "NewCustomSessionData", "NewCustomUserData", "NewSpannerCustomSessionData", "NewPostgresCustomSessionData", "NewSpannerCustomUserData", "NewPostgresCustomUserData":
+		case "NewCustomSessionData", "NewCustomUserData":
 			if len(c.Args) >= 1 {
 				if s, ok := constString(c.Args[0], consts); ok {
 					auth.ExtraTables = append(auth.ExtraTables, s)

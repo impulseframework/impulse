@@ -16,10 +16,9 @@ import (
 // auth events, impersonation and custom data tables where the storage attaches them), that
 // two Auths never share a table, that every Auth has at least one sign-in method
 // registered on it and every registration an Auth it reaches, and reports the auths
-// that result with their methods. A construction of a session type v0.13.0 retired (the
-// single-method types) fails the check, with what to move to. The compiler holds the
-// handler wiring (the router's session interfaces name the methods declared); this check
-// holds the schema the Auth reads, which nothing compiles against.
+// that result with their methods. The compiler holds the handler wiring (the router's
+// session interfaces name the methods declared); this check holds the schema the Auth
+// reads, which nothing compiles against.
 type sessionTables struct{}
 
 func (sessionTables) Name() string { return "session-tables" }

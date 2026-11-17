@@ -680,14 +680,6 @@ bedrock's checks read what the walk writes (the drivers' settings the configurat
 the release file, the processes), and the walk reads nothing bedrock renders; the code after
 a step may need what only the newer stack provides.
 
-An application still on the single-method session types (its generator program declares
-an auth with `generation.Password` or another identifier in place of a method declaration,
-types of the framework's earlier releases that this module does not carry) is refused
-before anything moves, `--dry-run` included: no recipe moves an application off them, so a
-step would only break its generator program. The sentence names the generator program and
-the auth and says what to do instead: re-create the application from the skeleton
-(`impulse new`, then `impulse add` for its options) and bring its resources over.
-
 The impulse to upgrade to is run, not pinned first: a `go get -tool` ahead of the walk
 would skip the steps' recipes. The walk refuses to start on a working tree that is not
 clean, so each step is one commit, and refuses to start when it moves web pins and bun

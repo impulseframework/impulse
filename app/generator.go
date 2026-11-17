@@ -67,7 +67,7 @@ const (
 	ArgBoolMap
 	ArgCall
 	ArgComposite
-	// ArgIdent is a qualified identifier of the generation package (generation.Password);
+	// ArgIdent is a qualified identifier of the generation package (generation.ThisRelease);
 	// Str holds the identifier.
 	ArgIdent
 	// ArgInt is a whole number: an integer literal, or a constant expression of integer
