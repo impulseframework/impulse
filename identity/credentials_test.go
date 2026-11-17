@@ -10,6 +10,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 )
 
@@ -153,15 +154,52 @@ func TestManager_UnlinkIdentity(t *testing.T) {
 func TestManager_RemovePassword(t *testing.T) {
 	t.Parallel()
 
+	entra := sessioninfo.AuthMethod("azure")
+	noLinkCounts := func(err error) bool {
+		return httpio.HasConflict(err) && errors.Is(err, sessionstorage.ErrLastSignInMethod) &&
+			httpio.Message(err) == "none of the identities linked to the user can sign them in any more, so the password is their only means of sign-in: link a directory sign-in the login page offers first"
+	}
 	tests := []struct {
 		name       string
 		usernames  map[impulse.UUID]string
 		passwords  map[impulse.UUID]bool
 		identities map[impulse.UUID]impulse.UUID
-		failOn     string
-		wantErr    func(error) bool
-		wantWrites []string
+		// cameThrough, unoffered and untaken say which identities sign nobody in (see
+		// fakeStore and fakeSessions).
+		cameThrough map[impulse.UUID]Link
+		unoffered   map[sessioninfo.AuthMethod]bool
+		untaken     map[string]bool
+		failOn      string
+		wantErr     func(error) bool
+		wantWrites  []string
 	}{
+		{
+			name:        "an identity of a method the login page no longer offers does not count: the password stays",
+			usernames:   map[impulse.UUID]string{userID: "dana"},
+			passwords:   map[impulse.UUID]bool{userID: true},
+			identities:  map[impulse.UUID]impulse.UUID{identityA: userID},
+			cameThrough: map[impulse.UUID]Link{identityA: {Method: entra, Connection: "lakeside"}},
+			unoffered:   map[sessioninfo.AuthMethod]bool{entra: true},
+			wantErr:     noLinkCounts,
+		},
+		{
+			name:        "an identity from a connection no registration takes does not count: the password stays",
+			usernames:   map[impulse.UUID]string{userID: "dana"},
+			passwords:   map[impulse.UUID]bool{userID: true},
+			identities:  map[impulse.UUID]impulse.UUID{identityA: userID},
+			cameThrough: map[impulse.UUID]Link{identityA: {Method: entra, Connection: "closed-directory"}},
+			untaken:     map[string]bool{"closed-directory": true},
+			wantErr:     noLinkCounts,
+		},
+		{
+			name:        "one identity that signs the person in is enough, whatever the others are",
+			usernames:   map[impulse.UUID]string{userID: "dana"},
+			passwords:   map[impulse.UUID]bool{userID: true},
+			identities:  map[impulse.UUID]impulse.UUID{identityA: userID, identityB: userID},
+			cameThrough: map[impulse.UUID]Link{identityA: {Method: entra, Connection: "closed-directory"}},
+			untaken:     map[string]bool{"closed-directory": true},
+			wantWrites:  []string{"remove password " + userID.String(), "clear attempts dana"},
+		},
 		{
 			name:       "the password of a user who holds an identity goes, and the name's count is cleared",
 			usernames:  map[impulse.UUID]string{userID: "Dana"},
@@ -214,9 +252,11 @@ func TestManager_RemovePassword(t *testing.T) {
 			// The user holds a live session: a removal that ended it would log the write.
 			store := &fakeStore{
 				usernames: tt.usernames, passwords: tt.passwords, identities: tt.identities, failOn: tt.failOn,
-				sessions: map[impulse.UUID][]impulse.UUID{userID: {sessionA}},
+				cameThrough: tt.cameThrough,
+				sessions:    map[impulse.UUID][]impulse.UUID{userID: {sessionA}},
 			}
 			m, _ := newManager(t, store, nil)
+			m.sessions = fakeSessions{unoffered: tt.unoffered, untaken: tt.untaken}
 			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 				return m.RemovePassword(ctx, txn, userID)
 			})
@@ -229,6 +269,125 @@ func TestManager_RemovePassword(t *testing.T) {
 			}
 			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
 				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
+		})
+	}
+}
+
+// TestManager_SignInWays pins the read a page offers the removal of a password from: the
+// password where the person holds one, then each registration an identity linked to
+// them can sign them in through, once, and nothing for an identity that signs nobody
+// in. It is the judgment RemovePassword refuses by, so a page that offers the removal
+// only for a password and another way offers it only where it goes through.
+func TestManager_SignInWays(t *testing.T) {
+	t.Parallel()
+
+	entra := sessioninfo.AuthMethod("azure")
+	password := SignInWay{Registration: "password", Password: true}
+	tests := []struct {
+		name        string
+		passwords   map[impulse.UUID]bool
+		identities  map[impulse.UUID]impulse.UUID
+		cameThrough map[impulse.UUID]Link
+		unoffered   map[sessioninfo.AuthMethod]bool
+		untaken     map[string]bool
+		failOn      string
+		want        []SignInWay
+		wantMissing bool
+		wantErr     bool
+	}{
+		{
+			name:       "a password and an identity: both ways",
+			passwords:  map[impulse.UUID]bool{userID: true},
+			identities: map[impulse.UUID]impulse.UUID{identityA: userID},
+			want:       []SignInWay{password, {Registration: "google"}},
+		},
+		{
+			name:      "a password alone",
+			passwords: map[impulse.UUID]bool{userID: true},
+			want:      []SignInWay{password},
+		},
+		{
+			name:       "no password: the identities alone",
+			passwords:  map[impulse.UUID]bool{userID: false},
+			identities: map[impulse.UUID]impulse.UUID{identityA: userID},
+			want:       []SignInWay{{Registration: "google"}},
+		},
+		{
+			name:       "two identities through one registration are one way",
+			passwords:  map[impulse.UUID]bool{userID: false},
+			identities: map[impulse.UUID]impulse.UUID{identityA: userID, identityB: userID},
+			want:       []SignInWay{{Registration: "google"}},
+		},
+		{
+			name:        "an identity of a method the login page no longer offers is no way",
+			passwords:   map[impulse.UUID]bool{userID: true},
+			identities:  map[impulse.UUID]impulse.UUID{identityA: userID},
+			cameThrough: map[impulse.UUID]Link{identityA: {Method: entra, Connection: "lakeside"}},
+			unoffered:   map[sessioninfo.AuthMethod]bool{entra: true},
+			want:        []SignInWay{password},
+		},
+		{
+			name:        "an identity from a connection no registration takes is no way",
+			passwords:   map[impulse.UUID]bool{userID: true},
+			identities:  map[impulse.UUID]impulse.UUID{identityA: userID},
+			cameThrough: map[impulse.UUID]Link{identityA: {Method: entra, Connection: "closed-directory"}},
+			untaken:     map[string]bool{"closed-directory": true},
+			want:        []SignInWay{password},
+		},
+		{
+			name:       "another person's identity is not this person's way",
+			passwords:  map[impulse.UUID]bool{userID: true},
+			identities: map[impulse.UUID]impulse.UUID{identityA: otherUser},
+			want:       []SignInWay{password},
+		},
+		{
+			name:        "a user that does not exist is not found",
+			wantMissing: true,
+		},
+		{
+			name:       "a failed read answers nothing",
+			passwords:  map[impulse.UUID]bool{userID: true},
+			identities: map[impulse.UUID]impulse.UUID{identityA: userID},
+			failOn:     "Identities",
+			wantErr:    true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := &fakeStore{passwords: tt.passwords, identities: tt.identities, cameThrough: tt.cameThrough, failOn: tt.failOn}
+			m, _ := newManager(t, store, nil)
+			m.sessions = fakeSessions{unoffered: tt.unoffered, untaken: tt.untaken}
+			var (
+				got   []SignInWay
+				found bool
+			)
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				var err error
+				got, found, err = m.SignInWays(ctx, txn, userID)
+
+				return err
+			})
+			if tt.wantErr {
+				if !errors.Is(err, errStore) {
+					t.Fatalf("SignInWays() error = %v, want the store's", err)
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatalf("SignInWays() error = %v", err)
+			}
+			if found == tt.wantMissing {
+				t.Fatalf("SignInWays() found = %t, want %t", found, !tt.wantMissing)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("SignInWays() (-want +got):\n%s", diff)
+			}
+			if len(store.writes) != 0 {
+				t.Errorf("buffered writes = %v, want none: the read writes nothing", store.writes)
 			}
 		})
 	}

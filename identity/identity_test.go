@@ -14,6 +14,7 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/spxscan/spxapi"
 )
 
@@ -92,8 +93,11 @@ type fakeStore struct {
 	// and families the unrevoked tokens of each family.
 	passwords  map[impulse.UUID]bool
 	identities map[impulse.UUID]impulse.UUID
-	tokens     map[impulse.UUID]*Token
-	families   map[impulse.UUID][]impulse.UUID
+	// cameThrough is the method and the connection an identity came through, for the
+	// identities a test says it of; every other came through google's lakeside.
+	cameThrough map[impulse.UUID]Link
+	tokens      map[impulse.UUID]*Token
+	families    map[impulse.UUID][]impulse.UUID
 	// userTokens are the unrevoked tokens of each user.
 	userTokens map[impulse.UUID][]impulse.UUID
 	// nextID is the id InsertUser answers.
@@ -183,7 +187,7 @@ func (f *fakeStore) EndSession(_ context.Context, _ resource.ReadWriteTransactio
 	return nil
 }
 
-func (f *fakeStore) UserHasPassword(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) (has, found bool, err error) {
+func (f *fakeStore) UserHasPassword(_ context.Context, _ resource.ReadOnlyTransaction, id impulse.UUID) (has, found bool, err error) {
 	if err := f.fail("UserHasPassword"); err != nil {
 		return false, false, err
 	}
@@ -201,19 +205,24 @@ func (f *fakeStore) IdentityUser(_ context.Context, _ resource.ReadWriteTransact
 	return userID, found, nil
 }
 
-func (f *fakeStore) Identities(_ context.Context, _ resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
+func (f *fakeStore) Identities(_ context.Context, _ resource.ReadOnlyTransaction, userID impulse.UUID) ([]Link, error) {
 	if err := f.fail("Identities"); err != nil {
 		return nil, err
 	}
-	var ids []impulse.UUID
+	var links []Link
 	for id, linked := range f.identities {
-		if linked == userID {
-			ids = append(ids, id)
+		if linked != userID {
+			continue
 		}
+		link := Link{ID: id, Method: sessioninfo.MethodGoogle, Connection: "lakeside"}
+		if through, said := f.cameThrough[id]; said {
+			link.Method, link.Connection = through.Method, through.Connection
+		}
+		links = append(links, link)
 	}
-	slices.SortFunc(ids, func(a, b impulse.UUID) int { return strings.Compare(a.String(), b.String()) })
+	slices.SortFunc(links, func(a, b Link) int { return strings.Compare(a.ID.String(), b.ID.String()) })
 
-	return ids, nil
+	return links, nil
 }
 
 func (f *fakeStore) DeleteIdentity(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID) error {
@@ -636,6 +645,20 @@ func (u *fakeUserManager) Roles(_ context.Context, scope accesstypes.PolicyScope
 // takes prepared invitations.
 type fakeSessions struct {
 	mail *fakeMail
+	// unoffered are the sign-in methods the Auth's login page offers no registration of,
+	// and untaken the connections no registration takes: an identity of either signs
+	// nobody in. Every other identity signs in through the registration named for its
+	// method.
+	unoffered map[sessioninfo.AuthMethod]bool
+	untaken   map[string]bool
+}
+
+func (s fakeSessions) SignsInThrough(method sessioninfo.AuthMethod, connection string) []string {
+	if s.unoffered[method] || s.untaken[connection] {
+		return nil
+	}
+
+	return []string{string(method)}
 }
 
 func (fakeSessions) HashPassword(password string) (string, error) {
