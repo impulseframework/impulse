@@ -732,6 +732,8 @@ func Test_holdIdentityTenantInvitation(t *testing.T) {
 		// record mutates the loaded record, and written what the sources were written for.
 		record  func(record *resourceInfo)
 		written func(inst *identityInstance)
+		// beside is another auth of the program, held after the one the case writes.
+		beside  *identityInstance
 		wantErr string
 	}{
 		{
@@ -808,6 +810,15 @@ func Test_holdIdentityTenantInvitation(t *testing.T) {
 				inst.tenant.invitation, inst.tenant.unreadable = nil, "not read"
 			},
 		},
+		{
+			name:    "nor does it beside the auth that makes one: the record is held to that auth's sources alone",
+			structs: []string{"Citadel"},
+			beside: &identityInstance{
+				importPath: "example.com/app/pkg/auth/members", auth: "Members",
+				tables: map[identityTable]bool{identityMailLinks: true, identityMemberships: true},
+				tenant: &identityTenant{name: "Citadel", word: "citadel", unreadable: "not read"},
+			},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -834,6 +845,9 @@ func Test_holdIdentityTenantInvitation(t *testing.T) {
 				tt.written(inst)
 			}
 			r.identity = []*identityInstance{inst}
+			if tt.beside != nil {
+				r.identity = append(r.identity, tt.beside)
+			}
 
 			err = r.holdIdentityTenantInvitation()
 			if tt.wantErr == "" {
