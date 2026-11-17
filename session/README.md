@@ -1079,9 +1079,10 @@ upgrade could put back a password that had just been changed or removed, and a c
 or a removal could undo an operator's reset on proof of the password it replaced.
 
 An operator's writes follow no proof and overwrite on purpose:
-`ResetSessionUserPassword`, `SetSessionUserPassword`, `RemoveSessionUserPassword` and
-the generated user management's temporary password write whatever the row holds
-(`SetUserPassword`, `RemoveUserPassword`). The operator is not claiming to know the
+`ResetSessionUserPassword`, `SetSessionUserPassword` and `RemoveSessionUserPassword`
+write whatever the row holds (the store's `SetUserPassword` and `RemoveUserPassword`),
+and so do the generated user management's temporary password and removal, which write
+the column in the caller's transaction. The operator is not claiming to know the
 password being replaced, so there is nothing to compare, and their password is to
 stand whatever the person did a moment before.
 

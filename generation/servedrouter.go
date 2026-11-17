@@ -1129,6 +1129,17 @@ func linkTokenIssuers(data *servedRouterData) {
 	}
 }
 
+// servedAccountPathsOf names the routes of the signed-in person's account page under
+// the outlet's prefix, as the router tells them to the browser beside the methods:
+// forgetting the remembered browser, the person's own name, what the person signs in
+// with, and the look the person chose.
+func servedAccountPathsOf(so *servedOutlet, prefix string) {
+	so.ForgetBrowser = prefix + userForgetBrowserSuffix
+	so.ChangeName = prefix + userNameSuffix
+	so.SignInMeans = prefix + userSignInMeansSuffix
+	so.ChangeLook = prefix + userLookSuffix
+}
+
 // servedSessionOf fills a session outlet's methods and routes from its auth's methods:
 // the session's own routes, then each method's login (and callback and front-channel
 // logout) under the registration's name, the ones outside the XSRF guard first and the
@@ -1211,10 +1222,7 @@ func servedSessionOf(so *servedOutlet, o *routerOutlet) {
 		route(http.MethodPost, userNameSuffix, changeNameHandler, true),
 		route(http.MethodPost, userLookSuffix, changeLookHandler, true),
 	)
-	so.ForgetBrowser = prefix + userForgetBrowserSuffix
-	so.ChangeName = prefix + userNameSuffix
-	so.SignInMeans = prefix + userSignInMeansSuffix
-	so.ChangeLook = prefix + userLookSuffix
+	servedAccountPathsOf(so, prefix)
 	guarded, validatedRoutes := servedMailRoutesOf(so, o, guarded, route)
 	so.OpenRoutes, so.GuardedRoutes, so.ValidatedRoutes = open, guarded, validatedRoutes
 	so.Routes = slices.Concat(open, guarded, validatedRoutes)
