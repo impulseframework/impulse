@@ -5,8 +5,8 @@ sign in to. One site, one browser application,
 tenancy as data: the `Tenant` record (`@tenant`) over the `Tenants` table is the domain
 universe, a tenant's key is an id the server generates while its name is a field its
 administrators change, tenant-scoped routes live under `/api/tenants/{tenantID}/`, the data level's
-tenant roster keeps the tenants current on every instance (a tenant created through the
-API is usable at once, without a restart), and tenant existence is concealed from logins
+tenant roster keeps the tenants current on every instance (a tenant is usable the moment
+it is made, without a restart), and tenant existence is concealed from logins
 that hold nothing there. `Announcement` is the first tenant-scoped resource — a login's tenant list
 is where it holds a grant, and a grant needs a tenant-scoped resource to land on, so the
 application ships one. The console sits in the library's frame (`provideFrame` in
@@ -38,22 +38,37 @@ the whole application's accounts. The library draws them from the API descriptio
 (`identityRoutes` in `app.routes.ts`, placed by `identityMenuPages` in the menu file), and
 a tenant's pages read the tenant from the URL (the frame provides `RESOURCE_DOMAIN`).
 The menu file (`app.menus.ts`) shows Tenants (All tenants, the library's list page over the
-record, and New tenant…) and System (the staff's accounts and Feature flags…) in
+record) and System (the staff's accounts, the Invited tenants page and Feature flags…) in
 Configuration, and People and Tenant (Sign-in settings) inside a tenant; the person's own
 menu holds Your account (the email address, Change your password, Forget this browser),
 Appearance and Sign out; Help ends with About, which carries the release. A spec beside
 the menu file fails on a page the routes carry and no menu places (`unplacedPages`).
 
-Who may create a tenant is decided in the running application, apart from who may enter
-one, and there are two ways: an administrator creates tenants
-through the record's create path, under the `Administrator` role's Create grant,
-and a person who signs in holding no tenant creates their own through the generated
+How a tenant comes to exist is decided in the running application, apart from who may
+enter one. Nobody creates a tenant directly: the record's create is refused, with a
+sentence that says so. An administrator brings an organization in by inviting one person,
+on the console's Invited tenants page (System), which the library draws from the staff
+auth's generated `InviteStaffTenant`, `StaffInvitedTenants` and
+`WithdrawStaffInvitedTenant`: the invitation carries the tenant's name and, where the
+administrator says so, that the tenant is entered through its directory only and the role
+its directory's people start with. Sending it takes the `Administrator` role's Create
+grant on the record, and a name a tenant holds is refused there. No tenant exists while
+the invitation waits; the invited person's first sign-in makes it under an id the server
+generates, gives them the roles the App names in `TenantAdministratorRoles`
+(`TenantAdministrator`), makes the directory they came through the tenant's where they
+came through one, and hands the tenant to the roster, so their next request stands in
+it. An invitation that says directory only is accepted through an organization's
+directory alone, and one that still waits is withdrawn on the same page. The staff auth
+is handed what makes the tenant by the data level (`staff.Settings.TenantMaker`, the
+generated `app.NewTenantMaker` over the roster, built before the auth), and refuses to
+start without it.
+
+A person who signs in holding no tenant creates their own through the generated
 create-your-tenant route (`POST /api/create-tenant`), which takes the tenant's name, writes the row under an id it generates and answers, gives them
 the roles the App names in `TenantAdministratorRoles` (`TenantAdministrator`) and
 hands the tenant to the roster, so their next request stands in it; a person who already
 holds a tenant is refused, an administrator of one tenant never creates another, and the
-console's dashboard offers the new-tenant dialog to a session without a tenant (Tenants ›
-New tenant… opens the same dialog on the administrator's path, the record's create). The order is sign in
+console's dashboard offers the new-tenant dialog to a session without a tenant. The order is sign in
 first, then name the tenant: the staff auth carries a Google registration as wide as any
 Google account (`pkg/auth/staff/google.go`), and every sign-in method starts invite only.
 An administrator opens one to sign-up on the console's Sign-in page (Open sign-up, which
@@ -112,9 +127,10 @@ turning directory only off are plain confirmations; while a tenant is directory 
 routes answer the people it admits, so a tenant whose directory has stopped working is
 opened again by a super administrator. The tenant's People page marks the people it
 keeps out for as long as it is on. Both records write change events, the audit of every
-edit. Nobody types a directory in. It is set from a sign-in: the create-your-tenant
-route sets the one its creator came through, refusing a creation from an organization
-that already has a tenant, and afterwards the page offers an administrator who is
+edit. Nobody types a directory in. It is set from a sign-in: an invitation that makes a
+tenant, accepted through an organization's directory, sets it as the tenant is made, the
+create-your-tenant route sets the one its creator came through, each refusing an
+organization that already has a tenant, and afterwards the page offers an administrator who is
 signed in through their organization's directory to make it the tenant's ("Make
 acme.example this tenant's directory"), with a create that names no directory, since the
 server sets the one the session came through. A session that came by password is
@@ -219,6 +235,9 @@ Google account.
   stored value needs it (see "Secret fields").
 - `test/authz` is the generated authorization matrix over the generated test router;
   `test/integration` drives the served stack (real router, session, engine) end to end.
+  How a tenant comes to exist is held in both: `test/integration/invited_tenant_test.go`
+  plays the invitation that makes a tenant from the sending to the first sign-in, and
+  `test/authz/invited_tenant_test.go` holds the sending to the Create grant on the record.
 - `web/` is the Angular workspace, one project per browser application (`console`).
   `web/go.mod` exists only to keep Go tooling out of `node_modules`.
 
@@ -405,8 +424,8 @@ form the Checks section and CI use; `bun ng test console` watches. The specs bes
 skeleton's components are the pattern for the application's own: the dashboard renders a
 permission digest over a scripted client from `@impulseframework/resource-angular/testing`
 (`provideResourceTesting` puts the generated client on a transport that records every
-request and answers from the test); the new-tenant dialog creates through either path
-and reports the server's refusal in place; the tenant's sign-in page has its own; and the
+request and answers from the test); the new-tenant dialog posts to the create-your-tenant
+route and reports the server's refusal in place; the tenant's sign-in page has its own; and the
 menu file's spec holds every page the routes carry to a place in the menus. The frame
 itself (the tenant guard, the switcher, the menus and the person's menu) is the library's,
 tested there.

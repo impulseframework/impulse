@@ -17,10 +17,12 @@ type (
 	// first, each with a sentence the person can act on.
 	//
 	// Nobody types a directory in. The row is written from a sign-in through the
-	// directory: the create-your-tenant route sets the one its creator came through, and
-	// afterwards the tenant's administrator, signed in through their organization's
-	// directory, makes it the tenant's on the Sign-in page, under the record's Create
-	// grant (TenantAdministrator). The create takes no method and no connection from the
+	// directory: an invitation that makes a tenant, accepted through the person's
+	// organization's directory, sets it as the tenant is made, the create-your-tenant
+	// route sets the one its creator came through, and afterwards the tenant's
+	// administrator, signed in through their organization's directory, makes it the
+	// tenant's on the Sign-in page, under the record's Create grant
+	// (TenantAdministrator). The create takes no method and no connection from the
 	// request; the server reads both from the session. A personal account (a Google
 	// account outside every Workspace, a Microsoft personal account) is no
 	// organization's directory and is refused, as is a session that came by password.

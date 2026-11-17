@@ -340,12 +340,19 @@ annotated @tenant, from which the generator derives the tenant segment and emits
 constructor of the tenant roster; the generator program gains WithConcealedDomains; the
 data level gains the roster, built with that constructor over the live service's tenants
 signal and started where the configuration is built (a new file plus a field and the
-start in DataConfiguration), so a tenant created on any instance is usable at once,
+start in DataConfiguration), so a tenant made on any instance is usable at once,
 without a restart; the app exposes the roster to the generated code as TenantRoster()
 and hands its Domains to the session permissions (a new file plus the Configurer, App
 and UserPermissions edits); and the reference's tenant pages (the tenant's sign-in page,
-All tenants and the New tenant dialog) are copied into the browser app, whose frame
-carries the tenant the URL names, the guard and the place switcher.
+All tenants and the dialog a person who signed up creates their own tenant through) are
+copied into the browser app, whose frame carries the tenant the URL names, the guard and
+the place switcher.
+
+Nobody creates a tenant directly. Staff of the auth whose outlets serve the record bring
+an organization in by inviting one person, and that person's first sign-in makes the
+tenant: the auth's settings gain the generated maker (TenantMaker), its New refuses a
+nil one and hands it to the identity client, and where the data level has the
+skeleton's shape the roster is built ahead of that auth and the maker passed in.
 
 Which resources become tenant-scoped and how their rows are assigned, the bootstrap
 order, the harnesses, the tests, the tenant segment in the browser's routes, and the

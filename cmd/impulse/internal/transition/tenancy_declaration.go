@@ -22,8 +22,12 @@ const (
 	declarationsAccessor = "TenantDeclarations"
 	// directoriesAccessor is the Settings field the directory reader travels under.
 	directoriesAccessor = "TenantDirectories"
-	signinImportPath    = "github.com/impulseframework/impulse/session/signin"
-	spannerImportName   = "cloudspanner"
+	// makerAccessor is the Settings field the maker of an invited tenant travels under,
+	// on the auth whose people a tenant is made through.
+	makerAccessor      = "TenantMaker"
+	signinImportPath   = "github.com/impulseframework/impulse/session/signin"
+	identityImportPath = "github.com/impulseframework/impulse/identity"
+	spannerImportName  = "cloudspanner"
 )
 
 // DirectoryRecord is the directories record's struct name: the tenant record's with
@@ -44,6 +48,12 @@ func (tn Tenancy) DeclarationReader() string { return "New" + tn.Record() + "Dec
 // package: New<Record>DirectoryReader, the reader of every tenant's declaration of one
 // directory with its default seat, which the auth's directory admission decides with.
 func (tn Tenancy) DirectoryReader() string { return "New" + tn.Record() + "DirectoryReader" }
+
+// Maker is the generated maker's constructor in the handlers package: New<Record>Maker,
+// what makes a tenant from an accepted invitation over the record's own create patch.
+// Nobody creates a tenant directly, so the auth whose people a tenant is made through
+// is handed it in its Settings and refuses to start without it.
+func (tn Tenancy) Maker() string { return "New" + tn.Record() + "Maker" }
 
 // writeDirectoryRecord adds the directories record beside the tenant record.
 func (tn Tenancy) writeDirectoryRecord(a *app.App, resourceDir string, ch *Change) error {
@@ -153,8 +163,9 @@ func trackingConfig(a *app.App, resourceDir string) string {
 // editAuths sets the sign-in rule on every auth and hands each the generated reader:
 // the auth's Settings carry the reader, New refuses a nil one and sets the library's
 // tenant policy over it on the session, and the data level's settings literal passes
-// the reader in.
-func (tn Tenancy) editAuths(a *app.App, site *app.Site, g *app.Generator, ch *Change) error {
+// the reader in. The auth a tenant is made through (makesTenants) is handed the
+// generated maker too, over the roster the data level built ahead of it (early).
+func (tn Tenancy) editAuths(a *app.App, site *app.Site, g *app.Generator, early *earlyRoster, ch *Change) error {
 	if len(a.AuthPackages) == 0 {
 		ch.skipf("no auth package constructs a session.Auth, so no sign-in rule was set; where one is, set signin.TenantPolicy(resource.SignInRoles(<engine>.UserManager()), <handlers>.%s()) on the session with SetSignInPolicy before the first request, so a sign-in is admitted by what the person's tenants declare", tn.DeclarationReader())
 
@@ -176,12 +187,14 @@ func (tn Tenancy) editAuths(a *app.App, site *app.Site, g *app.Generator, ch *Ch
 			continue
 		}
 		// The record is written with no @outlet, so the default outlet serves it: the auth
-		// bound there is the one whose people create a tenant of their own.
-		serves := site.Default.Auth != nil && site.Default.Auth.ImportPath == pkg.Path
-		if err := tn.editAuth(a, auth, pkg, serves, packageNameOf(a, g.HandlersDir())+"."+tn.DeclarationReader(), packageNameOf(a, g.HandlersDir())+"."+tn.DirectoryReader(), ch); err != nil {
+		// bound there is the one whose people create a tenant of their own, and the one a
+		// tenant is made through when staff invite one person.
+		serves := servesRecord(site, pkg)
+		handlers := packageNameOf(a, g.HandlersDir())
+		if err := tn.editAuth(a, auth, pkg, serves, handlers+"."+tn.DeclarationReader(), handlers+"."+tn.DirectoryReader(), handlers+"."+tn.Maker(), ch); err != nil {
 			return err
 		}
-		if err := tn.editSettings(a, g, auth, pkg, ch); err != nil {
+		if err := tn.editSettings(a, g, auth, pkg, serves && setsAdmission(a, auth), early, ch); err != nil {
 			return err
 		}
 	}
@@ -208,6 +221,38 @@ func directoryAuthority(auth *app.Auth) bool {
 // DirectorySeated hook the directory admission gives a default role through.
 var identityClientRE = regexp.MustCompile(`(?m)^\tidentityClient, err := \w+identity\.NewClient\(`)
 
+// identityClientHeadRE matches that call through its first two arguments, the engine and
+// the session's API, as the rendered auth packages write them: the maker of an invited
+// tenant is the client's third.
+var identityClientHeadRE = regexp.MustCompile(`(?m)^(\tidentityClient, err := \w+identity\.NewClient\(\w+, \w+\.API\(\))`)
+
+// servesRecord reports the auth the default outlet binds: the tenant record is written
+// with no @outlet, so that outlet serves it.
+func servesRecord(site *app.Site, pkg *app.AuthPackage) bool {
+	return site.Default.Auth != nil && site.Default.Auth.ImportPath == pkg.Path
+}
+
+// makerAuth is the auth a tenant is made through, nil when the application has none: the
+// one whose session outlets serve the tenant record, where the application assigns its
+// roles and generates its management. Staff of that auth invite one person with a
+// tenant's details, and the person's first sign-in makes the tenant, so its generated
+// identity client is constructed over the maker.
+func (tn Tenancy) makerAuth(a *app.App, site *app.Site) *app.AuthPackage {
+	for i := range a.AuthPackages {
+		pkg := &a.AuthPackages[i]
+		if !servesRecord(site, pkg) {
+			continue
+		}
+		for j := range a.Auths {
+			if path.Dir(a.Auths[j].File) == pkg.Dir && setsAdmission(a, &a.Auths[j]) {
+				return pkg
+			}
+		}
+	}
+
+	return nil
+}
+
 // setsAdmission reports whether the directory admission is set on the auth: its roles
 // are the application's (no registration's directory writes them) and its New builds
 // the identity client the admission's hook comes from. An auth whose file the tool
@@ -227,8 +272,11 @@ func setsAdmission(a *app.App, auth *app.Auth) bool {
 // rendered auth packages word them. serves reports the auth whose session outlets
 // serve the tenant record: where the application assigns its roles and generates its
 // management, its people create a tenant of their own through the generated route, so
-// its rule admits a person who holds no tenant yet.
-func (tn Tenancy) editAuth(a *app.App, auth *app.Auth, pkg *app.AuthPackage, serves bool, reader, directoryReader string, ch *Change) error {
+// its rule admits a person who holds no tenant yet, and a tenant is made through it when
+// staff invite one person: its Settings carry the generated maker (maker is its
+// constructor as the data level qualifies it), New refuses a nil one and hands it to the
+// identity client.
+func (tn Tenancy) editAuth(a *app.App, auth *app.Auth, pkg *app.AuthPackage, serves bool, reader, directoryReader, maker string, ch *Change) error {
 	rel := auth.File
 	src, mode, err := readFile(a, rel)
 	if err != nil {
@@ -264,22 +312,20 @@ func (tn Tenancy) editAuth(a *app.App, auth *app.Auth, pkg *app.AuthPackage, ser
 			return err
 		}
 	}
+	makes := admission && serves
+	if makes {
+		if edited, makes, err = tn.carryMaker(rel, edited, pkg.Name, maker, ch); err != nil {
+			return err
+		}
+	}
 	for _, imp := range []string{signinImportPath, resourceImportPath} {
 		if edited, err = app.AddImport(rel, edited, imp); err != nil {
 			return err
 		}
 	}
-	checked := ""
-	if ok, _ := app.HasImport(rel, edited, errorsImportPath); ok {
-		withCheck, err := app.AddStatementsBeforeCall(rel, edited, "", "New", "spannerstore.New", nilReaderChecks(pkg.Name, reader, directoryReader, admission))
-		switch {
-		case errors.Is(err, app.ErrNoAnchor):
-		case err != nil:
-			return err
-		default:
-			edited = withCheck
-			checked = ", New refuses a nil one"
-		}
+	edited, checked, err := tn.refuseNil(rel, edited, pkg.Name, reader, directoryReader, maker, admission, makes)
+	if err != nil {
+		return err
 	}
 	session := sessionVar(auth)
 	policy := signInRule(session, tn.oneLower(), admission, admission && serves)
@@ -292,9 +338,62 @@ func (tn Tenancy) editAuth(a *app.App, auth *app.Auth, pkg *app.AuthPackage, ser
 	if err := os.WriteFile(a.Abs(rel), edited, mode); err != nil {
 		return errors.Wrap(err, "os.WriteFile()")
 	}
-	ch.didf("%s: Settings carries %s", rel, authCarries(checked, loc != nil, admission))
+	ch.didf("%s: Settings carries %s", rel, authCarries(checked, loc != nil, admission, makes))
 
 	return nil
+}
+
+// carryMaker gives the auth a tenant is made through what makes one. The generated
+// client of that auth takes the maker as its third argument, so the call is rewritten
+// with the Settings field it comes from, and the field and the identity import are
+// added. It reports false, with the obligation, for an auth whose New builds the client
+// in another form, which is left for the agent.
+func (tn Tenancy) carryMaker(rel string, edited []byte, pkgName, maker string, ch *Change) (out []byte, made bool, err error) {
+	head := identityClientHeadRE.FindSubmatchIndex(edited)
+	if head == nil {
+		ch.skipf("%s: New builds its identity client in a form the tool does not read (identityClient, err := %sidentity.NewClient(accessClient, authSession.API(), ...)), so the auth is not handed what makes a %s from an accepted invitation; give Settings a %s identity.TenantMaker field, refuse a nil one in New, and pass it as the client's third argument (%s is its constructor)", rel, pkgName, tn.oneLower(), makerAccessor, maker)
+
+		return edited, false, nil
+	}
+	edited = append(edited[:head[3]:head[3]], append([]byte(", settings."+makerAccessor), edited[head[3]:]...)...)
+	makerField := fmt.Sprintf("// %[1]s makes a %[2]s from an accepted invitation: the generated maker over\n// the record's own create patch (%[3]s). Nobody creates a %[4]s\n// directly: staff invite one person with its details, which the auth's identity\n// client checks with the maker when the invitation is sent, and that person's first\n// sign-in makes the %[4]s with it. Required; New refuses nil.\n%[1]s identity.TenantMaker", makerAccessor, tn.Record(), maker, tn.oneLower())
+	if edited, err = app.AddStructField(rel, edited, "Settings", makerField); err != nil {
+		return nil, false, err
+	}
+	if edited, err = app.AddImport(rel, edited, identityImportPath); err != nil {
+		return nil, false, err
+	}
+
+	return edited, true, nil
+}
+
+// refuseNil has New refuse a nil reader, and a nil maker on the auth a tenant is made
+// through, ahead of its store, where the file imports the errors package the refusals
+// are written with. It answers the words the change's did line says it in, empty where
+// New was left as it is.
+func (tn Tenancy) refuseNil(rel string, src []byte, pkgName, reader, directoryReader, maker string, admission, makes bool) (edited []byte, checked string, err error) {
+	if ok, _ := app.HasImport(rel, src, errorsImportPath); !ok {
+		return src, "", nil
+	}
+	checks := nilReaderChecks(pkgName, reader, directoryReader, admission)
+	if makes {
+		checks += nilMakerCheck(pkgName, tn.Record(), maker)
+	}
+	edited, err = app.AddStatementsBeforeCall(rel, src, "", "New", "spannerstore.New", checks)
+	switch {
+	case errors.Is(err, app.ErrNoAnchor):
+		return src, "", nil
+	case err != nil:
+		return nil, "", err
+	}
+
+	return edited, ", New refuses a nil one", nil
+}
+
+// nilMakerCheck is the refusal New makes of a nil maker in its Settings, worded as the
+// rendered auth packages word it.
+func nilMakerCheck(pkgName, record, maker string) string {
+	return fmt.Sprintf("\n\tif settings.%[1]s == nil {\n\t\treturn nil, errors.New(\"%[2]s.Settings.%[1]s is nil: a tenant is made by an invitation's first sign-in, through the generated maker over the %[3]s record (%[4]s), which the data level hands in\")\n\t}", makerAccessor, pkgName, record, maker)
 }
 
 // nilReaderChecks is the refusal New makes of a nil reader in its Settings: the
@@ -309,8 +408,9 @@ func nilReaderChecks(pkgName, reader, directoryReader string, admission bool) st
 }
 
 // authCarries words what the auth's Settings carries after the edit, for the change's
-// did line: the readers, whether New refuses a nil one, and the rules New sets.
-func authCarries(checked string, ruleSet, admission bool) string {
+// did line: the readers, the maker of an invited tenant on the auth a tenant is made
+// through, whether New refuses a nil one, and the rules New sets.
+func authCarries(checked string, ruleSet, admission, makes bool) string {
 	set := ""
 	if ruleSet {
 		set = ", and New sets the sign-in rule on the session (signin.TenantPolicy over the reader, the memberships read through resource.SignInRoles)"
@@ -321,6 +421,9 @@ func authCarries(checked string, ruleSet, admission bool) string {
 	carried := "the declaration reader (" + declarationsAccessor + ")"
 	if admission {
 		carried = "the declaration reader (" + declarationsAccessor + ") and the directory reader (" + directoriesAccessor + ")"
+	}
+	if makes {
+		carried = "the declaration reader (" + declarationsAccessor + "), the directory reader (" + directoriesAccessor + ") and what makes a tenant from an accepted invitation (" + makerAccessor + ", which New hands the identity client)"
 	}
 
 	return carried + checked + set
@@ -357,18 +460,29 @@ func signInRule(session, record string, admission, admitWithoutTenant bool) stri
 
 // editSettings passes the generated readers in the data level's settings literal of
 // the auth: the declaration reader, and the directory reader on an auth whose roles
-// the application assigns.
-func (tn Tenancy) editSettings(a *app.App, g *app.Generator, auth *app.Auth, pkg *app.AuthPackage, ch *Change) error {
+// the application assigns. The auth a tenant is made through (makes) is passed the
+// generated maker too, over the roster the level built ahead of it (early); where the
+// level builds the roster after its auths, or builds the auth's settings in a shape the
+// tool does not read, handing the maker in is recorded as the agent's.
+func (tn Tenancy) editSettings(a *app.App, g *app.Generator, auth *app.Auth, pkg *app.AuthPackage, makes bool, early *earlyRoster, ch *Change) error {
 	handlersPath := a.GoMod.Module.Mod.Path + "/" + g.HandlersDir()
 	handlersPkg := packageNameOf(a, g.HandlersDir())
 	reader := handlersPkg + "." + tn.DeclarationReader() + "()"
 	directoryReader := handlersPkg + "." + tn.DirectoryReader() + "()"
+	maker := handlersPkg + "." + tn.Maker()
+	// unmade records the maker as the agent's wherever this edit does not hand it in.
+	unmade := func() {
+		if makes {
+			ch.skipf("the %[1]s auth is not handed what makes a %[2]s from an accepted invitation, and refuses to start without it (%[1]s.Settings.%[3]s is nil): a %[2]s is made through this auth, by the first sign-in of a person its staff invited, so build the roster before the auth where the data level is opened (%[4]s.New%[5]sRoster(<the client>, resource.WithTenantSignals(<the live service>)), which %[6]s then only starts) and pass %[7]s(<the roster>, <the live service>) in the auth's Settings", pkg.Name, tn.oneLower(), makerAccessor, handlersPkg, tn.Record(), rosterStart, maker)
+		}
+	}
 	rel, src, mode, err := findDeclaringFile(a, "DataConfiguration")
 	if err != nil {
 		return err
 	}
 	if rel == "" {
 		ch.skipf("no file declares a DataConfiguration struct, so the %s auth is not handed the declaration reader; pass %s in its Settings (%s) where it is built", pkg.Name, reader, declarationsAccessor)
+		unmade()
 
 		return nil
 	}
@@ -381,6 +495,7 @@ func (tn Tenancy) editSettings(a *app.App, g *app.Generator, auth *app.Auth, pkg
 	switch {
 	case errors.Is(err, app.ErrNoAnchor):
 		ch.skipf("%s: no %sSettings method and no %s.Settings{...} literal in NewDataConfiguration, so the %s auth is not handed the declaration reader; pass %s in its Settings (%s) where it is built", rel, pkg.Name, pkg.Name, pkg.Name, reader, declarationsAccessor)
+		unmade()
 
 		return nil
 	case err != nil:
@@ -393,6 +508,18 @@ func (tn Tenancy) editSettings(a *app.App, g *app.Generator, auth *app.Auth, pkg
 		}
 		passed = "the declaration reader (" + reader + ") and the directory reader (" + directoryReader + ")"
 	}
+	if makes {
+		withMaker, made, err := passMaker(rel, edited, place, pkg.Name, maker, early)
+		if err != nil {
+			return err
+		}
+		if made == "" {
+			unmade()
+		} else {
+			edited = withMaker
+			passed = "the declaration reader (" + reader + "), the directory reader (" + directoryReader + ") and what makes a tenant from an accepted invitation (" + made + ", over the roster built ahead of the auth)"
+		}
+	}
 	if edited, err = app.AddImport(rel, edited, handlersPath); err != nil {
 		return err
 	}
@@ -402,4 +529,41 @@ func (tn Tenancy) editSettings(a *app.App, g *app.Generator, auth *app.Auth, pkg
 	ch.didf("%s: %s passes %s to the %s auth", rel, place.name, passed, pkg.Name)
 
 	return nil
+}
+
+// passMaker hands the auth a tenant is made through the generated maker in its settings
+// on the data level, constructed over the roster the level built ahead of the auth and
+// its live service (early). Where the settings literal stands inline in
+// NewDataConfiguration the element is the maker's construction; where a settings
+// function builds it, the function gains a parameter the auth's construction passes the
+// maker through, as the skeletons' data level has it. made is the construction as
+// written, empty where nothing was changed: the level builds the roster after its auths,
+// or the settings function or the auth's construction is not in the skeleton's form.
+func passMaker(rel string, src []byte, place literalPlace, auth, maker string, early *earlyRoster) (edited []byte, made string, err error) {
+	if early == nil {
+		return src, "", nil
+	}
+	made = maker + "(" + early.roster + ", " + early.live + ")"
+	if place.method == "" {
+		if edited, err = place.add(src, makerAccessor+": "+made); err != nil {
+			return nil, "", err
+		}
+
+		return edited, made, nil
+	}
+	declared := regexp.MustCompile(`(?m)^(func \(\w+ \*?\w+\) ` + regexp.QuoteMeta(place.method) + `\([^()]*)(\) \*` + regexp.QuoteMeta(auth) + `\.Settings \{)$`)
+	built := regexp.MustCompile(`(?m)^(\t\w+, err := ` + regexp.QuoteMeta(auth) + `\.New\(.*\b\w+\.` + regexp.QuoteMeta(place.method) + `\(.*)(\)\))$`)
+	if !declared.Match(src) || !built.Match(src) {
+		return src, "", nil
+	}
+	edited = declared.ReplaceAll(src, []byte("${1}, tenants identity.TenantMaker${2}"))
+	edited = built.ReplaceAll(edited, []byte("${1}, "+made+"${2}"))
+	if edited, err = place.add(edited, makerAccessor+": tenants"); err != nil {
+		return nil, "", err
+	}
+	if edited, err = app.AddImport(rel, edited, identityImportPath); err != nil {
+		return nil, "", err
+	}
+
+	return edited, made, nil
 }

@@ -107,6 +107,35 @@ func (p *TenantPolicy) DirectoryReader() string {
 	return strings.TrimSuffix(p.Reader, "New"+p.Record+"DeclarationReader") + "New" + p.Record + "DirectoryReader"
 }
 
+// Maker is the generated maker's constructor as the data level qualifies it
+// (app.NewTenantMaker), beside the declaration reader: what makes a tenant from an
+// accepted invitation, over the record's own create patch, which the identity client
+// of the auth whose people are invited to make a tenant takes.
+func (p *TenantPolicy) Maker() string {
+	return strings.TrimSuffix(p.Reader, "New"+p.Record+"DeclarationReader") + "New" + p.Record + "Maker"
+}
+
+// MakesTenants reports whether a tenant is made through the auth: staff bring an
+// organization in by inviting one person to it, and that person's first sign-in makes
+// the tenant. It is the auth whose outlets serve the tenant record
+// (TenantPolicy.AdmitWithoutTenant), where the application assigns the roles, since
+// the person who accepts is seated as the tenant's administrator, and the application
+// generates the auth's management, since the invitation and the seat are part of it.
+// The auth's Settings then carry the generated maker, which its identity client is not
+// built without.
+func (s *Spec) MakesTenants() bool {
+	if s.TenantPolicy == nil || !s.TenantPolicy.AdmitWithoutTenant || s.IdentityDir == "" {
+		return false
+	}
+	for i := range s.Methods {
+		if s.Methods[i].SyncsRoles() {
+			return false
+		}
+	}
+
+	return true
+}
+
 // DirectoryAdmission reports whether the auth sets the library's directory admission
 // (session.Auth.SetDirectoryAdmission) over the tenant record's directory rows: an auth
 // serving a tenanted site whose roles the application assigns. An auth with a

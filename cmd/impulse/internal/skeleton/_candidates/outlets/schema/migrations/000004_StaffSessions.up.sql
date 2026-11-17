@@ -140,7 +140,10 @@ CREATE TABLE StaffSessionSignInMethods (
 
 -- The mail links: the single-use links the auth mails. A row is one link: an invitation
 -- to an address, carrying the tenant and the roles its acceptance seats, the name its
--- sender gave the person (Name, null for none) and who sent it;
+-- sender gave the person (Name, null for none) and who sent it, or, for an invitation
+-- that brings an organization in, the tenant its first sign-in makes (NewTenant, a JSON
+-- document: the tenant's name, whether it is entered through its directory only, and
+-- its details; null on every other link);
 -- the verification of an address a signed-in person adds (UserId names the account,
 -- Email the address); or a sign-up a person starts by giving their address. The mail
 -- carries an opaque token and the row keeps its hash; the row is accepted only while it
@@ -157,6 +160,7 @@ CREATE TABLE StaffSessionMailLinks (
     UserId     STRING(36),
     TenantId   STRING(MAX),
     RoleNames  ARRAY<STRING(MAX)>,
+    NewTenant  STRING(MAX),
     InvitedByUserId STRING(36),
     CreatedAt  TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
     ExpiresAt  TIMESTAMP NOT NULL,

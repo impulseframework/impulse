@@ -239,8 +239,8 @@ func (a *App) TenantRoster() *resource.TenantRoster {
 	return a.tenants
 }
 
-// TenantAdministratorRoles names the domain roles the person who creates a tenant holds
-// in it from then on, seated by the Tenant record's create path once the row commits:
+// TenantAdministratorRoles names the domain roles the person who creates a tenant
+// through the generated create-your-tenant route holds in it from then on:
 // the staff auth's administrator role in a tenant, the one the development administrator
 // holds in every tenant (pkg/auth/staff, AdministratorRoles), so the first person in a
 // tenant can do there what an administrator can, invite its people included.
