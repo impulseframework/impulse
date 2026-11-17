@@ -1054,8 +1054,10 @@ a 400, and a last means of sign-in a 409. A page is told enough not to offer wha
 be refused. The person's account page reads `SignInMeans()` (the methods list's
 `signInMeans`): it shows the change and the removal only to a person who holds a
 password, the removal only where a directory sign-in is linked, and its question names
-what is left ("You will sign in through Fleet Google only."). A page that hides a
-button is a courtesy and decides nothing.
+what is left ("You will sign in through Fleet Google only."). The generated router
+mounts the read at `/user/sign-in-means` and names it in the methods list
+(`MethodList.SignInMeans`). A page that hides a button is a courtesy and decides
+nothing.
 
 **A write that follows a proof writes over the password that was proved, and no
 other.** Three writes are made on the strength of a password the person just entered:

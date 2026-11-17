@@ -24,6 +24,12 @@ interface Setup {
   nameAnswer?: TransportResponse;
   /** What the server answers the removal of the password with; unset, it removes it. */
   removeAnswer?: TransportResponse;
+  /**
+   * What the server answers the read of what the person signs in with; unset, it answers
+   * nothing the page can read, as a server that serves no such read. A removal the server
+   * makes is answered from then on: the person holds no password.
+   */
+  means?: TransportResponse;
 }
 
 describe('AccountPageComponent', () => {
@@ -47,7 +53,9 @@ describe('AccountPageComponent', () => {
     session = {},
     nameAnswer,
     removeAnswer,
+    means,
   }: Setup): Promise<void> => {
+    let meansNow = means;
     // The session the spec's server answers: a saved name is answered from then on, in an
     // answer of its own, as a server's every read is.
     const server: SpecServer = {
@@ -60,8 +68,17 @@ describe('AccountPageComponent', () => {
           }
           return nameAnswer;
         }
-        if (url.pathname === passwordMethods.removePassword && removeAnswer) {
-          return removeAnswer;
+        if (url.pathname === passwordMethods.removePassword) {
+          if (removeAnswer) {
+            return removeAnswer;
+          }
+          if (meansNow?.status === 200) {
+            meansNow = { status: 200, body: { ...(meansNow.body as object), password: false } };
+          }
+          return { status: 200, body: null };
+        }
+        if (url.pathname === passwordMethods.signInMeans && meansNow) {
+          return meansNow;
         }
         return url.pathname.startsWith('/api/user/') ? { status: 200, body: null } : undefined;
       },
@@ -305,6 +322,72 @@ describe('AccountPageComponent', () => {
     expect(box('removalPassword')).not.toBeNull();
     expect(text('.password h2')).toBe('Change your password');
     expect(fixture.componentInstance.passwordRemoved()).toBe(false);
+  });
+
+  // The server says what the person signs in with: the login page offers Lakeside and
+  // Fleet Google, and the person is linked to Fleet Google alone.
+  const fleetGoogle = {
+    name: 'google',
+    method: 'google',
+    kind: 'redirect',
+    label: 'Fleet Google',
+    path: '/api/user/google/login',
+  };
+  const told = { ...removal, methods: [lakeside, fleetGoogle], signInMeans: passwordMethods.signInMeans };
+  const signsInWith = (password: boolean, linked: boolean): TransportResponse => ({
+    status: 200,
+    body: { password, directories: linked ? [{ name: 'google', label: 'Fleet Google' }] : [] },
+  });
+
+  it('offers the change and the removal to a person who holds a password and a linked directory, and names that directory alone', async () => {
+    await open({ methods: told, means: signsInWith(true, true) });
+    expect(text('.password h2')).toBe('Change your password');
+    expect(text('.remove-password h2')).toBe('Remove your password');
+    type('removalPassword', 'old');
+    (element().querySelector('button.remove-submit') as HTMLButtonElement).click();
+    await settle();
+    expect(text('.remove-password .question')).toBe(
+      'Remove your password? You will sign in through Fleet Google only.',
+    );
+  });
+
+  it('offers the change and no removal to a person who holds a password and no linked directory', async () => {
+    await open({ methods: told, means: signsInWith(true, false) });
+    expect(text('.password h2')).toBe('Change your password');
+    expect(element().querySelector('.remove-password')).toBeNull();
+    expect(TestBed.inject(Account).removePassword()).toBe(false);
+  });
+
+  it('offers neither the change nor the removal to a person who holds no password', async () => {
+    await open({ methods: told, means: signsInWith(false, true) });
+    expect(element().querySelector('.password')).toBeNull();
+    expect(element().querySelector('.remove-password')).toBeNull();
+    expect(TestBed.inject(Account).password()).toBe(false);
+    expect(TestBed.inject(Account).removePassword()).toBe(false);
+    expect(text('.none')).toBe('Your sign-in is managed by your organization, so there is nothing to change here.');
+  });
+
+  it('offers what the sign-in offers where the read of what the person signs in with fails', async () => {
+    await open({ methods: told, means: { status: 500, body: { message: 'the database is away' } } });
+    expect(text('.password h2')).toBe('Change your password');
+    expect(text('.remove-password h2')).toBe('Remove your password');
+    expect(fixture.componentInstance.removalConsequence()).toBe(
+      'You will sign in through Lakeside or Fleet Google only.',
+    );
+  });
+
+  it('goes on saying what is left once the password is removed, and offers nothing more to change', async () => {
+    await open({ methods: told, means: signsInWith(true, true) });
+    type('removalPassword', 'old');
+    fixture.componentInstance.askToRemovePassword();
+    await fixture.componentInstance.removePassword();
+    await settle();
+    expect(text('.password .message')).toBe('Your password is removed. You will sign in through Fleet Google only.');
+    expect(box('oldPassword')).toBeNull();
+    expect(element().querySelector('.remove-password')).toBeNull();
+    expect(element().querySelector('.none')).toBeNull();
+    // The page read again what the person signs in with: no password is held now.
+    expect(TestBed.inject(Account).password()).toBe(false);
   });
 
   for (const tt of [

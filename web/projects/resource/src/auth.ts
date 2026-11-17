@@ -134,6 +134,13 @@ export interface LoginMethods {
    */
   readonly removePassword?: string;
   /**
+   * The path where a signed-in person reads what they sign in with (`signInMeans()`):
+   * whether they hold a password, and the directory sign-ins linked to them. Absent on a
+   * server that does not serve it, where a page offers the change and the removal of a
+   * password to everyone and the server's refusals say the rest.
+   */
+  readonly signInMeans?: string;
+  /**
    * The path where a signed-in person forgets the browser the second factor remembered
    * for them (`forgetBrowser()`); the session read says whether it is remembered.
    * Absent on a server that does not serve it.
@@ -257,6 +264,24 @@ export type PasswordChangeResult = { readonly outcome: 'changed' } | SignInRefus
  * way in, or the session is an impersonation.
  */
 export type PasswordRemovalResult = { readonly outcome: 'removed' } | SignInRefusal;
+
+/**
+ * What a person signs in with, as the server answers it: whether they hold a password,
+ * never the password or its hash, and the sign-in methods the login page offers that a
+ * directory sign-in linked to them goes through, in the page's order. A page offers the
+ * removal of a password only where one is held and a directory is linked, and names what
+ * the removal leaves by each directory's label.
+ */
+export interface SignInMeans {
+  readonly password: boolean;
+  readonly directories: readonly LinkedDirectory[];
+}
+
+/** A sign-in method of the login page that a directory sign-in linked to a person goes through: the registration's name, and the words its button carries. */
+export interface LinkedDirectory {
+  readonly name: string;
+  readonly label: string;
+}
 
 /**
  * What a change of the person's own name answers: `changed`, with the name as the server
@@ -467,6 +492,7 @@ interface MethodsAnswer {
   pending?: Partial<PendingRoutes> | null;
   changePassword?: string | null;
   removePassword?: string | null;
+  signInMeans?: string | null;
   forgetBrowser?: string | null;
   changeName?: string | null;
   changeLook?: string | null;
@@ -859,6 +885,36 @@ export class AuthClient {
   }
 
   /**
+   * Reads what the signed-in person signs in with, from the path the methods list names:
+   * whether they hold a password, and the directory sign-ins linked to them, each by the
+   * words its sign-in button carries. The answer is undefined where the server's list
+   * names no such path, or answers something that is not the read: a page then knows
+   * nothing of the person's sign-in and offers what the methods list offers.
+   */
+  async signInMeans(): Promise<SignInMeans | undefined> {
+    const list = await this.methods();
+    if (!list.signInMeans) {
+      return undefined;
+    }
+    const response = await this.options.request<Partial<SignInMeans> | null>('GET', list.signInMeans, {
+      absolute: true,
+    });
+    const answer = response.body;
+    if (typeof answer?.password !== 'boolean' || !Array.isArray(answer.directories)) {
+      return undefined;
+    }
+    return {
+      password: answer.password,
+      directories: answer.directories
+        .filter(
+          (directory: Partial<LinkedDirectory> | null): directory is LinkedDirectory =>
+            typeof directory?.name === 'string' && typeof directory.label === 'string' && directory.label !== '',
+        )
+        .map(({ name, label }) => ({ name, label })),
+    };
+  }
+
+  /**
    * Forgets this browser as a trusted device of the signed-in person: reads the methods
    * list again, then posts to the forget path it names. Their next sign-in from this
    * browser asks for the second factor again; other people the browser remembers keep
@@ -1183,6 +1239,10 @@ export class AuthClient {
     const removePassword = answer?.removePassword;
     if (typeof removePassword === 'string' && removePassword !== '') {
       list.removePassword = removePassword;
+    }
+    const signInMeans = answer?.signInMeans;
+    if (typeof signInMeans === 'string' && signInMeans !== '') {
+      list.signInMeans = signInMeans;
     }
     const forgetBrowser = answer?.forgetBrowser;
     if (typeof forgetBrowser === 'string' && forgetBrowser !== '') {
