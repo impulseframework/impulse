@@ -3711,8 +3711,9 @@ own, outside any request, has no caller and is the application's act):
 
 - Nobody disables or deletes their own account, which is the account of the real person
   behind the session: a person who views as someone else is refused their own account,
-  which they could not get back, and the account they view as is not theirs, so the
-  grants of the session and the rules below answer for it.
+  which they could not get back. They are refused the account they view as too ("you
+  cannot disable the account you are viewing as"): a session that views as a person
+  does no more than that person may, and nobody disables or deletes themselves.
 - A person who removes a role from themselves in a tenant keeps an administrator role
   nobody else would hold there. The application names the roles that administer a tenant
   when it builds the client (`identity.WithAdministratorRoles(domain)`): they are judged

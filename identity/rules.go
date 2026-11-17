@@ -16,9 +16,13 @@ import (
 
 // The rules that judge who is asking. A generated handler stamps the caller of the
 // request on the context before the method runs (resource.CallerFrom), and a rule that
-// keeps a person from acting on themselves reads who that is from there. A method an
-// application runs in a transaction of its own, outside any request, has no caller:
-// what it does is the application's act, and these rules let it through.
+// keeps a person from acting on themselves reads who that is from there. In a session
+// that views as someone else the caller is the person viewed as, whose grants the
+// request runs with, so these rules hold a view to what that person may do to
+// themselves; the rule on a person's own account judges the real person behind the
+// session as well (actorIs). A method an application runs in a transaction of its own,
+// outside any request, has no caller: what it does is the application's act, and these
+// rules let it through.
 //
 // A caller is named as the permission store names a person, by the id of their account
 // (User), and no two accounts share an id, in one auth or across two. An outlet that
@@ -67,12 +71,16 @@ func (m *Manager) actorIs(ctx context.Context, userID impulse.UUID) bool {
 // deletes themselves, since the one who did could not undo it. The person acting is the
 // real person behind the session (actorIs), so "your own account" is the account of
 // whoever is at the keyboard in every case: a person who views as someone else is refused
-// their own account, which they could not get back, and is not refused the account they
-// view as by this rule, since it is not theirs and they keep their own way in. act names
-// what was asked ("disable", "delete").
+// their own account, which they could not get back. They are refused the account they
+// view as too, and told so (callerIs): a session that views as a person does no more
+// than that person may, and nobody disables or deletes themselves. act names what was
+// asked ("disable", "delete").
 func (m *Manager) refuseOwnAccount(ctx context.Context, userID impulse.UUID, act string) error {
 	if m.actorIs(ctx, userID) {
 		return httpio.NewForbiddenMessagef("you cannot %s your own account", act)
+	}
+	if m.callerIs(ctx, userID) {
+		return httpio.NewForbiddenMessagef("you cannot %s the account you are viewing as", act)
 	}
 
 	return nil

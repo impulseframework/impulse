@@ -98,9 +98,11 @@ func TestManager_DisableUser_ownAccount(t *testing.T) {
 // TestManager_ownAccount_judgesThePersonActing pins whose account "your own" is to the
 // rule that nobody disables or deletes themselves: the account of the real person behind
 // the session. A person who views as someone else is refused their own account, which
-// they could not get back, where the session's grants are the other person's; the
-// account they view as is not theirs, and the rule lets the act through; and a view
-// started by a person of another application, who has no account here, is nobody's own.
+// they could not get back, where the session's grants are the other person's; they are
+// refused the account they view as too, and told that it is the one they view as, since
+// a view does no more than the person viewed as may; a view started by a person of
+// another application, who has no account here, is refused the account it views as and
+// is nobody's own; and through another auth's outlet nobody is a person of this auth.
 func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 	t.Parallel()
 
@@ -108,7 +110,8 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 	acts := []struct {
 		name       string
 		act        func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
-		wantSays   string
+		wantOwn    string
+		wantViewed string
 		wantWrites []string
 	}{
 		{
@@ -116,7 +119,8 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 				return m.DisableUser(ctx, txn, userID)
 			},
-			wantSays:   "you cannot disable your own account",
+			wantOwn:    "you cannot disable your own account",
+			wantViewed: "you cannot disable the account you are viewing as",
 			wantWrites: []string{"update user " + userID.String() + " disabled=true"},
 		},
 		{
@@ -124,42 +128,58 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
 				return m.DeleteUser(ctx, txn, userID)
 			},
-			wantSays:   "you cannot delete your own account",
+			wantOwn:    "you cannot delete your own account",
+			wantViewed: "you cannot delete the account you are viewing as",
 			wantWrites: []string{"delete user " + userID.String(), "delete membership " + membershipText(&reader)},
 		},
 	}
+	// Each session acts on dana's account. own and viewed say which refusal it meets.
+	const (
+		through = iota
+		own
+		viewed
+	)
 	sessions := []struct {
 		name string
 		ctx  func(context.Context) context.Context
-		// wantRefused is whether the person acting is the person of the account.
-		wantRefused bool
+		want int
 	}{
 		{
 			name: "dana, viewing as erin, acts on her own account",
 			ctx: func(ctx context.Context) context.Context {
 				return viewedBy(asCallerThrough(ctx, managedAuth, erin), userID)
 			},
-			wantRefused: true,
+			want: own,
 		},
 		{
 			name: "erin, viewing as dana, acts on the account she views as",
 			ctx: func(ctx context.Context) context.Context {
 				return viewedBy(asCallerThrough(ctx, managedAuth, dana), otherUser)
 			},
+			want: viewed,
 		},
 		{
-			name: "a person of another application, viewing as dana, has no account here",
+			name: "a person of another application, viewing as dana, acts on the account they view as",
 			ctx: func(ctx context.Context) context.Context {
 				foreign := &sessioninfo.SessionData{Impersonation: &sessioninfo.Impersonation{Actor: "dana", ActorRealm: "admin-portal"}}
 
 				return context.WithValue(asCallerThrough(ctx, managedAuth, dana), sessioninfo.CtxSessionInfo, foreign)
 			},
+			want: viewed,
 		},
 		{
 			name: "dana, viewing as erin through another auth's outlet, is nobody of this auth",
 			ctx: func(ctx context.Context) context.Context {
 				return viewedBy(asCallerThrough(ctx, otherAuth, erin), userID)
 			},
+			want: through,
+		},
+		{
+			name: "erin, viewing as frank, acts on a third person's account",
+			ctx: func(ctx context.Context) context.Context {
+				return viewedBy(asCallerThrough(ctx, managedAuth, User(frankID)), otherUser)
+			},
+			want: through,
 		},
 	}
 	for _, session := range sessions {
@@ -176,9 +196,13 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 				err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 					return act.act(session.ctx(ctx), txn, m)
 				})
-				if session.wantRefused {
-					if err == nil || !httpio.HasForbidden(err) || !strings.Contains(err.Error(), act.wantSays) {
-						t.Fatalf("error = %v, want the person acting refused their own account: %q", err, act.wantSays)
+				if session.want != through {
+					wantSays := act.wantOwn
+					if session.want == viewed {
+						wantSays = act.wantViewed
+					}
+					if err == nil || !httpio.HasForbidden(err) || !strings.Contains(err.Error(), wantSays) {
+						t.Fatalf("error = %v, want the refusal %q", err, wantSays)
 					}
 					if len(store.writes) != 0 {
 						t.Errorf("buffered writes = %v, want none", store.writes)
@@ -187,7 +211,7 @@ func TestManager_ownAccount_judgesThePersonActing(t *testing.T) {
 					return
 				}
 				if err != nil {
-					t.Fatalf("error = %v, want the act to go through: the account is not the one of the person acting", err)
+					t.Fatalf("error = %v, want the act to go through: the account is neither the one of the person acting nor the one viewed as", err)
 				}
 				if diff := cmp.Diff(act.wantWrites, store.writes); diff != "" {
 					t.Errorf("buffered writes (-want +got):\n%s", diff)

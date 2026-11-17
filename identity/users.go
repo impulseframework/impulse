@@ -135,7 +135,8 @@ func distinctRoles(roles []accesstypes.Role) []accesstypes.Role {
 // (EndUserSessions), in the caller's transaction: once it commits, the person's next
 // request is refused, and so is their next sign-in. The sign-in paths cache neither
 // fact. Nobody disables themselves: the person acting, the real person behind the
-// session, is refused their own account (refuseOwnAccount).
+// session, is refused their own account, and a session that views as someone else the
+// account it views as (refuseOwnAccount).
 // A super administrator's account is disabled by a super administrator alone, since it
 // removes one in effect (requireSuperAdministratorFor), and the last super administrator
 // who can sign in is disabled by nobody (refuseLastSuperAdministrator).
