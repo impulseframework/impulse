@@ -1669,7 +1669,9 @@ describe('a live list across tenants', () => {
     expect(across(h).subscription([])).toBeUndefined();
     expect(sameSubscription(across(h).subscription(), acrossTenantsSubscription(api.resources['Ships']))).toBe(true);
     expect(sameSubscription(across(h).subscription(['anvil']), across(h).subscription())).toBe(false);
-    expect(sameSubscription(across(h).subscription(['anvil']), h.client.domain(anvil).ships.subscription())).toBe(false);
+    expect(sameSubscription(across(h).subscription(['anvil']), h.client.domain(anvil).ships.subscription())).toBe(
+      false,
+    );
   });
 
   it('a list change in any tenant refetches it; a row change and another resource do not', async () => {

@@ -175,7 +175,8 @@ describe('AuthService and a list across tenants', () => {
     const transport = scriptedTransport((request) => {
       asked.push(request.url);
       if (request.url === '/api/permission-digest') return { status: 200, body: global };
-      if (request.url === `/api/permission-digest?domain=${anvil}`) return { status: 200, body: { Missions: { List: 'granted' } } };
+      if (request.url === `/api/permission-digest?domain=${anvil}`)
+        return { status: 200, body: { Missions: { List: 'granted' } } };
       return { status: 404, body: { message: `unscripted ${request.url}` } };
     });
     return { transport, asked };
@@ -206,7 +207,9 @@ describe('AuthService and a list across tenants', () => {
 
     await expect(firstValueFrom(auth.ensurePermission(across))).resolves.toBe(false);
     // Listing the resource in the selected tenant is that tenant's digest's to answer, as ever.
-    await expect(firstValueFrom(auth.ensurePermission({ resource: missions, permission: ListPermission }))).resolves.toBe(true);
+    await expect(
+      firstValueFrom(auth.ensurePermission({ resource: missions, permission: ListPermission })),
+    ).resolves.toBe(true);
     expect(auth.hasPermission(across)).toBe(false);
   });
 });

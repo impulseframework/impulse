@@ -151,7 +151,11 @@ describe('a list across tenants', () => {
     const target = `/api/missions?domains=${bastion}`;
     const { client, sent } = clientOver({ [target]: { rows: [] } });
 
-    await client.acrossTenants.missions.list({ filter: 'title:contains:beacon', sensitiveFilter: true, domains: [bastion] });
+    await client.acrossTenants.missions.list({
+      filter: 'title:contains:beacon',
+      sensitiveFilter: true,
+      domains: [bastion],
+    });
 
     expect(sent).toHaveLength(1);
     expect(sent[0].method).toBe('POST');
@@ -228,7 +232,10 @@ describe('a list across tenants', () => {
       ...descriptor,
       resources: { Refits: descriptor.resources['Refits'] },
     };
-    const client = createClient<Record<never, never>, Sector>(plain, { baseUrl: '/api', transport: scriptedTransport(() => ({ status: 200, body: [] })) });
+    const client = createClient<Record<never, never>, Sector>(plain, {
+      baseUrl: '/api',
+      transport: scriptedTransport(() => ({ status: 200, body: [] })),
+    });
 
     expect(client.acrossTenants).toEqual({});
   });

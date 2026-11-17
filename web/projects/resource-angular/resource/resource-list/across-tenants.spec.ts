@@ -40,26 +40,32 @@ describe('refuseAcrossTenantsConfig', () => {
 
   it('passes a list across tenants over a resource declared for it', () => {
     const api = client();
-    expect(() => refuseAcrossTenantsConfig('Missions' as Resource, { acrossTenants: true, enableRowExpansion: false }, api)).not.toThrow();
+    expect(() =>
+      refuseAcrossTenantsConfig('Missions' as Resource, { acrossTenants: true, enableRowExpansion: false }, api),
+    ).not.toThrow();
     expect(api.warnings).toEqual([]);
   });
 
   it('refuses one over a resource the API does not serve across tenants, naming it and the way out', () => {
-    expect(() => refuseAcrossTenantsConfig('Refits' as Resource, { acrossTenants: true, enableRowExpansion: false }, client())).toThrow(
+    expect(() =>
+      refuseAcrossTenantsConfig('Refits' as Resource, { acrossTenants: true, enableRowExpansion: false }, client()),
+    ).toThrow(
       'Refits: acrossTenants is set, but the resource is not listed across tenants: declare @listAcrossTenants on its struct and regenerate, or remove acrossTenants and list it inside one tenant',
     );
-    expect(() => refuseAcrossTenantsConfig('Hangars' as Resource, { acrossTenants: true, enableRowExpansion: false }, client())).toThrow(
-      'Hangars: acrossTenants is set, but the resource is not listed across tenants',
-    );
+    expect(() =>
+      refuseAcrossTenantsConfig('Hangars' as Resource, { acrossTenants: true, enableRowExpansion: false }, client()),
+    ).toThrow('Hangars: acrossTenants is set, but the resource is not listed across tenants');
   });
 
   it('refuses row expansion, since a row is read inside its own tenant', () => {
-    expect(() => refuseAcrossTenantsConfig('Missions' as Resource, { acrossTenants: true, enableRowExpansion: true }, client())).toThrow(
+    expect(() =>
+      refuseAcrossTenantsConfig('Missions' as Resource, { acrossTenants: true, enableRowExpansion: true }, client()),
+    ).toThrow(
       "Missions: enableRowExpansion is set on a list across tenants, but a row is read inside its own tenant: remove enableRowExpansion, and the row's View link opens it there",
     );
   });
 
-  it('builds a page over a declared resource and says nothing: whether it is live is the page\'s own choice', () => {
+  it("builds a page over a declared resource and says nothing: whether it is live is the page's own choice", () => {
     const api = client();
     expect(() =>
       refuseAcrossTenantsConfig('Missions' as Resource, { acrossTenants: true, enableRowExpansion: false }, api),

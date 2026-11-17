@@ -738,7 +738,11 @@ describe('ResourceStore live list page across tenants', () => {
     feed.emit({ kind: 'list', resource: 'Ships', domain: 'cinder', at: '1700000000000061' });
     clock.elapse();
     await settle(() => script.requests.length >= 4 && store.pageStatus() === 'resolved');
-    expect(dataRequests(script.requests)[2]).toEqual({ url: acrossPage, version: '1700000000000061', subscribed: true });
+    expect(dataRequests(script.requests)[2]).toEqual({
+      url: acrossPage,
+      version: '1700000000000061',
+      subscribed: true,
+    });
 
     // A row of the resource, and another resource: nothing.
     feed.emit({ kind: 'row', resource: 'Ships', key: 's1', at: '1700000000000062' });

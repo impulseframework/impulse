@@ -39,9 +39,34 @@ const hauler = '80000000-0000-4000-8000-000000000001';
 
 /** The liaison's first rows, in the declared deadline order. */
 const liaisonRows = [
-  { id: sweep, title: 'Cinder Verge salvage sweep', kindId: 'salvage', hazard: 5, statusId: 'completed', deadline: '2026-10-12T08:00:00Z', fee: '60000', zzTenant: cinder },
-  { id: courier, title: 'Quarantine relief courier', kindId: 'courier', hazard: 2, statusId: 'open', deadline: '2026-10-31T08:00:00Z', zzTenant: anvil },
-  { id: hauler, title: 'Stranded hauler off Anvil Reach', kindId: 'rescue', hazard: 2, statusId: 'open', deadline: '2026-12-01T08:00:00Z', zzTenant: anvil },
+  {
+    id: sweep,
+    title: 'Cinder Verge salvage sweep',
+    kindId: 'salvage',
+    hazard: 5,
+    statusId: 'completed',
+    deadline: '2026-10-12T08:00:00Z',
+    fee: '60000',
+    zzTenant: cinder,
+  },
+  {
+    id: courier,
+    title: 'Quarantine relief courier',
+    kindId: 'courier',
+    hazard: 2,
+    statusId: 'open',
+    deadline: '2026-10-31T08:00:00Z',
+    zzTenant: anvil,
+  },
+  {
+    id: hauler,
+    title: 'Stranded hauler off Anvil Reach',
+    kindId: 'rescue',
+    hazard: 2,
+    statusId: 'open',
+    deadline: '2026-12-01T08:00:00Z',
+    zzTenant: anvil,
+  },
 ];
 
 describe('the Missions in every sector page', () => {
@@ -123,7 +148,9 @@ describe('the Missions in every sector page', () => {
     it("asks the one list without the sector's segment and no column list, and each sector's digest once for its rows' links", () => {
       expect(fixture.componentInstance.store.pageError()).toBeUndefined();
       expect(listRequests()).toEqual([`GET ${environment.apiUrl}/missions?count=true`]);
-      expect(transport.requests.filter((request) => request.url.includes('permission-digest')).map((request) => request.url)).toEqual([
+      expect(
+        transport.requests.filter((request) => request.url.includes('permission-digest')).map((request) => request.url),
+      ).toEqual([
         `${environment.apiUrl}/permission-digest?domain=${cinder}`,
         `${environment.apiUrl}/permission-digest?domain=${anvil}`,
       ]);
@@ -195,7 +222,12 @@ describe('the Missions in every sector page', () => {
       global = digest;
       transport = scriptedTransport(server);
       await TestBed.configureTestingModule({
-        providers: [provideResourceTesting({ transport, client: (t) => createApi({ baseUrl: environment.apiUrl, transport: t }) })],
+        providers: [
+          provideResourceTesting({
+            transport,
+            client: (t) => createApi({ baseUrl: environment.apiUrl, transport: t }),
+          }),
+        ],
       }).compileComponents();
       const client = TestBed.inject<ClientBase>(RESOURCE_CLIENT);
       await client.permissions.loadDigest();

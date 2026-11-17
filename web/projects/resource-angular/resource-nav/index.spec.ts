@@ -132,7 +132,7 @@ describe('registerResourcePage', () => {
 });
 
 describe('registerRowPage', () => {
-  it('records where a resource\'s rows open by a route of their own, apart from where they land, and keeps the first', () => {
+  it("records where a resource's rows open by a route of their own, apart from where they land, and keeps the first", () => {
     const berths = 'Berths' as Resource;
     // A page registered as where the rows land carries no row route until one is recorded.
     registerResourcePage(berths, 'sectors/:sectorID/berths');
