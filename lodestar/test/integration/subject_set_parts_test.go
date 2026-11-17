@@ -91,62 +91,52 @@ func TestSubjectSetParts_reads(t *testing.T) {
 
 // TestSubjectSetParts_writes is the mutating half, on a world of its own: the run level
 // decides who re-zones a hangar, a pass that has expired counts for nothing until it is
-// extended, and a membership that ends takes every hangar with it.
+// extended, and a membership that ends takes every hangar with it. Each step changes
+// what the next one reads, so the steps are one test and each failure names its step.
 func TestSubjectSetParts_writes(t *testing.T) {
 	t.Parallel()
 
 	ctx, db, h := demoWorld(t)
 	provesArmorerGrants(t)
 
-	rezone := func(t *testing.T, hangar, zone string) (status int, body []byte) {
+	rezone := func(step, hangar, zone string, wantStatus int) {
 		t.Helper()
 
-		return doRequestAs(t, h, armorer, http.MethodPatch, sectorPath(anvil, "hangars"),
+		status, body := doRequestAs(t, h, armorer, http.MethodPatch, sectorPath(anvil, "hangars"),
 			fmt.Sprintf(`[{"op":"patch","path":"/%s","value":{"zone":%q}}]`, hangar, zone))
+		if status != wantStatus {
+			t.Fatalf("%s: status = %d, want %d: %s", step, status, wantStatus, body)
+		}
 	}
-	listed := func(t *testing.T) []string {
+	zoneOf := func(hangar string) string {
 		t.Helper()
 
-		status, body := doRequestAs(t, h, armorer, http.MethodGet, sectorPath(anvil, "hangars"), "")
-		assertStatus(t, status, http.StatusOK, body)
-
-		return idsOf(t, decodeRows(t, body))
+		return readColumn[string](ctx, t, db, "Hangars", spanner.Key{hangar}, "Zone")
 	}
 
-	// The steps share the world and run in order.
-	t.Run("he re-zones the dock: Tongs holds it at the run level", func(t *testing.T) {
-		status, body := rezone(t, hangarAnvilDockID, "apron")
-		assertStatus(t, status, http.StatusOK, body)
-		if got := readColumn[string](ctx, t, db, "Hangars", spanner.Key{hangarAnvilDockID}, "Zone"); got != "apron" {
-			t.Errorf("the dock's zone = %q, want apron", got)
-		}
-	})
+	rezone("he re-zones the dock, which Tongs holds at the run level", hangarAnvilDockID, "apron", http.StatusOK)
+	if got := zoneOf(hangarAnvilDockID); got != "apron" {
+		t.Errorf("the dock's zone = %q, want apron", got)
+	}
 
-	t.Run("he cannot re-zone the bay: Tongs visits it, Hammer runs it, and his own pass has expired", func(t *testing.T) {
-		status, body := rezone(t, hangarQuarantineID, "dock")
-		assertStatus(t, status, http.StatusForbidden, body)
-		if got := readColumn[string](ctx, t, db, "Hangars", spanner.Key{hangarQuarantineID}, "Zone"); got != "quarantine" {
-			t.Errorf("the bay's zone = %q, want quarantine", got)
-		}
-	})
+	rezone("he cannot re-zone the bay: Tongs visits it, Hammer runs it, and his own pass has expired", hangarQuarantineID, "dock", http.StatusForbidden)
+	if got := zoneOf(hangarQuarantineID); got != "quarantine" {
+		t.Errorf("the bay's zone = %q after the refused write, want quarantine", got)
+	}
 
-	t.Run("his own pass counts again once it is extended", func(t *testing.T) {
-		until := time.Now().UTC().AddDate(0, 1, 0)
-		if _, err := db.Apply(ctx, []*spanner.Mutation{spanner.UpdateMap("HangarPasses", map[string]any{"Id": passArmorerQuarantineID, "ExpiresAt": until})}); err != nil {
-			t.Fatalf("extending the pass: %v", err)
-		}
-		status, body := rezone(t, hangarQuarantineID, "isolation")
-		assertStatus(t, status, http.StatusOK, body)
-	})
+	until := time.Now().UTC().AddDate(0, 1, 0)
+	if _, err := db.Apply(ctx, []*spanner.Mutation{spanner.UpdateMap("HangarPasses", map[string]any{"Id": passArmorerQuarantineID, "ExpiresAt": until})}); err != nil {
+		t.Fatalf("extending his own pass: %v", err)
+	}
+	rezone("his own pass counts again once it is extended", hangarQuarantineID, "isolation", http.StatusOK)
 
-	t.Run("out of Tongs, the squadron's passes are no longer his: the bay alone is left, by his own pass", func(t *testing.T) {
-		if _, err := db.Apply(ctx, []*spanner.Mutation{spanner.Delete("SquadronMemberships", spanner.Key{squadronTongsID, string(account(t, armorer))})}); err != nil {
-			t.Fatalf("removing the armorer from Tongs: %v", err)
-		}
-		if got, want := listed(t), []string{hangarQuarantineID}; !slices.Equal(got, want) {
-			t.Errorf("hangars = %v, want %v", got, want)
-		}
-		status, body := rezone(t, hangarAnvilDockID, "dock")
-		assertStatus(t, status, http.StatusForbidden, body)
-	})
+	if _, err := db.Apply(ctx, []*spanner.Mutation{spanner.Delete("SquadronMemberships", spanner.Key{squadronTongsID, string(account(t, armorer))})}); err != nil {
+		t.Fatalf("removing the armorer from Tongs: %v", err)
+	}
+	status, body := doRequestAs(t, h, armorer, http.MethodGet, sectorPath(anvil, "hangars"), "")
+	assertStatus(t, status, http.StatusOK, body)
+	if got, want := idsOf(t, decodeRows(t, body)), []string{hangarQuarantineID}; !slices.Equal(got, want) {
+		t.Errorf("out of Tongs, the hangars open to him = %v, want %v: the bay alone, by his own pass", got, want)
+	}
+	rezone("out of Tongs, the dock the squadron runs is no longer his", hangarAnvilDockID, "dock", http.StatusForbidden)
 }
