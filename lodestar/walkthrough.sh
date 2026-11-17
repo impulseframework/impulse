@@ -871,7 +871,9 @@ r=$(req governor GET "$ANVIL/sector-directories"); assert_py "Anvil still has no
 r=$(req navigator PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$CINDER_ID"'/sector-directories","value":{}}]'); check "and refused making it Cinder's a second time: a sector has one directory" 409 "$r"
 assert_py "since it is the sector's directory already" "$r" "'Google Workspace example is already this sector' in rows['message']"
 r=$(req governor POST "$API/assign-crew-role" "{\"userId\":\"$NAVIGATOR_ID\",\"role\":\"SuperAdministrator\"}"); check "the governor makes the navigator a super administrator, which only a super administrator gives: the one person who enters a sector whatever its sign-in settings say" 204 "$r"
-r=$(req navigator GET "$API/user-domains"); assert_py "his chart lights every sector, Bastion among them, with none closed" "$r" "$OPEN == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $CLOSED == {}"
+r=$(req navigator GET "$API/user-domains"); check "giving the role ends the session he held: nothing signed in before the role acts with it" 401 "$r"
+login_google navigator
+r=$(req navigator GET "$API/user-domains"); assert_py "signed in again through the fleet's directory, his chart lights every sector, Bastion among them, with none closed" "$r" "$OPEN == sorted(['$ANVIL_ID','$BASTION_ID','$CINDER_ID','$DAWN_ID','$EMBER_ID']) and $CLOSED == {}"
 r=$(req navigator PATCH "$API/resources" '[{"op":"add","path":"/sectors/'"$BASTION_ID"'/sector-directories","value":{}}]'); check "the navigator is refused making the Workspace Bastion's: Bastion has its directory, and a sector has one" 409 "$r"
 assert_py "and the refusal names the directory it has and what to do" "$r" "'This sector already has a directory, OpenID Connect provider persona. A sector has one directory: remove it first to set another.' in rows['message']"
 r=$(req navigator PATCH "$API/resources" "[{\"op\":\"remove\",\"path\":\"/sectors/$CINDER_ID/sector-directories/$CINDER_DIRECTORY\"}]"); check "the navigator removes Cinder's directory: the Workspace is free for another sector" 200 "$r"
