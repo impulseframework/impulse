@@ -4,7 +4,7 @@ import { MatIconModule } from '@angular/material/icon';
 import { Frame, inSentence } from './frame';
 import { ShownEntry, ShownGroup } from './menu';
 import { MenuListComponent } from './menu-list.component';
-import { Place, PlaceService } from './place.service';
+import { ClosedPlace, Place, PlaceService } from './place.service';
 
 /** More places than this and the list opens with a box to find one by name. */
 export const findFrom = 8;
@@ -16,6 +16,12 @@ export const findFrom = 8;
  * in none of the person's places (a tenant's refusal page, for a person who holds nothing
  * outside every tenant) names no place: the button asks them to choose one of theirs. A
  * long list opens with a box that narrows it as they type; Enter opens the first match.
+ *
+ * A tenant the person holds a seat in and cannot enter with this sign-in is listed too,
+ * under their places and apart from them: its name with a lock and the server's reason
+ * ("Acme admits only people who sign in through its own directory. You signed in with a
+ * password."), and nothing to open. The list opens for it even when the person has one
+ * place, so a seat is never missing without a word.
  */
 @Component({
   selector: 'impulse-place-switcher',
@@ -74,9 +80,21 @@ export const findFrom = 8;
               (input)="filter.set(find.value)"
               (keydown)="findKey($event)" />
           </div>
-          @if (!groups().length) {
+          @if (!groups().length && !closed().length) {
             <div class="none">No {{ lower(word.one) }} has that name</div>
           }
+        }
+        @if (closed().length) {
+          <div menuListEnd class="closed" role="group" aria-label="Closed to this sign-in">
+            <div class="closed-heading">Closed to this sign-in</div>
+            @for (place of closed(); track place.id) {
+              <div class="closed-place">
+                <mat-icon class="closed-icon">lock</mat-icon>
+                <span class="closed-name">{{ place.label }}</span>
+                <span class="closed-reason">{{ place.reason }}</span>
+              </div>
+            }
+          </div>
         }
       </impulse-menu-list>
     </ng-template>
@@ -97,17 +115,26 @@ export class PlaceSwitcherComponent {
   readonly place = this.places.current;
   /** Whether the page is in one of the person's places. */
   readonly inPlace = computed(() => this.places.places().some((place) => place.id === this.place().id));
-  /** Whether there is a list to open: more than one place, or a way back to the one from a page in none. */
+  /**
+   * Whether there is a list to open: more than one place, a way back to the one from a
+   * page in none, or a tenant that is closed to this sign-in, which the list names.
+   */
   readonly listed = computed(() => {
     const count = this.places.places().length;
-    return count > 1 || (count === 1 && !this.inPlace());
+    return count > 1 || (count === 1 && !this.inPlace()) || this.places.closed().length > 0;
   });
   readonly filter = signal('');
-  readonly findable = computed(() => this.places.places().length >= findFrom);
+  readonly findable = computed(() => this.places.places().length + this.places.closed().length >= findFrom);
 
   private matches = computed(() => {
     const words = this.filter().trim().toLowerCase();
     return this.places.places().filter((place) => !words || place.label.toLowerCase().includes(words));
+  });
+
+  /** The tenants that are closed to this sign-in, narrowed as the places are. */
+  readonly closed = computed<readonly ClosedPlace[]>(() => {
+    const words = this.filter().trim().toLowerCase();
+    return this.places.closed().filter((place) => !words || place.label.toLowerCase().includes(words));
   });
 
   /** The place outside every tenant apart, then the tenants. */

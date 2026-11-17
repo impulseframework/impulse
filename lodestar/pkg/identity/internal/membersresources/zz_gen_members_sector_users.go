@@ -38,6 +38,8 @@ type membersSectorUserRead struct {
 	LastSignInAt           *time.Time   `json:"lastSignInAt"`
 	HeldElsewhere          bool         `json:"heldElsewhere"`
 	HeldGlobally           bool         `json:"heldGlobally"`
+	OutsideDirectory       bool         `json:"outsideDirectory"`
+	CannotEnter            *string      `json:"cannotEnter"`
 }
 
 var membersSectorUserReadSets resource.SetCache[MembersSectorUser, membersSectorUserRead]
@@ -158,6 +160,8 @@ func (c *MembersSectorUserColumns) All() *MembersSectorUserColumns {
 		"LastSignInAt",
 		"HeldElsewhere",
 		"HeldGlobally",
+		"OutsideDirectory",
+		"CannotEnter",
 	}
 
 	return c
@@ -235,6 +239,18 @@ func (c *MembersSectorUserColumns) HeldGlobally() *MembersSectorUserColumns {
 	return c
 }
 
+func (c *MembersSectorUserColumns) OutsideDirectory() *MembersSectorUserColumns {
+	c.fields = append(c.fields, "OutsideDirectory")
+
+	return c
+}
+
+func (c *MembersSectorUserColumns) CannotEnter() *MembersSectorUserColumns {
+	c.fields = append(c.fields, "CannotEnter")
+
+	return c
+}
+
 type MembersSectorUserQueryPartialClause struct {
 	partialClause resource.PartialQueryClause
 }
@@ -265,6 +281,10 @@ func (p MembersSectorUserQueryPartialClause) HeldElsewhere() MembersSectorUserQu
 
 func (p MembersSectorUserQueryPartialClause) HeldGlobally() MembersSectorUserQueryIdent[bool] {
 	return MembersSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldGlobally", p.partialClause, true)}
+}
+
+func (p MembersSectorUserQueryPartialClause) OutsideDirectory() MembersSectorUserQueryIdent[bool] {
+	return MembersSectorUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("OutsideDirectory", p.partialClause, true)}
 }
 
 type MembersSectorUserQueryClause struct {
@@ -379,6 +399,14 @@ func (c *membersSectorUserSort) HeldElsewhere() *MembersSectorUserSort {
 
 func (c *membersSectorUserSort) HeldGlobally() *MembersSectorUserSort {
 	return c.addField("HeldGlobally")
+}
+
+func (c *membersSectorUserSort) OutsideDirectory() *MembersSectorUserSort {
+	return c.addField("OutsideDirectory")
+}
+
+func (c *membersSectorUserSort) CannotEnter() *MembersSectorUserSort {
+	return c.addField("CannotEnter")
 }
 
 type MembersSectorUserSort struct {

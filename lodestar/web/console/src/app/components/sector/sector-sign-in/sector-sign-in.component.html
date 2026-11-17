@@ -5,9 +5,14 @@
   Nobody types a directory in: a marshal of this sector who is signed in through the organization's directory makes it
   this sector's, here. A person who signs in through the directory is given the <strong>default role</strong> at their
   first sign-in, so they enter at once; with no default role they are told this sector admits people by invitation only,
-  and an invited person enters with the roles the invitation names. Passwords are this application's own way in, and the
-  sector admits them unless it is <strong>directory only</strong>: then its people enter through its directory alone,
-  and a password does not reach it. A person whose every sector is directory only cannot sign in with a password at all.
+  and an invited person enters with the roles the invitation names.
+</p>
+<p>
+  A person seated in this sector enters it however they signed in: with a password, with a personal account, or through
+  another organization's directory. A sector that is <strong>directory only</strong> admits only the people who sign in
+  through its own directory, and keeps everyone else seated in it out for as long as that is on. The setting closes this
+  sector alone: a person it keeps out still enters every other sector that seats them, and a person kept out of every
+  sector that seats them is refused at sign-in.
 </p>
 
 @if (error()) {
@@ -77,7 +82,7 @@
 <mat-card appearance="outlined" class="declaration-card">
   <mat-card-header>
     <mat-card-title>Directory only</mat-card-title>
-    <mat-card-subtitle>Whether passwords reach this sector.</mat-card-subtitle>
+    <mat-card-subtitle>Whether this sector admits its own directory's people and nobody else.</mat-card-subtitle>
   </mat-card-header>
   <mat-card-content>
     @if (sector.value(); as row) {
@@ -85,18 +90,28 @@
         class="directory-only"
         [checked]="row.directoryOnly"
         [disabled]="!canClose() || busy()"
-        (change)="close($event.checked)">
+        (change)="$event.source.checked = !!row.directoryOnly; close($event.checked)">
         @if (row.directoryOnly) {
-          Directory only: people enter through this sector's directory alone, and a password does not reach this sector.
+          Directory only: only people who sign in through this sector's directory enter this sector.
         } @else {
-          Passwords admitted: people enter by password as well as through this sector's directory.
+          Every sign-in admitted: a person seated in this sector enters it however they signed in.
         }
       </mat-slide-toggle>
       @if (!canClose()) {
         <p class="empty">Headquarters sets this, on the sector record.</p>
+      } @else if (row.directoryOnly) {
+        <p class="empty kept-out">
+          Everyone else seated in this sector is kept out while this is on, and keeps their roles. The People page says
+          who they are.
+        </p>
       } @else if (!directory()) {
-        <p class="empty">
-          Set a directory first: directory only with no directory admits nobody but a super administrator.
+        <p class="empty needs-directory">
+          Set a directory first: a sector with no directory cannot be directory only, since nobody could enter it.
+        </p>
+      } @else {
+        <p class="empty turned-on-by">
+          Directory only is turned on by a person who is signed in through this sector's directory. You are shown who it
+          will keep out before it is saved.
         </p>
       }
     } @else {

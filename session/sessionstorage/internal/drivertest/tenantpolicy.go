@@ -144,14 +144,25 @@ func testTenantPolicy(_ context.Context, t *testing.T, h *AuthHarness) {
 			opts: []signin.TenantPolicyOption{signin.AdmitWithoutTenant()},
 		},
 		{
-			name:     "a sign-in through a directory one of the person's tenants declares is admitted: the reader reads the declaration in the sign-in's transaction",
-			held:     accesstypes.RoleCollection{lakesideScope: member, riversideScope: member},
-			declared: map[accesstypes.Domain]*signin.TenantDeclaration{"riverside": {Directories: []signin.Directory{lakesideDirectory}}},
+			name: "a sign-in through the directory of a directory-only tenant of the person is admitted: the reader reads the declaration in the sign-in's transaction",
+			held: accesstypes.RoleCollection{lakesideScope: member, riversideScope: member},
+			declared: map[accesstypes.Domain]*signin.TenantDeclaration{
+				"lakeside":  {DirectoryOnly: true},
+				"riverside": {Directories: []signin.Directory{lakesideDirectory}, DirectoryOnly: true},
+			},
 		},
 		{
-			name:      "a sign-in through a directory no tenant of the person declares is refused with connection_not_in_tenant",
-			held:      accesstypes.RoleCollection{lakesideScope: member, riversideScope: member},
-			declared:  map[accesstypes.Domain]*signin.TenantDeclaration{"lakeside": {Directories: []signin.Directory{riversideDirectory}}},
+			name:     "a sign-in through a directory no tenant of the person has is admitted by a tenant that is not directory only",
+			held:     accesstypes.RoleCollection{lakesideScope: member, riversideScope: member},
+			declared: map[accesstypes.Domain]*signin.TenantDeclaration{"lakeside": {Directories: []signin.Directory{riversideDirectory}, DirectoryOnly: true}},
+		},
+		{
+			name: "a sign-in through a directory is refused with connection_not_in_tenant when every tenant of the person is directory only and none has it",
+			held: accesstypes.RoleCollection{lakesideScope: member, riversideScope: member},
+			declared: map[accesstypes.Domain]*signin.TenantDeclaration{
+				"lakeside":  {Directories: []signin.Directory{riversideDirectory}, DirectoryOnly: true},
+				"riverside": {DirectoryOnly: true},
+			},
 			wantCode:  sessioninfo.RefusedConnectionNotInTenant,
 			wantCause: signin.ErrConnectionNotInTenant,
 		},

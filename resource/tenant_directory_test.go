@@ -149,7 +149,8 @@ func TestDirectoryName(t *testing.T) {
 		{directory: signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "acme.example"}, want: "Google Workspace acme.example"},
 		{directory: signin.Directory{Method: sessioninfo.MethodAzure, Connection: "6f2c1b7e-3d4a-4c1e-9b2a-1f0e8d7c6b5a"}, want: "Microsoft Entra tenant 6f2c1b7e-3d4a-4c1e-9b2a-1f0e8d7c6b5a"},
 		{directory: signin.Directory{Method: sessioninfo.MethodWorkOS, Connection: "conn_01"}, want: "WorkOS connection conn_01"},
-		{directory: signin.Directory{Method: sessioninfo.MethodOIDC, Connection: "idp"}, want: "Directory idp"},
+		{directory: signin.Directory{Method: sessioninfo.MethodOIDC, Connection: "idp"}, want: "OpenID Connect provider idp"},
+		{directory: signin.Directory{Method: "saml", Connection: "idp"}, want: "Directory idp"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.want, func(t *testing.T) {

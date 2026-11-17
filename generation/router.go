@@ -62,6 +62,10 @@ func (r *resourceGenerator) runRouteGeneration() error {
 	// whose creation shape admits self-service.
 	routerTestRoutes = append(routerTestRoutes, r.accumulateTenantCreationRoute(outlets, outletRoutes)...)
 
+	// The read of what a tenant's directory-only switch would do, on the session
+	// outlets serving a tenant record that declares the switch.
+	routerTestRoutes = append(routerTestRoutes, r.accumulateDirectoryOnlyRoute(outlets, outletRoutes)...)
+
 	// Every outlet's routes are known now: none of a shipping outlet's may sit under
 	// the segment its programs route owns.
 	if err := validateShippedProgramRoutes(outlets, outletRoutes); err != nil {
