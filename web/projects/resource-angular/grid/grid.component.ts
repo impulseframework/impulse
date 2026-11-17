@@ -21,6 +21,7 @@ import { MatTooltipModule } from '@angular/material/tooltip';
 import { RouterModule } from '@angular/router';
 import { CamelCaseToTitlePipe } from '@impulseframework/resource-angular/camel-case-to-title';
 import { ColumnConfig, iconCellKey, RecordData, RowAction, rowActionsKey } from '@impulseframework/resource-angular/types';
+import { CutShortTooltipDirective } from './cut-short-tooltip.directive';
 import {
   dateTimeParts,
   filterControlFor,
@@ -71,7 +72,8 @@ export const COMPANION_FILTER_HINT =
  * in the page when the caller passes none: the track expression, the selection, and the
  * expansion are keyed by it, and nothing here assumes a field called `id`. Selection is
  * held as rows, so it spans pages. Virtual scroll renders the one page it is given; row
- * expansion is as before.
+ * expansion is as before. A cell is one line, and a text or a header wider than its column
+ * is cut with an ellipsis and offered whole in a tooltip (CutShortTooltipDirective).
  */
 @Component({
   selector: 'impulse-grid',
@@ -79,6 +81,7 @@ export const COMPANION_FILTER_HINT =
   imports: [
     CommonModule,
     TableButtonComponent,
+    CutShortTooltipDirective,
     CamelCaseToTitlePipe,
     RouterModule,
     MatButtonModule,

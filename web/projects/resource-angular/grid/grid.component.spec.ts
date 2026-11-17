@@ -352,3 +352,276 @@ describe('the filter menu\'s value control', () => {
     expect(menu.querySelector<HTMLInputElement>('input')?.placeholder).toBe('Value');
   });
 });
+
+// Every cell of the grid is one line, and a text wider than its column ends in an
+// ellipsis. The grid offers the whole text in the tooltip while the pointer or the
+// keyboard's focus is on a text that is cut short, and nothing where the text fits. It
+// measures when the pointer or the focus arrives; jsdom lays nothing out, so each case
+// says how wide a text is and how wide the box that holds it.
+describe('a text cut short', () => {
+  let fixture: ComponentFixture<AppGridComponent>;
+  let element: HTMLElement;
+
+  const notes = 'Hold at the outer marker until the convoy clears, then follow the tender in on the night side.';
+  const notesHeader = 'Notes the dispatcher left for the next shift';
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [AppGridComponent],
+      providers: [provideResourceTesting()],
+    }).compileComponents();
+    fixture = TestBed.createComponent(AppGridComponent);
+    fixture.componentRef.setInput('rowData', [
+      { callSign: 'Anvil 1', notes, cleared: true },
+      { callSign: 'Anvil 2', notes: 'None', cleared: false },
+    ]);
+    fixture.componentRef.setInput('columnDefs', [
+      { id: 'callSign' },
+      { id: 'notes', header: notesHeader },
+      { id: 'cleared' },
+    ]);
+    fixture.detectChanges();
+    element = fixture.nativeElement as HTMLElement;
+  });
+
+  const settle = async (): Promise<void> => {
+    fixture.detectChanges();
+    await fixture.whenStable();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fixture.detectChanges();
+  };
+  const cell = (row: number, column: number): HTMLElement => {
+    return element.querySelectorAll<HTMLElement>('tr.impulse-row')[row].querySelectorAll<HTMLElement>('td.data-col')[
+      column
+    ];
+  };
+  const header = (column: number): HTMLElement => {
+    return element.querySelectorAll<HTMLElement>('th .col-header')[column];
+  };
+  /** Says how wide the text is and how wide the box that holds it, as a browser's layout would. */
+  const measured = (text: HTMLElement, textWidth: number, boxWidth: number): HTMLElement => {
+    Object.defineProperty(text, 'scrollWidth', { configurable: true, value: textWidth });
+    Object.defineProperty(text, 'clientWidth', { configurable: true, value: boxWidth });
+    return text;
+  };
+  const pointerOnto = async (target: HTMLElement): Promise<void> => {
+    target.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    await settle();
+  };
+  const pointerOff = async (target: HTMLElement, onto: Element | null = null): Promise<void> => {
+    target.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: onto }));
+    await settle();
+  };
+  const tooltipSurface = (): HTMLElement | null => {
+    return document.body.querySelector<HTMLElement>(
+      '.cdk-overlay-container .mat-mdc-tooltip-show .mat-mdc-tooltip-surface',
+    );
+  };
+  /** The words of the tooltip that is open, null while none is. */
+  const tooltip = (): string | null => {
+    return tooltipSurface()?.textContent?.trim() ?? null;
+  };
+
+  it('a cell whose text is wider than its column offers the whole text while the pointer is on it', async () => {
+    const cut = measured(cell(0, 1), 620, 180);
+    await pointerOnto(cut);
+    expect(tooltip()).toBe(notes);
+
+    await pointerOff(cut);
+    expect(tooltip()).toBeNull();
+  });
+
+  it('a cell whose text fits offers nothing', async () => {
+    await pointerOnto(measured(cell(1, 1), 40, 180));
+    expect(tooltip()).toBeNull();
+
+    await pointerOnto(measured(cell(0, 0), 180, 180));
+    expect(tooltip()).toBeNull();
+  });
+
+  it('measures when the pointer arrives, so a column made wider or narrower is followed', async () => {
+    const text = measured(cell(0, 1), 620, 700);
+    await pointerOnto(text);
+    expect(tooltip()).toBeNull();
+    await pointerOff(text);
+
+    measured(text, 620, 180);
+    await pointerOnto(text);
+    expect(tooltip()).toBe(notes);
+    await pointerOff(text);
+
+    measured(text, 620, 700);
+    await pointerOnto(text);
+    expect(tooltip()).toBeNull();
+  });
+
+  it('moves from one cut-short cell to the next, and closes on a cell that fits', async () => {
+    const first = measured(cell(0, 1), 620, 180);
+    const second = measured(cell(1, 0), 90, 48);
+    await pointerOnto(first);
+    expect(tooltip()).toBe(notes);
+
+    first.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: second }));
+    await pointerOnto(second);
+    expect(tooltip()).toBe('Anvil 2');
+
+    second.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: cell(1, 1) }));
+    await pointerOnto(cell(1, 1));
+    expect(tooltip()).toBeNull();
+  });
+
+  it('stays open while the pointer goes onto the tooltip, so a long text can be read', async () => {
+    const cut = measured(cell(0, 1), 620, 180);
+    await pointerOnto(cut);
+    const surface = tooltipSurface();
+    expect(surface).not.toBeNull();
+
+    await pointerOff(cut, surface);
+    expect(tooltip()).toBe(notes);
+  });
+
+  it('closes when the table scrolls under it, and the next move of the pointer offers what it is on then', async () => {
+    const cut = measured(cell(0, 1), 620, 180);
+    await pointerOnto(cut);
+    expect(tooltip()).toBe(notes);
+
+    element.querySelector('.impulse-grid-scroll')?.dispatchEvent(new Event('scroll'));
+    await settle();
+    expect(tooltip()).toBeNull();
+
+    // The same cell is still under the pointer, so the browser announces no arrival.
+    cut.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+    await settle();
+    expect(tooltip()).toBe(notes);
+  });
+
+  it('hears one move of the pointer after a scroll that closed the tooltip, and no other', async () => {
+    const cut = measured(cell(0, 1), 620, 180);
+    const move = async (): Promise<void> => {
+      cut.dispatchEvent(new MouseEvent('mousemove', { bubbles: true }));
+      await settle();
+    };
+    const scroll = async (): Promise<void> => {
+      element.querySelector('.impulse-grid-scroll')?.dispatchEvent(new Event('scroll'));
+      await settle();
+    };
+
+    // A move with no scroll before it is not heard.
+    await move();
+    expect(tooltip()).toBeNull();
+
+    // A scroll that closed nothing listens for nothing.
+    await scroll();
+    await move();
+    expect(tooltip()).toBeNull();
+
+    // The one move after a scroll that closed the tooltip is heard, and the next is not.
+    await pointerOnto(cut);
+    await scroll();
+    await move();
+    expect(tooltip()).toBe(notes);
+    await pointerOff(cut);
+    await move();
+    expect(tooltip()).toBeNull();
+  });
+
+  describe('where the whole pixels call it a fit', () => {
+    // jsdom has no measure of a text's own width; a browser's is put in its place.
+    const ranges = Range.prototype as { getBoundingClientRect?: () => DOMRect };
+    const widthOfText = (width: number): void => {
+      ranges.getBoundingClientRect = (): DOMRect => {
+        return { width } as DOMRect;
+      };
+    };
+    /**
+     * A cell the browser reports as 222 pixels wide, 12 of them padding on each side, and
+     * its text as no wider: room for a text of 198 by the whole pixels, and of 197.6 in a
+     * cell that is 221.6 wide before the browser rounds it.
+     */
+    const fitted = (text: HTMLElement): HTMLElement => {
+      text.style.whiteSpace = 'nowrap';
+      text.style.paddingLeft = '12px';
+      text.style.paddingRight = '12px';
+      return measured(text, 222, 222);
+    };
+
+    const own = ranges.getBoundingClientRect;
+
+    afterEach(() => {
+      if (own) {
+        ranges.getBoundingClientRect = own;
+      } else {
+        delete ranges.getBoundingClientRect;
+      }
+    });
+
+    it('a text a fraction of a pixel too wide is cut all the same, and offered', async () => {
+      widthOfText(197.8);
+      await pointerOnto(fitted(cell(0, 1)));
+      expect(tooltip()).toBe(notes);
+    });
+
+    it('a text more than a pixel short of its box offers nothing', async () => {
+      widthOfText(196.9);
+      await pointerOnto(fitted(cell(0, 1)));
+      expect(tooltip()).toBeNull();
+    });
+
+    it('a text that wraps is not a one-line text cut short', async () => {
+      widthOfText(197.8);
+      const wrapped = fitted(cell(0, 1));
+      wrapped.style.whiteSpace = 'normal';
+      await pointerOnto(wrapped);
+      expect(tooltip()).toBeNull();
+    });
+  });
+
+  it('a header cut short offers the whole header, and a header that fits offers nothing', async () => {
+    const cut = measured(header(1), 300, 96);
+    await pointerOnto(cut);
+    expect(tooltip()).toBe(notesHeader);
+    await pointerOff(cut);
+    expect(tooltip()).toBeNull();
+
+    await pointerOnto(measured(header(0), 60, 96));
+    expect(tooltip()).toBeNull();
+  });
+
+  it('a header cut short offers the whole header to the keyboard: its sort button is the tab stop', async () => {
+    measured(header(1), 300, 96);
+    const button = header(1).closest('button');
+    expect(button).not.toBeNull();
+    button?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    await settle();
+    expect(tooltip()).toBe(notesHeader);
+
+    button?.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    await settle();
+    expect(tooltip()).toBeNull();
+
+    // A header that fits says nothing more when its button takes the focus.
+    measured(header(0), 60, 96);
+    header(0)
+      .closest('button')
+      ?.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    await settle();
+    expect(tooltip()).toBeNull();
+  });
+
+  it('offers nothing for a cell that draws its value: the check of a yes is not a text', async () => {
+    // The check is an icon font's ligature, so the cell's text is the icon's name.
+    await pointerOnto(measured(cell(0, 2), 60, 20));
+    expect(tooltip()).toBeNull();
+  });
+
+  it('leaves a table inside one of its cells to that table', async () => {
+    const inner = document.createElement('table');
+    inner.innerHTML = '<tbody><tr><td>Inner text that is cut short</td></tr></tbody>';
+    const holder = cell(1, 1);
+    holder.appendChild(inner);
+    const innerCell = inner.querySelector('td') as HTMLElement;
+
+    await pointerOnto(measured(innerCell, 300, 96));
+    expect(tooltip()).toBeNull();
+  });
+});

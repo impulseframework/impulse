@@ -1,6 +1,6 @@
 <div class="impulse-grid-host">
   <div class="impulse-grid-scroll" #scrollContainer (scroll)="onScroll($event)">
-    <table class="impulse-grid-table">
+    <table class="impulse-grid-table" #table>
       <thead>
         <tr class="impulse-grid-header-row">
           @if (selectionType() !== 'none') {
@@ -281,6 +281,7 @@
       </div>
     }
   </div>
+  <span class="cut-short-anchor" [impulseCutShortTooltip]="table"></span>
 
   @if (page(); as position) {
     <div class="impulse-grid-pager">
