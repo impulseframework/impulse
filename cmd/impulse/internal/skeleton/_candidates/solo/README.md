@@ -45,7 +45,9 @@ what they hold.
   description (`identityRoutes` in `web/console/src/app/app.routes.ts`). A group of people
   holds roles the way a person does, and a person in it holds the group's roles; the role
   file gives the groups, their members and their roles to the `Administrator`, who manages
-  the people.
+  the people. A group gives nobody a power that giving the role directly would not: who is
+  in a group, and what it holds, is changed by someone who may give or take those roles
+  directly.
 - `pkg/deploy` holds the database steps a deployment runs: the schema migrations, then
   the role policy check (`CheckRoles`), which prints what the store holds that this
   release cannot use as written. Then `MigrateFeatures` brings the `FeatureFlags` table to the
