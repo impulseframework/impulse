@@ -200,6 +200,10 @@ export const Methods = {
   WithdrawCrewInvitedSector: 'WithdrawCrewInvitedSector' as Method,
   WithdrawCrewSectorInvitation: 'WithdrawCrewSectorInvitation' as Method,
   AssumeRole: 'AssumeRole' as Method,
+  EndSectorDirectoryOnly: 'EndSectorDirectoryOnly' as Method,
+  MakeSectorDirectoryOnly: 'MakeSectorDirectoryOnly' as Method,
+  MakeSectorInviteOnly: 'MakeSectorInviteOnly' as Method,
+  OpenSectorToDirectory: 'OpenSectorToDirectory' as Method,
   SetFeature: 'SetFeature' as Method,
   ViewAsUser: 'ViewAsUser' as Method,
 };
@@ -946,6 +950,7 @@ export namespace CrewSignInMethods {
     label: 'label' as FieldName,
     name: 'name' as FieldName,
     openSignUp: 'openSignUp' as FieldName,
+    ownRule: 'ownRule' as FieldName,
     says: 'says' as FieldName,
   };
   export const resourceName = {
@@ -955,6 +960,7 @@ export namespace CrewSignInMethods {
     label: 'CrewSignInMethods.label' as Resource,
     name: 'CrewSignInMethods.name' as Resource,
     openSignUp: 'CrewSignInMethods.openSignUp' as Resource,
+    ownRule: 'CrewSignInMethods.ownRule' as Resource,
     says: 'CrewSignInMethods.says' as Resource,
   };
 }

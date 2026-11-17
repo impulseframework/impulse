@@ -32,7 +32,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 	type tenantRequest struct {
 		ID            impulse.UUID `json:"-"`
 		Name          string       `json:"name"`
-		DirectoryOnly bool         `json:"directoryOnly"`
+		DirectoryOnly bool         `json:"-"`
 	}
 	tenantDecoder := NewDecoder[resources.Tenant, tenantRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
@@ -41,7 +41,7 @@ func (a *App) PatchResources() http.HandlerFunc {
 		TenantID    impulse.UUID `json:"-"`
 		Method      string       `json:"-"`
 		Connection  string       `json:"-"`
-		DefaultSeat *string      `json:"defaultSeat" sqltype:"STRING(64)"`
+		DefaultSeat *string      `json:"-"`
 	}
 	tenantDirectoryDecoder := NewDecoder[resources.TenantDirectory, tenantDirectoryRequest](a, accesstypes.Create, accesstypes.Update, accesstypes.Delete)
 
@@ -111,18 +111,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 							if err != nil {
 								return errors.Wrap(err, "tenantCreatePatchFromPatchSet()")
 							}
-							// Turning directory only on closes the tenant to every sign-in but one
-							// through its directory, so it is held to its rules: the tenant has its
-							// directory, and the caller is signed in through it. The caller's grants
-							// answer first, so a caller they refuse learns nothing from a rule.
-							if patchSet.IsSet("DirectoryOnly") {
-								if err := patchSet.Permitted(ctx, txn); err != nil {
-									return errors.Wrap(err, "resource.PatchSet.Permitted()")
-								}
-								if err := NewTenantDirectoryRules().DirectoryOnly(ctx, txn, accesstypes.Domain(patch.ID().String()), patchSet.Get("DirectoryOnly")); err != nil {
-									return errors.Wrap(err, "resource.TenantDirectoryRules.DirectoryOnly()")
-								}
-							}
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.TenantCreatePatch.Buffer()")
 							}
@@ -136,18 +124,6 @@ func (a *App) PatchResources() http.HandlerFunc {
 							created = append(created, id)
 						case resource.OperationUpdate:
 							id := httpio.Param[impulse.UUID](req, "id")
-							// Turning directory only on closes the tenant to every sign-in but one
-							// through its directory, so it is held to its rules: the tenant has its
-							// directory, and the caller is signed in through it. The caller's grants
-							// answer first, so a caller they refuse learns nothing from a rule.
-							if patchSet.IsSet("DirectoryOnly") {
-								if err := patchSet.Permitted(ctx, txn); err != nil {
-									return errors.Wrap(err, "resource.PatchSet.Permitted()")
-								}
-								if err := NewTenantDirectoryRules().DirectoryOnly(ctx, txn, accesstypes.Domain(id.String()), patchSet.Get("DirectoryOnly")); err != nil {
-									return errors.Wrap(err, "resource.TenantDirectoryRules.DirectoryOnly()")
-								}
-							}
 							if err := resources.NewTenantUpdatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "resources.TenantUpdatePatch.Buffer()")
 							}

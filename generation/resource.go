@@ -716,6 +716,7 @@ func (r *resourceGenerator) buildUnifiedTypescriptGenerator(gc *resource.Generat
 	if record := r.tenantRecord(); record != nil {
 		t.tenantCreation = record.TenantCreation
 	}
+	t.directoryRolePicker = r.directoryRolePicker()
 
 	return t, nil
 }

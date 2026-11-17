@@ -458,6 +458,12 @@ export interface MethodHandle<Body, Result = void> {
 export interface MethodWarning {
   /** What the call will do, in sentences a person reads before they confirm it. */
   consequence: string;
+  /**
+   * The people or things the consequence speaks of, where the method names them and the
+   * caller may be told: a dialog lists them under the sentences. Absent where it names
+   * none.
+   */
+  names?: string[];
   /** The words on the button that runs the call, which say what it does. */
   confirm: string;
 }

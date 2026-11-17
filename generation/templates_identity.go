@@ -584,9 +584,12 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, {{ if
 	opts = append([]identity.Option{identity.WithTenantWord({{ printf "%q" .TenantWord }})}, opts...)
 	{{- end }}
 	opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))
-	{{- if .KeepsGroups }}
-	// A change to a group is judged as the role changes it makes, by the grants of the
-	// methods that give a role and take one away (grants.go).
+	{{- if .JudgesRoleChanges }}
+	// What gives a person a role without naming them is judged as giving the role
+	// directly, by the grants of the methods that give a role and take one away
+	// (grants.go): a change to a group, as the role changes it makes, and the default
+	// role of a sign-in method opened to sign-up, which every person who signs up is
+	// given.
 	opts = append(opts, identity.WithRoleGrants(grants{}))
 	{{- end }}
 	manager, err := identity.New(AuthName, store{}, controller, sessions, opts...)
@@ -677,6 +680,20 @@ func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.Re
 // sets it where it sets the invitation's.
 func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {
 	return c.manager.DirectorySeated("{{ .Auth }}")
+}
+
+// DirectoryRole holds the role a tenant is opened to its directory's people with to its
+// rules over the {{ .Auth }} auth's tables, in the caller's transaction, and writes
+// nothing: the role exists in the tenant, and the request's caller could give it there
+// directly, by the grant of the method that gives a role in a tenant
+// (identity.Manager.DirectoryRole). The generated method that opens a tenant to its
+// directory asks it before it writes the role.
+func (c *Client) DirectoryRole(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, role accesstypes.Role) error {
+	if err := c.manager.DirectoryRole(ctx, txn, tenant, role); err != nil {
+		return errors.Wrap(err, "identity.Manager.DirectoryRole()")
+	}
+
+	return nil
 }
 
 // SignedIn answers the session library's hook for a sign-in that stands
@@ -1594,10 +1611,11 @@ func (store) RevokeTrustedDevice(_ context.Context, _ resource.ReadWriteTransact
 // people the {{ .TenantWord }}'s directory-only switch keeps out while it is on, and who turning
 // it on would shut out. A super administrator is never one of them. It reads the
 // {{ .TenantWord }}'s own list of its people ({{ .TenantUser }}, whose OutsideDirectory column is the
-// fact), in the caller's transaction, by username. The application's generated read of
-// what the switch would do asks every auth's client (resource.DirectoryOnlyHandler,
-// through resource.DirectoryOutsiders), and it sits beside the store because it reads
-// the auth's tables as the store does, through the declarations' own query types.
+// fact), in the caller's transaction, by username. The warning of the generated method
+// that turns the switch on asks every auth's client
+// (resource.TenantDirectoryRules.DirectoryOnlyWarning, through resource.DirectoryPeople),
+// and it sits beside the store because it reads the auth's tables as the store does,
+// through the declarations' own query types.
 func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryOutsider, error) {
 	query := {{ .ResourcesPackage }}.New{{ .TenantUser }}Query().
 		AddColumns({{ .ResourcesPackage }}.New{{ .TenantUser }}Columns().ID().Username().Name()).
@@ -1914,8 +1932,9 @@ import (
 
 // {{ .UnlinkIdentity }} removes one identity of a person of the {{ .Auth }} auth, the
 // link to what a directory verified for them: a sign-in through it no longer reaches the
-// person. A person who holds no password keeps at least one identity. Unlink one
-// identity of a person per transaction: a second in the same one does not see the
+// person. A person who holds no password keeps an identity that can sign them in: the
+// last one that counts stays, whatever identities that sign nobody in remain. Unlink
+// one identity of a person per transaction: a second in the same one does not see the
 // first.` + identityTenantIdentityNote + `
 //
 // @rpc` + identityTenantScope + `

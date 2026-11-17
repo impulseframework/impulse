@@ -107,12 +107,15 @@ type (
 		Region      string     `spanner:"Region"`
 		Established civil.Date `spanner:"Established"`
 		// DirectoryOnly says the sector's people enter through its directory only: no
-		// other sign-in reaches the sector, and the flag closes this sector alone. Set by
-		// whoever holds the record's Update grant on the column (Headquarters), or from
-		// the start by an invitation that says so, which is accepted through the
-		// directory the sector will be only of and no other way. The generated update
-		// refuses turning it on until the sector has its directory, and unless the caller
-		// is signed in through it.
+		// other sign-in reaches the sector, and the flag closes this sector alone. The
+		// switch is the sector's own: the sector's marshal (SectorMarshal) turns it with the
+		// generated methods of the sector's scope: MakeSectorDirectoryOnly, which refuses
+		// turning it on until the sector has its directory, and unless the caller is signed
+		// in through it, and EndSectorDirectoryOnly. The record shows the flag and its own
+		// write paths never write it. A sector is directory only from the start where the
+		// invitation that makes it says so: that invitation is accepted through the
+		// directory the sector will be only of and no other way, and the first sign-in
+		// sets the flag with the directory.
 		// @directoryOnly
 		DirectoryOnly bool `spanner:"DirectoryOnly"`
 	}

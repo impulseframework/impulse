@@ -168,9 +168,11 @@ func TestTenancyBrowserAuth(t *testing.T) {
 	src := "web/console/src/app/"
 	placeholder := []string{"Staff", "staff", "STAFF"}
 
+	// The page names no role resource of its own: the role is picked in the method's
+	// dialog, which reads the picker from the generated metadata. Its spec scripts the
+	// auth's list of a tenant's roles.
 	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.ts", []string{
-		"import { PeopleServiceAreaRoles, ServiceAreaDirectories, ServiceAreas } from '@app/service/zz_gen_resources';",
-		"this.api.domain(params.tenant as Domain).peopleServiceAreaRoles.list()",
+		"import { ServiceAreaDirectories, ServiceAreas } from '@app/service/zz_gen_resources';",
 	}, placeholder)
 	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.spec.ts", []string{
 		"PeopleServiceAreaRoles: { List: 'granted' },",
@@ -350,23 +352,34 @@ func TestTenancyBrowserRecordWords(t *testing.T) {
 		"export const tenantSignInPage = page({",
 	}, []string{"TenantDirectories"})
 	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.ts", []string{
-		"import { StaffServiceAreaRoles, ServiceAreaDirectories, ServiceAreas } from '@app/service/zz_gen_resources';",
+		"import { ServiceAreaDirectories, ServiceAreas } from '@app/service/zz_gen_resources';",
 		"serviceAreaID = input.required<string>();",
 		"this.api.serviceAreas.read([params.tenant])",
 		"this.api.domain(params.tenant as Domain).serviceAreaDirectories.list()",
-		"this.api.domain(params.tenant as Domain).staffServiceAreaRoles.list()",
-		"this.api.can(Permissions.Update, Resources.ServiceAreas)",
+		"private own = computed(() => this.api.domain(this.serviceAreaID() as Domain));",
+		// The record's own methods, each named for the record: the two that turn the
+		// switch and the two that say how it admits its directory's people.
+		"canMakeOnly = computed(() => this.permissions() && this.own().makeServiceAreaDirectoryOnly.can());",
+		"canEndOnly = computed(() => this.permissions() && this.own().endServiceAreaDirectoryOnly.can());",
+		"canOpen = computed(() => this.permissions() && this.own().openServiceAreaToDirectory.can());",
+		"canInviteOnly = computed(() => this.permissions() && this.own().makeServiceAreaInviteOnly.can());",
+		"Methods.MakeServiceAreaDirectoryOnly,",
+		"() => this.own().makeServiceAreaDirectoryOnly.warning({}),",
+		"Methods.OpenServiceAreaToDirectory,",
+		"await this.run(Methods.EndServiceAreaDirectoryOnly, 'Turn directory only off', {",
+		"await this.run(Methods.MakeServiceAreaInviteOnly, 'Make invite only', {",
 		"export class TenantSignInComponent {",
 		// The directory's own word stays: a Microsoft Entra tenant is not the record's.
 		"azure: 'Microsoft Entra tenant',",
-		"await this.api.domain(this.serviceAreaID() as Domain).serviceAreaDirectories.create({});",
-	}, []string{"tenantID", ".tenants.", "Resources.Tenants"})
+		"await this.own().serviceAreaDirectories.create({});",
+	}, []string{"tenantID", ".tenants.", "Resources.Tenants", "TenantDirectoryOnly", "TenantToDirectory", "TenantInviteOnly"})
 	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.html", []string{
 		"<h1>Who may enter {{ tenantName() || 'this service area' }}</h1>",
 		"Google Workspace or a Microsoft Entra tenant. A service area has one directory, and a directory belongs to one service area.",
 		"Make {{ mine.connection }} this service area's directory",
 		"Your role in this service area does not cover its directory.",
-		"@if (tenant.value(); as row) {",
+		"@if (directoryOnly() !== undefined) {",
+		"An administrator of this service area sets this, in the service area.",
 	}, nil)
 	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.spec.ts", []string{
 		"const workspace: ServiceAreaDirectories = { id: 'd-1', serviceAreaId: acmeID, method: 'google', connection: 'acme.example' };",
@@ -374,10 +387,19 @@ func TestTenancyBrowserRecordWords(t *testing.T) {
 		"global: { ServiceAreas: { Read: 'granted', Update: 'granted' } },",
 		"case `${environment.apiUrl}/service-areas/${acmeID}/service-area-directories`:",
 		"case `${environment.apiUrl}/service-areas/${acmeID}/staff-service-area-roles`:",
+		"MakeServiceAreaDirectoryOnly: { Execute: 'granted' },",
+		"EndServiceAreaDirectoryOnly: { Execute: 'granted' },",
+		"OpenServiceAreaToDirectory: { Execute: 'granted' },",
+		"MakeServiceAreaInviteOnly: { Execute: 'granted' },",
+		"'make-service-area-directory-only',",
+		"'end-service-area-directory-only',",
+		"'open-service-area-to-directory',",
+		"'make-service-area-invite-only',",
+		"expect(calls('open-service-area-to-directory')).toEqual([{ role: 'TenantAdministrator' }]);",
 		"fixture.componentRef.setInput('serviceAreaID', acmeID);",
 		"'Your role in this service area does not cover its directory.',",
 		"expect(texts('.make-directory')).toEqual([\"Make acme.example this service area's directory\"]);",
-	}, []string{"tenantID", "/tenants/"})
+	}, []string{"tenantID", "/tenants/", "TenantDirectoryOnly", "tenant-directory-only", "TenantToDirectory", "tenant-to-directory", "TenantInviteOnly", "tenant-invite-only"})
 	wantContains(t, a, src+"configs/tenants.config.ts", []string{
 		"import { Resources, ServiceAreas } from '@app/service/zz_gen_constants';",
 		"export const tenantsConfig = rootConfig({",

@@ -129,16 +129,17 @@ func (a *Auth[S, U, Tx]) signIn(ctx context.Context, w http.ResponseWriter, at *
 	// store reads by the registration's name; a password identity, or the
 	// application's own, names its user and needs neither.
 	var (
-		rule   signin.AccountRule[Tx]
-		method string
+		rule             signin.AccountRule[Tx]
+		method, audience string
+		seeded           bool
 	)
 	if m, ok := a.registered().external[at.registration]; ok {
-		rule, method = m.rule, m.name
+		rule, method, audience, seeded = m.rule, m.name, m.Audience.Key(), m.seededUsers
 	}
 	id, err := sessioncore.EstablishSession(ctx, w, a.baseSession, at.sameSite, func(ctx context.Context) (impulse.UUID, error) {
 		id, err := a.storage.SignIn(ctx, req, sessionstorage.SignInRules[Tx]{
-			Account: rule, Method: method, Policy: a.policy, Accept: a.acceptInvitation, SignUp: a.signUpSeated,
-			Directories: a.directories, Seat: a.directorySeated, TrustedDevice: a.trustedDeviceOf, Proven: at.proof,
+			Account: rule, Method: method, Audience: audience, SeededUsers: seeded, Policy: a.policy, Accept: a.acceptInvitation, SignUp: a.signUpSeated,
+			Directories: a.directories, Seat: a.directorySeated, OnlyIn: a.directoryOnlyIn, TrustedDevice: a.trustedDeviceOf, Proven: at.proof,
 		})
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "sessionstorage.AuthStore.SignIn()")
@@ -485,21 +486,6 @@ func (a *Auth[S, U, Tx]) upgradePasswordHash(ctx context.Context, userID impulse
 	}
 
 	return hash, nil
-}
-
-// setPassword sets a new password and whether the user must change it: true for a
-// password an operator set, false for one the user chose. It follows no proof of the
-// password it replaces and overwrites whatever the user holds.
-func (a *Auth[S, U, Tx]) setPassword(ctx context.Context, userID impulse.UUID, password string, changeRequired bool) error {
-	hash, err := a.registered().hasher.Hash(password)
-	if err != nil {
-		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
-	}
-	if err := a.storage.SetUserPassword(ctx, userID, hash, changeRequired); err != nil {
-		return errors.Wrap(err, "sessionstorage.AuthStore.SetUserPassword()")
-	}
-
-	return nil
 }
 
 // limitAttempt asks the attempt limiter whether an attempt on username by client may

@@ -94,6 +94,41 @@ func TestCaller_ExecuteGate(t *testing.T) {
 	})
 }
 
+// TestQuerySet_Caller pins the caller a query answers for the list read through it: the
+// checker, the scope and the environment the query was checked with, and the collection
+// its conditions resolve against. A list that asks the caller's grant on a method is
+// then answered as the method's own frame would answer the same person: granted for the
+// role the grant's condition admits and refused for the one it does not. A query bound
+// to no permissions answers a zero caller, which is refused whatever it asks.
+func TestQuerySet_Caller(t *testing.T) {
+	t.Parallel()
+
+	perms := &fakeUserPermissions{conditions: map[accesstypes.Resource]string{"RateThing": "new.role != 'Chief'"}}
+	env := RequestEnvironment()
+	qSet := &QuerySet[enforcementResource]{userPermissions: perms, scope: accesstypes.GlobalScope(), env: env, collection: rateCollection(t)}
+
+	caller := qSet.Caller()
+	if caller.IsZero() || caller.Permissions != UserPermissions(perms) || caller.Scope != accesstypes.GlobalScope() || caller.Env != env {
+		t.Fatalf("QuerySet.Caller() = %+v, want the checker, scope and environment the query was checked with", caller)
+	}
+	for role, want := range map[string]bool{"Reader": true, "Chief": false} {
+		gate, err := caller.ExecuteGate(t.Context(), "RateThing", &rateRequest{Role: role})
+		if err != nil {
+			t.Fatalf("Caller.ExecuteGate() for the role %s error = %v", role, err)
+		}
+		if granted, settled := gate.Settled(); granted != want || !settled {
+			t.Errorf("the grant on RateThing for the role %s = (granted %v, settled %v), want (%v, true)", role, granted, settled, want)
+		}
+	}
+
+	unbound := &QuerySet[enforcementResource]{}
+	if none := unbound.Caller(); !none.IsZero() {
+		t.Errorf("QuerySet.Caller() of a query bound to no permissions = %+v, want a zero caller", none)
+	} else if _, err := none.ExecuteGate(t.Context(), "RateThing", &rateRequest{}); err == nil || !strings.Contains(err.Error(), "no caller is stamped") {
+		t.Errorf("Caller.ExecuteGate() of a query bound to no permissions: error = %v, want the refusal of a call with no caller", err)
+	}
+}
+
 // TestExecuteGate_EnforceProposed pins the judgment of a row the body proposes, one the
 // database does not hold: the grant's condition is read against the values handed, with
 // the caller the check folded with. A row the condition admits passes, one it does not is

@@ -29,6 +29,14 @@ func signUpFiles(t *testing.T) []string {
 	return got
 }
 
+// holdsRoleGrants reports whether the crew's package was written the role file's answers
+// on giving a role and taking one away (grants.go).
+func holdsRoleGrants(t *testing.T) bool {
+	t.Helper()
+
+	return slices.Contains(identityTreeFiles(t, "pkg/identity"), "crewidentity/grants.go")
+}
+
 // assertFileContains fails for every line the file under the identity tree lacks, and
 // for every line it holds that it must not.
 func assertFileContains(t *testing.T, file string, want, wantNot []string) {
@@ -56,7 +64,10 @@ func assertFileContains(t *testing.T, file string, want, wantNot []string) {
 // methods; the roles a default role is picked from; the method that opens one, which
 // declares its warning and the word a person types, and the method that makes one
 // invite only again; the store's two calls; and the hook that gives the default role.
-// An auth whose directory writes its roles has none of it.
+// The default role is one the opener could give a person directly, so the package
+// answers the role file's grants on giving a role though the auth keeps no groups, and
+// the client hands them to the rules. An auth whose directory writes its roles has none
+// of it.
 func Test_prepareIdentity_signUp(t *testing.T) {
 	// The generator writes relative to where the program runs, and the working directory
 	// belongs to the whole process: no t.Parallel here.
@@ -87,18 +98,24 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 		// no route, and every write leaves its change event.
 		"internal/crewresources/crew_session_sign_in_methods.go": {
 			generationHeader, "// @resource\n\t// @suppress(listHandler)\n\t// @suppress(readHandler)\n\t// @suppress(patchHandler)\n\t// @outlet(default)\n\tCrewSessionSignInMethod struct {",
-			"Name        string    `spanner:\"Name\"`", "OpenSignUp  bool      `spanner:\"OpenSignUp\"`", "DefaultRole *string   `spanner:\"DefaultRole\"`",
+			"Name        string    `spanner:\"Name\"`", "OpenSignUp  bool      `spanner:\"OpenSignUp\"`", "OpenedFor   *string   `spanner:\"OpenedFor\"`",
+			"DefaultRole *string   `spanner:\"DefaultRole\"`",
 			"func (CrewSessionSignInMethod) Config() resource.Config {\n\treturn defaultConfig().SetTrackChanges(true)\n}",
 		},
 		"crewidentity/crew_sign_in_methods.go": {
 			generationHeader, "// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Label asc)\ntype CrewSignInMethod struct {",
-			"// @primarykey\n\tName ", "DirectoryGivesRoles bool", `return "CrewSignInMethods"`,
+			"// @primarykey\n\tName ", "DirectoryGivesRoles bool", "OwnRule             bool", "OwnRule: methods[i].OwnRule", `return "CrewSignInMethods"`,
 			"func ListCrewSignInMethod(ctx context.Context, _ *resource.QuerySet[CrewSignInMethod], reader resource.Client, client *Client) iter.Seq2[*CrewSignInMethod, error] {",
 			"client.manager.SignInMethods(ctx, reader)",
 		},
 		"crewidentity/crew_sign_up_roles.go": {
 			generationHeader, "// @computed\n// @suppress(readHandler)\n// @outlet(default)\n// @order(Name asc)\ntype CrewSignUpRole struct {",
-			"// @primarykey\n\t// @attribute(name)\n\tName ", "Description string", `return "CrewSignUpRoles"`, "client.manager.SignUpRoles(ctx)",
+			"// @primarykey\n\t// @attribute(name)\n\tName ", "Description string", `return "CrewSignUpRoles"`,
+			// The list asks with the context its frame hands it, which carries the
+			// request's caller (Test_computedResourceHandlerTemplate_caller): it lists
+			// the roles that caller may give.
+			"func ListCrewSignUpRole(ctx context.Context, _ *resource.QuerySet[CrewSignUpRole], _ resource.Client, client *Client) iter.Seq2[*CrewSignUpRole, error] {",
+			"client.manager.SignUpRoles(ctx)",
 		},
 		// Opening a method declares the warning and the word; the default role is picked
 		// from the roles a person who signs up may be given, and is not required of the
@@ -119,12 +136,23 @@ func Test_prepareIdentity_signUp(t *testing.T) {
 			"func (store) SetSignInMethod(ctx context.Context, txn resource.ReadWriteTransaction, row *identity.SignInMethodRow) error {",
 			// Either write is the generated patch's, buffered under the caller, which is
 			// what leaves the change event.
-			"crewresources.NewCrewSessionSignInMethodUpdatePatch(row.Name).", "crewresources.NewCrewSessionSignInMethodCreatePatch(row.Name).",
 			"patch.Buffer(ctx, txn, resource.UserEvent(ctx))",
+			// The row is read with the audience it was opened for, and each of the two
+			// writes, of a row that exists and of one that does not, writes it.
+			"Columns().Name().OpenSignUp().OpenedFor().DefaultRole())", "OpenedFor: row.Data.OpenedFor",
+			"crewresources.NewCrewSessionSignInMethodUpdatePatch(row.Name).\n\t\t\tSetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole)",
+			"crewresources.NewCrewSessionSignInMethodCreatePatch(row.Name).\n\t\tSetOpenSignUp(row.OpenSignUp).SetOpenedFor(row.OpenedFor).SetDefaultRole(row.DefaultRole)",
+		},
+		// The default role is judged by the grant of the method that gives a role: the
+		// package answers it, and the client hands the answers to the rules.
+		"crewidentity/grants.go": {
+			generationHeader, "var _ identity.RoleGrants = grants{}",
+			"caller.ExecuteGate(ctx, AssignCrewRole{}.Method(), &AssignCrewRole{UserID: userID, Role: string(role), Domain: domain, EveryDomain: everyDomain})",
 		},
 		"crewidentity/client.go": {
 			"func (c *Client) SignedUp() session.SignUpSeatedHook[*spanner.ReadWriteTransaction] {", `return c.manager.SignedUp("Crew")`,
 			"func (c *Client) AnySignInMethodOpen(ctx context.Context, reader resource.ReadOnlyTransaction) (bool, error) {", "c.manager.AnyMethodOpen(ctx, reader)",
+			"opts = append(opts, identity.WithRoleGrants(grants{}))",
 		},
 	} {
 		assertFileContains(t, file, lines, nil)
@@ -173,6 +201,12 @@ func Test_prepareIdentity_signUpWithTenants(t *testing.T) {
 		},
 		[]string{"DefaultRole", "accesstypes"},
 	)
+	// No default role is picked and the auth keeps no groups, so nothing asks the role
+	// file who may give a role: the package answers none, and the client hands none on.
+	if holdsRoleGrants(t) {
+		t.Error("the crew's package was written grants.go, want none where no default role is picked and no group is kept")
+	}
+	assertFileContains(t, "crewidentity/client.go", nil, []string{"WithRoleGrants"})
 }
 
 // Test_prepareIdentity_signUpWithoutTheTable pins an auth whose schema holds no sign-in
@@ -199,4 +233,8 @@ func Test_prepareIdentity_signUpWithoutTheTable(t *testing.T) {
 		},
 		[]string{"NewCrewSessionSignInMethod"},
 	)
+	if holdsRoleGrants(t) {
+		t.Error("the crew's package was written grants.go, want none without the table: no method is opened, so no default role is picked")
+	}
+	assertFileContains(t, "crewidentity/client.go", nil, []string{"WithRoleGrants"})
 }

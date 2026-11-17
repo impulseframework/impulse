@@ -43,7 +43,7 @@ type tenantDirectoryWrite struct {
 	TenantID    impulse.UUID `json:"-"`
 	Method      string       `json:"-"`
 	Connection  string       `json:"-"`
-	DefaultSeat *string      `json:"defaultSeat" sqltype:"STRING(64)"`
+	DefaultSeat *string      `json:"-"`
 }
 
 var tenantDirectoryWriteSets resource.SetCache[TenantDirectory, tenantDirectoryWrite]

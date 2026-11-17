@@ -18,9 +18,9 @@ import (
 // else, so the list of its people carries, for each person, whether they have a sign-in
 // through that directory, and while the switch is on the row of a person who has none
 // says so. The same fact, asked before the switch is on, is who turning it on would
-// keep out: the generated identity client answers it (DirectoryOutsiders) for the read
-// a tenant's Sign-in page calls before it saves the switch
-// (resource.DirectoryOnlyHandler).
+// keep out: the generated identity client answers it (DirectoryOutsiders) for the
+// warning of the method that turns the switch on, which a tenant's Sign-in page shows
+// before anything is saved (resource.TenantDirectoryRules.DirectoryOnlyWarning).
 //
 // The sources of the generated management are written before the packages are loaded
 // (identity_lists.go), so the switch and the directories record are read off the
@@ -84,6 +84,7 @@ var (
 	fieldDirectoryOnly       = fieldAnnotation(directoryOnlyKeyword)
 	fieldDirectoryMethod     = fieldAnnotation(directoryMethodKeyword)
 	fieldDirectoryConnection = fieldAnnotation(directoryConnectionKeyword)
+	fieldDirectorySeat       = fieldAnnotation(directoryDefaultSeatKeyword)
 	fieldBareDomain          = regexp.MustCompile(`(?m)^\s*@` + domainKeyword + `\s*$`)
 )
 
@@ -100,10 +101,16 @@ func fieldAnnotation(keyword string) *regexp.Regexp {
 // read off the syntax: the extraction refuses a declaration that is wrong once the
 // packages are loaded, with the struct's place, and holdIdentityTenantDirectory holds
 // this reading to the loaded one. Only the syntax is read, as tenantRecordIn reads it.
-func tenantDirectoryIn(dir, record string, pluralize func(string) string) (*identityTenantDirectory, error) {
+//
+// seat is the directories record's default seat column (@directoryDefaultSeat), ""
+// where the package declares no directories record or the record no such column. It is
+// read whether the tenant record declares the switch or not: the role a tenant is
+// opened to its directory's people with is judged by the role file's grants, which the
+// sources written before the load must carry (seatsDirectory).
+func tenantDirectoryIn(dir, record string, pluralize func(string) string) (directory *identityTenantDirectory, seat string, err error) {
 	pkg, err := build.ImportDir(dir, 0)
 	if err != nil {
-		return nil, errors.Wrap(err, "build.ImportDir()")
+		return nil, "", errors.Wrap(err, "build.ImportDir()")
 	}
 
 	out := &identityTenantDirectory{}
@@ -111,7 +118,7 @@ func tenantDirectoryIn(dir, record string, pluralize func(string) string) (*iden
 	for _, name := range pkg.GoFiles {
 		file, err := goparser.ParseFile(fset, filepath.Join(dir, name), nil, goparser.ParseComments|goparser.SkipObjectResolution)
 		if err != nil {
-			return nil, errors.Wrap(err, "parser.ParseFile()")
+			return nil, "", errors.Wrap(err, "parser.ParseFile()")
 		}
 		for _, decl := range file.Decls {
 			gen, ok := decl.(*ast.GenDecl)
@@ -135,15 +142,25 @@ func tenantDirectoryIn(dir, record string, pluralize func(string) string) (*iden
 					out.TenantColumn = annotatedColumn(structType, fieldBareDomain)
 					out.MethodColumn = annotatedColumn(structType, fieldDirectoryMethod)
 					out.ConnectionColumn = annotatedColumn(structType, fieldDirectoryConnection)
+					seat = annotatedColumn(structType, fieldDirectorySeat)
 				}
 			}
 		}
 	}
 	if out.OnlyColumn == "" || out.Table == "" || out.TenantColumn == "" || out.MethodColumn == "" || out.ConnectionColumn == "" {
-		return nil, nil
+		return nil, seat, nil
 	}
 
-	return out, nil
+	return out, seat, nil
+}
+
+// seatsDirectory reports whether the instance's client judges the role a tenant is
+// opened to its directory's people with (identity.Manager.DirectoryRole): the roles of
+// a tenant are given by hand, and the directories record carries the default seat. The
+// role is one the caller could give a person directly, so the instance's package
+// answers the role file's grants (roleGrantsSource).
+func (i *identityInstance) seatsDirectory() bool {
+	return i.picksRoles() && i.tenant.directorySeat != ""
 }
 
 // annotatedColumn is the column of the struct's field whose comment carries the
@@ -168,9 +185,9 @@ func annotatedColumn(structType *ast.StructType, annotation *regexp.Regexp) stri
 	return ""
 }
 
-// holdIdentityTenantDirectory holds the directory-only switch and the directories
-// record the sources were written for to the ones the load found, as holdIdentityTenant
-// holds the record itself. It runs once the record's declaration is whole
+// holdIdentityTenantDirectory holds the directory-only switch, the directories record
+// and its default seat column the sources were written for to the ones the load found,
+// as holdIdentityTenant holds the record itself. It runs once the record's declaration is whole
 // (validateTenantDeclaration), which is after every kind is extracted and before
 // anything renders. The two are read off the same files, so a difference is a fault of
 // the reading before the load, and the run stops before it generates over lists
@@ -191,6 +208,15 @@ func (r *resourceGenerator) holdIdentityTenantDirectory() error {
 				ConnectionColumn: columns.ConnectionColumn,
 			}
 		}
+	}
+	writtenSeat, loadedSeat := r.identity[0].tenant.directorySeat, ""
+	if record := r.tenantRecord(); record != nil {
+		if columns := r.declarationColumns(record); columns != nil {
+			loadedSeat = columns.DefaultSeatColumn
+		}
+	}
+	if writtenSeat != loadedSeat {
+		return errors.Newf("GenerateIdentity(%q): the role grants were written for the directories record's default seat column %q, read off the sources of %s before the packages loaded, and the loaded package declares %q; the two readings must agree, so this is a fault of the generator", r.identityTree.Dir(), writtenSeat, r.resource.Dir(), loadedSeat)
 	}
 	if reflect.DeepEqual(written, loaded) {
 		return nil

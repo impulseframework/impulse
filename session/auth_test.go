@@ -2141,8 +2141,11 @@ func TestAuth_PendingConfirmWithPassword_givesTheDirectorySeat(t *testing.T) {
 			if tt.admission {
 				f.auth.SetDirectoryAdmission(
 					func(context.Context, mockTx, signin.Directory) ([]signin.DeclaredDirectory, error) { return nil, nil },
-					func(context.Context, mockTx, impulse.UUID, string, []signin.DirectorySeat) (func(context.Context), error) {
-						return nil, nil
+					DirectorySeatedHook[mockTx]{
+						Seat: func(context.Context, mockTx, impulse.UUID, string, []signin.DirectorySeat) (func(context.Context), error) {
+							return nil, nil
+						},
+						OnlyIn: func(context.Context, mockTx, impulse.UUID, accesstypes.Domain) (bool, error) { return false, nil },
 					},
 				)
 				handed = gomock.Not(gomock.Nil())
@@ -3089,22 +3092,56 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		}
 	})
 
-	t.Run("resetting the password marks the user and destroys its sessions; setting one the user chose clears the mark", func(t *testing.T) {
+	t.Run("resetting the password marks the user and ends its sessions in the store's one write; setting one the user chose clears the mark", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
 		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil).Times(2)
+		// The store writes the password and ends the sessions in one transaction
+		// (ReplaceUserPassword). The mock refuses a call it was not told of: the sessions
+		// are not ended by a second call, which a failure could come before.
+		replaced := func(password string) func(context.Context, impulse.UUID, *securehash.Hash, bool) error {
+			return func(_ context.Context, _ impulse.UUID, hash *securehash.Hash, _ bool) error {
+				if hash == nil {
+					t.Errorf("ReplaceUserPassword() was handed no hash, want the hash of %q", password)
+
+					return nil
+				}
+				if _, err := securehash.New(securehash.Argon2()).Compare(hash, password); err != nil {
+					t.Errorf("ReplaceUserPassword() was handed a hash %q does not match: %v", password, err)
+				}
+
+				return nil
+			}
+		}
 		gomock.InOrder(
-			f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), true).Return(nil),
-			f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil),
-			f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), false).Return(nil),
-			f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil),
+			f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), true).DoAndReturn(replaced("temporary")),
+			f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), false).DoAndReturn(replaced("chosen")),
 		)
 		if err := f.auth.API().ResetSessionUserPassword(context.Background(), userID, "temporary"); err != nil {
 			t.Errorf("ResetSessionUserPassword() error = %v", err)
 		}
 		if err := f.auth.API().SetSessionUserPassword(context.Background(), userID, "chosen"); err != nil {
 			t.Errorf("SetSessionUserPassword() error = %v", err)
+		}
+		if _, _, clears := f.counts(); clears != 2 {
+			t.Errorf("the name's sign-in attempts were cleared %d times, want once per password", clears)
+		}
+	})
+
+	t.Run("a reset the store could not make resets nothing: the failure is the caller's, and the name's attempts stay", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		f := newAuthFixture(t, ctrl)
+		failed := errors.New("the sessions could not be ended")
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
+		f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), true).Return(failed)
+
+		if err := f.auth.API().ResetSessionUserPassword(context.Background(), userID, "temporary"); !errors.Is(err, failed) {
+			t.Errorf("ResetSessionUserPassword() error = %v, want the store's failure", err)
+		}
+		if _, _, clears := f.counts(); clears != 0 {
+			t.Errorf("the name's sign-in attempts were cleared %d times, want none: nothing was written", clears)
 		}
 	})
 
@@ -3180,7 +3217,7 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
 		identityID := impulse.Must(impulse.NewUUID())
-		f.store.EXPECT().UnlinkIdentity(gomock.Any(), identityID).Return(httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "last"))
+		f.store.EXPECT().UnlinkIdentity(gomock.Any(), identityID, gomock.Any()).Return(httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "last"))
 
 		if err := f.auth.API().UnlinkIdentity(context.Background(), identityID); !errors.Is(err, sessionstorage.ErrLastSignInMethod) || !httpio.HasConflict(err) {
 			t.Errorf("UnlinkIdentity() error = %v, want ErrLastSignInMethod (Conflict)", err)

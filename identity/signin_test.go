@@ -8,6 +8,7 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
@@ -291,6 +292,93 @@ func TestManager_giveDirectoryRoles(t *testing.T) {
 	}
 }
 
+// TestManager_DirectorySeated_onlyIn pins what the session library asks before it links
+// an identity, on its sign-in name alone, to an account that has never signed in: the
+// tenant is the only place the person holds anything. The link hands the tenant's
+// directory everything the account holds, so a role in another tenant, in every tenant
+// or outside the tenants beside the role in the tenant, or a place in a group kept
+// anywhere else, makes the account more than one tenant's, and a role the tenant's
+// administrator gives such a person changes nothing. What has ended counts for nothing,
+// and what has not begun counts where it will.
+func TestManager_DirectorySeated_onlyIn(t *testing.T) {
+	t.Parallel()
+
+	user := accesstypes.User(userID.String())
+	inAlpha := access.NewMembershipKey(accesstypes.DomainPolicyScope("alpha"), user, "Member")
+	inBeta := access.NewMembershipKey(accesstypes.DomainPolicyScope("beta"), user, "Member")
+	everywhere := access.NewMembershipKey(accesstypes.EveryDomainPolicyScope(), user, "Support")
+	global := access.NewMembershipKey(accesstypes.GlobalPolicyScope(), user, "Administrator")
+	now := time.Now()
+	ended := accesstypes.Period{End: now.Add(-time.Hour)}
+	upcoming := accesstypes.Period{Start: now.Add(time.Hour)}
+	tests := []struct {
+		name string
+		held []access.MembershipKey
+		// groups are the groups the person has a place in (groupStore: nightID is kept
+		// in alpha, dayID in beta and staffID for the whole application).
+		groups  []impulse.UUID
+		periods map[access.MembershipKey]accesstypes.Period
+		places  map[impulse.UUID]accesstypes.Period
+		want    bool
+	}{
+		{name: "a role in the tenant itself and nothing else", held: []access.MembershipKey{inAlpha}, want: true},
+		{name: "a role in the tenant that has not begun", held: []access.MembershipKey{inAlpha}, periods: map[access.MembershipKey]accesstypes.Period{inAlpha: upcoming}, want: true},
+		{name: "a place in a group of the tenant and nothing else", groups: []impulse.UUID{nightID}, want: true},
+		{name: "a role in the tenant beside a place in its group", held: []access.MembershipKey{inAlpha}, groups: []impulse.UUID{nightID}, want: true},
+		{name: "a role in another tenant alone", held: []access.MembershipKey{inBeta}},
+		{name: "a role in every tenant alone", held: []access.MembershipKey{everywhere}},
+		{name: "a role outside the tenants alone", held: []access.MembershipKey{global}},
+		{name: "no role"},
+		{name: "a role in the tenant beside one in another tenant", held: []access.MembershipKey{inAlpha, inBeta}},
+		{name: "a role in the tenant beside one in every tenant", held: []access.MembershipKey{inAlpha, everywhere}},
+		{name: "a role in the tenant beside one outside the tenants", held: []access.MembershipKey{inAlpha, global}},
+		{name: "a role in the tenant beside a place in another tenant's group", held: []access.MembershipKey{inAlpha}, groups: []impulse.UUID{dayID}},
+		{name: "a role in the tenant beside a place in a group kept for the whole application", held: []access.MembershipKey{inAlpha}, groups: []impulse.UUID{staffID}},
+		{
+			name: "a role in the tenant beside one in every tenant that has not begun", held: []access.MembershipKey{inAlpha, everywhere},
+			periods: map[access.MembershipKey]accesstypes.Period{everywhere: upcoming},
+		},
+		{
+			name: "a role in the tenant beside one elsewhere that has ended", held: []access.MembershipKey{inAlpha, inBeta},
+			periods: map[access.MembershipKey]accesstypes.Period{inBeta: ended}, want: true,
+		},
+		{
+			name: "a role in the tenant beside a place elsewhere that has ended", held: []access.MembershipKey{inAlpha}, groups: []impulse.UUID{staffID},
+			places: map[impulse.UUID]accesstypes.Period{staffID: ended}, want: true,
+		},
+		{name: "a role in the tenant that has ended", held: []access.MembershipKey{inAlpha}, periods: map[access.MembershipKey]accesstypes.Period{inAlpha: ended}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := groupStore()
+			store.membershipPeriods = tt.periods
+			store.placePeriods = map[access.GroupMemberKey]accesstypes.Period{}
+			for _, key := range tt.held {
+				store.memberships[key] = true
+			}
+			for _, group := range tt.groups {
+				store.groupMembers[memberKey(group, userID)] = true
+				if period, ok := tt.places[group]; ok {
+					store.placePeriods[memberKey(group, userID)] = period
+				}
+			}
+			m, _ := newManager(t, store, engineRoles)
+
+			// The store here is in memory and reads nothing off the transaction, so the
+			// hook is handed none.
+			got, err := m.DirectorySeated("Staff").OnlyIn(t.Context(), nil, userID, "alpha")
+			if err != nil {
+				t.Fatalf("OnlyIn() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("OnlyIn(alpha) = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
 // TestManager_signInHooks pins the two hooks as the session library calls them: the
 // roles are given under the id of the account the library hands the hook, never under
 // the username beside it; nothing is told to the engine until the committed function
@@ -316,7 +404,7 @@ func TestManager_signInHooks(t *testing.T) {
 			hook := m.DirectorySeated("Staff")
 
 			return func(ctx context.Context) (func(ctx context.Context), error) {
-				return hook(ctx, nil, userID, "dana", seats)
+				return hook.Seat(ctx, nil, userID, "dana", seats)
 			}
 		},
 	}

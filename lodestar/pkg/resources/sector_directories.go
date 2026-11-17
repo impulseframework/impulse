@@ -39,8 +39,11 @@ type (
 	// people by invitation only: a stranger is refused with no account, and an
 	// invitation is the way in. It is given once for the link between the account and
 	// the directory: a person whose role a marshal removed is not given it back by
-	// signing in. The marshal sets it on the Sign-in page, a picker over the sector's
-	// roles.
+	// signing in. The record shows the role and its own update never writes it: the
+	// marshal names it with the sector's own method OpenSectorToDirectory, behind the
+	// warning the Sign-in page's dialog shows, and clears it with MakeSectorInviteOnly.
+	// The role is held to one the marshal could give directly, so a marshal, who gives
+	// every role of the sector but their own, opens the sector with no marshal's role.
 	//
 	// The tenancy column is on the row itself (the bare @domain binding), as the
 	// directories record requires: a directory is the sector's own declaration, stamped
@@ -60,13 +63,9 @@ type (
 		Method string `spanner:"Method"`
 		// @directoryConnection
 		Connection string `spanner:"Connection"`
-		// The role is an attribute a grant's condition reads: the marshal's Update grant
-		// names no role a marshal may not give (new.defaultSeat), as the grants on the
-		// methods that give a role do. A directory is set without a seat (the marshal's
-		// Create grant carries no field: the server sets the method and the connection
-		// from the session), so every seat is named by an update, under that limit.
+		// A directory is set without a seat: the create takes nothing from the request,
+		// since the server sets the method and the connection from the session.
 		//
-		// @attribute(defaultSeat)
 		// @directoryDefaultSeat
 		DefaultSeat *string `spanner:"DefaultSeat"`
 	}

@@ -12,18 +12,23 @@ import (
 )
 
 // signInMethodColumns are the sign-in methods table's columns.
-var signInMethodColumns = []string{nameColumn, "OpenSignUp", "DefaultRole", updatedAtColumn}
+var signInMethodColumns = []string{nameColumn, "OpenSignUp", "OpenedFor", "DefaultRole", updatedAtColumn}
 
 // signInMethodRow is a sign-in method's row as the table holds it.
 type signInMethodRow struct {
 	Name        string             `spanner:"Name"`
 	OpenSignUp  bool               `spanner:"OpenSignUp"`
+	OpenedFor   spanner.NullString `spanner:"OpenedFor"`
 	DefaultRole spanner.NullString `spanner:"DefaultRole"`
 	UpdatedAt   time.Time          `spanner:"UpdatedAt"`
 }
 
 func (r *signInMethodRow) record() *dbtype.SignInMethod {
 	rec := &dbtype.SignInMethod{Name: r.Name, OpenSignUp: r.OpenSignUp, UpdatedAt: r.UpdatedAt}
+	if r.OpenedFor.Valid {
+		audience := r.OpenedFor.StringVal
+		rec.OpenedFor = &audience
+	}
 	if r.DefaultRole.Valid {
 		role := r.DefaultRole.StringVal
 		rec.DefaultRole = &role
@@ -89,7 +94,12 @@ func (s *SessionStorageDriver) SetSignInMethod(ctx context.Context, m *dbtype.Si
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	row := map[string]any{nameColumn: m.Name, "OpenSignUp": m.OpenSignUp, "DefaultRole": spanner.NullString{}, updatedAtColumn: spanner.CommitTimestamp}
+	row := map[string]any{
+		nameColumn: m.Name, "OpenSignUp": m.OpenSignUp, "OpenedFor": spanner.NullString{}, "DefaultRole": spanner.NullString{}, updatedAtColumn: spanner.CommitTimestamp,
+	}
+	if m.OpenedFor != nil {
+		row["OpenedFor"] = spanner.NullString{StringVal: *m.OpenedFor, Valid: true}
+	}
 	if m.DefaultRole != nil {
 		row["DefaultRole"] = spanner.NullString{StringVal: *m.DefaultRole, Valid: true}
 	}

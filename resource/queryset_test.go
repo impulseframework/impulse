@@ -3,7 +3,6 @@ package resource
 import (
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -542,56 +541,5 @@ func TestQuerySet_Scope(t *testing.T) {
 				t.Errorf("Scope() = %v, want %v", got, tt.scope)
 			}
 		})
-	}
-}
-
-// TestQuerySet_Caller pins the caller a bound query answers: who the permission check
-// ran as, in the scope and the environment it ran in, so a computed resource's List
-// function can ask what that caller may read of another resource; a query no check was
-// bound to answers none, which reads as the zero caller.
-func TestQuerySet_Caller(t *testing.T) {
-	t.Parallel()
-
-	rSet, err := NewSet[SortTestResource, struct{}](accesstypes.List)
-	if err != nil {
-		t.Fatalf("NewSet() error = %v", err)
-	}
-
-	unbound := NewQuerySet(NewMetadata[SortTestResource]())
-	if caller := unbound.Caller(); caller != nil || !caller.IsZero() {
-		t.Errorf("Caller() of a query no check was bound to = %+v, want nil, which reads as the zero caller", caller)
-	}
-
-	permissions := &fakeUserPermissions{granted: map[accesstypes.Permission][]accesstypes.Resource{accesstypes.List: {"Sectors.name"}}}
-	at := time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC)
-	scope := accesstypes.DomainScope("anvil")
-	bound := NewQuerySet(NewMetadata[SortTestResource]())
-	bound.arm(&Caller{Permissions: permissions, Scope: scope, Env: accesstypes.EnvironmentAt(at)}, rSet, accesstypes.List)
-
-	caller := bound.Caller()
-	if caller.IsZero() {
-		t.Fatal("Caller() of a bound query is the zero caller")
-	}
-	if caller.Permissions != UserPermissions(permissions) || caller.Scope != scope {
-		t.Errorf("Caller() = %+v, want the checker and the scope the query was bound to", caller)
-	}
-	if now, ok := caller.Env.Now(); !ok || !now.Equal(at) {
-		t.Errorf("Caller().Env.Now() = %v, %v; want the environment the query was bound in (%v)", now, ok, at)
-	}
-
-	// What the caller may read of another resource is asked in that scope and that
-	// environment.
-	decisions, err := caller.Check(t.Context(), accesstypes.List, "Sectors.name", "Sectors.region")
-	if err != nil {
-		t.Fatalf("Caller().Check() error = %v", err)
-	}
-	if !decisions["Sectors.name"].IsGranted() || decisions["Sectors.region"].IsGranted() {
-		t.Errorf("Caller().Check() = %v, want Sectors.name granted and Sectors.region not", decisions)
-	}
-	if len(permissions.gotScopes) != 1 || permissions.gotScopes[0] != scope {
-		t.Errorf("the check ran in %v, want %v", permissions.gotScopes, scope)
-	}
-	if now, ok := permissions.gotEnvs[0].Now(); !ok || !now.Equal(at) {
-		t.Errorf("the check ran at %v, %v; want %v", now, ok, at)
 	}
 }

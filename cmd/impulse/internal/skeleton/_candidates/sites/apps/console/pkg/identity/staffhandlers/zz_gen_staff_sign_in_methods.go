@@ -23,6 +23,7 @@ func (h *Handlers) StaffSignInMethods() http.HandlerFunc {
 		OpenSignUp          bool   `json:"openSignUp"`
 		DefaultRole         string `json:"defaultRole"`
 		DirectoryGivesRoles bool   `json:"directoryGivesRoles"`
+		OwnRule             bool   `json:"ownRule"`
 		Says                string `json:"says"`
 	}
 
@@ -39,6 +40,11 @@ func (h *Handlers) StaffSignInMethods() http.HandlerFunc {
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
+		// The caller the request was checked as rides the context, as it does for a
+		// method's body: a List function that asks what the caller may do elsewhere
+		// is answered for that person, and never as a call the application makes
+		// outside any request.
+		ctx = resource.WithCaller(ctx, querySet.Caller())
 
 		// A live list registers before the query runs, so a commit that lands during
 		// the query is not missed; a refused request registers nothing.
@@ -73,6 +79,8 @@ func (h *Handlers) StaffSignInMethods() http.HandlerFunc {
 					rmap["defaultRole"] = rec.DefaultRole
 				case "DirectoryGivesRoles":
 					rmap["directoryGivesRoles"] = rec.DirectoryGivesRoles
+				case "OwnRule":
+					rmap["ownRule"] = rec.OwnRule
 				case "Says":
 					rmap["says"] = rec.Says
 				}

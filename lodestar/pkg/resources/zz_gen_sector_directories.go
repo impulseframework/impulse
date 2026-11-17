@@ -43,7 +43,7 @@ type sectorDirectoryWrite struct {
 	SectorID    impulse.UUID `json:"-"`
 	Method      string       `json:"-"`
 	Connection  string       `json:"-"`
-	DefaultSeat *string      `json:"defaultSeat" sqltype:"STRING(64)"`
+	DefaultSeat *string      `json:"-"`
 }
 
 var sectorDirectoryWriteSets resource.SetCache[SectorDirectory, sectorDirectoryWrite]

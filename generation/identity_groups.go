@@ -173,9 +173,9 @@ func (i *identityInstance) groupMethodSources() []identitySourceFile {
 	if i.tenant != nil {
 		sides = append(sides, true)
 	}
-	// The answers the rules of a group ask of the role file, by the grants of the
-	// methods that give a role and take one away: one file for both sides.
-	files := []identitySourceFile{{dir: i.methods, name: "grants", template: identityGrantsTemplate, needs: append(needs, identityMemberships)}}
+	// The answers the rules of a group ask of the role file are one file for both sides,
+	// which an instance that picks a default role is written too (roleGrantsSource).
+	var files []identitySourceFile
 	for _, tenant := range sides {
 		subject := i.subject(tenant)
 		method := func(name, template string) identitySourceFile {

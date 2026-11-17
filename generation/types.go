@@ -243,7 +243,16 @@ const (
 	// tenantCreationOutputName names the handler package's file carrying the tenant
 	// record's create-your-tenant handler (Create<Record>), written where the record's
 	// creation shape admits self-service; a singular stem like the roster's.
-	tenantCreationOutputName      = "tenant_creation"
+	tenantCreationOutputName = "tenant_creation"
+	// tenantDirectoryOnlyOutputName names the handler package's file carrying the
+	// tenant record's directory-only switch: the method that turns it and its two
+	// reads, written where the record declares the switch; a singular stem like the
+	// roster's.
+	tenantDirectoryOnlyOutputName = "tenant_directory_only"
+	// tenantDirectoryRoleOutputName names the handler package's file carrying the two
+	// methods that say how a tenant admits its directory's people, written where the
+	// directories record carries a default seat; a singular stem like the roster's.
+	tenantDirectoryRoleOutputName = "tenant_directory_role"
 	permissionsOutputName         = "permissions"
 	liveOutputName                = "live"
 	liveDerivationsOutputName     = "live_derivations"
@@ -292,6 +301,8 @@ var reservedOutputStems = map[string]reservedOutput{
 	domainGuardOutputName:         {file: generatedGoFileName(domainGuardOutputName), carries: "the domain guard"},
 	tenantRosterOutputName:        {file: generatedGoFileName(tenantRosterOutputName), carries: "the tenant roster constructor"},
 	tenantCreationOutputName:      {file: generatedGoFileName(tenantCreationOutputName), carries: "the create-your-tenant handler"},
+	tenantDirectoryOnlyOutputName: {file: generatedGoFileName(tenantDirectoryOnlyOutputName), carries: "the directory-only switch's handlers"},
+	tenantDirectoryRoleOutputName: {file: generatedGoFileName(tenantDirectoryRoleOutputName), carries: "the handlers of a directory's default role"},
 	permissionsOutputName:         {file: generatedGoFileName(permissionsOutputName), carries: "the permission endpoints"},
 	liveOutputName:                {file: generatedGoFileName(liveOutputName), carries: "the live handlers"},
 	decodersOutputName:            {file: generatedGoFileName(decodersOutputName), carries: "the decoders"},
@@ -1773,6 +1784,22 @@ type resourceField struct {
 	// stamps both from the directory the caller is signed in through.
 	IsDirectoryKey bool
 
+	// IsDirectoryOnly marks the tenant record's directory-only switch (@directoryOnly):
+	// it decodes output-only, on create and on update, since the switch is the tenant's
+	// own and is turned by the methods the generator writes for it in the tenant's scope
+	// (Make<Record>DirectoryOnly and End<Record>DirectoryOnly), which hold it to its
+	// rules. The record's own write paths, which are global, show the switch and never
+	// write it.
+	IsDirectoryOnly bool
+
+	// IsDirectoryDefaultSeat marks the directories record's default seat column
+	// (@directoryDefaultSeat): it decodes output-only, on create and on update, since
+	// how a tenant admits its directory's people is said with the two methods the
+	// generator writes in the tenant's scope (Open<Record>ToDirectory, which warns and
+	// holds the role to what giving it by hand needs, and Make<Record>InviteOnly). The
+	// record's own write paths show the column and never write it.
+	IsDirectoryDefaultSeat bool
+
 	// IsFileKey marks the store-key column of a @file declaration: off the wire in
 	// both directions (json:"-" on the read and the patch structs, absent from the
 	// TypeScript interface and metadata), read by the file route's frame for itself.
@@ -2099,8 +2126,12 @@ func (f *resourceField) IsOutputOnly() bool {
 	// generated column: the database computes it, and refuses a write. The
 	// directories record's method and connection are the same shape as the
 	// tenant key: the generated create stamps them from the caller's sign-in,
-	// so the wire cannot type a directory in.
-	if f.IsState || f.IsTenantKey || f.IsFileKey || f.IsGenerated || f.IsDirectoryKey {
+	// so the wire cannot type a directory in. And the tenant record's
+	// directory-only switch: the tenant's own method turns it, held to its
+	// rules, so the record's global write paths cannot. And the directories
+	// record's default seat: the tenant's own methods set and clear it, the
+	// one that sets it behind a warning and the rule of who may give the role.
+	if f.IsState || f.IsTenantKey || f.IsFileKey || f.IsGenerated || f.IsDirectoryKey || f.IsDirectoryOnly || f.IsDirectoryDefaultSeat {
 		return true
 	}
 

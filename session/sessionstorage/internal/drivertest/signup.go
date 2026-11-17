@@ -128,7 +128,8 @@ func testSignInMethodRows(ctx context.Context, t *testing.T, h *AuthHarness) {
 	// A caller's UpdatedAt is ignored: the row takes the database's time.
 	stale := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 	w := startWindow(h.ClockLead)
-	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "google", OpenSignUp: true, DefaultRole: strPtr(signUpRole), UpdatedAt: stale}); err != nil {
+	anyone := signin.Audience{Accounts: "a Google account"}
+	if err := in.Driver.SetSignInMethod(ctx, &dbtype.SignInMethod{Name: "google", OpenSignUp: true, OpenedFor: openedFor(anyone), DefaultRole: strPtr(signUpRole), UpdatedAt: stale}); err != nil {
 		t.Fatalf("SetSignInMethod(google) error = %v", err)
 	}
 	w.done()
@@ -139,13 +140,18 @@ func testSignInMethodRows(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if err != nil {
 		t.Fatalf("SignInMethods() error = %v", err)
 	}
-	want := []*dbtype.SignInMethod{{Name: "azure", OpenSignUp: true}, {Name: "google", OpenSignUp: true, DefaultRole: strPtr(signUpRole)}}
+	want := []*dbtype.SignInMethod{{Name: "azure", OpenSignUp: true}, {Name: "google", OpenSignUp: true, OpenedFor: openedFor(anyone), DefaultRole: strPtr(signUpRole)}}
 	if diff := cmp.Diff(want, got, opts); diff != "" {
 		t.Fatalf("SignInMethods() mismatch, want the rows by name (-want +got):\n%s", diff)
 	}
 	w.assertStamped(t, "google UpdatedAt", got[1].UpdatedAt)
-	if !got[1].Open() || got[1].Role() != signUpRole || got[0].Role() != "" {
-		t.Errorf("Open(), Role() = %v, %q and %q; want an open method with the role Member and one with none", got[1].Open(), got[1].Role(), got[0].Role())
+	if !got[1].OpenFor(anyone.Key()) || got[1].Role() != signUpRole || got[0].Role() != "" {
+		t.Errorf("OpenFor(), Role() = %v, %q and %q; want a method open for the audience it was opened for, with the role Member, and one with none", got[1].OpenFor(anyone.Key()), got[1].Role(), got[0].Role())
+	}
+	// A row is read back with the audience it was opened for, and opens its method for
+	// no other; a row that names none opens nothing.
+	if got[1].OpenFor(MethodAudience().Key()) || got[0].OpenFor(anyone.Key()) {
+		t.Errorf("OpenFor() = %v for another audience and %v for a row that names none, want false for both", got[1].OpenFor(MethodAudience().Key()), got[0].OpenFor(anyone.Key()))
 	}
 
 	// A second write replaces the row: the method is invite only again, with no role.
@@ -160,8 +166,8 @@ func testSignInMethodRows(ctx context.Context, t *testing.T, h *AuthHarness) {
 	if diff := cmp.Diff(want, got, opts); diff != "" {
 		t.Errorf("SignInMethods() mismatch after the second write (-want +got):\n%s", diff)
 	}
-	if got[1].Open() {
-		t.Error("Open() = true for a method made invite only again, want false")
+	if got[1].OpenFor(anyone.Key()) {
+		t.Error("OpenFor() = true for a method made invite only again, want false")
 	}
 }
 
@@ -234,6 +240,84 @@ func testOpenMethodDefaultRole(ctx context.Context, t *testing.T, h *AuthHarness
 	err = signInRequest(ctx, in, kimReq)
 	assertNewlyLinked(ctx, t, in.Driver, err, kimReq, kimIdentity, kim, "tenant-1")
 	assertNoRoleGiven(ctx, t, h, in, rec, created)
+}
+
+// testOpenRowOfAnotherAudience proves a row opens its method for the audience it was
+// opened for and no other. An administrator opened the method when its registration
+// admitted one audience, and the registration admits another now: more people (widened
+// in code), fewer, or people the row never named. The method is invite only until it is
+// opened again: a stranger is refused at a sign-in and at a password sign-up, and
+// nothing is written, while a person with an account signs in as ever. The same
+// organizations named in another order are the same audience, and the row stands.
+func testOpenRowOfAnotherAudience(_ context.Context, t *testing.T, h *AuthHarness) {
+	const name = signUpPerson
+	lakeside := signin.Audience{Organizations: []string{"lakeside.edu"}}
+
+	tests := []struct {
+		name string
+		// opened is whom the row says the method was opened for, nil for a row that
+		// names no audience; now is whom the registration admits.
+		opened *signin.Audience
+		now    Admits
+		// admitted says the row stands: the two are one audience.
+		admitted bool
+	}{
+		{name: "widened: opened for one organization, and the registration admits a second beside it now", opened: &lakeside, now: AdmitsTwoOrganizations},
+		{name: "widened: opened for one organization, and the registration admits any account of the provider now", opened: &lakeside, now: AdmitsAnyAccount},
+		{name: "widened: opened for one organization, and the registration admits personal accounts beside it now", opened: &lakeside, now: AdmitsPersonalAccounts},
+		{name: "narrowed: opened for two organizations, and the registration admits one of them now", opened: &signin.Audience{Organizations: []string{"lakeside.edu", "acme.example"}}, now: AdmitsOneOrganization},
+		{name: "a row that names no audience", now: AdmitsOneOrganization},
+		{name: "the same organizations in another order are the audience the row was opened for", opened: &signin.Audience{Organizations: []string{"acme.example", "lakeside.edu"}}, now: AdmitsTwoOrganizations, admitted: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctx := t.Context()
+
+			rec := newSignUps()
+			in := h.New(ctx, t, AuthWithAppTables, AuthConfig{Auth: true, Accounts: InviteOnly, Admits: tt.now, SignUp: rec.hook})
+			row := &dbtype.SignInMethod{Name: MethodName, OpenSignUp: true, DefaultRole: strPtr(signUpRole)}
+			if tt.opened != nil {
+				row.OpenedFor = openedFor(*tt.opened)
+			}
+			if err := in.Driver.SetSignInMethod(ctx, row); err != nil {
+				t.Fatalf("SetSignInMethod() error = %v", err)
+			}
+			identity := entra("oid-pat", name)
+			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: name, Identity: identity}
+			err := signInRequest(ctx, in, req)
+
+			if tt.admitted {
+				assertProvisioned(ctx, t, in.Driver, err, req, identity, "tenant-1")
+				assertRoleGiven(ctx, t, h, in, rec)
+
+				return
+			}
+
+			// A stranger at a sign-in: refused as by a method with no row, nothing written.
+			assertRefused(t, err, sessioninfo.RefusedNotInvited, signin.ErrNotInvited)
+			assertNoUser(ctx, t, in.Driver, name)
+			assertNoLink(ctx, t, in.Driver, identity)
+			assertNoRoleGiven(ctx, t, h, in, rec, name)
+
+			// A stranger at a password sign-up: the link makes nothing and stands.
+			link := signUpLink(ctx, t, in.Driver, tokenHash(1))
+			if _, err := in.SignUp(ctx, signUpUser(name), link.ID); !httpio.HasNotFound(err) || !errors.Is(err, signin.ErrNotInvited) {
+				t.Fatalf("SignUp() error = %v, want NotFound caused by ErrNotInvited", err)
+			}
+			assertNoUser(ctx, t, in.Driver, name)
+			assertLinkLive(ctx, t, h, in, link)
+			assertNoRoleGiven(ctx, t, h, in, rec, name)
+
+			// A person with an account is not signing up: they sign in as ever.
+			const created = "kim@lakeside.edu"
+			kim := createUser(ctx, t, in.Driver, created)
+			kimIdentity := entra("oid-kim", created)
+			kimReq := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: created, Identity: kimIdentity}
+			err = signInRequest(ctx, in, kimReq)
+			assertNewlyLinked(ctx, t, in.Driver, err, kimReq, kimIdentity, kim, "tenant-1")
+		})
+	}
 }
 
 func testOpenMethodWithoutRole(ctx context.Context, t *testing.T, h *AuthHarness) {

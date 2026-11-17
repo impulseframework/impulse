@@ -217,6 +217,7 @@
                 "directoryGivesRoles",
                 "label",
                 "openSignUp",
+                "ownRule",
                 "says"
               ]
             },
@@ -394,7 +395,6 @@
             {
               "resource": "Tenants",
               "fields": [
-                "directoryOnly",
                 "name"
               ]
             }
@@ -449,10 +449,7 @@
               ]
             },
             {
-              "resource": "TenantDirectories",
-              "fields": [
-                "defaultSeat"
-              ]
+              "resource": "TenantDirectories"
             }
           ],
           "Delete": [
@@ -549,6 +546,18 @@
             },
             {
               "resource": "TakeStaffTenantGroupRole"
+            },
+            {
+              "resource": "MakeTenantDirectoryOnly"
+            },
+            {
+              "resource": "EndTenantDirectoryOnly"
+            },
+            {
+              "resource": "OpenTenantToDirectory"
+            },
+            {
+              "resource": "MakeTenantInviteOnly"
             }
           ],
           "List": [
@@ -645,7 +654,8 @@
                 "through",
                 "heldElsewhere",
                 "heldGlobally"
-              ]
+              ],
+              "condition": "password = false OR heldElsewhere = false"
             },
             {
               "resource": "StaffTenantRoles",
@@ -793,12 +803,6 @@
               "fields": [
                 "body",
                 "title"
-              ]
-            },
-            {
-              "resource": "TenantDirectories",
-              "fields": [
-                "defaultSeat"
               ]
             }
           ]

@@ -102,8 +102,10 @@ type fakeStore struct {
 	cameThrough map[impulse.UUID]Link
 	tokens      map[impulse.UUID]*Token
 	families    map[impulse.UUID][]impulse.UUID
-	// methodRows are the rows of the sign-in methods table, by the method's name.
+	// methodRows are the rows of the sign-in methods table, by the method's name, and
+	// openedFor the audience the last row written was opened for, nil for none.
 	methodRows map[string]SignInMethodRow
+	openedFor  *string
 	// userTokens are the unrevoked tokens of each user.
 	userTokens map[impulse.UUID][]impulse.UUID
 	// fakeGroupTables are the groups of people, their members and the roles they hold
@@ -463,6 +465,7 @@ func (f *fakeStore) SetSignInMethod(_ context.Context, _ resource.ReadWriteTrans
 		role = *row.DefaultRole
 	}
 	f.writes = append(f.writes, fmt.Sprintf("set sign-in method %s open=%t role=%s", row.Name, row.OpenSignUp, role))
+	f.openedFor = row.OpenedFor
 
 	return nil
 }

@@ -55,11 +55,13 @@ type (
 		// @tenantName
 		Name string `spanner:"Name"`
 		// DirectoryOnly says the tenant's people enter through its directory only: no
-		// other sign-in reaches the tenant, and the flag closes this tenant alone. Set by
-		// whoever holds the record's Update grant on the column (Administrator), never at
-		// creation: a new tenant declares nothing. The generated
-		// update refuses turning it on until the tenant has its directory, and unless
-		// the caller is signed in through it.
+		// other sign-in reaches the tenant, and the flag closes this tenant alone. The
+		// switch is the tenant's own: the tenant's administrator (TenantAdministrator)
+		// turns it with the generated methods of the tenant's scope: MakeTenantDirectoryOnly,
+		// which refuses turning it on until the tenant has its directory, and unless the
+		// caller is signed in through it, and EndTenantDirectoryOnly. The record shows the
+		// flag and its own write paths never write it, at creation or after: a new tenant
+		// declares nothing.
 		// @directoryOnly
 		DirectoryOnly bool `spanner:"DirectoryOnly"`
 	}

@@ -418,8 +418,7 @@ func TestAuth_AttemptLimit_Resets(t *testing.T) {
 				f.login("pat", "wrong", "10.0.0.1", "tok")
 				f.login("pat", "wrong", "10.0.0.1", "tok")
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil).Times(2)
-				f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), gomock.Any()).Return(nil).Times(2)
-				f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil).Times(2)
+				f.store.EXPECT().ReplaceUserPassword(gomock.Any(), userID, gomock.Any(), gomock.Any()).Return(nil).Times(2)
 				if err := f.auth.API().SetSessionUserPassword(context.Background(), userID, "chosen"); err != nil {
 					t.Fatalf("SetSessionUserPassword() error = %v", err)
 				}

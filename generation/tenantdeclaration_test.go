@@ -157,8 +157,10 @@ func Test_resolveTenantDeclaration(t *testing.T) {
 					t.Errorf("%s.%s is writable by the wire, want it output-only: a directory is set from a sign-in", directories.Name(), field.Name())
 				}
 			}
-			if directories.DirectoryDefaultSeatField != nil && directories.DirectoryDefaultSeatField.IsOutputOnly() {
-				t.Errorf("%s.%s is output-only, want it writable: the administrator picks the default seat", directories.Name(), directories.DirectoryDefaultSeatField.Name())
+			// Nor the default seat: the tenant's own methods set and clear it, the one
+			// that sets it behind its warning and the rule of who may give the role.
+			if directories.DirectoryDefaultSeatField != nil && !directories.DirectoryDefaultSeatField.IsOutputOnly() {
+				t.Errorf("%s.%s is writable by the wire, want it output-only: the tenant's own methods set the default seat", directories.Name(), directories.DirectoryDefaultSeatField.Name())
 			}
 			if directories.DirectoryDefaultSeatField == nil || directories.DirectoryDefaultSeatField.Name() != "DefaultSeat" {
 				t.Errorf("%s.DirectoryDefaultSeatField = %v, want DefaultSeat", directories.Name(), directories.DirectoryDefaultSeatField)
@@ -187,12 +189,12 @@ func Test_declarationColumns(t *testing.T) {
 		{
 			name:    "the record's flag and the directories record's columns",
 			structs: []string{"Harbor", "HarborDirectory"},
-			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DefaultSeatColumn: "DefaultSeat"},
+			want:    &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat"},
 		},
 		{
 			name:    "a record without the flag names no directory-only column",
 			structs: []string{"Sector", "HarborDirectory"},
-			want:    &tenantDeclarationColumns{DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DefaultSeatColumn: "DefaultSeat"},
+			want:    &tenantDeclarationColumns{DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat"},
 		},
 		{
 			name:    "a directories record without the seat column names none",
@@ -301,7 +303,7 @@ func Test_tenantsTemplate_declaration(t *testing.T) {
 			name: "the seat column, and the maker of a tenant from an accepted invitation",
 			data: &tenantsData{
 				Source: "resources", Package: "app", Name: "Harbor", Table: "Harbors", KeyColumn: "Id", RecordLower: "harbor", Directories: "HarborDirectory", DefaultSeat: "DefaultSeat",
-				Declaration:         &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DefaultSeatColumn: "DefaultSeat"},
+				Declaration:         &tenantDeclarationColumns{DirectoryOnly: "DirectoryOnly", DirectoriesTable: "HarborDirectories", TenantColumn: "HarborId", MethodColumn: "Method", ConnectionColumn: "Connection", DirectoriesKeyColumn: "Id", DefaultSeatColumn: "DefaultSeat"},
 				Directory:           harborDirectoryWrite(),
 				Word:                "harbor",
 				ResourcePackage:     "resources",
@@ -634,6 +636,7 @@ func Test_tenantCreationTemplate_declaration(t *testing.T) {
 				Record:              "Harbor",
 				RecordLower:         "harbor",
 				HandlerFunc:         "CreateHarbor",
+				OfferedHandlerFunc:  "CreateHarborOffered",
 				RoutePath:           "/api/create-harbor",
 				Auth:                "Staff",
 				IdentityAccessor:    "StaffIdentity",

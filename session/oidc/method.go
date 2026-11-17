@@ -50,6 +50,15 @@ type Config struct {
 	// held for the library's code; a token whose amr claim names mfa attests by
 	// evidence whatever the declaration. See "The second factor" in the README.
 	Attesting bool
+	// SeededUsers declares that the provider's names are the application's own: the
+	// provider is one the deployment runs for the accounts it seeds, as the persona
+	// provider of the test environments is for the cast. A provider asserts the names
+	// it likes, so in an application whose tenants have directories a user created
+	// ahead who has never signed in is linked on the name only through the directory of
+	// the one tenant they belong to, or with their own invitation; under this
+	// declaration such a user is linked on the name alone. Never set it for an
+	// organization's directory, whose names are the organization's to assert.
+	SeededUsers bool
 	// LoginURL is where refused and pending sign-ins are sent. (default: /login)
 	LoginURL string
 	// Authenticator replaces the verifier built from the fields above. Tests inject a
@@ -130,6 +139,7 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg
 		Name:        name,
 		Method:      sessioninfo.MethodOIDC,
 		AccountRule: accountRule(rule),
+		SeededUsers: cfg.SeededUsers,
 		Issuers:     signin.IssuerList(cfg.Issuer),
 		Err:         refuseShape(cfg),
 		Build: func(cookies signin.StateCookies) (*signin.Method, error) {

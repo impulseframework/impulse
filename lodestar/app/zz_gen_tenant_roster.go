@@ -5,35 +5,37 @@ package app
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
 
-	"cloud.google.com/go/civil"
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
-	"github.com/impulseframework/impulse/httpio"
-	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/lodestar/pkg/resources"
-	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
-	"github.com/impulseframework/impulse/resource/live"
-	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/signin"
 )
+
+// The Sector record's create makes its creator the first administrator of the new
+// sector: the roles SectorAdministratorRoles names are given in the
+// transaction that writes the row, through the Crew auth's generated identity
+// client (CrewIdentity, which the auth's generated handlers ask of the
+// application too). The application supplies the roles beside the generated contract.
+var _ interface {
+	SectorAdministratorRoles() []accesstypes.Role
+} = (*App)(nil)
 
 // sectorDeclaration names where the Sector record keeps its declaration of who
 // may enter a sector (@directoryOnly on the record, the SectorDirectory record's columns): what
 // the roster reads beside the keys and the sign-in's readers read in its own
 // transaction.
 var sectorDeclaration = resource.TenantDeclarationColumns{
-	DirectoryOnly:     "DirectoryOnly",
-	DirectoriesTable:  "SectorDirectories",
-	TenantColumn:      "SectorId",
-	MethodColumn:      "Method",
-	ConnectionColumn:  "Connection",
-	DefaultSeatColumn: "DefaultSeat",
+	DirectoryOnly:        "DirectoryOnly",
+	DirectoriesTable:     "SectorDirectories",
+	TenantColumn:         "SectorId",
+	MethodColumn:         "Method",
+	ConnectionColumn:     "Connection",
+	DirectoriesKeyColumn: "Id",
+	DefaultSeatColumn:    "DefaultSeat",
 }
 
 // NewSectorRoster builds the application's tenant roster over the Sector record
@@ -114,175 +116,4 @@ func SetSectorDirectory(ctx context.Context, txn resource.ReadWriteTransaction, 
 	}
 
 	return nil
-}
-
-// DirectoryOnly serves the read a sector's Sign-in page calls before it saves the
-// directory-only switch (Sector.DirectoryOnly), GET <prefix>/directory-only?domain=<sector>
-// on every outlet that serves sessions and the Sector record: what turning the switch on
-// would do, in words the server writes (resource.DirectoryOnlyConsequence: only people
-// who sign in through the sector's directory will be able to enter, and how many of the
-// people seated in it will lose access, each named), or the refusal the write itself
-// would answer, in the same words: a sector with no directory, a caller who is not signed
-// in through it. It is asked under the grant the write is, Update on Sectors and on its
-// directoryOnly field, and writes nothing (resource.DirectoryOnlyHandler).
-// The people are read through the generated identity client of each auth whose people a
-// sector seats (DirectoryOutsiders): everyone who holds a role in the sector and has no
-// sign-in through its directory, a super administrator left out.
-func (a *App) DirectoryOnly() http.HandlerFunc {
-	return resource.DirectoryOnlyHandler(a.ResourceClient(), NewSectorDirectoryRules(), a.UserPermissions, "Sectors", "directoryOnly",
-		a.CrewIdentity().DirectoryOutsiders,
-		a.MembersIdentity().DirectoryOutsiders,
-	)
-}
-
-// sectorMaker makes a sector from an accepted invitation
-// (identity.TenantMaker): NewSectorMaker builds it.
-type sectorMaker struct {
-	roster  *resource.TenantRoster
-	signals live.Service
-}
-
-// NewSectorMaker builds what makes a sector from an invitation's details
-// (identity.TenantMaker), over the Sector record's own create patch. Staff bring a
-// sector in by inviting one person (the auth's generated Invite method), and the
-// person's first sign-in makes the sector: the application hands this to the
-// auth whose people the record's outlets sign in, where it builds that auth's generated
-// identity client, which takes it. roster is the application's tenant roster and
-// signals its live service: once the sign-in's transaction has committed, this
-// instance's roster rereads its table, so the person's first request stands in the new
-// sector, and the tenants kind is signaled, so every instance serves it at once.
-func NewSectorMaker(roster *resource.TenantRoster, signals live.Service) identity.TenantMaker {
-	return &sectorMaker{roster: roster, signals: signals}
-}
-
-// Make buffers the sector's row from the invitation's details, through the
-// record's create patch, so the record's own rules apply and its change event is written
-// with it. The details name the record's fields by their Go names; a name the record
-// does not carry on an invitation is refused, and so is a value another sector
-// holds under a unique index. At the check a send makes (tenant.Caller), the patch is
-// armed with the caller, so the record's Create grant, on the record and on each field
-// given, answers as it would for a create, and the transaction is rolled back by
-// whoever asked. A rule the database alone applies at a commit (a CHECK constraint, a
-// unique index over several columns) is not seen by the check: it refuses the first
-// sign-in's commit, and the invitation stands.
-//
-// With a directory, the organization's the accepting person signed in through, the
-// SectorDirectory row is buffered too, held to the rules of a sector's directory
-// (NewSectorDirectoryRules): a directory another sector has refuses the sign-in
-// (sessioninfo.RefusedOrganizationHasTenant) and nothing is written. The row
-// carries the role the directory's people start with, where the invitation names one.
-// A sector that is directory only is made so with its directory, and never
-// without one.
-func (m *sectorMaker) Make(ctx context.Context, txn resource.ReadWriteTransaction, tenant *identity.NewTenant) (accesstypes.Domain, error) {
-	var carried map[string]json.RawMessage
-	if len(tenant.Fields) > 0 {
-		if err := json.Unmarshal(tenant.Fields, &carried); err != nil {
-			return "", httpio.NewBadRequestMessageWithError(err, "the sector's details do not read: they are a JSON object of the Sector record's fields")
-		}
-	}
-	patch, err := resources.NewSectorCreatePatch()
-	if err != nil {
-		return "", errors.Wrap(err, "resources.NewSectorCreatePatch()")
-	}
-	id := patch.ID()
-	domain := accesstypes.Domain(id.String())
-	if value, ok := carried["Name"]; ok {
-		var given string
-		if err := json.Unmarshal(value, &given); err != nil {
-			return "", httpio.NewBadRequestMessageWithError(err, "the sector's name does not read")
-		}
-		// The database keeps one sector to a name (a unique index), and
-		// refuses a second at the commit: it is refused here, where the answer says so.
-		switch _, err := resources.NewSectorQuery().SetName(given).AddColumns(resources.NewSectorColumns().ID()).Read(ctx, txn); {
-		case err == nil:
-			return "", httpio.NewConflictMessagef("a sector with the name %v already exists: give the new one another", given)
-		case !httpio.HasNotFound(err):
-			return "", errors.Wrap(err, "resources.SectorQuery.Read()")
-		}
-		patch.SetName(given)
-		delete(carried, "Name")
-	}
-	if value, ok := carried["Region"]; ok {
-		var given string
-		if err := json.Unmarshal(value, &given); err != nil {
-			return "", httpio.NewBadRequestMessageWithError(err, "the sector's region does not read")
-		}
-		patch.SetRegion(given)
-		delete(carried, "Region")
-	}
-	if value, ok := carried["Established"]; ok {
-		var given civil.Date
-		if err := json.Unmarshal(value, &given); err != nil {
-			return "", httpio.NewBadRequestMessageWithError(err, "the sector's established does not read")
-		}
-		patch.SetEstablished(given)
-		delete(carried, "Established")
-	}
-	for name := range carried {
-		return "", httpio.NewBadRequestMessagef("an invitation carries no field %s of the Sector record: a field the wire cannot write, or a secret, is given to the sector once it exists", name)
-	}
-	hasDirectory := tenant.Directory.Organization()
-	if tenant.DirectoryOnly {
-		if !hasDirectory {
-			return "", errors.New("a sector that is directory only is made with its directory: the invitation was accepted through none")
-		}
-		patch.SetDirectoryOnly(true)
-	}
-	if tenant.Caller != nil {
-		patch.Enforce(tenant.Caller)
-	}
-	if err := patch.Buffer(ctx, txn, tenant.Source); err != nil {
-		return "", errors.Wrap(err, "resources.SectorCreatePatch.Buffer()")
-	}
-	if hasDirectory {
-		// The directory the person came through becomes the sector's own, held to
-		// the rules: one another sector has refuses the sign-in.
-		if err := NewSectorDirectoryRules().Set(ctx, txn, domain, tenant.Directory); err != nil {
-			if httpio.HasConflict(err) {
-				return "", sessioninfo.NewLoginRefusal(sessioninfo.RefusedOrganizationHasTenant, err)
-			}
-
-			return "", errors.Wrap(err, "resource.TenantDirectoryRules.Set()")
-		}
-		directory, err := resources.NewSectorDirectoryCreatePatch()
-		if err != nil {
-			return "", errors.Wrap(err, "resources.NewSectorDirectoryCreatePatch()")
-		}
-		directory.SetSectorID(id).SetMethod(string(tenant.Directory.Method)).SetConnection(tenant.Directory.Connection)
-		if tenant.DefaultRole != "" {
-			role := string(tenant.DefaultRole)
-			directory.SetDefaultSeat(&role)
-		}
-		if err := directory.Buffer(ctx, txn, tenant.Source); err != nil {
-			return "", errors.Wrap(err, "resources.SectorDirectoryCreatePatch.Buffer()")
-		}
-	}
-	if tenant.Caller != nil {
-		// The check a send makes: nothing commits, and nothing is owed after it.
-		return domain, nil
-	}
-	if err := resource.AfterCommit(txn, func(ctx context.Context) {
-		if err := m.roster.Reload(ctx); err != nil {
-			logger.FromCtx(ctx).Errorf("tenants: rereading the roster after the commit failed; this instance reloads on the tenants signal or at its backstop: %v", err)
-		}
-		if err := m.signals.Signal(ctx, resource.KindTenants); err != nil {
-			logger.FromCtx(ctx).Errorf("tenants: signaling the tenants kind failed; the other instances reload at their backstop: %v", err)
-		}
-	}); err != nil {
-		return "", errors.Wrap(err, "resource.AfterCommit()")
-	}
-
-	return domain, nil
-}
-
-// SeatsDefaultRole reports whether a sector's directory keeps the role its
-// people start with: SectorDirectory.DefaultSeat.
-func (m *sectorMaker) SeatsDefaultRole() bool {
-	return true
-}
-
-// DeclaresDirectoryOnly reports whether the Sector record declares the
-// directory-only switch (Sector.DirectoryOnly).
-func (m *sectorMaker) DeclaresDirectoryOnly() bool {
-	return true
 }

@@ -27,7 +27,7 @@ type AuthDriver interface {
 	User(ctx context.Context, id impulse.UUID) (*dbtype.SessionUser, error)
 	UserByUserName(ctx context.Context, username string) (*dbtype.SessionUser, error)
 	Users(ctx context.Context) ([]*dbtype.SessionUser, error)
-	SetUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
+	ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
 	UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
 	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
 	DeactivateUser(ctx context.Context, id impulse.UUID) error
@@ -35,7 +35,7 @@ type AuthDriver interface {
 	Identity(ctx context.Context, method sessioninfo.AuthMethod, connection, subject string) (*dbtype.SessionIdentity, error)
 	IdentitiesByUser(ctx context.Context, userID impulse.UUID) ([]*dbtype.SessionIdentity, error)
 	LinkIdentity(ctx context.Context, userID impulse.UUID, identity *sessioninfo.Identity, tenant string) (*dbtype.SessionIdentity, error)
-	UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error
+	UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error
 	RemoveUserPassword(ctx context.Context, userID impulse.UUID, standing []impulse.UUID) error
 	RemoveProvenUserPassword(ctx context.Context, userID impulse.UUID, proven *securehash.Hash, standing []impulse.UUID) error
 	DestroyUserSessions(ctx context.Context, userID impulse.UUID) error
@@ -156,6 +156,14 @@ type AuthConfig struct {
 	// sign-in method (MethodName), applied when Resolve is nil or answers
 	// signin.Standard; NoStandardRule for none.
 	Accounts Accounts
+	// SeededUsers is the registration's declaration that its provider's names are the
+	// application's own (signin.Registration.SeededUsers).
+	SeededUsers bool
+	// Admits is whom the instance's sign-in method admits now, as its registration
+	// fixes it; the zero value is MethodAudience. A scenario of a registration that
+	// code changed after an administrator opened it names another audience here and
+	// writes the row itself, opened for the audience of before.
+	Admits Admits
 	// Resolve is the custom account rule the instance's SignIn runs with, which the
 	// harness adapts to the driver's transaction. Nil with NoStandardRule rejects every
 	// unlinked identity.
@@ -200,16 +208,69 @@ const (
 	Open
 )
 
+// MethodAudience is whom the instance's sign-in method (MethodName) admits, as its
+// registration would fix it: the people of one organization.
+func MethodAudience() signin.Audience {
+	return signin.Audience{Organizations: []string{"lakeside.edu"}}
+}
+
+// Admits is whom an instance's sign-in method admits now: one of the audiences the
+// scenarios turn on, named by a small value so that a configuration stays cheap to
+// hand around. The zero value is the audience of every scenario that does not turn on
+// it (MethodAudience).
+type Admits uint8
+
+const (
+	// AdmitsOneOrganization is MethodAudience: the people of lakeside.edu.
+	AdmitsOneOrganization Admits = iota
+	// AdmitsTwoOrganizations is the people of lakeside.edu and of acme.example.
+	AdmitsTwoOrganizations
+	// AdmitsAnyAccount is anyone with an account of the provider.
+	AdmitsAnyAccount
+	// AdmitsPersonalAccounts is the people of lakeside.edu, and personal accounts
+	// beside them.
+	AdmitsPersonalAccounts
+)
+
+// Audience is the audience the value names.
+func (a Admits) Audience() signin.Audience {
+	switch a {
+	case AdmitsTwoOrganizations:
+		return signin.Audience{Organizations: []string{"lakeside.edu", "acme.example"}}
+	case AdmitsAnyAccount:
+		return signin.Audience{Accounts: "a Google account"}
+	case AdmitsPersonalAccounts:
+		return signin.Audience{Organizations: []string{"lakeside.edu"}, Accounts: "a Microsoft personal account"}
+	default:
+		return MethodAudience()
+	}
+}
+
+// audience is whom the instance's method admits now, as the rule compares it with the
+// audience the method's row was opened for.
+func (cfg *AuthConfig) audience() string {
+	return cfg.Admits.Audience().Key()
+}
+
+// openedFor is the audience a row opened for audience keeps.
+func openedFor(audience signin.Audience) *string {
+	key := audience.Key()
+
+	return &key
+}
+
 // SeedSignInMethod writes the row an Open method has, with cfg's default role, through
-// the driver; a harness calls it once its driver is built. It writes nothing for any
-// other choice, so an invite-only instance runs with no row.
+// the driver; a harness calls it once its driver is built. The row is opened for the
+// audience the method has. It writes nothing for any other choice, so an invite-only
+// instance runs with no row.
 func SeedSignInMethod(ctx context.Context, t *testing.T, d AuthDriver, cfg AuthConfig) {
 	t.Helper()
 
 	if cfg.Accounts != Open {
 		return
 	}
-	m := &dbtype.SignInMethod{Name: MethodName, OpenSignUp: true}
+	audience := cfg.audience()
+	m := &dbtype.SignInMethod{Name: MethodName, OpenSignUp: true, OpenedFor: &audience}
 	if cfg.DefaultRole != "" {
 		m.DefaultRole = &cfg.DefaultRole
 	}
@@ -226,6 +287,10 @@ func SeedSignInMethod(ctx context.Context, t *testing.T, d AuthDriver, cfg AuthC
 type DirectoryAdmission struct {
 	Directories func(ctx context.Context, tx HookTx, directory signin.Directory) ([]signin.DeclaredDirectory, error)
 	Seat        func(ctx context.Context, tx HookTx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (committed func(ctx context.Context), err error)
+	// OnlyIn reports whether tenant is the only place the user holds anything, nil for
+	// an application that reads none: the rule on a first link made on a name alone
+	// asks it.
+	OnlyIn func(ctx context.Context, tx HookTx, userID impulse.UUID, tenant accesstypes.Domain) (bool, error)
 }
 
 // AuthInstance is a driver over a freshly prepared users database, with the
@@ -261,7 +326,7 @@ func NewSignUp[Tx any](
 	seat := adaptSignUp(cfg, adapt)
 
 	return func(ctx context.Context, user *dbtype.InsertSessionUser, linkID impulse.UUID) (impulse.UUID, error) {
-		id, err := signinflow.SignUp(ctx, d, MethodName, user, linkID, seat)
+		id, err := signinflow.SignUp(ctx, d, MethodName, cfg.audience(), user, linkID, seat)
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignUp()")
 		}
@@ -295,7 +360,7 @@ func oneProof(proven []dbtype.PasswordProof) dbtype.PasswordProof {
 func NewLinkConfirmed[Tx any](
 	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
 ) func(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string, proven ...dbtype.PasswordProof) error {
-	directories, seat := adaptAdmission(cfg, adapt)
+	directories, seat, _ := adaptAdmission(cfg, adapt)
 
 	return func(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string, proven ...dbtype.PasswordProof) error {
 		if err := signinflow.LinkConfirmed(ctx, d, userID, username, identity, tenant, directories, seat, oneProof(proven)); err != nil {
@@ -307,23 +372,32 @@ func NewLinkConfirmed[Tx any](
 }
 
 // adaptAdmission is cfg's directory admission over the driver's transaction: the
-// reader and the seater, each nil for none.
-func adaptAdmission[Tx any](cfg AuthConfig, adapt func(tx Tx) HookTx) (signin.DirectoryReader[Tx], signinflow.DirectorySeater[Tx]) {
+// reader, the seater and the reader of whether a tenant is all a person holds, each nil
+// for none.
+func adaptAdmission[Tx any](
+	cfg AuthConfig, adapt func(tx Tx) HookTx,
+) (signin.DirectoryReader[Tx], signinflow.DirectorySeater[Tx], signinflow.OnlyInTenant[Tx]) {
 	if cfg.Admission == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
 	lookup := cfg.Admission.Directories
 	directories := func(ctx context.Context, tx Tx, directory signin.Directory) ([]signin.DeclaredDirectory, error) {
 		return lookup(ctx, adapt(tx), directory)
 	}
-	seater := cfg.Admission.Seat
-	if seater == nil {
-		return directories, nil
+	var seat signinflow.DirectorySeater[Tx]
+	if seater := cfg.Admission.Seat; seater != nil {
+		seat = func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
+			return seater(ctx, adapt(tx), userID, username, seats)
+		}
+	}
+	var onlyIn signinflow.OnlyInTenant[Tx]
+	if read := cfg.Admission.OnlyIn; read != nil {
+		onlyIn = func(ctx context.Context, tx Tx, userID impulse.UUID, tenant accesstypes.Domain) (bool, error) {
+			return read(ctx, adapt(tx), userID, tenant)
+		}
 	}
 
-	return directories, func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
-		return seater(ctx, adapt(tx), userID, username, seats)
-	}
+	return directories, seat, onlyIn
 }
 
 // NewAccept returns an instance's Accept over d: the flow's acceptance with cfg's
@@ -374,7 +448,7 @@ func NewSignIn[Tx any](
 			return cfg.Policy(ctx, adapt(tx), req)
 		}
 	}
-	directories, seat := adaptAdmission(cfg, adapt)
+	directories, seat, onlyIn := adaptAdmission(cfg, adapt)
 	accept := adaptAccept(cfg, adapt)
 	signUp := adaptSignUp(cfg, adapt)
 	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest, proven ...dbtype.PasswordProof) (impulse.UUID, error) {
@@ -382,7 +456,10 @@ func NewSignIn[Tx any](
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "impulse.NewUUID()")
 		}
-		rules := signinflow.Rules[Tx]{Account: rule, Method: MethodName, Policy: policy, Accept: accept, SignUp: signUp, Directories: directories, Seat: seat, Proven: oneProof(proven)}
+		rules := signinflow.Rules[Tx]{
+			Account: rule, Method: MethodName, Audience: cfg.audience(), SeededUsers: cfg.SeededUsers, Policy: policy, Accept: accept, SignUp: signUp,
+			Directories: directories, Seat: seat, OnlyIn: onlyIn, Proven: oneProof(proven),
+		}
 		if err := signinflow.SignIn(ctx, d, id, insert, req, rules); err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
 		}
@@ -437,6 +514,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a driver whose sign-in methods table is not there says so: an error naming the table, never a method read as invite only", run: testSignInMethodsMissingTable},
 		{name: "an open method gives a person with no account its default role in the transaction that makes the account, once; a person an administrator created is linked and given nothing", run: testOpenMethodDefaultRole},
 		{name: "an open method that names no role makes the account and gives nothing", run: testOpenMethodWithoutRole},
+		{name: "a row opens its method for the audience it was opened for alone: a registration widened or narrowed in code since refuses a stranger and writes nothing, at a sign-in and at a password sign-up, and a row that names no audience opens nothing", run: testOpenRowOfAnotherAudience},
 		{name: "a person with an account, and a person with an invitation, sign in the same under either choice: the invitation's role, never the default role beside it", run: testEitherChoiceSameForAccountsAndInvitations},
 		{name: "a dead invitation carried through an open method gives nothing, and the person gets the method's default role", run: testOpenMethodDeadInvitation},
 		{name: "a default role on an Auth with no sign-up hook fails the sign-in in its transaction: no user is created", run: testOpenMethodHookMissing},
@@ -458,10 +536,14 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a sign-in reports the user it resolved to and how", run: testSignInUserReported},
 		{name: "the tenant policy decides a sign-in by the person's memberships and the declarations their tenants make, read in the sign-in's transaction", run: testTenantPolicy},
 		{name: "a tenant's sign-in settings restrict its own door alone: a session reaches every tenant that seats the person but a directory-only tenant whose directory they did not sign in through", run: testTenantDoor},
+		{name: "a first link made on a name alone, to an account that has never signed in, is made only through the directory of the one tenant the account belongs to or with the account's own invitation", run: testFirstLinkByName},
+		{name: "an identity the application has not seen is linked on a name alone only as an account's first link, never as a second identity: a colleague is not linked into an account another person made under their name", run: testSecondIdentityByName},
 		{name: "a provisioned username that is taken is refused as a conflict, and nothing is linked", run: testProvisionUsernameTaken},
 		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
 		{name: "concurrent first sign-ins of one identity through a provisioning resolver all succeed and provision it once", run: testConcurrentFirstProvision},
 		{name: "links are managed outside sign-in, and the last means of sign-in stays", run: testLinkManagement},
+		{name: "an identity is unlinked from a password-less user only while another that signs them in remains", run: testUnlinkKeepsAMeansOfSignIn},
+		{name: "two unlinks of a password-less user's two identities, asked at once, leave the user one", run: testUnlinksRace},
 		{name: "a password is removed from a user that has an identity, with its change mark, and stays as the last means of sign-in", run: testPasswordRemoval},
 		{name: "a password's removal and the unlinking of the user's one identity, asked at once, leave the user one of the two", run: testPasswordRemovalRacesUnlink},
 		{name: "deleting a user deletes its identity links with it", run: testDeleteUserDeletesLinks},
@@ -476,7 +558,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a sign-in records the provider's session id under its issuer, and a provider-initiated logout ends the sessions under that issuer and id and no other", run: testProviderSessionLogout},
 		{name: "a sign-in and everything written with it take the database's time, once", run: testDatabaseTimeOnSignIn},
 		{name: "a user is stored with its password change mark and the database's time, and listed by username", run: testUserAccounts},
-		{name: "a password is set with its change mark in one write", run: testUserPasswordSet},
+		{name: "a password is replaced with its change mark and the user's sessions ended in one transaction: both, or neither", run: testPasswordReplaced},
 		{name: "a hash upgrade, a user's own change and a user's own removal write on proof of the hash the user holds, and nothing without one", run: testProvenPasswordWrites},
 		{name: "a hash upgrade, a user's own change and a user's own removal write nothing once another write of the password has committed since the user was read", run: testProvenPasswordWriteAfterAnotherWrite},
 		{name: "a temporary password an operator sets stands, with its change mark, whatever write on proof of the password it replaces is asked at once", run: testProvenPasswordWriteRacesReset},
@@ -506,9 +588,9 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a sign-in that carries an invitation accepts it in the resolution's transaction: consumed, the address set, the hook's writes committed with the user", run: testInvitationSignIn},
 		{name: "an invitation that died is skipped through an open method and refuses through an invite-only one, provisioning nothing", run: testInvitationDead},
 		{name: "a stranger from a directory a tenant declares with a default seat is provisioned and seated with it before the policy decides; a tenant declaring it without a seat gives nothing; a second sign-in seats nothing more", run: testDirectoryDefaultSeat},
-		{name: "a stranger from a directory a tenant declares with no default seat is refused with invitation_only and nothing is written, whatever the registration's rule; a pre-created user links; an invitation is the way past, and a dead one refuses with invitation_expired", run: testDirectoryInvitationOnly},
+		{name: "a stranger from a directory a tenant declares with no default seat is refused with invitation_only and nothing is written, whatever the registration's rule; a user created ahead in the tenant links; an invitation is the way past, and a dead one refuses with invitation_expired", run: testDirectoryInvitationOnly},
 		{name: "a directory no tenant declares falls to the registration's rule", run: testDirectoryUndeclared},
-		{name: "a person with an account from another tenant's invitation is linked at their first sign-in through their own tenant's directory and seated with its default seat, in one transaction; a second sign-in seats nothing; a personal account reads no declaration", run: testDirectorySeatAtFirstLink},
+		{name: "a person whose account stands and who follows another tenant's invitation is linked at their first sign-in through their own organization's directory, the invitation accepted and the directory's default seat given in one transaction, and is not linked without the invitation; a second sign-in seats nothing; a personal account reads no declaration", run: testDirectorySeatAtFirstLink},
 		{name: "a link a password confirms is a first sign-in through the directory and gives the default seat with the link; a later sign-in gives nothing back, so a removed seat stays removed; a link deleted and made again gives the seat again", run: testDirectorySeatAtConfirmedLink},
 		{name: "a failing seat hook fails the transaction that links the user: no link, none of the hook's writes, at once and at a confirmed link alike", run: testDirectorySeatHookFailsAtLink},
 		{name: "a default seat on an Auth with no seat hook fails the sign-in in its transaction: no user is created", run: testDirectorySeatHookMissing},

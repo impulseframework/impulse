@@ -128,6 +128,7 @@ func (r *resourceGenerator) authzMatrixCases() ([]authzCase, error) {
 	cases = append(cases, r.rpcAuthzCases()...)
 	cases = append(cases, r.featureAuthzCases()...)
 	cases = append(cases, r.tenantCreationAuthzCases()...)
+	cases = append(cases, r.directoryOnlyAuthzCases()...)
 
 	if r.concealedDomains {
 		// Concealed domains answer a caller with no grants as if the domain

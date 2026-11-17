@@ -97,7 +97,9 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 // they hold is ended, their identity links, every membership they hold and their place
 // in every group go, then the row, and the permission engine is told once the
 // transaction has committed. Nobody
-// deletes themselves: the request's caller is refused their own account. A super
+// deletes themselves: the person acting, the real person behind the session, is refused
+// their own account, and a session that views as someone else the account it views as
+// (refuseOwnAccount). A super
 // administrator's account is deleted by a super administrator alone, and the last one
 // who can sign in by nobody (requireSuperAdministrator, refuseLastSuperAdministrator).
 //
@@ -114,8 +116,8 @@ func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransact
 	if !found {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
 	}
-	if m.callerIs(ctx, userID) {
-		return httpio.NewForbiddenMessage("you cannot delete your own account")
+	if err := m.refuseOwnAccount(ctx, userID, "delete"); err != nil {
+		return err
 	}
 	// The account's roles go with it, the Super Administrator role among them: only a
 	// super administrator removes another, and never the last one who can sign in.

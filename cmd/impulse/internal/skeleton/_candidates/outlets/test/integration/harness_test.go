@@ -58,6 +58,10 @@ const (
 	// The browser outlets' API prefixes.
 	consoleAPI = "/console/api"
 	portalAPI  = "/portal/api"
+
+	// directoryTenant is the Microsoft tenant the portal's directory registration admits
+	// in the served suites, by its tenant id: the connection of a member's identity link.
+	directoryTenant = "00000000-0000-0000-0000-000000000000"
 )
 
 // servedConfigurer implements app.Configurer over the real dependencies: the test
@@ -230,7 +234,7 @@ func newServed(ctx context.Context, t *testing.T) *served {
 		Mail:           &mail.Recorder{},
 		MailLoginURL:   "http://outlets.test/portal/login",
 		LoginURL:       "/portal/login",
-		Directory:      members.DirectorySettings{TenantID: "00000000-0000-0000-0000-000000000000", AdministeredTenants: "00000000-0000-0000-0000-000000000000", RedirectURL: "http://" + server.Listener.Addr().String() + portalAPI + "/user/directory/callback"},
+		Directory:      members.DirectorySettings{TenantID: directoryTenant, AdministeredTenants: directoryTenant, RedirectURL: "http://" + server.Listener.Addr().String() + portalAPI + "/user/directory/callback"},
 		// The declaration reader the sign-in rule reads with; the development seed
 		// makes the directory above north's.
 		TenantDeclarations: app.NewTenantDeclarationReader(),
@@ -436,6 +440,14 @@ func machine(ctx context.Context, t *testing.T, s *served, token, method, path s
 func (b *browser) do(ctx context.Context, method, path string, body []byte) (status int, respBody []byte) {
 	b.t.Helper()
 
+	return b.doWith(ctx, method, path, body, nil)
+}
+
+// doWith is do with headers of the request's own: a method asked for its warning
+// (X-Warning), which answers what the call would do and saves nothing.
+func (b *browser) doWith(ctx context.Context, method, path string, body []byte, headers map[string]string) (status int, respBody []byte) {
+	b.t.Helper()
+
 	req, err := http.NewRequestWithContext(ctx, method, b.base+path, bytes.NewReader(body))
 	if err != nil {
 		b.t.Fatal(err)
@@ -443,6 +455,9 @@ func (b *browser) do(ctx context.Context, method, path string, body []byte) (sta
 	req.Header.Set("Content-Type", "application/json")
 	if token := b.xsrfToken(); token != "" {
 		req.Header.Set("X-XSRF-TOKEN", token)
+	}
+	for name, value := range headers {
+		req.Header.Set(name, value)
 	}
 
 	resp, err := b.client.Do(req)

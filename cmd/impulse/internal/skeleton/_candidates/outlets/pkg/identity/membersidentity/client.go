@@ -64,8 +64,11 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, opts 
 	// record's; it goes first, so an option the caller passes is the one kept.
 	opts = append([]identity.Option{identity.WithTenantWord("tenant")}, opts...)
 	opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))
-	// A change to a group is judged as the role changes it makes, by the grants of the
-	// methods that give a role and take one away (grants.go).
+	// What gives a person a role without naming them is judged as giving the role
+	// directly, by the grants of the methods that give a role and take one away
+	// (grants.go): a change to a group, as the role changes it makes, and the default
+	// role of a sign-in method opened to sign-up, which every person who signs up is
+	// given.
 	opts = append(opts, identity.WithRoleGrants(grants{}))
 	manager, err := identity.New(AuthName, store{}, controller, sessions, opts...)
 	if err != nil {
@@ -147,6 +150,20 @@ func (c *Client) InvitationAccepted() session.InvitationAcceptedHook[*spanner.Re
 // sets it where it sets the invitation's.
 func (c *Client) DirectorySeated() session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {
 	return c.manager.DirectorySeated("Members")
+}
+
+// DirectoryRole holds the role a tenant is opened to its directory's people with to its
+// rules over the Members auth's tables, in the caller's transaction, and writes
+// nothing: the role exists in the tenant, and the request's caller could give it there
+// directly, by the grant of the method that gives a role in a tenant
+// (identity.Manager.DirectoryRole). The generated method that opens a tenant to its
+// directory asks it before it writes the role.
+func (c *Client) DirectoryRole(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain, role accesstypes.Role) error {
+	if err := c.manager.DirectoryRole(ctx, txn, tenant, role); err != nil {
+		return errors.Wrap(err, "identity.Manager.DirectoryRole()")
+	}
+
+	return nil
 }
 
 // SignedIn answers the session library's hook for a sign-in that stands

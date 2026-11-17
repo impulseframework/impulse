@@ -168,8 +168,10 @@ type recordRename struct {
 // recordRenames are the renames from the reference's record to the application's, in
 // order: the quoted words the screen shows, then the names the generator derives from
 // the record (its resources, the types of their bodies, the client's properties, the
-// routes, the create-your-tenant route with its body and answer, the route parameter
-// and the directories record's tenant field).
+// routes, the create-your-tenant route with its body and answer, the route parameter,
+// the directories record's tenant field, and the generated methods of the tenant's own:
+// the two that turn the record's directory-only switch and the two that say how it
+// admits its directory's people, each with its route).
 func (tn Tenancy) recordRenames() []recordRename {
 	rec, table := tn.Record(), tn.Table
 	r, t := lowerFirst(rec), lowerFirst(table)
@@ -190,6 +192,15 @@ func (tn Tenancy) recordRenames() []recordRename {
 		{regexp.MustCompile(`\bTenantDirectories\b`), rec + "Directories"},
 		{regexp.MustCompile(`\btenantDirectories\b`), r + "Directories"},
 		{regexp.MustCompile(`\btenant-directories\b`), kr + "-directories"},
+		{regexp.MustCompile(`\b(Make|End)TenantDirectoryOnly\b`), "${1}" + rec + "DirectoryOnly"},
+		{regexp.MustCompile(`\b(make|end)TenantDirectoryOnly\b`), "${1}" + rec + "DirectoryOnly"},
+		{regexp.MustCompile(`\b(make|end)-tenant-directory-only\b`), "${1}-" + kr + "-directory-only"},
+		{regexp.MustCompile(`\bOpenTenantToDirectory\b`), "Open" + rec + "ToDirectory"},
+		{regexp.MustCompile(`\bopenTenantToDirectory\b`), "open" + rec + "ToDirectory"},
+		{regexp.MustCompile(`\bopen-tenant-to-directory\b`), "open-" + kr + "-to-directory"},
+		{regexp.MustCompile(`\bMakeTenantInviteOnly\b`), "Make" + rec + "InviteOnly"},
+		{regexp.MustCompile(`\bmakeTenantInviteOnly\b`), "make" + rec + "InviteOnly"},
+		{regexp.MustCompile(`\bmake-tenant-invite-only\b`), "make-" + kr + "-invite-only"},
 		{regexp.MustCompile(`\bTenantsCreate\b`), table + "Create"},
 		{regexp.MustCompile(`\bCreateTenantAnswer\b`), "Create" + rec + "Answer"},
 		{regexp.MustCompile(`\bCreateTenant\b`), "Create" + rec},

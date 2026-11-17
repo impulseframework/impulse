@@ -250,12 +250,32 @@ or one per domain), loaded on demand and cached for the session.
   holds the tenants the session reaches and never a closed one; `closedDomains()` answers
   the closed ones with their reasons, for a picker to show marked and not as places to
   open.
-- `directoryOnlyConsequence(api.request, tenant)` asks the server what turning a tenant's
-  directory-only switch on would do, before a page saves it (`GET directory-only`): the
-  sentence a confirmation shows, the people seated in the tenant who would lose access,
-  and the words for the confirming button. The server's refusal (a tenant with no
-  directory, a person who is not signed in through the tenant's directory, a tenant
-  that is directory only already) throws with its sentence as the error's message.
+- A tenant's directory-only switch is the tenant's own, turned by the tenant's
+  administrator with two generated methods in the tenant's scope:
+  `api.domain(tenant).make<Record>DirectoryOnly` turns it on and
+  `api.domain(tenant).end<Record>DirectoryOnly` turns it off (Execute on each in the
+  tenant; the handle's `can()` says whether the person may). `directoryOnlyState(api, tenant)`
+  reads the switch as it stands (`GET <tenants>/<tenant>/directory-only`), asked under
+  the grant of either method, which the tenant's administrator, who does not read the
+  tenant record, has no other way to see. Turning it on warns first: the method's
+  metadata declares the word a person types (`warning: { typed: 'close' }`), and
+  `make<Record>DirectoryOnly.warning({})` answers what it would do, in the server's
+  words and with nothing saved: the sentence (`consequence`), the people who would lose
+  access (`names`, listed only to a caller who may list the tenant's people, so the list
+  can hold fewer than the sentence counts, or be absent), and the words for the button
+  (`confirm`). The method dialog shows all three and holds its button until the word is
+  typed. The server's refusal (a tenant with no directory, a person who is not signed in
+  through the tenant's directory, a tenant that is directory only already) throws from
+  `warning` with its sentence as the error's message, so a page that asks first shows
+  the refusal and opens no dialog.
+- How a tenant admits its directory's people is the tenant's own too, said with two
+  generated methods where the directories record carries a default role:
+  `api.domain(tenant).open<Record>ToDirectory({ role })` opens the tenant to them, each
+  given the role at their first sign-in through the directory, and
+  `api.domain(tenant).make<Record>InviteOnly({})` makes it invite only again. Opening
+  warns (`warning: { typed: 'open' }`): the server says who will be able to enter and
+  the role each of them gets, and refuses a role that is not the tenant's or that the
+  caller could not give directly.
 - Every answer here reads a `Store`, and a UI framework can make each read a
   dependency of its reactive code by setting the store read hook once
   (`setStoreReadHook`). The Angular client does (`provideResourceClient`), so a

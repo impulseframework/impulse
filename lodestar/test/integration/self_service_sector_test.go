@@ -97,6 +97,20 @@ func createdKey(t *testing.T, step string, body []byte) string {
 	return got.ID
 }
 
+// assertOffered checks the answer of GET on the create-sector route: whether the caller
+// may chart a sector of their own now, as a page reads it before it offers the creation.
+func assertOffered(want bool) func(t *testing.T, step string, body []byte) {
+	return func(t *testing.T, step string, body []byte) {
+		t.Helper()
+		var got struct {
+			Offered *bool `json:"offered"`
+		}
+		if err := json.Unmarshal(body, &got); err != nil || got.Offered == nil || *got.Offered != want {
+			t.Errorf("%s: answered %s (%v), want offered = %v", step, body, err, want)
+		}
+	}
+}
+
 // TestSelfServiceSector_pioneerChartsHerOwn plays the scenario in order over two instances.
 func TestSelfServiceSector_pioneerChartsHerOwn(t *testing.T) {
 	t.Parallel()
@@ -147,10 +161,13 @@ func TestSelfServiceSector_pioneerChartsHerOwn(t *testing.T) {
 				}
 			},
 		},
+		{name: "and her page is told so before it offers anything: no sector can be charted now", on: first, user: pioneerUser, method: http.MethodGet, target: createSectorRoute, wantStatus: http.StatusOK, check: assertOffered(false)},
 		{name: "the marshal holds no grant on the method that opens one, and is refused it", on: first, user: tenantMarshal, method: http.MethodPost, target: openSignUpRoute, body: `{"name":"sign-up"}`, wantStatus: http.StatusForbidden},
 		{name: "a default role is refused the governor: a person who signs up charts a sector and holds no role", on: first, user: tenantGovernor, method: http.MethodPost, target: openSignUpRoute, body: `{"name":"sign-up","defaultRole":"CrewCommon"}`, wantStatus: http.StatusBadRequest},
 		{name: "still refused the pioneer on the second instance: nothing was opened", on: second, user: pioneerUser, method: http.MethodPost, target: createSectorRoute, body: chartEmber, wantStatus: http.StatusForbidden},
 		{name: "the governor opens the sign-up registration", on: first, user: tenantGovernor, method: http.MethodPost, target: openSignUpRoute, body: `{"name":"sign-up"}`, wantStatus: http.StatusNoContent},
+		{name: "open: the pioneer's page is told a sector can be charted now, on either instance", on: second, user: pioneerUser, method: http.MethodGet, target: createSectorRoute, wantStatus: http.StatusOK, check: assertOffered(true)},
+		{name: "open: the marshal's page is told none can, since she holds Anvil", on: first, user: tenantMarshal, method: http.MethodGet, target: createSectorRoute, wantStatus: http.StatusOK, check: assertOffered(false)},
 		{name: "the marshal holds Anvil and is refused: only a person holding no sector charts one here", on: first, user: tenantMarshal, method: http.MethodPost, target: createSectorRoute, body: chartEmber, wantStatus: http.StatusForbidden},
 		{name: "the governor, marshal in every sector, is refused too: an administrator of one sector never creates another here", on: first, user: tenantGovernor, method: http.MethodPost, target: createSectorRoute, body: chartEmber, wantStatus: http.StatusForbidden},
 		{name: "a body without the name is refused the pioneer, and writes nothing", on: first, user: pioneerUser, method: http.MethodPost, target: createSectorRoute, body: `{"region":"Near frontier","established":"2226-10-20"}`, wantStatus: http.StatusBadRequest},
@@ -178,6 +195,7 @@ func TestSelfServiceSector_pioneerChartsHerOwn(t *testing.T) {
 		{name: "charted: her chart lights Ember at once, seated as its marshal before the route answered", on: first, user: pioneerUser, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(accesstypes.Domain(ember))},
 		{name: "charted: Ember's flight deck answers her, empty", on: first, user: pioneerUser, method: http.MethodGet, target: sectorPath(ember, "missions"), wantStatus: http.StatusOK, check: assertNoRows},
 		{name: "charted: the sector list carries Ember, in name order", on: first, user: tenantSurveyor, method: http.MethodGet, target: sectorsRoute, wantStatus: http.StatusOK, check: assertSectorNames("Anvil", "Bastion", "Cinder", "Ember")},
+		{name: "charted: her page is told no second sector can be charted", on: first, user: pioneerUser, method: http.MethodGet, target: createSectorRoute, wantStatus: http.StatusOK, check: assertOffered(false)},
 		{name: "a second sector is refused her: one sector per person", on: first, user: pioneerUser, method: http.MethodPost, target: createSectorRoute, body: chartEmberAgain, wantStatus: http.StatusForbidden},
 		{name: "the marshal's chart does not light Ember", on: first, user: tenantMarshal, method: http.MethodGet, target: userDomainsRoute, wantStatus: http.StatusOK, check: assertDomains(anvil)},
 		{name: "Ember's routes answer the marshal 404: a sector that does not exist for her", on: first, user: tenantMarshal, method: http.MethodGet, target: sectorPath(ember, "missions"), wantStatus: http.StatusNotFound},

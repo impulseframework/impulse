@@ -170,3 +170,39 @@ func (a *App) CreateSector() http.HandlerFunc {
 		return httpio.NewEncoder(w).Ok(response{ID: id})
 	})
 }
+
+// CreateSectorOffered serves GET /console/api/create-sector: whether the caller may create a sector of
+// their own now. A page offers a person only what they may do, so the page that offers
+// the create-your-sector card asks this first and hides the card on a no. The answer is
+// the one CreateSector would reach for the same caller before it reads a body, by the
+// same two facts: the session holds a grant in no sector, and an administrator has a
+// sign-in method of the Crew auth open to sign-up, read as committed. No grant admits the
+// call, which any signed-in person makes, and nothing is written. The POST decides again
+// in its own transaction: what is offered here may be refused there a moment later.
+func (a *App) CreateSectorOffered() http.HandlerFunc {
+	type offer struct {
+		Offered bool `json:"offered"`
+	}
+
+	identity := a.CrewIdentity()
+
+	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
+		ctx, span := tracer.Start(r.Context())
+		defer span.End()
+
+		// One sector per person: a session holding a grant in any sector is offered none.
+		held, err := a.UserPermissions(r).Domains(ctx)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if len(held) > 0 {
+			return httpio.NewEncoder(w).Ok(offer{Offered: false})
+		}
+		open, err := identity.AnySignInMethodOpen(ctx, a.ResourceClient())
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, errors.Wrap(err, "CrewIdentity().AnySignInMethodOpen()"))
+		}
+
+		return httpio.NewEncoder(w).Ok(offer{Offered: open})
+	})
+}

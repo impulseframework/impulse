@@ -44,7 +44,6 @@ digraph Bindings {
 	"PilotCertification" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>PilotCertification</b></td></tr><tr><td align="left">subject.certifications: CertificationId</td></tr></table>>];
 	"Refit" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>Refit</b></td></tr><tr><td align="left">estimate: Estimate</td></tr><tr><td align="left">inspectedAt: InspectedAt</td></tr><tr><td align="left">openedBy: OpenedByUserId</td></tr><tr><td align="left">state: StatusId</td></tr></table>>];
 	"RefitTask";
-	"SectorDirectory" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>SectorDirectory</b></td></tr><tr><td align="left">defaultSeat: DefaultSeat</td></tr></table>>];
 	"SectorPilot" [label=<<table border="0" cellborder="0" cellspacing="0" cellpadding="1"><tr><td align="left"><b>SectorPilot</b></td></tr><tr><td align="left">fliesElsewhere: FliesElsewhere</td></tr></table>>];
 	"Ship";
 	"Sortie";

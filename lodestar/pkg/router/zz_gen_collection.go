@@ -268,6 +268,7 @@ func Collection() *resource.GeneratedCollection {
 				Attributes: []resource.AttributeData{
 					{Name: "heldElsewhere", Column: "HeldElsewhere", Type: "bool"},
 					{Name: "heldGlobally", Column: "HeldGlobally", Type: "bool"},
+					{Name: "password", Column: "Password", Type: "bool"},
 				},
 			},
 			{
@@ -446,6 +447,11 @@ func Collection() *resource.GeneratedCollection {
 				Target:      "MembersSectorUsers",
 			},
 			{
+				Name:        "EndSectorDirectoryOnly",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+			},
+			{
 				Name:        "ExpenseManifests",
 				Scope:       accesstypes.DomainPermissionScope,
 				Computed:    true,
@@ -564,6 +570,16 @@ func Collection() *resource.GeneratedCollection {
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 				Transition:  &resource.TransitionData{Target: "Missions", From: []string{"claimed"}, To: "underway"},
 				Target:      "Missions",
+			},
+			{
+				Name:        "MakeSectorDirectoryOnly",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+			},
+			{
+				Name:        "MakeSectorInviteOnly",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
 				Name:        "MembersSectorIdentities",
@@ -768,6 +784,11 @@ func Collection() *resource.GeneratedCollection {
 				QueryKeys: []accesstypes.Tag{"squadronName"},
 			},
 			{
+				Name:        "OpenSectorToDirectory",
+				Scope:       accesstypes.DomainPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+			},
+			{
 				Name:        "PassFlightTest",
 				Scope:       accesstypes.DomainPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
@@ -914,13 +935,10 @@ func Collection() *resource.GeneratedCollection {
 				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
 				Tags: []resource.TagData{
 					{Name: "connection", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
-					{Name: "defaultSeat", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
+					{Name: "defaultSeat", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "id"},
 					{Name: "method", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "sectorId", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
-				},
-				Attributes: []resource.AttributeData{
-					{Name: "defaultSeat", Column: "DefaultSeat", Type: "string"},
 				},
 				Domain:    &resource.DomainBindingData{Column: "SectorId"},
 				Order:     []accesstypes.Tag{"method", "connection"},
@@ -1571,6 +1589,7 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "label", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "name"},
 					{Name: "openSignUp", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "ownRule", Permissions: []accesstypes.Permission{accesstypes.List}},
 					{Name: "says", Permissions: []accesstypes.Permission{accesstypes.List}},
 				},
 			},
@@ -2035,7 +2054,7 @@ func Collection() *resource.GeneratedCollection {
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.Delete, accesstypes.List, accesstypes.Read, accesstypes.Update},
 				Tags: []resource.TagData{
-					{Name: "directoryOnly", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
+					{Name: "directoryOnly", Permissions: []accesstypes.Permission{accesstypes.List, accesstypes.Read}},
 					{Name: "established", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},
 					{Name: "id"},
 					{Name: "name", Permissions: []accesstypes.Permission{accesstypes.Create, accesstypes.List, accesstypes.Read, accesstypes.Update}},

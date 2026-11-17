@@ -217,6 +217,7 @@
                 "directoryGivesRoles",
                 "label",
                 "openSignUp",
+                "ownRule",
                 "says"
               ]
             },
@@ -394,7 +395,6 @@
             {
               "resource": "Tenants",
               "fields": [
-                "directoryOnly",
                 "name"
               ]
             }
@@ -442,10 +442,7 @@
         "permissions": {
           "Create": [
             {
-              "resource": "TenantDirectories",
-              "fields": [
-                "defaultSeat"
-              ]
+              "resource": "TenantDirectories"
             },
             {
               "resource": "Announcements",
@@ -550,6 +547,18 @@
             },
             {
               "resource": "TakeStaffTenantGroupRole"
+            },
+            {
+              "resource": "MakeTenantDirectoryOnly"
+            },
+            {
+              "resource": "EndTenantDirectoryOnly"
+            },
+            {
+              "resource": "OpenTenantToDirectory"
+            },
+            {
+              "resource": "MakeTenantInviteOnly"
             }
           ],
           "List": [
@@ -647,7 +656,8 @@
                 "through",
                 "heldElsewhere",
                 "heldGlobally"
-              ]
+              ],
+              "condition": "password = false OR heldElsewhere = false"
             },
             {
               "resource": "StaffTenantRoles",
@@ -797,12 +807,6 @@
                 "body",
                 "kindId",
                 "title"
-              ]
-            },
-            {
-              "resource": "TenantDirectories",
-              "fields": [
-                "defaultSeat"
               ]
             }
           ]

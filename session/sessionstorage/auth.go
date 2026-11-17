@@ -18,10 +18,10 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ErrLastSignInMethod is returned when UnlinkIdentity would remove the last identity of
-// a user that has no password, and when RemoveUserPassword would remove the password of
-// a user none of whose identities can sign them in: either would leave the user no
-// means of sign-in. It is a Conflict client message.
+// ErrLastSignInMethod is returned when UnlinkIdentity would remove the last identity
+// that can sign in a user that has no password, and when RemoveUserPassword would
+// remove the password of a user none of whose identities can sign them in: either would
+// leave the user no means of sign-in. It is a Conflict client message.
 var ErrLastSignInMethod = dbtype.ErrLastSignInMethod
 
 // ErrPasswordChanged is returned by the password writes that follow a proof of the
@@ -104,13 +104,16 @@ type AuthStore[Tx any] interface {
 	UserStore
 	// Users lists every user, by username.
 	Users(ctx context.Context) ([]*SessionUser, error)
-	// SetUserPassword sets a user's password hash and whether the user must change the
-	// password before anything else is served (SessionUser.PasswordChangeRequired), in
-	// one write: true for a password an operator set, false for one the user chose.
-	// It follows no proof of the password it replaces and overwrites whatever the row
-	// holds: it is an operator's write, or the end of a flow that proved who the person
-	// is by other means. A user's own change is ChangeUserPassword.
-	SetUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
+	// ReplaceUserPassword sets a user's password hash and whether the user must change
+	// the password before anything else is served (SessionUser.PasswordChangeRequired:
+	// true for a password an operator set, false for one the user chose), and expires
+	// every session of the user, as DestroyUserSessions does, in one transaction: the
+	// password is replaced and the sessions ended together, or neither is, so no
+	// failure leaves the new password in place and a session alive. It follows no proof
+	// of the password it replaces and overwrites whatever the row holds: it is an
+	// operator's write, or the end of a flow that proved who the person is by other
+	// means. A user's own change is ChangeUserPassword.
+	ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
 	// ChangeUserPassword replaces the password a user proved with one the user chose,
 	// clears the password change mark and expires every session of the user, as
 	// DestroyUserSessions does, in one transaction: the password is changed and the
@@ -163,9 +166,17 @@ type AuthStore[Tx any] interface {
 		ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string,
 		directories signin.DirectoryReader[Tx], seat signinflow.DirectorySeater[Tx], proven PasswordProof,
 	) error
-	// UnlinkIdentity removes a link. It refuses to remove the last means of sign-in of
-	// a user that has no password.
-	UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error
+	// UnlinkIdentity removes a link. A user that has no password keeps a means of
+	// sign-in: the link goes only while another identity linked to the user is one
+	// signsIn judges a means of sign-in, by its method and connection (the caller's
+	// judgment of the links a sign-in is still possible through), and the unlink is
+	// refused otherwise (ErrLastSignInMethod), however many identities that sign nobody
+	// in the user would keep. The user's other identities are read and judged in the
+	// transaction that unlinks, so two unlinks, or an unlink and a removal of the
+	// password, that race cannot leave the user with no means of sign-in between them.
+	// signsIn is asked about no identity of a user that has a password, who may lose
+	// every one; a nil signsIn judges no identity a means of sign-in.
+	UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error
 	// RemoveUserPassword removes a user's password, and with it the mark that the user
 	// must change it. standing names the identities linked to the user that the caller
 	// judged a means of sign-in (the links a sign-in is still possible through): the
@@ -298,12 +309,13 @@ type AuthStore[Tx any] interface {
 	SetSignInMethod(ctx context.Context, m *SignInMethod) error
 	// SignUp makes the account of a person who signs up with a password through the
 	// method registered under method, in one transaction, and returns its id: the method
-	// must be open to sign-up, as its row says in that transaction, the mail link linkID
+	// must be open to sign-up for audience, whom its registration admits
+	// (signin.Audience.Key), as its row says in that transaction, the mail link linkID
 	// is consumed, the user row is written, and seat gives the method's default role,
 	// handed the transaction (nil for none). A method that is not open and a link that
 	// is no longer live are NotFound, a taken username or address a Conflict, and
 	// nothing is written by a refusal.
-	SignUp(ctx context.Context, method string, user *InsertSessionUser, linkID impulse.UUID, seat signinflow.SignUpSeater[Tx]) (impulse.UUID, error)
+	SignUp(ctx context.Context, method, audience string, user *InsertSessionUser, linkID impulse.UUID, seat signinflow.SignUpSeater[Tx]) (impulse.UUID, error)
 	// SetUsernameIsEmail declares the users table in the shape where the address is
 	// the username, generated by the database: the store never writes Email, refuses
 	// a rename, and writes a verified address as the username (see the README's
@@ -537,13 +549,24 @@ func NewPostgresAuth(pg postgres.Queryer, opts ...PostgresOption) *Auth[pgx.Tx] 
 // nil for none). They carry the proof of the password the sign-in rests on too (nil for
 // none), which the session's insert is held to.
 type SignInRules[Tx any] struct {
-	Account     signin.AccountRule[Tx]
-	Method      string
+	Account signin.AccountRule[Tx]
+	Method  string
+	// Audience is whom the method's registration admits now (signin.Audience.Key): the
+	// method's row opens it only for the audience it was opened for.
+	Audience string
+	// SeededUsers says the registration declared its provider's names the
+	// application's own (signin.Registration.SeededUsers): a user created ahead is
+	// then linked on the name alone.
+	SeededUsers bool
 	Policy      signin.Policy[Tx]
 	Accept      signinflow.InvitationAcceptor[Tx]
 	SignUp      signinflow.SignUpSeater[Tx]
 	Directories signin.DirectoryReader[Tx]
 	Seat        signinflow.DirectorySeater[Tx]
+	// OnlyIn reports whether a tenant is the only place a person holds anything (nil
+	// for none): with Directories it decides a first link made on a name alone to an
+	// account that has never signed in.
+	OnlyIn signinflow.OnlyInTenant[Tx]
 	// TrustedDevice reports whether the browser signing in is a trusted device of
 	// the user, which stands in for the second factor a RequireMFA asks; nil for none.
 	TrustedDevice signinflow.TrustedDeviceCheck
@@ -565,8 +588,8 @@ func (a *Auth[Tx]) SignIn(ctx context.Context, req *sessioninfo.NewSessionReques
 	session := &dbtype.InsertSession{Username: req.Username}
 
 	flowRules := signinflow.Rules[Tx]{
-		Account: rules.Account, Method: rules.Method, Policy: rules.Policy, Accept: rules.Accept, SignUp: rules.SignUp,
-		Directories: rules.Directories, Seat: rules.Seat, TrustedDevice: rules.TrustedDevice, Proven: rules.Proven,
+		Account: rules.Account, Method: rules.Method, Audience: rules.Audience, SeededUsers: rules.SeededUsers, Policy: rules.Policy, Accept: rules.Accept, SignUp: rules.SignUp,
+		Directories: rules.Directories, Seat: rules.Seat, OnlyIn: rules.OnlyIn, TrustedDevice: rules.TrustedDevice, Proven: rules.Proven,
 	}
 	if err := signinflow.SignIn(ctx, a.flow, id, session, req, flowRules); err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
@@ -631,11 +654,11 @@ func (a *Auth[Tx]) SetSignInMethod(ctx context.Context, m *SignInMethod) error {
 }
 
 // SignUp implements AuthStore.
-func (a *Auth[Tx]) SignUp(ctx context.Context, method string, user *InsertSessionUser, linkID impulse.UUID, seat signinflow.SignUpSeater[Tx]) (impulse.UUID, error) {
+func (a *Auth[Tx]) SignUp(ctx context.Context, method, audience string, user *InsertSessionUser, linkID impulse.UUID, seat signinflow.SignUpSeater[Tx]) (impulse.UUID, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	id, err := signinflow.SignUp(ctx, a.flow, method, user, linkID, seat)
+	id, err := signinflow.SignUp(ctx, a.flow, method, audience, user, linkID, seat)
 	if err != nil {
 		return impulse.NilUUID, errors.Wrap(err, "signinflow.SignUp()")
 	}
@@ -959,13 +982,13 @@ func (a *Auth[Tx]) Users(ctx context.Context) ([]*SessionUser, error) {
 	return users, nil
 }
 
-// SetUserPassword implements AuthStore.
-func (a *Auth[Tx]) SetUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
+// ReplaceUserPassword implements AuthStore.
+func (a *Auth[Tx]) ReplaceUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.SetUserPassword(ctx, id, hash, changeRequired); err != nil {
-		return errors.Wrap(err, "db.SetUserPassword()")
+	if err := a.db.ReplaceUserPassword(ctx, id, hash, changeRequired); err != nil {
+		return errors.Wrap(err, "db.ReplaceUserPassword()")
 	}
 
 	return nil
@@ -1046,11 +1069,11 @@ func (a *Auth[Tx]) LinkConfirmedIdentity(
 }
 
 // UnlinkIdentity implements AuthStore.
-func (a *Auth[Tx]) UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error {
+func (a *Auth[Tx]) UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := a.db.UnlinkIdentity(ctx, identityID); err != nil {
+	if err := a.db.UnlinkIdentity(ctx, identityID, signsIn); err != nil {
 		return errors.Wrap(err, "db.UnlinkIdentity()")
 	}
 

@@ -50,6 +50,14 @@ func (r *resourceGenerator) runHandlerGeneration() error {
 		return errors.Wrap(err, "generateTenantCreation()")
 	}
 
+	if err := r.generateDirectoryOnly(); err != nil {
+		return errors.Wrap(err, "generateDirectoryOnly()")
+	}
+
+	if err := r.generateDirectoryRole(); err != nil {
+		return errors.Wrap(err, "generateDirectoryRole()")
+	}
+
 	if err := r.generateDecoders(); err != nil {
 		return errors.Wrap(err, "generateDecoders()")
 	}

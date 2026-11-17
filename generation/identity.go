@@ -748,6 +748,8 @@ func (r *resourceGenerator) writeIdentitySources(inst *identityInstance) error {
 	// The methods that manage the groups of people, the whole application's and one
 	// tenant's.
 	files = append(files, inst.groupMethodSources()...)
+	// What the rules ask of the role file: who may give a role and take one away.
+	files = append(files, inst.roleGrantsSource()...)
 	for _, file := range files {
 		if slices.ContainsFunc(file.needs, func(kind identityTable) bool { return !inst.has(kind) }) {
 			continue

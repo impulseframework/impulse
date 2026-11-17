@@ -3,39 +3,37 @@
 package integration
 
 import (
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 )
 
-// TestDirectoryDefaultRole_aMarshalNamesNoMarshal proves the limit the crew's role file
-// puts on the role a sector's directory gives a person at their first sign-in through
-// it.
+// TestDirectoryDefaultRole_openedWithARoleTheCallerMayGive proves how a sector's marshal
+// says what the sector's directory gives a person at their first sign-in through it:
+// with two methods of the sector's own, never by writing the record.
 //
-// A marshal gives every role of the sector but their own: the grants on the methods that
-// give a role say so (new.role != 'SectorMarshal'). A directory's default role gives a
-// role too, to everyone the directory vouches for, with nobody signed in, so the
-// marshal's Update grant on the directories record carries the same limit over the role
-// the request writes (new.defaultSeat): a default role is named, changed and cleared,
-// but never with the marshal's own role. A directory is set without one, since the
-// marshal's Create grant carries no field (the server sets the directory from the
-// session), so every default role is named by an update, under the limit. Without it a
-// marshal would make marshals of everyone from a directory, which the grants on the
-// methods refuse them one person at a time.
+// OpenSectorToDirectory names the role, and from then on everyone the directory vouches
+// for enters the sector with it, people nobody named. So the method warns before it
+// runs, in the server's words, and the role is held to what giving it by hand needs: it
+// is a role of the sector, and one the caller could give there directly. A marshal
+// gives every role of the sector but their own: the grant on the method that gives a
+// role says so (new.role != 'SectorMarshal'), and the same grant answers here, so a
+// marshal opens the sector with Pilot and never with SectorMarshal. Without the rule a
+// marshal would make marshals of everyone from a directory, which the grant refuses
+// them one person at a time. MakeSectorInviteOnly clears the role, which is plain. The
+// record shows the role and never writes it: a patch that carries it is refused, and so
+// is a create, whoever sends it. A sector with no directory has nobody to open to.
 //
 // The fleet's directory is Cinder's, so the marshal, Anvil's, is given the marshal's
 // role at Cinder first.
 //
 // Demonstrates: tenancy.default-seat.
-func TestDirectoryDefaultRole_aMarshalNamesNoMarshal(t *testing.T) {
+func TestDirectoryDefaultRole_openedWithARoleTheCallerMayGive(t *testing.T) {
 	t.Parallel()
-
-	// The conditional grant this test proves, pinned to the role file.
-	provesGrant(t, crew.Roles(), "SectorMarshal", "Update", "SectorDirectories", "new.defaultSeat IS NULL OR new.defaultSeat != 'SectorMarshal'")
 
 	ctx := t.Context()
 	s := newServed(ctx, t)
@@ -68,8 +66,23 @@ func TestDirectoryDefaultRole_aMarshalNamesNoMarshal(t *testing.T) {
 	}
 	// The row as a batch names it: its path under the API's prefix.
 	row := "/sectors/" + cinder + "/sector-directories/" + rows[0].ID
-	patch := func(value string) (int, []byte) {
-		return marshal.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"patch","path":"`+row+`","value":{"defaultSeat":`+value+`}}]`))
+	open := func(b *browser, role string) (int, []byte) {
+		return b.do(ctx, http.MethodPost, sectorPath(cinder, "open-sector-to-directory"), jsonBody(t, map[string]string{"role": role}))
+	}
+	inviteOnly := func(b *browser) (int, []byte) {
+		return b.do(ctx, http.MethodPost, sectorPath(cinder, "make-sector-invite-only"), []byte(`{}`))
+	}
+	// warns asks the method that opens the sector for its warning, with the role as
+	// picked so far: what the call would do, with nothing saved.
+	warns := func(b *browser, role string) (int, []byte) {
+		res := b.doWith(ctx, http.MethodPost, sectorPath(cinder, "open-sector-to-directory"), jsonBody(t, map[string]string{"role": role}), map[string]string{"X-Warning": "true"})
+		defer res.Body.Close()
+		body, err := io.ReadAll(res.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		return res.StatusCode, body
 	}
 	seat := func() string {
 		t.Helper()
@@ -83,34 +96,112 @@ func TestDirectoryDefaultRole_aMarshalNamesNoMarshal(t *testing.T) {
 
 		return *rows[0].DefaultSeat
 	}
+	if got := seat(); got != "SectorCrew" {
+		t.Fatalf("Cinder's default role as seeded = %q, want SectorCrew", got)
+	}
+
+	// The warning is the server's, for the role as picked so far, and saves nothing.
+	// While no role is picked it says one is to be chosen.
+	const who = "Anyone who signs in through example will be able to enter this sector without an invitation"
+	for role, want := range map[string]string{"Pilot": who + " and gets the role Pilot.", "": who + ". Choose the role each of them gets."} {
+		status, body := warns(marshal, role)
+		var said struct {
+			Consequence string `json:"consequence"`
+			Confirm     string `json:"confirm"`
+		}
+		if err := json.Unmarshal(body, &said); status != http.StatusOK || err != nil {
+			t.Fatalf("asking what opening Cinder with %q would do: status %d, %v: %s", role, status, err, body)
+		}
+		if said.Consequence != want || said.Confirm != "Open to people who sign in through example" {
+			t.Errorf("the warning of opening Cinder with %q = %q under the button %q, want %q under what the button does", role, said.Consequence, said.Confirm, want)
+		}
+	}
+	if got := seat(); got != "SectorCrew" {
+		t.Fatalf("Cinder's default role after the warnings = %q, want SectorCrew still: asking writes nothing", got)
+	}
 
 	// A role the marshal may give is named.
-	if status, body := patch(`"Pilot"`); status != http.StatusOK {
-		t.Fatalf("naming Pilot as Cinder's default role: status %d, want 200: %s", status, body)
-	}
-	// The marshal's own role is refused, and the row keeps what it held.
-	if status, body := patch(`"SectorMarshal"`); status != http.StatusForbidden {
-		t.Errorf("naming SectorMarshal as Cinder's default role: status %d, want 403: %s", status, body)
+	if status, body := open(marshal, "Pilot"); status != http.StatusOK {
+		t.Fatalf("opening Cinder to its directory with Pilot: status %d, want 200: %s", status, body)
 	}
 	if got := seat(); got != "Pilot" {
-		t.Errorf("Cinder's default role after the refusal = %q, want Pilot", got)
+		t.Errorf("Cinder's default role once opened with Pilot = %q, want Pilot", got)
 	}
-	// Clearing it writes no role: the sector admits by invitation only again.
-	if status, body := patch(`null`); status != http.StatusOK {
-		t.Fatalf("clearing Cinder's default role: status %d, want 200: %s", status, body)
+	// The marshal's own role is refused, on the call and on its warning, in a sentence
+	// that says why, and the row keeps what it held.
+	const mayNotGive = "you may not give the role SectorMarshal in this sector, so you cannot make it the role everyone from its directory gets"
+	if status, body := open(marshal, "SectorMarshal"); status != http.StatusForbidden || !strings.Contains(string(body), mayNotGive) {
+		t.Errorf("opening Cinder with SectorMarshal as a marshal: status %d, want 403 saying %q: %s", status, mayNotGive, body)
 	}
-	if got := seat(); got != "" {
-		t.Errorf("Cinder's default role once cleared = %q, want none", got)
+	if status, body := warns(marshal, "SectorMarshal"); status != http.StatusForbidden || !strings.Contains(string(body), mayNotGive) {
+		t.Errorf("asking what opening Cinder with SectorMarshal would do, as a marshal: status %d, want 403 saying %q: %s", status, mayNotGive, body)
+	}
+	// A role that is not the sector's is refused, and so is a call that names none.
+	if status, body := open(marshal, "Headquarters"); status != http.StatusBadRequest || !strings.Contains(string(body), "is not a role of this sector") {
+		t.Errorf("opening Cinder with a role held for the whole application: status %d, want 400 saying it is no role of the sector: %s", status, body)
+	}
+	if status, body := open(marshal, ""); status != http.StatusBadRequest || !strings.Contains(string(body), "Choose the role") {
+		t.Errorf("opening Cinder with no role: status %d, want 400 saying to choose one: %s", status, body)
+	}
+	if got := seat(); got != "Pilot" {
+		t.Errorf("Cinder's default role after the refusals = %q, want Pilot", got)
+	}
+	// A dry run writes nothing.
+	dry := marshal.doWith(ctx, http.MethodPost, sectorPath(cinder, "open-sector-to-directory"), jsonBody(t, map[string]string{"role": "SectorCrew"}), map[string]string{"X-Dry-Run": "true"})
+	if err := dry.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if dry.StatusCode != http.StatusOK || seat() != "Pilot" {
+		t.Errorf("a dry run of opening Cinder with SectorCrew: status %d and the default role %q, want 200 and Pilot still", dry.StatusCode, seat())
 	}
 
-	// A directory is set without a default role: the marshal's Create grant carries no
-	// field, so a create that names one is refused whatever role it names, and the way
-	// to a default role is the update above. The create that names nothing is the
-	// action of a person signed in through a directory: the marshal came by password,
-	// so it is refused with how a directory is set, and Cinder is left with none.
+	// The record shows the role and never writes it: a patch that carries it is refused,
+	// to the marshal and to the governor, a super administrator who holds every grant.
+	for name, b := range map[string]*browser{"the marshal": marshal, "the governor": governor} {
+		patch := []byte(`[{"op":"patch","path":"` + row + `","value":{"defaultSeat":"SectorMarshal"}}]`)
+		if status, body := b.do(ctx, http.MethodPatch, consoleAPI+"/resources", patch); status != http.StatusBadRequest && status != http.StatusForbidden {
+			t.Errorf("patching the directory's default role as %s: status %d, want a refusal: the record does not take the role: %s", name, status, body)
+		}
+	}
+	if got := seat(); got != "Pilot" {
+		t.Fatalf("Cinder's default role after the refused patches = %q, want Pilot: the record's update writes no role", got)
+	}
+
+	// Making the sector invite only clears the role, and is plain: it warns of nothing,
+	// so a request for a warning is refused and clears nothing; and a sector that is
+	// invite only already is left as it is.
+	noWarning := marshal.doWith(ctx, http.MethodPost, sectorPath(cinder, "make-sector-invite-only"), []byte(`{}`), map[string]string{"X-Warning": "true"})
+	if err := noWarning.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if noWarning.StatusCode != http.StatusBadRequest || seat() != "Pilot" {
+		t.Errorf("asking the method that makes Cinder invite only for a warning: status %d and the default role %q, want 400 and Pilot still", noWarning.StatusCode, seat())
+	}
+	for range 2 {
+		if status, body := inviteOnly(marshal); status != http.StatusOK {
+			t.Fatalf("making Cinder invite only: status %d, want 200: %s", status, body)
+		}
+		if got := seat(); got != "" {
+			t.Errorf("Cinder's default role once it is invite only = %q, want none", got)
+		}
+	}
+
+	// A sector with no directory has nobody to open to: both methods say so, and the
+	// warning does too. A directory is set without a default role, since the create
+	// takes nothing from the request: one that names a role is refused.
 	remove := `[{"op":"remove","path":"` + row + `"}]`
 	if status, body := marshal.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(remove)); status != http.StatusOK {
 		t.Fatalf("removing Cinder's directory: status %d: %s", status, body)
+	}
+	const nobody = "This sector has no directory, so there is nobody to open it to."
+	for name, call := range map[string]func() (int, []byte){
+		"opening it":             func() (int, []byte) { return open(governor, "Pilot") },
+		"asking for the warning": func() (int, []byte) { return warns(governor, "Pilot") },
+		"making it invite only":  func() (int, []byte) { return inviteOnly(governor) },
+	} {
+		if status, body := call(); status != http.StatusConflict || !strings.Contains(string(body), nobody) {
+			t.Errorf("%s, for a sector with no directory: status %d, want 409 saying %q: %s", name, status, nobody, body)
+		}
 	}
 	set := func(b *browser, value string) (int, []byte) {
 		return b.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"add","path":"/sectors/`+cinder+`/sector-directories","value":{`+value+`}}]`))
@@ -118,13 +209,11 @@ func TestDirectoryDefaultRole_aMarshalNamesNoMarshal(t *testing.T) {
 	if status, body := set(marshal, ``); status != http.StatusConflict || !strings.Contains(string(body), "You are signed in with a password. A directory is set by signing in through it") {
 		t.Errorf("setting Cinder's directory from a password session: status %d, want 409 saying how a directory is set: %s", status, body)
 	}
-	// Her grants answer before that rule does: a create that names a default role is
-	// refused by the grant, which carries no field, however she is signed in.
-	if status, body := set(marshal, `"defaultSeat":"SectorCrew"`); status != http.StatusForbidden {
-		t.Errorf("setting Cinder's directory with a default role from a password session: status %d, want 403: %s", status, body)
+	if status, body := set(marshal, `"defaultSeat":"SectorCrew"`); status != http.StatusBadRequest && status != http.StatusForbidden {
+		t.Errorf("setting Cinder's directory with a default role from a password session: status %d, want a refusal: %s", status, body)
 	}
-	if rows := directories(ctx, t, marshal, cinder); len(rows) != 0 {
-		t.Fatalf("Cinder's directory after the refused call = %+v, want none", rows)
+	if rows := directories(ctx, t, governor, cinder); len(rows) != 0 {
+		t.Fatalf("Cinder's directory after the refused calls = %+v, want none", rows)
 	}
 
 	// Signed in through the fleet's directory, the marshal is offered the action. The
@@ -132,8 +221,7 @@ func TestDirectoryDefaultRole_aMarshalNamesNoMarshal(t *testing.T) {
 	// admits no directory session and a super administrator alone enters a sector
 	// whatever its sign-in settings say. Giving the role ends the sessions she holds,
 	// so she signs in again in both browsers: by her password, and through the fleet's
-	// directory, which her account is linked to from the sign-in above (through). The
-	// role carries no grant on the record: a
+	// directory, which her account is linked to from the sign-in above (through). A
 	// create that names a default role is refused her whatever the role, and writes
 	// nothing; the create that names nothing makes the fleet's Workspace Cinder's, with
 	// no default role.
@@ -149,8 +237,8 @@ func TestDirectoryDefaultRole_aMarshalNamesNoMarshal(t *testing.T) {
 		t.Fatalf("the marshal's Google login as a super administrator: status %d to %q, want %d to %q", status, location, http.StatusFound, consolePage)
 	}
 	for _, role := range []string{"SectorMarshal", "SectorCrew"} {
-		if status, body := set(through, `"defaultSeat":"`+role+`"`); status != http.StatusForbidden {
-			t.Errorf("setting Cinder's directory with %s as its default role: status %d, want 403: %s", role, status, body)
+		if status, body := set(through, `"defaultSeat":"`+role+`"`); status != http.StatusBadRequest && status != http.StatusForbidden {
+			t.Errorf("setting Cinder's directory with %s as its default role: status %d, want a refusal: %s", role, status, body)
 		}
 	}
 	if rows := directories(ctx, t, marshal, cinder); len(rows) != 0 {
@@ -163,13 +251,16 @@ func TestDirectoryDefaultRole_aMarshalNamesNoMarshal(t *testing.T) {
 	if len(rows) != 1 || rows[0].Connection != "example" || rows[0].DefaultSeat != nil {
 		t.Fatalf("Cinder's directory = %+v, want the fleet's Workspace with no default role", rows)
 	}
-	// The new row is held to the same limit: the marshal's own role is refused.
-	row = "/sectors/" + cinder + "/sector-directories/" + rows[0].ID
-	if status, body := patch(`"SectorMarshal"`); status != http.StatusForbidden {
-		t.Errorf("naming SectorMarshal as the default role of the directory just set: status %d, want 403: %s", status, body)
+	// The new row is opened under the same rule, by the grants she holds as a marshal:
+	// the marshal's own role is refused, and a role she may give is named.
+	if status, body := open(marshal, "SectorMarshal"); status != http.StatusForbidden {
+		t.Errorf("opening the directory just set with SectorMarshal: status %d, want 403: %s", status, body)
 	}
 	if got := seat(); got != "" {
 		t.Errorf("Cinder's default role after the refusal = %q, want none", got)
+	}
+	if status, body := open(marshal, "SectorCrew"); status != http.StatusOK || seat() != "SectorCrew" {
+		t.Errorf("opening the directory just set with SectorCrew: status %d and the default role %q, want 200 and SectorCrew: %s", status, seat(), body)
 	}
 }
 

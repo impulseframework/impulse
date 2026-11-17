@@ -59,6 +59,7 @@ const metas: Record<string, ResourceMeta> = {
       field('openSignUp', { displayType: 'boolean' }),
       field('defaultRole'),
       field('directoryGivesRoles', { displayType: 'boolean' }),
+      field('ownRule', { displayType: 'boolean' }),
       field('says'),
     ],
   } as ResourceMeta,
@@ -145,6 +146,28 @@ const entra = {
   directoryGivesRoles: true,
   says: 'The directory gives the roles, so it decides who may sign in: a person it gives a role signs in, and nobody else.',
 };
+/** A registration that carries an account rule of its own: the application's code decides who signs in. */
+const partners = {
+  name: 'partners',
+  label: 'Partners',
+  admits: 'Anyone with an account at Harbor',
+  openSignUp: false,
+  defaultRole: '',
+  directoryGivesRoles: false,
+  ownRule: true,
+  says: "The application's own rule decides who may sign in through this method: it is neither opened to sign-up nor made invite only here.",
+};
+/** A method opened when its registration admitted fewer people than it does now. */
+const widened = {
+  name: 'workspace',
+  label: 'Acme',
+  admits: 'Anyone with an account at acme.example or lakeside.edu',
+  openSignUp: false,
+  defaultRole: '',
+  directoryGivesRoles: false,
+  ownRule: false,
+  says: 'Invite only: this method was opened for anyone with an account at acme.example, and it admits anyone with an account at acme.example or lakeside.edu now. Open it again to admit them.',
+};
 
 describe('the Sign-in page, drawn by the list', () => {
   let fixture: ComponentFixture<ResourceListComponent>;
@@ -154,7 +177,7 @@ describe('the Sign-in page, drawn by the list', () => {
   /** The caller lists the sign-in methods; a test adds what else they hold. */
   const lists: PermissionDigest = Object.fromEntries([
     [methodsList, { List: 'granted' }],
-    ...['name', 'label', 'admits', 'openSignUp', 'defaultRole', 'directoryGivesRoles', 'says'].map((name) => [`${methodsList}.${name}`, { List: 'granted' }]),
+    ...['name', 'label', 'admits', 'openSignUp', 'defaultRole', 'directoryGivesRoles', 'ownRule', 'says'].map((name) => [`${methodsList}.${name}`, { List: 'granted' }]),
   ]) as PermissionDigest;
   /** The grant on the setting: Execute on the two methods that change it. */
   const mayChoose: PermissionDigest = { [open]: { Execute: 'granted' }, [close]: { Execute: 'granted' } };
@@ -240,6 +263,30 @@ describe('the Sign-in page, drawn by the list', () => {
     expect(actionsOf(2)).toEqual([]);
     const buttons = Array.from(element().querySelectorAll('tr.impulse-row')).map((row) => row.querySelectorAll('button.row-actions').length);
     expect(buttons).toEqual([1, 1, 0]);
+  });
+
+  it("offers no action on a method whose registration carries a rule of its own, and says the application's rule decides", async () => {
+    await create([google, partners], mayChoose);
+
+    expect(cells().map((row) => row.slice(0, 3))).toEqual([
+      ['Google', 'Anyone with a Google account', 'Invite only'],
+      ['Partners', 'Anyone with an account at Harbor', 'Set by the application'],
+    ]);
+    expect(cells()[1].join(' ')).toContain("The application's own rule decides who may sign in through this method");
+    expect(actionsOf(0).map((action) => action.label)).toEqual(['Open sign-up']);
+    expect(actionsOf(1)).toEqual([]);
+    const buttons = Array.from(element().querySelectorAll('tr.impulse-row')).map((row) => row.querySelectorAll('button.row-actions').length);
+    expect(buttons).toEqual([1, 0]);
+  });
+
+  it('says a method was opened for a narrower audience than it has now, and offers to open it again', async () => {
+    await create([widened], mayChoose);
+
+    expect(cells()[0].slice(0, 3)).toEqual(['Acme', 'Anyone with an account at acme.example or lakeside.edu', 'Invite only']);
+    expect(cells()[0].join(' ')).toContain('this method was opened for anyone with an account at acme.example');
+    expect(actionsOf(0).map((action) => [action.id, action.label])).toEqual([[open, 'Open sign-up']]);
+    // Nothing is open: the page keeps no notice above the list.
+    expect(element().querySelector('.notice')).toBeNull();
   });
 
   it('offers a caller without the grant no action on any row', async () => {
