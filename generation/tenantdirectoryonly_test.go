@@ -376,6 +376,9 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 		return &generatedRoute{
 			Method: "POST", Path: "/" + prefix + "/harbors/{harborID}/" + segment, HandlerFunc: method, DomainScoped: true,
 			TestURL: "/" + prefix + "/harbors/" + domainTestValue + "/" + segment, SelfBounded: true,
+			// A method's frame answers a request for a dry run or a warning itself, so
+			// its route registers ahead of the router's refusal of the two headers.
+			ReadsDryRunAndWarning: true,
 		}
 	}
 	switchUnder := func(prefix string) []*generatedRoute {
@@ -471,7 +474,7 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			wantMethods: execute("EndHarborDirectoryOnly", "MakeHarborDirectoryOnly"),
 		},
 		{
-			name:    "an auth whose client is handed no answers of the role file's grants serves none: the role could not be judged",
+			name:    "an auth whose own reading of the directories record carries no default seat serves none: its management judges no such role",
 			structs: []string{"Harbor", "HarborDirectory"},
 			auths:   []string{staffAuth},
 			identity: []*identityInstance{{

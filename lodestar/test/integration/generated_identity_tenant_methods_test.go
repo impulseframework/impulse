@@ -894,9 +894,10 @@ func TestGeneratedIdentitySectorRolesFollowTheMethods(t *testing.T) {
 
 	// The grants this suite proves: what each method that picks from the list says of
 	// the role, pinned to the roles file (conditions-proven).
-	for _, method := range []accesstypes.Resource{"AssignCrewSectorRole", "CreateCrewSectorUser", "InviteCrewSectorUser", "GiveCrewSectorGroupRole"} {
-		provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", method, "new.role != 'SectorMarshal'")
-	}
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "AssignCrewSectorRole", "new.role != 'SectorMarshal'")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "CreateCrewSectorUser", "new.role != 'SectorMarshal'")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "InviteCrewSectorUser", "new.role != 'SectorMarshal'")
+	provesGrant(t, crew.Roles(), "SectorMarshal", "Execute", "GiveCrewSectorGroupRole", "new.role != 'SectorMarshal'")
 	w := buildIdentityWorldOver(t, false, withoutCondition(t, crew.Roles(), "SectorMarshal", "List", "CrewSectorRoles"))
 
 	const rolesPath = "crew-sector-roles"
