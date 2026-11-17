@@ -14,17 +14,19 @@ const (
 	// so it reads that person's memberships and nothing else. HeldElsewhere is two checks
 	// for that reason: written as one, with the two kinds under an OR, the database read
 	// the memberships table by its key for every listed person (measured on Spanner).
+	// Where the auth keeps groups, a place in a group counts as a role held where the
+	// group is kept (identityGroupPersonElsewhere, identityGroupPersonGlobally).
 	identityTenantPersonFacts = `  (EXISTS (
     SELECT 1 FROM {{ .Policy.UserRoles }} o
     WHERE o.UserId = u.Id AND o.Kind = {{ .KindEvery }} AND o.Axis = {{ .ScopeAxis }}
   ) OR EXISTS (
     SELECT 1 FROM {{ .Policy.UserRoles }} o
     WHERE o.UserId = u.Id AND o.Kind = {{ .KindDomain }} AND o.Axis = {{ .ScopeAxis }} AND o.DomainId != t.DomainId
-  )) AS HeldElsewhere,
-  EXISTS (
+  )` + identityGroupPersonElsewhere + `) AS HeldElsewhere,
+  {{ if .KeepsGroups }}({{ end }}EXISTS (
     SELECT 1 FROM {{ .Policy.UserRoles }} g
     WHERE g.UserId = u.Id AND g.Kind = {{ .KindGlobal }}
-  ) AS HeldGlobally`
+  )` + identityGroupPersonGlobally + ` AS HeldGlobally`
 
 	// identityTenantPeopleFrom selects the people of every tenant, t the tenant and the
 	// name and u the account: who holds a role in a tenant (one tenant's memberships, and
@@ -33,7 +35,9 @@ const (
 	// and the join is on the users table's key: a page reads one row of the table for
 	// each person. The memberships held in every tenant are read by the
 	// table's key (the hint), where they are one short range; left to choose, the database
-	// ranged over the index by user when a page continued from a cursor.
+	// ranged over the index by user when a page continued from a cursor. Where the auth
+	// keeps groups, the people a tenant holds through one join them
+	// (identityTenantGroupPeople).
 	identityTenantPeopleFrom = `FROM (
   SELECT m.DomainId AS DomainId, m.UserId AS UserId
   FROM {{ .Policy.UserRoles }} m
@@ -42,7 +46,7 @@ const (
   SELECT s.{{ .TenantKey }} AS DomainId, m.UserId AS UserId
   FROM {{ .Policy.UserRoles }}@{FORCE_INDEX=_BASE_TABLE} m
   CROSS JOIN {{ .TenantTable }} s
-  WHERE m.Kind = {{ .KindEvery }} AND m.Axis = {{ .ScopeAxis }}
+  WHERE m.Kind = {{ .KindEvery }} AND m.Axis = {{ .ScopeAxis }}` + identityTenantGroupPeople + `
 ) t
 JOIN {{ .Tables.Users }} u ON u.Id = t.UserId`
 

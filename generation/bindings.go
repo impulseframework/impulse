@@ -666,6 +666,19 @@ func (c *client) enumeratedValues(field *resourceField) (values []*enumData, sou
 	return nil, "", false
 }
 
+// resolveRunSubjectSets checks the sets of a run that generates an auth's management,
+// once the application's resources and the management's are both extracted: the
+// management's declarations are resources of the run like any other, and the set one
+// of them declares is one an application's who: may name. A run with no generated
+// management has checked its sets where it extracted them (structsToResources).
+func (c *client) resolveRunSubjectSets(resources []*resourceInfo) error {
+	if len(c.identity) == 0 {
+		return nil
+	}
+
+	return resolveSubjectSetReferences(resources)
+}
+
 // resolveSubjectSetReferences checks what a who: part says of other sets, once
 // every resource is extracted and every set is known: a test names a declared
 // @subjectSet, one that yields values of the tested column's own type, and sets
