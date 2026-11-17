@@ -217,6 +217,19 @@ func (q *QuerySet[Resource]) User() accesstypes.User {
 	return q.userPermissions.User()
 }
 
+// Caller returns the caller the decode bound the query to: who the permission check ran
+// as, in the scope and the environment it ran in. A computed resource's List or Read
+// function that carries another resource's fields asks it what the caller may read of
+// that resource (Caller.Check), so a field is yielded only to someone who could read it
+// where it lives. Nil when no check was bound.
+func (q *QuerySet[Resource]) Caller() *Caller {
+	if q.userPermissions == nil {
+		return nil
+	}
+
+	return &Caller{Permissions: q.userPermissions, Scope: q.scope, Env: q.env}
+}
+
 // Permitted reports whether the request's own gate admits the query: the required
 // permission is granted, or granted under a condition, on the resource in the scope
 // the decode bound, against the environment it sampled. It asks the same question the
