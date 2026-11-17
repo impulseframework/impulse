@@ -62,10 +62,13 @@ both Apps), the console's write paths reload it after their commit and signal th
 instances, so a declaration decides the next request on both sites, and the records'
 change events are the audit of every edit. The console's tenant pages carry the
 declaration at `/tenants/{tenantID}/sign-in`: the tenant's administrator sees the
-tenant's directory there, picks its default role and removes it, and the application's
-administrator sets directory only, which the server allows only once the tenant has its
-directory and only to a person signed in through it, after the page has shown the
-server's sentence and the people it would keep out. Nobody types a directory in: it is set from a
+tenant's directory there, picks its default role and removes it, and sets directory only
+with the tenant's own method (`POST /api/tenants/{tenantID}/set-tenant-directory-only`,
+Execute on `SetTenantDirectoryOnly`, which `TenantAdministrator` holds; the `Tenants`
+record shows the flag and takes no write of it), which the server allows only once the
+tenant has its directory and only to a person signed in through it, after the page has
+shown the server's sentence, the count of the people it would keep out and, to a person
+who may list the tenant's people, their names. Nobody types a directory in: it is set from a
 sign-in, by an administrator who is signed in through their organization's directory,
 whom the page offers to make it the tenant's. The staff auth signs in by password until
 a directory method joins it (`impulse add method`), so until then the page offers no

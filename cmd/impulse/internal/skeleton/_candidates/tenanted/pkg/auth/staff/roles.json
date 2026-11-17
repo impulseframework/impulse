@@ -368,7 +368,6 @@
             {
               "resource": "Tenants",
               "fields": [
-                "directoryOnly",
                 "name"
               ]
             }
@@ -523,6 +522,9 @@
             },
             {
               "resource": "TakeStaffTenantGroupRole"
+            },
+            {
+              "resource": "SetTenantDirectoryOnly"
             }
           ],
           "List": [

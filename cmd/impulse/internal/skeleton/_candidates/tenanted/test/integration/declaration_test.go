@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	cloudspanner "cloud.google.com/go/spanner"
 	"github.com/impulseframework/impulse/accesstypes"
@@ -196,28 +195,46 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if status, body := newcomer.do(ctx, http.MethodGet, "/api/tenants/"+south+"/announcements", nil); status != http.StatusOK {
 		t.Errorf("GET south announcements as the newcomer: status %d, want 200: %s", status, body)
 	}
-	// A person whose account stood before, created under the name the directory
-	// presents and holding nothing, is given the default role at their first sign-in
-	// through the directory, the one that links the account to it. Their second
-	// sign-in finds the link and gives nothing more.
+	// An account that stood before, created with no password under the name the
+	// directory presents, has never signed in: nothing but the name ties it to whoever
+	// signs in under it, and a directory asserts the names it likes. Holding nothing in
+	// south, it is not south's own, so south's directory vouches for nothing: the
+	// sign-in is refused as a stranger's would be where south named no default role,
+	// and nothing is linked or given.
 	if _, err := s.auth.Session().API().CreateSessionUser(ctx, &session.CreateUserRequest{Username: "veteran"}); err != nil {
 		t.Fatalf("CreateSessionUser(veteran) error = %v", err)
 	}
 	veteranID := accesstypes.User(accountID(ctx, t, s, "veteran"))
-	if held := rolesHeld(ctx, t, s, veteranID, accesstypes.DomainPolicyScope(south)); len(held) != 0 {
-		t.Fatalf("the veteran's roles in south before their first sign-in = %v, want none", held)
-	}
 	t.Setenv("APP_GOOGLE_USERNAME", "veteran")
+	claimed := newBrowser(t, s)
+	status, location = claimed.redirect(ctx, "/api/user/google/login?returnUrl="+url.QueryEscape("/dashboard"))
+	if status != http.StatusFound {
+		t.Fatalf("GET /api/user/google/login as the veteran: status %d, want %d to the directory", status, http.StatusFound)
+	}
+	if status, location = claimed.redirect(ctx, location); status != http.StatusFound || !strings.HasSuffix(location, "/login?code="+string(sessioninfo.RefusedInvitationOnly)) {
+		t.Fatalf("the callback of a sign-in under the name of an account that has never signed in: %d to %q, want %d to the login page naming %s, as a stranger is refused", status, location, http.StatusFound, sessioninfo.RefusedInvitationOnly)
+	}
+	if status, body := claimed.do(ctx, http.MethodGet, "/api/user/session", nil); status != http.StatusOK || !strings.Contains(string(body), `"authenticated":false`) {
+		t.Errorf("GET /api/user/session after the veteran's refusal: status %d: %s, want no session", status, body)
+	}
+	if held := rolesHeld(ctx, t, s, veteranID, accesstypes.DomainPolicyScope(south)); len(held) != 0 {
+		t.Fatalf("the veteran's roles in south after the refused sign-in = %v, want none", held)
+	}
+	// South's administrator gives the account a role in south. It is south's alone now,
+	// so south's directory vouches for it: the first sign-in through the directory links
+	// the account, which keeps the role it holds, and the default role adds nothing
+	// beside it. The second sign-in finds the link.
+	seat(ctx, t, s, "veteran", south)
 	veteran := signedInThroughGoogle(ctx, t, s)
 	if held := rolesHeld(ctx, t, s, veteranID, accesstypes.DomainPolicyScope(south)); !slices.Equal(held, []accesstypes.Role{"TenantAdministrator"}) {
-		t.Errorf("the veteran's roles in south after their first sign-in through its directory = %v, want the default role", held)
+		t.Errorf("the veteran's roles in south after their first sign-in through its directory = %v, want the role they were given and nothing more", held)
 	}
 	if domains := userDomains(ctx, t, veteran); !slices.Equal(domains, []string{south}) {
 		t.Errorf("the veteran's chart after their first sign-in through the directory = %v, want [%s]", domains, south)
 	}
 	signedInThroughGoogle(ctx, t, s)
 	if held := rolesHeld(ctx, t, s, veteranID, accesstypes.DomainPolicyScope(south)); !slices.Equal(held, []accesstypes.Role{"TenantAdministrator"}) {
-		t.Errorf("the veteran's roles in south after their second sign-in = %v, want the one default role and nothing more", held)
+		t.Errorf("the veteran's roles in south after their second sign-in = %v, want the one role and nothing more", held)
 	}
 	// Cleared with an explicit null, the row names no default role again.
 	clearSeat := `[{"op":"patch","path":"` + row + `","value":{"defaultSeat":null}}]`
@@ -233,8 +250,9 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if status, body := organizer.do(ctx, http.MethodPatch, "/api/resources", []byte(`[{"op":"remove","path":"`+row+`"}]`)); status != http.StatusOK {
 		t.Fatalf("removing south's directory: status %d: %s", status, body)
 	}
-	if held := rolesHeld(ctx, t, s, veteranID, accesstypes.DomainPolicyScope(south)); !slices.Equal(held, []accesstypes.Role{"TenantAdministrator"}) {
-		t.Errorf("the veteran's roles in south once its directory is removed = %v, want the role it gave to stand", held)
+	newcomerID := accesstypes.User(accountID(ctx, t, s, "newcomer"))
+	if held := rolesHeld(ctx, t, s, newcomerID, accesstypes.DomainPolicyScope(south)); !slices.Equal(held, []accesstypes.Role{"TenantAdministrator"}) {
+		t.Errorf("the newcomer's roles in south once its directory is removed = %v, want the role it gave to stand", held)
 	}
 	status, body = organizer.do(ctx, http.MethodPatch, "/api/resources", []byte(makeNorths))
 	if status != http.StatusOK {
@@ -250,75 +268,103 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if domains := userDomains(ctx, t, member); !slices.Equal(domains, []string{north}) {
 		t.Fatalf("the member's chart before = %v, want [%s]", domains, north)
 	}
-	directoryOnly := func(tenant string, on bool) []byte {
+	// The switch is the tenant's own: three routes under the tenant, each asked under
+	// Execute on SetTenantDirectoryOnly there, which the tenant's administrator holds.
+	turn := func(b *browser, tenant string, on bool) (int, []byte) {
 		value := "false"
 		if on {
 			value = "true"
 		}
 
-		return []byte(`[{"op":"patch","path":"/tenants/` + tenant + `","value":{"directoryOnly":` + value + `}}]`)
+		return b.do(ctx, http.MethodPost, "/api/tenants/"+tenant+"/set-tenant-directory-only", []byte(`{"directoryOnly":`+value+`}`))
+	}
+	state := func(b *browser, tenant string) (int, string) {
+		status, body := b.do(ctx, http.MethodGet, "/api/tenants/"+tenant+"/directory-only", nil)
+
+		return status, strings.TrimSpace(string(body))
 	}
 	consequence := func(b *browser, tenant string) (int, []byte) {
-		return b.do(ctx, http.MethodGet, "/api/directory-only?domain="+tenant, nil)
+		return b.do(ctx, http.MethodGet, "/api/tenants/"+tenant+"/directory-only/consequence", nil)
+	}
+	const on, off = `{"directoryOnly":true}`, `{"directoryOnly":false}`
+	// The tenant's administrator reads the switch in the tenant: they do not read the
+	// global record.
+	if status, got := state(organizer, north); status != http.StatusOK || got != off {
+		t.Errorf("north's switch as its administrator reads it: status %d %s, want 200 %s", status, got, off)
+	}
+
+	// The global record shows the flag and never writes it: a patch of the record that
+	// carries it is refused, the application's administrator's included.
+	patchRecord := []byte(`[{"op":"patch","path":"/tenants/` + north + `","value":{"directoryOnly":true}}]`)
+	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", patchRecord); status != http.StatusBadRequest {
+		t.Errorf("patching the Tenants record's directoryOnly as the administrator: status %d, want 400, the record does not take the flag: %s", status, body)
 	}
 
 	// Turning it on is refused unless the person is signed in through the tenant's
 	// directory themselves: the administrator holds the grant and signed in with a
-	// password. The read a page asks first and the write are refused in the same words,
-	// which say what to do, and nothing is written.
+	// password. The read a page asks first and the method are refused in the same
+	// words, which say what to do, and nothing is written.
 	notThroughIt := "Directory only is turned on by a person who is signed in through this tenant's directory, Google Workspace " + workspace.Connection + ": that shows the directory works, and that you will not shut yourself out. You signed in with a password. Sign in through Google Workspace " + workspace.Connection + " and try again."
 	if status, body := consequence(admin, north); status != http.StatusConflict || !strings.Contains(string(body), notThroughIt) {
 		t.Errorf("asking what directory only would do to north, signed in with a password: status %d, want 409 saying %q: %s", status, notThroughIt, body)
 	}
-	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", directoryOnly(north, true)); status != http.StatusConflict || !strings.Contains(string(body), notThroughIt) {
+	if status, body := turn(admin, north, true); status != http.StatusConflict || !strings.Contains(string(body), notThroughIt) {
 		t.Errorf("turning north's directory only on, signed in with a password: status %d, want 409 saying %q: %s", status, notThroughIt, body)
 	}
 	// A tenant with no directory has nothing to be only of.
 	noDirectory := "This tenant has no directory, so it cannot be directory only: nobody could enter it. Set its directory first: sign in through your organization's directory, make it this tenant's directory, then turn directory only on."
-	if status, body := consequence(admin, south); status != http.StatusConflict || !strings.Contains(string(body), noDirectory) {
+	if status, body := consequence(organizer, south); status != http.StatusConflict || !strings.Contains(string(body), noDirectory) {
 		t.Errorf("asking what directory only would do to south, which has no directory: status %d, want 409 saying %q: %s", status, noDirectory, body)
 	}
-	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", directoryOnly(south, true)); status != http.StatusConflict || !strings.Contains(string(body), noDirectory) {
+	if status, body := turn(organizer, south, true); status != http.StatusConflict || !strings.Contains(string(body), noDirectory) {
 		t.Errorf("turning directory only on for south, which has no directory: status %d, want 409 saying %q: %s", status, noDirectory, body)
 	}
-	// The caller's grants answer before the rules do: the organizer is signed in
-	// through north's directory and holds no grant on the tenant record, so both are
-	// refused as on any record.
-	if status, body := consequence(organizer, north); status != http.StatusForbidden {
-		t.Errorf("asking what directory only would do as the organizer, who holds no grant on the tenant record: status %d, want 403: %s", status, body)
+	// The member administers north and nothing else, so north's switch is theirs to read
+	// and to turn, under the tenant's own grant: they read it off, and the rule answers
+	// them as it answers the administrator, since they too signed in with a password.
+	// South, where they hold nothing, does not exist for them. A caller the grant
+	// refuses is the generated authorization suite's case.
+	if status, got := state(member, north); status != http.StatusOK || got != off {
+		t.Errorf("north's switch as the member, its administrator, reads it: status %d %s, want 200 %s", status, got, off)
 	}
-	if status, body := organizer.do(ctx, http.MethodPatch, "/api/resources", directoryOnly(north, true)); status != http.StatusForbidden {
-		t.Errorf("turning north's directory only on as the organizer, who holds no grant on the tenant record: status %d, want 403: %s", status, body)
+	if status, body := consequence(member, north); status != http.StatusConflict || !strings.Contains(string(body), notThroughIt) {
+		t.Errorf("asking what directory only would do as the member, signed in with a password: status %d, want 409 saying %q: %s", status, notThroughIt, body)
+	}
+	if status, body := turn(member, north, true); status != http.StatusConflict || !strings.Contains(string(body), notThroughIt) {
+		t.Errorf("turning north's directory only on as the member, signed in with a password: status %d, want 409 saying %q: %s", status, notThroughIt, body)
+	}
+	if status, body := turn(member, south, true); status != http.StatusNotFound {
+		t.Errorf("turning south's directory only on as the member, who holds nothing in south: status %d, want 404: %s", status, body)
+	}
+	if status, got := state(member, south); status != http.StatusNotFound {
+		t.Errorf("reading south's switch as the member, who holds nothing in south: status %d, want 404: %s", status, got)
+	}
+	// A body that does not say which way turns nothing.
+	if status, body := organizer.do(ctx, http.MethodPost, "/api/tenants/"+north+"/set-tenant-directory-only", []byte(`{}`)); status != http.StatusBadRequest || !strings.Contains(string(body), "Say which way to turn directory only") {
+		t.Errorf("calling the method with a body that does not say which way: status %d, want 400 saying so: %s", status, body)
 	}
 	if domains := userDomains(ctx, t, member); !slices.Equal(domains, []string{north}) {
 		t.Fatalf("the member's chart after the refusals = %v, want [%s]: nothing was written", domains, north)
 	}
 
-	// Made the application's administrator, the organizer holds the grant and is signed
-	// in through north's directory. The server says what turning it on would do, in its
-	// own words: who will be able to enter, and the member, the one person seated in
-	// north who signs in another way. The administrator, a super administrator, is not
-	// among them, nor is anyone who signed in through the directory.
-	if err := s.access.UserManager().AddUserRoles(ctx, accesstypes.GlobalPolicyScope(), accesstypes.User(accountID(ctx, t, s, "organizer")), "Administrator"); err != nil {
-		t.Fatalf("AddUserRoles(organizer, Administrator) error = %v", err)
-	}
+	// The organizer administers north and is signed in through north's directory. The
+	// server says what turning it on would do, in its own words: who will be able to
+	// enter, how many people seated in north sign in another way, and who they are,
+	// since a tenant's administrator lists its people: the member alone. The
+	// administrator, a super administrator, is not among them, nor is anyone who signed
+	// in through the directory.
 	var would struct {
 		Directory  string `json:"directory"`
 		Connection string `json:"connection"`
 		Sentence   string `json:"sentence"`
+		Count      int    `json:"count"`
 		People     []struct {
 			UserID   string `json:"userId"`
 			Username string `json:"username"`
 		} `json:"people"`
 		Confirm string `json:"confirm"`
 	}
-	deadline := time.Now().Add(15 * time.Second)
-	for {
-		if status, body = consequence(organizer, north); status == http.StatusOK || time.Now().After(deadline) {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
+	status, body = consequence(organizer, north)
 	if status != http.StatusOK {
 		t.Fatalf("asking what directory only would do to north, signed in through its directory: status %d: %s", status, body)
 	}
@@ -331,20 +377,23 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	if want := "Only people who sign in through " + workspace.Connection + " will be able to enter this tenant. 1 person seated here signs in another way and will lose access."; would.Sentence != want {
 		t.Errorf("the sentence = %q, want %q", would.Sentence, want)
 	}
-	if len(would.People) != 1 || would.People[0].Username != memberUser || would.People[0].UserID != s.memberID {
-		t.Errorf("the people named = %+v, want the member alone, by the id of their account", would.People)
+	if would.Count != 1 || len(would.People) != 1 || would.People[0].Username != memberUser || would.People[0].UserID != s.memberID {
+		t.Errorf("the count = %d and the people named = %+v, want the member alone, by the id of their account", would.Count, would.People)
 	}
 	if domains := userDomains(ctx, t, member); !slices.Equal(domains, []string{north}) {
 		t.Fatalf("the member's chart after the read = %v, want [%s]: the read writes nothing", domains, north)
 	}
 
-	// The organizer turns it on. The member loses north at once: it answers as a tenant
+	// The organizer turns it on, with the tenant's method. The member loses north at once: it answers as a tenant
 	// that does not exist, and stays in their tenant list marked closed, with the
 	// reason. A fresh password sign-in is refused naming the rule, since every tenant
 	// of the member is directory only. The administrator, a super administrator, keeps
 	// north, and the organizer, through its directory, enters it.
-	if status, body := organizer.do(ctx, http.MethodPatch, "/api/resources", directoryOnly(north, true)); status != http.StatusOK {
-		t.Fatalf("turning north's directory only on, signed in through its directory: status %d: %s", status, body)
+	if status, body := turn(organizer, north, true); status != http.StatusOK {
+		t.Fatalf("turning north's directory only on as its administrator, signed in through its directory: status %d: %s", status, body)
+	}
+	if status, got := state(organizer, north); status != http.StatusOK || got != on {
+		t.Errorf("north's switch once it is turned on: status %d %s, want 200 %s", status, got, on)
 	}
 	if domains := userDomains(ctx, t, member); len(domains) != 0 {
 		t.Errorf("the member's chart once north is directory only = %v, want none", domains)
@@ -413,7 +462,7 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	// Turning it off is plain: the administrator does it by password. The member signs
 	// in again, nothing in their list is closed, and no row of north's people says
 	// anything.
-	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", directoryOnly(north, false)); status != http.StatusOK {
+	if status, body := turn(admin, north, false); status != http.StatusOK {
 		t.Fatalf("turning north's directory only off, signed in with a password: status %d: %s", status, body)
 	}
 	if status, body := fresh.login(ctx, memberUser, adminPassword); status != http.StatusOK {

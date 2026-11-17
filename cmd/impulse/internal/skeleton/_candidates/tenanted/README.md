@@ -84,14 +84,19 @@ so a declaration edited anywhere decides the next request everywhere, and a tena
 seats the person and that their session may not enter is listed as closed to this
 sign-in, with the reason, and answers as one that does not exist. The
 console's Sign-in page under the tenant (`/tenants/{tenantID}/sign-in`) shows the
-tenant's directory, sets it, picks its default role and removes it under the tenant's
-own grants (`TenantAdministrator`), and turns directory only on and off under the global
-record's Update grant (`Administrator`). The server allows turning it on only once the
-tenant has its directory, and only to a person who is signed in through that directory
-themselves; before it is saved the page asks the server what it would do
-(`GET /api/directory-only?domain=<tenant>`) and shows its sentence and the people it
-would keep out for the person to confirm, and the tenant's People page marks them for as
-long as it is on. Both records write change events, the audit of every
+tenant's directory, sets it, picks its default role and removes it, and turns directory
+only on and off, all under the tenant's own grants (`TenantAdministrator`): the switch
+is the tenant's, a generated method in the tenant's scope
+(`POST /api/tenants/{tenantID}/set-tenant-directory-only`, Execute on
+`SetTenantDirectoryOnly`), and the `Tenants` record, which the application's
+`Administrator` writes, shows the flag and takes no write of it. The server allows
+turning it on only once the tenant has its directory, and only to a person who is signed
+in through that directory themselves; the page reads the switch in the tenant
+(`GET /api/tenants/{tenantID}/directory-only`), and before turning it on asks the server
+what that would do (`GET /api/tenants/{tenantID}/directory-only/consequence`) and shows
+its sentence, the count of the people it would keep out and, to a person who may list
+the tenant's people, their names, for the person to confirm; the tenant's People page
+marks them for as long as it is on. Both records write change events, the audit of every
 edit. Nobody types a directory in. It is set from a sign-in: the create-your-tenant
 route sets the one its creator came through, refusing a creation from an organization
 that already has a tenant, and afterwards the page offers an administrator who is

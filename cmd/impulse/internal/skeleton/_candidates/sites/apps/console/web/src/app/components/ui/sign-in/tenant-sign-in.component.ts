@@ -5,9 +5,16 @@ import { MatDialog } from '@angular/material/dialog';
 import { MatSelectModule } from '@angular/material/select';
 import { MatSlideToggleModule } from '@angular/material/slide-toggle';
 import { injectApi } from '@app/api/api';
-import { Permissions, Resources } from '@app/service/zz_gen_constants';
+import { Permissions } from '@app/service/zz_gen_constants';
 import { StaffTenantRoles, TenantDirectories, Tenants } from '@app/service/zz_gen_resources';
-import { DirectoryOnlyConsequence, directoryOnlyConsequence, Domain, Permission } from '@impulseframework/resource';
+import {
+  DirectoryOnlyConsequence,
+  directoryOnlyConsequence,
+  DirectoryOnlyState,
+  directoryOnlyState,
+  Domain,
+  Permission,
+} from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { askInDialog } from '@impulseframework/resource-angular/dialogs';
 import { storeSignal } from '@impulseframework/resource-angular/resource-client';
@@ -27,13 +34,21 @@ export const directoryKinds: Readonly<Record<string, string>> = {
 /**
  * What the confirmation of directory only says: the server's sentence, then the people
  * it names, each by their name where the account holds one. The words are the server's;
- * the page adds only the list.
+ * the page adds only the list. The server names a person only to someone who may list
+ * the tenant's people, so the list can be shorter than the count the sentence gives, or
+ * empty: the page then says so, and never passes a part of them off as all of them.
  */
 export function consequenceWords(consequence: DirectoryOnlyConsequence): string {
   const people = consequence.people.map((person) =>
     person.name ? `${person.name} (${person.username})` : person.username,
   );
-  return people.length === 0 ? consequence.sentence : `${consequence.sentence} They are: ${people.join(', ')}.`;
+  if (people.length === 0) {
+    return consequence.sentence;
+  }
+  if (people.length < consequence.count) {
+    return `${consequence.sentence} Of them, you may list: ${people.join(', ')}.`;
+  }
+  return `${consequence.sentence} They are: ${people.join(', ')}.`;
 }
 
 /**
@@ -52,12 +67,14 @@ export function consequenceWords(consequence: DirectoryOnlyConsequence): string 
  * one the session came through. A session that came by password or with a personal
  * account is offered no such action, and is told how a directory is set. The directory
  * is removed under the Delete grant, which the server refuses while the tenant is
- * directory only. The flag is set under the Update grant on the global Tenants record,
- * the application's administrator's. The server allows turning it on only once the
- * tenant has its directory, and only to a person who is signed in through that directory
- * themselves; before the page saves it, it asks the server what it would do and shows
- * the server's sentence and the people it names for the person to confirm. Turning it
- * off is a plain confirmation.
+ * directory only. The switch is the tenant's own: the tenant's administrator turns it,
+ * with the method SetTenantDirectoryOnly in the tenant's scope, and reads it as it
+ * stands under the same grant, since a tenant's administrator does not read the global
+ * Tenants record, which shows the flag to the application's administrator and never
+ * writes it. The server allows turning it on only once the tenant has its directory, and
+ * only to a person who is signed in through that directory themselves; before the page
+ * turns it on, it asks the server what it would do and shows the server's sentence and
+ * the people it names for the person to confirm. Turning it off is a plain confirmation.
  *
  * The directory carries a default role, the role a person is given in the tenant at
  * their first sign-in through it: the tenant's administrator picks it from the tenant's
@@ -89,11 +106,31 @@ export class TenantSignInComponent {
   /** The picker's choice for a directory whose people are admitted by invitation only. */
   readonly invitationOnly = '';
 
-  /** The tenant's row on the global record: its name and its directory-only flag. */
+  /** The tenant's row on the global record, for a person who reads it: its name and its directory-only flag. */
   tenant = resource({
     params: () => ({ tenant: this.tenantID(), readable: this.canReadTenant() }),
     loader: ({ params }): Promise<Tenants | undefined> =>
       params.readable ? this.api.tenants.read([params.tenant]) : Promise.resolve(undefined),
+  });
+
+  /**
+   * The tenant's directory-only switch as it stands, read in the tenant under the grant
+   * of the method that turns it: what the tenant's administrator, who does not read the
+   * global record, sees.
+   */
+  switchState = resource({
+    params: () => ({ tenant: this.tenantID(), readable: this.canClose() }),
+    loader: ({ params }): Promise<DirectoryOnlyState | undefined> =>
+      params.readable ? directoryOnlyState(this.api, params.tenant as Domain) : Promise.resolve(undefined),
+  });
+
+  /**
+   * Whether the tenant is directory only, as far as this person may know: the switch
+   * read in the tenant, else the flag on the record, else unknown.
+   */
+  directoryOnly = computed((): boolean | undefined => {
+    const state = this.switchState.value();
+    return state ? state.directoryOnly : this.tenant.value()?.directoryOnly;
   });
 
   /**
@@ -137,7 +174,7 @@ export class TenantSignInComponent {
   canRemove = computed(() => this.directoriesAllow(Permissions.Delete));
   canClose = computed(() => {
     this.permissions();
-    return this.api.can(Permissions.Update, Resources.Tenants);
+    return this.api.domain(this.tenantID() as Domain).setTenantDirectoryOnly.can();
   });
   private canReadTenant = computed(() => {
     this.permissions();
@@ -204,12 +241,12 @@ export class TenantSignInComponent {
   }
 
   /**
-   * Turns directory only on or off, once the person confirms. Turning it on asks the
-   * server first what it would do, and the confirmation is the server's: its sentence,
-   * the people it names, and the words on the button. The server refuses a tenant that
-   * has no directory and a person who is not signed in through the tenant's directory,
-   * and its sentence is shown in place of a confirmation. Nothing is written until the
-   * person confirms.
+   * Turns directory only on or off, once the person confirms, with the tenant's own
+   * method. Turning it on asks the server first what it would do, and the confirmation is
+   * the server's: its sentence, the people it names, and the words on the button. The
+   * server refuses a tenant that has no directory and a person who is not signed in
+   * through the tenant's directory, and its sentence is shown in place of a
+   * confirmation. Nothing is written until the person confirms.
    */
   async close(directoryOnly: boolean): Promise<void> {
     await this.write(async () => {
@@ -217,14 +254,15 @@ export class TenantSignInComponent {
       if (!confirmed) {
         return;
       }
-      await this.api.tenants.patch([this.tenantID()], { directoryOnly });
+      await this.api.domain(this.tenantID() as Domain).setTenantDirectoryOnly.execute({ directoryOnly });
+      this.switchState.reload();
       this.tenant.reload();
     });
   }
 
   /** Asks the server what directory only would do to this tenant, and the person whether to do it. */
   private async confirmOnly(): Promise<boolean> {
-    const consequence = await directoryOnlyConsequence(this.api.request, this.tenantID() as Domain);
+    const consequence = await directoryOnlyConsequence(this.api, this.tenantID() as Domain);
     const name = this.tenantName();
     const answer = await askInDialog(this.dialog, {
       title: name ? `Make ${name} directory only?` : 'Turn directory only on?',
