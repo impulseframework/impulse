@@ -250,12 +250,21 @@ or one per domain), loaded on demand and cached for the session.
   holds the tenants the session reaches and never a closed one; `closedDomains()` answers
   the closed ones with their reasons, for a picker to show marked and not as places to
   open.
-- `directoryOnlyConsequence(api.request, tenant)` asks the server what turning a tenant's
-  directory-only switch on would do, before a page saves it (`GET directory-only`): the
-  sentence a confirmation shows, the people seated in the tenant who would lose access,
-  and the words for the confirming button. The server's refusal (a tenant with no
-  directory, a person who is not signed in through the tenant's directory, a tenant
-  that is directory only already) throws with its sentence as the error's message.
+- A tenant's directory-only switch is the tenant's own, turned by the tenant's
+  administrator with the generated method `api.domain(tenant).set<Record>DirectoryOnly({ directoryOnly })`
+  (Execute on it in the tenant; `api.domain(tenant).can(Permissions.Execute, Methods.Set<Record>DirectoryOnly)`
+  says whether the person may). Two reads under the tenant's route are asked under the
+  same grant. `directoryOnlyState(api, tenant)` reads the switch as it stands
+  (`GET <tenants>/<tenant>/directory-only`), which the tenant's administrator, who does
+  not read the tenant record, has no other way to see. `directoryOnlyConsequence(api, tenant)`
+  asks what turning it on would do, before a page turns it on
+  (`GET <tenants>/<tenant>/directory-only/consequence`): the sentence a confirmation
+  shows, how many of the people seated in the tenant would lose access (`count`), who
+  they are (`people`, named only to a caller who may list the tenant's people, so the
+  list can hold fewer than the count, or none), and the words for the confirming button.
+  The server's refusal (a tenant with no directory, a person who is not signed in through
+  the tenant's directory, a tenant that is directory only already) throws with its
+  sentence as the error's message.
 - Every answer here reads a `Store`, and a UI framework can make each read a
   dependency of its reactive code by setting the store read hook once
   (`setStoreReadHook`). The Angular client does (`provideResourceClient`), so a
