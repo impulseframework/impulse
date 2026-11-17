@@ -2689,11 +2689,24 @@ Everything an impersonated session touches names the actor and the principal:
   record is looked up, by the username the session carries — a disabled actor's role
   session ends with their others.
   Preauth validates an impersonated session exactly as any other.
-- **Identity operations.** The library's own handlers refuse under impersonation:
-  `ChangeUserPassword` and `RemoveUserPassword` (the password method's on `Auth`) always,
-  since each would alter the impersonated user's credentials. Each refusal is an
-  `IdentityOperationBlocked` event. On `Auth` the user operations are `AuthAPI` methods
-  behind the application's own handlers, which guard them.
+- **Identity operations.** A person's own account is theirs alone: every handler of the
+  library's that writes to the signed-in person's account refuses a session that views
+  as them, whatever its mask, with 403 and an `IdentityOperationBlocked` event, before it
+  reads its body. They are `ChangeUserPassword` and `RemoveUserPassword` (the password
+  method's), `ChangeName`, `ChangeLook`, `ForgetBrowser`, `Email().Add()` and
+  `Email().Verify()` (the address the code of their second factor is mailed to),
+  `ApplicationTokens().Create()` and `ApplicationTokens().Revoke()`, `Device().Approve()`
+  and `Device().Deny()` (a token and an approved device act as the person for as long as
+  they live) and `Invitation().Accept()` (which gives the person roles). The routes that
+  only read (`ApplicationTokens().List()`, `Device().Lookup()`) answer a view, and
+  `Logout` and `EndImpersonation` end it. The generated router registers the routes it
+  mounts behind `ValidateSession` (the invitation's, the address's, the tokens' and the
+  device's) with the outlet's generated routes, inside whatever the application's hook
+  wraps those in, so a read-only backstop mounted there (`EnforceReadOnlyMask`) stands
+  in front of them too; the password's, the name's, the look's and the remembered
+  browser's validate the session themselves, outside the hook, and the handler's own
+  refusal is what answers a view there. On `Auth` the user operations are `AuthAPI`
+  methods behind the application's own handlers, which guard them.
 - **One name, one user.** A role principal's session carries the actor's own username,
   in the same session table as the sessions of the application's users, and belongs to
   no account. On an `Auth` what is a user's is found by the id of their account:
