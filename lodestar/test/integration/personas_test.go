@@ -1,4 +1,4 @@
-// Demonstrates: cell-masking, pii, tenancy.concealed, login-manifest, auth.groups.
+// Demonstrates: cell-masking, pii, tenancy.concealed, login-manifest, auth.groups, auth.periods.
 package integration
 
 // The persona-view suite (design plan §4): each persona's first screen, derived from
@@ -43,6 +43,11 @@ func TestDemoPersonaViews(t *testing.T) {
 		{name: "the deckhand sees the sector's hangars as the deck crew does", user: "deckhand", target: sectorPath(anvil, "hangars"), wantStatus: http.StatusOK, wantRows: 2},
 		{name: "the deck crew holds nothing in Bastion, so the sector is concealed from the deckhand", user: "deckhand", target: sectorPath(bastion, "missions"), wantStatus: http.StatusNotFound},
 		{name: "the deck crew gives no hangar deck, as the cadet's own roles give none", user: "deckhand", target: sectorPath(anvil, "refits"), wantStatus: http.StatusForbidden},
+		// The relief officer is on a tour of Anvil: the cadet's roles there, each given
+		// with an end thirty days from the day the world is made. Inside the tour they
+		// grant what the roles grant; what follows its end is the periods' own suite.
+		{name: "the relief officer's board is the cadet's while her tour lasts", user: "relief", target: sectorPath(anvil, "missions?limit=200"), wantStatus: http.StatusOK, wantRows: 14},
+		{name: "the tour is of Anvil alone, so Bastion is concealed from the relief officer", user: "relief", target: sectorPath(bastion, "missions"), wantStatus: http.StatusNotFound},
 		{
 			name: "the archivist's fee is redacted until a mission completed",
 			user: "archivist", target: sectorPath(anvil, "missions?limit=200"), wantStatus: http.StatusOK, wantRows: 7,

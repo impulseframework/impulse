@@ -152,7 +152,9 @@
             {
               "resource": "CrewUserRoles",
               "fields": [
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {
@@ -373,20 +375,26 @@
                 "username",
                 "name",
                 "groupName",
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {
               "resource": "CrewGroupRoles",
               "fields": [
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {
               "resource": "CrewUserGroupRoles",
               "fields": [
                 "username",
-                "groupName"
+                "groupName",
+                "startsAt",
+                "endsAt"
               ]
             }
           ],
@@ -1244,7 +1252,9 @@
               "fields": [
                 "username",
                 "everyDomain",
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {
@@ -1321,14 +1331,18 @@
                 "username",
                 "name",
                 "groupName",
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {
               "resource": "CrewSectorGroupRoles",
               "fields": [
                 "groupName",
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {
@@ -1337,7 +1351,9 @@
                 "username",
                 "groupName",
                 "globalGroup",
-                "everyDomain"
+                "everyDomain",
+                "startsAt",
+                "endsAt"
               ]
             }
           ],
@@ -1539,7 +1555,9 @@
               "fields": [
                 "username",
                 "everyDomain",
-                "createdAt"
+                "createdAt",
+                "startsAt",
+                "endsAt"
               ]
             },
             {

@@ -858,6 +858,9 @@ type served struct {
 	scheduler *scheduled.Fake
 	// jobs is the job process's fake starter: what the scheduled cleanup started.
 	jobs *jobs.Fake
+	// live is the stack's one live service, in memory: it records every signal the
+	// engines announce, the policy kind among them.
+	live *live.Fake
 	// mail records every message the two auths send (an invitation, an address
 	// verification, a sign-up link, a sign-in code), so a suite follows the link or
 	// enters the code the way a person does.
@@ -1043,7 +1046,7 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 	server.Config.Handler = router.New(a, router.AppHooks(a))
 	server.Start()
 
-	return &served{server: server, crew: crewAuth, access: crewAuth.Access(), members: membersAuth.Access(), stores: stores, db: db, scheduler: keys, jobs: starter, mail: sent, trusted: map[string]*http.Cookie{}}
+	return &served{server: server, crew: crewAuth, access: crewAuth.Access(), members: membersAuth.Access(), stores: stores, db: db, scheduler: keys, jobs: starter, live: fake, mail: sent, trusted: map[string]*http.Cookie{}}
 }
 
 // personaSettings is the crew auth's persona settings for the stack: none when no
