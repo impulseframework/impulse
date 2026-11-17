@@ -22,6 +22,7 @@ import (
 	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // TablePrefix is the prefix of the auth's tables the package was generated from: the
@@ -127,6 +128,18 @@ func (c *Client) ClearTenant(ctx context.Context, txn resource.ReadWriteTransact
 	}
 
 	return nil
+}
+
+// DirectoryName answers what the Staff auth's sign-in registrations call a
+// directory, for a sentence that names it to a person: the name a registration that
+// takes its connection gives it (a listed Workspace or tenant, a provider), and the
+// label of the button a person signs in to it with, each "" where the registrations
+// have none (identity.Manager.DirectoryName). It is a resource.DirectoryNamer: the
+// generated frames of a tenant's directory and the tenant list say a directory by it,
+// "Lakeside" or "your organization's Microsoft directory", and never by its
+// connection, which for a Microsoft Entra tenant is an id.
+func (c *Client) DirectoryName(directory signin.Directory) (name, label string) {
+	return c.manager.DirectoryName(directory)
 }
 
 // InvitationAccepted answers the session library's hook for an accepted invitation

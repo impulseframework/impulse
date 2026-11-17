@@ -25,13 +25,16 @@ import (
 // transaction back. The answer is the Warning, 200. Every refusal answers as the call's
 // own would, so a caller who may not run the method reads no warning of it. A method
 // that declares no warning refuses the header (400): a request that asks for a warning
-// never runs the call.
+// never runs the call. The header takes the value true or is left off the request, and
+// a frame refuses any other value (400) without running the call.
 const WarningHeader = "X-Warning"
 
 // AsksWarning reports whether the request asks for the method's warning in place of
-// the call.
-func AsksWarning(r *http.Request) bool {
-	return strings.EqualFold(r.Header.Get(WarningHeader), "true")
+// the call: the header says true. A request without the header asks for none, and a
+// header that says anything else is refused (asksByHeader), which the frame answers in
+// place of running the call.
+func AsksWarning(r *http.Request) (bool, error) {
+	return asksByHeader(r, WarningHeader)
 }
 
 // Warning is what a method that declares one (@warning) says before it is run, in the

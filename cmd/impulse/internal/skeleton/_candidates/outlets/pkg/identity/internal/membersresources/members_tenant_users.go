@@ -34,8 +34,9 @@ type (
 	// the switch keeps them out while it is on: it is who turning the switch on would
 	// shut out, asked before it is on. CannotEnter is the sentence the list shows while
 	// the tenant is directory only, on the row of a person it keeps out ("Has not signed
-	// in through acme.example, so cannot enter while this tenant is directory only"), and
-	// nothing on every other row. The list is made from who holds a role in the tenant,
+	// in through this tenant's directory, so cannot enter while this tenant is
+	// directory only"), and nothing on every other row: the sentence never says the
+	// directory's connection, which is a key and no name. The list is made from who holds a role in the tenant,
 	// not from who can sign in, so a person the switch keeps out stays in it with their
 	// roles. A super administrator is outside no tenant's directory.
 	//
@@ -110,6 +111,7 @@ SELECT
   ) AND NOT EXISTS (
     SELECT 1 FROM MembersUserRoles sa
     WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'
+      AND (sa.StartsAt IS NULL OR sa.StartsAt <= CURRENT_TIMESTAMP()) AND (sa.EndsAt IS NULL OR sa.EndsAt > CURRENT_TIMESTAMP())
   )) AS OutsideDirectory,
   IF(ts.DirectoryOnly AND td.TenantId IS NOT NULL AND NOT EXISTS (
     SELECT 1 FROM MembersSessionIdentities di
@@ -117,8 +119,9 @@ SELECT
   ) AND NOT EXISTS (
     SELECT 1 FROM MembersUserRoles sa
     WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'
+      AND (sa.StartsAt IS NULL OR sa.StartsAt <= CURRENT_TIMESTAMP()) AND (sa.EndsAt IS NULL OR sa.EndsAt > CURRENT_TIMESTAMP())
   ),
-    CONCAT('Has not signed in through ', td.Connection, ', so cannot enter while this tenant is directory only'),
+    'Has not signed in through this tenant\'s directory, so cannot enter while this tenant is directory only',
     NULL) AS CannotEnter
 FROM (
   SELECT m.DomainId AS DomainId, m.UserId AS UserId

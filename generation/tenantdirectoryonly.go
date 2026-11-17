@@ -315,6 +315,9 @@ type directoryOnlyData struct {
 	KeyIsUUID bool
 	FlagType  string
 	People    []*directoryOnlyPeople
+	// Rules is the expression that builds the rules of the record's directory, named by
+	// the program's auths (namedDirectoryRules).
+	Rules string
 
 	LocalPackageImports string
 	ResourcePackage     string
@@ -349,6 +352,7 @@ func (r *resourceGenerator) generateDirectoryOnly() error {
 		KeyType:             record.PrimaryKey().Type(),
 		KeyIsUUID:           record.PrimaryKey().Type() == impulseUUIDGoType,
 		People:              r.directoryOnlyPeople(),
+		Rules:               r.namedDirectoryRules(record),
 		LocalPackageImports: r.localPackageImports(),
 		ResourcePackage:     r.resource.Package(),
 		RouterPackage:       r.router.Package(),

@@ -107,6 +107,17 @@ func (m *Manager) InvitationAccepted(auth string) session.InvitationAcceptedHook
 // it more than one tenant's, and the link would hand the tenant's directory all of it.
 // It is the fact a tenant's own methods are held to before they change a person's name,
 // address or password (the list's heldElsewhere and heldGlobally).
+//
+// The hook's third part answers for the deployment's own seed: whether an account is
+// the one a seed created, with no password, for a person who signs in through the
+// registration named, which is the first administrator of an auth whose people sign in
+// through a directory. That person holds roles for the whole application and belongs to
+// no tenant, so no tenant's directory vouches for the account; the deployment does, by
+// the id it seeded the account under (session.SeedUserIDThrough, over the auth's name,
+// the registration and the username), which no request can give an account and which
+// is derived again here. The session library links such an account on its name at the
+// person's first sign-in through that registration, where the registration admits one
+// organization and nobody else.
 func (m *Manager) DirectorySeated(auth string) session.DirectorySeatedHook[*spanner.ReadWriteTransaction] {
 	seat := func(ctx context.Context, tx *spanner.ReadWriteTransaction, userID impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
 		txn := resource.NewSpannerReadWriteTransaction(tx)
@@ -132,7 +143,11 @@ func (m *Manager) DirectorySeated(auth string) session.DirectorySeatedHook[*span
 		return onlyInTenant(held, accesstypes.DomainPolicyScope(tenant)), nil
 	}
 
-	return session.DirectorySeatedHook[*spanner.ReadWriteTransaction]{Seat: seat, OnlyIn: onlyIn}
+	seeded := func(userID impulse.UUID, username, registration string) bool {
+		return userID == session.SeedUserIDThrough(m.auth, registration, username)
+	}
+
+	return session.DirectorySeatedHook[*spanner.ReadWriteTransaction]{Seat: seat, OnlyIn: onlyIn, Seeded: seeded}
 }
 
 // giveInvitedRoles buffers the memberships an accepted invitation gives the person:

@@ -190,6 +190,8 @@ func (tn Tenancy) recordRenames() []recordRename {
 		quoted("tenants", kt),
 		{regexp.MustCompile(`\b([A-Za-z][A-Za-z0-9]*?)TenantRoles\b`), "${1}" + rec + "Roles"},
 		{regexp.MustCompile(`-tenant-roles\b`), "-" + kr + "-roles"},
+		{regexp.MustCompile(`\b([A-Za-z][A-Za-z0-9]*?)TenantDirectoryRoles\b`), "${1}" + rec + "DirectoryRoles"},
+		{regexp.MustCompile(`-tenant-directory-roles\b`), "-" + kr + "-directory-roles"},
 		{regexp.MustCompile(`\bTenantDirectories\b`), rec + "Directories"},
 		{regexp.MustCompile(`\btenantDirectories\b`), r + "Directories"},
 		{regexp.MustCompile(`\btenant-directories\b`), kr + "-directories"},

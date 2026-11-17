@@ -73,6 +73,10 @@ type identityTenant struct {
 	// tenant is opened to its directory's people with, which the generated methods
 	// judge by the role file's grants (seatsDirectory).
 	directorySeat string
+	// directoryOutlets are the outlets the directories record is served on, nil where
+	// the application declares none: the two methods that say how a tenant admits its
+	// directory's people are served on the session outlets among them.
+	directoryOutlets []string
 }
 
 // identityList is one of a tenant's lists as the generated management declares it: the
@@ -132,7 +136,7 @@ func (i *identityInstance) refuseListNamesTaken() error {
 	for _, suffix := range []string{listGroupPeopleSuffix, listThroughGroupsSuffix} {
 		declared[i.groupListName(suffix, false)] = true
 	}
-	suffixes := []string{tenantRoleChoiceSuffix, listGroupsSuffix, listGroupPeopleSuffix, listGroupRolesSuffix, listThroughGroupsSuffix}
+	suffixes := []string{tenantRoleChoiceSuffix, directoryRoleChoiceSuffix, listGroupsSuffix, listGroupPeopleSuffix, listGroupRolesSuffix, listThroughGroupsSuffix}
 	for _, list := range identityLists() {
 		suffixes = append(suffixes, list.suffix)
 	}
@@ -313,7 +317,7 @@ func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
 		return nil, errors.Newf("GenerateIdentity(%q): struct %s is the tenant record (@%s) and its key %s.%s is %s; the tenant record's key is an id the create path generates, kept as its text, the domain in every tenant-scoped URL", r.identityTree.Dir(), name, tenantKeyword, table, keys[0], spannerType)
 	}
 
-	directory, seat, err := tenantDirectoryIn(r.resource.Dir(), name, r.pluralize)
+	directory, seat, directoryOutlets, err := tenantDirectoryIn(r.resource.Dir(), name, r.pluralize)
 	if err != nil {
 		return nil, errors.Wrapf(err, "GenerateIdentity(%q): reading the directory-only switch (@%s) and the directories record (@%s) from the sources of %s", r.identityTree.Dir(), directoryOnlyKeyword, tenantDirectoryKeyword, r.resource.Dir())
 	}
@@ -324,7 +328,8 @@ func (r *resourceGenerator) readIdentityTenant() (*identityTenant, error) {
 	}
 
 	return &identityTenant{
-		name: name, table: table, key: keys[0], outlets: outlets, word: sentenceWord(name, label), directory: directory, directorySeat: seat,
+		name: name, table: table, key: keys[0], outlets: outlets, word: sentenceWord(name, label),
+		directory: directory, directorySeat: seat, directoryOutlets: directoryOutlets,
 		invitation: invitation, unreadable: unreadable,
 	}, nil
 }

@@ -29,7 +29,7 @@ import (
 //
 // The role is given to people nobody named, so it is held to what giving it by hand
 // needs, through the Staff auth's generated identity client
-// (StaffIdentity().DirectoryRole): it is a role of the tenant (StaffTenantRoles), and one the
+// (StaffIdentity().DirectoryRole): it is a role of the tenant (StaffTenantDirectoryRoles), and one the
 // caller could give there directly, by the grant of the method that gives a role in a
 // tenant. A tenant with no directory has nobody to open to and is refused (409), and a
 // request that names no role is refused (400).
@@ -49,7 +49,9 @@ func (a *App) OpenTenantToDirectory() http.HandlerFunc {
 	}
 
 	decoder := resource.MustNewRPCDecoder[request](a, "OpenTenantToDirectory", accesstypes.Execute).WithCollection(router.Collection())
-	rules := NewTenantDirectoryRules()
+	// The rules' sentences say the tenant's directory as each auth's sign-in
+	// registrations call it, never by its connection.
+	rules := NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName)
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -70,7 +72,12 @@ func (a *App) OpenTenantToDirectory() http.HandlerFunc {
 		// and checked as the call is, and answers the warning in place of running the
 		// call: the transaction below rolls back. The warning is read while the role is
 		// still being picked, so it is answered without one; the call is not.
-		asksWarning := resource.AsksWarning(r)
+		// The header takes the value true or is left off the request: any other value
+		// is refused here, and the call is not run.
+		asksWarning, err := resource.AsksWarning(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		var warning *resource.Warning
 		if role == "" && !asksWarning {
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("Choose the role each person from the directory gets: a tenant is not opened to its directory without one."))
@@ -78,7 +85,10 @@ func (a *App) OpenTenantToDirectory() http.HandlerFunc {
 		eventSource := resource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
-		dryRun := resource.IsDryRun(r)
+		dryRun, err := resource.IsDryRun(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			directory, err := rules.Directory(ctx, txn, domain)
 			if err != nil {
@@ -141,7 +151,9 @@ func (a *App) MakeTenantInviteOnly() http.HandlerFunc {
 	type request struct{}
 
 	decoder := resource.MustNewRPCDecoder[request](a, "MakeTenantInviteOnly", accesstypes.Execute).WithCollection(router.Collection())
-	rules := NewTenantDirectoryRules()
+	// The rules' sentences say the tenant's directory as each auth's sign-in
+	// registrations call it, never by its connection.
+	rules := NewTenantDirectoryRules().NamedBy(a.StaffIdentity().DirectoryName)
 
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -156,7 +168,13 @@ func (a *App) MakeTenantInviteOnly() http.HandlerFunc {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 		ctx = resource.WithCaller(ctx, caller)
-		if resource.AsksWarning(r) {
+		// The header takes the value true or is left off the request: any other value
+		// is refused here, and the call is not run.
+		asksWarning, err := resource.AsksWarning(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if asksWarning {
 			// The method declares no warning: a request that asks for one is refused,
 			// and never runs the call.
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("MakeTenantInviteOnly declares no warning: send the call without the X-Warning header"))
@@ -164,7 +182,10 @@ func (a *App) MakeTenantInviteOnly() http.HandlerFunc {
 		eventSource := resource.UserEvent(ctx)
 
 		ctx, touched := resource.CollectTouchedRows(ctx)
-		dryRun := resource.IsDryRun(r)
+		dryRun, err := resource.IsDryRun(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		if err := a.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			directory, err := rules.Directory(ctx, txn, domain)
 			if err != nil {

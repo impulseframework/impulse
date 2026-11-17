@@ -19,7 +19,8 @@ import (
 // Closed marks a tenant the person holds a seat in and this session cannot enter
 // (ClosedDomains), with the reason in a sentence for the person: what the tenant
 // admits and how they signed in ("Acme admits only people who sign in through its own
-// directory. You signed in with a password."). It is empty, and absent from the JSON,
+// directory. You signed in with a password."), a directory said in the words a person
+// knows it by (WithDirectoryNames). It is empty, and absent from the JSON,
 // for a tenant the session reaches. A picker shows a closed tenant marked, with the
 // reason, and never as a place to open. Only a person's own sign-in is told of one: a
 // session that views the application as someone else, and one that acts as a role,
@@ -40,7 +41,8 @@ type DomainNamer interface {
 type UserDomainsOption func(*userDomainsSettings)
 
 type userDomainsSettings struct {
-	names DomainNamer
+	names       DomainNamer
+	directories []DirectoryNamer
 }
 
 // WithDomainNames names each tenant of the list from the namer, the application's
@@ -50,6 +52,17 @@ type userDomainsSettings struct {
 func WithDomainNames(names DomainNamer) UserDomainsOption {
 	return func(s *userDomainsSettings) {
 		s.names = names
+	}
+}
+
+// WithDirectoryNames names the directory a session came through in a closed tenant's
+// reason, from the namers of the application's auths: what each auth's sign-in
+// registrations call it (DirectoryName). The generated UserDomains handler passes the
+// namer of each auth's generated identity client. Without one the reason reads what the
+// directory alone says, and it never says a tenant id.
+func WithDirectoryNames(namers ...DirectoryNamer) UserDomainsOption {
+	return func(s *userDomainsSettings) {
+		s.directories = namers
 	}
 }
 
@@ -102,7 +115,7 @@ func UserDomainsHandler(userPermissions func(r *http.Request) UserPermissions, o
 			// to say how it was established.
 			session := sessioninfo.DataFromCtx(ctx)
 			for _, tenant := range userDomains(closed, settings.names) {
-				tenant.Closed = closedReason(tenant.Name, session)
+				tenant.Closed = closedReason(tenant.Name, session, settings.directories)
 				out = append(out, tenant)
 			}
 			slices.SortFunc(out, func(a, b UserDomain) int {

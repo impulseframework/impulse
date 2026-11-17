@@ -13,7 +13,11 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"cloud.google.com/go/spanner"
+	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth"
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
 	"github.com/impulseframework/impulse/session/sessioninfo"
@@ -103,13 +107,46 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 
 	// Bastion's list of its people keeps everyone who holds a role there, and says who
 	// the switch keeps out: the people with no sign-in through its directory.
-	keptOut := "Has not signed in through persona, so cannot enter while this sector is directory only"
-	people := cannotEnter(ctx, t, warden, bastion)
+	keptOut := "Has not signed in through this sector's directory, so cannot enter while this sector is directory only"
+	people := cannotEnter(ctx, t, warden)
 	for username, want := range map[string]string{"rigger": keptOut, "bosun": keptOut, "pilot": keptOut, "warden": "", "governor": ""} {
 		got, listed := people[username]
 		if !listed || got != want {
 			t.Errorf("Bastion's people: %s is listed = %v saying %q, want listed saying %q", username, listed, got, want)
 		}
+	}
+
+	// The governor's row says nothing because he is a super administrator now. An
+	// assignment outside its period is no assignment, to the list as to the sign-in rule
+	// and the session's reach: the library gives the Super Administrator role no period
+	// by any write, so the two rows here are written past it, one that has ended, for
+	// the pilot, and one that has not begun, for the bosun. Neither makes its person a
+	// super administrator, and the list goes on saying the switch keeps each of them
+	// out.
+	pilotID, bosunID := crewUserID(ctx, t, governor, "pilot"), crewUserID(ctx, t, governor, "bosun")
+	membership := func(user impulse.UUID, period map[string]any) *spanner.Mutation {
+		row := map[string]any{"Kind": "global", "Axis": "", "DomainId": "", "Role": string(accesstypes.SuperAdministrator), "UserId": user.String(), "CreatedAt": spanner.CommitTimestamp}
+		maps.Copy(row, period)
+
+		return spanner.InsertMap("CrewUserRoles", row)
+	}
+	if _, err := s.db.Apply(ctx, []*spanner.Mutation{
+		membership(pilotID, map[string]any{"EndsAt": time.Now().Add(-time.Hour)}),
+		membership(bosunID, map[string]any{"StartsAt": time.Now().Add(time.Hour)}),
+	}); err != nil {
+		t.Fatalf("writing the two Super Administrator rows outside their period: %v", err)
+	}
+	people = cannotEnter(ctx, t, warden)
+	for username, when := range map[string]string{"pilot": "has ended", "bosun": "has not begun"} {
+		if got := people[username]; got != keptOut {
+			t.Errorf("Bastion's people: %s, whose Super Administrator assignment %s, is listed saying %q, want %q: an assignment outside its period exempts nobody", username, when, got, keptOut)
+		}
+	}
+	if _, err := s.db.Apply(ctx, []*spanner.Mutation{
+		spanner.Delete("CrewUserRoles", crewMembershipKey(string(accesstypes.SuperAdministrator), userOf(pilotID))),
+		spanner.Delete("CrewUserRoles", crewMembershipKey(string(accesstypes.SuperAdministrator), userOf(bosunID))),
+	}); err != nil {
+		t.Fatalf("removing the two rows again: %v", err)
 	}
 
 	// The switch is the sector's own: two methods and a read under the sector, the
@@ -202,7 +239,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	if got := rigger.closed(ctx); len(got) != 0 {
 		t.Errorf("the sectors the rigger's chart names closed once Bastion is not directory only = %v, want none", got)
 	}
-	for username, sentence := range cannotEnter(ctx, t, warden, bastion) {
+	for username, sentence := range cannotEnter(ctx, t, warden) {
 		if sentence != "" {
 			t.Errorf("Bastion's people while it is not directory only: %s's row says %q, want nothing", username, sentence)
 		}
@@ -316,6 +353,28 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	if status, got := state(warden, bastion); status != http.StatusOK || got != off {
 		t.Fatalf("Bastion's switch after the dry run: status %d %s, want 200 %s: a dry run writes nothing", status, got, off)
 	}
+	// Either header takes the value true or is left off the request. A request that says
+	// anything else is refused and turns nothing: a client that sends "1" to rehearse
+	// closing a sector is told so, and the sector stays open.
+	for _, header := range []string{"X-Dry-Run", "X-Warning"} {
+		for _, route := range []string{method[true], method[false]} {
+			refused := warden.doWith(ctx, http.MethodPost, sectorPath(bastion, route), []byte(`{}`), map[string]string{header: "1"})
+			said, err := io.ReadAll(refused.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := refused.Body.Close(); err != nil {
+				t.Fatal(err)
+			}
+			want := "the " + header + ` header takes the value true, or is left off the request: \"1\" is not a value it takes, so the call was not run`
+			if refused.StatusCode != http.StatusBadRequest || !strings.Contains(string(said), want) {
+				t.Errorf("%s with %s: 1: status %d %s, want 400 saying %s", route, header, refused.StatusCode, said, want)
+			}
+		}
+	}
+	if status, got := state(warden, bastion); status != http.StatusOK || got != off {
+		t.Fatalf("Bastion's switch after the refused headers: status %d %s, want 200 %s: a refused call turns nothing", status, got, off)
+	}
 
 	// The warden, signed in through Bastion's directory, asks the method for its warning.
 	// The server writes the words: who will be able to enter, how many of the people
@@ -392,7 +451,7 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	if got := rigger.closed(ctx); !maps.Equal(got, byPassword) {
 		t.Errorf("the sectors the rigger's chart names closed = %v, want %v", got, byPassword)
 	}
-	if got := cannotEnter(ctx, t, warden, bastion)["rigger"]; got != keptOut {
+	if got := cannotEnter(ctx, t, warden)["rigger"]; got != keptOut {
 		t.Errorf("Bastion's people once it is directory only again: the rigger's row says %q, want %q", got, keptOut)
 	}
 	if got, want := warden.domains(ctx), []string{anvil, bastion, cinder}; !slices.Equal(got, want) {
@@ -413,14 +472,14 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	}
 }
 
-// cannotEnter reads a sector's list of its people as the browser's user: each person's
+// cannotEnter reads Bastion's list of its people as the browser's user: each person's
 // username with what their row says of the directory-only switch, empty for a person
 // it does not keep out.
-func cannotEnter(ctx context.Context, t *testing.T, b *browser, sector string) map[string]string {
+func cannotEnter(ctx context.Context, t *testing.T, b *browser) map[string]string {
 	t.Helper()
 
 	rows := map[string]string{}
-	for _, row := range crewSectorList(ctx, t, b, sector, sectorPeoplePath) {
+	for _, row := range crewSectorList(ctx, t, b, bastion, sectorPeoplePath) {
 		sentence, _ := row["cannotEnter"].(string)
 		rows[cell[string](t, row, "username")] = sentence
 	}

@@ -918,9 +918,9 @@ r=$(req governor GET "$API/sectors/$BASTION_ID/sector-directories"); assert_py "
 # Turning it on warns first: asked for its warning, the method says what the call would
 # do and saves nothing. While it is on, Bastion's list of its people says who it keeps
 # out, and the warning has nothing to turn on.
-KEPT_OUT='Has not signed in through persona, so cannot enter while this sector is directory only'
-r=$(req governor GET "$API/sectors/$BASTION_ID/crew-sector-users?limit=200"); assert_py "Bastion's list of its people keeps the rigger, whose row says she cannot enter while Bastion is directory only: the list is made from who holds a role there, not from who can sign in" "$r" "[u.get('cannotEnter') for u in rows if u['username']=='rigger']==['$KEPT_OUT']"
-assert_py "the bosun's and the pilot's rows say so too, and the governor's, a super administrator, says nothing" "$r" "[u.get('cannotEnter') for u in rows if u['username'] in ('bosun','pilot')]==['$KEPT_OUT','$KEPT_OUT'] and [u.get('cannotEnter') for u in rows if u['username']=='governor']==[None]"
+KEPT_OUT="Has not signed in through this sector's directory, so cannot enter while this sector is directory only"
+r=$(req governor GET "$API/sectors/$BASTION_ID/crew-sector-users?limit=200"); assert_py "Bastion's list of its people keeps the rigger, whose row says she cannot enter while Bastion is directory only: the list is made from who holds a role there, not from who can sign in" "$r" "[u.get('cannotEnter') for u in rows if u['username']=='rigger']==[\"$KEPT_OUT\"]"
+assert_py "the bosun's and the pilot's rows say so too, and the governor's, a super administrator, says nothing" "$r" "[u.get('cannotEnter') for u in rows if u['username'] in ('bosun','pilot')]==[\"$KEPT_OUT\",\"$KEPT_OUT\"] and [u.get('cannotEnter') for u in rows if u['username']=='governor']==[None]"
 MAKE_ONLY="$API/sectors/$BASTION_ID/make-sector-directory-only"
 END_ONLY="$API/sectors/$BASTION_ID/end-sector-directory-only"
 r=$(req governor GET "$API/sectors/$BASTION_ID/directory-only"); assert_py "the governor, a marshal in every sector, reads Bastion's switch in the sector: it is on" "$r" "rows=={'directoryOnly': True}"

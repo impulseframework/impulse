@@ -123,6 +123,20 @@ func TestManager_OpenSignUp(t *testing.T) {
 			refused: httpio.HasBadRequest, wantHas: "is not a role held for the whole application: choose one of the roles the picker lists",
 		},
 		{
+			name:   "a caller who may give the role is told that it is not held for the whole application",
+			open:   SignUp{Method: "google", DefaultRole: "Reader"},
+			caller: erin, grants: &fakeGrants{},
+			refused: httpio.HasBadRequest, wantHas: "is not a role held for the whole application: choose one of the roles the picker lists",
+			wantAsked: askedToGive("Reader"),
+		},
+		{
+			name:   "a caller who may not give a role learns nothing of whether it exists: the grant answers first, in the words it answers a role that exists",
+			open:   SignUp{Method: "google", DefaultRole: "Ghost"},
+			caller: erin, grants: &fakeGrants{noGive: []accesstypes.Role{"Ghost"}},
+			refused: httpio.HasForbidden, wantHas: "opening the method gives every person who signs up the role Ghost, which you may not give: choose a role you may give, or have someone who may give Ghost open the method",
+			wantAsked: askedToGive("Ghost"),
+		},
+		{
 			name:    "the Super Administrator role is never a default role",
 			open:    SignUp{Method: "google", DefaultRole: accesstypes.SuperAdministrator},
 			refused: httpio.HasBadRequest, wantHas: "is never a default role",

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 
 	"github.com/go-playground/errors/v5"
@@ -106,11 +107,15 @@ func fieldAnnotation(keyword string) *regexp.Regexp {
 // where the package declares no directories record or the record no such column. It is
 // read whether the tenant record declares the switch or not: the role a tenant is
 // opened to its directory's people with is judged by the role file's grants, which the
-// sources written before the load must carry (seatsDirectory).
-func tenantDirectoryIn(dir, record string, pluralize func(string) string) (directory *identityTenantDirectory, seat string, err error) {
+// sources written before the load must carry (seatsDirectory). outlets are the outlets
+// the directories record is served on, as its @outlet names them, nil where the package
+// declares no directories record: the two methods that say how a tenant admits its
+// directory's people are served there, and the list their role is picked from is
+// written for the auth those outlets sign people in through (identityOpensToDirectory).
+func tenantDirectoryIn(dir, record string, pluralize func(string) string) (directory *identityTenantDirectory, seat string, outlets []string, err error) {
 	pkg, err := build.ImportDir(dir, 0)
 	if err != nil {
-		return nil, "", errors.Wrap(err, "build.ImportDir()")
+		return nil, "", nil, errors.Wrap(err, "build.ImportDir()")
 	}
 
 	out := &identityTenantDirectory{}
@@ -118,7 +123,7 @@ func tenantDirectoryIn(dir, record string, pluralize func(string) string) (direc
 	for _, name := range pkg.GoFiles {
 		file, err := goparser.ParseFile(fset, filepath.Join(dir, name), nil, goparser.ParseComments|goparser.SkipObjectResolution)
 		if err != nil {
-			return nil, "", errors.Wrap(err, "parser.ParseFile()")
+			return nil, "", nil, errors.Wrap(err, "parser.ParseFile()")
 		}
 		for _, decl := range file.Decls {
 			gen, ok := decl.(*ast.GenDecl)
@@ -143,15 +148,16 @@ func tenantDirectoryIn(dir, record string, pluralize func(string) string) (direc
 					out.MethodColumn = annotatedColumn(structType, fieldDirectoryMethod)
 					out.ConnectionColumn = annotatedColumn(structType, fieldDirectoryConnection)
 					seat = annotatedColumn(structType, fieldDirectorySeat)
+					outlets = structCommentOutlets(gen, typeSpec)
 				}
 			}
 		}
 	}
 	if out.OnlyColumn == "" || out.Table == "" || out.TenantColumn == "" || out.MethodColumn == "" || out.ConnectionColumn == "" {
-		return nil, seat, nil
+		return nil, seat, outlets, nil
 	}
 
-	return out, seat, nil
+	return out, seat, outlets, nil
 }
 
 // seatsDirectory reports whether the instance's client judges the role a tenant is
@@ -161,6 +167,62 @@ func tenantDirectoryIn(dir, record string, pluralize func(string) string) (direc
 // answers the role file's grants (roleGrantsSource).
 func (i *identityInstance) seatsDirectory() bool {
 	return i.picksRoles() && i.tenant.directorySeat != ""
+}
+
+// identityOpensToDirectory reports whether the instance's auth is the one whose
+// generated management judges the role a tenant is opened to its directory's people
+// with, so that the instance declares the list the role is picked from
+// (<Auth><Record>DirectoryRole): the instance judges such a role (seatsDirectory), it
+// carries the tenant's list of its people, its client is handed the role file's answers
+// (judgesRoleChanges), a session outlet serves the directories record, and every
+// session outlet that does is bound to this auth. It reads the record's outlets off the
+// sources, before the load, and agrees with where the two methods are served after it
+// (directoryRole), which holdIdentityDirectoryRole holds.
+func (r *resourceGenerator) identityOpensToDirectory(inst *identityInstance) bool {
+	if !inst.seatsDirectory() || !inst.hasList(listPeopleSuffix) || !inst.judgesRoleChanges() {
+		return false
+	}
+	served := false
+	for _, outlet := range r.allOutlets() {
+		if !outlet.servesSessions || !slices.Contains(inst.tenant.directoryOutlets, outlet.name) {
+			continue
+		}
+		if outlet.auth == nil || outlet.auth.importPath != inst.importPath {
+			return false
+		}
+		served = true
+	}
+
+	return served
+}
+
+// holdIdentityDirectoryRole holds the list the role is picked from to the methods it
+// feeds: the list was written, before the load, for the instance whose auth serves the
+// two methods that say how a tenant admits its directory's people, and for no other.
+// The two are decided off the same declarations, so a difference is a fault of the
+// reading before the load, and the run stops before it generates a method whose role
+// has no list to be picked from, or a list no method reads.
+func (r *resourceGenerator) holdIdentityDirectoryRole() error {
+	serving := r.directoryRole()
+	for _, inst := range r.identity {
+		serves := serving != nil && serving.identity == inst
+		if inst.opensToDirectory == serves {
+			continue
+		}
+		spell := func(yes bool) string {
+			if yes {
+				return "is"
+			}
+
+			return "is not"
+		}
+
+		return errors.Newf("GenerateIdentity(%q): the auth %s %s the one that declares the list the role a tenant is opened to its directory's people with is picked from, as read off the sources of %s before the packages loaded, "+
+			"and it %s the one that serves the two methods once they are loaded; the two readings must agree, so this is a fault of the generator",
+			r.identityTree.Dir(), inst.auth, spell(inst.opensToDirectory), r.resource.Dir(), spell(serves))
+	}
+
+	return nil
 }
 
 // annotatedColumn is the column of the struct's field whose comment carries the

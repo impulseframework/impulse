@@ -370,6 +370,11 @@ type permissionsData struct {
 	// roster: the tenant record marks its name (@tenantName) and the application serves
 	// tenant-scoped routes, so it holds the roster.
 	TenantNames bool
+	// DirectoryNamers are the expressions that name the directory a session came
+	// through in a closed tenant's reason (closedTenantNamers), as the arguments of one
+	// call; empty where the package declares no tenant's directories, since a tenant is
+	// closed to a session by its directory alone.
+	DirectoryNamers string
 	// ListsAcrossTenants says the application declares a resource for listing across
 	// tenants (@listAcrossTenants): the digest handler and the live renewal are handed
 	// the collection, which says which resources those are.

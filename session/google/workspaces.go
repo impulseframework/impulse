@@ -237,6 +237,20 @@ func (s WorkspaceSet) entryFor(hd string) (connection string, attests, ok bool) 
 	return "", false, false
 }
 
+// nameOf answers what a person calls the organization behind a link's connection: the
+// application's name for a named Workspace, which is the connection its links carry,
+// and the domain of an account admitted as any Workspace, which is the connection
+// too. It answers "" for the connection of an account in no Workspace
+// (AnyAccountConnection), which is no organization, and for a connection the set does
+// not admit.
+func (s WorkspaceSet) nameOf(connection string) string {
+	if connection == AnyAccountConnection || !s.admitsConnection(connection) {
+		return ""
+	}
+
+	return connection
+}
+
 // admitsConnection reports whether an account whose link carries connection could
 // sign in through the set and reach that link: whether connectionFor would write the
 // same connection for it today. A named Workspace's link carries the Workspace's name

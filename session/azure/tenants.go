@@ -243,6 +243,21 @@ func (s TenantSet) admits(tid string) (organization string, ok bool) {
 	}
 }
 
+// nameOf answers the application's name for the listed tenant tid (NamedTenant), "" for
+// a tenant listed by its id alone, one the set admits as any tenant, and one it does
+// not admit: a tenant id is nothing a person knows, so a sentence says such a tenant by
+// the label of the registration's button. Tenant ids are compared without regard to
+// case.
+func (s TenantSet) nameOf(tid string) string {
+	for _, t := range s.listed {
+		if strings.EqualFold(t.id, tid) {
+			return t.name
+		}
+	}
+
+	return ""
+}
+
 // attests reports whether the set declares tenant tid as enforcing a second factor
 // (Attesting()): a listed tenant so declared. An open entry never attests.
 func (s TenantSet) attests(tid string) bool {

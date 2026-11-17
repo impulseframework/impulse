@@ -26,7 +26,9 @@ import (
 //     the person has typed the warning's word; and the role is held to what giving it
 //     by hand needs: it exists in the tenant, and the caller could give it there
 //     directly (the generated identity client's DirectoryRole, which asks the grant of
-//     the method that gives a role in a tenant);
+//     the method that gives a role in a tenant). Its picker lists the roles the caller
+//     could give and no other (<Auth><Record>DirectoryRoles, a computed resource of
+//     the auth's generated management), so the dialog offers what the method takes;
 //   - Make<Record>InviteOnly, POST <prefix>/<tenants>/{tenant}/make-<record>-invite-only,
 //     clears the role, which is plain.
 //
@@ -139,15 +141,16 @@ func (r *resourceGenerator) directoryRole() *directoryRoleServing {
 }
 
 // directoryRolePicker is the resource whose rows the role's picker lists, as a generated
-// client names it: the roles that exist in one tenant, of the auth whose identity client
-// judges the role (CrewSectorRoles). Empty where the program writes no method.
+// client names it: the roles of one tenant that the caller could give there directly,
+// of the auth whose identity client judges the role (CrewSectorDirectoryRoles), so the
+// dialog offers what the method takes. Empty where the program writes no method.
 func (r *resourceGenerator) directoryRolePicker() string {
 	role := r.directoryRole()
 	if role == nil {
 		return ""
 	}
 
-	return r.pluralize(role.identity.auth + role.identity.tenant.name + tenantRoleChoiceSuffix)
+	return r.pluralize(role.identity.auth + role.identity.tenant.name + directoryRoleChoiceSuffix)
 }
 
 // directoryRoleData feeds the handler package's file of the two methods: the methods,
@@ -178,6 +181,9 @@ type directoryRoleData struct {
 	Auth             string
 	IdentityAccessor string
 	Picker           string
+	// Rules is the expression that builds the rules of the record's directory, named by
+	// the program's auths (namedDirectoryRules).
+	Rules string
 
 	LocalPackageImports string
 	ResourcePackage     string
@@ -211,6 +217,7 @@ func (r *resourceGenerator) generateDirectoryRole() error {
 		Auth:                role.identity.auth,
 		IdentityAccessor:    role.identity.accessor(),
 		Picker:              r.directoryRolePicker(),
+		Rules:               r.namedDirectoryRules(role.record),
 		LocalPackageImports: r.localPackageImports(),
 		ResourcePackage:     r.resource.Package(),
 		RouterPackage:       r.router.Package(),

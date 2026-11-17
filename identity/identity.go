@@ -220,6 +220,13 @@ type SessionAPI interface {
 	// own (session.AuthAPI.SignsInThrough): the removal of a password is refused, and
 	// offered, by it.
 	SignsInThrough(method sessioninfo.AuthMethod, connection string) []string
+	// DirectoryName answers what the Auth's sign-in registrations call the directory an
+	// identity of this method and connection came through: the name a registration that
+	// takes the connection gives it, and the label of the button a person signs in to
+	// it with, each "" where the registrations have none
+	// (session.AuthAPI.DirectoryName). A sentence that names a directory to a person
+	// says it by them, never by the connection.
+	DirectoryName(method sessioninfo.AuthMethod, connection string) (name, label string)
 }
 
 // Link is one identity linked to a user, as the rules read it: its id, and the sign-in

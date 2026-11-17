@@ -105,7 +105,8 @@ methods, which `TenantAdministrator` holds and the page runs through the library
 method dialog: `OpenTenantToDirectory`
 (`POST /console/api/tenants/{tenantID}/open-tenant-to-directory`) names the role each of
 the directory's people is given at their first sign-in through it, a role the caller
-could give directly, and `MakeTenantInviteOnly` clears it; `MakeTenantDirectoryOnly`
+could give directly, picked from the list of the roles they may give
+(`StaffTenantDirectoryRoles`), and `MakeTenantInviteOnly` clears it; `MakeTenantDirectoryOnly`
 (`POST /console/api/tenants/{tenantID}/make-tenant-directory-only`) and
 `EndTenantDirectoryOnly` turn directory only (the `Tenants` record shows the flag and
 takes no write of it), which the server turns on only once the tenant has its directory
@@ -113,7 +114,12 @@ and only for a person signed in through it. Opening the tenant and making it dir
 only each warn first: the dialog shows the server's sentence (who will enter and with
 what role; the count of the people it would keep out and, to a person who may list the
 tenant's people, their names as a list) and holds its button until the person has typed
-the method's word; the other two are plain confirmations. Nobody types a directory in: it is set from a sign-in, by an
+the method's word; the other two are plain confirmations. Every sentence names the
+directory in words a person knows, never by its connection, which for a Microsoft Entra
+tenant is an id: the name the members auth's registration gives the tenant where it
+lists it with one (`azure.NamedTenant` in `pkg/auth/members`), and otherwise the label
+of the portal's sign-in button, "your organization's Microsoft directory", which is
+what this application says until its registration names its tenant. Nobody types a directory in: it is set from a sign-in, by an
 administrator who is signed in through their organization's directory, whom the page
 offers to make it the tenant's. The staff auth signs in by password until a directory
 method joins it (`impulse add method`), so until then the page offers no such action, a
@@ -232,6 +238,11 @@ generated router test proves the route sits behind the token check.
   administrator's roles; the members auth's user without a password under the
   sign-in name the placement names (`APP_MEMBERS_ADMINISTRATOR`), holding the administrator
   roles in every domain, which that person's first sign-in through the directory links to.
+  The tenants here have directories, where a name alone links no account that has never
+  signed in, so the seed creates this one for the `directory` registration
+  (`session.SeedUserIDThrough`): the id is the deployment's word on which registration
+  the name is believed from, and the sign-in rule links the account at the person's
+  first sign-in through it while it admits one organization alone (`azure.Tenant`).
   The staff auth's generated password is for the first sign-in alone: sign in as
   `administrator` with it, give an email address and confirm it with the sign-in code
   mailed there (the account starts with no address), then choose a new password, which

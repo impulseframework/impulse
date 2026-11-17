@@ -9,7 +9,10 @@ package drivertest
 // account rule matches the account by the sign-in name and the link is then made only
 // when something vouches for it: the sign-in came through the directory of the one
 // tenant the account belongs to, holding a role there and nothing anywhere else, or it
-// carries the account's own invitation. Any other
+// carries the account's own invitation, or the account is the deployment's own seed
+// for the registration the sign-in came through (its first administrator, who holds
+// roles for the whole application and belongs to no tenant) and that registration
+// admits one organization alone. Any other
 // sign-in under the name is refused as a person no account was created for is. A
 // registration that declares seeded users declares the provider's names the
 // application's own, as a deployment's own provider is for the accounts it seeds, and
@@ -24,6 +27,7 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/session/internal/dbtype"
@@ -69,6 +73,90 @@ func assertUntouched(ctx context.Context, t *testing.T, w *doorWorld, d AuthDriv
 	}
 	if diff := cmp.Diff(want, w.seats.tenants(user.ID)); diff != "" {
 		t.Errorf("tenants that seat the account after the refused sign-in (-want +got):\n%s", diff)
+	}
+}
+
+// testFirstLinkToSeed is the case of the deployment's first administrator among the
+// first links made on a name: an account its seed made with no password, for a
+// registration, which that registration links on the name while it admits one
+// organization and nobody else, and nothing else does.
+func testFirstLinkToSeed(t *testing.T, h *AuthHarness) {
+	t.Helper()
+	ctx := t.Context()
+
+	const administrator = "first.admin@operator.example"
+	// The deployment's word on an account: the id its seed derives from the name and
+	// the registration the person comes through (session.SeedUserIDThrough in an
+	// application), which no request gives an account. The application answers the
+	// rule by deriving it again.
+	seedID := func(registration, username string) impulse.UUID {
+		return impulse.UUIDFromName(impulse.NilUUID, "drivertest: a seeded user\x00"+registration+"\x00"+username)
+	}
+	seededFor := func(userID impulse.UUID, username, registration string) bool {
+		return userID == seedID(registration, username)
+	}
+
+	for _, tt := range []struct {
+		name string
+		// seededFor is the registration the seed made the account for, "" for an
+		// account an administrator created, whose id is generated.
+		seededFor string
+		// unrecognized says the application answers the rule nothing: it names no seed,
+		// and disabled that the account was disabled before its person ever signed in.
+		unrecognized bool
+		disabled     bool
+		admits       Admits
+		wantLinked   bool
+	}{
+		{name: "seeded for the registration, which admits one organization", seededFor: MethodName, wantLinked: true},
+		{name: "seeded for another registration of the Auth: a name through this one is not the deployment's word", seededFor: "another-directory"},
+		{name: "the registration admits two organizations, and either could present the name", seededFor: MethodName, admits: AdmitsTwoOrganizations},
+		{name: "the registration admits any account", seededFor: MethodName, admits: AdmitsAnyAccount},
+		{name: "the registration admits one organization and personal accounts", seededFor: MethodName, admits: AdmitsPersonalAccounts},
+		{name: "an account an administrator created under the name holds a generated id, which is no seed's"},
+		{name: "an application that recognizes no seed holds its first administrator to the rule every account created ahead is", seededFor: MethodName, unrecognized: true},
+		{name: "a seed that was disabled is vouched for by nothing, and no link is left on it", seededFor: MethodName, disabled: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := firstLinkWorld("")
+			w.accounts, w.admits = InviteOnly, tt.admits
+			if !tt.unrecognized {
+				w.seededFor = seededFor
+			}
+			in := w.start(ctx, t, h)
+			insert := &dbtype.InsertSessionUser{Username: administrator, Disabled: tt.disabled}
+			if tt.seededFor != "" {
+				insert.ID = impulse.NullUUIDFromUUID(seedID(tt.seededFor, administrator))
+			}
+			admin, err := in.Driver.CreateUser(ctx, insert, nil)
+			if err != nil {
+				t.Fatalf("CreateUser() error = %v", err)
+			}
+			// The first administrator holds the Super Administrator role for the whole
+			// application and belongs to no tenant, so no tenant's directory vouches
+			// for the account: Hilltop's, which the provider is, would be handed
+			// everything.
+			w.seats.mu.Lock()
+			w.seats.held[accesstypes.User(admin.ID.String())] = accesstypes.RoleCollection{accesstypes.GlobalPolicyScope(): {accesstypes.SuperAdministrator}}
+			w.seats.mu.Unlock()
+
+			identity := throughProvider("sub-admin", administrator, administrator)
+			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: administrator, Identity: identity}
+			err = signInRequest(ctx, in, req)
+			if tt.wantLinked {
+				assertNewlyLinked(ctx, t, in.Driver, err, req, identity, admin, hilltopProvider.Connection)
+
+				return
+			}
+			if err == nil {
+				t.Fatal("the sign-in linked the account, want it refused as a stranger's is")
+			}
+			assertRefused(t, err, sessioninfo.RefusedInvitationOnly, signin.ErrInvitationOnly)
+			if message := httpio.Message(err); strings.Contains(message, "account") || strings.Contains(message, administrator) {
+				t.Errorf("the refusal says %q, want words that say nothing of an account", message)
+			}
+			assertUntouched(ctx, t, w, in.Driver, admin, identity)
+		})
 	}
 }
 
@@ -295,6 +383,12 @@ func testFirstLinkByName(_ context.Context, t *testing.T, h *AuthHarness) {
 			assertRefused(t, strangerErr, sessioninfo.RefusedNotInvited, signin.ErrNotInvited)
 			assertNoUser(ctx, t, in.Driver, "nobody@riverside.example")
 		}
+	})
+
+	t.Run("the deployment's first administrator, seeded with no password for a registration, is linked on the name through that registration while it admits one organization alone, and through no other registration and no wider one", func(t *testing.T) {
+		t.Parallel()
+
+		testFirstLinkToSeed(t, h)
 	})
 
 	t.Run("a registration's own rule that links the account on its own evidence is not held to the rule on a name, and its answer of Standard is", func(t *testing.T) {

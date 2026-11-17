@@ -40,6 +40,21 @@ func FirstAdministratorRoles() (global, everyDomain []accesstypes.Role) {
 // the directory links to it. Once a user exists nothing is seeded: every user after the
 // first comes from the administration surface. An empty name is refused while the table is
 // empty. The development bootstrap seeds the development identities instead.
+//
+// The account is seeded for the directory registration, the auth's one directory method
+// whose roles the application gives (session.SeedUserIDThrough, over
+// DirectoryRegistration): its id says which of the auth's
+// registrations the name is believed from. An account with no password that has never
+// signed in is tied to whoever signs in next by nothing but its name, and a directory
+// asserts the names it likes, so where the application's tenants have directories a
+// name alone links nothing. The first administrator holds roles for the whole
+// application and belongs to no tenant, so no tenant's directory vouches for the
+// account; the deployment does, by this id, which no request can give an account, and
+// the sign-in rule links it at the person's first sign-in through that registration,
+// which admits one organization and nobody else. There, a sign-in under the name
+// through another directory's registration links nothing, and neither does one through
+// this registration once it is widened to more than one organization: keep it to the
+// one until the first administrator has signed in.
 func (a *Auth) SeedAdministrator(ctx context.Context, signInName string) (bool, error) {
 	empty, err := a.usersTableEmpty(ctx)
 	if err != nil {
@@ -60,7 +75,7 @@ func (a *Auth) SeedAdministrator(ctx context.Context, signInName string) (bool, 
 
 // seedFoothold seeds the first administrator into an empty users table: the roles first,
 // then the user who holds them. A role is held by the id of an account, so the seed
-// chooses the id (session.SeedUserID, the same on every run), writes the Super
+// chooses the id (session.SeedUserIDThrough, the same on every run), writes the Super
 // Administrator role and the administrator roles under it, and creates the user under it
 // last. The user's row is what says the seed is done: a run that stops before it leaves
 // the table empty, and the next deploy writes the same memberships again, each left as it
@@ -68,7 +83,7 @@ func (a *Auth) SeedAdministrator(ctx context.Context, signInName string) (bool, 
 // that user is and whatever it holds: the seed never gives a role to an account it did
 // not create.
 func (a *Auth) seedFoothold(ctx context.Context, req *session.CreateUserRequest) error {
-	id := session.SeedUserID(Name, req.Username)
+	id := session.SeedUserIDThrough(Name, DirectoryRegistration, req.Username)
 	if err := a.assignAdministrator(ctx, id); err != nil {
 		return err
 	}

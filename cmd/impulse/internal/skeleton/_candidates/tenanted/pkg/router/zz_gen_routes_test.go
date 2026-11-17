@@ -701,6 +701,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodGet,
+			handlerFunc: "StaffTenantDirectoryRoles",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodPost,
+			handlerFunc: "StaffTenantDirectoryRoles",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
 			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles", method: http.MethodGet,
 			handlerFunc: "StaffTenantRoles",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -1169,6 +1179,10 @@ func (s *generatedHandlersStub) StaffSignInMethods() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffSignInWays() http.HandlerFunc {
 	return s.record("StaffSignInWays")
+}
+
+func (s *generatedHandlersStub) StaffTenantDirectoryRoles() http.HandlerFunc {
+	return s.record("StaffTenantDirectoryRoles")
 }
 
 func (s *generatedHandlersStub) StaffTenantGroups() http.HandlerFunc {

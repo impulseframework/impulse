@@ -74,11 +74,11 @@ func TestTenantDirectoryRules_spanner(t *testing.T) {
 		{name: "a station with no directory takes a directory no station has", station: "gamma", directory: other},
 		{
 			name: "a second directory for a station is refused, naming the one it has", station: "beta", directory: other,
-			wantRefusal: "This station already has a directory, Microsoft Entra tenant 6f2c1b7e-0000-4000-8000-000000000001. A station has one directory: remove it first to set another.",
+			wantRefusal: "This station already has a directory, your organization's Microsoft directory. A station has one directory: remove it first to set another.",
 		},
 		{
 			name: "the directory a station has already is refused as its own", station: "beta", directory: entra,
-			wantRefusal: "Microsoft Entra tenant 6f2c1b7e-0000-4000-8000-000000000001 is already this station's directory.",
+			wantRefusal: "Your organization's Microsoft directory is already this station's directory.",
 		},
 		{
 			name: "a directory another station has is refused, saying the organization has a station", station: "gamma", directory: workspace,

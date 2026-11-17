@@ -2166,7 +2166,7 @@ const methodMap: MethodMap = {
     dryRun: true,
     warning: { typed: 'open' },
     fields: [
-      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.CrewSectorRoles, required: true },
+      { fieldName: 'role', displayType: 'enumerated', enumeratedResource: Resources.CrewSectorDirectoryRoles, required: true },
     ],
   },
   [Methods.MakeSectorInviteOnly]: {

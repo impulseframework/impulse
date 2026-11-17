@@ -5,9 +5,11 @@ import (
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/signin"
 	"github.com/impulseframework/impulse/tracer"
 )
 
@@ -63,4 +65,70 @@ func (m *Manager) DirectoryRole(ctx context.Context, txn resource.ReadWriteTrans
 	}
 
 	return nil
+}
+
+// DirectoryRoles lists the roles a tenant may be opened to its directory's people with,
+// as the dialog that opens it offers them: the roles that exist in the tenant
+// (TenantRoles) that the request's caller could give there directly, by the question
+// DirectoryRole asks of the grant of the method that gives a role (RoleGrants.MayGive,
+// for no person in particular), and no other. A page offers what the caller may do: a
+// role the list leaves out is one DirectoryRole refuses, and one it offers is one
+// DirectoryRole takes. A call outside any request is the application's own and lists
+// every role of the tenant; a manager a request reaches without the role grants cannot
+// judge it, which is an error and never a list.
+//
+// It is a list's read and is called outside any transaction, with the database to ask
+// in (db). The tenant's roles are read first, as TenantRoles reads them: the permission
+// engine reads the custom ones on a client of its own, and the database refuses such a
+// read under a transaction's context. The grant of a tenant's method may read a row, so
+// the questions are then asked in one transaction of the list's own, which writes
+// nothing.
+func (m *Manager) DirectoryRoles(ctx context.Context, db resource.Executor, tenant accesstypes.Domain) ([]access.RoleInfo, error) {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	roles, err := m.TenantRoles(ctx, tenant)
+	if err != nil {
+		return nil, err
+	}
+	judged, err := m.judged(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if !judged {
+		return roles, nil
+	}
+	scope := accesstypes.DomainPolicyScope(tenant)
+	var offered []access.RoleInfo
+	if err := db.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		// The database may run the function again, so each run starts its own list.
+		offered = make([]access.RoleInfo, 0, len(roles))
+		for _, role := range roles {
+			may, err := m.grants.MayGive(ctx, txn, scope, impulse.NilUUID, role.Name)
+			if err != nil {
+				return errors.Wrap(err, "identity.RoleGrants.MayGive()")
+			}
+			if may {
+				offered = append(offered, role)
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return nil, errors.Wrap(err, "resource.Executor.ExecuteFunc()")
+	}
+
+	return offered, nil
+}
+
+// DirectoryName answers what the auth's sign-in registrations call a directory, for a
+// sentence that names it to a person: the name a registration that takes its connection
+// gives it, and the label of the button a person signs in to it with, each "" where the
+// registrations have none (SessionAPI.DirectoryName). It is a resource.DirectoryNamer:
+// the generated frames hand it to the rules of a tenant's directory
+// (resource.TenantDirectoryRules.NamedBy) and to the tenant list
+// (resource.WithDirectoryNames), so a warning, a refusal and a closed tenant's reason
+// say "Lakeside" or "your organization's Microsoft directory" and never a tenant id.
+func (m *Manager) DirectoryName(directory signin.Directory) (name, label string) {
+	return m.sessions.DirectoryName(directory.Method, directory.Connection)
 }

@@ -228,6 +228,7 @@ func method(authn Authenticator, groups *groupSync, workspaces WorkspaceSet) *si
 			return workspaces.admitsAddress(signin.AddressDomain(email))
 		},
 		AdmitsConnection: workspaces.admitsConnection,
+		ConnectionName:   workspaces.nameOf,
 		Begin: func(ctx context.Context, w http.ResponseWriter, r *http.Request, returnURL string) (string, error) {
 			hint, err := signin.LoginHint(r)
 			if err != nil {

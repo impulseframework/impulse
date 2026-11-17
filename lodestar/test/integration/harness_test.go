@@ -325,6 +325,14 @@ func (noSessionAPI) SignsInThrough(method sessioninfo.AuthMethod, _ string) []st
 	return []string{"google"}
 }
 
+// DirectoryName names no directory, so a sentence that speaks of one reads what the
+// directory alone says: a Workspace by its connection, a Microsoft Entra tenant by its
+// kind and never by its id. The names the crew auth's own registrations give are
+// driven on the served stack.
+func (noSessionAPI) DirectoryName(sessioninfo.AuthMethod, string) (name, label string) {
+	return "", ""
+}
+
 // CrewIdentity is the crew auth's identity client: on the served stack the one the crew
 // auth built when it opened, as production's is; in a suite that serves no session
 // manager, one over the suite's crew engine.

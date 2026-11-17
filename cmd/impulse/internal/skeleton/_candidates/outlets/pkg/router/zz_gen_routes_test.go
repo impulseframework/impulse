@@ -326,6 +326,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/staff-sign-in-methods", method: http.MethodPost},
 		{url: "/portal/api/staff-sign-in-ways", method: http.MethodGet},
 		{url: "/portal/api/staff-sign-in-ways", method: http.MethodPost},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodGet},
+		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles", method: http.MethodGet},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles", method: http.MethodPost},
 		{url: "/portal/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-sign-in-ways", method: http.MethodGet},
@@ -579,6 +581,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/devices/staff-sign-in-methods", method: http.MethodPost},
 		{url: "/devices/staff-sign-in-ways", method: http.MethodGet},
 		{url: "/devices/staff-sign-in-ways", method: http.MethodPost},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodGet},
+		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles", method: http.MethodGet},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles", method: http.MethodPost},
 		{url: "/devices/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-sign-in-ways", method: http.MethodGet},
@@ -1845,6 +1849,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodGet,
+			handlerFunc: "StaffTenantDirectoryRoles",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
+			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-directory-roles", method: http.MethodPost,
+			handlerFunc: "StaffTenantDirectoryRoles",
+			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
+		},
+		{
 			url: "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles", method: http.MethodGet,
 			handlerFunc: "StaffTenantRoles",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -2379,6 +2393,10 @@ func (s *generatedHandlersStub) StaffSignInMethods() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffSignInWays() http.HandlerFunc {
 	return s.record("StaffSignInWays")
+}
+
+func (s *generatedHandlersStub) StaffTenantDirectoryRoles() http.HandlerFunc {
+	return s.record("StaffTenantDirectoryRoles")
 }
 
 func (s *generatedHandlersStub) StaffTenantGroups() http.HandlerFunc {

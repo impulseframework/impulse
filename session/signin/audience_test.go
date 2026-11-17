@@ -34,6 +34,44 @@ func TestAudienceWords(t *testing.T) {
 	}
 }
 
+// TestAudience_OneOrganization pins the width the first link of a deployment's seeded
+// account is held to: the method admits the people of exactly one organization and
+// nobody else. Several organizations, accounts outside the ones it names, and a method
+// that says nothing of itself are each wider. The organizations are counted as the
+// registration listed them: two that carry one name are two, though the audience's key
+// writes the name once.
+func TestAudience_OneOrganization(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		audience Audience
+		want     bool
+	}{
+		{name: "one organization", audience: Audience{Organizations: []string{"lakeside.edu"}}, want: true},
+		{name: "two organizations", audience: Audience{Organizations: []string{"lakeside.edu", "acme.example"}}},
+		{name: "two organizations under one name are two", audience: Audience{Organizations: []string{"lakeside", "lakeside"}}},
+		{name: "one organization and accounts outside it", audience: Audience{Organizations: []string{"lakeside.edu"}, Accounts: "a personal Microsoft account"}},
+		{name: "any account", audience: Audience{Accounts: "a Google account"}},
+		{name: "a method that says nothing of itself", audience: Audience{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.audience.OneOrganization(); got != tt.want {
+				t.Errorf("OneOrganization() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+
+	// The key writes each name once, so it cannot be what the width is read from.
+	alike := Audience{Organizations: []string{"lakeside", "lakeside"}}
+	if read, ok := AudienceOfKey(alike.Key()); !ok || len(read.Organizations) != 1 {
+		t.Fatalf("AudienceOfKey(Key()) of two organizations under one name = %+v, %v; the case no longer shows why the width is not read from the key", read, ok)
+	}
+}
+
 func TestAudienceKey(t *testing.T) {
 	t.Parallel()
 

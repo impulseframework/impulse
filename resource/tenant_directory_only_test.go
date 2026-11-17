@@ -2,8 +2,6 @@ package resource
 
 import (
 	"testing"
-
-	"github.com/impulseframework/impulse/session/signin"
 )
 
 // Test_directoryOnlySentence pins the words of what making a tenant directory only
@@ -35,8 +33,7 @@ func Test_directoryOnlySentence(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			directory := signin.Directory{Method: "google", Connection: "acme.example"}
-			if got := directoryOnlySentence(directory, "tenant", tt.counted, tt.outsiders, tt.named); got != tt.want {
+			if got := directoryOnlySentence("acme.example", "tenant", tt.counted, tt.outsiders, tt.named); got != tt.want {
 				t.Errorf("directoryOnlySentence() = %q, want %q", got, tt.want)
 			}
 		})

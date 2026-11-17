@@ -30,6 +30,12 @@ func (i *identityInstance) subject(tenant bool) string {
 // (CrewSectorRole, the roles one Sector gives).
 const tenantRoleChoiceSuffix = "Role"
 
+// directoryRoleChoiceSuffix is the suffix of the computed resource that lists the roles
+// a tenant may be opened to its directory's people with, after the auth's name and the
+// tenant record's (CrewSectorDirectoryRole): the roles of the tenant the caller could
+// give there directly, which the role of the method that opens a tenant is picked from.
+const directoryRoleChoiceSuffix = "DirectoryRole"
+
 // unlinkIdentityMethod names the method that unlinks a sign-in identity: the whole
 // application's is named for the declaration over the identities table
 // (UnlinkCrewSessionIdentity), and a tenant's is that name with the tenant record's
@@ -65,18 +71,37 @@ func (r *resourceGenerator) tenantComputedSources(inst *identityInstance) []iden
 		return nil
 	}
 
-	return []identitySourceFile{{
+	files := []identitySourceFile{{
 		dir:      inst.methods,
 		name:     fileStem(r.pluralize(inst.auth + inst.tenant.name + tenantRoleChoiceSuffix)),
 		template: identityTenantRoleChoicesTemplate,
 		needs:    []identityTable{identityMemberships},
 		tenant:   true,
 	}}
+	// The roles a tenant may be opened to its directory's people with, for the auth
+	// whose management judges the role (identityOpensToDirectory).
+	if inst.opensToDirectory {
+		files = append(files, identitySourceFile{
+			dir:      inst.methods,
+			name:     fileStem(r.pluralize(inst.auth + inst.tenant.name + directoryRoleChoiceSuffix)),
+			template: identityDirectoryRoleChoicesTemplate,
+			needs:    []identityTable{identityMemberships},
+			tenant:   true,
+		})
+	}
+
+	return files
 }
 
 // TenantRoleChoice is the struct of the roles that exist in a tenant.
 func (d *identitySourceData) TenantRoleChoice() string {
 	return d.auth + d.tenant.name + tenantRoleChoiceSuffix
+}
+
+// DirectoryRoleChoice is the struct of the roles a tenant may be opened to its
+// directory's people with.
+func (d *identitySourceData) DirectoryRoleChoice() string {
+	return d.auth + d.tenant.name + directoryRoleChoiceSuffix
 }
 
 // hasList reports whether the instance carries the tenant's list of the suffix.

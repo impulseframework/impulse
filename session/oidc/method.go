@@ -168,6 +168,13 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg
 // audienceOf is how wide the registration is, for the page where a method is opened to
 // sign-up: the provider is the one organization, by the application's name for it
 // (cfg.Connection) or, without one, the host of its issuer.
+//
+// The library cannot see behind an issuer, so a provider reads as one organization
+// whatever it serves (signin.Audience.OneOrganization). The rule that links a
+// deployment's seeded first administrator on the name asks that of the registration
+// the account was seeded for, so a seed made for a provider's registration
+// (session.SeedUserIDThrough) is its author's word that the provider is the
+// deployment's own directory; the generated foothold never gives it.
 func audienceOf(cfg *Config) signin.Audience {
 	name := cfg.Connection
 	if name == "" {
@@ -305,6 +312,15 @@ func method(authn Authenticator, roles *signin.RoleReconciler, issuer, connectio
 		// Every link the registration makes carries its one connection.
 		AdmitsConnection: func(linked string) bool {
 			return linked == connection
+		},
+		// The provider is said by the application's name for it, or by the host of its
+		// issuer where it gave none: what the registration's audience names.
+		ConnectionName: func(linked string) string {
+			if linked != connection || len(audience.Organizations) == 0 {
+				return ""
+			}
+
+			return audience.Organizations[0]
 		},
 		Begin: func(ctx context.Context, w http.ResponseWriter, r *http.Request, returnURL string) (string, error) {
 			hint, err := signin.LoginHint(r)

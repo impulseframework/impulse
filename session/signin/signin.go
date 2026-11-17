@@ -136,6 +136,16 @@ type Method struct {
 	// person's password is removed on the strength of it. It is nil when the method
 	// cannot tell one connection from another, which admits.
 	AdmitsConnection func(connection string) bool
+	// ConnectionName answers the name the registration gives the organization behind a
+	// connection, in words a person knows: the application's name for a listed
+	// Microsoft Entra tenant, a Google Workspace's name or the domain of one admitted
+	// as any Workspace, the application's name for an OpenID Connect provider or the
+	// host of its issuer. It answers "" for a connection the registration has no name
+	// for, a tenant listed by its id alone or admitted as any tenant: a sentence then
+	// says the directory by the label of the registration's button, never by the id.
+	// It is nil when the method names no connection. The Auth answers a directory's
+	// name from it (session.AuthAPI.DirectoryName).
+	ConnectionName func(connection string) string
 }
 
 // Verified is the result of a method's completed round trip.

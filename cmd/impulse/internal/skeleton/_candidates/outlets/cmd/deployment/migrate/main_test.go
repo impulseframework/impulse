@@ -360,7 +360,8 @@ func TestExecute(t *testing.T) {
 // database of its own, by what the seed reports and what it leaves. The seed runs only
 // while the auth's users table is empty, and it is two writes: the administrator's roles
 // first, which the auth's permission store holds under an id the seed derives
-// (session.SeedUserID, the same on every run), then the user, created under that id. The
+// (session.SeedUserID, or session.SeedUserIDThrough for an administrator the directory
+// signs in; the same on every run), then the user, created under that id. The
 // user's row is what says the seed is done: a run that stopped between the two left the
 // table empty, and the next run writes the same memberships again, each left as it is,
 // and creates the user. Once the table holds a user nothing is seeded, whoever that user
@@ -489,9 +490,13 @@ type sessionAPI = session.AuthAPI[session.NoCustomData, session.NoCustomData, *s
 // the auth's users and its permission store; and the administrator's roles by where
 // they are held.
 type foothold struct {
-	auth                string
-	username            string
-	password            *string
+	auth     string
+	username string
+	password *string
+	// registration is the sign-in registration the administrator's account is seeded
+	// for, where the directory signs the auth's people in; empty for an administrator
+	// who signs in with a password.
+	registration        string
 	seed                func(ctx context.Context, setting string) (bool, error)
 	setting             string
 	users               *sessionAPI
@@ -519,7 +524,7 @@ func footholds(data *config.DataConfiguration) []*foothold {
 			global: staffGlobal, everyDomain: staffEveryDomain,
 		},
 		{
-			auth: members.Name, username: membersAdministrator,
+			auth: members.Name, username: membersAdministrator, registration: members.DirectoryRegistration,
 			seed: data.Members().SeedAdministrator, setting: membersAdministrator,
 			users: data.Members().Session().API(), manager: data.Members().Access().UserManager(),
 			global: membersGlobal, everyDomain: membersEveryDomain,
@@ -579,8 +584,15 @@ func someoneElse(t *testing.T, f *foothold) {
 }
 
 // seedID is the id the auth's seed creates its first administrator under, which it
-// derives from the auth's name and the administrator's: the same on every run.
+// derives from the auth's name and the administrator's: the same on every run. An
+// administrator the directory signs in is seeded for the registration they come
+// through, which the id names too (session.SeedUserIDThrough): it is what the sign-in
+// rule recognizes the account by at the person's first sign-in.
 func (f *foothold) seedID() impulse.UUID {
+	if f.registration != "" {
+		return session.SeedUserIDThrough(f.auth, f.registration, f.username)
+	}
+
 	return session.SeedUserID(f.auth, f.username)
 }
 

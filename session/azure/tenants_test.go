@@ -332,3 +332,35 @@ func TestTenantSet_admitsAddress(t *testing.T) {
 		})
 	}
 }
+
+// TestTenantSet_nameOf pins what a sentence calls a tenant: the application's name for
+// a listed tenant, and nothing for a tenant it knows by an id alone, which is said by
+// the registration's label and never by the id.
+func TestTenantSet_nameOf(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		tenants TenantSet
+		tid     string
+		want    string
+	}{
+		{name: "a tenant the application names", tenants: NamedTenant(tenantLake, "Lakeside"), tid: tenantLake, want: "Lakeside"},
+		{name: "its id in another case", tenants: NamedTenant(tenantLake, "Lakeside"), tid: strings.ToUpper(tenantLake), want: "Lakeside"},
+		{name: "a tenant listed by its id alone has no name", tenants: Tenant(tenantLake), tid: tenantLake},
+		{name: "one of several", tenants: Tenants(NamedTenant(tenantLake, "Lakeside"), Tenant(tenantRiver)), tid: tenantLake, want: "Lakeside"},
+		{name: "the unnamed one of several", tenants: Tenants(NamedTenant(tenantLake, "Lakeside"), Tenant(tenantRiver)), tid: tenantRiver},
+		{name: "a tenant admitted as any tenant has no name", tenants: Tenants(NamedTenant(tenantLake, "Lakeside"), AnyTenant()), tid: tenantRiver},
+		{name: "a tenant the set does not admit", tenants: NamedTenant(tenantLake, "Lakeside"), tid: tenantRiver},
+		{name: "no tenant", tenants: NamedTenant(tenantLake, "Lakeside"), tid: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := tt.tenants.nameOf(tt.tid); got != tt.want {
+				t.Errorf("nameOf(%q) = %q, want %q", tt.tid, got, tt.want)
+			}
+		})
+	}
+}

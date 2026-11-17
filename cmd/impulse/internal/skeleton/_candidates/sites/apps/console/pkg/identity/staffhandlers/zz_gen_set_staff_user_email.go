@@ -46,7 +46,13 @@ func (h *Handlers) SetStaffUserEmail() http.HandlerFunc {
 
 		p := (*staffidentity.SetStaffUserEmail)(params)
 
-		if resource.AsksWarning(r) {
+		// The X-Warning header takes the value true or is left off the request: any
+		// other value is refused here, and the call is not run.
+		asksWarning, err := resource.AsksWarning(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		if asksWarning {
 			// The method declares no warning (@warning): a request that asks for one
 			// is refused, and never runs the call.
 			return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewBadRequestMessage("SetStaffUserEmail declares no warning: send the call without the X-Warning header"))
@@ -59,7 +65,12 @@ func (h *Handlers) SetStaffUserEmail() http.HandlerFunc {
 		// A dry run (X-Dry-Run: true) runs the whole frame and the body, then
 		// rolls the transaction back: every refusal answers as the real call
 		// would, and a call that would have succeeded answers 200 with no body.
-		dryRun := resource.IsDryRun(r)
+		// The header takes the value true or is left off the request: any other
+		// value is refused here, and the call is not run.
+		dryRun, err := resource.IsDryRun(r)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
 		if err := h.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
 			// Declared target: locate the row within the tenancy predicate
 			// before the body runs.

@@ -242,8 +242,8 @@ func TestTenancyBrowserAuth(t *testing.T) {
 		"import { ServiceAreaDirectories, ServiceAreas } from '@app/service/zz_gen_resources';",
 	}, placeholder)
 	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.spec.ts", []string{
-		"PeopleServiceAreaRoles: { List: 'granted' },",
-		"case `${environment.apiUrl}/service-areas/${acmeID}/people-service-area-roles`:",
+		"PeopleServiceAreaDirectoryRoles: { List: 'granted' },",
+		"case `${environment.apiUrl}/service-areas/${acmeID}/people-service-area-directory-roles`:",
 	}, placeholder)
 	for _, f := range tenantWebFiles {
 		wantContains(t, a, "web/console/src/"+f.rel, nil, placeholder)
@@ -450,10 +450,11 @@ func TestTenancyBrowserRecordWords(t *testing.T) {
 	}, nil)
 	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.spec.ts", []string{
 		"const workspace: ServiceAreaDirectories = { id: 'd-1', serviceAreaId: acmeID, method: 'google', connection: 'acme.example' };",
-		"StaffServiceAreaRoles: { List: 'granted' },",
+		// The list the role is picked from is named for the record too.
+		"StaffServiceAreaDirectoryRoles: { List: 'granted' },",
 		"global: { ServiceAreas: { Read: 'granted', Update: 'granted' } },",
 		"case `${environment.apiUrl}/service-areas/${acmeID}/service-area-directories`:",
-		"case `${environment.apiUrl}/service-areas/${acmeID}/staff-service-area-roles`:",
+		"case `${environment.apiUrl}/service-areas/${acmeID}/staff-service-area-directory-roles`:",
 		"MakeServiceAreaDirectoryOnly: { Execute: 'granted' },",
 		"EndServiceAreaDirectoryOnly: { Execute: 'granted' },",
 		"OpenServiceAreaToDirectory: { Execute: 'granted' },",
@@ -466,7 +467,7 @@ func TestTenancyBrowserRecordWords(t *testing.T) {
 		"fixture.componentRef.setInput('serviceAreaID', acmeID);",
 		"'Your role in this service area does not cover its directory.',",
 		"expect(texts('.make-directory')).toEqual([\"Make acme.example this service area's directory\"]);",
-	}, []string{"tenantID", "/tenants/", "TenantDirectoryOnly", "tenant-directory-only", "TenantToDirectory", "tenant-to-directory", "TenantInviteOnly", "tenant-invite-only"})
+	}, []string{"tenantID", "/tenants/", "TenantDirectoryOnly", "tenant-directory-only", "TenantToDirectory", "tenant-to-directory", "TenantInviteOnly", "tenant-invite-only", "TenantDirectoryRoles", "tenant-directory-roles"})
 	wantContains(t, a, src+"configs/tenants.config.ts", []string{
 		"import { Resources, ServiceAreas } from '@app/service/zz_gen_constants';",
 		"export const tenantsConfig = rootConfig({",

@@ -683,6 +683,12 @@
               ]
             },
             {
+              "resource": "StaffTenantDirectoryRoles",
+              "fields": [
+                "description"
+              ]
+            },
+            {
               "resource": "StaffTenantGroups",
               "fields": [
                 "name",

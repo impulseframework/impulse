@@ -330,6 +330,11 @@ export interface StaffSignInWays {
   through?: string;
 }
 
+export interface StaffTenantDirectoryRoles {
+  name: string;
+  description?: string;
+}
+
 export interface StaffTenantRoles {
   name: string;
   description?: string;
@@ -852,6 +857,18 @@ const resourceMap = defineResourceMap({
       { fieldName: 'through', displayType: 'string', required: false, isIndex: false },
     ],
   },
+  [Resources.StaffTenantDirectoryRoles]: {
+    route: 'tenants/{tenantID}/staff-tenant-directory-roles',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'name', primaryKey: { ordinalPosition: 0 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
   [Resources.StaffTenantRoles]: {
     route: 'tenants/{tenantID}/staff-tenant-roles',
     readDisabled: true,
@@ -947,6 +964,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.StaffInvitedTenants]: PermissionScopes.global,
   [Resources.StaffSignInMethods]: PermissionScopes.global,
   [Resources.StaffSignInWays]: PermissionScopes.global,
+  [Resources.StaffTenantDirectoryRoles]: PermissionScopes.domain,
   [Resources.StaffTenantRoles]: PermissionScopes.domain,
   [Resources.StaffTenantSignInWays]: PermissionScopes.domain,
   [Resources.FeatureFlags]: PermissionScopes.global,

@@ -454,6 +454,10 @@ func (r *resourceGenerator) resolveCrossKindDeclarations() error {
 		return err
 	}
 
+	if err := r.holdIdentityDirectoryRole(); err != nil {
+		return err
+	}
+
 	return r.holdIdentityTenantInvitation()
 }
 

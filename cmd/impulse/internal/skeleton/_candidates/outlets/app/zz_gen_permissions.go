@@ -33,6 +33,9 @@ func (a *App) PermissionDigest() http.HandlerFunc {
 // outlet (ServesSessions), under that outlet's prefix.
 // Each tenant of the list carries its name from the application's tenant roster, which
 // reads the tenant record's name column, so the tenant's own people see it.
+// A tenant that is closed to the session says why, and names the directory the session
+// came through as the sign-in registrations of each auth call it, never by its
+// connection (resource.WithDirectoryNames).
 func (a *App) UserDomains() http.HandlerFunc {
-	return resource.UserDomainsHandler(a.UserPermissions, resource.WithDomainNames(a.TenantRoster()))
+	return resource.UserDomainsHandler(a.UserPermissions, resource.WithDomainNames(a.TenantRoster()), resource.WithDirectoryNames(a.StaffIdentity().DirectoryName, a.MembersIdentity().DirectoryName))
 }

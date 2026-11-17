@@ -8,9 +8,12 @@ import (
 	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
+	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // TestManager_DirectoryRole pins the rule of the role a tenant is opened to its
@@ -118,4 +121,192 @@ func TestManager_DirectoryRole(t *testing.T) {
 			t.Errorf("DirectoryRole() error = %v, want the grants' own error", err)
 		}
 	})
+}
+
+// TestManager_DirectoryRoles pins the list the role a tenant is opened with is picked
+// from: the roles of the tenant that the request's caller could give there directly,
+// asked of the grant DirectoryRole asks, for no person in particular, and no other. The
+// list offers what the method takes: a role it leaves out is one DirectoryRole refuses.
+// A call outside any request is the application's own and lists every role of the
+// tenant; a manager that cannot ask refuses the request, never lists; and no tenant
+// named is an error.
+//
+// The list is read outside any transaction: the tenant's roles come from the permission
+// engine, whose listing the database refuses under a transaction's context (the fake
+// engine refuses it there as well), and the grants are asked in a transaction of the
+// list's own, since the grant of a tenant's method may read a row.
+func TestManager_DirectoryRoles(t *testing.T) {
+	t.Parallel()
+
+	nobody := impulse.NilUUID.String()
+	reader := access.RoleInfo{Name: "Reader", Description: "the Reader role"}
+	warden := access.RoleInfo{Name: "Warden", Description: "the Warden role"}
+	tests := []struct {
+		name string
+		// noGive are the roles the caller may not give.
+		noGive []accesstypes.Role
+		// outside says the call is made outside any request.
+		outside   bool
+		want      []access.RoleInfo
+		wantAsked []string
+	}{
+		{
+			name: "a caller is listed the roles of the tenant they may give", noGive: []accesstypes.Role{"Warden"},
+			want: []access.RoleInfo{reader}, wantAsked: []string{"give domain/alpha " + nobody + " Reader", "give domain/alpha " + nobody + " Warden"},
+		},
+		{
+			name: "a caller who may give every role is listed every role of the tenant",
+			want: []access.RoleInfo{reader, warden}, wantAsked: []string{"give domain/alpha " + nobody + " Reader", "give domain/alpha " + nobody + " Warden"},
+		},
+		{
+			name: "a caller who may give none is listed none", noGive: []accesstypes.Role{"Reader", "Warden"},
+			want: []access.RoleInfo{}, wantAsked: []string{"give domain/alpha " + nobody + " Reader", "give domain/alpha " + nobody + " Warden"},
+		},
+		{name: "a call outside any request lists every role of the tenant and asks nothing", noGive: []accesstypes.Role{"Warden"}, outside: true, want: []access.RoleInfo{reader, warden}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := groupStore()
+			grants := &fakeGrants{noGive: tt.noGive}
+			m, _ := newManager(t, store, wardenRoles, WithRoleGrants(grants))
+
+			ctx := t.Context()
+			if !tt.outside {
+				ctx = asCallerThrough(ctx, managedAuth, erin)
+			}
+			got, err := m.DirectoryRoles(ctx, fakeDatabase{}, "alpha")
+			if err != nil {
+				t.Fatalf("DirectoryRoles() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Errorf("DirectoryRoles() mismatch (-want +got):\n%s", diff)
+			}
+			if diff := cmp.Diff(tt.wantAsked, grants.asked); diff != "" {
+				t.Errorf("what the grants were asked (-want +got):\n%s", diff)
+			}
+			if len(grants.askedOutside) != 0 {
+				t.Errorf("grants asked outside a transaction = %v, want none: the grant of a tenant's method may read a row", grants.askedOutside)
+			}
+			// Each role the list offers is one the method takes, and each it leaves out
+			// is one the method refuses.
+			for _, role := range []accesstypes.Role{"Reader", "Warden"} {
+				offered := false
+				for _, listed := range got {
+					offered = offered || listed.Name == role
+				}
+				err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+					if !tt.outside {
+						ctx = asCallerThrough(ctx, managedAuth, erin)
+					}
+
+					return m.DirectoryRole(ctx, txn, "alpha", role)
+				})
+				if offered != (err == nil) {
+					t.Errorf("the list offers %s = %v, and DirectoryRole() error = %v: the list offers what the method takes", role, offered, err)
+				}
+			}
+			if len(store.writes) != 0 {
+				t.Errorf("buffered writes = %v, want none: the list writes nothing", store.writes)
+			}
+		})
+	}
+
+	t.Run("a transaction the database runs again lists each role once", func(t *testing.T) {
+		t.Parallel()
+
+		grants := &fakeGrants{}
+		m, _ := newManager(t, groupStore(), wardenRoles, WithRoleGrants(grants))
+		got, err := m.DirectoryRoles(asCallerThrough(t.Context(), managedAuth, erin), ranTwice{}, "alpha")
+		if err != nil {
+			t.Fatalf("DirectoryRoles() error = %v", err)
+		}
+		if diff := cmp.Diff([]access.RoleInfo{reader, warden}, got); diff != "" {
+			t.Errorf("DirectoryRoles() over a transaction run twice mismatch (-want +got):\n%s", diff)
+		}
+		if len(grants.asked) != 4 {
+			t.Errorf("the grants were asked %d times, want 4: each role in each run of the transaction", len(grants.asked))
+		}
+	})
+
+	t.Run("a manager with no grants refuses a request it cannot judge", func(t *testing.T) {
+		t.Parallel()
+
+		m, _ := newManager(t, groupStore(), wardenRoles)
+		_, err := m.DirectoryRoles(asCallerThrough(t.Context(), managedAuth, erin), fakeDatabase{}, "alpha")
+		if err == nil || !strings.Contains(err.Error(), "identity.WithRoleGrants") {
+			t.Errorf("DirectoryRoles() error = %v, want an error naming identity.WithRoleGrants", err)
+		}
+	})
+
+	t.Run("a grant that cannot be read fails the list", func(t *testing.T) {
+		t.Parallel()
+
+		m, _ := newManager(t, groupStore(), wardenRoles, WithRoleGrants(&fakeGrants{err: errStore}))
+		_, err := m.DirectoryRoles(asCallerThrough(t.Context(), managedAuth, erin), fakeDatabase{}, "alpha")
+		if !errors.Is(err, errStore) {
+			t.Errorf("DirectoryRoles() error = %v, want the grants' own error", err)
+		}
+	})
+
+	t.Run("no tenant named is an error", func(t *testing.T) {
+		t.Parallel()
+
+		m, _ := newManager(t, groupStore(), wardenRoles, WithRoleGrants(&fakeGrants{}))
+		_, err := m.DirectoryRoles(t.Context(), fakeDatabase{}, "")
+		if err == nil || !strings.Contains(err.Error(), "no tenant was named") {
+			t.Errorf("DirectoryRoles() error = %v, want one that says no tenant was named", err)
+		}
+	})
+}
+
+// ranTwice is a database that runs a transaction's function twice before it commits, as
+// the application's database does when it takes the transaction back and tries again.
+type ranTwice struct{}
+
+func (ranTwice) ExecuteFunc(ctx context.Context, f func(ctx context.Context, txn resource.ReadWriteTransaction) error) error {
+	if err := (fakeDatabase{}).ExecuteFunc(ctx, f); err != nil {
+		return err
+	}
+
+	return fakeDatabase{}.ExecuteFunc(ctx, f)
+}
+
+// TestManager_DirectoryName pins that the manager names a directory as the session
+// library's registrations do: the directory's method and connection are the ones
+// asked, and the name and the label come back as the library answered them, so the
+// words of a warning are the registrations' and never the manager's own.
+func TestManager_DirectoryName(t *testing.T) {
+	t.Parallel()
+
+	m, _ := newManager(t, groupStore(), wardenRoles)
+	m.sessions = fakeSessions{
+		named:  map[string]string{"6f2c1b7e-0000-4000-8000-000000000001": "Lakeside"},
+		labels: map[sessioninfo.AuthMethod]string{sessioninfo.MethodAzure: "Microsoft", sessioninfo.MethodGoogle: "Google"},
+	}
+	// The manager is what the rules of a tenant's directory are named by.
+	var namer resource.DirectoryNamer = m.DirectoryName
+
+	tests := []struct {
+		name      string
+		directory signin.Directory
+		wantName  string
+		wantLabel string
+	}{
+		{name: "a tenant a registration names", directory: signin.Directory{Method: sessioninfo.MethodAzure, Connection: "6f2c1b7e-0000-4000-8000-000000000001"}, wantName: "Lakeside", wantLabel: "Microsoft"},
+		{name: "a tenant no registration names has its button's label", directory: signin.Directory{Method: sessioninfo.MethodAzure, Connection: "6f2c1b7e-0000-4000-8000-000000000002"}, wantLabel: "Microsoft"},
+		{name: "the label is the one of the directory's own method", directory: signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "acme.example"}, wantLabel: "Google"},
+		{name: "a method the registrations do not know has neither", directory: signin.Directory{Method: sessioninfo.MethodWorkOS, Connection: "conn_01"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			name, label := namer(tt.directory)
+			if name != tt.wantName || label != tt.wantLabel {
+				t.Errorf("DirectoryName() = (%q, %q), want (%q, %q)", name, label, tt.wantName, tt.wantLabel)
+			}
+		})
+	}
 }

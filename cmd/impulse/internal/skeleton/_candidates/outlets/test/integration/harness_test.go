@@ -146,9 +146,11 @@ func (c *servedConfigurer) LiveOrigins() []string {
 // served is one running instance of the application under test.
 type served struct {
 	server *httptest.Server
-	// access is the staff auth's engine, members the members auth's.
-	access  *access.Client
-	members *access.Client
+	// access is the staff auth's engine, members the members auth's, and membersAuth
+	// the members auth itself, for a suite that creates a member as an operator would.
+	access      *access.Client
+	members     *access.Client
+	membersAuth *members.Auth
 	// adminID and memberID are the ids of the staff logins' accounts, and clientID the
 	// id of the portal's client's account in the members auth: what each auth's
 	// permission store holds their roles under and what the methods of the auth's
@@ -177,6 +179,16 @@ type served struct {
 // The server is allocated before the members auth so the auth's directory callback can
 // name the server's own address.
 func newServed(ctx context.Context, t *testing.T) *served {
+	t.Helper()
+
+	return newServedSeeding(ctx, t, "")
+}
+
+// newServedSeeding is newServed with the members auth's first administrator seeded
+// under membersAdministrator before anything else of the auth exists, as the migrate
+// command seeds one into the auth's empty users table (members.Auth.SeedAdministrator);
+// "" seeds none.
+func newServedSeeding(ctx context.Context, t *testing.T, membersAdministrator string) *served {
 	t.Helper()
 
 	db, err := prepareDatabase(ctx, t, migrationsSource, devSeedSource)
@@ -252,6 +264,13 @@ func newServed(ctx context.Context, t *testing.T) *served {
 		}
 	})
 	membersAccess := membersAuth.Access()
+	// The deployment's seed runs while the members auth's users table is empty.
+	if membersAdministrator != "" {
+		seeded, err := membersAuth.SeedAdministrator(ctx, membersAdministrator)
+		if err != nil || !seeded {
+			t.Fatalf("members.Auth.SeedAdministrator(%s) = %v, %v, want the first administrator seeded", membersAdministrator, seeded, err)
+		}
+	}
 	// The portal's client is a member: the directory proves who they are, so they hold
 	// no password here. A role is held by an account, so the client is created as the
 	// bootstrap creates a member: a user without a password under the name the directory
@@ -312,7 +331,7 @@ func newServed(ctx context.Context, t *testing.T) *served {
 	server.Config.Handler = router.New(a, router.Hooks{})
 	server.Start()
 
-	return &served{server: server, access: accessClient, tenants: roster, members: membersAccess, adminID: ids[adminUser], memberID: ids[memberUser], clientID: clientID, db: db, mail: sent, trusted: map[string]*http.Cookie{}}
+	return &served{server: server, access: accessClient, tenants: roster, members: membersAccess, membersAuth: membersAuth, adminID: ids[adminUser], memberID: ids[memberUser], clientID: clientID, db: db, mail: sent, trusted: map[string]*http.Cookie{}}
 }
 
 // waitForDomains blocks until the engine's snapshot reports the user's footholds in
