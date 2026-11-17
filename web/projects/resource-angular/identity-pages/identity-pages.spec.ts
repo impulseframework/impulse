@@ -38,7 +38,7 @@ const metas: Record<string, ResourceMeta> = {
   CrewSessionMailLinks: fields('id', 'kind', 'email', 'name', 'tenantId', 'roleNames', 'createdAt', 'expiresAt', 'consumedAt'),
   CrewSessions: fields('id', 'userId', 'username', 'expired', 'authenticatedAt', 'updatedAt'),
   CrewSessionSignInAttempts: fields('name', 'failures', 'lockedUntil', 'updatedAt'),
-  CrewSignInMethods: fields('name', 'label', 'admits', 'openSignUp', 'defaultRole', 'directoryGivesRoles', 'says'),
+  CrewSignInMethods: fields('name', 'label', 'admits', 'openSignUp', 'defaultRole', 'directoryGivesRoles', 'ownRule', 'says'),
   CrewSectorUsers: fields('id', 'domainId', 'username', 'name', 'email', 'disabled', 'passwordChangeRequired', 'lastSignInAt', 'heldElsewhere', 'heldGlobally'),
   CrewSectorUserRoles: fields('domainId', 'userId', 'username', 'role', 'everyDomain', 'createdAt'),
   CrewSectorIdentities: fields('id', 'userId', 'username', 'method', 'connection', 'emailAtLink', 'createdAt', 'lastUsedAt'),
@@ -60,7 +60,7 @@ const metas: Record<string, ResourceMeta> = {
   MembersUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'),
   // An application without tenants: a person who signs up is given a role, picked from the roles it lists.
   StaffSessionUsers: fields('id', 'username', 'disabled'),
-  StaffSignInMethods: fields('name', 'label', 'admits', 'openSignUp', 'defaultRole', 'directoryGivesRoles', 'says'),
+  StaffSignInMethods: fields('name', 'label', 'admits', 'openSignUp', 'defaultRole', 'directoryGivesRoles', 'ownRule', 'says'),
   StaffSignUpRoles: { ...fields('name', 'description'), nameField: 'name' },
   // The tenant record: keyed by an id, and it says which field a sector is called by.
   Sectors: { ...fields('id', 'name', 'region'), nameField: 'name' },
@@ -227,6 +227,28 @@ describe("identityPages, the whole application's side", () => {
       directoryGivesRoles: true,
       says: 'The directory gives the roles, so it decides who may sign in: a person it gives a role signs in, and nobody else.',
     };
+    // A registration that carries an account rule of its own: the application's code decides.
+    const partners: RecordData = {
+      name: 'partners',
+      label: 'Partners',
+      admits: 'Anyone with an account at Harbor',
+      openSignUp: false,
+      defaultRole: '',
+      directoryGivesRoles: false,
+      ownRule: true,
+      says: "The application's own rule decides who may sign in through this method: it is neither opened to sign-up nor made invite only here.",
+    };
+    // A method opened when its registration admitted fewer people: invite only until it is opened again.
+    const widened: RecordData = {
+      name: 'workspace',
+      label: 'Acme',
+      admits: 'Anyone with an account at acme.example or lakeside.edu',
+      openSignUp: false,
+      defaultRole: '',
+      directoryGivesRoles: false,
+      ownRule: false,
+      says: 'Invite only: this method was opened for anyone with an account at acme.example, and it admits anyone with an account at acme.example or lakeside.edu now. Open it again to admit them.',
+    };
 
     it('lists each method by who can sign in with it and what was chosen, and reads what the actions need without drawing it', () => {
       expect(list(signIn).title).toBe('Crew sign-in');
@@ -238,22 +260,33 @@ describe("identityPages, the whole application's side", () => {
         ['says', 'A person with no invitation', false],
         ['name', 'Name', true],
         ['directoryGivesRoles', 'Directory gives roles', true],
+        ['ownRule', 'Decided by its own rule', true],
       ]);
       const choice = list(signIn).listColumns.find((column) => column.id === 'openSignUp')?.valueGetter;
-      expect([password, google, entra].map((row) => choice?.(row))).toEqual(['Open', 'Invite only', 'Set by the directory']);
+      expect([password, google, entra, partners, widened].map((row) => choice?.(row))).toEqual([
+        'Open',
+        'Invite only',
+        'Set by the directory',
+        'Set by the application',
+        'Invite only',
+      ]);
     });
 
-    it('offers Open sign-up on a method that is invite only, Make invite only on one that is open, and neither where the directory gives the roles', () => {
+    it("offers Open sign-up on a method that is invite only, Make invite only on one that is open, and neither where the directory gives the roles or the registration's own rule decides", () => {
       const open = presentation(list(signIn).rowMethods, 'OpenCrewSignUp');
       const close = presentation(list(signIn).rowMethods, 'MakeCrewInviteOnly');
       expect(methodsOf(list(signIn).rowMethods)).toEqual([
         ['OpenCrewSignUp', 'Open sign-up'],
         ['MakeCrewInviteOnly', 'Make invite only'],
       ]);
-      expect([password, google, entra].map((row) => [open.when?.(row), close.when?.(row)])).toEqual([
+      expect([password, google, entra, partners, widened].map((row) => [open.when?.(row), close.when?.(row)])).toEqual([
         [false, true],
         [true, false],
         [false, false],
+        // The application's own rule decides: nothing to open, nothing to close.
+        [false, false],
+        // Opened for a narrower audience than the method has now: it is opened again.
+        [true, false],
       ]);
       // Neither method names a target row: the page fills the method's name from the row.
       expect(open.fill?.(google)).toEqual({ name: 'google' });
