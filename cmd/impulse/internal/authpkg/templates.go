@@ -485,10 +485,12 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 
 	// The sign-in rule: the library's tenant policy. A person's tenants are where they
 	// hold a role (the engine's memberships), and what each tenant admits is its
-	// declaration, read in the sign-in's transaction: a password is admitted unless
-	// every one of the person's tenants admits its people through directories only, a
-	// sign-in through a directory when one of their tenants declares it (its method and
-	// the connection its identities carry); a person who holds a role outside any one
+	// declaration, read in the sign-in's transaction. A declaration restricts its own
+	// tenant alone: a tenant that is not directory only admits everyone it seats,
+	// however they signed in, and a directory-only tenant admits a sign-in through its
+	// own directory (its method and the connection its identities carry) and nothing
+	// else, so a person is refused only when every tenant that seats them is closed to
+	// the way they signed in; a person who holds a role outside any one
 	// tenant (a global role, or one held in every tenant) is admitted on the library's
 	// checks, and a super administrator before any of it.
 {{- if .TenantPolicy.AdmitWithoutTenant}}

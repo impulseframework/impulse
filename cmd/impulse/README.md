@@ -96,13 +96,17 @@ templates, this README, and the tool's source.
   is offered only when the session may enter it: the application's tenant declaration
   (what the tenant declares about who may enter it, its directory and whether it
   admits its people through it only) decides against the way the session was
-  established, so the picker never offers a tenant the session cannot enter and a direct
+  established. A declaration restricts its own tenant alone: a session reaches every
+  tenant that seats the person, except a tenant that is directory only and whose
+  directory is not the one they signed in through, which stays in the list marked
+  closed to this sign-in, with the reason, so the picker never offers a tenant the session cannot enter and a direct
   request for one is refused as a tenant that does not exist. The declaration is two
   things on the tenant record: the tenant's directory, the organization its people sign
   in through (a child record, `@tenantDirectory`, one row for a tenant and a directory
   in one tenant's row only, set from a sign-in through it and never typed: a sign-in
   method and the connection its identities carry) and whether its people enter through
-  it only (a column, `@directoryOnly`, which closes passwords); each auth's sign-in rule
+  it only (a column, `@directoryOnly`, which closes the tenant to every sign-in but one
+  through its directory, and closes no other tenant); each auth's sign-in rule
   (`signin.TenantPolicy` over the generated `New<Record>DeclarationReader`) reads it at
   sign-in, the roster keeps a copy for every request, and the records' change events are
   the audit. The skeletons' consoles carry it on the tenant's Sign-in page.
@@ -1238,14 +1242,14 @@ this client (a custom claim on Okta, a mapper on Keycloak, whose own `realm_acce
 is nested and is not read). Under `application` the claim is not read. In a tenanted
 application whose tenants each have a directory their people enter through, a sign-in
 through the provider is a directory's to the sign-in policy, method `oidc` under the
-registration's name as the connection: a person who holds a role in the global partition
-is admitted and reaches every tenant, anyone else enters a tenant only where it is the
-tenant's directory, and a person who holds roles in particular tenants, none of
-which has it, is refused (`connection_not_in_tenant`). The directories record
-`add tenancy` composes admits `google`, `azure` and `workos` in its method column, so
-the command leaves two things to wire there: a migration that admits `oidc` in the
-column's check, and what the console's Sign-in page calls the method's directory
-(`directoryKinds`), which a person signed in through it is offered to make the tenant's. A sign-in whose
+registration's name as the connection: a tenant's administrator who is signed in through
+it is offered to make it the tenant's directory on the console's Sign-in page, and a
+tenant that is directory only then admits the people who sign in through it and nobody
+else, while a tenant that is not admits everyone it seats, however they signed in. The
+directories record `add tenancy` composes admits `google`, `azure`, `workos` and `oidc`
+in its method column, and the Sign-in page names the method's directory
+(`directoryKinds`, "OpenID Connect provider"); a table composed with fewer methods in
+the column's check needs a migration that adds `oidc`, which the command says. A sign-in whose
 token names `mfa` in its `amr` claim carries the second factor; any other is asked for the
 sign-in code the Auth mails, where the sign-in policy requires a second factor. The
 declaration is `generation.OIDCMethod("<registration>")`, with `.SyncsRoles()` chained

@@ -271,7 +271,7 @@ func runTenantPolicySeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamTenantAdmitted[Tx],
 		},
 		{
-			name: "a sign-in through a directory no tenant of the person declares is refused with connection_not_in_tenant, from the Workspace and from the other Entra tenant, and the account the rule made stays",
+			name: "a sign-in through a directory is refused with connection_not_in_tenant when every tenant of the person is directory only and none has it, from the Workspace and from the other Entra tenant, and the account the rule made stays; a second tenant that sets nothing admits it",
 			run:  seamTenantConnectionNotInTenant[Tx],
 		},
 		{
@@ -391,13 +391,17 @@ func seamTenantAdmitted[Tx any](ctx context.Context, t *testing.T, be backend[Tx
 	a.assertPasswordSignIn(ctx, t, "kim@lakeside.edu", http.StatusOK, "")
 }
 
-// seamTenantConnectionNotInTenant is the scenario "a sign-in through a directory no tenant of the person declares is refused".
+// seamTenantConnectionNotInTenant is the scenario "a sign-in through a directory is refused only when every tenant of the person is directory only and none has it".
 func seamTenantConnectionNotInTenant[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newTenantApp(ctx, t, be)
-	a.db.declareTenant(ctx, t, tenantLakeside, false, lakesideEntra)
+	a.db.declareTenant(ctx, t, tenantLakeside, true, lakesideEntra)
 	a.grant(ctx, t, "pat@lakeside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
 	a.grant(ctx, t, "sam@riverside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
+	a.grant(ctx, t, "lee@riverside.edu", accesstypes.DomainPolicyScope(tenantLakeside), member...)
+	a.grant(ctx, t, "lee@riverside.edu", accesstypes.DomainPolicyScope(tenantRiverside), member...)
 
+	// Lakeside is directory only and is all that seats Pat and Sam: a sign-in through
+	// the Workspace, or through another Entra tenant, reaches nothing and is refused.
 	workspace := a.browser(t)
 	assertRedirect(t, a.googleSignIn(ctx, workspace, googleClaims("sub-pat", "pat@lakeside.edu")), "/login", url.Values{"code": {"connection_not_in_tenant"}})
 	workspace.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
@@ -408,6 +412,12 @@ func seamTenantConnectionNotInTenant[Tx any](ctx context.Context, t *testing.T, 
 	other := a.browser(t)
 	assertRedirect(t, a.entraSignIn(ctx, other, azureClaims(riversideTenant, "oid-sam", "sam@riverside.edu")), "/login", url.Values{"code": {"connection_not_in_tenant"}})
 	other.expect(ctx, http.StatusUnauthorized, http.MethodGet, "/whoami", nil)
+
+	// Lee is seated in Riverside too, which sets nothing: Lakeside's switch closes
+	// Lakeside alone, and the same sign-in through the other Entra tenant is admitted.
+	seated := a.browser(t)
+	assertRedirect(t, a.entraSignIn(ctx, seated, azureClaims(riversideTenant, "oid-lee", "lee@riverside.edu")), "/home", url.Values{})
+	signedInAs(ctx, t, seated, "lee@riverside.edu")
 }
 
 // seamTenantNoTenant is the scenario "a person who is a member of no tenant is refused with no_tenant".

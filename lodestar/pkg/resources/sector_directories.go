@@ -8,14 +8,16 @@ import (
 type (
 	// SectorDirectory is a sector's directory (@tenantDirectory): the organization its
 	// people sign in through, as the sign-in method the directory is reached through
-	// (google, azure or workos, as the session library spells them) and the connection
-	// the method's identities carry, which is what the session's first auth event
-	// records: the fleet's Google Workspace by the name both auths' Google registrations
-	// give it (example, the connection setting), a Microsoft Entra tenant by its tenant
-	// id. A sector has one directory and a directory belongs to one sector: the table's
-	// two unique indexes hold both, and the generated write paths refuse first, each
-	// with a sentence the person can act on. The seed makes the fleet's Workspace
-	// Cinder's.
+	// (google, azure, workos or oidc, as the session library spells them) and the
+	// connection the method's identities carry, which is what the session's first auth
+	// event records: the fleet's Google Workspace by the name both auths' Google
+	// registrations give it (example, the connection setting), a Microsoft Entra tenant
+	// by its tenant id, an OpenID Connect provider by its registration's connection. A
+	// sector has one directory and a directory belongs to one sector: the table's two
+	// unique indexes hold both, and the generated write paths refuse first, each with a
+	// sentence the person can act on. The seed makes the fleet's Workspace Cinder's, and
+	// the persona provider of the test environments (oidc, persona) Bastion's, the
+	// sector that is directory only.
 	//
 	// Nobody types a directory in. The row is written from a sign-in through the
 	// directory: the create-sector route sets the one its creator came through, and

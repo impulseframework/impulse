@@ -44,7 +44,7 @@ const (
 	customAuth = `partners, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client, sessionstorage.WithImpersonation(sessionstorage.NewImpersonationTable("Impersonations"))), key, session.NoSuperAdministrators(), session.WithSessionTableName("PartnerSessions"), session.WithUserTableName("PartnerUsers"), session.WithIdentitiesTableName("PartnerIdentities"), session.WithPendingSignInsTableName("PartnerPending"), session.WithSignInAttemptsTableName("PartnerAttempts"), session.WithSignInMethodsTableName("PartnerMethods"), session.WithCookieName("partner"))
 	_ = session.PasswordSignIn(partners)`
 	googleDirectory = `staff, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client, sessionstorage.WithAuthEvents(sessionstorage.NewAuthEventsTable("StaffEvents"))).WithCustomSessionData(sessionstorage.NewCustomSessionData[staffData, *spanner.ReadWriteTransaction]("StaffSessionData", nil)), key, session.NoSuperAdministrators(), session.WithSessionTableName("StaffSessions"), session.WithUserTableName("StaffUsers"), session.WithIdentitiesTableName("StaffIdentities"), session.WithPendingSignInsTableName("StaffPending"), session.WithSignInAttemptsTableName("StaffAttempts"), session.WithSignInMethodsTableName("StaffMethods"))
-	_, _ = google.SignIn(staff, "workspace", signin.MembersOfDirectory, &google.Config{Workspaces: google.Workspace("workspace", "example.com"), RoleSync: google.RoleSync(nil, "", nil)})`
+	_, _ = google.SignIn(staff, "workspace", nil, &google.Config{Workspaces: google.Workspace("workspace", "example.com"), RoleSync: google.RoleSync(nil, "", nil)})`
 	partnersShared = `partners, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators(), session.WithUserTableName("PartnerUsers"), session.WithIdentitiesTableName("PartnerIdentities"), session.WithPendingSignInsTableName("PartnerPending"), session.WithSignInAttemptsTableName("PartnerAttempts"), session.WithSignInMethodsTableName("PartnerMethods"))
 	_ = session.PasswordSignIn(partners)`
 	// defaultAttempts names every table but the sign-in attempts table, which the library
@@ -59,10 +59,10 @@ const (
 	_ = session.PasswordSignIn(staff, session.UsernameIsEmail())`
 	noMethods      = `_, _ = session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators())`
 	unreadableName = `authA, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators())
-	_, _ = azure.SignIn(authA, registration(), signin.MembersOfDirectory, &azure.Config{Tenants: azure.AnyTenant()})`
+	_, _ = azure.SignIn(authA, registration(), nil, &azure.Config{Tenants: azure.AnyTenant()})`
 	registeredTwice = `authA, _ := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(client), key, session.NoSuperAdministrators())
-	_, _ = azure.SignIn(authA, "directory", signin.MembersOfDirectory, &azure.Config{Tenants: azure.AnyTenant()})
-	_, _ = google.SignIn(authA, "directory", signin.MembersOfDirectory, &google.Config{Workspaces: google.AnyWorkspace()})`
+	_, _ = azure.SignIn(authA, "directory", nil, &azure.Config{Tenants: azure.AnyTenant()})
+	_, _ = google.SignIn(authA, "directory", nil, &google.Config{Workspaces: google.AnyWorkspace()})`
 	unattached = `_ = session.PasswordSignIn(other)`
 )
 

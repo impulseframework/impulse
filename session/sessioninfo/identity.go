@@ -123,9 +123,9 @@ func AttestationOf(amr []string, declared bool) Attestation {
 // whose identities carry the directory as their connection (Identity.Connection, and AuthEvent.Connection on the session's
 // first auth event). A password, a session the application starts for a user it
 // authenticated itself, an impersonation, a link confirmation and a step the
-// application records under its own name are not. A tenant's declaration admits a
-// sign-in through a directory by naming the directory (signin.Directory); see
-// signin.TenantPolicy.
+// application records under its own name are not. A tenant that is directory only
+// admits a sign-in through its own directory alone, which its declaration names
+// (signin.Directory); see signin.TenantPolicy.
 func (m AuthMethod) ThroughDirectory() bool {
 	switch m {
 	case MethodAzure, MethodGoogle, MethodWorkOS, MethodOIDC:
@@ -339,13 +339,14 @@ const (
 	// tenant policy (signin.TenantPolicy), which admits such a person only when it was
 	// built with signin.AdmitWithoutTenant.
 	RefusedNoTenant LoginRefusalCode = "no_tenant"
-	// RefusedConnectionNotInTenant is the code for a sign-in through a directory that
-	// no tenant of the person declares, under the tenant policy.
+	// RefusedConnectionNotInTenant is the code for a sign-in through a directory by a
+	// person whose every tenant admits its people through its own directory only, none
+	// of which is the directory the sign-in came through, under the tenant policy.
 	RefusedConnectionNotInTenant LoginRefusalCode = "connection_not_in_tenant"
 	// RefusedDirectoryOnly is the code for a sign-in that is not through a directory (a
-	// password, a session the application starts itself) by a person whose every
-	// tenant admits its people through their directories only, under the tenant
-	// policy.
+	// password, a personal account, a session the application starts itself) by a
+	// person whose every tenant admits its people through its own directory only,
+	// under the tenant policy.
 	RefusedDirectoryOnly LoginRefusalCode = "directory_only"
 	// RefusedOtherTenant is the code for a role in a tenant that is refused because the
 	// person belongs to another tenant, in an application where a person belongs to

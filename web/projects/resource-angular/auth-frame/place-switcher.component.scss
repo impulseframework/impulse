@@ -127,3 +127,52 @@
   font-size: 13px;
   color: var(--mat-sys-on-surface-variant);
 }
+
+// The tenants that are closed to this sign-in sit under the person's places, apart from
+// them: each named, with a lock and the reason the server gives, and nothing to open.
+.closed {
+  margin-top: 4px;
+  padding: 0 6px 6px 10px;
+  border-top: 1px solid var(--mat-sys-outline-variant);
+}
+
+.closed-heading {
+  padding: 10px 0 4px 26px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.closed-place {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  column-gap: 8px;
+  align-items: start;
+  padding: 4px 0;
+}
+
+.closed-icon {
+  grid-row: 1 / span 2;
+  width: 18px;
+  height: 18px;
+  font-size: 18px;
+  line-height: 18px;
+  color: var(--mat-sys-on-surface-variant);
+}
+
+.closed-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  line-height: 18px;
+}
+
+.closed-reason {
+  grid-column: 2;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--mat-sys-on-surface-variant);
+}

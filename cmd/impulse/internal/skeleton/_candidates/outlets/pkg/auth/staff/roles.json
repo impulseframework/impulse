@@ -569,7 +569,8 @@
                 "createdAt",
                 "lastSignInAt",
                 "heldElsewhere",
-                "heldGlobally"
+                "heldGlobally",
+                "cannotEnter"
               ]
             },
             {
@@ -699,7 +700,8 @@
                 "createdAt",
                 "lastSignInAt",
                 "heldElsewhere",
-                "heldGlobally"
+                "heldGlobally",
+                "cannotEnter"
               ]
             },
             {

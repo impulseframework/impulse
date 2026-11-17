@@ -844,19 +844,20 @@ func slotHandoff(ch *Change, auth string, spec *authpkg.Method) {
 // tenant policy (signin.TenantPolicy) reads a sign-in through the generic OpenID Connect
 // method as a directory's, method oidc under the registration's connection, and a
 // session reaches a tenant whose declaration admits the way it was established
-// (resource.UserPermissions.Reaches): a person who holds a role in the global partition
-// is admitted and reaches every tenant, anyone else enters a tenant only where the tenant
-// declares that directory, and a person who holds roles in particular tenants, none of
-// which declares it, is refused. The directories record impulse composes admits google,
-// azure and workos in its method column, so the obligation names the column's check and
-// the console page that lists the methods.
+// (resource.UserPermissions.Reaches): a tenant that is not directory only admits
+// everyone it seats, and a directory-only tenant the people who sign in through its own
+// directory, which the provider becomes once the tenant's administrator, signed in
+// through it, makes it the tenant's. The directories record impulse composes admits
+// google, azure, workos and oidc in its method column; a table composed with fewer
+// refuses the row, so the obligation names the column's check and what the console's
+// Sign-in page calls the method's directory.
 func declarationHandoff(ch *Change, a *app.App, spec *authpkg.Method) {
 	if spec.Kind != app.MethodOIDC {
 		return
 	}
 	for i := range a.TenantDirectories {
 		record := &a.TenantDirectories[i]
-		ch.skipf("%s: the tenants declare the directories their people enter through (%s), and a sign-in through %s is a directory's to the sign-in policy, method oidc under the connection %q: a person who holds a role in the global partition is admitted and reaches every tenant; anyone else enters a tenant only where the tenant declares that directory, and a person who holds roles in particular tenants, none of which declares it, is refused (connection_not_in_tenant). The record's method column admits google, azure and workos as it was composed, so for a tenant to declare this provider add a migration that admits oidc in the column's check, and offer the method on the console's page that declares a tenant's directories", record.File, record.Name, spec.Name, spec.Name)
+		ch.skipf("%s: the tenants declare the directory their people enter through (%s), and a sign-in through %s is a directory's to the sign-in policy, method oidc under the connection %q: a tenant's administrator who is signed in through it makes it the tenant's directory on the console's Sign-in page, and a tenant that is directory only then admits the people who sign in through it and nobody else, while a tenant that is not admits everyone it seats, however they signed in. The record's method column must admit oidc for a tenant to take the provider: add tenancy composes the column's check with google, azure, workos and oidc, so a table whose check names fewer needs a migration that adds oidc, and the Sign-in page names the directory by what its directoryKinds calls the method", record.File, record.Name, spec.Name, spec.Name)
 	}
 }
 

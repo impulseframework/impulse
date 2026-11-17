@@ -442,6 +442,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "the custom session data resolver of a provisioning sign-in reads the new user and knows it was provisioned", run: testCustomDataSeesProvisionedUser},
 		{name: "a sign-in reports the user it resolved to and how", run: testSignInUserReported},
 		{name: "the tenant policy decides a sign-in by the person's memberships and the declarations their tenants make, read in the sign-in's transaction", run: testTenantPolicy},
+		{name: "a tenant's sign-in settings restrict its own door alone: a session reaches every tenant that seats the person but a directory-only tenant whose directory they did not sign in through", run: testTenantDoor},
 		{name: "a provisioned username that is taken is refused as a conflict, and nothing is linked", run: testProvisionUsernameTaken},
 		{name: "concurrent first sign-ins of one identity link it once", run: testConcurrentFirstSignIn},
 		{name: "concurrent first sign-ins of one identity through a provisioning resolver all succeed and provision it once", run: testConcurrentFirstProvision},

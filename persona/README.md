@@ -108,8 +108,9 @@ registration, for the host's own pages.
 ## What the application configures
 
 The application registers the session library's generic method with the host's issuer,
-its deployment's client ID, no client secret, and `InvitedUsersOnly` or whichever
-account rule fits: the cast is seeded, so the personas already have accounts to link.
+its deployment's client ID and no client secret, and leaves the method invite only, as
+every sign-in method starts: the cast is seeded, so the personas already have accounts
+to link.
 The ID token carries `sub` and `preferred_username` (the login), `name`, `email` and
 `email_verified` under the `profile` and `email` scopes. The provider asserts identity
 alone; the roles a persona holds are the application's seed, not the token's.

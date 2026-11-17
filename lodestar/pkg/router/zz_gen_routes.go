@@ -274,6 +274,8 @@ type GeneratedHandlers interface {
 
 	DescribeCrewSectorGroup() http.HandlerFunc
 
+	DirectoryOnly() http.HandlerFunc
+
 	DisableCrewSectorUser() http.HandlerFunc
 
 	DisableCrewUser() http.HandlerFunc
@@ -847,6 +849,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	r.Post("/console/api/describe-crew-group", h.DescribeCrewGroup())
 
 	r.Post("/console/api/sectors/{sectorID}/describe-crew-sector-group", domainGuard(h.DescribeCrewSectorGroup()))
+
+	bounded.Get("/console/api/directory-only", h.DirectoryOnly())
 
 	r.Post("/console/api/sectors/{sectorID}/disable-crew-sector-user", domainGuard(h.DisableCrewSectorUser()))
 

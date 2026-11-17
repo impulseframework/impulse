@@ -922,6 +922,31 @@ const (
 						return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
 					}`
 
+	// directoryOnlyHeld is spliced into the tenant record's update and its create, before
+	// the write is buffered (patchSet, which the splice's place sets), for a record that
+	// declares the directory-only switch and the directories record it is only of: a
+	// write of the switch is held to its rules (resource.TenantDirectoryRules.DirectoryOnly),
+	// which refuse turning it on until the tenant has its directory and unless the
+	// caller is signed in through it, and pass every other write. A create that carries
+	// the switch on turns it on, and a tenant that is being created has no directory, so
+	// the rules refuse it. The caller's grants are asked before the rules, as on the
+	// directories record. The splice reads the resource as its dot, and the record's key
+	// as the expression its place declares in $directoryOnlyKey: the update's id, and the
+	// key the create's patch generated (a tenant record's key is always one its create
+	// generates, so the create that takes its key from the path carries no splice).
+	directoryOnlyHeld = `// Turning directory only on closes the {{ .DirectoryOnlyWord }} to every sign-in but one
+					// through its directory, so it is held to its rules: the {{ .DirectoryOnlyWord }} has its
+					// directory, and the caller is signed in through it. The caller's grants
+					// answer first, so a caller they refuse learns nothing from a rule.
+					if patchSet.IsSet({{ printf "%q" .DirectoryOnlyField.Name }}) {
+						if err := patchSet.Permitted(ctx, txn); err != nil {
+							return errors.Wrap(err, "resource.PatchSet.Permitted()")
+						}
+						if err := {{ .DirectoryOnlyRules }}.DirectoryOnly(ctx, txn, accesstypes.Domain({{ $directoryOnlyKey }}.String()), patchSet.Get({{ printf "%q" .DirectoryOnlyField.Name }})); err != nil {
+							return errors.Wrap(err, "resource.TenantDirectoryRules.DirectoryOnly()")
+						}
+					}`
+
 	// permissionsTemplate emits the application's permission endpoints — the
 	// PermissionDigest and UserDomains handlers — as one-line delegations to the
 	// library-owned handlers, so the endpoints' behavior lives in the resource
@@ -1486,6 +1511,9 @@ package {{ .Package }}
 import (
 {{- if .Declaration }}
 	"context"
+{{- if .DirectoryOnly }}
+	"net/http"
+{{- end }}
 
 	"cloud.google.com/go/spanner"
 	"github.com/go-playground/errors/v5"
@@ -1626,6 +1654,33 @@ func Set{{ .Name }}Directory(ctx context.Context, txn resource.ReadWriteTransact
 
 	return nil
 }
+{{- with .DirectoryOnly }}
+
+// {{ .HandlerFunc }} serves the read a {{ $.Word }}'s Sign-in page calls before it saves the
+// directory-only switch ({{ $.Name }}.{{ .Field }}), GET <prefix>/{{ .Route }}?domain=<{{ $.Word }}>
+// on every outlet that serves sessions and the {{ $.Name }} record: what turning the switch on
+// would do, in words the server writes (resource.DirectoryOnlyConsequence: only people
+// who sign in through the {{ $.Word }}'s directory will be able to enter, and how many of the
+// people seated in it will lose access, each named), or the refusal the write itself
+// would answer, in the same words: a {{ $.Word }} with no directory, a caller who is not signed
+// in through it. It is asked under the grant the write is, Update on {{ .Resource }} and on its
+// {{ .Tag }} field, and writes nothing (resource.DirectoryOnlyHandler).
+{{- if .Outsiders }}
+// The people are read through the generated identity client of each auth whose people a
+// {{ $.Word }} seats (DirectoryOutsiders): everyone who holds a role in the {{ $.Word }} and has no
+// sign-in through its directory, a super administrator left out.
+{{- else }}
+// The program generates no auth's management, so the read names no person: the
+// application's own lists say who holds a role in a {{ $.Word }}.
+{{- end }}
+func ({{ $.ReceiverName }} *{{ $.ApplicationName }}) {{ .HandlerFunc }}() http.HandlerFunc {
+	return resource.DirectoryOnlyHandler({{ $.ReceiverName }}.ResourceClient(), New{{ $.Name }}DirectoryRules(), {{ $.ReceiverName }}.UserPermissions, {{ printf "%q" .Resource }}, {{ printf "%q" .Tag }},
+		{{- range $accessor := .Outsiders }}
+		{{ $.ReceiverName }}.{{ $accessor }}().DirectoryOutsiders,
+		{{- end }}
+	)
+}
+{{- end }}
 {{- end }}
 `
 
@@ -2646,6 +2701,12 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 					` + directoryStamped + `
 					{{- end }}
 					{{- end }}
+					{{- if .Resource.HoldsDirectoryOnly }}
+					{{- $directoryOnlyKey := printf "patch.%s()" .Resource.PrimaryKey.Name }}
+					{{- with .Resource }}
+					` + directoryOnlyHeld + `
+					{{- end }}
+					{{- end }}
 					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}CreatePatch.Buffer()")
 					}
@@ -2685,6 +2746,12 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ Pluralize .Resource.Name }
 					}
 				{{- else }}
 					id := httpio.Param[{{ $PrimaryKeyType }}](op.Req, "id")
+					{{- if .Resource.HoldsDirectoryOnly }}
+					{{- $directoryOnlyKey := "id" }}
+					{{- with .Resource }}
+					` + directoryOnlyHeld + `
+					{{- end }}
+					{{- end }}
 					if err := {{ .ResourcePackage }}.New{{ .Resource.Name }}UpdatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}UpdatePatch.Buffer()")
 					}
@@ -2968,6 +3035,10 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							{{- if .IsTenantDirectory }}
 							` + directoryStamped + `
 							{{- end }}
+							{{- if .HoldsDirectoryOnly }}
+							{{- $directoryOnlyKey := printf "patch.%s()" .PrimaryKey.Name }}
+							` + directoryOnlyHeld + `
+							{{- end }}
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}CreatePatch.Buffer()")
 							}
@@ -3012,6 +3083,10 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							}
 							{{- else}}
 							id := httpio.Param[{{ $primaryKeyType }}](req, "id")
+							{{- if .HoldsDirectoryOnly }}
+							{{- $directoryOnlyKey := "id" }}
+							` + directoryOnlyHeld + `
+							{{- end }}
 							if err := {{ .ResourcePackage }}.New{{ .Name }}UpdatePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}UpdatePatch.Buffer()")
 							}

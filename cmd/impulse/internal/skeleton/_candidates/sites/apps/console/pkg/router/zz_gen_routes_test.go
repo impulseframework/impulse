@@ -671,16 +671,6 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000", "tenantDirectoryID": "testTenantDirectoryID"},
 		},
 		{
-			url: "/api/staff-sign-in-methods", method: http.MethodGet,
-			handlerFunc: "StaffSignInMethods",
-			parameters:  map[string]string{},
-		},
-		{
-			url: "/api/staff-sign-in-methods", method: http.MethodPost,
-			handlerFunc: "StaffSignInMethods",
-			parameters:  map[string]string{},
-		},
-		{
 			url: "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles", method: http.MethodGet,
 			handlerFunc: "StaffTenantRoles",
 			parameters:  map[string]string{"tenantID": "7e57d0a1-0000-4000-8000-000000000000"},
@@ -721,8 +711,8 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
-			url: "/api/create-tenant", method: http.MethodPost,
-			handlerFunc: "CreateTenant",
+			url: "/api/directory-only", method: http.MethodGet,
+			handlerFunc: "DirectoryOnly",
 			parameters:  map[string]string{},
 		},
 		{
@@ -811,10 +801,6 @@ func (s *generatedHandlersStub) CreateStaffUser() http.HandlerFunc {
 	return s.record("CreateStaffUser")
 }
 
-func (s *generatedHandlersStub) CreateTenant() http.HandlerFunc {
-	return s.record("CreateTenant")
-}
-
 func (s *generatedHandlersStub) DeleteStaffGroup() http.HandlerFunc {
 	return s.record("DeleteStaffGroup")
 }
@@ -837,6 +823,10 @@ func (s *generatedHandlersStub) DescribeStaffGroup() http.HandlerFunc {
 
 func (s *generatedHandlersStub) DescribeStaffTenantGroup() http.HandlerFunc {
 	return s.record("DescribeStaffTenantGroup")
+}
+
+func (s *generatedHandlersStub) DirectoryOnly() http.HandlerFunc {
+	return s.record("DirectoryOnly")
 }
 
 func (s *generatedHandlersStub) DisableStaffTenantUser() http.HandlerFunc {
@@ -893,14 +883,6 @@ func (s *generatedHandlersStub) InviteStaffTenantUser() http.HandlerFunc {
 
 func (s *generatedHandlersStub) InviteStaffUser() http.HandlerFunc {
 	return s.record("InviteStaffUser")
-}
-
-func (s *generatedHandlersStub) MakeStaffInviteOnly() http.HandlerFunc {
-	return s.record("MakeStaffInviteOnly")
-}
-
-func (s *generatedHandlersStub) OpenStaffSignUp() http.HandlerFunc {
-	return s.record("OpenStaffSignUp")
 }
 
 func (s *generatedHandlersStub) RemoveStaffGroupMember() http.HandlerFunc {
@@ -1069,10 +1051,6 @@ func (s *generatedHandlersStub) StaffSessionUsers() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffSessionUser() http.HandlerFunc {
 	return s.record("StaffSessionUser")
-}
-
-func (s *generatedHandlersStub) StaffSignInMethods() http.HandlerFunc {
-	return s.record("StaffSignInMethods")
 }
 
 func (s *generatedHandlersStub) StaffTenantGroups() http.HandlerFunc {

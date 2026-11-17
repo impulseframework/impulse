@@ -627,6 +627,7 @@ export namespace CrewSectorUserRoles {
 
 export namespace CrewSectorUsers {
   export const fieldName = {
+    cannotEnter: 'cannotEnter' as FieldName,
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
     domainId: 'domainId' as FieldName,
@@ -637,10 +638,12 @@ export namespace CrewSectorUsers {
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
     name: 'name' as FieldName,
+    outsideDirectory: 'outsideDirectory' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
+    cannotEnter: 'CrewSectorUsers.cannotEnter' as Resource,
     createdAt: 'CrewSectorUsers.createdAt' as Resource,
     disabled: 'CrewSectorUsers.disabled' as Resource,
     domainId: 'CrewSectorUsers.domainId' as Resource,
@@ -651,6 +654,7 @@ export namespace CrewSectorUsers {
     id: 'CrewSectorUsers.id' as Resource,
     lastSignInAt: 'CrewSectorUsers.lastSignInAt' as Resource,
     name: 'CrewSectorUsers.name' as Resource,
+    outsideDirectory: 'CrewSectorUsers.outsideDirectory' as Resource,
     passwordChangeRequired: 'CrewSectorUsers.passwordChangeRequired' as Resource,
     username: 'CrewSectorUsers.username' as Resource,
   };
@@ -1193,6 +1197,7 @@ export namespace MembersSectorUserRoles {
 
 export namespace MembersSectorUsers {
   export const fieldName = {
+    cannotEnter: 'cannotEnter' as FieldName,
     createdAt: 'createdAt' as FieldName,
     disabled: 'disabled' as FieldName,
     domainId: 'domainId' as FieldName,
@@ -1203,10 +1208,12 @@ export namespace MembersSectorUsers {
     id: 'id' as FieldName,
     lastSignInAt: 'lastSignInAt' as FieldName,
     name: 'name' as FieldName,
+    outsideDirectory: 'outsideDirectory' as FieldName,
     passwordChangeRequired: 'passwordChangeRequired' as FieldName,
     username: 'username' as FieldName,
   };
   export const resourceName = {
+    cannotEnter: 'MembersSectorUsers.cannotEnter' as Resource,
     createdAt: 'MembersSectorUsers.createdAt' as Resource,
     disabled: 'MembersSectorUsers.disabled' as Resource,
     domainId: 'MembersSectorUsers.domainId' as Resource,
@@ -1217,6 +1224,7 @@ export namespace MembersSectorUsers {
     id: 'MembersSectorUsers.id' as Resource,
     lastSignInAt: 'MembersSectorUsers.lastSignInAt' as Resource,
     name: 'MembersSectorUsers.name' as Resource,
+    outsideDirectory: 'MembersSectorUsers.outsideDirectory' as Resource,
     passwordChangeRequired: 'MembersSectorUsers.passwordChangeRequired' as Resource,
     username: 'MembersSectorUsers.username' as Resource,
   };

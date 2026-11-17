@@ -726,6 +726,11 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/api/directory-only", method: http.MethodGet,
+			handlerFunc: "DirectoryOnly",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/api/resources", method: http.MethodPatch,
 			handlerFunc: "PatchResources",
 		},
@@ -837,6 +842,10 @@ func (s *generatedHandlersStub) DescribeStaffGroup() http.HandlerFunc {
 
 func (s *generatedHandlersStub) DescribeStaffTenantGroup() http.HandlerFunc {
 	return s.record("DescribeStaffTenantGroup")
+}
+
+func (s *generatedHandlersStub) DirectoryOnly() http.HandlerFunc {
+	return s.record("DirectoryOnly")
 }
 
 func (s *generatedHandlersStub) DisableStaffTenantUser() http.HandlerFunc {

@@ -388,13 +388,14 @@ var (
 	// of no tenant. The code is sessioninfo.RefusedNoTenant.
 	ErrNoTenant = errors.New("signin: the person is a member of no tenant")
 	// ErrConnectionNotInTenant is the cause when the tenant policy refused a sign-in
-	// through a directory that no tenant of the person declares. The code is
-	// sessioninfo.RefusedConnectionNotInTenant.
-	ErrConnectionNotInTenant = errors.New("signin: no tenant of the person declares the directory the sign-in came through")
+	// through a directory because every tenant of the person admits its people through
+	// its own directory only, and none of them has the directory the sign-in came
+	// through. The code is sessioninfo.RefusedConnectionNotInTenant.
+	ErrConnectionNotInTenant = errors.New("signin: every tenant of the person admits its people through its own directory only, and the sign-in came through another directory")
 	// ErrDirectoryOnly is the cause when the tenant policy refused a sign-in that is not
 	// through a directory because every tenant of the person admits its people through
-	// their directories only. The code is sessioninfo.RefusedDirectoryOnly.
-	ErrDirectoryOnly = errors.New("signin: every tenant of the person admits its people through their directories only")
+	// its own directory only. The code is sessioninfo.RefusedDirectoryOnly.
+	ErrDirectoryOnly = errors.New("signin: every tenant of the person admits its people through its own directory only")
 	// ErrUserDisabled is the cause when the sign-in resolved to a disabled user.
 	// The code is sessioninfo.RefusedUserDisabled.
 	ErrUserDisabled = errors.New("signin: the user is disabled")

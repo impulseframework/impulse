@@ -2,9 +2,17 @@ import { ApplicationRef } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { MatSelect } from '@angular/material/select';
 import { By } from '@angular/platform-browser';
+import { NoopAnimationsModule } from '@angular/platform-browser/animations';
 import { createApi } from '@app/service/zz_gen_api';
 import { TenantDirectories } from '@app/service/zz_gen_resources';
-import { ClientBase, Domain, PermissionDigest, TransportRequest, TransportResponse } from '@impulseframework/resource';
+import {
+  ClientBase,
+  DirectoryOnlyConsequence,
+  Domain,
+  PermissionDigest,
+  TransportRequest,
+  TransportResponse,
+} from '@impulseframework/resource';
 import { AuthService } from '@impulseframework/resource-angular/auth-service';
 import { RESOURCE_CLIENT } from '@impulseframework/resource-angular/resource-client';
 import { provideResourceTesting } from '@impulseframework/resource-angular/testing';
@@ -21,8 +29,11 @@ import { TenantSignInComponent } from './tenant-sign-in.component';
 // password they are offered no such action and told how a directory is set. They pick
 // the directory's default role from the tenant's roles or clear it, remove the
 // directory, and are told the application's administrator sets directory only; the
-// application's administrator (Update on the global Tenants record too) flips the flag;
-// a session without the grants sees the sentences and nothing is requested.
+// application's administrator (Update on the global Tenants record too) turns it on once
+// they confirm what the server says it would do, its sentence and the people it names,
+// and off on a plain confirmation; the server's refusal to turn it on is shown in its own
+// words and nothing is written; a session without the grants sees the sentences and
+// nothing is requested.
 
 /** Acme's id: a tenant's key is an id its create generates, and the name is a field. */
 const acmeID = 'ac4e0000-0000-4000-8000-000000000001';
@@ -52,6 +63,19 @@ const applicationAdministrator: Digests = {
   global: { Tenants: { Read: 'granted', Update: 'granted' } },
   acme: administratorGrants,
 };
+/** What the server says turning directory only on would do to Acme: its sentence, the people it names, and the button's words. */
+const wouldKeepOut: DirectoryOnlyConsequence = {
+  directory: 'Google Workspace acme.example',
+  connection: 'acme.example',
+  sentence:
+    'Only people who sign in through acme.example will be able to enter this tenant. 2 people seated here sign in another way and will lose access.',
+  people: [
+    { userId: 'u-1', username: 'gale', name: 'Gale Ferris' },
+    { userId: 'u-2', username: 'hollis' },
+  ],
+  confirm: 'Admit only people who sign in through acme.example',
+};
+
 const nobody: Digests = { global: {}, acme: {} };
 
 /** What the scripted server holds: the grants, how the person signed in, the tenant's directory, and its answer to a write. */
@@ -60,6 +84,10 @@ interface World {
   session?: object;
   directories?: TenantDirectories[];
   write?: TransportResponse;
+  /** Whether the tenant is directory only as the page opens. */
+  directoryOnly?: boolean;
+  /** The server's answer to what turning directory only on would do; the two people above unless given. */
+  consequence?: TransportResponse;
 }
 
 function serverFor(world: World): (request: TransportRequest) => TransportResponse {
@@ -78,7 +106,9 @@ function serverFor(world: World): (request: TransportRequest) => TransportRespon
       case `${environment.apiUrl}/features`:
         return { status: 200, body: { enabled: [] } };
       case `${environment.apiUrl}/tenants/${acmeID}`:
-        return { status: 200, body: { id: acmeID, name: 'Acme', directoryOnly: false } };
+        return { status: 200, body: { id: acmeID, name: 'Acme', directoryOnly: world.directoryOnly ?? false } };
+      case `${environment.apiUrl}/directory-only`:
+        return world.consequence ?? { status: 200, body: wouldKeepOut };
       case `${environment.apiUrl}/tenants/${acmeID}/tenant-directories`:
         return { status: 200, body: world.directories ?? [] };
       case `${environment.apiUrl}/tenants/${acmeID}/staff-tenant-roles`:
@@ -100,7 +130,7 @@ describe('TenantSignInComponent', () => {
   const pageFor = async (world: World): Promise<void> => {
     transport = scriptedTransport(serverFor(world));
     await TestBed.configureTestingModule({
-      imports: [TenantSignInComponent],
+      imports: [TenantSignInComponent, NoopAnimationsModule],
       providers: [
         provideResourceTesting({ transport, client: (t) => createApi({ baseUrl: environment.apiUrl, transport: t }) }),
       ],
@@ -130,6 +160,18 @@ describe('TenantSignInComponent', () => {
     transport.requests
       .filter((r) => r.method === 'PATCH' && r.url.replace(/\?.*$/, '') === `${environment.apiUrl}/resources`)
       .flatMap((r) => r.body as unknown[]);
+  /** What the page asked the server about directory only, in order. */
+  const asked = (): string[] => transport.requests.map((r) => r.url).filter((url) => url.includes('/directory-only'));
+  const inDialog = (selector: string): HTMLElement | null =>
+    document.querySelector<HTMLElement>(`.cdk-overlay-container ${selector}`);
+  const dialogText = (selector: string): string => inDialog(selector)?.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+  /** The server's answer and the dialog's each travel through a timer; a turn of the clock lets them, and the page draws. */
+  const turn = async (): Promise<void> => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await settle();
+  };
+  /** The switch itself, as a person presses it. */
+  const toggle = (): HTMLButtonElement => element().querySelector<HTMLButtonElement>('.directory-only button')!;
 
   it("an administrator signed in through a Workspace is offered to make it the tenant's directory, and the request names none", async () => {
     await pageFor({ digests: tenantAdministrator, session: throughWorkspace });
@@ -237,19 +279,101 @@ describe('TenantSignInComponent', () => {
     ).toEqual([]);
   });
 
-  it("the application's administrator flips directory only on the tenant record", async () => {
-    await pageFor({ digests: applicationAdministrator, directories: [workspace] });
+  it("the application's administrator turns directory only on once they confirm what the server says it would do", async () => {
+    await pageFor({ digests: applicationAdministrator, session: throughWorkspace, directories: [workspace] });
 
-    const toggle = element().querySelector<HTMLElement>('.directory-only');
-    expect(toggle).not.toBeNull();
-    expect(toggle?.textContent?.replace(/\s+/g, ' ').trim()).toContain('Passwords admitted');
-    expect(texts('.empty')).not.toContain(
-      'Set a directory first: directory only with no directory admits nobody but a super administrator.',
-    );
+    expect(toggle().getAttribute('aria-checked')).toBe('false');
+    expect(texts('.directory-only')[0]).toContain('Every sign-in admitted');
+    expect(element().querySelector('.needs-directory')).toBeNull();
+    expect(texts('.turned-on-by')).toEqual([
+      "Directory only is turned on by a person who is signed in through this tenant's directory. You are shown who it will keep out before it is saved.",
+    ]);
 
-    await fixture.componentInstance.close(true);
-    await settle();
+    toggle().click();
+    await turn();
+    // The page asked the server first, for this tenant, and has written nothing.
+    expect(asked()).toEqual([`${environment.apiUrl}/directory-only?domain=${acmeID}`]);
+    expect(writes()).toEqual([]);
+    // The confirmation is the server's: its sentence, the people it names, and the words on the button.
+    expect(dialogText('.impulse-action-title')).toBe('Make Acme directory only?');
+    expect(dialogText('.impulse-action-words')).toBe(`${wouldKeepOut.sentence} They are: Gale Ferris (gale), hollis.`);
+    expect(dialogText('.impulse-action-confirm')).toBe('Admit only people who sign in through acme.example');
+    // Until the write lands the switch stands where the record says.
+    expect(toggle().getAttribute('aria-checked')).toBe('false');
+
+    inDialog('.impulse-action-confirm')!.click();
+    await turn();
+    await turn();
     expect(writes()).toEqual([{ op: 'patch', path: `/tenants/${acmeID}`, value: { directoryOnly: true } }]);
+    expect(texts('.refusal')).toEqual([]);
+  });
+
+  it('a person who cancels the confirmation writes nothing, and the switch stays off', async () => {
+    await pageFor({ digests: applicationAdministrator, session: throughWorkspace, directories: [workspace] });
+
+    toggle().click();
+    await turn();
+    inDialog('.impulse-action-cancel')!.click();
+    await turn();
+    await turn();
+    expect(inDialog('.impulse-action-title')).toBeNull();
+    expect(writes()).toEqual([]);
+    expect(toggle().getAttribute('aria-checked')).toBe('false');
+    expect(toggle().disabled).toBe(false);
+  });
+
+  it("the server's refusal to turn directory only on is shown in its own words, with no confirmation and no write", async () => {
+    const sentence =
+      "Directory only is turned on by a person who is signed in through this tenant's directory, Google Workspace acme.example: that shows the directory works, and that you will not shut yourself out. You signed in with a password. Sign in through Google Workspace acme.example and try again.";
+    await pageFor({
+      digests: applicationAdministrator,
+      directories: [workspace],
+      consequence: { status: 409, body: { message: sentence } },
+    });
+
+    toggle().click();
+    await turn();
+    await turn();
+    expect(texts('.refusal')).toEqual([sentence]);
+    expect(inDialog('.impulse-action-title')).toBeNull();
+    expect(writes()).toEqual([]);
+    expect(toggle().getAttribute('aria-checked')).toBe('false');
+  });
+
+  it('a tenant with no directory is told to set one first', async () => {
+    await pageFor({ digests: applicationAdministrator });
+
+    expect(texts('.needs-directory')).toEqual([
+      'Set a directory first: a tenant with no directory cannot be directory only, since nobody could enter it.',
+    ]);
+    expect(element().querySelector('.turned-on-by')).toBeNull();
+  });
+
+  it('turning directory only off is a plain confirmation, and asks the server nothing first', async () => {
+    await pageFor({ digests: applicationAdministrator, directories: [workspace], directoryOnly: true });
+
+    expect(toggle().getAttribute('aria-checked')).toBe('true');
+    expect(texts('.directory-only')[0]).toContain(
+      "Directory only: only people who sign in through this tenant's directory enter this tenant.",
+    );
+    expect(texts('.kept-out')).toEqual([
+      'Everyone else seated in this tenant is kept out while this is on, and keeps their roles. The People page says who they are.',
+    ]);
+
+    toggle().click();
+    await turn();
+    expect(asked()).toEqual([]);
+    expect(dialogText('.impulse-action-title')).toBe('Turn directory only off for Acme?');
+    expect(dialogText('.impulse-action-words')).toBe(
+      'Everyone seated here will be able to enter again, however they sign in.',
+    );
+    expect(dialogText('.impulse-action-confirm')).toBe('Turn directory only off');
+    expect(writes()).toEqual([]);
+
+    inDialog('.impulse-action-confirm')!.click();
+    await turn();
+    await turn();
+    expect(writes()).toEqual([{ op: 'patch', path: `/tenants/${acmeID}`, value: { directoryOnly: false } }]);
   });
 
   it('a session without the grants sees the sentences, and nothing is requested under the tenant', async () => {

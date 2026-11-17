@@ -9,17 +9,21 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // TestSuperAdministrator_entersEverySector proves the one exemption from a sector's
 // sign-in settings on the served stack. Bastion admits its people through its directory
-// only and has none (the fleet's directory is Cinder's, and a directory belongs to one
-// sector), so no sign-in meets its declaration. The governor, a super administrator
-// signed in with the password, charts
+// only, and its directory is the persona provider of the test environments, which no
+// password session came through. The governor, a super administrator signed in with
+// the password, charts
 // Bastion and reads it all the same. Nobody else is exempt: the dispatcher, who holds
 // global roles and a role at Bastion, and the archivist, who holds a role in every
-// sector, chart the sectors that admit a password and Bastion answers them as a sector
-// that does not exist. The exemption is the actor's: the rigger's session started by the
+// sector, chart the sectors that are not directory only, and Bastion, which their
+// charts name closed with the reason, answers them as a sector that does not exist.
+// The exemption is the actor's: the rigger's session started by the
 // governor enters Bastion, where the rigger's own does not, and the governor's session
 // started by the marshal, who is no super administrator, stays outside it. The same
 // person answers for who makes a super administrator: the marshal, viewing as the
@@ -34,12 +38,16 @@ func TestSuperAdministrator_entersEverySector(t *testing.T) {
 
 	governor := newBrowser(t, s, consoleAPI)
 	governor.signIn(ctx, "governor")
-	if declared := directories(ctx, t, governor, bastion); len(declared) != 0 {
-		t.Fatalf("Bastion's directory = %+v, want none: the fleet's directory is Cinder's, and a directory belongs to one sector", declared)
+	if declared := directories(ctx, t, governor, bastion); len(declared) != 1 || declared[0].Method != string(sessioninfo.MethodOIDC) || declared[0].Connection != crew.PersonaRegistration {
+		t.Fatalf("Bastion's directory = %+v, want the seeded persona provider: a sector that is directory only has the directory it is only of", declared)
 	}
 
-	// enters fails the test unless the browser's chart and Bastion's answer agree with want.
-	enters := func(who string, b *browser, chart []string) {
+	// enters fails the test unless the browser's chart and Bastion's answer agree with
+	// want. Everyone here holds a seat at Bastion, so the chart of a person's own
+	// sign-in that does not light it names it closed, with the reason; a session that
+	// views the fleet as someone else is refused Bastion the same and is told of no
+	// closed sector, since that word is for a person's own sign-in.
+	enters := func(who string, b *browser, chart []string, ownSignIn bool) {
 		t.Helper()
 		if got := b.domains(ctx); !slices.Equal(got, chart) {
 			t.Errorf("%s's chart = %v, want %v", who, got, chart)
@@ -48,24 +56,29 @@ func TestSuperAdministrator_entersEverySector(t *testing.T) {
 		if slices.Contains(chart, bastion) {
 			want = http.StatusOK
 		}
+		reason, closed := b.closed(ctx)[bastion]
+		wantClosed := ownSignIn && !slices.Contains(chart, bastion)
+		if closed != wantClosed || (closed && !strings.HasPrefix(reason, "Bastion admits only people who sign in through its own directory. ")) {
+			t.Errorf("%s's chart names Bastion closed = %v (%q), want closed = %v, with the reason", who, closed, reason, wantClosed)
+		}
 		if status, body := b.do(ctx, http.MethodGet, sectorPath(bastion, "wings"), nil); status != want {
 			t.Errorf("GET Bastion's wings as %s: status %d, want %d: %s", who, status, want, body)
 		}
 	}
 
-	enters("the governor, a super administrator", governor, []string{anvil, bastion, cinder})
+	enters("the governor, a super administrator", governor, []string{anvil, bastion, cinder}, true)
 
 	dispatcher := newBrowser(t, s, consoleAPI)
 	dispatcher.signIn(ctx, "dispatcher")
-	enters("the dispatcher, who holds global roles and a role at Bastion", dispatcher, []string{anvil})
+	enters("the dispatcher, who holds global roles and a role at Bastion", dispatcher, []string{anvil}, true)
 
 	archivist := newBrowser(t, s, consoleAPI)
 	archivist.signIn(ctx, "archivist")
-	enters("the archivist, who holds a role in every sector", archivist, []string{anvil, cinder})
+	enters("the archivist, who holds a role in every sector", archivist, []string{anvil, cinder}, true)
 
 	rigger := newBrowser(t, s, consoleAPI)
 	rigger.signIn(ctx, "rigger")
-	enters("the rigger", rigger, []string{anvil})
+	enters("the rigger", rigger, []string{anvil}, true)
 
 	// The exemption follows the actor of an impersonated session, never its subject.
 	asRigger := newBrowser(t, s, consoleAPI)
@@ -76,7 +89,7 @@ func TestSuperAdministrator_entersEverySector(t *testing.T) {
 	if info := asRigger.session(ctx); info["username"] != "rigger" {
 		t.Fatalf("the session after the governor views as the rigger = %v, want the rigger's", info)
 	}
-	enters("the rigger's session started by a super administrator", asRigger, []string{anvil, bastion})
+	enters("the rigger's session started by a super administrator", asRigger, []string{anvil, bastion}, false)
 
 	asGovernor := newBrowser(t, s, consoleAPI)
 	asGovernor.signIn(ctx, "marshal")
@@ -86,7 +99,7 @@ func TestSuperAdministrator_entersEverySector(t *testing.T) {
 	if info := asGovernor.session(ctx); info["username"] != "governor" {
 		t.Fatalf("the session after the marshal views as the governor = %v, want the governor's", info)
 	}
-	enters("a super administrator's session started by the marshal, who is none", asGovernor, []string{anvil, cinder})
+	enters("a super administrator's session started by the marshal, who is none", asGovernor, []string{anvil, cinder}, false)
 
 	// Nor does viewing as a super administrator make one: the marshal starts a session
 	// as the governor that keeps Execute, whose entry check runs with the governor's

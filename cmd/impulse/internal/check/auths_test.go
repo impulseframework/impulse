@@ -263,7 +263,7 @@ func New(ctx context.Context, db *cloudspanner.Client, key string, collection ac
 	if err != nil {
 		return nil, err
 	}
-	if _, err := azure.SignIn(s, "directory", signin.MembersOfDirectory, &azure.Config{Tenants: azure.Tenant(""), RoleSync: %s}); err != nil {
+	if _, err := azure.SignIn(s, "directory", nil, &azure.Config{Tenants: azure.Tenant(""), RoleSync: %s}); err != nil {
 		return nil, err
 	}
 
@@ -317,7 +317,7 @@ func New(ctx context.Context, db *cloudspanner.Client, key string, collection ac
 		return nil, err
 	}
 	session.PasswordSignIn(s)
-	if _, err := azure.SignIn(s, "directory", signin.MembersOfDirectory, &azure.Config{Tenants: azure.Tenant(""), RoleSync: %s}); err != nil {
+	if _, err := azure.SignIn(s, "directory", nil, &azure.Config{Tenants: azure.Tenant(""), RoleSync: %s}); err != nil {
 		return nil, err
 	}
 

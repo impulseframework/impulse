@@ -181,6 +181,8 @@ export interface CrewSectorUsers {
   lastSignInAt?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  outsideDirectory?: boolean;
+  cannotEnter?: string;
 }
 
 export interface CrewSectorUserGroupRoles {
@@ -436,6 +438,8 @@ export interface MembersSectorUsers {
   lastSignInAt?: Date;
   heldElsewhere?: boolean;
   heldGlobally?: boolean;
+  outsideDirectory?: boolean;
+  cannotEnter?: string;
 }
 
 export interface MembersSectorUserRoles {
@@ -1073,6 +1077,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'outsideDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'cannotEnter', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.CrewSectorUserGroupRoles]: {
@@ -1438,6 +1444,8 @@ const resourceMap = defineResourceMap({
       { fieldName: 'lastSignInAt', displayType: 'date', required: false, isIndex: false },
       { fieldName: 'heldElsewhere', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
       { fieldName: 'heldGlobally', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'outsideDirectory', displayType: 'boolean', required: true, isIndex: true, filterable: 'always' },
+      { fieldName: 'cannotEnter', displayType: 'string', required: false, isIndex: false },
     ],
   },
   [Resources.MembersSectorUserRoles]: {

@@ -176,6 +176,24 @@ describe('the tenant list', () => {
     expect(store.domainName('elsewhere' as Domain)).toBe('elsewhere');
   });
 
+  it('keeps a tenant that is closed to this sign-in apart from the domains, with its name and the server\'s reason', async () => {
+    const reason = 'Bastion admits only people who sign in through its own directory. You signed in with a password.';
+    const store = new PermissionStore(
+      answering([
+        { domain: 'anvil', name: 'Anvil' },
+        { domain: 'bastion', name: 'Bastion', closed: reason },
+      ]).request,
+      { digest: 'permission-digest', domains: 'user-domains' },
+    );
+    expect([...store.closedDomains()]).toEqual([]);
+    expect(await store.loadDomains()).toEqual(['anvil' as Domain]);
+    expect(store.domains()).toEqual(['anvil' as Domain]);
+    expect([...store.closedDomains()]).toEqual([['bastion' as Domain, reason]]);
+    expect(store.domainName('bastion' as Domain)).toBe('Bastion');
+    store.clear();
+    expect([...store.closedDomains()]).toEqual([]);
+  });
+
   it('an empty answer, or none, lists nothing; clear() forgets the names', async () => {
     const store = new PermissionStore(answering(null).request, { digest: 'permission-digest', domains: 'user-domains' });
     expect(await store.loadDomains()).toEqual([]);

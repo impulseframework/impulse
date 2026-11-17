@@ -728,6 +728,30 @@ func (store) RevokeTrustedDevice(ctx context.Context, txn resource.ReadWriteTran
 	return nil
 }
 
+// DirectoryOutsiders lists the people of the Crew auth who hold a role in the
+// sector, in it or in every sector, and have no sign-in through its directory: the
+// people the sector's directory-only switch keeps out while it is on, and who turning
+// it on would shut out. A super administrator is never one of them. It reads the
+// sector's own list of its people (CrewSectorUser, whose OutsideDirectory column is the
+// fact), in the caller's transaction, by username. The application's generated read of
+// what the switch would do asks every auth's client (resource.DirectoryOnlyHandler,
+// through resource.DirectoryOutsiders), and it sits beside the store because it reads
+// the auth's tables as the store does, through the declarations' own query types.
+func (c *Client) DirectoryOutsiders(ctx context.Context, txn resource.ReadWriteTransaction, tenant accesstypes.Domain) ([]resource.DirectoryOutsider, error) {
+	query := crewresources.NewCrewSectorUserQuery().
+		AddColumns(crewresources.NewCrewSectorUserColumns().ID().Username().Name()).
+		Where(crewresources.NewCrewSectorUserQueryClause().DomainID().Equal(string(tenant)).And().OutsideDirectory().Equal(true))
+	outsiders := []resource.DirectoryOutsider{}
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewSectorUserQuery.List()")
+		}
+		outsiders = append(outsiders, resource.DirectoryOutsider{UserID: row.Data.ID, Username: row.Data.Username, Name: row.Data.Name})
+	}
+
+	return outsiders, nil
+}
+
 // groupID answers a group's id as the declarations hold it, from the text the permission
 // store names a group by.
 func groupID(group accesstypes.Group) (impulse.UUID, error) {

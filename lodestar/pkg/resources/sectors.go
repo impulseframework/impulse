@@ -61,12 +61,17 @@ type (
 	// (NewSectorDeclarationReader) and every instance's roster keeps a copy beside the
 	// keys (NewSectorRoster, Declarations), which this record's and the directories'
 	// generated write paths reload after their commit, so a sector is offered to a
-	// session only when the session may enter it: the navigator, through the fleet's
-	// directory, reaches the sector whose directory it is (the seed makes it Cinder's);
-	// the rigger, by password, reaches Anvil and not Bastion, which admits its people
-	// through its directory only; the bosun, whose only sector is Bastion, is refused at
-	// sign-in. The pioneer signs up with a personal Google account, which is no
-	// organization's directory: the create-sector route sets none on her Ember, and
+	// session only when the session may enter it. A sector's declaration restricts its
+	// own door alone: a session reaches every sector that seats the person, except a
+	// sector that is directory only and whose directory is not the one they signed in
+	// through. The navigator, through the fleet's directory (the seed makes it
+	// Cinder's), reaches Cinder and every other sector that seats him and is not
+	// directory only; the rigger, by password, reaches Anvil and not Bastion, which
+	// admits its people through its directory only (the seed makes the persona
+	// provider its directory) and stays on her chart marked closed, with the reason;
+	// the bosun, whose only sector is Bastion, is refused at sign-in. The pioneer signs
+	// up with a personal Google account, which is no organization's directory: the
+	// create-sector route sets none on her Ember, and
 	// Ember admits her as it admits a password. A person who charts a sector while
 	// signed in through an organization's directory has it set on the new sector in
 	// the row's transaction, and is refused when another sector has it. The record's
@@ -86,10 +91,12 @@ type (
 		Name        string     `spanner:"Name"`
 		Region      string     `spanner:"Region"`
 		Established civil.Date `spanner:"Established"`
-		// DirectoryOnly says the sector's people enter through its directory only: a
-		// password does not reach the sector. Set by whoever holds the record's Update
-		// grant on the column (Headquarters), never at charting: a new sector declares
-		// nothing beyond its creator's directory.
+		// DirectoryOnly says the sector's people enter through its directory only: no
+		// other sign-in reaches the sector, and the flag closes this sector alone. Set by
+		// whoever holds the record's Update grant on the column (Headquarters), never at
+		// charting: a new sector declares nothing beyond its creator's directory. The
+		// generated update refuses turning it on until the sector has its directory, and
+		// unless the caller is signed in through it.
 		// @directoryOnly
 		DirectoryOnly bool `spanner:"DirectoryOnly"`
 	}

@@ -425,19 +425,52 @@ func provesGrant(t *testing.T, roles access.RoleFile, role accesstypes.Role, per
 }
 
 // unmarshalDomains reads the user-domains answer, each tenant listed with its domain and
-// its name, into the tenants' domains alone, in the order listed.
+// its name, into the domains of the tenants the session reaches, in the order listed. A
+// tenant the answer marks closed to the session is left out: the person holds a seat in
+// it, and the session cannot enter it (closedDomains reads those).
 func unmarshalDomains[T ~string](body []byte, domains *[]T) error {
 	var listed []struct {
 		Domain string `json:"domain"`
+		Closed string `json:"closed"`
 	}
 	if err := json.Unmarshal(body, &listed); err != nil {
 		return errors.Wrap(err, "json.Unmarshal()")
 	}
 	out := make([]T, 0, len(listed))
 	for _, entry := range listed {
+		if entry.Closed != "" {
+			continue
+		}
 		out = append(out, T(entry.Domain))
 	}
 	*domains = out
 
 	return nil
+}
+
+// closedDomains reads the tenants the user-domains answer at path marks closed to the
+// browser's session: each tenant's domain with the reason the server gives, a sentence.
+// Empty, never nil, when the answer marks none.
+func closedDomains(ctx context.Context, t *testing.T, b *browser, path string) map[string]string {
+	t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, path, nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET %s: status %d: %s", path, status, body)
+	}
+	var listed []struct {
+		Domain string `json:"domain"`
+		Closed string `json:"closed"`
+	}
+	if err := json.Unmarshal(body, &listed); err != nil {
+		t.Fatalf("user-domains is not a list: %v: %s", err, body)
+	}
+	closed := map[string]string{}
+	for _, entry := range listed {
+		if entry.Closed != "" {
+			closed[entry.Domain] = entry.Closed
+		}
+	}
+
+	return closed
 }

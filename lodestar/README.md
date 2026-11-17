@@ -275,7 +275,7 @@ which is the version (`_v`) her page asks again by. The set's uid is
 account joined by `|` (written `%7C` in the URL): the id is how the permission store
 names a person, so a change of username leaves her set and her subscriptions where they
 are, and an account of the portal's members auth has a set of its own whatever its
-username. The pilot watching Bastion's fleet gets no document for an Anvil refit, and a
+username. The hazard analyst watching Cinder's fleet gets no document for an Anvil refit, and a
 persona without List on Ships (the cadet) is never subscribed: the refused request
 answers 403 as it always did and writes no record. The walkthrough plays this scenario
 by curl (its "live pages" section), and
@@ -631,7 +631,8 @@ project the application credentials reach.
 
 Three **sectors** are the tenants: **Anvil** is home (nearly everyone holds a role there,
 and the hangars are there), **Bastion** is where a role stops at a border, and also the
-sector that admits its people through its directory only (a password does not reach it),
+sector that admits its people through its directory only (the persona provider's, so no
+password and no other sector's directory reaches it),
 and **Cinder** is the dark sector only headquarters, the archivist, and the hazard analyst
 can see, and the sector the fleet's Google Workspace is the directory of.
 Clients post **missions** with a hazard class, a fee, and a deadline. **Squadrons**
@@ -816,7 +817,8 @@ rather than deploy configuration: the sector's directory (`SectorDirectory`, one
 most under `/console/api/sectors/{sectorID}/sector-directories`: a sign-in method and the
 connection its identities carry, the fleet's Google Workspace by the name both
 registrations give it, `example`) and whether its people enter through it only
-(`Sector.DirectoryOnly`, which closes passwords). A sector has one directory and a
+(`Sector.DirectoryOnly`, which closes the sector to every sign-in but one through its
+directory, and closes no other sector). A sector has one directory and a
 directory belongs to one sector: the schema holds each with a unique index
 (`SectorDirectoriesBySectorId`, `SectorDirectoriesByMethodConnection`), and the record's
 write paths ask the generated rules first (`app.NewSectorDirectoryRules`), so a refusal
@@ -827,13 +829,16 @@ signed in with a password is refused with how a directory is set, a request that
 method and a connection is refused as naming fields the record does not take, and a
 personal account (any Google account, which is how the pioneer signs up) is refused as
 no organization's directory. The directory of a sector that is directory only is not
-removed until headquarters opens the sector to passwords. Both auths' sign-in rule is
+removed until headquarters turns directory only off. Both auths' sign-in rule is
 the library's tenant policy over it (`signin.TenantPolicy`, handed the generated
 `app.NewSectorDeclarationReader`, which reads the declaration in the sign-in's own
-transaction): a sign-in through a directory is admitted when one of the person's sectors
-has that directory, a password unless every one of their sectors is directory only,
-a person who holds a role outside any one sector (a global role, or one held in every
-sector) and a sign-in whose directory names the roles on the library's checks, and a
+transaction). A sector's declaration restricts its own door alone: a sector that is not
+directory only admits everyone it seats, however they signed in, and a directory-only
+sector admits a sign-in through its own directory and nothing else, so a person is
+refused at sign-in only when every sector that seats them is directory only and none has
+the way they signed in as its directory; a person who holds a role outside any one
+sector (a global role, or one held in every sector) and a sign-in whose directory names
+the roles are admitted on the library's checks, and a
 person holding no sector too, since the pioneer signs up first and charts after. Whether
 anyone signs up is headquarters' choice in the running application, method by method: the
 console's Sign-in page lists the crew's sign-in methods, each invite only until the
@@ -841,8 +846,12 @@ governor opens it (Open sign-up, behind a warning in the server's words, "Anyone
 Google account will be able to sign up and create a sector of their own, without an
 invitation.", confirmed by typing a word) and invite only again when he closes it (Make
 invite only), and the create-sector route refuses while every method is invite only. Which
-sectors the session then reaches is decided again per sector where its chart is computed,
-and there one person alone is exempt from a sector's declaration: a super administrator,
+sectors the session then reaches is decided again per sector where its chart is computed:
+every sector that seats the person, except a sector that is directory only and whose
+directory is not the one they signed in through, which stays on the chart marked closed
+to this sign-in, with the reason ("Bastion admits only people who sign in through its
+own directory. You signed in with a password."), and answers as a sector that does not
+exist. One person alone is exempt from a sector's declaration: a super administrator,
 the holder of the role the framework defines in every auth (`SuperAdministrator`, in no
 role file), which the governor holds. His password session charts Bastion, where the
 dispatcher's and the archivist's, who hold global roles and a role there, do not; the
@@ -853,10 +862,25 @@ keeps every sector's declaration beside its key (`resource.TenantRoster.Declarat
 handed to `resource.SessionPermissions`), the records' write paths reload it after their
 commit and signal the other instances, so a declaration decides the next request, and
 the records' change events are the audit of every edit. The seed makes the fleet's
-directory Cinder's, the one sector it can belong to, and makes Bastion directory only:
-the rigger charts Anvil alone, the bosun is refused at sign-in, and the navigator, who
-came through the fleet's directory, reaches Cinder. The directory of a sector its own
-creator charted is the organization's directory its creator came through, set by the create-sector route
+directory Cinder's, the one sector it can belong to, and makes Bastion directory only,
+with the persona provider of the test environments (`oidc`, `persona`) as the directory
+it is only of: the rigger charts Anvil alone, with Bastion marked closed, the bosun is
+refused at sign-in, the navigator, who came through the fleet's directory, reaches
+Cinder and every other sector that seats him and is not directory only, and a persona
+of the cast, who came through the persona provider, enters Bastion. Turning directory
+only on is held to two rules by the record's generated update, and by its create
+(`resource.TenantDirectoryRules.DirectoryOnly`): the sector has its directory, and the
+person turning it on is signed in through that directory themselves, which shows the
+directory works and that they are not shutting themselves out; each refusal is a
+sentence that says what to do. Turning it off is plain. Before it is saved the console
+asks the server what it would do (`GET /console/api/directory-only?domain=<sector>`,
+the generated `App.DirectoryOnly`): the sentence, and the people seated in the sector
+who sign in another way, each named. While it is on, the sector's People page says who
+it keeps out, on the row of each person with no sign-in through the directory ("Has not
+signed in through persona, so cannot enter while this sector is directory only"); the
+list is made from who holds a role in the sector, so nobody disappears from it. The
+directory of a sector its own creator charted is
+the organization's directory its creator came through, set by the create-sector route
 with the row through the step every such write takes (`app.SetSectorDirectory`); the
 pioneer signs up with a personal account, so Ember starts with none and admits her as it
 admits a password. The directory's row carries a default seat
@@ -878,7 +902,8 @@ roles, sets none. The console's Sign-in page (Sector Ops menu, under the sector'
 carries the declaration: a marshal signed in through his organization's directory makes
 it the sector's there with one button, removes it, and picks its default seat from the
 sector's roles; a marshal signed in with a password is told how a directory is set and
-offered no button; headquarters sets directory only. A sector's
+offered no button; headquarters sets directory only, confirming the server's sentence
+and the people it names before it is turned on. A sector's
 creator is its first marshal however it is created: the create path seats the
 surveyor as `SectorMarshal` in Dawn in the transaction that writes the row, as the
 create-sector route seats the pioneer in Ember (`SectorAdministratorRoles`, from
@@ -940,17 +965,17 @@ watch desk then name the cadet by username; and
 | `assessor` | Assessor Asa | Prices cover before launch: one List grant on Missions, the title unconditionally and the hazard level under `state = 'open'`. Hazard is a named variant of INT64 (`type HazardLevel int64`), concealing and unindexed, so a grid that sorts by hazard without displaying it pages on the cursor's copy of the visible hazard, decoded into the field's own type where the Spanner client refuses a pointer to a pointer to it, and the missions no longer open walk through the NULL region in Spanner's placement. Demonstrates: paging.named-variant-key. |
 | `hazards` | Hazard Analyst Hale | A conditional (row-free `now`) grant on a computed resource, the whole board through `limit=all`. Demonstrates: computed.conditional-grant, paging.limit-all, computed.fold. |
 | `dock` / `watch` | Dockmaster Dara / Night Watch Nadia | `timeOfDay(now, local)` and the wrap-around `timeOfDay(now, 'America/Denver')` window; `dayOfWeek(now, local) NOT IN ('sat', 'sun')`. At any hour exactly one sees the hangar deck. Demonstrates: condition.time-of-day, condition.day-of-week, condition.local-zone. |
-| `harbormaster` | Harbormaster Hollis, Anvil | List and Read on Ships, nothing else of her own: the live fleet board. Her list and the ship she has open are subscribed when they are read, the engineer's refit (or a hail) lands on both without a reload, a board left and reopened inside five minutes is the browser's own, and the pilot watching Bastion's fleet and the cadet, who holds no List on Ships, receive nothing. Demonstrates: live.pages. |
+| `harbormaster` | Harbormaster Hollis, Anvil | List and Read on Ships, nothing else of her own: the live fleet board. Her list and the ship she has open are subscribed when they are read, the engineer's refit (or a hail) lands on both without a reload, a board left and reopened inside five minutes is the browser's own, and the hazard analyst watching Cinder's fleet and the cadet, who holds no List on Ships, receive nothing. Demonstrates: live.pages. |
 | `armorer` | Armorer Arlo, Tongs | No pilot and no SectorCrew: his whole view of the hangars is the two sets the hangar passes yield, `hangar IN subject.hangarsOpen` on List and Read and `hangar IN subject.hangarsRun` on Update. A pass names a person or a squadron, at a level, until it expires, and the set's own definition says which passes are his (`who: UserID = subject OR SquadronID IN subject.squadrons`, a set that follows the squadron set) and which of those count (`where:` the level, and `ExpiresAt IS NULL OR ExpiresAt > now`). He holds no pass that counts in his own name, so everything he reaches he reaches through Tongs: he lists Anvil Dock One, which Tongs runs, and the Quarantine Bay, which Tongs visits; he re-zones the dock and is refused the bay, which Hammer runs and his own expired pass no longer opens. Over the API; the console draws no page for the passes. Demonstrates: @subjectSet.who, @subjectSet.where, @subjectSet.on-set. |
 | `deckhand` | Deckhand Dev, the deck crew | No role in a sector of their own: Anvil's deck crew, a group kept in the sector, holds `Cadet` and `SectorCrew` there, and the deckhand is in it, so the deckhand's board is the cadet's and Bastion is concealed. A group holds roles the way a person does, and whoever is in it holds them wherever the group does, at their next request; the Marshal makes and manages the sector's groups on the Groups page, a person's page says which roles they hold themselves and which through which group, and the sector crew see the groups they are in themselves (`group IN subject.groups`, the set the generated members declaration yields). Demonstrates: auth.groups. |
 | `relief` | Relief Rae, on a tour of Anvil | `Cadet` and `SectorCrew` at Anvil for a tour: thirty days from the bootstrap, each role given with an end (`tours` in `users.json`). While the tour lasts her board is the cadet's; once it is over the roles grant nothing, Anvil is gone from her sectors and from the sector's list of its people, and nothing was written at that moment: everything that reads a role leaves out one outside its period. The rows themselves go when she next signs in, through the hook the crew auth sets for a sign-in that stands (`crewidentity.Client.SignedIn`); no job runs on a schedule. The Marshal gives a role, a place in a group or a group's role for a period on the same pages she gives them on (the Starts and Ends fields), gives a new period by giving again, and ends one now by taking it away; the lists of roles show the period. The Super Administrator role takes none. Demonstrates: auth.periods. |
 | `adjutant` | Adjutant Alba, headquarters | The commendations desk, the one resource behind a feature flag, and the key that turns it: `FeatureAdministrator` (List and Read on `FeatureFlags`, Execute on `SetFeature`, global) beside `Adjutant` (List, Read and Create on `Commendations`). Off, the desk's routes answer the router's own 404, the digest leaves the desk and the card's `commendations` field out, and the field named in a request is unknown; she turns the flag on through `SetFeature`, the desk answers, Pax's card counts his citations, and a second server process serves the desk at its next request with no restart; off again, both refuse. Demonstrates: @feature, @feature.field. |
 | `surveyor` | Surveyor Shen, headquarters | Charts new sectors: `Surveyor` (Create and Update on `Sectors`, global) beside `SectorCrew` held in every sector. `Sectors` is the tenant record (`@tenant`) and every instance holds a roster of it: when she charts Dawn through the consolidated patch, the instance that wrote adds Dawn to its roster after the commit and signals the tenants kind, so her place switcher lists Dawn and Dawn's wings answer her at once, with no restart, no migrate job and no new login; the marshal's does not list it and Dawn answers her as a sector that does not exist; the client's portal, the governor and the archivist, all held in every sector, see Dawn with nothing written for them; and a second server process serves Dawn at its next request. Demonstrates: tenancy.run-time-tenant. |
 | `pioneer` | Pioneer Pia, on no manifest | Signs up with any Google account (the crew auth's `sign-up` registration, once the governor has opened it to sign-up on the console's Sign-in page: no roles, the application the authority), a crew login holding nothing, and charts her own sector through the generated `create-sector` route: who may chart one is apart from who may enter one and is headquarters' choice in the running application, so while a sign-in method is open the route, given the sector's fields and no key, writes Ember under an id it generates and answers, seats her as its marshal (`SectorMarshal`, the roles `SectorAdministratorRoles` names) and hands it to the roster in one call, and her chart lights Ember at once; a second sector is refused her, as the route is refused the marshal and the governor, who hold sectors already. Sign in first, then name the sector. Demonstrates: tenancy.self-service, auth.open-sign-up. |
-| `rigger` | Rigger Rook, Anvil and Bastion, no global role | `SectorCrew` in Anvil and in Bastion, by password, and nothing global: Bastion admits its people through its directory only (`Sector.DirectoryOnly`), so her chart lights Anvil alone and Bastion answers her as a sector that does not exist, until headquarters opens Bastion to passwords and her chart lights it at once. Demonstrates: tenancy.directory-only. |
-| `bosun` | Bosun Bram, Bastion only | `SectorCrew` in Bastion alone, by password: every sector of his is directory only, so his sign-in is refused naming the rule (`directory_only`), and admitted once headquarters opens Bastion. Demonstrates: tenancy.directory-only. |
+| `rigger` | Rigger Rook, Anvil and Bastion, no global role | `SectorCrew` in Anvil and in Bastion, by password, and nothing global: Bastion admits its people through its directory only (`Sector.DirectoryOnly`), so her chart lights Anvil alone, names Bastion closed to this sign-in with the reason, and Bastion answers her as a sector that does not exist, until headquarters turns Bastion's directory only off and her chart lights it at once. Bastion's People page keeps her row, which says she cannot enter while it is on. Demonstrates: tenancy.directory-only. |
+| `bosun` | Bosun Bram, Bastion only | `SectorCrew` in Bastion alone, by password: every sector of his is directory only, so his sign-in is refused naming the rule (`directory_only`), and admitted once headquarters turns Bastion's directory only off. Demonstrates: tenancy.directory-only. |
 | `liaison` | Liaison Lark, Anvil and Cinder | `Cadet` and `SectorCrew` in Anvil, `Archivist` in Cinder, nothing in Bastion: the list across tenants. `Mission` declares `@listAcrossTenants`, so its list is also served without the sector's segment (`GET /console/api/missions`), and her one request reads the missions of every sector she reaches in which she may list them, with one filter, one sort, one page and one count across them. Each row is checked under her roles in its own sector and names it (`zzTenant`): Anvil's fourteen low-hazard missions carry no fee and no client, Cinder's closed sweep carries both, and Bastion, where she holds no role, contributes nothing and is never named, asked for by name (`domains=`) or not. The search box and every filter apply in each sector; `MissionsByDeadline` serves the list's order across sectors. Her page is Missions in every sector, in Headquarters: the library's list with `acrossTenants` on its config, the sector named in a first column and each row a link to the mission itself inside its own sector. The link is the mission's own route under the sector's Missions page, which asks Read on the mission and nothing of the mission board that page lists, so her click opens the mission though her sector roles do not list the board; a row in a sector where a person may list missions and read none would draw no link. The config names no permission for the page: the server tells the global digest whether a person may list missions in at least one sector they reach, so the liaison sees the entry in Records and the yeoman, who may list missions in no sector, sees none and is turned away from its route. A list across tenants is plain unless its page asks, and this page asks (`live: true`): her one request registers one subscription over the sectors her list reads, so a mission changed in Anvil or in Cinder reaches her change set as that sector's list and her page fetches once, a mission changed in Bastion never reaches her, and the renewal works her set out again. Demonstrates: list.across-tenants, list.across-tenants.live. |
-| `client` | Client Cleo, portal only | Signs in through her company's directory, whose groups are her roles; the second browser app over the second TypeScript target; `client = subject.client` from the ClientContact anchor; a conditional Execute fired from a portal session; a PII field an external user writes; the portal-only client statement. Demonstrates: auth.directory-roles, auth.skipauth-directory, typescript.second-target, outlet.session, @subjectValue.second-anchor, @manualAddResource.outlet. |
+| `client` | Client Cleo, portal only | Signs in through her company's directory, whose groups are her roles, held in every sector: her session enters every sector that is not directory only, and Bastion, whose directory is not the one she came through, stays on her portal's sector list marked closed to this sign-in; the second browser app over the second TypeScript target; `client = subject.client` from the ClientContact anchor; a conditional Execute fired from a portal session; a PII field an external user writes; the portal-only client statement. Demonstrates: auth.directory-roles, auth.skipauth-directory, typescript.second-target, outlet.session, @subjectValue.second-anchor, @manualAddResource.outlet. |
 | `droid-r7` | R7, service account, no login | The droids outlet, behind the crew auth's bearer tokens (the bootstrap creates its account, without a password, and gives it its roles; the server finds the account by its username at start and seeds its configured key as its application token): telemetry with no human route, one reading per call, each carrying the firmware's raw frame, a type declared in the droid link's own package whose generated methods the generator writes there (`WithTypes`); releases through the shared method under its own read grant; the program the release ships to the droids (`cmd/droid`), which sends one frame and upgrades itself from the outlet. Demonstrates: outlet.tokens, outlet.exclusive, machine-identity, rpc.row-free, typescript.types-package, outlet.programs. |
 
 ## Where things live

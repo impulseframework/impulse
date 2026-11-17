@@ -186,6 +186,10 @@ class SideBuilder {
       ...(password ? ([['passwordChangeRequired', 'Must change password']] as Named[]) : []),
       ['lastSignInAt', 'Last sign-in'],
       ['heldElsewhere', `Also in another ${this.tenantWord}`],
+      // Only a tenant's list of its people carries it, and only where the tenant record
+      // has a directory-only switch: the server's sentence for a person the switch keeps
+      // out, empty for everyone else.
+      ['cannotEnter', 'Cannot enter'],
     ];
     const more: Named[] = [
       ['emailVerifiedAt', 'Email verified'],

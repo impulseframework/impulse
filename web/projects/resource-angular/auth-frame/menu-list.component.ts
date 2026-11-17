@@ -15,7 +15,9 @@ import { linksTo, ShownEntry, ShownGroup } from './menu';
  * and a click on the entry keeps it open.
  *
  * Whatever the component is given between its tags goes above the first group: the
- * person's name over their own menu, the find box over a long list.
+ * person's name over their own menu, the find box over a long list. What it is given
+ * marked `menuListEnd` goes under the last group: words that belong to the list and are
+ * nothing to choose, such as the tenants a person cannot enter with this sign-in.
  */
 @Component({
   selector: 'impulse-menu-list',
@@ -71,6 +73,7 @@ import { linksTo, ShownEntry, ShownGroup } from './menu';
           }
         </div>
       }
+      <ng-content select="[menuListEnd]" />
     </div>
 
     <ng-template #row let-entry>
