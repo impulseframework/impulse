@@ -122,6 +122,7 @@ const (
 	eventsTable         = "CrewSessionAuthEvents"
 	pendingTable        = "CrewSessionPendingSignIns"
 	attemptsTable       = "CrewSessionSignInAttempts"
+	methodsTable        = "CrewSessionSignInMethods"
 	mailLinksTable      = "CrewSessionMailLinks"
 	factorCodesTable    = "CrewSessionFactorCodes"
 	trustedDevicesTable = "CrewSessionTrustedDevices"
@@ -626,6 +627,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		session.WithIdentitiesTableName(identitiesTable),
 		session.WithPendingSignInsTableName(pendingTable),
 		session.WithSignInAttemptsTableName(attemptsTable),
+		session.WithSignInMethodsTableName(methodsTable),
 		session.WithMailLinksTableName(mailLinksTable),
 		session.WithTokensTableName(tokensTable),
 		session.WithDeviceCodesTableName(deviceCodesTable),
@@ -661,13 +663,17 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// alone is not enough), so the development login APP_GOOGLE_USERNAME names is one
 	// that is not on the manifest.
 	//
-	// The password method is registered with open sign-up (session.OpenSignUp): a
-	// stranger gives an address, follows the mailed link and chooses a username and a
-	// password, and the login holds no role and no sector until they chart their own or
-	// an operator seats them, exactly as the Google sign-up registration's does. The
-	// generator program declares the same (PasswordMethod().OpenSignUp()), so the router
-	// mounts the sign-up routes and the login page is told of them.
-	password := session.PasswordSignIn(crewSession, session.OpenSignUp())
+	// Whether a method admits a person with no account and no invitation is no part of
+	// its registration: every method here starts invite only, and a fleet administrator
+	// opens one to sign-up, or makes it invite only again, on the console's Sign-in page
+	// (the row of the method in CrewSessionSignInMethods, which every sign-in reads in
+	// its own transaction). While the password method is open a stranger gives an
+	// address, follows the mailed link and chooses a username and a password, and the
+	// login holds no role and no sector until they chart their own or an operator
+	// seats them, exactly as a person who signs up through the sign-up registration
+	// does. The router mounts the sign-up routes whatever was chosen, and they answer
+	// 404 while the method is invite only.
+	password := session.PasswordSignIn(crewSession)
 	googleMethod := google.SignIn(crewSession, GoogleRegistration, nil, &google.Config{
 		ClientID:     settings.Directory.ClientID,
 		ClientSecret: settings.Directory.ClientSecret,
@@ -677,19 +683,19 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		LoginURL:     settings.LoginURL,
 	})
 	// The sign-up registration, under SignUpRegistration: any Google account
-	// (google.AnyGoogleAccount), the open sign-up rule (signin.OpenSignUp: a person the
-	// auth has never seen becomes a crew login under the verified email), and the
-	// application as the authority for roles (google.DisableRoleSync: the sign-in neither
-	// reads nor writes roles, so the person holds nothing until they chart a sector of
-	// their own or an operator seats them). It shares the directory's client; only the
-	// callback is its own.
+	// (google.AnyGoogleAccount), which is how wide the method is, and the application as
+	// the authority for roles (google.DisableRoleSync: the sign-in neither reads nor
+	// writes roles). Once an administrator opens it to sign-up, a person the auth has
+	// never seen becomes a crew login under the verified email and holds nothing until
+	// they chart a sector of their own or an operator seats them; until then they are
+	// refused (not_invited). It shares the directory's client; only the callback is its
+	// own.
 	signUpMethod := google.SignIn(crewSession, SignUpRegistration, nil, &google.Config{
 		ClientID:     settings.Directory.ClientID,
 		ClientSecret: settings.Directory.ClientSecret,
 		RedirectURL:  settings.SignUpRedirectURL,
 		Workspaces:   google.AnyGoogleAccount(),
 		RoleSync:     google.DisableRoleSync(),
-		Accounts:     signin.OpenSignUp,
 		LoginURL:     settings.LoginURL,
 	})
 
@@ -779,6 +785,14 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	crewSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
 	crewSession.SetInvitationAccepted(identityClient.InvitationAccepted())
 
+	// A person who signs up through a method an administrator opened: the session
+	// library hands their new account to the identity client in the transaction that
+	// makes it (SignedUp). The fleet has sectors, so an open method names no default
+	// role and the person holds nothing until they chart a sector of their own.
+	//
+	// Demonstrates: auth.open-sign-up.
+	crewSession.SetSignUpSeated(identityClient.SignedUp())
+
 	// The machine outlet the auth issues tokens for, registered before the first
 	// request as the methods are: the droids' channel, whose token check the generated
 	// router composes in front of its routes. Registration closes with the first use of
@@ -800,8 +814,8 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 // it). The provider attests (Attesting): the person signed in to the provider's host to
 // pick a persona, which is the whole proof in a test environment, so a persona sign-in is
 // never asked for the code. The application is the authority for roles
-// (signin.DisableRoleSync), and the account rule is invited users only: the persona's
-// identity (its login as the subject) is linked to the crew login seeded under that login
+// (signin.DisableRoleSync), and the method stays invite only: the persona's identity
+// (its login as the subject) is linked to the crew login seeded under that login
 // (cast.json, SeedCast), and a persona the seed never made is refused. An empty issuer
 // registers nothing, so a later environment never offers the method and nothing in the
 // build differs.
@@ -819,7 +833,6 @@ func registerPersona(crewSession *Session, settings *Settings) *oidc.Method {
 		Connection:  PersonaRegistration,
 		Attesting:   true,
 		RoleSync:    signin.DisableRoleSync(),
-		Accounts:    signin.InvitedUsersOnly,
 		LoginURL:    settings.LoginURL,
 	})
 }

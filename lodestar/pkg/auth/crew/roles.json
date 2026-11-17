@@ -239,6 +239,18 @@
               ]
             },
             {
+              "resource": "CrewSignInMethods",
+              "fields": [
+                "admits",
+                "defaultRole",
+                "directoryGivesRoles",
+                "label",
+                "name",
+                "openSignUp",
+                "says"
+              ]
+            },
+            {
               "resource": "CrewSessionAuthEvents",
               "fields": [
                 "connection",
@@ -728,6 +740,12 @@
             },
             {
               "resource": "UnlockMembersSignIn"
+            },
+            {
+              "resource": "OpenCrewSignUp"
+            },
+            {
+              "resource": "MakeCrewInviteOnly"
             },
             {
               "resource": "InviteCrewUser"

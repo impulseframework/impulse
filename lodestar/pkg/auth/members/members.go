@@ -95,6 +95,7 @@ const (
 	eventsTable         = "MembersSessionAuthEvents"
 	pendingTable        = "MembersSessionPendingSignIns"
 	attemptsTable       = "MembersSessionSignInAttempts"
+	methodsTable        = "MembersSessionSignInMethods"
 	mailLinksTable      = "MembersSessionMailLinks"
 	factorCodesTable    = "MembersSessionFactorCodes"
 	trustedDevicesTable = "MembersSessionTrustedDevices"
@@ -297,6 +298,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 		session.WithIdentitiesTableName(identitiesTable),
 		session.WithPendingSignInsTableName(pendingTable),
 		session.WithSignInAttemptsTableName(attemptsTable),
+		session.WithSignInMethodsTableName(methodsTable),
 		session.WithMailLinksTableName(mailLinksTable),
 		session.WithFactorCodesTableName(factorCodesTable),
 		session.WithTrustedDevicesTableName(trustedDevicesTable),

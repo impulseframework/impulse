@@ -12,14 +12,19 @@ import (
 	"testing"
 
 	"github.com/impulseframework/impulse/lodestar/pkg/auth/crew"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
-// TestSelfServiceSignUp_signInFirstThenChart proves the order the Sector record's
-// creation shape settles, on the served stack: the pioneer signs in first, through the
-// crew auth's sign-up registration (any Google account, open sign-up: a name the auth has
-// never seen becomes a crew login holding no role and no sector; simulated under the
-// skipAuth tag as APP_SIGN_UP_USERNAME), and then names her own sector through the
-// generated create-sector route, standing in it at once.
+// TestSelfServiceSignUp_signInFirstThenChart proves the order a sector of one's own is
+// charted in, on the served stack: the pioneer signs in first, through the crew auth's
+// sign-up registration (any Google account; simulated under the skipAuth tag as
+// APP_SIGN_UP_USERNAME), and then names her own sector through the generated
+// create-sector route, standing in it at once. The registration starts invite only, so
+// she is refused at first (not_invited) and no crew login is made; the governor opens it
+// to sign-up, behind a warning that says it admits anyone with a Google account, and
+// from then a name the auth has never seen becomes a crew login holding no role and no
+// sector. Made invite only again, the next stranger is refused, and the pioneer, who has
+// an account, signs in as before.
 //
 // She signs up with a personal Google account, which stands for everyone who is in no
 // organization and so is no sector's directory: the route sets none on Ember, Ember
@@ -44,6 +49,24 @@ func TestSelfServiceSignUp_signInFirstThenChart(t *testing.T) {
 	if status, body := b.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
 		t.Fatalf("GET session before the sign-up: status %d: %s", status, body)
 	}
+	// Invite only, as the registration starts: she is refused, and no login is made.
+	accounts := tableRows(ctx, t, s, "CrewSessionUsers")
+	if status, location := b.loginConsoleSignUp(ctx, string(pioneerUser)); status != http.StatusFound || !strings.Contains(location, "code="+string(sessioninfo.RefusedNotInvited)) {
+		t.Fatalf("console sign-up while the registration is invite only: status %d to %q, want %d to the login page naming %s", status, location, http.StatusFound, sessioninfo.RefusedNotInvited)
+	}
+	if after := tableRows(ctx, t, s, "CrewSessionUsers"); after != accounts {
+		t.Fatalf("crew logins after the refused sign-up = %d, want the %d there were: nothing is written", after, accounts)
+	}
+
+	// The governor opens the registration: the warning names how wide it is.
+	hq := newBrowser(t, s, consoleAPI)
+	hq.signIn(ctx, "governor")
+	const warns = "Anyone with a Google account will be able to sign up and create a sector of their own, without an invitation."
+	if status, body := askCrewWarning(ctx, hq, openSignUpRoute, `{"name":"sign-up"}`); status != http.StatusOK || !strings.Contains(string(body), warns) || !strings.Contains(string(body), "Open to anyone with a Google account") {
+		t.Fatalf("the warning of opening the sign-up registration: status %d: %s, want %q", status, body, warns)
+	}
+	openCrewSignUp(ctx, t, hq, crew.SignUpRegistration)
+
 	held := consoleLogin + "?pending=mfa&returnUrl=" + url.QueryEscape(consolePage)
 	if status, location := b.loginConsoleSignUp(ctx, string(pioneerUser)); status != http.StatusFound || location != held {
 		t.Fatalf("console sign-up: status %d to %q, want %d to %q, the login page with the second factor's wait", status, location, http.StatusFound, held)
@@ -94,6 +117,26 @@ func TestSelfServiceSignUp_signInFirstThenChart(t *testing.T) {
 	// One sector per person: a second is refused.
 	if status, body := b.do(ctx, http.MethodPost, createSectorRoute, []byte(chartEmberAgain)); status != http.StatusForbidden {
 		t.Errorf("POST %s again: status %d, want 403: %s", createSectorRoute, status, body)
+	}
+
+	// Invite only again: the next stranger is refused and no login is made, and the
+	// pioneer, who has an account, signs in as before and still stands in Ember.
+	makeCrewInviteOnly(ctx, t, hq, crew.SignUpRegistration)
+	accounts = tableRows(ctx, t, s, "CrewSessionUsers")
+	latecomer := newBrowser(t, s, consoleAPI)
+	if status, location := latecomer.loginConsoleSignUp(ctx, "latecomer"); status != http.StatusFound || !strings.Contains(location, "code="+string(sessioninfo.RefusedNotInvited)) {
+		t.Errorf("console sign-up of a stranger once invite only again: status %d to %q, want %d to the login page naming %s", status, location, http.StatusFound, sessioninfo.RefusedNotInvited)
+	}
+	if after := tableRows(ctx, t, s, "CrewSessionUsers"); after != accounts {
+		t.Errorf("crew logins after the refused sign-up = %d, want the %d there were", after, accounts)
+	}
+	again := newBrowser(t, s, consoleAPI)
+	if status, location := again.loginConsoleSignUp(ctx, string(pioneerUser)); status != http.StatusFound || location != held {
+		t.Fatalf("the pioneer's sign-in once the registration is invite only: status %d to %q, want %d to %q, as before", status, location, http.StatusFound, held)
+	}
+	again.secondFactor(ctx, string(pioneerUser))
+	if got, want := again.domains(ctx), []string{ember}; !slices.Equal(got, want) {
+		t.Errorf("the pioneer's sectors once the registration is invite only again = %v, want %v", got, want)
 	}
 }
 

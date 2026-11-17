@@ -978,6 +978,21 @@ CREATE TABLE CrewSessionSignInAttempts (
     UpdatedAt    TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
 
+-- The crew's sign-in methods: what an administrator chose, in the running application,
+-- for one sign-in method of the auth, keyed by the name the method is registered under
+-- (the session library's SessionSignInMethods migration, under the auth's prefix).
+-- OpenSignUp says the method admits a person who holds no account and no invitation;
+-- DefaultRole names the role such a person is given with their account, and holds
+-- nothing here, where a person who signs up charts a sector of their own. A method with
+-- no row is invite only, so the table starts empty and every method starts invite only.
+-- UpdatedAt takes the commit time.
+CREATE TABLE CrewSessionSignInMethods (
+    Name        STRING(MAX) NOT NULL,
+    OpenSignUp  BOOL NOT NULL,
+    DefaultRole STRING(MAX),
+    UpdatedAt   TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+) PRIMARY KEY (Name);
+
 CREATE UNIQUE NULL_FILTERED INDEX CrewSessionUsersByNormalizedEmail ON CrewSessionUsers(NormalizedEmail);
 
 -- The username as written is unique. The index is in the order a list of people is read
@@ -1038,6 +1053,21 @@ CREATE TABLE MembersSessionSignInAttempts (
     WindowEndsAt TIMESTAMP NOT NULL,
     LockedUntil  TIMESTAMP,
     UpdatedAt    TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+) PRIMARY KEY (Name);
+
+-- The members' sign-in methods: what an administrator chose, in the running application,
+-- for one sign-in method of the auth, keyed by the name the method is registered under
+-- (the session library's SessionSignInMethods migration, under the auth's prefix).
+-- OpenSignUp says the method admits a person who holds no account and no invitation;
+-- DefaultRole names the role such a person is given with their account, and holds
+-- nothing here, where a person who signs up charts a sector of their own. A method with
+-- no row is invite only, so the table starts empty and every method starts invite only.
+-- UpdatedAt takes the commit time.
+CREATE TABLE MembersSessionSignInMethods (
+    Name        STRING(MAX) NOT NULL,
+    OpenSignUp  BOOL NOT NULL,
+    DefaultRole STRING(MAX),
+    UpdatedAt   TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
 ) PRIMARY KEY (Name);
 
 CREATE UNIQUE NULL_FILTERED INDEX MembersSessionUsersByNormalizedEmail ON MembersSessionUsers(NormalizedEmail);

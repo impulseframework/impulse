@@ -3098,8 +3098,8 @@ row is invite only, which is how every method starts, and the sign-in reads the 
 own transaction. The generated management gives every Auth whose roles the application
 assigns the page's two halves, with nothing written by the application:
 
-- `CrewSignInMethods`, a list with one row for each method the Auth registers, in the
-  login page's order: its registration name and label, who can sign in with it in words
+- `CrewSignInMethods`, a list with one row for each method the Auth registers, ordered
+  by label: its registration name and label, who can sign in with it in words
   (`admits`: "Anyone with a Google account", "Anyone with an account at acme.example",
   from how wide the method's registration is), `openSignUp`, `defaultRole`, and `says`,
   what a person with no invitation meets, as a sentence. It is computed from the Auth's

@@ -38,17 +38,19 @@ type (
 	// Sector itself is a GLOBAL resource: administering the sector list is a global
 	// concern. The place switcher lists only the sectors a login holds a grant in.
 	//
-	// Who may chart a sector is declared here, apart from who may enter one
-	// (@tenant(creation: ...)), and the record declares both ways: the surveyor's, Create
-	// on Sectors under a global role, through the create path above; and the pioneer's,
-	// self-service, one generated route (POST /console/api/create-sector) for a person
-	// who signed in holding no sector, through the crew auth's sign-up registration (any
-	// Google account, open sign-up), and names their own. The route writes the row, seats
-	// the person with the roles the App names (SectorAdministratorRoles: SectorMarshal)
-	// and hands the sector to the roster, so their next request stands in it; a person
-	// who already holds a sector is refused, the governor included, since an
-	// administrator of one sector never creates another there. @tenant alone would keep
-	// charting to the surveyor; @tenant(creation: self-service) to the pioneer alone.
+	// Who may chart a sector is decided in the running application, apart from who may
+	// enter one, and there are two ways: the surveyor's, Create on Sectors under a global
+	// role, through the create path above; and the pioneer's, one generated route (POST
+	// /console/api/create-sector) for a person who signed in holding no sector, and names
+	// their own. The pioneer's way is open while a fleet administrator has a sign-in
+	// method of the crew auth open to sign-up (the console's Sign-in page), which is how
+	// she comes to hold a login at all: through the sign-up registration, any Google
+	// account. The route reads that in the transaction that writes the row, and refuses
+	// while every method is invite only. It writes the row, seats the person with the
+	// roles the App names (SectorAdministratorRoles: SectorMarshal) and hands the sector
+	// to the roster, so their next request stands in it; a person who already holds a
+	// sector is refused, the governor included, since an administrator of one sector
+	// never creates another there.
 	//
 	// Who may enter a sector is the record's declaration, data of the application rather
 	// than deploy configuration: the directory its people sign in through
@@ -73,7 +75,7 @@ type (
 	// Demonstrates: tenancy.tenant-record, tenancy.run-time-tenant, tenancy.deleted-tenant, tenancy.concealed, tenancy.self-service, tenancy.declaration, tenancy.directory-only, tenancy.creator-directory, @order, @page.
 	//
 	// @resource
-	// @tenant(creation: both)
+	// @tenant
 	// @order(Name asc)
 	// @page(default: 25, max: 200)
 	Sector struct {
