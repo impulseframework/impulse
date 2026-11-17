@@ -112,11 +112,10 @@ func (f *fakeStore) RemoveEnded(_ context.Context, _ resource.ReadWriteTransacti
 }
 
 // The periods the tests assign with, around the present by an hour each way.
-func periodFixtures() (now time.Time, ended, upcoming, current accesstypes.Period) {
-	now = time.Now().UTC().Truncate(time.Second)
+func periodFixtures() (ended, upcoming, current accesstypes.Period) {
+	now := time.Now().UTC().Truncate(time.Second)
 
-	return now,
-		accesstypes.Period{Start: now.Add(-2 * time.Hour), End: now.Add(-time.Hour)},
+	return accesstypes.Period{Start: now.Add(-2 * time.Hour), End: now.Add(-time.Hour)},
 		accesstypes.Period{Start: now.Add(time.Hour), End: now.Add(2 * time.Hour)},
 		accesstypes.Period{Start: now.Add(-time.Hour), End: now.Add(time.Hour)}
 }
@@ -129,7 +128,7 @@ func periodFixtures() (now time.Time, ended, upcoming, current accesstypes.Perio
 func TestManager_AssignRoleFor(t *testing.T) {
 	t.Parallel()
 
-	_, ended, upcoming, current := periodFixtures()
+	ended, upcoming, current := periodFixtures()
 	held := access.NewMembershipKey(alphaScope, User(userID), "Reader")
 	text := "domain/alpha " + userID.String() + " Reader"
 	tests := []struct {
@@ -207,7 +206,7 @@ func TestManager_AssignRoleFor(t *testing.T) {
 func TestManager_groupPeriods(t *testing.T) {
 	t.Parallel()
 
-	_, ended, upcoming, current := periodFixtures()
+	ended, upcoming, current := periodFixtures()
 	place := memberKey(nightID, userID)
 	role := access.NewGroupRoleKey(GroupID(nightID), alphaScope, "Reader")
 	placeText := string(place.Group) + " " + string(place.User)
@@ -334,7 +333,7 @@ func TestManager_groupPeriods(t *testing.T) {
 // for a period that has not begun, and is in the night shift for a period that has ended
 // and in the staff with none.
 func clearStore() (*fakeStore, access.MembershipKey, access.GroupMemberKey) {
-	_, ended, upcoming, _ := periodFixtures()
+	ended, upcoming, _ := periodFixtures()
 	gone := access.NewMembershipKey(alphaScope, User(userID), "Reader")
 	stays := access.NewMembershipKey(globalScope, User(userID), "Steward")
 	later := access.NewMembershipKey(everyScope, User(userID), "Reader")
@@ -384,7 +383,7 @@ func TestManager_ClearEnded(t *testing.T) {
 
 	t.Run("the account stays when the ended assignment was the last, and the last administrator is not judged", func(t *testing.T) {
 		t.Parallel()
-		_, ended, _, _ := periodFixtures()
+		ended, _, _ := periodFixtures()
 		last := access.NewMembershipKey(alphaScope, User(userID), "Reader")
 		store := groupStore()
 		store.memberships[last] = true
@@ -499,7 +498,7 @@ func TestManager_SignedIn(t *testing.T) {
 func TestManager_endedAssignmentsInTheRules(t *testing.T) {
 	t.Parallel()
 
-	_, ended, upcoming, _ := periodFixtures()
+	ended, upcoming, _ := periodFixtures()
 	inAlpha := access.NewMembershipKey(alphaScope, User(userID), "Reader")
 	inBeta := access.NewMembershipKey(betaScope, User(userID), "Reader")
 

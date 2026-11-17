@@ -136,8 +136,8 @@ func loadCast() {
 			panic(err)
 		}
 		crewAccounts, memberAccounts = map[accesstypes.User]impulse.UUID{}, map[accesstypes.User]impulse.UUID{}
-		for _, user := range identities.Users {
-			crewAccounts[user.User] = user.ID
+		for i := range identities.Users {
+			crewAccounts[identities.Users[i].User] = identities.Users[i].ID
 		}
 		for _, account := range identities.ServiceAccounts {
 			crewAccounts[account.User] = account.ID
@@ -254,7 +254,8 @@ func provisionDemoAccess(ctx context.Context, crewEngine, membersEngine *access.
 		return err
 	}
 	var droid, client accesstypes.User
-	for _, user := range identities.Users {
+	for i := range identities.Users {
+		user := &identities.Users[i]
 		if err := assignDemoRoles(ctx, crewEngine, accesstypes.User(user.ID.String()), user.Roles); err != nil {
 			return err
 		}
@@ -311,8 +312,8 @@ func seedCastAccounts(ctx context.Context, db *initiator.SpannerDB) error {
 		return spanner.InsertMap(table, map[string]any{"Id": id.String(), "Username": string(username), "CreatedAt": spanner.CommitTimestamp})
 	}
 	var accounts []*spanner.Mutation
-	for _, user := range identities.Users {
-		accounts = append(accounts, insert("CrewSessionUsers", user.ID, user.User))
+	for i := range identities.Users {
+		accounts = append(accounts, insert("CrewSessionUsers", identities.Users[i].ID, identities.Users[i].User))
 	}
 	for _, account := range identities.ServiceAccounts {
 		accounts = append(accounts, insert("CrewSessionUsers", account.ID, account.User))

@@ -187,7 +187,10 @@ func (m *Manager) DeleteGroup(ctx context.Context, txn resource.ReadWriteTransac
 	standingMembers := slices.DeleteFunc(slices.Clone(members), func(user accesstypes.User) bool { return periods.Members[user].Ended(now) })
 	standingRoles := slices.DeleteFunc(slices.Clone(roles), func(key access.GroupRoleKey) bool { return periods.Roles[key].Ended(now) })
 	if len(standingMembers) > 0 || len(standingRoles) > 0 {
-		return httpio.NewConflictMessagef("the group %s still has %d member(s) and holds %d role(s): remove its members and take its roles away, then delete it", group.Name, len(standingMembers), len(standingRoles))
+		return httpio.NewConflictMessagef(
+			"the group %s still has %d member(s) and holds %d role(s): remove its members and take its roles away, then delete it",
+			group.Name, len(standingMembers), len(standingRoles),
+		)
 	}
 	// What is left has ended, and goes with the group.
 	for _, user := range members {
@@ -334,7 +337,9 @@ func (m *Manager) deleteLeftWithNothing(ctx context.Context, txn resource.ReadWr
 // the scope under exactly this spelling; a group kept in one tenant holds roles in that
 // tenant alone; and no group holds the Super Administrator role, which a super
 // administrator gives to one person at a time.
-func (m *Manager) GiveGroupRoleFor(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period) error {
+func (m *Manager) GiveGroupRoleFor(
+	ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, scope accesstypes.PolicyScope, role accesstypes.Role, period accesstypes.Period,
+) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 

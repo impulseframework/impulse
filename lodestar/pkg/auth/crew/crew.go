@@ -777,16 +777,12 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	crewSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
 	crewSession.SetInvitationAccepted(identityClient.InvitationAccepted())
 
-	// What a sign-in clears. A role, a place in a group and a group's role may each be
-	// given for a period, and count inside it alone: the engine, the sign-in rule and
-	// the lists leave out one that has ended from the moment it ends, and nothing is
-	// written then. The row itself goes when its person next signs in: the session
-	// library calls this hook once the session is committed, and the identity client
-	// removes the person's ended roles and places in a transaction of its own. It is
-	// apart from the sign-in, so a failure is logged and the session stands; it removes
-	// those rows and nothing else, never the account; and no job runs on a schedule.
-	// The crew's roles are the application's, so the hook is set on this auth; the
-	// members' roles are their directory's and carry no period.
+	// What a sign-in clears. A role, a place in a group and a group's role given for a
+	// period count inside it alone, and nothing is written when one ends: the row goes
+	// when its person next signs in. The session library calls this hook once the
+	// session is committed, and the identity client removes the person's ended roles and
+	// places, nothing else and never the account; a failure is logged and the session
+	// stands. The members' roles are their directory's and carry no period: no hook.
 	//
 	// Demonstrates: auth.periods.
 	crewSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))

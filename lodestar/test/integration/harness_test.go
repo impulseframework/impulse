@@ -1001,7 +1001,8 @@ func newServedWith(ctx context.Context, t *testing.T, opts servedOptions) *serve
 		t.Fatal(err)
 	}
 	crewAPI := crewAuth.Session().API()
-	for _, user := range identities.Users {
+	for i := range identities.Users {
+		user := &identities.Users[i]
 		password := user.Password
 		if _, err := crewAPI.CreateSessionUser(ctx, &session.CreateUserRequest{ID: impulse.NullUUIDFromUUID(user.ID), Username: string(user.User), Password: &password}); err != nil {
 			t.Fatalf("CreateSessionUser(%s) error = %v", user.User, err)

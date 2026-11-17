@@ -174,26 +174,34 @@ func (t *Tenant) GiveGroupRoleFor(ctx context.Context, txn resource.ReadWriteTra
 // AssignRole is AssignRoleFor with no period: the membership stands until it is removed,
 // and one the person held for a period loses the period.
 func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransaction, scope accesstypes.PolicyScope, userID impulse.UUID, role accesstypes.Role) error {
-	return m.AssignRoleFor(ctx, txn, scope, userID, role, accesstypes.Period{})
+	var none accesstypes.Period
+
+	return m.AssignRoleFor(ctx, txn, scope, userID, role, none)
 }
 
 // AddGroupMember is AddGroupMemberFor with no period: the person is in the group until
 // they are taken out, and a place they had for a period loses the period.
 func (m *Manager) AddGroupMember(ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID) error {
-	return m.AddGroupMemberFor(ctx, txn, groupID, userID, accesstypes.Period{})
+	var none accesstypes.Period
+
+	return m.AddGroupMemberFor(ctx, txn, groupID, userID, none)
 }
 
 // GiveGroupRole is GiveGroupRoleFor with no period: the group holds the role until it is
 // taken away, and a role it held for a period loses the period.
 func (m *Manager) GiveGroupRole(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, scope accesstypes.PolicyScope, role accesstypes.Role) error {
-	return m.GiveGroupRoleFor(ctx, txn, groupID, scope, role, accesstypes.Period{})
+	var none accesstypes.Period
+
+	return m.GiveGroupRoleFor(ctx, txn, groupID, scope, role, none)
 }
 
 // settleMembershipPeriod gives a membership the period: the row was written by the
 // caller (inserted) or is there already, with the period it had. It reports whether the
 // period changed. A membership given again with the period it has is left exactly as it
 // is.
-func (m *Manager) settleMembershipPeriod(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, key *access.MembershipKey, period accesstypes.Period, inserted bool) (bool, error) {
+func (m *Manager) settleMembershipPeriod(
+	ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, key *access.MembershipKey, period accesstypes.Period, inserted bool,
+) (bool, error) {
 	var had accesstypes.Period
 	if !inserted {
 		periods, err := m.store.UserPeriods(ctx, txn, userID)
@@ -235,7 +243,9 @@ func (m *Manager) settlePlacePeriod(ctx context.Context, txn resource.ReadWriteT
 
 // settleGroupRolePeriod gives a group's role the period, as settleMembershipPeriod gives
 // a membership its own.
-func (m *Manager) settleGroupRolePeriod(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, key *access.GroupRoleKey, period accesstypes.Period, inserted bool) (bool, error) {
+func (m *Manager) settleGroupRolePeriod(
+	ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, key *access.GroupRoleKey, period accesstypes.Period, inserted bool,
+) (bool, error) {
 	var had accesstypes.Period
 	if !inserted {
 		periods, err := m.store.GroupPeriods(ctx, txn, groupID)

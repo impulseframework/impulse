@@ -352,7 +352,8 @@ func seedIdentities(ctx context.Context, data *config.DataConfiguration) error {
 
 	crewAPI := data.Crew().Session().API()
 	accounts := make(map[string]accesstypes.User, len(identities.Users))
-	for _, user := range identities.Users {
+	for i := range identities.Users {
+		user := &identities.Users[i]
 		id, err := createAccount(ctx, crewAPI, &session.CreateUserRequest{Username: user.User, Password: &user.Password}, user.ID)
 		if err != nil {
 			return err

@@ -377,7 +377,7 @@ linters:
       text: Test_prepareIdentity
     - linters:
       - paralleltest
-      path: generation/identity_groups_test\.go
+      path: generation/identity_(groups|periods)_test\.go
       text: Test_prepareIdentity
     - linters:
       - funlen
