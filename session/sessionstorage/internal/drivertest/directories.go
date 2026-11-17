@@ -289,7 +289,7 @@ func testDirectorySeatAtConfirmedLink(ctx context.Context, t *testing.T, h *Auth
 	if err != nil {
 		t.Fatalf("Identity() error = %v", err)
 	}
-	if err := in.Driver.UnlinkIdentity(ctx, link.ID); err != nil {
+	if err := in.Driver.UnlinkIdentity(ctx, link.ID, everyLinkSignsIn); err != nil {
 		t.Fatalf("UnlinkIdentity() error = %v", err)
 	}
 	_, err = signInAs()

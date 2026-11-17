@@ -58,6 +58,10 @@ const (
 	// The browser outlets' API prefixes.
 	consoleAPI = "/console/api"
 	portalAPI  = "/portal/api"
+
+	// directoryTenant is the Microsoft tenant the portal's directory registration admits
+	// in the served suites, by its tenant id: the connection of a member's identity link.
+	directoryTenant = "00000000-0000-0000-0000-000000000000"
 )
 
 // servedConfigurer implements app.Configurer over the real dependencies: the test
@@ -230,7 +234,7 @@ func newServed(ctx context.Context, t *testing.T) *served {
 		Mail:           &mail.Recorder{},
 		MailLoginURL:   "http://outlets.test/portal/login",
 		LoginURL:       "/portal/login",
-		Directory:      members.DirectorySettings{TenantID: "00000000-0000-0000-0000-000000000000", AdministeredTenants: "00000000-0000-0000-0000-000000000000", RedirectURL: "http://" + server.Listener.Addr().String() + portalAPI + "/user/directory/callback"},
+		Directory:      members.DirectorySettings{TenantID: directoryTenant, AdministeredTenants: directoryTenant, RedirectURL: "http://" + server.Listener.Addr().String() + portalAPI + "/user/directory/callback"},
 		// The declaration reader the sign-in rule reads with; the development seed
 		// makes the directory above north's.
 		TenantDeclarations: app.NewTenantDeclarationReader(),

@@ -39,7 +39,7 @@ func laterWrites() []laterWrite {
 		{
 			name: "a temporary password an operator sets",
 			write: func(ctx context.Context, d AuthDriver, userID impulse.UUID, _, replacement *securehash.Hash) error {
-				return d.SetUserPassword(ctx, userID, replacement, true)
+				return d.ReplaceUserPassword(ctx, userID, replacement, true)
 			},
 		},
 		{
@@ -287,21 +287,9 @@ func testProvenSignInRacesPasswordWrite(ctx context.Context, t *testing.T, h *Au
 	hashes := passwordHashes(t, "original", "replacement")
 	original, replacement := hashes[0], hashes[1]
 
-	writes := []laterWrite{
-		// The change writes the password and ends the sessions in one transaction.
-		laterWrites()[0],
-		{
-			// An operator's reset: the temporary password, then the user's sessions ended.
-			name: "a temporary password an operator sets, the user's sessions ended after it",
-			write: func(ctx context.Context, d AuthDriver, userID impulse.UUID, _, replacement *securehash.Hash) error {
-				if err := d.SetUserPassword(ctx, userID, replacement, true); err != nil {
-					return errors.Wrap(err, "SetUserPassword()")
-				}
-
-				return d.DestroyUserSessions(ctx, userID)
-			},
-		},
-	}
+	// The person's own change and an operator's temporary password each write the
+	// password and end the sessions in one transaction.
+	writes := laterWrites()[:2]
 	const rounds = 6
 	for i, w := range writes {
 		for round := range rounds {

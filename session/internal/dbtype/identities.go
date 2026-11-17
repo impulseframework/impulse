@@ -34,10 +34,37 @@ func IsExternal(identity *sessioninfo.Identity) bool {
 		identity.Method != sessioninfo.MethodApplication
 }
 
-// ErrLastSignInMethod is returned when UnlinkIdentity would remove the last identity of
-// a user that has no password, and when RemoveUserPassword would remove the password of
-// a user that has no identity; see sessionstorage for its documentation.
+// ErrLastSignInMethod is returned when UnlinkIdentity would remove the last identity
+// that can sign in a user that has no password, and when RemoveUserPassword would
+// remove the password of a user none of whose identities can; see sessionstorage for
+// its documentation.
 var ErrLastSignInMethod = errors.New("sessionstorage: the identity is the user's last means of sign-in")
+
+// UnlinkKeepsSignIn judges the unlink of the identity unlinked from a user that holds
+// no password and whose identities are links, as the unlinking transaction read them.
+// It is nil while another of them is a means of sign-in by signsIn, the caller's
+// judgment of a link by its method and connection, and the refusal otherwise
+// (ErrLastSignInMethod, a Conflict): an identity that signs nobody in is no means of
+// sign-in, however many of them remain. A nil signsIn judges none to be one.
+func UnlinkKeepsSignIn(links []*SessionIdentity, unlinked impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error {
+	others := 0
+	for _, link := range links {
+		if link.ID == unlinked {
+			continue
+		}
+		if signsIn != nil && signsIn(link.Method, link.Connection) {
+			return nil
+		}
+		others++
+	}
+	if others > 0 {
+		return httpio.NewConflictMessageWithError(ErrLastSignInMethod,
+			"none of the other identities linked to the user can sign them in any more, so this one is their only means of sign-in: "+
+				"link a directory sign-in the login page offers first, or give the user a password")
+	}
+
+	return httpio.NewConflictMessageWithError(ErrLastSignInMethod, "the user has no other means of sign-in: link another directory sign-in first, or give the user a password")
+}
 
 // ErrPasswordChanged is returned when a password write that follows a proof of the
 // password finds that the user no longer holds the hash that was proved; see

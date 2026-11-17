@@ -1097,8 +1097,9 @@ consumed rows stay for audit; delete them by `ExpiresAt` on your own schedule.
 - **User management is by ID**: `ChangeSessionUserPassword`, `SetSessionUserPassword`,
   `ResetSessionUserPassword`, `DeactivateSessionUser` and `DeleteSessionUser` destroy
   the user's sessions by `UserId`; `DeleteSessionUser` deletes its identity links with
-  it; `UnlinkIdentity` refuses a user's last means of sign-in, and
-  `RemoveSessionUserPassword` the password of a user no identity can sign in. See
+  it; `UnlinkIdentity` refuses the last identity that can sign in a user with no
+  password, and `RemoveSessionUserPassword` the password of a user no identity can sign
+  in. See
   "Users and the forced password change".
 - **Failed password attempts are limited** per name, known or not, and an attempt past
   the limit is refused with `too_many_attempts` and the wait before anything is read
@@ -1145,11 +1146,11 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `CreateSessionUser(ctx, &CreateUserRequest{Username, Password, Disabled, PasswordChangeRequired, Email})` | A user, password-less when `Password` is nil. `PasswordChangeRequired` marks a password an operator set (needs a `Password`). The library generates the user's id; a seed that must know the id before the user exists sets `ID` (Go callers only, never read from a request body; the nil id is refused): one that names its people in rows of its own, so a development database reads the same on every machine, and one that gives a user its roles (`SeedUserID`, below). |
 | `ChangeSessionUserUsername(ctx, id, username)` | Renames the user and its live sessions. |
 | `ChangeSessionUserPassword(ctx, w, id, &ChangeSessionUserPasswordRequest{OldPassword, NewPassword})` | The user's own change: the old password must match and the new one differ. Writes the new password over the one that was proved and no other (Conflict, `sessionstorage.ErrPasswordChanged`, when the password changed meanwhile: nothing is written and no session ends), clears the mark and destroys the sessions in the same transaction (`AuthStore.ChangeUserPassword`: the password changed and the sessions ended, or neither), then continues in a new one. `PasswordMethod.ChangeUserPassword()` is this over HTTP. |
-| `SetSessionUserPassword(ctx, id, password)` | A password the user chose through a flow of the application's own that proved who they are (a reset link, an enrollment). Clears the mark, destroys the sessions. |
-| `ResetSessionUserPassword(ctx, id, temporary)` | A temporary password an operator chose. Sets the mark, destroys the sessions. |
+| `SetSessionUserPassword(ctx, id, password)` | A password the user chose through a flow of the application's own that proved who they are (a reset link, an enrollment). Clears the mark and destroys the sessions in the transaction that writes the password (`AuthStore.ReplaceUserPassword`: the password replaced and the sessions ended, or neither). |
+| `ResetSessionUserPassword(ctx, id, temporary)` | A temporary password an operator chose. Sets the mark and destroys the sessions in the transaction that writes the password (`AuthStore.ReplaceUserPassword`), so no failure leaves the temporary password in place and a session alive, on the act meant to end them. |
 | `HashPassword(password)` | The hash of a password as the users table's `PasswordHash` column holds it, made by the password method's hasher, for a caller that writes the column in a transaction of its own (the generated user management). An empty password is refused. `SignInAttemptName(username)`, a package function, is the key of the name's row in the sign-in attempts table, for the same caller clearing the count beside the password. |
 | `DeactivateSessionUser`, `ActivateSessionUser`, `DeleteSessionUser`, `DestroyUserSessions` | As named; the first and the third destroy the sessions first. |
-| `Identities(ctx, id)`, `UnlinkIdentity(ctx, identityID)` | The user's identity links; unlinking a password-less user's last link is refused (Conflict). |
+| `Identities(ctx, id)`, `UnlinkIdentity(ctx, identityID)` | The user's identity links; unlinking the last link that can sign in a user with no password is refused (Conflict, `sessionstorage.ErrLastSignInMethod`): another link must be one a sign-in is still possible through (`SignsInThrough`), whatever links that sign nobody in remain. A user who holds a password may lose every link. |
 | `SignInMeans(ctx, id)` | What the user signs in with (`SignInMeans`): whether they hold a password, never its hash, and the sign-in methods the login page offers that an identity linked to them signs in through, each by the registration's name and the label its button carries, in the page's order. A link answers the registrations that can still sign the person in through it: of the link's method, offered on the login page, and taking the link's connection, so of two listed Entra registrations a link names the one whose tenants hold its tenant; a method that cannot tell one connection from another answers every registration of it. A link of a method the page no longer offers, or from a tenant or a Workspace no registration takes any more, names nothing, and is no means of sign-in to the removal either. For an administrator's page; the caller guards who may ask about whom. `Auth.SignInMeans()` is the person's own read over HTTP, answered in the words of the methods list that names its path. `SignsInThrough(method, connection)` is the judgment itself, for one link. |
 | `RemoveSessionUserPassword(ctx, id)` | Removes the user's password, an operator's act: the password then signs nobody in, and the user signs in through an identity linked to them. A user keeps it, their last means of sign-in (Conflict, `sessionstorage.ErrLastSignInMethod`), unless a link can sign them in: one of a method the login page offers whose registration still takes the link's connection (`SignsInThrough`), which rules out a user with no link and one whose links are all left over. A user with no password has none to remove (BadRequest). Clears the mark and the name's count of failed sign-ins; the user's sessions stand. `PasswordMethod.RemoveUserPassword()` is the person's own removal over HTTP, which asks for the password. |
 | `UserByEmail(ctx, email)`, `SetSessionUserEmail(ctx, id, email)` | The user holding an address, verified or not; an operator's entry of an address, unverified, or its removal (nil). See "Users and their email address". |
@@ -1188,8 +1189,8 @@ mark without a password is refused.
 
 **Removing a password.** A person who signs in through a directory does not need the
 password they started with. Its removal follows the rule of an identity's unlinking,
-from the other side: an identity is not unlinked when it is the last means of sign-in
-of a user with no password, and a password is not removed from a user no identity can
+from the other side: an identity is not unlinked when it is the last one that can sign
+in a user with no password, and a password is not removed from a user no identity can
 sign in (409, `sessionstorage.ErrLastSignInMethod`).
 
 **"Linked" means a link that can sign the person in.** A row of the identities table
@@ -1205,11 +1206,17 @@ it. So a link left from a registration the Auth no longer has, or from a tenant 
 off the registration, does not hold the password in place of a way to sign in: the
 person keeps the password until a link that works stands beside it. One judgment says
 this everywhere (`AuthAPI.SignsInThrough`): the operator's removal and the person's
-own are refused by it, `SignInMeans` answers by it, the generated user management
-refuses and offers by it, and the pages offer the removal by those reads. The library
-names the links that count to the store, and the store removes the password only
-while one of them is still linked, in the transaction that removes it, so an unlink
-asked at once cannot leave the person with neither. The tenant sign-in policy is not
+own are refused by it, the unlink of an identity is refused by it, `SignInMeans`
+answers by it, the generated user management refuses and offers by it, and the pages
+offer the removal by those reads. The library names the links that count to the store,
+and the store removes the password only while one of them is still linked, in the
+transaction that removes it, so an unlink asked at once cannot leave the person with
+neither. An unlink is held the same way from its side: where the person holds no
+password, `UnlinkIdentity` hands the store the judgment, and the store asks it of the
+person's other links in the transaction that unlinks, so the last link that counts is
+not unlinked while only links that sign nobody in would remain (409, told so and what
+to do), a link that signs nobody in goes from beside one that counts, and two unlinks
+asked at once cannot take the person's last two between them. The tenant sign-in policy is not
 asked: it decides a sign-in from a request no link can stand in for, and it may write.
 A person whose link passes this judgment and whom the policy would refuse (no tenant
 of theirs declares the link's directory) is therefore still counted as having a way in.
@@ -1295,11 +1302,15 @@ pending sign-ins table made before the proof takes the column from the auth set'
 
 An operator's writes follow no proof and overwrite on purpose:
 `ResetSessionUserPassword`, `SetSessionUserPassword` and `RemoveSessionUserPassword`
-write whatever the row holds (the store's `SetUserPassword` and `RemoveUserPassword`),
-and so do the generated user management's temporary password and removal, which write
-the column in the caller's transaction. The operator is not claiming to know the
-password being replaced, so there is nothing to compare, and their password is to
-stand whatever the person did a moment before.
+write whatever the row holds (the store's `ReplaceUserPassword` and
+`RemoveUserPassword`), and so do the generated user management's temporary password
+and removal, which write the column in the caller's transaction. The operator is not
+claiming to know the password being replaced, so there is nothing to compare, and
+their password is to stand whatever the person did a moment before. A reset ends the
+person's sessions as their own change does, in the transaction that writes the
+password: the store's `ReplaceUserPassword` writes the hash and the mark and expires
+every session of the user together, or does neither, so a failure between the two
+cannot leave the new password in place with the old sessions alive.
 
 ### Users and their email address
 

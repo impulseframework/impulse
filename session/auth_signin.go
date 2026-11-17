@@ -488,21 +488,6 @@ func (a *Auth[S, U, Tx]) upgradePasswordHash(ctx context.Context, userID impulse
 	return hash, nil
 }
 
-// setPassword sets a new password and whether the user must change it: true for a
-// password an operator set, false for one the user chose. It follows no proof of the
-// password it replaces and overwrites whatever the user holds.
-func (a *Auth[S, U, Tx]) setPassword(ctx context.Context, userID impulse.UUID, password string, changeRequired bool) error {
-	hash, err := a.registered().hasher.Hash(password)
-	if err != nil {
-		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
-	}
-	if err := a.storage.SetUserPassword(ctx, userID, hash, changeRequired); err != nil {
-		return errors.Wrap(err, "sessionstorage.AuthStore.SetUserPassword()")
-	}
-
-	return nil
-}
-
 // limitAttempt asks the attempt limiter whether an attempt on username by client may
 // go on, and refuses it with too_many_attempts and the wait when it may not.
 func (a *Auth[S, U, Tx]) limitAttempt(ctx context.Context, username string, client attempts.Client) error {

@@ -371,21 +371,26 @@ func (p *AuthAPI[S, U, Tx]) HashPassword(password string) (string, error) {
 	return string(text), nil
 }
 
-// replacePassword sets a new password for userID with its change mark, destroys the
-// user's sessions and resets the name's sign-in attempts. It follows no proof of the
-// password it replaces, so it overwrites whatever the user holds, on purpose: the
-// caller is an operator, or a flow that proved who the person is by other means, and
-// its password is to stand whatever was changed a moment before.
+// replacePassword sets a new password for userID with its change mark (true for a
+// password an operator set, false for one the user chose), destroys the user's sessions
+// and resets the name's sign-in attempts. It follows no proof of the password it
+// replaces, so it overwrites whatever the user holds, on purpose: the caller is an
+// operator, or a flow that proved who the person is by other means, and its password is
+// to stand whatever was changed a moment before.
 func (a *Auth[S, U, Tx]) replacePassword(ctx context.Context, userID impulse.UUID, password string, changeRequired bool) error {
 	user, err := a.storage.User(ctx, userID)
 	if err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.User()")
 	}
-	if err := a.setPassword(ctx, userID, password, changeRequired); err != nil {
-		return err
+	hash, err := a.registered().hasher.Hash(password)
+	if err != nil {
+		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
 	}
-	if err := a.storage.DestroyUserSessions(ctx, userID); err != nil {
-		return errors.Wrap(err, "sessionstorage.AuthStore.DestroyUserSessions()")
+	// One store call writes the password and ends the user's sessions, in one
+	// transaction: no failure leaves the new password in place and a session alive, on
+	// the act meant to end them.
+	if err := a.storage.ReplaceUserPassword(ctx, userID, hash, changeRequired); err != nil {
+		return errors.Wrap(err, "sessionstorage.AuthStore.ReplaceUserPassword()")
 	}
 	a.clearAttempts(ctx, user.Username)
 
@@ -450,11 +455,18 @@ func (p *AuthAPI[S, U, Tx]) Identities(ctx context.Context, userID impulse.UUID)
 	return identities, nil
 }
 
-// UnlinkIdentity removes an identity link. The last means of sign-in of a password-less
-// user is refused (sessionstorage.ErrLastSignInMethod, Conflict); the password of a user
-// with no link is refused the same way (RemoveSessionUserPassword).
+// UnlinkIdentity removes an identity link. A user that holds no password keeps a means
+// of sign-in: the unlink is refused (sessionstorage.ErrLastSignInMethod, Conflict)
+// unless another identity linked to them can sign them in, by the judgment the removal
+// of a password is held to (signsInThrough). The last link that counts is therefore not
+// unlinked while only links that sign nobody in would remain: one left from a method
+// the Auth no longer offers, or from a tenant or a Workspace its registration no longer
+// takes. The store judges the user's other links in the transaction that unlinks, so
+// two unlinks asked at once cannot take the user's last two between them. A user that
+// holds a password may lose every link; the password of a user with no link that
+// counts is refused the same way (RemoveSessionUserPassword).
 func (p *AuthAPI[S, U, Tx]) UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error {
-	if err := p.auth.storage.UnlinkIdentity(ctx, identityID); err != nil {
+	if err := p.auth.storage.UnlinkIdentity(ctx, identityID, p.auth.signsIn); err != nil {
 		return errors.Wrap(err, "sessionstorage.AuthStore.UnlinkIdentity()")
 	}
 

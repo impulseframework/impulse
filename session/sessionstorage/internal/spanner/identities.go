@@ -418,9 +418,11 @@ func (s *SessionStorageDriver) LinkIdentity(ctx context.Context, userID impulse.
 	return link, nil
 }
 
-// UnlinkIdentity removes a link, refusing to remove the last means of sign-in of an
-// user that has no password.
-func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID impulse.UUID) error {
+// UnlinkIdentity removes a link, refusing to remove the last means of sign-in of a user
+// that has no password: the link goes only while another identity linked to the user
+// is a means of sign-in by signsIn, the caller's judgment of a link, asked about the
+// identities the unlinking transaction reads (dbtype.UnlinkKeepsSignIn).
+func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID impulse.UUID, signsIn func(method sessioninfo.AuthMethod, connection string) bool) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
@@ -447,14 +449,17 @@ func (s *SessionStorageDriver) UnlinkIdentity(ctx context.Context, identityID im
 			return err
 		}
 		if !user.HasPassword {
-			count := spanner.NewStatement(fmt.Sprintf(`SELECT COUNT(*) FROM %s WHERE UserId = @userId`, s.identitiesTableName))
-			count.Params["userId"] = userID
-			var links int64
-			if err := txn.Query(ctx, count).Do(func(r *spanner.Row) error { return r.Column(0, &links) }); err != nil {
-				return errors.Wrap(err, "spanner.RowIterator.Do()")
+			// Only an identity the caller judges a means of sign-in counts: one that
+			// signs nobody in any more keeps nobody's way in, however many of them the
+			// user holds. They are read in the transaction that unlinks, so of two
+			// unlinks of the user's identities that race, Spanner aborts one, and its
+			// rerun sees what the other removed.
+			links, err := s.IdentitiesByUserIn(ctx, txn, uid)
+			if err != nil {
+				return err
 			}
-			if links <= 1 {
-				return httpio.NewConflictMessageWithError(dbtype.ErrLastSignInMethod, "the user has no other means of sign-in")
+			if err := dbtype.UnlinkKeepsSignIn(links, identityID, signsIn); err != nil {
+				return errors.Wrap(err, "dbtype.UnlinkKeepsSignIn()")
 			}
 		}
 
@@ -584,8 +589,8 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID i
 
 // destroyUserSessionsIn expires every live session of a user inside txn, as
 // DestroyUserSessions does in a transaction of its own: a user's own change of
-// password ends their sessions in the transaction that writes the password
-// (ChangeUserPassword).
+// password and an operator's replacement of it end the user's sessions in the
+// transaction that writes the password (ChangeUserPassword, ReplaceUserPassword).
 func (s *SessionStorageDriver) destroyUserSessionsIn(ctx context.Context, txn *spanner.ReadWriteTransaction, userID impulse.UUID) error {
 	// The local-actor records name the actor by username.
 	var username string

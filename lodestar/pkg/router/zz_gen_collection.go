@@ -268,6 +268,7 @@ func Collection() *resource.GeneratedCollection {
 				Attributes: []resource.AttributeData{
 					{Name: "heldElsewhere", Column: "HeldElsewhere", Type: "bool"},
 					{Name: "heldGlobally", Column: "HeldGlobally", Type: "bool"},
+					{Name: "password", Column: "Password", Type: "bool"},
 				},
 			},
 			{

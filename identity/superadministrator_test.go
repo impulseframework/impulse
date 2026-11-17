@@ -664,6 +664,71 @@ func TestManager_RemovePassword_lastSuperAdministrator(t *testing.T) {
 	}
 }
 
+// TestManager_UnlinkIdentity_lastSuperAdministrator pins that the last super
+// administrator keeps a way in by the rule everyone's identity is unlinked under: with
+// no password, the identity that signs them in stays while only one that signs nobody
+// in would remain, whoever asks, themselves and the application outside any request
+// included. The one that signs nobody in goes from beside it, and with a password,
+// which signs them in, the last identity that counts goes too.
+func TestManager_UnlinkIdentity_lastSuperAdministrator(t *testing.T) {
+	t.Parallel()
+
+	entra := sessioninfo.AuthMethod("azure")
+	callers := []struct {
+		name string
+		ctx  func(context.Context) context.Context
+	}{
+		{name: "themselves", ctx: func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, dana) }},
+		{name: "the application outside any request", ctx: func(ctx context.Context) context.Context { return ctx }},
+	}
+	// identityA signs them in; identityB is of a method the login page no longer offers.
+	tests := []struct {
+		name        string
+		password    bool
+		unlinked    impulse.UUID
+		wantRefused bool
+	}{
+		{name: "no password, the identity that signs them in: refused", unlinked: identityA, wantRefused: true},
+		{name: "no password, the identity that signs nobody in: it goes", unlinked: identityB},
+		{name: "a password, the identity that signs them in: it goes", password: true, unlinked: identityA},
+	}
+	for _, tt := range tests {
+		for _, caller := range callers {
+			t.Run(tt.name+", asked by "+caller.name, func(t *testing.T) {
+				t.Parallel()
+
+				// dana is the one holder of the role.
+				store := superStore(danaSuper, erinSteward)
+				store.passwords = map[impulse.UUID]bool{userID: tt.password}
+				store.identities = map[impulse.UUID]impulse.UUID{identityA: userID, identityB: userID}
+				store.cameThrough = map[impulse.UUID]Link{identityB: {Method: entra, Connection: "lakeside"}}
+				m, _ := newManager(t, store, superRoles)
+				m.sessions = fakeSessions{unoffered: map[sessioninfo.AuthMethod]bool{entra: true}}
+
+				err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+					return m.UnlinkIdentity(caller.ctx(ctx), txn, tt.unlinked)
+				})
+				if !tt.wantRefused {
+					if err != nil {
+						t.Fatalf("UnlinkIdentity() error = %v, want the unlink to go through", err)
+					}
+					if diff := cmp.Diff([]string{"delete identity " + tt.unlinked.String()}, store.writes); diff != "" {
+						t.Errorf("buffered writes (-want +got):\n%s", diff)
+					}
+
+					return
+				}
+				if !httpio.HasConflict(err) || !errors.Is(err, sessionstorage.ErrLastSignInMethod) {
+					t.Fatalf("UnlinkIdentity() error = %v, want the refusal of a last means of sign-in", err)
+				}
+				if len(store.writes) != 0 {
+					t.Errorf("buffered writes = %v, want none", store.writes)
+				}
+			})
+		}
+	}
+}
+
 // TestManager_AssignRole_superAdministratorSignsInAgain pins that giving the Super
 // Administrator role ends, in the transaction that gives it, what the person held before
 // it: every session, their own and the ones they established as someone else, whose
