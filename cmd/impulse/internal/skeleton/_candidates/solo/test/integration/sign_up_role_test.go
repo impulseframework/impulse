@@ -113,13 +113,16 @@ func TestSignUp_theDefaultRoleIsOneTheOpenerMayGive(t *testing.T) {
 //
 // The administrator who opens a method confirms a warning that names who can sign in
 // through it, which is a fact of the method's registration in code. Opening the
-// password method keeps that audience in the method's row. A release that changes whom
-// a registration admits leaves the row naming the audience of before; the test plays
-// one by rewriting the row as a row opened when the method admitted one organization's
-// people. From then on the method is invite only: the list says for whom it was opened
+// password method keeps that audience in the method's row, as what identifies the
+// people and never as a name of theirs. A release that changes whom a registration
+// admits leaves the row keeping the audience of before; the test plays one by rewriting
+// the row as a row opened when the method admitted one organization's people. From then
+// on the method is invite only: the list says that the people it admits have changed
 // and whom it admits now, the sign-up routes are not found, and no account is written.
-// Opened again, the row names the audience of today and a stranger signs up. A row that
-// names no audience, as one written before the audience was kept, opens nothing either.
+// Opened again, the row keeps the audience of today and a stranger signs up. A row that
+// names no audience, as one written before the audience was kept, opens nothing either,
+// and neither does a row that kept the audience by its words, as an earlier form did,
+// even where the words are the ones the method has today.
 func TestSignUp_anOpenRowCountsForTheAudienceItWasOpenedFor(t *testing.T) {
 	t.Parallel()
 
@@ -132,15 +135,15 @@ func TestSignUp_anOpenRowCountsForTheAudienceItWasOpenedFor(t *testing.T) {
 	if status, body := admin.do(ctx, http.MethodPost, "/api/open-staff-sign-up", open); status != http.StatusNoContent {
 		t.Fatalf("POST /api/open-staff-sign-up: status %d: %s", status, body)
 	}
-	registered := signin.Audience{Organizations: nil, Accounts: "an email address"}.Key()
+	registered := `{"admits":["password:any-email-address"]}`
 	if got := openedFor(ctx, t, s); got == nil || *got != registered {
 		t.Fatalf("the audience the row keeps once the password method is opened = %v, want %s", got, registered)
 	}
 
 	// The registration admitted one organization's people when the row was written.
-	before := signin.Audience{Organizations: []string{"lakeside.example"}, Accounts: ""}.Key()
+	before := signin.Audience{Organizations: []string{"lakeside.example"}, Accounts: "", Identities: []string{"google-workspace-domain:lakeside.example"}}.Key()
 	setOpenedFor(ctx, t, s, &before)
-	wantSays := "Invite only: this method was opened for anyone with an account at lakeside.example, and it admits anyone with an email address now. Open it again to admit them."
+	wantSays := "Invite only: the people this method admits have changed since it was opened, and it admits anyone with an email address now. Open it again to admit them."
 	if got := signInMethods(ctx, t, admin); len(got) != 1 || got[0].OpenSignUp || got[0].DefaultRole != "" || got[0].Says != wantSays {
 		t.Errorf("the sign-in methods with a row opened for another audience = %+v, want invite only, saying %q", got, wantSays)
 	}
@@ -174,6 +177,22 @@ func TestSignUp_anOpenRowCountsForTheAudienceItWasOpenedFor(t *testing.T) {
 	}
 	if status, body := stranger.do(ctx, http.MethodPost, "/api/user/sign-up", []byte(`{"email":"quinn@mail.example"}`)); status != http.StatusNotFound {
 		t.Errorf("POST /api/user/sign-up with a row that names no audience: status %d, want 404: %s", status, body)
+	}
+
+	// Neither does a row that kept the method's audience by the words for it, as the
+	// earlier form of the audience did: it cannot be compared with whom the method
+	// admits, so it reads as a row opened before its audience was kept.
+	earlier := `{"organizations":[],"accounts":"an email address"}`
+	setOpenedFor(ctx, t, s, &earlier)
+	if got := signInMethods(ctx, t, admin); len(got) != 1 || got[0].OpenSignUp || got[0].DefaultRole != "" || got[0].Says != wantSays {
+		t.Errorf("the sign-in methods with a row that kept its audience by words = %+v, want invite only, saying %q", got, wantSays)
+	}
+	accounts = countRows(ctx, t, s, "StaffSessionUsers")
+	if status, body := stranger.do(ctx, http.MethodPost, "/api/user/sign-up", []byte(`{"email":"quinn@mail.example"}`)); status != http.StatusNotFound {
+		t.Errorf("POST /api/user/sign-up with a row that kept its audience by words: status %d, want 404: %s", status, body)
+	}
+	if after := countRows(ctx, t, s, "StaffSessionUsers"); after != accounts {
+		t.Errorf("accounts after the sign-up refused by a row that kept its audience by words = %d, want the %d there were", after, accounts)
 	}
 }
 

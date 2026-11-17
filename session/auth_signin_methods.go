@@ -59,10 +59,14 @@ func (p *AuthAPI[S, U, Tx]) SignInMethods() []RegisteredMethod {
 	return methods
 }
 
+// identityEmailAddress is what identifies whom the password method admits, as an
+// audience's key spells it: anyone who proves an email address.
+const identityEmailAddress = "password:any-email-address"
+
 // passwordAudience is how wide the password method is: a person signs up with a
 // password by proving an email address, so it admits anyone who has one.
 func passwordAudience() signin.Audience {
-	return signin.Audience{Accounts: "an email address"}
+	return signin.Audience{Organizations: nil, Accounts: "an email address", Identities: []string{identityEmailAddress}}
 }
 
 // mapKeys yields the keys of a set of names.

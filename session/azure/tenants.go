@@ -137,9 +137,24 @@ func PersonalAccounts() TenantSet {
 	return TenantSet{personal: true}
 }
 
+// What identifies whom the slot admits, as an audience's key spells it: a listed tenant
+// by its tenant id, the work or school accounts of every tenant, and Microsoft's
+// personal accounts.
+const (
+	identityTenant           = "microsoft-entra-tenant:"
+	identityAnyTenant        = "microsoft-entra:any-tenant"
+	identityPersonalAccounts = "microsoft:personal-accounts"
+)
+
 // audience is how wide the slot is, for the page where a method is opened to sign-up:
 // the tenants it lists, each by the application's name for it or its tenant id, and
 // what an account outside them is called when the slot admits any.
+//
+// The names are for the page. What the audience is compared by is its identities: each
+// listed tenant by its tenant id, in lower case, since a name is the application's to
+// give and a second tenant can be given the first one's. A slot that admits any tenant
+// admits its listed tenants' people among everyone else's, so its identities are the
+// open entry alone, with the personal accounts where it admits them.
 func (s TenantSet) audience() signin.Audience {
 	var a signin.Audience
 	for _, t := range s.listed {
@@ -148,6 +163,9 @@ func (s TenantSet) audience() signin.Audience {
 			name = "the Microsoft Entra tenant " + t.id
 		}
 		a.Organizations = append(a.Organizations, name)
+		if !s.any {
+			a.Identities = append(a.Identities, identityTenant+strings.ToLower(t.id))
+		}
 	}
 	switch {
 	case s.any && s.personal:
@@ -156,6 +174,12 @@ func (s TenantSet) audience() signin.Audience {
 		a.Accounts = "a Microsoft work or school account"
 	case s.personal:
 		a.Accounts = "a personal Microsoft account"
+	}
+	if s.any {
+		a.Identities = append(a.Identities, identityAnyTenant)
+	}
+	if s.personal {
+		a.Identities = append(a.Identities, identityPersonalAccounts)
 	}
 
 	return a

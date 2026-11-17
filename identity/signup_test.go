@@ -32,10 +32,12 @@ func askedToGive(role accesstypes.Role) []string {
 // registration carries an account rule of its own.
 func registeredMethods() []session.RegisteredMethod {
 	return []session.RegisteredMethod{
-		{Name: "password", Method: sessioninfo.MethodPassword, Label: "Password", Audience: signin.Audience{Accounts: "an email address"}},
-		{Name: "workspace", Method: sessioninfo.MethodGoogle, Label: "Acme", Audience: signin.Audience{Organizations: []string{"acme.example"}}},
-		{Name: "google", Method: sessioninfo.MethodGoogle, Label: "Google", Audience: signin.Audience{Accounts: "a Google account"}},
-		{Name: "entra", Method: sessioninfo.MethodAzure, Label: "Staff directory", Audience: signin.Audience{Organizations: []string{"Lakeside"}}, SyncsRoles: true},
+		{Name: "password", Method: sessioninfo.MethodPassword, Label: "Password", Audience: signin.Audience{Accounts: "an email address", Identities: []string{"any-email-address"}}},
+		{Name: "workspace", Method: sessioninfo.MethodGoogle, Label: "Acme", Audience: signin.Audience{Organizations: []string{"acme.example"}, Identities: []string{"domain:acme.example"}}},
+		{Name: "google", Method: sessioninfo.MethodGoogle, Label: "Google", Audience: signin.Audience{Accounts: "a Google account", Identities: []string{"any-google-account"}}},
+		{Name: "entra", Method: sessioninfo.MethodAzure, Label: "Staff directory", Audience: signin.Audience{Organizations: []string{"Lakeside"}, Identities: []string{"tenant:1111"}}, SyncsRoles: true},
+		// A method that gives no identities of whom it admits: its audience is kept by
+		// the names it gives.
 		{Name: "partners", Method: sessioninfo.MethodOIDC, Label: "Partners", Audience: signin.Audience{Organizations: []string{"Harbor"}}, OwnRule: true},
 	}
 }
@@ -64,7 +66,8 @@ func TestManager_OpenSignUp(t *testing.T) {
 		caller accesstypes.User
 		grants *fakeGrants
 		// wantWrites are the store's buffered writes; none for a refusal. wantFor is the
-		// audience the row written was opened for, as words.
+		// audience the row written was opened for, as the row keeps it: what identifies
+		// whom the method's registration admits, and never a name of theirs.
 		wantWrites []string
 		wantFor    string
 		// refused says how a refusal answers, and wantHas what its words say.
@@ -77,14 +80,14 @@ func TestManager_OpenSignUp(t *testing.T) {
 			name:       "without tenants, a method is opened with its default role, for the audience its registration has",
 			open:       SignUp{Method: "google", DefaultRole: "Steward"},
 			wantWrites: []string{"set sign-in method google open=true role=Steward"},
-			wantFor:    "anyone with a Google account",
+			wantFor:    `{"admits":["any-google-account"]}`,
 		},
 		{
 			name:   "a caller who may give the role opens a method with it: the grant of the method that gives a role is asked, for the whole application and nobody in particular",
 			open:   SignUp{Method: "workspace", DefaultRole: "Steward"},
 			caller: erin, grants: &fakeGrants{},
 			wantWrites: []string{"set sign-in method workspace open=true role=Steward"},
-			wantFor:    "anyone with an account at acme.example",
+			wantFor:    `{"admits":["domain:acme.example"]}`,
 			wantAsked:  askedToGive("Steward"),
 		},
 		{
@@ -105,7 +108,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 			open:   SignUp{Method: "google", CreatesTenant: true},
 			caller: erin, grants: &fakeGrants{noGive: []accesstypes.Role{"Steward"}},
 			wantWrites: []string{"set sign-in method google open=true role=<none>"},
-			wantFor:    "anyone with a Google account",
+			wantFor:    `{"admits":["any-google-account"]}`,
 		},
 		{
 			name:    "a method whose registration carries an account rule of its own is refused by name",
@@ -145,7 +148,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 			name:       "with tenants, a method is opened with no role",
 			open:       SignUp{Method: "google", CreatesTenant: true},
 			wantWrites: []string{"set sign-in method google open=true role=<none>"},
-			wantFor:    "anyone with a Google account",
+			wantFor:    `{"admits":["any-google-account"]}`,
 		},
 		{
 			name:    "with tenants, a default role is refused",
@@ -166,7 +169,7 @@ func TestManager_OpenSignUp(t *testing.T) {
 			name:       "the password method is opened like any other",
 			open:       SignUp{Method: "password", DefaultRole: "Steward"},
 			wantWrites: []string{"set sign-in method password open=true role=Steward"},
-			wantFor:    "anyone with an email address",
+			wantFor:    `{"admits":["any-email-address"]}`,
 		},
 	}
 	for _, tt := range tests {
@@ -190,11 +193,10 @@ func TestManager_OpenSignUp(t *testing.T) {
 			}
 			var openedFor string
 			if store.openedFor != nil {
-				audience, ok := signin.AudienceOfKey(*store.openedFor)
-				if !ok {
+				if _, ok := signin.IdentitiesOfKey(*store.openedFor); !ok {
 					t.Fatalf("the row was opened for %q, which is no audience's key", *store.openedFor)
 				}
-				openedFor = audience.Words()
+				openedFor = *store.openedFor
 			}
 			if openedFor != tt.wantFor {
 				t.Errorf("the row was opened for %q, want %q", openedFor, tt.wantFor)
@@ -426,13 +428,21 @@ func TestManager_SignInMethods(t *testing.T) {
 
 		return nil
 	}
-	narrower := signin.Audience{Organizations: []string{"lakeside.edu"}}.Key()
+	// Another organization under the name the registration gives its own now: the two
+	// read alike and are not the same people.
+	other := signin.Audience{Organizations: []string{"acme.example"}, Identities: []string{"domain:lakeside.edu"}}.Key()
+	// The audiences the workspace and the password registrations have now, as a row kept
+	// them in the earlier form, by the names of their organizations and the words for
+	// their accounts.
+	earlierWorkspace := `{"organizations":["acme.example"],"accounts":""}`
+	earlierPassword := `{"organizations":[],"accounts":"an email address"}`
 	store := &fakeStore{methodRows: map[string]SignInMethodRow{
 		"google":   {Name: "google", OpenSignUp: true, OpenedFor: audienceOf("google"), DefaultRole: &member},
 		"password": {Name: "password"},
 		// A row opened when the registration admitted one organization opens nothing now
-		// that it admits another: the method is invite only until it is opened again.
-		"workspace": {Name: "workspace", OpenSignUp: true, OpenedFor: &narrower, DefaultRole: &member},
+		// that it admits another, whatever the two are called: the method is invite only
+		// until it is opened again.
+		"workspace": {Name: "workspace", OpenSignUp: true, OpenedFor: &other, DefaultRole: &member},
 		// A row the directory's method was given by hand opens nothing: the directory decides.
 		"entra": {Name: "entra", OpenSignUp: true, OpenedFor: audienceOf("entra"), DefaultRole: &member},
 		// Neither does a row of a registration whose own rule decides.
@@ -451,7 +461,7 @@ func TestManager_SignInMethods(t *testing.T) {
 		{Name: "password", Label: "Password", Admits: "Anyone with an email address", Says: "Invite only: a person signs in once they are invited."},
 		{
 			Name: "workspace", Label: "Acme", Admits: "Anyone with an account at acme.example",
-			Says: "Invite only: this method was opened for anyone with an account at lakeside.edu, and it admits anyone with an account at acme.example now. Open it again to admit them.",
+			Says: "Invite only: the people this method admits have changed since it was opened, and it admits anyone with an account at acme.example now. Open it again to admit them.",
 		},
 		{
 			Name: "google", Label: "Google", Admits: "Anyone with a Google account", OpenSignUp: true, DefaultRole: "Steward",
@@ -475,23 +485,28 @@ func TestManager_SignInMethods(t *testing.T) {
 		t.Errorf("AnyMethodOpen() = %v, %v; want true while google is open", open, err)
 	}
 	closed := newSignUpManager(t, &fakeStore{methodRows: map[string]SignInMethodRow{
-		"password":  {Name: "password"},
-		"workspace": {Name: "workspace", OpenSignUp: true, OpenedFor: &narrower},
+		"password":  {Name: "password", OpenSignUp: true, OpenedFor: &earlierPassword, DefaultRole: &member},
+		"workspace": {Name: "workspace", OpenSignUp: true, OpenedFor: &earlierWorkspace, DefaultRole: &member},
 		"google":    {Name: "google", OpenSignUp: true},
 		"entra":     {Name: "entra", OpenSignUp: true, OpenedFor: audienceOf("entra")},
 		"partners":  {Name: "partners", OpenSignUp: true, OpenedFor: audienceOf("partners")},
 		"retired":   {Name: "retired", OpenSignUp: true, OpenedFor: audienceOf("google")},
 	}})
 	if open, err := closed.AnyMethodOpen(t.Context(), nil); err != nil || open {
-		t.Errorf("AnyMethodOpen() = %v, %v; want false: a row opened for another audience, a row that names none, a row of the directory's method, one of a registration whose own rule decides, and one of a method the auth no longer registers open nothing", open, err)
+		t.Errorf("AnyMethodOpen() = %v, %v; want false: a row that kept its audience in the earlier form, by names, a row that names none, a row of the directory's method, one of a registration whose own rule decides, and one of a method the auth no longer registers open nothing", open, err)
 	}
-	// A row that names no audience says so in the list too.
+	// A row that names no audience says so in the list too, and so does a row that kept
+	// its audience in the earlier form, by names: neither can be compared with whom the
+	// method admits, so neither is open, even where the names are the registration's own.
 	listed, err := closed.SignInMethods(t.Context(), nil)
 	if err != nil {
 		t.Fatalf("SignInMethods() error = %v", err)
 	}
-	if want := "Invite only: this method was opened before its audience was kept, and it admits anyone with a Google account now. Open it again to admit them."; listed[2].OpenSignUp || listed[2].Says != want {
-		t.Errorf("a row that names no audience lists as open = %v saying %q, want invite only saying %q", listed[2].OpenSignUp, listed[2].Says, want)
+	for at, admits := range map[int]string{0: "anyone with an email address", 1: "anyone with an account at acme.example", 2: "anyone with a Google account"} {
+		want := "Invite only: this method was opened before its audience was kept, and it admits " + admits + " now. Open it again to admit them."
+		if listed[at].OpenSignUp || listed[at].DefaultRole != "" || listed[at].Says != want {
+			t.Errorf("the row of %s lists as open = %v with the role %q saying %q, want invite only with no role saying %q", listed[at].Name, listed[at].OpenSignUp, listed[at].DefaultRole, listed[at].Says, want)
+		}
 	}
 }
 

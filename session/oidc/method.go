@@ -175,6 +175,10 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg
 // the account was seeded for, so a seed made for a provider's registration
 // (session.SeedUserIDThrough) is its author's word that the provider is the
 // deployment's own directory; the generated foothold never gives it.
+//
+// The name is for the page. What the audience is compared by is the provider's issuer,
+// which is the provider's alone: the application's name for the provider can be kept
+// while the registration is pointed at another, and one host serves several issuers.
 func audienceOf(cfg *Config) signin.Audience {
 	name := cfg.Connection
 	if name == "" {
@@ -184,8 +188,12 @@ func audienceOf(cfg *Config) signin.Audience {
 		}
 	}
 
-	return signin.Audience{Organizations: []string{name}}
+	return signin.Audience{Organizations: []string{name}, Accounts: "", Identities: []string{identityIssuer + cfg.Issuer}}
 }
+
+// identityIssuer qualifies what identifies the provider, as an audience's key spells
+// it: its issuer.
+const identityIssuer = "openid-connect-issuer:"
 
 // refuseShape is the registration's startup check of its configuration, each refusal
 // naming its field: an issuer that is not an absolute URL, and the role sync slot's

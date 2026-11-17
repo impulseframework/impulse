@@ -247,7 +247,7 @@ describe("identityPages, the whole application's side", () => {
       defaultRole: '',
       directoryGivesRoles: false,
       ownRule: false,
-      says: 'Invite only: this method was opened for anyone with an account at acme.example, and it admits anyone with an account at acme.example or lakeside.edu now. Open it again to admit them.',
+      says: 'Invite only: the people this method admits have changed since it was opened, and it admits anyone with an account at acme.example or lakeside.edu now. Open it again to admit them.',
     };
 
     it('lists each method by who can sign in with it and what was chosen, and reads what the actions need without drawing it', () => {

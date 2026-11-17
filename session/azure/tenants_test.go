@@ -302,6 +302,58 @@ func TestTenantSet_audience(t *testing.T) {
 	}
 }
 
+// TestTenantSet_audienceKey pins what a sign-in method's row is compared by: the tenants
+// a registration admits, each by its tenant id, and the kind of account it admits
+// outside them, never the names they are said by. An administrator opens a method to
+// sign-up for the people it admits then, and the row counts while the registration
+// admits those people and no others. A name is the application's to give, and a second
+// tenant can carry the first one's, so a key written from names reads two
+// registrations that admit different people as one: the method stays open for a tenant
+// nobody opened it for. Every registration here is one the slot's own check accepts.
+func TestTenantSet_audienceKey(t *testing.T) {
+	t.Parallel()
+
+	const tenantHex = "abcdef01-2345-6789-abcd-ef0123456789"
+	labelOfLake := Tenant(tenantLake).audience().Organizations[0]
+
+	tests := []struct {
+		name string
+		// opened is the registration an administrator opened the method under, and now
+		// the registration of a later release.
+		opened, now TenantSet
+		// same says the two admit the same people, so the row stands.
+		same bool
+	}{
+		{name: "a second tenant listed under the first one's label", opened: Tenant(tenantLake), now: Tenants(Tenant(tenantLake), NamedTenant(tenantRiver, labelOfLake))},
+		{name: "another tenant in the first one's place, under its name", opened: NamedTenant(tenantLake, "Lakeside"), now: NamedTenant(tenantRiver, "Lakeside")},
+		{name: "a second tenant", opened: Tenant(tenantLake), now: Tenants(Tenant(tenantLake), Tenant(tenantRiver))},
+		{name: "a tenant fewer", opened: Tenants(Tenant(tenantLake), Tenant(tenantRiver)), now: Tenant(tenantLake)},
+		{name: "any tenant beside the listed one", opened: Tenant(tenantLake), now: Tenants(Tenant(tenantLake), AnyTenant())},
+		{name: "personal accounts beside the listed one", opened: Tenant(tenantLake), now: Tenants(Tenant(tenantLake), PersonalAccounts())},
+		{name: "any tenant in place of personal accounts", opened: PersonalAccounts(), now: AnyTenant()},
+		{name: "the same tenant given a name", opened: Tenant(tenantLake), now: NamedTenant(tenantLake, "Lakeside"), same: true},
+		{name: "the same tenant given another name", opened: NamedTenant(tenantLake, "Lakeside"), now: NamedTenant(tenantLake, "Lakeside University"), same: true},
+		{name: "the same tenant with its id in capitals", opened: Tenant(tenantHex), now: Tenant(strings.ToUpper(tenantHex)), same: true},
+		{name: "the same tenants in another order", opened: Tenants(Tenant(tenantLake), Tenant(tenantRiver)), now: Tenants(Tenant(tenantRiver), Tenant(tenantLake)), same: true},
+		{name: "the same tenants, one declared to enforce a second factor", opened: Tenant(tenantLake), now: Tenant(tenantLake).Attesting(), same: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			for _, set := range []TenantSet{tt.opened, tt.now} {
+				if err := set.validate(); err != nil {
+					t.Fatalf("validate() error = %v, want a registration the slot accepts", err)
+				}
+			}
+			opened, now := tt.opened.audience().Key(), tt.now.audience().Key()
+			if got := opened == now; got != tt.same {
+				t.Errorf("the keys of the two registrations are equal = %v, want %v (%s, %s)", got, tt.same, opened, now)
+			}
+		})
+	}
+}
+
 func TestTenantSet_admitsAddress(t *testing.T) {
 	t.Parallel()
 

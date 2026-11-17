@@ -1217,6 +1217,10 @@ func authSignUpCase2(t *testing.T) {
 func authSignUpCase3(t *testing.T) {
 	t.Parallel()
 	audience, another := passwordAudience().Key(), signin.Audience{Organizations: []string{"lakeside.edu"}}.Key()
+	// The password method's audience as a row kept it before the key compared what
+	// identifies whom a method admits: the names of its organizations, of which it has
+	// none, and the words for its accounts.
+	earlier := `{"organizations":[],"accounts":"an email address"}`
 
 	tests := []struct {
 		name string
@@ -1227,6 +1231,7 @@ func authSignUpCase3(t *testing.T) {
 		{name: "another method's row", rows: []*sessionstorage.SignInMethod{{Name: "google", OpenSignUp: true, OpenedFor: &audience}}},
 		{name: "a row opened for another audience than the password method's", rows: []*sessionstorage.SignInMethod{{Name: "password", OpenSignUp: true, OpenedFor: &another}}},
 		{name: "a row that names no audience", rows: []*sessionstorage.SignInMethod{{Name: "password", OpenSignUp: true}}},
+		{name: "a row that kept the password method's own audience in the earlier form, by its words", rows: []*sessionstorage.SignInMethod{{Name: "password", OpenSignUp: true, OpenedFor: &earlier}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
