@@ -736,6 +736,20 @@ export interface BriefingTemplates {
   layout?: unknown;
 }
 
+export interface CrewInvitedSectors {
+  id: string;
+  email?: string;
+  name?: string;
+  sectorName?: string;
+  sectorRegion?: string;
+  sectorEstablished?: Date;
+  sectorDirectoryOnly?: boolean;
+  defaultRole?: string;
+  invitedByUserId?: string;
+  createdAt?: Date;
+  expiresAt?: Date;
+}
+
 export interface CrewSectorRoles {
   name: string;
   description?: string;
@@ -1753,6 +1767,7 @@ const resourceMap = defineResourceMap({
   [Resources.Sectors]: {
     route: 'sectors',
     consolidatedRoute: 'resources',
+    createDisabled: true,
     live: true,
     nameField: 'name',
     fields: [
@@ -1897,6 +1912,27 @@ const resourceMap = defineResourceMap({
       { fieldName: 'audience', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'summary', displayType: 'string', required: false, isIndex: false },
       { fieldName: 'layout', displayType: 'object', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewInvitedSectors]: {
+    route: 'crew-invited-sectors',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'id', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false },
+      { fieldName: 'email', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'name', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'sectorName', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'sectorRegion', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'sectorEstablished', displayType: 'civildate', required: false, isIndex: false },
+      { fieldName: 'sectorDirectoryOnly', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'defaultRole', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'invitedByUserId', displayType: 'uuid', required: false, isIndex: false },
+      { fieldName: 'createdAt', displayType: 'date', required: false, isIndex: false },
+      { fieldName: 'expiresAt', displayType: 'date', required: false, isIndex: false },
     ],
   },
   [Resources.CrewSectorRoles]: {
@@ -2144,6 +2180,7 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.SquadronRosters]: PermissionScopes.domain,
   [Resources.Wings]: PermissionScopes.domain,
   [Resources.BriefingTemplates]: PermissionScopes.global,
+  [Resources.CrewInvitedSectors]: PermissionScopes.global,
   [Resources.CrewSectorRoles]: PermissionScopes.domain,
   [Resources.CrewSectorSignInWays]: PermissionScopes.domain,
   [Resources.CrewSignInMethods]: PermissionScopes.global,

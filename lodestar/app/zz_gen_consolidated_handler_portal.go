@@ -230,8 +230,9 @@ func (a *App) PatchPortalResources() http.HandlerFunc {
 					case "mission-documents":
 						if op.Type == resource.OperationCreate {
 							// A row comes in another way (a NOT NULL @file key: the @upload
-							// method that stores its file; a self-service tenant record: the
-							// create-your-tenant route), so a create op is refused naming it.
+							// method that stores its file; the tenant record: an invitation's
+							// first sign-in), so a create op is refused naming it, with the
+							// status an unknown resource answers.
 							return httpio.NewBadRequestMessage("a MissionDocument row is added by the @upload method that stores its file; a create cannot supply the file's key")
 						}
 						patchSet, err := missionDocumentDecoder.DecodeOperation(op, userPermissions, accesstypes.DomainScope(domain))

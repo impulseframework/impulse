@@ -196,6 +196,8 @@ type GeneratedHandlers interface {
 	CrewGroupUsers() http.HandlerFunc
 	CrewGroupUser() http.HandlerFunc
 
+	CrewInvitedSectors() http.HandlerFunc
+
 	CrewRoles() http.HandlerFunc
 
 	CrewRoleGrants() http.HandlerFunc
@@ -345,6 +347,8 @@ type GeneratedHandlers interface {
 	HoldMission() http.HandlerFunc
 
 	InspectShip() http.HandlerFunc
+
+	InviteCrewSector() http.HandlerFunc
 
 	InviteCrewSectorUser() http.HandlerFunc
 
@@ -557,6 +561,8 @@ type GeneratedHandlers interface {
 
 	WithdrawCrewInvitation() http.HandlerFunc
 
+	WithdrawCrewInvitedSector() http.HandlerFunc
+
 	WithdrawCrewSectorInvitation() http.HandlerFunc
 
 	PatchResources() http.HandlerFunc
@@ -681,6 +687,10 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	crewGroupUserHandler := h.CrewGroupUser()
 	bounded.Get("/console/api/crew-group-users/{crewGroupUserGroupID}/{crewGroupUserUserID}", crewGroupUserHandler)
 	bounded.Post("/console/api/crew-group-users/{crewGroupUserGroupID}/{crewGroupUserUserID}", crewGroupUserHandler)
+
+	crewInvitedSectorsHandler := h.CrewInvitedSectors()
+	bounded.Get("/console/api/crew-invited-sectors", crewInvitedSectorsHandler)
+	bounded.Post("/console/api/crew-invited-sectors", crewInvitedSectorsHandler)
 
 	crewRolesHandler := h.CrewRoles()
 	bounded.Get("/console/api/crew-roles", crewRolesHandler)
@@ -961,6 +971,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	r.Post("/console/api/sectors/{sectorID}/hold-mission", domainGuard(h.HoldMission()))
 
 	r.Post("/console/api/sectors/{sectorID}/inspect-ship", domainGuard(h.InspectShip()))
+
+	r.Post("/console/api/invite-crew-sector", h.InviteCrewSector())
 
 	r.Post("/console/api/sectors/{sectorID}/invite-crew-sector-user", domainGuard(h.InviteCrewSectorUser()))
 
@@ -1343,6 +1355,8 @@ func generatedRoutes(r chi.Router, h GeneratedHandlers) {
 	bounded.Post("/console/api/sectors/{sectorID}/wings/{wingID}", wingHandler)
 
 	r.Post("/console/api/withdraw-crew-invitation", h.WithdrawCrewInvitation())
+
+	r.Post("/console/api/withdraw-crew-invited-sector", h.WithdrawCrewInvitedSector())
 
 	r.Post("/console/api/sectors/{sectorID}/withdraw-crew-sector-invitation", domainGuard(h.WithdrawCrewSectorInvitation()))
 
