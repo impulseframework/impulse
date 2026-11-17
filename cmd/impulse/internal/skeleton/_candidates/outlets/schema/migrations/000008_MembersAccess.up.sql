@@ -14,6 +14,8 @@ CREATE TABLE MembersUserRoles (
   DomainId STRING(128) NOT NULL,
   Role STRING(128) NOT NULL,
   UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
   CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
   CONSTRAINT MembersUserRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, UserId);
@@ -33,3 +35,42 @@ CREATE TABLE MembersRoleGrants (
   CONSTRAINT MembersRoleGrantsKind CHECK (Kind IN ('global', 'domain', 'every')),
 ) PRIMARY KEY (Kind, Axis, DomainId, Role, Permission, Resource, Field, Condition),
   INTERLEAVE IN PARENT MembersRoles ON DELETE CASCADE;
+
+CREATE TABLE MembersGroups (
+  Id STRING(36) NOT NULL,
+  Kind STRING(16) NOT NULL,
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Name STRING(128) NOT NULL,
+  Description STRING(MAX) NOT NULL,
+  UpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT MembersGroupsKind CHECK (Kind IN ('global', 'domain')),
+) PRIMARY KEY (Id);
+
+CREATE UNIQUE INDEX MembersGroupsByName ON MembersGroups (Kind, Axis, DomainId, Name);
+
+CREATE TABLE MembersGroupMembers (
+  GroupId STRING(36) NOT NULL,
+  UserId STRING(320) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT MembersGroupMembersGroup FOREIGN KEY (GroupId) REFERENCES MembersGroups (Id),
+) PRIMARY KEY (GroupId, UserId);
+
+CREATE INDEX MembersGroupMembersByUserId ON MembersGroupMembers (UserId, GroupId);
+
+CREATE TABLE MembersGroupRoles (
+  GroupId STRING(36) NOT NULL,
+  Kind STRING(16) NOT NULL,
+  Axis STRING(128) NOT NULL,
+  DomainId STRING(128) NOT NULL,
+  Role STRING(128) NOT NULL,
+  StartsAt TIMESTAMP,
+  EndsAt TIMESTAMP,
+  CreatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp = true),
+  CONSTRAINT MembersGroupRolesKind CHECK (Kind IN ('global', 'domain', 'every')),
+  CONSTRAINT MembersGroupRolesGroup FOREIGN KEY (GroupId) REFERENCES MembersGroups (Id),
+) PRIMARY KEY (GroupId, Kind, Axis, DomainId, Role);
+
+CREATE INDEX MembersGroupRolesByScope ON MembersGroupRoles (Kind, Axis, DomainId, Role);

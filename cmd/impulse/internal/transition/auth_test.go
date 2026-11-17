@@ -566,7 +566,10 @@ func TestAuthApply(t *testing.T) {
 					"\tauthSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))\n\n\t// A super administrator signs in with a second factor",
 					"\tauthSession.SetSuperAdministrators(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager())))\n\n\t// The auth's identity client (pkg/identity, generated)",
 					"\t\taccess.WithSuperAdministratorMethods(partnersidentity.SuperAdministratorMethods()...),\n\t)",
-					"\t_, tenantAdministrators := AdministratorRoles()\n\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), identity.WithAdministratorRoles(tenantAdministrators))\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"partnersidentity.NewClient()\")\n\t}\n\n\t// The directory admission",
+					"\t_, tenantAdministrators := AdministratorRoles()\n\tidentityClient, err := partnersidentity.NewClient(accessClient, authSession.API(), identity.WithAdministratorRoles(tenantAdministrators))\n\tif err != nil {\n\t\treturn nil, errors.Wrap(err, \"partnersidentity.NewClient()\")\n\t}\n\n\t// A role, a place in a group and a group's role may each be given for a period",
+					// What a sign-in clears is set before what a sign-in gives: the identity
+					// client's hook for a sign-in that stands, over the application's database.
+					"\tauthSession.SetSignedInHook(identityClient.SignedIn(resource.NewSpannerClient(db)))\n\n\t// The directory admission",
 					"\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())\n\n\t// An accepted invitation gives its roles",
 					"\tauthSession.SetInvitationAccepted(identityClient.InvitationAccepted())\n\n\treturn &Auth{db: db, access: accessClient, handlers: handlers, identity: identityClient}, nil\n",
 					"func (a *Auth) Identity() *partnersidentity.Client {\n\treturn a.identity\n}\n",
