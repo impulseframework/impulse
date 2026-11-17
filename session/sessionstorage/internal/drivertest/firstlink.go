@@ -335,46 +335,46 @@ func testFirstLinkByName(_ context.Context, t *testing.T, h *AuthHarness) {
 			{name: "an account an administrator created under the name holds a generated id, which is no seed's"},
 			{name: "an application that recognizes no seed holds its first administrator to the rule every account created ahead is", seededFor: MethodName, unrecognized: true},
 		} {
-			w := firstLinkWorld("")
-			w.accounts, w.admits = InviteOnly, tt.admits
-			if !tt.unrecognized {
-				w.seededFor = seededFor
-			}
-			in := w.start(ctx, t, h)
-			insert := &dbtype.InsertSessionUser{Username: administrator}
-			if tt.seededFor != "" {
-				insert.ID = impulse.NullUUIDFromUUID(seedID(tt.seededFor, administrator))
-			}
-			admin, err := in.Driver.CreateUser(ctx, insert, nil)
-			if err != nil {
-				t.Fatalf("%s: CreateUser() error = %v", tt.name, err)
-			}
-			// The first administrator holds the Super Administrator role for the whole
-			// application and belongs to no tenant, so no tenant's directory vouches for
-			// the account: Hilltop's, which the provider is, would be handed everything.
-			w.seats.mu.Lock()
-			w.seats.held[accesstypes.User(admin.ID.String())] = accesstypes.RoleCollection{accesstypes.GlobalPolicyScope(): {accesstypes.SuperAdministrator}}
-			w.seats.mu.Unlock()
-
-			identity := throughProvider("sub-admin", administrator, administrator)
-			req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: administrator, Identity: identity}
-			err = signInRequest(ctx, in, req)
-			if tt.wantLinked {
-				if err != nil {
-					t.Fatalf("%s: sign-in error = %v, want the account linked", tt.name, err)
+			t.Run(tt.name, func(t *testing.T) {
+				w := firstLinkWorld("")
+				w.accounts, w.admits = InviteOnly, tt.admits
+				if !tt.unrecognized {
+					w.seededFor = seededFor
 				}
-				assertNewlyLinked(ctx, t, in.Driver, err, req, identity, admin, hilltopProvider.Connection)
+				in := w.start(ctx, t, h)
+				insert := &dbtype.InsertSessionUser{Username: administrator}
+				if tt.seededFor != "" {
+					insert.ID = impulse.NullUUIDFromUUID(seedID(tt.seededFor, administrator))
+				}
+				admin, err := in.Driver.CreateUser(ctx, insert, nil)
+				if err != nil {
+					t.Fatalf("CreateUser() error = %v", err)
+				}
+				// The first administrator holds the Super Administrator role for the whole
+				// application and belongs to no tenant, so no tenant's directory vouches
+				// for the account: Hilltop's, which the provider is, would be handed
+				// everything.
+				w.seats.mu.Lock()
+				w.seats.held[accesstypes.User(admin.ID.String())] = accesstypes.RoleCollection{accesstypes.GlobalPolicyScope(): {accesstypes.SuperAdministrator}}
+				w.seats.mu.Unlock()
 
-				continue
-			}
-			if err == nil {
-				t.Fatalf("%s: the sign-in linked the account, want it refused as a stranger's is", tt.name)
-			}
-			assertRefused(t, err, sessioninfo.RefusedInvitationOnly, signin.ErrInvitationOnly)
-			if message := httpio.Message(err); strings.Contains(message, "account") || strings.Contains(message, administrator) {
-				t.Errorf("%s: the refusal says %q, want words that say nothing of an account", tt.name, message)
-			}
-			assertUntouched(ctx, t, w, in.Driver, admin, identity)
+				identity := throughProvider("sub-admin", administrator, administrator)
+				req := &sessioninfo.NewSessionRequest{Reason: sessioninfo.ReasonLogin, Username: administrator, Identity: identity}
+				err = signInRequest(ctx, in, req)
+				if tt.wantLinked {
+					assertNewlyLinked(ctx, t, in.Driver, err, req, identity, admin, hilltopProvider.Connection)
+
+					return
+				}
+				if err == nil {
+					t.Fatal("the sign-in linked the account, want it refused as a stranger's is")
+				}
+				assertRefused(t, err, sessioninfo.RefusedInvitationOnly, signin.ErrInvitationOnly)
+				if message := httpio.Message(err); strings.Contains(message, "account") || strings.Contains(message, administrator) {
+					t.Errorf("the refusal says %q, want words that say nothing of an account", message)
+				}
+				assertUntouched(ctx, t, w, in.Driver, admin, identity)
+			})
 		}
 	})
 
