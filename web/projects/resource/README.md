@@ -205,7 +205,10 @@ has no `capabilities`): what a person may do with a row is asked on the row's pa
 its tenant, through `client.domain(tenantOf(row))`. It is plain unless the query asks: with
 `live: true` the request registers one subscription over the set of tenants the list
 reads, which the server works out then and again at each renewal, the query's `domains`
-travelling with it. `subscription(domains)` is what to hand `client.live.watch`: a change
+travelling with it. One subscription holds at most 10,000 tenants: a list that reads more
+is answered as a plain one, not cached and not live, a subscription whose set grew past
+that is dropped at its renewal, and the list reads as before either way.
+`subscription(domains)` is what to hand `client.live.watch`: a change
 to the resource's list in any tenant the subscription covers refetches the page, by that
 change's version. `client.acrossTenants` is empty on an API
 that declares no such list, and `acrossTenantsHandle(client, 'Missions')` gives the

@@ -3,13 +3,21 @@
   [matTooltipPosition]="tooltipPosition()"
   class="parent">
   @if (config().actionType === 'link') {
-    <a [routerLink]="viewRoute()">
-      <button mat-icon-button [disabled]="disabled()" [color]="config().color">
-        <mat-icon>{{ config().icon }}</mat-icon>
-      </button>
+    <a
+      mat-icon-button
+      [routerLink]="viewRoute()"
+      [disabled]="disabled()"
+      [color]="config().color"
+      [attr.aria-label]="config().label">
+      <mat-icon>{{ config().icon }}</mat-icon>
     </a>
   } @else if (config().actionType === 'function') {
-    <button mat-icon-button (click)="callAction()" [disabled]="disabled()" [color]="color()">
+    <button
+      mat-icon-button
+      (click)="callAction()"
+      [disabled]="disabled()"
+      [color]="color()"
+      [attr.aria-label]="config().label">
       <mat-icon>{{ config().icon }}</mat-icon>
     </button>
   }

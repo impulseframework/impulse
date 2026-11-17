@@ -141,6 +141,17 @@ func TestService_cost(t *testing.T) {
 
 		return nil
 	}
+	renew := func(ctx context.Context, subs ...live.Subscription) error {
+		refused, err := svc.Renew(ctx, subs)
+		if err != nil {
+			return fmt.Errorf("Renew(): %w", err)
+		}
+		if len(refused) != 0 {
+			return fmt.Errorf("Renew() refused %d subscriptions, the first: %w", len(refused), refused[0].Err)
+		}
+
+		return nil
+	}
 
 	anvilList := live.Subscription{Principal: marshal, Tab: "t1", Resource: hangars, Domain: "anvil", Expiry: expiry}
 	steps := []struct {
@@ -163,7 +174,7 @@ func TestService_cost(t *testing.T) {
 				renewed := anvilList
 				renewed.Expiry = expiry.Add(live.RenewInterval)
 
-				return svc.Renew(ctx, []live.Subscription{renewed})
+				return renew(ctx, renewed)
 			},
 			want:       storeCost{Written: 1},
 			wantStored: 1,

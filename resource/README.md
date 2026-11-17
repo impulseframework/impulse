@@ -491,8 +491,8 @@ here; it is not bound to the set of tenants the session reaches, which is worked
 again on every request, so a person seated in another tenant between two pages reads
 its rows from the next page on. The list is plain unless the page asks: a request that
 carries the subscribe header registers one live subscription over the set of tenants
-the list reads for the person, however many they are, where a tenant's own list is one
-over that tenant (section 14). The set is worked out when the list is asked for and
+the list reads for the person, up to the most one subscription holds, where a tenant's
+own list is one over that tenant (section 14). The set is worked out when the list is asked for and
 again at each renewal, which carries the page's `domains` back, so a tenant the person
 was seated in or removed from since is in or out of it from the next renewal on. After
 a write the publisher asks what it asks of every list, who is subscribed to this list
@@ -504,15 +504,26 @@ makes one, and the renewal drops one whose resource the collection does not mark
 working out its set (`live.WithListsAcrossTenants`, which the generated `LiveRenew`
 passes). What this costs and where it stops:
 
-- The record keeps the set on the subscription's one document, so the set is bounded by
-  what the store indexes of one document: on Firestore 40,000 index entries, which is a
-  set of several thousand tenants (the Firestore implementation's README).
+- One subscription holds at most 10,000 tenants (`live.MaxSubscriptionTenants`). The
+  record keeps the set on the subscription's one document, and the store bounds what it
+  indexes of one document: Firestore allows 40,000 index entries, a tenant of the set
+  costs two, so a document's write fails near 20,000 tenants, and the ceiling is half of
+  that (the arithmetic is in the Firestore implementation's README). A list that reads
+  more tenants than the ceiling registers nothing when the page asks: it is answered as
+  a plain list, not marked cacheable and with nothing logged, since that is a decision
+  and no failure, and the page shows it as any list that is not live. A subscription
+  whose set has grown past the ceiling by a renewal is dropped by it, named in the
+  answer's `dropped`, and the tab's other subscriptions are kept and extended.
+- A subscription the record does not take at a renewal, a document the store judges
+  invalid, is dropped too, with the store's reason logged, and stops none of the tab's
+  others; the record out of reach fails the renewal as a whole, and the tab renews again.
 - A list the page did not narrow with `domains` is told of a change to the resource's
   list in any tenant of its set, whichever rows the page is showing: it fetches its page
   again and shows what the fetch answers.
-- A subscription the renewal dropped, because its set came to no tenant or its resource
-  is no longer declared, is not made again by a later renewal: the page's next request
-  for the list makes it, if there is then a set to make it over.
+- A subscription the renewal dropped, because its set came to no tenant or to more than
+  one subscription holds, or its resource is no longer declared, is not made again by a
+  later renewal: the page's next request for the list makes it, if there is then a set
+  to make it over.
 
 On PostgreSQL the membership renders as `= ANY(@array)` where Spanner's
 is `IN UNNEST(@array)`.

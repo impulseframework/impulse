@@ -180,8 +180,8 @@ func TestService_renewExtendsExpiry(t *testing.T) {
 	register(t, svc, now, sub)
 
 	sub.Expiry = now.Add(live.SubscriptionTTL)
-	if err := svc.Renew(t.Context(), []live.Subscription{sub}); err != nil {
-		t.Fatalf("Renew() error = %v", err)
+	if refused, err := svc.Renew(t.Context(), []live.Subscription{sub}); err != nil || len(refused) != 0 {
+		t.Fatalf("Renew() refused %v, error = %v, want neither", refused, err)
 	}
 
 	got, err := svc.SubscribersOfRow(t.Context(), res, "k1")
