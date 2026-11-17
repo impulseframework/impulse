@@ -334,12 +334,12 @@ func (a *Auth[S, U, Tx]) invitationSignUp() http.HandlerFunc {
 	})
 }
 
-// createAccount creates the account a sign-up or an invitation's sign-up makes: the
-// password the person chose, the address they proved they read, verified, and the
-// username, which is the address when the password method declares them one and the
-// person's choice otherwise. name is the person's name as the invitation carried it,
-// "" for none and for a sign-up, which carries none.
-func (a *Auth[S, U, Tx]) createAccount(ctx context.Context, email, username, password, name string) (*sessionstorage.SessionUser, error) {
+// newAccount is the account a sign-up or an invitation's sign-up makes, as a row to
+// write: the password the person chose, the address they proved they read, verified,
+// and the username, which is the address when the password method declares them one
+// and the person's choice otherwise. name is the person's name as the invitation
+// carried it, "" for none and for a sign-up, which carries none.
+func (a *Auth[S, U, Tx]) newAccount(email, username, password, name string) (*sessionstorage.InsertSessionUser, error) {
 	if err := acceptedPassword(password); err != nil {
 		return nil, err
 	}
@@ -357,6 +357,18 @@ func (a *Auth[S, U, Tx]) createAccount(ctx context.Context, email, username, pas
 	insert := &sessionstorage.InsertSessionUser{Username: username, PasswordHash: hash, Email: &email, EmailVerified: true}
 	if name != "" {
 		insert.Name = &name
+	}
+
+	return insert, nil
+}
+
+// createAccount creates the account an invitation's sign-up makes (newAccount). The
+// invitation the browser carries is what admits the person, whatever an administrator
+// chose for the password method, and the sign-in that follows accepts it.
+func (a *Auth[S, U, Tx]) createAccount(ctx context.Context, email, username, password, name string) (*sessionstorage.SessionUser, error) {
+	insert, err := a.newAccount(email, username, password, name)
+	if err != nil {
+		return nil, err
 	}
 	user, err := a.storage.CreateUser(ctx, insert, nil)
 	if err != nil {

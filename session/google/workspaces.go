@@ -101,10 +101,9 @@ func (s WorkspaceSet) Attesting() WorkspaceSet {
 // AnyWorkspace admits an account of any Google Workspace organization: a token with any
 // hd claim, none refused. The link's connection is the account's domain, lowercased,
 // since the registration names no Workspace; a Workspace whose users should share one
-// connection across its domains is named with Workspace beside this entry. Members of
-// the directory is refused with it, since every Workspace in the world is "the
-// directory": invited users only, open sign-up or a rule of the application's own
-// decides a first sign-in.
+// connection across its domains is named with Workspace beside this entry. Opening the
+// method to sign-up then admits anyone with a Google Workspace account, which the
+// warning an administrator confirms says.
 func AnyWorkspace() WorkspaceSet {
 	return WorkspaceSet{anyWorkspace: true}
 }
@@ -114,9 +113,28 @@ func AnyWorkspace() WorkspaceSet {
 // name. The link's connection is AnyAccountConnection for an account outside the named
 // Workspaces. The OAuth client's consent screen must be External and published for
 // accounts outside your own Workspace to reach the callback; Internal restricts it to
-// your Workspace. Members of the directory is refused with it, as with AnyWorkspace.
+// your Workspace. Opening the method to sign-up then admits anyone with a Google
+// account.
 func AnyGoogleAccount() WorkspaceSet {
 	return WorkspaceSet{anyAccount: true}
+}
+
+// audience is how wide the slot is, for the page where a method is opened to sign-up:
+// the domains of the Workspaces it names, and what an account outside them is called
+// when the slot admits any.
+func (s WorkspaceSet) audience() signin.Audience {
+	var a signin.Audience
+	for _, w := range s.named {
+		a.Organizations = append(a.Organizations, w.domains...)
+	}
+	switch {
+	case s.anyAccount:
+		a.Accounts = "a Google account"
+	case s.anyWorkspace:
+		a.Accounts = "a Google Workspace account"
+	}
+
+	return a
 }
 
 // validate is the slot's startup check: it refuses an empty slot, a Workspace without a

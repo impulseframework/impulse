@@ -46,6 +46,11 @@ type AuthDriver interface {
 	SignInAttempts(ctx context.Context, name string) (*dbtype.SignInAttempts, error)
 	RecordSignInFailure(ctx context.Context, name string, now time.Time, limit dbtype.SignInAttemptLimit) (*dbtype.SignInAttempts, error)
 	ClearSignInAttempts(ctx context.Context, name string) error
+	// SetSignInMethodsTableName renames the sign-in methods table; the suite points it
+	// at a table that is not there.
+	SetSignInMethodsTableName(name string) error
+	SignInMethods(ctx context.Context) ([]*dbtype.SignInMethod, error)
+	SetSignInMethod(ctx context.Context, m *dbtype.SignInMethod) error
 	// SetSignInAttemptsTableName renames the sign-in attempts table; the suite points
 	// it at a table that is not there.
 	SetSignInAttemptsTableName(name string) error
@@ -142,12 +147,19 @@ type AuthConfig struct {
 	// Impersonation attaches the SessionImpersonations table.
 	Impersonation bool
 	// Resolve is the custom account rule the instance's SignIn runs with, which the
-	// harness adapts to the driver's transaction. Nil with no Accounts rejects every
+	// harness adapts to the driver's transaction. Nil with NoStandardRule rejects every
 	// unlinked identity.
 	Resolve func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error)
-	// Accounts is the standard account rule the instance's SignIn runs with, applied
-	// when Resolve is nil or answers signin.Standard; "" for none.
-	Accounts signin.StandardAccountRule
+	// Accounts is what the library's standard rule finds chosen for the instance's
+	// sign-in method (MethodName), applied when Resolve is nil or answers
+	// signin.Standard; NoStandardRule for none.
+	Accounts Accounts
+	// DefaultRole is the default role an Open method's row names, "" for none.
+	DefaultRole string
+	// SignUp is the hook that gives a person who signed up through an Open method its
+	// default role, inside the transaction that makes the account, which the harness
+	// adapts to the driver's transaction; nil for none. See signinflow.SignUpSeater.
+	SignUp func(ctx context.Context, tx HookTx, userID impulse.UUID, username, method, role string) (committed func(ctx context.Context), err error)
 	// Policy is the sign-in policy the instance's SignIn runs with; nil allows.
 	Policy func(ctx context.Context, tx HookTx, req *sessioninfo.NewSessionRequest) (*signin.Decision, error)
 	// CustomData, when set, attaches the AuthWithAppTables schema's
@@ -160,6 +172,44 @@ type AuthConfig struct {
 	// Admission is what a tenanted application gives a person's first sign-in through
 	// a tenant's directory; nil for none.
 	Admission *DirectoryAdmission
+}
+
+// MethodName is the name an instance's sign-in method is registered under: the key of
+// its row in the sign-in methods table.
+const MethodName = "directory"
+
+// Accounts is what an administrator chose for an instance's sign-in method, which the
+// library's standard rule reads.
+type Accounts int
+
+const (
+	// NoStandardRule runs no standard rule: with no Resolve, every unlinked identity
+	// is rejected.
+	NoStandardRule Accounts = iota
+	// InviteOnly is a method with no row: the standard rule admits a person with no
+	// account by invitation only.
+	InviteOnly
+	// Open is a method whose row says it is open to sign-up, which the harness writes
+	// with SeedSignInMethod before the instance is used.
+	Open
+)
+
+// SeedSignInMethod writes the row an Open method has, with cfg's default role, through
+// the driver; a harness calls it once its driver is built. It writes nothing for any
+// other choice, so an invite-only instance runs with no row.
+func SeedSignInMethod(ctx context.Context, t *testing.T, d AuthDriver, cfg AuthConfig) {
+	t.Helper()
+
+	if cfg.Accounts != Open {
+		return
+	}
+	m := &dbtype.SignInMethod{Name: MethodName, OpenSignUp: true}
+	if cfg.DefaultRole != "" {
+		m.DefaultRole = &cfg.DefaultRole
+	}
+	if err := d.SetSignInMethod(ctx, m); err != nil {
+		t.Fatalf("SetSignInMethod() error = %v", err)
+	}
 }
 
 // DirectoryAdmission is what an instance's SignIn and LinkConfirmed run a declared
@@ -188,6 +238,38 @@ type AuthInstance struct {
 	// has confirmed the link, with the configured admission. The harness builds it with
 	// NewLinkConfirmed.
 	LinkConfirmed func(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string) error
+	// SignUp makes the account of a person who signs up with a password through the
+	// instance's method, consuming the mail link linkID, with the configured sign-up
+	// hook. The harness builds it with NewSignUp.
+	SignUp func(ctx context.Context, user *dbtype.InsertSessionUser, linkID impulse.UUID) (impulse.UUID, error)
+}
+
+// NewSignUp returns an instance's SignUp over d: the flow's password sign-up through
+// MethodName with cfg's sign-up hook, given the driver's transaction through adapt.
+func NewSignUp[Tx any](
+	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+) func(ctx context.Context, user *dbtype.InsertSessionUser, linkID impulse.UUID) (impulse.UUID, error) {
+	seat := adaptSignUp(cfg, adapt)
+
+	return func(ctx context.Context, user *dbtype.InsertSessionUser, linkID impulse.UUID) (impulse.UUID, error) {
+		id, err := signinflow.SignUp(ctx, d, MethodName, user, linkID, seat)
+		if err != nil {
+			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignUp()")
+		}
+
+		return id, nil
+	}
+}
+
+// adaptSignUp is cfg's sign-up hook over the driver's transaction, nil for none.
+func adaptSignUp[Tx any](cfg AuthConfig, adapt func(tx Tx) HookTx) signinflow.SignUpSeater[Tx] {
+	if cfg.SignUp == nil {
+		return nil
+	}
+
+	return func(ctx context.Context, tx Tx, userID impulse.UUID, username, method, role string) (func(ctx context.Context), error) {
+		return cfg.SignUp(ctx, adapt(tx), userID, username, method, role)
+	}
 }
 
 // NewLinkConfirmed returns an instance's LinkConfirmed over d: the flow's confirmed
@@ -264,7 +346,7 @@ func NewSignIn[Tx any](
 		rule = func(ctx context.Context, tx Tx, req *sessioninfo.NewSessionRequest) (*signin.Resolution, error) {
 			return cfg.Resolve(ctx, adapt(tx), req)
 		}
-	case cfg.Accounts == "":
+	case cfg.Accounts == NoStandardRule:
 		// No rule at all rejects every unlinked identity, as a nil resolution does.
 		rule = func(context.Context, Tx, *sessioninfo.NewSessionRequest) (*signin.Resolution, error) { return nil, nil }
 	}
@@ -276,12 +358,13 @@ func NewSignIn[Tx any](
 	}
 	directories, seat := adaptAdmission(cfg, adapt)
 	accept := adaptAccept(cfg, adapt)
+	signUp := adaptSignUp(cfg, adapt)
 	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (impulse.UUID, error) {
 		id, err := impulse.NewUUID()
 		if err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "impulse.NewUUID()")
 		}
-		rules := signinflow.Rules[Tx]{Account: rule, Standard: cfg.Accounts, Policy: policy, Accept: accept, Directories: directories, Seat: seat}
+		rules := signinflow.Rules[Tx]{Account: rule, Method: MethodName, Policy: policy, Accept: accept, SignUp: signUp, Directories: directories, Seat: seat}
 		if err := signinflow.SignIn(ctx, d, id, insert, req, rules); err != nil {
 			return impulse.NilUUID, errors.Wrap(err, "signinflow.SignIn()")
 		}
@@ -331,8 +414,19 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a session's auth events go with it", run: testAuthEventsCascade},
 		{name: "a linked identity signs in to its user without the resolver", run: testLinkedIdentitySignsIn},
 		{name: "the resolver's outcome decides an unlinked identity", run: testResolverOutcomes},
-		{name: "the standard account rules decide an unlinked identity by its sign-in name", run: testStandardAccountRules},
-		{name: "the standard account rules match a user by the identity's verified address when none is under the sign-in name, and no rule provisions a second user for a held address", run: testResolveByVerifiedAddress},
+		{name: "the standard account rule decides an unlinked identity by its sign-in name and by what was chosen for its method: no row is invite only, which refuses a stranger and writes nothing", run: testStandardAccountRules},
+		{name: "a sign-in method's row is written whole at the database's time, replaced by the next write, and listed by name", run: testSignInMethodRows},
+		{name: "a driver whose sign-in methods table is not there says so: an error naming the table, never a method read as invite only", run: testSignInMethodsMissingTable},
+		{name: "an open method gives a person with no account its default role in the transaction that makes the account, once; a person an administrator created is linked and given nothing", run: testOpenMethodDefaultRole},
+		{name: "an open method that names no role makes the account and gives nothing", run: testOpenMethodWithoutRole},
+		{name: "a person with an account, and a person with an invitation, sign in the same under either choice: the invitation's role, never the default role beside it", run: testEitherChoiceSameForAccountsAndInvitations},
+		{name: "a dead invitation carried through an open method gives nothing, and the person gets the method's default role", run: testOpenMethodDeadInvitation},
+		{name: "a default role on an Auth with no sign-up hook fails the sign-in in its transaction: no user is created", run: testOpenMethodHookMissing},
+		{name: "a failing sign-up hook fails the transaction that makes the account: no account, no link, none of the hook's writes; the next sign-in makes it with its role", run: testOpenMethodHookFails},
+		{name: "a password sign-up through a method that is not open is refused: no account, the link left standing", run: testPasswordSignUpClosed},
+		{name: "a password sign-up through an open method spends the link, makes the account and gives the default role in one transaction; a spent link and a held address make nothing", run: testPasswordSignUpOpen},
+		{name: "a failing sign-up hook fails a password sign-up whole: no account, the link left for the next attempt", run: testPasswordSignUpHookFails},
+		{name: "the standard account rule matches a user by the identity's verified address when none is under the sign-in name, and no rule provisions a second user for a held address", run: testResolveByVerifiedAddress},
 		{name: "a custom account rule runs first and may leave the identity to the standard rule", run: testCustomRuleBeforeStandardRule},
 		{name: "the standard rule runs once: a linked identity signs in by its link, and the username is not renamed", run: testStandardRuleRunsOnce},
 		{name: "an untrusted link from another connection to a password-less user is refused; the same connection or a trusted link links", run: testLinkAcrossConnections},
@@ -383,7 +477,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "an expired mail link is neither read, consumed nor listed", run: testMailLinkExpired},
 		{name: "a verification link goes with its user", run: testMailLinkCascade},
 		{name: "a sign-in that carries an invitation accepts it in the resolution's transaction: consumed, the address set, the hook's writes committed with the user", run: testInvitationSignIn},
-		{name: "an invitation that died is skipped by a member's sign-in and refuses an invited-only one, provisioning nothing", run: testInvitationDead},
+		{name: "an invitation that died is skipped through an open method and refuses through an invite-only one, provisioning nothing", run: testInvitationDead},
 		{name: "a stranger from a directory a tenant declares with a default seat is provisioned and seated with it before the policy decides; a tenant declaring it without a seat gives nothing; a second sign-in seats nothing more", run: testDirectoryDefaultSeat},
 		{name: "a stranger from a directory a tenant declares with no default seat is refused with invitation_only and nothing is written, whatever the registration's rule; a pre-created user links; an invitation is the way past, and a dead one refuses with invitation_expired", run: testDirectoryInvitationOnly},
 		{name: "a directory no tenant declares falls to the registration's rule", run: testDirectoryUndeclared},

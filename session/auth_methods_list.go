@@ -56,8 +56,9 @@ type MethodList struct {
 	// both or none.
 	Email EmailRoutes
 	// SignUp are the paths of the sign-up handlers (SignUp().Start(), Open() and
-	// Complete()), all three or none; they need the password method listed and
-	// registered with OpenSignUp.
+	// Complete()), all three or none; they need the password method listed. The page
+	// is told them only while an administrator has the password method open to
+	// sign-up, which the answer reads as each request arrives.
 	SignUp SignUpRoutes
 }
 
@@ -195,7 +196,10 @@ type pendingAnswer struct {
 // would refuse the person. A browser without the cookie, or whose invitation is no
 // longer live, gets the block without it. The answer is public: route it beside the
 // login routes, behind StartSession and before ValidateSession, and it needs no XSRF
-// token.
+// token. The sign-up block is in the answer only while the password method is open to
+// sign-up: an administrator's choice in the running application, which the answer
+// reads as each request arrives, so a page loaded after the method is opened offers
+// to sign up and one loaded after it is closed does not.
 //
 //	{"methods": [{"name": "password", "method": "password", "kind": "password", "label": "Password", "path": "/api/user/password/login"},
 //	             {"name": "google", "method": "google", "kind": "redirect", "label": "Google", "path": "/api/user/google/login"}],
@@ -214,20 +218,44 @@ func (a *Auth[S, U, Tx]) Methods(list *MethodList) http.HandlerFunc {
 	answer := a.advertise(list)
 
 	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
-		if answer.Invitation == nil {
+		if answer.Invitation == nil && answer.SignUp == nil {
 			return httpio.NewEncoder(w).Ok(answer)
 		}
 
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
 
+		now := answer
+		if answer.SignUp != nil {
+			open, err := a.passwordSignUpOpen(ctx)
+			if err != nil {
+				return httpio.NewEncoder(w).ClientMessage(ctx, err)
+			}
+			now = answer.withSignUp(open)
+		}
+		if now.Invitation == nil {
+			return httpio.NewEncoder(w).Ok(now)
+		}
 		standing, err := a.standingInvitation(ctx, r)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
 
-		return httpio.NewEncoder(w).Ok(answer.withStanding(standing))
+		return httpio.NewEncoder(w).Ok(now.withStanding(standing))
 	}))
+}
+
+// withSignUp is the answer as a page reads it now: with its sign-up block while the
+// password method is open to sign-up, and without it, as a copy, while it is not. The
+// answer built at wiring is shared by every request and carries the block.
+func (m *methodsAnswer) withSignUp(open bool) *methodsAnswer {
+	if open {
+		return m
+	}
+	answer := *m
+	answer.SignUp = nil
+
+	return &answer
 }
 
 // standingInvitation is the live invitation the browser carries, for the invitation
@@ -317,6 +345,7 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 		if !slices.Contains(a.methods.listed, m.Name) {
 			a.methods.listed = append(a.methods.listed, m.Name)
 		}
+		a.methods.labels[m.Name] = m.Label
 	}
 	passwordListed := seen[string(sessioninfo.MethodPassword)]
 	answer.Pending = pendingAnswerOf(&list.Pending)
@@ -328,7 +357,7 @@ func (a *Auth[S, U, Tx]) advertise(list *MethodList) *methodsAnswer {
 	answer.UsernameIsEmail = passwordListed && a.methods.usernameIsEmail()
 	answer.Invitation = invitationAnswerOf(list.Invitation, passwordListed)
 	answer.Email = emailAnswerOf(list.Email)
-	answer.SignUp = signUpAnswerOf(list.SignUp, passwordListed && a.methods.openSignUp())
+	answer.SignUp = signUpAnswerOf(list.SignUp, passwordListed)
 
 	return answer
 }
@@ -366,13 +395,13 @@ func emailAnswerOf(p EmailRoutes) *emailAnswer {
 }
 
 // signUpAnswerOf validates the sign-up routes: none, or all three as canonical paths,
-// on a password method that offers sign-up.
-func signUpAnswerOf(p SignUpRoutes, offered bool) *signUpAnswer {
+// beside a listed password method.
+func signUpAnswerOf(p SignUpRoutes, passwordListed bool) *signUpAnswer {
 	if p == (SignUpRoutes{}) {
 		return nil
 	}
-	if !offered {
-		panic(fmt.Sprintf("session: Methods is given the sign-up routes %+v but the listed password method does not offer sign-up: register it with OpenSignUp, or drop the routes", p))
+	if !passwordListed {
+		panic(fmt.Sprintf("session: Methods is given the sign-up routes %+v but lists no password method: a person signs up with a password, so list the method, or drop the routes", p))
 	}
 	if !advertisedPath(p.Start) || !advertisedPath(p.Open) || !advertisedPath(p.Complete) {
 		panic(fmt.Sprintf("session: Methods is given the sign-up routes %+v: name the start, open and complete paths together, each a canonical path in the application", p))

@@ -1,7 +1,8 @@
 //go:build !skipAuth
 
 // The sign-in rules through the real sign-in flow on both backends, shape by rule: the
-// standard account rules and a custom rule beside them, the organization slots of both
+// standard account rule under each choice an administrator makes for a method (open to
+// sign-up, or invite only) and a custom rule beside it, the organization slots of both
 // methods, the policy at every session start and the provider-initiated logout across
 // the tenants of one registration.
 
@@ -33,26 +34,42 @@ import (
 // otherTenant is an Entra tenant no registration in these scenarios lists.
 const otherTenant = "33333333-3333-3333-3333-333333333333"
 
-// rulesShape is what one scenario registers: the Entra method under tenants with its
-// standard rule, a custom rule beside it when entraRule is set (the hooks' Azure
+// accounts is what an administrator chose for a registration in a scenario: the
+// method's row of the sign-in methods table, which the scenario's application writes
+// before the first sign-in.
+type accounts int
+
+const (
+	// inviteOnly is a method with no row: a person with no account needs an invitation.
+	inviteOnly accounts = iota
+	// openSignUp is a method whose row says it is open to sign-up, with no default
+	// role.
+	openSignUp
+)
+
+// rulesShape is what one scenario registers: the Entra method under tenants with what
+// was chosen for it, a custom rule beside it when entraRule is set (the hooks' Azure
 // resolver) and role synchronization when entraRoles is set; the Google method under
-// workspaces with its standard rule and a custom rule when googleRule is set.
+// workspaces with what was chosen for it and a custom rule when googleRule is set.
+// defaultRole is the default role of the open methods' rows, "" for none, which the
+// application's sign-up hook writes as the new user's membership row.
 type rulesShape struct {
 	tenants        azure.TenantSet
-	entraAccounts  signin.StandardAccountRule
+	entraAccounts  accounts
 	entraRule      bool
 	entraRoles     bool
 	workspaces     google.WorkspaceSet
-	googleAccounts signin.StandardAccountRule
+	googleAccounts accounts
 	googleRule     bool
+	defaultRole    string
 }
 
 // oneOrganization is the shape of today's staff application: one tenant and one
-// Workspace, each under accounts.
-func oneOrganization(accounts signin.StandardAccountRule) *rulesShape {
+// Workspace, each under chosen.
+func oneOrganization(chosen accounts) *rulesShape {
 	return &rulesShape{
-		tenants: azure.Tenant(azureTenant), entraAccounts: accounts,
-		workspaces: google.Workspace("lakeside", hostedDomain), googleAccounts: accounts,
+		tenants: azure.Tenant(azureTenant), entraAccounts: chosen,
+		workspaces: google.Workspace("lakeside", hostedDomain), googleAccounts: chosen,
 	}
 }
 
@@ -62,6 +79,9 @@ func oneOrganization(accounts signin.StandardAccountRule) *rulesShape {
 type rulesApp[Tx any] struct {
 	*authApp[Tx]
 	entra, google *oidctest.FakeIDP
+	// store is the Auth's store, where a scenario writes what an administrator chooses
+	// for a method while the application runs.
+	store *sessionstorage.Auth[Tx]
 }
 
 // rolesNeverAsked is the role store of a registration that synchronizes roles in a
@@ -110,6 +130,17 @@ func newRulesApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shap
 		t.Fatalf("session.NewAuth() error = %v", err)
 	}
 	auth.SetSignInPolicy(h.signInPolicy)
+	// The default role of an open method is written as the new user's membership row,
+	// in the transaction that makes the account, where the session's custom data
+	// resolver reads it back for the first session.
+	auth.SetSignUpSeated(func(ctx context.Context, tx Tx, userID impulse.UUID, _, _, role string) (func(ctx context.Context), error) {
+		return nil, be.rows.addMember(ctx, tx, userID, role)
+	})
+	for name, chosen := range map[string]accounts{"entra": shape.entraAccounts, "google": shape.googleAccounts} {
+		if chosen == openSignUp {
+			openMethod(ctx, t, store, name, shape.defaultRole)
+		}
+	}
 
 	var entraRule azure.AccountRule[Tx]
 	if shape.entraRule {
@@ -120,7 +151,7 @@ func newRulesApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shap
 		roleSync = signin.RoleSync(rolesNeverAsked{t: t})
 	}
 	entra := azure.SignIn(auth, "entra", entraRule, &azure.Config{
-		RoleSync: roleSync, Authority: entraIDP.Server.URL, Tenants: shape.tenants, Accounts: shape.entraAccounts,
+		RoleSync: roleSync, Authority: entraIDP.Server.URL, Tenants: shape.tenants,
 		ClientID: "entra-client", ClientSecret: "secret", RedirectURL: "https://app.example/entra/callback",
 	})
 	var googleRule google.AccountRule[Tx]
@@ -136,7 +167,7 @@ func newRulesApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shap
 		issuer := google.IssuerURL
 		google.IssuerURL = googleIDP.Server.URL
 		workspace = google.SignIn(auth, "google", googleRule, &google.Config{
-			RoleSync: google.DisableRoleSync(), Workspaces: shape.workspaces, Accounts: shape.googleAccounts,
+			RoleSync: google.DisableRoleSync(), Workspaces: shape.workspaces,
 			ClientID: "google-client", ClientSecret: "secret", RedirectURL: "https://app.example/google/callback",
 		})
 		google.IssuerURL = issuer
@@ -158,7 +189,30 @@ func newRulesApp[Tx any](ctx context.Context, t *testing.T, be backend[Tx], shap
 
 	return &rulesApp[Tx]{
 		authApp: &authApp[Tx]{db: db, rows: be.rows, server: server, api: auth.API(), hooks: h, mail: recorder},
-		entra:   entraIDP, google: googleIDP,
+		entra:   entraIDP, google: googleIDP, store: store,
+	}
+}
+
+// openMethod writes the row of a method an administrator opened to sign-up, with role
+// as its default role, "" for none.
+func openMethod[Tx any](ctx context.Context, t *testing.T, store *sessionstorage.Auth[Tx], name, role string) {
+	t.Helper()
+
+	row := &sessionstorage.SignInMethod{Name: name, OpenSignUp: true}
+	if role != "" {
+		row.DefaultRole = &role
+	}
+	if err := store.SetSignInMethod(ctx, row); err != nil {
+		t.Fatalf("SetSignInMethod(%q) error = %v", name, err)
+	}
+}
+
+// closeMethod writes the row of a method an administrator made invite only again.
+func closeMethod[Tx any](ctx context.Context, t *testing.T, store *sessionstorage.Auth[Tx], name string) {
+	t.Helper()
+
+	if err := store.SetSignInMethod(ctx, &sessionstorage.SignInMethod{Name: name}); err != nil {
+		t.Fatalf("SetSignInMethod(%q) error = %v", name, err)
 	}
 }
 
@@ -275,31 +329,35 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 		run  func(ctx context.Context, t *testing.T, be backend[Tx])
 	}{
 		{
-			name: "members of the directory: a stranger is provisioned under the sign-in name with the tenant id as the link's tenant key, signs in through the link afterwards, and keeps the username after the directory renames the person",
+			name: "open to sign-up: a stranger is provisioned under the sign-in name with the tenant id as the link's tenant key, signs in through the link afterwards, and keeps the username after the directory renames the person",
 			run:  seamRulesMembersProvision[Tx],
 		},
 		{
-			name: "members of the directory: a pre-created user with a password confirms with it before the link is made, matched without regard to case and keeping its spelling, and a pre-created user without a password or an identity is linked outright",
+			name: "open to sign-up: a pre-created user with a password confirms with it before the link is made, matched without regard to case and keeping its spelling, and a pre-created user without a password or an identity is linked outright",
 			run:  seamRulesMembersPreCreated[Tx],
 		},
 		{
-			name: "members of the directory: a token asserting no application role is refused when the registration synchronizes roles, before any row is written or any role is read",
+			name: "a registration that synchronizes roles: a token asserting no application role is refused when the registration synchronizes roles, before any row is written or any role is read",
 			run:  seamRulesMembersNoRoles[Tx],
 		},
 		{
-			name: "invited users only: a pre-created user is linked, one with a password confirms, and a stranger is refused with not_invited and a guest with guest_account, both without a row",
+			name: "invite only, a method with no row: a pre-created user is linked, one with a password confirms, and a stranger is refused with not_invited and a guest with guest_account, both without a row",
 			run:  seamRulesInvitedUsersOnly[Tx],
 		},
 		{
-			name: "an invitation carried by a directory sign-in is accepted only by the invited address: another Workspace account is refused with invitation_address, nothing written and the invitation standing; the invited address then signs in through it, provisioned under the invited-users-only rule, and the invitation is consumed",
+			name: "open to sign-up with a default role: a stranger gets an account that holds the role from its first session, a person with an account and a person with an invitation sign in as they do through an invite-only method and are given no default role, and once the method is made invite only again the next stranger is refused with not_invited and nothing is written, while the people who have accounts keep them",
+			run:  seamRulesOpenDefaultRole[Tx],
+		},
+		{
+			name: "an invitation carried by a directory sign-in is accepted only by the invited address: another Workspace account is refused with invitation_address, nothing written and the invitation standing; the invited address then signs in through it, provisioned through the invite-only method, and the invitation is consumed",
 			run:  seamRulesInvitationAddress[Tx],
 		},
 		{
-			name: "any tenant and any Google account with open sign-up: a work or school account of a tenant the application never heard of and a Google account outside any Workspace get accounts keyed by where they came from, a personal Microsoft account is refused, and an unverified Google email is refused, each before any user is resolved",
+			name: "any tenant and any Google account, open to sign-up: a work or school account of a tenant the application never heard of and a Google account outside any Workspace get accounts keyed by where they came from, a personal Microsoft account is refused, and an unverified Google email is refused, each before any user is resolved",
 			run:  seamRulesOpenSignUp[Tx],
 		},
 		{
-			name: "personal accounts beside one tenant, invited users only: a pre-created person signs in with a Microsoft personal account under the consumer tenant, and a work account of an unlisted tenant is refused without a row",
+			name: "personal accounts beside one tenant, invite only: a pre-created person signs in with a Microsoft personal account under the consumer tenant, and a work account of an unlisted tenant is refused without a row",
 			run:  seamRulesPersonalAccounts[Tx],
 		},
 		{
@@ -331,7 +389,7 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 			run:  seamRulesAttestedByDeclaration[Tx],
 		},
 		{
-			name: "any Workspace, invited users only: a pre-created person signs in from a Workspace the application never named under its domain as connection, a stranger from another Workspace is refused with not_invited, and an account outside any Workspace is refused",
+			name: "any Workspace, invite only: a pre-created person signs in from a Workspace the application never named under its domain as connection, a stranger from another Workspace is refused with not_invited, and an account outside any Workspace is refused",
 			run:  seamRulesAnyWorkspace[Tx],
 		},
 	}
@@ -344,9 +402,9 @@ func runSignInRuleSeams[Tx any](t *testing.T, be backend[Tx]) {
 	}
 }
 
-// seamRulesMembersProvision is the scenario "members of the directory".
+// seamRulesMembersProvision is the scenario "open to sign-up: a stranger is provisioned".
 func seamRulesMembersProvision[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
-	a := newRulesApp(ctx, t, be, oneOrganization(signin.MembersOfDirectory))
+	a := newRulesApp(ctx, t, be, oneOrganization(openSignUp))
 
 	b := a.browser(t)
 	assertRedirect(t, a.entraSignIn(ctx, b, azureClaims(azureTenant, "oid-pat", "p.lee@lakeside.edu")), "/home", url.Values{})
@@ -371,9 +429,9 @@ func seamRulesMembersProvision[Tx any](ctx context.Context, t *testing.T, be bac
 	}
 }
 
-// seamRulesMembersPreCreated is the scenario "members of the directory".
+// seamRulesMembersPreCreated is the scenario "open to sign-up: a pre-created user".
 func seamRulesMembersPreCreated[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
-	a := newRulesApp(ctx, t, be, oneOrganization(signin.MembersOfDirectory))
+	a := newRulesApp(ctx, t, be, oneOrganization(openSignUp))
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
 	kim := a.createUser(ctx, t, "kim@lakeside.edu")
 
@@ -398,9 +456,9 @@ func seamRulesMembersPreCreated[Tx any](ctx context.Context, t *testing.T, be ba
 	assertOneLink(t, a.links(ctx, t, kim.String()), azureTenant, azureTenant)
 }
 
-// seamRulesMembersNoRoles is the scenario "members of the directory".
+// seamRulesMembersNoRoles is the scenario "a registration that synchronizes roles".
 func seamRulesMembersNoRoles[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
-	shape := oneOrganization(signin.MembersOfDirectory)
+	shape := oneOrganization(openSignUp)
 	shape.entraRoles = true
 	a := newRulesApp(ctx, t, be, shape)
 
@@ -409,9 +467,9 @@ func seamRulesMembersNoRoles[Tx any](ctx context.Context, t *testing.T, be backe
 	a.assertNoRow(ctx, t, b, "x@lakeside.edu")
 }
 
-// seamRulesInvitedUsersOnly is the scenario "invited users only".
+// seamRulesInvitedUsersOnly is the scenario "invite only, a method with no row".
 func seamRulesInvitedUsersOnly[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
-	a := newRulesApp(ctx, t, be, oneOrganization(signin.InvitedUsersOnly))
+	a := newRulesApp(ctx, t, be, oneOrganization(inviteOnly))
 	kim := a.createUser(ctx, t, "kim@lakeside.edu")
 	pat := a.seed(ctx, t, "pat@lakeside.edu")
 
@@ -440,7 +498,7 @@ func seamRulesInvitedUsersOnly[Tx any](ctx context.Context, t *testing.T, be bac
 // seamRulesInvitationAddress is the scenario "an invitation carried by a directory
 // sign-in is accepted only by the invited address".
 func seamRulesInvitationAddress[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
-	a := newRulesApp(ctx, t, be, oneOrganization(signin.InvitedUsersOnly))
+	a := newRulesApp(ctx, t, be, oneOrganization(inviteOnly))
 	inv, err := a.api.Invite(ctx, &session.InvitationRequest{Email: "pat@lakeside.edu", Name: "  Pat Invited "})
 	if err != nil {
 		t.Fatalf("Invite() error = %v", err)
@@ -463,8 +521,8 @@ func seamRulesInvitationAddress[Tx any](ctx context.Context, t *testing.T, be ba
 		t.Errorf("standing invitations after the refused sign-in = %v, want the one invitation still standing, with its name", standing)
 	}
 
-	// The invited address, in any letter case, accepts it: provisioned under the
-	// invited-users-only rule, signed in, the invitation consumed.
+	// The invited address, in any letter case, accepts it: provisioned through the
+	// invite-only method, signed in, the invitation consumed.
 	assertRedirect(t, a.googleSignIn(ctx, b, googleClaims("sub-pat", "Pat@Lakeside.edu")), "/home", url.Values{})
 	signedInAs(ctx, t, b, "Pat@Lakeside.edu")
 	if standing := a.standingInvitations(ctx, t); len(standing) != 0 {
@@ -502,6 +560,86 @@ func seamRulesInvitationAddress[Tx any](ctx context.Context, t *testing.T, be ba
 	if _, err := a.api.Invite(ctx, &session.InvitationRequest{Email: "long@lakeside.edu", Name: strings.Repeat("n", 201)}); !httpio.HasBadRequest(err) {
 		t.Errorf("Invite() with a name too long to keep: error = %v, want a bad request", err)
 	}
+}
+
+// seamRulesOpenDefaultRole is the scenario "open to sign-up with a default role".
+func seamRulesOpenDefaultRole[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
+	shape := oneOrganization(openSignUp)
+	shape.defaultRole = "Member"
+	a := newRulesApp(ctx, t, be, shape)
+	kim := a.createUser(ctx, t, "kim@lakeside.edu")
+
+	// A person with no account and no invitation: the account is made, and its first
+	// session already reads the default role, written in the transaction that made the
+	// account.
+	b := a.browser(t)
+	assertRedirect(t, a.entraSignIn(ctx, b, azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")), "/home", url.Values{})
+	pat := signedInAs(ctx, t, b, "pat@lakeside.edu")
+	if got := b.sessionData(ctx).Partner; got != "Member" {
+		t.Errorf("the new account holds %q, want the method's default role Member", got)
+	}
+
+	// A person an administrator created an account for is linked to it, and holds what
+	// the administrator gave them: no default role.
+	k := a.browser(t)
+	assertRedirect(t, a.entraSignIn(ctx, k, azureClaims(azureTenant, "oid-kim", "kim@lakeside.edu")), "/home", url.Values{})
+	if kv := signedInAs(ctx, t, k, "kim@lakeside.edu"); kv.UserID != kim.String() {
+		t.Errorf("session user = %s, want the pre-created %s", kv.UserID, kim)
+	}
+	if got := k.sessionData(ctx).Partner; got != "" {
+		t.Errorf("the pre-created account holds %q, want nothing given by the method", got)
+	}
+
+	// A person with an invitation gets the account the invitation makes: the
+	// invitation is consumed, and the method's default role is not given beside it.
+	if _, err := a.api.Invite(ctx, &session.InvitationRequest{Email: "sam@lakeside.edu"}); err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	i := a.browser(t)
+	i.prime(ctx)
+	i.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": invitationToken(t, a.mail)}, i.xsrfToken())
+	assertRedirect(t, a.googleSignIn(ctx, i, googleClaims("sub-sam", "sam@lakeside.edu")), "/home", url.Values{})
+	signedInAs(ctx, t, i, "sam@lakeside.edu")
+	if standing := a.standingInvitations(ctx, t); len(standing) != 0 {
+		t.Errorf("standing invitations after the acceptance = %v, want none", standing)
+	}
+	if got := i.sessionData(ctx).Partner; got != "" {
+		t.Errorf("the invited account holds %q, want what the invitation gives and no default role", got)
+	}
+
+	// An administrator makes both methods invite only again: the next stranger is
+	// refused and nothing is written for them.
+	closeMethod(ctx, t, a.store, "entra")
+	closeMethod(ctx, t, a.store, "google")
+	stranger := a.browser(t)
+	assertRedirect(t, a.entraSignIn(ctx, stranger, azureClaims(azureTenant, "oid-lee", "lee@lakeside.edu")), "/login", url.Values{"code": {"not_invited"}})
+	a.assertNoRow(ctx, t, stranger, "lee@lakeside.edu")
+	g := a.browser(t)
+	assertRedirect(t, a.googleSignIn(ctx, g, googleClaims("sub-lee", "lee@lakeside.edu")), "/login", url.Values{"code": {"not_invited"}})
+	a.assertNoRow(ctx, t, g, "lee@lakeside.edu")
+
+	// The people who have accounts keep them, and what they hold.
+	again := a.browser(t)
+	assertRedirect(t, a.entraSignIn(ctx, again, azureClaims(azureTenant, "oid-pat", "pat@lakeside.edu")), "/home", url.Values{})
+	if got := signedInAs(ctx, t, again, "pat@lakeside.edu"); got.UserID != pat.UserID {
+		t.Errorf("sign-in after the method was made invite only = user %s, want the account %s it made while open", got.UserID, pat.UserID)
+	}
+	if got := again.sessionData(ctx).Partner; got != "Member" {
+		t.Errorf("the account holds %q after the method was made invite only, want the role it was given", got)
+	}
+	kimAgain := a.browser(t)
+	assertRedirect(t, a.entraSignIn(ctx, kimAgain, azureClaims(azureTenant, "oid-kim", "kim@lakeside.edu")), "/home", url.Values{})
+	signedInAs(ctx, t, kimAgain, "kim@lakeside.edu")
+
+	// An invitation is the way in through an invite-only method, as it always was.
+	if _, err := a.api.Invite(ctx, &session.InvitationRequest{Email: "lee@lakeside.edu"}); err != nil {
+		t.Fatalf("Invite() error = %v", err)
+	}
+	invited := a.browser(t)
+	invited.prime(ctx)
+	invited.expect(ctx, http.StatusOK, http.MethodPost, "/invitation", map[string]string{"token": lastInvitationToken(t, a.mail)}, invited.xsrfToken())
+	assertRedirect(t, a.entraSignIn(ctx, invited, azureClaims(azureTenant, "oid-lee", "lee@lakeside.edu")), "/home", url.Values{})
+	signedInAs(ctx, t, invited, "lee@lakeside.edu")
 }
 
 // invitationToken is the token of the one invitation the recorder holds.
@@ -552,11 +690,11 @@ func (a *authApp[Tx]) standingInvitations(ctx context.Context, t *testing.T) []*
 	return standing
 }
 
-// seamRulesOpenSignUp is the scenario "any tenant and any Google account with open sign-up".
+// seamRulesOpenSignUp is the scenario "any tenant and any Google account, open to sign-up".
 func seamRulesOpenSignUp[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newRulesApp(ctx, t, be, &rulesShape{
-		tenants: azure.AnyTenant(), entraAccounts: signin.OpenSignUp,
-		workspaces: google.AnyGoogleAccount(), googleAccounts: signin.OpenSignUp,
+		tenants: azure.AnyTenant(), entraAccounts: openSignUp,
+		workspaces: google.AnyGoogleAccount(), googleAccounts: openSignUp,
 	})
 
 	b := a.browser(t)
@@ -578,11 +716,11 @@ func seamRulesOpenSignUp[Tx any](ctx context.Context, t *testing.T, be backend[T
 	a.assertNoRow(ctx, t, u, "u@gmail.example")
 }
 
-// seamRulesPersonalAccounts is the scenario "personal accounts beside one tenant, invited users only".
+// seamRulesPersonalAccounts is the scenario "personal accounts beside one tenant, invite only".
 func seamRulesPersonalAccounts[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newRulesApp(ctx, t, be, &rulesShape{
-		tenants: azure.Tenants(azure.Tenant(azureTenant), azure.PersonalAccounts()), entraAccounts: signin.InvitedUsersOnly,
-		workspaces: google.Workspace("lakeside", hostedDomain), googleAccounts: signin.InvitedUsersOnly,
+		tenants: azure.Tenants(azure.Tenant(azureTenant), azure.PersonalAccounts()), entraAccounts: inviteOnly,
+		workspaces: google.Workspace("lakeside", hostedDomain), googleAccounts: inviteOnly,
 	})
 	pat := a.createUser(ctx, t, "pat@outlook.example")
 
@@ -601,8 +739,8 @@ func seamRulesPersonalAccounts[Tx any](ctx context.Context, t *testing.T, be bac
 // seamRulesListedTenants is the scenario "listed tenants".
 func seamRulesListedTenants[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newRulesApp(ctx, t, be, &rulesShape{
-		tenants: azure.Tenants(azure.NamedTenant(azureTenant, "lakeside"), azure.Tenant(riversideTenant)), entraAccounts: signin.MembersOfDirectory,
-		workspaces: google.Workspace("lakeside", hostedDomain), googleAccounts: signin.MembersOfDirectory,
+		tenants: azure.Tenants(azure.NamedTenant(azureTenant, "lakeside"), azure.Tenant(riversideTenant)), entraAccounts: openSignUp,
+		workspaces: google.Workspace("lakeside", hostedDomain), googleAccounts: openSignUp,
 	})
 
 	lake := a.browser(t)
@@ -635,7 +773,7 @@ func seamRulesListedTenants[Tx any](ctx context.Context, t *testing.T, be backen
 
 // seamRulesCustomRuleFirst is the scenario "a custom rule runs first".
 func seamRulesCustomRuleFirst[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
-	shape := oneOrganization(signin.MembersOfDirectory)
+	shape := oneOrganization(openSignUp)
 	shape.entraRule = true
 	a := newRulesApp(ctx, t, be, shape)
 	a.hooks.set(func(h *hooks[Tx]) {
@@ -669,7 +807,7 @@ func seamRulesCustomRuleFirst[Tx any](ctx context.Context, t *testing.T, be back
 
 // seamRulesPolicyEveryStart is the scenario "the policy decides every session start".
 func seamRulesPolicyEveryStart[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
-	a := newRulesApp(ctx, t, be, oneOrganization(signin.MembersOfDirectory))
+	a := newRulesApp(ctx, t, be, oneOrganization(openSignUp))
 	a.hooks.set(func(h *hooks[Tx]) {
 		h.policy = func(req *sessioninfo.NewSessionRequest) *signin.Decision {
 			switch {
@@ -730,7 +868,7 @@ func passwordOnlyClaims(tid, oid, username string) map[string]any {
 
 // seamRulesAttestedByEvidence is the scenario "a token whose amr names mfa attests by evidence".
 func seamRulesAttestedByEvidence[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
-	a := newRulesApp(ctx, t, be, oneOrganization(signin.MembersOfDirectory))
+	a := newRulesApp(ctx, t, be, oneOrganization(openSignUp))
 	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCodeTx })
 
 	// Entra asserts mfa: the sign-in is never held, and the session records the
@@ -760,8 +898,8 @@ func seamRulesAttestedByEvidence[Tx any](ctx context.Context, t *testing.T, be b
 // seamRulesAttestedByDeclaration is the scenario "a Workspace and a tenant declared Attesting() attest by declaration".
 func seamRulesAttestedByDeclaration[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newRulesApp(ctx, t, be, &rulesShape{
-		tenants: azure.Tenant(azureTenant).Attesting(), entraAccounts: signin.MembersOfDirectory,
-		workspaces: google.Workspace("lakeside", hostedDomain).Attesting(), googleAccounts: signin.MembersOfDirectory,
+		tenants: azure.Tenant(azureTenant).Attesting(), entraAccounts: openSignUp,
+		workspaces: google.Workspace("lakeside", hostedDomain).Attesting(), googleAccounts: openSignUp,
 	})
 	a.hooks.set(func(h *hooks[Tx]) { h.policy = requireEmailCodeTx })
 
@@ -794,8 +932,8 @@ func seamRulesAttestedByDeclaration[Tx any](ctx context.Context, t *testing.T, b
 // seamRulesLogoutAcrossTenants is the scenario "an Entra front-channel logout on a registration serving two tenants ends the sessions under the issuer it names and no other, refuses an issuer outside the slot, and one naming no issuer, as Entra sends it, ends the sessions under whichever of the slot's issuers carry the sid".
 func seamRulesLogoutAcrossTenants[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newRulesApp(ctx, t, be, &rulesShape{
-		tenants: azure.Tenants(azure.Tenant(azureTenant), azure.Tenant(riversideTenant)), entraAccounts: signin.MembersOfDirectory,
-		workspaces: google.Workspace("lakeside", hostedDomain), googleAccounts: signin.MembersOfDirectory,
+		tenants: azure.Tenants(azure.Tenant(azureTenant), azure.Tenant(riversideTenant)), entraAccounts: openSignUp,
+		workspaces: google.Workspace("lakeside", hostedDomain), googleAccounts: openSignUp,
 	})
 
 	lake := a.browser(t)
@@ -824,9 +962,9 @@ func seamRulesLogoutAcrossTenants[Tx any](ctx context.Context, t *testing.T, be 
 // seamRulesListedWorkspaces is the scenario "listed Workspaces".
 func seamRulesListedWorkspaces[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newRulesApp(ctx, t, be, &rulesShape{
-		tenants: azure.Tenant(azureTenant), entraAccounts: signin.MembersOfDirectory,
+		tenants: azure.Tenant(azureTenant), entraAccounts: openSignUp,
 		workspaces:     google.Workspaces(google.Workspace("lakeside", hostedDomain), google.Workspace("riverside", riversideDomain)),
-		googleAccounts: signin.MembersOfDirectory,
+		googleAccounts: openSignUp,
 	})
 
 	lake := a.browser(t)
@@ -851,8 +989,8 @@ func seamRulesListedWorkspaces[Tx any](ctx context.Context, t *testing.T, be bac
 // seamRulesAnyWorkspace is the scenario "any Workspace, invited users only".
 func seamRulesAnyWorkspace[Tx any](ctx context.Context, t *testing.T, be backend[Tx]) {
 	a := newRulesApp(ctx, t, be, &rulesShape{
-		tenants: azure.Tenant(azureTenant), entraAccounts: signin.InvitedUsersOnly,
-		workspaces: google.AnyWorkspace(), googleAccounts: signin.InvitedUsersOnly,
+		tenants: azure.Tenant(azureTenant), entraAccounts: inviteOnly,
+		workspaces: google.AnyWorkspace(), googleAccounts: inviteOnly,
 	})
 	pat := a.createUser(ctx, t, "pat@hilltop.edu")
 

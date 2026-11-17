@@ -101,14 +101,17 @@ type authFixture struct {
 	signedInErr   error
 }
 
-// storeSignIn is one call of the mocked store's SignIn: the request, the account rules
-// of the identity's registration and the Auth's policy, as the store received them.
+// storeSignIn is one call of the mocked store's SignIn: the request, the account rule
+// of the identity's registration with the name it is registered under, by which the
+// store reads what was chosen for it, and the Auth's policy, as the store received
+// them.
 type storeSignIn struct {
-	req      *sessioninfo.NewSessionRequest
-	rule     signin.AccountRule[mockTx]
-	standard signin.StandardAccountRule
-	policy   signin.Policy[mockTx]
-	accept   signinflow.InvitationAcceptor[mockTx]
+	req    *sessioninfo.NewSessionRequest
+	rule   signin.AccountRule[mockTx]
+	method string
+	policy signin.Policy[mockTx]
+	accept signinflow.InvitationAcceptor[mockTx]
+	signUp signinflow.SignUpSeater[mockTx]
 }
 
 func newAuthFixture(t *testing.T, ctrl *gomock.Controller, options ...AuthOption) *authFixture {
@@ -419,10 +422,10 @@ func createSession(store *mock_sessionstorage.MockAuthStore[mockTx], id impulse.
 func (f *authFixture) expectSignIn(id impulse.UUID, prepare func(req *sessioninfo.NewSessionRequest), stop func(req *sessioninfo.NewSessionRequest) error) {
 	f.store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, req *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[mockTx]) (impulse.UUID, error) {
-			rule, standard, policy, accept := rules.Account, rules.Standard, rules.Policy, rules.Accept
-			f.signedIn = &storeSignIn{req: req, rule: rule, standard: standard, policy: policy, accept: accept}
-			if external := !namesItsUser(req.Identity); (rule != nil || standard != "") != external {
-				f.t.Errorf("SignIn() given account rules = %v, %q; want some only for an external identity, not a %s one", rule != nil, standard, req.Identity.Method)
+			rule, method, policy, accept := rules.Account, rules.Method, rules.Policy, rules.Accept
+			f.signedIn = &storeSignIn{req: req, rule: rule, method: method, policy: policy, accept: accept, signUp: rules.SignUp}
+			if external := !namesItsUser(req.Identity); (method != "") != external || (rule != nil && !external) {
+				f.t.Errorf("SignIn() given the account rule %v and the method %q; want a method's name only for an external identity, not a %s one", rule != nil, method, req.Identity.Method)
 			}
 			if policy == nil {
 				f.t.Error("SignIn() given no policy, want the Auth's")
@@ -636,8 +639,8 @@ func TestAuth_RegisterSignInMethods(t *testing.T) {
 		}
 		external := a.registered().external
 		if len(external) != 2 || external["lakeside"] == nil || external["riverside"] == nil || external["lakeside"].rule == nil || external["riverside"].rule == nil ||
-			external["lakeside"].standard != signin.MembersOfDirectory || external["riverside"].standard != signin.MembersOfDirectory {
-			t.Errorf("registered external methods = %v, want lakeside and riverside, each with its rule and the standard rule", slices.Sorted(maps.Keys(external)))
+			external["lakeside"].name != "lakeside" || external["riverside"].name != "riverside" {
+			t.Errorf("registered external methods = %v, want lakeside and riverside, each with its rule under its own name", slices.Sorted(maps.Keys(external)))
 		}
 	})
 
@@ -794,40 +797,6 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 			wantHas: "rule is required",
 		},
 		{
-			name: "a registration with neither a standard account rule nor a custom one",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				a.RegisterExternal(&signin.Registration[mockTx]{
-					Name: "bare", Method: sessioninfo.AuthMethod("bare"),
-					Build: func(signin.StateCookies) (*signin.Method, error) { return &signin.Method{Name: "bare"}, nil },
-				})
-			},
-			wantHas: "needs an account rule: it has no standard rule",
-		},
-		{
-			name: "a registration naming a standard account rule that does not exist",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				a.RegisterExternal(&signin.Registration[mockTx]{
-					Name: "bare", Method: sessioninfo.AuthMethod("bare"), StandardRule: "everyone-welcome",
-					Build: func(signin.StateCookies) (*signin.Method, error) { return &signin.Method{Name: "bare"}, nil },
-				})
-			},
-			wantHas: `"everyone-welcome" is not a standard account rule: use signin.MembersOfDirectory`,
-		},
-		{
-			name: "the Azure method with open sign-up, which one tenant cannot take",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", nil, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", Accounts: signin.OpenSignUp})
-			},
-			wantHas: "Accounts: open sign-up is for any tenant or personal accounts",
-		},
-		{
-			name: "the Google method with open sign-up, which one Workspace cannot take",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", nil, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspace("lakeside", "example.com"), Accounts: signin.OpenSignUp})
-			},
-			wantHas: "Accounts: open sign-up is for any Workspace or any Google account; a registration naming its Workspaces",
-		},
-		{
 			name:   "a registration name used twice, by the same method",
 			before: entra,
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
@@ -901,16 +870,9 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		{
 			name: "an Azure method synchronizing roles across any tenant",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t))), Authority: testAuthority, Tenants: azure.AnyTenant(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", Accounts: signin.InvitedUsersOnly})
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t))), Authority: testAuthority, Tenants: azure.AnyTenant(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
 			},
 			wantHas: "RoleSync: role synchronization follows one tenant's application roles",
-		},
-		{
-			name: "an Azure method admitting any tenant as members of the directory with no rule of its own",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", nil, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.AnyTenant(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
-			},
-			wantHas: "Accounts: members of the directory with any tenant or personal accounts would sign up the world",
 		},
 		{
 			name: "an Azure tenant list with no tenant",
@@ -936,30 +898,16 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		{
 			name: "an Azure method synchronizing roles across listed tenants",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t))), Authority: testAuthority, Tenants: azure.Tenants(azure.Tenant(tenantLake), azure.Tenant(tenantRiver)), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", Accounts: signin.InvitedUsersOnly})
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t))), Authority: testAuthority, Tenants: azure.Tenants(azure.Tenant(tenantLake), azure.Tenant(tenantRiver)), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
 			},
 			wantHas: "RoleSync: role synchronization follows one tenant's application roles",
 		},
 		{
 			name: "an Azure method synchronizing roles for personal accounts",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t))), Authority: testAuthority, Tenants: azure.PersonalAccounts(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", Accounts: signin.InvitedUsersOnly})
+				azure.SignIn(a, "azure", resolveAll[azure.Identity](), &azure.Config{RoleSync: signin.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t))), Authority: testAuthority, Tenants: azure.PersonalAccounts(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
 			},
 			wantHas: "RoleSync: role synchronization follows one tenant's application roles",
-		},
-		{
-			name: "the Azure method with open sign-up on listed tenants",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", nil, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenants(azure.Tenant(tenantLake), azure.Tenant(tenantRiver)), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback", Accounts: signin.OpenSignUp})
-			},
-			wantHas: "Accounts: open sign-up is for any tenant or personal accounts",
-		},
-		{
-			name: "an Azure method admitting personal accounts as members of the directory with no rule of its own",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				azure.SignIn(a, "azure", nil, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.PersonalAccounts(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/azure/callback"})
-			},
-			wantHas: "Accounts: members of the directory with any tenant or personal accounts would sign up the world",
 		},
 		{
 			name: "an Azure role sync slot without a manager",
@@ -999,16 +947,9 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		{
 			name: "a Google method synchronizing roles across any Workspace",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t)), "app-", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.AnyWorkspace(), Accounts: signin.InvitedUsersOnly})
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t)), "app-", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.AnyWorkspace()})
 			},
 			wantHas: "RoleSync: role synchronization reads the groups of one Workspace",
-		},
-		{
-			name: "a Google method admitting any Google account as members of the directory, with no rule of the application's own",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", nil, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.AnyGoogleAccount()})
-			},
-			wantHas: "would sign up the world",
 		},
 		{
 			name: "a Google Workspace list with no Workspace",
@@ -1034,30 +975,16 @@ func TestAuth_RegistrationRefused(t *testing.T) {
 		{
 			name: "a Google method synchronizing roles across listed Workspaces",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t)), "app-", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspaces(google.Workspace("lakeside", "example.com"), google.Workspace("riverside", "example.org")), Accounts: signin.InvitedUsersOnly})
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t)), "app-", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspaces(google.Workspace("lakeside", "example.com"), google.Workspace("riverside", "example.org"))})
 			},
 			wantHas: "RoleSync: role synchronization reads the groups of one Workspace",
 		},
 		{
 			name: "a Google method synchronizing roles for any Google account",
 			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t)), "app-", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.AnyGoogleAccount(), Accounts: signin.InvitedUsersOnly})
+				google.SignIn(a, "google", resolveAll[google.Identity](), &google.Config{RoleSync: google.RoleSync(mock_signin.NewMockUserRoleManager(gomock.NewController(t)), "app-", google.DirectGroups()), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.AnyGoogleAccount()})
 			},
 			wantHas: "RoleSync: role synchronization reads the groups of one Workspace",
-		},
-		{
-			name: "the Google method with open sign-up on listed Workspaces",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", nil, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.Workspaces(google.Workspace("lakeside", "example.com"), google.Workspace("riverside", "example.org")), Accounts: signin.OpenSignUp})
-			},
-			wantHas: "Accounts: open sign-up is for any Workspace or any Google account",
-		},
-		{
-			name: "a Google method admitting any Workspace as members of the directory with no rule of its own",
-			register: func(a *Auth[NoCustomData, NoCustomData, mockTx]) {
-				google.SignIn(a, "google", nil, &google.Config{RoleSync: google.DisableRoleSync(), ClientID: "client", ClientSecret: "secret", RedirectURL: "https://app/google/callback", Workspaces: google.AnyWorkspace()})
-			},
-			wantHas: "Accounts: members of the directory with any Workspace or any Google account would sign up the world",
 		},
 		{
 			name: "a Google method without its role sync slot",
@@ -2511,9 +2438,10 @@ func TestAuthAPI_StartAuthenticatedSession(t *testing.T) {
 	}
 }
 
-// TestAuth_AccountRulesGivenToTheStore proves a registration hands the store the account
-// rules it was configured with: the standard rule, members of the directory unless
-// Accounts says otherwise, and the application's own rule only when one was given.
+// TestAuth_AccountRulesGivenToTheStore proves a registration hands the store what decides
+// a person it has no account for: the name it is registered under, by which the store
+// reads what an administrator chose for it, and the application's own rule only when
+// one was given.
 func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
 	t.Parallel()
 
@@ -2523,15 +2451,12 @@ func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
 	}
 
 	tests := []struct {
-		name         string
-		rule         azure.AccountRule[mockTx]
-		accounts     signin.StandardAccountRule
-		wantStandard signin.StandardAccountRule
-		wantRule     bool
+		name     string
+		rule     azure.AccountRule[mockTx]
+		wantRule bool
 	}{
-		{name: "no rule and no Accounts: members of the directory, by the library", wantStandard: signin.MembersOfDirectory},
-		{name: "no rule, invited users only", accounts: signin.InvitedUsersOnly, wantStandard: signin.InvitedUsersOnly},
-		{name: "a custom rule beside the standard one", rule: custom, accounts: signin.InvitedUsersOnly, wantStandard: signin.InvitedUsersOnly, wantRule: true},
+		{name: "no rule: the method's name alone, for the library's standard rule"},
+		{name: "a custom rule beside the method's name", rule: custom, wantRule: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -2548,7 +2473,7 @@ func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
 
 					return "/next", "", nil
 				})
-			entra := azure.SignIn(f.auth, "azure", tt.rule, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), Accounts: tt.accounts, Authenticator: authn})
+			entra := azure.SignIn(f.auth, "staff-directory", tt.rule, &azure.Config{RoleSync: signin.DisableRoleSync(), Authority: testAuthority, Tenants: azure.Tenant(tenantLake), Authenticator: authn})
 			f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 				req.UserID, req.Username = impulse.Must(impulse.NewUUID()), "p.lee@lakeside.edu"
 			}, nil)
@@ -2558,8 +2483,8 @@ func TestAuth_AccountRulesGivenToTheStore(t *testing.T) {
 			if rr.Code != http.StatusFound || rr.Header().Get("Location") != "/next" {
 				t.Fatalf("response = %d %q, want 302 /next", rr.Code, rr.Header().Get("Location"))
 			}
-			if f.signedIn.standard != tt.wantStandard || (f.signedIn.rule != nil) != tt.wantRule {
-				t.Errorf("SignIn() given standard rule %q and a custom rule = %v, want %q and %v", f.signedIn.standard, f.signedIn.rule != nil, tt.wantStandard, tt.wantRule)
+			if f.signedIn.method != "staff-directory" || (f.signedIn.rule != nil) != tt.wantRule {
+				t.Errorf("SignIn() given the method %q and a custom rule = %v, want the registration's name and %v", f.signedIn.method, f.signedIn.rule != nil, tt.wantRule)
 			}
 			if tt.wantRule {
 				res, err := f.signedIn.rule(context.Background(), mockTx{}, f.signedIn.req)
@@ -2587,7 +2512,7 @@ func TestAuth_WithoutPolicy(t *testing.T) {
 	store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
 	store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, _ *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[mockTx]) (impulse.UUID, error) {
-			if rules.Account != nil || rules.Standard != "" || rules.Policy != nil || rules.Accept != nil || rules.Directories != nil || rules.Seat != nil {
+			if rules.Account != nil || rules.Method != "" || rules.Policy != nil || rules.Accept != nil || rules.SignUp != nil || rules.Directories != nil || rules.Seat != nil {
 				t.Errorf("SignIn() given rules = %+v, want none: the Auth has no policy and no hooks", rules)
 			}
 
@@ -3334,7 +3259,7 @@ func TestAuth_CallbackFromUndeclaredIssuer(t *testing.T) {
 	t.Parallel()
 	f := newAuthFixture(t, gomock.NewController(t))
 	h := f.auth.RegisterExternal(&signin.Registration[mockTx]{
-		Name: "bare", Method: sessioninfo.AuthMethod("bare"), StandardRule: signin.MembersOfDirectory,
+		Name: "bare", Method: sessioninfo.AuthMethod("bare"),
 		Issuers: signin.IssuerList("https://issuer"),
 		Build: func(signin.StateCookies) (*signin.Method, error) {
 			return &signin.Method{

@@ -74,8 +74,8 @@ type mailSettings struct {
 // WithMail gives the Auth the means to send mail: sender delivers the messages
 // (mail/workspace is the Google Workspace relay), and settings say as whom and where
 // the links lead. It is needed by invitations (AuthAPI.Invite, Invitation()), the
-// add-address step (Email()) and sign-up (SignUp(), with OpenSignUp on the password
-// method); an Auth without it offers none of them. NewAuth refuses a nil sender, an
+// add-address step (Email()) and sign-up (SignUp(), while an administrator has the
+// password method open to it); an Auth without it offers none of them. NewAuth refuses a nil sender, an
 // empty application name and a login URL that is not an absolute http or https URL.
 func WithMail(sender mail.Sender, settings MailSettings) AuthOption {
 	return authOption{apply: func(s *authSettings) { s.mail = &mailSettings{sender: sender, settings: settings} }}

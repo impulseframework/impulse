@@ -38,15 +38,6 @@ type Config struct {
 	// the groups of one Workspace: it is refused with several Workspaces, any
 	// Workspace or any Google account.
 	RoleSync RoleSyncConfig
-	// Accounts is the standard account rule for an account that signs in for the first
-	// time: signin.MembersOfDirectory (the default) provisions an account under the
-	// verified email, signin.InvitedUsersOnly links only a pre-created user under that
-	// email and refuses anyone else, signin.OpenSignUp provisions anyone. With one or
-	// several named Workspaces open sign-up is refused at registration; with any
-	// Workspace or any Google account members of the directory is refused unless a
-	// rule is given to SignIn, since it would sign up the world. A rule given to
-	// SignIn runs first and may leave the decision to this one with signin.Standard.
-	Accounts signin.StandardAccountRule
 	// LoginURL is where refused and pending sign-ins are sent. (default: /login)
 	LoginURL string
 	// Authenticator replaces the verifier built from the fields above. Tests inject a
@@ -59,7 +50,7 @@ type Identity struct {
 	// Subject keys the identity: the sub claim, unique among all Google identities.
 	Subject string
 	// Email is the email claim; the sign-in refused it unless Google verified it. The
-	// standard account rules use it as the username.
+	// standard account rule uses it as the username.
 	Email string
 	// HostedDomain is the hd claim: the domain of the Workspace the account is on, ""
 	// for a Google account outside a Workspace, which only AnyGoogleAccount admits.
@@ -78,9 +69,10 @@ type Identity struct {
 }
 
 // AccountRule is the application's own rule for a Google identity that is not linked
-// to any user yet, given to SignIn; nil leaves every such identity to the standard rule
-// in Config.Accounts. See signin.AccountRule for when it runs and what it may do. Tx is
-// the Auth's storage transaction type.
+// to any user yet, given to SignIn; nil leaves every such identity to the library's
+// standard rule, which reads what an administrator chose for the registration in the
+// running application. See signin.AccountRule for when it runs and what it may do. Tx
+// is the Auth's storage transaction type.
 type AccountRule[Tx any] func(ctx context.Context, tx Tx, identity *Identity) (*signin.Resolution, error)
 
 // Method holds the handlers of the Google Workspace sign-in method.
@@ -93,29 +85,24 @@ type Method struct {
 // returns its handlers. name identifies the registration on auth. The identity key is
 // (connection, sub), the connection being what cfg.Workspaces selects for the account.
 // An identity that is not linked yet is decided by rule when one is given and by the
-// standard rule in cfg.Accounts otherwise, or when rule answers signin.Standard; nil is
-// the usual value.
+// library's standard rule otherwise, or when rule answers signin.Standard; nil is the
+// usual value. The standard rule admits a person with no account by invitation only,
+// until an administrator opens the registration to sign-up in the running application:
+// how wide the registration is (cfg.Workspaces) is whom that opens it to.
 //
 // It panics when name is empty or already used on auth, when auth has served a
-// request, when cfg.RoleSync or cfg.Workspaces is missing or malformed, when role
-// synchronization is asked for with other than one Workspace, and when cfg.Accounts
-// does not fit the slot: open sign-up with named Workspaces only, members of the
-// directory with any Workspace or any Google account and no rule, or no standard rule.
+// request, when cfg.RoleSync or cfg.Workspaces is missing or malformed, and when role
+// synchronization is asked for with other than one Workspace.
 func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg *Config) *Method {
 	if cfg == nil {
 		cfg = &Config{}
 	}
-	accounts := cfg.Accounts
-	if accounts == "" {
-		accounts = signin.MembersOfDirectory
-	}
 	reg := &signin.Registration[Tx]{
-		Name:         name,
-		Method:       sessioninfo.MethodGoogle,
-		StandardRule: accounts,
-		AccountRule:  accountRule(rule),
-		Issuers:      signin.IssuerList(IssuerURL),
-		Err:          refuseShape(cfg.Workspaces, cfg.RoleSync, accounts, rule == nil),
+		Name:        name,
+		Method:      sessioninfo.MethodGoogle,
+		AccountRule: accountRule(rule),
+		Issuers:     signin.IssuerList(IssuerURL),
+		Err:         refuseShape(cfg.Workspaces, cfg.RoleSync),
 		Build: func(cookies signin.StateCookies) (*signin.Method, error) {
 			groups, err := groupSyncOf(cfg.RoleSync)
 			if err != nil {
@@ -145,23 +132,14 @@ func SignIn[Tx any](auth signin.Core[Tx], name string, rule AccountRule[Tx], cfg
 }
 
 // refuseShape is the registration's startup check of the organization slot against the
-// role sync slot and the account rules, each refusal naming its field: the slot's own
-// rules (validate), role synchronization with other than one Workspace, open sign-up
-// with named Workspaces only, and members of the directory with an open slot and no
-// rule of the application's own.
-func refuseShape(workspaces WorkspaceSet, roleSync RoleSyncConfig, accounts signin.StandardAccountRule, noRule bool) error {
+// role sync slot, each refusal naming its field: the slot's own rules (validate), and
+// role synchronization with other than one Workspace.
+func refuseShape(workspaces WorkspaceSet, roleSync RoleSyncConfig) error {
 	if err := workspaces.validate(); err != nil {
 		return err
 	}
 	if _, one := workspaces.one(); !one && roleSync != nil && roleSync.groupSync() != nil {
 		return errors.New("RoleSync: role synchronization reads the groups of one Workspace; a registration serving several Workspaces, any Workspace or any Google account takes google.DisableRoleSync()")
-	}
-	switch {
-	case accounts == signin.OpenSignUp && !workspaces.open():
-		return errors.New("Accounts: open sign-up is for any Workspace or any Google account; a registration naming its Workspaces takes members of the directory or invited users only")
-	case accounts == signin.MembersOfDirectory && workspaces.open() && noRule:
-		return errors.New("Accounts: members of the directory with any Workspace or any Google account would sign up the world; " +
-			"use signin.InvitedUsersOnly, signin.OpenSignUp, or give SignIn a rule of the application's own")
 	}
 
 	return nil
@@ -244,6 +222,7 @@ func method(authn Authenticator, groups *groupSync, workspaces WorkspaceSet) *si
 	m := &signin.Method{
 		Name:     sessioninfo.MethodGoogle,
 		LoginURL: authn.LoginURL,
+		Audience: workspaces.audience(),
 		AdmitsAddress: func(email string) bool {
 			return workspaces.admitsAddress(signin.AddressDomain(email))
 		},

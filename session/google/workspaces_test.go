@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/impulseframework/impulse/session/signin"
 	"go.uber.org/mock/gomock"
 
 	"github.com/impulseframework/impulse/session/mock/mock_signin"
@@ -96,36 +95,60 @@ func TestRefuseShape(t *testing.T) {
 		name       string
 		workspaces WorkspaceSet
 		roleSync   RoleSyncConfig
-		accounts   signin.StandardAccountRule
-		rule       bool
 		wantErrHas string
 	}{
-		{name: "one Workspace with role sync and members of the directory", workspaces: one, roleSync: sync, accounts: signin.MembersOfDirectory},
-		{name: "one Workspace with invited users only", workspaces: one, roleSync: DisableRoleSync(), accounts: signin.InvitedUsersOnly},
-		{name: "listed Workspaces without role sync", workspaces: listed, roleSync: DisableRoleSync(), accounts: signin.MembersOfDirectory},
-		{name: "the slot's own refusals come first", workspaces: Workspace("lakeside"), roleSync: DisableRoleSync(), accounts: signin.MembersOfDirectory, wantErrHas: "needs at least one domain"},
-		{name: "role sync with listed Workspaces is refused", workspaces: listed, roleSync: sync, accounts: signin.InvitedUsersOnly, wantErrHas: "RoleSync: role synchronization reads the groups of one Workspace"},
-		{name: "role sync with any Workspace is refused", workspaces: AnyWorkspace(), roleSync: sync, accounts: signin.InvitedUsersOnly, wantErrHas: "RoleSync: role synchronization reads the groups of one Workspace"},
-		{name: "role sync with any Google account is refused", workspaces: AnyGoogleAccount(), roleSync: sync, accounts: signin.InvitedUsersOnly, wantErrHas: "RoleSync: role synchronization reads the groups of one Workspace"},
-		{name: "role sync with a named Workspace beside any Google account is refused", workspaces: Workspaces(one, AnyGoogleAccount()), roleSync: sync, accounts: signin.InvitedUsersOnly, wantErrHas: "RoleSync: role synchronization reads the groups of one Workspace"},
-		{name: "open sign-up with one Workspace is refused", workspaces: one, roleSync: DisableRoleSync(), accounts: signin.OpenSignUp, wantErrHas: "Accounts: open sign-up is for any Workspace or any Google account"},
-		{name: "open sign-up with listed Workspaces is refused", workspaces: listed, roleSync: DisableRoleSync(), accounts: signin.OpenSignUp, wantErrHas: "Accounts: open sign-up is for any Workspace or any Google account"},
-		{name: "open sign-up with any Google account", workspaces: AnyGoogleAccount(), roleSync: DisableRoleSync(), accounts: signin.OpenSignUp},
-		{name: "open sign-up with any Workspace", workspaces: AnyWorkspace(), roleSync: DisableRoleSync(), accounts: signin.OpenSignUp},
-		{name: "members of the directory with any Workspace and no rule is refused", workspaces: AnyWorkspace(), roleSync: DisableRoleSync(), accounts: signin.MembersOfDirectory, wantErrHas: "would sign up the world"},
-		{name: "members of the directory with any Google account and no rule is refused", workspaces: AnyGoogleAccount(), roleSync: DisableRoleSync(), accounts: signin.MembersOfDirectory, wantErrHas: "would sign up the world"},
-		{name: "members of the directory with any Workspace and a rule of the application's own", workspaces: AnyWorkspace(), roleSync: DisableRoleSync(), accounts: signin.MembersOfDirectory, rule: true},
-		{name: "invited users only with any Google account", workspaces: AnyGoogleAccount(), roleSync: DisableRoleSync(), accounts: signin.InvitedUsersOnly},
-		{name: "a missing role sync slot is left to the role sync check", workspaces: one, roleSync: nil, accounts: signin.MembersOfDirectory},
+		{name: "one Workspace with role sync", workspaces: one, roleSync: sync},
+		{name: "one Workspace without role sync", workspaces: one, roleSync: DisableRoleSync()},
+		{name: "listed Workspaces without role sync", workspaces: listed, roleSync: DisableRoleSync()},
+		{name: "any Workspace without role sync", workspaces: AnyWorkspace(), roleSync: DisableRoleSync()},
+		{name: "any Google account without role sync", workspaces: AnyGoogleAccount(), roleSync: DisableRoleSync()},
+		{name: "the slot's own refusals come first", workspaces: Workspace("lakeside"), roleSync: DisableRoleSync(), wantErrHas: "needs at least one domain"},
+		{name: "role sync with listed Workspaces is refused", workspaces: listed, roleSync: sync, wantErrHas: "RoleSync: role synchronization reads the groups of one Workspace"},
+		{name: "role sync with any Workspace is refused", workspaces: AnyWorkspace(), roleSync: sync, wantErrHas: "RoleSync: role synchronization reads the groups of one Workspace"},
+		{name: "role sync with any Google account is refused", workspaces: AnyGoogleAccount(), roleSync: sync, wantErrHas: "RoleSync: role synchronization reads the groups of one Workspace"},
+		{name: "role sync with a named Workspace beside any Google account is refused", workspaces: Workspaces(one, AnyGoogleAccount()), roleSync: sync, wantErrHas: "RoleSync: role synchronization reads the groups of one Workspace"},
+		{name: "a missing role sync slot is left to the role sync check", workspaces: one, roleSync: nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			err := refuseShape(tt.workspaces, tt.roleSync, tt.accounts, !tt.rule)
+			err := refuseShape(tt.workspaces, tt.roleSync)
 
 			if (err != nil) != (tt.wantErrHas != "") || (err != nil && !strings.Contains(err.Error(), tt.wantErrHas)) {
 				t.Errorf("refuseShape() error = %v, want one containing %q", err, tt.wantErrHas)
+			}
+		})
+	}
+}
+
+func TestWorkspaceSet_audience(t *testing.T) {
+	t.Parallel()
+
+	one := Workspace("lakeside", "lakeside.edu")
+
+	tests := []struct {
+		name       string
+		workspaces WorkspaceSet
+		// want is whom opening the method to sign-up admits, in the page's words.
+		want        string
+		wantLimited bool
+	}{
+		{name: "one Workspace is its domain", workspaces: one, want: "anyone with an account at lakeside.edu", wantLimited: true},
+		{name: "a Workspace with two domains names both", workspaces: Workspace("lakeside", "lakeside.edu", "lakeside.org"), want: "anyone with an account at lakeside.edu or lakeside.org", wantLimited: true},
+		{name: "listed Workspaces name every domain", workspaces: Workspaces(Workspace("lakeside", "lakeside.edu", "lakeside.org"), Workspace("riverside", "riverside.edu")), want: "anyone with an account at lakeside.edu, lakeside.org or riverside.edu", wantLimited: true},
+		{name: "any Workspace", workspaces: AnyWorkspace(), want: "anyone with a Google Workspace account"},
+		{name: "any Google account", workspaces: AnyGoogleAccount(), want: "anyone with a Google account"},
+		{name: "a named Workspace beside any Google account is as wide as any Google account", workspaces: Workspaces(one, AnyGoogleAccount()), want: "anyone with a Google account"},
+		{name: "any Workspace beside any Google account is any Google account", workspaces: Workspaces(AnyWorkspace(), AnyGoogleAccount()), want: "anyone with a Google account"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got := tt.workspaces.audience()
+			if got.Words() != tt.want || got.Limited() != tt.wantLimited {
+				t.Errorf("audience() = %q (limited %v), want %q (limited %v)", got.Words(), got.Limited(), tt.want, tt.wantLimited)
 			}
 		})
 	}

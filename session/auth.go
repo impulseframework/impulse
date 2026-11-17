@@ -30,12 +30,13 @@ type authSettings struct {
 	pendingHook    PendingHook
 	pendingTimeout time.Duration
 	pendingCookie  string
-	// identitiesTable, pendingSignInsTable, signInAttemptsTable and mailLinksTable
-	// name the group's tables; nil keeps the store's defaults.
+	// identitiesTable, pendingSignInsTable, signInAttemptsTable, mailLinksTable and
+	// signInMethodsTable name the group's tables; nil keeps the store's defaults.
 	identitiesTable     *string
 	pendingSignInsTable *string
 	signInAttemptsTable *string
 	mailLinksTable      *string
+	signInMethodsTable  *string
 	// mail is how the Auth sends mail, nil when it sends none.
 	mail *mailSettings
 	// invitationCookie names the cookie that carries an opened invitation into the
@@ -141,6 +142,12 @@ func WithMailLinksTableName(name string) AuthOption {
 	return authOption{apply: func(s *authSettings) { s.mailLinksTable = &name }}
 }
 
+// WithSignInMethodsTableName sets the name of the group's sign-in methods table.
+// (default: SessionSignInMethods)
+func WithSignInMethodsTableName(name string) AuthOption {
+	return authOption{apply: func(s *authSettings) { s.signInMethodsTable = &name }}
+}
+
 // WithInvitationCookieName sets the name of the cookie that carries an invitation the
 // browser opened into the sign-in. (default: auth-invitation)
 func WithInvitationCookieName(name string) AuthOption {
@@ -196,6 +203,7 @@ func nameTables[Tx any](storage sessionstorage.AuthStore[Tx], settings *authSett
 		{option: "WithPendingSignInsTableName", name: settings.pendingSignInsTable, set: storage.SetPendingSignInsTableName},
 		{option: "WithSignInAttemptsTableName", name: settings.signInAttemptsTable, set: storage.SetSignInAttemptsTableName},
 		{option: "WithMailLinksTableName", name: settings.mailLinksTable, set: storage.SetMailLinksTableName},
+		{option: "WithSignInMethodsTableName", name: settings.signInMethodsTable, set: storage.SetSignInMethodsTableName},
 		{option: "WithTokensTableName", name: settings.tokensTable, set: storage.SetTokensTableName},
 		{option: "WithDeviceCodesTableName", name: settings.deviceCodesTable, set: storage.SetDeviceCodesTableName},
 		{option: "WithFactorCodesTableName", name: settings.factorCodesTable, set: storage.SetFactorCodesTableName},
@@ -264,6 +272,9 @@ type Auth[SessionData, UserData, Tx any] struct {
 	// none. Set by SetDirectoryAdmission before the Auth is in use.
 	directories     signin.DirectoryReader[Tx]
 	directorySeated signinflow.DirectorySeater[Tx]
+	// signUpSeated gives a person who signed up through an open method the method's
+	// default role, nil for none.
+	signUpSeated signinflow.SignUpSeater[Tx]
 	// tenantNames names the tenant an invitation seats a person in, for the invitation
 	// screen; nil for none. Set by SetTenantNames before the Auth is in use.
 	tenantNames TenantNamer
@@ -713,9 +724,9 @@ type DirectorySeatedHook[Tx any] = func(ctx context.Context, tx Tx, userID impul
 // sign-in through a tenant's directory: reader, which reads the declaration of the
 // directory the identity came through (signin.DirectoryReader: the tenant whose
 // directory it is, since a directory belongs to one tenant), and hook, which seats the
-// person with the default seat the declaration names. With them the standard account
-// rules ask the tenant first: its declaration decides before the registration's own
-// rule. A default seat admits a stranger with it, and a declaration naming none
+// person with the default seat the declaration names. With them the standard rule asks
+// the tenant first: its declaration decides before the sign-in method's own choice,
+// open or invite only. A default seat admits a stranger with it, and a declaration naming none
 // refuses a stranger by invitation only (invitation_only, unless the sign-in carries
 // an invitation), with no account created. A person who has an account (one another
 // tenant invited, or one the application created ahead) is no stranger: the sign-in
@@ -723,7 +734,7 @@ type DirectorySeatedHook[Tx any] = func(ctx context.Context, tx Tx, userID impul
 // given with the link when they hold no role in the tenant. A directory no tenant
 // declares, and a personal account, which is no organization's directory
 // (signin.Directory.PersonalAccounts), fall to the
-// registration's rule as without them. Set the two after NewAuth and before serving
+// sign-in method's choice as without them. Set the two after NewAuth and before serving
 // the first request; a nil reader or hook, a second call, or a call once the Auth is
 // in use is a wiring mistake and panics, as SetSignInPolicy does.
 func (a *Auth[SessionData, UserData, Tx]) SetDirectoryAdmission(reader signin.DirectoryReader[Tx], hook DirectorySeatedHook[Tx]) {
@@ -743,6 +754,49 @@ func (a *Auth[SessionData, UserData, Tx]) SetDirectoryAdmission(reader signin.Di
 		panic("session: the directory admission was set twice: one Auth has one")
 	}
 	a.directories, a.directorySeated = reader, hook
+}
+
+// SignUpSeatedHook is the application's half of a sign-up through a method an
+// administrator opened: it gives the person the default role the method's row names,
+// inside the transaction that makes their account, which it is handed, so the account
+// is made and holds the role together, or neither. The user is named by id (the key an
+// application's memberships are held under) and by username (what a log line reads);
+// method is the name the method is registered under, and role the row's default role,
+// as the application wrote it there. The library calls the hook for a person the open
+// method alone admitted and made an account for: a person who came with an invitation
+// is given the invitation's roles (InvitationAcceptedHook), and one whose account stood
+// before signs in as before and is given nothing. It is not called where the row names
+// no role, which is what an application whose people get their roles in a tenant
+// writes. It is held to what InvitationAcceptedHook is: tx alone for its reads and
+// writes, a user the transaction made not readable in it, a committed function (nil
+// for none) the library runs once the transaction has committed and before the sign-in
+// policy decides, and an error that fails the transaction and ends the sign-up, so no
+// account is left holding nothing.
+type SignUpSeatedHook[Tx any] = func(ctx context.Context, tx Tx, userID impulse.UUID, username, method, role string) (committed func(ctx context.Context), err error)
+
+// SetSignUpSeated sets the hook that gives a person who signed up through an open
+// sign-in method the method's default role. Whether a method is open is no setting of
+// the Auth's: an administrator chooses it in the running application, for each method,
+// and the choice is a row of the Auth's sign-in methods table (Tables.SignInMethods),
+// which each sign-in reads in its own transaction; a method with no row is invite only.
+// A row that names a role on an Auth with no hook fails the sign-up, so no account is
+// made holding nothing. Set it after NewAuth and before serving the first request; a
+// nil hook, a second call, or a call once the Auth is in use is a wiring mistake and
+// panics, as SetDirectoryAdmission does.
+func (a *Auth[SessionData, UserData, Tx]) SetSignUpSeated(hook SignUpSeatedHook[Tx]) {
+	if hook == nil {
+		panic("session: SetSignUpSeated was given no hook: pass the application's hook that gives the default role")
+	}
+	a.methods.mu.Lock()
+	defer a.methods.mu.Unlock()
+
+	if a.methods.inUse.Load() {
+		panic("session: the sign-up hook was set after the Auth served a request: set it before serving")
+	}
+	if a.signUpSeated != nil {
+		panic("session: the sign-up hook was set twice: one Auth has one")
+	}
+	a.signUpSeated = hook
 }
 
 // TenantNamer names a tenant by its key: what people call it, "" for a tenant it does

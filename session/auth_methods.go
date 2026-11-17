@@ -55,14 +55,12 @@ type methodHandlers struct {
 	removeUserPassword http.HandlerFunc
 }
 
-// externalMethod is a registered redirect-based method with the account rules its
-// registration gave it: the standard rule the core applies and the application's own,
-// either of which may be absent.
+// externalMethod is a registered redirect-based method with the account rule its
+// registration gave it, the application's own, nil for none.
 type externalMethod[Tx any] struct {
 	*signin.Method
-	name     string
-	standard signin.StandardAccountRule
-	rule     signin.AccountRule[Tx]
+	name string
+	rule signin.AccountRule[Tx]
 }
 
 // signInMethods are an Auth's registered sign-in methods. Registration writes them
@@ -84,7 +82,9 @@ type signInMethods[Tx any] struct {
 	syncing string
 	// listed holds the names Methods was given, the methods the login page offers, in
 	// the page's order; nil when the application wired its page without Methods.
+	// labels holds the words the page shows for each of them, by name.
 	listed []string
+	labels map[string]string
 	// hasher and autoUpgrade are the password method's settings. They keep their
 	// defaults when it is not registered, since user management still hashes
 	// passwords.
@@ -105,7 +105,7 @@ type signInMethods[Tx any] struct {
 	// external holds the registered redirect-based methods by registration name.
 	external map[string]*externalMethod[Tx]
 	// password is the password method's registration, nil until it is registered: its
-	// username shape and whether it offers sign-up.
+	// username shape.
 	password *sessioncore.PasswordSettings
 	// outlets holds the names of the registered machine outlets (RegisterMachineOutlet),
 	// the only outlets tokens are issued for and accepted on.
@@ -121,11 +121,6 @@ func (m *signInMethods[Tx]) passwordRegistered() bool {
 // email address.
 func (m *signInMethods[Tx]) usernameIsEmail() bool {
 	return m.password != nil && m.password.UsernameIsEmail
-}
-
-// openSignUp reports whether the password method offers sign-up.
-func (m *signInMethods[Tx]) openSignUp() bool {
-	return m.password != nil && m.password.OpenSignUp
 }
 
 // offeredNames are the names of the methods the login page offers, in the order it
@@ -180,6 +175,7 @@ func (a *Auth[S, U, Tx]) couldAdmitAddress(email string) bool {
 // default hasher and attempt limit, no external methods.
 func (m *signInMethods[Tx]) init(storage sessionstorage.AuthStore[Tx]) {
 	m.registered = make(map[string]bool)
+	m.labels = make(map[string]string)
 	m.hasher = securehash.New(securehash.Argon2())
 	m.autoUpgrade = true
 	m.attempts = attempts.New(sessioncore.DefaultAttemptLimit, storage)
@@ -309,9 +305,6 @@ func (a *Auth[S, U, Tx]) register(reg *signInRegistration) methodHandlers {
 
 	a.refuseRegistration(reg.name, reg.method, reg.err)
 	a.refuseBeside(reg.name, reg.method, false)
-	if reg.password.OpenSignUp && a.settings.mail == nil {
-		panic("session: the password method is registered with OpenSignUp on an Auth without mail: a sign-up starts from a link mailed to the person, so pass WithMail to NewAuth")
-	}
 	a.methods.registered[reg.name] = true
 	a.methods.hasher, a.methods.autoUpgrade = reg.password.Hasher, reg.password.AutoUpgrade
 	a.methods.attempts = attempts.New(reg.password.Attempts, a.storage)
@@ -328,10 +321,12 @@ func (a *Auth[S, U, Tx]) register(reg *signInRegistration) methodHandlers {
 // RegisterExternal registers a redirect-based sign-in method under its registration's
 // name and returns its handlers. It implements signin.Core: the method packages (azure,
 // google; workos under internal) reach it through signin.Register, so an application never calls it
-// directly. It panics on a registration rule, as refuseRegistration documents, when
-// the registration has neither a standard account rule nor a custom one, when it
-// names a standard rule that does not exist, and when a registration that synchronizes
-// roles would stand beside another method, as refuseBeside documents.
+// directly. It panics on a registration rule, as refuseRegistration documents, and when
+// a registration that synchronizes roles would stand beside another method, as
+// refuseBeside documents. A person the registration has no account for is decided by
+// its own account rule where it has one, and otherwise by what an administrator chose
+// for the method in the running application: open to sign-up, or invite only, which
+// every method is until it is opened (signin.AccountRule).
 func (a *Auth[S, U, Tx]) RegisterExternal(reg *signin.Registration[Tx]) signin.Handlers {
 	if a == nil {
 		panic(fmt.Sprintf("session: the %s sign-in method is registered on a nil *Auth: pass the Auth NewAuth returned", reg.Method))
@@ -341,14 +336,6 @@ func (a *Auth[S, U, Tx]) RegisterExternal(reg *signin.Registration[Tx]) signin.H
 	defer a.methods.mu.Unlock()
 
 	a.refuseRegistration(reg.Name, reg.Method, reg.Err)
-	switch {
-	case reg.StandardRule == "" && reg.AccountRule == nil:
-		panic(fmt.Sprintf("session: the %s sign-in method links external identities and needs an account rule: it has no standard rule, so pass one to its registration", reg.Method))
-	case reg.StandardRule != "":
-		if err := reg.StandardRule.Validate(); err != nil {
-			panic(fmt.Errorf("session: the %s sign-in method: Accounts: %w", reg.Method, err))
-		}
-	}
 	if reg.FrontChannelLogout && reg.Issuers == nil {
 		panic(fmt.Sprintf("session: the %s sign-in method asks for a front-channel logout handler without declaring its issuers: set Registration.Issuers", reg.Method))
 	}
@@ -361,7 +348,7 @@ func (a *Auth[S, U, Tx]) RegisterExternal(reg *signin.Registration[Tx]) signin.H
 		a.methods.syncing = reg.Name
 	}
 	a.methods.registered[reg.Name] = true
-	a.methods.external[reg.Name] = &externalMethod[Tx]{Method: m, name: reg.Name, standard: reg.StandardRule, rule: reg.AccountRule}
+	a.methods.external[reg.Name] = &externalMethod[Tx]{Method: m, name: reg.Name, rule: reg.AccountRule}
 
 	h := signin.Handlers{Login: a.serving(a.externalLogin(m)), Callback: a.serving(a.externalCallback(reg.Name, reg.Issuers, m))}
 	if reg.FrontChannelLogout {
@@ -389,8 +376,10 @@ type PasswordMethod struct {
 
 // PasswordSignIn registers username and password sign-in on auth and returns its
 // handlers. It takes the password options (HashAlgorithm, AutoUpgradeHashes,
-// AttemptLimit, UsernameIsEmail, OpenSignUp); cookie and session options belong to
-// NewAuth.
+// AttemptLimit, UsernameIsEmail); cookie and session options belong to
+// NewAuth. Whether a person with no account may sign up with a password is no option:
+// an administrator opens the method in the running application (see "Sign-up" in the
+// README), and until then it is invite only.
 //
 // It panics when the method is already registered on auth, when auth has served a
 // request, when it is given an option that is not a password option, or when the
@@ -401,7 +390,7 @@ func PasswordSignIn(auth signInRegistry, options ...PasswordOption) *PasswordMet
 	reg := &signInRegistration{name: string(sessioninfo.MethodPassword), method: sessioninfo.MethodPassword, password: &settings}
 	for _, opt := range options {
 		if !settings.Apply(opt) {
-			reg.err = errors.New("PasswordSignIn takes password options (HashAlgorithm, AutoUpgradeHashes, AttemptLimit, UsernameIsEmail, OpenSignUp); pass cookie and session options to NewAuth")
+			reg.err = errors.New("PasswordSignIn takes password options (HashAlgorithm, AutoUpgradeHashes, AttemptLimit, UsernameIsEmail); pass cookie and session options to NewAuth")
 		}
 	}
 	if limit := settings.Attempts; reg.err == nil && (limit.Failures < 1 || limit.Window <= 0 || limit.Lock <= 0) {

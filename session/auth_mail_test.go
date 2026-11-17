@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -1094,18 +1095,36 @@ func authEmailCase4(t *testing.T) {
 	}
 }
 
+// passwordMethodRows answers the store's sign-in methods table with the password
+// method's row: open with role as its default role when open says so, and no row at
+// all otherwise, which is a method that is invite only.
+func passwordMethodRows(f *authFixture, open bool, role string) {
+	var rows []*sessionstorage.SignInMethod
+	if open {
+		row := &sessionstorage.SignInMethod{Name: "password", OpenSignUp: true}
+		if role != "" {
+			row.DefaultRole = &role
+		}
+		rows = append(rows, row)
+	}
+	f.store.EXPECT().SignInMethods(gomock.Any()).Return(rows, nil).AnyTimes()
+}
+
 func TestAuth_SignUp(t *testing.T) {
 	t.Parallel()
 
-	t.Run("a sign-up mails a link, the link opens, and completing it creates the account with the address verified, signs in and resets the address's mail count", authSignUpCase1)
+	t.Run("while the method is open a sign-up mails a link, the link opens, and completing it makes the account through the store's one transaction, signs in and resets the address's mail count", authSignUpCase1)
 	t.Run("an address an account holds is pointed at it by mail, and the screen says nothing", authSignUpCase2)
-	t.Run("sign-up is not offered without OpenSignUp, and OpenSignUp needs mail", authSignUpCase3)
+	t.Run("while the method is invite only every sign-up route answers 404: nothing is mailed, stored or created", authSignUpCase3)
+	t.Run("a completion the store refuses because the method was closed since the link was mailed is 404, and nobody is signed in", authSignUpCase4)
+	t.Run("the login page is told the sign-up routes only while the method is open, read as each request arrives", authSignUpCase5)
 }
 
 func authSignUpCase1(t *testing.T) {
 	t.Parallel()
 	userID, sessionID := newIDs()
-	f, recorder, links := newMailFixture(t, gomock.NewController(t), OpenSignUp())
+	f, recorder, links := newMailFixture(t, gomock.NewController(t))
+	passwordMethodRows(f, true, "Member")
 	f.store.EXPECT().UserByEmail(gomock.Any(), "new@lakeside.edu").Return(nil, httpio.NewNotFoundMessage("none"))
 
 	if rr := f.serve(f.auth.SignUp().Start(), http.MethodPost, "/sign-up", map[string]string{"email": "new@lakeside.edu"}, nil); rr.Code != http.StatusOK {
@@ -1116,8 +1135,9 @@ func authSignUpCase1(t *testing.T) {
 		t.Fatalf("messages = %+v, want the sign-up link", msgs)
 	}
 	token := tokenIn(t, msgs[0].Text, "signUp")
-	if row := links.last(t); row.Kind != sessionstorage.MailLinkSignUp || row.Email != "new@lakeside.edu" {
-		t.Errorf("stored link = %+v, want a sign-up for the address", row)
+	link := links.last(t)
+	if link.Kind != sessionstorage.MailLinkSignUp || link.Email != "new@lakeside.edu" {
+		t.Errorf("stored link = %+v, want a sign-up for the address", link)
 	}
 	if record := f.attemptsRecord("mail:new@lakeside.edu"); record == nil || record.Failures != 1 {
 		t.Errorf("the address's mail count after Start() = %+v, want one", record)
@@ -1128,31 +1148,32 @@ func authSignUpCase1(t *testing.T) {
 		t.Errorf("Open() = %d %s, want the address and a chosen username", rr.Code, rr.Body.String())
 	}
 
-	f.store.EXPECT().CreateUser(gomock.Any(), gomock.Any(), nil).DoAndReturn(func(_ context.Context, u *sessionstorage.InsertSessionUser, _ any) (*sessionstorage.SessionUser, error) {
-		if u.Username != "newbie" || u.PasswordHash == nil || u.Email == nil || *u.Email != "new@lakeside.edu" || !u.EmailVerified {
-			t.Errorf("CreateUser() given %+v, want the chosen username, a hash and the address verified", u)
-		}
-		// A role is held by an account's id, and a seed writes roles under an id it derives
-		// before the user exists (SeedUserID). A sign-up that chose the id it is created
-		// under, from the name or otherwise, could take roles written there; the store
-		// generates it, under which nothing is held.
-		if u.ID.Valid {
-			t.Errorf("CreateUser() given the id %s, want none: the store generates a new account's id", u.ID.UUID)
-		}
+	// The account is made by the store's sign-up, one transaction that reads the
+	// method's row, spends the link, writes the user and gives the default role: the
+	// handler creates no user and consumes no link of its own.
+	f.store.EXPECT().SignUp(gomock.Any(), "password", gomock.Any(), link.ID, gomock.Any()).DoAndReturn(
+		func(_ context.Context, _ string, u *sessionstorage.InsertSessionUser, _ impulse.UUID, _ signinflow.SignUpSeater[mockTx]) (impulse.UUID, error) {
+			if u.Username != "newbie" || u.PasswordHash == nil || u.Email == nil || *u.Email != "new@lakeside.edu" || !u.EmailVerified {
+				t.Errorf("SignUp() given %+v, want the chosen username, a hash and the address verified", u)
+			}
+			// A role is held by an account's id, and a seed writes roles under an id it
+			// derives before the user exists (SeedUserID). A sign-up that chose the id it
+			// is created under, from the name or otherwise, could take roles written
+			// there; the store generates it, under which nothing is held.
+			if u.ID.Valid {
+				t.Errorf("SignUp() given the id %s, want none: the store generates a new account's id", u.ID.UUID)
+			}
 
-		return &sessionstorage.SessionUser{ID: userID, Username: "newbie"}, nil
-	})
+			return userID, nil
+		})
 	f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
-		if req.UserID != userID || req.Identity.Method != sessioninfo.MethodPassword || req.Invitation != nil {
+		if req.UserID != userID || req.Username != "newbie" || req.Identity.Method != sessioninfo.MethodPassword || req.Invitation != nil {
 			t.Errorf("SignIn() given %+v, want the new user's password identity", req)
 		}
 	}, nil)
 	rr = f.serve(f.auth.SignUp().Complete(), http.MethodPost, "/sign-up/complete", map[string]string{"token": token, "password": "correct horse", "username": "newbie"}, nil)
 	if rr.Code != http.StatusOK || cookieNamed(rr, internalcookie.AuthCookieName) == nil {
 		t.Errorf("Complete() = %d %s, want a session", rr.Code, rr.Body.String())
-	}
-	if links.last(t).ConsumedAt == nil {
-		t.Error("the sign-up link stands after the completion, want it consumed")
 	}
 	if record := f.attemptsRecord("mail:new@lakeside.edu"); record != nil {
 		t.Errorf("the address's mail count after the sign-up was completed = %+v, want none", record)
@@ -1162,7 +1183,8 @@ func authSignUpCase1(t *testing.T) {
 func authSignUpCase2(t *testing.T) {
 	t.Parallel()
 	userID, _ := newIDs()
-	f, recorder, links := newMailFixture(t, gomock.NewController(t), OpenSignUp())
+	f, recorder, links := newMailFixture(t, gomock.NewController(t))
+	passwordMethodRows(f, true, "")
 	f.store.EXPECT().UserByEmail(gomock.Any(), "pat@lakeside.edu").Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
 
 	if rr := f.serve(f.auth.SignUp().Start(), http.MethodPost, "/sign-up", map[string]string{"email": "pat@lakeside.edu"}, nil); rr.Code != http.StatusOK || rr.Body.String() != "{}\n" {
@@ -1178,16 +1200,99 @@ func authSignUpCase2(t *testing.T) {
 
 func authSignUpCase3(t *testing.T) {
 	t.Parallel()
+
+	tests := []struct {
+		name string
+		rows []*sessionstorage.SignInMethod
+	}{
+		{name: "no row"},
+		{name: "a row that says not open", rows: []*sessionstorage.SignInMethod{{Name: "password"}}},
+		{name: "another method's row", rows: []*sessionstorage.SignInMethod{{Name: "google", OpenSignUp: true}}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			f, recorder, links := newMailFixture(t, gomock.NewController(t))
+			f.store.EXPECT().SignInMethods(gomock.Any()).Return(tt.rows, nil).AnyTimes()
+			// A link mailed while the method was open still stands.
+			token, hash, err := linkToken()
+			if err != nil {
+				t.Fatal(err)
+			}
+			links.insert(&sessionstorage.MailLink{TokenHash: hash, Kind: sessionstorage.MailLinkSignUp, Email: "new@lakeside.edu", ExpiresAt: time.Now().Add(time.Hour)})
+
+			if rr := f.serve(f.auth.SignUp().Start(), http.MethodPost, "/sign-up", map[string]string{"email": "new@lakeside.edu"}, nil); rr.Code != http.StatusNotFound {
+				t.Errorf("Start() while the method is invite only = %d %s, want 404", rr.Code, rr.Body.String())
+			}
+			if rr := f.serve(f.auth.SignUp().Open(), http.MethodPost, "/sign-up/open", map[string]string{"token": token}, nil); rr.Code != http.StatusNotFound {
+				t.Errorf("Open() of a live link while the method is invite only = %d %s, want 404", rr.Code, rr.Body.String())
+			}
+			if msgs := recorder.Messages(); len(msgs) != 0 {
+				t.Errorf("messages = %+v, want nothing mailed", msgs)
+			}
+			if len(links.rows) != 1 || links.rows[0].ConsumedAt != nil {
+				t.Errorf("mail links = %d (the first consumed %v), want the one link, untouched", len(links.rows), links.rows[0].ConsumedAt)
+			}
+		})
+	}
+}
+
+func authSignUpCase4(t *testing.T) {
+	t.Parallel()
+	f, _, links := newMailFixture(t, gomock.NewController(t))
+	token, hash, err := linkToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	links.insert(&sessionstorage.MailLink{TokenHash: hash, Kind: sessionstorage.MailLinkSignUp, Email: "new@lakeside.edu", ExpiresAt: time.Now().Add(time.Hour)})
+	// The store reads the method's row in the transaction that would make the account,
+	// and refuses: the handler asks nobody else, creates no user and signs nobody in.
+	f.store.EXPECT().SignUp(gomock.Any(), "password", gomock.Any(), links.last(t).ID, gomock.Any()).Return(impulse.NilUUID, signinflow.SignUpClosed())
+
+	rr := f.serve(f.auth.SignUp().Complete(), http.MethodPost, "/sign-up/complete", map[string]string{"token": token, "password": "correct horse", "username": "newbie"}, nil)
+
+	// The mocked store refuses a call it was not told of: no sign-in follows.
+	if rr.Code != http.StatusNotFound {
+		t.Errorf("Complete() through a closed method = %d %s, want 404", rr.Code, rr.Body.String())
+	}
+	if record := f.attemptsRecord("mail:new@lakeside.edu"); record != nil {
+		t.Errorf("the address's mail count = %+v, want it untouched by a refused sign-up", record)
+	}
+}
+
+func authSignUpCase5(t *testing.T) {
+	t.Parallel()
 	f, _, _ := newMailFixture(t, gomock.NewController(t))
-	if rr := f.serve(f.auth.SignUp().Start(), http.MethodPost, "/sign-up", map[string]string{"email": "new@lakeside.edu"}, nil); rr.Code != http.StatusNotFound {
-		t.Errorf("Start() without OpenSignUp = %d, want 404", rr.Code)
+	open := false
+	f.store.EXPECT().SignInMethods(gomock.Any()).DoAndReturn(func(context.Context) ([]*sessionstorage.SignInMethod, error) {
+		if !open {
+			return nil, nil
+		}
+
+		return []*sessionstorage.SignInMethod{{Name: "password", OpenSignUp: true}}, nil
+	}).AnyTimes()
+	h := f.auth.Methods(&MethodList{
+		Methods:        []AdvertisedMethod{{Name: "password", Label: "Password", Path: "/api/user/password/login"}},
+		ChangePassword: "/api/user/password",
+		SignUp:         SignUpRoutes{Start: "/api/user/sign-up", Open: "/api/user/sign-up/open", Complete: "/api/user/sign-up/complete"},
+	})
+
+	rr := f.serve(h, http.MethodGet, "/api/user/methods", nil, nil)
+	if body := decoded(t, rr); rr.Code != http.StatusOK || body["signUp"] != nil {
+		t.Errorf("Methods() while the method is invite only = %d %s, want no sign-up block", rr.Code, rr.Body.String())
 	}
-	if rr := f.serve(f.auth.SignUp().Complete(), http.MethodPost, "/sign-up/complete", map[string]string{"token": "x", "password": "correct horse"}, nil); rr.Code != http.StatusNotFound {
-		t.Errorf("Complete() without OpenSignUp = %d, want 404", rr.Code)
+
+	open = true
+	rr = f.serve(h, http.MethodGet, "/api/user/methods", nil, nil)
+	want := map[string]any{"start": "/api/user/sign-up", "open": "/api/user/sign-up/open", "complete": "/api/user/sign-up/complete"}
+	if body := decoded(t, rr); rr.Code != http.StatusOK || !reflect.DeepEqual(body["signUp"], want) {
+		t.Errorf("Methods() once the method is open = %d %s, want the sign-up routes %v", rr.Code, rr.Body.String(), want)
 	}
-	a := newBareAuth(t, gomock.NewController(t))
-	if recovered := registrationPanic(func() { PasswordSignIn(a, OpenSignUp()) }); recovered == nil || !strings.Contains(fmt.Sprint(recovered), "WithMail") {
-		t.Errorf("PasswordSignIn(OpenSignUp()) without mail panicked with %v, want the wiring named", recovered)
+
+	open = false
+	rr = f.serve(h, http.MethodGet, "/api/user/methods", nil, nil)
+	if body := decoded(t, rr); rr.Code != http.StatusOK || body["signUp"] != nil {
+		t.Errorf("Methods() once the method is invite only again = %d %s, want no sign-up block", rr.Code, rr.Body.String())
 	}
 }
 
