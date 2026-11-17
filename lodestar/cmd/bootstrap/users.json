@@ -6,6 +6,7 @@
       "password": "lodestar",
       "roles": {
         "global": [
+          "SuperAdministrator",
           "CrewCommon",
           "Headquarters",
           "BulletinOfficer",

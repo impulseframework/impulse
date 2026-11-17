@@ -258,6 +258,22 @@ func (store) Username(ctx context.Context, txn resource.ReadWriteTransaction, id
 	return row.Data.Username, true, nil
 }
 
+func (store) UserDisabled(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (disabled, found bool, err error) {
+	row, err := crewresources.NewCrewSessionUserQuery().
+		AddColumns(crewresources.NewCrewSessionUserColumns().Disabled()).
+		SetID(id).
+		Read(ctx, txn)
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return false, false, nil
+		}
+
+		return false, false, errors.Wrap(err, "crewresources.CrewSessionUserQuery.Read()")
+	}
+
+	return row.Data.Disabled, true, nil
+}
+
 func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, username string) (id impulse.UUID, found bool, err error) {
 	// A read that goes past the declarations, as the session library's own lookup of
 	// a name does: the table's normalized username is no field of the declaration,
