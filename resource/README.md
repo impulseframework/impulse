@@ -685,7 +685,8 @@ across every application on this stack:
   RPC form, by decision. A caller-scoped question ("my standing", "my current level") is
   a computed resource whose `List` yields the caller's one row: `QuerySet.User()` names
   the identity the permission check ran as — the viewed person under a view-as session,
-  the real actor under an act-as-role session — beside `QuerySet.Scope()`. A table row
+  the real actor under an act-as-role session — beside `QuerySet.Scope()`, and the
+  context carries the same caller a method's body reads (`resource.CallerFrom`). A table row
   that is the caller's own is a `List` grant whose condition binds the user column to
   `subject`; nothing new is needed.
 - **A transaction-form body keeps its effects inside the transaction.** A message, a
@@ -807,13 +808,21 @@ proposed row does not carry is an error, never a pass. The generated user manage
 asks this way what a change to a group needs (section 21), and which roles may be the
 default role of a sign-in method opened to sign-up.
 
-The frame stamps the caller for a method's body and not for a list's. A computed
-resource's `List` or `Read` function whose rows depend on what the caller may do
-elsewhere takes the caller from its query, `qSet.Caller()`: the checker, the scope and
-the environment the query was checked with. The generated list of the roles an open
-method's default role is picked from stamps it (`resource.WithCaller(ctx, qSet.Caller())`)
-and lists the roles the caller may give through the method that gives a role, so a
-picker offers what the method it feeds would accept.
+A computed resource's functions are asked as the caller too. Its generated frames stamp
+the caller the request was checked as (`qSet.Caller()`: the checker, the scope and the
+environment of the query's own check) into the context before the `List` function, the
+`Read` function or the function that renders a file runs, as a method's frame does
+before `Execute`. So `resource.CallerFrom(ctx)` answers the same person in a list as in
+a method, and a list whose rows depend on what the caller may do elsewhere asks it
+there: the generated list of the roles an open method's default role is picked from
+lists the roles the caller may give through the method that gives a role, so a picker
+offers what the method it feeds would accept. Within a request served by a generated
+frame of a method or of a computed resource there is always a caller. No caller means a
+call the application makes outside any request (its bootstrap, a job, a hook of the
+sign-in) or one of the acts a generated route does in the application's name, such as
+seating the person who creates a tenant; the user management reads it that way and
+judges nothing there (section 21). A handler written by hand that runs code which asks
+who the caller is stamps one itself (`resource.WithCaller`).
 
 ## 8. The generated router
 

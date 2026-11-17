@@ -397,12 +397,12 @@ func ({{ .SignUpRole }}) Resource() accesstypes.Resource {
 
 // List{{ .SignUpRole }} yields the roles a person who signs up may be given; the
 // generated handler applies the request's filter, sort and page over them. The roles
-// are the ones the request's caller may give, so the list is read as that caller: a
-// method's frame stamps the caller for its body and a list's does not, and the query
-// carries the caller it was checked as.
-func List{{ .SignUpRole }}(ctx context.Context, qSet *resource.QuerySet[{{ .SignUpRole }}], _ resource.Client, client *Client) iter.Seq2[*{{ .SignUpRole }}, error] {
+// are the ones the request's caller may give: the list's frame stamps the caller the
+// request was checked as on the context, as a method's does, and the rule reads it
+// there.
+func List{{ .SignUpRole }}(ctx context.Context, _ *resource.QuerySet[{{ .SignUpRole }}], _ resource.Client, client *Client) iter.Seq2[*{{ .SignUpRole }}, error] {
 	return func(yield func(*{{ .SignUpRole }}, error) bool) {
-		roles, err := client.manager.SignUpRoles(resource.WithCaller(ctx, qSet.Caller()))
+		roles, err := client.manager.SignUpRoles(ctx)
 		if err != nil {
 			yield(nil, errors.Wrap(err, "identity.Manager.SignUpRoles()"))
 
