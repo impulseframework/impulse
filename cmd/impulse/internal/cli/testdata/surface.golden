@@ -156,6 +156,7 @@ checks:
   super-administrators
   persona-cast
   directory-admission
+  first-administrator
   tenant-accounts
   second-factor
   change-signal

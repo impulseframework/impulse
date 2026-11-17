@@ -876,7 +876,9 @@ func (a *Auth) SeedAdministrator(ctx context.Context, password string) (bool, er
 // its person's first sign-in through that registration while it admits one
 // organization alone. Naming a registration is the deployment's word that whoever its
 // directory presents under this name is the administrator. Otherwise give the auth a
-// password method for its first administrator before deploying such an application.
+// password method for its first administrator. impulse check fails on such an
+// application until one of the two is done (first-administrator), so it is not
+// deployed with an administrator nobody can sign in as.
 {{- end}}
 func (a *Auth) SeedAdministrator(ctx context.Context, signInName string) (bool, error) {
 	empty, err := a.usersTableEmpty(ctx)
