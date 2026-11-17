@@ -624,9 +624,10 @@ export class LoginMethodsComponent implements OnInit {
 
   /**
    * Accepts the opened invitation as the person the page found signed in, then checks the
-   * session and hands the page on. A refusal for another address (403) keeps the
-   * invitation standing and shows the server's sentence; any other refusal means the
-   * invitation is gone.
+   * session and hands the page on. A refusal for who the person is signed in as (403) and
+   * a refusal to make what the invitation carries as it stands (409, a name that is taken)
+   * both leave the invitation standing on the server, so the page keeps it and shows the
+   * server's sentence; any other refusal means the invitation is gone.
    */
   accept(): Promise<void> {
     if (this.busy() || !this.acceptOffered()) {
@@ -635,7 +636,7 @@ export class LoginMethodsComponent implements OnInit {
     return this.step(async () => {
       const result = await this.client.auth.acceptInvitation();
       if (result.outcome === 'refused') {
-        if (result.status === 403) {
+        if (result.status === 403 || result.status === 409) {
           this.refusal.set(this.sentenceOf(result));
           return;
         }

@@ -2068,6 +2068,41 @@ describe('LoginMethodsComponent opens an invitation that makes a tenant', () => 
     expect(titleOf(page)).toBe("You're invited to set up Dawn");
     expect(page.signedIn).toEqual([]);
   });
+
+  it('an acceptance by hand refused because what the invitation carries cannot be made keeps the invitation standing too', async () => {
+    const sentence = 'a sector with the name Dawn already exists: give the new one another';
+    const page = await pageOver(
+      server({
+        methods: mailingList,
+        arrivesSignedIn: true,
+        invitationOpen: { status: 200, body: { ...closed, directoryOnly: false, methods: ['google'], accountExists: true, hasPassword: true } },
+        invitationAccept: { status: 409, body: { message: sentence } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    await page.component.accept();
+    await page.settle();
+    expect(messageOf(page)).toBe(sentence);
+    expect(page.component.invitation()?.tenantName).toBe('Dawn');
+    expect(titleOf(page)).toBe("You're invited to set up Dawn");
+    expect(page.signedIn).toEqual([]);
+  });
+
+  it('an acceptance by hand of an invitation that is gone drops it from the page', async () => {
+    const page = await pageOver(
+      server({
+        methods: mailingList,
+        arrivesSignedIn: true,
+        invitationOpen: { status: 200, body: { ...closed, directoryOnly: false, methods: ['google'], accountExists: true, hasPassword: true } },
+        invitationAccept: { status: 404, body: { message: 'the browser carries no live invitation' } },
+      }),
+      { invitation: 'tok-1' },
+    );
+    await page.component.accept();
+    await page.settle();
+    expect(page.component.invitation()).toBeUndefined();
+    expect(page.signedIn).toEqual([]);
+  });
 });
 
 describe('LoginMethodsComponent finds the invitation the browser carries', () => {
