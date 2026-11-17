@@ -255,7 +255,20 @@ DML what a later rule must read.
   a disabled account accepts no invitation, so its own vouches for nothing. A person
   created ahead in two tenants, or holding a role in every tenant or outside them, is
   therefore linked at a first sign-in only with their invitation, or once they have a
-  password to confirm with. Any other sign-in under the name is refused as a
+  password to confirm with. One such account is the deployment's own: the first
+  administrator of an Auth whose people sign in through a directory, which the seed
+  creates with no password, holding roles for the whole application and belonging to
+  no tenant. The deployment vouches for it. The seed creates it under
+  `session.SeedUserIDThrough(auth, registration, username)`, an id that names the
+  sign-in registration the person comes through and that no request can give an
+  account, the hook's `Seeded` recognizes the id, and the account is linked at its
+  person's first sign-in through that registration while the registration admits one
+  organization and nobody else. The same name through another registration of the
+  Auth, a customer's own provider among them, or through a registration that names
+  several organizations or is open to any or to personal accounts, is not the
+  deployment's word and links nothing; so the first administrator of an Auth whose
+  only directory methods are that wide is given another way in (a directory method of
+  one organization, or a password). Any other sign-in under the name is refused as a
   person no account was created for is, with that refusal's own code and words, which
   say nothing of the account (`invitation_only` through a directory some tenant has,
   `not_invited` through any other), and nothing is linked, seated or accepted. An
@@ -269,7 +282,8 @@ DML what a later rule must read.
   organization's to assert. An account an application's seed creates with no password
   and with roles in every tenant or in none, as the cast of the persona sign-in is,
   signs in through such a registration; through any other it has no tenant whose
-  directory could vouch for it and is linked only with its own invitation. An
+  directory could vouch for it and is linked only with its own invitation, or as the
+  seed of that registration (the first administrator, above). An
   application whose
   tenants have no directories (no `SetDirectoryAdmission`) has only the directories its
   deployment registered for itself, and links such an account under its name as
@@ -534,7 +548,10 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   `OnlyIn` answers whether a tenant is the only place a person holds anything, read in
   that transaction, which the library asks before it links an identity on its name
   alone to an account that has never signed in (see "A first link on a name alone"
-  above).
+  above). Its `Seeded`, which a hook may leave out, answers whether an account is the
+  one the deployment's seed created for the registration a sign-in came through
+  (`session.SeedUserIDThrough`), which the library asks at the same point; the
+  generated identity client answers all three.
   `Seat` is called at a person's first sign-in through the directory, the one that
   makes the link, whether the account is created in it or stood before: a person
   given a role ahead of their first sign-in, or invited by another tenant, has an
@@ -1184,6 +1201,16 @@ and the persona cast's seed work this way, and seed nothing for a user that exis
 whatever it holds. The first administrator is the deployment's first super administrator:
 the seed writes the Super Administrator role under the id beside the application's own
 administrator roles, since only a holder of that role makes another.
+
+A first administrator who signs in through a directory holds no password, and the seed
+creates the account under `session.SeedUserIDThrough(auth, registration, username)`:
+the same id on every run, which also names the sign-in registration the person comes
+through. In an application whose tenants have directories that id is what links the
+account at the person's first sign-in (see "A first link on a name alone"): it is the
+deployment's word on which registration the name is believed from, and it holds while
+that registration admits one organization alone. The generated foothold of such an
+auth seeds its administrator this way, for the auth's first directory method of one
+organization.
 
 **The forced password change.** A password an operator set, at creation
 (`PasswordChangeRequired`) or by a reset, is temporary: the user changes it before

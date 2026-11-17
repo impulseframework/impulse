@@ -52,7 +52,12 @@ type view struct {
 	// AdministratorGlobal and AdministratorEveryDomain the roles that count as an
 	// administrator's as Go literals, and FirstAdministratorGlobal and
 	// FirstAdministratorEveryDomain the roles the first administrator is seeded with.
-	Foothold                      string
+	Foothold string
+	// FootholdRegistration is the constant naming the registration a membership
+	// foothold's first administrator signs in through (FootholdMethod), and
+	// FootholdMethodName that registration's name; empty where there is none.
+	FootholdRegistration          string
+	FootholdMethodName            string
 	AdministratorAuthored         bool
 	AdministratorGlobal           string
 	AdministratorEveryDomain      string
@@ -147,6 +152,9 @@ func newView(spec *Spec) *view {
 		v.Outlets = append(v.Outlets, &outletView{Name: outlet, Pascal: names.Pascal(outlet)})
 	}
 	v.Foothold = Foothold(spec)
+	if m := FootholdMethod(spec); m != nil {
+		v.FootholdRegistration, v.FootholdMethodName = m.Registration(), m.Name
+	}
 	v.AdministratorAuthored = len(spec.AdministratorRoles.Global)+len(spec.AdministratorRoles.EveryDomain) > 0
 	v.AdministratorGlobal = roleLiteral(spec.AdministratorRoles.Global)
 	v.AdministratorEveryDomain = roleLiteral(spec.AdministratorRoles.EveryDomain)
@@ -201,7 +209,8 @@ func Application(spec *Spec) string {
 // holds no rows: a user named administrator with the password the stack generates, for an
 // auth with a password method; a user without a password under the sign-in name the
 // placement names, which that person's first sign-in links to, for an auth whose directory
-// methods leave role membership to the application. Either holds the administrator roles
+// methods leave role membership to the application (seeded for the registration that
+// person comes through, FootholdMethod). Either holds the administrator roles
 // from the seed, by the id of its account. An auth whose directory methods all follow the
 // directory's roles needs none.
 const (
@@ -228,6 +237,38 @@ func Foothold(spec *Spec) string {
 	}
 
 	return ""
+}
+
+// FootholdMethod is the method the first administrator of a membership foothold signs
+// in through: the first directory method whose roles the application gives and whose
+// registration admits one organization and nobody else, which is a Microsoft or a
+// Google method in the slot of one organization, or an organization's identity
+// provider, which is one issuer. The seed creates the administrator for that
+// registration (session.SeedUserIDThrough), so the account's id says which of the
+// auth's registrations its name is believed from, and the person's first sign-in
+// through it links the account where the application's tenants have directories and a
+// name alone links nothing. The persona method is no foothold's: its provider is the
+// test environments', registered where it is configured, and declares its names the
+// application's own.
+//
+// Nil for a password foothold, for an auth that seeds nobody, and for a membership
+// foothold none of whose directory methods admits one organization alone: nothing then
+// says which organization the administrator's name is believed from.
+func FootholdMethod(spec *Spec) *Method {
+	if Foothold(spec) != FootholdMembership {
+		return nil
+	}
+	for i := range spec.Methods {
+		m := &spec.Methods[i]
+		if !m.Directory() || m.Persona() || m.Authority != app.AuthorityApplication {
+			continue
+		}
+		if !m.slotted() || m.slot() == SlotOne {
+			return m
+		}
+	}
+
+	return nil
 }
 
 // roleLiteral is the roles as a Go slice literal, nil for none.

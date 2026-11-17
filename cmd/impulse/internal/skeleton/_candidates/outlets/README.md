@@ -222,6 +222,11 @@ generated router test proves the route sits behind the token check.
   administrator's roles; the members auth's user without a password under the
   sign-in name the placement names (`APP_MEMBERS_ADMINISTRATOR`), holding the administrator
   roles in every domain, which that person's first sign-in through the directory links to.
+  The tenants here have directories, where a name alone links no account that has never
+  signed in, so the seed creates this one for the `directory` registration
+  (`session.SeedUserIDThrough`): the id is the deployment's word on which registration
+  the name is believed from, and the sign-in rule links the account at the person's
+  first sign-in through it while it admits one organization alone (`azure.Tenant`).
   A user that exists stops the seed; the auth's management
   creates every user after the first, and the bootstrap creates the development logins
   instead. `cmd/deployment/migrate` is the deploy step;

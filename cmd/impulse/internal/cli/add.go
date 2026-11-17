@@ -785,7 +785,12 @@ first administrator the migrate command seeds while the auth's users table holds
 a user named administrator with the password the stack generates for a password auth, or
 a user without a password under a sign-in name the placement names, which that person's
 first sign-in links to, for an auth whose roles the application assigns; its roles, its
-setting in the data level and its seeding from pkg/deploy are handed to the agent.
+setting in the data level and its seeding from pkg/deploy are handed to the agent. Such a
+user is seeded for the auth's first directory method of one organization (one tenant, one
+Workspace, or an organization's identity provider): where the application's tenants have
+directories, a name alone links no account, and a method open to more than one
+organization links no first administrator, so give such an auth a method of one
+organization or a password method.
 
 --method names the sign-in methods the Auth starts with, repeatable: password (the default
 when none is given), azure:<registration> (Microsoft Entra over OpenID Connect),

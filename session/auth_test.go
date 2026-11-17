@@ -2533,6 +2533,78 @@ func TestAuth_WithoutPolicy(t *testing.T) {
 	}
 }
 
+// TestAuth_SetDirectoryAdmission_seeded pins that the directory admission's word on a
+// seeded account reaches the sign-in: the store is handed the hook's Seeded as it was
+// given, which the rule on a first link made on a name alone asks of the deployment's
+// first administrator, and none where the hook names none.
+func TestAuth_SetDirectoryAdmission_seeded(t *testing.T) {
+	t.Parallel()
+
+	seedID := SeedUserIDThrough("members", "directory", "ada@lakeside.edu")
+	tests := []struct {
+		name   string
+		seeded func(userID impulse.UUID, username, registration string) bool
+	}{
+		{
+			name: "a hook that recognizes its seed is asked by the sign-in",
+			seeded: func(userID impulse.UUID, username, registration string) bool {
+				return userID == SeedUserIDThrough("members", registration, username)
+			},
+		},
+		{name: "a hook that names no seed hands the sign-in none"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctrl := gomock.NewController(t)
+			store := newAuthStoreMock(ctrl)
+			a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())
+			if err != nil {
+				t.Fatalf("NewAuth() error = %v", err)
+			}
+			a.SetDirectoryAdmission(
+				func(context.Context, mockTx, signin.Directory) ([]signin.DeclaredDirectory, error) { return nil, nil },
+				DirectorySeatedHook[mockTx]{
+					Seat: func(context.Context, mockTx, impulse.UUID, string, []signin.DirectorySeat) (func(context.Context), error) {
+						return nil, nil
+					},
+					OnlyIn: func(context.Context, mockTx, impulse.UUID, accesstypes.Domain) (bool, error) { return false, nil },
+					Seeded: tt.seeded,
+				},
+			)
+			userID := impulse.Must(impulse.NewUUID())
+			sessionID := impulse.Must(impulse.NewUUID())
+			store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat"}, nil)
+			store.EXPECT().SignIn(gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, _ *sessioninfo.NewSessionRequest, rules sessionstorage.SignInRules[mockTx]) (impulse.UUID, error) {
+					if rules.Directories == nil || rules.OnlyIn == nil {
+						t.Error("SignIn() given no directory reader or no OnlyIn, want the admission's")
+					}
+					if (rules.Seeded != nil) != (tt.seeded != nil) {
+						t.Fatalf("SignIn() given a Seeded = %v, want %v", rules.Seeded != nil, tt.seeded != nil)
+					}
+					if rules.Seeded == nil {
+						return sessionID, nil
+					}
+					if !rules.Seeded(seedID, "Ada@Lakeside.edu", "directory") {
+						t.Error("the Seeded the sign-in was handed does not recognize the account seeded for the registration")
+					}
+					if rules.Seeded(seedID, "ada@lakeside.edu", "okta") || rules.Seeded(userID, "ada@lakeside.edu", "directory") {
+						t.Error("the Seeded the sign-in was handed recognizes an account seeded for another registration, or one under another id")
+					}
+
+					return sessionID, nil
+				})
+			store.EXPECT().TouchUserSignIn(gomock.Any(), userID).Return(nil)
+
+			if _, err := a.API().StartAuthenticatedSession(context.Background(), httptest.NewRecorder(), userID, []sessioninfo.AuthEvent{{Method: "api-key"}}); err != nil {
+				t.Fatalf("StartAuthenticatedSession() error = %v", err)
+			}
+		})
+	}
+}
+
 func TestAuthAPI_StartImpersonatedSession(t *testing.T) {
 	t.Parallel()
 
