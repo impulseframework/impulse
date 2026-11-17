@@ -91,13 +91,16 @@ func (s *userStorage) SetUserUsername(ctx context.Context, id impulse.UUID, newU
 	return nil
 }
 
-// SetUserPasswordHash updates the user password hash
-func (s *userStorage) SetUserPasswordHash(ctx context.Context, id impulse.UUID, hash *securehash.Hash) error {
+// UpgradeUserPasswordHash implements UserStore.
+func (s *userStorage) UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	if err := s.db.SetUserPasswordHash(ctx, id, hash); err != nil {
-		return errors.Wrap(err, "db.SetUserPasswordHash()")
+	if hash == nil {
+		return errors.New("UpgradeUserPasswordHash needs the upgraded hash: an upgrade never removes a password")
+	}
+	if err := s.db.UpgradeUserPasswordHash(ctx, id, proven, hash); err != nil {
+		return errors.Wrap(err, "db.UpgradeUserPasswordHash()")
 	}
 
 	return nil

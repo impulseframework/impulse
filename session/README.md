@@ -982,7 +982,7 @@ and `LastSignInAt`, nil before the first sign-in) and writes them by ID:
 | `User(ctx, id)`, `UserByUsername(ctx, username)` | One user; the username is matched without regard to case. |
 | `CreateSessionUser(ctx, &CreateUserRequest{Username, Password, Disabled, PasswordChangeRequired, Email})` | A user, password-less when `Password` is nil. `PasswordChangeRequired` marks a password an operator set (needs a `Password`). The library generates the user's id; a seed that must know the id before the user exists sets `ID` (Go callers only, never read from a request body; the nil id is refused): one that names its people in rows of its own, so a development database reads the same on every machine, and one that gives a user its roles (`SeedUserID`, below). |
 | `ChangeSessionUserUsername(ctx, id, username)` | Renames the user and its live sessions. |
-| `ChangeSessionUserPassword(ctx, w, id, &ChangeSessionUserPasswordRequest{OldPassword, NewPassword})` | The user's own change: the old password must match and the new one differ. Clears the mark, destroys the sessions and continues in a new one. `PasswordMethod.ChangeUserPassword()` is this over HTTP. |
+| `ChangeSessionUserPassword(ctx, w, id, &ChangeSessionUserPasswordRequest{OldPassword, NewPassword})` | The user's own change: the old password must match and the new one differ. Writes the new password over the one that was proved and no other (Conflict, `sessionstorage.ErrPasswordChanged`, when the password changed meanwhile: nothing is written and no session ends), clears the mark, then destroys the sessions and continues in a new one. `PasswordMethod.ChangeUserPassword()` is this over HTTP. |
 | `SetSessionUserPassword(ctx, id, password)` | A password the user chose through a flow of the application's own that proved who they are (a reset link, an enrollment). Clears the mark, destroys the sessions. |
 | `ResetSessionUserPassword(ctx, id, temporary)` | A temporary password an operator chose. Sets the mark, destroys the sessions. |
 | `HashPassword(password)` | The hash of a password as the users table's `PasswordHash` column holds it, made by the password method's hasher, for a caller that writes the column in a transaction of its own (the generated user management). An empty password is refused. `SignInAttemptName(username)`, a package function, is the key of the name's row in the sign-in attempts table, for the same caller clearing the count beside the password. |
@@ -1040,6 +1040,32 @@ user's name, and ends no session: the sessions the user holds stand, the ones th
 password established among them, as they do when an identity is unlinked. From then on
 a sign-in with the password is refused exactly as a wrong password is, and counted the
 same way.
+
+**A write that follows a proof writes over the password that was proved, and no
+other.** Three writes are made on the strength of a password the person just entered:
+the hash upgrade at a sign-in (a matching password stored under an older algorithm or
+older parameters is hashed again, unless `AutoUpgradeHashes(false)`), the person's own
+change and the person's own removal. Each reads the user, compares the password and
+then writes, and another write can commit in between: the person changes the password
+in another window, or an operator resets or removes it. So each hands the store the
+hash it compared against (`UpgradeUserPasswordHash`, `ChangeUserPassword`,
+`RemoveProvenUserPassword`), and the store writes only while the row still holds that
+hash: on PostgreSQL the write's `WHERE` names it, or the removal compares it under the
+lock it holds on the user row; on Spanner the hash is read in the transaction that
+writes. A write that finds another hash, or none, writes nothing
+(`sessionstorage.ErrPasswordChanged`, a Conflict), and the other write stands whole,
+hash and mark. The upgrade is then skipped without a word, since the next sign-in
+upgrades the hash it finds; a change or a removal answers 409 and says the password has
+changed since it was entered and to try again, with no session ended. Without this an
+upgrade could put back a password that had just been changed or removed, and a change
+or a removal could undo an operator's reset on proof of the password it replaced.
+
+An operator's writes follow no proof and overwrite on purpose:
+`ResetSessionUserPassword`, `SetSessionUserPassword`, `RemoveSessionUserPassword` and
+the generated user management's temporary password write whatever the row holds
+(`SetUserPassword`, `RemoveUserPassword`). The operator is not claiming to know the
+password being replaced, so there is nothing to compare, and their password is to
+stand whatever the person did a moment before.
 
 ### Users and their email address
 
