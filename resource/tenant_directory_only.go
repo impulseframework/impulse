@@ -77,13 +77,21 @@ type DirectoryOnlyConsequence struct {
 //     proves the directory works, and the person who closes the tenant to every other
 //     sign-in is not shut out by it.
 //
+// The rules read what is committed, and a transaction's reads do not see what it has
+// buffered, so the transaction notes each write the rules pass (directoryWrites): a
+// request that removes the tenant's directory and turns the switch on is refused,
+// whichever comes first, as each would be after the other had committed.
+//
 // Nobody is exempt, a super administrator included: the rule is about the directory,
 // not about who may enter. The generated update of the tenant record asks it once the
 // caller's grants have answered (PatchSet.Permitted), for a record that declares the
 // switch (@directoryOnly) and a directories record, and so does its generated create: a
 // tenant created with the switch on is turned on by its create, and has no directory.
 func (r *TenantDirectoryRules) DirectoryOnly(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain, value any) error {
+	writes := notedDirectoryWrites(txn)
 	if !turnsOn(value) {
+		writes.noteTurnedOff(tenant)
+
 		return nil
 	}
 	on, _, err := r.switchState(ctx, txn, tenant)
@@ -93,9 +101,82 @@ func (r *TenantDirectoryRules) DirectoryOnly(ctx context.Context, txn ReadWriteT
 	if on {
 		return nil
 	}
-	_, err = r.turnOn(ctx, txn, tenant)
+	if writes.removesDirectory(tenant) {
+		return httpio.NewConflictMessagef("This same request removes this %[1]s's directory, so it cannot also turn directory only on: nobody could enter the %[1]s. Keep the directory, or leave directory only off.", r.word)
+	}
+	if _, err := r.turnOn(ctx, txn, tenant); err != nil {
+		return err
+	}
+	writes.noteTurnedOn(tenant)
 
-	return err
+	return nil
+}
+
+// directoryWrites notes what one transaction's writes do to tenants' directories and
+// directory-only switches. The rules of both read what is committed, and a
+// transaction's reads do not see its own buffered writes, so two writes of one request
+// could each pass a rule the other breaks: the switch turned on beside the removal of
+// the directory it is only of, which would leave a tenant nobody enters. The rules note
+// each such write they pass and hold the next one of the transaction to it. A nil note,
+// a transaction that keeps none, remembers nothing and refuses nothing.
+type directoryWrites struct {
+	// turnedOn are the tenants a write of the transaction turns directory only.
+	turnedOn map[accesstypes.Domain]bool
+	// removed are the tenants whose directory a write of the transaction removes.
+	removed map[accesstypes.Domain]bool
+}
+
+// newDirectoryWrites is the empty note a transaction starts with.
+func newDirectoryWrites() *directoryWrites {
+	return &directoryWrites{turnedOn: map[accesstypes.Domain]bool{}, removed: map[accesstypes.Domain]bool{}}
+}
+
+// directoryWriteNoter is a transaction that keeps the note: the library's own Spanner
+// transaction, one note for each attempt, so a retried transaction starts with none.
+type directoryWriteNoter interface {
+	directoryWrites() *directoryWrites
+}
+
+// notedDirectoryWrites answers txn's note, nil for a transaction that keeps none.
+func notedDirectoryWrites(txn ReadWriteTransaction) *directoryWrites {
+	noter, ok := txn.(directoryWriteNoter)
+	if !ok {
+		return nil
+	}
+
+	return noter.directoryWrites()
+}
+
+// noteTurnedOn notes that a write of the transaction turns tenant directory only.
+func (w *directoryWrites) noteTurnedOn(tenant accesstypes.Domain) {
+	if w != nil {
+		w.turnedOn[tenant] = true
+	}
+}
+
+// noteTurnedOff notes that a write of the transaction leaves tenant's switch off, which
+// takes back an earlier write of the same transaction that turned it on.
+func (w *directoryWrites) noteTurnedOff(tenant accesstypes.Domain) {
+	if w != nil {
+		delete(w.turnedOn, tenant)
+	}
+}
+
+// noteRemoved notes that a write of the transaction removes tenant's directory.
+func (w *directoryWrites) noteRemoved(tenant accesstypes.Domain) {
+	if w != nil {
+		w.removed[tenant] = true
+	}
+}
+
+// turnsDirectoryOnly reports whether a write of the transaction turns tenant directory only.
+func (w *directoryWrites) turnsDirectoryOnly(tenant accesstypes.Domain) bool {
+	return w != nil && w.turnedOn[tenant]
+}
+
+// removesDirectory reports whether a write of the transaction removes tenant's directory.
+func (w *directoryWrites) removesDirectory(tenant accesstypes.Domain) bool {
+	return w != nil && w.removed[tenant]
 }
 
 // Consequence answers what turning tenant's directory-only switch on would do, in the

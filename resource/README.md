@@ -2406,7 +2406,12 @@ directory, not about who may enter. A tenant created with the flag on is turned 
 its create, which is held to the same two rules and so refused: a tenant has no
 directory until one is set. A value for the flag that is no boolean is held to the rules
 as a write that turns it on. Turning the flag off, and a write that leaves it as it is,
-are plain. What the flag does once it is on has one exemption, the super
+are plain. The two rules and the rule that keeps a directory-only tenant's directory read
+what is committed, and a transaction's reads do not see its own writes, so the library's
+transaction notes each write the rules pass: one request that turns the flag on and
+removes the tenant's directory is refused, whichever operation comes first ("This same
+request removes this tenant's directory, so it cannot also turn directory only on: nobody
+could enter the tenant. Keep the directory, or leave directory only off."). What the flag does once it is on has one exemption, the super
 administrator, who enters every tenant (section 6); a person seated through a role held
 in every tenant is kept out like anyone else, which is the tenant's way to close itself
 to the application's own people all at once.

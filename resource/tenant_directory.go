@@ -135,7 +135,10 @@ func (r *TenantDirectoryRules) Set(ctx context.Context, txn ReadWriteTransaction
 // transaction, and writes nothing: a tenant that is directory only keeps its
 // directory, since its people enter through it alone and nobody could enter the tenant
 // without it. The refusal is a Conflict that says to turn directory only off first. A
-// tenant record with no directory-only column removes freely.
+// request that turns the tenant directory only and removes its directory is refused the
+// same way, though the switch it turns on is not yet committed: the transaction notes
+// the writes the rules pass (directoryWrites). A tenant record with no directory-only
+// column removes freely.
 func (r *TenantDirectoryRules) Remove(ctx context.Context, txn ReadWriteTransaction, tenant accesstypes.Domain) error {
 	if !r.columns.declared() || r.columns.DirectoryOnly == "" {
 		return nil
@@ -159,6 +162,11 @@ func (r *TenantDirectoryRules) Remove(ctx context.Context, txn ReadWriteTransact
 			return httpio.NewConflictMessagef("This %s is directory only: its people sign in through its directory alone, so nobody could enter it without one. Turn directory only off first, then remove the directory.", r.word)
 		}
 	}
+	writes := notedDirectoryWrites(txn)
+	if writes.turnsDirectoryOnly(tenant) {
+		return httpio.NewConflictMessagef("This same request turns this %[1]s directory only, so it cannot also remove its directory: nobody could enter the %[1]s. Keep the directory, or leave directory only off.", r.word)
+	}
+	writes.noteRemoved(tenant)
 
 	return nil
 }

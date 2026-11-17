@@ -41,7 +41,7 @@ import (
 // page asks first; a sector is not charted directory only from the start; and a
 // caller without the grant is refused by the grants, before any rule answers. Headquarters signed in through the persona provider is told what it would
 // do, the sentence and the people it names, and turns it on; once it is on the read has
-// nothing to say. The persona sign-in sets a process variable, so it holds the lock the
+// nothing to say. One request that turns it on and removes the directory is refused. The persona sign-in sets a process variable, so it holds the lock the
 // other simulated sign-ins hold.
 //
 // Demonstrates: tenancy.directory-only, tenancy.declaration, auth.persona.
@@ -189,6 +189,48 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	}
 	if status, body := hq.do(ctx, http.MethodGet, consoleAPI+"/directory-only", nil); status != http.StatusBadRequest {
 		t.Errorf("asking what directory only would do with no sector named: status %d, want 400: %s", status, body)
+	}
+
+	// One request cannot turn directory only on and remove the directory it is only of,
+	// whichever comes first, though each of the two alone would be made: a sector nobody
+	// enters would be left. The warden is signed in through Bastion's directory and, as
+	// its marshal, may remove it; made headquarters for the moment, he may write the
+	// switch too. Both operations are refused together, and nothing is written.
+	var wardenID string
+	for _, row := range crewSectorList(ctx, t, governor, bastion, sectorPeoplePath) {
+		if cell[string](t, row, "username") == "warden" {
+			wardenID = cell[string](t, row, "id")
+		}
+	}
+	if wardenID == "" {
+		t.Fatal("Bastion's people do not list the warden")
+	}
+	headquarters := jsonBody(t, map[string]any{"userId": wardenID, "role": "Headquarters"})
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), headquarters); status != http.StatusNoContent {
+		t.Fatalf("making the warden headquarters: status %d: %s", status, body)
+	}
+	bastionDirectory := directories(ctx, t, governor, bastion)
+	if len(bastionDirectory) != 1 {
+		t.Fatalf("Bastion's directory = %+v, want the one it is seeded with", bastionDirectory)
+	}
+	removeIt := map[string]any{"op": "remove", "path": "/sectors/" + bastion + "/sector-directories/" + bastionDirectory[0].ID}
+	turnItOn := map[string]any{"op": "patch", "path": "/sectors/" + bastion, "value": map[string]any{"directoryOnly": true}}
+	for name, operations := range map[string][]map[string]any{
+		"the switch first":  {turnItOn, removeIt},
+		"the removal first": {removeIt, turnItOn},
+	} {
+		if status, body := warden.do(ctx, http.MethodPatch, consoleAPI+"/resources", jsonBody(t, operations)); status != http.StatusConflict || !strings.Contains(string(body), "This same request") {
+			t.Errorf("turning Bastion directory only and removing its directory in one request, %s: status %d, want 409 saying the request does both: %s", name, status, body)
+		}
+	}
+	if rows := directories(ctx, t, governor, bastion); len(rows) != 1 || rows[0].ID != bastionDirectory[0].ID {
+		t.Errorf("Bastion's directory after the refused requests = %+v, want the one it had", rows)
+	}
+	if got, want := rigger.domains(ctx), []string{anvil, bastion}; !slices.Equal(got, want) {
+		t.Fatalf("the rigger's chart after the refused requests = %v, want %v: Bastion is not directory only", got, want)
+	}
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("remove-crew-role"), headquarters); status != http.StatusNoContent {
+		t.Fatalf("taking headquarters back from the warden: status %d: %s", status, body)
 	}
 
 	// Headquarters, signed in through Bastion's directory, asks what it would do. The

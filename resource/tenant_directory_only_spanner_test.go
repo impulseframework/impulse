@@ -54,9 +54,10 @@ func (s *switchPermissions) Check(_ context.Context, _ accesstypes.Environment, 
 // TestTenantDirectoryRules_directoryOnly proves the rules of a tenant's directory-only
 // switch over the emulator: turning it on is refused until the tenant has its
 // directory and unless the caller is signed in through that directory, each with a
-// sentence the person can act on; turning it off and leaving it on are plain; and the
-// read a page calls first answers the consequence in words, with the people it names,
-// or the same refusal.
+// sentence the person can act on; turning it off and leaving it on are plain; one
+// request cannot turn it on and remove the directory it is only of; and the read a page
+// calls first answers the consequence in words, with the people it names, or the same
+// refusal.
 func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 	t.Parallel()
 
@@ -230,6 +231,74 @@ func TestTenantDirectoryRules_directoryOnly(t *testing.T) {
 				if diff := cmp.Diff(tt.want, got); diff != "" {
 					t.Errorf("Consequence() mismatch (-want +got):\n%s", diff)
 				}
+			}
+		})
+	}
+
+	// One request's writes are held to each other. The rules read what is committed and
+	// a transaction's reads do not see its own writes, so the transaction notes the
+	// writes the rules pass: the switch turned on beside the removal of the directory it
+	// is only of is refused, whichever comes first. Nothing here commits a change: the
+	// rules write nothing.
+	const (
+		removesToo = "This same request removes this station's directory, so it cannot also turn directory only on: nobody could enter the station. Keep the directory, or leave directory only off."
+		turnsOnToo = "This same request turns this station directory only, so it cannot also remove its directory: nobody could enter the station. Keep the directory, or leave directory only off."
+	)
+	type write func(ctx context.Context, txn ReadWriteTransaction) error
+	set := func(station accesstypes.Domain, on bool) write {
+		return func(ctx context.Context, txn ReadWriteTransaction) error {
+			return rules.DirectoryOnly(ctx, txn, station, on)
+		}
+	}
+	remove := func(station accesstypes.Domain) write {
+		return func(ctx context.Context, txn ReadWriteTransaction) error {
+			return rules.Remove(ctx, txn, station)
+		}
+	}
+	requestTests := []struct {
+		name string
+		// requests are run one after another, each in a transaction of its own.
+		requests [][]write
+		// wantRefusal is the Conflict the last write of the last request answers; empty
+		// where every write passes.
+		wantRefusal string
+	}{
+		{name: "turning it on and removing the directory in one request is refused at the removal", requests: [][]write{{set("beta", true), remove("beta")}}, wantRefusal: turnsOnToo},
+		{name: "removing the directory and turning it on in one request is refused at the switch", requests: [][]write{{remove("beta"), set("beta", true)}}, wantRefusal: removesToo},
+		{name: "a request that turns it on and off again may remove the directory", requests: [][]write{{set("beta", true), set("beta", false), remove("beta")}}},
+		{name: "another station's switch does not hold this station's directory", requests: [][]write{{set("beta", true), remove("delta")}}},
+		{name: "the note is one transaction's: a removal the rules passed in one request does not refuse the switch in the next", requests: [][]write{{remove("beta")}, {set("beta", true)}}},
+		{name: "nor does the switch in one request refuse the removal in the next, while nothing was committed", requests: [][]write{{set("beta", true)}, {remove("beta")}}},
+	}
+	for _, tt := range requestTests {
+		t.Run("one request: "+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var err error
+			for i, request := range tt.requests {
+				err = client.ExecuteFunc(through(entra), func(ctx context.Context, txn ReadWriteTransaction) error {
+					for j, write := range request {
+						if err := write(ctx, txn); err != nil {
+							if i != len(tt.requests)-1 || j != len(request)-1 {
+								t.Errorf("write %d of request %d error = %v, want only the last write refused", j+1, i+1, err)
+							}
+
+							return err
+						}
+					}
+
+					return nil
+				})
+			}
+			if tt.wantRefusal == "" {
+				if err != nil {
+					t.Fatalf("the last request error = %v, want none", err)
+				}
+
+				return
+			}
+			if !httpio.HasConflict(err) || httpio.Message(err) != tt.wantRefusal {
+				t.Fatalf("the last request error = %v, want the Conflict %q", err, tt.wantRefusal)
 			}
 		})
 	}
