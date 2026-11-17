@@ -159,7 +159,7 @@ func newAuthFixtureOf(t *testing.T, ctrl *gomock.Controller, withPassword bool, 
 
 		return signin.Allow(), nil
 	}
-	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, append([]AuthOption{WithIdentityLinked(hook)}, options...)...)
+	a, err := NewAuth[NoCustomData, NoCustomData](f.store, cookieKey, NoSuperAdministrators(), append([]AuthOption{WithIdentityLinked(hook)}, options...)...)
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -517,7 +517,7 @@ func TestNewAuth(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
 
-			a, err := NewAuth[NoCustomData, NoCustomData](tt.storage(ctrl), cookieKey, tt.options...)
+			a, err := NewAuth[NoCustomData, NoCustomData](tt.storage(ctrl), cookieKey, NoSuperAdministrators(), tt.options...)
 			switch {
 			case tt.wantErrHas != "":
 				if err == nil || !strings.Contains(err.Error(), tt.wantErrHas) {
@@ -536,7 +536,7 @@ func TestNewAuth(t *testing.T) {
 func newBareAuth(t *testing.T, ctrl *gomock.Controller) *Auth[NoCustomData, NoCustomData, mockTx] {
 	t.Helper()
 
-	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey)
+	a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, NoSuperAdministrators())
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -2065,7 +2065,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			wait:     confirmation,
 			password: "pw",
 			prepare: func(f *authFixture, pendingID impulse.UUID) {
-				f.store.EXPECT().LinkIdentity(gomock.Any(), userID, identity, "lakeside").Return(&sessionstorage.SessionIdentity{}, nil)
+				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any()).Return(nil)
 				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) {
 					want := []sessioninfo.AuthEvent{{Method: sessioninfo.MethodWorkOS, Connection: "conn"}, {Method: sessioninfo.MethodLinkConfirmation}}
 					if diff := cmp.Diff(want, req.AuthEvents, eventOpts); diff != "" || req.Reason != sessioninfo.ReasonIdentityLinked || !cmp.Equal(req.Identity, identity) {
@@ -2087,7 +2087,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			wait:     confirmation,
 			password: "pw",
 			prepare: func(f *authFixture, pendingID impulse.UUID) {
-				f.store.EXPECT().LinkIdentity(gomock.Any(), userID, identity, "lakeside").Return(&sessionstorage.SessionIdentity{}, nil)
+				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any()).Return(nil)
 				f.expectSignIn(sessionID, nil, func(*sessioninfo.NewSessionRequest) error {
 					return &signin.PendingSignInError{Reason: sessioninfo.PendingMFA, UserID: impulse.NullUUIDFromUUID(userID), Username: "pat"}
 				})
@@ -2111,7 +2111,7 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			password: "pw",
 			prepare: func(f *authFixture, pendingID impulse.UUID) {
 				f.expectConsume(pendingID)
-				f.store.EXPECT().LinkIdentity(gomock.Any(), userID, identity, "lakeside").Return(nil, httpio.NewConflictMessage("already linked"))
+				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any()).Return(httpio.NewConflictMessage("already linked"))
 				f.store.EXPECT().Identity(gomock.Any(), identity.Method, identity.Connection, identity.Subject).Return(&sessionstorage.SessionIdentity{UserID: otherID}, nil)
 			},
 			wantStatus: http.StatusUnauthorized,
@@ -2177,6 +2177,60 @@ func TestAuth_PendingConfirmWithPassword(t *testing.T) {
 			}
 			if c := cookieNamed(rr, defaultPendingCookieName); (c != nil && c.Value != "") != tt.wantReplaced {
 				t.Errorf("pending cookie replaced = %v, want %v", c != nil && c.Value != "", tt.wantReplaced)
+			}
+		})
+	}
+}
+
+// TestAuth_PendingConfirmWithPassword_givesTheDirectorySeat pins what a password
+// confirmation hands the store with the link: the Auth's directory admission, its
+// reader and its seat hook, so the store gives the person the default seat of the
+// tenant whose directory the identity came through in the transaction that makes the
+// link; an Auth with no admission hands none.
+func TestAuth_PendingConfirmWithPassword_givesTheDirectorySeat(t *testing.T) {
+	t.Parallel()
+
+	userID := impulse.Must(impulse.NewUUID())
+	sessionID := impulse.Must(impulse.NewUUID())
+	identity := &sessioninfo.Identity{Method: sessioninfo.MethodWorkOS, Connection: "conn", Subject: "idp", Email: "pat@lakeside.edu"}
+	confirmation := &signin.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: impulse.NullUUIDFromUUID(userID), Username: "pat", Tenant: "lakeside"}
+
+	tests := []struct {
+		name      string
+		admission bool
+	}{
+		{name: "an Auth with a directory admission hands its reader and its seat hook to the link", admission: true},
+		{name: "an Auth with none hands none"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			ctrl := gomock.NewController(t)
+			f := newAuthFixture(t, ctrl)
+			workos.SignIn(f.auth, "workos", resolveAll[workos.Identity](), &workos.Config{APIKey: "sk", ClientID: "client", RedirectURL: "https://app/sso/callback"})
+			handed := gomock.Nil()
+			if tt.admission {
+				f.auth.SetDirectoryAdmission(
+					func(context.Context, mockTx, signin.Directory) ([]signin.DeclaredDirectory, error) { return nil, nil },
+					func(context.Context, mockTx, impulse.UUID, string, []signin.DirectorySeat) (func(context.Context), error) {
+						return nil, nil
+					},
+				)
+				handed = gomock.Not(gomock.Nil())
+			}
+			f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "pw")}, nil).AnyTimes()
+			cookies, pendingID := f.hold(t, &signInAttempt{identity: identity, reason: sessioninfo.ReasonLogin, registration: "workos"}, confirmation)
+			f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", handed, handed).Return(nil)
+			f.expectSignIn(sessionID, nil, func(req *sessioninfo.NewSessionRequest) error {
+				req.UserID, req.Username = userID, "pat"
+
+				return nil
+			})
+			f.expectConsume(pendingID)
+
+			rr := f.serve(f.auth.Pending().ConfirmWithPassword(), http.MethodPost, "/pending/confirm", map[string]string{"password": "pw"}, cookies)
+			if rr.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d: %s", rr.Code, http.StatusOK, rr.Body.String())
 			}
 		})
 	}
@@ -2524,7 +2578,7 @@ func TestAuth_WithoutPolicy(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	store := newAuthStoreMock(ctrl)
-	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey)
+	a, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators())
 	if err != nil {
 		t.Fatalf("NewAuth() error = %v", err)
 	}
@@ -2922,8 +2976,9 @@ func TestAuth_ForcedPasswordChange(t *testing.T) {
 
 	userID := impulse.Must(impulse.NewUUID())
 	sessionID := impulse.Must(impulse.NewUUID())
+	temporary := hashed(t, "temporary")
 	marked := func() *sessionstorage.SessionUser {
-		return &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "temporary"), PasswordChangeRequired: true}
+		return &sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: temporary, PasswordChangeRequired: true}
 	}
 	request := func(method string, body any) *http.Request {
 		var payload *strings.Reader
@@ -2968,8 +3023,8 @@ func TestAuth_ForcedPasswordChange(t *testing.T) {
 		f.store.EXPECT().Session(gomock.Any(), sessionID).Return(session(), nil)
 		f.store.EXPECT().User(gomock.Any(), userID).Return(marked(), nil).Times(2)
 		gomock.InOrder(
+			f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, temporary, gomock.Not(gomock.Nil())).Return(nil),
 			f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil),
-			f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), false).Return(nil),
 		)
 		createSession(f.store, impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
 			if req.Reason != sessioninfo.ReasonRegeneration || req.UserID != userID {
@@ -3020,14 +3075,17 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 
 	userID := impulse.Must(impulse.NewUUID())
 
-	t.Run("changing the password destroys the user's sessions by UserId, clears the mark and continues in a new session that records the password", func(t *testing.T) {
+	t.Run("changing the password writes the new one on proof of the hash the old one matched, then destroys the user's sessions by UserId and continues in a new session that records the password", func(t *testing.T) {
 		t.Parallel()
 		ctrl := gomock.NewController(t)
 		f := newAuthFixture(t, ctrl)
-		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: hashed(t, "old"), PasswordChangeRequired: true}, nil)
+		old := hashed(t, "old")
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: old, PasswordChangeRequired: true}, nil)
+		// The store is handed the hash the old password was compared against, and clears
+		// the mark with the write; the mock refuses the write that names the user alone.
 		gomock.InOrder(
+			f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).Return(nil),
 			f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil),
-			f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), false).Return(nil),
 		)
 		createSession(f.store, impulse.Must(impulse.NewUUID()), func(req *sessioninfo.NewSessionRequest) {
 			if req.Reason != sessioninfo.ReasonRegeneration || req.UserID != userID || !cmp.Equal(req.AuthEvents, []sessioninfo.AuthEvent{{Method: sessioninfo.MethodPassword}}) {
@@ -3037,6 +3095,26 @@ func TestAuthAPI_UserManagement(t *testing.T) {
 
 		if err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "new"}); err != nil {
 			t.Errorf("ChangeSessionUserPassword() error = %v", err)
+		}
+	})
+
+	t.Run("a password that changed after the old one was compared is not changed again: no session is destroyed or started, the name's attempts stay, and the caller is told to try again", func(t *testing.T) {
+		t.Parallel()
+		ctrl := gomock.NewController(t)
+		f := newAuthFixture(t, ctrl)
+		old := hashed(t, "old")
+		f.store.EXPECT().User(gomock.Any(), userID).Return(&sessionstorage.SessionUser{ID: userID, Username: "pat", PasswordHash: old}, nil)
+		// The mock refuses a call it was not told of: no session is destroyed or created.
+		f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, old, gomock.Not(gomock.Nil())).
+			Return(httpio.NewConflictMessageWithError(sessionstorage.ErrPasswordChanged, "the password has changed since it was checked: check it again and retry"))
+
+		err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "old", NewPassword: "new"})
+		want := "Your password has changed since you entered it, so this change was not made: try again with your current password"
+		if !errors.Is(err, sessionstorage.ErrPasswordChanged) || !httpio.HasConflict(err) || httpio.Message(err) != want {
+			t.Errorf("ChangeSessionUserPassword() error = %v (message %q), want ErrPasswordChanged as a Conflict saying %q", err, httpio.Message(err), want)
+		}
+		if _, _, clears := f.counts(); clears != 0 {
+			t.Errorf("the name's sign-in attempts were cleared %d times, want none: nothing was changed", clears)
 		}
 	})
 

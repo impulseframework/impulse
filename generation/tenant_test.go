@@ -20,6 +20,13 @@ func tenantFixtureTables() map[string]*tableMetadata {
 	compositeKey := columnMeta{IsPrimaryKey: true, IsIndex: true}
 	plain := columnMeta{}
 	nullable := columnMeta{IsNullable: true}
+	// A directories record's table holds the two rules of a tenant's directory with a
+	// unique index each: the tenant column alone, and the method with the connection.
+	oneTenant := columnMeta{IsIndex: true, IsUniqueIndex: true}
+	byTenant := indexMeta{Name: "ByHarborId", Unique: true, Key: []indexColumn{{Column: "HarborId"}}}
+	byDirectory := indexMeta{Name: "ByMethodConnection", Unique: true, Key: []indexColumn{{Column: "Method"}, {Column: "Connection"}}}
+	byTenantAndDirectory := indexMeta{Name: "ByHarborIdMethodConnection", Unique: true, Key: []indexColumn{{Column: "HarborId"}, {Column: "Method"}, {Column: "Connection"}}}
+	directoryIndexes := []indexMeta{byTenant, byDirectory}
 
 	return map[string]*tableMetadata{
 		"Sectors":   {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain}},
@@ -44,11 +51,14 @@ func tenantFixtureTables() map[string]*tableMetadata {
 		// The declaration's shapes: the record with its flag, the directories record,
 		// and each shape the annotations refuse.
 		"Harbors":           {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Name": plain, "DirectoryOnly": plain}},
-		"HarborDirectories": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Method": plain, "Connection": plain, "DefaultSeat": nullable}},
+		"HarborDirectories": {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": oneTenant, "Method": plain, "Connection": plain, "DefaultSeat": nullable}, Indexes: directoryIndexes},
+		"Causeways":         {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Method": plain, "Connection": plain}, Indexes: []indexMeta{byDirectory}},
+		"Seawalls":          {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": oneTenant, "Method": plain, "Connection": plain}, Indexes: []indexMeta{byTenant, byTenantAndDirectory}},
+		"Pontoons":          {PkCount: 1, Columns: map[string]columnMeta{"Name": pk, "HarborId": oneTenant, "Method": plain, "Connection": plain}, Indexes: directoryIndexes},
 		"Slipways":          {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Seat": plain}},
 		"Wharfs":            {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Method": plain, "Connection": plain, "Seated": plain}},
-		"Breakwaters":       {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Method": plain, "Connection": plain}},
-		"Marinas":           {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Method": plain, "Connection": plain}},
+		"Breakwaters":       {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": oneTenant, "Method": plain, "Connection": plain}, Indexes: directoryIndexes},
+		"Marinas":           {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": oneTenant, "Method": plain, "Connection": plain}, Indexes: directoryIndexes},
 		"Lighthouses":       {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": nullable, "Method": plain, "Connection": plain}},
 		"Bollards":          {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "HarborId": plain, "Method": plain, "Connection": plain, "Seat": plain, "Rank": plain}},
 		"Piers":             {PkCount: 1, Columns: map[string]columnMeta{"Id": pk, "Closed": plain}},
@@ -505,10 +515,9 @@ func Test_patchTemplate_tenant(t *testing.T) {
 	structs := fixtureStructs(loadFixture(t, "tenantfixture"))
 
 	tests := []struct {
-		name      string
-		tenant    bool
-		directory bool
-		creation  tenantCreation
+		name     string
+		tenant   bool
+		creation tenantCreation
 		// auth binds the default outlet to the staff auth, which the record's create
 		// seats its creator through.
 		auth            bool
@@ -593,15 +602,6 @@ func Test_patchTemplate_tenant(t *testing.T) {
 			wantNotContains: []string{"AwaitFirstAdministrator", "AssignRole", "AdministratorRoles"},
 		},
 		{
-			name:      "the directories record reloads the roster after the commit and signals, as the record does",
-			directory: true,
-			wantContains: []string{
-				"tenantsWritten := false",
-				"if err := a.TenantRoster().Reload(ctx); err != nil {",
-				"if err := a.LiveService().Signal(ctx, resource.KindTenants); err != nil {",
-			},
-		},
-		{
 			name:            "another resource carries none of it",
 			auth:            true,
 			wantNotContains: []string{"tenantsWritten", "TenantRoster()", "KindTenants", "ClearTenant"},
@@ -613,7 +613,7 @@ func Test_patchTemplate_tenant(t *testing.T) {
 			t.Parallel()
 
 			res := fixtureResource(t, structs, "Sector", func(res *resourceInfo) {
-				res.IsTenant, res.IsTenantDirectory, res.TenantCreation = tt.tenant, tt.directory, tt.creation
+				res.IsTenant, res.TenantCreation = tt.tenant, tt.creation
 			})
 			r := &resourceGenerator{client: &client{resource: "testdata/tenantfixture"}, applicationName: "App", receiverName: "a"}
 			if tt.auth {
@@ -638,7 +638,7 @@ func Test_patchTemplate_tenant(t *testing.T) {
 					t.Errorf("patch handler must not contain %q:\n%s", notWant, out)
 				}
 			}
-			if (!tt.tenant && !tt.directory) || tt.creation.SelfService() {
+			if !tt.tenant || tt.creation.SelfService() {
 				return
 			}
 

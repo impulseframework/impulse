@@ -86,14 +86,10 @@ export type TenantsKey = [id: string];
  * absent; a server-generated key is absent, a client-assigned key is required.
  */
 export interface TenantDirectoriesCreate {
-  method: string;
-  connection: string;
   defaultSeat?: string | null;
 }
 /** The fields a client may change on TenantDirectories. Keys, server-owned, and immutable fields are absent. */
 export interface TenantDirectoriesPatch {
-  method?: string;
-  connection?: string;
   defaultSeat?: string | null;
 }
 /** The primary key of TenantDirectories, in route order. */
@@ -323,7 +319,7 @@ export const apiDescriptor = defineApiDescriptor({
       operations: ['list', 'read', 'create', 'patch', 'remove', 'batch'],
       page: { default: 50 },
       order: [{ field: 'method', direction: 'asc' }, { field: 'connection', direction: 'asc' }],
-      patchable: ['method', 'connection', 'defaultSeat'],
+      patchable: ['defaultSeat'],
     },
     [Resources.StaffTenantRoles]: {
       resource: Resources.StaffTenantRoles,
@@ -394,6 +390,7 @@ export const apiDescriptor = defineApiDescriptor({
       label: 'Staff',
       tenant: 'Tenant',
       tenantResource: Resources.Tenants,
+      signIns: [{ method: 'google', label: 'Google' }],
       sides: [
         {
           scope: 'global',

@@ -192,6 +192,10 @@ func (store) FamilyTokens(context.Context, resource.ReadWriteTransaction, impuls
 	return nil, nil
 }
 
+func (store) UserTokens(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]impulse.UUID, error) {
+	return nil, nil
+}
+
 func (store) RevokeToken(_ context.Context, _ resource.ReadWriteTransaction, id impulse.UUID, _ string) error {
 	return errors.Newf("the schema holds no table MembersSessionTokens: there is no token %s to revoke", id)
 }

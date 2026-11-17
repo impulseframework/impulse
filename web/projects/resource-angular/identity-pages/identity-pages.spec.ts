@@ -385,15 +385,60 @@ describe("identityPages, a person's password", () => {
       expect(methodsOf(identities.listMethods)).toEqual([[tt.remove, 'Remove password']]);
       const remove = presentation(identities.listMethods, tt.remove);
       // The method runs against the person the list sits under: the page fills nothing,
-      // and the question, asked of that person, says what is left to them.
+      // and the question, asked of that person, says what is left to them. This
+      // description names no sign-in by its button, so the list under the question does.
       expect(remove.fill).toBeUndefined();
-      expect((remove.confirm as (row: RecordData) => string)({ id: 'u-1', username: 'ada' })).toBe(
+      const ada = { id: 'u-1', username: 'ada' };
+      const question = remove.confirm as (row: RecordData, listed?: readonly RecordData[]) => string;
+      expect(question(ada, [{ method: 'google' }])).toBe(
         'Remove the password of ada? They will sign in only through the sign-in identities listed here.',
       );
+      // It is offered while an identity is linked to the person: the server refuses the
+      // removal of a password that is the person's only way in.
+      expect([remove.when?.(ada, [{ method: 'google' }]), remove.when?.(ada, []), remove.when?.(ada)]).toEqual([
+        true,
+        false,
+        false,
+      ]);
       // It is offered there alone, not a second time among the methods of the person's row.
       expect(presentation(list(pages[0]).rowMethods, tt.remove).hidden).toBe(true);
     });
   }
+
+  it('names what the removal leaves by the words the sign-in buttons of the linked identities carry', () => {
+    // The login page offers Fleet Google, and two Entra registrations: an identity
+    // names its method and not its registration, so an Entra link names both.
+    const signIns = [
+      { method: 'google', label: 'Fleet Google' },
+      { method: 'azure', label: 'Lakeside' },
+      { method: 'azure', label: 'Riverside' },
+    ];
+    const named = { ...withPassword, identity: [{ ...withPassword.identity![0], signIns }, members] } as ApiDescriptor;
+    const ada = { id: 'u-1', username: 'ada' };
+    for (const [scope, method] of [
+      ['global', 'RemoveCrewPassword'],
+      ['domain', 'RemoveCrewSectorPassword'],
+    ] as const) {
+      const remove = presentation(
+        identitiesOf(identityPages(named, resourceMeta, { auth: 'Crew', scope })).listMethods,
+        method,
+      );
+      const question = remove.confirm as (row: RecordData, listed?: readonly RecordData[]) => string;
+      expect(question(ada, [{ method: 'google' }, { method: 'google' }])).toBe(
+        'Remove the password of ada? They will sign in through Fleet Google only.',
+      );
+      expect(question(ada, [{ method: 'azure' }])).toBe(
+        'Remove the password of ada? They will sign in through Lakeside or Riverside only.',
+      );
+      expect(question(ada, [{ method: 'azure' }, { method: 'google' }])).toBe(
+        'Remove the password of ada? They will sign in through Fleet Google, Lakeside or Riverside only.',
+      );
+      // A link through a method the login page offers no button for is named by the list.
+      expect(question(ada, [{ method: 'workos' }])).toBe(
+        'Remove the password of ada? They will sign in only through the sign-in identities listed here.',
+      );
+    }
+  });
 
   it('offers none where the description names no such method', () => {
     for (const scope of ['global', 'domain'] as const) {

@@ -244,9 +244,10 @@ func (w EnumerationSizeWarning) String() string {
 // resource whose declared order no index serves, and a listed join-path resource; and
 // for a subject set whose lookup no index serves (subjectSetIndexWarnings). A
 // virtual resource is out (its index facts are tags, not schema), so is a resource whose
-// list handler is suppressed, and so is a bare-tenant resource with no @order, whose
+// list handler is suppressed, so is a bare-tenant resource with no @order, whose
 // sort-less list is not sorted and is served by the tenant column's foreign-key backing
-// index.
+// index, and so is a bare-tenant resource whose table a unique index on the tenant
+// column holds to one row for a tenant, which has nothing to sort.
 // Warnings come in resource-name order.
 func (c *client) schemaWarnings(resources []*resourceInfo) []Warning {
 	sorted := slices.Clone(resources)
@@ -320,8 +321,13 @@ func declaredOrderColumns(res *resourceInfo) []resource.SortField {
 // key whose leading columns are the tenant column, then each order column in declared
 // order with matching direction; trailing key columns are allowed. The primary key is
 // never required in the key, since Spanner appends it to every secondary index, and the
-// PRIMARY_KEY index counts like any other.
+// PRIMARY_KEY index counts like any other. A table that holds one row for a tenant
+// (holdsOneRowForTenant) is served whatever its order.
 func (t *tableMetadata) servesOrder(tenantColumn string, order []resource.SortField) bool {
+	if t.holdsOneRowForTenant(tenantColumn) {
+		return true
+	}
+
 	wanted := make([]indexColumn, 0, len(order)+1)
 	wanted = append(wanted, indexColumn{Column: tenantColumn})
 	for _, sf := range order {
@@ -333,6 +339,25 @@ func (t *tableMetadata) servesOrder(tenantColumn string, order []resource.SortFi
 			continue
 		}
 		if slices.Equal(index.Key[:len(wanted)], wanted) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// holdsOneRowForTenant reports whether some unique index of the table has the tenant
+// column as its whole key: the schema then holds a tenant to one row, so the tenant's
+// partition has nothing to sort and every order is served by the seek that finds the
+// row. Null filtering does not disqualify, as for a column that alone identifies a row
+// (deriveIndexFlags): a list binds the tenant to a value, and the index still holds one
+// row for each value.
+func (t *tableMetadata) holdsOneRowForTenant(tenantColumn string) bool {
+	for _, index := range t.Indexes {
+		if !index.Unique || index.Search || len(index.Key) != 1 {
+			continue
+		}
+		if index.Key[0].Column == tenantColumn {
 			return true
 		}
 	}

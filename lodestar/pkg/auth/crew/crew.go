@@ -617,10 +617,19 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// (session.WithMail): the invitations the auth's generated management sends, the
 	// verification of an address a person adds, and the sign-up links, each leading to
 	// the console's login page with its token in the query.
+	//
+	// The Auth is built knowing who holds the Super Administrator role
+	// (session.SuperAdministratorsBy, an argument no Auth is built without): a holder
+	// signs in with a second factor whatever the sign-in rule set below asks of anyone
+	// else, held for the mailed code by a rule of the library's own after the crew's.
+	// Here the crew's rule asks everyone already, so the library's changes nothing a
+	// person sees; it is what keeps the factor on a super administrator if the crew's
+	// rule is ever relaxed.
 	sessionStore := sessionstorage.NewSpannerAuth(db, sessionstorage.WithImpersonation(impersonation), sessionstorage.WithAuthEvents(events))
 	crewSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionStore,
 		settings.CookieKey,
+		session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),
 		session.WithSessionTableName(sessionsTable),
 		session.WithUserTableName(usersTable),
 		session.WithIdentitiesTableName(identitiesTable),
@@ -719,13 +728,6 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// Demonstrates: tenancy.declaration, tenancy.directory-only, auth.second-factor.
 	crewSession.SetSignInPolicy(signin.TenantPolicy(resource.SignInRoles(accessClient.UserManager()), settings.TenantDeclarations, signin.AdmitWithoutTenant()).Then(requireSecondFactor))
 
-	// A super administrator signs in with a second factor whatever the rule above asks
-	// of anyone else: the Auth is told who holds the role and holds their sign-in for
-	// the mailed code by a rule of the library's own, after the crew's. Here the crew's
-	// rule asks everyone already, so the library's changes nothing a person sees; it is
-	// what keeps the factor on a super administrator if the crew's rule is ever relaxed.
-	crewSession.SetSuperAdministrators(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager())))
-
 	// The crew's identity client (pkg/identity, generated): the rules that manage the
 	// auth's people, over the engine that reads its memberships and the API of the
 	// session manager that signs them in, whose hasher makes the hash of a temporary
@@ -752,18 +754,20 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// and hands that transaction, so the role is written with the step or not at all.
 	// They are set here, where the auth is built, so no crew auth is open without them.
 	//
-	// The directory admission: what a fleet member nobody has seated gets at their first
-	// sign-in through a directory a sector declares, before the registration's account
-	// rule is reached. The directory rows the sectors declare for the identity's
-	// connection decide: a row with a default seat creates the person and seats them
-	// with it in one transaction (Cinder seats them SectorCrew), and the sign-in rule
-	// then finds the membership; rows with none refuse them (invitation_only), and no
-	// account is created, unless they followed an invitation link, which is the way in.
-	// A directory no sector declares falls to the registration's rule as before (the
-	// pioneer's sign-up). A person given a role ahead of their first sign-in is no
-	// stranger: a role is held by an account, so they have the account the role was
-	// given to, and the sign-in links their identity to it, under its sign-in name,
-	// before the sectors are asked. The crew's roles are the application's, so the
+	// The directory admission: what a fleet member gets at their first sign-in through
+	// a sector's directory, before the registration's account rule is reached. The row
+	// of the sector whose directory the identity came through decides: a row with a
+	// default seat creates a stranger and seats them with it in one transaction (Cinder
+	// seats them SectorCrew), and the sign-in rule then finds the membership; a row with
+	// none refuses a stranger (invitation_only), and no account is created, unless they
+	// followed an invitation link, which is the way in. A person whose account stood
+	// before is given the default seat too, at the sign-in that links the account to
+	// the directory, where they hold no role in the sector: a persona who signs in
+	// through the fleet's directory for the first time and confirms with their password
+	// is seated at Cinder then. It is given once for a link, so a role a marshal removes
+	// afterwards is not given back by signing in. A directory no sector has falls to
+	// the registration's rule as before (the pioneer's sign-up, a personal account,
+	// which is no sector's directory). The crew's roles are the application's, so the
 	// admission is set on this auth; an auth whose directory writes the roles (the
 	// members' directory) is the authority for everyone it holds and sets none.
 	//

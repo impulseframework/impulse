@@ -77,6 +77,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/api/user/session", suffix: "/user/session", method: http.MethodGet, handler: "Authenticated"},
 		{url: "/api/user/session", suffix: "/user/session", method: http.MethodDelete, handler: "Logout"},
 		{url: "/api/user/pending", suffix: "/user/pending", method: http.MethodGet, handler: "PendingStatus"},
+		{url: "/api/user/sign-in-means", suffix: "/user/sign-in-means", method: http.MethodGet, handler: "SignInMeans"},
 		{url: "/api/user/password/login", suffix: "/user/password/login", method: http.MethodPost, handler: "PasswordLogin", xsrf: true},
 		{url: "/api/user/password/change", suffix: "/user/password/change", method: http.MethodPost, handler: "PasswordChange", xsrf: true},
 		{url: "/api/user/password/remove", suffix: "/user/password/remove", method: http.MethodPost, handler: "PasswordRemove", xsrf: true},
@@ -709,6 +710,10 @@ func (s *routerDefaultSessionStub) Logout() http.HandlerFunc {
 
 func (s *routerDefaultSessionStub) PendingStatus() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PendingStatus")
+}
+
+func (s *routerDefaultSessionStub) SignInMeans() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "SignInMeans")
 }
 
 func (s *routerDefaultSessionStub) PasswordLogin() http.HandlerFunc {

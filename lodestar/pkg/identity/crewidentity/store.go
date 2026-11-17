@@ -244,6 +244,24 @@ func (store) FamilyTokens(ctx context.Context, txn resource.ReadWriteTransaction
 	return ids, nil
 }
 
+func (store) UserTokens(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
+	// The index leads with the user; whether a token is revoked is read off each row.
+	query := crewresources.NewCrewSessionTokenQuery().
+		AddColumns(crewresources.NewCrewSessionTokenColumns().ID().RevokedAt()).
+		Where(crewresources.NewCrewSessionTokenQueryClause().UserID().Equal(userID))
+	var ids []impulse.UUID
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "crewresources.CrewSessionTokenQuery.List()")
+		}
+		if row.Data.RevokedAt == nil {
+			ids = append(ids, row.Data.ID)
+		}
+	}
+
+	return ids, nil
+}
+
 func (store) RevokeToken(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, reason string) error {
 	revokedAt := spanner.CommitTimestamp
 	patch := crewresources.NewCrewSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)

@@ -459,13 +459,13 @@ func postgresNamedSecrets[R Resourcer](ctx context.Context, client *PostgresClie
 		columns = append(columns, postgresIdentifier(meta.ColumnName))
 	}
 	columns = append(columns, postgresIdentifier(column.ColumnName))
-	// The first byte of the stored bytes is the version that sealed them.
-	sql := fmt.Sprintf("SELECT %s FROM %s WHERE substring(%s from 1 for 1) = $1", strings.Join(columns, ", "), postgresIdentifier(string(res.Resource())), postgresIdentifier(column.ColumnName))
+	// The leading bytes of the stored bytes are the version that sealed them.
+	sql := fmt.Sprintf("SELECT %s FROM %s WHERE substring(%s from 1 for %d) = $1", strings.Join(columns, ", "), postgresIdentifier(string(res.Resource())), postgresIdentifier(column.ColumnName), secretVersionSize)
 	if limit > 0 {
 		sql += " LIMIT " + strconv.Itoa(limit)
 	}
 
-	rows, err := client.postgres.Query(ctx, sql, []byte{byte(version)}) //nolint:gosec // a version is 1 to 255, checked where the variable is read
+	rows, err := client.postgres.Query(ctx, sql, secretVersionPrefix(version))
 	if err != nil {
 		return errors.Wrap(err, "pgxpool.Pool.Query()")
 	}

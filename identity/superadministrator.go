@@ -20,7 +20,20 @@ import (
 //     membership of it anywhere else, access.UserManager.Membership);
 //   - only a super administrator makes or removes another: giving the role, taking it
 //     away, inviting a person to it and deleting a holder's account, which takes the
-//     role with it, each take a caller who holds it;
+//     role with it, each take a caller who holds it, and so do disabling a holder's
+//     account, which removes a super administrator in effect, and enabling one, which
+//     makes one;
+//   - only a super administrator changes how another signs in: a password set for a
+//     holder or taken from them, a change of password required of them, a new username,
+//     a new address (where the code of their second factor is mailed) and the unlinking
+//     of an identity each take a caller who holds the role, since each is a way to
+//     become that person or to shut them out (requireSuperAdministratorFor);
+//   - a person given the role signs in again and meets the second factor afresh:
+//     giving it ends every session they hold, revokes their bearer tokens and forgets
+//     the browsers remembered for them, in the transaction that gives it, so nothing
+//     issued before the role carries it (AssignRole). What an administrator set on the
+//     account before the role, a password or an address, stands: the super
+//     administrator who gives the role chooses whom to trust;
 //   - there is always one who can sign in: the role is not taken from the last holder
 //     whose account can sign in, and that account is neither disabled nor deleted,
 //     whoever asks.
@@ -65,6 +78,59 @@ func (m *Manager) requireSuperAdministrator(ctx context.Context, txn resource.Re
 	return httpio.NewForbiddenMessagef("only a super administrator %s, and you do not hold the Super Administrator role", act)
 }
 
+// requireSuperAdministratorFor refuses an act on how a person signs in, or on where the
+// code of their second factor is mailed, when the person holds the Super Administrator
+// role and the real person behind the request does not (requireSuperAdministrator): a
+// password of the caller's choosing, an address of theirs, or a sign-in the holder can no
+// longer make would hand them the role or take its holder away, and it takes a super
+// administrator to do either. act says what was asked, as the middle of a sentence
+// ("sets a super administrator's password"). Disabling and enabling a holder's account
+// ask it too, since one removes a super administrator in effect and the other makes
+// one. A person who does not hold the role is
+// whoever's the role file says to manage; a super administrator acts on themselves and
+// on another as the role file allows; and a call outside any request goes through.
+func (m *Manager) requireSuperAdministratorFor(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, act string) error {
+	super, err := m.holdsSuperAdministrator(ctx, txn, userID)
+	if err != nil || !super {
+		return err
+	}
+
+	return m.requireSuperAdministrator(ctx, txn, act)
+}
+
+// endWhatStoodBeforeTheRole buffers the end of everything a person given the Super
+// Administrator role held before it, so nothing issued without the role acts with it and
+// the person's next sign-in meets the second factor: every session they hold
+// (EndUserSessions), every bearer token of theirs that is not revoked yet, a device
+// authorization's among them, and every browser they asked to be remembered
+// (RevokeTrustedDevices). The tokens and the browsers are read before anything is
+// buffered.
+func (m *Manager) endWhatStoodBeforeTheRole(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) error {
+	tokens, err := m.store.UserTokens(ctx, txn, userID)
+	if err != nil {
+		return errors.Wrap(err, "identity.Store.UserTokens()")
+	}
+	devices, err := m.store.TrustedDevices(ctx, txn, userID)
+	if err != nil {
+		return errors.Wrap(err, "identity.Store.TrustedDevices()")
+	}
+	if err := m.endUserSessions(ctx, txn, userID); err != nil {
+		return err
+	}
+	for _, id := range tokens {
+		if err := m.store.RevokeToken(ctx, txn, id, revokedByHand); err != nil {
+			return errors.Wrap(err, "identity.Store.RevokeToken()")
+		}
+	}
+	for _, id := range devices {
+		if err := m.store.RevokeTrustedDevice(ctx, txn, id); err != nil {
+			return errors.Wrap(err, "identity.Store.RevokeTrustedDevice()")
+		}
+	}
+
+	return nil
+}
+
 // callerActor is the real person behind the request, as the permission store names
 // them: the actor of an impersonated session (the person who started it, whoever it
 // views as and whatever role it acts as), and otherwise the caller the entry check ran
@@ -91,6 +157,15 @@ func callerActor(ctx context.Context, caller *resource.Caller) (actor accesstype
 // sentence ("take the Super Administrator role from them", "disable their account").
 // It is refused whoever asks, a call outside any request included. A person who holds
 // the role and cannot sign in is nobody's way back in, so an act on them is not judged.
+//
+// The holders it counts are the committed ones, read in the transaction, as no read sees
+// a buffered write: two requests that each take a holder away at once are judged one
+// after the other by the database, and the second finds the first's commit. A
+// transaction that takes away one holder and then another would judge each against the
+// rows as they were before it. No request reaches that: every method the generated
+// management serves runs alone in a transaction of its own and names one person. An
+// application that runs these methods in a transaction it opens itself takes the role
+// from, disables or deletes one holder per transaction.
 func (m *Manager) refuseLastSuperAdministrator(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, act string) error {
 	last, err := m.lastSuperAdministrator(ctx, txn, userID)
 	if err != nil || !last {

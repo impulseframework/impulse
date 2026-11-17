@@ -41,7 +41,8 @@ const methodMeta = (method: Method): MethodMeta => generatedMethodMeta(method) a
 const fieldNames = (resource: Resource): string[] => resourceMeta(resource).fields.map((meta) => meta.fieldName);
 
 /** A row holding a value in every field of the resource, for a fill to read. */
-const sampleRow = (resource: Resource): RecordData => Object.fromEntries(fieldNames(resource).map((name) => [name, `${name}-value`]));
+const sampleRow = (resource: Resource): RecordData =>
+  Object.fromEntries(fieldNames(resource).map((name) => [name, `${name}-value`]));
 
 describe("the library's pages over an auth's generated management", () => {
   it('are the accounts, groups, mailed links, sessions and failed sign-ins of the whole service, and the people, groups and invitations of a sector', () => {
@@ -75,7 +76,9 @@ describe("the library's pages over an auth's generated management", () => {
     const pages = identityPages(apiDescriptor, resourceMeta, { auth: 'Members', scope: 'global' });
     const presented = new Set(
       lists(pages).flatMap((list) =>
-        [...((list.rowMethods || []) as MethodPresentation[]), ...(list.listMethods ?? [])].map((presentation) => presentation.method),
+        [...((list.rowMethods || []) as MethodPresentation[]), ...(list.listMethods ?? [])].map(
+          (presentation) => presentation.method,
+        ),
       ),
     );
 
@@ -132,10 +135,17 @@ describe("the library's pages over an auth's generated management", () => {
       const meta = methodMeta(tt.remove as Method);
       expect(meta.target).toEqual({ resource: tt.people, key: { userId: 'id' } });
       expect(meta.fields.map((field) => field.fieldName)).toEqual(['userId']);
-      const question = identities.listMethods?.[0]?.confirm as (person: RecordData) => string;
-      expect(question({ id: 'u-1', username: 'cadet' })).toBe(
-        'Remove the password of cadet? They will sign in only through the sign-in identities listed here.',
+      // The question names what is left by the words of the sign-in buttons: the crew's
+      // login page offers two Google registrations, and a Google identity names its
+      // method and not its registration, so both are named. The button is drawn only
+      // while an identity is linked, since the server refuses the removal otherwise.
+      const remove = identities.listMethods?.[0];
+      const cadet = { id: 'u-1', username: 'cadet' };
+      const question = remove?.confirm as (person: RecordData, listed?: readonly RecordData[]) => string;
+      expect(question(cadet, [{ method: 'google' }])).toBe(
+        'Remove the password of cadet? They will sign in through Lodestar or Google only.',
       );
+      expect([remove?.when?.(cadet, [{ method: 'google' }]), remove?.when?.(cadet, [])]).toEqual([true, false]);
     }
     // The members sign in through their directory alone: the generator describes no such method for them.
     expect(identitiesOf('Members', 'global').listMethods).toEqual([]);
@@ -215,6 +225,8 @@ describe("the library's pages over an auth's generated management", () => {
     const meta = methodMeta(Methods.AssignCrewSectorRole as Method);
 
     expect(meta.dryRun).toBe(true);
-    expect(meta.fields.filter((field) => field.attribute).map((field) => [field.fieldName, field.attribute])).toEqual([['role', 'role']]);
+    expect(meta.fields.filter((field) => field.attribute).map((field) => [field.fieldName, field.attribute])).toEqual([
+      ['role', 'role'],
+    ]);
   });
 });

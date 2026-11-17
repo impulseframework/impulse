@@ -1,15 +1,13 @@
 <h1>Who may enter {{ sectorName() || 'this sector' }}</h1>
 <p>
-  A sector declares who may enter it. A <strong>directory</strong> is a place people sign in from, outside this
-  application: a Google Workspace, named by its domain (<code>example</code>, the fleet's), or a Microsoft Entra tenant, named
-  by its tenant id. A person who signs in through a directory enters this sector only when the sector declares that
-  directory here; one domain is one directory, and a second directory is a second declaration. Passwords are this
-  application's own way in, and every sector admits them unless it is <strong>directory only</strong>: then its people
-  enter through its directories alone, and a password does not reach it. A person whose every sector is directory only
-  cannot sign in with a password at all. Each declared directory carries a <strong>default seat</strong>: the role a
-  stranger who signs in through it is seated with here at their first sign-in, so they enter at once. With no default
-  seat, the directory's strangers are told this sector admits people by invitation only, and an invited person enters
-  with the roles the invitation names.
+  A sector's <strong>directory</strong> is the organization its people sign in through, outside this application: a
+  Google Workspace or a Microsoft Entra tenant. A sector has one directory, and a directory belongs to one sector.
+  Nobody types a directory in: a marshal of this sector who is signed in through the organization's directory makes it
+  this sector's, here. A person who signs in through the directory is given the <strong>default role</strong> at their
+  first sign-in, so they enter at once; with no default role they are told this sector admits people by invitation only,
+  and an invited person enters with the roles the invitation names. Passwords are this application's own way in, and the
+  sector admits them unless it is <strong>directory only</strong>: then its people enter through its directory alone,
+  and a password does not reach it. A person whose every sector is directory only cannot sign in with a password at all.
 </p>
 
 @if (error()) {
@@ -18,95 +16,63 @@
 
 <mat-card appearance="outlined" class="declaration-card">
   <mat-card-header>
-    <mat-card-title>Directories</mat-card-title>
-    <mat-card-subtitle>The directories this sector admits its people through.</mat-card-subtitle>
+    <mat-card-title>Directory</mat-card-title>
+    <mat-card-subtitle>The organization this sector's people sign in through.</mat-card-subtitle>
   </mat-card-header>
   <mat-card-content>
     @if (!canList()) {
-      <p class="empty">Your role in this sector does not cover its directories.</p>
-    } @else {
-      <table mat-table [dataSource]="directories.value()" class="directories">
-        <ng-container matColumnDef="method">
-          <th mat-header-cell *matHeaderCellDef>Directory</th>
-          <td mat-cell *matCellDef="let directory">{{ labelOf(directory.method) }}</td>
-        </ng-container>
-        <ng-container matColumnDef="connection">
-          <th mat-header-cell *matHeaderCellDef>Connection</th>
-          <td mat-cell *matCellDef="let directory">
-            <code>{{ directory.connection }}</code>
-          </td>
-        </ng-container>
-        <ng-container matColumnDef="seat">
-          <th mat-header-cell *matHeaderCellDef>Default seat</th>
-          <td mat-cell *matCellDef="let directory">
-            @if (canSeat()) {
-              <mat-select
-                class="seat-picker"
-                aria-label="Default seat"
-                [value]="directory.defaultSeat || invitationOnly"
-                [disabled]="busy()"
-                (selectionChange)="seat(directory, $event.value)"
-              >
-                <mat-option [value]="invitationOnly">Invitation only</mat-option>
-                @for (role of roles.value(); track role.name) {
-                  <mat-option [value]="role.name">{{ role.name }}</mat-option>
-                }
-              </mat-select>
-            } @else {
-              {{ seatOf(directory) }}
+      <p class="empty">Your role in this sector does not cover its directory.</p>
+    } @else if (directory(); as row) {
+      <p class="directory">{{ nameOf(row) }}</p>
+      <div class="default-role">
+        <span class="default-role-label">Default role</span>
+        @if (canSeat()) {
+          <mat-select
+            class="seat-picker"
+            aria-label="Default role"
+            [value]="row.defaultSeat || invitationOnly"
+            [disabled]="busy()"
+            (selectionChange)="seat(row, $event.value)">
+            <mat-option [value]="invitationOnly">Invitation only</mat-option>
+            @for (role of roles.value(); track role.name) {
+              <mat-option [value]="role.name">{{ role.name }}</mat-option>
             }
-          </td>
-        </ng-container>
-        <ng-container matColumnDef="withdraw">
-          <th mat-header-cell *matHeaderCellDef></th>
-          <td mat-cell *matCellDef="let directory">
-            @if (canWithdraw()) {
-              <button mat-button type="button" [disabled]="busy()" (click)="withdraw(directory)">Withdraw</button>
-            }
-          </td>
-        </ng-container>
-        <tr mat-header-row *matHeaderRowDef="columns"></tr>
-        <tr mat-row *matRowDef="let row; columns: columns"></tr>
-      </table>
-      @if (!directories.value().length) {
+          </mat-select>
+        } @else {
+          <span class="seat">{{ seatOf(row) }}</span>
+        }
+      </div>
+      <p class="empty">
+        A person is given the default role at their first sign-in through the directory. Someone whose role you remove
+        afterwards is not given it back by signing in.
+      </p>
+      @if (canRemove()) {
+        <button mat-button type="button" class="remove-directory" [disabled]="busy()" (click)="remove(row)">
+          Remove the directory
+        </button>
         <p class="empty">
-          No directory is declared: this sector admits its people by password, and nobody who signs in through a
-          directory reaches it.
+          Removing the directory leaves the roles it gave in place and frees it for another sector. It cannot be removed
+          while this sector is directory only.
         </p>
+      }
+    } @else {
+      <p class="empty">This sector has no directory: its people sign in with a password.</p>
+      @if (canSet()) {
+        @if (sessionDirectory(); as mine) {
+          <p class="signed-in-through">You are signed in through {{ nameOf(mine) }}.</p>
+          <button mat-flat-button type="button" class="make-directory" [disabled]="busy()" (click)="makeDirectory()">
+            Make {{ mine.connection }} this sector's directory
+          </button>
+        } @else {
+          <p class="empty how-to-set">
+            A directory is set by signing in through it. Sign in with your organization's account (Google Workspace or
+            Microsoft Entra), then come back to this page and make it this sector's directory.
+          </p>
+        }
       }
     }
   </mat-card-content>
 </mat-card>
-
-@if (canDeclare()) {
-  <mat-card appearance="outlined" class="declaration-card">
-    <mat-card-header>
-      <mat-card-title>Declare a directory</mat-card-title>
-      <mat-card-subtitle>
-        A person who signs in through it enters this sector when they hold a role here; a stranger gets the default
-        seat you pick, or is told to ask for an invitation.
-      </mat-card-subtitle>
-    </mat-card-header>
-    <mat-card-content>
-      <form [formGroup]="form" (ngSubmit)="declare()" class="declare-form">
-        <mat-form-field appearance="outline" class="method">
-          <mat-label>Directory</mat-label>
-          <mat-select formControlName="method">
-            @for (method of methods; track method.value) {
-              <mat-option [value]="method.value">{{ method.label }}</mat-option>
-            }
-          </mat-select>
-        </mat-form-field>
-        <mat-form-field appearance="outline" class="connection">
-          <mat-label>Connection</mat-label>
-          <input matInput formControlName="connection" name="connection" autocomplete="off" [placeholder]="chosen().example" />
-          <mat-hint>{{ chosen().label }}: {{ chosen().connection }}, such as {{ chosen().example }}.</mat-hint>
-        </mat-form-field>
-        <button mat-flat-button type="submit" [disabled]="form.invalid || busy()">Declare</button>
-      </form>
-    </mat-card-content>
-  </mat-card>
-}
 
 <mat-card appearance="outlined" class="declaration-card">
   <mat-card-header>
@@ -119,19 +85,19 @@
         class="directory-only"
         [checked]="row.directoryOnly"
         [disabled]="!canClose() || busy()"
-        (change)="close($event.checked)"
-      >
+        (change)="close($event.checked)">
         @if (row.directoryOnly) {
-          Directory only: people enter through the declared directories alone, and a password does not reach this
-          sector.
+          Directory only: people enter through this sector's directory alone, and a password does not reach this sector.
         } @else {
-          Passwords admitted: people enter by password as well as through the declared directories.
+          Passwords admitted: people enter by password as well as through this sector's directory.
         }
       </mat-slide-toggle>
       @if (!canClose()) {
         <p class="empty">Headquarters sets this, on the sector record.</p>
-      } @else if (!directories.value().length) {
-        <p class="empty">Declare a directory first: directory only with no directory admits nobody but staff.</p>
+      } @else if (!directory()) {
+        <p class="empty">
+          Set a directory first: directory only with no directory admits nobody but a super administrator.
+        </p>
       }
     } @else {
       <p class="empty">Your role does not cover the sector record, which carries this setting.</p>

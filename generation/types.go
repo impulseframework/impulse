@@ -1326,14 +1326,15 @@ type resourceInfo struct {
 	// declares none, and every tenant admits a password.
 	DirectoryOnlyField *resourceField
 	// IsTenantDirectory marks the directories record (@tenantDirectory): the
-	// tenant-scoped resource whose rows are the directories a tenant admits its people
-	// through, one per declaration, with DirectoryMethodField (@directoryMethod) and
-	// DirectoryConnectionField (@directoryConnection) as its two columns, and
-	// DirectoryDefaultSeatField (@directoryDefaultSeat) as the column naming the role
-	// a stranger the directory vouches for is seated with at their first sign-in, nil
-	// where the record carries none and every tenant admits such strangers by
-	// invitation only. Its generated write paths keep every instance's tenant roster
-	// current, as the record's do.
+	// tenant-scoped resource whose row is the directory a tenant admits its people
+	// through, one for a tenant and one tenant's, with DirectoryMethodField
+	// (@directoryMethod) and DirectoryConnectionField (@directoryConnection) as its two
+	// columns, and DirectoryDefaultSeatField (@directoryDefaultSeat) as the column
+	// naming the role a person is seated with at their first sign-in through the
+	// directory, nil where the record carries none and every tenant admits a stranger
+	// from its directory by invitation only. Its generated write paths hold a row to the
+	// rules of a tenant's directory (resource.TenantDirectoryRules) and keep every
+	// instance's tenant roster current, as the record's do.
 	IsTenantDirectory         bool
 	DirectoryMethodField      *resourceField
 	DirectoryConnectionField  *resourceField
@@ -1342,6 +1343,10 @@ type resourceInfo struct {
 	// once the directories record is known to belong to it (validateTenantDeclaration);
 	// nil on every other resource and on a record whose package declares none.
 	declaration *tenantDeclaration
+	// directoryOf is the tenant record the directories record belongs to, set with the
+	// record's declaration; nil on every other resource. The directories record's
+	// generated write paths name the record's directory rules by it.
+	directoryOf *resourceInfo
 }
 
 // IsDomainScoped reports whether the resource's @permissionScope resolves to the
@@ -1723,6 +1728,12 @@ type resourceField struct {
 	// hop). Empty for fields outside any workflow.
 	WorkflowRoot string
 
+	// IsDirectoryKey marks the directories record's method and connection columns
+	// (@directoryMethod, @directoryConnection): they decode output-only, on create and
+	// on update, since a directory is never typed in. The record's generated create
+	// stamps both from the directory the caller is signed in through.
+	IsDirectoryKey bool
+
 	// IsFileKey marks the store-key column of a @file declaration: off the wire in
 	// both directions (json:"-" on the read and the patch structs, absent from the
 	// TypeScript interface and metadata), read by the file route's frame for itself.
@@ -2046,8 +2057,11 @@ func (f *resourceField) IsOutputOnly() bool {
 	// tenant-key column is the same shape: the framework stamps it from the
 	// request's domain partition, so the wire cannot write it. A @file key
 	// column too: only Go code writes it, as an @upload body does. And a
-	// generated column: the database computes it, and refuses a write.
-	if f.IsState || f.IsTenantKey || f.IsFileKey || f.IsGenerated {
+	// generated column: the database computes it, and refuses a write. The
+	// directories record's method and connection are the same shape as the
+	// tenant key: the generated create stamps them from the caller's sign-in,
+	// so the wire cannot type a directory in.
+	if f.IsState || f.IsTenantKey || f.IsFileKey || f.IsGenerated || f.IsDirectoryKey {
 		return true
 	}
 

@@ -524,7 +524,7 @@ func TestAuth_TokenOptions(t *testing.T) {
 	} {
 		t.Run(tt.name+" is refused by NewAuth", func(t *testing.T) {
 			t.Parallel()
-			_, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey, tt.options...)
+			_, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(gomock.NewController(t)), cookieKey, NoSuperAdministrators(), tt.options...)
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("NewAuth() error = %v, want it to mention %q", err, tt.want)
 			}
@@ -536,7 +536,7 @@ func TestAuth_TokenOptions(t *testing.T) {
 		store := newAuthStoreMock(gomock.NewController(t))
 		store.EXPECT().SetTokensTableName("AppTokens").Return(nil)
 		store.EXPECT().SetDeviceCodesTableName("AppDeviceCodes").Return(nil)
-		if _, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, WithTokensTableName("AppTokens"), WithDeviceCodesTableName("AppDeviceCodes")); err != nil {
+		if _, err := NewAuth[NoCustomData, NoCustomData](store, cookieKey, NoSuperAdministrators(), WithTokensTableName("AppTokens"), WithDeviceCodesTableName("AppDeviceCodes")); err != nil {
 			t.Errorf("NewAuth() error = %v", err)
 		}
 	})

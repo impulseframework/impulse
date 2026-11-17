@@ -6,20 +6,33 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 
 	cloudspanner "cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
+	"github.com/impulseframework/impulse"
+	consoleapp "github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/sites/apps/console/app"
+	"github.com/impulseframework/impulse/httpio"
+	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 )
 
 // TestDeclaration_whoMayEnterATenant proves the Tenant record's declaration end to end
-// on both sites' served stacks, which share the auth and the roster. The staff sign in
-// by password, so the declared directories admit nobody yet: a directory declared on
-// north leaves the member's password session where it was. North admitting its people
-// through its directories only refuses the member's password session at reach time on
-// the console and on the portal alike, at once, since the console's write reloads the
-// shared roster; a fresh password sign-in is refused naming the rule, since every
-// tenant of the member is directory only; the administrator, a super administrator, keeps every
+// on both sites' served stacks, which share the auth and the roster. A tenant has one
+// directory and a directory belongs to one tenant, and nobody types one in: the staff
+// sign in by password, so the console's create is refused with how a directory is set,
+// a request that names a method and a connection is refused, and the directory is set
+// in code through the generated step a sign-in takes (setDirectory), which holds it to
+// the rules: a second directory for a tenant, and the directory on another tenant, are
+// each refused with what to do. The directory admits nobody yet, since nobody signs in
+// through one: north's leaves the member's password session where it was. North
+// admitting its people through its directory only refuses the member's password session
+// at reach time on the console and on the portal alike, at once, since the console's
+// write reloads the shared roster; a fresh password sign-in is refused naming the rule,
+// since every tenant of the member is directory only; its directory is not removed
+// while it is directory only; the administrator, a super administrator, keeps every
 // tenant. Every edit leaves a change event.
 func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	t.Parallel()
@@ -30,25 +43,67 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 	member := signedIn(ctx, t, s, s.console, memberUser)
 	portalMember := signedIn(ctx, t, s, s.portal, memberUser)
 
-	// A directory declared on north admits the people who come through it; the member,
-	// who came by password, keeps north as before.
-	declareDirectory := `[{"op":"add","path":"/tenants/` + north + `/tenant-directories","value":{"method":"google","connection":"north.example"}}]`
-	status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(declareDirectory))
-	if status != http.StatusOK {
-		t.Fatalf("declaring a directory on north: status %d: %s", status, body)
+	// Nobody types a directory in. The administrator is signed in with a password: the
+	// session read reports no directory, the create that names none is refused with how
+	// a directory is set, and one that types a method and a connection is refused as
+	// naming fields the record does not take. Neither writes.
+	if status, body := admin.do(ctx, http.MethodGet, "/api/user/session", nil); status != http.StatusOK || strings.Contains(string(body), `"directory"`) {
+		t.Errorf("the administrator's password session: status %d: %s, want no directory reported", status, body)
 	}
-	if domains := chart(ctx, t, member); !slices.Equal(domains, []string{north}) {
-		t.Fatalf("the member's chart with north declaring a directory = %v, want [%s]: a password is admitted", domains, north)
+	fromSession := `[{"op":"add","path":"/tenants/` + north + `/tenant-directories","value":{}}]`
+	status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(fromSession))
+	if status != http.StatusConflict || !strings.Contains(string(body), "You are signed in with a password. A directory is set by signing in through it") {
+		t.Errorf("setting north's directory from a password session: status %d, want 409 saying how a directory is set: %s", status, body)
 	}
-	if directories := directories(ctx, t, admin, north); len(directories) != 1 || directories[0].Connection != "north.example" {
-		t.Errorf("north's directories = %+v, want the one declared", directories)
+	typed := `[{"op":"add","path":"/tenants/` + north + `/tenant-directories","value":{"method":"google","connection":"north.example"}}]`
+	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(typed)); status != http.StatusBadRequest {
+		t.Errorf("typing a directory in: status %d, want 400: %s", status, body)
 	}
-	// The same declaration twice is refused as a conflict: one row per directory.
-	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(declareDirectory)); status != http.StatusConflict {
-		t.Errorf("declaring the same directory twice: status %d, want 409: %s", status, body)
+	if rows := directories(ctx, t, admin, north); len(rows) != 0 {
+		t.Fatalf("north's directory after the refused calls = %+v, want none", rows)
 	}
 
-	// North admits its people through its directories only: the member loses north on
+	// The Workspace becomes north's directory as a sign-in through it sets it. It
+	// admits the people who come through it; the member, who came by password, keeps
+	// north as before.
+	workspace := signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "north.example"}
+	if err := setDirectory(ctx, t, s, north, workspace); err != nil {
+		t.Fatalf("setting north's directory: %v", err)
+	}
+	if domains := chart(ctx, t, member); !slices.Equal(domains, []string{north}) {
+		t.Fatalf("the member's chart with north's directory set = %v, want [%s]: a password is admitted", domains, north)
+	}
+	if rows := directories(ctx, t, admin, north); len(rows) != 1 || rows[0].Connection != "north.example" {
+		t.Errorf("north's directory = %+v, want the one set", rows)
+	}
+
+	// A tenant has one directory, and a directory belongs to one tenant: the step
+	// refuses north a second one, the same or another, refuses south the one north has,
+	// and refuses a personal account as anybody's, each as a conflict that says what to
+	// do.
+	rules := []struct {
+		name      string
+		tenant    string
+		directory signin.Directory
+		want      string
+	}{
+		{"north's own directory again", north, workspace, "is already this tenant's directory"},
+		{"a second directory for north", north, signin.Directory{Method: sessioninfo.MethodGoogle, Connection: "other.example"}, "A tenant has one directory: remove it first to set another."},
+		{"north's directory on south", south, workspace, "already has a tenant here, and a directory belongs to one tenant"},
+		{"any Google account", south, signin.Directory{Method: sessioninfo.MethodGoogle, Connection: signin.GoogleAnyAccountConnection}, "A personal Google account is not an organization's directory"},
+		{"a personal Microsoft account", south, signin.Directory{Method: sessioninfo.MethodAzure, Connection: signin.MicrosoftPersonalAccountsConnection}, "A personal Microsoft account is not an organization's directory"},
+	}
+	for _, rule := range rules {
+		err := setDirectory(ctx, t, s, rule.tenant, rule.directory)
+		if err == nil || !strings.Contains(httpio.Message(err), rule.want) {
+			t.Errorf("%s: setting it answered %v, want a refusal saying %q", rule.name, err, rule.want)
+		}
+	}
+	if rows := directories(ctx, t, admin, south); len(rows) != 0 {
+		t.Errorf("south's directory after the refusals = %+v, want none", rows)
+	}
+
+	// North admits its people through its directory only: the member loses north on
 	// both sites at once, and a fresh password sign-in is refused naming the rule. The
 	// administrator keeps every tenant.
 	closeNorth := `[{"op":"patch","path":"/tenants/` + north + `","value":{"directoryOnly":true}}]`
@@ -84,7 +139,22 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		t.Errorf("the refusal's code = %q (err %v), want %q: %s", refusal.Code, err, sessioninfo.RefusedDirectoryOnly, body)
 	}
 
-	// Back to passwords: the member signs in again, on the portal too.
+	// A tenant that is directory only keeps its directory: nobody could enter it
+	// without one, so the removal is refused, saying to turn directory only off first.
+	current := directories(ctx, t, admin, north)
+	if len(current) != 1 {
+		t.Fatalf("north's directory = %+v, want the one set", current)
+	}
+	keep := `[{"op":"remove","path":"/tenants/` + north + `/tenant-directories/` + current[0].ID + `"}]`
+	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(keep)); status != http.StatusConflict || !strings.Contains(string(body), "Turn directory only off first, then remove the directory") {
+		t.Errorf("removing the directory of a tenant that is directory only: status %d, want 409 saying what to do first: %s", status, body)
+	}
+	if rows := directories(ctx, t, admin, north); len(rows) != 1 {
+		t.Errorf("north's directory after the refused removal = %+v, want it kept", rows)
+	}
+
+	// Back to passwords: the member signs in again, on the portal too, and the
+	// directory is removed.
 	openNorth := `[{"op":"patch","path":"/tenants/` + north + `","value":{"directoryOnly":false}}]`
 	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(openNorth)); status != http.StatusOK {
 		t.Fatalf("setting north back to passwords: status %d: %s", status, body)
@@ -96,11 +166,39 @@ func TestDeclaration_whoMayEnterATenant(t *testing.T) {
 		t.Errorf("the member's chart on the portal once north admits passwords again = %v, want [%s]", domains, north)
 	}
 
+	if status, body := admin.do(ctx, http.MethodPatch, "/api/resources", []byte(keep)); status != http.StatusOK {
+		t.Errorf("removing north's directory once it admits passwords again: status %d: %s", status, body)
+	}
+
 	// Every edit is audited: the records' change events carry the declaration's writes.
 	events := changeEvents(ctx, t, s, "Tenants", "TenantDirectories")
-	if events["Tenants"] < 2 || events["TenantDirectories"] < 1 {
-		t.Errorf("change events = %v, want the two flag writes on Tenants and the directory on TenantDirectories", events)
+	if events["Tenants"] < 2 || events["TenantDirectories"] < 2 {
+		t.Errorf("change events = %v, want the two flag writes on Tenants and the setting and the removal on TenantDirectories", events)
 	}
+}
+
+// setDirectory makes directory the tenant's, in code, through the generated step every
+// write that sets a tenant's directory from a sign-in takes (consoleapp.SetTenantDirectory),
+// and reloads the roster as the record's write paths do after their commit. It answers
+// the step's refusal: the rules of a tenant's directory are held there, whoever calls.
+func setDirectory(ctx context.Context, t *testing.T, s *served, tenant string, directory signin.Directory) error {
+	t.Helper()
+
+	id, err := impulse.UUIDFromString(tenant)
+	if err != nil {
+		t.Fatalf("impulse.UUIDFromString(%s) error = %v", tenant, err)
+	}
+	err = resource.NewSpannerClient(s.db.Client).ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+		return consoleapp.SetTenantDirectory(ctx, txn, id, directory, "test")
+	})
+	if err != nil {
+		return errors.Wrap(err, "resource.SpannerClient.ExecuteFunc()")
+	}
+	if err := s.tenants.Reload(ctx); err != nil {
+		t.Fatalf("resource.TenantRoster.Reload() error = %v", err)
+	}
+
+	return nil
 }
 
 // signedIn returns a browser signed in on the site as the development login, through the
@@ -137,7 +235,7 @@ type tenantDirectory struct {
 	Connection string `json:"connection"`
 }
 
-// directories lists the tenant's declared directories on the console.
+// directories lists the tenant's rows of the directories record on the console: one at most.
 func directories(ctx context.Context, t *testing.T, b *browser, tenant string) []tenantDirectory {
 	t.Helper()
 

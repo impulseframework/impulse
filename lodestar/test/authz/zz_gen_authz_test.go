@@ -2627,7 +2627,7 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			name:         "PatchResources SectorDirectory update denied",
 			method:       http.MethodPatch,
 			target:       "/console/api/resources",
-			body:         `[{"op":"patch","path":"/sectors/7e57d0a1-0000-4000-8000-000000000000/sector-directories/00000000-0000-0000-0000-000000000001","value":{"method":"authz-test-value"}}]`,
+			body:         `[{"op":"patch","path":"/sectors/7e57d0a1-0000-4000-8000-000000000000/sector-directories/00000000-0000-0000-0000-000000000001","value":{"defaultSeat":"authz-test-value"}}]`,
 			wantStatuses: []int{http.StatusBadRequest},
 		},
 		{

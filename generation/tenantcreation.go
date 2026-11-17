@@ -352,8 +352,8 @@ type tenantCreationData struct {
 	Setters []string
 	// Refusal is the sentence a person who already holds a tenant is answered with.
 	Refusal string
-	// Directory is the directories record the route declares the creator's directory
-	// on, nil where the package declares none.
+	// Directory is the directories record the route sets the creator's directory on,
+	// nil where the package declares none.
 	Directory *tenantCreationDirectory
 
 	// record is the tenant record the file is rendered from; it scopes import
@@ -362,19 +362,14 @@ type tenantCreationData struct {
 }
 
 // tenantCreationDirectory is the directories record as the create-your-tenant route
-// writes the creator's directory on the new tenant: the record's struct name, the
-// setters of its tenant, method and connection columns, and the written row's key as
-// the route's undo reads it off the create patch (`directory.ID()`, every key column of
-// a compound key in order), the arguments of the record's delete patch constructor.
+// sets the creator's directory on the new tenant, through the generated
+// Set<Record>Directory: the record's struct name, and the new tenant's id as that
+// function takes it.
 type tenantCreationDirectory struct {
-	Record      string
-	TenantField string
+	Record string
 	// TenantValue is the new tenant's id as the directories record's tenant column takes
 	// it: the id itself where the column is an id, its text where the column is a string.
-	TenantValue     string
-	MethodField     string
-	ConnectionField string
-	Keys            string
+	TenantValue string
 }
 
 func (d *tenantCreationData) typeImports() []fixerImport {
@@ -474,25 +469,17 @@ func (r *resourceGenerator) tenantCreationData(record *resourceInfo, outlet *rou
 	}
 }
 
-// tenantCreationDirectoryData is the directories record as the route writes the
+// tenantCreationDirectoryData is the directories record as the route sets the
 // creator's directory, nil where the record declares none.
 func tenantCreationDirectoryData(record *resourceInfo) *tenantCreationDirectory {
 	if !record.HasDeclaration() {
 		return nil
 	}
 	directories := record.declaration.Directories
-	keys := make([]string, 0, directories.keyCount())
-	for _, key := range directories.PrimaryKeys() {
-		keys = append(keys, "directory."+key.Name()+"()")
-	}
 
 	return &tenantCreationDirectory{
-		Record:          directories.Name(),
-		TenantField:     directories.DomainBinding.Anchor.Name(),
-		TenantValue:     tenantValueFor(directories.DomainBinding.Anchor),
-		MethodField:     directories.DirectoryMethodField.Name(),
-		ConnectionField: directories.DirectoryConnectionField.Name(),
-		Keys:            strings.Join(keys, ", "),
+		Record:      directories.Name(),
+		TenantValue: tenantValueFor(directories.DomainBinding.Anchor),
 	}
 }
 

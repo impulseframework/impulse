@@ -16,6 +16,7 @@ import (
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/resource/live"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 	"github.com/impulseframework/impulse/tracer"
 )
 
@@ -40,11 +41,14 @@ var _ interface {
 // new membership as a foothold the session reaches, so the person's next request stands
 // in the tenant; the tenants kind is signaled last, so every instance serves it at
 // once.
-// The tenant's first directory is the one its creator came through: a person who
-// signed in through a directory (Google, Microsoft Entra, WorkOS) has it declared on the
-// new tenant in the row's transaction (TenantDirectory), so the tenant admits
-// them at once, one domain, one directory; a person who signed in by password declares
-// none, and the tenant admits passwords as every tenant declaring nothing does.
+// The tenant's directory is the one its creator came through: a person who
+// signed in through an organization's directory (a Google Workspace, a Microsoft Entra
+// tenant) has it set on the new tenant in the row's transaction
+// (SetTenantDirectory, which writes the TenantDirectory row), so the tenant admits
+// them at once. A directory belongs to one tenant: a person whose organization has a
+// tenant already is refused (409) and nothing is written. A person who signed in by
+// password, or with a personal account, which is no organization's directory, sets
+// none, and the tenant admits both as every tenant with no directory does.
 // The roster must list the tenant and its declaration before the membership is
 // probed: the probe asks what the next request asks, and a tenant the roster does
 // not know admits nobody who came through a directory.
@@ -98,16 +102,16 @@ func (a *App) CreateTenant() http.HandlerFunc {
 			if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 				return errors.Wrap(err, "resources.TenantCreatePatch.Buffer()")
 			}
-			// The creator's directory, written with the row; none for a creator who came
-			// by password.
-			if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok && established.Method.ThroughDirectory() {
-				directory, err := resources.NewTenantDirectoryCreatePatch()
-				if err != nil {
-					return errors.Wrap(err, "resources.NewTenantDirectoryCreatePatch()")
-				}
-				directory.SetTenantID(id).SetMethod(string(established.Method)).SetConnection(established.Connection)
-				if err := directory.Buffer(ctx, txn, eventSource); err != nil {
-					return errors.Wrap(err, "resources.TenantDirectoryCreatePatch.Buffer()")
+			// The creator's directory, written with the row: the organization's directory
+			// the creator is signed in through, held to the rules of a tenant's
+			// directory, so a directory another tenant has refuses the creation and
+			// nothing is written. None for a creator who came by password or with a
+			// personal account, which is no organization's directory.
+			if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok {
+				if directory := (signin.Directory{Method: established.Method, Connection: established.Connection}); directory.Organization() {
+					if err := SetTenantDirectory(ctx, txn, id, directory, eventSource); err != nil {
+						return errors.Wrap(err, "SetTenantDirectory()")
+					}
 				}
 			}
 			// The first administrator: the person's membership of each role, in the row's
@@ -122,7 +126,7 @@ func (a *App) CreateTenant() http.HandlerFunc {
 		}); err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		live.Publish(ctx, a.LiveService(), liveDerivations, "", touched)
+		live.Publish(ctx, w, a.LiveService(), liveDerivations, "", touched)
 		domain := accesstypes.Domain(id.String())
 
 		// This instance's roster learns the tenant before the membership is probed:

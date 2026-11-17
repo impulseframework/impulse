@@ -194,6 +194,7 @@ func All() []Check {
 		migrationsReader{},
 		authsWired{},
 		rolesFileAccepted{},
+		superAdministratorsTold{},
 		personaCast{},
 		directoryAdmission{},
 		tenantAccounts{},

@@ -357,13 +357,15 @@ func TestTenancyBrowserRecordWords(t *testing.T) {
 		"this.api.domain(params.tenant as Domain).staffServiceAreaRoles.list()",
 		"this.api.can(Permissions.Update, Resources.ServiceAreas)",
 		"export class TenantSignInComponent {",
-		"connection: \"the Entra tenant's id\"",
+		// The directory's own word stays: a Microsoft Entra tenant is not the record's.
+		"azure: 'Microsoft Entra tenant',",
+		"await this.api.domain(this.serviceAreaID() as Domain).serviceAreaDirectories.create({});",
 	}, []string{"tenantID", ".tenants.", "Resources.Tenants"})
 	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.html", []string{
 		"<h1>Who may enter {{ tenantName() || 'this service area' }}</h1>",
-		"A service area declares who may enter it.",
-		"or a Microsoft Entra tenant, named\n  by its tenant id.",
-		"Your role in this service area does not cover its directories.",
+		"Google Workspace or a Microsoft Entra tenant. A service area has one directory, and a directory belongs to one service area.",
+		"Make {{ mine.connection }} this service area's directory",
+		"Your role in this service area does not cover its directory.",
 		"@if (tenant.value(); as row) {",
 	}, nil)
 	wantContains(t, a, src+"components/ui/sign-in/tenant-sign-in.component.spec.ts", []string{
@@ -373,7 +375,8 @@ func TestTenancyBrowserRecordWords(t *testing.T) {
 		"case `${environment.apiUrl}/service-areas/${acmeID}/service-area-directories`:",
 		"case `${environment.apiUrl}/service-areas/${acmeID}/staff-service-area-roles`:",
 		"fixture.componentRef.setInput('serviceAreaID', acmeID);",
-		"'Your role in this service area does not cover its directories.',",
+		"'Your role in this service area does not cover its directory.',",
+		"expect(texts('.make-directory')).toEqual([\"Make acme.example this service area's directory\"]);",
 	}, []string{"tenantID", "/tenants/"})
 	wantContains(t, a, src+"configs/tenants.config.ts", []string{
 		"import { Resources, ServiceAreas } from '@app/service/zz_gen_constants';",

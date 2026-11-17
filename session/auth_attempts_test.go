@@ -259,8 +259,8 @@ func TestAuth_AttemptLimit_Resets(t *testing.T) {
 				f.login("pat", "wrong", "10.0.0.1", "tok")
 				f.login("pat", "wrong", "10.0.0.1", "tok")
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat(), nil)
+				f.store.EXPECT().ChangeUserPassword(gomock.Any(), userID, gomock.Any(), gomock.Any()).Return(nil)
 				f.store.EXPECT().DestroyUserSessions(gomock.Any(), userID).Return(nil)
-				f.store.EXPECT().SetUserPassword(gomock.Any(), userID, gomock.Any(), false).Return(nil)
 				createSession(f.store, sessionID, nil)
 				if err := f.auth.API().ChangeSessionUserPassword(context.Background(), httptest.NewRecorder(), userID, &ChangeSessionUserPasswordRequest{OldPassword: "pw", NewPassword: "new"}); err != nil {
 					t.Fatalf("ChangeSessionUserPassword() error = %v", err)
@@ -505,7 +505,7 @@ func TestAuth_SignedInHook(t *testing.T) {
 				cookies, pendingID := f.hold(t, &signInAttempt{identity: identity, reason: sessioninfo.ReasonLogin, registration: "workos"},
 					&signin.PendingSignInError{Reason: sessioninfo.PendingConfirmation, UserID: impulse.NullUUIDFromUUID(userID), Username: "pat", Tenant: "lakeside"})
 				f.store.EXPECT().User(gomock.Any(), userID).Return(pat, nil)
-				f.store.EXPECT().LinkIdentity(gomock.Any(), userID, identity, "lakeside").Return(&sessionstorage.SessionIdentity{}, nil)
+				f.store.EXPECT().LinkConfirmedIdentity(gomock.Any(), userID, "pat", identity, "lakeside", gomock.Any(), gomock.Any()).Return(nil)
 				f.expectConsume(pendingID)
 				f.expectSignIn(sessionID, func(req *sessioninfo.NewSessionRequest) { req.UserID, req.Username = userID, "pat" }, nil)
 				rr := f.serve(f.auth.Pending().ConfirmWithPassword(), http.MethodPost, "/pending/confirm", map[string]string{"password": "pw"}, cookies)
@@ -673,7 +673,7 @@ func TestPasswordSignIn_AttemptLimitRefused(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			ctrl := gomock.NewController(t)
-			a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey)
+			a, err := NewAuth[NoCustomData, NoCustomData](newAuthStoreMock(ctrl), cookieKey, NoSuperAdministrators())
 			if err != nil {
 				t.Fatal(err)
 			}

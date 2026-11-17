@@ -242,6 +242,24 @@ func (store) FamilyTokens(ctx context.Context, txn resource.ReadWriteTransaction
 	return ids, nil
 }
 
+func (store) UserTokens(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
+	// The index leads with the user; whether a token is revoked is read off each row.
+	query := staffresources.NewStaffSessionTokenQuery().
+		AddColumns(staffresources.NewStaffSessionTokenColumns().ID().RevokedAt()).
+		Where(staffresources.NewStaffSessionTokenQueryClause().UserID().Equal(userID))
+	var ids []impulse.UUID
+	for row, err := range query.List(ctx, txn) {
+		if err != nil {
+			return nil, errors.Wrap(err, "staffresources.StaffSessionTokenQuery.List()")
+		}
+		if row.Data.RevokedAt == nil {
+			ids = append(ids, row.Data.ID)
+		}
+	}
+
+	return ids, nil
+}
+
 func (store) RevokeToken(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID, reason string) error {
 	revokedAt := spanner.CommitTimestamp
 	patch := staffresources.NewStaffSessionTokenUpdatePatch(id).SetRevokedAt(&revokedAt).SetRevokedReason(&reason)
@@ -266,6 +284,22 @@ func (store) Username(ctx context.Context, txn resource.ReadWriteTransaction, id
 	}
 
 	return row.Data.Username, true, nil
+}
+
+func (store) UserDisabled(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (disabled, found bool, err error) {
+	row, err := staffresources.NewStaffSessionUserQuery().
+		AddColumns(staffresources.NewStaffSessionUserColumns().Disabled()).
+		SetID(id).
+		Read(ctx, txn)
+	if err != nil {
+		if httpio.HasNotFound(err) {
+			return false, false, nil
+		}
+
+		return false, false, errors.Wrap(err, "staffresources.StaffSessionUserQuery.Read()")
+	}
+
+	return row.Data.Disabled, true, nil
 }
 
 func (store) UserID(ctx context.Context, txn resource.ReadWriteTransaction, username string) (id impulse.UUID, found bool, err error) {

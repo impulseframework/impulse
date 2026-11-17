@@ -37,7 +37,10 @@ export const nameMaxLength = 200;
  * Where the server serves it, the password section also removes the password: the person
  * proves it with the password, is asked once what that leaves them to sign in through,
  * and is told the server's words when it refuses (a person no directory sign-in is linked
- * to keeps the password, their only way in).
+ * to keeps the password, their only way in). Where the server says what the person signs
+ * in with, the page offers the removal only to a person a directory sign-in is linked to,
+ * names that directory in its question, and offers neither the change nor the removal to
+ * a person who holds no password.
  */
 @Component({
   selector: 'impulse-account-page',
@@ -80,7 +83,7 @@ export const nameMaxLength = 200;
         </section>
       }
 
-      @if (account.password() && passwordRemoved()) {
+      @if (passwordRemoved()) {
         <section class="part password">
           <h2>Your password</h2>
           <p class="message" role="status">Your password is removed. {{ removalConsequence() }}</p>
@@ -190,7 +193,7 @@ export const nameMaxLength = 200;
         </section>
       }
 
-      @if (!account.any() && !forgotten()) {
+      @if (!account.any() && !forgotten() && !passwordRemoved()) {
         <p class="none">Your sign-in is managed by your organization, so there is nothing to change here.</p>
       }
     </section>
@@ -270,7 +273,10 @@ export class AccountPageComponent {
   readonly removeMessage = signal<string | undefined>(undefined);
   /** The password was removed on this page. */
   readonly passwordRemoved = signal(false);
-  /** What the removal leaves the person to sign in through, as the question and the notice say it. */
+  /**
+   * What the removal leaves the person to sign in through, as the question says it, and
+   * as the notice goes on saying it once the password is gone.
+   */
   readonly removalConsequence = computed(() => passwordRemovalConsequence(this.account.otherSignIns()));
 
   constructor() {
@@ -347,6 +353,9 @@ export class AccountPageComponent {
       if (result.outcome === 'removed') {
         this.removalPassword = '';
         this.passwordRemoved.set(true);
+        // The person holds no password now: the sections that change and remove one go,
+        // here and wherever else the page is opened.
+        this.account.rereadSignInMeans();
       } else {
         this.removeMessage.set(result.message);
       }

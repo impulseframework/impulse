@@ -112,7 +112,7 @@ type Auth struct {
 }
 
 func New(ctx context.Context, db *cloudspanner.Client, key string) (*Auth, error) {
-	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key,
+	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.NoSuperAdministrators(),
 		session.WithSessionTableName(TablePrefix+"Sessions")` + option + `)
 	if err != nil {
 		return nil, err

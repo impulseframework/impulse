@@ -19,7 +19,9 @@ import (
 // role, which carry the actor's own name). Nothing the person holds follows the name:
 // the permission store names a person by the id of their account, so the roles stay
 // where they are. A name another user holds is a Conflict; the same name in another
-// case is the person's own.
+// case is the person's own. A super administrator is renamed by a super administrator
+// alone, since the name is what the person signs in with
+// (requireSuperAdministratorFor).
 //
 // Shared rule: the session library's ChangeSessionUserUsername, which renames the user,
 // the live sessions and the standing records in one transaction of its own.
@@ -37,6 +39,9 @@ func (m *Manager) RenameUser(ctx context.Context, txn resource.ReadWriteTransact
 	}
 	if !found {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "renames a super administrator"); err != nil {
+		return err
 	}
 	if name == old {
 		return nil
@@ -153,7 +158,9 @@ func (m *Manager) DeleteUser(ctx context.Context, txn resource.ReadWriteTransact
 // transaction: the person must change it before anything else is served, every session
 // they hold is ended, and the count of failed sign-ins kept under their name is
 // cleared, so a person locked out signs in with the new password at once. The hash is
-// the session library's, made by the password method's hasher.
+// the session library's, made by the password method's hasher. A super administrator's
+// password is set by a super administrator alone: whoever sets it signs in as them
+// (requireSuperAdministratorFor).
 //
 // Shared rule: the session library's ResetSessionUserPassword, which does the same in
 // commits of its own.
@@ -167,6 +174,9 @@ func (m *Manager) SetTemporaryPassword(ctx context.Context, txn resource.ReadWri
 	}
 	if !found {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "sets a super administrator's password"); err != nil {
+		return err
 	}
 	hash, err := m.sessions.HashPassword(password)
 	if err != nil {

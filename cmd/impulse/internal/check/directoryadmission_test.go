@@ -81,7 +81,7 @@ func New(ctx context.Context, db *cloudspanner.Client, key string, collection ac
 	if err != nil {
 		return nil, err
 	}
-	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key)
+	s, err := session.NewAuth[session.NoCustomData, session.NoCustomData](sessionstorage.NewSpannerAuth(db), key, session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(engine.UserManager()))))
 	if err != nil {
 		return nil, err
 	}
@@ -312,8 +312,12 @@ func TestDirectoryAdmissionCandidates(t *testing.T) {
 	t.Parallel()
 
 	const (
-		candidateCall  = "\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())\n"
-		candidateGrant = "\"resource\": \"TenantDirectories\",\n              \"fields\": [\n                \"defaultSeat\"\n              ]"
+		candidateCall = "\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())\n"
+		// The Update grant on the directories record: the last grant of the role's
+		// Update list, which tells it from the Create grant, whose fields are the same
+		// now that a create takes no method and no connection.
+		candidateGrant   = "\"resource\": \"TenantDirectories\",\n              \"fields\": [\n                \"defaultSeat\"\n              ]\n            }\n          ]\n"
+		candidateNoGrant = "\"resource\": \"TenantDirectories\"\n            }\n          ]\n"
 	)
 
 	tests := []struct {
@@ -344,7 +348,7 @@ func TestDirectoryAdmissionCandidates(t *testing.T) {
 			name: "tenanted without the default seat column", candidate: "tenanted",
 			edits:      []candidateEdit{{file: "pkg/resources/tenant_directories.go", old: "\t\t// @directoryDefaultSeat\n"}},
 			wantStatus: Fail, wantSummary: "1 directory admission wiring problem(s)",
-			wantDetails: []string{"pkg/resources/tenant_directories.go:35: " + noSeatColumn},
+			wantDetails: []string{"pkg/resources/tenant_directories.go:47: " + noSeatColumn},
 		},
 		{
 			name: "outlets without the members admission names the members auth", candidate: "outlets",
@@ -354,9 +358,9 @@ func TestDirectoryAdmissionCandidates(t *testing.T) {
 		},
 		{
 			name: "tenanted without the Update grant", candidate: "tenanted",
-			edits:      []candidateEdit{{file: "pkg/auth/staff/roles.json", old: candidateGrant, new: "\"resource\": \"TenantDirectories\""}},
+			edits:      []candidateEdit{{file: "pkg/auth/staff/roles.json", old: candidateGrant, new: candidateNoGrant}},
 			wantStatus: Fail, wantSummary: "1 directory admission wiring problem(s)",
-			wantDetails: []string{"pkg/resources/tenant_directories.go:35: no role in pkg/auth/staff/roles.json " + noSeatGrant},
+			wantDetails: []string{"pkg/resources/tenant_directories.go:47: no role in pkg/auth/staff/roles.json " + noSeatGrant},
 		},
 	}
 

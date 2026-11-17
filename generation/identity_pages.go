@@ -46,6 +46,28 @@ type identityPart struct {
 	Name string
 }
 
+// identitySignIn is one directory sign-in of an auth as the descriptor carries it: the
+// method the identities linked through it carry (sessioninfo.AuthMethod, the Method
+// column of the identities table) and the words its button on the login page carries.
+type identitySignIn struct {
+	Method string
+	Label  string
+}
+
+// identityMethod is the method an identity linked through a registration of the kind
+// carries, as the session library spells it, or "" for the password method, through
+// which no identity is linked. The persona provider is an OpenID Connect registration.
+func (k authMethodKind) identityMethod() string {
+	switch k {
+	case methodGoogle, methodAzure, methodWorkOS, methodOIDC:
+		return string(k)
+	case methodPersona:
+		return string(methodOIDC)
+	default:
+		return ""
+	}
+}
+
 // tsAPIIdentity is one auth's generated management as the descriptor carries it: the
 // auth's name and label, the tenant record's name where the application has one, and
 // the sides the outlet serves, the whole application's first.
@@ -58,7 +80,11 @@ type tsAPIIdentity struct {
 	// since the row carries the tenant's key, an id nobody reads. Empty where the outlet
 	// does not serve the record, and the page shows the key.
 	TenantResource string
-	Sides          []*tsAPIIdentitySide
+	// SignIns are the auth's directory sign-ins, each the method its identities carry and
+	// the words its button carries: a page that removes a person's password says what is
+	// left to sign in through by them. Empty for an auth with no directory sign-in.
+	SignIns []identitySignIn
+	Sides   []*tsAPIIdentitySide
 }
 
 // tsAPIIdentitySide is one side of an auth's management: the whole application's (the
@@ -164,7 +190,7 @@ func (t *typescriptGenerator) identityOn(data *tsAPIData) []*tsAPIIdentity {
 		if !slices.Contains(inst.outlets, t.targetOutlet()) {
 			continue
 		}
-		identity := &tsAPIIdentity{Auth: inst.auth, Label: authLabel(inst.auth)}
+		identity := &tsAPIIdentity{Auth: inst.auth, Label: authLabel(inst.auth), SignIns: inst.signIns}
 		sides := []bool{false}
 		if inst.tenant != nil {
 			identity.Tenant = inst.tenant.name

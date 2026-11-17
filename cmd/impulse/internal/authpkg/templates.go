@@ -423,9 +423,15 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 
 	// One Auth session every method establishes: one cookie, one session table, one
 	// middleware chain. The methods are registered on it below, before the first request.
+	// The Auth is built knowing who holds the Super Administrator role, which is why the
+	// permission engine opens first: a holder signs in with a second factor whatever the
+	// sign-in rule set below asks of anyone else, held for the mailed code by a rule of
+	// the library's own after the application's. The memberships are read outside the
+	// sign-in's transaction (resource.SignInRoles).
 	authSession, err := session.NewAuth[session.NoCustomData, session.NoCustomData](
 		sessionstorage.NewSpannerAuth(db, sessionstorage.WithAuthEvents(events)),
 		settings.CookieKey,
+		session.SuperAdministratorsBy(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager()))),
 		session.WithSessionTableName(sessionsTable),
 		session.WithUserTableName(usersTable),
 		session.WithIdentitiesTableName(identitiesTable),
@@ -503,12 +509,6 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// The sign-in rule: every session carries a second factor (requireSecondFactor).
 	authSession.SetSignInPolicy(requireSecondFactor)
 {{- end}}
-
-	// A super administrator signs in with a second factor whatever the rule above asks
-	// of anyone else: the Auth is told who holds the role and holds their sign-in for
-	// the mailed code by a rule of the library's own, after the application's. The
-	// memberships are read outside the sign-in's transaction (resource.SignInRoles).
-	authSession.SetSuperAdministrators(signin.SuperAdministrators(resource.SignInRoles(accessClient.UserManager())))
 {{- if .IdentityPackage}}
 
 	// The auth's identity client ({{.IdentityDir}}, generated): the rules that manage the
@@ -538,18 +538,20 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 {{- end}}
 {{- if .DirectoryAdmission}}
 
-	// The directory admission: what a stranger gets at their first sign-in through a
-	// directory a tenant declares, before the registration's account rule is reached.
-	// The directory rows the tenants declare for the identity's connection decide: a
-	// row with a default seat creates the person and gives them that role in the tenant
-	// in one transaction (the identity client's DirectorySeated, which the session
-	// library runs inside the transaction that creates the person), and the sign-in rule
-	// then finds the membership; rows with none refuse them (invitation_only) and no
+	// The directory admission: what a person gets at their first sign-in through a
+	// tenant's directory, before the registration's account rule is reached. The row of
+	// the tenant whose directory the identity came through decides. A row with a default
+	// seat creates a stranger and gives them that role in the tenant in one transaction
+	// (the identity client's DirectorySeated, which the session library runs inside the
+	// transaction that links the account to the directory), and the sign-in rule then
+	// finds the membership; a row with none refuses a stranger (invitation_only) and no
 	// account is created, unless they followed an invitation link, which is the way in.
-	// A person given a role ahead of their first sign-in has the account the role is
-	// held by, which the sign-in links, and is no stranger. A directory no tenant
-	// declares falls to the registration's rule. The auth's roles are the application's,
-	// so the admission is set here; an auth whose directory writes the roles sets none.
+	// A person whose account stood before is given the default seat too, at the sign-in
+	// that links the account to the directory, where they hold no role in the tenant; a
+	// role an administrator removes afterwards is not given back by signing in. A
+	// directory no tenant has falls to the registration's rule. The auth's roles are the
+	// application's, so the admission is set here; an auth whose directory writes the
+	// roles sets none.
 	authSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())
 {{- end}}
 {{- if not .RolesSynced}}

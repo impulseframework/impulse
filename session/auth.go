@@ -235,13 +235,12 @@ type Auth[SessionData, UserData, Tx any] struct {
 	settings    authSettings
 	// policy is the rule a sign-in is decided by, nil when the library's own checks
 	// decide alone: the application's sign-in rule (applicationPolicy, set by
-	// SetSignInPolicy), with the rule on a super administrator's second factor after it
-	// once SetSuperAdministrators told the Auth who they are. Both are set before the
-	// Auth is in use.
+	// SetSignInPolicy before the Auth is in use), with the rule on a super
+	// administrator's second factor after it where the Auth has super administrators.
 	policy            signin.Policy[Tx]
 	applicationPolicy signin.Policy[Tx]
-	// superAdministrators reports who holds the Super Administrator role, nil when the
-	// application set none. Set by SetSuperAdministrators before the Auth is in use.
+	// superAdministrators reports who holds the Super Administrator role, nil for an
+	// Auth built with NoSuperAdministrators. NewAuth is told it and nothing changes it.
 	superAdministrators signin.SuperAdministratorCheck
 	// signedIn is the application's after-sign-in hook, nil when it set none. Set by
 	// SetSignedInHook before the Auth is in use.
@@ -271,10 +270,73 @@ type Auth[SessionData, UserData, Tx any] struct {
 	methods signInMethods[Tx]
 }
 
+// SuperAdministrators is what NewAuth is told about the holders of the Super
+// Administrator role (accesstypes.SuperAdministrator), the role the access library
+// defines in every auth. An Auth is not built without one: a holder who signed in with
+// no second factor would be the one account no tenant's sign-in settings shut out, behind
+// a password alone. Build one with SuperAdministratorsBy, or with NoSuperAdministrators
+// for an application that has no permission engine; the zero value is refused.
+type SuperAdministrators struct {
+	// none is NoSuperAdministrators' word, and checked SuperAdministratorsBy's, with the
+	// check it was given; the zero value carries neither.
+	none    bool
+	checked bool
+	check   signin.SuperAdministratorCheck
+}
+
+// SuperAdministratorsBy tells an Auth who its super administrators are: the people
+// check reports. Pass signin.SuperAdministrators over the access library's user manager
+// (on Spanner over resource.SignInRoles of it, as the tenant policy is), built before
+// the Auth. The Auth then holds a holder's sign-in for the code it mails, whatever the
+// application's sign-in rule asks of anyone else (signin.SuperAdministratorFactor), so
+// the Auth must send mail (WithMail): NewAuth refuses one that sends none, and a nil
+// check.
+func SuperAdministratorsBy(check signin.SuperAdministratorCheck) SuperAdministrators {
+	return SuperAdministrators{none: false, checked: true, check: check}
+}
+
+// NoSuperAdministrators tells an Auth that nobody of its application is a super
+// administrator, because the application has no permission engine and so no role of any
+// kind. An application whose people hold roles passes SuperAdministratorsBy: with this,
+// a person who holds the Super Administrator role would sign in as anyone else does.
+func NoSuperAdministrators() SuperAdministrators {
+	return SuperAdministrators{none: true, checked: false, check: nil}
+}
+
+// validate refuses what NewAuth cannot build an Auth from: no word on the super
+// administrators at all, a word with no check behind it, and super administrators on an
+// Auth that cannot mail the code their second factor is.
+func (s SuperAdministrators) validate(mails bool) error {
+	switch {
+	case s.none:
+		return nil
+	case !s.checked:
+		return errors.New("NewAuth was not told who the Auth's super administrators are: pass session.SuperAdministratorsBy(signin.SuperAdministrators(...)) over the access library's user manager, " +
+			"so a holder of the Super Administrator role signs in with a second factor, or session.NoSuperAdministrators() for an application with no permission engine")
+	case s.check == nil:
+		return errors.New("session.SuperAdministratorsBy was given no check: pass signin.SuperAdministrators over the access library's user manager")
+	case !mails:
+		return errors.New("the Auth has super administrators and sends no mail: a super administrator signs in with a second factor, the code the Auth mails, " +
+			"and an Auth without mail could not send it, so a holder would never sign in; pass session.WithMail with the application's sender and its mail settings")
+	default:
+		return nil
+	}
+}
+
 // NewAuth creates an Auth session for the given storage. The storage's custom session
 // and user data configurations must be built for SessionData and UserData. Tx is
 // inferred from the storage: an application writes
-// NewAuth[SessionData, UserData](store, cookieKey, options...).
+// NewAuth[SessionData, UserData](store, cookieKey, superAdministrators, options...).
+//
+// superAdministrators says who holds the Super Administrator role
+// (SuperAdministratorsBy, or NoSuperAdministrators for an application with no permission
+// engine). It is an argument and not an option so that no Auth is built without it: a
+// holder always signs in with a second factor, whether or not the application's sign-in
+// rule asks anyone for one. A sign-in the rule allows, or any sign-in where no rule is
+// set, is held for the code the library mails when the person holds the role, unless
+// the sign-in already carries a second factor as any account's may (the directory's
+// attestation, or a browser the person asked to be remembered). So an Auth with super
+// administrators must send mail (WithMail), and NewAuth refuses one that does not.
 //
 // A sign-in is decided by the library's own checks: the user exists and is enabled,
 // the identity is linked or resolved, roles reconcile. An application with rules of
@@ -283,7 +345,7 @@ type Auth[SessionData, UserData, Tx any] struct {
 // cookieKey: A Base64-encoded string representing at least 32 bytes
 // of cryptographically secure random data.
 func NewAuth[SessionData, UserData, Tx any](
-	storage sessionstorage.AuthStore[Tx], cookieKey string, options ...AuthOption,
+	storage sessionstorage.AuthStore[Tx], cookieKey string, superAdministrators SuperAdministrators, options ...AuthOption,
 ) (*Auth[SessionData, UserData, Tx], error) {
 	if storage == nil {
 		return nil, errors.New("storage is required: pass sessionstorage.NewSpannerAuth or NewPostgresAuth")
@@ -319,6 +381,9 @@ func NewAuth[SessionData, UserData, Tx any](
 	if err := settings.factors.validate(); err != nil {
 		return nil, err
 	}
+	if err := superAdministrators.validate(settings.mail != nil); err != nil {
+		return nil, err
+	}
 	if err := nameTables(storage, &settings); err != nil {
 		return nil, err
 	}
@@ -333,14 +398,16 @@ func NewAuth[SessionData, UserData, Tx any](
 	}
 
 	a := &Auth[SessionData, UserData, Tx]{
-		baseSession:       baseSession,
-		storage:           storage,
-		settings:          settings,
-		cookies:           cookieClient,
-		pendingCookies:    cookies.pending,
-		invitationCookies: cookies.invitation,
-		trustedCookies:    cookies.trusted,
+		baseSession:         baseSession,
+		storage:             storage,
+		settings:            settings,
+		superAdministrators: superAdministrators.check,
+		cookies:             cookieClient,
+		pendingCookies:      cookies.pending,
+		invitationCookies:   cookies.invitation,
+		trustedCookies:      cookies.trusted,
 	}
+	a.policy = a.decidingPolicy()
 	a.methods.init(storage)
 
 	return a, nil
@@ -403,41 +470,9 @@ func (a *Auth[SessionData, UserData, Tx]) SetSignInPolicy(policy signin.Policy[T
 	a.policy = a.decidingPolicy()
 }
 
-// SetSuperAdministrators tells the Auth who its super administrators are, the holders
-// of the Super Administrator role (accesstypes.SuperAdministrator), so that one always
-// signs in with a second factor, whether or not the application's sign-in rule asks
-// anyone for one: a sign-in the rule allows, or any sign-in where no rule is set, is
-// held for the code the library mails when the person holds the role, unless the
-// sign-in already carries a second factor as any account's may (the directory's
-// attestation, or a browser the person asked to be remembered). Pass
-// signin.SuperAdministrators over the access library's user manager. Set it after
-// NewAuth and before serving the first request; a nil check, a second check, or a check
-// set once the Auth is in use is a wiring mistake and panics, as SetSignInPolicy does.
-// So is an Auth that sends no mail: the code could not be sent, and a super
-// administrator held for it would never sign in.
-func (a *Auth[SessionData, UserData, Tx]) SetSuperAdministrators(check signin.SuperAdministratorCheck) {
-	if check == nil {
-		panic("session: SetSuperAdministrators was given nil: pass signin.SuperAdministrators over the access library's user manager")
-	}
-	if a.settings.mail == nil {
-		panic("session: SetSuperAdministrators was called on an Auth without mail: a super administrator's second factor is the code the Auth mails, so pass WithMail to NewAuth")
-	}
-	a.methods.mu.Lock()
-	defer a.methods.mu.Unlock()
-
-	if a.methods.inUse.Load() {
-		panic("session: the super administrators were set after the Auth served a request: set them before serving")
-	}
-	if a.superAdministrators != nil {
-		panic("session: the super administrators were set twice: one Auth has one role store")
-	}
-	a.superAdministrators = check
-	a.policy = a.decidingPolicy()
-}
-
 // decidingPolicy is the rule a sign-in is decided by: the application's rule, and after
-// it the super administrator's second factor where the Auth knows its super
-// administrators. The caller holds the methods' lock.
+// it the super administrator's second factor where the Auth has super administrators.
+// The caller holds the methods' lock, or is NewAuth, before the Auth is anyone's.
 func (a *Auth[SessionData, UserData, Tx]) decidingPolicy() signin.Policy[Tx] {
 	if a.superAdministrators == nil {
 		return a.applicationPolicy
@@ -559,7 +594,16 @@ func (a *Auth[SessionData, UserData, Tx]) SetInvitationAccepted(hook InvitationA
 // person in place of the username, which stays what identifies them. look is the look
 // the person chose ({"scheme", "palette"}, each present where they chose it), present
 // when the user holds one: what their pages draw themselves in on every browser.
+// directory is the organization's directory the session was established through
+// ({"method", "connection"}: a Google Workspace by its connection, a Microsoft Entra
+// tenant by its tenant id), present for a sign-in through one and absent for a
+// password, for a personal account, which is no organization's directory, and for an
+// impersonated session: what a page offers the person to make a tenant's directory.
 func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
+	type directory struct {
+		Method     sessioninfo.AuthMethod `json:"method"`
+		Connection string                 `json:"connection"`
+	}
 	type response struct {
 		Authenticated          bool                               `json:"authenticated"`
 		Username               string                             `json:"username"`
@@ -574,6 +618,9 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 		// factor for the person, so their account page offers to forget it (ForgetBrowser).
 		// Never for an impersonated session, which may not forget it.
 		BrowserRemembered bool `json:"browserRemembered"`
+		// Directory is the organization's directory the session was established
+		// through, nil for any other session.
+		Directory *directory `json:"directory,omitempty"`
 	}
 
 	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -591,6 +638,12 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 
 		imp, _ := sessioninfo.ImpersonationFromCtx(ctx)
 		user := sessioninfo.UserFromCtx(ctx)
+		var through *directory
+		if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok {
+			if d := (signin.Directory{Method: established.Method, Connection: established.Connection}); d.Organization() {
+				through = &directory{Method: d.Method, Connection: d.Connection}
+			}
+		}
 
 		return httpio.NewEncoder(w).Ok(response{
 			Authenticated:          true,
@@ -603,6 +656,7 @@ func (a *Auth[S, U, Tx]) Authenticated() http.HandlerFunc {
 			EmailHint:              a.emailHint(ctx, user),
 			Impersonation:          basesession.NewImpersonationResponse(imp),
 			BrowserRemembered:      imp == nil && user != nil && browserRemembered(ctx, user.ID),
+			Directory:              through,
 		})
 	}))
 }
@@ -667,32 +721,43 @@ func (a *Auth[S, U, Tx]) ValidateSession(next http.Handler) http.Handler {
 }
 
 // DirectorySeatedHook is the application's half of a directory's default seat: it
-// seats the user a first sign-in provisions, named by id (the key an application's
-// memberships are held under) and by username (what a log line reads), with seats, the default seats of the
-// directories the tenants declared for the identity's connection, inside the
-// transaction that provisions the user, which it is handed: the account is made and
-// seated together, or neither. A seat the invitation this sign-in consumes names too
-// (the same role in the same tenant) is not among seats: InvitationAcceptedHook gives
-// it, in the same transaction, and the two hooks never write one membership twice. The
-// hook is not called for no seats. It is held to what InvitationAcceptedHook is: tx alone
-// for its reads and writes, the user not readable in it, a committed function (nil for
-// none) the library runs once the transaction has committed and before the sign-in
-// policy decides, and an error that fails the transaction and ends the sign-in, so no
-// account is left holding nothing.
+// seats the user at their first sign-in through a tenant's directory, named by id (the
+// key an application's memberships are held under) and by username (what a log line
+// reads), with seats, the default seat of the tenant whose directory the identity came
+// through, inside the transaction that links the identity to the user, which it is
+// handed: the link is made and the person seated together, or neither. The first
+// sign-in through a directory is the one that makes the link, whether it makes the
+// account too or the account stood before (a person another tenant invited, or one
+// created ahead), and whether the link is made at once or once the user's password has
+// confirmed it. The library calls the hook once for a link: a later sign-in finds the
+// link and gives nothing, so a seat an administrator removed is not given back, and a
+// link that was deleted and is made again is a first sign-in again. The hook gives a
+// seat only where the person holds no role in the tenant, which it alone can read: a
+// person who holds one keeps what they hold. A seat the invitation this sign-in
+// consumes names too (the same role in the same tenant) is not among seats:
+// InvitationAcceptedHook gives it, in the same transaction, and the two hooks never
+// write one membership twice. The hook is not called for no seats. It is held to what
+// InvitationAcceptedHook is: tx alone for its reads and writes, a user the transaction
+// made not readable in it, a committed function (nil for none) the library runs once
+// the transaction has committed and before the sign-in policy decides, and an error
+// that fails the transaction and ends the sign-in, so no account is left holding
+// nothing and no link is left that gave nothing.
 type DirectorySeatedHook[Tx any] = func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (committed func(ctx context.Context), err error)
 
-// SetDirectoryAdmission sets what a tenanted application gives a first sign-in
-// through a directory by a person no user was created for: reader, which reads
-// every tenant's declaration of the directory the identity came through
-// (signin.DirectoryReader), and hook, which seats the person with the default seats
-// the declarations name. With them the standard account rules ask the tenants first: a
-// directory some tenant declares belongs to that tenant, and its declaration decides
-// before the registration's own rule. A default seat admits a stranger with it, and a
-// declaration naming none refuses a stranger by invitation only (invitation_only,
-// unless the sign-in carries an invitation), with no account created. A person the
-// application gave a role ahead of their first sign-in is no stranger: a role is held
-// by an account, and the sign-in links the identity to the account under its sign-in
-// name before the tenants are asked. A directory no tenant declares falls to the
+// SetDirectoryAdmission sets what a tenanted application gives a person's first
+// sign-in through a tenant's directory: reader, which reads the declaration of the
+// directory the identity came through (signin.DirectoryReader: the tenant whose
+// directory it is, since a directory belongs to one tenant), and hook, which seats the
+// person with the default seat the declaration names. With them the standard account
+// rules ask the tenant first: its declaration decides before the registration's own
+// rule. A default seat admits a stranger with it, and a declaration naming none
+// refuses a stranger by invitation only (invitation_only, unless the sign-in carries
+// an invitation), with no account created. A person who has an account (one another
+// tenant invited, or one the application created ahead) is no stranger: the sign-in
+// links the identity to the account under its sign-in name, and the default seat is
+// given with the link when they hold no role in the tenant. A directory no tenant
+// declares, and a personal account, which is no organization's directory
+// (signin.Directory.PersonalAccounts), fall to the
 // registration's rule as without them. Set the two after NewAuth and before serving
 // the first request; a nil reader or hook, a second call, or a call once the Auth is
 // in use is a wiring mistake and panics, as SetSignInPolicy does.

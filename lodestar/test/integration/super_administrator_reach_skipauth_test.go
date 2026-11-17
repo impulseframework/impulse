@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"slices"
@@ -11,9 +12,10 @@ import (
 )
 
 // TestSuperAdministrator_entersEverySector proves the one exemption from a sector's
-// sign-in settings on the served stack. Bastion admits its people through its directories
-// only, and the governor withdraws the one directory it declares, so no sign-in meets its
-// declaration. The governor, a super administrator signed in with the password, charts
+// sign-in settings on the served stack. Bastion admits its people through its directory
+// only and has none (the fleet's directory is Cinder's, and a directory belongs to one
+// sector), so no sign-in meets its declaration. The governor, a super administrator
+// signed in with the password, charts
 // Bastion and reads it all the same. Nobody else is exempt: the dispatcher, who holds
 // global roles and a role at Bastion, and the archivist, who holds a role in every
 // sector, chart the sectors that admit a password and Bastion answers them as a sector
@@ -32,13 +34,8 @@ func TestSuperAdministrator_entersEverySector(t *testing.T) {
 
 	governor := newBrowser(t, s, consoleAPI)
 	governor.signIn(ctx, "governor")
-	declared := directories(ctx, t, governor, bastion)
-	if len(declared) != 1 {
-		t.Fatalf("Bastion's directories = %+v, want the seeded fleet directory alone", declared)
-	}
-	withdraw := `[{"op":"remove","path":"/sectors/` + bastion + `/sector-directories/` + declared[0].ID + `"}]`
-	if status, body := governor.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(withdraw)); status != http.StatusOK {
-		t.Fatalf("withdrawing Bastion's directory: status %d: %s", status, body)
+	if declared := directories(ctx, t, governor, bastion); len(declared) != 0 {
+		t.Fatalf("Bastion's directory = %+v, want none: the fleet's directory is Cinder's, and a directory belongs to one sector", declared)
 	}
 
 	// enters fails the test unless the browser's chart and Bastion's answer agree with want.
@@ -108,5 +105,108 @@ func TestSuperAdministrator_entersEverySector(t *testing.T) {
 	}
 	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), []byte(toMarshal)); status != http.StatusNoContent {
 		t.Errorf("the governor making the marshal a super administrator: status %d, want 204: %s", status, body)
+	}
+}
+
+// TestSuperAdministrator_aPersonGivenTheRoleSignsInAgain proves on the served stack that
+// giving the Super Administrator role ends what the person held before it, in the
+// transaction that gives it. The marshal holds a session of her own and one she started
+// as the rigger, whose reach is hers, a token she issued for the droids outlet, and a
+// browser she asked to be remembered, which signs her in on her password alone. The
+// governor gives her the role: both sessions and the token are refused from then on, so
+// nothing issued before the role acts with it, and the remembered browser is asked for
+// the code, so she meets the second factor afresh. The governor's own session, the
+// giver's, stands. The marshal signs in again, and the role asked for her a second
+// time, which she holds already, ends nothing: the token she issues as a super
+// administrator stands.
+//
+// Demonstrates: auth.super-administrator.
+func TestSuperAdministrator_aPersonGivenTheRoleSignsInAgain(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	s := newServed(ctx, t)
+	userDomains := consoleAPI + "/user-domains"
+
+	governor := newBrowser(t, s, consoleAPI)
+	governor.signIn(ctx, "governor")
+	own := newBrowser(t, s, consoleAPI)
+	own.signIn(ctx, "marshal")
+	viewing := newBrowser(t, s, consoleAPI)
+	viewing.signIn(ctx, "marshal")
+	if status, body := viewing.impersonate(ctx, viewAs(t, "rigger", "walkthrough")); status != http.StatusOK {
+		t.Fatalf("the marshal viewing as the rigger: status %d: %s", status, body)
+	}
+	// answers fails the test unless each of the marshal's sessions answers want.
+	answers := func(when string, sessions map[string]*browser, want int) {
+		t.Helper()
+		for name, b := range sessions {
+			if status, body := b.do(ctx, http.MethodGet, userDomains, nil); status != want {
+				t.Errorf("%s %s: status %d, want %d: %s", name, when, status, want, body)
+			}
+		}
+	}
+	before := map[string]*browser{"the marshal's own session": own, "the marshal's session as the rigger": viewing}
+	answers("before the role", before, http.StatusOK)
+	// issue has the marshal issue herself a token for the droids outlet; the answer is
+	// never printed, since it carries the secret.
+	issue := func(b *browser) string {
+		t.Helper()
+		status, body := b.do(ctx, http.MethodPost, consoleAPI+"/user/tokens", []byte(`{"name":"patrol script","outlet":"droids"}`))
+		var issued struct {
+			Token string `json:"token"`
+		}
+		if err := json.Unmarshal(body, &issued); err != nil || status != http.StatusOK || issued.Token == "" {
+			t.Fatalf("the marshal issuing a token: status %d, want 200 with the token", status)
+		}
+
+		return issued.Token
+	}
+	token := issue(own)
+	if status, body := droid(ctx, t, s, token, http.MethodGet, "/droids/features", nil); status != http.StatusOK {
+		t.Fatalf("the marshal's token before the role: status %d, want 200: %s", status, body)
+	}
+	// The browser she asked to be remembered signs in on the password alone.
+	remembered := newBrowser(t, s, consoleAPI)
+	remembered.signIn(ctx, "marshal")
+	remembered.logout(ctx)
+	if status, body := remembered.login(ctx, "marshal", personaPassword); status != http.StatusOK || heldForFactor(t, body) {
+		t.Fatalf("the remembered browser's sign-in before the role: status %d: %s, want 200 with no second factor asked", status, body)
+	}
+
+	toMarshal := fmt.Sprintf(`{"userId":%q,"role":"SuperAdministrator"}`, account(t, "marshal"))
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), []byte(toMarshal)); status != http.StatusNoContent {
+		t.Fatalf("the governor making the marshal a super administrator: status %d, want 204: %s", status, body)
+	}
+	before["the marshal's session in the remembered browser"] = remembered
+	answers("after the marshal was given the role", before, http.StatusUnauthorized)
+	answers("after giving the role", map[string]*browser{"the governor's session, the giver's": governor}, http.StatusOK)
+	if status, body := droid(ctx, t, s, token, http.MethodGet, "/droids/features", nil); status != http.StatusUnauthorized {
+		t.Errorf("the token the marshal issued before the role, after it: status %d, want 401: %s", status, body)
+	}
+	// The browser is remembered no longer: her password is followed by the code.
+	if status, body := remembered.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
+		t.Fatalf("GET session before the once-remembered browser's sign-in: status %d: %s", status, body)
+	}
+	if status, body := remembered.login(ctx, "marshal", personaPassword); status != http.StatusOK || !heldForFactor(t, body) {
+		t.Fatalf("the once-remembered browser's sign-in after the role: status %d: %s, want 200 holding the sign-in for the second factor", status, body)
+	}
+	remembered.secondFactor(ctx, "marshal")
+	if sess := remembered.session(ctx); sess["authenticated"] != true {
+		t.Fatalf("session after the role and the code = %v, want the marshal signed in", sess)
+	}
+
+	again := newBrowser(t, s, consoleAPI)
+	again.signIn(ctx, "marshal")
+	held := issue(again)
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), []byte(toMarshal)); status != http.StatusNoContent {
+		t.Fatalf("the governor giving the marshal the role she holds: status %d, want 204: %s", status, body)
+	}
+	answers("after the role was asked for her again", map[string]*browser{
+		"the session the marshal signed in to as a super administrator": again,
+		"the session she met the code for":                              remembered,
+	}, http.StatusOK)
+	if status, body := droid(ctx, t, s, held, http.MethodGet, "/droids/features", nil); status != http.StatusOK {
+		t.Errorf("the token the marshal issued as a super administrator, after the role was asked for her again: status %d, want 200: %s", status, body)
 	}
 }

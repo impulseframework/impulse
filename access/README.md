@@ -736,7 +736,10 @@ defines it too.
   signing in. A super administrator's session enters every tenant whatever the tenant's
   sign-in settings say, and nobody else is exempt from them
 - Who may hold it is the identity library's rule, not this one's: only a holder makes or
-  removes another, and the last holder who can sign in keeps the role and the account. A
+  removes another, a holder's account disabled or enabled included, or changes how
+  another signs in, a person given the role signs in again with their tokens revoked
+  and their remembered browsers forgotten, and the last holder who can sign in keeps
+  the role and the account. A
   directory's role synchronization neither gives the role nor takes it
 - No group holds it (see Groups): it is given to one person at a time, so the rule on who
   makes another super administrator has no way around it

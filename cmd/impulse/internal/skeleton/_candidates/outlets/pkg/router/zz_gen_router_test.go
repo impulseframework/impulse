@@ -87,6 +87,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/console/api/user/session", suffix: "/user/session", method: http.MethodGet, handler: "Authenticated"},
 		{url: "/console/api/user/session", suffix: "/user/session", method: http.MethodDelete, handler: "Logout"},
 		{url: "/console/api/user/pending", suffix: "/user/pending", method: http.MethodGet, handler: "PendingStatus"},
+		{url: "/console/api/user/sign-in-means", suffix: "/user/sign-in-means", method: http.MethodGet, handler: "SignInMeans"},
 		{url: "/console/api/user/password/login", suffix: "/user/password/login", method: http.MethodPost, handler: "PasswordLogin", xsrf: true},
 		{url: "/console/api/user/password/change", suffix: "/user/password/change", method: http.MethodPost, handler: "PasswordChange", xsrf: true},
 		{url: "/console/api/user/password/remove", suffix: "/user/password/remove", method: http.MethodPost, handler: "PasswordRemove", xsrf: true},
@@ -113,6 +114,7 @@ func routerSessionRoutes() []routerSessionRoute {
 		{url: "/portal/api/user/session", suffix: "/user/session", method: http.MethodGet, handler: "PortalAuthenticated"},
 		{url: "/portal/api/user/session", suffix: "/user/session", method: http.MethodDelete, handler: "PortalLogout"},
 		{url: "/portal/api/user/pending", suffix: "/user/pending", method: http.MethodGet, handler: "PortalPendingStatus"},
+		{url: "/portal/api/user/sign-in-means", suffix: "/user/sign-in-means", method: http.MethodGet, handler: "PortalSignInMeans"},
 		{url: "/portal/api/user/directory/login", suffix: "/user/directory/login", method: http.MethodGet, handler: "PortalDirectoryLogin"},
 		{url: "/portal/api/user/directory/callback", suffix: "/user/directory/callback", method: http.MethodGet, handler: "PortalDirectoryCallback"},
 		{url: "/portal/api/user/directory/logout", suffix: "/user/directory/logout", method: http.MethodGet, handler: "PortalDirectoryFrontChannelLogout"},
@@ -1246,6 +1248,10 @@ func (s *routerDefaultSessionStub) PendingStatus() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PendingStatus")
 }
 
+func (s *routerDefaultSessionStub) SignInMeans() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "SignInMeans")
+}
+
 func (s *routerDefaultSessionStub) PasswordLogin() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PasswordLogin")
 }
@@ -1379,6 +1385,10 @@ func (s *routerPortalSessionStub) Logout() http.HandlerFunc {
 
 func (s *routerPortalSessionStub) PendingStatus() http.HandlerFunc {
 	return s.rec.RecordHandlerCall(s.prefix + "PendingStatus")
+}
+
+func (s *routerPortalSessionStub) SignInMeans() http.HandlerFunc {
+	return s.rec.RecordHandlerCall(s.prefix + "SignInMeans")
 }
 
 func (s *routerPortalSessionStub) DirectoryLogin() http.HandlerFunc {

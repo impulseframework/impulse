@@ -883,6 +883,45 @@ const (
 					}
 					{{- end }}`
 
+	// directoryStamped is spliced into the directories record's create, once the create
+	// patch is built and before it is buffered (patchSet, patch and domain, which the
+	// splice's place sets): a directory is never typed in, so the wire carries neither
+	// its method nor its connection, and the create stamps both from the directory the
+	// caller is signed in through, held to the rules of a tenant's directory
+	// (resource.TenantDirectoryRules.FromSession). A caller who came by password, or
+	// through a directory the tenant cannot take, is refused there and nothing is
+	// buffered. The caller's grants are asked before the rules
+	// (resource.PatchSet.Permitted), so a caller who may not create the record is
+	// refused as on any record, and learns nothing a rule's sentence says. The splice
+	// reads the resource as its dot.
+	directoryStamped = `// A directory is never typed in: the row takes the directory the caller is
+					// signed in through, held to the rules of a {{ .DirectoryTenantWord }}'s directory. The
+					// caller's grants answer first, so a caller they refuse learns nothing
+					// from a rule.
+					if err := patchSet.Permitted(ctx, txn); err != nil {
+						return errors.Wrap(err, "resource.PatchSet.Permitted()")
+					}
+					directory, err := {{ .DirectoryRules }}.FromSession(ctx, txn, domain)
+					if err != nil {
+						return errors.Wrap(err, "resource.TenantDirectoryRules.FromSession()")
+					}
+					patch.Set{{ .DirectoryMethodField.Name }}(string(directory.Method)).Set{{ .DirectoryConnectionField.Name }}(directory.Connection)`
+
+	// directoryKept is spliced into the directories record's delete, before the row's
+	// removal is buffered (patchSet and domain, which the splice's place sets): the
+	// directory of a tenant that is directory only is not removed, since nobody could
+	// then enter the tenant (resource.TenantDirectoryRules.Remove). The caller's grants
+	// are asked before the rule, as on the create. The splice reads the resource as its
+	// dot.
+	directoryKept = `// A {{ .DirectoryTenantWord }} that is directory only keeps its directory: its people
+					// enter through it alone. The caller's grants answer first.
+					if err := patchSet.Permitted(ctx, txn); err != nil {
+						return errors.Wrap(err, "resource.PatchSet.Permitted()")
+					}
+					if err := {{ .DirectoryRules }}.Remove(ctx, txn, domain); err != nil {
+						return errors.Wrap(err, "resource.TenantDirectoryRules.Remove()")
+					}`
+
 	// permissionsTemplate emits the application's permission endpoints — the
 	// PermissionDigest and UserDomains handlers — as one-line delegations to the
 	// library-owned handlers, so the endpoints' behavior lives in the resource
@@ -1440,10 +1479,18 @@ package {{ .Package }}
 
 import (
 {{- if .Declaration }}
+	"context"
+
 	"cloud.google.com/go/spanner"
+	"github.com/go-playground/errors/v5"
 {{- end }}
-{{- if .Seat }}
+{{- if or .Seat .Declaration }}
 	{{ .LocalPackageImports }}
+{{- end }}
+{{- if .Declaration }}
+	"github.com/impulseframework/impulse"
+{{- end }}
+{{- if or .Seat .Declaration }}
 	"github.com/impulseframework/impulse/accesstypes"
 {{- end }}
 	"github.com/impulseframework/impulse/resource"
@@ -1535,6 +1582,44 @@ func New{{ .Name }}DeclarationReader() signin.DeclarationReader[*spanner.ReadWri
 func New{{ .Name }}DirectoryReader() signin.DirectoryReader[*spanner.ReadWriteTransaction] {
 	return resource.NewTenantDirectoryReader(&{{ GoCamel .Name }}Declaration)
 }
+
+// New{{ .Name }}DirectoryRules builds the rules of a {{ .Word }}'s directory
+// (resource.TenantDirectoryRules) over the {{ .Name }} record's table and its declaration's
+// columns: a {{ .Word }} has one directory, a directory is one {{ .Word }}'s, a personal account
+// is no directory, and the directory of a {{ .Word }} that is directory only is not removed.
+// Every write of the {{ .Directories }} record is held to them. The generated {{ .Directories }}
+// write paths ask them: the create stamps the directory the caller is signed in
+// through, which no request types, and the delete asks before it removes.
+func New{{ .Name }}DirectoryRules() *resource.TenantDirectoryRules {
+	return resource.NewTenantDirectoryRules({{ printf "%q" .Table }}, {{ printf "%q" .KeyColumn }}, &{{ GoCamel .Name }}Declaration, {{ printf "%q" .Word }})
+}
+
+// Set{{ .Name }}Directory makes directory the {{ .Word }}'s directory, in the caller's
+// transaction: the step every write that sets a {{ .Word }}'s directory from a sign-in takes.
+// The directory is one a sign-in names, its method and its connection, never one a
+// person typed: the create-your-{{ .Word }} route hands the directory its creator came
+// through, and a caller inside a sign-in hands the identity's
+// (resource.NewSpannerReadWriteTransaction wraps the sign-in's transaction). The rules
+// are asked first (New{{ .Name }}DirectoryRules, Set), each refusal a Conflict that says what
+// to do: a personal account, a {{ .Word }} that has a directory, a directory another {{ .Word }}
+// has. Then the {{ .Directories }} row is buffered through the record's create patch, so its
+// change event is written with it. The caller reloads the roster and signals the
+// tenants kind once the transaction has committed, as the record's write paths do.
+func Set{{ .Name }}Directory(ctx context.Context, txn resource.ReadWriteTransaction, {{ .Directory.TenantParam }} {{ .Directory.TenantType }}, directory signin.Directory, eventSource ...string) error {
+	if err := New{{ .Name }}DirectoryRules().Set(ctx, txn, {{ .Directory.TenantDomain }}, directory); err != nil {
+		return errors.Wrap(err, "resource.TenantDirectoryRules.Set()")
+	}
+	patch, err := {{ .ResourcePackage }}.New{{ .Directories }}CreatePatch()
+	if err != nil {
+		return errors.Wrap(err, "{{ .ResourcePackage }}.New{{ .Directories }}CreatePatch()")
+	}
+	patch.Set{{ .Directory.TenantField }}({{ .Directory.TenantParam }}).Set{{ .Directory.MethodField }}(string(directory.Method)).Set{{ .Directory.ConnectionField }}(directory.Connection)
+	if err := patch.Buffer(ctx, txn, eventSource...); err != nil {
+		return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Directories }}CreatePatch.Buffer()")
+	}
+
+	return nil
+}
 {{- end }}
 `
 
@@ -1559,6 +1644,7 @@ import (
 	"github.com/impulseframework/impulse/logger"
 	{{- if .Directory }}
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/signin"
 	{{- end }}
 	"github.com/go-playground/errors/v5"
 )
@@ -1585,11 +1671,14 @@ var _ interface {
 // in the {{ .RecordLower }}; the tenants kind is signaled last, so every instance serves it at
 // once.
 {{- if .Directory }}
-// The {{ .RecordLower }}'s first directory is the one its creator came through: a person who
-// signed in through a directory (Google, Microsoft Entra, WorkOS) has it declared on the
-// new {{ .RecordLower }} in the row's transaction ({{ .Directory.Record }}), so the {{ .RecordLower }} admits
-// them at once, one domain, one directory; a person who signed in by password declares
-// none, and the {{ .RecordLower }} admits passwords as every {{ .RecordLower }} declaring nothing does.
+// The {{ .RecordLower }}'s directory is the one its creator came through: a person who
+// signed in through an organization's directory (a Google Workspace, a Microsoft Entra
+// tenant) has it set on the new {{ .RecordLower }} in the row's transaction
+// (Set{{ .Record }}Directory, which writes the {{ .Directory.Record }} row), so the {{ .RecordLower }} admits
+// them at once. A directory belongs to one {{ .RecordLower }}: a person whose organization has a
+// {{ .RecordLower }} already is refused (409) and nothing is written. A person who signed in by
+// password, or with a personal account, which is no organization's directory, sets
+// none, and the {{ .RecordLower }} admits both as every {{ .RecordLower }} with no directory does.
 // The roster must list the {{ .RecordLower }} and its declaration before the membership is
 // probed: the probe asks what the next request asks, and a {{ .RecordLower }} the roster does
 // not know admits nobody who came through a directory.
@@ -1649,16 +1738,16 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 				return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Record }}CreatePatch.Buffer()")
 			}
 			{{- if .Directory }}
-			// The creator's directory, written with the row; none for a creator who came
-			// by password.
-			if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok && established.Method.ThroughDirectory() {
-				directory, err := {{ .ResourcePackage }}.New{{ .Directory.Record }}CreatePatch()
-				if err != nil {
-					return errors.Wrap(err, "{{ .ResourcePackage }}.New{{ .Directory.Record }}CreatePatch()")
-				}
-				directory.Set{{ .Directory.TenantField }}({{ .Directory.TenantValue }}).Set{{ .Directory.MethodField }}(string(established.Method)).Set{{ .Directory.ConnectionField }}(established.Connection)
-				if err := directory.Buffer(ctx, txn, eventSource); err != nil {
-					return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Directory.Record }}CreatePatch.Buffer()")
+			// The creator's directory, written with the row: the organization's directory
+			// the creator is signed in through, held to the rules of a {{ .RecordLower }}'s
+			// directory, so a directory another {{ .RecordLower }} has refuses the creation and
+			// nothing is written. None for a creator who came by password or with a
+			// personal account, which is no organization's directory.
+			if established, ok := sessioninfo.DataFromCtx(ctx).EstablishedBy(); ok {
+				if directory := (signin.Directory{Method: established.Method, Connection: established.Connection}); directory.Organization() {
+					if err := Set{{ .Record }}Directory(ctx, txn, {{ .Directory.TenantValue }}, directory, eventSource); err != nil {
+						return errors.Wrap(err, "Set{{ .Record }}Directory()")
+					}
 				}
 			}
 			{{- end }}
@@ -2424,6 +2513,11 @@ import (
 					if err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.New{{ .Resource.Name }}CreatePatchFromPatchSet()")
 					}
+					{{- if .Resource.IsTenantDirectory }}
+					{{- with .Resource }}
+					` + directoryStamped + `
+					{{- end }}
+					{{- end }}
 					if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}CreatePatch.Buffer()")
 					}
@@ -2477,6 +2571,11 @@ import (
 					}
 				{{- else }}
 					id := httpio.Param[{{ $PrimaryKeyType }}](op.Req, "id")
+					{{- if .Resource.IsTenantDirectory }}
+					{{- with .Resource }}
+					` + directoryKept + `
+					{{- end }}
+					{{- end }}
 					if err := {{ .ResourcePackage }}.New{{ .Resource.Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 						return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Resource.Name }}DeletePatch.Buffer()")
 					}
@@ -2738,6 +2837,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							if err != nil {
 								return errors.Wrap(err, "{{ GoCamel .Name}}CreatePatchFromPatchSet()")
 							}
+							{{- if .IsTenantDirectory }}
+							` + directoryStamped + `
+							{{- end }}
 							if err := patch.Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}CreatePatch.Buffer()")
 							}
@@ -2796,6 +2898,9 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerName }}() http.Han
 							}
 							{{- else }}
 							id := httpio.Param[{{ $primaryKeyType }}](req, "id")
+							{{- if .IsTenantDirectory }}
+							` + directoryKept + `
+							{{- end }}
 							if err := {{ .ResourcePackage }}.New{{ .Name }}DeletePatchFromPatchSet(id, patchSet).Buffer(ctx, txn, eventSource); err != nil {
 								return errors.Wrap(err, "{{ .ResourcePackage }}.{{ .Name }}DeletePatch.Buffer()")
 							}
@@ -3531,6 +3636,9 @@ export const apiDescriptor = defineApiDescriptor({
       {{- end }}
       {{- if $a.TenantResource }}
       tenantResource: Resources.{{ $a.TenantResource }},
+      {{- end }}
+      {{- if $a.SignIns }}
+      signIns: [{{ range $i, $s := $a.SignIns }}{{ if $i }}, {{ end }}{ method: '{{ $s.Method }}', label: '{{ $s.Label }}' }{{ end }}],
       {{- end }}
       sides: [
 {{- range $side := $a.Sides }}
