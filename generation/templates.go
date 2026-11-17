@@ -1658,10 +1658,13 @@ var _ interface {
 } = (*{{ .ApplicationName }})(nil)
 
 // {{ .HandlerFunc }} serves the create-your-{{ .RecordLower }} route, POST {{ .RoutePath }}: a signed-in person
-// who holds no {{ .RecordLower }} creates one and becomes its administrator (@tenant(creation: {{ .Shape }})).
-// No grant admits the call. The session must be established, which the router's session
-// group holds it to, and must hold a grant in no {{ .RecordLower }}: a person creates one {{ .RecordLower }},
-// and the member or administrator of one is refused (403). The row is written first, in
+// who holds no {{ .RecordLower }} creates one and becomes its administrator, while an administrator has
+// a sign-in method of the {{ .Auth }} auth open to sign-up. No grant admits the call. The session
+// must be established, which the router's session group holds it to, and must hold a
+// grant in no {{ .RecordLower }}: a person creates one {{ .RecordLower }}, and the member or administrator of
+// one is refused (403). Whether sign-up is open is read in the transaction that writes
+// the row, from the auth's sign-in methods table: while every method is invite only the
+// call is refused (403) and nothing is written. The row is written first, in
 // its own transaction, under an id the create generates, which the answer carries,
 // and the person's administrator membership is written in that transaction, through the
 // {{ .Auth }} auth's generated identity client, so the {{ .RecordLower }} and its administrator are
@@ -1725,6 +1728,17 @@ func ({{ .ReceiverName }} *{{ .ApplicationName }}) {{ .HandlerFunc }}() http.Han
 		var id {{ .Key.Type }}
 		ctx, touched := resource.CollectTouchedRows(ctx)
 		if err := {{ .ReceiverName }}.ResourceClient().ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+			// Who is admitted: a person who signed up, which is a person with no {{ .RecordLower }}
+			// while an administrator has a sign-in method open to sign-up. A person who
+			// holds an invitation to create a {{ .RecordLower }} is the next admission, and is
+			// decided here, before the refusal, when that invitation exists.
+			open, err := identity.AnySignInMethodOpen(ctx, txn)
+			if err != nil {
+				return errors.Wrap(err, "{{ .IdentityAccessor }}().AnySignInMethodOpen()")
+			}
+			if !open {
+				return httpio.NewForbiddenMessage("{{ .ClosedRefusal }}")
+			}
 			patch, err := {{ .ResourcePackage }}.New{{ .Record }}CreatePatch()
 			if err != nil {
 				return errors.Wrap(err, "{{ .ResourcePackage }}.New{{ .Record }}CreatePatch()")
@@ -3675,10 +3689,11 @@ export const apiDescriptor = defineApiDescriptor({
 {{- with .TenantCreation }}
 
 /**
- * The create-your-{{ .RecordLower }} route (@tenant(creation: {{ .Shape }})): POST {{ .Route }} under the API
+ * The create-your-{{ .RecordLower }} route: POST {{ .Route }} under the API
  * prefix, with the body below, through the application's HTTP client. A signed-in person who holds
  * no {{ .RecordLower }} creates one and becomes its administrator; a person who already holds one is
- * refused (403). The route generates the new {{ .RecordLower }}'s id and answers it.
+ * refused (403), and so is everyone while no sign-in method is open to sign-up.
+ * The route generates the new {{ .RecordLower }}'s id and answers it.
  */
 export const {{ .RouteConstant }} = '{{ .Route }}';
 /** The body the create-your-{{ .RecordLower }} route takes: the {{ .Record }} record's fields, without its id. */

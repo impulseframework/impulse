@@ -15,71 +15,56 @@ import (
 	"github.com/impulseframework/impulse/generation/parser/genlang"
 )
 
-// The tenant record's creation shape (@tenant(creation: ...)): who may create a tenant,
-// declared on the record and separate from who may enter one. An administrator alone is
-// the default: the record's create path under a Create grant on it, and no route a
-// stranger could reach. Self-service is the other way in: a stranger signs in first,
-// through a registration with the open sign-up rule, holds no tenant, and the
-// application offers one page, create your tenant; the generated route writes the row
-// and seats the person as the tenant's first administrator, in that order. Both is both
-// paths. Whatever the shape, an administrator of one tenant never creates another: the
-// record is global, and domain roles cannot touch it. The generator renders what the
-// shape allows and refuses what it forbids, so no application ships self-service by
-// omission.
+// Who may create a tenant, separate from who may enter one. An administrator creates
+// one under a Create grant on the record, in every application. A person who signs up
+// creates their own: the application offers one page, create your tenant, and the
+// generated route writes the row and seats the person as the tenant's first
+// administrator, in that order. Whether anyone may sign up is no declaration: an
+// administrator opens a sign-in method of the auth to sign-up in the running
+// application, and the route reads that choice in the transaction that writes the row,
+// so it refuses while every method is invite only. The route is generated wherever it
+// can serve: the record is on session outlets of one auth, whose management the program
+// generates and whose roles no directory writes. An administrator of one tenant never
+// creates another: the record is global, and domain roles cannot touch it.
+// @tenant(creation: ...), which declared the choice in code, is refused with what
+// replaced it.
 
-// tenantCreation is the creation shape, as the annotation names it.
+// tenantCreation says whether the create-your-tenant route is generated for the record.
 type tenantCreation string
 
 const (
-	// tenantCreationAdministrator is the default: an administrator alone creates tenants.
+	// tenantCreationAdministrator is a record with no create-your-tenant route: an
+	// administrator alone creates tenants.
 	tenantCreationAdministrator tenantCreation = "administrator"
-	// tenantCreationSelfService is self-service alone: the person who becomes the
-	// tenant's administrator creates it, and no administrator does.
-	tenantCreationSelfService tenantCreation = "self-service"
-	// tenantCreationBoth is both paths.
+	// tenantCreationBoth is a record with the route beside the administrator's create.
 	tenantCreationBoth tenantCreation = "both"
 )
 
-// tenantCreationArgKey and tenantLabelArgKey are the annotation's named arguments: who
-// may create a tenant, and the word for one where it is not the record's name.
+// tenantCreationArgKey and tenantLabelArgKey are the annotation's named arguments: the
+// retired declaration of who may create a tenant, read only to be refused, and the word
+// for a tenant where it is not the record's name.
 const (
 	tenantCreationArgKey = "creation"
 	tenantLabelArgKey    = "label"
 )
 
-// tenantCreationShapes lists the shapes in the order the refusal names them.
-var tenantCreationShapes = []tenantCreation{tenantCreationAdministrator, tenantCreationSelfService, tenantCreationBoth}
-
-// AdministratorCreates reports whether an administrator creates tenants under a Create
-// grant on the record: the default and both.
-func (c tenantCreation) AdministratorCreates() bool {
-	return c == "" || c == tenantCreationAdministrator || c == tenantCreationBoth
-}
-
 // SelfService reports whether a signed-in person holding no tenant creates one
-// through the generated route: self-service and both.
+// through the generated route.
 func (c tenantCreation) SelfService() bool {
-	return c == tenantCreationSelfService || c == tenantCreationBoth
+	return c == tenantCreationBoth
 }
 
-// String spells the shape as the annotation does; the default is spelled out.
-func (c tenantCreation) String() string {
-	if c == "" {
-		return string(tenantCreationAdministrator)
-	}
-
-	return string(c)
-}
-
-// tenantArgs is what @tenant declares: the creation shape and the label.
+// tenantArgs is what @tenant declares: the label. creation is the administrator's alone
+// until the generator finds the create-your-tenant route can serve (validateTenantCreation).
 type tenantArgs struct {
 	creation tenantCreation
 	label    string
 }
 
-// parseTenantArgs reads @tenant's arguments: none, creation: naming a shape, and label:
-// naming the word for one tenant. A positional argument, an unknown key, an unknown
-// shape and a label the screen cannot show as written are refused naming the record.
+// parseTenantArgs reads @tenant's arguments: none, or label: naming the word for one
+// tenant. A positional argument, an unknown key, a label the screen cannot show as
+// written and the retired creation: argument are refused naming the record, the last
+// with what replaced it.
 func parseTenantArgs(name string, arg genlang.Arg) (tenantArgs, error) {
 	args := tenantArgs{creation: tenantCreationAdministrator}
 	if arg.Count() == 0 {
@@ -98,19 +83,13 @@ func parseTenantArgs(name string, arg genlang.Arg) (tenantArgs, error) {
 		}
 		args.label = label
 	}
-	value, ok := invocations[0].Named(tenantCreationArgKey)
-	if !ok {
-		return args, nil
-	}
-	for _, known := range tenantCreationShapes {
-		if tenantCreation(value) == known {
-			args.creation = known
-
-			return args, nil
-		}
+	if value, ok := invocations[0].Named(tenantCreationArgKey); ok {
+		return tenantArgs{}, errors.Newf("struct %s: @%s(%s: %s) is no longer declared: who may create a %s is decided in the running application. "+
+			"An administrator creates one under the record's Create grant, as before, and a person who signs up creates their own while an administrator has a sign-in method open to sign-up "+
+			"(the auth's Sign-in page: Open sign-up, Make invite only). Remove the %s argument", name, tenantKeyword, tenantCreationArgKey, value, strings.ToLower(name), tenantCreationArgKey)
 	}
 
-	return tenantArgs{}, errors.Newf("struct %s: @%s(%s: %s) names no creation shape; the shapes are %s (an administrator alone, the default), %s (the person who becomes its administrator) and %s", name, tenantKeyword, tenantCreationArgKey, value, tenantCreationAdministrator, tenantCreationSelfService, tenantCreationBoth)
+	return args, nil
 }
 
 // isScreenWord reports whether a label reads on screen as written: letters, digits,
@@ -179,7 +158,7 @@ type tenantSeatData struct {
 // writes through one client, and where the program does not generate that auth's
 // management (GenerateIdentity), since the client is part of it.
 func (r *resourceGenerator) tenantSeatData(record *resourceInfo) (*tenantSeatData, error) {
-	if !record.TenantCreation.AdministratorCreates() || slices.Contains(record.SuppressedHandlers, PatchHandler) {
+	if slices.Contains(record.SuppressedHandlers, PatchHandler) {
 		return nil, nil
 	}
 	var auth *outletAuth
@@ -262,16 +241,15 @@ func (r *resourceGenerator) tenantCreationOutlets(record *resourceInfo) []*route
 	return outlets
 }
 
-// validateTenantCreation holds the record's creation shape to what the application
-// declares around it, once the record and the methods are known. Self-service needs a
-// stranger who can sign in: at least one registration with the open sign-up rule
-// (OpenSignUp on the method declaration) on the Auth of the outlet serving the record,
-// one auth for every session outlet the record is on, since the generated route gives
-// the person their roles through that auth's generated identity client, which the
-// program must generate (GenerateIdentity); and the handler's name must be free, so no RPC
-// method is named Create<Record>. An administrator-only record is held to nothing: an
-// open registration beside it signs a stranger in to nothing, which is not
-// self-service.
+// validateTenantCreation decides, once the record, the outlets and the methods are
+// known, whether the create-your-tenant route is generated, and holds the record to
+// what the route needs. The route serves where a person who signed up can be seated:
+// the record is on session outlets, all of one Auth, whose management the program
+// generates (GenerateIdentity) and whose roles no directory writes, since the route gives
+// the person their roles through that auth's generated identity client. A record that
+// is on no such outlet has no route, and an administrator alone creates tenants there.
+// Where the route is generated its handler's name must be free, so no RPC method is
+// named Create<Record>.
 func (r *resourceGenerator) validateTenantCreation() error {
 	record := r.tenantRecord()
 	if record == nil {
@@ -280,44 +258,41 @@ func (r *resourceGenerator) validateTenantCreation() error {
 	if _, err := r.tenantSeatData(record); err != nil {
 		return err
 	}
-	if !record.TenantCreation.SelfService() {
+	record.TenantCreation = tenantCreationAdministrator
+	if !r.tenantCreationServes(record) {
 		return nil
 	}
-	declared := fmt.Sprintf("@%s(%s: %s)", tenantKeyword, tenantCreationArgKey, record.TenantCreation)
-	outlets := r.tenantCreationOutlets(record)
-	if len(outlets) == 0 {
-		return errors.Newf("struct %s: %s on a record no session-serving outlet serves; the create-your-%s route is reached by a signed-in person, so declare the record on an outlet with a session Auth", record.Name(), declared, strcase.ToKebab(record.Name()))
-	}
-	var auth *outletAuth
-	for _, outlet := range outlets {
-		switch {
-		case outlet.auth == nil:
-			return errors.Newf("struct %s: %s, but outlet %q declares no Auth; the create-your-%s route seats the person in the outlet's auth, so declare it (Auth(<package>, ...)) with a registration admitting open sign-up (GoogleMethod(name).OpenSignUp() or AzureMethod(name).OpenSignUp()), or keep the administrator shape", record.Name(), declared, outlet.name, strcase.ToKebab(record.Name()))
-		case auth != nil && auth.importPath != outlet.auth.importPath:
-			return errors.Newf("struct %s: %s on a record served by outlets bound to different auths (%q and %q); the create-your-%s route seats the person in one auth, so serve the record on the outlets of one (@outlet), or keep the administrator shape", record.Name(), declared, auth.importPath, outlet.auth.importPath, strcase.ToKebab(record.Name()))
-		}
-		auth = outlet.auth
-	}
-	if err := r.requireIdentityOf(record, auth); err != nil {
-		return err
-	}
-	open := false
-	for _, m := range auth.methods {
-		if m.openSignUp {
-			open = true
-		}
-	}
-	if !open {
-		return errors.Newf("struct %s: %s needs a registration with the open sign-up rule on the %s auth, since a stranger signs in before creating a %s and only open sign-up admits one; declare it on the outlet's Auth (GoogleMethod(name).OpenSignUp() or AzureMethod(name).OpenSignUp(), the registration's Accounts being signin.OpenSignUp), or keep the administrator shape", record.Name(), declared, auth.packageName(), strcase.ToKebab(record.Name()))
-	}
+	record.TenantCreation = tenantCreationBoth
 	handlerFunc := tenantCreationHandlerFunc(record.Name())
 	for _, method := range r.rpcMethods {
 		if method.Name() == handlerFunc {
-			return errors.Newf("struct %s: %s generates the handler %s, the name of the RPC method %s; rename the method", record.Name(), declared, handlerFunc, method.Name())
+			return errors.Newf("struct %s: the create-your-%s route generates the handler %s, the name of the RPC method %s; rename the method", record.Name(), strcase.ToKebab(record.Name()), handlerFunc, method.Name())
 		}
 	}
 
 	return nil
+}
+
+// tenantCreationServes reports whether the create-your-tenant route can serve for the
+// record: session outlets serve it, all of one Auth, the program generates that auth's
+// management, and no directory writes its roles.
+func (r *resourceGenerator) tenantCreationServes(record *resourceInfo) bool {
+	outlets := r.tenantCreationOutlets(record)
+	if len(outlets) == 0 {
+		return false
+	}
+	var auth *outletAuth
+	for _, outlet := range outlets {
+		if outlet.auth == nil || (auth != nil && auth.importPath != outlet.auth.importPath) {
+			return false
+		}
+		auth = outlet.auth
+	}
+	if slices.ContainsFunc(auth.methods, func(m AuthMethod) bool { return m.syncsRoles }) {
+		return false
+	}
+
+	return r.requireIdentityOf(record, auth) == nil
 }
 
 // tenantCreationData feeds the handler package's create-your-tenant file.
@@ -330,10 +305,9 @@ type tenantCreationData struct {
 	ResourcePackage     string
 	RouterPackage       string
 	// Record is the record's struct name, RecordLower the word for one of its rows in
-	// prose, Shape the declared creation shape.
+	// prose.
 	Record      string
 	RecordLower string
-	Shape       string
 	// HandlerFunc is the handler's name, RoutePath the route it is registered at
 	// under the default outlet's prefix.
 	HandlerFunc string
@@ -350,8 +324,11 @@ type tenantCreationData struct {
 	Key     *tenantCreationField
 	Fields  []*tenantCreationField
 	Setters []string
-	// Refusal is the sentence a person who already holds a tenant is answered with.
-	Refusal string
+	// Refusal is the sentence a person who already holds a tenant is answered with, and
+	// ClosedRefusal the one everyone is answered with while no sign-in method is open
+	// to sign-up.
+	Refusal       string
+	ClosedRefusal string
 	// Directory is the directories record the route sets the creator's directory on,
 	// nil where the package declares none.
 	Directory *tenantCreationDirectory
@@ -454,7 +431,6 @@ func (r *resourceGenerator) tenantCreationData(record *resourceInfo, outlet *rou
 		RouterPackage:       r.router.Package(),
 		Record:              record.Name(),
 		RecordLower:         strings.ToLower(strcase.ToCase(record.Name(), strcase.LowerCase, ' ')),
-		Shape:               record.TenantCreation.String(),
 		HandlerFunc:         tenantCreationHandlerFunc(record.Name()),
 		RoutePath:           fmt.Sprintf("/%s/%s", outlet.prefix, tenantCreationRoute(record.Name())),
 		Auth:                auth,
@@ -464,6 +440,7 @@ func (r *resourceGenerator) tenantCreationData(record *resourceInfo, outlet *rou
 		Fields:              fields,
 		Setters:             setters,
 		Refusal:             tenantCreationRefusal(record.Name()),
+		ClosedRefusal:       tenantCreationClosedRefusal(record.Name()),
 		Directory:           tenantCreationDirectoryData(record),
 		record:              record,
 	}
@@ -489,6 +466,15 @@ func tenantCreationRefusal(record string) string {
 	lower := strings.ToLower(strcase.ToCase(record, strcase.LowerCase, ' '))
 
 	return fmt.Sprintf("the session already holds a %s; a person creates one %s and becomes its administrator", lower, lower)
+}
+
+// tenantCreationClosedRefusal is the sentence a person is answered with while every
+// sign-in method is invite only: nobody signs up, so nobody creates a tenant of their
+// own.
+func tenantCreationClosedRefusal(record string) string {
+	lower := strings.ToLower(strcase.ToCase(record, strcase.LowerCase, ' '))
+
+	return fmt.Sprintf("sign-up is not open, so you cannot create a %s of your own: ask an administrator of the application to create one for you, or to invite you to one", lower)
 }
 
 // tenantCreationRoutes builds the create-your-tenant route under an outlet prefix: a
@@ -557,7 +543,6 @@ func (r *resourceGenerator) tenantCreationAuthzCases() []authzCase {
 type tsTenantCreation struct {
 	Record        string
 	RecordLower   string
-	Shape         string
 	Route         string
 	RouteConstant string
 	RequestType   string
@@ -581,7 +566,6 @@ func (t *typescriptGenerator) tenantCreationClientData() *tsTenantCreation {
 	out := &tsTenantCreation{
 		Record:        record.Name(),
 		RecordLower:   strings.ToLower(strcase.ToCase(record.Name(), strcase.LowerCase, ' ')),
-		Shape:         record.TenantCreation.String(),
 		Route:         tenantCreationRoute(record.Name()),
 		RouteConstant: strcase.ToCamel(tenantCreationHandlerFunc(record.Name())) + "Route",
 		RequestType:   tenantCreationHandlerFunc(record.Name()),

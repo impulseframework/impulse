@@ -41,6 +41,7 @@ var (
 	crewEveryTable = slices.Concat(crewIdentityTables, []string{
 		"CrewSessionIdentities", "CrewSessionTokens", "CrewSessionMailLinks", "CrewSessionSignInAttempts",
 		"CrewSessionAuthEvents", "CrewSessionImpersonations", "CrewSessionTrustedDevices", "CrewRoleGrants",
+		"CrewSessionSignInMethods",
 	})
 )
 
@@ -122,7 +123,7 @@ func Test_identityInstances(t *testing.T) {
 				{
 					auth: "Crew", accessor: "CrewIdentity", outlets: []string{"default"},
 					resources: "pkg/identity/internal/crewresources", methods: "pkg/identity/crewidentity", handler: "pkg/identity/crewhandlers",
-					tables: []string{"authEvents", "identities", "impersonations", "mailLinks", "memberships", "roleGrants", "roles", "sessions", "signInAttempts", "tokens", "trustedDevices", "users"},
+					tables: []string{"authEvents", "identities", "impersonations", "mailLinks", "memberships", "roleGrants", "roles", "sessions", "signInAttempts", "signInMethods", "tokens", "trustedDevices", "users"},
 				},
 				{
 					auth: "Members", accessor: "MembersIdentity", outlets: []string{"portal", "default"},
@@ -319,6 +320,8 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/assign_crew_role.go",
 		"crewidentity/client.go",
 		"crewidentity/create_crew_user.go",
+		"crewidentity/crew_sign_in_methods.go",
+		"crewidentity/crew_sign_up_roles.go",
 		"crewidentity/delete_crew_user.go",
 		"crewidentity/disable_crew_user.go",
 		"crewidentity/enable_crew_user.go",
@@ -326,6 +329,8 @@ func Test_prepareIdentity(t *testing.T) {
 		"crewidentity/end_crew_session_impersonation.go",
 		"crewidentity/end_crew_user_sessions.go",
 		"crewidentity/invite_crew_user.go",
+		"crewidentity/make_crew_invite_only.go",
+		"crewidentity/open_crew_sign_up.go",
 		"crewidentity/remove_crew_password.go",
 		"crewidentity/remove_crew_role.go",
 		"crewidentity/rename_crew_user.go",
@@ -346,6 +351,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"internal/crewresources/crew_session_impersonations.go",
 		"internal/crewresources/crew_session_mail_links.go",
 		"internal/crewresources/crew_session_sign_in_attempts.go",
+		"internal/crewresources/crew_session_sign_in_methods.go",
 		"internal/crewresources/crew_session_tokens.go",
 		"internal/crewresources/crew_session_trusted_devices.go",
 		"internal/crewresources/crew_session_users.go",

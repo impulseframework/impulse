@@ -30,6 +30,8 @@ const (
 	identityListInvitations    = "invitations"
 	identityListSessions       = "sessions"
 	identityListSignInAttempts = "signInAttempts"
+	identityListSignInMethods  = "signInMethods"
+	identityListSignUpRoles    = "signUpRoles"
 )
 
 // identityPart is one list or method of a side: the key a page knows it by and the name
@@ -83,6 +85,8 @@ func (i *identityInstance) pageLists(tenant bool) []identityPart {
 		{identityListInvitations, data.MailLink()},
 		{identityListSessions, data.Session()},
 		{identityListSignInAttempts, data.SignInAttempt()},
+		{identityListSignInMethods, data.SignInMethod()},
+		{identityListSignUpRoles, data.SignUpRole()},
 	}
 }
 
@@ -117,6 +121,8 @@ func (i *identityInstance) pageMethods(tenant bool) []identityPart {
 		parts = append(parts,
 			identityPart{"endSession", "End" + data.Session()},
 			identityPart{"unlockSignIn", "Unlock" + i.auth + "SignIn"},
+			identityPart{"openSignUp", "Open" + i.auth + "SignUp"},
+			identityPart{"makeInviteOnly", "Make" + i.auth + "InviteOnly"},
 		)
 	}
 

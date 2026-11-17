@@ -383,14 +383,12 @@ type AuthMethod struct {
 	kind  authMethodKind
 	name  string
 	label string
-	// invited marks a registration admitting invited users only (InvitedUsers), and
-	// syncsRoles one that writes its users' roles from the directory (SyncsRoles); both
-	// shape the Auth's generated management. openSignUp marks a registration
-	// admitting anyone (OpenSignUp): what a tenant record's self-service creation
-	// shape needs on the outlet serving it.
-	invited    bool
+	// syncsRoles marks a registration that writes its users' roles from the directory
+	// (SyncsRoles), which shapes the Auth's generated management. Whether a method
+	// admits a person with no account and no invitation is no declaration: an
+	// administrator opens a method to sign-up in the running application, and until
+	// then it is invite only.
 	syncsRoles bool
-	openSignUp bool
 	// usernameIsEmail marks the password method declared with the username as the
 	// person's email address (UsernameIsEmail).
 	usernameIsEmail bool
@@ -398,8 +396,9 @@ type AuthMethod struct {
 
 // PasswordMethod is the username and password method, registered as "password" with
 // the label "Password". It takes UsernameIsEmail, which makes the username the
-// person's email address, and OpenSignUp, which offers sign-up to anyone with an
-// address.
+// person's email address. Whether anyone with an address may sign up through it is an
+// administrator's choice in the running application, and until one opens it a person
+// needs an invitation.
 func PasswordMethod() AuthMethod {
 	return AuthMethod{kind: methodPassword, name: passwordMethodName, label: "Password"}
 }
@@ -431,10 +430,10 @@ func WorkOSMethod(name string) AuthMethod {
 // the provider (okta, company-sso): the segment of the method's routes and the
 // connection every identity link made through it carries, so it is chosen once. The
 // label is the name with its words capitalized ("Okta", "Company Sso"); Labeled gives
-// other words. The registration takes InvitedUsers, or SyncsRoles when the provider's
-// ID token names the person's roles (its roles claim), and never OpenSignUp: everyone
-// the provider signs in is a member of its organization, whom the method admits
-// without it.
+// other words. The registration takes SyncsRoles when the provider's ID token names the
+// person's roles (its roles claim), and then everyone the provider signs in holds what
+// the directory says; without it the method is invite only until an administrator opens
+// it to the members of the provider's organization.
 func OIDCMethod(name string) AuthMethod {
 	return AuthMethod{kind: methodOIDC, name: name, label: registrationLabel(name)}
 }
@@ -457,8 +456,8 @@ func registrationLabel(name string) string {
 // seeded, through the persona provider. The Auth registers the method only where its
 // provider is configured (the first environment and its pull requests), and the surface's
 // handlers for it are nil elsewhere, so the generated router mounts its routes and tells
-// the login page of it only where the surface has it. Declared with InvitedUsers, since
-// the personas are seeded accounts the sign-in links to.
+// the login page of it only where the surface has it. The personas are seeded accounts
+// the sign-in links to, so the method stays invite only.
 func PersonaMethod(name string) AuthMethod {
 	return AuthMethod{kind: methodPersona, name: name, label: "Persona"}
 }
@@ -476,18 +475,6 @@ func (m AuthMethod) Labeled(label string) AuthMethod {
 	return m
 }
 
-// InvitedUsers declares that the registration admits invited users only (the session
-// library's invited-users account rule): a person signs in through the directory once
-// an operator has created their account, so the Auth's generated management creates
-// users for it (Create<Auth>User), without a password where the Auth has no password
-// method and with an optional one beside it. Not for the password method, whose users
-// are always created here.
-func (m AuthMethod) InvitedUsers() AuthMethod {
-	m.invited = true
-
-	return m
-}
-
 // SyncsRoles declares that the registration writes its users' roles from the
 // directory at every sign-in (the method's RoleSync): the Auth's generated management
 // lists the roles every person holds and has no method that gives or takes one, creates
@@ -497,21 +484,6 @@ func (m AuthMethod) InvitedUsers() AuthMethod {
 // then the authority for everyone the Auth holds. Not for the password method.
 func (m AuthMethod) SyncsRoles() AuthMethod {
 	m.syncsRoles = true
-
-	return m
-}
-
-// OpenSignUp declares that the registration admits anyone the directory verifies (the
-// session library's open sign-up account rule, signin.OpenSignUp on the registration's
-// Accounts): a stranger signs in and becomes a user holding nothing. A tenant record
-// declaring self-service creation (@tenant(creation: self-service) or both) needs one
-// such registration on the outlet serving it, since the person creates their tenant
-// after signing in. On the password method it offers sign-up to anyone with an email
-// address (the session library's session.OpenSignUp): the login page starts a sign-up
-// from a mailed link, and the router mounts the sign-up routes. Not beside
-// InvitedUsers, which admits the opposite.
-func (m AuthMethod) OpenSignUp() AuthMethod {
-	m.openSignUp = true
 
 	return m
 }
@@ -546,21 +518,12 @@ func (m AuthMethod) String() string {
 		if m.usernameIsEmail {
 			spelled += ".UsernameIsEmail()"
 		}
-		if m.openSignUp {
-			spelled += ".OpenSignUp()"
-		}
 
 		return spelled
 	case methodGoogle, methodAzure, methodWorkOS, methodOIDC, methodPersona:
 		spelled := fmt.Sprintf("%s(%q)", methodConstructor[m.kind], m.name)
-		if m.invited {
-			spelled += ".InvitedUsers()"
-		}
 		if m.syncsRoles {
 			spelled += ".SyncsRoles()"
-		}
-		if m.openSignUp {
-			spelled += ".OpenSignUp()"
 		}
 
 		return spelled
@@ -609,16 +572,12 @@ func validateAuthMethods(importPath string, methods []AuthMethod) error {
 			return errors.Newf("Auth(%q, %s) registers %q twice: each registration has its own name", importPath, m, m.name)
 		case m.label == "":
 			return errors.Newf("Auth(%q, %s) has an empty label: Labeled takes the words the login page shows", importPath, m)
-		case m.kind == methodPassword && (m.invited || m.syncsRoles):
-			return errors.Newf("Auth(%q, %s) declares InvitedUsers or SyncsRoles on the password method: they describe a registration's directory", importPath, m)
+		case m.kind == methodPassword && m.syncsRoles:
+			return errors.Newf("Auth(%q, %s) declares SyncsRoles on the password method: it describes a registration's directory", importPath, m)
 		case m.kind != methodPassword && m.usernameIsEmail:
 			return errors.Newf("Auth(%q, %s) declares UsernameIsEmail on a registration: it describes the password method's username", importPath, m)
-		case m.invited && m.openSignUp:
-			return errors.Newf("Auth(%q, %s) declares both InvitedUsers and OpenSignUp: a registration admits invited users only or anyone, not both", importPath, m)
-		case m.kind == methodOIDC && m.openSignUp:
-			return errors.Newf("Auth(%q, %s) declares OpenSignUp on an organization's identity provider: everyone the provider signs in is a member of its organization, whom the method admits without it, and open sign-up is for a method anyone can use", importPath, m)
-		case m.kind == methodPersona && (m.syncsRoles || m.openSignUp):
-			return errors.Newf("Auth(%q, %s) declares SyncsRoles or OpenSignUp on the persona method: the persona provider asserts who a persona is and nothing about roles, and the personas are seeded accounts, so the method admits invited users only", importPath, m)
+		case m.kind == methodPersona && m.syncsRoles:
+			return errors.Newf("Auth(%q, %s) declares SyncsRoles on the persona method: the persona provider asserts who a persona is and nothing about roles, and the personas are seeded accounts", importPath, m)
 		}
 		seen[m.name] = true
 	}
