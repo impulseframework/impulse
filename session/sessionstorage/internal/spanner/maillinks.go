@@ -15,7 +15,7 @@ import (
 )
 
 // mailLinkColumns are the mail links table's columns.
-const mailLinkColumns = `Id, TokenHash, Kind, Email, UserId, TenantId, RoleNames, InvitedByUserId, CreatedAt, ExpiresAt, ConsumedAt, Name`
+const mailLinkColumns = `Id, TokenHash, Kind, Email, UserId, TenantId, RoleNames, InvitedByUserId, CreatedAt, ExpiresAt, ConsumedAt, Name, NewTenant`
 
 // mailLinkRow is a mail link as the table holds it.
 type mailLinkRow struct {
@@ -31,11 +31,12 @@ type mailLinkRow struct {
 	ExpiresAt       time.Time          `spanner:"ExpiresAt"`
 	ConsumedAt      spanner.NullTime   `spanner:"ConsumedAt"`
 	Name            spanner.NullString `spanner:"Name"`
+	NewTenant       spanner.NullString `spanner:"NewTenant"`
 }
 
 // newMailLinkRow renders l as the table holds it: created at the commit time and not
 // consumed, whatever l carries.
-func newMailLinkRow(l *dbtype.MailLink) *mailLinkRow {
+func newMailLinkRow(l *dbtype.MailLink) (*mailLinkRow, error) {
 	r := &mailLinkRow{
 		ID: l.ID.String(), TokenHash: l.TokenHash, Kind: string(l.Kind), Email: l.Email, RoleNames: l.RoleNames,
 		CreatedAt: spanner.CommitTimestamp, ExpiresAt: l.ExpiresAt,
@@ -52,8 +53,15 @@ func newMailLinkRow(l *dbtype.MailLink) *mailLinkRow {
 	if l.Name != "" {
 		r.Name = spanner.NullString{StringVal: l.Name, Valid: true}
 	}
+	newTenant, err := dbtype.NewTenantColumn(l.NewTenant)
+	if err != nil {
+		return nil, errors.Wrap(err, "dbtype.NewTenantColumn()")
+	}
+	if newTenant != nil {
+		r.NewTenant = spanner.NullString{StringVal: *newTenant, Valid: true}
+	}
 
-	return r
+	return r, nil
 }
 
 func (r *mailLinkRow) link() (*dbtype.MailLink, error) {
@@ -89,6 +97,13 @@ func (r *mailLinkRow) link() (*dbtype.MailLink, error) {
 		consumedAt := r.ConsumedAt.Time
 		l.ConsumedAt = &consumedAt
 	}
+	if r.NewTenant.Valid {
+		newTenant, err := dbtype.NewTenantFromColumn(&r.NewTenant.StringVal)
+		if err != nil {
+			return nil, errors.Wrap(err, "dbtype.NewTenantFromColumn()")
+		}
+		l.NewTenant = newTenant
+	}
 
 	return l, nil
 }
@@ -101,7 +116,11 @@ func (s *SessionStorageDriver) InsertMailLink(ctx context.Context, l *dbtype.Mai
 	if err := l.Kind.Validate(); err != nil {
 		return errors.Wrap(err, "dbtype.MailLinkKind.Validate()")
 	}
-	m, err := spanner.InsertStruct(s.mailLinksTableName, newMailLinkRow(l))
+	row, err := newMailLinkRow(l)
+	if err != nil {
+		return err
+	}
+	m, err := spanner.InsertStruct(s.mailLinksTableName, row)
 	if err != nil {
 		return errors.Wrap(err, "spanner.InsertStruct()")
 	}

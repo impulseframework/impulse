@@ -18,7 +18,7 @@ The Session repository is designed to handle the management of user sessions, in
   - WorkOS SSO (`session/internal/workos`): built and tested, in an internal package, so an application cannot import it
 - `The second factor`: every session carries one when the sign-in policy asks (`signin.RequireMFA`): the attestation a sign-in's connection makes, by evidence in the token (Entra's `amr`) or by the application's declaration of a directory it administers (`Attesting()`), or else the library's own factor, a one-time code mailed to the user's address, with the browser remembered afterwards as a trusted device and an administrator's reset. See "The second factor" under the Auth session.
 - `Open to sign-up, or invite only`: whether a person with no account and no invitation may sign in is one choice an administrator makes in the running application, for each sign-in method, kept in a table of the auth; every method is invite only until it is opened, and an open method gives a new person its default role. See "Open to sign-up, or invite only" under the Auth session.
-- `Invitations, email addresses and sign-up`: an invitation mailed to an address, carrying the roles its acceptance grants, accepted only by the account it was sent to (an account with no address, by the link); a user's email address in two states, unverified and verified, the person proving it by a mailed link; and self-service sign-up with a password while an administrator has the password method open to it. See "Users and their email address", "Invitations" and "Sign-up" under the Auth session.
+- `Invitations, email addresses and sign-up`: an invitation mailed to an address, carrying the roles its acceptance grants, accepted only by the account it was sent to (an account with no address, by the link), or carrying the tenant its acceptance makes, held to an organization's directory where the tenant is entered through its directory only; a user's email address in two states, unverified and verified, the person proving it by a mailed link; and self-service sign-up with a password while an administrator has the password method open to it. See "Users and their email address", "Invitations" and "Sign-up" under the Auth session.
 - `Mail`: one interface the invitation, verification, sign-up and sign-in code flows send through (`session/mail`), with the Google Workspace SMTP relay as the first driver (`session/mail/workspace`). See the "Sending mail" section.
 - `Preauth`: trust-the-caller stepping-stone sessions (`session.NewPreauth`).
 - `Custom Session Data`: App-defined data attached to each session, resolved atomically at session creation and available to every request. See the "Custom session data" section.
@@ -72,9 +72,11 @@ the username, the password hash and `Disabled`, the password change mark
 creates them; a users table named per group takes the same DDL under its name. The
 auth set adds the email address columns `Email`, `NormalizedEmail` and
 `EmailVerifiedAt` (`SessionUserEmail`), the mail links table (`SessionMailLinks`) and
-the second factor's tables (`SessionFactorCodes`, `SessionTrustedDevices`), and the
-person's name `Name` (`SessionNames`); see "Users and their email address" for the two
-shapes the address columns take, and "A person's name".
+the second factor's tables (`SessionFactorCodes`, `SessionTrustedDevices`), the
+person's name `Name` (`SessionNames`), and the tenant an invitation makes, the mail
+links table's `NewTenant` column (`SessionTenantInvitations`); see "Users and their
+email address" for the two shapes the address columns take, "A person's name" and
+"Invitations".
 
 **PostgreSQL time columns are `timestamp with time zone`.** The driver writes `time.Time`
 values as instants, which `timestamptz` stores faithfully whatever zone the host runs in.
@@ -126,6 +128,15 @@ mail links, factor codes, trusted devices and sign-in methods (the auth migratio
 address columns and the person's name to the users table), and impersonations
 (`schema/*/impersonation/migrations`) if you use it. A new group applies the base set,
 then the auth set.
+
+The mail links table holds the tenant an invitation makes in one nullable column,
+`NewTenant`: a JSON document, `{"name", "directoryOnly", "details"}`, null on a
+verification link, a sign-up link and an invitation that makes no tenant (see
+"Invitations"). The drivers write and read it. An application that stores an
+invitation's row in a transaction of its own (`PrepareInvitation`) writes the same
+document, which the row answers (`InvitationRow.NewTenantColumn()`), and a mail links
+table named per group, or kept in the application's own migrations, carries the column
+as the shipped one does.
 
 The schema keeps its own integrity: a session belongs to an existing user (`UserId`,
 null only for a role-principal impersonation), and deleting a user deletes its
@@ -709,8 +720,8 @@ the password method is listed.
   "removePassword": "/api/user/password/remove",
   "usernameIsEmail": true,
   "invitation": {"open": "/api/user/invitation", "accept": "/api/user/invitation/accept", "signUp": "/api/user/invitation/sign-up",
-                 "standing": {"email": "pat@lakeside.edu", "expiresAt": "2026-10-31T20:00:00Z", "usernameIsEmail": false, "methods": ["workos"],
-                              "accountExists": false, "hasPassword": false}},
+                 "standing": {"email": "pat@lakeside.edu", "newTenant": false, "directoryOnly": false, "expiresAt": "2026-10-31T20:00:00Z",
+                              "usernameIsEmail": false, "methods": ["workos"], "accountExists": false, "hasPassword": false}},
   "email": {"add": "/api/user/email", "verify": "/api/user/email/verify"},
   "signUp": {"start": "/api/user/sign-up", "open": "/api/user/sign-up/open", "complete": "/api/user/sign-up/complete"}
 }
@@ -769,7 +780,10 @@ the password method is listed.
   being accepted, whether an account created from it takes the address as its
   username, and the names of the listed external registrations that could admit the
   address (`methods`, empty when none could), as `Invitation().Open()` answered them;
-  the page hides the methods not named. `accountExists` says an account already holds
+  the page hides the methods not named. For an invitation that makes a tenant,
+  `newTenant` is true, `tenantName` is the name the invitation carries for it, and
+  `directoryOnly` says it is accepted with an organization's account alone, so the page
+  offers no account with a password for it (see "Invitations"). `accountExists` says an account already holds
   the invited address and `hasPassword` that it signs in with a password, so the page
   offers that account's password form, and offers to create an account only where
   none holds the address; the link holder may know it, since following the link
@@ -1402,16 +1416,20 @@ read the mailbox, and the account takes the address.
 
 - **Sending**: `auth.API().Invite(ctx, &session.InvitationRequest{Email, Name, Tenant,
   RoleNames, InvitedByUserID})` stores the invitation and mails the link; `Name`, optional, is
-  the name the sender gives the person (see "A person's name"). The invitation stands for
+  the name the sender gives the person (see "A person's name"), and `NewTenant`, in
+  place of a tenant and roles, makes the invitation one that makes a tenant (below).
+  The invitation stands for
   `MailSettings.InvitationTimeout` (seven days). `Invitations(ctx)` lists those that
   stand; `RevokeInvitation(ctx, id)` withdraws one. The tenant and the roles are the
   application's, opaque to the library.
 - **Opening**: the login page, sent to with `?invitation=<token>`, posts the token to
-  `Invitation().Open()`, which answers `{"email", "tenantId", "tenantName", "expiresAt", "signUp",
-  "usernameIsEmail", "methods", "accountExists", "hasPassword"}` and sets an encrypted cookie holding the token, so the
+  `Invitation().Open()`, which answers `{"email", "tenantId", "tenantName", "newTenant",
+  "directoryOnly", "expiresAt", "signUp", "usernameIsEmail", "methods", "accountExists",
+  "hasPassword"}` and sets an encrypted cookie holding the token, so the
   sign-in that follows carries the invitation, an external round trip included. The
   page then offers the sign-in methods, and, when `signUp` is true (the password method
-  is registered), an account with a password. `methods` names the listed external
+  is registered, and the invitation is not one accepted with an organization's account
+  alone), an account with a password. `methods` names the listed external
   registrations that could admit the invitation's address, by the names the methods
   listing advertises them under (`[]` when none could; the password method is never
   among them), so the page hides the buttons that would refuse the invitee; `accountExists`
@@ -1467,6 +1485,50 @@ read the mailbox, and the account takes the address.
   (`{"password", "username"}`), which creates the user with the invitation's address
   verified and signs them in, the invitation accepted on the way. `NewSessionRequest.Invitation`
   carries it to the policy, with `Accepted` saying whether this sign-in accepted it.
+  The hook is told how the person signed in: the invitation it is handed carries
+  `SignInMethod` and `SignInConnection`, the method and connection of the sign-in that
+  carries the invitation, and of the session's first auth event for an acceptance by
+  hand (empty for a session that records no events).
+- **An invitation that makes a tenant**: staff bring an organization into a tenanted
+  application by inviting one person, and that person's first sign-in makes the tenant.
+  The request carries `NewTenant` (`sessioninfo.NewTenant{Name, DirectoryOnly,
+  Details}`) in place of a tenant and roles: such an invitation names no tenant and
+  carries no roles, since the tenant does not exist yet and whoever accepts it becomes
+  its first administrator, and the tenant's name is required. `Invite` and
+  `PrepareInvitation` answer a bad request, in words, for a request that says
+  otherwise. `Name` is what the invitation page shows the person before they sign in:
+  `Invitation().Open()` and the methods listing answer `newTenant` true and the name as
+  `tenantName`, with no `tenantId`, since the tenant has none yet. `Details` is the
+  application's own JSON document, whatever else staff entered for the tenant: the
+  library stores it with the invitation, hands it to the acceptance hook and reads none
+  of it. No handler of the library answers it, and the mailed message is the message of
+  any invitation: it carries nothing of the tenant, its name included, since a message
+  is read by whoever holds the mailbox before anyone has signed in.
+
+  The acceptance hook makes the tenant. It is handed the invitation with `NewTenant`
+  and how the person signed in, in the transaction that consumes the invitation, so the
+  tenant, the person's seat in it and the spent invitation are written together or not
+  at all. `signin.Directory{Method: inv.SignInMethod, Connection:
+  inv.SignInConnection}.Organization()` says whether the person came through an
+  organization's directory (a Google Workspace, a Microsoft Entra tenant), which the
+  hook may then write as the tenant's own. A hook that will not make the tenant answers
+  a `sessioninfo.LoginRefusal` with a code of its own: the sign-in ends on that code,
+  nothing is written and the invitation stands. `sessioninfo.RefusedOrganizationHasTenant`
+  (`organization_has_tenant`) is the code for an organization whose directory another
+  tenant already has.
+
+  `DirectoryOnly` says the tenant is entered through its organization's directory
+  alone, and the library holds the acceptance to it. A sign-in that carries such an
+  invitation with a password, with a personal account (a Google account in no
+  Workspace, a Microsoft personal account) or through anything else that is no
+  organization's directory is refused (`organization_account_required`) before
+  anything is read or written: no account is made, and the invitation stands for the
+  sign-in with the organization's account. `Invitation().Open()` answers
+  `directoryOnly` true and `signUp` false for it, so the page offers the directory
+  buttons and no account with a password; `Invitation().SignUp()` refuses it with the
+  same code before any account is created; and `Invitation().Accept()` answers a
+  session that was not established through an organization's directory 403 with the
+  sentence, the invitation standing.
 - **A dead invitation** (used, revoked or expired) is skipped by a sign-in the person
   was admitted to anyway, which goes on without a grant, and refuses one the invitation
   alone admitted (`invitation_expired`), provisioning nothing. A hook that fails ends
@@ -2213,6 +2275,7 @@ table is the wire contract:
 | `invitation_only` | `RefusedInvitationOnly` | Auth: a stranger from a directory a tenant declares with no default seat (`SetDirectoryAdmission`), carrying no invitation; nothing is written. |
 | `invitation_expired` | `RefusedInvitationExpired` | Auth: through a sign-in method that is invite only, the invitation the sign-in carried, which alone admitted the person, had expired or been used by the time the sign-in accepted it; nothing is provisioned. |
 | `invitation_address` | `RefusedInvitationAddress` | Auth: a sign-in or an acceptance by hand carried an invitation mailed to another address than the one it asserts (the directory's, or the account's own); refused before anything is read or written, the invitation left standing. An account that holds no address accepts by the link. The login page names the invited address and asks for a sign-in with that account. |
+| `organization_account_required` | `RefusedOrganizationAccountRequired` | Auth: a sign-in, a sign-up with a password or an acceptance by hand carried an invitation that makes a tenant entered through its directory only, and came through no organization's directory (a password, a personal account, a session established any other way); refused before anything is read or written, no account made and the invitation left standing. The login page asks for a sign-in with the organization's account. |
 | `guest_account` | `RefusedGuestAccount` | Auth: the identity is a guest of its directory (an Entra B2B guest), which the standard account rule refuses. |
 | `policy_denied` | `RefusedByPolicy` | Auth: the sign-in policy denied the sign-in (its own code wins when it sets one). |
 | `user_disabled` | `RefusedUserDisabled` | Auth: the sign-in resolved to a disabled user. |
@@ -2223,6 +2286,7 @@ table is the wire contract:
 | `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection), every tenant that seats the person is directory only, and none of them has that directory as its own. |
 | `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in that is not through a directory (a password, a personal account, a session the application started itself) by a person whose every tenant is directory only. |
 | `other_tenant` | `RefusedOtherTenant` | Never answered by the session library itself: the generated user management answers it from its hooks where the application declared that a person belongs to one tenant (`identity.WithOneTenantPerPerson()`). The invitation the sign-in carried, or the default role of the directory it came through, would give the person a role in a second tenant; the hook fails the sign-in's transaction, so nothing is consumed and no account is made. |
+| `organization_has_tenant` | `RefusedOrganizationHasTenant` | Never answered by the session library itself: the generated user management answers it from its invitation hook. The invitation the sign-in carried makes a tenant, and the organization's directory the person signed in through is already another tenant's; the hook fails the sign-in's transaction, so no tenant and no account is made and the invitation stands. |
 | `too_many_attempts` | `RefusedTooManyAttempts` | Auth: a password attempt on a name whose failed attempts reached the limit, or from a client held for its own; answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes (see "Attempt limiting and the after-sign-in hook"). |
 | `too_many_emails` | `RefusedTooManyEmails` | Auth: a sixth sign-in code or link asked for one address within fifteen minutes while the five before it went unused (a code or link that is used resets the count); answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes. |
 | `invalid_code` | `RefusedInvalidCode` | Auth: the sign-in code entered is not the one sent; the code stands with one fewer attempt (see "The second factor"). |

@@ -197,23 +197,29 @@ type Rules[Tx any] struct {
 // (invitation_address), the invitation left standing for the invited account. An
 // external identity that asserts no address cannot match; a password account that
 // holds no address accepts by the link, since the link is what the person proved, and
-// takes the address. Accepting it consumes the invitation and sets the user's address from it when the
-// user holds no verified address, in the resolution transaction for an external
-// identity (so a user the invitation provisioned and the consumption commit together)
-// and in a transaction of its own for a password identity; rules.Accept gives what
-// the invitation names inside that same transaction, which it is handed, so the
-// invitation is spent and its roles given together or neither is. The
-// invitation is consumed only once the resolution has admitted the sign-in: the user
-// found, linked or provisioned, and enabled. A sign-in the account rules refuse or
-// hold for a confirmation, or a disabled user's, leaves the invitation standing,
-// nothing granted, so the person may sign in another way; a sign-in the policy then
-// denies leaves it accepted, and what the acceptance granted stands. An invitation
-// that is no longer live is skipped and the sign-in goes on, unless the invitation
-// alone admitted the person (a method that is invite only), which is then a refusal
-// (invitation_expired) and provisions nothing; req.Invitation.Accepted reports whether
-// it was accepted. An acceptor that fails ends the sign-in with its error and fails
-// the transaction: the invitation stands, a user the resolution would have provisioned
-// or linked is not, and Accepted is false.
+// takes the address. The invitation is told how the person signed in
+// (Invitation.SignInMethod, SignInConnection: the identity's), which the acceptor
+// reads, and an invitation that makes a tenant entered through its directory only
+// (Invitation.NewTenant) is accepted through an organization's directory alone: a
+// sign-in by password or with a personal account is refused before anything is read or
+// written (organization_account_required), the invitation left standing
+// (organizationAccountRefusal). Accepting it consumes the invitation and sets the
+// user's address from it when the user holds no verified address, in the resolution
+// transaction for an external identity (so a user the invitation provisioned and the
+// consumption commit together) and in a transaction of its own for a password
+// identity; rules.Accept gives what the invitation names inside that same transaction,
+// which it is handed, so the invitation is spent and its roles given together or
+// neither is. The invitation is consumed only once the resolution has admitted the
+// sign-in: the user found, linked or provisioned, and enabled. A sign-in the account
+// rules refuse or hold for a confirmation, or a disabled user's, leaves the invitation
+// standing, nothing granted, so the person may sign in another way; a sign-in the
+// policy then denies leaves it accepted, and what the acceptance granted stands. An
+// invitation that is no longer live is skipped and the sign-in goes on, unless the
+// invitation alone admitted the person (a method that is invite only), which is then a
+// refusal (invitation_expired) and provisions nothing; req.Invitation.Accepted reports
+// whether it was accepted. An acceptor that fails ends the sign-in with its error and
+// fails the transaction: the invitation stands, a user the resolution would have
+// provisioned or linked is not, and Accepted is false.
 //
 // A person's first sign-in through a directory some tenant declares is decided by the
 // tenant's row when rules.Directories is set (standardRule): the default seat is given
@@ -241,6 +247,9 @@ func SignIn[Tx any](
 	defer func() { req.UserID, req.Username, req.User = resolved.UserID, resolved.Username, resolved.User }()
 
 	if stop := invitedAddressRefusal(req); stop != nil {
+		return stop
+	}
+	if stop := signedInThrough(req); stop != nil {
 		return stop
 	}
 	source, tenant := sessioninfo.UserNamed, ""
@@ -299,6 +308,47 @@ func invitedAddressRefusal(req *sessioninfo.NewSessionRequest) error {
 
 	return addressRefusal(req.Identity.Email, !dbtype.IsExternal(req.Identity), req.Invitation)
 }
+
+// signedInThrough notes on the invitation the sign-in carries how the person signed in,
+// the method and the connection of the sign-in's identity, for the acceptance hook to
+// read, and holds the sign-in to what the invitation asks of it
+// (organizationAccountRefusal). Nothing is read or written. Nil when the sign-in
+// carries no invitation or the acceptance may go on.
+func signedInThrough(req *sessioninfo.NewSessionRequest) error {
+	inv := req.Invitation
+	if inv == nil {
+		return nil
+	}
+	inv.SignInMethod, inv.SignInConnection = req.Identity.Method, req.Identity.Connection
+
+	return organizationAccountRefusal(inv)
+}
+
+// organizationAccountRefusal is the refusal (organization_account_required) of an
+// acceptance of an invitation that makes a tenant entered through its directory only
+// (NewTenant.DirectoryOnly) by a person who did not come through an organization's
+// directory: a password, a personal account (a Google account in no Workspace, a
+// Microsoft personal account) or a session the application started itself, read off
+// the invitation's SignInMethod and SignInConnection (signin.Directory.Organization).
+// The tenant's directory is the one its first administrator came through, and such a
+// tenant could be entered by nobody without one, so the acceptance waits for a sign-in
+// through the organization's directory. Nothing is read or written: no account and no
+// tenant is made, and the invitation stands. Nil when the acceptance may go on.
+func organizationAccountRefusal(inv *sessioninfo.Invitation) error {
+	if inv.NewTenant == nil || !inv.NewTenant.DirectoryOnly {
+		return nil
+	}
+	if (signin.Directory{Method: inv.SignInMethod, Connection: inv.SignInConnection}).Organization() {
+		return nil
+	}
+
+	return Refusal("", sessioninfo.RefusedOrganizationAccountRequired, signin.ErrOrganizationAccountRequired, OrganizationAccountMessage)
+}
+
+// OrganizationAccountMessage is the sentence shown for an acceptance refused because
+// the invitation is accepted through an organization's directory alone: what the
+// person does instead.
+const OrganizationAccountMessage = "This invitation is accepted with your organization's account, not with a password or a personal account. Sign in with your organization's account (Google Workspace or Microsoft Entra)."
 
 // addressRefusal is the refusal (invitation_address) of an acceptance of inv by an
 // account whose address, email, is not the invited one, compared without regard to
@@ -480,9 +530,19 @@ func seatDeclared[Tx any](
 // live (consumed, expired or revoked) is NotFound with signin.ErrInvitationExpired as
 // its cause, and nothing is written; a grant that fails is the acceptor's error,
 // whatever it is, with nothing written either: the invitation stands.
+//
+// The caller notes on inv how the person's session was established
+// (inv.SignInMethod, inv.SignInConnection: the session's first auth event), which
+// accept reads, and the acceptance is held to it: an invitation that makes a tenant
+// entered through its directory only is refused (organization_account_required) for a
+// session that came through no organization's directory, with nothing written
+// (organizationAccountRefusal).
 func AcceptInvitation[Tx any](ctx context.Context, d Driver[Tx], userID impulse.UUID, username, email string, inv *sessioninfo.Invitation, accept InvitationAcceptor[Tx]) error {
 	inv.Accepted = false
 	if stop := addressRefusal(email, true, inv); stop != nil {
+		return stop
+	}
+	if stop := organizationAccountRefusal(inv); stop != nil {
 		return stop
 	}
 	dead, err := acceptInvitation(ctx, d, userID, username, inv, accept)
