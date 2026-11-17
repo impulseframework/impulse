@@ -22,7 +22,8 @@ var (
 )
 
 const (
-	watch = accesstypes.Role("Watch")
+	watch   = accesstypes.Role("Watch")
+	relieve = accesstypes.Role("Relieve")
 
 	dan = accesstypes.User("dan")
 	eve = accesstypes.User("eve")
@@ -84,6 +85,7 @@ func runPeriods(t *testing.T, store access.Store) {
 	t.Run("a person's role", func(t *testing.T) { periodMemberships(t, store, &p) })
 	t.Run("a place in a group and a group's role", func(t *testing.T) { periodGroups(t, store, &p) })
 	t.Run("the check", func(t *testing.T) { periodChecks(t, store, &p) })
+	t.Run("a role a group holds is not deleted", func(t *testing.T) { roleHeldByGroup(t, store, &p) })
 	t.Run("deletions", func(t *testing.T) { periodDeletes(t, store) })
 }
 
@@ -340,6 +342,62 @@ func periodChecks(t *testing.T, store access.Store, p *periods) {
 		store.DeleteGroupRole(ctx, reliefGroup, periodTenant, watch),
 	); err != nil {
 		t.Errorf("removing the check's assignments: %v", err)
+	}
+}
+
+// roleHeldByGroup holds a role's deletion to the groups that hold the role: a
+// group's row of it that counts, or will, refuses the deletion as
+// policy.ErrHeldByGroup, whether or not the group has anyone in it, and one
+// that has ended goes with the role. A role deleted from under a group would
+// leave the row behind, and a role of the name made again would at once be
+// held by everyone in the group. The listing of the groups a role is held
+// through reads the rows that count now. It removes what it writes.
+func roleHeldByGroup(t *testing.T, store access.Store, p *periods) {
+	t.Helper()
+	ctx := t.Context()
+
+	if err := store.InsertRole(ctx, periodTenant, relieve, "Relieves the watch for the period tests."); err != nil {
+		t.Fatalf("InsertRole() error = %v", err)
+	}
+	relief := policy.GroupRow{Group: policy.Group{ID: reliefGroup, Scope: periodTenant}, Name: "Relief", Description: "Who relieves the watch."}
+	for _, held := range []struct {
+		name   string
+		period accesstypes.Period
+		listed []policy.GroupRow
+	}{
+		{name: "now", period: p.current, listed: []policy.GroupRow{relief}},
+		{name: "for a period that has not begun", period: p.upcoming, listed: []policy.GroupRow{}},
+	} {
+		if err := store.InsertGroupRole(ctx, reliefGroup, periodTenant, relieve, held.period); err != nil {
+			t.Fatalf("InsertGroupRole() error = %v", err)
+		}
+		groups, err := store.ListRoleGroups(ctx, periodTenant, relieve)
+		if err != nil {
+			t.Fatalf("ListRoleGroups() error = %v", err)
+		}
+		if diff := cmp.Diff(held.listed, groups, equateScopes); diff != "" {
+			t.Errorf("ListRoleGroups() while the group holds the role %s (-want +got):\n%s", held.name, diff)
+		}
+		if _, err := store.DeleteRole(ctx, periodTenant, relieve); !errors.Is(err, policy.ErrHeldByGroup) {
+			t.Fatalf("DeleteRole() while a group holds the role %s: error = %v, want policy.ErrHeldByGroup, which the manager words for the caller", held.name, err)
+		}
+		if exists, err := store.RoleExists(ctx, periodTenant, relieve); err != nil || !exists {
+			t.Fatalf("RoleExists() after the refused delete = (%v, %v), want the role still there", exists, err)
+		}
+	}
+	if groups, err := store.ListRoleGroups(ctx, periodTenant, watch); err != nil || len(groups) != 0 {
+		t.Errorf("ListRoleGroups() of a role no group holds now = (%v, %v), want none", groups, err)
+	}
+
+	if err := store.InsertGroupRole(ctx, reliefGroup, periodTenant, relieve, p.ended); err != nil {
+		t.Fatalf("InsertGroupRole() error = %v", err)
+	}
+	if deleted, err := store.DeleteRole(ctx, periodTenant, relieve); err != nil || !deleted {
+		t.Fatalf("DeleteRole() once the group's role has ended = (%v, %v), want it deleted", deleted, err)
+	}
+	memberships, _ := periodRecords(t, store)
+	if slices.ContainsFunc(memberships, func(m policy.Membership) bool { return m.Role == relieve }) {
+		t.Errorf("ReadPolicy() still holds a row of the role among %v: the group's row that had ended goes with the role", memberships)
 	}
 }
 

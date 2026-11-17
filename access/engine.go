@@ -128,4 +128,6 @@ type policyStore interface {
 	groupRoles(ctx context.Context, group accesstypes.Group) ([]policy.Membership, error)
 	// userGroupRoles lists every role held now by a group the user is in now.
 	userGroupRoles(ctx context.Context, user accesstypes.User) ([]policy.GroupRole, error)
+	// roleGroups lists the groups that hold the role in scope now.
+	roleGroups(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]policy.GroupRow, error)
 }
