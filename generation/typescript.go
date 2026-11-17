@@ -139,7 +139,7 @@ func (t *typescriptGenerator) applyOutletFilter(resources []*resourceInfo, compu
 	// The method that turns the tenant record's directory-only switch is served with
 	// the record, so it leaves the outlet's constants with it.
 	for _, res := range resources {
-		if res.HoldsDirectoryOnly() && !res.OnOutlet(t.targetOutlet()) {
+		if res.declaresDirectoryOnly() && !res.OnOutlet(t.targetOutlet()) {
 			t.outletExcluded = append(t.outletExcluded, accesstypes.Resource(directoryOnlyMethodName(res.Name())))
 		}
 	}

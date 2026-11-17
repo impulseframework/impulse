@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -352,6 +353,98 @@ func Test_directoryOnlyRoutes(t *testing.T) {
 			t.Errorf("the collection carries %v, want nothing", got)
 		}
 	})
+}
+
+// Test_directoryOnlyClient pins the switch's method on a generated browser client. The
+// browser generator reads each struct on its own and resolves no declaration across
+// them, so it finds the method by the record's own flag and by the collection the
+// handler generator computed: on the client of an outlet that serves the record, in the
+// tenant's scope, with the body that says which way to turn; on no client where the
+// application serves no such method, and left out of the constants of an outlet the
+// record is not on.
+func Test_directoryOnlyClient(t *testing.T) {
+	t.Parallel()
+
+	// The handler generator's run over the record and its directories record: the
+	// collection carries the method.
+	r, err := declarationResources(t, "Harbor", "HarborDirectory")
+	if err != nil {
+		t.Fatalf("declarationResources() error = %v", err)
+	}
+	r.genRoutes = true
+	r.defaultOutlet = routerOutlet{name: defaultOutletName, prefix: "api", servesSessions: true}
+	served := resource.NewCollectionBuilder()
+	if err := r.collectDirectoryOnlyRegistrations(served); err != nil {
+		t.Fatalf("collectDirectoryOnlyRegistrations() error = %v", err)
+	}
+	// parsed is the same package as the browser generator parses it.
+	parsed := func(t *testing.T) *client {
+		t.Helper()
+
+		c := &client{tableMap: tenantFixtureTables()}
+		resources, err := c.structsToResources(tenantFixtureStructs(t, fixtureStructs(loadFixture(t, "tenantfixture")), "Harbor", "HarborDirectory"))
+		if err != nil {
+			t.Fatalf("structsToResources() error = %v", err)
+		}
+		for _, res := range resources {
+			if res.HasDeclaration() {
+				t.Fatalf("%s carries a resolved declaration, want none: the browser generator resolves no declaration across structs", res.Name())
+			}
+		}
+		c.resources = resources
+
+		return c
+	}
+
+	tests := []struct {
+		name       string
+		collection resource.CollectionData
+		outlet     string
+		want       *tsDirectoryOnly
+	}{
+		{name: "the client of the outlet that serves the record", collection: served.Data(), want: &tsDirectoryOnly{Method: "SetHarborDirectoryOnly", Word: "harbor"}},
+		{name: "an application that serves no such method", collection: resource.NewCollectionBuilder().Data()},
+		{name: "the client of an outlet the record is not on", collection: served.Data(), outlet: "members"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			gen := &typescriptGenerator{client: parsed(t), rc: resource.MustNewGeneratedCollection(tt.collection), outletName: tt.outlet}
+			// The filter narrows the parsed set to the outlet's members, as a run does
+			// before it writes the client.
+			filtered, _, err := gen.applyOutletFilter(slices.Clone(gen.resources), nil)
+			if err != nil {
+				t.Fatalf("applyOutletFilter() error = %v", err)
+			}
+			gen.resources = filtered
+			got := gen.directoryOnlyClientData()
+			if diff := cmp.Diff(tt.want, got); diff != "" {
+				t.Fatalf("directoryOnlyClientData() mismatch (-want +got):\n%s", diff)
+			}
+			excluded := slices.Contains(gen.outletExcluded, accesstypes.Resource("SetHarborDirectoryOnly"))
+			if wantExcluded := tt.outlet != ""; excluded != wantExcluded {
+				t.Errorf("the method is left out of the outlet's constants = %t, want %t", excluded, wantExcluded)
+			}
+			if tt.want == nil {
+				return
+			}
+
+			methods, err := gen.generateTemplateOutput(typescriptMethodsTemplate, typescriptMethodsTemplate, tsMethodsData{File: gen, GenPrefix: "zz_gen", DirectoryOnly: got})
+			if err != nil {
+				t.Fatalf("generateTemplateOutput(methods) error = %v", err)
+			}
+			assertContains(t, "typescriptMethodsTemplate", string(methods), []string{
+				"export interface SetHarborDirectoryOnlyConfig {\n  directoryOnly: boolean | FieldPointer;\n}",
+				"export interface SetHarborDirectoryOnly {\n  directoryOnly: boolean;\n}",
+				"[Methods.SetHarborDirectoryOnly]: {\n    route: 'set-harbor-directory-only',\n    dryRun: true,\n    fields: [\n      { fieldName: 'directoryOnly', displayType: 'boolean' },",
+			}, nil)
+			want := &tsAPIMethod{Name: "SetHarborDirectoryOnly", Property: "setHarborDirectoryOnly", Route: "set-harbor-directory-only", Scope: accesstypes.DomainPermissionScope}
+			if diff := cmp.Diff(want, directoryOnlyAPIMethod(got.Method)); diff != "" {
+				t.Errorf("directoryOnlyAPIMethod() mismatch (-want +got):\n%s", diff)
+			}
+		})
+	}
 }
 
 // Test_tenantDirectoryIn pins the reading of the directory-only switch and the

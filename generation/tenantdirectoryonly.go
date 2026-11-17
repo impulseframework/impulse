@@ -67,6 +67,13 @@ func (r *resourceInfo) HoldsDirectoryOnly() bool {
 	return r.IsTenant && r.HasDeclaration() && r.DirectoryOnlyField != nil
 }
 
+// declaresDirectoryOnly reports whether the resource is a tenant record whose own struct
+// carries the directory-only flag, as one struct says it: what a generator that
+// resolves no declaration across structs can read.
+func (r *resourceInfo) declaresDirectoryOnly() bool {
+	return r.IsTenant && r.DirectoryOnlyField != nil
+}
+
 // directoryOnlyOutlets are the outlets the switch is served on: every outlet that serves
 // sessions and the tenant record, none for a record that declares no switch or a run
 // that generates no routes.
@@ -301,21 +308,24 @@ type tsDirectoryOnly struct {
 }
 
 // directoryOnlyClientData is the switch's method on a client generated for an outlet
-// that serves it; nil where the outlet serves none.
+// that serves it; nil where the outlet serves none. The browser generator reads each
+// struct on its own and resolves no declaration across them (HoldsDirectoryOnly is the
+// handler generator's), so the record's flag says the record may carry a switch and
+// the collection says whether the application serves its method.
 func (t *typescriptGenerator) directoryOnlyClientData() *tsDirectoryOnly {
 	var record *resourceInfo
 	for _, res := range t.resources {
-		if res.IsTenant {
+		if res.declaresDirectoryOnly() {
 			record = res
 		}
 	}
-	if record == nil || !record.HoldsDirectoryOnly() || !record.OnOutlet(t.targetOutlet()) {
+	if record == nil || !record.OnOutlet(t.targetOutlet()) {
 		return nil
 	}
-	// The collection carries the method where the run generates routes and an outlet
-	// serves the record to sessions.
+	// The collection carries the method, in the tenant's scope, where the run generates
+	// routes and an outlet serves the record to sessions.
 	method := directoryOnlyMethodName(record.Name())
-	if t.rc == nil || !t.rc.ResourceExists(accesstypes.Resource(method)) {
+	if t.rc == nil || !t.rc.HasPermission(accesstypes.DomainPermissionScope, accesstypes.Execute, accesstypes.Resource(method)) {
 		return nil
 	}
 
