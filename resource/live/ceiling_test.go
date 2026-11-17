@@ -127,13 +127,12 @@ func TestSubscribeAcrossTenants_ceiling(t *testing.T) {
 }
 
 // renewAs posts a renewal for the liaison's tab and decodes its answer.
-func renewAs(t *testing.T, record Service, perms *reachingMany, body string) (int, RenewResponse, string) {
+func renewAs(t *testing.T, record Service, perms *reachingMany, body string) (status int, resp RenewResponse, raw string) {
 	t.Helper()
 
 	r := httptest.NewRequestWithContext(withSession(t.Context(), crewAuth, "liaison"), http.MethodPost, "/"+RenewRoute, strings.NewReader(body))
 	w := httptest.NewRecorder()
 	RenewHandler(record, permissionsFor(perms), WithListsAcrossTenants(declaredLists{"Hangars"})).ServeHTTP(w, r)
-	var resp RenewResponse
 	if w.Code == http.StatusOK {
 		if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 			t.Fatalf("decoding the renewal's answer: %v: %s", err, w.Body.String())
