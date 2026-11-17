@@ -71,7 +71,8 @@ func (m *Manager) UnlinkIdentity(ctx context.Context, txn resource.ReadWriteTran
 			return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod, "the user has no other means of sign-in: link another directory sign-in first, or give the user a password")
 		case !m.linksSignIn(others):
 			return httpio.NewConflictMessageWithError(sessionstorage.ErrLastSignInMethod,
-				"none of the other identities linked to the user can sign them in any more, so this one is their only means of sign-in: link a directory sign-in the login page offers first, or give the user a password")
+				"none of the other identities linked to the user can sign them in any more, so this one is their only means of sign-in: "+
+					"link a directory sign-in the login page offers first, or give the user a password")
 		}
 	}
 	if err := m.store.DeleteIdentity(ctx, txn, identityID); err != nil {

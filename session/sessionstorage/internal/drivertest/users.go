@@ -115,14 +115,9 @@ func testPasswordReplaced(ctx context.Context, t *testing.T, h *AuthHarness) {
 			if changed := mustUser(ctx, t, in.Driver, pat.ID); changed.PasswordChangeRequired || !sameHash(changed.PasswordHash, chosen) || !changed.CreatedAt.Equal(pat.CreatedAt) {
 				t.Errorf("User() after the replacement = %+v, want the chosen hash, no mark and the creation time kept", changed)
 			}
-			for name, id := range map[string]impulse.UUID{"the user's first session": first, "the user's second session": second} {
-				if !mustSession(ctx, t, in.Driver, id).Expired {
-					t.Errorf("%s stands after the replacement, want it ended in the transaction that wrote the password", name)
-				}
-			}
-			if mustSession(ctx, t, in.Driver, others).Expired {
-				t.Error("another user's session was ended by the replacement")
-			}
+			assertSessionEnded(ctx, t, in.Driver, "the user's first session, after the replacement", first, true)
+			assertSessionEnded(ctx, t, in.Driver, "the user's second session, after the replacement", second, true)
+			assertSessionEnded(ctx, t, in.Driver, "another user's session, after the replacement", others, false)
 
 			// An operator resets it: the mark is set again with the temporary hash, and a
 			// session started since ends.
@@ -133,17 +128,13 @@ func testPasswordReplaced(ctx context.Context, t *testing.T, h *AuthHarness) {
 			if reset := mustUser(ctx, t, in.Driver, pat.ID); !reset.PasswordChangeRequired || !sameHash(reset.PasswordHash, temporary) {
 				t.Errorf("User() after the reset = %+v, want the temporary hash and the mark", reset)
 			}
-			if !mustSession(ctx, t, in.Driver, later).Expired {
-				t.Error("the user's session stands after the reset, want it ended in the transaction that wrote the password")
-			}
+			assertSessionEnded(ctx, t, in.Driver, "the user's session, after the reset", later, true)
 
 			// An unknown user is told so, and nobody's session ends for it.
 			if err := in.Driver.ReplaceUserPassword(ctx, impulse.Must(impulse.NewUUID()), chosen, false); !httpio.HasNotFound(err) {
 				t.Errorf("ReplaceUserPassword() of an unknown user error = %v, want NotFound", err)
 			}
-			if mustSession(ctx, t, in.Driver, others).Expired {
-				t.Error("another user's session was ended by the replacement of an unknown user's password")
-			}
+			assertSessionEnded(ctx, t, in.Driver, "another user's session, after the replacement of an unknown user's password", others, false)
 
 			// The sessions cannot be ended: the password is not written either.
 			const table = "NoSuchTable"
@@ -158,6 +149,17 @@ func testPasswordReplaced(ctx context.Context, t *testing.T, h *AuthHarness) {
 				t.Errorf("User() after the failed replacement holds another password or mark than before it, want both as they were: the replacement is one transaction")
 			}
 		})
+	}
+}
+
+// assertSessionEnded fails unless the session is ended or stands as want says: a
+// replacement of a password ends its user's sessions in the transaction that writes
+// the password, and no other user's.
+func assertSessionEnded(ctx context.Context, t *testing.T, d AuthDriver, what string, id impulse.UUID, want bool) {
+	t.Helper()
+
+	if got := mustSession(ctx, t, d, id).Expired; got != want {
+		t.Errorf("%s: ended = %t, want %t", what, got, want)
 	}
 }
 

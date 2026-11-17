@@ -59,7 +59,8 @@ func UnlinkKeepsSignIn(links []*SessionIdentity, unlinked impulse.UUID, signsIn 
 	}
 	if others > 0 {
 		return httpio.NewConflictMessageWithError(ErrLastSignInMethod,
-			"none of the other identities linked to the user can sign them in any more, so this one is their only means of sign-in: link a directory sign-in the login page offers first, or give the user a password")
+			"none of the other identities linked to the user can sign them in any more, so this one is their only means of sign-in: "+
+				"link a directory sign-in the login page offers first, or give the user a password")
 	}
 
 	return httpio.NewConflictMessageWithError(ErrLastSignInMethod, "the user has no other means of sign-in: link another directory sign-in first, or give the user a password")
