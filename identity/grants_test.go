@@ -137,8 +137,8 @@ func TestManager_groupChangesAreJudgedAsRoleChanges(t *testing.T) {
 			wantAsked: []string{"give domain/alpha " + danaID + " Warden"},
 		},
 		{
-			name: "a group with nobody in it is given the role: it is given to nobody",
-			act:  give,
+			name:       "a group with nobody in it is given the role: it is given to nobody",
+			act:        give,
 			wantWrites: []string{"insert group role " + groupRoleText(&warden)},
 		},
 		{

@@ -27,7 +27,7 @@ func TestManager_giveInvitedRoles(t *testing.T) {
 	id := userID.String()
 
 	tests := []struct {
-		name        string
+		name string
 		inv  *sessioninfo.Invitation
 		held []access.MembershipKey
 		// periods are the periods of the memberships the person holds.

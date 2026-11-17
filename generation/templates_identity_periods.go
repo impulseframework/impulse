@@ -67,6 +67,52 @@ func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, 
 	return periods, nil
 }
 
+// EndedAssignments reads past the declarations, as the read of a password does: what has
+// ended is the database's to say, by its own clock, the one the lists compare a period
+// with (CURRENT_TIMESTAMP). Each statement carries the comparison, so no instant of the
+// application server's decides what a sign-in removes.
+func (store) EndedAssignments(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]access.MembershipKey, []access.GroupMemberKey, error) {
+	user := accesstypes.User(userID.String())
+	var memberships []access.MembershipKey
+	held := spanner.Statement{
+		SQL:    "SELECT Kind, Axis, DomainId, Role FROM {{ .Policy.UserRoles }}@{FORCE_INDEX={{ .Policy.UserRolesByUserID }}} WHERE UserId = @user AND EndsAt <= CURRENT_TIMESTAMP()",
+		Params: map[string]any{"user": string(user)},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, held).Do(func(row *spanner.Row) error {
+		key := access.MembershipKey{Kind: "", Axis: "", Domain: "", Role: "", User: user}
+		var role string
+		if err := row.Columns(&key.Kind, &key.Axis, &key.Domain, &role); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		key.Role = accesstypes.Role(role)
+		memberships = append(memberships, key)
+
+		return nil
+	}); err != nil {
+		return nil, nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+	var places []access.GroupMemberKey
+	{{- if .KeepsGroups }}
+	in := spanner.Statement{
+		SQL:    "SELECT GroupId FROM {{ .Policy.GroupMembers }}@{FORCE_INDEX={{ .Policy.GroupMembersByUserID }}} WHERE UserId = @user AND EndsAt <= CURRENT_TIMESTAMP()",
+		Params: map[string]any{"user": string(user)},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, in).Do(func(row *spanner.Row) error {
+		var group string
+		if err := row.Columns(&group); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		places = append(places, access.GroupMemberKey{Group: accesstypes.Group(group), User: user})
+
+		return nil
+	}); err != nil {
+		return nil, nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+	{{- end }}
+
+	return memberships, places, nil
+}
+
 // RemoveEnded buffers each removal under the source that says the assignment ended by
 // itself (identity.EndedByItself): it is what a change record of the row holds in place
 // of a person's act.
@@ -106,6 +152,10 @@ func (store) SetMembershipPeriod(context.Context, resource.ReadWriteTransaction,
 
 func (store) UserPeriods(context.Context, resource.ReadOnlyTransaction, impulse.UUID) (*identity.UserPeriods, error) {
 	return &identity.UserPeriods{}, nil
+}
+
+func (store) EndedAssignments(context.Context, resource.ReadOnlyTransaction, impulse.UUID) ([]access.MembershipKey, []access.GroupMemberKey, error) {
+	return nil, nil, nil
 }
 
 func (store) RemoveEnded(context.Context, resource.ReadWriteTransaction, []access.MembershipKey, []access.GroupMemberKey) error {
