@@ -658,6 +658,30 @@ func TestAcrossTenants_superAdministrator(t *testing.T) {
 	}
 }
 
+// TestAcrossTenants_notDeclared pins that only a record declared for it is listed
+// across tenants: the decode of a tenant's record the collection does not carry as
+// declared is refused, saying what to declare, so neither the list nor a live
+// subscription over its tenants is made.
+func TestAcrossTenants_notDeclared(t *testing.T) {
+	t.Parallel()
+
+	decoder := acrossDecoder[acrossShelf, acrossShelfRequest](t, Paging{Order: []SortField{{Field: "ID", Direction: SortAscending}}, DefaultLimit: 3})
+	_, err := decoder.DecodeAcrossTenants(acrossRequest(t, "/shelves"), differingRoles())
+	if err == nil {
+		t.Fatal("QueryDecoder.DecodeAcrossTenants() error = nil, want the refusal of a record that is not declared for it")
+	}
+	want := "resource Shelves cannot be listed across tenants: it is not declared for it; declare @listAcrossTenants on its struct and regenerate"
+	if !strings.HasSuffix(err.Error(), want) {
+		t.Errorf("QueryDecoder.DecodeAcrossTenants() error = %q, want it to end %q", err, want)
+	}
+
+	// The same record's own list in one tenant is decoded as ever.
+	req := acrossRequest(t, "/yards/north/shelves")
+	if _, err := decoder.Decode(req, differingRoles(), accesstypes.DomainScope("north")); err != nil {
+		t.Errorf("QueryDecoder.Decode() error = %v, want the tenant's own list decoded", err)
+	}
+}
+
 // TestAcrossTenants_refusals pins what a list across tenants refuses, and that
 // a tenant's own route refuses the filter on the tenant.
 func TestAcrossTenants_refusals(t *testing.T) {

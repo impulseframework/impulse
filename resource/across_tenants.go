@@ -122,7 +122,9 @@ func (g *tenantGroup[Resource]) hides(field accesstypes.Field) bool {
 // narrowed by the request's domains parameter when it carries one. Each row is
 // checked under the person's grants in its own tenant and says which tenant it is
 // in (Row.Tenant). The generated handler of a record declared for it calls this
-// where the tenant's own list calls Decode.
+// where the tenant's own list calls Decode; a record the generated collection does
+// not carry as declared (@listAcrossTenants) is refused, so no list across tenants,
+// and no live subscription over a set of tenants, is made for one.
 //
 // A tenant the request names that the session does not reach narrows the set to
 // nothing and is never an error, so the answer never says whether a tenant
@@ -154,6 +156,9 @@ func (d *QueryDecoder[Resource, Request]) DecodeAcrossTenants(request *http.Requ
 	}
 	if _, err := domainBinding(d.collection, qSet.Resource()); err != nil {
 		return nil, err
+	}
+	if !d.collection.ListsAcrossTenants(qSet.Resource()) {
+		return nil, errors.Newf("resource %s cannot be listed across tenants: it is not declared for it; declare @listAcrossTenants on its struct and regenerate", qSet.Resource())
 	}
 
 	// The zero scope is no tenant's: until the read checks settle the set, nothing
@@ -251,6 +256,45 @@ func tenantsListed(ctx context.Context, perms UserPermissions, env accesstypes.E
 	}
 
 	return set, nil
+}
+
+// ListedInSomeTenant returns, of the resources, the ones the person may list in at
+// least one tenant the session reaches (UserPermissions.Domains), in name order: the
+// people a list of the record across tenants has something to show, which is who its
+// page is for (WithListsAcrossTenants). It asks the List grant alone, as TenantsListed
+// does, one check for each reached tenant until every resource is answered.
+func ListedInSomeTenant(ctx context.Context, perms UserPermissions, resources []accesstypes.Resource) ([]accesstypes.Resource, error) {
+	if len(resources) == 0 {
+		return nil, nil
+	}
+	reached, err := perms.Domains(ctx)
+	if err != nil {
+		return nil, errors.Wrap(err, "resource.UserPermissions.Domains()")
+	}
+
+	env := RequestEnvironment()
+	pending := slices.Clone(resources)
+	listed := make([]accesstypes.Resource, 0, len(resources))
+	for _, domain := range reached {
+		if len(pending) == 0 {
+			break
+		}
+		decisions, err := perms.Check(ctx, env, accesstypes.DomainScope(domain), accesstypes.List, pending...)
+		if err != nil {
+			return nil, errors.Wrap(err, "resource.UserPermissions.Check()")
+		}
+		pending = slices.DeleteFunc(pending, func(res accesstypes.Resource) bool {
+			if decisions[res].IsDenied() {
+				return false
+			}
+			listed = append(listed, res)
+
+			return true
+		})
+	}
+	slices.Sort(listed)
+
+	return listed, nil
 }
 
 // narrowedTenants reads the request's filter on the tenant, the domains

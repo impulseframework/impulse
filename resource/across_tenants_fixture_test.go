@@ -23,6 +23,8 @@ const (
 	acrossCrates = accesstypes.Resource("Crates")
 	acrossSeals  = accesstypes.Resource("Seals")
 	acrossBins   = accesstypes.Resource("Bins")
+	// acrossShelves is a tenant's record no declaration lists across tenants.
+	acrossShelves = accesstypes.Resource("Shelves")
 	// acrossRequester is the person the fixture's requests run as.
 	acrossRequester = accesstypes.User("erin")
 )
@@ -100,6 +102,22 @@ type acrossBinRequest struct {
 	Code string `json:"code" index:"true" masking:"positional" search:"token=Code_Search;index=BinsSearch;role=text;contains"`
 }
 
+// acrossShelf is a tenant's record that is not declared for listing across
+// tenants: the collection carries its tenant binding and nothing more.
+type acrossShelf struct {
+	ID   string `spanner:"Id"   postgres:"Id"`
+	Yard string `spanner:"Yard" postgres:"Yard"`
+}
+
+func (acrossShelf) Resource() accesstypes.Resource { return acrossShelves }
+
+func (acrossShelf) DefaultConfig() Config { return Config{} }
+
+type acrossShelfRequest struct {
+	ID   string `json:"id" index:"true" perm:"-"`
+	Yard string `json:"-"`
+}
+
 // acrossCollection declares the fixture's vocabulary: the crates' attributes
 // and bare tenant column, the seals' join path to the tenant, the crews a
 // person holds in a yard as a subject set, and the tags' attributes for the
@@ -109,9 +127,10 @@ func acrossCollection(t *testing.T) *GeneratedCollection {
 
 	g, err := NewGeneratedCollection(CollectionData{Resources: []CollectionResource{
 		{
-			Name:        acrossCrates,
-			Scope:       accesstypes.DomainPermissionScope,
-			Permissions: []accesstypes.Permission{accesstypes.List},
+			Name:               acrossCrates,
+			Scope:              accesstypes.DomainPermissionScope,
+			Permissions:        []accesstypes.Permission{accesstypes.List},
+			ListsAcrossTenants: true,
 			Attributes: []AttributeData{
 				{Name: "owner", Column: "Owner", Type: AttributeTypeString},
 				{Name: "team", Column: "Team", Type: AttributeTypeString},
@@ -120,17 +139,25 @@ func acrossCollection(t *testing.T) *GeneratedCollection {
 			Domain: &DomainBindingData{Column: "Yard"},
 		},
 		{
-			Name:        acrossSeals,
-			Scope:       accesstypes.DomainPermissionScope,
-			Permissions: []accesstypes.Permission{accesstypes.List},
-			Attributes:  []AttributeData{{Name: "mark", Column: "Mark", Type: AttributeTypeString}},
-			Domain:      &DomainBindingData{Column: "CrateId", Path: []BindingHop{{Table: "Crates", JoinColumn: "Id", Column: "Yard"}}},
+			Name:               acrossSeals,
+			Scope:              accesstypes.DomainPermissionScope,
+			Permissions:        []accesstypes.Permission{accesstypes.List},
+			ListsAcrossTenants: true,
+			Attributes:         []AttributeData{{Name: "mark", Column: "Mark", Type: AttributeTypeString}},
+			Domain:             &DomainBindingData{Column: "CrateId", Path: []BindingHop{{Table: "Crates", JoinColumn: "Id", Column: "Yard"}}},
 		},
 		{
-			Name:        acrossBins,
+			Name:               acrossBins,
+			Scope:              accesstypes.DomainPermissionScope,
+			Permissions:        []accesstypes.Permission{accesstypes.List},
+			ListsAcrossTenants: true,
+			Attributes:         []AttributeData{{Name: "code", Column: "Code", Type: AttributeTypeString}},
+			Domain:             &DomainBindingData{Column: "Yard"},
+		},
+		{
+			Name:        acrossShelves,
 			Scope:       accesstypes.DomainPermissionScope,
 			Permissions: []accesstypes.Permission{accesstypes.List},
-			Attributes:  []AttributeData{{Name: "code", Column: "Code", Type: AttributeTypeString}},
 			Domain:      &DomainBindingData{Column: "Yard"},
 		},
 		{

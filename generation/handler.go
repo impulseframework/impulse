@@ -321,6 +321,7 @@ func (r *resourceGenerator) generatePermissions() error {
 		ResourcePackage:        r.resource.Package(),
 		RouterPackage:          r.router.Package(),
 		TenantNames:            r.namesTenants(),
+		ListsAcrossTenants:     r.listsAcrossTenants(),
 	}); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")
 	}
@@ -354,6 +355,9 @@ func (r *resourceGenerator) generateLive() error {
 		RoutePrefix:            r.routePrefix,
 		DefaultServesSessions:  r.allOutlets()[0].servesSessions,
 		HasExtraSessionOutlets: extraSessionOutlets,
+		LocalPackageImports:    r.localPackageImports(),
+		RouterPackage:          r.router.Package(),
+		ListsAcrossTenants:     r.listsAcrossTenants(),
 	}); err != nil {
 		return errors.Wrap(err, "writeFormattedGoFile()")
 	}

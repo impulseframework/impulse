@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,14 +25,25 @@ import (
 // set of one, and the publisher's question, who is subscribed to this list in this
 // tenant, is answered from the sets.
 
-// reaching is grantTable with a session that reaches the given tenants.
+// reaching is grantTable with a session that reaches the given tenants. It counts the
+// times its reach was asked.
 type reaching struct {
 	grantTable
 	reach []accesstypes.Domain
+	asked atomic.Int32
 }
 
 func (r *reaching) Domains(context.Context) ([]accesstypes.Domain, error) {
+	r.asked.Add(1)
+
 	return r.reach, nil
+}
+
+// declaredLists are the resources declared for listing across tenants.
+type declaredLists []accesstypes.Resource
+
+func (d declaredLists) ListsAcrossTenants(res accesstypes.Resource) bool {
+	return slices.Contains(d, res)
 }
 
 // acrossList is a decoded list across tenants as the handler hands it to the live layer.
@@ -334,21 +347,26 @@ func manyRowChanges(n int) []resource.RowChange {
 func TestRenewHandler_acrossTenants(t *testing.T) {
 	t.Parallel()
 
-	// The liaison reaches three sectors and lists hangars in two of them.
+	// The liaison reaches three sectors and lists hangars in two of them. She may list
+	// berths in Anvil too, a record no declaration lists across tenants.
 	grants := map[string]accesstypes.Decision{
 		"List|anvil|Hangars":  accesstypes.Granted(),
 		"List|cinder|Hangars": accesstypes.Conditional(accesstypes.ConditionGroup{}),
 		"List|dawn|Hangars":   accesstypes.Granted(),
+		"List|anvil|Berths":   accesstypes.Granted(),
 	}
+	// Hangars are declared for listing across tenants, and so is a record the grants
+	// do not know.
+	declared := WithListsAcrossTenants(declaredLists{"Hangars", "Unknown"})
 	perms := func(reach ...accesstypes.Domain) *reaching {
 		return &reaching{grantTable: grantTable{decisions: grants}, reach: reach}
 	}
-	renew := func(t *testing.T, fake *Fake, perms resource.UserPermissions, body string) (int, RenewResponse, string) {
+	renewWith := func(t *testing.T, fake *Fake, perms resource.UserPermissions, body string, opts ...RenewOption) (int, RenewResponse, string) {
 		t.Helper()
 
 		r := httptest.NewRequestWithContext(withSession(t.Context(), crewAuth, "liaison"), http.MethodPost, "/"+RenewRoute, strings.NewReader(body))
 		w := httptest.NewRecorder()
-		RenewHandler(fake, permissionsFor(perms)).ServeHTTP(w, r)
+		RenewHandler(fake, permissionsFor(perms), opts...).ServeHTTP(w, r)
 		var resp RenewResponse
 		if w.Code == http.StatusOK {
 			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
@@ -358,7 +376,70 @@ func TestRenewHandler_acrossTenants(t *testing.T) {
 
 		return w.Code, resp, w.Body.String()
 	}
+	renew := func(t *testing.T, fake *Fake, perms resource.UserPermissions, body string) (int, RenewResponse, string) {
+		t.Helper()
+
+		return renewWith(t, fake, perms, body, declared)
+	}
 	ignoreExpiry := cmpopts.IgnoreFields(Subscription{}, "Expiry")
+
+	t.Run("a resource that is not declared for listing across tenants is dropped before its set is worked out", func(t *testing.T) {
+		t.Parallel()
+
+		tests := []struct {
+			name string
+			sub  string
+			opts []RenewOption
+			want SubscriptionRequest
+		}{
+			{name: "a record she may list in a tenant she reaches, declared by nothing", sub: `{"resource":"Berths","acrossTenants":true}`, opts: []RenewOption{declared}, want: SubscriptionRequest{Resource: "Berths", AcrossTenants: true}},
+			{name: "the same record narrowed to that tenant", sub: `{"resource":"Berths","acrossTenants":true,"domains":"anvil"}`, opts: []RenewOption{declared}, want: SubscriptionRequest{Resource: "Berths", AcrossTenants: true, Domains: "anvil"}},
+			{name: "a handler told of no declaration keeps none, a declared record's among them", sub: `{"resource":"Hangars","acrossTenants":true}`, want: SubscriptionRequest{Resource: "Hangars", AcrossTenants: true}},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Parallel()
+
+				fake := NewFake()
+				her := perms("anvil", "bastion", "cinder")
+				status, resp, body := renewWith(t, fake, her, `{"tab":"tab-1","subscriptions":[`+tt.sub+`]}`, tt.opts...)
+				if status != http.StatusOK {
+					t.Fatalf("status = %d: %s", status, body)
+				}
+				if diff := cmp.Diff([]SubscriptionRequest{tt.want}, resp.Dropped); diff != "" {
+					t.Errorf("dropped mismatch (-want +got):\n%s", diff)
+				}
+				if len(resp.Kept) != 0 || len(fake.Subscriptions()) != 0 {
+					t.Errorf("kept %v, the record %v, want neither", resp.Kept, fake.Subscriptions())
+				}
+				if got := her.asked.Load(); got != 0 {
+					t.Errorf("the session's reach was asked %d times, want none: no set is worked out for a record that is not declared", got)
+				}
+			})
+		}
+	})
+
+	t.Run("a declared list beside one that is not: the one is kept, the other dropped", func(t *testing.T) {
+		t.Parallel()
+
+		fake := NewFake()
+		status, resp, body := renew(t, fake, perms("anvil", "bastion", "cinder"), `{"tab":"tab-1","subscriptions":[
+			{"resource":"Berths","acrossTenants":true},
+			{"resource":"Hangars","acrossTenants":true}]}`)
+		if status != http.StatusOK {
+			t.Fatalf("status = %d: %s", status, body)
+		}
+		if diff := cmp.Diff([]SubscriptionRequest{{Resource: "Hangars", AcrossTenants: true}}, resp.Kept); diff != "" {
+			t.Errorf("kept mismatch (-want +got):\n%s", diff)
+		}
+		if diff := cmp.Diff([]SubscriptionRequest{{Resource: "Berths", AcrossTenants: true}}, resp.Dropped); diff != "" {
+			t.Errorf("dropped mismatch (-want +got):\n%s", diff)
+		}
+		want := []Subscription{{Principal: "crew|liaison", Tab: "tab-1", Resource: "Hangars", Across: &TenantSet{Domains: []accesstypes.Domain{"anvil", "cinder"}}}}
+		if diff := cmp.Diff(want, fake.Subscriptions(), ignoreExpiry); diff != "" {
+			t.Errorf("the record mismatch (-want +got):\n%s", diff)
+		}
+	})
 
 	t.Run("the set is the tenants reached in which the person may list the resource", func(t *testing.T) {
 		t.Parallel()

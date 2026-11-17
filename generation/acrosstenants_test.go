@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/generation/parser"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -649,4 +650,114 @@ func TestAcrossTenantsIndexWarning_String(t *testing.T) {
 	if got := w.String(); got != want {
 		t.Errorf("String() = %q, want %q", got, want)
 	}
+}
+
+// Test_collectAcrossTenantsRegistrations pins the declaration the running application
+// reads: the collection marks the resources declared for listing across tenants, and no
+// other.
+func Test_collectAcrossTenantsRegistrations(t *testing.T) {
+	t.Parallel()
+
+	r := acrossFixtureGenerator(t)
+	b := resource.NewCollectionBuilder()
+	for _, res := range r.resources {
+		if err := b.AddResource(scopeOrGlobal(res.PermissionScope), accesstypes.List, accesstypes.Resource(r.pluralize(res.Name()))); err != nil {
+			t.Fatalf("AddResource(%s) error = %v", res.Name(), err)
+		}
+	}
+	r.collectAcrossTenantsRegistrations(b)
+
+	want := make(map[accesstypes.Resource]bool, len(r.resources))
+	for _, res := range r.resources {
+		want[accesstypes.Resource(r.pluralize(res.Name()))] = res.ListsAcrossTenants
+	}
+	if !want["Shipments"] || want["Ledgers"] {
+		t.Fatalf("the fixture declares %v, want Shipments declared and Ledgers not", want)
+	}
+	got := make(map[accesstypes.Resource]bool, len(r.resources))
+	for _, res := range b.Data().Resources {
+		got[res.Name] = res.ListsAcrossTenants
+	}
+	if diff := cmp.Diff(want, got); diff != "" {
+		t.Errorf("the collection's marks mismatch (-want +got):\n%s", diff)
+	}
+	if !r.listsAcrossTenants() {
+		t.Error("listsAcrossTenants() = false, want true: the fixture declares Shipments")
+	}
+	none := &resourceGenerator{client: &client{}}
+	none.resources = []*resourceInfo{r.resources[1]}
+	if none.listsAcrossTenants() {
+		t.Error("listsAcrossTenants() = true for an application that declares none")
+	}
+}
+
+// Test_declarationTemplates_acrossTenants pins where the generated code hands the
+// declaration on: the collection's data carries the mark, and the digest handler and
+// the live renewal are given the collection, in an application that declares a list
+// across tenants. An application that declares none generates what it always has.
+func Test_declarationTemplates_acrossTenants(t *testing.T) {
+	t.Parallel()
+
+	render := func(t *testing.T, name, text string, data any) string {
+		t.Helper()
+
+		out, err := (&resourceGenerator{client: &client{}}).generateTemplateOutput(name, text, data)
+		if err != nil {
+			t.Fatalf("generateTemplateOutput(%s) error = %v", name, err)
+		}
+
+		return string(out)
+	}
+	wrapper := func(declares bool) *permissionsData {
+		return &permissionsData{
+			Package: "app", ApplicationName: "App", ReceiverName: "a", RoutePrefix: "api", DefaultServesSessions: true,
+			LocalPackageImports: `"example.com/app/router"`, ResourcePackage: "resources", RouterPackage: "router",
+			ListsAcrossTenants: declares,
+		}
+	}
+
+	t.Run("the collection's data marks a declared resource", func(t *testing.T) {
+		t.Parallel()
+
+		out := render(t, "collectionTemplate", collectionTemplate, &collectionFileData{
+			Source:  "pkg/resources",
+			Package: "router",
+			Data: resource.CollectionData{Resources: []resource.CollectionResource{
+				{Name: "Ledgers", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.List}},
+				{Name: "Shipments", Scope: accesstypes.DomainPermissionScope, Permissions: []accesstypes.Permission{accesstypes.List}, ListsAcrossTenants: true},
+			}},
+		})
+		if got := strings.Count(out, "ListsAcrossTenants: true,"); got != 1 {
+			t.Errorf("the collection file marks %d resources, want Shipments alone:\n%s", got, out)
+		}
+		shipments := out[strings.Index(out, `Name:  "Shipments"`):]
+		if !strings.Contains(shipments, "ListsAcrossTenants: true,") {
+			t.Errorf("the mark is not on Shipments:\n%s", out)
+		}
+	})
+
+	t.Run("the digest handler is given the collection that says which resources are declared", func(t *testing.T) {
+		t.Parallel()
+
+		assertContains(t, "permissionsTemplate", render(t, "permissionsTemplate", permissionsTemplate, wrapper(true)), []string{
+			"resource.WithFormerNames(router.Collection()), resource.WithListsAcrossTenants(router.Collection()))",
+			"whether the person may list it in at least one tenant the session reaches",
+		}, nil)
+		assertContains(t, "permissionsTemplate", render(t, "permissionsTemplate", permissionsTemplate, wrapper(false)), []string{
+			"resource.WithFormerNames(router.Collection()))\n",
+		}, []string{"WithListsAcrossTenants", "listed across tenants"})
+	})
+
+	t.Run("the live renewal is given it too", func(t *testing.T) {
+		t.Parallel()
+
+		assertContains(t, "liveTemplate", render(t, "liveTemplate", liveTemplate, wrapper(true)), []string{
+			"return live.RenewHandler(a.LiveService(), a.UserPermissions, live.WithListsAcrossTenants(router.Collection()))",
+			`"example.com/app/router"`,
+			"A list across tenants is kept for a resource declared for it",
+		}, nil)
+		assertContains(t, "liveTemplate", render(t, "liveTemplate", liveTemplate, wrapper(false)), []string{
+			"return live.RenewHandler(a.LiveService(), a.UserPermissions)\n",
+		}, []string{"WithListsAcrossTenants", "example.com/app/router", "A list across tenants"})
+	})
 }

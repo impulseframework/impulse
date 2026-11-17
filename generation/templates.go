@@ -944,11 +944,14 @@ import (
 // means global) and the payload is advisory and fail-closed: denied targets are
 // absent, and so is every resource, field and method gated behind a feature flag
 // that is off ({{ .ResourcePackage }}.FeatureGates); a renamed field or method
-// (@formerly) appears under its former name too, with the same states. The generated router registers it at {{ if .DefaultServesSessions }}GET /{{ .RoutePrefix }}/permission-digest{{ if .HasExtraSessionOutlets }} and,
+// (@formerly) appears under its former name too, with the same states.{{ if .ListsAcrossTenants }} The global
+// digest also answers, for each resource listed across tenants (@listAcrossTenants),
+// whether the person may list it in at least one tenant the session reaches
+// (resource.ListAcrossTenants), which is who the list's page is shown to.{{ end }} The generated router registers it at {{ if .DefaultServesSessions }}GET /{{ .RoutePrefix }}/permission-digest{{ if .HasExtraSessionOutlets }} and,
 // for each additional session-serving outlet (ServesSessions), under that outlet's prefix{{ end }}{{ else }}GET /<prefix>/permission-digest
 // under each session-serving outlet's prefix, and not under the default outlet's, which is declared Tokens{{ end }}.
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) PermissionDigest() http.HandlerFunc {
-	return resource.PermissionDigestHandler({{ .ReceiverName }}.UserPermissions, resource.WithFeatureGates({{ .ResourcePackage }}.FeatureGates(), {{ .ReceiverName }}.FeatureSet()), resource.WithFormerNames({{ .RouterPackage }}.Collection()))
+	return resource.PermissionDigestHandler({{ .ReceiverName }}.UserPermissions, resource.WithFeatureGates({{ .ResourcePackage }}.FeatureGates(), {{ .ReceiverName }}.FeatureSet()), resource.WithFormerNames({{ .RouterPackage }}.Collection()){{ if .ListsAcrossTenants }}, resource.WithListsAcrossTenants({{ .RouterPackage }}.Collection()){{ end }})
 }
 
 // UserDomains serves the session's tenant list — the sorted list of domains where
@@ -1281,17 +1284,20 @@ package {{ .Package }}
 import (
 	"net/http"
 
+	{{ if .ListsAcrossTenants }}{{ .LocalPackageImports }}
+	{{ end -}}
 	"github.com/impulseframework/impulse/resource/live"
 )
 
 // LiveRenew serves a tab's live subscriptions renewed: each is re-checked against the
 // session user's grants (Read for a row, List for a list, in its domain), the kept ones
 // are written with a fresh expiry, and the answer says which were kept and which
-// dropped. The generated router registers it at {{ if .DefaultServesSessions }}POST /{{ .RoutePrefix }}/live/renew{{ if .HasExtraSessionOutlets }} and,
+// dropped.{{ if .ListsAcrossTenants }} A list across tenants is kept for a resource declared for it
+// (@listAcrossTenants) alone, over the set of tenants worked out again.{{ end }} The generated router registers it at {{ if .DefaultServesSessions }}POST /{{ .RoutePrefix }}/live/renew{{ if .HasExtraSessionOutlets }} and,
 // for each additional session-serving outlet, under that outlet's prefix{{ end }}{{ else }}POST /<prefix>/live/renew under
 // each session-serving outlet's prefix, and not under the default outlet's, which is declared Tokens{{ end }}.
 func ({{ .ReceiverName }} *{{ .ApplicationName }}) LiveRenew() http.HandlerFunc {
-	return live.RenewHandler({{ .ReceiverName }}.LiveService(), {{ .ReceiverName }}.UserPermissions)
+	return live.RenewHandler({{ .ReceiverName }}.LiveService(), {{ .ReceiverName }}.UserPermissions{{ if .ListsAcrossTenants }}, live.WithListsAcrossTenants({{ .RouterPackage }}.Collection()){{ end }})
 }
 
 // LiveUnsubscribe serves a tab leaving, or with all a logout: the subscriptions are
@@ -3877,6 +3883,9 @@ func Collection() *resource.GeneratedCollection {
 				Scope: {{ ScopeConstant .Scope }},
 				{{- if .Computed }}
 				Computed: true,
+				{{- end }}
+				{{- if .ListsAcrossTenants }}
+				ListsAcrossTenants: true,
 				{{- end }}
 				{{- with .Formerly }}
 				Formerly: "{{ . }}",

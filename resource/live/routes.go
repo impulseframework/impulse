@@ -80,6 +80,35 @@ type UnsubscribeRequest struct {
 	All bool   `json:"all"`
 }
 
+// RenewOption configures RenewHandler.
+type RenewOption func(*renewOptions)
+
+// renewOptions is what the options set.
+type renewOptions struct {
+	across AcrossTenantsDeclarations
+}
+
+// AcrossTenantsDeclarations answers whether a resource is declared for listing across
+// tenants (@listAcrossTenants), as the generated collection does.
+type AcrossTenantsDeclarations interface {
+	ListsAcrossTenants(res accesstypes.Resource) bool
+}
+
+// WithListsAcrossTenants names the resources a subscription over a set of tenants may
+// be renewed for: the ones declared for listing across tenants, which the generated
+// collection answers (Collection()). Without it the handler knows of none, and keeps
+// no such subscription.
+func WithListsAcrossTenants(declared AcrossTenantsDeclarations) RenewOption {
+	return func(o *renewOptions) {
+		o.across = declared
+	}
+}
+
+// declares reports whether the resource is declared for listing across tenants.
+func (o *renewOptions) declares(res accesstypes.Resource) bool {
+	return o.across != nil && o.across.ListsAcrossTenants(res)
+}
+
 // RenewHandler serves POST <prefix>/live/renew: the tab's subscriptions are each
 // re-checked against the user's grants (Read for a row, List for a list, in the
 // subscription's domain or the global scope), the kept ones are written with a fresh
@@ -88,13 +117,22 @@ type UnsubscribeRequest struct {
 // the tenants the session reaches now, narrowed by the filter the renewal carries, in
 // which the person may list the resource now. It is kept with that set, so a tenant
 // gained or lost since is in or out of it from this renewal on, and dropped when the
-// set is empty. A
+// set is empty. It is kept only for a resource declared for listing across tenants
+// (WithListsAcrossTenants): for any other resource it is dropped before its set is
+// worked out, as the list's own request is refused before it is made
+// (resource.QueryDecoder.DecodeAcrossTenants), so no record holds a subscription over
+// a set of tenants for one. A
 // subscription the grants no longer cover, or one naming a resource the grants do not
 // know, is dropped, never refused. The application's permission accessor is the one
 // every generated handler checks through. The subscriptions are written for the
 // request's principal id (PrincipalID); an id over Firebase's uid limit is refused with
 // 403, the reason logged, and nothing is written.
-func RenewHandler(svc Service, userPermissions func(r *http.Request) resource.UserPermissions) http.HandlerFunc {
+func RenewHandler(svc Service, userPermissions func(r *http.Request) resource.UserPermissions, opts ...RenewOption) http.HandlerFunc {
+	var o renewOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+
 	return httpio.Log(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
 		defer span.End()
@@ -125,7 +163,7 @@ func RenewHandler(svc Service, userPermissions func(r *http.Request) resource.Us
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
-		kept, dropped, sets, err := recheck(ctx, userPermissions(r), req.Subscriptions)
+		kept, dropped, sets, err := recheck(ctx, userPermissions(r), &o, req.Subscriptions)
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}
@@ -167,10 +205,10 @@ type recheckKey struct {
 
 // recheck splits the subscriptions, in the order sent, into the ones the grants still
 // cover and the ones they do not: one Check per permission and scope, each against the
-// same environment. A list across tenants is covered while its set, worked out again
-// here, holds a tenant; sets carries each kept subscription's set, nil for a row and
-// for one tenant's list.
-func recheck(ctx context.Context, perms resource.UserPermissions, subs []SubscriptionRequest) (kept, dropped []SubscriptionRequest, sets [][]accesstypes.Domain, err error) {
+// same environment. A list across tenants is covered while its resource is declared
+// for it and its set, worked out again here, holds a tenant; sets carries each kept
+// subscription's set, nil for a row and for one tenant's list.
+func recheck(ctx context.Context, perms resource.UserPermissions, o *renewOptions, subs []SubscriptionRequest) (kept, dropped []SubscriptionRequest, sets [][]accesstypes.Domain, err error) {
 	kept = make([]SubscriptionRequest, 0, len(subs))
 	dropped = make([]SubscriptionRequest, 0)
 	sets = make([][]accesstypes.Domain, 0, len(subs))
@@ -181,6 +219,10 @@ func recheck(ctx context.Context, perms resource.UserPermissions, subs []Subscri
 	across := make(map[int][]accesstypes.Domain)
 	for i, sub := range subs {
 		if sub.AcrossTenants {
+			// A resource that is not declared for it holds no set: it is dropped below.
+			if !o.declares(accesstypes.Resource(sub.Resource)) {
+				continue
+			}
 			set, err := resource.TenantsListed(ctx, perms, accesstypes.Resource(sub.Resource), sub.narrowed())
 			if err != nil {
 				return nil, nil, nil, errors.Wrap(err, "resource.TenantsListed()")
