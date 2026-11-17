@@ -339,6 +339,9 @@ func (r *resourceGenerator) prepareIdentity() error {
 		if err := inst.refuseListNamesTaken(); err != nil {
 			return err
 		}
+		if err := r.refuseReservedRole(inst); err != nil {
+			return err
+		}
 		for _, dir := range []packageDir{inst.resources, inst.methods, inst.handlers} {
 			r.output.registerOutput(dir.Dir(), headerComment)
 		}
