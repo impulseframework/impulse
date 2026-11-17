@@ -163,6 +163,49 @@ func TestRefuseShape(t *testing.T) {
 	}
 }
 
+// TestWorkspaceSet_audienceKey pins what a sign-in method's row is compared by: the
+// Workspaces a registration admits, each by its domains, and the kind of account it
+// admits outside them, never the names the application gives its Workspaces. A domain
+// is one Workspace's alone, so a registration that admits other people never reads as
+// one that an administrator opened, and one that admits the same people under another
+// name, or with a domain written in capitals, reads as the same.
+func TestWorkspaceSet_audienceKey(t *testing.T) {
+	t.Parallel()
+
+	lakeside := Workspace("lakeside", "lakeside.edu")
+
+	tests := []struct {
+		name        string
+		opened, now WorkspaceSet
+		same        bool
+	}{
+		{name: "a second Workspace", opened: lakeside, now: Workspaces(lakeside, Workspace("riverside", "riverside.edu"))},
+		{name: "another Workspace under the first one's name", opened: lakeside, now: Workspace("lakeside", "riverside.edu")},
+		{name: "a second domain of the same Workspace", opened: lakeside, now: Workspace("lakeside", "lakeside.edu", "lakeside.org")},
+		{name: "any Workspace beside the named one", opened: lakeside, now: Workspaces(lakeside, AnyWorkspace())},
+		{name: "any Google account in place of any Workspace", opened: AnyWorkspace(), now: AnyGoogleAccount()},
+		{name: "the same Workspace under another name", opened: lakeside, now: Workspace("Lakeside University", "lakeside.edu"), same: true},
+		{name: "the same domain in capitals", opened: lakeside, now: Workspace("lakeside", "Lakeside.EDU"), same: true},
+		{name: "the same Workspaces in another order", opened: Workspaces(lakeside, Workspace("riverside", "riverside.edu")), now: Workspaces(Workspace("riverside", "riverside.edu"), lakeside), same: true},
+		{name: "the same Workspace declared to enforce a second factor", opened: lakeside, now: lakeside.Attesting(), same: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			for _, set := range []WorkspaceSet{tt.opened, tt.now} {
+				if err := set.validate(); err != nil {
+					t.Fatalf("validate() error = %v, want a registration the slot accepts", err)
+				}
+			}
+			opened, now := tt.opened.audience().Key(), tt.now.audience().Key()
+			if got := opened == now; got != tt.same {
+				t.Errorf("the keys of the two registrations are equal = %v, want %v (%s, %s)", got, tt.same, opened, now)
+			}
+		})
+	}
+}
+
 func TestWorkspaceSet_audience(t *testing.T) {
 	t.Parallel()
 

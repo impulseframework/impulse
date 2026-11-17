@@ -194,6 +194,43 @@ func TestMethod_AdmitsConnection(t *testing.T) {
 	}
 }
 
+// TestAudienceOf_key pins what a registration's row of the sign-in methods table is
+// compared by: the provider's issuer, which is the provider's alone, never the name the
+// application gives it or the host its issuer is served from. An administrator opens a
+// method to sign-up for the people its provider signs in then: a later release that
+// points the registration at another provider under the same name, or at another issuer
+// of the same host, admits other people, and the row must not count for them.
+func TestAudienceOf_key(t *testing.T) {
+	t.Parallel()
+
+	registration := func(issuer, connection string) *Config {
+		cfg := baseConfig(nil)
+		cfg.Issuer, cfg.Connection = issuer, connection
+
+		return cfg
+	}
+	tests := []struct {
+		name        string
+		opened, now *Config
+		same        bool
+	}{
+		{name: "another provider under the first one's name", opened: registration("https://id.lakeside.example", "Lakeside"), now: registration("https://id.riverside.example", "Lakeside")},
+		{name: "another issuer of the same host, with no name given", opened: registration("https://id.example.com/realms/lakeside", ""), now: registration("https://id.example.com/realms/riverside", "")},
+		{name: "the same provider given a name", opened: registration("https://id.lakeside.example", ""), now: registration("https://id.lakeside.example", "Lakeside"), same: true},
+		{name: "the same provider given another name", opened: registration("https://id.lakeside.example", "Lakeside"), now: registration("https://id.lakeside.example", "Lakeside University"), same: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			opened, now := audienceOf(tt.opened).Key(), audienceOf(tt.now).Key()
+			if got := opened == now; got != tt.same {
+				t.Errorf("the keys of the two registrations are equal = %v, want %v (%s, %s)", got, tt.same, opened, now)
+			}
+		})
+	}
+}
+
 // TestMethod_ConnectionName proves the method says its provider in words a person
 // knows: the application's name for it, or the host of its issuer where it gave none,
 // and nothing for a link that is another registration's.

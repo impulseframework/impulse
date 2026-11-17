@@ -13,7 +13,8 @@ import (
 func TestAuthAPI_SignInMethods(t *testing.T) {
 	t.Parallel()
 	f := newAuthFixture(t, gomock.NewController(t))
-	lakeside := signin.Audience{Organizations: []string{"lakeside.edu"}}
+	// One registration says what identifies whom it admits, and one gives names alone.
+	lakeside := signin.Audience{Organizations: []string{"lakeside.edu"}, Identities: []string{"google-workspace-domain:lakeside.edu"}}
 	anyone := signin.Audience{Accounts: "a Google account"}
 	register := func(name string, audience signin.Audience, rule signin.AccountRule[mockTx]) {
 		f.auth.RegisterExternal(&signin.Registration[mockTx]{
@@ -35,9 +36,13 @@ func TestAuthAPI_SignInMethods(t *testing.T) {
 	want := []RegisteredMethod{
 		{Name: "lakeside", Method: sessioninfo.MethodGoogle, Audience: lakeside},
 		{Name: "partners", Method: sessioninfo.MethodGoogle, Audience: anyone, OwnRule: true},
-		{Name: "password", Method: sessioninfo.MethodPassword, Audience: signin.Audience{Accounts: "an email address"}},
+		{Name: "password", Method: sessioninfo.MethodPassword, Audience: signin.Audience{Accounts: "an email address", Identities: []string{"password:any-email-address"}}},
 	}
 	if diff := cmp.Diff(want, got); diff != "" {
 		t.Errorf("SignInMethods() (-want +got):\n%s", diff)
+	}
+	// The password method's audience is kept by what it is, never by the words for it.
+	if key, want := got[2].Audience.Key(), `{"admits":["password:any-email-address"]}`; key != want {
+		t.Errorf("Audience.Key() of the password method = %s, want %s", key, want)
 	}
 }
