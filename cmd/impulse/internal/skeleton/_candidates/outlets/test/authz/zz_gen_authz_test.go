@@ -3040,6 +3040,33 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			body:         `{"notAFieldOfTheRecord":true}`,
 			wantStatuses: []int{http.StatusBadRequest},
 		},
+		{
+			name:         "DirectoryOnly denied",
+			method:       http.MethodGet,
+			target:       "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/directory-only",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "DirectoryOnlyConsequence denied",
+			method:       http.MethodGet,
+			target:       "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/directory-only/consequence",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "SetTenantDirectoryOnly denied",
+			method:       http.MethodPost,
+			target:       "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-tenant-directory-only",
+			body:         `{}`,
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "SetTenantDirectoryOnly dry run denied",
+			method:       http.MethodPost,
+			target:       "/console/api/tenants/7e57d0a1-0000-4000-8000-000000000000/set-tenant-directory-only",
+			body:         `{}`,
+			headers:      map[string]string{"X-Dry-Run": "true"},
+			wantStatuses: []int{http.StatusNotFound},
+		},
 	}
 
 	db, err := prepareDatabase(t.Context(), t)
