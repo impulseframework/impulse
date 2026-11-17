@@ -595,6 +595,12 @@ func TestSecretKeysFromEnv(t *testing.T) {
 		t.Errorf("a value sealed by the holder read from the environment = %q, error %v", opened, err)
 	}
 
+	// A version past the last one a stored value can name is refused, not passed over:
+	// the service would go on sealing under version 255.
+	if _, err := SecretKeysFromEnv("APP_SECRET_KEY", lookup(map[string]string{"APP_SECRET_KEY_255": version(255), "APP_SECRET_KEY_256": version(1)})); err == nil || !strings.Contains(err.Error(), "APP_SECRET_KEY_256 is set: a stored secret names the version that sealed it in one byte") {
+		t.Errorf("SecretKeysFromEnv() with version 256 in the environment: error = %v, want a refusal naming the variable", err)
+	}
+
 	// No version at all is no keys and no error: an application with no secret runs.
 	if keys, err := SecretKeysFromEnv("APP_SECRET_KEY", lookup(nil)); err != nil || keys != nil {
 		t.Errorf("SecretKeysFromEnv() with no version = %v, error %v, want neither", keys, err)

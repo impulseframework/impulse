@@ -131,8 +131,15 @@ func workingKey(secret []byte, use string, version int) ([]byte, error) {
 // that stores no secret runs without the variable, and one that stores a secret is
 // refused at start by its generated router (RequireSecretKeys). A variable that is set
 // and does not hold a version is an error naming the variable, never its value. The
-// declared name with no version number is no version, and is not read.
+// declared name with no version number is no version, and is not read. A stored value
+// names the version that sealed it in one byte, so versions run from 1 to 255: the
+// variable of version 256 is an error, since the service would otherwise go on sealing
+// under an older version than the deployment's newest.
 func SecretKeysFromEnv(name string, lookup func(string) (string, bool)) (*SecretKeys, error) {
+	if beyond := name + "_" + strconv.Itoa(maxSecretVersion+1); isSet(lookup, beyond) {
+		return nil, errors.Newf("%s is set: a stored secret names the version that sealed it in one byte, so the application secret's versions run from 1 to %d, and this one is past the last", beyond, maxSecretVersion)
+	}
+
 	versions := make(map[int][]byte)
 	for version := 1; version <= maxSecretVersion; version++ {
 		variable := name + "_" + strconv.Itoa(version)
@@ -159,6 +166,13 @@ func SecretKeysFromEnv(name string, lookup func(string) (string, bool)) (*Secret
 	keys.variable = name
 
 	return keys, nil
+}
+
+// isSet reports whether the environment carries the variable.
+func isSet(lookup func(string) (string, bool), variable string) bool {
+	_, ok := lookup(variable)
+
+	return ok
 }
 
 // Current returns the version new values are sealed under: the highest one given.
