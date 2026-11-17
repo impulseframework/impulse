@@ -312,8 +312,12 @@ func TestDirectoryAdmissionCandidates(t *testing.T) {
 	t.Parallel()
 
 	const (
-		candidateCall  = "\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())\n"
-		candidateGrant = "\"resource\": \"TenantDirectories\",\n              \"fields\": [\n                \"defaultSeat\"\n              ]"
+		candidateCall = "\tauthSession.SetDirectoryAdmission(settings.TenantDirectories, identityClient.DirectorySeated())\n"
+		// The Update grant on the directories record: the last grant of the role's
+		// Update list, which tells it from the Create grant, whose fields are the same
+		// now that a create takes no method and no connection.
+		candidateGrant   = "\"resource\": \"TenantDirectories\",\n              \"fields\": [\n                \"defaultSeat\"\n              ]\n            }\n          ]\n"
+		candidateNoGrant = "\"resource\": \"TenantDirectories\"\n            }\n          ]\n"
 	)
 
 	tests := []struct {
@@ -354,7 +358,7 @@ func TestDirectoryAdmissionCandidates(t *testing.T) {
 		},
 		{
 			name: "tenanted without the Update grant", candidate: "tenanted",
-			edits:      []candidateEdit{{file: "pkg/auth/staff/roles.json", old: candidateGrant, new: "\"resource\": \"TenantDirectories\""}},
+			edits:      []candidateEdit{{file: "pkg/auth/staff/roles.json", old: candidateGrant, new: candidateNoGrant}},
 			wantStatus: Fail, wantSummary: "1 directory admission wiring problem(s)",
 			wantDetails: []string{"pkg/resources/tenant_directories.go:46: no role in pkg/auth/staff/roles.json " + noSeatGrant},
 		},
