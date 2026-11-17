@@ -6,7 +6,7 @@
 //
 //	every request: tracing, hooks.Outermost, request logging, SecurityHeaders, httpio.WithParams
 //	default (/api), sessions (password):
-//	  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending
+//	  NoCaching, CompressionMiddleware, ReleaseHeader, StartSession, SetXSRFToken: GET /api/user/methods, GET /api/user/session, DELETE /api/user/session, GET /api/user/pending, GET /api/user/sign-in-means
 //	  + ValidateXSRFToken: POST /api/user/password/login, POST /api/user/password/change, POST /api/user/password/remove, POST /api/user/pending/confirm, POST /api/user/pending/cancel, POST /api/user/pending/code, POST /api/user/pending/code/verify, POST /api/user/pending/email, POST /api/user/browser/forget, POST /api/user/name, POST /api/user/look, POST /api/user/invitation, POST /api/user/invitation/sign-up
 //	  + ValidateSession, ValidateXSRFToken: POST /api/user/invitation/accept, POST /api/user/email, POST /api/user/email/verify
 //	  + ValidateSession, ValidateXSRFToken, CheckAPIVersion (oldest answered 0.0.1): hooks.Default, generatedRoutes
@@ -85,6 +85,10 @@ type DefaultSession interface {
 	// ChangeName writes the signed-in person's own name, from their account page
 	// (session.Auth.ChangeName); it validates the session itself.
 	ChangeName() http.HandlerFunc
+	// SignInMeans answers what the signed-in person signs in with, a password or none
+	// and the directory sign-ins linked to them, to their account page
+	// (session.Auth.SignInMeans); it validates the session itself.
+	SignInMeans() http.HandlerFunc
 	// ChangeLook keeps the look the signed-in person chose, so it follows them to
 	// every browser (session.Auth.ChangeLook); it validates the session itself.
 	ChangeLook() http.HandlerFunc
@@ -171,6 +175,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 			RemovePassword: "/api/user/password/remove",
 			ForgetBrowser:  "/api/user/browser/forget",
 			ChangeName:     "/api/user/name",
+			SignInMeans:    "/api/user/sign-in-means",
 			ChangeLook:     "/api/user/look",
 			Invitation:     session.InvitationRoutes{Open: "/api/user/invitation", Accept: "/api/user/invitation/accept", SignUp: "/api/user/invitation/sign-up"},
 			Email:          session.EmailRoutes{Add: "/api/user/email", Verify: "/api/user/email/verify"},
@@ -178,6 +183,7 @@ func New(h Handlers, hooks Hooks) *chi.Mux {
 		bounded.Get("/api/user/session", h.Authenticated())
 		bounded.Delete("/api/user/session", h.Logout())
 		bounded.Get("/api/user/pending", h.PendingStatus())
+		bounded.Get("/api/user/sign-in-means", h.SignInMeans())
 		guarded.Post("/api/user/password/login", h.PasswordLogin())
 		guarded.Post("/api/user/password/change", h.PasswordChange())
 		guarded.Post("/api/user/password/remove", h.PasswordRemove())
