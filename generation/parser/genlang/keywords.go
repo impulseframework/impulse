@@ -7,7 +7,8 @@ import (
 
 type keywordFlag int
 
-// If a flag's requirement is violated the scanner will return an error.
+// The first three flags are requirements: if one is violated the scanner will return an
+// error. Expressions says how a keyword's arguments are read.
 const (
 	ArgsRequired keywordFlag = 1 << iota // ArgsRequired requires a keyword to have an accompanying argument.
 	NoArgs                               // NoArgs requires a keyword to be called without arguments.
