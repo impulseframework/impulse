@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/httpio"
@@ -25,7 +26,8 @@ import (
 //
 // The scenario runs under a limit of two failed attempts, so the count that starts over
 // can be told from one that stood: a name with one failure before the removal would be
-// locked by the first failure after it.
+// locked by the first failure after it. The lock those two failures then put on the
+// name holds the removal's own proof too, as it holds the login.
 func seamPasswordRemoval[Tx any](ctx context.Context, t *testing.T, a *authApp[Tx], idp *fakeWorkOS) {
 	t.Helper()
 
@@ -101,6 +103,15 @@ func seamPasswordRemoval[Tx any](ctx context.Context, t *testing.T, a *authApp[T
 	if got := linked.view(ctx).UserID; got != pat.String() {
 		t.Errorf("sign-in through the directory after the removal = user %s, want %s", got, pat)
 	}
+
+	// The two refused sign-ins locked pat's name, and the proof a removal asks for is
+	// held to the login's limit: pat's own session is refused while the lock stands, with
+	// the login's code and the wait, before any password is compared.
+	locked := own.expect(ctx, http.StatusTooManyRequests, http.MethodPost, "/password/remove", map[string]string{"password": seedPassword})
+	if !strings.Contains(string(locked), `"code":"too_many_attempts"`) || !strings.Contains(string(locked), `"retryAfter":`) {
+		t.Errorf("POST /password/remove under a locked name = %s, want too_many_attempts with the wait", locked)
+	}
+	time.Sleep(2*time.Second + 200*time.Millisecond)
 
 	// Nothing is left to remove, and the link is now pat's last means of sign-in.
 	own.expect(ctx, http.StatusBadRequest, http.MethodPost, "/password/remove", map[string]string{"password": seedPassword})
