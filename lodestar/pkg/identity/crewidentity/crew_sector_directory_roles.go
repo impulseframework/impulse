@@ -8,7 +8,6 @@ import (
 	"iter"
 
 	"github.com/go-playground/errors/v5"
-	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/resource"
 )
@@ -47,8 +46,10 @@ func (CrewSectorDirectoryRole) Resource() accesstypes.Resource {
 // may be opened to its directory's people with; the generated handler applies the
 // request's filter, sort and page over them. The roles are the ones the request's
 // caller may give: the list's frame stamps the caller the request was checked as on the
-// context, as a method's does, and the rule reads it there. The grant of the method
-// that gives a role in a sector may read a row, so the rule asks in a transaction.
+// context, as a method's does, and the rule reads it there. The rule is handed the
+// database and not a transaction: it reads the sector's roles from the permission
+// engine outside any, and asks the grant of the method that gives a role in a
+// sector, which may read a row, in one of its own.
 func ListCrewSectorDirectoryRole(ctx context.Context, qSet *resource.QuerySet[CrewSectorDirectoryRole], db resource.Client, client *Client) iter.Seq2[*CrewSectorDirectoryRole, error] {
 	return func(yield func(*CrewSectorDirectoryRole, error) bool) {
 		domain, ok := qSet.Scope().Domain()
@@ -57,17 +58,9 @@ func ListCrewSectorDirectoryRole(ctx context.Context, qSet *resource.QuerySet[Cr
 
 			return
 		}
-		var roles []access.RoleInfo
-		if err := db.ExecuteFunc(ctx, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-			offered, err := client.manager.DirectoryRoles(ctx, txn, domain)
-			if err != nil {
-				return errors.Wrap(err, "identity.Manager.DirectoryRoles()")
-			}
-			roles = offered
-
-			return nil
-		}); err != nil {
-			yield(nil, errors.Wrap(err, "resource.Client.ExecuteFunc()"))
+		roles, err := client.manager.DirectoryRoles(ctx, db, domain)
+		if err != nil {
+			yield(nil, errors.Wrap(err, "identity.Manager.DirectoryRoles()"))
 
 			return
 		}
