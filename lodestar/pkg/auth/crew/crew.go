@@ -174,6 +174,15 @@ func AdministratorRoles() (global, everyDomain []accesstypes.Role) {
 	return []accesstypes.Role{"Headquarters"}, []accesstypes.Role{"SectorMarshal"}
 }
 
+// sectorAdministratorRoles are the roles that administer a sector, the ones
+// AdministratorRoles names as held in every sector: what the identity client judges a
+// person who takes a sector's role from themselves by.
+func sectorAdministratorRoles() []accesstypes.Role {
+	_, everyDomain := AdministratorRoles()
+
+	return everyDomain
+}
+
 // rolesFile is the auth's default roles: the release's own policy for the crew, which
 // travels with the binary and is handed to the permission engine at New. The store holds
 // no row for these roles; a login holds one by name alone, and the file is the complete
@@ -573,11 +582,8 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// the crew to anyone, in headquarters and in every sector.
 	//
 	// Demonstrates: auth.super-administrator.
-	accessClient, err := access.New(store,
-		access.WithDefaultRoles(settings.Collection, Roles()),
-		access.WithChangeSignal(settings.ChangeSignal),
-		access.WithSuperAdministratorMethods(crewidentity.SuperAdministratorMethods()...),
-	)
+	accessClient, err := access.New(store, access.WithDefaultRoles(settings.Collection, Roles()), access.WithChangeSignal(settings.ChangeSignal),
+		access.WithSuperAdministratorMethods(crewidentity.SuperAdministratorMethods()...))
 	if err != nil {
 		return nil, errors.Wrap(err, "access.New()")
 	}
@@ -726,8 +732,7 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// first given.
 	//
 	// Demonstrates: auth.generated-identity, OrSkip.
-	_, sectorAdministrators := AdministratorRoles()
-	identityClient, err := crewidentity.NewClient(accessClient, crewSession.API(), identity.WithAdministratorRoles(sectorAdministrators))
+	identityClient, err := crewidentity.NewClient(accessClient, crewSession.API(), identity.WithAdministratorRoles(sectorAdministratorRoles()))
 	if err != nil {
 		return nil, errors.Wrap(err, "crewidentity.NewClient()")
 	}

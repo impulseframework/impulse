@@ -51,6 +51,17 @@ func (r *resourceGenerator) moduleDir(importPath string) (dir string, ok bool) {
 	return filepath.FromSlash(rel), true
 }
 
+// definedRoles are the roles a role file's content defines, global and domain; none for
+// content that does not parse, which the engine and impulse check refuse in their words.
+func definedRoles(data []byte) []*access.Role {
+	var config access.RoleConfig
+	if json.Unmarshal(data, &config) != nil {
+		return nil
+	}
+
+	return slices.Concat(config.Roles.Global, config.Roles.Domain)
+}
+
 // reservedRoleIn reads the role file of the auth package importPath and refuses a role
 // it defines under the reserved name. A file that is not there defines none, and one
 // that does not parse is left to the engine and to impulse check, which say why.
@@ -63,11 +74,7 @@ func reservedRoleIn(importPath, file string) error {
 
 		return errors.Wrapf(err, "Auth(%q): os.ReadFile(%q)", importPath, file)
 	}
-	var config access.RoleConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil
-	}
-	for _, role := range slices.Concat(config.Roles.Global, config.Roles.Domain) {
+	for _, role := range definedRoles(data) {
 		if role != nil && strings.EqualFold(string(role.Name), string(accesstypes.SuperAdministrator)) {
 			return errors.Newf("Auth(%q): %s defines a role named %s, and the name is reserved: every auth has the Super Administrator role, which the framework defines, and an application defines no role of that name; remove it from the role file and give what it grants to a role of another name", importPath, filepath.ToSlash(file), role.Name)
 		}

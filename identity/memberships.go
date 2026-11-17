@@ -71,7 +71,8 @@ func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransact
 		return httpio.NewBadRequestMessage("a role is given to a person: the user id is empty")
 	}
 	if role == accesstypes.SuperAdministrator && !scope.IsGlobal() {
-		return httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, never in a %s or in every %s: give it with no %s named", string(role), m.tenantWord, m.tenantWord, m.tenantWord)
+		return httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, never in a %s or in every %s: give it with no %s named",
+			string(role), m.tenantWord, m.tenantWord, m.tenantWord)
 	}
 	key, err := m.access.UserManager().Membership(ctx, scope, User(userID), role, func(ctx context.Context, key access.RoleKey) (bool, error) {
 		held, err := m.store.HasRole(ctx, txn, &key)

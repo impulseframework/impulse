@@ -3,76 +3,126 @@ package generation
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
-// Test_refuseReservedRole pins that the generator writes no management for an auth
-// whose role file defines a role under the name the framework keeps for the Super
-// Administrator role, in the global roles or a tenant's and in any case, and that it
-// reads the file where the auth package lives in the main module.
-func Test_refuseReservedRole(t *testing.T) {
-	const module = "example.com/beacon"
+// Test_reservedRoleIn pins what the generator reads of an auth's role file: a role under
+// the name the framework keeps for the Super Administrator role is refused, in the global
+// roles or a tenant's and in any case, and nothing else of the file is judged.
+func Test_reservedRoleIn(t *testing.T) {
+	t.Parallel()
+
+	const auth = "example.com/beacon/pkg/auth/staff"
 	tests := []struct {
 		name string
-		// importPath is the auth package, and roles its role file; empty writes none.
-		importPath, roles string
-		wantErr           string
+		// roles is the role file's content; empty writes no file.
+		roles   string
+		wantErr string
 	}{
 		{
-			name:       "a role file that defines its own roles",
-			importPath: module + "/pkg/auth/staff",
-			roles:      `{"roles": {"global": [{"name": "Administrator", "description": "Manages people.", "permissions": {}}], "domain": [{"name": "Auditor", "description": "Reads.", "permissions": {}}]}}`,
+			name:  "a role file that defines its own roles",
+			roles: `{"roles": {"global": [{"name": "Administrator", "description": "Manages people.", "permissions": {}}], "domain": [{"name": "Auditor", "description": "Reads.", "permissions": {}}]}}`,
 		},
 		{
-			name:       "a global role under the reserved name",
-			importPath: module + "/pkg/auth/staff",
-			roles:      `{"roles": {"global": [{"name": "SuperAdministrator", "description": "Runs everything.", "permissions": {}}]}}`,
-			wantErr:    `Auth("example.com/beacon/pkg/auth/staff"): pkg/auth/staff/roles.json defines a role named SuperAdministrator, and the name is reserved`,
+			name:    "a global role under the reserved name",
+			roles:   `{"roles": {"global": [{"name": "SuperAdministrator", "description": "Runs everything.", "permissions": {}}]}}`,
+			wantErr: "roles.json defines a role named SuperAdministrator, and the name is reserved: every auth has the Super Administrator role, which the framework defines",
 		},
 		{
-			name:       "a tenant's role under the name in another case",
-			importPath: module + "/pkg/auth/staff",
-			roles:      `{"roles": {"domain": [{"name": "Superadministrator", "description": "Runs a tenant.", "permissions": {}}]}}`,
-			wantErr:    "defines a role named Superadministrator, and the name is reserved",
+			name:    "a tenant's role under the name in another case",
+			roles:   `{"roles": {"domain": [{"name": "Superadministrator", "description": "Runs a tenant.", "permissions": {}}]}}`,
+			wantErr: "defines a role named Superadministrator, and the name is reserved",
 		},
 		{
-			name:       "no role file yet",
-			importPath: module + "/pkg/auth/staff",
+			name: "no role file yet",
 		},
 		{
-			name:       "a file that does not parse is the engine's to refuse",
-			importPath: module + "/pkg/auth/staff",
-			roles:      `{"roles": {"global": [`,
-		},
-		{
-			name:       "an auth package of another module is not read",
-			importPath: "example.com/other/pkg/auth/staff",
-			roles:      `{"roles": {"global": [{"name": "SuperAdministrator", "description": "Another module's.", "permissions": {}}]}}`,
+			name:  "a file that does not parse is the engine's to refuse",
+			roles: `{"roles": {"global": [`,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// The file is read relative to the module root, the generator's directory.
-			t.Chdir(t.TempDir())
+			t.Parallel()
+
+			file := filepath.Join(t.TempDir(), identityRolesFile)
 			if tt.roles != "" {
-				dir := filepath.Join("pkg", "auth", "staff")
-				if err := os.MkdirAll(dir, 0o750); err != nil {
-					t.Fatal(err)
-				}
-				if err := os.WriteFile(filepath.Join(dir, identityRolesFile), []byte(tt.roles), 0o600); err != nil {
+				if err := os.WriteFile(file, []byte(tt.roles), 0o600); err != nil {
 					t.Fatal(err)
 				}
 			}
-			r := &resourceGenerator{client: &client{modulePathRoot: module}}
 
-			err := r.refuseReservedRole(&identityInstance{importPath: tt.importPath})
+			err := reservedRoleIn(auth, file)
 			switch {
 			case tt.wantErr == "" && err != nil:
-				t.Errorf("refuseReservedRole() error = %v, want none", err)
-			case tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr)):
-				t.Errorf("refuseReservedRole() error = %v, want one containing %q", err, tt.wantErr)
+				t.Errorf("reservedRoleIn() error = %v, want none", err)
+			case tt.wantErr != "" && (err == nil || !strings.Contains(err.Error(), tt.wantErr) || !strings.Contains(err.Error(), auth)):
+				t.Errorf("reservedRoleIn() error = %v, want one naming the auth and containing %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// Test_resourceGenerator_moduleDir pins where the generator looks for an auth package:
+// under the main module, by its import path, and nowhere for a package of another module.
+func Test_resourceGenerator_moduleDir(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name               string
+		module, importPath string
+		wantDir            string
+		wantOK             bool
+	}{
+		{name: "a package of the module", module: "example.com/beacon", importPath: "example.com/beacon/pkg/auth/staff", wantDir: filepath.Join("pkg", "auth", "staff"), wantOK: true},
+		{name: "the module's root package", module: "example.com/beacon", importPath: "example.com/beacon", wantDir: ".", wantOK: true},
+		{name: "a package of another module", module: "example.com/beacon", importPath: "example.com/other/pkg/auth/staff"},
+		{name: "a module whose path only starts the same", module: "example.com/beacon", importPath: "example.com/beacons/pkg/auth/staff"},
+		{name: "no module path known", importPath: "example.com/beacon/pkg/auth/staff"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &resourceGenerator{client: &client{modulePathRoot: tt.module}}
+			dir, ok := r.moduleDir(tt.importPath)
+			if dir != tt.wantDir || ok != tt.wantOK {
+				t.Errorf("moduleDir(%q) = %q, %v, want %q, %v", tt.importPath, dir, ok, tt.wantDir, tt.wantOK)
+			}
+		})
+	}
+}
+
+// Test_prepareIdentity_reservedRole pins that the generator writes no management for an
+// auth whose role file defines a role named for the Super Administrator role: the file
+// is read beside the auth package, under the module root the generator runs in.
+func Test_prepareIdentity_reservedRole(t *testing.T) {
+	// As Test_prepareIdentity: the working directory is the process's, no t.Parallel.
+	t.Chdir(t.TempDir())
+
+	dir, ok := (&resourceGenerator{client: &client{modulePathRoot: "example.com/acme/beacon"}}).moduleDir(crewAuthPath)
+	if !ok {
+		t.Fatalf("the fixture's crew auth %q is no package of the fixture's module", crewAuthPath)
+	}
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	roles := `{"roles": {"global": [{"name": "SuperAdministrator", "description": "Runs everything.", "permissions": {}}]}}`
+	if err := os.WriteFile(filepath.Join(dir, identityRolesFile), []byte(roles), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	err := identityFixtureGenerator(t, slices.Concat(crewIdentityTables, membersIdentityTables)...).prepareIdentity()
+	if want := "defines a role named SuperAdministrator, and the name is reserved"; err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("prepareIdentity() error = %v, want one containing %q", err, want)
+	}
+	// With the role named otherwise the same run goes through.
+	if err := os.WriteFile(filepath.Join(dir, identityRolesFile), []byte(strings.ReplaceAll(roles, "SuperAdministrator", "Administrator")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := identityFixtureGenerator(t, slices.Concat(crewIdentityTables, membersIdentityTables)...).prepareIdentity(); err != nil {
+		t.Fatalf("prepareIdentity() with the role named otherwise: error = %v", err)
 	}
 }

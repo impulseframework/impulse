@@ -366,7 +366,8 @@ func (m *Manager) requireSuperAdministratorMethods() error {
 	built := engine.SuperAdministratorMethods()
 	for _, method := range m.superMethods {
 		if !slices.Contains(built, method) {
-			return errors.Newf("identity.New(): the permission engine of the %s auth does not let a super administrator execute %s, a method that gives or takes the auth's roles; build the engine with access.WithSuperAdministratorMethods and the methods the auth's generated management names (its SuperAdministratorMethods)", m.auth, method)
+			return errors.Newf("identity.New(): the permission engine of the %s auth does not let a super administrator execute %s, a method that gives or takes the auth's roles; %s",
+				m.auth, method, "build the engine with access.WithSuperAdministratorMethods and the methods the auth's generated management names (its SuperAdministratorMethods)")
 		}
 	}
 

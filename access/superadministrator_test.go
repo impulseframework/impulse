@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/httpio"
 )
@@ -121,9 +122,11 @@ func TestSuperAdministrator_heldInTheGlobalPartitionAlone(t *testing.T) {
 			return m.AddRoleUsers(ctx, scope, accesstypes.SuperAdministrator, "dana")
 		},
 		"Membership": func(ctx context.Context, m UserManager, store *fakeStore, scope accesstypes.PolicyScope) error {
-			_, err := m.Membership(ctx, scope, "dana", accesstypes.SuperAdministrator, storeRoleReader(store))
+			if _, err := m.Membership(ctx, scope, "dana", accesstypes.SuperAdministrator, storeRoleReader(store)); err != nil {
+				return errors.Wrap(err, "UserManager.Membership()")
+			}
 
-			return err
+			return nil
 		},
 	}
 	for name, write := range writes {
@@ -276,8 +279,8 @@ func TestClient_UserIsSuperAdministrator(t *testing.T) {
 		{name: "a person who holds nothing", user: "nobody", want: false},
 	}
 	for _, tt := range tests {
-		// Not parallel: the removal below runs once every case has answered.
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
 			got, err := client.UserIsSuperAdministrator(ctx, tt.user)
 			if err != nil || got != tt.want {
 				t.Errorf("UserIsSuperAdministrator(%s) = (%v, %v), want %v", tt.user, got, err, tt.want)
@@ -289,7 +292,26 @@ func TestClient_UserIsSuperAdministrator(t *testing.T) {
 		})
 	}
 
-	// The role goes, and the next answer follows the write.
+}
+
+// TestClient_UserIsSuperAdministrator_followsTheWrite pins that the answer follows the
+// membership: a person is a super administrator from the write that gives the role to
+// the write that takes it.
+func TestClient_UserIsSuperAdministrator_followsTheWrite(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	client, _ := superClient(t)
+	manager := client.UserManager()
+
+	if got, err := client.UserIsSuperAdministrator(ctx, "sam"); err != nil || got {
+		t.Errorf("UserIsSuperAdministrator(sam) before the role is given = (%v, %v), want false", got, err)
+	}
+	if err := manager.AddUserRoles(ctx, globalPolicy, "sam", accesstypes.SuperAdministrator); err != nil {
+		t.Fatalf("AddUserRoles(sam) error = %v", err)
+	}
+	if got, err := client.UserIsSuperAdministrator(ctx, "sam"); err != nil || !got {
+		t.Errorf("UserIsSuperAdministrator(sam) once the role is given = (%v, %v), want true", got, err)
+	}
 	if err := manager.DeleteUserRoles(ctx, globalPolicy, "sam", accesstypes.SuperAdministrator); err != nil {
 		t.Fatalf("DeleteUserRoles() error = %v", err)
 	}
