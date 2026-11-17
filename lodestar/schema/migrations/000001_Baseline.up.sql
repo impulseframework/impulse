@@ -105,9 +105,9 @@ CREATE TABLE Sectors (
   Name STRING(MAX) NOT NULL,
   Region STRING(MAX) NOT NULL,
   Established DATE NOT NULL,
-  -- The sector's people enter through its directories only: a password does not reach a
+  -- The sector's people enter through its directory only: a password does not reach a
   -- sector whose flag is true. Half of what the sector declares about who may enter it;
-  -- the other half is SectorDirectories.
+  -- the other half is its row of SectorDirectories.
   DirectoryOnly BOOL NOT NULL DEFAULT (FALSE),
 
   CONSTRAINT CK_Sectors_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
@@ -115,12 +115,15 @@ CREATE TABLE Sectors (
 
 CREATE UNIQUE INDEX SectorsByName ON Sectors(Name);
 
--- The directories a sector admits its people through, one row per declaration: the
--- sign-in method (google, azure, workos) and the connection the method's identities carry
--- (a Google Workspace by the name the registration gives it, a Microsoft Entra tenant by
--- its tenant id). One domain, one directory by default; a second directory is a second row.
--- DefaultSeat names the role a stranger the directory vouches for is seated with in the
--- sector at their first sign-in; NULL says the sector admits them by invitation only.
+-- A sector's directory, the organization its people sign in through: the sign-in method
+-- (google, azure, workos) and the connection the method's identities carry (a Google
+-- Workspace by the name the registration gives it, a Microsoft Entra tenant by its
+-- tenant id). Nobody types a row in: it is written from a sign-in through the directory,
+-- when the sector is charted or when its marshal, signed in through it, makes it the
+-- sector's. A sector has one directory and a directory belongs to one sector, which the
+-- two unique indexes below hold.
+-- DefaultSeat names the role a person is given in the sector at their first sign-in
+-- through the directory; NULL says the sector admits them by invitation only.
 CREATE TABLE SectorDirectories (
   Id STRING(36) NOT NULL,
   SectorId STRING(36) NOT NULL,
@@ -133,7 +136,8 @@ CREATE TABLE SectorDirectories (
   CONSTRAINT FK_SectorDirectories_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
 ) PRIMARY KEY (Id);
 
-CREATE UNIQUE INDEX SectorDirectoriesBySectorIdMethodConnection ON SectorDirectories(SectorId, Method, Connection);
+CREATE UNIQUE INDEX SectorDirectoriesBySectorId ON SectorDirectories(SectorId);
+CREATE UNIQUE INDEX SectorDirectoriesByMethodConnection ON SectorDirectories(Method, Connection);
 
 CREATE TABLE Wings (
   Id STRING(36) NOT NULL,
