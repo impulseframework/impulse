@@ -3127,7 +3127,10 @@ be given nothing, so its methods stay invite only, and a stranger enters through
 invitation or through the directory of a tenant that names a default role. A method
 whose directory gives the roles (`SyncsRoles`) is neither opened nor made invite only:
 the directory decides who signs in, the two methods refuse it, and its Auth, where the
-directory is the one way in, has neither.
+directory is the one way in, has neither. A registration that carries an account rule of
+its own in code (`signin.AccountRule`) is decided by that rule first, and the row decides
+only where the rule answers `signin.Standard`: the list says what was chosen for the
+method, never what such a rule does.
 
 A person who has an account, and a person who follows an invitation, sign in the same
 under either choice. The password method's sign-up routes (`POST <prefix>/user/sign-up`,

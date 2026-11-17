@@ -117,7 +117,7 @@ func Test_resolveTenant(t *testing.T) {
 		{
 			name:    "the retired creation argument is refused with what replaced it, whatever it named",
 			structs: []string{"Enclave"},
-			wantErr: "struct Enclave: @tenant(creation: administrator) is no longer declared: who may create a enclave is decided in the running application. An administrator creates one under the record's Create grant, as before, and a person who signs up creates their own while an administrator has a sign-in method open to sign-up (the auth's Sign-in page: Open sign-up, Make invite only). Remove the creation argument",
+			wantErr: "struct Enclave: @tenant(creation: administrator) is no longer declared: who may create an enclave is decided in the running application. An administrator creates one under the record's Create grant, as before, and a person who signs up creates their own while an administrator has a sign-in method open to sign-up (the auth's Sign-in page: Open sign-up, Make invite only). Remove the creation argument",
 		},
 		{
 			name:       "label: names the word for one tenant",
@@ -134,7 +134,7 @@ func Test_resolveTenant(t *testing.T) {
 		{
 			name:    "the argument that let a stranger create a tenant is refused the same way",
 			structs: []string{"Outland"},
-			wantErr: "struct Outland: @tenant(creation: self-service) is no longer declared: who may create a outland is decided in the running application.",
+			wantErr: "struct Outland: @tenant(creation: self-service) is no longer declared: who may create an outland is decided in the running application.",
 		},
 		{
 			name:    "the shape without its key is refused",

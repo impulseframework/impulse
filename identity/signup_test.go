@@ -427,3 +427,26 @@ func TestManager_SignedUp(t *testing.T) {
 func containsText(err error, want string) bool {
 	return err != nil && strings.Contains(err.Error(), want)
 }
+
+func Test_withArticle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		word string
+		want string
+	}{
+		{word: "tenant", want: "a tenant"},
+		{word: "sector", want: "a sector"},
+		{word: "outlet", want: "an outlet"},
+		{word: "Organization", want: "an Organization"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.word, func(t *testing.T) {
+			t.Parallel()
+
+			if got := withArticle(tt.word); got != tt.want {
+				t.Errorf("withArticle(%q) = %q, want %q", tt.word, got, tt.want)
+			}
+		})
+	}
+}

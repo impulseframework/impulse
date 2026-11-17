@@ -57,7 +57,8 @@ seeds it again without touching the schema), serves the application on :8090, an
 the crew console on :4300 (`/console/api` proxied) and the client portal on :4301
 (`/portal/api` proxied). Browse http://127.0.0.1:4300/console/ and sign in as any persona
 on the crew manifest, through "Sign in with Lodestar", the fleet's Google directory, as the navigator, or with
-"Sign in with Google", any Google account, as the pioneer, who holds nothing and charts her own sector, or with
+"Sign in with Google", any Google account, as the pioneer, who holds nothing and charts her own sector once the
+governor has opened that method to sign-up (the console's Sign-in page, Open sign-up: every method starts invite only), or with
 "Sign in with Persona", the persona provider of the test environments, as a member of the cast
 (`pkg/auth/crew/cast.json`: `hq`, `warden`, `rookie`; in development the simulated provider signs
 `APP_PERSONA_USERNAME` in); browse
@@ -833,7 +834,13 @@ transaction): a sign-in through a directory is admitted when one of the person's
 has that directory, a password unless every one of their sectors is directory only,
 a person who holds a role outside any one sector (a global role, or one held in every
 sector) and a sign-in whose directory names the roles on the library's checks, and a
-person holding no sector too, since the pioneer signs up first and charts after. Which
+person holding no sector too, since the pioneer signs up first and charts after. Whether
+anyone signs up is headquarters' choice in the running application, method by method: the
+console's Sign-in page lists the crew's sign-in methods, each invite only until the
+governor opens it (Open sign-up, behind a warning in the server's words, "Anyone with a
+Google account will be able to sign up and create a sector of their own, without an
+invitation.", confirmed by typing a word) and invite only again when he closes it (Make
+invite only), and the create-sector route refuses while every method is invite only. Which
 sectors the session then reaches is decided again per sector where its chart is computed,
 and there one person alone is exempt from a sector's declaration: a super administrator,
 the holder of the role the framework defines in every auth (`SuperAdministrator`, in no
@@ -848,8 +855,8 @@ commit and signal the other instances, so a declaration decides the next request
 the records' change events are the audit of every edit. The seed makes the fleet's
 directory Cinder's, the one sector it can belong to, and makes Bastion directory only:
 the rigger charts Anvil alone, the bosun is refused at sign-in, and the navigator, who
-came through the fleet's directory, reaches Cinder. A self-service sector's directory is
-the organization's directory its creator came through, set by the create-sector route
+came through the fleet's directory, reaches Cinder. The directory of a sector its own
+creator charted is the organization's directory its creator came through, set by the create-sector route
 with the row through the step every such write takes (`app.SetSectorDirectory`); the
 pioneer signs up with a personal account, so Ember starts with none and admits her as it
 admits a password. The directory's row carries a default seat
@@ -872,7 +879,7 @@ carries the declaration: a marshal signed in through his organization's director
 it the sector's there with one button, removes it, and picks its default seat from the
 sector's roles; a marshal signed in with a password is told how a directory is set and
 offered no button; headquarters sets directory only. A sector's
-creator is its first marshal whatever the creation shape: the create path seats the
+creator is its first marshal however it is created: the create path seats the
 surveyor as `SectorMarshal` in Dawn in the transaction that writes the row, as the
 create-sector route seats the pioneer in Ember (`SectorAdministratorRoles`, from
 `crew.AdministratorRoles`, written by the crew's generated identity client),
@@ -937,7 +944,7 @@ watch desk then name the cadet by username; and
 | `armorer` | Armorer Arlo, Tongs | No pilot and no SectorCrew: his whole view of the hangars is the two sets the hangar passes yield, `hangar IN subject.hangarsOpen` on List and Read and `hangar IN subject.hangarsRun` on Update. A pass names a person or a squadron, at a level, until it expires, and the set's own definition says which passes are his (`who: UserID = subject OR SquadronID IN subject.squadrons`, a set that follows the squadron set) and which of those count (`where:` the level, and `ExpiresAt IS NULL OR ExpiresAt > now`). He holds no pass that counts in his own name, so everything he reaches he reaches through Tongs: he lists Anvil Dock One, which Tongs runs, and the Quarantine Bay, which Tongs visits; he re-zones the dock and is refused the bay, which Hammer runs and his own expired pass no longer opens. Over the API; the console draws no page for the passes. Demonstrates: @subjectSet.who, @subjectSet.where, @subjectSet.on-set. |
 | `adjutant` | Adjutant Alba, headquarters | The commendations desk, the one resource behind a feature flag, and the key that turns it: `FeatureAdministrator` (List and Read on `FeatureFlags`, Execute on `SetFeature`, global) beside `Adjutant` (List, Read and Create on `Commendations`). Off, the desk's routes answer the router's own 404, the digest leaves the desk and the card's `commendations` field out, and the field named in a request is unknown; she turns the flag on through `SetFeature`, the desk answers, Pax's card counts his citations, and a second server process serves the desk at its next request with no restart; off again, both refuse. Demonstrates: @feature, @feature.field. |
 | `surveyor` | Surveyor Shen, headquarters | Charts new sectors: `Surveyor` (Create and Update on `Sectors`, global) beside `SectorCrew` held in every sector. `Sectors` is the tenant record (`@tenant`) and every instance holds a roster of it: when she charts Dawn through the consolidated patch, the instance that wrote adds Dawn to its roster after the commit and signals the tenants kind, so her place switcher lists Dawn and Dawn's wings answer her at once, with no restart, no migrate job and no new login; the marshal's does not list it and Dawn answers her as a sector that does not exist; the client's portal, the governor and the archivist, all held in every sector, see Dawn with nothing written for them; and a second server process serves Dawn at its next request. Demonstrates: tenancy.run-time-tenant. |
-| `pioneer` | Pioneer Pia, on no manifest | Signs up with any Google account (the crew auth's `sign-up` registration: open sign-up, no roles, the application the authority), a crew login holding nothing, and charts her own sector through the generated `create-sector` route: `Sectors` declares who may chart one apart from who may enter one (`@tenant(creation: both)`), so the route, given the sector's fields and no key, writes Ember under an id it generates and answers, seats her as its marshal (`SectorMarshal`, the roles `SectorAdministratorRoles` names) and hands it to the roster in one call, and her chart lights Ember at once; a second sector is refused her, as the route is refused the marshal and the governor, who hold sectors already. Sign in first, then name the sector. Demonstrates: tenancy.self-service, auth.open-sign-up. |
+| `pioneer` | Pioneer Pia, on no manifest | Signs up with any Google account (the crew auth's `sign-up` registration, once the governor has opened it to sign-up on the console's Sign-in page: no roles, the application the authority), a crew login holding nothing, and charts her own sector through the generated `create-sector` route: who may chart one is apart from who may enter one and is headquarters' choice in the running application, so while a sign-in method is open the route, given the sector's fields and no key, writes Ember under an id it generates and answers, seats her as its marshal (`SectorMarshal`, the roles `SectorAdministratorRoles` names) and hands it to the roster in one call, and her chart lights Ember at once; a second sector is refused her, as the route is refused the marshal and the governor, who hold sectors already. Sign in first, then name the sector. Demonstrates: tenancy.self-service, auth.open-sign-up. |
 | `rigger` | Rigger Rook, Anvil and Bastion, no global role | `SectorCrew` in Anvil and in Bastion, by password, and nothing global: Bastion admits its people through its directory only (`Sector.DirectoryOnly`), so her chart lights Anvil alone and Bastion answers her as a sector that does not exist, until headquarters opens Bastion to passwords and her chart lights it at once. Demonstrates: tenancy.directory-only. |
 | `bosun` | Bosun Bram, Bastion only | `SectorCrew` in Bastion alone, by password: every sector of his is directory only, so his sign-in is refused naming the rule (`directory_only`), and admitted once headquarters opens Bastion. Demonstrates: tenancy.directory-only. |
 | `client` | Client Cleo, portal only | Signs in through her company's directory, whose groups are her roles; the second browser app over the second TypeScript target; `client = subject.client` from the ClientContact anchor; a conditional Execute fired from a portal session; a PII field an external user writes; the portal-only client statement. Demonstrates: auth.directory-roles, auth.skipauth-directory, typescript.second-target, outlet.session, @subjectValue.second-anchor, @manualAddResource.outlet. |

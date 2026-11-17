@@ -174,7 +174,7 @@ func (m *Manager) OpenSignUp(ctx context.Context, txn resource.ReadWriteTransact
 	row := &SignInMethodRow{Name: open.Method, OpenSignUp: true}
 	switch {
 	case open.CreatesTenant && open.DefaultRole != "":
-		return httpio.NewBadRequestMessagef("no default role is chosen here: a person who signs up creates a %s of their own and administers it, so send the request without a role", m.tenantWord)
+		return httpio.NewBadRequestMessagef("no default role is chosen here: a person who signs up creates %s of their own and administers it, so send the request without a role", withArticle(m.tenantWord))
 	case open.CreatesTenant:
 	case open.DefaultRole == "":
 		return httpio.NewBadRequestMessage("choose the default role: each person who signs up is given one, so a sign-in method cannot be opened without it")
@@ -292,7 +292,7 @@ func (m *Manager) consequence(registered *session.RegisteredMethod, role string,
 	}
 	switch {
 	case createsTenant:
-		return who + " will be able to sign up and create a " + m.tenantWord + " of their own, without an invitation."
+		return who + " will be able to sign up and create " + withArticle(m.tenantWord) + " of their own, without an invitation."
 	case role == "":
 		return who + " will be able to " + act + " without an invitation. Choose the role each of them gets."
 	default:
@@ -336,6 +336,16 @@ func rowNamed(rows []SignInMethodRow, name string) *SignInMethodRow {
 	}
 
 	return nil
+}
+
+// withArticle is the word with its article, as a sentence names one of them: "a
+// sector", "an outlet".
+func withArticle(word string) string {
+	if word != "" && strings.ContainsRune("aeiouAEIOU", rune(word[0])) {
+		return "an " + word
+	}
+
+	return "a " + word
 }
 
 // sentenceStart is words with their first letter in upper case, as a sentence starts.

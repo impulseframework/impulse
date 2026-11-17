@@ -84,9 +84,9 @@ func parseTenantArgs(name string, arg genlang.Arg) (tenantArgs, error) {
 		args.label = label
 	}
 	if value, ok := invocations[0].Named(tenantCreationArgKey); ok {
-		return tenantArgs{}, errors.Newf("struct %s: @%s(%s: %s) is no longer declared: who may create a %s is decided in the running application. "+
+		return tenantArgs{}, errors.Newf("struct %s: @%s(%s: %s) is no longer declared: who may create %s is decided in the running application. "+
 			"An administrator creates one under the record's Create grant, as before, and a person who signs up creates their own while an administrator has a sign-in method open to sign-up "+
-			"(the auth's Sign-in page: Open sign-up, Make invite only). Remove the %s argument", name, tenantKeyword, tenantCreationArgKey, value, strings.ToLower(name), tenantCreationArgKey)
+			"(the auth's Sign-in page: Open sign-up, Make invite only). Remove the %s argument", name, tenantKeyword, tenantCreationArgKey, value, withArticle(strings.ToLower(name)), tenantCreationArgKey)
 	}
 
 	return args, nil
@@ -474,7 +474,17 @@ func tenantCreationRefusal(record string) string {
 func tenantCreationClosedRefusal(record string) string {
 	lower := strings.ToLower(strcase.ToCase(record, strcase.LowerCase, ' '))
 
-	return fmt.Sprintf("sign-up is not open, so you cannot create a %s of your own: ask an administrator of the application to create one for you, or to invite you to one", lower)
+	return fmt.Sprintf("sign-up is not open, so you cannot create %s of your own: ask an administrator of the application to create one for you, or to invite you to one", withArticle(lower))
+}
+
+// withArticle is the word with its article, as a sentence names one of them: "a
+// tenant", "an outlet".
+func withArticle(word string) string {
+	if word != "" && strings.ContainsRune("aeiouAEIOU", rune(word[0])) {
+		return "an " + word
+	}
+
+	return "a " + word
 }
 
 // tenantCreationRoutes builds the create-your-tenant route under an outlet prefix: a
