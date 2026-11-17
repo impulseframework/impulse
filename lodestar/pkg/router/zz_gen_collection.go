@@ -1541,6 +1541,21 @@ func Collection() *resource.GeneratedCollection {
 				QueryKeys: []accesstypes.Tag{"userId", "expired"},
 			},
 			{
+				Name:        "CrewSignInMethods",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Computed:    true,
+				Permissions: []accesstypes.Permission{accesstypes.List},
+				Tags: []resource.TagData{
+					{Name: "admits", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "defaultRole", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "directoryGivesRoles", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "label", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "name"},
+					{Name: "openSignUp", Permissions: []accesstypes.Permission{accesstypes.List}},
+					{Name: "says", Permissions: []accesstypes.Permission{accesstypes.List}},
+				},
+			},
+			{
 				Name:        "CrewSignInWays",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Computed:    true,
@@ -1718,6 +1733,11 @@ func Collection() *resource.GeneratedCollection {
 				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
+				Name:        "MakeCrewInviteOnly",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
+			},
+			{
 				Name:        "MembersRoleGrants",
 				Scope:       accesstypes.GlobalPermissionScope,
 				Permissions: []accesstypes.Permission{accesstypes.List},
@@ -1877,6 +1897,11 @@ func Collection() *resource.GeneratedCollection {
 					{Name: "userId"},
 				},
 				Order: []accesstypes.Tag{"userId"},
+			},
+			{
+				Name:        "OpenCrewSignUp",
+				Scope:       accesstypes.GlobalPermissionScope,
+				Permissions: []accesstypes.Permission{accesstypes.Execute},
 			},
 			{
 				Name:        "PilotCards",

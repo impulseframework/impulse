@@ -363,6 +363,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-roles", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-sign-in-ways", method: http.MethodGet},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-sign-in-ways", method: http.MethodPost},
+		{url: "/droids/crew-sign-in-methods", method: http.MethodGet},
+		{url: "/droids/crew-sign-in-methods", method: http.MethodPost},
 		{url: "/droids/crew-sign-in-ways", method: http.MethodGet},
 		{url: "/droids/crew-sign-in-ways", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests", method: http.MethodGet},
@@ -428,6 +430,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/droids/invite-crew-user", method: http.MethodPost},
 		{url: "/droids/issue-bulletin", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/launch-mission", method: http.MethodPost},
+		{url: "/droids/make-crew-invite-only", method: http.MethodPost},
+		{url: "/droids/open-crew-sign-up", method: http.MethodPost},
 		{url: "/droids/sectors/7e57d0a1-0000-4000-8000-000000000000/pass-flight-test", method: http.MethodPost},
 		{url: "/droids/remove-crew-group-member", method: http.MethodPost},
 		{url: "/droids/remove-crew-password", method: http.MethodPost},
@@ -663,6 +667,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-roles", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-sign-in-ways", method: http.MethodGet},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/crew-sector-sign-in-ways", method: http.MethodPost},
+		{url: "/portal/api/crew-sign-in-methods", method: http.MethodGet},
+		{url: "/portal/api/crew-sign-in-methods", method: http.MethodPost},
 		{url: "/portal/api/crew-sign-in-ways", method: http.MethodGet},
 		{url: "/portal/api/crew-sign-in-ways", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/expense-manifests", method: http.MethodGet},
@@ -720,6 +726,8 @@ func TestGeneratedRouteOutletIsolation(t *testing.T) {
 		{url: "/portal/api/invite-crew-user", method: http.MethodPost},
 		{url: "/portal/api/issue-bulletin", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/launch-mission", method: http.MethodPost},
+		{url: "/portal/api/make-crew-invite-only", method: http.MethodPost},
+		{url: "/portal/api/open-crew-sign-up", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/pass-flight-test", method: http.MethodPost},
 		{url: "/portal/api/sectors/7e57d0a1-0000-4000-8000-000000000000/release-consignment", method: http.MethodPost},
 		{url: "/portal/api/remove-crew-group-member", method: http.MethodPost},
@@ -2657,6 +2665,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{"sectorID": "7e57d0a1-0000-4000-8000-000000000000"},
 		},
 		{
+			url: "/console/api/crew-sign-in-methods", method: http.MethodGet,
+			handlerFunc: "CrewSignInMethods",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/console/api/crew-sign-in-methods", method: http.MethodPost,
+			handlerFunc: "CrewSignInMethods",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/console/api/crew-sign-in-ways", method: http.MethodGet,
 			handlerFunc: "CrewSignInWays",
 			parameters:  map[string]string{},
@@ -3177,6 +3195,10 @@ func (s *generatedHandlersStub) CrewSessionUser() http.HandlerFunc {
 	return s.record("CrewSessionUser")
 }
 
+func (s *generatedHandlersStub) CrewSignInMethods() http.HandlerFunc {
+	return s.record("CrewSignInMethods")
+}
+
 func (s *generatedHandlersStub) CrewSignInWays() http.HandlerFunc {
 	return s.record("CrewSignInWays")
 }
@@ -3393,6 +3415,10 @@ func (s *generatedHandlersStub) LaunchMission() http.HandlerFunc {
 	return s.record("LaunchMission")
 }
 
+func (s *generatedHandlersStub) MakeCrewInviteOnly() http.HandlerFunc {
+	return s.record("MakeCrewInviteOnly")
+}
+
 func (s *generatedHandlersStub) MembersRoles() http.HandlerFunc {
 	return s.record("MembersRoles")
 }
@@ -3515,6 +3541,10 @@ func (s *generatedHandlersStub) MissionDocument() http.HandlerFunc {
 
 func (s *generatedHandlersStub) MissionDocumentContent() http.HandlerFunc {
 	return s.record("MissionDocumentContent")
+}
+
+func (s *generatedHandlersStub) OpenCrewSignUp() http.HandlerFunc {
+	return s.record("OpenCrewSignUp")
 }
 
 func (s *generatedHandlersStub) OpenMissionsBySquadrons() http.HandlerFunc {
