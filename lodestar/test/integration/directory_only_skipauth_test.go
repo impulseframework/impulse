@@ -5,12 +5,12 @@ package integration
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"maps"
 	"net/http"
 	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 
@@ -349,8 +349,20 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 			t.Errorf("the people named = %v, want %s left out", would.Names, username)
 		}
 	}
-	if want := "Only people who sign in through persona will be able to enter this sector. " + plural(len(would.Names)) + " and will lose access."; would.Consequence != want {
-		t.Errorf("the consequence = %q, want %q: a marshal lists everyone it counts", would.Consequence, want)
+	// The count takes in the people of every auth the sector seats, and a marshal lists
+	// the crew alone: the portal's members seated at Bastion are counted and named to
+	// nobody who may not list them, so the sentence says the list is the people the
+	// warden may list. A part of them is never read as all of them.
+	const onlyPersona = "Only people who sign in through persona will be able to enter this sector."
+	var counted int
+	if _, err := fmt.Sscanf(strings.TrimPrefix(would.Consequence, onlyPersona), " %d people", &counted); err != nil {
+		t.Fatalf("the consequence = %q, want %q and then how many people lose access: %v", would.Consequence, onlyPersona, err)
+	}
+	if counted <= len(would.Names) {
+		t.Errorf("the consequence counts %d people and the warning names %d, want more counted than named: the portal's members are counted, and a marshal does not list them", counted, len(would.Names))
+	}
+	if want := fmt.Sprintf("%s %d people seated here sign in another way and will lose access. The %d of them you may list are named here.", onlyPersona, counted, len(would.Names)); would.Consequence != want {
+		t.Errorf("the consequence = %q, want %q", would.Consequence, want)
 	}
 	if got, want := rigger.domains(ctx), []string{anvil, bastion}; !slices.Equal(got, want) {
 		t.Fatalf("the rigger's chart after the warning = %v, want %v: asking writes nothing", got, want)
@@ -395,18 +407,6 @@ func TestDirectoryOnly_theSwitchIsHeldToItsRules(t *testing.T) {
 	// And a call that leaves it on is plain too.
 	if status, body := turn(governor, bastion, true); status != http.StatusOK {
 		t.Errorf("turning directory only on for a sector that is directory only already, signed in with a password: status %d, want 200: %s", status, body)
-	}
-}
-
-// plural is how the warning counts the people a sector's switch would keep out.
-func plural(n int) string {
-	switch n {
-	case 0:
-		return "Everyone seated here has signed in through it"
-	case 1:
-		return "1 person seated here signs in another way"
-	default:
-		return strconv.Itoa(n) + " people seated here sign in another way"
 	}
 }
 

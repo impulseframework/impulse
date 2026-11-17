@@ -337,8 +337,8 @@ describe('TenantSignInComponent', () => {
 
     // The role is picked: the dialog asks the server what that choice will do and shows
     // its words.
-    const dialog = TestBed.inject(MatDialog).openDialogs[0].componentInstance as MethodDialogComponent;
-    dialog.form.controls['role'].setValue('TenantAdministrator');
+    const dialog = TestBed.inject(MatDialog).openDialogs[0]?.componentInstance as MethodDialogComponent;
+    dialog.form.controls['role']?.setValue('TenantAdministrator');
     await new Promise((resolve) => setTimeout(resolve, MethodDialogComponent.rehearsalDelay + 50));
     await turn();
     expect(dialogText('.warning-consequence')).toBe(wouldOpen('TenantAdministrator').consequence);

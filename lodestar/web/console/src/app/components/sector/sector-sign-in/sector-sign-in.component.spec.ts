@@ -331,8 +331,8 @@ describe('SectorSignInComponent', () => {
     expect(runButton().disabled).toBe(true);
 
     // The role is picked: the dialog asks the server what that choice will do and shows its words.
-    const dialog = TestBed.inject(MatDialog).openDialogs[0].componentInstance as MethodDialogComponent;
-    dialog.form.controls['role'].setValue('Pilot');
+    const dialog = TestBed.inject(MatDialog).openDialogs[0]?.componentInstance as MethodDialogComponent;
+    dialog.form.controls['role']?.setValue('Pilot');
     await new Promise((resolve) => setTimeout(resolve, MethodDialogComponent.rehearsalDelay + 50));
     await turn();
     expect(dialogText('.warning-consequence')).toBe(wouldOpen('Pilot').consequence);
