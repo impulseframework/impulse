@@ -305,6 +305,18 @@ describe("identityPages, a tenant's side", () => {
   const pages = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope: 'domain' });
   const [people, invitations] = pages;
 
+  it('shows who a directory-only tenant keeps out, where the list of its people says it', () => {
+    const withSwitch = (resource: Resource): ResourceMeta =>
+      resource === 'CrewSectorUsers'
+        ? fields('id', 'domainId', 'username', 'name', 'lastSignInAt', 'heldElsewhere', 'heldGlobally', 'cannotEnter')
+        : resourceMeta(resource);
+    // The pages are made once for a description, so this record's are asked of its own.
+    const [kept] = identityPages({ ...descriptor }, withSwitch, { auth: 'Crew', scope: 'domain' });
+    expect(columns(list(kept)).at(-1)).toEqual(['cannotEnter', 'Cannot enter']);
+    // A tenant record with no switch carries no such fact, and the page no such column.
+    expect(columns(list(people)).map(([id]) => id)).not.toContain('cannotEnter');
+  });
+
   it("builds the people and the invitations under the API's tenant segment", () => {
     expect(pages.map((page) => [page.routeData.route, page.page?.label, page.page?.icon])).toEqual([
       ['sectors/:sectorID/crew-people', 'People', 'group'],

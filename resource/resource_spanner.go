@@ -446,6 +446,9 @@ type SpannerReadWriteTransaction struct {
 	// secrets are the secret keys of the client the transaction runs on, nil when it
 	// holds none: a patch that sets a secret field is then refused.
 	secrets *SecretKeys
+	// directories notes what the transaction's writes do to tenants' directories and
+	// directory-only switches, which its own reads do not see (TenantDirectoryRules).
+	directories *directoryWrites
 }
 
 // NewSpannerReadWriteTransaction creates a new SpannerReadWriteTransaction from a
@@ -473,7 +476,14 @@ func newSpannerReadWriteTransaction(txn *spanner.ReadWriteTransaction, buffered 
 		touchedRows:      touched,
 		committed:        committed,
 		secrets:          nil,
+		directories:      newDirectoryWrites(),
 	}
+}
+
+// directoryWrites answers the transaction's note of what its writes do to tenants'
+// directories and directory-only switches.
+func (c *SpannerReadWriteTransaction) directoryWrites() *directoryWrites {
+	return c.directories
 }
 
 // WithSecretKeys gives the transaction the application's secret keys, which it seals a

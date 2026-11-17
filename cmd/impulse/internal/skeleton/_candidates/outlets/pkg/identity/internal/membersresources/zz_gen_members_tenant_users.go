@@ -38,6 +38,8 @@ type membersTenantUserRead struct {
 	LastSignInAt           *time.Time   `json:"lastSignInAt"`
 	HeldElsewhere          bool         `json:"heldElsewhere"`
 	HeldGlobally           bool         `json:"heldGlobally"`
+	OutsideDirectory       bool         `json:"outsideDirectory"`
+	CannotEnter            *string      `json:"cannotEnter"`
 }
 
 var membersTenantUserReadSets resource.SetCache[MembersTenantUser, membersTenantUserRead]
@@ -158,6 +160,8 @@ func (c *MembersTenantUserColumns) All() *MembersTenantUserColumns {
 		"LastSignInAt",
 		"HeldElsewhere",
 		"HeldGlobally",
+		"OutsideDirectory",
+		"CannotEnter",
 	}
 
 	return c
@@ -235,6 +239,18 @@ func (c *MembersTenantUserColumns) HeldGlobally() *MembersTenantUserColumns {
 	return c
 }
 
+func (c *MembersTenantUserColumns) OutsideDirectory() *MembersTenantUserColumns {
+	c.fields = append(c.fields, "OutsideDirectory")
+
+	return c
+}
+
+func (c *MembersTenantUserColumns) CannotEnter() *MembersTenantUserColumns {
+	c.fields = append(c.fields, "CannotEnter")
+
+	return c
+}
+
 type MembersTenantUserQueryPartialClause struct {
 	partialClause resource.PartialQueryClause
 }
@@ -265,6 +281,10 @@ func (p MembersTenantUserQueryPartialClause) HeldElsewhere() MembersTenantUserQu
 
 func (p MembersTenantUserQueryPartialClause) HeldGlobally() MembersTenantUserQueryIdent[bool] {
 	return MembersTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("HeldGlobally", p.partialClause, true)}
+}
+
+func (p MembersTenantUserQueryPartialClause) OutsideDirectory() MembersTenantUserQueryIdent[bool] {
+	return MembersTenantUserQueryIdent[bool]{Ident: resource.NewIdent[bool]("OutsideDirectory", p.partialClause, true)}
 }
 
 type MembersTenantUserQueryClause struct {
@@ -379,6 +399,14 @@ func (c *membersTenantUserSort) HeldElsewhere() *MembersTenantUserSort {
 
 func (c *membersTenantUserSort) HeldGlobally() *MembersTenantUserSort {
 	return c.addField("HeldGlobally")
+}
+
+func (c *membersTenantUserSort) OutsideDirectory() *MembersTenantUserSort {
+	return c.addField("OutsideDirectory")
+}
+
+func (c *membersTenantUserSort) CannotEnter() *MembersTenantUserSort {
+	return c.addField("CannotEnter")
 }
 
 type MembersTenantUserSort struct {

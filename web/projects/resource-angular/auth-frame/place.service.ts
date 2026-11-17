@@ -16,6 +16,17 @@ export interface Place {
   readonly label: string;
 }
 
+/**
+ * A tenant the person holds a seat in and this session cannot enter: its name, and the
+ * server's reason in a sentence ("Acme admits only people who sign in through its own
+ * directory. You signed in with a password.").
+ */
+export interface ClosedPlace {
+  readonly id: string;
+  readonly label: string;
+  readonly reason: string;
+}
+
 /** What the remembered value says for the place outside every tenant. */
 const rememberedOutside = '@outside';
 
@@ -64,6 +75,18 @@ export class PlaceService {
       .sort((a, b) => a.label.localeCompare(b.label));
     return this.holdsOutside() ? [this.outside(), ...tenants] : tenants;
   });
+
+  /**
+   * The tenants that are closed to this sign-in, by name: the person holds a seat in each
+   * and the session cannot enter it, for the reason the server gives. They are no places
+   * to work in or to land on; the place switcher lists them under the person's places,
+   * marked, so a seat is never missing without a word.
+   */
+  readonly closed = computed<readonly ClosedPlace[]>(() =>
+    [...this.auth.closedDomains()]
+      .map(([id, reason]) => ({ id, label: this.client.permissions.domainName(id), reason }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
+  );
 
   /** The place the page is in. */
   readonly current = computed<Place>(() => {

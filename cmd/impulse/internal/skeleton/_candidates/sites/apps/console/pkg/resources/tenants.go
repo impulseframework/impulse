@@ -54,10 +54,12 @@ type (
 		// carries it, so the place switcher shows it to them.
 		// @tenantName
 		Name string `spanner:"Name"`
-		// DirectoryOnly says the tenant's people enter through its directory only: a
-		// password does not reach the tenant. Set by whoever holds the record's Update
-		// grant on the column (Administrator), never at creation: a new tenant
-		// declares nothing.
+		// DirectoryOnly says the tenant's people enter through its directory only: no
+		// other sign-in reaches the tenant, and the flag closes this tenant alone. Set by
+		// whoever holds the record's Update grant on the column (Administrator), never at
+		// creation: a new tenant declares nothing. The generated
+		// update refuses turning it on until the tenant has its directory, and unless
+		// the caller is signed in through it.
 		// @directoryOnly
 		DirectoryOnly bool `spanner:"DirectoryOnly"`
 	}

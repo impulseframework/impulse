@@ -23,9 +23,9 @@ import (
 // persona's login is not taken at the directory's word: the sign-in waits for that
 // persona's password, which links the identity and opens the session as the persona.
 // That is the persona's first sign-in through Cinder's directory, so the link gives
-// her Cinder's default role beside the seats she held; her directory session then
-// enters Cinder, whose directory it came through, and her password session the sectors
-// that admit a password. The fleet administers its Workspace
+// her Cinder's default role beside the seats she held; her directory session and her
+// password session then enter the same sectors, Anvil and Cinder, since neither is
+// directory only and a sector's directory closes it to nobody. The fleet administers its Workspace
 // (auth.Directory.Administered), so a sign-in through the directory carries the
 // Workspace's second factor and is never asked for the sign-in code, the sign-in a
 // password confirmed included.
@@ -110,20 +110,20 @@ func TestConsoleGoogleLogin(t *testing.T) {
 		t.Fatalf("session after the confirmation = %v, want authenticated as marshal", sess)
 	}
 	// One account, whichever way she signs in: the role the link gave is hers in both
-	// sessions. Her password session charts Anvil, hers before, and Cinder, by its
-	// directory's default role, since both admit a password. Her directory session
-	// charts Cinder alone, the sector whose directory she came through: Anvil has no
-	// directory, and the global roles she holds exempt nobody from a sector's
-	// declaration, which a super administrator alone is.
+	// sessions, and both chart the same sectors. A sector's sign-in settings restrict
+	// its own door alone, and neither Anvil, hers before, nor Cinder, hers by its
+	// directory's default role, is directory only: each admits her by password and
+	// through the fleet's directory alike, Anvil though the directory is Cinder's.
 	if got, want := marshal.domains(ctx), []string{anvil, cinder}; !slices.Equal(got, want) {
 		t.Errorf("user-domains of the marshal's password session = %v, want %v: Anvil, hers before, and Cinder, by its directory's default role", got, want)
 	}
-	if got, want := taken.domains(ctx), []string{cinder}; !slices.Equal(got, want) {
-		t.Errorf("user-domains after the directory signed the marshal in = %v, want %v: the sector whose directory she came through", got, want)
+	if got, want := taken.domains(ctx), []string{anvil, cinder}; !slices.Equal(got, want) {
+		t.Errorf("user-domains after the directory signed the marshal in = %v, want %v: a sector that is not directory only admits her however she signed in", got, want)
 	}
 }
 
-// domains reads the session's sector footholds.
+// domains reads the sectors the session reaches: its chart, without the sectors it
+// marks closed.
 func (b *browser) domains(ctx context.Context) []string {
 	b.t.Helper()
 
@@ -137,4 +137,22 @@ func (b *browser) domains(ctx context.Context) []string {
 	}
 
 	return domains
+}
+
+// closed reads the sectors the session's chart marks closed to it, each with the
+// reason the server gives: the sectors that seat the person and that this sign-in does
+// not open.
+func (b *browser) closed(ctx context.Context) map[string]string {
+	b.t.Helper()
+
+	status, body := b.do(ctx, http.MethodGet, b.prefix+"/user-domains", nil)
+	if status != http.StatusOK {
+		b.t.Fatalf("GET %s/user-domains: status %d: %s", b.prefix, status, body)
+	}
+	closed, err := closedDomains(body)
+	if err != nil {
+		b.t.Fatalf("user-domains is not a list: %v: %s", err, body)
+	}
+
+	return closed
 }

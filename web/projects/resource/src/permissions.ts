@@ -41,16 +41,32 @@ export interface RequestOptions {
 /** The permission cache at one instant: digests by scope key, and the user's domains with their names. */
 export interface PermissionsSnapshot {
   readonly digests: ReadonlyMap<string, PermissionDigest>;
+  /** The domains the session reaches: the tenants it may enter. */
   readonly domains: readonly Domain[];
   /** Each listed domain's name, as the tenant list answers it; absent until loadDomains has run. */
   readonly names?: ReadonlyMap<Domain, string>;
+  /**
+   * The domains the person holds a seat in and this session cannot enter, each with the
+   * server's reason; absent until loadDomains has run, and empty when none is closed.
+   */
+  readonly closed?: ReadonlyMap<Domain, string>;
 }
 
-/** One tenant of the user-domains answer: the domain and its name (the domain itself where the record holds none). */
+/**
+ * One tenant of the user-domains answer: the domain and its name (the domain itself
+ * where the record holds none). `closed` marks a tenant the person holds a seat in and
+ * this session cannot enter, with the reason in a sentence the server writes ("Acme
+ * admits only people who sign in through its own directory. You signed in with a
+ * password."); it is absent for a tenant the session reaches.
+ */
 export interface UserDomain {
   readonly domain: Domain;
   readonly name: string;
+  readonly closed?: string;
 }
+
+/** No domain is closed: what closedDomains answers before the list has loaded. */
+const noneClosed: ReadonlyMap<Domain, string> = new Map();
 
 /** The digest cache key for a scope: the domain, or '' for the global scope. */
 export function digestKey(domain?: Domain): string {
@@ -122,9 +138,20 @@ export class PermissionStore {
     return this.snapshot.subscribe(listener);
   }
 
-  /** The domains where the user holds at least one grant, once loadDomains has run. */
+  /** The domains where the user holds at least one grant and that the session reaches, once loadDomains has run. */
   domains(): readonly Domain[] {
     return this.snapshot.get().domains;
+  }
+
+  /**
+   * The domains the person holds a seat in and this session cannot enter, each with the
+   * server's reason, once loadDomains has run: a tenant that admits only people who sign
+   * in through its own directory, when the person signed in another way. They are never
+   * among domains(): the tenant's routes answer the session as a tenant that does not
+   * exist, and a picker shows them marked, not as places to open.
+   */
+  closedDomains(): ReadonlyMap<Domain, string> {
+    return this.snapshot.get().closed ?? noneClosed;
   }
 
   /**
@@ -191,9 +218,12 @@ export class PermissionStore {
   /** Loads the user's domain list, each domain with its name, from the generated user-domains endpoint. */
   async loadDomains(): Promise<readonly Domain[]> {
     const listed = (await this.request<UserDomain[] | null>('GET', this.routes.domains)) ?? [];
-    const domains = listed.map((entry) => entry.domain);
+    const domains = listed.filter((entry) => !entry.closed).map((entry) => entry.domain);
     const names = new Map(listed.map((entry) => [entry.domain, entry.name] as const));
-    this.snapshot.update((snapshot) => ({ ...snapshot, domains, names }));
+    const closed = new Map(
+      listed.filter((entry) => entry.closed).map((entry) => [entry.domain, entry.closed ?? ''] as const),
+    );
+    this.snapshot.update((snapshot) => ({ ...snapshot, domains, names, closed }));
     return domains;
   }
 

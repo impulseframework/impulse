@@ -94,6 +94,14 @@ export class AuthService {
   domains = computed<readonly Domain[]>(() => this.snapshot().domains);
 
   /**
+   * The domains the person holds a seat in and this session cannot enter, each with the
+   * server's reason: a tenant that admits only people who sign in through its own
+   * directory, when the person signed in another way. Never among `domains`; the tenant
+   * picker shows them marked, with the reason. Empty until the session authenticates.
+   */
+  closedDomains = computed<ReadonlyMap<Domain, string>>(() => this.snapshot().closed ?? new Map<Domain, string>());
+
+  /**
    * The names of the feature flags that are on in this environment, as loaded when the
    * session authenticated and reloaded after the session user flipped one. Empty until
    * the session authenticates.

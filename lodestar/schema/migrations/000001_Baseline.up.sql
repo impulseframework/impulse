@@ -105,9 +105,9 @@ CREATE TABLE Sectors (
   Name STRING(MAX) NOT NULL,
   Region STRING(MAX) NOT NULL,
   Established DATE NOT NULL,
-  -- The sector's people enter through its directory only: a password does not reach a
-  -- sector whose flag is true. Half of what the sector declares about who may enter it;
-  -- the other half is its row of SectorDirectories.
+  -- The sector's people enter through its directory only: no other sign-in reaches a
+  -- sector whose flag is true, a password included. Half of what the sector declares
+  -- about who may enter it; the other half is its row of SectorDirectories.
   DirectoryOnly BOOL NOT NULL DEFAULT (FALSE),
 
   CONSTRAINT CK_Sectors_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
@@ -116,9 +116,10 @@ CREATE TABLE Sectors (
 CREATE UNIQUE INDEX SectorsByName ON Sectors(Name);
 
 -- A sector's directory, the organization its people sign in through: the sign-in method
--- (google, azure, workos) and the connection the method's identities carry (a Google
--- Workspace by the name the registration gives it, a Microsoft Entra tenant by its
--- tenant id). Nobody types a row in: it is written from a sign-in through the directory,
+-- (google, azure, workos, oidc) and the connection the method's identities carry (a
+-- Google Workspace by the name the registration gives it, a Microsoft Entra tenant by
+-- its tenant id, an OpenID Connect provider by its registration's connection, as the
+-- persona provider's is). Nobody types a row in: it is written from a sign-in through the directory,
 -- when the sector is charted or when its marshal, signed in through it, makes it the
 -- sector's. A sector has one directory and a directory belongs to one sector, which the
 -- two unique indexes below hold.
@@ -132,7 +133,7 @@ CREATE TABLE SectorDirectories (
   DefaultSeat STRING(64),
 
   CONSTRAINT CK_SectorDirectories_Id CHECK (REGEXP_CONTAINS(Id, r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$')),
-  CONSTRAINT CK_SectorDirectories_Method CHECK (Method IN ('google', 'azure', 'workos')),
+  CONSTRAINT CK_SectorDirectories_Method CHECK (Method IN ('google', 'azure', 'workos', 'oidc')),
   CONSTRAINT FK_SectorDirectories_SectorId FOREIGN KEY (SectorId) REFERENCES Sectors(Id),
 ) PRIMARY KEY (Id);
 
