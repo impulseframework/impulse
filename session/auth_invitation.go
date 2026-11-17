@@ -342,14 +342,8 @@ func (a *Auth[S, U, Tx]) invitationAccept() http.HandlerFunc {
 			// The person signed in holds another address, or came through no
 			// organization's directory where the invitation asks for one: the invitation
 			// stands, and the browser keeps carrying it.
-			var refusal *sessioninfo.LoginRefusal
-			if errors.As(err, &refusal) {
-				switch refusal.Code() {
-				case sessioninfo.RefusedInvitationAddress:
-					return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessageWithError(err, signinflow.InvitedAddressMessage(inv)))
-				case sessioninfo.RefusedOrganizationAccountRequired:
-					return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessageWithError(err, signinflow.OrganizationAccountMessage))
-				}
+			if sentence := standingRefusalSentence(err, inv); sentence != "" {
+				return httpio.NewEncoder(w).ClientMessage(ctx, httpio.NewForbiddenMessageWithError(err, sentence))
 			}
 
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
@@ -367,6 +361,26 @@ func addressOf(email *string) string {
 	}
 
 	return *email
+}
+
+// standingRefusalSentence is what a signed-in person is told when their acceptance of
+// inv by hand was refused for who they are signed in as, the invitation left standing:
+// the invited address where they hold another (invitation_address), and to sign in
+// with their organization's account where the invitation asks for one
+// (organization_account_required). "" for any other error.
+func standingRefusalSentence(err error, inv *sessioninfo.Invitation) string {
+	var refusal *sessioninfo.LoginRefusal
+	if !errors.As(err, &refusal) {
+		return ""
+	}
+	if refusal.Code() == sessioninfo.RefusedInvitationAddress {
+		return signinflow.InvitedAddressMessage(inv)
+	}
+	if refusal.Code() == sessioninfo.RefusedOrganizationAccountRequired {
+		return signinflow.OrganizationAccountMessage
+	}
+
+	return ""
 }
 
 // invitationSignUp is Invitation().SignUp().
@@ -518,7 +532,8 @@ func (req *InvitationRequest) newTenant() (*sessioninfo.NewTenant, error) {
 		return nil, nil
 	}
 	if req.TenantID != "" || len(req.RoleNames) > 0 {
-		return nil, httpio.NewBadRequestMessage("An invitation that makes a tenant names no tenant and carries no roles: the tenant does not exist yet, and whoever accepts it becomes its first administrator.")
+		return nil, httpio.NewBadRequestMessage("An invitation that makes a tenant names no tenant and carries no roles: " +
+			"the tenant does not exist yet, and whoever accepts it becomes its first administrator.")
 	}
 	tenant := cloneNewTenant(req.NewTenant)
 	tenant.Name = strings.TrimSpace(tenant.Name)

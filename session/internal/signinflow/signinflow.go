@@ -348,7 +348,8 @@ func organizationAccountRefusal(inv *sessioninfo.Invitation) error {
 // OrganizationAccountMessage is the sentence shown for an acceptance refused because
 // the invitation is accepted through an organization's directory alone: what the
 // person does instead.
-const OrganizationAccountMessage = "This invitation is accepted with your organization's account, not with a password or a personal account. Sign in with your organization's account (Google Workspace or Microsoft Entra)."
+const OrganizationAccountMessage = "This invitation is accepted with your organization's account, not with a password or a personal account. " +
+	"Sign in with your organization's account (Google Workspace or Microsoft Entra)."
 
 // addressRefusal is the refusal (invitation_address) of an acceptance of inv by an
 // account whose address, email, is not the invited one, compared without regard to
