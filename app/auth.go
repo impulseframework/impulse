@@ -534,7 +534,8 @@ func compositeOf(expr ast.Expr, body *ast.BlockStmt) *ast.CompositeLit {
 
 // assignedValue returns the value the identifier was last assigned before its use in the
 // body: x := <value> or x = <value>, with x the only name on the left or the first of
-// two (x, err := ...), or nil.
+// two (x, err := ...), or nil. An assignment the use stands inside (x = x.With(...)) is
+// not before it: the x on its right is the value assigned earlier.
 func assignedValue(id *ast.Ident, body *ast.BlockStmt) ast.Expr {
 	if body == nil {
 		return nil
@@ -542,7 +543,7 @@ func assignedValue(id *ast.Ident, body *ast.BlockStmt) ast.Expr {
 	var value ast.Expr
 	ast.Inspect(body, func(n ast.Node) bool {
 		assign, ok := n.(*ast.AssignStmt)
-		if !ok || assign.Pos() >= id.Pos() || len(assign.Rhs) != 1 || (assign.Tok != token.DEFINE && assign.Tok != token.ASSIGN) {
+		if !ok || assign.End() > id.Pos() || len(assign.Rhs) != 1 || (assign.Tok != token.DEFINE && assign.Tok != token.ASSIGN) {
 			return true
 		}
 		if l, ok := assign.Lhs[0].(*ast.Ident); ok && l.Name == id.Name {
@@ -677,8 +678,13 @@ func (r *checkReader) follow(id *ast.Ident, steps int) bool {
 // readAuthArg applies one constructor argument to the construction: a session option
 // naming a table or cookie, the mail option, or a storage constructed with
 // impersonation, auth events, or custom data tables. body is the enclosing function's
-// body, where an identifier the storage's options take is defined.
+// body, where a name is defined: an argument given by a name the function assigned
+// reads as the value it was assigned, so a storage built on its own line is read as
+// one built in place.
 func readAuthArg(auth *Auth, arg ast.Expr, pkg, storage string, consts map[string]string, body *ast.BlockStmt) {
+	if id, ok := arg.(*ast.Ident); ok {
+		arg = assignedValue(id, body)
+	}
 	call, ok := arg.(*ast.CallExpr)
 	if !ok {
 		return
@@ -725,15 +731,44 @@ func readAuthArg(auth *Auth, arg ast.Expr, pkg, storage string, consts map[strin
 	if storage == "" {
 		return
 	}
-	readStorageArg(auth, call, storage, consts, body)
+	readStorageArg(auth, call, storage, consts, body, 0)
 }
 
-// readStorageArg looks inside a storage constructor for the options that attach tables.
-func readStorageArg(auth *Auth, call *ast.CallExpr, storage string, consts map[string]string, body *ast.BlockStmt) {
-	ast.Inspect(call, func(n ast.Node) bool {
+// maxStorageSteps bounds how many assignments the reader follows from a storage to the
+// names it was built from.
+const maxStorageSteps = 8
+
+// customDataOptions are the storage's methods that attach a custom data configuration.
+var customDataOptions = map[string]bool{"WithCustomSessionData": true, "WithCustomUserData": true}
+
+// readStorageArg looks inside a storage's construction for the options that attach
+// tables. Two names the function assigned read as their values, the way a caller
+// writes them to check a constructor's error: the storage a method is called on
+// (store.WithCustomSessionData(...)), and the configuration a custom data option takes
+// (WithCustomSessionData(sessionData)).
+func readStorageArg(auth *Auth, expr ast.Expr, storage string, consts map[string]string, body *ast.BlockStmt, steps int) {
+	if steps > maxStorageSteps {
+		return
+	}
+	follow := func(e ast.Expr) {
+		id, ok := e.(*ast.Ident)
+		if !ok || id.Name == storage {
+			return
+		}
+		if value := assignedValue(id, body); value != nil {
+			readStorageArg(auth, value, storage, consts, body, steps+1)
+		}
+	}
+	ast.Inspect(expr, func(n ast.Node) bool {
 		c, ok := n.(*ast.CallExpr)
 		if !ok {
 			return true
+		}
+		if sel, isMethod := c.Fun.(*ast.SelectorExpr); isMethod {
+			follow(sel.X)
+			if customDataOptions[sel.Sel.Name] && len(c.Args) == 1 {
+				follow(c.Args[0])
+			}
 		}
 		name, _ := qualifiedName(c.Fun, storage)
 		switch name {
