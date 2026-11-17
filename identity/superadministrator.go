@@ -21,6 +21,14 @@ import (
 //   - only a super administrator makes or removes another: giving the role, taking it
 //     away, inviting a person to it and deleting a holder's account, which takes the
 //     role with it, each take a caller who holds it;
+//   - only a super administrator changes how another signs in: a password set for a
+//     holder or taken from them, a change of password required of them, a new username,
+//     a new address (where the code of their second factor is mailed) and the unlinking
+//     of an identity each take a caller who holds the role, since each is a way to
+//     become that person or to shut them out (requireSuperAdministratorFor);
+//   - a person given the role signs in again: giving it ends every session they hold,
+//     in the transaction that gives it, so no session that began before the role
+//     carries it (AssignRole);
 //   - there is always one who can sign in: the role is not taken from the last holder
 //     whose account can sign in, and that account is neither disabled nor deleted,
 //     whoever asks.
@@ -63,6 +71,24 @@ func (m *Manager) requireSuperAdministrator(ctx context.Context, txn resource.Re
 	}
 
 	return httpio.NewForbiddenMessagef("only a super administrator %s, and you do not hold the Super Administrator role", act)
+}
+
+// requireSuperAdministratorFor refuses an act on how a person signs in, or on where the
+// code of their second factor is mailed, when the person holds the Super Administrator
+// role and the real person behind the request does not (requireSuperAdministrator): a
+// password of the caller's choosing, an address of theirs, or a sign-in the holder can no
+// longer make would hand them the role or take its holder away, and it takes a super
+// administrator to do either. act says what was asked, as the middle of a sentence
+// ("sets a super administrator's password"). A person who does not hold the role is
+// whoever's the role file says to manage; a super administrator acts on themselves and
+// on another as the role file allows; and a call outside any request goes through.
+func (m *Manager) requireSuperAdministratorFor(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, act string) error {
+	super, err := m.holdsSuperAdministrator(ctx, txn, userID)
+	if err != nil || !super {
+		return err
+	}
+
+	return m.requireSuperAdministrator(ctx, txn, act)
 }
 
 // callerActor is the real person behind the request, as the permission store names

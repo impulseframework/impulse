@@ -637,7 +637,8 @@ defines it too.
   signing in. A super administrator's session enters every tenant whatever the tenant's
   sign-in settings say, and nobody else is exempt from them
 - Who may hold it is the identity library's rule, not this one's: only a holder makes or
-  removes another, and the last holder who can sign in keeps the role and the account. A
+  removes another or changes how another signs in, a person given the role signs in
+  again, and the last holder who can sign in keeps the role and the account. A
   directory's role synchronization neither gives the role nor takes it
 
 **Note**: `CheckPolicy` writes nothing, so it is safe to run on every deploy and from any tool. A rollback's binary carries its own role file, and what the store holds that the older release cannot use is reported the same way.

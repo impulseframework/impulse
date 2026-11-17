@@ -435,3 +435,214 @@ func TestNew_superAdministratorMethods(t *testing.T) {
 		t.Errorf("New() over a scripted engine that does not say what it was built with: error = %v, want none", err)
 	}
 }
+
+// TestManager_aSuperAdministratorsSignIn pins that how a super administrator signs in is
+// changed by a super administrator alone. Each act is a way to become the person or to
+// shut them out: a password set for them or taken from them, a change of password
+// required of them, a new username, a new address, where the code of their second
+// factor is mailed, and the unlinking of an identity. An administrator the role file
+// lets manage people is refused each one for a holder, and so is a person who views as
+// a super administrator, since the real person behind the session is judged. A super
+// administrator acts on another and on themselves, the application acts outside any
+// request, and a person who does not hold the role stays whoever's the role file says.
+func TestManager_aSuperAdministratorsSignIn(t *testing.T) {
+	t.Parallel()
+
+	frank := mustUUID("55555555-5555-4555-8555-555555555555")
+	address := "dana@example.com"
+	acts := []struct {
+		name string
+		// says is the act as its refusal words it.
+		says string
+		act  func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error
+	}{
+		{
+			name: "a temporary password", says: "sets a super administrator's password",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.SetTemporaryPassword(ctx, txn, userID, "first-day")
+			},
+		},
+		{
+			name: "the removal of the password", says: "removes a super administrator's password",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.RemovePassword(ctx, txn, userID)
+			},
+		},
+		{
+			name: "a required change of password", says: "requires a super administrator to change their password",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.RequirePasswordChange(ctx, txn, userID)
+			},
+		},
+		{
+			name: "a new username", says: "renames a super administrator",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.RenameUser(ctx, txn, userID, "dana.r")
+			},
+		},
+		{
+			name: "a new address", says: "changes a super administrator's email address",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.SetEmail(ctx, txn, userID, &address)
+			},
+		},
+		{
+			name: "the unlinking of an identity", says: "unlinks a super administrator's sign-in identity",
+			act: func(ctx context.Context, txn resource.ReadWriteTransaction, m *Manager) error {
+				return m.UnlinkIdentity(ctx, txn, identityA)
+			},
+		},
+	}
+	callers := []struct {
+		name string
+		ctx  func(context.Context) context.Context
+		// held are the memberships committed; the act is on dana.
+		held    []access.MembershipKey
+		refused bool
+	}{
+		{
+			name:    "an administrator who does not hold the role is refused",
+			ctx:     func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, erin) },
+			held:    []access.MembershipKey{danaSuper, erinSteward},
+			refused: true,
+		},
+		{
+			name: "a person who views as a super administrator is refused: the session's actor is judged",
+			ctx: func(ctx context.Context) context.Context {
+				return viewedBy(asCallerThrough(ctx, managedAuth, erin), frank)
+			},
+			held:    []access.MembershipKey{danaSuper, erinSuper},
+			refused: true,
+		},
+		{
+			name:    "a caller who came through another auth is refused, whatever their id holds here",
+			ctx:     func(ctx context.Context) context.Context { return asCallerThrough(ctx, otherAuth, erin) },
+			held:    []access.MembershipKey{danaSuper, erinSuper},
+			refused: true,
+		},
+		{
+			name: "a super administrator acts on another",
+			ctx:  func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, erin) },
+			held: []access.MembershipKey{danaSuper, erinSuper},
+		},
+		{
+			name: "a super administrator acts on themselves",
+			ctx:  func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, dana) },
+			held: []access.MembershipKey{danaSuper},
+		},
+		{
+			name: "a super administrator who views as someone else acts as one",
+			ctx: func(ctx context.Context) context.Context {
+				return viewedBy(asCallerThrough(ctx, managedAuth, User(frank)), otherUser)
+			},
+			held: []access.MembershipKey{danaSuper, erinSuper},
+		},
+		{
+			name: "the application acts outside any request",
+			ctx:  func(ctx context.Context) context.Context { return ctx },
+			held: []access.MembershipKey{danaSuper},
+		},
+		{
+			name: "a person who does not hold the role is the role file's to manage",
+			ctx:  func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, erin) },
+			held: []access.MembershipKey{danaSteward, erinSteward},
+		},
+	}
+	for _, act := range acts {
+		for _, caller := range callers {
+			t.Run(act.name+": "+caller.name, func(t *testing.T) {
+				t.Parallel()
+
+				store := superStore(caller.held...)
+				store.passwords = map[impulse.UUID]bool{userID: true}
+				store.identities = map[impulse.UUID]impulse.UUID{identityA: userID, identityB: userID}
+				m, _ := newManager(t, store, superRoles)
+
+				err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+					return act.act(caller.ctx(ctx), txn, m)
+				})
+				if !caller.refused {
+					if err != nil {
+						t.Fatalf("error = %v, want the act to go through", err)
+					}
+					if len(store.writes) == 0 {
+						t.Error("buffered writes: none, want the act's")
+					}
+
+					return
+				}
+				want := "only a super administrator " + act.says + ", and you do not hold the Super Administrator role"
+				if !httpio.HasForbidden(err) || httpio.Message(err) != want {
+					t.Fatalf("error = %v, want the refusal reading %q", err, want)
+				}
+				if len(store.writes) != 0 {
+					t.Errorf("buffered writes = %v, want none", store.writes)
+				}
+			})
+		}
+	}
+}
+
+// TestManager_AssignRole_superAdministratorSignsInAgain pins that giving the Super
+// Administrator role ends every session the person holds, in the transaction that gives
+// it: their own, and the ones they established as someone else, whose reach is the
+// actor's. A super administrator signs in with a second factor and their session enters
+// every tenant, so no session that began before the role carries it. The sessions of
+// whoever gave the role stand, a person who holds the role already keeps theirs, and
+// another role ends nothing.
+func TestManager_AssignRole_superAdministratorSignsInAgain(t *testing.T) {
+	t.Parallel()
+
+	viewing, givers := mustUUID("66666666-6666-4666-8666-666666666666"), mustUUID("77777777-7777-4777-8777-777777777777")
+	given := "insert membership " + membershipText(&danaSuper)
+	tests := []struct {
+		name       string
+		held       []access.MembershipKey
+		scope      accesstypes.PolicyScope
+		role       accesstypes.Role
+		wantWrites []string
+	}{
+		{
+			name:  "the person's own sessions and the ones they hold as actor end, and the giver's stands",
+			held:  []access.MembershipKey{erinSuper, danaSteward},
+			scope: globalScope, role: accesstypes.SuperAdministrator,
+			wantWrites: []string{
+				given,
+				"end session " + sessionA.String(),
+				"end session " + viewing.String(),
+				"end impersonation " + viewing.String() + " " + revoked,
+			},
+		},
+		{
+			name:  "a person who holds the role already keeps their sessions",
+			held:  []access.MembershipKey{erinSuper, danaSuper},
+			scope: globalScope, role: accesstypes.SuperAdministrator,
+		},
+		{
+			name:  "another role ends nothing",
+			held:  []access.MembershipKey{erinSuper},
+			scope: globalScope, role: "Steward",
+			wantWrites: []string{"insert membership " + membershipText(&danaSteward)},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			store := superStore(tt.held...)
+			store.sessions = map[impulse.UUID][]impulse.UUID{userID: {sessionA}, otherUser: {givers}}
+			store.heldBy = map[string][]impulse.UUID{"dana": {viewing}}
+			m, _ := newManager(t, store, superRoles)
+
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				return m.AssignRole(asCallerThrough(ctx, managedAuth, erin), txn, tt.scope, userID, tt.role)
+			})
+			if err != nil {
+				t.Fatalf("AssignRole() error = %v", err)
+			}
+			if diff := cmp.Diff(tt.wantWrites, store.writes); diff != "" {
+				t.Errorf("buffered writes (-want +got):\n%s", diff)
+			}
+		})
+	}
+}

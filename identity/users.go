@@ -180,7 +180,9 @@ func (m *Manager) EnableUser(ctx context.Context, txn resource.ReadWriteTransact
 // it commits, every request of theirs is refused, on the sessions they hold and on new
 // ones, until they have changed it. The way out is theirs alone and takes the password
 // they hold, so the requirement is refused for a user who holds none: nothing they could
-// do would lift it.
+// do would lift it. It is required of a super administrator by a super administrator
+// alone: a holder who signs in through a directory and no longer knows the password is
+// shut out by it until someone sets them another (requireSuperAdministratorFor).
 //
 // Shared rule: the session library refuses the flag on a user without a password where
 // it creates one (CreateSessionUser), and reads it on every request.
@@ -194,6 +196,9 @@ func (m *Manager) RequirePasswordChange(ctx context.Context, txn resource.ReadWr
 	}
 	if !found {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "requires a super administrator to change their password"); err != nil {
+		return err
 	}
 	if !has {
 		return httpio.NewBadRequestMessage("a password change can only be required of a user that has a password")
@@ -216,6 +221,10 @@ func (m *Manager) RequirePasswordChange(ctx context.Context, txn resource.ReadWr
 // It is for an auth whose usernames are not the addresses: where they are, the address
 // is the username, and it changes when the person verifies a new one.
 //
+// A super administrator's address is set by a super administrator alone: it is where the
+// code of their second factor is mailed, so whoever sets it receives the code
+// (requireSuperAdministratorFor).
+//
 // Shared rule: the session library's SetSessionUserEmail, which writes the address bare
 // and clears the time it was verified.
 func (m *Manager) SetEmail(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, email *string) error {
@@ -230,6 +239,9 @@ func (m *Manager) SetEmail(ctx context.Context, txn resource.ReadWriteTransactio
 		return errors.Wrap(err, "identity.Store.Username()")
 	} else if !found {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
+	}
+	if err := m.requireSuperAdministratorFor(ctx, txn, userID, "changes a super administrator's email address"); err != nil {
+		return err
 	}
 	if err := m.store.UpdateUser(ctx, txn, userID, &UserChange{Username: nil, Disabled: nil, PasswordChangeRequired: nil, Email: &EmailChange{Address: bare}, Name: nil}); err != nil {
 		return errors.Wrap(err, "identity.Store.UpdateUser()")

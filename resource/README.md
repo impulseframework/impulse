@@ -3033,7 +3033,17 @@ own, outside any request, has no caller and is the application's act):
   every auth and in no role file, held in the global partition alone. Only a holder makes
   or removes another: giving the role, taking it away, inviting a person to it and
   deleting a holder's account each take a caller who holds it, and a caller who came
-  through another Auth (`Manages`) holds no role of this one. There is always one who can
+  through another Auth (`Manages`) holds no role of this one. Only a holder changes how
+  another signs in, since each such act is a way to become the person or to shut them
+  out: setting a holder's temporary password, removing their password, requiring them to
+  change it, renaming them, setting their email address (where the code of their second
+  factor is mailed) and unlinking one of their sign-in identities each take a caller who
+  holds the role, whatever the role file grants; a holder acts on themselves and on
+  another holder as the role file allows. The caller these rules judge is the real
+  person behind the session: a person who views as a super administrator is not one. A
+  person given the role signs in again: giving it ends every session they hold, in the
+  same transaction, so no session that began before the role carries it, and the
+  sessions of whoever gave it stand. There is always one who can
   sign in: the role is not taken from the last holder whose account is not disabled, and
   that account is neither disabled nor deleted, whoever asks, the application's own
   transactions included. What the role does is fixed where the engine is built: the
