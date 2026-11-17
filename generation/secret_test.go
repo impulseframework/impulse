@@ -30,7 +30,7 @@ func lockbox(t *testing.T, structs map[string]*parser.Struct, mutate func(*resou
 
 	return fixtureResource(t, structs, "Lockbox", func(res *resourceInfo) {
 		secretField(t, res, "Name").SpannerType = "STRING(64)"
-		secretField(t, res, "Combination").SpannerType = "BYTES(105)"
+		secretField(t, res, "Combination").SpannerType = "BYTES(106)"
 		secretField(t, res, "Hint").SpannerType = "BYTES(MAX)"
 		secretField(t, res, "Hint").IsNullable = true
 		secretField(t, res, "Manifest").SpannerType = "STRING(MAX)"
@@ -64,7 +64,7 @@ func Test_resourceField_secret(t *testing.T) {
 		wantMax     int
 	}{
 		{field: "Name", wantReadTag: `json:"name"`, wantType: "string", wantGiven: "string", wantSqltype: `sqltype:"STRING(64)"`, wantMax: 64},
-		{field: "Combination", wantSecret: true, wantInputOnly: true, wantReadTag: `json:"-"`, wantType: "resource.Secret", wantGiven: "string", wantSqltype: `sqltype:"BYTES(105)"`, wantMax: 64},
+		{field: "Combination", wantSecret: true, wantInputOnly: true, wantReadTag: `json:"-"`, wantType: "resource.Secret", wantGiven: "string", wantSqltype: `sqltype:"BYTES(106)"`, wantMax: 64},
 		{field: "Hint", wantSecret: true, wantInputOnly: true, wantReadTag: `json:"-"`, wantType: "*resource.Secret", wantGiven: "*string"},
 		{field: "Manifest", wantInputOnly: true, wantReadTag: `json:"-"`, wantType: "*string", wantGiven: "*string"},
 	}
@@ -145,7 +145,7 @@ func Test_checkSecretDeclarations(t *testing.T) {
 		},
 		{
 			name:   "a secret on the smallest column with room for a value",
-			mutate: func(t *testing.T, res *resourceInfo) { secretField(t, res, "Combination").SpannerType = "BYTES(42)" },
+			mutate: func(t *testing.T, res *resourceInfo) { secretField(t, res, "Combination").SpannerType = "BYTES(43)" },
 		},
 		{
 			name:    "on a primary key",
@@ -181,7 +181,7 @@ func Test_checkSecretDeclarations(t *testing.T) {
 		{
 			name:    "on a STRING column",
 			mutate:  func(t *testing.T, res *resourceInfo) { secretField(t, res, "Combination").SpannerType = "STRING(64)" },
-			wantErr: `Lockbox.Combination: conditions:"secret" on a STRING(64) column: a stored secret is encrypted bytes; declare the column BYTES(n), n the longest value it takes plus 41, or BYTES(MAX)`,
+			wantErr: `Lockbox.Combination: conditions:"secret" on a STRING(64) column: a stored secret is encrypted bytes; declare the column BYTES(n), n the longest value it takes plus 42, or BYTES(MAX)`,
 		},
 		{
 			name: "on a list of bytes",
@@ -192,8 +192,8 @@ func Test_checkSecretDeclarations(t *testing.T) {
 		},
 		{
 			name:    "on a column with room for no value",
-			mutate:  func(t *testing.T, res *resourceInfo) { secretField(t, res, "Combination").SpannerType = "BYTES(41)" },
-			wantErr: `Lockbox.Combination: conditions:"secret" on a BYTES(41) column: sealing adds 41 bytes to a value, so the column has room for none`,
+			mutate:  func(t *testing.T, res *resourceInfo) { secretField(t, res, "Combination").SpannerType = "BYTES(42)" },
+			wantErr: `Lockbox.Combination: conditions:"secret" on a BYTES(42) column: sealing adds 42 bytes to a value, so the column has room for none; declare it BYTES(n), n the longest value it takes plus 42, or BYTES(MAX)`,
 		},
 	}
 	for _, tt := range tests {
@@ -245,7 +245,7 @@ func Test_checkSecretDeclarations_plainTypes(t *testing.T) {
 	}
 
 	for _, want := range []string{
-		`PlainLockbox.Combination: conditions:"secret" on a field typed string: a stored secret is kept encrypted, and the field's type is what says so; type the field resource.Secret and declare its column BYTES(n), n the longest value it takes plus 41, or BYTES(MAX)`,
+		`PlainLockbox.Combination: conditions:"secret" on a field typed string: a stored secret is kept encrypted, and the field's type is what says so; type the field resource.Secret and declare its column BYTES(n), n the longest value it takes plus 42, or BYTES(MAX)`,
 		`PlainLockbox.Hint: conditions:"secret" on a field typed *string: a stored secret is kept encrypted, and the field's type is what says so; type the field *resource.Secret`,
 		// Bytes on a column that allows NULL: the type to give is the nullable one.
 		`PlainLockbox.Seal: conditions:"secret" on a field typed []byte: a stored secret is kept encrypted, and the field's type is what says so; type the field *resource.Secret`,
@@ -351,7 +351,7 @@ func Test_resourceFileTemplate_secret(t *testing.T) {
 	read, write := fileStructBody(t, rendered, "lockboxRead"), fileStructBody(t, rendered, "lockboxWrite")
 	for body, wants := range map[string][]string{
 		read:  {"Combination resource.Secret", "Hint *resource.Secret", `json:"-"`},
-		write: {"Combination string", "Hint *string", `json:"combination"`, `sqltype:"BYTES(105)"`},
+		write: {"Combination string", "Hint *string", `json:"combination"`, `sqltype:"BYTES(106)"`},
 	} {
 		for _, want := range wants {
 			if !strings.Contains(strings.Join(strings.Fields(body), " "), want) {
@@ -477,7 +477,7 @@ func Test_patchTemplates_secret(t *testing.T) {
 	for handler, rendered := range map[string]string{"the consolidated handler": string(consolidated), "the resource's own handler": string(own)} {
 		flat := strings.Join(strings.Fields(rendered), " ")
 		for _, want := range []string{
-			"Combination string `json:\"combination\" sqltype:\"BYTES(105)\"",
+			"Combination string `json:\"combination\" sqltype:\"BYTES(106)\"",
 			"Hint *string `json:\"hint\"",
 		} {
 			if !strings.Contains(flat, want) {
