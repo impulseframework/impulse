@@ -262,6 +262,11 @@ func (c *client) schemaWarnings(resources []*resourceInfo) []Warning {
 		if res.IsVirtual || res.ListHandlerDisabled() || res.DomainBinding == nil {
 			continue
 		}
+		// A list across tenants wants an index of its own, whatever serves the
+		// tenant's own list.
+		if w, ok := c.acrossTenantsIndexWarning(res); ok {
+			warnings = append(warnings, w)
+		}
 		table := c.pluralize(res.Name())
 
 		if len(res.DomainBinding.Path) > 0 {

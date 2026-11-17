@@ -433,11 +433,21 @@ func (r *resourceGenerator) anyOutletServesSessions() bool {
 func (r *resourceGenerator) generateHandlers(res *resourceInfo) error {
 	handlerTypes := resourceEndpoints(res)
 
-	handlerData := make([][]byte, 0, len(handlerTypes)+len(res.Files))
+	handlerData := make([][]byte, 0, len(handlerTypes)+len(res.Files)+1)
 	for _, handlerTyp := range handlerTypes {
 		data, err := r.handlerContent(handlerTyp, res)
 		if err != nil {
 			return errors.Wrap(err, "handlerContent()")
+		}
+
+		handlerData = append(handlerData, data)
+	}
+	// The list across tenants is the list asked without the tenant's segment, so its
+	// handler follows the resource's own.
+	if res.ListsAcrossTenants {
+		data, err := r.acrossTenantsHandlerContent(res)
+		if err != nil {
+			return errors.Wrap(err, "acrossTenantsHandlerContent()")
 		}
 
 		handlerData = append(handlerData, data)

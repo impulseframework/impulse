@@ -101,6 +101,7 @@ type Ship struct { ... }
 
 | `@feature` | `@resource`, `@virtual`, `@computed`, or `@rpc` struct; field of a `@resource`, `@virtual`, or `@computed` struct | the flag's constant, `Debriefs` | Puts the resource, the field, or the method behind a feature flag, so it exists for the browser and the API only while the flag is on (section 15). The argument is the identifier of a `resource.Feature` constant declared in the resources package (`const Debriefs resource.Feature = "debriefs"`, its doc comment the flag's description); the constant's value is the flag's name, `[a-z][a-z0-9_]{0,63}`, and a name declared twice, a malformed name, an unknown identifier, or a value in place of the identifier is refused at generation naming the constants. On a struct every route of the resource or the method answers 404 while the flag is off, exactly as an unregistered route does, its consolidated arm answers as an unknown resource, and the resource, its fields and the method are absent from the permission digest. On a field the decoders answer the field as unknown while the flag is off (a 400 on `columns`, `sort`, `filter` and a patch body naming it) and the handlers leave it out of every response; a primary key, the tenant key, the state column, a `@file` key, and a column a create must supply (NOT NULL with no default, on a resource that serves a create) cannot be gated, and an `@rpc` struct's fields are not gated one by one. The TypeScript metadata and the descriptor carry `feature: '<name>'` on the gated entry, and the client file declares the `Feature` union and constants. |
 | `@searchAlso` | `@resource` struct | `Child.Field`, and `via: Column` where the child has several foreign keys to the parent | Adds a child table's text to the resource's search box (section 4): a term the box searches is found in the parent's own searchable fields or in the named child field, and the parent row is admitted when any of its child rows matches. The child is a table-backed `@resource` of the same package one hop down a foreign key to the parent's single-column key, under the same tenancy (both tenant-scoped on the row, or both global), and the child field carries a search fact (a token column in the child's search index); each is refused otherwise, naming the rule. The child field's own grant governs the branch: a caller denied the field searches the parent without it, a conditional grant conjoins its condition inside the branch. The generated resource declares `SearchBranches()`, the metadata lists the branch in `searchFields` under its dotted name (`clientContact.displayName`), and a box over the parent reads one key set per term (section 4). Generation warns where the child's search index does not store the foreign key, since every matching child row is then read back for its key. Example: [Client](../lodestar/pkg/resources/clients.go). |
+| `@listAcrossTenants` | `@resource` or `@virtual` struct with `@permissionScope(domain)` | none | Serves the resource's list a second time without the tenant's segment: `GET` (and `POST`) `/<prefix>/<resources>` reads the resource's rows in every tenant the session reaches in which the caller holds the List grant, with one filter, one sort, one page and one count across them (section 4, a list across tenants). Each row is checked under the caller's grants in its own tenant and carries the reserved `zzTenant` property, the tenant it is in. Only a declared resource gets the route, and the tenant's own list is unchanged by the declaration. It adds the handler `<Plural>AcrossTenants` beside the list handler, the route on the outlets and behind the `@feature` flag the resource declares, outside the `DomainGuard`, and `acrossTenants: true` on the resource's TypeScript descriptor, which gives the browser client `client.acrossTenants.<resources>`. It adds no permission: the list is the resource's List grant, asked in each tenant. Reads only: every write stays inside one tenant. Refused on a global resource (there is no tenant to read across), on a resource whose list is suppressed, on a `@computed` resource (its rows come from the application's own function, which answers for the one tenant it is handed) and on an `@rpc` struct, and where another route of the outlet already answers at the list's path (an RPC method named as the resource's plural). A column or field named `zzTenant` is refused on every resource, as the other reserved row names are. Generation warns where a declared table-backed resource with an `@order` has no index that leads with the order columns and carries the tenant column (section 9). Example: [Mission](../lodestar/pkg/resources/missions.go). |
 | `@formerly` | field of a `@resource` or `@virtual` struct; field of an `@rpc` struct or of the struct its `Execute` answers with; `@rpc` struct | the former name as it was written, `Title` | Keeps a renamed field or method answering under its former name while applications built before the rename are still answered (section 18). The column never changes; only the wire name moves, and the former wire name derives from the argument as the current one does from the field (`@formerly(Title)` on `Headline` answers `title` beside `headline`). On a field, a request body naming the former name is read as the current one and a body naming both is refused with a 400 saying to send one; `columns`, `sort` and `filter` take either name, with the permission checks running against the current field; and every row carries both keys, each masked when the field is. On an `@rpc` struct the router registers the former route (`/release` beside `/publish`) on the same handler, and the generated router test drives both. The generated collection carries the former names (`TagData.Formerly` on a field, `CollectionResource.Formerly` on a method), and the permission digest mirrors a renamed field's or method's entry under its former name, so an application built before the rename keeps its column or its action. The TypeScript knows only the current name. A former name equal to the current one, or to another field's or method's name or former name, is refused at generation, as is the annotation on a `@computed` struct and the struct form on a `@resource` or `@virtual` struct. |
 Exactly one of `@resource`, `@virtual`, `@computed`, or `@rpc` may appear on a struct. The generator refuses a struct carrying more than one, naming the kinds it found.
 
@@ -254,6 +255,7 @@ none of them can be used as field names in filters:
 | `offset` | Removed. A request carrying it is refused with a 400 naming `cursor` as its replacement; pages are positioned by the row the cursor names, not by a count of rows to skip. |
 | `_v` | The live pages' version (section 14): a client holding a live row or list appends it so the browser's cache keys the answer by the change it last saw. 1 to 64 characters of `[A-Za-z0-9_.:-]`; accepted and skipped, never a filter. A list or read response to a request carrying it is the one response that carries `Cache-Control: private, max-age=300`. |
 | `capabilities` | Comma-separated write permissions (`Create`, `Update`, `Delete`, `Execute`) to evaluate per row — the §13 capability envelope. Each returned row gains the reserved `zzCapabilities` property: `Update` carries the positive list of editable JSON field names, every field the caller may write on the row whether or not the read projected it, in name order (a write-only `input_only` field, which no read returns, is named when the caller's Update grant covers it, so an edit form draws its blank input), `Delete` a boolean, `Execute` the positive list of `@target` methods that apply to the row — a declared `@transition` requires the row's pre-image state in its `from` set, a conditional Execute grant ANDs its condition into the same boolean (a plain `@target` method's is the condition alone; unconditional plain methods are structural, no SQL), and the user holds the method's Execute grant — and `Create` the positive list of workflow member resources the user may create beneath the row (§11): the members whose immediate `@stateRoot` hop is this resource, gated by the user's member Create grants, a conditional grant's state terms evaluated against this row's own uniform state binding while terms the parent row cannot answer count potentially-true (an unconditional member grant is structural, no SQL). Advisory hints computed from the same row image and decision instant as the read (conditions render as booleans in the same statement; pure RBAC adds no SQL; a `new.`-referencing term counts potentially-true while the rest of its condition still renders). Enforcement is unchanged. |
+| `domains` | On a list across tenants alone (`@listAcrossTenants`, below): the filter on the tenant, tenant keys separated by commas, `domains=<key>,<key>`. The list reads the named tenants among those it would read without the parameter, down to one. A tenant the session does not reach, or one that does not exist, contributes nothing and is never an error, so the answer never says whether a tenant exists; an empty entry is a 400. On every other route, the tenant's own list included, it is an unknown parameter. |
 
 **Dates and times.** A filter value on a date or timestamp column is read the way a
 person writes a date, and means the whole of what is written: `deadline:eq:2026-12-15`
@@ -425,6 +427,55 @@ request: it has no read route, no page, and no row identity, and a numeric `limi
 `cursor` on it is a 400 naming `@primarykey` as the way to page. A list served cross-origin must
 add `Link` and `Total-Count` to the CORS exposed headers, or the browser client cannot
 read them.
+
+**A list across tenants.** A tenant-scoped resource is served under its tenant's segment,
+one tenant to a request. A resource that declares `@listAcrossTenants` (section 1) is
+also served without the segment, and that one request reads its rows in a set of
+tenants: every tenant the session reaches (the tenants `user-domains` lists, section 5)
+in which the caller holds the resource's List grant, narrowed by `domains` when the
+request carries it. The request is the list request above in every other respect: the
+same `columns`, `filter`, `sort`, `limit`, `cursor` and `count`, one order and one page
+across the set, and one `Total-Count` for all of it.
+
+Each row is checked in its own tenant. A person's roles differ by tenant, so the
+condition on the resource, each field's visibility and the mask are rendered for the
+caller's grants in the row's tenant: a row one tenant's grant admits is listed while
+the same row in another tenant would not be, and a field shows on the rows of the
+tenants whose grants cover it. Tenants in which the caller's checks come out the same
+share one rendering, and the statement carries one branch per such group of tenants,
+each led by the group's tenants as a bound array. A field the request names that no
+grant covers in one of the tenants is masked on that tenant's rows, left out of the
+row as any masked cell is, where the tenant's own list would refuse the request; a
+sort or a filter on it reads `NULL` there, as it does for a masked cell. The request is
+refused (403) only where a field it names by `columns`, `sort` or `filter` is denied in
+every tenant the list reads. A subject set follows the row: the tenant filter of a
+subject subquery compares the anchor's tenant to the row's tenant, never to a parameter,
+so a membership held in one tenant answers only for that tenant's rows. The search box
+works across the set the same way: a field's grant decides per tenant whether the box
+searches it there, and a `@searchAlso` branch is judged in the child row's own tenant.
+
+Each row says which tenant it is in, under the reserved `zzTenant` property beside its
+fields, so a page groups by tenant and opens a row inside its tenant's routes; a
+resource bound through a join path (`@domain(via: ...)`) answers the tenant the path
+resolves to. A tenant the session does not reach contributes no row and is named in no
+answer, as the tenant's guard conceals it. A caller who holds the List grant in no
+tenant, or whose `domains` names none the list would read, reads a list of no tenant:
+200 with an empty array and a count of 0, and no statement runs. A set that comes to
+exactly one tenant is that tenant's own list: the statement and its parameters are the
+ones the tenant's route renders, byte for byte, so its indexes and its plans are the
+tenant route's, its refusals are too (a named field no grant covers is a 403 there), and
+each row still carries `zzTenant`.
+
+The list is read-only and has no keyed read: a row's link names its tenant, and the row
+is read, written and asked for its `capabilities` on its page inside the tenant.
+`capabilities` on the list across tenants is refused with a 400 saying so. A cursor of
+the list is bound to the resource, the `domains` the request sent, the filter, the order
+and the page size, and is refused on the tenant's own route as that route's are refused
+here; it is not bound to the set of tenants the session reaches, which is worked out
+again on every request, so a person seated in another tenant between two pages reads
+its rows from the next page on. The list is plain: it registers no live subscription
+(section 14). On PostgreSQL the membership renders as `= ANY(@array)` where Spanner's
+is `IN UNNEST(@array)`.
 
 ## 5. The permission endpoints
 
@@ -1057,6 +1108,23 @@ much from the schema:
   prints them after a successful run, one per line as `Warning: <text>`, as Lodestar's
   does. The same program, run with `-audit`, prints the audit pass's findings after them
   as `Audit: <text>` (section 13): advisory findings a normal generation never prints.
+- A list across tenants (`@listAcrossTenants`, section 4) is not served by the index the
+  tenant's own list wants. That index leads with the tenant column, and a list over
+  several tenants has no one tenant to seek to: its statement filters the tenant column
+  against a bound array and orders by the `@order` columns across every tenant of the
+  set. It wants an index of its own that leads with the `@order` columns, in order and
+  direction, and carries the tenant column, later in its key or in `STORING`, so the
+  page is read in order and the filter on the tenant is answered from the index before
+  a row is read; without it every page reads and sorts the rows of every tenant the
+  caller reaches. Generation warns at every run for a declared table-backed resource
+  with a bare `@domain` column and an `@order` whose table has no such index, naming
+  the `CREATE INDEX ... STORING (<tenant column>)` it wants; a tenant column in the
+  primary key rides every index and needs no `STORING`. A declared resource with no
+  `@order` lists by primary key, which the table serves, and is silent; one bound
+  through a join path carries the join-path warning above. This shape is reasoned from
+  the statement and is not in the measured study the other bullets cite: the measure
+  at volume is still to be taken. A set of one tenant is the tenant's own list and
+  uses the tenant's index.
 - A search (section 4) reads the table's one search index: `CREATE SEARCH INDEX
   ClientsSearch ON Clients(Name_Search, ContactEmail_Search)`, over hidden `TOKENLIST`
   columns generated by `TOKENIZE_SUBSTRING`. A tenant-scoped resource partitions it,
