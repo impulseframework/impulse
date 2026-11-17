@@ -29,6 +29,16 @@ type (
 	// account's other columns are no filter keys, so a role file may grant any of them
 	// under a condition at no cost to a page.
 	//
+	// Two more columns say what the tenant's directory-only switch does to the person.
+	// OutsideDirectory says the person has no sign-in through the tenant's directory, so
+	// the switch keeps them out while it is on: it is who turning the switch on would
+	// shut out, asked before it is on. CannotEnter is the sentence the list shows while
+	// the tenant is directory only, on the row of a person it keeps out ("Has not signed
+	// in through acme.example, so cannot enter while this tenant is directory only"), and
+	// nothing on every other row. The list is made from who holds a role in the tenant,
+	// not from who can sign in, so a person the switch keeps out stays in it with their
+	// roles. A super administrator is outside no tenant's directory.
+	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet(portal)
@@ -50,7 +60,9 @@ type (
 		// @attribute(heldElsewhere)
 		HeldElsewhere bool `spanner:"HeldElsewhere" index:"true"`
 		// @attribute(heldGlobally)
-		HeldGlobally bool `spanner:"HeldGlobally" index:"true"`
+		HeldGlobally     bool    `spanner:"HeldGlobally"     index:"true"`
+		OutsideDirectory bool    `spanner:"OutsideDirectory" index:"true"`
+		CannotEnter      *string `spanner:"CannotEnter"`
 	}
 )
 
@@ -91,7 +103,23 @@ SELECT
     SELECT 1 FROM MembersGroupMembers gm JOIN MembersGroups gg ON gg.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND gg.Kind = 'global'
       AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
-  )) AS HeldGlobally
+  )) AS HeldGlobally,
+  (td.TenantId IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM MembersSessionIdentities di
+    WHERE di.UserId = u.Id AND di.Method = td.Method AND di.Connection = td.Connection
+  ) AND NOT EXISTS (
+    SELECT 1 FROM MembersUserRoles sa
+    WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'
+  )) AS OutsideDirectory,
+  IF(ts.DirectoryOnly AND td.TenantId IS NOT NULL AND NOT EXISTS (
+    SELECT 1 FROM MembersSessionIdentities di
+    WHERE di.UserId = u.Id AND di.Method = td.Method AND di.Connection = td.Connection
+  ) AND NOT EXISTS (
+    SELECT 1 FROM MembersUserRoles sa
+    WHERE sa.UserId = u.Id AND sa.Kind = 'global' AND sa.Role = 'SuperAdministrator'
+  ),
+    CONCAT('Has not signed in through ', td.Connection, ', so cannot enter while this tenant is directory only'),
+    NULL) AS CannotEnter
 FROM (
   SELECT m.DomainId AS DomainId, m.UserId AS UserId
   FROM MembersUserRoles m
@@ -128,6 +156,8 @@ FROM (
     AND (gm.StartsAt IS NULL OR gm.StartsAt <= CURRENT_TIMESTAMP()) AND (gm.EndsAt IS NULL OR gm.EndsAt > CURRENT_TIMESTAMP())
 ) t
 JOIN MembersSessionUsers u ON u.Id = t.UserId
+LEFT JOIN Tenants ts ON ts.Id = t.DomainId
+LEFT JOIN TenantDirectories td ON td.TenantId = ts.Id
 `
 
 // Subquery is the query the rows are read from.

@@ -58,19 +58,26 @@ deploy configuration: the tenant's directory, the organization its people sign i
 through (`TenantDirectory`, one row at most under `/console/api/tenants/{tenantID}/tenant-directories`:
 a sign-in method and the connection its identities carry, a Microsoft Entra tenant by its
 tenant id or a Google Workspace by its domain) and whether its people enter through it
-only (`Tenant.DirectoryOnly`, which closes passwords). A tenant has one directory and a
+only (`Tenant.DirectoryOnly`, which closes the tenant to every sign-in but one through
+its directory). A tenant has one directory and a
 directory belongs to one tenant: the table's two unique indexes hold both, and the
 generated write paths refuse first, each with a sentence the person can act on. Both
 auths' sign-in rules are the
 library's tenant policy over it (`signin.TenantPolicy`, handed the generated
 `app.NewTenantDeclarationReader`, which reads the declaration in the sign-in's own
-transaction): a sign-in through a directory is admitted when it is the directory of one
-of the person's tenants (the portal's members come through the Entra directory the
-members auth registers, which the development seed makes North's alone, so South's
-members reach South once South has a directory of its own), a password
-unless every one of their tenants is directory only, staff (a global role) on the
-library's checks, and a person holding no tenant is refused. Which tenants the session
-then reaches is decided again per tenant where its tenant list is computed: the data
+transaction): a tenant's declaration restricts its own door alone, so a tenant that is
+not directory only admits everyone it seats, however they signed in, a directory-only
+tenant admits a sign-in through its own directory and nothing else, and a person is
+refused only when every tenant that seats them is closed to the way they signed in (the
+portal's members come through the Entra directory the members auth registers, which the
+development seed makes North's, and reach South as well while South is not directory
+only). A super administrator is admitted whatever a tenant declares, a person holding a
+role outside any one tenant (a global role, or one held in every tenant) is admitted and
+then enters a tenant only where its declaration admits their session, and a person
+holding no tenant is refused. Which tenants the session
+then reaches is decided again per tenant where its tenant list is computed, and a tenant
+that seats the person and is closed to their session stays in the list marked closed,
+with the reason: the data
 level's roster keeps every tenant's declaration beside its key
 (`resource.TenantRoster.Declarations`, handed to `resource.SessionPermissions`), the
 records' write paths reload it after their commit and signal the other instances, so a
@@ -78,12 +85,15 @@ declaration decides the next request, and the records' change events are the aud
 every edit. The console's tenant pages carry the declaration at
 `/tenants/{tenantID}/sign-in`: the tenant's administrator sees the tenant's directory
 there, picks its default role and removes it, and the application's administrator sets
-directory only. Nobody types a directory in: it is set from a sign-in, by an
+directory only, which the server allows only once the tenant has its directory and only
+to a person signed in through it, after the page has shown the server's sentence and the
+people it would keep out. Nobody types a directory in: it is set from a sign-in, by an
 administrator who is signed in through their organization's directory, whom the page
 offers to make it the tenant's. The staff auth signs in by password until a directory
 method joins it (`impulse add method`), so until then the page offers no such action, a
-call is refused with how a directory is set, and the directory a tenant has is the one
-the seed gave it.
+call is refused with how a directory is set, the directory a tenant has is the one
+the seed gave it, and directory only cannot be turned on, since that takes a person who
+is signed in through the tenant's directory.
 
 The release ships a program for the devices: the sensor, `cmd/sensor`, declared on the
 devices outlet in `cmd/generate/resourcegenerator/generator.go` with
@@ -294,14 +304,20 @@ transaction). The generator refuses a `secret` field typed a plain `string`.
 
 The key is the application secret, which `pkg/config` declares
 (`env:"APP_SECRET_KEY" secret:"versioned"`) and reads into the resource client's secret
-keys. It is kept in versions, each in a variable of its own: `.envrc.template` sets
-`APP_SECRET_KEY_1` to a development value, and a deployment generates the secret and hands
-the service every enabled version (`APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`), the highest the
-current one. An application with a secret field refuses to start without a version. A
+keys. It is kept in versions, each in a variable of its own. `.envrc.template` makes
+`APP_SECRET_KEY_1` for the checkout: 32 random bytes, written to `.app-secret-key.dev` the
+first time the file is sourced from the application's root and read from it from then on,
+with `.gitignore` keeping that file out of git, so no key is written in a tracked file
+and deleting the file leaves the development database's secrets unreadable. A deployment
+generates the secret and hands the service every enabled version (`APP_SECRET_KEY_1`,
+`APP_SECRET_KEY_2`), the highest the current one. An application with a secret field
+refuses to start without a version, naming the variable. A
 version is retired, before the deployment disables it, by the migrate command
 (`-retire-secret APP_SECRET_KEY_1`), which writes every stored value that names it again
-under the current version. The framework's `resource/README.md`, "Secrets at rest", has
-the whole of it.
+under the current version. It reads the resources packages `pkg/deploy` hands it
+(`SecretHolders()`, which the generator writes into each), and `impulse check`
+(`secret-holders`) fails when a package is left out of that call. The framework's
+`resource/README.md`, "Secrets at rest", has the whole of it.
 
 ## Running it
 

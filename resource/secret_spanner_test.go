@@ -569,3 +569,59 @@ func TestSpannerClient_secret_retire(t *testing.T) {
 		t.Errorf("the retirements wrote %d change record(s), want none: no value changed", now-recorded)
 	}
 }
+
+// Over the emulator: a retirement over values that do not open, more of them than one
+// transaction's worth and sorted before the values that open, in two tables, the first
+// with a key of two columns (retireValuesThatDoNotOpen).
+func TestSpannerClient_secret_retireValuesThatDoNotOpen(t *testing.T) {
+	t.Parallel()
+
+	db := forkDatabase(t, "sealed-rows-unopened")
+	ctx := context.Background()
+	apply := func(mutation *spanner.Mutation) {
+		t.Helper()
+
+		if _, err := db.Apply(ctx, []*spanner.Mutation{mutation}); err != nil {
+			t.Fatalf("writing the row past the resource layer: %v", err)
+		}
+	}
+	read := func(sql string) map[string][]byte {
+		t.Helper()
+
+		stored := map[string][]byte{}
+		if err := db.Single().Query(ctx, spanner.NewStatement(sql)).Do(func(row *spanner.Row) error {
+			var (
+				id   string
+				code []byte
+			)
+			if err := row.Columns(&id, &code); err != nil {
+				return fmt.Errorf("reading the stored row: %w", err)
+			}
+			stored[id] = code
+
+			return nil
+		}); err != nil {
+			t.Fatalf("reading the stored rows: %v", err)
+		}
+
+		return stored
+	}
+
+	retireValuesThatDoNotOpen(t, retireStore{
+		client: func(keys *SecretKeys) Client {
+			return NewSpannerClient(db, WithSecretKeys(keys))
+		},
+		putRow: func(id string, sealed []byte) {
+			apply(spanner.InsertOrUpdate("SealedRows", []string{"Id", "Title", "AccessCode"}, []any{id, "sealed", sealed}))
+		},
+		putPair: func(vault, shelf string, sealed []byte) {
+			apply(spanner.InsertOrUpdate("SealedPairRows", []string{"Vault", "Shelf", "Number"}, []any{vault, shelf, sealed}))
+		},
+		rows: func() map[string][]byte {
+			return read("SELECT Id, AccessCode FROM SealedRows")
+		},
+		pairs: func() map[string][]byte {
+			return read("SELECT CONCAT(Vault, '/', Shelf), Number FROM SealedPairRows")
+		},
+	})
+}

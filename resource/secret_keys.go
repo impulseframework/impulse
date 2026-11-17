@@ -130,19 +130,26 @@ func workingKey(secret []byte, use string, version int) ([]byte, error) {
 // random bytes in Base64. environ is os.Environ(): the whole list is read, so every
 // variable the name numbers is either a version or an error, and none is passed over.
 //
-// With no version in the environment it answers no keys and no error: an application
-// that stores no secret runs without the variable, and one that stores a secret is
-// refused at start by its generated router (RequireSecretKeys). A variable that is set
-// and does not hold a version is an error naming the variable, never its value. The
-// declared name with no version number is no version, and is not read. A stored value
+// With no version in the environment it answers no error and a holder that holds no
+// key: an application that stores no secret runs without the variable, and one that
+// stores a secret is refused at start by its generated router (RequireSecretKeys), which
+// names the variable that is missing from the name the holder was read under. A variable
+// that is set and does not hold a version is an error naming the variable, never its
+// value. The declared name with no version number is no version, and is not read: set to
+// a value with no numbered version beside it, it is the secret put in the wrong
+// variable, and is refused by name with the variable to use. A stored value
 // names the version that sealed it in two bytes, so versions run from 1 to 65535: the
 // variable of a version past the last is an error, since the service would otherwise go
 // on sealing under an older version than the deployment's newest, and so is the
 // variable of version 0, which no deployment hands over.
 func SecretKeysFromEnv(name string, environ []string) (*SecretKeys, error) {
 	versions := make(map[int][]byte)
+	unnumbered := false
 	for _, entry := range environ {
 		variable, encoded, _ := strings.Cut(entry, "=")
+		if variable == name && encoded != "" {
+			unnumbered = true
+		}
 		number, numbered := strings.CutPrefix(variable, name+"_")
 		if !numbered || number == "" || strings.Trim(number, "0123456789") != "" {
 			continue
@@ -164,7 +171,13 @@ func SecretKeysFromEnv(name string, environ []string) (*SecretKeys, error) {
 		versions[version] = secret
 	}
 	if len(versions) == 0 {
-		return nil, nil
+		if unnumbered {
+			return nil, errors.Newf("%s is set, and the application secret is read one variable for each version, never from the name itself: name the variable %s_1 (a deployment hands over %s_1, %s_2 and so on, the highest the current one)", name, name, name, name)
+		}
+
+		// No key, and the name the versions would have been read under, which the
+		// refusals of a holder with no key name the missing variable from.
+		return &SecretKeys{current: 0, fields: nil, variable: name}, nil
 	}
 	keys, err := NewSecretKeys(versions)
 	if err != nil {
@@ -204,7 +217,7 @@ func (k *SecretKeys) Versions() []int {
 // key order; the write path, which calls this for a patch, takes it from the patch.
 func (k *SecretKeys) Seal(key KeySet, plain string) (Secret, error) {
 	if !k.held() {
-		return Secret{}, errNoSecretKeys()
+		return Secret{}, k.errNoKeys()
 	}
 	context, err := secretContext(key)
 	if err != nil {
@@ -228,7 +241,7 @@ func (k *SecretKeys) Seal(key KeySet, plain string) (Secret, error) {
 // for another row or altered answer ErrSecretNotOpened.
 func (k *SecretKeys) Open(key KeySet, stored Secret) (string, error) {
 	if !k.held() {
-		return "", errNoSecretKeys()
+		return "", k.errNoKeys()
 	}
 	if stored.IsZero() {
 		return "", errors.New("the secret holds no value to open")
@@ -269,8 +282,25 @@ func (k *SecretKeys) OpenNullable(key KeySet, stored *Secret) (*string, error) {
 	return &plain, nil
 }
 
-// errNoSecretKeys is the refusal of sealing or opening with no key holder.
-func errNoSecretKeys() error {
+// missingVersion says which variable a holder that was read from the environment
+// (SecretKeysFromEnv) and holds no key is missing, and what to set it to; empty for no
+// holder and for one that was not read from the environment.
+func (k *SecretKeys) missingVersion() string {
+	if k == nil || k.variable == "" {
+		return ""
+	}
+
+	return fmt.Sprintf("no version of the application secret was handed over: %s_1 is not set. Set it to %d random bytes in Base64 (openssl rand -base64 %d makes one)", k.variable, applicationSecretSize, applicationSecretSize)
+}
+
+// errNoKeys is the refusal of sealing or opening with a holder that holds no key: one
+// read from an environment that carries no version names the variable that is missing,
+// and no holder at all names the wiring.
+func (k *SecretKeys) errNoKeys() error {
+	if missing := k.missingVersion(); missing != "" {
+		return errors.New(missing)
+	}
+
 	return errors.New("no secret keys: build them from the application secret's versions (resource.NewSecretKeys, resource.SecretKeysFromEnv) and hand them to the resource client with resource.WithSecretKeys")
 }
 
@@ -365,6 +395,41 @@ type secretKeyHolder interface {
 	secretKeys() *SecretKeys
 }
 
+// errNoSecretKeysOf is the refusal of using a secret through a client or a transaction
+// that holds no key: its holder's own refusal, which names the variable that is missing
+// when the holder was read from the environment.
+func errNoSecretKeysOf(holder any) error {
+	if h, ok := holder.(secretKeyHolder); ok {
+		return h.secretKeys().errNoKeys()
+	}
+
+	return (*SecretKeys)(nil).errNoKeys()
+}
+
+// secretVariableOf returns the name the versions of the application secret were read
+// from the environment under, for a client or a transaction whose holder was read from
+// it (SecretKeysFromEnv), whether or not a version was there; empty otherwise.
+func secretVariableOf(holder any) string {
+	if h, ok := holder.(secretKeyHolder); ok {
+		if keys := h.secretKeys(); keys != nil {
+			return keys.variable
+		}
+	}
+
+	return ""
+}
+
+// secretKeysGiven returns the holder a client or a transaction was given, whether or not
+// it holds a key: the write path seals with it, and a holder with no key refuses by the
+// name of the variable it was read under. nil when the client was given none.
+func secretKeysGiven(holder any) *SecretKeys {
+	if h, ok := holder.(secretKeyHolder); ok {
+		return h.secretKeys()
+	}
+
+	return nil
+}
+
 // secretKeysOf returns the secret keys a client or a transaction holds, nil when it
 // holds none.
 func secretKeysOf(holder any) *SecretKeys {
@@ -380,9 +445,10 @@ func secretKeysOf(holder any) *SecretKeys {
 // RequireSecretKeys refuses a client built with no secret keys for an application that
 // stores secrets: the generated router calls it at start with every secret field its
 // package declares, and refuses to start naming them. Without the check the first
-// write of a secret would be the first to fail. The message names the option that wires
-// the keys, never a configuration variable, since where the versions come from is the
-// application's configuration's convention.
+// write of a secret would be the first to fail. A client wired to an environment that
+// carries no version (SecretKeysFromEnv) is refused naming the variable that is missing,
+// the first version's, under the name the application declares; a client that was never
+// given a holder is refused naming the wiring.
 func RequireSecretKeys(client Client, fields ...string) error {
 	if len(fields) == 0 {
 		return nil
@@ -394,5 +460,9 @@ func RequireSecretKeys(client Client, fields ...string) error {
 		return nil
 	}
 
-	return errors.Newf("the application stores secrets (%s) and its resource client was built with no secret keys: build them from the application secret's versions (resource.NewSecretKeys, resource.SecretKeysFromEnv) and wire them on the client with resource.WithSecretKeys", strings.Join(fields, ", "))
+	if variable := secretVariableOf(client); variable != "" {
+		return errors.Newf("the application stores secrets (%s) and was handed no version of the application secret: %s_1 is not set. Set it to %d random bytes in Base64 (openssl rand -base64 %d makes one); the development environment file makes one for a checkout, and a deployment hands over one variable for each enabled version", strings.Join(fields, ", "), variable, applicationSecretSize, applicationSecretSize)
+	}
+
+	return errors.Newf("the application stores secrets (%s) and its resource client was built with no secret keys: read the versions of the application secret from the environment with resource.SecretKeysFromEnv (an application made from a skeleton reads APP_SECRET_KEY_1, APP_SECRET_KEY_2 and so on) and wire them on the client with resource.WithSecretKeys", strings.Join(fields, ", "))
 }

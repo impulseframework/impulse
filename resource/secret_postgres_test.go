@@ -431,3 +431,88 @@ func TestSecret_retireOnPostgres(t *testing.T) {
 		}
 	}
 }
+
+// On PostgreSQL: a retirement over values that do not open, more of them than one page
+// holds and sorted before the values that open, in two tables, the first with a key of
+// two columns (retireValuesThatDoNotOpen). The values are read a page at a time in key
+// order, so the ones that do not open hide nothing behind them.
+func TestSecret_retireValuesThatDoNotOpenOnPostgres(t *testing.T) {
+	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("requires a PostgreSQL container")
+	}
+	ctx := context.Background()
+	container, err := initiator.NewPostgresContainer(ctx, "16")
+	if err != nil {
+		t.Fatalf("initiator.NewPostgresContainer() error = %v", err)
+	}
+	t.Cleanup(func() {
+		container.Close()
+		if err := container.Terminate(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	db, err := container.CreateDatabase(ctx, "sealed-rows-unopened")
+	if err != nil {
+		t.Fatalf("CreateDatabase() error = %v", err)
+	}
+	t.Cleanup(db.Close)
+	for _, table := range []string{
+		`CREATE TABLE "SealedRows" ("Id" text PRIMARY KEY, "Title" text NOT NULL, "AccessCode" bytea)`,
+		`CREATE TABLE "SealedPairRows" ("Vault" text NOT NULL, "Shelf" text NOT NULL, "Number" bytea, PRIMARY KEY ("Vault", "Shelf"))`,
+	} {
+		if _, err := db.Exec(ctx, table); err != nil {
+			t.Fatalf("creating the table: %v", err)
+		}
+	}
+	read := func(sql string) map[string][]byte {
+		t.Helper()
+
+		found, err := db.Query(ctx, sql)
+		if err != nil {
+			t.Fatalf("reading the stored rows: %v", err)
+		}
+		defer found.Close()
+		stored := map[string][]byte{}
+		for found.Next() {
+			var (
+				id   string
+				code []byte
+			)
+			if err := found.Scan(&id, &code); err != nil {
+				t.Fatalf("reading a stored row: %v", err)
+			}
+			stored[id] = code
+		}
+		if err := found.Err(); err != nil {
+			t.Fatalf("reading the stored rows: %v", err)
+		}
+
+		return stored
+	}
+
+	retireValuesThatDoNotOpen(t, retireStore{
+		client: func(keys *SecretKeys) Client {
+			return NewPostgresClient(db.Pool, WithSecretKeys(keys))
+		},
+		putRow: func(id string, sealed []byte) {
+			if _, err := db.Exec(ctx, `INSERT INTO "SealedRows" ("Id", "Title", "AccessCode") VALUES ($1, 'sealed', $2)
+				ON CONFLICT ("Id") DO UPDATE SET "AccessCode" = EXCLUDED."AccessCode"`, id, sealed); err != nil {
+				t.Fatalf("writing the row: %v", err)
+			}
+		},
+		putPair: func(vault, shelf string, sealed []byte) {
+			if _, err := db.Exec(ctx, `INSERT INTO "SealedPairRows" ("Vault", "Shelf", "Number") VALUES ($1, $2, $3)
+				ON CONFLICT ("Vault", "Shelf") DO UPDATE SET "Number" = EXCLUDED."Number"`, vault, shelf, sealed); err != nil {
+				t.Fatalf("writing the row: %v", err)
+			}
+		},
+		rows: func() map[string][]byte {
+			return read(`SELECT "Id", "AccessCode" FROM "SealedRows"`)
+		},
+		pairs: func() map[string][]byte {
+			return read(`SELECT "Vault" || '/' || "Shelf", "Number" FROM "SealedPairRows"`)
+		},
+	})
+}

@@ -66,25 +66,36 @@ through (`TenantDirectory`, one row at most under
 `/api/tenants/{tenantID}/tenant-directories`: a sign-in method and the connection its
 identities carry, a Google Workspace by its domain or a Microsoft Entra tenant by its
 tenant id) and whether its people enter through it only (`Tenant.DirectoryOnly`, which
-closes passwords). A tenant has one directory and a directory belongs to one tenant: the
+closes the tenant to every sign-in but one through its directory). A tenant has one directory and a directory belongs to one tenant: the
 table's two unique indexes hold both, and the generated write paths refuse first, each
 with a sentence the person can act on. The staff auth's sign-in rule is
 the library's tenant policy over it (`signin.TenantPolicy`, handed the generated
 `app.NewTenantDeclarationReader`, which reads the declaration in the sign-in's own
-transaction): a sign-in through a directory is admitted when it is the directory of one
-of the person's tenants, a password unless every one of their tenants is directory only,
-staff (a global role) on the library's checks, and a person holding no tenant too, since
+transaction): a tenant's declaration restricts its own door alone, so a tenant that is
+not directory only admits everyone it seats, however they signed in, a directory-only
+tenant admits a sign-in through its own directory and nothing else, and a person is
+refused only when every tenant that seats them is closed to the way they signed in. A
+super administrator is admitted whatever a tenant declares, a person holding a role
+outside any one tenant (a global role, or one held in every tenant) is admitted and then
+enters a tenant only where its declaration admits their session, and a person holding no
+tenant is admitted too, since
 the record lets a stranger sign in first and create their own. Which tenants the session
 then reaches is decided again per tenant where its tenant list is computed: the data
 level's roster keeps every tenant's declaration beside its key
 (`resource.TenantRoster.Declarations`, handed to `resource.SessionPermissions`), the
 records' generated write paths reload it after their commit and signal every instance,
-so a declaration edited anywhere decides the next request everywhere, and a tenant the
-session may not enter is not listed and answers as one that does not exist. The
+so a declaration edited anywhere decides the next request everywhere, and a tenant that
+seats the person and that their session may not enter is listed as closed to this
+sign-in, with the reason, and answers as one that does not exist. The
 console's Sign-in page under the tenant (`/tenants/{tenantID}/sign-in`) shows the
 tenant's directory, sets it, picks its default role and removes it under the tenant's
-own grants (`TenantAdministrator`), and flips directory only under the global record's
-Update grant (`Administrator`); both records write change events, the audit of every
+own grants (`TenantAdministrator`), and turns directory only on and off under the global
+record's Update grant (`Administrator`). The server allows turning it on only once the
+tenant has its directory, and only to a person who is signed in through that directory
+themselves; before it is saved the page asks the server what it would do
+(`GET /api/directory-only?domain=<tenant>`) and shows its sentence and the people it
+would keep out for the person to confirm, and the tenant's People page marks them for as
+long as it is on. Both records write change events, the audit of every
 edit. Nobody types a directory in. It is set from a sign-in: the create-your-tenant
 route sets the one its creator came through, refusing a creation from an organization
 that already has a tenant, and afterwards the page offers an administrator who is
@@ -265,14 +276,20 @@ transaction). The generator refuses a `secret` field typed a plain `string`.
 
 The key is the application secret, which `pkg/config` declares
 (`env:"APP_SECRET_KEY" secret:"versioned"`) and reads into the resource client's secret
-keys. It is kept in versions, each in a variable of its own: `.envrc.template` sets
-`APP_SECRET_KEY_1` to a development value, and a deployment generates the secret and hands
-the service every enabled version (`APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`), the highest the
-current one. An application with a secret field refuses to start without a version. A
+keys. It is kept in versions, each in a variable of its own. `.envrc.template` makes
+`APP_SECRET_KEY_1` for the checkout: 32 random bytes, written to `.app-secret-key.dev` the
+first time the file is sourced from the application's root and read from it from then on,
+with `.gitignore` keeping that file out of git, so no key is written in a tracked file
+and deleting the file leaves the development database's secrets unreadable. A deployment
+generates the secret and hands the service every enabled version (`APP_SECRET_KEY_1`,
+`APP_SECRET_KEY_2`), the highest the current one. An application with a secret field
+refuses to start without a version, naming the variable. A
 version is retired, before the deployment disables it, by the migrate command
 (`-retire-secret APP_SECRET_KEY_1`), which writes every stored value that names it again
-under the current version. The framework's `resource/README.md`, "Secrets at rest", has
-the whole of it.
+under the current version. It reads the resources packages `pkg/deploy` hands it
+(`SecretHolders()`, which the generator writes into each), and `impulse check`
+(`secret-holders`) fails when a package is left out of that call. The framework's
+`resource/README.md`, "Secrets at rest", has the whole of it.
 
 ## Running it
 

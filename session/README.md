@@ -372,8 +372,9 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   (`signin.Directory`: a method and the connection its identities carry, which is the
   Entra tenant id, the name the registration gives a Google Workspace, or a WorkOS
   connection id) and whether its people come through those **only**
-  (`DirectoryOnly`). A tenant that declares nothing (a nil declaration) admits its
-  people by password and through no directory.
+  (`DirectoryOnly`). A declaration restricts that tenant's own door and nobody else's:
+  a tenant that is not directory only, and a tenant that declares nothing (a nil
+  declaration), admits everyone it seats, however they signed in.
 - **A first sign-in through a directory by a person no user was created for** is
   decided before the policy, by the account rules, and in a tenanted application by
   the tenants' declarations first, through
@@ -437,14 +438,18 @@ The rules, in order, once the user is known:
    was built with `signin.AdmitWithoutTenant()`, which the self-service shape of an
    application needs: a stranger signs in, then creates their organization and its
    first membership, and until then the session reaches no tenant.
-4. A sign-in through a directory (Entra, Google, WorkOS) is admitted when one of the
-   person's tenants declares the directory it came through, and refused otherwise
-   (`connection_not_in_tenant`).
-5. Any other sign-in, a password, a personal account (which is no tenant's directory)
-   or a session the application starts for a user it authenticated itself, is admitted
-   when one of the person's tenants admits its people
-   other than through its directories, and refused when every one of them is directory
-   only (`directory_only`): nothing would be reachable.
+4. The sign-in is admitted when one of the person's tenants admits it
+   (`signin.TenantDeclaration.Admits`). A tenant that is not directory only admits
+   every sign-in: a password, a personal account, a session the application starts for
+   a user it authenticated itself, and a sign-in through any organization's directory,
+   the tenant's own or another's. A tenant that is directory only admits a sign-in
+   through its own directory and nothing else.
+5. Otherwise every tenant of the person is directory only and none has the way they
+   signed in as its directory: nothing would be reachable, and the sign-in is refused.
+   A sign-in through a directory (Entra, Google, WorkOS, an OpenID Connect provider)
+   is refused with `connection_not_in_tenant`, and any other, a password, a personal
+   account (which is no tenant's directory) or a session the application started
+   itself, with `directory_only`.
 6. Otherwise the sign-in is allowed. `signin.Policy.Then` chains the application's own
    rule after the tenant policy, for what the tenant policy cannot know; it is asked
    after an `Allow` and never after a `Deny` or a `RequireMFA`:
@@ -460,9 +465,14 @@ connection)` is the same decision over one tenant, with no transaction and no re
 and the session says how it was established through
 `sessioninfo.DataFromCtx(ctx).EstablishedBy()`, its first auth event, whose method and
 connection are the sign-in's (`sessioninfo.AuthMethod.ThroughDirectory` tells a sign-in
-through a directory from the application's own). So a person in a directory-only tenant
-and a password-admitting tenant signs in by password and reaches the second; a member
-of two tenants with two directories reaches the one whose directory they came through.
+through a directory from the application's own). A session reaches every tenant that
+seats the person, except a tenant that is directory only and whose directory is not the
+one the person signed in through. So a person seated in a directory-only tenant and in
+a tenant that is not signs in by password and reaches the second; signed in through the
+first one's directory they reach both. A person invited into one tenant who signs in
+through another tenant's directory reaches both, unless the tenant that invited them is
+directory only. A member of two directory-only tenants reaches the one whose directory
+they came through.
 A refusal is a `sessioninfo.LoginRefusal` with its code, and `errors.Is` matches
 `signin.ErrSignInDenied` and the rule's own cause (`signin.ErrNoTenant`,
 `signin.ErrConnectionNotInTenant`, `signin.ErrDirectoryOnly`); a role store or reader
@@ -473,7 +483,9 @@ directory method with a connection that names one organization, so neither a pas
 nor a personal account (`signin.Directory.PersonalAccounts`, the two connections every
 account outside an organization carries). `Admits` and the policy treat a personal
 account as they treat a password: no tenant can have it as its directory, so it reaches
-a tenant unless the tenant is directory only. The session read (`Authenticated()`)
+a tenant unless the tenant is directory only. A tenant's directory can be any directory
+method the application registers: Entra, Google Workspace, WorkOS, or an organization's
+own OpenID Connect provider (`sessioninfo.AuthMethod.ThroughDirectory`). The session read (`Authenticated()`)
 answers `directory`, the method and the connection of the organization's directory the
 session was established through, and leaves it out for every other session: it is what
 an application offers a tenant's administrator to make the tenant's directory, which is
@@ -2072,8 +2084,8 @@ table is the wire contract:
 | `no_email` | `RefusedNoEmail` | The external identity carries no email address where one is required: an application's rule asks for one, or a standard account rule found no sign-in name to use as the username. |
 | `password_change_required` | `RefusedPasswordChangeRequired` | Auth: the signed-in user must change a password an operator set; answered with 403 by `ValidateSession` on every request but the password change, the session read and the logout, until the change (see "Users and the forced password change"). |
 | `no_tenant` | `RefusedNoTenant` | Auth, the tenant policy: the person is a member of no tenant, and the policy was not built with `signin.AdmitWithoutTenant()`. |
-| `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection) that no tenant of the person declares. |
-| `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in that is not through a directory (a password, a session the application started itself) by a person whose every tenant admits its people through their directories only. |
+| `connection_not_in_tenant` | `RefusedConnectionNotInTenant` | Auth, the tenant policy: the sign-in came through a directory (its method and connection), every tenant that seats the person is directory only, and none of them has that directory as its own. |
+| `directory_only` | `RefusedDirectoryOnly` | Auth, the tenant policy: a sign-in that is not through a directory (a password, a personal account, a session the application started itself) by a person whose every tenant is directory only. |
 | `other_tenant` | `RefusedOtherTenant` | Never answered by the session library itself: the generated user management answers it from its hooks where the application declared that a person belongs to one tenant (`identity.WithOneTenantPerPerson()`). The invitation the sign-in carried, or the default role of the directory it came through, would give the person a role in a second tenant; the hook fails the sign-in's transaction, so nothing is consumed and no account is made. |
 | `too_many_attempts` | `RefusedTooManyAttempts` | Auth: a password attempt on a name whose failed attempts reached the limit, or from a client held for its own; answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes (see "Attempt limiting and the after-sign-in hook"). |
 | `too_many_emails` | `RefusedTooManyEmails` | Auth: a sixth sign-in code or link asked for one address within fifteen minutes while the five before it went unused (a code or link that is used resets the count); answered with 429, the wait in seconds as `retryAfter` and the `Retry-After` header, until the lock passes. |
