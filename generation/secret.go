@@ -4,9 +4,13 @@ import (
 	"cmp"
 	"fmt"
 	"go/types"
+	"log"
+	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -148,6 +152,34 @@ func secretFieldRefusal(path string, field *resourceField) string {
 // has the write path seal it, and the type alone does neither.
 func undeclaredSecretRefusal(path string, field *resourceField) string {
 	return fmt.Sprintf("%s: typed %s and not declared conditions:%q: the declaration is what keeps the field from being served and has its value sealed when it is written; add it", path, field.Type(), secretCondition)
+}
+
+// generateSecretHolders writes the resources package's zz_gen_secret_holders.go:
+// SecretHolders(), every resource that stores a secret. It is written on every
+// application, so the migrate command calls it unconditionally.
+func (r *resourceGenerator) generateSecretHolders() error {
+	begin := time.Now()
+	destinationFilePath := filepath.Join(r.resource.Dir(), generatedGoFileName(secretHoldersOutputName))
+	if err := r.writeFormattedGoFile(destinationFilePath, "secretHoldersTemplate", secretHoldersTemplate, r.secretHoldersData()); err != nil {
+		return errors.Wrap(err, "writeFormattedGoFile()")
+	}
+	log.Printf("Generated secret holders file in %s: %s", time.Since(begin), destinationFilePath)
+
+	return nil
+}
+
+// secretHoldersData gathers the holders: the resources with a stored secret, in
+// resource order. A view takes no writes and declares no secret.
+func (r *resourceGenerator) secretHoldersData() *secretHoldersData {
+	data := &secretHoldersData{Source: r.resource.Dir(), Package: r.resource.Package(), Holders: nil}
+	for _, res := range r.resources {
+		if res.IsVirtual || len(res.SecretFields()) == 0 {
+			continue
+		}
+		data.Holders = append(data.Holders, res.Name())
+	}
+
+	return data
 }
 
 // servedSecretFields names every stored secret of the application's resources, as

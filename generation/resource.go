@@ -378,6 +378,11 @@ func (r *resourceGenerator) Generate() error {
 	if err := r.generateFileHolders(); err != nil {
 		return err
 	}
+	// The secret holders: what a retirement of a version of the application secret
+	// reads and rewrites.
+	if err := r.generateSecretHolders(); err != nil {
+		return err
+	}
 
 	// The method pairs render once every path is extracted, the RPC methods last, so
 	// the JSON pair covers each defined type a field uses anywhere, and after every

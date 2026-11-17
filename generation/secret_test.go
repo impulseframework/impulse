@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"go/format"
 	"strings"
 	"testing"
 
@@ -386,6 +387,46 @@ func Test_resourceFileTemplate_secret(t *testing.T) {
 		if strings.Contains(shelf, absent) {
 			t.Errorf("the generated set of a resource with no secret carries %q", absent)
 		}
+	}
+}
+
+// The resources package's generated SecretHolders names every resource that stores a
+// secret, and no other: what the migrate command retires a version of the application
+// secret over. An application that stores none gets the function all the same, so its
+// migrate command calls it.
+func Test_secretHoldersTemplate(t *testing.T) {
+	t.Parallel()
+
+	structs := fixtureStructs(loadFixture(t, "secretfixture"))
+	generated := func(t *testing.T, resources ...*resourceInfo) string {
+		t.Helper()
+
+		r := &resourceGenerator{client: &client{}}
+		r.resource = packageDir("pkg/resources")
+		r.resources = resources
+		out, err := r.generateTemplateOutput("secretHoldersTemplate", secretHoldersTemplate, r.secretHoldersData())
+		if err != nil {
+			t.Fatalf("generateTemplateOutput() error = %v", err)
+		}
+		formatted, err := format.Source(out)
+		if err != nil {
+			t.Fatalf("format.Source() error = %v on:\n%s", err, out)
+		}
+
+		return string(formatted)
+	}
+
+	holding := generated(t, lockbox(t, structs, nil), fixtureResource(t, structs, "Shelf", nil))
+	if want := "func SecretHolders() []resource.SecretHolder {\n\treturn []resource.SecretHolder{\n\t\tresource.SecretHolderOf[Lockbox](),\n\t}\n}"; !strings.Contains(holding, want) {
+		t.Errorf("the secret holders are missing %q:\n%s", want, holding)
+	}
+	if strings.Contains(holding, "Shelf") {
+		t.Errorf("the secret holders name a resource that stores no secret:\n%s", holding)
+	}
+
+	none := generated(t, fixtureResource(t, structs, "Shelf", nil))
+	if want := "func SecretHolders() []resource.SecretHolder {\n\treturn nil\n}"; !strings.Contains(none, want) {
+		t.Errorf("the secret holders of an application that stores no secret are missing %q:\n%s", want, none)
 	}
 }
 

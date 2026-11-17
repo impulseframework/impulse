@@ -256,6 +256,10 @@ const (
 	// fileHoldersOutputName names the resources package's file holders file: every
 	// resource recording stored files' keys, for the orphaned-file cleanup.
 	fileHoldersOutputName = "file_holders"
+	// secretHoldersOutputName names the resources package's secret holders file: every
+	// resource storing a secret, for the retirement of a version of the application
+	// secret.
+	secretHoldersOutputName = "secret_holders"
 )
 
 // reservedOutput is one file the generator writes for itself: its name and what it
@@ -285,6 +289,7 @@ var reservedOutputStems = map[string]reservedOutput{
 	consolidatedHandlerOutputName: {file: generatedGoFileName(consolidatedHandlerOutputName), carries: "the consolidated handler"},
 	featuresOutputName:            {file: generatedGoFileName(featuresOutputName), carries: "the feature flags"},
 	fileHoldersOutputName:         {file: generatedGoFileName(fileHoldersOutputName), carries: "the file holders"},
+	secretHoldersOutputName:       {file: generatedGoFileName(secretHoldersOutputName), carries: "the secret holders"},
 	releaseOutputName:             {file: resource.ReleaseFileName, carries: "the release file"},
 }
 
