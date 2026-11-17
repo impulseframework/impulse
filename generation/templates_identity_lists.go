@@ -16,16 +16,23 @@ const (
 	// the memberships table by its key for every listed person (measured on Spanner).
 	// Where the auth keeps groups, a place in a group counts as a role held where the
 	// group is kept (identityGroupPersonElsewhere, identityGroupPersonGlobally).
+	//
+	// A membership that has ended is no role held anywhere. One that has not begun is one:
+	// the person is known there and will hold it, as the rules on where a person belongs
+	// read it (identitySourceData.Standing).
 	identityTenantPersonFacts = `  (EXISTS (
     SELECT 1 FROM {{ .Policy.UserRoles }} o
     WHERE o.UserId = u.Id AND o.Kind = {{ .KindEvery }} AND o.Axis = {{ .ScopeAxis }}
+      AND {{ .Standing "o" }}
   ) OR EXISTS (
     SELECT 1 FROM {{ .Policy.UserRoles }} o
     WHERE o.UserId = u.Id AND o.Kind = {{ .KindDomain }} AND o.Axis = {{ .ScopeAxis }} AND o.DomainId != t.DomainId
+      AND {{ .Standing "o" }}
   )` + identityGroupPersonElsewhere + `) AS HeldElsewhere,
   {{ if .KeepsGroups }}({{ end }}EXISTS (
     SELECT 1 FROM {{ .Policy.UserRoles }} g
     WHERE g.UserId = u.Id AND g.Kind = {{ .KindGlobal }}
+      AND {{ .Standing "g" }}
   )` + identityGroupPersonGlobally + ` AS HeldGlobally`
 
 	// identityTenantPeopleFrom selects the people of every tenant, t the tenant and the
@@ -38,15 +45,21 @@ const (
 	// ranged over the index by user when a page continued from a cursor. Where the auth
 	// keeps groups, the people a tenant holds through one join them
 	// (identityTenantGroupPeople).
+	//
+	// A person is one of a tenant's people by what they hold at the moment: a membership
+	// outside its period, ended or not yet begun, puts nobody in the list, whether or not
+	// its row still stands in the table (identitySourceData.Counting).
 	identityTenantPeopleFrom = `FROM (
   SELECT m.DomainId AS DomainId, m.UserId AS UserId
   FROM {{ .Policy.UserRoles }} m
   WHERE m.Kind = {{ .KindDomain }} AND m.Axis = {{ .ScopeAxis }}
+    AND {{ .Counting "m" }}
   UNION DISTINCT
   SELECT s.{{ .TenantKey }} AS DomainId, m.UserId AS UserId
   FROM {{ .Policy.UserRoles }}@{FORCE_INDEX=_BASE_TABLE} m
   CROSS JOIN {{ .TenantTable }} s
-  WHERE m.Kind = {{ .KindEvery }} AND m.Axis = {{ .ScopeAxis }}` + identityTenantGroupPeople + `
+  WHERE m.Kind = {{ .KindEvery }} AND m.Axis = {{ .ScopeAxis }}
+    AND {{ .Counting "m" }}` + identityTenantGroupPeople + `
 ) t
 JOIN {{ .Tables.Users }} u ON u.Id = t.UserId`
 
@@ -68,6 +81,10 @@ type (
 	// the columns of {{ .User }}. A person is one account for the whole application, so
 	// the same person is a row in each tenant they hold a role in: the account's id is the
 	// key of a row within its tenant, and DomainId, the tenant, holds the row to it.
+	//
+	// A role counts inside its period alone: a person whose only role in the tenant has
+	// ended, or has not begun, is not one of its people, whether or not the role's row
+	// still stands. {{ .TenantRole }} lists a role that has not begun, with its period.
 	//
 	// Two columns are facts about the person that no table holds, each under the name a
 	// grant's condition reads. HeldElsewhere (heldElsewhere) says the person also holds a
@@ -153,6 +170,11 @@ type (
 	// the tenant's own row, with the other standing behind it. The role is read by a
 	// condition too (role), so a role file can say which roles its holder takes away.
 	//
+	// StartsAt and EndsAt are the role's period, the first instant it counts and the first
+	// it no longer does, each empty for none. A role that has ended is not listed: it
+	// grants nothing and goes at the person's next sign-in. One that has not begun is
+	// listed, where it is given another period or taken away.
+	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet({{ .Outlets }})
@@ -168,8 +190,10 @@ type (
 		// @attribute(role)
 		Role string ` + "`spanner:\"Role\" index:\"true\"`" + `
 		// @attribute(everyDomain)
-		EveryDomain bool      ` + "`spanner:\"EveryDomain\" index:\"true\"`" + `
-		CreatedAt   time.Time ` + "`spanner:\"CreatedAt\"`" + `
+		EveryDomain bool       ` + "`spanner:\"EveryDomain\" index:\"true\"`" + `
+		CreatedAt   time.Time  ` + "`spanner:\"CreatedAt\"`" + `
+		StartsAt    *time.Time ` + "`spanner:\"StartsAt\"`" + `
+		EndsAt      *time.Time ` + "`spanner:\"EndsAt\"`" + `
 	}
 )
 
@@ -189,19 +213,24 @@ SELECT
   u.Username AS Username,
   t.Role AS Role,
   t.EveryDomain AS EveryDomain,
-  t.CreatedAt AS CreatedAt
+  t.CreatedAt AS CreatedAt,
+  t.StartsAt AS StartsAt,
+  t.EndsAt AS EndsAt
 FROM (
-  SELECT m.DomainId AS DomainId, m.UserId AS UserId, m.Role AS Role, FALSE AS EveryDomain, m.CreatedAt AS CreatedAt
+  SELECT m.DomainId AS DomainId, m.UserId AS UserId, m.Role AS Role, FALSE AS EveryDomain, m.CreatedAt AS CreatedAt, m.StartsAt AS StartsAt, m.EndsAt AS EndsAt
   FROM {{ .Policy.UserRoles }} m
   WHERE m.Kind = {{ .KindDomain }} AND m.Axis = {{ .ScopeAxis }}
+    AND {{ .Standing "m" }}
   UNION ALL
-  SELECT s.{{ .TenantKey }} AS DomainId, m.UserId AS UserId, m.Role AS Role, TRUE AS EveryDomain, m.CreatedAt AS CreatedAt
+  SELECT s.{{ .TenantKey }} AS DomainId, m.UserId AS UserId, m.Role AS Role, TRUE AS EveryDomain, m.CreatedAt AS CreatedAt, m.StartsAt AS StartsAt, m.EndsAt AS EndsAt
   FROM {{ .Policy.UserRoles }}@{FORCE_INDEX=_BASE_TABLE} m
   CROSS JOIN {{ .TenantTable }} s
   WHERE m.Kind = {{ .KindEvery }} AND m.Axis = {{ .ScopeAxis }}
+    AND {{ .Standing "m" }}
     AND NOT EXISTS (
       SELECT 1 FROM {{ .Policy.UserRoles }} d
       WHERE d.Kind = {{ .KindDomain }} AND d.Axis = m.Axis AND d.DomainId = s.{{ .TenantKey }} AND d.Role = m.Role AND d.UserId = m.UserId
+        AND {{ .Standing "d" }}
     )
 ) t
 JOIN {{ .Tables.Users }} u ON u.Id = t.UserId

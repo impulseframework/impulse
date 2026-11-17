@@ -430,7 +430,7 @@ func Test_prepareIdentity(t *testing.T) {
 		"internal/crewresources/crew_session_mail_links.go":      {"Name            *string       `spanner:\"Name\"`"},
 		// A role is given to and taken from a person by the id of their account, and given
 		// to nobody an id names no user of.
-		"crewidentity/assign_crew_role.go":                      {"UserID impulse.UUID", "client.manager.RequireUser(ctx, txn, m.UserID)", "client.manager.AssignRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))"},
+		"crewidentity/assign_crew_role.go":                      {"UserID impulse.UUID", "client.manager.RequireUser(ctx, txn, m.UserID)", "client.manager.AssignRoleFor(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role), period)"},
 		"crewidentity/remove_crew_role.go":                      {"UserID      impulse.UUID", "client.manager.RemoveRole(ctx, txn, scope, m.UserID, accesstypes.Role(m.Role))"},
 		"internal/crewresources/crew_session_impersonations.go": {"ActorUserID     *impulse.UUID `spanner:\"ActorUserId\"`"},
 		"membersidentity/store.go":                              {"var _ identity.Store = store{}", "func (store) UserDisabled(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (disabled, found bool, err error) {", "the Members auth has no password method: user %s holds no password to remove", "membersresources.NewMembersRoleQuery()", `"example.com/acme/beacon/pkg/identity/internal/membersresources"`, "the schema holds no table MembersSessionImpersonations", "the schema holds no table MembersSessionTokens", "the schema holds no table MembersSessionIdentities"},
@@ -775,8 +775,8 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 			generationHeader, "package crewresources", "// @virtual", "// @permissionScope(domain)", "// @outlet(default)", "// @order(Username asc)",
 			"CrewShipUser struct {", "// @primarykey", "// @domain", "// @attribute(heldElsewhere)", "// @attribute(heldGlobally)",
 			"const crewShipUserQuery = `",
-			"WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''\n  ) OR EXISTS (",
-			"WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId\n  )) AS HeldElsewhere,",
+			"WHERE o.UserId = u.Id AND o.Kind = 'every' AND o.Axis = ''\n      AND " + standingSQL("o") + "\n  ) OR EXISTS (",
+			"WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId\n      AND " + standingSQL("o") + "\n  )) AS HeldElsewhere,",
 			"WHERE g.UserId = u.Id AND g.Kind = 'global'",
 			"SELECT s.Id AS DomainId, m.UserId AS UserId\n  FROM CrewUserRoles@{FORCE_INDEX=_BASE_TABLE} m\n  CROSS JOIN Ships s",
 			"JOIN CrewSessionUsers u ON u.Id = t.UserId\n",
@@ -787,7 +787,7 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 			// The row is keyed by the account's id and the role, two columns the database looks up.
 			"// @primarykey\n\t\tUserID   impulse.UUID", "// @primarykey\n\t\t// @attribute(role)\n\t\tRole string",
 			"SELECT\n  t.DomainId AS DomainId,\n  u.Id AS UserId,",
-			"FROM CrewUserRoles m\n  WHERE m.Kind = 'domain' AND m.Axis = ''\n  UNION ALL",
+			"FROM CrewUserRoles m\n  WHERE m.Kind = 'domain' AND m.Axis = ''\n    AND " + standingSQL("m") + "\n  UNION ALL",
 			"FROM CrewUserRoles@{FORCE_INDEX=_BASE_TABLE} m\n  CROSS JOIN Ships s\n  WHERE m.Kind = 'every' AND m.Axis = ''",
 			"WHERE d.Kind = 'domain' AND d.Axis = m.Axis AND d.DomainId = s.Id AND d.Role = m.Role AND d.UserId = m.UserId",
 			"JOIN CrewSessionUsers u ON u.Id = t.UserId\n",
@@ -802,7 +802,7 @@ func Test_prepareIdentity_tenantLists(t *testing.T) {
 			"CrewShipIdentity struct {", "// @order(CreatedAt desc)", "// @primarykey", "// @domain", "// @attribute(heldElsewhere)", "// @attribute(heldGlobally)",
 			"const crewShipIdentityQuery = `",
 			"i.Id AS Id", "u.Id AS UserId", "i.Tenant AS Tenant",
-			"WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId\n  )) AS HeldElsewhere,",
+			"WHERE o.UserId = u.Id AND o.Kind = 'domain' AND o.Axis = '' AND o.DomainId != t.DomainId\n      AND " + standingSQL("o") + "\n  )) AS HeldElsewhere,",
 			"JOIN CrewSessionUsers u ON u.Id = t.UserId\nJOIN CrewSessionIdentities i ON i.UserId = u.Id",
 		},
 		"internal/membersresources/members_ship_users.go": {"// @outlet(portal, default)", "MembersShipUser struct {", "FROM MembersUserRoles m", "JOIN MembersSessionUsers u ON"},
@@ -935,7 +935,7 @@ func Test_prepareIdentity_tenantMethods(t *testing.T) {
 		},
 		"crewidentity/assign_crew_ship_role.go": {
 			"type AssignCrewShipRole struct {", "// @permissionScope(domain)", "// @target(CrewShipUser)", "// @attribute(role)",
-			"tenant, err := client.manager.Tenant(ctx)", "tenant.AssignRole(ctx, txn, m.UserID, accesstypes.Role(m.Role))",
+			"tenant, err := client.manager.Tenant(ctx)", "tenant.AssignRoleFor(ctx, txn, m.UserID, accesstypes.Role(m.Role), period)",
 			"// @attribute(role)\n\t// @enumerate(CrewShipRoles)\n\tRole string",
 		},
 		"crewidentity/crew_ship_roles.go": {

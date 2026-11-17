@@ -75,6 +75,13 @@ type (
 	// (who: GroupID IN subject.{{ .GroupSet }}). A group's id names one group in the whole
 	// application, so a row names a tenant's group only where the tenant's own rows do.
 	//
+	// StartsAt and EndsAt are the place's period: the first instant it counts and the
+	// first it no longer does, each empty for none. Outside its period a place gives the
+	// person none of the group's roles, and the set says so with its where: part, so a
+	// condition that tests subject.{{ .GroupSet }} leaves the group out as the permission
+	// engine does. A row whose period has ended stands until its person next signs in,
+	// which removes it.
+	//
 	// @resource
 	// @suppress(readHandler)
 	// @suppress(patchHandler)
@@ -84,9 +91,11 @@ type (
 	{{ .GroupMember }} struct {
 		// @attribute(group)
 		GroupID impulse.UUID ` + "`spanner:\"GroupId\"`" + `
-		// @subjectSet({{ .GroupSet }}, value: GroupID)
-		UserID    string    ` + "`spanner:\"UserId\"`" + `
-		CreatedAt time.Time ` + "`spanner:\"CreatedAt\"`" + `
+		// @subjectSet({{ .GroupSet }}, value: GroupID, where: {{ .GroupSetWhere }})
+		UserID    string     ` + "`spanner:\"UserId\"`" + `
+		CreatedAt time.Time  ` + "`spanner:\"CreatedAt\"`" + `
+		StartsAt  *time.Time ` + "`spanner:\"StartsAt\"`" + `
+		EndsAt    *time.Time ` + "`spanner:\"EndsAt\"`" + `
 	}
 )
 `
@@ -112,6 +121,11 @@ type (
 	// and no group holds the Super Administrator role: the methods refuse both, and the
 	// permission engine gives nobody a role from a row that says otherwise.
 	//
+	// StartsAt and EndsAt are the period the group holds the role for: the first instant
+	// it counts and the first it no longer does, each empty for none. Outside it the role
+	// is nobody's through the group. A row whose period has ended stands until the role
+	// is taken away or given again: it is no one person's, so no sign-in removes it.
+	//
 	// @resource
 	// @suppress(readHandler)
 	// @suppress(patchHandler)
@@ -126,6 +140,8 @@ type (
 		DomainID  string       ` + "`spanner:\"DomainId\"`" + `
 		Role      string       ` + "`spanner:\"Role\"`" + `
 		CreatedAt time.Time    ` + "`spanner:\"CreatedAt\"`" + `
+		StartsAt  *time.Time   ` + "`spanner:\"StartsAt\"`" + `
+		EndsAt    *time.Time   ` + "`spanner:\"EndsAt\"`" + `
 	}
 )
 `
@@ -486,19 +502,23 @@ func (store) TenantGroupRoles(context.Context, resource.ReadWriteTransaction, ac
 	// identityTenantGroupPeople are the people a tenant's list holds because of a group,
 	// as branches of the union the people are selected from (identityTenantPeopleFrom):
 	// the members of the tenant's own groups, and the members of a group kept for the
-	// whole application that holds a role in the tenant or in every tenant.
+	// whole application that holds a role in the tenant or in every tenant. A place and a
+	// group's role count inside their periods alone (identitySourceData.Counting).
 	identityTenantGroupPeople = `{{- if .KeepsGroups }}
   UNION DISTINCT
   SELECT g.DomainId AS DomainId, gm.UserId AS UserId
   FROM {{ .Policy.Groups }} g
   JOIN {{ .Policy.GroupMembers }} gm ON gm.GroupId = g.Id
   WHERE g.Kind = {{ .KindDomain }} AND g.Axis = {{ .ScopeAxis }}
+    AND {{ .Counting "gm" }}
   UNION DISTINCT
   SELECT r.DomainId AS DomainId, gm.UserId AS UserId
   FROM {{ .Policy.GroupRoles }} r
   JOIN {{ .Policy.Groups }} g ON g.Id = r.GroupId
   JOIN {{ .Policy.GroupMembers }} gm ON gm.GroupId = r.GroupId
   WHERE r.Kind = {{ .KindDomain }} AND r.Axis = {{ .ScopeAxis }} AND g.Kind = {{ .KindGlobal }} AND r.Role != {{ .SuperAdministratorRole }}
+    AND {{ .Counting "r" }}
+    AND {{ .Counting "gm" }}
   UNION DISTINCT
   SELECT s.{{ .TenantKey }} AS DomainId, gm.UserId AS UserId
   FROM {{ .Policy.GroupRoles }} r
@@ -506,21 +526,27 @@ func (store) TenantGroupRoles(context.Context, resource.ReadWriteTransaction, ac
   JOIN {{ .Policy.GroupMembers }} gm ON gm.GroupId = r.GroupId
   CROSS JOIN {{ .TenantTable }} s
   WHERE r.Kind = {{ .KindEvery }} AND r.Axis = {{ .ScopeAxis }} AND g.Kind = {{ .KindGlobal }}
+    AND {{ .Counting "r" }}
+    AND {{ .Counting "gm" }}
 {{- end }}`
 
 	// identityGroupPersonElsewhere and identityGroupPersonGlobally are what a place in a
 	// group adds to the two facts about a person of a tenant's list
 	// (identityTenantPersonFacts): a place in another tenant's group is a role held
 	// elsewhere, and a place in a group kept for the whole application makes the person
-	// one of the application's own.
+	// one of the application's own. A place that has ended is none; one that has not begun
+	// is one, as it is to the rules on where a person belongs
+	// (identitySourceData.Standing).
 	identityGroupPersonElsewhere = `{{- if .KeepsGroups }} OR EXISTS (
     SELECT 1 FROM {{ .Policy.GroupMembers }} gm JOIN {{ .Policy.Groups }} og ON og.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND og.Kind = {{ .KindDomain }} AND og.Axis = {{ .ScopeAxis }} AND og.DomainId != t.DomainId
+      AND {{ .Standing "gm" }}
   ){{- end }}`
 
 	identityGroupPersonGlobally = `{{- if .KeepsGroups }} OR EXISTS (
     SELECT 1 FROM {{ .Policy.GroupMembers }} gm JOIN {{ .Policy.Groups }} gg ON gg.Id = gm.GroupId
     WHERE gm.UserId = u.Id AND gg.Kind = {{ .KindGlobal }}
+      AND {{ .Standing "gm" }}
   )){{- end }}`
 
 	// identityGroupUsersTemplate declares the people of a group, with their names: every
@@ -547,6 +573,11 @@ type (
 	// a role file can show a person the people of the groups they are in themselves
 	// (group IN subject.{{ .GroupSet }}).
 	//
+	// StartsAt and EndsAt are the period of the person's place in the group, each empty
+	// for none. A place that has ended is not listed: it gives the person nothing and
+	// goes at their next sign-in. One that has not begun is listed, where it is given
+	// another period or taken away.
+	//
 	// @virtual
 	// @permissionScope(domain)
 	{{- else }}
@@ -555,6 +586,11 @@ type (
 	// and name and the group's name. The key is the group's id and the account's id. The
 	// group's id is read by a grant's condition (group), so a role file can show a person
 	// the people of the groups they are in themselves (group IN subject.{{ .GroupSet }}).
+	//
+	// StartsAt and EndsAt are the period of the person's place in the group, each empty
+	// for none. A place that has ended is not listed: it gives the person nothing and
+	// goes at their next sign-in. One that has not begun is listed, where it is given
+	// another period or taken away.
 	//
 	// @virtual
 	{{- end }}
@@ -575,6 +611,8 @@ type (
 		Name      *string      ` + "`spanner:\"Name\"`" + `
 		GroupName string       ` + "`spanner:\"GroupName\" index:\"true\"`" + `
 		CreatedAt time.Time    ` + "`spanner:\"CreatedAt\"`" + `
+		StartsAt  *time.Time   ` + "`spanner:\"StartsAt\"`" + `
+		EndsAt    *time.Time   ` + "`spanner:\"EndsAt\"`" + `
 	}
 )
 
@@ -591,12 +629,17 @@ SELECT
   u.Username AS Username,
   u.Name AS Name,
   g.Name AS GroupName,
-  m.CreatedAt AS CreatedAt
+  m.CreatedAt AS CreatedAt,
+  m.StartsAt AS StartsAt,
+  m.EndsAt AS EndsAt
 FROM {{ .Policy.Groups }} g
 JOIN {{ .Policy.GroupMembers }} m ON m.GroupId = g.Id
 JOIN {{ .Tables.Users }} u ON u.Id = m.UserId
 {{- if .ForTenant }}
 WHERE g.Kind = {{ .KindDomain }} AND g.Axis = {{ .ScopeAxis }}
+  AND {{ .Standing "m" }}
+{{- else }}
+WHERE {{ .Standing "m" }}
 {{- end }}
 ` + "`" + `
 
@@ -685,6 +728,10 @@ type (
 	// grant's condition (role), so a role file can say which roles its holder takes away
 	// from a group.
 	//
+	// StartsAt and EndsAt are the period the group holds the role for, each empty for
+	// none. A role that has ended is not listed: it is nobody's through the group. One
+	// that has not begun is listed, where it is given another period or taken away.
+	//
 	// @virtual
 	// @permissionScope(domain)
 	// @outlet({{ .Outlets }})
@@ -699,8 +746,10 @@ type (
 		GroupName string       ` + "`spanner:\"GroupName\" index:\"true\"`" + `
 		// @primarykey
 		// @attribute(role)
-		Role      string    ` + "`spanner:\"Role\" index:\"true\"`" + `
-		CreatedAt time.Time ` + "`spanner:\"CreatedAt\"`" + `
+		Role      string     ` + "`spanner:\"Role\" index:\"true\"`" + `
+		CreatedAt time.Time  ` + "`spanner:\"CreatedAt\"`" + `
+		StartsAt  *time.Time ` + "`spanner:\"StartsAt\"`" + `
+		EndsAt    *time.Time ` + "`spanner:\"EndsAt\"`" + `
 	}
 )
 
@@ -713,11 +762,14 @@ SELECT
   r.GroupId AS GroupId,
   g.Name AS GroupName,
   r.Role AS Role,
-  r.CreatedAt AS CreatedAt
+  r.CreatedAt AS CreatedAt,
+  r.StartsAt AS StartsAt,
+  r.EndsAt AS EndsAt
 FROM {{ .Policy.Groups }} g
 JOIN {{ .Policy.GroupRoles }} r ON r.GroupId = g.Id
 WHERE g.Kind = {{ .KindDomain }} AND g.Axis = {{ .ScopeAxis }}
   AND r.Kind = g.Kind AND r.Axis = g.Axis AND r.DomainId = g.DomainId
+  AND {{ .Standing "r" }}
 ` + "`" + `
 
 // Subquery is the query the rows are read from.
@@ -733,7 +785,11 @@ func ({{ .SubjectGroupRole }}) Subquery() (query string, params map[string]any) 
 
 package {{ .Package }}
 
-import "github.com/impulseframework/impulse"
+import (
+	"time"
+
+	"github.com/impulseframework/impulse"
+)
 
 type (
 	{{- if .ForTenant }}
@@ -748,6 +804,12 @@ type (
 	// nor the role is this tenant's to change; EveryDomain says the group holds the role
 	// in every tenant alone.
 	//
+	// StartsAt and EndsAt are the period the person holds the role for through the group:
+	// where the period of their place in the group and the period the group holds the
+	// role for meet, each end empty for none. A role either of whose two periods has
+	// ended, or whose two periods never meet, is not listed: the person does not hold it
+	// and will not. One that has not begun is listed with its start.
+	//
 	// @virtual
 	// @permissionScope(domain)
 	{{- else }}
@@ -760,6 +822,12 @@ type (
 	// The rows are the ones the permission engine gives the group's members: a row of
 	// the group roles table that names the Super Administrator role, or gives a group
 	// kept in one domain a role outside it, is not listed, as nobody holds it.
+	//
+	// StartsAt and EndsAt are the period the person holds the role for through the group:
+	// where the period of their place in the group and the period the group holds the
+	// role for meet, each end empty for none. A role either of whose two periods has
+	// ended, or whose two periods never meet, is not listed: the person does not hold it
+	// and will not. One that has not begun is listed with its start.
 	//
 	// @virtual
 	{{- end }}
@@ -793,6 +861,8 @@ type (
 		// @primarykey
 		Role string ` + "`spanner:\"Role\" index:\"true\"`" + `
 		{{- end }}
+		StartsAt *time.Time ` + "`spanner:\"StartsAt\"`" + `
+		EndsAt   *time.Time ` + "`spanner:\"EndsAt\"`" + `
 	}
 )
 
@@ -811,19 +881,23 @@ SELECT
   g.Name AS GroupName,
   t.Role AS Role,
   (g.Kind = {{ .KindGlobal }}) AS GlobalGroup,
-  t.EveryDomain AS EveryDomain
+  t.EveryDomain AS EveryDomain,
+{{ .ThroughGroupPeriod "t" "m" }}
 FROM (
-  SELECT r.DomainId AS DomainId, r.GroupId AS GroupId, r.Role AS Role, FALSE AS EveryDomain
+  SELECT r.DomainId AS DomainId, r.GroupId AS GroupId, r.Role AS Role, FALSE AS EveryDomain, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt
   FROM {{ .Policy.GroupRoles }} r
   WHERE r.Kind = {{ .KindDomain }} AND r.Axis = {{ .ScopeAxis }}
+    AND {{ .Standing "r" }}
   UNION ALL
-  SELECT s.{{ .TenantKey }} AS DomainId, r.GroupId AS GroupId, r.Role AS Role, TRUE AS EveryDomain
+  SELECT s.{{ .TenantKey }} AS DomainId, r.GroupId AS GroupId, r.Role AS Role, TRUE AS EveryDomain, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt
   FROM {{ .Policy.GroupRoles }} r
   CROSS JOIN {{ .TenantTable }} s
   WHERE r.Kind = {{ .KindEvery }} AND r.Axis = {{ .ScopeAxis }}
+    AND {{ .Standing "r" }}
     AND NOT EXISTS (
       SELECT 1 FROM {{ .Policy.GroupRoles }} d
       WHERE d.GroupId = r.GroupId AND d.Kind = {{ .KindDomain }} AND d.Axis = r.Axis AND d.DomainId = s.{{ .TenantKey }} AND d.Role = r.Role
+        AND {{ .Standing "d" }}
     )
 ) t
 JOIN {{ .Policy.Groups }} g ON g.Id = t.GroupId
@@ -831,6 +905,7 @@ JOIN {{ .Policy.GroupMembers }} m ON m.GroupId = t.GroupId
 JOIN {{ .Tables.Users }} u ON u.Id = m.UserId
 WHERE t.Role != {{ .SuperAdministratorRole }}
   AND (g.Kind = {{ .KindGlobal }} OR (NOT t.EveryDomain AND g.Kind = {{ .KindDomain }} AND g.Axis = {{ .ScopeAxis }} AND g.DomainId = t.DomainId))
+{{ .ThroughGroupMeets "t" "m" }}
 ` + "`" + `
 {{- else -}}
 // {{ GoCamel .SubjectUserGroupRole }}Query selects the roles people hold through a group:
@@ -845,13 +920,16 @@ SELECT
   r.Kind AS Kind,
   r.Axis AS Axis,
   r.DomainId AS DomainId,
-  r.Role AS Role
+  r.Role AS Role,
+{{ .ThroughGroupPeriod "r" "m" }}
 FROM {{ .Policy.GroupRoles }} r
 JOIN {{ .Policy.Groups }} g ON g.Id = r.GroupId
 JOIN {{ .Policy.GroupMembers }} m ON m.GroupId = r.GroupId
 JOIN {{ .Tables.Users }} u ON u.Id = m.UserId
 WHERE r.Role != {{ .SuperAdministratorRole }}
   AND (g.Kind = {{ .KindGlobal }} OR (r.Kind = g.Kind AND r.Axis = g.Axis AND r.DomainId = g.DomainId))
+  AND {{ .Standing "r" }}
+{{ .ThroughGroupMeets "r" "m" }}
 ` + "`" + `
 {{- end }}
 
@@ -1050,21 +1128,28 @@ package {{ .Package }}
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
+	"github.com/impulseframework/impulse/identity"
 	"github.com/impulseframework/impulse/resource"
 )
 
 // Add{{ .Subject }}GroupMember puts a person of the {{ .Auth }} auth in a group: the
 // person then holds the group's roles wherever the group holds them, and their next
 // request is served with them. The person is named by the id of their account, and an
-// id no user holds is refused. A person who is in the group already is left as they
-// are.` + identityTenantGroupNote + `
+// id no user holds is refused.` + identityTenantGroupNote + `
 {{- if .ForTenant }}
 // The person is picked from {{ .TenantUser }}, the tenant's own list of the auth's
 // people.
 {{- end }}
+//
+// The place is given for a period where the request names one (StartsAt, EndsAt, each
+// optional): outside it the person holds none of the group's roles through it, and
+// nothing is written when it begins or ends. Putting in a person who is in the group
+// already gives their place the period of this request in place of the one it had, so a
+// request that names neither makes the place stand until they are taken out.
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
@@ -1075,25 +1160,29 @@ type Add{{ .Subject }}GroupMember struct {
 	// UserID is the person, picked from the people the caller may list.
 	//
 	// @enumerate({{ Pluralize .SubjectUser }})
-	UserID impulse.UUID
+	UserID impulse.UUID` + identityPeriodFields + `
 }
 
 // Execute buffers the person's place in the group into the caller's transaction.
 func (m *Add{{ .Subject }}GroupMember) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
+	period, err := identity.RequestPeriod(m.StartsAt, m.EndsAt)
+	if err != nil {
+		return errors.Wrap(err, "identity.RequestPeriod()")
+	}
 	{{- if .ForTenant }}
 	tenant, err := client.manager.Tenant(ctx)
 	if err != nil {
 		return errors.Wrap(err, "identity.Manager.Tenant()")
 	}
-	if err := tenant.AddGroupMember(ctx, txn, m.GroupID, m.UserID); err != nil {
-		return errors.Wrap(err, "identity.Tenant.AddGroupMember()")
+	if err := tenant.AddGroupMemberFor(ctx, txn, m.GroupID, m.UserID, period); err != nil {
+		return errors.Wrap(err, "identity.Tenant.AddGroupMemberFor()")
 	}
 	{{- else }}
 	if err := client.manager.RequireUser(ctx, txn, m.UserID); err != nil {
 		return errors.Wrap(err, "identity.Manager.RequireUser()")
 	}
-	if err := client.manager.AddGroupMember(ctx, txn, m.GroupID, m.UserID); err != nil {
-		return errors.Wrap(err, "identity.Manager.AddGroupMember()")
+	if err := client.manager.AddGroupMemberFor(ctx, txn, m.GroupID, m.UserID, period); err != nil {
+		return errors.Wrap(err, "identity.Manager.AddGroupMemberFor()")
 	}
 	{{- end }}
 
@@ -1162,6 +1251,7 @@ package {{ .Package }}
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-playground/errors/v5"
 	"github.com/impulseframework/impulse"
@@ -1174,16 +1264,22 @@ import (
 // Give{{ .Subject }}GroupRole gives a group of one {{ .TenantName }} a role in the
 // tenant, the one place a tenant's group holds a role: every person in the group then
 // holds the role there, and their next request is served with it. The role must exist
-// in the tenant; a role the group holds already is left as it is.` + identityTenantGroupNote + `
+// in the tenant.` + identityTenantGroupNote + `
 {{- else -}}
 // Give{{ .Subject }}GroupRole gives a group of the {{ .Auth }} auth a role: in the global
 // scope, in one domain (Domain), or in every domain (EveryDomain). Every person in the
 // group then holds the role there, and their next request is served with it. The role
-// must exist where it is given; a role the group holds there already is left as it is.
-// A group kept in one domain is given a role in that domain alone.
+// must exist where it is given. A group kept in one domain is given a role in that
+// domain alone.
 {{- end }}
 // No group is given the Super Administrator role: a super administrator gives it to one
 // person at a time.
+//
+// The role is given for a period where the request names one (StartsAt, EndsAt, each
+// optional): outside it the role is nobody's through the group, and nothing is written
+// when it begins or ends. Giving a role the group holds there already gives it the
+// period of this request in place of the one it had, so a request that names neither
+// makes the role stand until it is taken away.
 //
 // @rpc` + identityTenantScope + `
 // @outlet({{ .Outlets }})
@@ -1213,26 +1309,30 @@ type Give{{ .Subject }}GroupRole struct {
 	{{- end }}
 	Domain      *string
 	EveryDomain bool
-	{{- end }}
+	{{- end }}` + identityPeriodFields + `
 }
 
 // Execute buffers the group's role into the caller's transaction.
 func (m *Give{{ .Subject }}GroupRole) Execute(ctx context.Context, txn resource.ReadWriteTransaction, client *Client) error {
+	period, err := identity.RequestPeriod(m.StartsAt, m.EndsAt)
+	if err != nil {
+		return errors.Wrap(err, "identity.RequestPeriod()")
+	}
 	{{- if .ForTenant }}
 	tenant, err := client.manager.Tenant(ctx)
 	if err != nil {
 		return errors.Wrap(err, "identity.Manager.Tenant()")
 	}
-	if err := tenant.GiveGroupRole(ctx, txn, m.GroupID, accesstypes.Role(m.Role)); err != nil {
-		return errors.Wrap(err, "identity.Tenant.GiveGroupRole()")
+	if err := tenant.GiveGroupRoleFor(ctx, txn, m.GroupID, accesstypes.Role(m.Role), period); err != nil {
+		return errors.Wrap(err, "identity.Tenant.GiveGroupRoleFor()")
 	}
 	{{- else }}
 	scope, err := identity.Scope(m.Domain, m.EveryDomain)
 	if err != nil {
 		return errors.Wrap(err, "identity.Scope()")
 	}
-	if err := client.manager.GiveGroupRole(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role)); err != nil {
-		return errors.Wrap(err, "identity.Manager.GiveGroupRole()")
+	if err := client.manager.GiveGroupRoleFor(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role), period); err != nil {
+		return errors.Wrap(err, "identity.Manager.GiveGroupRoleFor()")
 	}
 	{{- end }}
 

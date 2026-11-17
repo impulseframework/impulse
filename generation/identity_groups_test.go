@@ -91,12 +91,12 @@ func Test_prepareIdentity_groups(t *testing.T) {
 			// table declares is what it is tested against (group IN subject.groups).
 			"// @suppress(readHandler)", "CrewGroupMember struct {", "// @attribute(group)\n\t\tGroupID impulse.UUID `spanner:\"GroupId\"`",
 			// The one auth that keeps groups declares the set under the plain name.
-			"// @subjectSet(groups, value: GroupID)\n\t\tUserID    string    `spanner:\"UserId\"`",
+			"// @subjectSet(groups, value: GroupID, where: (StartsAt IS NULL OR StartsAt <= now) AND (EndsAt IS NULL OR EndsAt > now))\n\t\tUserID    string     `spanner:\"UserId\"`",
 		},
 		"internal/crewresources/crew_group_roles.go": {"// @suppress(readHandler)", "CrewGroupRole struct {", "Role      string       `spanner:\"Role\"`"},
 		"internal/crewresources/crew_group_users.go": {
 			"// @virtual", "CrewGroupUser struct {", "// @primarykey\n\t\t// @attribute(group)\n\t\tGroupID impulse.UUID", "// @primarykey\n\t\tUserID    impulse.UUID",
-			"FROM CrewGroups g\nJOIN CrewGroupMembers m ON m.GroupId = g.Id\nJOIN CrewSessionUsers u ON u.Id = m.UserId\n`",
+			"FROM CrewGroups g\nJOIN CrewGroupMembers m ON m.GroupId = g.Id\nJOIN CrewSessionUsers u ON u.Id = m.UserId\nWHERE " + standingSQL("m") + "\n`",
 		},
 		"internal/crewresources/crew_user_group_roles.go": {
 			"// @virtual", "CrewUserGroupRole struct {", "// @order(Username asc, GroupName asc, Role asc)",
@@ -114,7 +114,7 @@ func Test_prepareIdentity_groups(t *testing.T) {
 		"crewidentity/add_crew_group_member.go": {
 			"type AddCrewGroupMember struct {\n\t// @target(CrewGroup)\n\tGroupID impulse.UUID", "// @enumerate(CrewSessionUsers)\n\tUserID impulse.UUID",
 			// The served method names a person someone picked, so the account is read.
-			"client.manager.RequireUser(ctx, txn, m.UserID)", "client.manager.AddGroupMember(ctx, txn, m.GroupID, m.UserID)",
+			"client.manager.RequireUser(ctx, txn, m.UserID)", "client.manager.AddGroupMemberFor(ctx, txn, m.GroupID, m.UserID, period)",
 		},
 		"crewidentity/remove_crew_group_member.go": {
 			"// @target(CrewGroupUser, key: GroupID)\n\tGroupID impulse.UUID\n\t// @target(CrewGroupUser, key: UserID)\n\tUserID impulse.UUID",
@@ -122,7 +122,7 @@ func Test_prepareIdentity_groups(t *testing.T) {
 		},
 		"crewidentity/give_crew_group_role.go": {
 			"type GiveCrewGroupRole struct {\n\t// @target(CrewGroup)\n\tGroupID impulse.UUID", "// @attribute(role)\n\tRole        string `validate:\"required\"`", "EveryDomain bool",
-			"client.manager.GiveGroupRole(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role))",
+			"client.manager.GiveGroupRoleFor(ctx, txn, m.GroupID, scope, accesstypes.Role(m.Role), period)",
 		},
 		// The whole application's method names no row: a role is held in a scope whose
 		// columns are empty for the whole application, so a page fills it from a row.
@@ -252,28 +252,28 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 		},
 		"internal/crewresources/crew_ship_group_users.go": {
 			"// @permissionScope(domain)", "CrewShipGroupUser struct {", "// @domain\n\t\tDomainID string",
-			"JOIN CrewSessionUsers u ON u.Id = m.UserId\nWHERE g.Kind = 'domain' AND g.Axis = ''\n`",
+			"JOIN CrewSessionUsers u ON u.Id = m.UserId\nWHERE g.Kind = 'domain' AND g.Axis = ''\n  AND " + standingSQL("m") + "\n`",
 		},
 		"internal/crewresources/crew_ship_group_roles.go": {
 			"CrewShipGroupRole struct {", "// @primarykey\n\t\t// @attribute(role)\n\t\tRole      string",
 			// A tenant's group holds roles in its own tenant alone.
-			"AND r.Kind = g.Kind AND r.Axis = g.Axis AND r.DomainId = g.DomainId\n`",
+			"AND r.Kind = g.Kind AND r.Axis = g.Axis AND r.DomainId = g.DomainId\n  AND " + standingSQL("r") + "\n`",
 		},
 		"internal/crewresources/crew_ship_user_group_roles.go": {
 			"CrewShipUserGroupRole struct {", "GlobalGroup bool", "EveryDomain bool",
-			"SELECT s.Id AS DomainId, r.GroupId AS GroupId, r.Role AS Role, TRUE AS EveryDomain\n  FROM CrewGroupRoles r\n  CROSS JOIN Ships s",
+			"SELECT s.Id AS DomainId, r.GroupId AS GroupId, r.Role AS Role, TRUE AS EveryDomain, r.StartsAt AS StartsAt, r.EndsAt AS EndsAt\n  FROM CrewGroupRoles r\n  CROSS JOIN Ships s",
 			"WHERE t.Role != 'SuperAdministrator'\n  AND (g.Kind = 'global' OR (NOT t.EveryDomain AND g.Kind = 'domain' AND g.Axis = '' AND g.DomainId = t.DomainId))",
 		},
 		// Who a group puts in a tenant is one of the tenant's people: the members of its
 		// own groups, and of a group kept for the whole application that holds a role there.
 		"internal/crewresources/crew_ship_users.go": {
-			"WHERE m.Kind = 'every' AND m.Axis = ''\n  UNION DISTINCT\n  SELECT g.DomainId AS DomainId, gm.UserId AS UserId\n  FROM CrewGroups g\n  JOIN CrewGroupMembers gm ON gm.GroupId = g.Id\n  WHERE g.Kind = 'domain' AND g.Axis = ''",
+			"WHERE m.Kind = 'every' AND m.Axis = ''\n    AND " + countingSQL("m") + "\n  UNION DISTINCT\n  SELECT g.DomainId AS DomainId, gm.UserId AS UserId\n  FROM CrewGroups g\n  JOIN CrewGroupMembers gm ON gm.GroupId = g.Id\n  WHERE g.Kind = 'domain' AND g.Axis = ''\n    AND " + countingSQL("gm"),
 			"WHERE r.Kind = 'domain' AND r.Axis = '' AND g.Kind = 'global' AND r.Role != 'SuperAdministrator'",
-			"CROSS JOIN Ships s\n  WHERE r.Kind = 'every' AND r.Axis = '' AND g.Kind = 'global'\n) t",
+			"CROSS JOIN Ships s\n  WHERE r.Kind = 'every' AND r.Axis = '' AND g.Kind = 'global'\n    AND " + countingSQL("r") + "\n    AND " + countingSQL("gm") + "\n) t",
 			// A place in another tenant's group is a role held elsewhere, and a place in
 			// a group kept for the whole application makes the person one of its own.
-			"WHERE gm.UserId = u.Id AND og.Kind = 'domain' AND og.Axis = '' AND og.DomainId != t.DomainId\n  )) AS HeldElsewhere,",
-			"WHERE gm.UserId = u.Id AND gg.Kind = 'global'\n  )) AS HeldGlobally",
+			"WHERE gm.UserId = u.Id AND og.Kind = 'domain' AND og.Axis = '' AND og.DomainId != t.DomainId\n      AND " + standingSQL("gm") + "\n  )) AS HeldElsewhere,",
+			"WHERE gm.UserId = u.Id AND gg.Kind = 'global'\n      AND " + standingSQL("gm") + "\n  )) AS HeldGlobally",
 		},
 		"crewidentity/create_crew_ship_group.go": {
 			"// @rpc\n\t// @permissionScope(domain)\n\t// @outlet(default)\n\tCreateCrewShipGroup struct {", "tenant.CreateGroup(ctx, txn, m.Name, m.Description)",
@@ -282,7 +282,7 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 		"crewidentity/delete_crew_ship_group.go":   {"// @permissionScope(domain)", "// @target(CrewShipGroup)\n\tGroupID impulse.UUID", "tenant.DeleteGroup(ctx, txn, m.GroupID)"},
 		"crewidentity/add_crew_ship_group_member.go": {
 			"// @permissionScope(domain)", "// @target(CrewShipGroup)\n\tGroupID impulse.UUID", "// @enumerate(CrewShipUsers)\n\tUserID impulse.UUID",
-			"tenant.AddGroupMember(ctx, txn, m.GroupID, m.UserID)",
+			"tenant.AddGroupMemberFor(ctx, txn, m.GroupID, m.UserID, period)",
 		},
 		"crewidentity/remove_crew_ship_group_member.go": {
 			"// @target(CrewShipGroupUser, key: GroupID)\n\tGroupID impulse.UUID\n\t// @target(CrewShipGroupUser, key: UserID)\n\tUserID impulse.UUID",
@@ -290,7 +290,7 @@ func Test_prepareIdentity_groups_tenant(t *testing.T) {
 		},
 		"crewidentity/give_crew_ship_group_role.go": {
 			"// @target(CrewShipGroup)\n\tGroupID impulse.UUID", "// @attribute(role)\n\t// @enumerate(CrewShipRoles)\n\tRole string `validate:\"required\"`",
-			"tenant.GiveGroupRole(ctx, txn, m.GroupID, accesstypes.Role(m.Role))",
+			"tenant.GiveGroupRoleFor(ctx, txn, m.GroupID, accesstypes.Role(m.Role), period)",
 		},
 		"crewidentity/take_crew_ship_group_role.go": {
 			"// @target(CrewShipGroupRole, key: GroupID)\n\tGroupID impulse.UUID\n\t// @target(CrewShipGroupRole, key: Role)\n\tRole string `validate:\"required\"`",

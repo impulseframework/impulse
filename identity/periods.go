@@ -9,6 +9,7 @@ import (
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
 	"github.com/impulseframework/impulse/accesstypes"
+	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/logger"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
@@ -23,7 +24,8 @@ import (
 //
 //   - changing a period is assigning again: the rule that gives a role, a place or a
 //     group's role gives it the period handed, which replaces the one it had, and the
-//     rule that gives it with none makes it stand until it is removed;
+//     rule that gives it with none makes it stand until it is removed. A period that is
+//     over already is refused: ending an assignment now is removing it;
 //   - an assignment that has ended is nothing a person holds: it keeps no account, it
 //     places nobody in a tenant, it makes nobody a tenant's administrator, and it keeps no
 //     group from being deleted. One that has not begun is held: the person is known and
@@ -106,6 +108,67 @@ func compareText(a, b string) int {
 type GroupPeriods struct {
 	Members map[accesstypes.User]accesstypes.Period
 	Roles   map[access.GroupRoleKey]accesstypes.Period
+}
+
+// RequestPeriod answers the period a request's two optional times name, each nil for
+// none: the start is the first instant an assignment counts and the end the first it no
+// longer does. A period that ends at or before its start never counts and is a Bad
+// Request. The generated methods that give a role, a place in a group or a group's role
+// build their period with it.
+func RequestPeriod(startsAt, endsAt *time.Time) (accesstypes.Period, error) {
+	period, err := accesstypes.NewPeriod(startsAt, endsAt)
+	if err != nil {
+		return accesstypes.Period{}, httpio.NewBadRequestMessage(err.Error())
+	}
+
+	return period, nil
+}
+
+// refuseEnded refuses a period that is over already: an assignment given with it would
+// count for nothing from the start. what names the assignment in the refusal.
+func refuseEnded(period accesstypes.Period, what string) error {
+	if period.Ended(time.Now()) {
+		return httpio.NewBadRequestMessagef("the period ended at %s, which is past, so %s would count for nothing: give a later end, or take it away to end it now",
+			period.End.Format(time.RFC3339), what)
+	}
+
+	return nil
+}
+
+// AssignRoleFor is Tenant.AssignRole with the period the role is held for (see
+// Manager.AssignRoleFor).
+func (t *Tenant) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID, role accesstypes.Role, period accesstypes.Period) error {
+	ctx, span := tracer.Start(ctx)
+	defer span.End()
+
+	if err := t.manager.RequireUser(ctx, txn, userID); err != nil {
+		return err
+	}
+
+	return t.manager.AssignRoleFor(ctx, txn, t.scope(), userID, role, period)
+}
+
+// AddGroupMemberFor is Tenant.AddGroupMember with the period the person is in the group
+// for (see Manager.AddGroupMemberFor).
+func (t *Tenant) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteTransaction, groupID, userID impulse.UUID, period accesstypes.Period) error {
+	if err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
+		return err
+	}
+	if err := t.manager.RequireUser(ctx, txn, userID); err != nil {
+		return err
+	}
+
+	return t.manager.AddGroupMemberFor(ctx, txn, groupID, userID, period)
+}
+
+// GiveGroupRoleFor is Tenant.GiveGroupRole with the period the group holds the role for
+// (see Manager.GiveGroupRoleFor).
+func (t *Tenant) GiveGroupRoleFor(ctx context.Context, txn resource.ReadWriteTransaction, groupID impulse.UUID, role accesstypes.Role, period accesstypes.Period) error {
+	if err := t.requireTenantGroup(ctx, txn, groupID); err != nil {
+		return err
+	}
+
+	return t.manager.GiveGroupRoleFor(ctx, txn, groupID, t.scope(), role, period)
 }
 
 // AssignRole is AssignRoleFor with no period: the membership stands until it is removed,

@@ -166,6 +166,7 @@ func TestManager_AssignRoleFor(t *testing.T) {
 			name: "a period that ends before it starts", role: "Reader", scope: alphaScope,
 			period: accesstypes.Period{Start: current.End, End: current.Start}, wantErr: "not after its start",
 		},
+		{name: "a period that is over already", role: "Reader", scope: alphaScope, period: ended, wantErr: "take it away to end it now"},
 		{name: "an end on the Super Administrator role", role: accesstypes.SuperAdministrator, scope: globalScope, period: accesstypes.Period{End: current.End}, wantErr: "takes no end"},
 		{name: "a start on the Super Administrator role", role: accesstypes.SuperAdministrator, scope: globalScope, period: accesstypes.Period{Start: upcoming.Start}, wantErr: "takes no end"},
 	}
@@ -265,21 +266,25 @@ func TestManager_groupPeriods(t *testing.T) {
 		}
 	})
 
-	t.Run("a period that ends before it starts", func(t *testing.T) {
+	t.Run("a period that ends before it starts, and one that is over already", func(t *testing.T) {
 		t.Parallel()
 		store := groupStore()
 		m, _ := newManager(t, store, engineRoles)
-		backwards := accesstypes.Period{Start: current.End, End: current.Start}
-		for name, give := range map[string]func(ctx context.Context, txn resource.ReadWriteTransaction) error{
-			"AddGroupMemberFor": func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return m.AddGroupMemberFor(ctx, txn, nightID, userID, backwards)
-			},
-			"GiveGroupRoleFor": func(ctx context.Context, txn resource.ReadWriteTransaction) error {
-				return m.GiveGroupRoleFor(ctx, txn, nightID, alphaScope, "Reader", backwards)
-			},
+		for name, refused := range map[string]accesstypes.Period{
+			"not after its start":        {Start: current.End, End: current.Start},
+			"take it away to end it now": ended,
 		} {
-			if err := inTransaction(t, give); err == nil || !httpio.HasBadRequest(err) {
-				t.Errorf("%s() error = %v, want a bad request", name, err)
+			for call, give := range map[string]func(ctx context.Context, txn resource.ReadWriteTransaction) error{
+				"AddGroupMemberFor": func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+					return m.AddGroupMemberFor(ctx, txn, nightID, userID, refused)
+				},
+				"GiveGroupRoleFor": func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+					return m.GiveGroupRoleFor(ctx, txn, nightID, alphaScope, "Reader", refused)
+				},
+			} {
+				if err := inTransaction(t, give); err == nil || !httpio.HasBadRequest(err) || !strings.Contains(err.Error(), name) {
+					t.Errorf("%s() error = %v, want a bad request containing %q", call, err, name)
+				}
 			}
 		}
 		if len(store.writes) != 0 {

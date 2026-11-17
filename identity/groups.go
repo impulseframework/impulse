@@ -231,6 +231,9 @@ func (m *Manager) AddGroupMemberFor(ctx context.Context, txn resource.ReadWriteT
 	if err := period.Validate(); err != nil {
 		return httpio.NewBadRequestMessage(err.Error())
 	}
+	if err := refuseEnded(period, "the place in the group"); err != nil {
+		return err
+	}
 	group, err := m.requireGroup(ctx, txn, groupID)
 	if err != nil {
 		return err
@@ -337,6 +340,9 @@ func (m *Manager) GiveGroupRoleFor(ctx context.Context, txn resource.ReadWriteTr
 
 	if err := period.Validate(); err != nil {
 		return httpio.NewBadRequestMessage(err.Error())
+	}
+	if err := refuseEnded(period, "the group's role"); err != nil {
+		return err
 	}
 	group, err := m.requireGroup(ctx, txn, groupID)
 	if err != nil {

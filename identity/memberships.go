@@ -79,6 +79,9 @@ func (m *Manager) AssignRoleFor(ctx context.Context, txn resource.ReadWriteTrans
 	if err := access.ValidatePeriod(role, period); err != nil {
 		return errors.Wrap(err, "access.ValidatePeriod()")
 	}
+	if err := refuseEnded(period, "the role"); err != nil {
+		return err
+	}
 	if role == accesstypes.SuperAdministrator && !scope.IsGlobal() {
 		return httpio.NewBadRequestMessagef("the %s role is held for the whole application alone, never in a %s or in every %s: give it with no %s named",
 			string(role), m.tenantWord, m.tenantWord, m.tenantWord)
