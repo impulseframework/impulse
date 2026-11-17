@@ -87,8 +87,10 @@ func Test_snapshot_groups(t *testing.T) {
 				r.Memberships = []policy.Membership{groupRole("Editor"), groupRole("Auditor")}
 			},
 			want: []want{
-				{"ann", "Read", "employees", true}, {"bob", "Read", "employees", true},
-				{"ann", "List", "widgets", true}, {"bob", "List", "widgets", true},
+				{"ann", "Read", "employees", true},
+				{"bob", "Read", "employees", true},
+				{"ann", "List", "widgets", true},
+				{"bob", "List", "widgets", true},
 			},
 		},
 		{
@@ -98,8 +100,10 @@ func Test_snapshot_groups(t *testing.T) {
 				r.Memberships = []policy.Membership{groupRole("Auditor")}
 			},
 			want: []want{
-				{"ann", "Read", "employees", false}, {"bob", "Read", "employees", false},
-				{"ann", "List", "widgets", true}, {"bob", "List", "widgets", true},
+				{"ann", "Read", "employees", false},
+				{"bob", "Read", "employees", false},
+				{"ann", "List", "widgets", true},
+				{"bob", "List", "widgets", true},
 			},
 		},
 		{
@@ -186,8 +190,10 @@ func Test_snapshot_groups_places(t *testing.T) {
 
 	records := &policy.Records{
 		Roles: []policy.Role{
-			{Scope: globalPolicy, Name: "Operator"}, {Scope: everyDomainPolicy, Name: "Viewer"},
-			{Scope: tenant1Policy, Name: "Editor"}, {Scope: tenant2Policy, Name: "Editor"},
+			{Scope: globalPolicy, Name: "Operator"},
+			{Scope: everyDomainPolicy, Name: "Viewer"},
+			{Scope: tenant1Policy, Name: "Editor"},
+			{Scope: tenant2Policy, Name: "Editor"},
 		},
 		Grants: []policy.Grant{
 			{Scope: globalPolicy, Subject: roleSubject("Operator"), Perm: "Execute", Resource: "Reindex"},

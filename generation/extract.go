@@ -104,15 +104,9 @@ func (c *client) structsToResources(structs []*parser.Struct, validators ...stru
 	}
 
 	// A subject set's who: may name another resource's set, so the sets it
-	// names are checked once every resource is extracted. A run that generates an
-	// auth's management extracts the application's resources and the management's
-	// apart, and the management declares a set an application's who: may name (the
-	// groups a person is in), so that run checks the sets once it holds both
-	// (resolveRunSubjectSets).
-	if len(c.identity) == 0 {
-		if err := resolveSubjectSetReferences(resources); err != nil {
-			return nil, err
-		}
+	// names are checked once every resource is extracted.
+	if err := c.resolveExtractedSubjectSets(resources); err != nil {
+		return nil, err
 	}
 
 	// Workflow chains cross resources, so they resolve — and the uniform

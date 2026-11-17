@@ -75,7 +75,7 @@ func (f *fakeStore) InsertGroup(_ context.Context, group *policy.GroupRow) (bool
 	var taken bool
 	err := f.locked(func() error {
 		if _, _, _, err := policy.GroupColumns(group.Scope); err != nil {
-			return err
+			return errors.Wrap(err, "policy.GroupColumns()")
 		}
 		if _, ok := f.groups.rows[group.ID]; ok {
 			taken = true

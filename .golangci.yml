@@ -376,6 +376,10 @@ linters:
       path: generation/identity_test\.go
       text: Test_prepareIdentity
     - linters:
+      - paralleltest
+      path: generation/identity_groups_test\.go
+      text: Test_prepareIdentity
+    - linters:
       - funlen
       path: resource/(.*/)?resourceset\.go
       text: permissionsFromTags

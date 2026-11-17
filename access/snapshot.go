@@ -1088,6 +1088,10 @@ func (s *snapshot) compileSubjectGrants(grants []policy.Grant) (roleOwn map[acce
 				userDirect[user] = make(grantMap)
 			}
 			gm = userDirect[user]
+		case policy.SubjectGroup:
+			// No grant is a group's: a group holds roles, and its members hold the
+			// roles' grants.
+			continue
 		}
 
 		resID := s.resources[g.Resource]
@@ -1146,6 +1150,9 @@ func splitMemberships(memberships []policy.Membership) (inherits map[accesstypes
 			if !slices.Contains(userRoles[user], m.Role) {
 				userRoles[user] = append(userRoles[user], m.Role)
 			}
+		case policy.SubjectGroup:
+			// A group's roles were folded into its members' before the compiler
+			// read a membership (foldGroups): none reaches here.
 		}
 	}
 

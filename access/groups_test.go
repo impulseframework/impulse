@@ -216,6 +216,8 @@ func Test_userManager_AddGroupRoles_refusals(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			err := manager.AddGroupRoles(ctx, tt.group, tt.scope, tt.role)
 			if tt.wantErr == "" {
 				if err != nil {

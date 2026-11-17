@@ -386,16 +386,16 @@ func seedDemoGroup(ctx context.Context, client *access.Client, group *demoGroup)
 		}
 	}
 	loadCast()
-	members := make([]accesstypes.User, 0, len(group.Members))
+	people := make([]accesstypes.User, 0, len(group.Members))
 	for _, username := range group.Members {
 		account, ok := crewAccounts[username]
 		if !ok {
 			return fmt.Errorf("group %s: %s names no crew account under the username %q", group.Name, usersPath, username)
 		}
-		members = append(members, accesstypes.User(account.String()))
+		people = append(people, accesstypes.User(account.String()))
 	}
-	if len(members) > 0 {
-		if err := manager.AddGroupUsers(ctx, id, members...); err != nil {
+	if len(people) > 0 {
+		if err := manager.AddGroupUsers(ctx, id, people...); err != nil {
 			return fmt.Errorf("AddGroupUsers(%s): %w", group.Name, err)
 		}
 	}

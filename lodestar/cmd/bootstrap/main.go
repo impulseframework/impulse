@@ -421,16 +421,16 @@ func seedGroup(ctx context.Context, manager access.UserManager, sectors *resourc
 		fmt.Printf("Gave %v to the group %s in the sector %s (%s)\n", domainRoles, group.Name, name, domain)
 	}
 
-	members := make([]accesstypes.User, 0, len(group.Members))
+	people := make([]accesstypes.User, 0, len(group.Members))
 	for _, login := range group.Members {
 		account, ok := accounts[login]
 		if !ok {
 			return errors.Newf("%s: the group %s names the member %q, and the file carries no user of that name", usersPath, group.Name, login)
 		}
-		members = append(members, account)
+		people = append(people, account)
 	}
-	if len(members) > 0 {
-		if err := manager.AddGroupUsers(ctx, id, members...); err != nil {
+	if len(people) > 0 {
+		if err := manager.AddGroupUsers(ctx, id, people...); err != nil {
 			return errors.Wrapf(err, "access.UserManager.AddGroupUsers(): group %s", group.Name)
 		}
 		fmt.Printf("Put %v in the group %s\n", group.Members, group.Name)
