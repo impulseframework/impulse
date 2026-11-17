@@ -307,7 +307,8 @@ type db interface {
 	UpgradeUserPasswordHash(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
 	// SetUserPassword updates the user password hash and the password change mark in one write, whatever the row holds.
 	SetUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
-	// ChangeUserPassword replaces the proven password hash with hash and clears the password change mark while the row still holds it.
+	// ChangeUserPassword replaces the proven password hash with hash, clears the password change mark and expires the user's
+	// sessions, in one transaction, while the row still holds the proven hash.
 	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
 	// ActivateUser activates a user
 	ActivateUser(ctx context.Context, id impulse.UUID) error

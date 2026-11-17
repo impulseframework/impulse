@@ -463,40 +463,54 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID i
 		_ = txn.Rollback(ctx)
 	}()
 
+	if err := s.destroyUserSessionsIn(ctx, txn, userID); err != nil {
+		return err
+	}
+
+	if err := txn.Commit(ctx); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Commit()")
+	}
+
+	return nil
+}
+
+// destroyUserSessionsIn expires every live session of a user inside txn, as
+// DestroyUserSessions does in a transaction of its own: a user's own change of
+// password ends their sessions in the transaction that writes the password
+// (ChangeUserPassword).
+func (s *SessionStorageDriver) destroyUserSessionsIn(ctx context.Context, txn pgx.Tx, userID impulse.UUID) error {
 	if s.impersonation == nil {
 		expire := fmt.Sprintf(`UPDATE %s SET "Expired" = TRUE, "UpdatedAt" = now() WHERE "Expired" = FALSE AND "UserId" = $1`, s.sessionTable())
 		if _, err := txn.Exec(ctx, expire, userID); err != nil {
 			return errors.Wrap(err, "pgx.Tx.Exec()")
 		}
-	} else {
-		// The local-actor records name the actor by username.
-		var username string
-		err := txn.QueryRow(ctx, fmt.Sprintf(`SELECT "Username" FROM %s WHERE "Id" = $1`, s.userTable()), userID).Scan(&username)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
-		}
 
-		// Sessions first: the expiry predicate reads the records while they are still live.
-		expire := fmt.Sprintf(`
-			UPDATE %s s SET "Expired" = TRUE, "UpdatedAt" = now()
-			WHERE s."Expired" = FALSE AND (s."UserId" = $2 OR %s)`, s.sessionTable(), s.heldByLocalActor())
-		if _, err := txn.Exec(ctx, expire, username, userID); err != nil {
-			return errors.Wrap(err, "pgx.Tx.Exec()")
-		}
-
-		endRecords := fmt.Sprintf(`
-			UPDATE %s i SET "EndedAt" = now(), "EndReason" = $3
-			WHERE i."EndedAt" IS NULL AND (
-				EXISTS (SELECT 1 FROM %s s WHERE s."Id" = i."SessionId" AND s."UserId" = $2)
-				OR (i."ActorUsername" = $1 AND i."ActorRealm" IS NULL))`,
-			pgx.Identifier{s.impersonation.TableName}.Sanitize(), s.sessionTable())
-		if _, err := txn.Exec(ctx, endRecords, username, userID, string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
-			return errors.Wrap(err, "pgx.Tx.Exec()")
-		}
+		return nil
 	}
 
-	if err := txn.Commit(ctx); err != nil {
-		return errors.Wrap(err, "pgx.Tx.Commit()")
+	// The local-actor records name the actor by username.
+	var username string
+	err := txn.QueryRow(ctx, fmt.Sprintf(`SELECT "Username" FROM %s WHERE "Id" = $1`, s.userTable()), userID).Scan(&username)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return errors.Wrap(err, "pgx.Tx.QueryRow().Scan()")
+	}
+
+	// Sessions first: the expiry predicate reads the records while they are still live.
+	expire := fmt.Sprintf(`
+		UPDATE %s s SET "Expired" = TRUE, "UpdatedAt" = now()
+		WHERE s."Expired" = FALSE AND (s."UserId" = $2 OR %s)`, s.sessionTable(), s.heldByLocalActor())
+	if _, err := txn.Exec(ctx, expire, username, userID); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
+	}
+
+	endRecords := fmt.Sprintf(`
+		UPDATE %s i SET "EndedAt" = now(), "EndReason" = $3
+		WHERE i."EndedAt" IS NULL AND (
+			EXISTS (SELECT 1 FROM %s s WHERE s."Id" = i."SessionId" AND s."UserId" = $2)
+			OR (i."ActorUsername" = $1 AND i."ActorRealm" IS NULL))`,
+		pgx.Identifier{s.impersonation.TableName}.Sanitize(), s.sessionTable())
+	if _, err := txn.Exec(ctx, endRecords, username, userID, string(sessioninfo.ImpersonationEndedByRevocation)); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 
 	return nil

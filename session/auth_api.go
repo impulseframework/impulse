@@ -226,9 +226,11 @@ func (p *AuthAPI[S, U, Tx]) ChangeSessionUserUsername(ctx context.Context, userI
 // matched and writes the new one only while the user still holds it: a password that was
 // changed, reset or removed after this call read the user stands as it is, and the call
 // answers a Conflict that says to try again, with nothing written and no session
-// destroyed. Once the password is written and the password change mark cleared, every
-// session of the user is destroyed, by UserId, and the caller continues in a new
-// session (ReasonRegeneration) that records a password event.
+// destroyed. The store writes the password, clears the password change mark and
+// destroys every session of the user, by UserId, in one transaction
+// (AuthStore.ChangeUserPassword): the password is changed and the sessions ended
+// together, or neither is. The caller then continues in a new session
+// (ReasonRegeneration) that records a password event.
 func (p *AuthAPI[S, U, Tx]) ChangeSessionUserPassword(ctx context.Context, w http.ResponseWriter, userID impulse.UUID, req *ChangeSessionUserPasswordRequest) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
@@ -255,15 +257,14 @@ func (a *Auth[S, U, Tx]) changeOwnPassword(ctx context.Context, w http.ResponseW
 	if err != nil {
 		return errors.Wrap(err, "securehash.SecureHasher.Hash()")
 	}
+	// One store call writes the password and ends the user's sessions, in one
+	// transaction: no failure leaves the password changed and a session alive.
 	if err := a.storage.ChangeUserPassword(ctx, user.ID, user.PasswordHash, hash); err != nil {
 		if errors.Is(err, sessionstorage.ErrPasswordChanged) {
 			return httpio.NewConflictMessageWithError(err, "Your password has changed since you entered it, so this change was not made: try again with your current password")
 		}
 
 		return errors.Wrap(err, "sessionstorage.AuthStore.ChangeUserPassword()")
-	}
-	if err := a.storage.DestroyUserSessions(ctx, user.ID); err != nil {
-		return errors.Wrap(err, "sessionstorage.AuthStore.DestroyUserSessions()")
 	}
 	a.clearAttempts(ctx, user.Username)
 

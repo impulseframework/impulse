@@ -561,54 +561,62 @@ func (s *SessionStorageDriver) DestroyUserSessions(ctx context.Context, userID i
 	}
 
 	_, err := s.spanner.ReadWriteTransaction(ctx, func(ctx context.Context, txn *spanner.ReadWriteTransaction) error {
-		// The local-actor records name the actor by username.
-		var username string
-		row, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{usernameColumn})
-		switch {
-		case err == nil:
-			if err := row.Column(0, &username); err != nil {
-				return errors.Wrap(err, "spanner.Row.Column()")
-			}
-		case spanner.ErrCode(err) != codes.NotFound:
-			return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
-		}
-
-		// The sessions are selected first and expired by id: the selection reads the
-		// records while they are still live, and once a statement has written the commit
-		// timestamp to a table, nothing later in the transaction may read that table.
-		selectSessions := spanner.NewStatement(fmt.Sprintf(`
-			SELECT s.Id, s.Expired
-			FROM %s s
-			WHERE s.UserId = @userId OR %s`, s.sessionTableName, s.heldByLocalActor()))
-		selectSessions.Params["userId"] = userID.String()
-		if s.impersonation != nil {
-			selectSessions.Params["username"] = username
-		}
-		ids, live, err := selectSessionIDs(ctx, txn, selectSessions)
-		if err != nil {
-			return err
-		}
-		if err := s.expireSessions(ctx, txn, live); err != nil {
-			return err
-		}
-
-		if s.impersonation != nil {
-			endRecords := spanner.NewStatement(fmt.Sprintf(`
-				UPDATE %s
-				SET EndedAt = PENDING_COMMIT_TIMESTAMP(), EndReason = @reason
-				WHERE EndedAt IS NULL AND (SessionId IN UNNEST(@ids) OR (ActorUsername = @username AND ActorRealm IS NULL))`, s.impersonation.TableName))
-			endRecords.Params["ids"] = ids
-			endRecords.Params["username"] = username
-			endRecords.Params["reason"] = string(sessioninfo.ImpersonationEndedByRevocation)
-			if _, err := txn.Update(ctx, endRecords); err != nil {
-				return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
-			}
-		}
-
-		return nil
+		return s.destroyUserSessionsIn(ctx, txn, userID)
 	})
 	if err != nil {
 		return errors.Wrap(err, "spanner.Client.ReadWriteTransaction()")
+	}
+
+	return nil
+}
+
+// destroyUserSessionsIn expires every live session of a user inside txn, as
+// DestroyUserSessions does in a transaction of its own: a user's own change of
+// password ends their sessions in the transaction that writes the password
+// (ChangeUserPassword).
+func (s *SessionStorageDriver) destroyUserSessionsIn(ctx context.Context, txn *spanner.ReadWriteTransaction, userID impulse.UUID) error {
+	// The local-actor records name the actor by username.
+	var username string
+	row, err := txn.ReadRow(ctx, s.userTableName, spanner.Key{userID.String()}, []string{usernameColumn})
+	switch {
+	case err == nil:
+		if err := row.Column(0, &username); err != nil {
+			return errors.Wrap(err, "spanner.Row.Column()")
+		}
+	case spanner.ErrCode(err) != codes.NotFound:
+		return errors.Wrap(err, "spanner.ReadWriteTransaction.ReadRow()")
+	}
+
+	// The sessions are selected first and expired by id: the selection reads the
+	// records while they are still live, and once a statement has written the commit
+	// timestamp to a table, nothing later in the transaction may read that table.
+	selectSessions := spanner.NewStatement(fmt.Sprintf(`
+		SELECT s.Id, s.Expired
+		FROM %s s
+		WHERE s.UserId = @userId OR %s`, s.sessionTableName, s.heldByLocalActor()))
+	selectSessions.Params["userId"] = userID.String()
+	if s.impersonation != nil {
+		selectSessions.Params["username"] = username
+	}
+	ids, live, err := selectSessionIDs(ctx, txn, selectSessions)
+	if err != nil {
+		return err
+	}
+	if err := s.expireSessions(ctx, txn, live); err != nil {
+		return err
+	}
+
+	if s.impersonation != nil {
+		endRecords := spanner.NewStatement(fmt.Sprintf(`
+			UPDATE %s
+			SET EndedAt = PENDING_COMMIT_TIMESTAMP(), EndReason = @reason
+			WHERE EndedAt IS NULL AND (SessionId IN UNNEST(@ids) OR (ActorUsername = @username AND ActorRealm IS NULL))`, s.impersonation.TableName))
+		endRecords.Params["ids"] = ids
+		endRecords.Params["username"] = username
+		endRecords.Params["reason"] = string(sessioninfo.ImpersonationEndedByRevocation)
+		if _, err := txn.Update(ctx, endRecords); err != nil {
+			return errors.Wrap(err, "spanner.ReadWriteTransaction.Update()")
+		}
 	}
 
 	return nil

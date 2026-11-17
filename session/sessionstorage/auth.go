@@ -91,12 +91,14 @@ type AuthStore[Tx any] interface {
 	// is by other means. A user's own change is ChangeUserPassword.
 	SetUserPassword(ctx context.Context, id impulse.UUID, hash *securehash.Hash, changeRequired bool) error
 	// ChangeUserPassword replaces the password a user proved with one the user chose,
-	// and clears the password change mark, in one write. proven is the hash the caller
-	// compared the user's old password against, and the write lands only while the row
-	// still holds it: a password changed, reset or removed since the caller read it
-	// stands as it is (ErrPasswordChanged), so a temporary password an operator set
-	// meanwhile is not overwritten on proof of the password it replaced. A write with no
-	// proven hash writes nothing, and one with no new hash is refused.
+	// clears the password change mark and expires every session of the user, as
+	// DestroyUserSessions does, in one transaction: the password is changed and the
+	// sessions ended together, or neither is. proven is the hash the caller compared the
+	// user's old password against, and the write lands only while the row still holds
+	// it: a password changed, reset or removed since the caller read it stands as it is
+	// (ErrPasswordChanged), with no session ended, so a temporary password an operator
+	// set meanwhile is not overwritten on proof of the password it replaced. A write with
+	// no proven hash writes nothing, and one with no new hash is refused.
 	ChangeUserPassword(ctx context.Context, id impulse.UUID, proven, hash *securehash.Hash) error
 	// CreateSession inserts a session that has no identity to resolve and returns its
 	// ID: a session the application starts for a user it authenticated itself, or a

@@ -52,6 +52,9 @@ type AuthDriver interface {
 	// SetSignInAttemptsTableName renames the sign-in attempts table; the suite points
 	// it at a table that is not there.
 	SetSignInAttemptsTableName(name string) error
+	// SetSessionTableName renames the sessions table; the suite points it at a table
+	// that is not there, to fail the half of a transaction that ends sessions.
+	SetSessionTableName(name string) error
 	SetUsernameIsEmail(same bool)
 	UserByEmail(ctx context.Context, email string) (*dbtype.SessionUser, error)
 	SetUserEmail(ctx context.Context, id impulse.UUID, email *string) error
@@ -370,6 +373,7 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a hash upgrade, a user's own change and a user's own removal write on proof of the hash the user holds, and nothing without one", run: testProvenPasswordWrites},
 		{name: "a hash upgrade, a user's own change and a user's own removal write nothing once another write of the password has committed since the user was read", run: testProvenPasswordWriteAfterAnotherWrite},
 		{name: "a temporary password an operator sets stands, with its change mark, whatever write on proof of the password it replaces is asked at once", run: testProvenPasswordWriteRacesReset},
+		{name: "a user's own change writes the password and ends the user's sessions in one transaction: both, or neither", run: testOwnChangeEndsSessions},
 		{name: "a user's last sign-in is the database's time at the touch after a sign-in, nil before the first", run: testUserLastSignIn},
 		{name: "a revocation stamps every session it expires and every record it ends with one time, the database's", run: testDatabaseTimeOnRevocation},
 		{name: "a failed sign-in attempt is recorded under the name, known or not, counted in its window and locked at the limit, at the database's time", run: testSignInAttemptsRecorded},

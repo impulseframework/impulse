@@ -775,44 +775,74 @@ func (s *SessionStorageDriver) UpgradeUserPasswordHash(ctx context.Context, user
 		return errors.Wrap(err, "Queryer.Exec()")
 	}
 	if cmdTag.RowsAffected() == 0 {
-		return s.passwordNotProven(ctx, userID)
+		return s.passwordNotProven(ctx, s.conn, userID)
 	}
 
 	return nil
 }
 
 // ChangeUserPassword replaces the password hash a user proved (proven) with hash, one
-// the user chose, and clears the password change mark. The write names the proven hash,
-// so it lands only while the row still holds it: a password changed, reset or removed
-// since the caller read it stands as it is (ErrPasswordChanged, a Conflict).
+// the user chose, clears the password change mark and expires every session of the
+// user, in one transaction: the password is changed and the sessions ended together, or
+// neither is. The write names the proven hash, so it lands only while the row still
+// holds it: a password changed, reset or removed since the caller read it stands as it
+// is (ErrPasswordChanged, a Conflict), and no session is ended. The password is written
+// first: the write waits for a sign-in that is inserting a session on proof of the
+// password being replaced (the flow shares the user row's lock while it decides), so the
+// expiry that follows finds that session and ends it.
 func (s *SessionStorageDriver) ChangeUserPassword(ctx context.Context, userID impulse.UUID, proven, hash *securehash.Hash) error {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
+
+	if !s.users {
+		return errors.New("ChangeUserPassword needs the auth schema: use Auth storage")
+	}
+
+	txn, err := s.conn.Begin(ctx)
+	if err != nil {
+		return errors.Wrap(err, "Queryer.Begin()")
+	}
+	defer func() {
+		_ = txn.Rollback(ctx)
+	}()
 
 	query := fmt.Sprintf(`
 		UPDATE %s SET "PasswordHash" = $3, "PasswordChangeRequired" = FALSE
 		WHERE "Id" = $1 AND "PasswordHash" = $2`, s.userTable())
 
-	cmdTag, err := s.conn.Exec(ctx, query, userID, proven, hash)
+	cmdTag, err := txn.Exec(ctx, query, userID, proven, hash)
 	if err != nil {
-		return errors.Wrap(err, "Queryer.Exec()")
+		return errors.Wrap(err, "pgx.Tx.Exec()")
 	}
 	if cmdTag.RowsAffected() == 0 {
-		return s.passwordNotProven(ctx, userID)
+		return s.passwordNotProven(ctx, txn, userID)
+	}
+	if err := s.destroyUserSessionsIn(ctx, txn, userID); err != nil {
+		return err
+	}
+
+	if err := txn.Commit(ctx); err != nil {
+		return errors.Wrap(err, "pgx.Tx.Commit()")
 	}
 
 	return nil
 }
 
+// rowQuerier is the one-row read a connection and a transaction share.
+type rowQuerier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 // passwordNotProven answers why a write that names a proven password hash wrote
 // nothing: there is no such user (NotFound), or the user holds another hash, or none
 // (ErrPasswordChanged, a Conflict). A hash compares to no absent one, so a write with
-// no proven hash lands here too.
-func (s *SessionStorageDriver) passwordNotProven(ctx context.Context, userID impulse.UUID) error {
+// no proven hash lands here too. q is where the write was made: the connection, or the
+// write's transaction.
+func (s *SessionStorageDriver) passwordNotProven(ctx context.Context, q rowQuerier, userID impulse.UUID) error {
 	var exists bool
 	query := fmt.Sprintf(`SELECT EXISTS (SELECT 1 FROM %s WHERE "Id" = $1)`, s.userTable())
-	if err := s.conn.QueryRow(ctx, query, userID).Scan(&exists); err != nil {
-		return errors.Wrap(err, "Queryer.QueryRow().Scan()")
+	if err := q.QueryRow(ctx, query, userID).Scan(&exists); err != nil {
+		return errors.Wrap(err, "QueryRow().Scan()")
 	}
 	if !exists {
 		return httpio.NewNotFoundMessagef("user id %q does not exist", userID)
