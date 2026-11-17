@@ -1623,7 +1623,8 @@ type {{ .SessionInterface }} interface {
 	// EnforceReadOnlyMask refuses a write from a session that views as someone else
 	// read-only (session.Auth.EnforceReadOnlyMask). The router mounts it itself in front
 	// of the routes a signed-in person calls on their own account and of the outlet's
-	// generated routes, so it holds whatever the application's hook does.
+	// generated routes, so it holds wherever the application's hook registers those and
+	// whether or not the hook mounts it.
 	EnforceReadOnlyMask(next http.Handler) http.Handler
 	// The session's own routes (session.Auth): read and ended.
 	Authenticated() http.HandlerFunc
@@ -2552,7 +2553,8 @@ func TestGeneratedRouterScheduled(t *testing.T) {
 // runs ahead of the logger, Root's routes sit behind the every-request chain alone, each
 // outlet's hook runs inside the outlet's guards with the generated routes registering
 // through it, behind the read-only mask the router mounts for them on a session outlet
-// whatever the hook does, and a hook that skips the generated registration is refused.
+// whatever middleware the hook adds, and a hook that skips the generated registration is
+// refused.
 func TestGeneratedRouterHooks(t *testing.T) {
 	t.Parallel()
 

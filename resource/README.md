@@ -949,7 +949,8 @@ person calls on their own account (an invitation's acceptance, the address they 
 verify, their tokens and device authorizations) stand in front of the hook: what a hook
 asks of a request, a tenant or a role say, gates the application's routes and never a
 person's own account. What must hold for every route the router registers there it
-mounts itself, whatever the hook does: the read-only mask of a session that views as
+mounts itself, wherever the hook registers the generated routes and whatever middleware
+it adds: the read-only mask of a session that views as
 someone else (`EnforceReadOnlyMask`) in front of the account routes and, behind the
 hook, in front of the generated routes, and each account route that writes refuses an
 impersonated session in its handler. A route the hook registers by hand carries what
