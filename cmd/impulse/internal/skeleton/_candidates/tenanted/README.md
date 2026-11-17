@@ -267,8 +267,10 @@ generates the secret and hands the service every enabled version (`APP_SECRET_KE
 refuses to start without a version, naming the variable. A
 version is retired, before the deployment disables it, by the migrate command
 (`-retire-secret APP_SECRET_KEY_1`), which writes every stored value that names it again
-under the current version. The framework's `resource/README.md`, "Secrets at rest", has
-the whole of it.
+under the current version. It reads the resources packages `pkg/deploy` hands it
+(`SecretHolders()`, which the generator writes into each), and `impulse check`
+(`secret-holders`) fails when a package is left out of that call. The framework's
+`resource/README.md`, "Secrets at rest", has the whole of it.
 
 ## Running it
 

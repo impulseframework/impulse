@@ -186,7 +186,185 @@ func (a *App) scanGoFile(abs, rel string) error {
 
 	a.goFiles = append(a.goFiles, rel)
 
+	switch {
+	case filepath.Base(rel) == secretHoldersFile:
+		a.SecretHolders = append(a.SecretHolders, SecretHolders{File: rel, Package: a.packagePath(path.Dir(rel)), Stored: bytes.Contains(data, []byte(secretHolderOfFunc+"["))})
+	case !generated && bytes.Contains(data, []byte(retireSecretFunc+"(")):
+		retirements, err := parseSecretRetirements(rel, data, a.packagePath(path.Dir(rel)))
+		if err != nil {
+			return err
+		}
+		a.SecretRetirements = append(a.SecretRetirements, retirements...)
+	}
+
 	return a.scanAccess(rel, data)
+}
+
+// The retirement of a version of the application secret, as the scan reads it: the
+// generated file listing a package's resources that store a secret, the function in it,
+// the library's function declaring one holder, the function that retires a version, how
+// many arguments it takes before the holders, and the standard library's package and
+// function that join several packages' lists.
+const (
+	secretHoldersFile  = "zz_gen_secret_holders.go"
+	secretHoldersFunc  = "SecretHolders"
+	secretHolderOfFunc = "SecretHolderOf"
+	retireSecretFunc   = "RetireSecretVersion"
+	retireSecretFixed  = 3
+	slicesImportPath   = "slices"
+	slicesConcatFunc   = "Concat"
+	appendBuiltin      = "append"
+	nilIdentifier      = "nil"
+)
+
+// parseSecretRetirements returns every resource.RetireSecretVersion call in the file,
+// each with the packages whose generated SecretHolders() it is handed. The holders are
+// read where the call names them: a package's SecretHolders() itself, several joined by
+// slices.Concat or append, or a variable of the calling function assigned from those.
+func parseSecretRetirements(rel string, src []byte, ownPkg string) ([]SecretRetirement, error) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, rel, src, parser.SkipObjectResolution)
+	if err != nil {
+		return nil, errors.Wrap(err, "parser.ParseFile()")
+	}
+	pkg := localImportName(f, resourceImportPath)
+	if pkg == "" {
+		return nil, nil
+	}
+
+	var retirements []SecretRetirement
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || !isQualified(call.Fun, pkg, retireSecretFunc) {
+				return true
+			}
+			r := holdersReader{imports: fileImports(f), slices: localImportName(f, slicesImportPath), ownPkg: ownPkg, body: fn.Body, followed: map[string]bool{}, packages: map[string]bool{}, unread: false}
+			if len(call.Args) > retireSecretFixed {
+				for _, arg := range call.Args[retireSecretFixed:] {
+					r.read(arg)
+				}
+			}
+			retirement := SecretRetirement{File: rel, Line: fset.Position(call.Pos()).Line, Packages: nil, Unread: r.unread}
+			for p := range r.packages {
+				retirement.Packages = append(retirement.Packages, p)
+			}
+			slices.Sort(retirement.Packages)
+			retirements = append(retirements, retirement)
+
+			return true
+		})
+	}
+
+	return retirements, nil
+}
+
+// holdersReader reads the secret holders one retirement call is handed: the packages
+// whose SecretHolders() reach it, and whether any holder comes from where it cannot read.
+type holdersReader struct {
+	imports  map[string]string
+	slices   string
+	ownPkg   string
+	body     *ast.BlockStmt
+	followed map[string]bool
+	packages map[string]bool
+	unread   bool
+}
+
+// read reads one expression holding holders.
+func (r *holdersReader) read(expr ast.Expr) {
+	switch e := expr.(type) {
+	case *ast.ParenExpr:
+		r.read(e.X)
+	case *ast.Ident:
+		if e.Name != nilIdentifier {
+			r.follow(e.Name)
+		}
+	case *ast.CallExpr:
+		switch {
+		case r.holdersOf(e):
+		case isQualified(e.Fun, r.slices, slicesConcatFunc), calleeIs(e.Fun, appendBuiltin):
+			for _, arg := range e.Args {
+				r.read(arg)
+			}
+		default:
+			r.unread = true
+		}
+	default:
+		r.unread = true
+	}
+}
+
+// holdersOf records a package's SecretHolders() call, and reports whether the call is
+// one: on an imported package, or unqualified in the package that declares it.
+func (r *holdersReader) holdersOf(call *ast.CallExpr) bool {
+	if len(call.Args) != 0 {
+		return false
+	}
+	switch fun := call.Fun.(type) {
+	case *ast.Ident:
+		if fun.Name == secretHoldersFunc {
+			r.packages[r.ownPkg] = true
+
+			return true
+		}
+	case *ast.SelectorExpr:
+		if id, ok := fun.X.(*ast.Ident); ok && fun.Sel.Name == secretHoldersFunc && r.imports[id.Name] != "" {
+			r.packages[r.imports[id.Name]] = true
+
+			return true
+		}
+	}
+
+	return false
+}
+
+// follow reads what a variable of the calling function was assigned. A name the
+// function assigns nowhere is a parameter or a package's variable, which is not read.
+func (r *holdersReader) follow(name string) {
+	if r.followed[name] {
+		return
+	}
+	r.followed[name] = true
+	assigned := false
+	bind := func(target, value ast.Expr) {
+		if id, ok := target.(*ast.Ident); ok && id.Name == name {
+			assigned = true
+			r.read(value)
+		}
+	}
+	ast.Inspect(r.body, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.AssignStmt:
+			if len(n.Lhs) == len(n.Rhs) {
+				for i := range n.Lhs {
+					bind(n.Lhs[i], n.Rhs[i])
+				}
+			}
+		case *ast.ValueSpec:
+			if len(n.Names) == len(n.Values) {
+				for i := range n.Names {
+					bind(n.Names[i], n.Values[i])
+				}
+			}
+		}
+
+		return true
+	})
+	if !assigned {
+		r.unread = true
+	}
+}
+
+// calleeIs reports whether a call's function is the bare name given.
+func calleeIs(fun ast.Expr, name string) bool {
+	id, ok := fun.(*ast.Ident)
+
+	return ok && id.Name == name
 }
 
 // The permission engine's constructor and the option handing it a change signal.
