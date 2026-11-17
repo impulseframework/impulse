@@ -98,19 +98,59 @@ func TestDirectoryDefaultRole_aMarshalNamesNoMarshal(t *testing.T) {
 	if status, body := marshal.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(remove)); status != http.StatusOK {
 		t.Fatalf("removing Cinder's directory: status %d: %s", status, body)
 	}
-	set := func(value string) (int, []byte) {
-		return marshal.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"add","path":"/sectors/`+cinder+`/sector-directories","value":{`+value+`}}]`))
+	set := func(b *browser, value string) (int, []byte) {
+		return b.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(`[{"op":"add","path":"/sectors/`+cinder+`/sector-directories","value":{`+value+`}}]`))
 	}
-	for _, role := range []string{"SectorMarshal", "SectorCrew"} {
-		if status, body := set(`"defaultSeat":"` + role + `"`); status != http.StatusForbidden {
-			t.Errorf("setting Cinder's directory with %s as its default role: status %d, want 403: %s", role, status, body)
-		}
-	}
-	if status, body := set(``); status != http.StatusConflict || !strings.Contains(string(body), "You are signed in with a password. A directory is set by signing in through it") {
+	if status, body := set(marshal, ``); status != http.StatusConflict || !strings.Contains(string(body), "You are signed in with a password. A directory is set by signing in through it") {
 		t.Errorf("setting Cinder's directory from a password session: status %d, want 409 saying how a directory is set: %s", status, body)
 	}
 	if rows := directories(ctx, t, marshal, cinder); len(rows) != 0 {
-		t.Errorf("Cinder's directory after the refused calls = %+v, want none", rows)
+		t.Fatalf("Cinder's directory after the refused call = %+v, want none", rows)
+	}
+
+	// Signed in through the fleet's directory, the marshal is offered the action. Her
+	// password confirms the sign-in, which links the identity to her account, and the
+	// governor makes her one of the fleet's staff (a role of the whole application),
+	// since a sector with no directory admits no directory session. A create that names
+	// a default role is refused her whatever the role, and writes nothing; the create
+	// that names nothing makes the fleet's Workspace Cinder's, with no default role.
+	staff := jsonBody(t, map[string]any{"userId": crewAccountID(ctx, t, governor, "marshal"), "role": "CrewCommon"})
+	if status, body := governor.do(ctx, http.MethodPost, crewMethod("assign-crew-role"), staff); status != http.StatusNoContent {
+		t.Fatalf("making the marshal one of the fleet's staff: status %d: %s", status, body)
+	}
+	through := newBrowser(t, s, consoleAPI)
+	if status, body := through.do(ctx, http.MethodGet, consoleAPI+"/user/session", nil); status != http.StatusOK {
+		t.Fatalf("GET session before the marshal's Google login: status %d: %s", status, body)
+	}
+	held := consoleLogin + "?pending=confirmation&returnUrl=" + url.QueryEscape(consolePage)
+	if status, location := through.loginConsoleGoogle(ctx, "marshal"); status != http.StatusFound || location != held {
+		t.Fatalf("the marshal's Google login: status %d to %q, want %d to %q", status, location, http.StatusFound, held)
+	}
+	if status, body := through.do(ctx, http.MethodPost, consoleAPI+"/user/pending/confirm", jsonBody(t, map[string]string{"password": personaPassword})); status != http.StatusOK {
+		t.Fatalf("confirming the sign-in with the marshal's password: status %d: %s", status, body)
+	}
+	for _, role := range []string{"SectorMarshal", "SectorCrew"} {
+		if status, body := set(through, `"defaultSeat":"`+role+`"`); status != http.StatusForbidden {
+			t.Errorf("setting Cinder's directory with %s as its default role: status %d, want 403: %s", role, status, body)
+		}
+	}
+	if rows := directories(ctx, t, marshal, cinder); len(rows) != 0 {
+		t.Fatalf("Cinder's directory after the refused calls = %+v, want none", rows)
+	}
+	if status, body := set(through, ``); status != http.StatusOK {
+		t.Fatalf("making the fleet's Workspace Cinder's directory from a sign-in through it: status %d, want 200: %s", status, body)
+	}
+	rows = directories(ctx, t, marshal, cinder)
+	if len(rows) != 1 || rows[0].Connection != "example" || rows[0].DefaultSeat != nil {
+		t.Fatalf("Cinder's directory = %+v, want the fleet's Workspace with no default role", rows)
+	}
+	// The new row is held to the same limit: the marshal's own role is refused.
+	row = "/sectors/" + cinder + "/sector-directories/" + rows[0].ID
+	if status, body := patch(`"SectorMarshal"`); status != http.StatusForbidden {
+		t.Errorf("naming SectorMarshal as the default role of the directory just set: status %d, want 403: %s", status, body)
+	}
+	if got := seat(); got != "" {
+		t.Errorf("Cinder's default role after the refusal = %q, want none", got)
 	}
 }
 
