@@ -752,18 +752,20 @@ func New(ctx context.Context, db *cloudspanner.Client, settings *Settings) (*Aut
 	// and hands that transaction, so the role is written with the step or not at all.
 	// They are set here, where the auth is built, so no crew auth is open without them.
 	//
-	// The directory admission: what a fleet member nobody has seated gets at their first
-	// sign-in through a directory a sector declares, before the registration's account
-	// rule is reached. The directory rows the sectors declare for the identity's
-	// connection decide: a row with a default seat creates the person and seats them
-	// with it in one transaction (Cinder seats them SectorCrew), and the sign-in rule
-	// then finds the membership; rows with none refuse them (invitation_only), and no
-	// account is created, unless they followed an invitation link, which is the way in.
-	// A directory no sector declares falls to the registration's rule as before (the
-	// pioneer's sign-up). A person given a role ahead of their first sign-in is no
-	// stranger: a role is held by an account, so they have the account the role was
-	// given to, and the sign-in links their identity to it, under its sign-in name,
-	// before the sectors are asked. The crew's roles are the application's, so the
+	// The directory admission: what a fleet member gets at their first sign-in through
+	// a sector's directory, before the registration's account rule is reached. The row
+	// of the sector whose directory the identity came through decides: a row with a
+	// default seat creates a stranger and seats them with it in one transaction (Cinder
+	// seats them SectorCrew), and the sign-in rule then finds the membership; a row with
+	// none refuses a stranger (invitation_only), and no account is created, unless they
+	// followed an invitation link, which is the way in. A person whose account stood
+	// before is given the default seat too, at the sign-in that links the account to
+	// the directory, where they hold no role in the sector: a persona who signs in
+	// through the fleet's directory for the first time and confirms with their password
+	// is seated at Cinder then. It is given once for a link, so a role a marshal removes
+	// afterwards is not given back by signing in. A directory no sector has falls to
+	// the registration's rule as before (the pioneer's sign-up, a personal account,
+	// which is no sector's directory). The crew's roles are the application's, so the
 	// admission is set on this auth; an auth whose directory writes the roles (the
 	// members' directory) is the authority for everyone it holds and sets none.
 	//

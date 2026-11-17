@@ -135,6 +135,9 @@ type served struct {
 	adminID, memberID string
 	// db is the test database, for the suites that read a table directly.
 	db *initiator.SpannerDB
+	// tenants is the roster the stack serves from, for a suite that writes what a
+	// tenant declares in code, as a sign-in would, and reloads it as a write path does.
+	tenants *resource.TenantRoster
 	// mail is the recorder the staff auth sends its mail to, where a suite reads the
 	// sign-in code a sign-in waits for.
 	mail *mail.Recorder
@@ -247,7 +250,7 @@ func newServed(ctx context.Context, t *testing.T) *served {
 	portal := httptest.NewServer(portalrouter.New(portalApp, portalrouter.Hooks{}))
 	t.Cleanup(portal.Close)
 
-	return &served{console: console, portal: portal, access: accessClient, adminID: ids[adminUser], memberID: ids[memberUser], db: db, mail: sent, trusted: map[string]*http.Cookie{}}
+	return &served{console: console, portal: portal, access: accessClient, tenants: roster, adminID: ids[adminUser], memberID: ids[memberUser], db: db, mail: sent, trusted: map[string]*http.Cookie{}}
 }
 
 // waitForDomains blocks until the engine's snapshot reports the user's footholds in

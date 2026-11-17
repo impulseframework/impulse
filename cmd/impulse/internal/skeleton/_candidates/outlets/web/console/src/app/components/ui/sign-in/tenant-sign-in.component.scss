@@ -3,27 +3,26 @@
   max-width: 720px;
 }
 
-.directories {
-  width: 100%;
+.directory {
+  margin: 8px 0;
+  font-weight: 500;
 }
 
-.declare-form {
+.default-role {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  align-items: flex-start;
-
-  .method {
-    min-width: 200px;
-  }
-
-  .connection {
-    flex: 1 1 280px;
-  }
+  gap: 16px;
+  align-items: center;
+  margin: 8px 0;
 }
 
 .seat-picker {
   min-width: 160px;
+  max-width: 280px;
+}
+
+.signed-in-through {
+  margin: 8px 0;
 }
 
 .directory-only {

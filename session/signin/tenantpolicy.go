@@ -54,9 +54,9 @@ type DirectorySeat struct {
 // by a DeclarationReader. A tenant that declares nothing, a nil or an empty
 // declaration, admits its people by password and through no directory.
 type TenantDeclaration struct {
-	// Directories are the directories the tenant admits its people through. One
-	// tenant has one directory as a rule; a second one is an explicit second
-	// declaration.
+	// Directories are the directories the tenant admits its people through. A tenant
+	// has one directory, and a directory is one tenant's: the application's schema and
+	// its write paths hold both, so the list carries one directory at most.
 	Directories []Directory
 	// DirectoryOnly says the tenant's people enter through its directories only: a
 	// password, or any other sign-in that is not through a directory, does not reach
@@ -69,17 +69,27 @@ type TenantDeclaration struct {
 // (sessioninfo.SessionData.EstablishedBy): a sign-in through a directory
 // (sessioninfo.AuthMethod.ThroughDirectory) when (method, connection) is one of the
 // declared directories; any other establishment, a password or a step the
-// application recorded under its own name, unless the tenant is directory only. The
+// application recorded under its own name, unless the tenant is directory only. A
+// personal account (Directory.PersonalAccounts: any Google account, a Microsoft
+// personal account) is no directory, which no tenant can declare, so a sign-in with
+// one is admitted as a password is. The
 // tenant policy decides with it at sign-in, over every tenant of the person, and the
 // application decides with it again when the session reaches one tenant, where the
 // session's tenant list is computed. It reads nothing: a nil declaration declares
 // nothing.
 func (d *TenantDeclaration) Admits(method sessioninfo.AuthMethod, connection string) bool {
-	if method.ThroughDirectory() {
+	if throughDirectory(method, connection) {
 		return d.declares(Directory{Method: method, Connection: connection})
 	}
 
 	return d == nil || !d.DirectoryOnly
+}
+
+// throughDirectory reports whether a sign-in by method through connection came through
+// a directory a tenant can declare: a directory method, and not one of the two values
+// that stand for everyone who is in no organization.
+func throughDirectory(method sessioninfo.AuthMethod, connection string) bool {
+	return method.ThroughDirectory() && !(Directory{Method: method, Connection: connection}).PersonalAccounts()
 }
 
 // declares reports whether directory is one of the declared directories.
@@ -151,10 +161,11 @@ type tenantPolicy[Tx any] struct {
 //  4. A sign-in through a directory (Entra, Google, WorkOS) is admitted when one of the
 //     person's tenants declares the directory it came through, its (method,
 //     connection), and refused otherwise (connection_not_in_tenant).
-//  5. Any other sign-in, a password or a session the application starts for a user it
-//     authenticated itself, is admitted when one of the person's tenants admits its
-//     people other than through its directories, and refused when every one of them is
-//     directory only (directory_only).
+//  5. Any other sign-in, a password, a personal account (no tenant's directory) or a
+//     session the application starts for a user it authenticated itself, is admitted
+//     when one of the person's tenants admits its people other than through its
+//     directories, and refused when every one of them is directory only
+//     (directory_only).
 //
 // A refusal is a sessioninfo.LoginRefusal with its code, and errors.Is matches
 // ErrSignInDenied and the rule's own cause (ErrNoTenant, ErrConnectionNotInTenant,
@@ -216,7 +227,7 @@ func (p *tenantPolicy[Tx]) decide(ctx context.Context, tx Tx, req *sessioninfo.N
 			return Allow(), nil
 		}
 	}
-	if method.ThroughDirectory() {
+	if throughDirectory(method, connection) {
 		return denyBecause(sessioninfo.RefusedConnectionNotInTenant, ErrConnectionNotInTenant), nil
 	}
 

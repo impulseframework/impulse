@@ -157,16 +157,16 @@ type AuthConfig struct {
 	// inside the transaction that consumes the invitation, which the harness adapts to
 	// the driver's transaction; nil for none. See signinflow.InvitationAcceptor.
 	Accept func(ctx context.Context, tx HookTx, userID impulse.UUID, username string, inv *sessioninfo.Invitation) (committed func(ctx context.Context), err error)
-	// Admission is what a tenanted application gives a first sign-in through a
-	// directory by a person no user was created for; nil for none.
+	// Admission is what a tenanted application gives a person's first sign-in through
+	// a tenant's directory; nil for none.
 	Admission *DirectoryAdmission
 }
 
-// DirectoryAdmission is what an instance's SignIn runs a declared directory's first
-// sign-in with: Directories reads the tenants' declarations of the directory, which
-// the harness adapts to the driver's transaction; Seat seats the person with the
-// default seats the declarations name, inside the transaction that provisions them,
-// which the harness adapts to the driver's transaction, nil for none.
+// DirectoryAdmission is what an instance's SignIn and LinkConfirmed run a declared
+// directory's first sign-in with: Directories reads the declaration of the directory,
+// which the harness adapts to the driver's transaction; Seat seats the person with the
+// default seat the declaration names, inside the transaction that links them, which
+// the harness adapts to the driver's transaction, nil for none.
 type DirectoryAdmission struct {
 	Directories func(ctx context.Context, tx HookTx, directory signin.Directory) ([]signin.DeclaredDirectory, error)
 	Seat        func(ctx context.Context, tx HookTx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (committed func(ctx context.Context), err error)
@@ -184,6 +184,46 @@ type AuthInstance struct {
 	// Accept accepts inv for userID by hand, as the Auth does for a person already
 	// signed in, with the configured acceptor. The harness builds it with NewAccept.
 	Accept func(ctx context.Context, userID impulse.UUID, username, email string, inv *sessioninfo.Invitation) error
+	// LinkConfirmed links identity to userID as the Auth does once the user's password
+	// has confirmed the link, with the configured admission. The harness builds it with
+	// NewLinkConfirmed.
+	LinkConfirmed func(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string) error
+}
+
+// NewLinkConfirmed returns an instance's LinkConfirmed over d: the flow's confirmed
+// link with cfg's admission, each hook given the driver's transaction through adapt.
+func NewLinkConfirmed[Tx any](
+	d signinflow.Driver[Tx], cfg AuthConfig, adapt func(tx Tx) HookTx,
+) func(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string) error {
+	directories, seat := adaptAdmission(cfg, adapt)
+
+	return func(ctx context.Context, userID impulse.UUID, username string, identity *sessioninfo.Identity, tenant string) error {
+		if err := signinflow.LinkConfirmed(ctx, d, userID, username, identity, tenant, directories, seat); err != nil {
+			return errors.Wrap(err, "signinflow.LinkConfirmed()")
+		}
+
+		return nil
+	}
+}
+
+// adaptAdmission is cfg's directory admission over the driver's transaction: the
+// reader and the seater, each nil for none.
+func adaptAdmission[Tx any](cfg AuthConfig, adapt func(tx Tx) HookTx) (signin.DirectoryReader[Tx], signinflow.DirectorySeater[Tx]) {
+	if cfg.Admission == nil {
+		return nil, nil
+	}
+	lookup := cfg.Admission.Directories
+	directories := func(ctx context.Context, tx Tx, directory signin.Directory) ([]signin.DeclaredDirectory, error) {
+		return lookup(ctx, adapt(tx), directory)
+	}
+	seater := cfg.Admission.Seat
+	if seater == nil {
+		return directories, nil
+	}
+
+	return directories, func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
+		return seater(ctx, adapt(tx), userID, username, seats)
+	}
 }
 
 // NewAccept returns an instance's Accept over d: the flow's acceptance with cfg's
@@ -234,21 +274,7 @@ func NewSignIn[Tx any](
 			return cfg.Policy(ctx, adapt(tx), req)
 		}
 	}
-	var (
-		directories signin.DirectoryReader[Tx]
-		seat        signinflow.DirectorySeater[Tx]
-	)
-	if cfg.Admission != nil {
-		lookup := cfg.Admission.Directories
-		directories = func(ctx context.Context, tx Tx, directory signin.Directory) ([]signin.DeclaredDirectory, error) {
-			return lookup(ctx, adapt(tx), directory)
-		}
-		if seater := cfg.Admission.Seat; seater != nil {
-			seat = func(ctx context.Context, tx Tx, userID impulse.UUID, username string, seats []signin.DirectorySeat) (func(ctx context.Context), error) {
-				return seater(ctx, adapt(tx), userID, username, seats)
-			}
-		}
-	}
+	directories, seat := adaptAdmission(cfg, adapt)
 	accept := adaptAccept(cfg, adapt)
 	return func(ctx context.Context, insert *dbtype.InsertSession, req *sessioninfo.NewSessionRequest) (impulse.UUID, error) {
 		id, err := impulse.NewUUID()
@@ -361,6 +387,9 @@ func RunAuth(t *testing.T, h *AuthHarness) {
 		{name: "a stranger from a directory a tenant declares with a default seat is provisioned and seated with it before the policy decides; a tenant declaring it without a seat gives nothing; a second sign-in seats nothing more", run: testDirectoryDefaultSeat},
 		{name: "a stranger from a directory a tenant declares with no default seat is refused with invitation_only and nothing is written, whatever the registration's rule; a pre-created user links; an invitation is the way past, and a dead one refuses with invitation_expired", run: testDirectoryInvitationOnly},
 		{name: "a directory no tenant declares falls to the registration's rule", run: testDirectoryUndeclared},
+		{name: "a person with an account from another tenant's invitation is linked at their first sign-in through their own tenant's directory and seated with its default seat, in one transaction; a second sign-in seats nothing; a personal account reads no declaration", run: testDirectorySeatAtFirstLink},
+		{name: "a link a password confirms is a first sign-in through the directory and gives the default seat with the link; a later sign-in gives nothing back, so a removed seat stays removed; a link deleted and made again gives the seat again", run: testDirectorySeatAtConfirmedLink},
+		{name: "a failing seat hook fails the transaction that links the user: no link, none of the hook's writes, at once and at a confirmed link alike", run: testDirectorySeatHookFailsAtLink},
 		{name: "a default seat on an Auth with no seat hook fails the sign-in in its transaction: no user is created", run: testDirectorySeatHookMissing},
 		{name: "a failing seat hook fails the transaction that provisions the user: no account, no link, none of the hook's writes; the next sign-in is provisioned and seated", run: testDirectorySeatHookFails},
 		{name: "a failing invitation hook fails the transaction that consumes the invitation: the invitation stands, a stranger is not provisioned, the hook's writes are not committed, and the next attempt accepts it", run: testInvitationHookFails},

@@ -48,11 +48,31 @@ export interface SessionInfo {
    */
   browserRemembered?: boolean;
   /**
+   * The organization's directory the person signed in through, when the session came
+   * through one: a Google Workspace or a Microsoft Entra tenant. Absent on a session that
+   * came by password, with a personal account (a Google account outside every Workspace,
+   * a Microsoft personal account) or that the application started itself. A tenant's
+   * Sign-in page offers its administrator to make it the tenant's directory, which the
+   * server sets from the session and never from the request.
+   */
+  directory?: SessionDirectory;
+  /**
    * The session acts for someone else: the record the server reports of an impersonated
    * session, absent on a person's own. What is the person's alone to change (their name)
    * is not offered in such a session, which the server refuses.
    */
   impersonation?: SessionImpersonation;
+}
+
+/**
+ * An organization's directory as a sign-in through it names it: the sign-in method, as
+ * the session library spells it (google, azure, workos), and the connection the method's
+ * identities carry (a Google Workspace by its domain, a Microsoft Entra tenant by its
+ * tenant id).
+ */
+export interface SessionDirectory {
+  method: string;
+  connection: string;
 }
 
 /** The record of an impersonated session, as the session read reports it. */

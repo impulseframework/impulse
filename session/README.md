@@ -211,16 +211,24 @@ DML what a later rule must read.
     It is for public applications and refused on a registration that serves one
     organization.
 
-  In a tenanted application the **tenants' declarations decide a stranger first**.
+  In a tenanted application the **tenant's declaration decides a stranger first**.
   With `auth.SetDirectoryAdmission(directoryLookup, seatHook)` (see "The
-  tenant policy"), a person no user was created for, from a directory some tenant
-  declares, is decided by that tenant's declaration before the registration's rule is
-  reached. A person the application gave a role ahead of their first sign-in is not
-  such a person: a role is held by an account, so they have a user under the sign-in
-  name, and the sign-in links to it before the tenants are asked. A
+  tenant policy"), a person no user was created for, from a tenant's directory, is
+  decided by that tenant's declaration before the registration's rule is reached. A
+  directory belongs to one tenant, so one declaration decides. A person an account
+  exists for already, because the application gave them a role ahead of their first
+  sign-in or another tenant invited them, is not such a person: the sign-in links to
+  that account, under the sign-in name. That link is their first sign-in through the
+  directory, so the tenant's default seat is given at it too, through the hook, in
+  the transaction that makes the link, whether the link is made at once or after
+  their password confirmed it. A
   declaration naming a **default seat** admits a stranger, who is provisioned and
-  seated with it in every tenant naming one, through the hook, in the transaction
-  that creates the account. A seat the invitation the sign-in consumes names too (the
+  seated with it in the tenant, through the hook, in the transaction
+  that creates the account and links it. The hook is called once for a link, never
+  for a sign-in that finds the link, and the application's hook gives the seat only
+  where the person holds none in the tenant (the generated identity client's does),
+  so a seat an administrator removed is not given back by signing in, and a link that
+  is deleted and made again gives it again. A seat the invitation the sign-in consumes names too (the
   same role in the same tenant) is given once, by the invitation, and is left out of
   what the hook is handed. A declaration naming none admits strangers by invitation only, the
   invitation the sign-in carries being the account as under
@@ -359,17 +367,34 @@ auth.SetSignInPolicy(signin.TenantPolicy(userManager, tenantDeclaration))
   decided before the policy, by the account rules, and in a tenanted application by
   the tenants' declarations first, through
   `auth.SetDirectoryAdmission(directoryLookup, seatHook)`.
-  `directoryLookup`, a `signin.DirectoryReader[Tx]`, reads every tenant's declaration
-  of the directory the identity came through, each with its **default seat**
-  (`signin.DeclaredDirectory`: the tenant and the role, `""` for none), in the
-  sign-in's first transaction; `seatHook`, a `session.DirectorySeatedHook[Tx]`,
-  seats the person with the seats the declarations name (`signin.DirectorySeat`),
-  inside the transaction that creates the user, which it is handed, so the account is
-  made and seated together or neither is, under the contract the invitation hook has
-  (see "Invitations"). A declared directory belongs to its tenant. A person
-  given a role ahead of their first sign-in has the account the role is held by,
-  and the sign-in links to it before the tenants are asked. A default seat admits and
-  seats a stranger, so rule 3 below then finds the membership. A stranger who
+  `directoryLookup`, a `signin.DirectoryReader[Tx]`, reads the declaration of the
+  tenant whose directory the identity came through, with its **default seat**
+  (`signin.DeclaredDirectory`: the tenant and the role, `""` for none; a directory
+  belongs to one tenant, which the application's schema holds, so the answer carries
+  one tenant at most), in the sign-in's first transaction; `seatHook`, a
+  `session.DirectorySeatedHook[Tx]`, seats the person with the seat the declaration
+  names (`signin.DirectorySeat`), inside the transaction that links the identity to
+  the user, which it is handed, so the link is made and the seat given together or
+  neither is, under the contract the invitation hook has (see "Invitations"). The
+  hook is called at a person's first sign-in through the directory, the one that
+  makes the link, whether the account is created in it or stood before: a person
+  given a role ahead of their first sign-in, or invited by another tenant, has an
+  account, which the sign-in links to at once when it holds no password and after
+  the pending confirmation (`Pending().Confirm()`) when it holds one, and the hook
+  runs in the transaction of that link (the storage's `LinkConfirmedIdentity` for
+  the confirmed one, which an `AuthStore` of the application's own must implement).
+  It is called once for a link: a later sign-in finds the link and calls nothing.
+  Whether the person is seated is the hook's to decide over what it is handed: the
+  generated identity client's gives the seat where the person holds no role in the
+  tenant, so a seat an administrator removed is not given back by signing in, and a
+  link that is deleted and made again gives it again. A personal account, one of the
+  two connections that stand for everyone who is in no organization
+  (`signin.Directory.PersonalAccounts`: any Google account,
+  `signin.GoogleAnyAccountConnection`, and Microsoft's personal accounts,
+  `signin.MicrosoftPersonalAccountsConnection`), is no tenant's directory: no
+  declaration is read for it, and it falls to the registration's account rule. A
+  default seat admits and seats a stranger, so rule 4 below then finds the
+  membership. A stranger who
   carries an invitation into the tenant that names the default seat's role is given
   it once, by the invitation hook: the two hooks write in one transaction and neither
   reads what the other wrote, so the seat hook is handed only the seats the
@@ -404,8 +429,9 @@ The rules, in order, once the user is known:
 4. A sign-in through a directory (Entra, Google, WorkOS) is admitted when one of the
    person's tenants declares the directory it came through, and refused otherwise
    (`connection_not_in_tenant`).
-5. Any other sign-in, a password or a session the application starts for a user it
-   authenticated itself, is admitted when one of the person's tenants admits its people
+5. Any other sign-in, a password, a personal account (which is no tenant's directory)
+   or a session the application starts for a user it authenticated itself, is admitted
+   when one of the person's tenants admits its people
    other than through its directories, and refused when every one of them is directory
    only (`directory_only`): nothing would be reachable.
 6. Otherwise the sign-in is allowed. `signin.Policy.Then` chains the application's own
@@ -430,6 +456,18 @@ A refusal is a `sessioninfo.LoginRefusal` with its code, and `errors.Is` matches
 `signin.ErrSignInDenied` and the rule's own cause (`signin.ErrNoTenant`,
 `signin.ErrConnectionNotInTenant`, `signin.ErrDirectoryOnly`); a role store or reader
 error fails the sign-in (`internal_error`).
+
+A tenant's directory is an organization's: `signin.Directory.Organization` reports a
+directory method with a connection that names one organization, so neither a password
+nor a personal account (`signin.Directory.PersonalAccounts`, the two connections every
+account outside an organization carries). `Admits` and the policy treat a personal
+account as they treat a password: no tenant can have it as its directory, so it reaches
+a tenant unless the tenant is directory only. The session read (`Authenticated()`)
+answers `directory`, the method and the connection of the organization's directory the
+session was established through, and leaves it out for every other session: it is what
+an application offers a tenant's administrator to make the tenant's directory, which is
+set from the sign-in and never typed (the resource package's reference, "One directory,
+set from a sign-in").
 
 ### Registering sign-in methods
 

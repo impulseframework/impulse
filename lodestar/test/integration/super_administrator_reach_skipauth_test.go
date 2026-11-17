@@ -11,9 +11,10 @@ import (
 )
 
 // TestSuperAdministrator_entersEverySector proves the one exemption from a sector's
-// sign-in settings on the served stack. Bastion admits its people through its directories
-// only, and the governor withdraws the one directory it declares, so no sign-in meets its
-// declaration. The governor, a super administrator signed in with the password, charts
+// sign-in settings on the served stack. Bastion admits its people through its directory
+// only and has none (the fleet's directory is Cinder's, and a directory belongs to one
+// sector), so no sign-in meets its declaration. The governor, a super administrator
+// signed in with the password, charts
 // Bastion and reads it all the same. Nobody else is exempt: the dispatcher, who holds
 // global roles and a role at Bastion, and the archivist, who holds a role in every
 // sector, chart the sectors that admit a password and Bastion answers them as a sector
@@ -32,13 +33,8 @@ func TestSuperAdministrator_entersEverySector(t *testing.T) {
 
 	governor := newBrowser(t, s, consoleAPI)
 	governor.signIn(ctx, "governor")
-	declared := directories(ctx, t, governor, bastion)
-	if len(declared) != 1 {
-		t.Fatalf("Bastion's directories = %+v, want the seeded fleet directory alone", declared)
-	}
-	withdraw := `[{"op":"remove","path":"/sectors/` + bastion + `/sector-directories/` + declared[0].ID + `"}]`
-	if status, body := governor.do(ctx, http.MethodPatch, consoleAPI+"/resources", []byte(withdraw)); status != http.StatusOK {
-		t.Fatalf("withdrawing Bastion's directory: status %d: %s", status, body)
+	if declared := directories(ctx, t, governor, bastion); len(declared) != 0 {
+		t.Fatalf("Bastion's directory = %+v, want none: the fleet's directory is Cinder's, and a directory belongs to one sector", declared)
 	}
 
 	// enters fails the test unless the browser's chart and Bastion's answer agree with want.

@@ -522,6 +522,14 @@ routes, the whole application's side at the root and a tenant's side where its t
 A page that asks one question of its own, with at most one field, can use the dialog the tokens
 page uses: `askInDialog` of `@impulseframework/resource-angular/dialogs`.
 
+A tenant's Sign-in page, which the tenanted skeletons carry, reads who the person is signed in
+through from the session the `AuthService` last checked: `sessionInfo().directory` is the
+organization's directory the session came through, its sign-in method and its connection
+(`SessionDirectory`), and is absent for a session that came by password or with a personal
+account. A tenant's directory is never typed in: the page offers a person who has one, and who may
+set the tenant's directory, to make it the tenant's, with a create that names no directory, since
+the server sets the one the session came through.
+
 ## Tokens
 
 `<impulse-tokens>` (`@impulseframework/resource-angular/impulse-tokens`) is the signed-in person's tokens for the

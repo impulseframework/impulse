@@ -1614,11 +1614,7 @@
               ]
             },
             {
-              "resource": "SectorDirectories",
-              "fields": [
-                "method",
-                "connection"
-              ]
+              "resource": "SectorDirectories"
             }
           ],
           "Update": [

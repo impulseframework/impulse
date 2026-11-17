@@ -632,7 +632,7 @@ Three **sectors** are the tenants: **Anvil** is home (nearly everyone holds a ro
 and the hangars are there), **Bastion** is where a role stops at a border, and also the
 sector that admits its people through its directory only (a password does not reach it),
 and **Cinder** is the dark sector only headquarters, the archivist, and the hazard analyst
-can see.
+can see, and the sector the fleet's Google Workspace is the directory of.
 Clients post **missions** with a hazard class, a fee, and a deadline. **Squadrons**
 (grouped into **wings**) claim them and fly **sorties** with **expenses**. **Ships** in
 **hangars** go through **refits** bay by bay. **Droids** post telemetry over their own
@@ -811,15 +811,26 @@ role but its own. The sector's People and Invitations pages ("Sector crew", unde
 sector's URL) are built by the library from the same description.
 
 Who may enter a sector is the sector record's declaration, data of the application
-rather than deploy configuration: the directories the sector admits its people through
-(`SectorDirectory`, one row each under `/console/api/sectors/{sectorID}/sector-directories`:
-a sign-in method and the connection its identities carry, the fleet's Google Workspace by
-the name both registrations give it, `example`) and whether its people enter through
-them only (`Sector.DirectoryOnly`, which closes passwords). Both auths' sign-in rule is
+rather than deploy configuration: the sector's directory (`SectorDirectory`, one row at
+most under `/console/api/sectors/{sectorID}/sector-directories`: a sign-in method and the
+connection its identities carry, the fleet's Google Workspace by the name both
+registrations give it, `example`) and whether its people enter through it only
+(`Sector.DirectoryOnly`, which closes passwords). A sector has one directory and a
+directory belongs to one sector: the schema holds each with a unique index
+(`SectorDirectoriesBySectorId`, `SectorDirectoriesByMethodConnection`), and the record's
+write paths ask the generated rules first (`app.NewSectorDirectoryRules`), so a refusal
+is a sentence a marshal can act on. Nobody types a directory in: the row's method and
+connection are stamped from the session of the marshal who makes the directory he is
+signed in through the sector's (the session read's `directory` names it), so a marshal
+signed in with a password is refused with how a directory is set, a request that names a
+method and a connection is refused as naming fields the record does not take, and a
+personal account (any Google account, which is how the pioneer signs up) is refused as
+no organization's directory. The directory of a sector that is directory only is not
+removed until headquarters opens the sector to passwords. Both auths' sign-in rule is
 the library's tenant policy over it (`signin.TenantPolicy`, handed the generated
 `app.NewSectorDeclarationReader`, which reads the declaration in the sign-in's own
 transaction): a sign-in through a directory is admitted when one of the person's sectors
-declares that directory, a password unless every one of their sectors is directory only,
+has that directory, a password unless every one of their sectors is directory only,
 a person who holds a role outside any one sector (a global role, or one held in every
 sector) and a sign-in whose directory names the roles on the library's checks, and a
 person holding no sector too, since the pioneer signs up first and charts after. Which
@@ -834,26 +845,33 @@ marshal, viewing as the governor, is refused the role for herself. The data leve
 keeps every sector's declaration beside its key (`resource.TenantRoster.Declarations`,
 handed to `resource.SessionPermissions`), the records' write paths reload it after their
 commit and signal the other instances, so a declaration decides the next request, and
-the records' change events are the audit of every edit. The seed declares the fleet's
-directory on every sector, so the navigator and the client reach the sectors they hold a
-role in, and makes Bastion directory only: the rigger charts Anvil alone and the bosun is
-refused at sign-in. A self-service sector's first directory is the one its creator came
-through, written by the create-sector route with the row, so Ember admits the pioneer at
-once. Each directory row carries a default seat (`SectorDirectory.DefaultSeat`,
-`@directoryDefaultSeat`): the role a stranger the directory vouches for is seated with in
-that sector at their first sign-in, before the registration's account rule is reached.
+the records' change events are the audit of every edit. The seed makes the fleet's
+directory Cinder's, the one sector it can belong to, and makes Bastion directory only:
+the rigger charts Anvil alone, the bosun is refused at sign-in, and the navigator, who
+came through the fleet's directory, reaches Cinder. A self-service sector's directory is
+the organization's directory its creator came through, set by the create-sector route
+with the row through the step every such write takes (`app.SetSectorDirectory`); the
+pioneer signs up with a personal account, so Ember starts with none and admits her as it
+admits a password. The directory's row carries a default seat
+(`SectorDirectory.DefaultSeat`, `@directoryDefaultSeat`): the role a person is given in
+the sector at their first sign-in through its directory. A stranger the directory
+vouches for is created seated, before the registration's account rule is reached:
 Cinder's row names `SectorCrew`, so the navigator's first sign-in creates him seated
-there; Anvil's and Bastion's name none, so a stranger no row seats is refused by
-invitation only (`invitation_only`, the login page's sentence) and no account is created,
-unless they followed an invitation. The crew auth reads every sector's declaration of a
-directory with its seat through the generated `app.NewSectorDirectoryReader`
-(`SetDirectoryAdmission`, with the seat written by the auth's generated identity client
-in the transaction that creates the person, `crewidentity.Client.DirectorySeated`); the
-members auth, whose
-directory names the roles, sets none. The
-console's Sign-in page (Sector Ops menu, under the sector's URL) carries the declaration:
-the sector's marshal declares and withdraws directories there and picks each one's
-default seat from the sector's roles, headquarters sets directory only. A sector's
+there; with no seat named, a stranger is refused by invitation only (`invitation_only`,
+the login page's sentence) and no account is created, unless they followed an
+invitation. A person whose account stood before (a password persona, or someone another
+sector invited) is given the seat when the sign-in is linked to the account, once for a
+link and only where they hold no role in the sector: a second sign-in gives nothing, a
+seat a marshal removed is not given back, and a link deleted and made again gives the
+seat again. The crew auth reads the sectors' directories with their seats through the
+generated `app.NewSectorDirectoryReader` (`SetDirectoryAdmission`, with the seat written
+by the auth's generated identity client in the transaction that links the account,
+`crewidentity.Client.DirectorySeated`); the members auth, whose directory names the
+roles, sets none. The console's Sign-in page (Sector Ops menu, under the sector's URL)
+carries the declaration: a marshal signed in through his organization's directory makes
+it the sector's there with one button, removes it, and picks its default seat from the
+sector's roles; a marshal signed in with a password is told how a directory is set and
+offered no button; headquarters sets directory only. A sector's
 creator is its first marshal whatever the creation shape: the create path seats the
 surveyor as `SectorMarshal` in Dawn in the transaction that writes the row, as the
 create-sector route seats the pioneer in Ember (`SectorAdministratorRoles`, from
