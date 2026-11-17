@@ -148,6 +148,7 @@ func TestDDL_keys(t *testing.T) {
 			`CONSTRAINT "AccessGroupRolesGroup" FOREIGN KEY ("GroupId") REFERENCES "AccessGroups" ("Id")`,
 			`PRIMARY KEY ("GroupId", "Kind", "Axis", "DomainId", "Role")`,
 		}},
+		{name: "group roles by where they are held", stmt: 9, want: []string{`CREATE INDEX "AccessGroupRolesByScope" ON "AccessGroupRoles" ("Kind", "Axis", "DomainId", "Role")`}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

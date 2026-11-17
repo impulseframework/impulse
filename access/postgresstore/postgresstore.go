@@ -79,6 +79,7 @@ type tableNames struct {
 	rawGroupRoles        string
 	rawGroupsByName      string
 	rawGroupMembersIndex string
+	rawGroupRolesIndex   string
 }
 
 func resolveNames(opts []Option) (tableNames, error) {
@@ -101,6 +102,7 @@ func resolveNames(opts []Option) (tableNames, error) {
 		rawGroupRoles:        tables.GroupRoles,
 		rawGroupsByName:      tables.GroupsByName,
 		rawGroupMembersIndex: tables.GroupMembersByUserID,
+		rawGroupRolesIndex:   tables.GroupRolesByScope,
 	}
 	n.groups = pgx.Identifier{n.rawGroups}.Sanitize()
 	n.groupMembers = pgx.Identifier{n.rawGroupMembers}.Sanitize()

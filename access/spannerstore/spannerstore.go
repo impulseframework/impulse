@@ -94,6 +94,7 @@ type tableNames struct {
 	groupRoles        string
 	groupsByName      string
 	groupMembersIndex string
+	groupRolesIndex   string
 }
 
 func resolveNames(opts []Option) (tableNames, error) {
@@ -117,6 +118,7 @@ func resolveNames(opts []Option) (tableNames, error) {
 		groupRoles:        tables.GroupRoles,
 		groupsByName:      tables.GroupsByName,
 		groupMembersIndex: tables.GroupMembersByUserID,
+		groupRolesIndex:   tables.GroupRolesByScope,
 	}, nil
 }
 

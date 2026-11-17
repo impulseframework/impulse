@@ -112,9 +112,9 @@ func (m *Manager) AssignRole(ctx context.Context, txn resource.ReadWriteTransact
 //
 // Two rules of the user management are held here. A person who removes a role from
 // themselves in a tenant is held to the rule on the tenant's last administrator
-// (refuseLastAdministrator). And a person left with no role anywhere is deleted with
-// their identity links and sessions in the same transaction (deleteWithLastRole),
-// whoever removed the role. The Super Administrator role has its own: it is taken away
+// (refuseLastAdministrator). And a person left with no role anywhere and no place in a
+// group is deleted with their identity links and sessions in the same transaction
+// (deleteWithLastRole), whoever removed the role. The Super Administrator role has its own: it is taken away
 // by a caller who holds it, and never from the last holder who can sign in, whoever
 // asks (requireSuperAdministrator, refuseLastSuperAdministrator).
 // Where a person belongs to one tenant (WithOneTenantPerPerson) there is a third: the
@@ -158,9 +158,11 @@ func (m *Manager) removeMembership(ctx context.Context, txn resource.ReadWriteTr
 			return err
 		}
 	}
-	all, err := m.store.Memberships(ctx, txn, userID)
+	// What the person holds beside the membership: the roles of their own and the
+	// groups they are in, each of which keeps the account as a role does (holds).
+	all, err := m.holds(ctx, txn, userID)
 	if err != nil {
-		return errors.Wrap(err, "identity.Store.Memberships()")
+		return err
 	}
 	if err := m.refuseLeavingSeveralTenants(all, key); err != nil {
 		return err

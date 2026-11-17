@@ -22,17 +22,17 @@ func TestTablesWithPrefix(t *testing.T) {
 		{
 			name:   "the default prefix and the empty store name",
 			prefix: DefaultTablePrefix,
-			want:   Tables{Roles: "AccessRoles", UserRoles: "AccessUserRoles", RoleGrants: "AccessRoleGrants", UserRolesByUserID: "AccessUserRolesByUserId", Groups: "AccessGroups", GroupMembers: "AccessGroupMembers", GroupRoles: "AccessGroupRoles", GroupsByName: "AccessGroupsByName", GroupMembersByUserID: "AccessGroupMembersByUserId"},
+			want:   Tables{Roles: "AccessRoles", UserRoles: "AccessUserRoles", RoleGrants: "AccessRoleGrants", UserRolesByUserID: "AccessUserRolesByUserId", Groups: "AccessGroups", GroupMembers: "AccessGroupMembers", GroupRoles: "AccessGroupRoles", GroupsByName: "AccessGroupsByName", GroupMembersByUserID: "AccessGroupMembersByUserId", GroupRolesByScope: "AccessGroupRolesByScope"},
 		},
 		{
 			name:   "an application's prefix",
 			prefix: "Crew",
-			want:   Tables{Roles: "CrewRoles", UserRoles: "CrewUserRoles", RoleGrants: "CrewRoleGrants", UserRolesByUserID: "CrewUserRolesByUserId", Groups: "CrewGroups", GroupMembers: "CrewGroupMembers", GroupRoles: "CrewGroupRoles", GroupsByName: "CrewGroupsByName", GroupMembersByUserID: "CrewGroupMembersByUserId"},
+			want:   Tables{Roles: "CrewRoles", UserRoles: "CrewUserRoles", RoleGrants: "CrewRoleGrants", UserRolesByUserID: "CrewUserRolesByUserId", Groups: "CrewGroups", GroupMembers: "CrewGroupMembers", GroupRoles: "CrewGroupRoles", GroupsByName: "CrewGroupsByName", GroupMembersByUserID: "CrewGroupMembersByUserId", GroupRolesByScope: "CrewGroupRolesByScope"},
 		},
 		{
 			name:   "a store name follows the prefix",
 			prefix: "Access", store: "Billing",
-			want: Tables{Roles: "AccessBillingRoles", UserRoles: "AccessBillingUserRoles", RoleGrants: "AccessBillingRoleGrants", UserRolesByUserID: "AccessBillingUserRolesByUserId", Groups: "AccessBillingGroups", GroupMembers: "AccessBillingGroupMembers", GroupRoles: "AccessBillingGroupRoles", GroupsByName: "AccessBillingGroupsByName", GroupMembersByUserID: "AccessBillingGroupMembersByUserId"},
+			want: Tables{Roles: "AccessBillingRoles", UserRoles: "AccessBillingUserRoles", RoleGrants: "AccessBillingRoleGrants", UserRolesByUserID: "AccessBillingUserRolesByUserId", Groups: "AccessBillingGroups", GroupMembers: "AccessBillingGroupMembers", GroupRoles: "AccessBillingGroupRoles", GroupsByName: "AccessBillingGroupsByName", GroupMembersByUserID: "AccessBillingGroupMembersByUserId", GroupRolesByScope: "AccessBillingGroupRolesByScope"},
 		},
 		{name: "an empty prefix is refused", prefix: "", wantErr: true},
 		{name: "a prefix that starts with a digit is refused", prefix: "1Crew", wantErr: true},

@@ -94,6 +94,9 @@ type fakeStore struct {
 	identities map[impulse.UUID]impulse.UUID
 	tokens     map[impulse.UUID]*Token
 	families   map[impulse.UUID][]impulse.UUID
+	// fakeGroupTables are the groups of people, their members and the roles they hold
+	// (groups_test.go).
+	fakeGroupTables
 	// nextID is the id InsertUser answers.
 	nextID impulse.UUID
 	// failOn names a call that fails.

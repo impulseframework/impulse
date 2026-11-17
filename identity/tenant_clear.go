@@ -18,14 +18,17 @@ import (
 // itself in the auth's tables:
 //
 //   - every membership held in the tenant, whoever holds it;
+//   - every group kept in the tenant, with its members and the roles it holds, and every
+//     role a group kept for the whole application holds in the tenant;
 //   - every custom role made in the tenant, with its grants;
 //   - every invitation into the tenant that still stands, withdrawn as
 //     WithdrawInvitation withdraws one, so no link admits a person into a tenant that
 //     is gone.
 //
-// A person the tenant's memberships were the only ones of then holds no role anywhere,
-// and is deleted with their identity links and sessions in the same transaction, by the
-// rule on an account nothing admits (deleteWithLastRole). A person who holds a role
+// A person the tenant's memberships and the places in its groups were the only things
+// held by then holds no role anywhere and no place in a group, and is deleted with their
+// identity links and sessions in the same transaction, by the rule on an account nothing
+// admits (deleteWithLastRole). A person who holds a role
 // anywhere else stays, and so does a role held in every tenant, which is no one
 // tenant's.
 //
@@ -44,7 +47,11 @@ func (m *Manager) ClearTenant(ctx context.Context, txn resource.ReadWriteTransac
 	if err != nil {
 		return errors.Wrap(err, "identity.Store.TenantMemberships()")
 	}
-	leaving, err := m.leftWithNothing(ctx, txn, held)
+	groups, err := m.readTenantGroups(ctx, txn, domain)
+	if err != nil {
+		return err
+	}
+	leaving, err := m.leftWithNothing(ctx, txn, held, groups)
 	if err != nil {
 		return err
 	}
@@ -57,6 +64,9 @@ func (m *Manager) ClearTenant(ctx context.Context, txn resource.ReadWriteTransac
 		if err := m.store.DeleteMembership(ctx, txn, &key); err != nil {
 			return errors.Wrap(err, "identity.Store.DeleteMembership()")
 		}
+	}
+	if err := groups.clear(ctx, txn, m.store); err != nil {
+		return err
 	}
 	for _, person := range leaving {
 		if err := m.deleteAccount(ctx, txn, person.id); err != nil {
@@ -73,7 +83,7 @@ func (m *Manager) ClearTenant(ctx context.Context, txn resource.ReadWriteTransac
 			return errors.Wrap(err, "identity.Store.ConsumeMailLink()")
 		}
 	}
-	if len(held) == 0 && roles == 0 {
+	if len(held) == 0 && roles == 0 && groups.empty() {
 		return nil
 	}
 
@@ -87,25 +97,31 @@ type leavingAccount struct {
 	username string
 }
 
-// leftWithNothing answers the accounts that hold no membership but the ones given: the
-// people a tenant's memberships are the only ones of. held is every membership of the
-// tenant; a membership whose user is no account's id, or the id of an account that is
-// gone, has no account.
-func (m *Manager) leftWithNothing(ctx context.Context, txn resource.ReadWriteTransaction, held []access.MembershipKey) ([]leavingAccount, error) {
+// leftWithNothing answers the accounts that hold nothing but what the tenant holds of
+// them: the people whose memberships are all the tenant's and whose places in groups are
+// all in the tenant's own groups. held is every membership of the tenant and groups what
+// it holds of groups; a membership or a place whose user is no account's id, or the id of
+// an account that is gone, has no account.
+func (m *Manager) leftWithNothing(ctx context.Context, txn resource.ReadWriteTransaction, held []access.MembershipKey, groups *tenantGroups) ([]leavingAccount, error) {
 	var (
 		leaving  []leavingAccount
 		seen     = make(map[accesstypes.User]bool, len(held))
 		inTenant = make(map[access.MembershipKey]bool, len(held))
+		people   = make([]accesstypes.User, 0, len(held)+len(groups.members))
 	)
 	for _, key := range held {
 		inTenant[key] = true
+		people = append(people, key.User)
 	}
-	for _, key := range held {
-		if seen[key.User] {
+	for _, member := range groups.members {
+		people = append(people, member.User)
+	}
+	for _, user := range people {
+		if seen[user] {
 			continue
 		}
-		seen[key.User] = true
-		id, ok := UserID(key.User)
+		seen[user] = true
+		id, ok := UserID(user)
 		if !ok {
 			continue
 		}
@@ -114,6 +130,13 @@ func (m *Manager) leftWithNothing(ctx context.Context, txn resource.ReadWriteTra
 			return nil, errors.Wrap(err, "identity.Store.Memberships()")
 		}
 		if slices.ContainsFunc(all, func(other access.MembershipKey) bool { return !inTenant[other] }) {
+			continue
+		}
+		places, err := m.store.UserGroups(ctx, txn, id)
+		if err != nil {
+			return nil, errors.Wrap(err, "identity.Store.UserGroups()")
+		}
+		if slices.ContainsFunc(places, func(place GroupPlace) bool { return !groups.inGroups(place.ID) }) {
 			continue
 		}
 		username, found, err := m.store.Username(ctx, txn, id)

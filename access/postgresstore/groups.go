@@ -110,6 +110,7 @@ func (s *Store) groupDDL() []string {
   CONSTRAINT %s CHECK ("Kind" IN ('%s', '%s', '%s')),
   CONSTRAINT %s FOREIGN KEY ("GroupId") REFERENCES %s ("Id")
 )`, n.groupRoles, quote(n.rawGroupRoles+"Kind"), policy.KindGlobal, policy.KindDomain, policy.KindEvery, quote(n.rawGroupRoles+"Group"), n.groups),
+		fmt.Sprintf(`CREATE INDEX %s ON %s ("Kind", "Axis", "DomainId", "Role")`, quote(n.rawGroupRolesIndex), n.groupRoles),
 	}
 }
 

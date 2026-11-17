@@ -33,10 +33,12 @@ type Tables struct {
 	GroupMembers string
 	GroupRoles   string
 	// GroupsByName is the unique index that holds a group's name to one group where the
-	// group is kept, and GroupMembersByUserID the index on the members that leads with
-	// the user.
+	// group is kept, GroupMembersByUserID the index on the members that leads with the
+	// user, and GroupRolesByScope the index on the groups' roles that leads with where a
+	// role is held, as the memberships' key does.
 	GroupsByName         string
 	GroupMembersByUserID string
+	GroupRolesByScope    string
 }
 
 // TablesWithPrefix answers the names of the policy store kept under prefix and store:
@@ -66,5 +68,6 @@ func TablesWithPrefix(prefix, store string) (Tables, error) {
 		GroupRoles:           base + "GroupRoles",
 		GroupsByName:         base + "GroupsByName",
 		GroupMembersByUserID: base + "GroupMembersByUserId",
+		GroupRolesByScope:    base + "GroupRolesByScope",
 	}, nil
 }

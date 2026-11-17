@@ -321,12 +321,24 @@ func Test_Records_Hash_groups(t *testing.T) {
 	}
 
 	changes := map[string]func(r *policy.Records){
-		"a member added":            func(r *policy.Records) { r.GroupMembers = append(r.GroupMembers, policy.GroupMember{Group: "night", User: "bob"}) },
-		"a member removed":          func(r *policy.Records) { r.GroupMembers = r.GroupMembers[:1] },
-		"a group removed":           func(r *policy.Records) { r.Groups = r.Groups[:1] },
-		"a group kept elsewhere":    func(r *policy.Records) { r.Groups[0].Scope = tenant2Policy },
-		"a group's role taken away": func(r *policy.Records) { r.Memberships = nil },
-		"the role held by a person": func(r *policy.Records) { r.Memberships[0].Member = userSubject("night") },
+		"a member added": func(r *policy.Records) {
+			r.GroupMembers = append(r.GroupMembers, policy.GroupMember{Group: "night", User: "bob"})
+		},
+		"a member removed": func(r *policy.Records) {
+			r.GroupMembers = r.GroupMembers[:1]
+		},
+		"a group removed": func(r *policy.Records) {
+			r.Groups = r.Groups[:1]
+		},
+		"a group kept elsewhere": func(r *policy.Records) {
+			r.Groups[0].Scope = tenant2Policy
+		},
+		"a group's role taken away": func(r *policy.Records) {
+			r.Memberships = nil
+		},
+		"the role held by a person": func(r *policy.Records) {
+			r.Memberships[0].Member = userSubject("night")
+		},
 	}
 	for name, change := range changes {
 		r := base()
