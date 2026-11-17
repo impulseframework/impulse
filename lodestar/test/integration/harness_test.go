@@ -290,7 +290,8 @@ type testConfigurer struct {
 
 // noSessionAPI stands where a suite serves no session manager: the methods that need
 // one (a temporary password's hash) are driven on the served stack, which has the
-// real one.
+// real one. It still says which identities sign a person in, since the removal of a
+// password and the list of how a person signs in are judged by it.
 type noSessionAPI struct{}
 
 func (noSessionAPI) HashPassword(string) (string, error) {
@@ -299,6 +300,18 @@ func (noSessionAPI) HashPassword(string) (string, error) {
 
 func (noSessionAPI) PrepareInvitation(context.Context, *session.InvitationRequest) (session.PreparedInvitation, error) {
 	return nil, fmt.Errorf("this suite serves no session manager: drive the method on the served stack")
+}
+
+// SignsInThrough judges an identity as an Auth that offers the fleet's Google sign-in
+// alone would, under the name the crew registers it ("google"): an identity of any other
+// method signs nobody in. The crew auth's own judgment, over its registrations and the
+// connections each takes, is driven on the served stack.
+func (noSessionAPI) SignsInThrough(method sessioninfo.AuthMethod, _ string) []string {
+	if method != sessioninfo.MethodGoogle {
+		return nil
+	}
+
+	return []string{"google"}
 }
 
 // CrewIdentity is the crew auth's identity client: on the served stack the one the crew

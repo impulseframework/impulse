@@ -722,6 +722,18 @@ the wire and the frame's own status stamp must stay privileged. The method's ent
 contract with the permission system is `Execute` on itself, its target row, its
 transition, and any row condition on the Execute grant, all visible in the collection.
 
+A body may ask the caller's grant on another method, where one act is made of another's:
+`resource.CallerFrom(ctx).ExecuteGate(ctx, method, request)` answers the decision the
+other method's own decode would reach for the request the body builds, in the scope the
+request was checked in. No grant is the frame's refusal (403). A condition on the grant
+that reads the request's fields (`new.<name>`) is settled against the request handed,
+and `ExecuteGate.Settled` says whether that decided it. What is left reads the other
+method's target row: `EnforceView` judges a row the database holds, and
+`EnforceProposed` the values of a row the body proposes where the database holds none,
+by the condition language's own evaluator. A condition that reads an attribute the
+proposed row does not carry is an error, never a pass. The generated user management
+asks this way what a change to a group needs (section 21).
+
 ## 8. The generated router
 
 `GenerateRoutes` emits the route tables: one `generated<Outlet>Routes` function and
@@ -1338,6 +1350,7 @@ rule:
 | --- | --- | --- |
 | `string`, a named string type, `*string`, `spanner.NullString` | `STRING(n)` | at most `n` code points (`utf8.RuneCountInString`); Spanner counts code points, so a combining mark counts and a CJK character counts once |
 | `[]byte` | `BYTES(n)` | at most `n` bytes |
+| a field declared `conditions:"secret"` (`resource.Secret` on the resource, text on the request) | `BYTES(n)` | at most `n − 42` bytes of text, the 42 being what sealing adds (section 23). The rule is the secret's alone: a string-kinded field that is not declared a secret takes no rule from a `BYTES(n)` column (a named string type that encodes itself to bytes is sized by its own encoding, which the decoder does not know), so it carries no tag and is not sized |
 | `decimal.Decimal`, `*decimal.Decimal`, `decimal.NullDecimal`, `spanner.NullNumeric` | `NUMERIC` | trailing zeros trimmed, then at most 29 digits before the decimal point and 9 after (GoogleSQL `NUMERIC` is 38 digits of precision with 9 of scale); `1.1234567890` is accepted, `1.1234567891` is not |
 | a slice of a checked type, named or not (`[]string`, `type Marks []string`, `[]decimal.Decimal`) | `ARRAY<…>` of the matching type | each element by its rule |
 
@@ -2924,6 +2937,7 @@ the schema holds its table, so an Auth that issues no tokens has no tokens list:
 GET  <prefix>/crew-session-users, …/{id}                   List, Read on CrewSessionUsers (sort=username)
 GET  <prefix>/crew-sessions, …/{id}                        List, Read on CrewSessions (newest first)
 GET  <prefix>/crew-session-identities, …/{id}              List, Read on CrewSessionIdentities
+GET  <prefix>/crew-sign-in-ways?filter=userId:eq:{id}      List on CrewSignInWays (how one person signs in: the password, then the identities that count)
 GET  <prefix>/crew-session-tokens, …/{id}                  List, Read on CrewSessionTokens
 GET  <prefix>/crew-session-mail-links, …/{id}              List, Read on CrewSessionMailLinks
 GET  <prefix>/crew-session-impersonations, …/{sessionId}   List, Read on CrewSessionImpersonations
@@ -2942,6 +2956,7 @@ GET  <prefix>/sectors/{sectorID}/crew-sector-users, …/{id}         List, Read 
 GET  <prefix>/sectors/{sectorID}/crew-sector-user-roles, …/{id}    List, Read on CrewSectorUserRoles (sort=username,role)
 GET  <prefix>/sectors/{sectorID}/crew-sector-invitations, …/{id}   List, Read on CrewSectorInvitations (newest first)
 GET  <prefix>/sectors/{sectorID}/crew-sector-identities, …/{id}    List, Read on CrewSectorIdentities (newest first)
+GET  <prefix>/sectors/{sectorID}/crew-sector-sign-in-ways?filter=userId:eq:{id}   List on CrewSectorSignInWays (how one of the sector's people signs in)
 GET  <prefix>/sectors/{sectorID}/crew-sector-groups, …/{id}             List, Read on CrewSectorGroups (the sector's own groups)
 GET  <prefix>/sectors/{sectorID}/crew-sector-group-users, …/{id}        List, Read on CrewSectorGroupUsers
 GET  <prefix>/sectors/{sectorID}/crew-sector-group-roles, …/{id}        List, Read on CrewSectorGroupRoles
@@ -3005,9 +3020,10 @@ method is written for an Auth with a password method or a registration that admi
 invited users alone (elsewhere a directory admits its own members and the first sign-in
 creates the row), the two role methods, the two invitation methods and the create are
 left out for an Auth whose roles a directory writes (`SyncsRoles`), the two password
-methods (and the create's `password`) for an Auth with no password method, as is the
-method that removes a person's password, which is also written only where the schema
-holds the identities table (the rule it keeps reads a person's identity links), the rename and
+methods (and the create's `password`) for an Auth with no password method, as are the
+method that removes a person's password and the list of how a person signs in, which are
+also written only where the schema holds the identities table (the rule they keep reads a
+person's identity links), the rename and
 the address set by hand for an Auth whose usernames are the addresses (`UsernameIsEmail`:
 the name is the address, and it changes when the person verifies a new one), and the
 token, impersonation, remembered-browser and unlock methods where the schema holds no
@@ -3219,6 +3235,38 @@ holding some of them is refused at generation.
   managed by the whole application's methods and holds a role in the global scope, in
   one tenant or in every tenant; no tenant's group is ever given a role in another
   tenant (400).
+- A tenant puts its own people in its groups. The tenant's method
+  (`AddCrewSectorGroupMember`) takes a person the tenant already has, a row of its list
+  of people (`CrewSectorUsers`), and answers 404 for any other id, an account or not: a
+  tenant's administrator pulls no account into the tenant through a group, and the
+  answer says nothing of who belongs elsewhere. An account from outside the tenant is
+  put in a tenant's group by whoever manages the whole application's people, with the
+  whole application's method (`AddCrewGroupMember`), which takes any account and any
+  group.
+- A group gives nobody a power that giving the role directly would not. A change to a
+  group is a change to what people hold, so it is judged as the role changes it makes,
+  beside the grant of the group's own method, which says who manages groups at all.
+  Putting a person in a group needs what giving that person each role the group holds,
+  where it holds it, needs. Taking a person out needs what taking each of those roles
+  from them needs. Giving a group a role needs what giving it to each person in the
+  group needs, and taking a role from a group what taking it from each of them needs.
+  What a role change needs of the caller is the role file's to say, in the grants of
+  the methods that give a role and take one away (`AssignCrewRole`, `RemoveCrewRole`;
+  for a request made under a tenant the tenant's own, `AssignCrewSectorRole` and
+  `RemoveCrewSectorRole`). The generated package asks the permission engine for the
+  caller's grant on that method with the role in question (`crewidentity`'s `grants.go`,
+  its answer to `identity.RoleGrants`, over `resource.Caller.ExecuteGate`), so a
+  condition on the grant is read as it is for the method itself: where the role file
+  grants a sector's marshal `AssignCrewSectorRole` with `new.role != 'SectorMarshal'`,
+  the marshal puts nobody in a group that holds SectorMarshal, whatever the grant on
+  `AddCrewSectorGroupMember` says. A change the caller could not make directly is
+  refused (403), naming the role. A place or a group's role whose period has ended
+  gives nobody anything and is not judged; one that has not begun is. A method the
+  application runs in a transaction of its own, outside any request, is the
+  application's act and is not judged.
+- Taking a role away from a person removes the membership of their own. What they hold
+  through a group stays, and goes when they leave the group or the group loses the
+  role.
 - No group holds the Super Administrator role (400): a super administrator gives it to
   one person at a time, so a group is no way around the rule that only a super
   administrator makes another. The methods a super administrator always executes stay
@@ -3255,7 +3303,9 @@ tenant has its own four (`CrewSectorGroups`, `CrewSectorGroupUsers`,
 `CrewSectorGroupRoles`, `CrewSectorUserGroupRoles`): the first three hold the tenant's
 own groups, and the last every role a person holds in the tenant through a group, with
 `globalGroup` where the group is the whole application's and so not the tenant's to
-change. The lists of what people hold leave out a row the engine gives nobody (the Super
+change. A group of the whole application that holds a role both in the tenant and in
+every tenant is one row there, the one that counts now: the tenant's own row gives way
+while it has not begun and the one held in every tenant counts. The lists of what people hold leave out a row the engine gives nobody (the Super
 Administrator role in a group, a tenant's group with a role outside its tenant). A
 tenant's list of its people (`CrewSectorUsers`) holds who a group puts there: the
 members of its own groups, and the members of a group of the whole application that
@@ -3280,6 +3330,12 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   time makes the role stand until it is taken away. Ending a role now is taking it away,
   and a period that is over already is refused (400), as one that ends at or before its
   start is.
+- Nobody lengthens their own holding. A request that would make something its caller
+  holds last longer than it was given for is refused (403): a period for the caller's
+  own role or the caller's own place in a group that ends later, or never, or begins
+  sooner while it has not begun, and the same for a role of a group the caller is in.
+  It holds for a period that has ended too, while its row stands. Someone else who may
+  give the role gives it its new period; the caller shortens their own freely.
 - The Super Administrator role takes no period (400): there is always a super
   administrator, and a period could leave none.
 - The permission engine applies the period at the instant a check is made with, the
@@ -3306,7 +3362,11 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   of its own calls the client's from it, since one Auth has one hook. The session
   library calls it once the session is committed and logs an error it answers, so the
   removal neither fails a sign-in nor undoes one, and a sign-in with nothing to clear
-  costs one read of the person's own rows. It removes the person's ended roles and
+  costs one read of the person's own rows. What has ended is the database's to say, by
+  its own clock, the one the lists and the sign-in rule read: the statement that finds
+  the rows carries the condition, before the transaction and again inside the
+  transaction that removes them, so a server whose clock runs fast removes nothing that
+  still counts. It removes the person's ended roles and
   places and nothing else: never the account, also when the ended role was the last
   thing the person held; the rule on a tenant's last administrator does not judge it;
   the engine is told nothing, since an ended assignment already counts for nothing; and
@@ -3358,6 +3418,26 @@ An Auth whose roles a directory writes gives none by hand and so gives no period
   asked of the database, never read into a row.
 - An identity link is removed unless it is the last way in of a user with no password
   (409).
+- A password is removed only from a user an identity that can sign them in is linked to
+  (409 otherwise, 400 for a user with no password). An identity counts when the session
+  library says a sign-in through it is possible (`AuthAPI.SignsInThrough`): its method
+  is a sign-in the Auth's login page offers, and a registration of that method takes the
+  connection it came through. One left from a sign-in the Auth no longer has does not
+  count, so the password stays the person's way in. The last super administrator is
+  held to the same rule.
+- How a person signs in is read by the same judgment (`CrewSignInWays`, and a tenant's
+  `CrewSectorSignInWays`): a row for the password where the person holds one (`way` is
+  `password`), and a row for each identity that counts, with the method and the
+  connection the identities list shows and the words the login page's button carries
+  for the sign-in it comes through (`through`: "Lodestar"; where two registrations of
+  one method both take the identity and nothing of it tells them apart, both, joined by
+  "or"). Never a hash, a subject or an address.
+  It is a computed list, asked for one person at a time (`filter=userId:eq:<id>`): a
+  request that names nobody lists nobody's, and one that names people any other way is
+  refused (400). A tenant's answers for a person of the tenant's own list of people,
+  nothing for anyone else, and carries the two facts of the person's row
+  (`heldElsewhere`, `heldGlobally`) for a grant's condition. A role file grants it to
+  whoever reads the identities.
 - A token is revoked with the rest of its device authorization; a token that is expired
   or already revoked is not found (404).
 - A role is assigned in the global scope, in one domain, or in every domain, and must
@@ -3411,7 +3491,12 @@ answers both hooks over its own membership write, so a role a sign-in gives is h
 the rule a role given by hand is and is committed with the step that causes it: the
 invitation is spent and its roles given together, or neither; the account is linked to
 the directory and given its role together, or neither, and a person who holds a role in
-the tenant already is given nothing. The Auth's package sets them on its session manager
+the tenant already is given nothing. Both read what the person holds by its period, and
+neither waits for an ended row to be removed: a role whose period has ended is nothing
+the person holds, so the invitation gives it afresh and the directory seats a person
+whose only role in the tenant has ended; a role the person holds for a period, or one
+that has not begun, is left exactly as it stands, since an invitation gives what is not
+held and erases no period. The Auth's package sets them on its session manager
 where it builds the client, so no Auth is open without them:
 
 ```go
@@ -3481,7 +3566,10 @@ is removed per user per transaction.
 **Limits.** It runs on Spanner. A rule reads the rows as committed: a method does not see
 what an earlier method of the same transaction buffered, so the rule on a person's last
 role judges one removal per person per transaction, and the rule on the last super
-administrator one holder per transaction. Every generated route runs one method, which
+administrator one holder per transaction. The rules of a group read the group as
+committed too: who is in it and what it holds, so a person put in a group and a role
+given to the group in one transaction of the application's are each judged without the
+other. Every generated route runs one method, which
 names one person, in a transaction of its own, so no request puts two in one; the limit
 is for an application that runs the methods in a transaction it opens itself. A temporary password is the one the session library has today: the
 operator chooses it and passes it on.
@@ -3495,7 +3583,12 @@ own, outside any request, has no caller and is the application's act):
 - A person who removes a role from themselves in a tenant keeps an administrator role
   nobody else would hold there. The application names the roles that administer a tenant
   when it builds the client (`identity.WithAdministratorRoles(domain)`): they are judged
-  among the tenant's holders and those who hold the role in every tenant. Without the
+  among the tenant's holders and those who hold the role in every tenant. A holder
+  through a group is a holder, in both directions: a person in a group that holds the
+  role there administers the tenant and is counted, and a person who takes themselves
+  out of the group that gives them the role, or takes the role from a group they are
+  in, is judged as one who removes it from themselves. Each holding counts inside its
+  period alone. Without the
   option a person removes no role from themselves in a tenant. A role held in the global
   partition goes freely, since a super administrator gives it back.
 - The Super Administrator role (`accesstypes.SuperAdministrator`) is the framework's, in
@@ -3579,7 +3672,9 @@ one's first administrator. Such a
 role is no tenant's either, so it never counts as one and is never refused. So that
 nobody is left in several tenants with nothing outside them, the last role a person
 holds outside the tenants is not taken away while they hold roles in more than one
-(409): take the roles in all but one tenant away first.
+(409): take the roles in all but one tenant away first. A place in a group of the whole
+application is held outside the tenants as a role is, so a person is not taken out of
+the last such group either while nothing else of theirs is.
 
 The rule reads what is committed, as the other rules do: one transaction of the
 application's own gives a person roles in one tenant. A person who already holds roles
@@ -3592,12 +3687,9 @@ and in Lodestar.
 **The pages.** No application writes a page for an Auth's management. The generated API
 description (`zz_gen_api.ts`) carries an `identity` block beside its resources and
 methods: for each Auth whose management the outlet serves, the Auth's name and label,
-the tenant record's name where the application has one, the Auth's directory sign-ins
-(`signIns`: the method the identities linked through each carry and the words its
-button on the login page carries, so a page that removes a person's password says what
-is left to sign in through), and a side for each scope
+the tenant record's name where the application has one, and a side for each scope
 (`global`, the whole application's; `domain`, a tenant's) that names the lists by what
-each holds (`users`, `roles`, `identities`, `invitations`, and for the whole application
+each holds (`users`, `roles`, `identities`, `signInWays`, `invitations`, and for the whole application
 `sessions` and `signInAttempts`) and the methods by what each does (`create`, `invite`,
 `withdrawInvitation`, `assignRole`, `removeRole`, `disable`, `enable`, `delete`,
 `rename`, `setEmail`, `setTemporaryPassword`, `requirePasswordChange`,
@@ -3610,11 +3702,19 @@ library builds the pages from the block at run time
 (`identityRoutes(apiDescriptor, resourceMeta, { auth, scope })`, from
 `@impulseframework/resource-angular/identity-pages`): the people with a menu on each row
 holding the methods the server lists for that row, a person's row page with the roles
-held and the sign-in identities under it (and the sessions, for the whole application),
-the invitations, and for the whole application the sessions and the failed sign-ins.
-Above a person's sign-in identities, where an identity is unlinked, the page offers
-Remove password for an Auth with a password method, while the server's answer for the
-person's row lists the method.
+held, the ways they sign in and the sign-in identities under it (and the sessions, for
+the whole application), the invitations, and for the whole application the sessions and
+the failed sign-ins. Above the ways a person signs in, the page offers Remove password
+for an Auth with a password method where the removal can happen: the server's answer for
+the person's row lists the method, and the list shows a password and an identity that
+counts. It asks first, naming what is left by the words of the rows, and the offer goes
+with the password once the list is read again.
+A period is picked and shown in days. The server keeps an end as the first instant the
+assignment no longer counts, and "until 1 December" means through the end of
+1 December: the dialog of a method that gives something for a period sends the day
+picked for its end as the first instant of the day after it, in the viewer's time zone
+(the method presentation's `throughDay`), and a list shows the last day the assignment
+counts, the day that was picked.
 They are the library's list and row pages over these resources, drawn from a
 configuration the library writes; what a page offers is what the server answers the
 caller may do. Lodestar's console takes its accounts pages this way, once for each side.
@@ -3631,13 +3731,21 @@ another sector's; the roles given and taken; the create; the identities and the 
 `generated_identity_tenant_invitation_test.go` for the ones that need the session manager
 (the invitation, its withdrawal, the temporary password),
 `generated_identity_remove_password_test.go` holds the removal of a person's password at a
-sector, and `generated_identity_remove_password_skipauth_test.go` over the served
+sector and the list of how a person signs in beside it (the password and the identities
+that count, an identity of a retired sign-in left out, the sector's people alone), and
+`generated_identity_remove_password_skipauth_test.go` over the served
 application with the simulated directory (refused while the person holds no identity and
 for a role without the grant; once removed, the password signs nobody in and the directory
-does),
+does; the list in each state),
 `generated_identity_one_tenant_test.go` holds the rule of one tenant per person through a
 second client built with the option, since Lodestar itself lets a person hold roles in
 several sectors,
+`generated_identity_groups_test.go` and `generated_identity_periods_test.go` hold the
+groups of people and the period of an assignment, and
+`generated_identity_group_rules_test.go` the rules of a change to a group (a sector's
+form takes the sector's people; who is in a group is changed by someone who may give or
+take the roles it holds; nobody lengthens their own holding; the roles held through
+groups show the one that counts),
 `generated_identity_live_test.go` holds that a method's commit reaches the pages of a
 resource derived from the Auth's tables, a sector's open list among them, and its
 console's `identity-pages.spec.ts` holds the pages the library builds for the two Auths
@@ -3852,14 +3960,23 @@ No variable has the declared name. Each version arrives in a variable of its own
 and the version's number (`APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`), holding the version's 32
 bytes in Base64, and `resource.SecretKeysFromEnv` collects whichever are set, reading the
 whole environment so that no variable the name numbers is passed over. With none set
-it answers no keys and no error, so an application that stores no secret runs without the
-variable; a variable that is set and does not hold a version is an error naming the
-variable, never its value. A stored value names its version in two bytes, so a secret's
+it answers no error and a holder that holds no key, so an application that stores no
+secret runs without the variable, and one that stores a secret is refused at start by the
+name of the variable that is missing (`APP_SECRET_KEY_1`). The declared name itself set to
+a value, with no numbered version beside it (`APP_SECRET_KEY=...`), is the secret put in
+the wrong variable: an error naming it and the variable to use. A variable that is set and
+does not hold a version is an error naming the variable, never its value. A stored value
+names its version in two bytes, so a secret's
 versions run from 1 to 65535: the variable of a version past 65535, or of version 0
 (`APP_SECRET_KEY_65536`, `APP_SECRET_KEY_0`), is an error at start that says the range.
-The development environment file carries `APP_SECRET_KEY_1` (a fixed development value in
-the skeletons' and Lodestar's `.envrc.template`), and `impulse check` (`env-template`)
-holds the template to it.
+The development environment file carries `APP_SECRET_KEY_1`, generated: the skeletons'
+and Lodestar's `.envrc.template` write 32 random bytes to `.app-secret-key.dev` the first
+time the file is sourced from the application's root and read the variable from that file
+from then on, so a checkout keeps one key and `.gitignore` keeps it out of git. No
+template holds a key: a key in a tracked file is every checkout's, and the library cannot
+tell it from a real one. `impulse check` (`env-template`) holds the template to that: the
+variable set by a line, never a key written in the template, the key's file ignored; and
+`--fix` writes the two lines.
 
 **Writing.** No code of the author's. A request and a typed patch give the value as text
 (`patch.SetTransponderKey(&key)`; the generated request structs, the typed patches'
@@ -3908,19 +4025,35 @@ application's secret holders, the generated `SecretHolders()` of each resources 
 package that stores none). Every stored value that names the version is opened and written
 again under the current version, a batch to a transaction, and a final read of every secret
 field finds none left. It exits 0 only then, and prints how many values of each field it
-wrote, never a value. Its environment is the migration's with one variable for each
-enabled version, the one being retired among them, since its values are opened under it.
-The current version, the highest the environment carries, is refused: new values are
-sealed under it. So is a variable that is not a version of the secret the keys were read
-from, and one whose number is 0 or past 65535, with the range a version's number takes. A
-value that does not open (bytes moved from another row, or altered) fails the
-retirement, naming its resource, field and row, once every other value is written: set it
-again or clear it, and run the retirement again. A second run finds nothing to write and
-exits 0. The service keeps serving meanwhile: a value is written back only while its row
-still holds the bytes that were opened, read again inside the writing transaction, and the
-rewrite is the stored bytes alone, with no permission check, no update function and no
-change record. It runs on Spanner through the resource client and on PostgreSQL by
-statements of its own, the PostgreSQL client's transactions not being built.
+wrote, never a value.
+
+A retirement reads the packages its call is handed and no other, and the call names them
+by hand: one package's `resources.SecretHolders()...`, or several joined,
+`slices.Concat(consoleresources.SecretHolders(), sharedresources.SecretHolders())...`.
+`impulse check` (`secret-holders`) fails an application whose call leaves out a package
+that carries the generated list, takes its holders from where the check cannot read them
+(a parameter, a function of the application's own, a list written by hand), or is missing.
+
+Its environment is the migration's with one variable for each enabled version, the one
+being retired among them, since its values are opened under it: a run that was not handed
+the version it retires is refused before anything is read, naming the variable that is
+missing (`APP_SECRET_KEY_1 is not set`) and the versions it was handed. The current
+version, the highest the environment carries, is refused: new values are sealed under it.
+So is a variable that is not a version of the secret the keys were read from, and one
+whose number is 0 or past 65535, with the range a version's number takes.
+
+A value that does not open (bytes moved from another row, or altered) is left as it is and
+does not stop the run: every value that opens is written, in every field of every holder,
+and the retirement then fails saying how many values in all do not open and how many it
+wrote, and naming the first ten by resource, field and row. Set each again or clear it,
+and run the retirement again. A second run finds nothing to write and exits 0. The service
+keeps serving meanwhile: a value is written back only while its row still holds the bytes
+that were opened, read again inside the writing transaction, and the rewrite is the stored
+bytes alone, with no permission check, no update function and no change record. It runs on
+Spanner through the resource client and on PostgreSQL by statements of its own, the
+PostgreSQL client's transactions not being built; on both the rows are read in key order
+and each row once, PostgreSQL a page of 200 at a time after the last key of the page
+before, so values that do not open never hide the ones behind them.
 
 **Refusals.**
 
@@ -3928,10 +4061,18 @@ statements of its own, the PostgreSQL client's transactions not being built.
   that is not `BYTES` with room for a sealed value: refused at generation, with the type
   and the column to give it. A field typed `resource.Secret` and not declared `secret` is
   refused the same way.
-- An application that stores a secret, whose resource client was built with no keys:
-  refused at start. The generated router's `New` calls `resource.RequireSecretKeys` with
-  every secret field and panics naming them and `resource.WithSecretKeys`. A write of a
-  secret through a transaction that holds no keys is an error too.
+- An application that stores a secret and was handed no version of the application
+  secret: refused at start. The generated router's `New` calls
+  `resource.RequireSecretKeys` with every secret field and panics naming them and the
+  variable that is not set (`APP_SECRET_KEY_1`, from the name the keys were read under),
+  with what it holds and how to make one; a client built with no keys at all is told to
+  read them (`resource.SecretKeysFromEnv`) and wire them (`resource.WithSecretKeys`). A
+  write of a secret through a transaction that holds no keys is an error too, and names
+  the variable the same way. A command that opens the data level without the generated
+  router (the migrate and bootstrap commands) is not refused at start, and fails at its
+  first use of a secret.
+- The declared name set with no number (`APP_SECRET_KEY`) and no numbered version beside
+  it: refused where the keys are read, naming it and `APP_SECRET_KEY_1`.
 - A value that names a version the service was not given: a
   `*resource.UnknownSecretVersionError` when it is opened, naming the version and the
   versions the service holds.

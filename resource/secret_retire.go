@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -37,9 +38,10 @@ type SecretHolder struct {
 	Resource accesstypes.Resource
 	// Fields are its secret fields, in the struct's order.
 	Fields []accesstypes.Field
-	// retire rewrites every value of one field that names the version under the current
-	// one, and answers how many it rewrote.
-	retire func(ctx context.Context, client Client, keys *SecretKeys, field accesstypes.Field, version int) (int, error)
+	// retire rewrites every value of one field that names the version and opens under
+	// the current one, and answers how many it rewrote. A value that does not open is
+	// handed to unopened and passed over.
+	retire func(ctx context.Context, client Client, keys *SecretKeys, field accesstypes.Field, version int, unopened func(key KeySet, reason error)) (int, error)
 	// named counts the values of one field that name the version.
 	named func(ctx context.Context, client Client, field accesstypes.Field, version int) (int, error)
 }
@@ -100,12 +102,16 @@ func (r *SecretRetirement) Rewritten() int {
 // SecretHolders of each resources package).
 //
 // The client holds the secret keys (WithSecretKeys), built from every enabled version,
-// the one being retired among them: its values are opened under it. The current version,
-// the highest the client was given, cannot be retired, since new values are sealed under
-// it. A value that does not open (its bytes were moved from another row, or altered) is
-// an error naming its resource, field and row, never its value, and so is a value that
-// still names the version when the retirement has finished. Running it again is safe: a
-// second run finds nothing to write and answers a retirement that rewrote nothing.
+// the one being retired among them: its values are opened under it, so a retirement that
+// was not handed that version is refused before anything is read, naming the variable
+// that is missing. The current version, the highest the client was given, cannot be
+// retired, since new values are sealed under it. A value that does not open (its bytes
+// were moved from another row, or altered) is passed over, and every value that opens,
+// in every field of every holder, is written all the same; the retirement then fails
+// with how many do not open, naming the resource, field and row of the first of them,
+// never a value. A value that still names the version when the retirement has finished
+// is an error too. Running it again is safe: a second run finds nothing to write and
+// answers a retirement that rewrote nothing.
 //
 // The service keeps serving meanwhile. A value is written back only while its row still
 // holds the bytes that were opened, read again inside the writing transaction, so a
@@ -130,6 +136,8 @@ func RetireSecretVersion(ctx context.Context, client Client, variable string, ho
 		return nil, errors.Newf("%s is the current version of the application secret, the one new values are sealed under, and cannot be retired: rotate the secret first, and retire this version once a newer one is the current", variable)
 	case version > keys.Current():
 		return nil, errors.Newf("%s names version %d, and the highest version this service was given is %d: no value is sealed under a version above the current one, so there is nothing to retire", variable, version, keys.Current())
+	case keys.fields[version] == nil:
+		return nil, errors.Newf("%s cannot be retired by this run: %s is not set, and a retirement opens every value that names version %d under that version before it writes it under the current one. Run it with %s set beside the other enabled versions (this run was handed %s)", variable, variable, version, variable, strings.Join(versionVariables(name, keys.Versions()), ", "))
 	}
 
 	for _, holder := range holders {
@@ -138,15 +146,24 @@ func RetireSecretVersion(ctx context.Context, client Client, variable string, ho
 		}
 	}
 
+	// Every field of every holder is read and rewritten before anything is reported: a
+	// value that does not open is counted and passed over, so it holds back neither the
+	// values beside it nor the fields and holders after its own.
 	retirement := &SecretRetirement{Variable: variable, Version: version, Current: keys.Current(), Fields: nil}
+	var unopened secretsNotOpened
 	for _, holder := range holders {
 		for _, field := range holder.Fields {
-			rewritten, err := holder.retire(ctx, client, keys, field, version)
+			rewritten, err := holder.retire(ctx, client, keys, field, version, func(key KeySet, reason error) {
+				unopened.add(holder.Resource, field, key, reason)
+			})
 			if err != nil {
 				return nil, errors.Wrapf(err, "%s.%s", holder.Resource, field)
 			}
 			retirement.Fields = append(retirement.Fields, SecretFieldRetirement{Resource: holder.Resource, Field: field, Rewritten: rewritten})
 		}
+	}
+	if err := unopened.err(retirement); err != nil {
+		return nil, err
 	}
 
 	// The final check: a read of every field after every write.
@@ -167,6 +184,17 @@ func RetireSecretVersion(ctx context.Context, client Client, variable string, ho
 	}
 
 	return retirement, nil
+}
+
+// versionVariables names the variables the given versions of a secret are handed over
+// in, for a message.
+func versionVariables(name string, versions []int) []string {
+	variables := make([]string, 0, len(versions))
+	for _, version := range versions {
+		variables = append(variables, name+"_"+strconv.Itoa(version))
+	}
+
+	return variables
 }
 
 // secretVersionVariable splits the variable one version of a versioned secret is handed
@@ -194,9 +222,9 @@ type namedSecret struct {
 	stored Secret
 }
 
-// listNamedSecrets reads the key and one secret field of every row of R, a strong read
-// through the client's read-only transaction, and yields the values that name the
-// version. PostgreSQL is read by its own statement (postgresNamedSecrets).
+// listNamedSecrets reads the key and one secret field of every row of R in key order, a
+// strong read through the client's read-only transaction, and yields the values that
+// name the version. PostgreSQL is read by its own statement (postgresNamedSecrets).
 func listNamedSecrets[R Resourcer](ctx context.Context, client Client, field accesstypes.Field, version int, yield func(namedSecret) error) error {
 	var res R
 	rMeta := NewMetadata[R]()
@@ -207,12 +235,19 @@ func listNamedSecrets[R Resourcer](ctx context.Context, client Client, field acc
 		return errors.Newf("%s has no generated SecretContext: a retirement reads each row's primary key in key order from it; regenerate the resource", res.Resource())
 	}
 	if postgres, ok := client.(*PostgresClient); ok {
-		return postgresNamedSecrets(ctx, postgres, rMeta, field, version, 0, yield)
+		return postgresNamedSecrets(ctx, postgres, rMeta, field, version, KeySet{}, 0, yield)
 	}
 
-	// The field brings the row's key with it (QuerySet.AddField).
+	// The field brings the row's key with it (QuerySet.AddField), and the rows are read
+	// in key order, as PostgreSQL's pages are, so the values that do not open are named
+	// from the same end on both databases.
 	qSet := NewQuerySet(rMeta)
 	qSet.AddField(field)
+	order := make([]SortField, 0, len(rMeta.secretContext))
+	for _, part := range rMeta.secretContext {
+		order = append(order, SortField{Field: string(part), Direction: SortAscending})
+	}
+	qSet.SetSortFields(order)
 	stmt, err := qSet.stmt(client.DBType())
 	if err != nil {
 		return errors.Wrap(err, "QuerySet.stmt()")
@@ -260,18 +295,17 @@ func namedSecretValues[R Resourcer](ctx context.Context, client Client, field ac
 
 // retireSecretField writes every value of one secret field of R that names the version
 // again under the current one, a batch of values to a transaction, and answers how many
-// it wrote. A value that does not open is left as it is and reported once every other
-// value is written.
-func retireSecretField[R Resourcer](ctx context.Context, client Client, keys *SecretKeys, field accesstypes.Field, version int) (int, error) {
+// it wrote. Every row is read once. A value that does not open is handed to unopened and
+// left as it is; the values after it are written all the same.
+func retireSecretField[R Resourcer](ctx context.Context, client Client, keys *SecretKeys, field accesstypes.Field, version int, unopened func(key KeySet, reason error)) (int, error) {
 	if postgres, ok := client.(*PostgresClient); ok {
-		return retireSecretFieldPostgres[R](ctx, postgres, keys, field, version)
+		return retireSecretFieldPostgres[R](ctx, postgres, keys, field, version, unopened)
 	}
 
 	rMeta := NewMetadata[R]()
 	var (
 		batch     []namedSecret
 		rewritten int
-		unopened  secretsNotOpened
 	)
 	flush := func() error {
 		if len(batch) == 0 {
@@ -308,7 +342,7 @@ func retireSecretField[R Resourcer](ctx context.Context, client Client, keys *Se
 
 	err := listNamedSecrets[R](ctx, client, field, version, func(value namedSecret) error {
 		if _, err := keys.Open(value.key, value.stored); err != nil {
-			unopened.add(value.key, err)
+			unopened(value.key, err)
 
 			return nil
 		}
@@ -325,22 +359,20 @@ func retireSecretField[R Resourcer](ctx context.Context, client Client, keys *Se
 	if err := flush(); err != nil {
 		return 0, err
 	}
-	if err := unopened.err(version); err != nil {
-		return 0, err
-	}
 
 	return rewritten, nil
 }
 
-// secretsNotOpened collects the values a retirement could not open: how many, and the
-// first of them by row.
+// secretsNotOpened collects the values a retirement could not open, over every field of
+// every holder: how many, and the first of them by resource, field and row.
 type secretsNotOpened struct {
 	count int
 	rows  []string
 }
 
-// add notes one value that did not open, by its row's key and the reason.
-func (s *secretsNotOpened) add(key KeySet, reason error) {
+// add notes one value that did not open, by its resource, field and row's key, and the
+// reason.
+func (s *secretsNotOpened) add(resource accesstypes.Resource, field accesstypes.Field, key KeySet, reason error) {
 	s.count++
 	if len(s.rows) >= secretRetireReported {
 		return
@@ -349,25 +381,31 @@ func (s *secretsNotOpened) add(key KeySet, reason error) {
 	for _, part := range key.Parts() {
 		parts = append(parts, fmt.Sprintf("%s %v", part.Key, part.Value))
 	}
-	s.rows = append(s.rows, fmt.Sprintf("the row keyed %s: %v", strings.Join(parts, ", "), reason))
+	s.rows = append(s.rows, fmt.Sprintf("%s.%s, the row keyed %s: %v", resource, field, strings.Join(parts, ", "), reason))
 }
 
 // err is the refusal of a retirement that met values it could not open, nil when it met
-// none.
-func (s *secretsNotOpened) err(version int) error {
+// none: how many there are in all, what to do, how many values were written, and the
+// first of those that do not open.
+func (s *secretsNotOpened) err(retirement *SecretRetirement) error {
 	if s.count == 0 {
 		return nil
 	}
+	named := strings.Join(s.rows, "; ")
+	if s.count > len(s.rows) {
+		named = fmt.Sprintf("the first %d: %s", len(s.rows), named)
+	}
 
-	return errors.Newf("%d stored value(s) name version %d and do not open, so they cannot be written under the current version: set each to its value again or clear it, then run the retirement again (%s)", s.count, version, strings.Join(s.rows, "; "))
+	return errors.Newf("%s is not retired: %d stored value(s) name version %d and do not open, so they cannot be written under the current version. Set each to its value again or clear it, then run the retirement again. Every value that opens was written again under version %d, %d in all (%s)", retirement.Variable, s.count, retirement.Version, retirement.Current, retirement.Rewritten(), named)
 }
 
 // retireSecretFieldPostgres is retireSecretField on PostgreSQL, by statements of its
 // own: the PostgreSQL client's reads and transactions are not built, and a retirement
 // needs only to read the key and the stored bytes of each row and to write the bytes
-// back where the row still holds what was read. Rounds of secretRetireBatch values run
-// until one writes nothing.
-func retireSecretFieldPostgres[R Resourcer](ctx context.Context, client *PostgresClient, keys *SecretKeys, field accesstypes.Field, version int) (int, error) {
+// back where the row still holds what was read. The values are read a page of
+// secretRetireBatch at a time in key order, each page after the last key of the one
+// before, so every row is read once whether or not its value opens.
+func retireSecretFieldPostgres[R Resourcer](ctx context.Context, client *PostgresClient, keys *SecretKeys, field accesstypes.Field, version int, unopened func(key KeySet, reason error)) (int, error) {
 	var res R
 	rMeta := NewMetadata[R]()
 	fieldMap := rMeta.dbFieldMap(PostgresDBType)
@@ -383,13 +421,11 @@ func retireSecretFieldPostgres[R Resourcer](ctx context.Context, client *Postgre
 	update := fmt.Sprintf("UPDATE %s SET %s = $1 WHERE %s", postgresIdentifier(string(res.Resource())), postgresIdentifier(column.ColumnName), strings.Join(where, " AND "))
 
 	rewritten := 0
+	var after KeySet
 	for {
-		var (
-			round    []namedSecret
-			unopened secretsNotOpened
-		)
-		err := postgresNamedSecrets(ctx, client, rMeta, field, version, secretRetireBatch, func(value namedSecret) error {
-			round = append(round, value)
+		var page []namedSecret
+		err := postgresNamedSecrets(ctx, client, rMeta, field, version, after, secretRetireBatch, func(value namedSecret) error {
+			page = append(page, value)
 
 			return nil
 		})
@@ -397,11 +433,10 @@ func retireSecretFieldPostgres[R Resourcer](ctx context.Context, client *Postgre
 			return 0, err
 		}
 
-		wrote := 0
-		for _, value := range round {
+		for _, value := range page {
 			plain, err := keys.Open(value.key, value.stored)
 			if err != nil {
-				unopened.add(value.key, err)
+				unopened(value.key, err)
 
 				continue
 			}
@@ -419,17 +454,13 @@ func retireSecretFieldPostgres[R Resourcer](ctx context.Context, client *Postgre
 			if err != nil {
 				return 0, errors.Wrap(err, "pgxpool.Pool.Exec()")
 			}
-			wrote += int(tag.RowsAffected())
+			rewritten += int(tag.RowsAffected())
 		}
-		rewritten += wrote
-		// A round that wrote nothing has only values that do not open, or none at all.
-		if wrote == 0 {
-			if err := unopened.err(version); err != nil {
-				return 0, err
-			}
-
+		// A page that is not full is the last one.
+		if len(page) < secretRetireBatch {
 			return rewritten, nil
 		}
+		after = page[len(page)-1].key
 	}
 }
 
@@ -440,32 +471,45 @@ func postgresIdentifier(name string) string {
 }
 
 // postgresNamedSecrets reads the key and one secret field of the rows of R whose stored
-// bytes name the version, limit rows of them or all with no limit, and yields each. The
-// key columns are scanned into the resource struct's own types, so a row's key is the
-// value a patch of the row is keyed with.
-func postgresNamedSecrets[R Resourcer](ctx context.Context, client *PostgresClient, rMeta *Metadata[R], field accesstypes.Field, version, limit int, yield func(namedSecret) error) error {
+// bytes name the version, in key order, and yields each: the rows after the key given,
+// or from the first with no key, limit rows of them or all with no limit. The key
+// columns are scanned into the resource struct's own types, so a row's key is the value
+// a patch of the row is keyed with.
+func postgresNamedSecrets[R Resourcer](ctx context.Context, client *PostgresClient, rMeta *Metadata[R], field accesstypes.Field, version int, after KeySet, limit int, yield func(namedSecret) error) error {
 	var res R
 	fieldMap := rMeta.dbFieldMap(PostgresDBType)
 	column, ok := fieldMap[field]
 	if !ok {
 		return errors.Newf("field %s not found in db struct", field)
 	}
-	columns := make([]string, 0, len(rMeta.secretContext)+1)
+	keyColumns := make([]string, 0, len(rMeta.secretContext))
 	for _, part := range rMeta.secretContext {
 		meta, ok := fieldMap[part]
 		if !ok {
 			return errors.Newf("key field %s not found in db struct", part)
 		}
-		columns = append(columns, postgresIdentifier(meta.ColumnName))
+		keyColumns = append(keyColumns, postgresIdentifier(meta.ColumnName))
 	}
-	columns = append(columns, postgresIdentifier(column.ColumnName))
+	columns := append(slices.Clone(keyColumns), postgresIdentifier(column.ColumnName))
 	// The leading bytes of the stored bytes are the version that sealed them.
-	sql := fmt.Sprintf("SELECT %s FROM %s WHERE substring(%s from 1 for %d) = $1", strings.Join(columns, ", "), postgresIdentifier(string(res.Resource())), postgresIdentifier(column.ColumnName), secretVersionSize)
+	where := fmt.Sprintf("substring(%s from 1 for %d) = $1", postgresIdentifier(column.ColumnName), secretVersionSize)
+	args := []any{secretVersionPrefix(version)}
+	if after.Len() > 0 {
+		// The rows after a key: the whole key compared at once, column by column in key
+		// order, as the ORDER BY sorts them.
+		placeholders := make([]string, 0, after.Len())
+		for _, part := range after.Parts() {
+			args = append(args, part.Value)
+			placeholders = append(placeholders, "$"+strconv.Itoa(len(args)))
+		}
+		where += fmt.Sprintf(" AND (%s) > (%s)", strings.Join(keyColumns, ", "), strings.Join(placeholders, ", "))
+	}
+	sql := fmt.Sprintf("SELECT %s FROM %s WHERE %s ORDER BY %s", strings.Join(columns, ", "), postgresIdentifier(string(res.Resource())), where, strings.Join(keyColumns, ", "))
 	if limit > 0 {
 		sql += " LIMIT " + strconv.Itoa(limit)
 	}
 
-	rows, err := client.postgres.Query(ctx, sql, secretVersionPrefix(version))
+	rows, err := client.postgres.Query(ctx, sql, args...)
 	if err != nil {
 		return errors.Wrap(err, "pgxpool.Pool.Query()")
 	}

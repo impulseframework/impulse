@@ -29,6 +29,7 @@ import (
 	"github.com/impulseframework/impulse/accesstypes"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 )
 
 // Store is what the rules need of one auth's tables: single reads and single buffered
@@ -51,14 +52,17 @@ type Store interface {
 	// name (session.SignInAttemptName); a name with no count is no error.
 	ClearAttempts(ctx context.Context, txn resource.ReadWriteTransaction, name string) error
 	// UserHasPassword reads whether a user holds a password; found is false where no
-	// user holds the id. The hash itself is read by nothing.
-	UserHasPassword(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (has, found bool, err error)
+	// user holds the id. The hash itself is read by nothing. It writes nothing, so a
+	// read outside a write asks it too (SignInWays).
+	UserHasPassword(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (has, found bool, err error)
 
 	// IdentityUser reads the user an identity links to; found is false where no
 	// identity holds the id. An auth that keeps no identities finds none.
 	IdentityUser(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (userID impulse.UUID, found bool, err error)
-	// Identities lists the identities linked to a user.
-	Identities(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error)
+	// Identities lists the identities linked to a user, each with the sign-in method
+	// and the connection it came through, which say whether it can still sign the
+	// person in. It writes nothing, so a read outside a write asks it too (SignInWays).
+	Identities(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]Link, error)
 	// DeleteIdentity buffers the removal of an identity.
 	DeleteIdentity(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error
 
@@ -180,6 +184,23 @@ type SessionAPI interface {
 	// the row to store, and the step that mails its link once the row is committed.
 	// The token, the message and the sender stay in the session library.
 	PrepareInvitation(ctx context.Context, req *session.InvitationRequest) (session.PreparedInvitation, error)
+	// SignsInThrough names the sign-in registrations of the Auth's login page that an
+	// identity of this method and connection can sign its person in through, and none
+	// for an identity that signs nobody in: its method is no registration the page
+	// offers any more, or no registration of the method takes its connection. It is the
+	// one judgment of which links count as a means of sign-in, the session library's
+	// own (session.AuthAPI.SignsInThrough): the removal of a password is refused, and
+	// offered, by it.
+	SignsInThrough(method sessioninfo.AuthMethod, connection string) []string
+}
+
+// Link is one identity linked to a user, as the rules read it: its id, and the sign-in
+// method and the connection it came through (the identities table's Method and
+// Connection), which say whether a sign-in through it is still possible.
+type Link struct {
+	ID         impulse.UUID
+	Method     sessioninfo.AuthMethod
+	Connection string
 }
 
 // MailLink is a link the auth mailed, as the rules read it.
@@ -270,6 +291,10 @@ type Manager struct {
 	// tenantWord is what the application calls one tenant, as a sentence a person reads
 	// says it ("customer"); "tenant" where the application named none (WithTenantWord).
 	tenantWord string
+	// grants answer what the request's caller may do to a person's role, which the
+	// rules of a group ask (WithRoleGrants); nil where the manager was built without
+	// them.
+	grants RoleGrants
 	// now is the application's clock, which the session library holds a deadline
 	// against (a token's expiry).
 	now func() time.Time
@@ -346,7 +371,10 @@ func New(auth string, store Store, controller access.Controller, sessions Sessio
 	if sessions == nil {
 		return nil, errors.New("identity.New(): the session API is nil; pass the API of the Auth that signs the auth's people in (session.Auth.API), whose hasher a password written here is checked by")
 	}
-	m := &Manager{auth: auth, store: store, access: controller, sessions: sessions, administrators: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", now: time.Now}
+	m := &Manager{
+		auth: auth, store: store, access: controller, sessions: sessions,
+		administrators: nil, superMethods: nil, oneTenant: nil, tenantWord: "tenant", grants: nil, now: time.Now,
+	}
 	for _, opt := range opts {
 		opt(m)
 	}

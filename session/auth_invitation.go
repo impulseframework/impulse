@@ -328,7 +328,11 @@ func (a *Auth[S, U, Tx]) invitationSignUp() http.HandlerFunc {
 		}
 
 		// The sign-in carries the invitation from the cookie and accepts it.
-		outcome, err := a.signIn(ctx, w, a.passwordAttempt(user))
+		at, err := a.passwordAttempt(user)
+		if err != nil {
+			return httpio.NewEncoder(w).ClientMessage(ctx, err)
+		}
+		outcome, err := a.signIn(ctx, w, at)
 		if err != nil {
 			return writeSignInError(ctx, w, err)
 		}
@@ -370,15 +374,22 @@ func (a *Auth[S, U, Tx]) createAccount(ctx context.Context, email, username, pas
 }
 
 // passwordAttempt is the sign-in of a user who just set their password: a password
-// identity naming the user.
-func (a *Auth[S, U, Tx]) passwordAttempt(user *sessionstorage.SessionUser) *signInAttempt {
+// identity naming the user, resting on the password the user was created with, so the
+// session, or the pending sign-in it is held as, is the holder's of that password only.
+func (a *Auth[S, U, Tx]) passwordAttempt(user *sessionstorage.SessionUser) (*signInAttempt, error) {
+	proof, err := sessionstorage.ProofOfPassword(user.PasswordHash)
+	if err != nil {
+		return nil, errors.Wrap(err, "sessionstorage.ProofOfPassword()")
+	}
+
 	return &signInAttempt{
 		identity: &sessioninfo.Identity{Method: sessioninfo.MethodPassword, Subject: user.ID.String()},
 		reason:   sessioninfo.ReasonLogin,
 		userID:   user.ID,
 		username: user.Username,
+		proof:    proof,
 		sameSite: sessioncore.SameSiteStrict,
-	}
+	}, nil
 }
 
 // InvitationRequest is an invitation to send.

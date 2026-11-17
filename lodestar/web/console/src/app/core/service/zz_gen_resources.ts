@@ -741,6 +741,26 @@ export interface CrewSectorRoles {
   description?: string;
 }
 
+export interface CrewSectorSignInWays {
+  userId: string;
+  way: string;
+  password?: boolean;
+  method?: string;
+  connection?: string;
+  through?: string;
+  heldElsewhere?: boolean;
+  heldGlobally?: boolean;
+}
+
+export interface CrewSignInWays {
+  userId: string;
+  way: string;
+  password?: boolean;
+  method?: string;
+  connection?: string;
+  through?: string;
+}
+
 export interface ExpenseManifests {
   missionId: string;
   title?: string;
@@ -1881,6 +1901,40 @@ const resourceMap = defineResourceMap({
       { fieldName: 'description', displayType: 'string', required: false, isIndex: false },
     ],
   },
+  [Resources.CrewSectorSignInWays]: {
+    route: 'sectors/{sectorID}/crew-sector-sign-in-ways',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false, filterable: 'always' },
+      { fieldName: 'way', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'password', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'connection', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'through', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'heldElsewhere', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'heldGlobally', displayType: 'boolean', required: false, isIndex: false },
+    ],
+  },
+  [Resources.CrewSignInWays]: {
+    route: 'crew-sign-in-ways',
+    readDisabled: true,
+    createDisabled: true,
+    updateDisabled: true,
+    deleteDisabled: true,
+    live: false,
+    fields: [
+      { fieldName: 'userId', primaryKey: { ordinalPosition: 0 }, displayType: 'uuid', required: true, isIndex: false, filterable: 'always' },
+      { fieldName: 'way', primaryKey: { ordinalPosition: 1 }, displayType: 'string', required: true, isIndex: false },
+      { fieldName: 'password', displayType: 'boolean', required: false, isIndex: false },
+      { fieldName: 'method', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'connection', displayType: 'string', required: false, isIndex: false },
+      { fieldName: 'through', displayType: 'string', required: false, isIndex: false },
+    ],
+  },
   [Resources.ExpenseManifests]: {
     route: 'sectors/{sectorID}/expense-manifests',
     createDisabled: true,
@@ -2064,6 +2118,8 @@ export const ResourceScopes: Record<Resource, PermissionScope> = {
   [Resources.Wings]: PermissionScopes.domain,
   [Resources.BriefingTemplates]: PermissionScopes.global,
   [Resources.CrewSectorRoles]: PermissionScopes.domain,
+  [Resources.CrewSectorSignInWays]: PermissionScopes.domain,
+  [Resources.CrewSignInWays]: PermissionScopes.global,
   [Resources.ExpenseManifests]: PermissionScopes.domain,
   [Resources.PilotCards]: PermissionScopes.global,
   [Resources.SectorHazardBoards]: PermissionScopes.domain,

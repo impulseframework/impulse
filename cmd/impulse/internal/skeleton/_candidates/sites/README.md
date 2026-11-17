@@ -25,7 +25,11 @@ the staff auth's people in both places the same way, the whole application's acc
 people are kept beside them (`/staff-groups`, `/tenants/{tenantID}/staff-groups`): a group
 holds roles the way a person does, a person in it holds the group's roles, and the role
 file gives a place's groups, their members and their roles to whoever manages its people
-(`Administrator` for the whole application, `TenantAdministrator` in a tenant). The library
+(`Administrator` for the whole application, `TenantAdministrator` in a tenant). A group gives
+nobody a power that giving the role directly would not: who is in a group, and what it
+holds, is changed by someone who may give or take those roles directly, and a tenant puts
+its own people in its groups, while an account from outside the tenant is put there from
+the whole application's accounts. The library
 draws them from the API description (`identityRoutes` in the console's `app.routes.ts`,
 placed by `identityMenuPages` in its menu file), and a tenant's pages read the tenant from
 the URL (the frame provides `RESOURCE_DOMAIN`). The console's menu file (`app.menus.ts`)
@@ -240,14 +244,20 @@ transaction). The generator refuses a `secret` field typed a plain `string`.
 
 The key is the application secret, which `pkg/config` declares
 (`env:"APP_SECRET_KEY" secret:"versioned"`) and reads into the resource client's secret
-keys. It is kept in versions, each in a variable of its own: `.envrc.template` sets
-`APP_SECRET_KEY_1` to a development value, and a deployment generates the secret and hands
-the service every enabled version (`APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`), the highest the
-current one. An application with a secret field refuses to start without a version. A
+keys. It is kept in versions, each in a variable of its own. `.envrc.template` makes
+`APP_SECRET_KEY_1` for the checkout: 32 random bytes, written to `.app-secret-key.dev` the
+first time the file is sourced from the application's root and read from it from then on,
+with `.gitignore` keeping that file out of git, so no key is written in a tracked file
+and deleting the file leaves the development database's secrets unreadable. A deployment
+generates the secret and hands the service every enabled version (`APP_SECRET_KEY_1`,
+`APP_SECRET_KEY_2`), the highest the current one. An application with a secret field
+refuses to start without a version, naming the variable. A
 version is retired, before the deployment disables it, by the migrate command
 (`-retire-secret APP_SECRET_KEY_1`), which writes every stored value that names it again
-under the current version. The framework's `resource/README.md`, "Secrets at rest", has
-the whole of it.
+under the current version. It reads the resources packages `pkg/deploy` hands it
+(`SecretHolders()`, which the generator writes into each), and `impulse check`
+(`secret-holders`) fails when a package is left out of that call. The framework's
+`resource/README.md`, "Secrets at rest", has the whole of it.
 
 ## Running it
 

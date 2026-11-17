@@ -75,25 +75,31 @@ func TestAuth_StoreMethods(t *testing.T) {
 			wantErr: ErrLastSignInMethod,
 		},
 		{
-			name:    "RemoveUserPassword propagates the last-means-of-sign-in refusal",
-			prepare: func(db *Mockdb) { db.EXPECT().RemoveUserPassword(gomock.Any(), userID).Return(refused) },
+			name: "RemoveUserPassword hands the driver the identities that stand and propagates the last-means-of-sign-in refusal",
+			prepare: func(db *Mockdb) {
+				db.EXPECT().RemoveUserPassword(gomock.Any(), userID, []impulse.UUID{link.ID}).Return(refused)
+			},
 			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
-				return nil, a.RemoveUserPassword(ctx, userID)
+				return nil, a.RemoveUserPassword(ctx, userID, []impulse.UUID{link.ID})
 			},
 			wantErr: ErrLastSignInMethod,
 		},
 		{
-			name:    "RemoveProvenUserPassword hands the driver the proven hash",
-			prepare: func(db *Mockdb) { db.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, proven).Return(nil) },
+			name: "RemoveProvenUserPassword hands the driver the proven hash and the identities that stand",
+			prepare: func(db *Mockdb) {
+				db.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, proven, []impulse.UUID{link.ID}).Return(nil)
+			},
 			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
-				return nil, a.RemoveProvenUserPassword(ctx, userID, proven)
+				return nil, a.RemoveProvenUserPassword(ctx, userID, proven, []impulse.UUID{link.ID})
 			},
 		},
 		{
-			name:    "RemoveProvenUserPassword propagates the refusal of a password that changed since it was proved",
-			prepare: func(db *Mockdb) { db.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, proven).Return(changed) },
+			name: "RemoveProvenUserPassword propagates the refusal of a password that changed since it was proved",
+			prepare: func(db *Mockdb) {
+				db.EXPECT().RemoveProvenUserPassword(gomock.Any(), userID, proven, gomock.Nil()).Return(changed)
+			},
 			call: func(ctx context.Context, a *Auth[struct{}]) (any, error) {
-				return nil, a.RemoveProvenUserPassword(ctx, userID, proven)
+				return nil, a.RemoveProvenUserPassword(ctx, userID, proven, nil)
 			},
 			wantErr: ErrPasswordChanged,
 		},

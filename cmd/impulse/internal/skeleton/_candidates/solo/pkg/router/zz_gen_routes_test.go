@@ -434,6 +434,16 @@ func generatedRouterTests() []*generatedRouterTest {
 			parameters:  map[string]string{},
 		},
 		{
+			url: "/api/staff-sign-in-ways", method: http.MethodGet,
+			handlerFunc: "StaffSignInWays",
+			parameters:  map[string]string{},
+		},
+		{
+			url: "/api/staff-sign-in-ways", method: http.MethodPost,
+			handlerFunc: "StaffSignInWays",
+			parameters:  map[string]string{},
+		},
+		{
 			url: "/api/features", method: http.MethodGet,
 			handlerFunc: "Features",
 			parameters:  map[string]string{},
@@ -693,6 +703,10 @@ func (s *generatedHandlersStub) StaffSessionUsers() http.HandlerFunc {
 
 func (s *generatedHandlersStub) StaffSessionUser() http.HandlerFunc {
 	return s.record("StaffSessionUser")
+}
+
+func (s *generatedHandlersStub) StaffSignInWays() http.HandlerFunc {
+	return s.record("StaffSignInWays")
 }
 
 func (s *generatedHandlersStub) StaffUserGroupRoles() http.HandlerFunc {

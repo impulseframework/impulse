@@ -101,6 +101,13 @@ export interface MethodPresentation {
    */
   labels?: Record<string, string>;
   /**
+   * The request fields picked as a day that mean through the end of that day: the last
+   * day of a period. The dialog sends the first instant of the day after the one picked,
+   * in the viewer's time zone, so what is given "until 1 December" still counts on
+   * 1 December. A day picked for a field not named is sent as its first instant.
+   */
+  throughDay?: readonly string[];
+  /**
    * What the page fills in the method's request from a row: the row the method is
    * offered on, or, for a method above a list, the row the list sits under (a child
    * list's parent). A filled field is not asked, and a value left undefined fills

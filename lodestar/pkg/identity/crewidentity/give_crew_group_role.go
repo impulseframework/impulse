@@ -26,7 +26,13 @@ import (
 // optional): outside it the role is nobody's through the group, and nothing is written
 // when it begins or ends. Giving a role the group holds there already gives it the
 // period of this request in place of the one it had, so a request that names neither
-// makes the role stand until it is taken away.
+// makes the role stand until it is taken away. Nobody who is in the group gives a role
+// it holds a period that lasts longer than the one it has.
+//
+// A group gives nobody a power that giving the role directly would not: beside the
+// grant of this method, the change needs what the same roles given or taken away
+// directly need of the caller (the grants of AssignCrewRole and RemoveCrewRole, each read with the
+// role in question), and is refused where one of them would be.
 //
 // @rpc
 // @outlet(default)

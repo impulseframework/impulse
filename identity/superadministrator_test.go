@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-playground/errors/v5"
 	"github.com/google/go-cmp/cmp"
 	"github.com/impulseframework/impulse"
 	"github.com/impulseframework/impulse/access"
@@ -13,6 +14,7 @@ import (
 	"github.com/impulseframework/impulse/httpio"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session/sessioninfo"
+	"github.com/impulseframework/impulse/session/sessionstorage"
 )
 
 // superRoles are the roles the engine of these tests holds: the fixture's, and the Super
@@ -582,6 +584,77 @@ func TestManager_aSuperAdministratorsSignIn(t *testing.T) {
 				want := "only a super administrator " + act.says + ", and you do not hold the Super Administrator role"
 				if !httpio.HasForbidden(err) || httpio.Message(err) != want {
 					t.Fatalf("error = %v, want the refusal reading %q", err, want)
+				}
+				if len(store.writes) != 0 {
+					t.Errorf("buffered writes = %v, want none", store.writes)
+				}
+			})
+		}
+	}
+}
+
+// TestManager_RemovePassword_lastSuperAdministrator pins that the last super
+// administrator keeps a way in by the rule everyone's password is removed under: the
+// removal is refused unless an identity linked to them can sign them in, whoever asks,
+// themselves and the application outside any request included. A link left from a
+// sign-in method the login page no longer offers is no way in, so with it alone the
+// password stays; with a link that signs them in, the password goes.
+func TestManager_RemovePassword_lastSuperAdministrator(t *testing.T) {
+	t.Parallel()
+
+	entra := sessioninfo.AuthMethod("azure")
+	callers := []struct {
+		name string
+		ctx  func(context.Context) context.Context
+	}{
+		{name: "themselves", ctx: func(ctx context.Context) context.Context { return asCallerThrough(ctx, managedAuth, dana) }},
+		{name: "the application outside any request", ctx: func(ctx context.Context) context.Context { return ctx }},
+	}
+	tests := []struct {
+		name        string
+		identities  map[impulse.UUID]impulse.UUID
+		cameThrough map[impulse.UUID]Link
+		wantRefused bool
+	}{
+		{name: "no identity linked: refused", wantRefused: true},
+		{
+			name:        "one identity, of a method the login page no longer offers: refused",
+			identities:  map[impulse.UUID]impulse.UUID{identityA: userID},
+			cameThrough: map[impulse.UUID]Link{identityA: {Method: entra, Connection: "lakeside"}},
+			wantRefused: true,
+		},
+		{
+			name:       "an identity that signs them in: the password goes",
+			identities: map[impulse.UUID]impulse.UUID{identityA: userID},
+		},
+	}
+	for _, tt := range tests {
+		for _, caller := range callers {
+			t.Run(tt.name+", asked by "+caller.name, func(t *testing.T) {
+				t.Parallel()
+
+				// dana is the one holder of the role.
+				store := superStore(danaSuper, erinSteward)
+				store.passwords = map[impulse.UUID]bool{userID: true}
+				store.identities, store.cameThrough = tt.identities, tt.cameThrough
+				m, _ := newManager(t, store, superRoles)
+				m.sessions = fakeSessions{unoffered: map[sessioninfo.AuthMethod]bool{entra: true}}
+
+				err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+					return m.RemovePassword(caller.ctx(ctx), txn, userID)
+				})
+				if !tt.wantRefused {
+					if err != nil {
+						t.Fatalf("RemovePassword() error = %v, want the removal to go through", err)
+					}
+					if diff := cmp.Diff([]string{"remove password " + userID.String(), "clear attempts dana"}, store.writes); diff != "" {
+						t.Errorf("buffered writes (-want +got):\n%s", diff)
+					}
+
+					return
+				}
+				if !httpio.HasConflict(err) || !errors.Is(err, sessionstorage.ErrLastSignInMethod) {
+					t.Fatalf("RemovePassword() error = %v, want the refusal of a last means of sign-in", err)
 				}
 				if len(store.writes) != 0 {
 					t.Errorf("buffered writes = %v, want none", store.writes)

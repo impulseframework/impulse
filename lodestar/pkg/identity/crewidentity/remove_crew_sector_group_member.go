@@ -18,7 +18,14 @@ import (
 //
 // A place in a group keeps an account as a role of its own does: a person left with no
 // role anywhere and no place in a group is deleted with their identity links and
-// sessions, in the same transaction, since an account nothing admits is not kept.
+// sessions, in the same transaction, since an account nothing admits is not kept. A
+// person who takes themselves out keeps a place that makes them the last administrator
+// of a tenant, as they keep the role itself.
+//
+// A group gives nobody a power that giving the role directly would not: beside the
+// grant of this method, the change needs what the same roles given or taken away
+// directly need of the caller (the grants of AssignCrewSectorRole and RemoveCrewSectorRole, each read with the
+// role in question), and is refused where one of them would be.
 //
 // @rpc
 // @permissionScope(domain)

@@ -428,6 +428,15 @@ mgr.DeleteGroup(ctx, watch)
 - `DeleteGroup` refuses a group that still has a member or holds a role. Nobody loses a
   role because a group was deleted: each person is removed and each role taken by an act
   of its own
+- `DeleteRole` refuses a custom role a group holds, as it refuses one a person holds: a
+  role deleted from under a group would leave the group's row behind, and a role of the
+  name made again would at once be held by everyone in the group. Take the role away
+  from the group first
+- `RoleUsers` lists who holds a role in a scope: the people who hold it by a membership
+  of their own and the people who hold it through a group, each once. `RoleHolders` says
+  how each holds it, their own membership, the groups, or both. Removing a person's own
+  membership (`DeleteUserRoles`, `DeleteRoleUsers`) leaves what they hold through a
+  group: that goes when they leave the group or the group loses the role
 - A row the rules refuse (written past this package) gives nobody a role: the snapshot
   leaves it out and `CheckPolicy` reports it (`SkippedGroupRole`)
 - `Groups`, `UserGroups`, `GroupUsers` and `GroupRoles` read what the store holds;
@@ -499,7 +508,8 @@ deleted, err := mgr.DeleteRole(ctx, tenant1, "Moderator") // scoped to tenant1
 roles, err := mgr.Roles(ctx, tenant1) // []access.RoleInfo: each role's name and description
 role, exists, err := mgr.ResolveRole(ctx, tenant1, "administrator") // "Administrator": the spelling the store holds, matched without regard to case
 
-users, err := mgr.RoleUsers(ctx, tenant1, "Administrator")
+users, err := mgr.RoleUsers(ctx, tenant1, "Administrator")     // who holds it, themselves or through a group
+holders, err := mgr.RoleHolders(ctx, tenant1, "Administrator") // []access.RoleHolder: each with how they hold it
 mgr.AddRoleUsers(ctx, tenant1, "Administrator", "user1", "user2")
 mgr.DeleteRoleUsers(ctx, tenant1, "Administrator", "user1")
 

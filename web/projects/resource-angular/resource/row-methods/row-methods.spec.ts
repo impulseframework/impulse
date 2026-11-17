@@ -1,6 +1,7 @@
 import { MethodMeta, MethodPresentation, RecordData, Resource } from '@impulseframework/resource-angular/types';
 import { Method } from '@impulseframework/resource';
 import {
+  afterPickedDay,
   askedFields,
   filledBody,
   filledMethods,
@@ -170,6 +171,47 @@ describe('requestBody', () => {
 
   it('sends only the declared fields', () => {
     expect(requestBody({}, asked.slice(0, 1), { username: 'ada', stray: 'x' })).toEqual({ username: 'ada' });
+  });
+
+  it('sends a day picked as the last day of a period as the first instant of the day after, and any other day as picked', () => {
+    const period = [
+      { fieldName: 'startsAt', displayType: 'date' as const },
+      { fieldName: 'endsAt', displayType: 'date' as const },
+    ];
+    const picked = { startsAt: new Date(2026, 11, 1), endsAt: new Date(2026, 11, 1) };
+
+    // "From 1 December until 1 December" is the whole of that day, in the viewer's time zone.
+    expect(requestBody({ userId: 'u-1' }, period, picked, ['endsAt'])).toEqual({
+      userId: 'u-1',
+      startsAt: new Date(2026, 11, 1),
+      endsAt: new Date(2026, 11, 2),
+    });
+    // A page that names no such field sends each day as its first instant.
+    expect(requestBody({}, period, picked)).toEqual(picked);
+    // No end is no end still.
+    expect(requestBody({}, period, { startsAt: '', endsAt: '' }, ['endsAt'])).toEqual({});
+  });
+});
+
+describe('afterPickedDay', () => {
+  it('is the first instant of the next calendar day, across a month, a year and a clock change', () => {
+    expect(afterPickedDay(new Date(2026, 10, 30))).toEqual(new Date(2026, 11, 1));
+    expect(afterPickedDay(new Date(2026, 11, 31))).toEqual(new Date(2027, 0, 1));
+    // The day is the calendar's and not 24 hours: where the clocks change on a day, the
+    // next day still begins at its own first instant.
+    expect(afterPickedDay(new Date(2026, 2, 8))).toEqual(new Date(2026, 2, 9));
+    expect(afterPickedDay(new Date(2026, 10, 1))).toEqual(new Date(2026, 10, 2));
+  });
+
+  it('counts from the day, whatever hour of it the value holds', () => {
+    expect(afterPickedDay(new Date(2026, 11, 1, 15, 30))).toEqual(new Date(2026, 11, 2));
+  });
+
+  it('leaves what is no date as it is', () => {
+    expect(afterPickedDay('2026-12-01')).toBe('2026-12-01');
+    expect(afterPickedDay(undefined)).toBeUndefined();
+    const invalid = new Date(Number.NaN);
+    expect(afterPickedDay(invalid)).toBe(invalid);
   });
 });
 

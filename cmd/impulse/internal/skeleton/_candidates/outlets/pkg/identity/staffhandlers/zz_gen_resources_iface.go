@@ -22,5 +22,6 @@ type Resourcer interface {
 		staffresources.StaffTenantIdentity | staffresources.StaffTenantInvitation |
 		staffresources.StaffTenantUser | staffresources.StaffTenantUserGroupRole |
 		staffresources.StaffTenantUserRole | staffresources.StaffUserGroupRole |
-		staffresources.StaffUserRole | staffidentity.StaffTenantRole
+		staffresources.StaffUserRole | staffidentity.StaffSignInWay |
+		staffidentity.StaffTenantRole | staffidentity.StaffTenantSignInWay
 }

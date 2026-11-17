@@ -791,6 +791,21 @@ func (mr *MockUserManagerMockRecorder) RoleGrants(ctx, scope, role any) *gomock.
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RoleGrants", reflect.TypeOf((*MockUserManager)(nil).RoleGrants), ctx, scope, role)
 }
 
+// RoleHolders mocks base method.
+func (m *MockUserManager) RoleHolders(ctx context.Context, scope accesstypes.PolicyScope, role accesstypes.Role) ([]RoleHolder, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RoleHolders", ctx, scope, role)
+	ret0, _ := ret[0].([]RoleHolder)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RoleHolders indicates an expected call of RoleHolders.
+func (mr *MockUserManagerMockRecorder) RoleHolders(ctx, scope, role any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RoleHolders", reflect.TypeOf((*MockUserManager)(nil).RoleHolders), ctx, scope, role)
+}
+
 // RolePermissions mocks base method.
 func (m *MockUserManager) RolePermissions(ctx context.Context, scope accesstypes.Scope, role accesstypes.Role) (accesstypes.RolePermissionCollection, error) {
 	m.ctrl.T.Helper()

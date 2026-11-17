@@ -42,6 +42,18 @@ const metas: Record<string, ResourceMeta> = {
   CrewSectorUserRoles: fields('domainId', 'userId', 'username', 'role', 'everyDomain', 'createdAt'),
   CrewSectorIdentities: fields('id', 'userId', 'username', 'method', 'connection', 'emailAtLink', 'createdAt', 'lastUsedAt'),
   CrewSectorInvitations: fields('id', 'email', 'name', 'roleNames', 'createdAt', 'expiresAt', 'pending'),
+  // How a person signs in: the password and the identities that count, as the server judges it.
+  CrewSignInWays: fields('userId', 'way', 'password', 'method', 'connection', 'through'),
+  CrewSectorSignInWays: fields(
+    'userId',
+    'way',
+    'password',
+    'method',
+    'connection',
+    'through',
+    'heldElsewhere',
+    'heldGlobally',
+  ),
   // An Auth whose username is the address carries no email column, and whose directory admits its people no password.
   MembersSessionUsers: fields('id', 'username', 'disabled', 'passwordChangeRequired', 'lastSignInAt'),
   MembersUserRoles: fields('kind', 'axis', 'domainId', 'role', 'userId', 'createdAt'),
@@ -354,111 +366,195 @@ describe("identityPages, a tenant's side", () => {
 });
 
 describe("identityPages, a person's password", () => {
-  // An Auth with a password method: each side names the method that removes a person's password.
+  // An Auth with a password method: each side names the method that removes a person's
+  // password and the list of the ways a person signs in, which the removal is offered from.
   const withPassword = {
     ...descriptor,
     identity: [
       {
         ...crew,
         sides: [
-          { ...crew.sides[0], methods: { ...crew.sides[0].methods, removePassword: 'RemoveCrewPassword' } },
-          { ...crew.sides[1], methods: { ...crew.sides[1].methods, removePassword: 'RemoveCrewSectorPassword' } },
+          {
+            ...crew.sides[0],
+            lists: { ...crew.sides[0].lists, signInWays: 'CrewSignInWays' },
+            methods: { ...crew.sides[0].methods, removePassword: 'RemoveCrewPassword' },
+          },
+          {
+            ...crew.sides[1],
+            lists: { ...crew.sides[1].lists, signInWays: 'CrewSectorSignInWays' },
+            methods: { ...crew.sides[1].methods, removePassword: 'RemoveCrewSectorPassword' },
+          },
         ],
       },
       members,
     ],
   } as ApiDescriptor;
+  const childOf = (pages: RootConfig[], title: string): ListViewConfig | undefined =>
+    children(pages[0]).find((child) => child.title === title);
+  const waysOf = (pages: RootConfig[]): ListViewConfig => {
+    const found = childOf(pages, 'Ways to sign in');
+    if (!found) {
+      throw new Error('no list of the ways a person signs in');
+    }
+    return found;
+  };
   const identitiesOf = (pages: RootConfig[]): ListViewConfig => {
-    const found = children(pages[0]).find((child) => child.title === 'Sign-in identities');
+    const found = childOf(pages, 'Sign-in identities');
     if (!found) {
       throw new Error('no list of sign-in identities');
     }
     return found;
   };
+  // The rows the server lists for a person: the password, and an identity that counts.
+  const password = { userId: 'u-1', way: 'password', through: 'Password' };
+  const google = { userId: 'u-1', way: 'i-1', through: 'Fleet Google', connection: 'fleet.example' };
+  const ada = { id: 'u-1', username: 'ada' };
 
   for (const tt of [
     {
       name: "the whole application's side",
       scope: 'global' as const,
+      ways: 'CrewSignInWays',
       remove: 'RemoveCrewPassword',
       unlink: 'UnlinkCrewSessionIdentity',
     },
     {
       name: "a tenant's side",
       scope: 'domain' as const,
+      ways: 'CrewSectorSignInWays',
       remove: 'RemoveCrewSectorPassword',
       unlink: 'UnlinkCrewSectorSessionIdentity',
     },
   ]) {
-    it(`offers Remove password above the identities a person signs in with, where Unlink is offered, on ${tt.name}`, () => {
+    it(`lists the ways a person signs in under the person, above their identities, on ${tt.name}`, () => {
       const pages = identityPages(withPassword, resourceMeta, { auth: 'Crew', scope: tt.scope });
+      const titles = children(pages[0]).map((child) => child.title);
+      expect(titles.indexOf('Ways to sign in')).toBe(titles.indexOf('Sign-in identities') - 1);
+      const ways = waysOf(pages);
+      expect([ways.primaryResource, ways.parentRelation]).toEqual([tt.ways, { parentKey: 'id', childKey: 'userId' }]);
+      expect(columns(ways)).toEqual([
+        ['through', 'Signs in with'],
+        ['connection', 'Connection'],
+      ]);
+      // No method runs against a way, and the list asks the server for none.
+      expect(ways.rowMethods).toBe(false);
+    });
+
+    it(`offers Remove password above the ways a person signs in, only for a password and an identity that counts, on ${tt.name}`, () => {
+      const pages = identityPages(withPassword, resourceMeta, { auth: 'Crew', scope: tt.scope });
+      const ways = waysOf(pages);
+      expect(methodsOf(ways.listMethods)).toEqual([[tt.remove, 'Remove password']]);
+      const remove = presentation(ways.listMethods, tt.remove);
+      // The method runs against the person the list sits under: the page fills nothing.
+      expect(remove.fill).toBeUndefined();
+      // The server lists the password a person holds and the identities that can sign
+      // them in, so the offer is the server's judgment: a password and another way.
+      expect(remove.when?.(ada, [password, google])).toBe(true);
+      // A person the directory alone signs in holds no password to remove.
+      expect(remove.when?.(ada, [google])).toBe(false);
+      // A password that is the person's only way in is not removed: no identity, or
+      // none the server counts (an identity that signs nobody in is no row).
+      expect(remove.when?.(ada, [password])).toBe(false);
+      // Nothing listed, or no list read yet: no offer.
+      expect([remove.when?.(ada, []), remove.when?.(ada)]).toEqual([false, false]);
+      // The list is read again once the removal ran (the library reloads the list a
+      // method ran from): the password's row is gone, and the offer with it.
+      expect(remove.when?.(ada, [google])).toBe(false);
+      // It is offered there alone: not above the identities, where Unlink is, and not a
+      // second time among the methods of the person's row.
       const identities = identitiesOf(pages);
       expect(methodsOf(identities.rowMethods)).toEqual([[tt.unlink, 'Unlink']]);
-      expect(methodsOf(identities.listMethods)).toEqual([[tt.remove, 'Remove password']]);
-      const remove = presentation(identities.listMethods, tt.remove);
-      // The method runs against the person the list sits under: the page fills nothing,
-      // and the question, asked of that person, says what is left to them. This
-      // description names no sign-in by its button, so the list under the question does.
-      expect(remove.fill).toBeUndefined();
-      const ada = { id: 'u-1', username: 'ada' };
-      const question = remove.confirm as (row: RecordData, listed?: readonly RecordData[]) => string;
-      expect(question(ada, [{ method: 'google' }])).toBe(
-        'Remove the password of ada? They will sign in only through the sign-in identities listed here.',
-      );
-      // It is offered while an identity is linked to the person: the server refuses the
-      // removal of a password that is the person's only way in.
-      expect([remove.when?.(ada, [{ method: 'google' }]), remove.when?.(ada, []), remove.when?.(ada)]).toEqual([
-        true,
-        false,
-        false,
-      ]);
-      // It is offered there alone, not a second time among the methods of the person's row.
+      expect(identities.listMethods ?? []).toEqual([]);
       expect(presentation(list(pages[0]).rowMethods, tt.remove).hidden).toBe(true);
+    });
+
+    it(`asks before the removal, naming what is left by the words of the ways the server listed, on ${tt.name}`, () => {
+      const remove = presentation(
+        waysOf(identityPages(withPassword, resourceMeta, { auth: 'Crew', scope: tt.scope })).listMethods,
+        tt.remove,
+      );
+      const question = remove.confirm as (row: RecordData, listed?: readonly RecordData[]) => string;
+      expect(question(ada, [password, google])).toBe(
+        'Remove the password of ada? They will sign in through Fleet Google only.',
+      );
+      // Two identities through one sign-in are named once, and each other sign-in after it.
+      const second = { userId: 'u-1', way: 'i-2', through: 'Fleet Google' };
+      const lakeside = { userId: 'u-1', way: 'i-3', through: 'Lakeside' };
+      const riverside = { userId: 'u-1', way: 'i-4', through: 'Riverside' };
+      expect(question(ada, [password, google, second])).toBe(
+        'Remove the password of ada? They will sign in through Fleet Google only.',
+      );
+      expect(question(ada, [password, google, lakeside])).toBe(
+        'Remove the password of ada? They will sign in through Fleet Google or Lakeside only.',
+      );
+      expect(question(ada, [password, google, second, lakeside, riverside])).toBe(
+        'Remove the password of ada? They will sign in through Fleet Google, Lakeside or Riverside only.',
+      );
+      // The password is never named as what is left.
+      expect(question(ada, [password, lakeside])).not.toContain('Password');
+      // A person the row does not name, and a way the caller is shown no words for.
+      expect(question({ id: 'u-2' }, [password, { userId: 'u-2', way: 'i-9' }])).toBe(
+        'Remove the password of this person? They will sign in only through the other ways listed here.',
+      );
     });
   }
 
-  it('names what the removal leaves by the words the sign-in buttons of the linked identities carry', () => {
-    // The login page offers Fleet Google, and two Entra registrations: an identity
-    // names its method and not its registration, so an Entra link names both.
-    const signIns = [
-      { method: 'google', label: 'Fleet Google' },
-      { method: 'azure', label: 'Lakeside' },
-      { method: 'azure', label: 'Riverside' },
-    ];
-    const named = { ...withPassword, identity: [{ ...withPassword.identity![0], signIns }, members] } as ApiDescriptor;
-    const ada = { id: 'u-1', username: 'ada' };
+  it('offers no removal where the description names no list of the ways a person signs in: no answer is no offer', () => {
+    // The method without the list: a server that does not say how a person signs in.
+    const unlisted = {
+      ...descriptor,
+      identity: [
+        {
+          ...crew,
+          sides: [
+            { ...crew.sides[0], methods: { ...crew.sides[0].methods, removePassword: 'RemoveCrewPassword' } },
+            { ...crew.sides[1], methods: { ...crew.sides[1].methods, removePassword: 'RemoveCrewSectorPassword' } },
+          ],
+        },
+        members,
+      ],
+    } as ApiDescriptor;
     for (const [scope, method] of [
       ['global', 'RemoveCrewPassword'],
       ['domain', 'RemoveCrewSectorPassword'],
     ] as const) {
-      const remove = presentation(
-        identitiesOf(identityPages(named, resourceMeta, { auth: 'Crew', scope })).listMethods,
-        method,
-      );
-      const question = remove.confirm as (row: RecordData, listed?: readonly RecordData[]) => string;
-      expect(question(ada, [{ method: 'google' }, { method: 'google' }])).toBe(
-        'Remove the password of ada? They will sign in through Fleet Google only.',
-      );
-      expect(question(ada, [{ method: 'azure' }])).toBe(
-        'Remove the password of ada? They will sign in through Lakeside or Riverside only.',
-      );
-      expect(question(ada, [{ method: 'azure' }, { method: 'google' }])).toBe(
-        'Remove the password of ada? They will sign in through Fleet Google, Lakeside or Riverside only.',
-      );
-      // A link through a method the login page offers no button for is named by the list.
-      expect(question(ada, [{ method: 'workos' }])).toBe(
-        'Remove the password of ada? They will sign in only through the sign-in identities listed here.',
+      const pages = identityPages(unlisted, resourceMeta, { auth: 'Crew', scope });
+      expect(childOf(pages, 'Ways to sign in')).toBeUndefined();
+      expect(identitiesOf(pages).listMethods ?? []).toEqual([]);
+      for (const child of children(pages[0])) {
+        expect(methodsOf(child.listMethods).map(([name]) => name)).not.toContain(method);
+      }
+      expect(presentation(list(pages[0]).rowMethods, method).hidden).toBe(true);
+    }
+  });
+
+  it('lists the ways and offers no removal where the description names no such method', () => {
+    const listed = {
+      ...descriptor,
+      identity: [
+        {
+          ...crew,
+          sides: [
+            { ...crew.sides[0], lists: { ...crew.sides[0].lists, signInWays: 'CrewSignInWays' } },
+            { ...crew.sides[1], lists: { ...crew.sides[1].lists, signInWays: 'CrewSectorSignInWays' } },
+          ],
+        },
+        members,
+      ],
+    } as ApiDescriptor;
+    for (const scope of ['global', 'domain'] as const) {
+      const pages = identityPages(listed, resourceMeta, { auth: 'Crew', scope });
+      expect(waysOf(pages).listMethods).toEqual([]);
+      expect(methodsOf(list(pages[0]).rowMethods).map(([method]) => method)).not.toContain(
+        scope === 'global' ? 'RemoveCrewPassword' : 'RemoveCrewSectorPassword',
       );
     }
   });
 
-  it('offers none where the description names no such method', () => {
+  it('draws no list of ways where the description names none, as for an Auth with no password method', () => {
     for (const scope of ['global', 'domain'] as const) {
       const pages = identityPages(descriptor, resourceMeta, { auth: 'Crew', scope });
-      expect(identitiesOf(pages).listMethods).toEqual([]);
-      expect(methodsOf(list(pages[0]).rowMethods).map(([method]) => method)).not.toContain(
-        scope === 'global' ? 'RemoveCrewPassword' : 'RemoveCrewSectorPassword',
-      );
+      expect(childOf(pages, 'Ways to sign in')).toBeUndefined();
     }
   });
 });
@@ -856,6 +952,56 @@ describe('identityPages, the period of an assignment', () => {
       expect([people.title, roles.title]).toEqual(['People in the group', 'Roles the group holds']);
       expect(drawn(people)).toEqual([['username', 'Username'], ['name', 'Name'], ['createdAt', 'Added'], ...period]);
       expect(drawn(roles).slice(-3)).toEqual([['createdAt', 'Given'], ...period]);
+    }
+  });
+
+  it('shows the end of a period as its last day, the day a person picked, and nothing where there is none', () => {
+    const shown = (config: ListViewConfig, id: string, row: RecordData): unknown => {
+      const column = config.listColumns.find((candidate) => candidate.id === id);
+      if (!column) {
+        throw new Error(`no column ${id}`);
+      }
+      return column.valueGetter ? column.valueGetter(row) : row[id];
+    };
+    // "Until 1 December", picked in the viewer's time zone, is kept as the first instant
+    // of 2 December there. The list reads the instant before it, which the table writes
+    // as a calendar date: 1 December.
+    const kept = new Date(2026, 11, 2).toISOString();
+    // Under a person the roles they hold and the ones held through a group; under a group its people and its roles.
+    const lists = [global[0], domain[0], global[1], domain[1]].flatMap((page) => children(page).slice(0, 2));
+    expect(lists).toHaveLength(8);
+    for (const config of lists) {
+      const until = new Date(shown(config, 'endsAt', { endsAt: kept }) as string);
+      expect([until.getFullYear(), until.getMonth(), until.getDate()], config.title).toEqual([2026, 11, 1]);
+      // An end kept by another caller at any instant shows the last day it falls on.
+      const afternoon = new Date(shown(config, 'endsAt', { endsAt: new Date(2026, 11, 1, 15, 30).toISOString() }) as string);
+      expect([afternoon.getMonth(), afternoon.getDate()], config.title).toEqual([11, 1]);
+      expect(shown(config, 'endsAt', { endsAt: null }), config.title).toBe('');
+      expect(shown(config, 'endsAt', {}), config.title).toBe('');
+      // The first day is the instant it is kept as.
+      expect(shown(config, 'startsAt', { startsAt: kept }), config.title).toBe(kept);
+    }
+  });
+
+  it('says in each method that gives something for a period that the day picked for its end is its last day', () => {
+    const asked: [RootConfig, string][] = [
+      [global[0], 'AssignCrewRole'],
+      [domain[0], 'AssignCrewSectorRole'],
+      [global[1], 'AddCrewGroupMember'],
+      [global[1], 'GiveCrewGroupRole'],
+      [domain[1], 'AddCrewSectorGroupMember'],
+      [domain[1], 'GiveCrewSectorGroupRole'],
+    ];
+    for (const [page, method] of asked) {
+      expect(presentation(list(page).rowMethods, method).throughDay, method).toEqual(['endsAt']);
+    }
+    for (const [side, add, give] of [
+      [global, 'AddCrewGroupMember', 'GiveCrewGroupRole'],
+      [domain, 'AddCrewSectorGroupMember', 'GiveCrewSectorGroupRole'],
+    ] as [RootConfig[], string, string][]) {
+      const [people, roles] = children(side[1]);
+      expect(presentation(people.listMethods, add).throughDay, add).toEqual(['endsAt']);
+      expect(presentation(roles.listMethods, give).throughDay, give).toEqual(['endsAt']);
     }
   });
 

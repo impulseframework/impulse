@@ -571,6 +571,11 @@ func NewClient(controller access.Controller, sessions identity.SessionAPI, opts 
 	opts = append([]identity.Option{identity.WithTenantWord({{ printf "%q" .TenantWord }})}, opts...)
 	{{- end }}
 	opts = append(opts, identity.WithSuperAdministratorMethods(SuperAdministratorMethods()...))
+	{{- if .KeepsGroups }}
+	// A change to a group is judged as the role changes it makes, by the grants of the
+	// methods that give a role and take one away (grants.go).
+	opts = append(opts, identity.WithRoleGrants(grants{}))
+	{{- end }}
 	manager, err := identity.New(AuthName, store{}, controller, sessions, opts...)
 	if err != nil {
 		return nil, errors.Wrap(err, "identity.New()")
@@ -863,7 +868,7 @@ func (store) ClearAttempts(context.Context, resource.ReadWriteTransaction, strin
 	return nil
 }
 {{ end }}
-func (store) UserHasPassword(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (has, found bool, err error) {
+func (store) UserHasPassword(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (has, found bool, err error) {
 	// A read that goes past the declarations. The password hash is no field of any of
 	// them, so the database is asked whether the user holds one, and the hash itself
 	// is read by nothing here.
@@ -898,19 +903,22 @@ func (store) IdentityUser(ctx context.Context, txn resource.ReadWriteTransaction
 	return row.Data.UserID, true, nil
 }
 
-func (store) Identities(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
+func (store) Identities(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]identity.Link, error) {
+	// The method and the connection say whether a sign-in through the identity is
+	// still possible; its subject and the address it was linked under are read by
+	// nothing here.
 	query := {{ .ResourcesPackage }}.New{{ .Identity }}Query().
-		AddColumns({{ .ResourcesPackage }}.New{{ .Identity }}Columns().ID()).
+		AddColumns({{ .ResourcesPackage }}.New{{ .Identity }}Columns().ID().Method().Connection()).
 		Where({{ .ResourcesPackage }}.New{{ .Identity }}QueryClause().UserID().Equal(userID))
-	var ids []impulse.UUID
+	var links []identity.Link
 	for row, err := range query.List(ctx, txn) {
 		if err != nil {
 			return nil, errors.Wrap(err, "{{ .ResourcesPackage }}.{{ .Identity }}Query.List()")
 		}
-		ids = append(ids, row.Data.ID)
+		links = append(links, identity.Link{ID: row.Data.ID, Method: sessioninfo.AuthMethod(row.Data.Method), Connection: row.Data.Connection})
 	}
 
-	return ids, nil
+	return links, nil
 }
 
 func (store) DeleteIdentity(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
@@ -928,7 +936,7 @@ func (store) IdentityUser(context.Context, resource.ReadWriteTransaction, impuls
 	return impulse.NilUUID, false, nil
 }
 
-func (store) Identities(context.Context, resource.ReadWriteTransaction, impulse.UUID) ([]impulse.UUID, error) {
+func (store) Identities(context.Context, resource.ReadOnlyTransaction, impulse.UUID) ([]identity.Link, error) {
 	return nil, nil
 }
 

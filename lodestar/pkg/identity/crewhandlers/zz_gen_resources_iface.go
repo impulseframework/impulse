@@ -22,5 +22,6 @@ type Resourcer interface {
 		crewresources.CrewSessionMailLink | crewresources.CrewSessionSignInAttempt |
 		crewresources.CrewSessionToken | crewresources.CrewSessionTrustedDevice |
 		crewresources.CrewSessionUser | crewresources.CrewUserGroupRole |
-		crewresources.CrewUserRole | crewidentity.CrewSectorRole
+		crewresources.CrewUserRole | crewidentity.CrewSectorRole |
+		crewidentity.CrewSectorSignInWay | crewidentity.CrewSignInWay
 }

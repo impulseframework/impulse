@@ -169,8 +169,12 @@ func Test_prepareIdentity_periods_tenant(t *testing.T) {
 		},
 		"internal/crewresources/crew_ship_user_group_roles.go": {
 			"COALESCE(GREATEST(t.StartsAt, m.StartsAt), t.StartsAt, m.StartsAt) AS StartsAt,\n  COALESCE(LEAST(t.EndsAt, m.EndsAt), t.EndsAt, m.EndsAt) AS EndsAt\nFROM (",
-			"WHERE r.Kind = 'domain' AND r.Axis = ''\n    AND " + standingSQL("r") + "\n  UNION ALL",
-			"AND d.DomainId = s.Id AND d.Role = r.Role\n        AND " + standingSQL("d") + "\n    )",
+			// A group that holds a role both ways is one row, the one that counts now: the
+			// tenant's own row gives way while it has not begun and the one held in every
+			// tenant counts, and stands in front of it otherwise.
+			"WHERE r.Kind = 'domain' AND r.Axis = ''\n    AND " + standingSQL("r") + "\n    AND ((" + countingSQL("r") + ") OR NOT EXISTS (\n" +
+				"      SELECT 1 FROM CrewGroupRoles e\n      WHERE e.GroupId = r.GroupId AND e.Kind = 'every' AND e.Axis = r.Axis AND e.Role = r.Role\n        AND " + countingSQL("e") + "\n    ))\n  UNION ALL",
+			"AND d.DomainId = s.Id AND d.Role = r.Role\n        AND " + standingSQL("d") + "\n        AND ((" + countingSQL("d") + ") OR NOT (" + countingSQL("r") + "))\n    )",
 			"AND g.DomainId = t.DomainId))\n  AND " + standingSQL("m") + "\n  AND (t.EndsAt IS NULL OR m.StartsAt IS NULL OR m.StartsAt < t.EndsAt)\n  AND (m.EndsAt IS NULL OR t.StartsAt IS NULL OR t.StartsAt < m.EndsAt)\n`",
 		},
 	})

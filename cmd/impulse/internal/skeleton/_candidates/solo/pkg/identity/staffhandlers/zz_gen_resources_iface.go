@@ -5,6 +5,7 @@ package staffhandlers
 
 import (
 	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/identity/internal/staffresources"
+	"github.com/impulseframework/impulse/cmd/impulse/internal/skeleton/_candidates/solo/pkg/identity/staffidentity"
 	"github.com/impulseframework/impulse/resource"
 )
 
@@ -17,5 +18,5 @@ type Resourcer interface {
 		staffresources.StaffSessionMailLink | staffresources.StaffSessionSignInAttempt |
 		staffresources.StaffSessionToken | staffresources.StaffSessionTrustedDevice |
 		staffresources.StaffSessionUser | staffresources.StaffUserGroupRole |
-		staffresources.StaffUserRole
+		staffresources.StaffUserRole | staffidentity.StaffSignInWay
 }

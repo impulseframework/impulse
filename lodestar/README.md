@@ -36,8 +36,13 @@ overmind start
 The environment file carries `APP_SECRET_KEY_1`, version 1 of the application secret, which
 a ship's transponder key is encrypted with (a secret field, `conditions:"secret"` on
 [Ship.TransponderKey](pkg/resources/ships.go): the column holds the key sealed, and nothing
-serves it back); the server refuses to start without a version, so an `.envrc` copied
-before the variable existed takes the line from the template. A deployment generates the
+serves it back). The template makes the value for the checkout: 32 random bytes, written
+to `.app-secret-key.dev` the first time the file is sourced from Lodestar's root and read
+from it from then on, with `.gitignore` keeping that file out of git, so no key is
+written in a tracked file. The server refuses to start without a version, naming the
+variable, so an `.envrc` copied before the lines existed takes them from the template; an
+`.envrc` that holds a key of its own keeps it, since the secrets the development database
+already holds open under no other. A deployment generates the
 secret and hands the service every enabled version (`APP_SECRET_KEY_1`, `APP_SECRET_KEY_2`),
 and the migrate command retires one (`-retire-secret APP_SECRET_KEY_1`) by writing every key
 that names it again under the current version. Demonstrates: secret, secret.rotation.
@@ -777,10 +782,12 @@ from it (`identityRoutes` in
 [`web/console/src/app/app.routes.ts`](web/console/src/app/app.routes.ts)): the crew's
 accounts, mailed links, sessions and failed sign-ins, and the members', each in its own
 group of the navigation ("Crew accounts", "Members accounts"), with a person's row page
-holding the roles held, the sign-in identities and the sessions. Above a crew member's
-sign-in identities the page offers Remove password, for a person who has moved to the
-fleet's directory; the members sign in through their directory alone and have none to
-remove. A row's menu holds the
+holding the roles held, the sign-in identities and the sessions. A crew member's page
+also lists the ways they sign in, the password where they hold one and each identity
+that can sign them in, as the server judges it, and above that list offers Remove
+password, only for a person it shows a password and an identity that counts for: one
+who has moved to the fleet's directory. The members sign in through their directory
+alone and have none to remove. A row's menu holds the
 methods the server says the caller may run on that row, so a role that holds no grant on
 a method sees no entry for it, and the members' pages offer nothing that gives a role,
 adds an account or invites one. Headquarters holds the grants

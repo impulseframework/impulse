@@ -454,6 +454,8 @@ const confirmRefusals: readonly number[] = [401, 403, 404, 409, 429];
 const codeRefusals: readonly number[] = [400, 401, 403, 404, 409, 429];
 const statusRefusals: readonly number[] = [401, 403];
 const changeRefusals: readonly number[] = [400, 401, 403, 409];
+/** A change or a removal of the person's own password: as a change, and 429 for a name whose failed proofs reached the server's limit. */
+const proofRefusals: readonly number[] = [...changeRefusals, 429];
 /** A mailed link's token posted back: 404 for a link that is dead, 400 for a body that carries none. */
 const linkRefusals: readonly number[] = [400, 404];
 /** An acceptance by a signed-in person: 404 when the browser carries no live invitation. */
@@ -843,7 +845,9 @@ export class AuthClient {
    * the one a person whose operator-set password must change reaches before anything else
    * is served, so a login page that finds `passwordChangeRequired` on the session read
    * posts here, then checks the session again. The result is `changed`, or the server's
-   * refusal with its words (the old password did not match, the new one is the old one).
+   * refusal with its words (the old password did not match, the new one is the old one;
+   * or 429 with `too_many_attempts` and the wait, `retryAfter`, once the wrong old
+   * passwords reached the server's limit).
    * A server whose list names no change path offers no password method, and the call
    * throws saying so.
    */
@@ -857,7 +861,7 @@ export class AuthClient {
     const response = await this.options.request<RefusalAnswer | null>('POST', list.changePassword, {
       body: { oldPassword, newPassword },
       absolute: true,
-      accept: changeRefusals,
+      accept: proofRefusals,
     });
     return response.status >= 400 ? refusalOf(response) : { outcome: 'changed' };
   }
@@ -868,7 +872,9 @@ export class AuthClient {
    * the password no longer signs the person in, and they sign in through the directory
    * linked to them; the session they hold continues. The result is `removed`, or the
    * server's refusal with its words (the password did not match, or no directory sign-in
-   * is linked to the person, whose password is then their only way in). A server whose
+   * is linked to the person, whose password is then their only way in; or 429 with
+   * `too_many_attempts` and the wait once the wrong passwords reached the server's limit;
+   * or 403 with `password_change_required` for a person who must change it first). A server whose
    * list names no removal path does not serve it, and the call throws saying so.
    */
   async removePassword(password: string): Promise<PasswordRemovalResult> {
@@ -879,7 +885,7 @@ export class AuthClient {
     const response = await this.options.request<RefusalAnswer | null>('POST', list.removePassword, {
       body: { password },
       absolute: true,
-      accept: changeRefusals,
+      accept: proofRefusals,
     });
     return response.status >= 400 ? refusalOf(response) : { outcome: 'removed' };
   }

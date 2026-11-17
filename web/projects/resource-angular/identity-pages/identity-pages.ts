@@ -26,9 +26,9 @@ import {
 // they hold, the method that disables one). These functions turn that description into
 // the configuration the library's list and row pages are drawn from, so an application
 // writes no page for it: the people with what the caller may do to each, a person's row
-// page with the roles and the identities under it, the groups of people with a group's
-// people and roles under it, the invitations, and, for the whole application, the
-// sessions and the failed sign-ins. What differs from one application
+// page with the roles, the ways they sign in and the identities under it, the groups of
+// people with a group's people and roles under it, the invitations, and, for the whole
+// application, the sessions and the failed sign-ins. What differs from one application
 // to the next is read from the description: the Auth's name and label, the tenant
 // record's name, which side the pages are for, and what the Auth's sign-in methods give
 // (a list or a method the description does not name draws nothing).
@@ -190,9 +190,13 @@ class SideBuilder {
       ['createdAt', 'Created'],
     ];
     const users = lists.users as Resource;
-    const related = [this.rolesOf(), this.rolesThroughGroupsOf(), this.identitiesOf(), this.sessionsOf()].filter(
-      (config): config is ChildResourceConfig => config !== undefined,
-    );
+    const related = [
+      this.rolesOf(),
+      this.rolesThroughGroupsOf(),
+      this.signInWaysOf(),
+      this.identitiesOf(),
+      this.sessionsOf(),
+    ].filter((config): config is ChildResourceConfig => config !== undefined);
     return rootConfig({
       page: this.tenant ? { label: 'People', icon: 'group' } : { label: 'Accounts', icon: 'manage_accounts' },
       routeData: { route: this.route('users', this.tenant ? 'people' : 'accounts'), hasViewRoute: true },
@@ -257,8 +261,8 @@ class SideBuilder {
         ],
         rowMethods: this.present([
           [methods.describeGroup, { label: 'Change the description', icon: 'edit' }],
-          [methods.addGroupMember, { label: 'Add a person', icon: 'person_add', labels: periodWords }],
-          [methods.giveGroupRole, { label: 'Give a role', icon: 'badge', labels: { ...this.where(), ...periodWords } }],
+          [methods.addGroupMember, { label: 'Add a person', icon: 'person_add', labels: periodWords, throughDay: periodEnds }],
+          [methods.giveGroupRole, { label: 'Give a role', icon: 'badge', labels: { ...this.where(), ...periodWords }, throughDay: periodEnds }],
           [
             methods.deleteGroup,
             {
@@ -555,7 +559,7 @@ class SideBuilder {
         ],
       ]),
       // The method runs against the group the list sits under.
-      listMethods: this.present([[methods.addGroupMember, { label: 'Add a person', icon: 'person_add', labels: periodWords }]]),
+      listMethods: this.present([[methods.addGroupMember, { label: 'Add a person', icon: 'person_add', labels: periodWords, throughDay: periodEnds }]]),
       elements: [],
     });
   }
@@ -569,7 +573,7 @@ class SideBuilder {
     const resource = lists.groupRoles as Resource;
     const lost = 'Everyone in the group loses it, unless they hold it some other way.';
     // The method runs against the group the list sits under.
-    const give = this.present([[methods.giveGroupRole, { label: 'Give a role', icon: 'badge', labels: { ...this.where(), ...periodWords } }]]);
+    const give = this.present([[methods.giveGroupRole, { label: 'Give a role', icon: 'badge', labels: { ...this.where(), ...periodWords }, throughDay: periodEnds }]]);
     if (this.tenant) {
       return listViewConfig({
         title: 'Roles the group holds',
@@ -629,13 +633,55 @@ class SideBuilder {
   }
 
   /**
-   * The identities a person signs in with, under the person's row. The person's password
-   * is the one way in that is no row of the list: where the Auth has a password method,
-   * its removal is offered above the list, beside the unlinking of an identity, and runs
-   * against the person the list sits under. It is offered while the list shows an
-   * identity: the server refuses the removal for a person none is linked to, whose
-   * password is their only way in. The question names what is left by the words the
-   * sign-in buttons of the linked identities carry.
+   * How a person signs in, under the person's row: the password, where they hold one, and
+   * each identity linked to them that can sign them in, as the server judges it. An
+   * identity left from a sign-in the Auth no longer has is in the list of identities
+   * below and not here. The removal of the password is offered above this list and runs
+   * against the person the list sits under. It is offered where the list shows a
+   * password and an identity that counts, which is where the server lets it through, so
+   * a person with no password, or with no other way in, is offered none. The list is
+   * read again once the removal ran, and the offer goes with the password. The question
+   * names what is left by the words of the rows, the ones the login page's buttons
+   * carry. Where the server serves no such list, the removal is not offered.
+   */
+  private signInWaysOf(): ChildResourceConfig | undefined {
+    const { lists, methods } = this.side;
+    if (!lists.signInWays) {
+      return undefined;
+    }
+    const resource = lists.signInWays as Resource;
+    return listViewConfig({
+      title: 'Ways to sign in',
+      primaryResource: resource,
+      parentRelation: { parentKey: 'id' as FieldName, childKey: 'userId' as FieldName },
+      showViewButton: false,
+      collapsible: false,
+      listColumns: this.columns(resource, [
+        ['through', 'Signs in with'],
+        ['connection', 'Connection'],
+      ]),
+      // No method runs against a way: the password's removal runs against the person.
+      rowMethods: false,
+      listMethods: this.present([
+        [
+          methods.removePassword,
+          {
+            label: 'Remove password',
+            icon: 'key_off',
+            when: (_person, ways) => holdsPassword(ways ?? []) && otherWays(ways ?? []).length > 0,
+            confirm: (person, ways) =>
+              `Remove the password of ${String(person['username'] ?? 'this person')}? ${leftToSignInThrough(ways ?? [])}`,
+          },
+        ],
+      ]),
+      elements: [],
+    });
+  }
+
+  /**
+   * The identities linked to a person, under the person's row, each with the method
+   * that unlinks it. Which of them can sign the person in is the list above
+   * (`signInWaysOf`).
    */
   private identitiesOf(): ChildResourceConfig | undefined {
     const { lists, methods } = this.side;
@@ -666,40 +712,8 @@ class SideBuilder {
           },
         ],
       ]),
-      listMethods: this.present([
-        [
-          methods.removePassword,
-          {
-            label: 'Remove password',
-            icon: 'key_off',
-            when: (_person, identities) => (identities?.length ?? 0) > 0,
-            confirm: (person, identities) =>
-              `Remove the password of ${String(person['username'] ?? 'this person')}? ${this.leftToSignInThrough(identities ?? [])}`,
-          },
-        ],
-      ]),
       elements: [],
     });
-  }
-
-  /**
-   * What a person whose password is removed is left to sign in through, by the words the
-   * sign-in buttons carry: the Auth's directory sign-ins (the description's `signIns`)
-   * whose method one of the person's identities carries, in the login page's order. An
-   * identity names its method and not its registration, so two registrations of one
-   * method are both named. Where the description names none for the identities shown,
-   * the list under the question says it.
-   */
-  private leftToSignInThrough(identities: readonly RecordData[]): string {
-    const linked = new Set(identities.map((identity) => String(identity['method'] ?? '')));
-    const labels = (this.identity.signIns ?? [])
-      .filter((signIn) => linked.has(signIn.method))
-      .map((signIn) => signIn.label);
-    if (labels.length === 0) {
-      return 'They will sign in only through the sign-in identities listed here.';
-    }
-    const last = labels[labels.length - 1];
-    return `They will sign in through ${labels.length === 1 ? last : `${labels.slice(0, -1).join(', ')} or ${last}`} only.`;
   }
 
   /** A person's sessions, under the person's row: the whole application's alone. */
@@ -729,9 +743,9 @@ class SideBuilder {
       [
         methods.assignRole,
         this.tenant
-          ? { label: 'Give a role', icon: 'badge', labels: periodWords }
+          ? { label: 'Give a role', icon: 'badge', labels: periodWords, throughDay: periodEnds }
           : // The whole application's method takes the id of the person's account, which the row fills.
-            { label: 'Give a role', icon: 'badge', fill: (row) => ({ userId: row['id'] }), labels: { ...this.where(), ...periodWords } },
+            { label: 'Give a role', icon: 'badge', fill: (row) => ({ userId: row['id'] }), labels: { ...this.where(), ...periodWords }, throughDay: periodEnds },
       ],
       // A person has two names: the one people read, and the username they sign in under.
       [methods.setName, { label: 'Change the name', icon: 'person' }],
@@ -746,7 +760,7 @@ class SideBuilder {
           confirm: (row) => `Make ${named(row)} choose a new password the next time they sign in?`,
         },
       ],
-      // Offered above the identities the person signs in with, on the person's page.
+      // Offered above the ways the person signs in, on the person's page.
       [methods.removePassword, { hidden: true }],
       [
         methods.endUserSessions,
@@ -882,9 +896,16 @@ class SideBuilder {
     return named.filter(([name]) => this.has(resource, name));
   }
 
-  /** A column for each named field the resource has. */
+  /**
+   * A column for each named field the resource has. The end of a period is shown as its
+   * last day (lastDay), the day a person picked for it.
+   */
   private columns(resource: Resource, named: Named[]): ColumnConfig[] {
-    return this.known(resource, named).map(([name, header]) => ({ id: name as FieldName, header }));
+    return this.known(resource, named).map(([name, header]) =>
+      periodEnds.includes(name)
+        ? { id: name as FieldName, header, valueGetter: (row: RecordData) => lastDay(row[name]) }
+        : { id: name as FieldName, header },
+    );
   }
 
   /** The route of a page: the one the options give, or the Auth's name and what the page lists. */
@@ -906,9 +927,9 @@ class SideBuilder {
 
 /**
  * The period of a role, of a place in a group or of a group's role, as a list shows it
- * and as a method that gives one asks for it: the first day it counts and the first day
- * it no longer does. Each is empty where there is none, and a list that carries no
- * period (an Auth whose schema holds none) shows neither.
+ * and as a method that gives one asks for it: the first day it counts and the last day
+ * it does. Each is empty where there is none, and a list that carries no period (an
+ * Auth whose schema holds none) shows neither.
  */
 const periodColumns: Named[] = [
   ['startsAt', 'From'],
@@ -918,12 +939,64 @@ const periodColumns: Named[] = [
 /** The words for the two times of a method that gives something for a period. */
 const periodWords: Record<string, string> = { startsAt: 'From', endsAt: 'Until' };
 
+/**
+ * The fields that hold the end of a period. The server keeps an end as the first
+ * instant the assignment no longer counts, and a person picks and reads a day: "until
+ * 1 December" is through the end of 1 December. So a method's dialog sends the day
+ * picked as the first instant of the day after it, in the viewer's time zone (the
+ * method's `throughDay`), and a list shows the last day the assignment counts (lastDay).
+ */
+const periodEnds: readonly string[] = ['endsAt'];
+
+/**
+ * The last day a period that ends at the instant counts, as a list shows it: the day of
+ * the instant before the end, in the viewer's time zone, which the list writes as a
+ * calendar date. For an end a dialog of these pages sent it is the day that was picked,
+ * and for any other instant the last day some of the period falls on. Empty for no end.
+ */
+function lastDay(end: unknown): string {
+  if (typeof end !== 'string' && !(end instanceof Date)) {
+    return '';
+  }
+  const instant = new Date(end).getTime();
+  return Number.isNaN(instant) ? '' : new Date(instant - 1).toISOString();
+}
+
 /** The columns of a session, beside whose it is. */
 const sessionColumns: Named[] = [
   ['authenticatedAt', 'Signed in'],
   ['updatedAt', 'Last active'],
   ['expired', 'Expired'],
 ];
+
+/** The key of the password among the ways a person signs in (the row's `way`); every other way is an identity. */
+const passwordWay = 'password';
+
+/** Whether the ways a person signs in hold their password. */
+function holdsPassword(ways: readonly RecordData[]): boolean {
+  return ways.some((way) => way['way'] === passwordWay);
+}
+
+/** The ways a person signs in other than their password: the identities that can sign them in. */
+function otherWays(ways: readonly RecordData[]): readonly RecordData[] {
+  return ways.filter((way) => way['way'] !== passwordWay);
+}
+
+/**
+ * What a person whose password is removed is left to sign in through: the words of the
+ * ways the server listed beside the password (`through`, what the login page's button
+ * carries for each), each once, in the list's order.
+ */
+function leftToSignInThrough(ways: readonly RecordData[]): string {
+  const labels = [...new Set(otherWays(ways).map((way) => String(way['through'] ?? '')))].filter(
+    (label) => label !== '',
+  );
+  if (labels.length === 0) {
+    return 'They will sign in only through the other ways listed here.';
+  }
+  const last = labels[labels.length - 1];
+  return `They will sign in through ${labels.length === 1 ? last : `${labels.slice(0, -1).join(', ')} or ${last}`} only.`;
+}
 
 /** A PascalCase name in words, the first capitalized: `CostCenter` is "Cost center". */
 function words(name: string): string {

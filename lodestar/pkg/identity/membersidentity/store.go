@@ -17,6 +17,7 @@ import (
 	"github.com/impulseframework/impulse/lodestar/pkg/identity/internal/membersresources"
 	"github.com/impulseframework/impulse/resource"
 	"github.com/impulseframework/impulse/session"
+	"github.com/impulseframework/impulse/session/sessioninfo"
 	"github.com/impulseframework/impulse/session/sessionstorage"
 )
 
@@ -123,7 +124,7 @@ func (store) ClearAttempts(ctx context.Context, txn resource.ReadWriteTransactio
 	return nil
 }
 
-func (store) UserHasPassword(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) (has, found bool, err error) {
+func (store) UserHasPassword(ctx context.Context, txn resource.ReadOnlyTransaction, id impulse.UUID) (has, found bool, err error) {
 	// A read that goes past the declarations. The password hash is no field of any of
 	// them, so the database is asked whether the user holds one, and the hash itself
 	// is read by nothing here.
@@ -158,19 +159,22 @@ func (store) IdentityUser(ctx context.Context, txn resource.ReadWriteTransaction
 	return row.Data.UserID, true, nil
 }
 
-func (store) Identities(ctx context.Context, txn resource.ReadWriteTransaction, userID impulse.UUID) ([]impulse.UUID, error) {
+func (store) Identities(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]identity.Link, error) {
+	// The method and the connection say whether a sign-in through the identity is
+	// still possible; its subject and the address it was linked under are read by
+	// nothing here.
 	query := membersresources.NewMembersSessionIdentityQuery().
-		AddColumns(membersresources.NewMembersSessionIdentityColumns().ID()).
+		AddColumns(membersresources.NewMembersSessionIdentityColumns().ID().Method().Connection()).
 		Where(membersresources.NewMembersSessionIdentityQueryClause().UserID().Equal(userID))
-	var ids []impulse.UUID
+	var links []identity.Link
 	for row, err := range query.List(ctx, txn) {
 		if err != nil {
 			return nil, errors.Wrap(err, "membersresources.MembersSessionIdentityQuery.List()")
 		}
-		ids = append(ids, row.Data.ID)
+		links = append(links, identity.Link{ID: row.Data.ID, Method: sessioninfo.AuthMethod(row.Data.Method), Connection: row.Data.Connection})
 	}
 
-	return ids, nil
+	return links, nil
 }
 
 func (store) DeleteIdentity(ctx context.Context, txn resource.ReadWriteTransaction, id impulse.UUID) error {
@@ -677,6 +681,16 @@ func (store) TenantGroupRoles(context.Context, resource.ReadWriteTransaction, ac
 	return nil, nil
 }
 
+func (store) GroupsHolding(context.Context, resource.ReadWriteTransaction, *access.RoleKey) ([]impulse.UUID, error) {
+	return nil, nil
+}
+
+// TenantPerson is asked by the rules of a tenant's group alone, and here there are no
+// groups.
+func (store) TenantPerson(context.Context, resource.ReadWriteTransaction, accesstypes.Domain, impulse.UUID) (bool, error) {
+	return false, nil
+}
+
 // storedPeriod answers the period a row's two columns hold, as they are. A row written
 // past the rules with an end at or before its start never counts, and is read so.
 func storedPeriod(start, end *time.Time) accesstypes.Period {
@@ -719,6 +733,35 @@ func (store) UserPeriods(ctx context.Context, txn resource.ReadOnlyTransaction, 
 	}
 
 	return periods, nil
+}
+
+// EndedAssignments reads past the declarations, as the read of a password does: what has
+// ended is the database's to say, by its own clock, the one the lists compare a period
+// with (CURRENT_TIMESTAMP). Each statement carries the comparison, so no instant of the
+// application server's decides what a sign-in removes.
+func (store) EndedAssignments(ctx context.Context, txn resource.ReadOnlyTransaction, userID impulse.UUID) ([]access.MembershipKey, []access.GroupMemberKey, error) {
+	user := accesstypes.User(userID.String())
+	var memberships []access.MembershipKey
+	held := spanner.Statement{
+		SQL:    "SELECT Kind, Axis, DomainId, Role FROM MembersUserRoles@{FORCE_INDEX=MembersUserRolesByUserId} WHERE UserId = @user AND EndsAt <= CURRENT_TIMESTAMP()",
+		Params: map[string]any{"user": string(user)},
+	}
+	if err := txn.SpannerReadOnlyTransaction().Query(ctx, held).Do(func(row *spanner.Row) error {
+		key := access.MembershipKey{Kind: "", Axis: "", Domain: "", Role: "", User: user}
+		var role string
+		if err := row.Columns(&key.Kind, &key.Axis, &key.Domain, &role); err != nil {
+			return errors.Wrap(err, "spanner.Row.Columns()")
+		}
+		key.Role = accesstypes.Role(role)
+		memberships = append(memberships, key)
+
+		return nil
+	}); err != nil {
+		return nil, nil, errors.Wrap(err, "spanner.RowIterator.Do()")
+	}
+	var places []access.GroupMemberKey
+
+	return memberships, places, nil
 }
 
 // RemoveEnded buffers each removal under the source that says the assignment ended by

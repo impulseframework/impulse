@@ -24,6 +24,11 @@ type PendingSignIn struct {
 	// UserID and Username name the user the sign-in waits on.
 	UserID   impulse.NullUUID
 	Username string
+	// PasswordProof is the proof of the password the sign-in rests on, nil when no
+	// password was proved (an external identity's sign-in that waits for its
+	// confirmation or its factor). A row that carries one names its user, is inserted
+	// only while the user still holds that password, and completes only while they do.
+	PasswordProof PasswordProof
 	// Tenant is the tenant key for the link to be made.
 	Tenant string
 	// Events are the steps so far, the sign-in first.

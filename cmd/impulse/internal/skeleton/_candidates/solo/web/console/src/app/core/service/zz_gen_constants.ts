@@ -33,6 +33,7 @@ export const Resources = {
   StaffSessionTrustedDevices: 'StaffSessionTrustedDevices' as Resource,
   StaffSessionUsers: 'StaffSessionUsers' as Resource,
   StaffSessions: 'StaffSessions' as Resource,
+  StaffSignInWays: 'StaffSignInWays' as Resource,
   StaffUserGroupRoles: 'StaffUserGroupRoles' as Resource,
   StaffUserRoles: 'StaffUserRoles' as Resource,
 };
@@ -396,6 +397,25 @@ export namespace StaffSessions {
     updatedAt: 'StaffSessions.updatedAt' as Resource,
     userId: 'StaffSessions.userId' as Resource,
     username: 'StaffSessions.username' as Resource,
+  };
+}
+
+export namespace StaffSignInWays {
+  export const fieldName = {
+    connection: 'connection' as FieldName,
+    method: 'method' as FieldName,
+    password: 'password' as FieldName,
+    through: 'through' as FieldName,
+    userId: 'userId' as FieldName,
+    way: 'way' as FieldName,
+  };
+  export const resourceName = {
+    connection: 'StaffSignInWays.connection' as Resource,
+    method: 'StaffSignInWays.method' as Resource,
+    password: 'StaffSignInWays.password' as Resource,
+    through: 'StaffSignInWays.through' as Resource,
+    userId: 'StaffSignInWays.userId' as Resource,
+    way: 'StaffSignInWays.way' as Resource,
   };
 }
 

@@ -46,6 +46,9 @@ func TestMigrations_listIndexes(t *testing.T) {
 				usersIndex,
 				"CREATE INDEX StaffSessionIdentitiesByUserId ON StaffSessionIdentities(UserId) STORING (Method, Connection, Subject, Tenant, EmailAtLink, CreatedAt, LastUsedAt);",
 				"CREATE NULL_FILTERED INDEX StaffSessionMailLinksByTenantId ON StaffSessionMailLinks(TenantId, Kind, CreatedAt DESC) STORING (Email, Name, RoleNames, InvitedByUserId, ExpiresAt, ConsumedAt);",
+				// The pending sign-ins keep the proof of the password a sign-in rests on,
+				// which the session library reads and writes on every row.
+				"    Username              STRING(MAX) NOT NULL,\n    PasswordProof         BYTES(32),\n",
 			} {
 				if !strings.Contains(up.String(), statement) {
 					t.Errorf("the migrations lack %q", statement)

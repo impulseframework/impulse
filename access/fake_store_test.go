@@ -268,14 +268,25 @@ func (f *fakeStore) DeleteRole(_ context.Context, scope accesstypes.PolicyScope,
 			return false, errors.Wrapf(policy.ErrStillAssigned, "role %q in scope %q still has members", role, scope)
 		}
 	}
+	for r, period := range f.groups.held {
+		if r.scope == scope && r.role == role && !period.Ended(f.now()) {
+			return false, errors.Wrapf(policy.ErrHeldByGroup, "role %q in scope %q", role, scope)
+		}
+	}
 	if !f.hasRole(scope, role) {
 		return false, nil
 	}
 	delete(f.roles, fakeRoleKey{scope, role})
-	// The memberships of the role that have ended go with it.
+	// The memberships of the role that have ended go with it, a person's and a
+	// group's.
 	for m := range f.memberships {
 		if m.scope == scope && m.role == role {
 			delete(f.memberships, m)
+		}
+	}
+	for r := range f.groups.held {
+		if r.scope == scope && r.role == role {
+			delete(f.groups.held, r)
 		}
 	}
 	for g := range f.grants {

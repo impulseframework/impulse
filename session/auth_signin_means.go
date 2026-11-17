@@ -13,37 +13,98 @@ import (
 )
 
 // SignInMeans is what a user signs in with: whether they hold a password, and the
-// directory sign-ins linked to them. It is what a page needs to offer the removal of a
-// password only where it can happen (a password is held, and something else signs the
-// person in) and to say what the removal leaves. The password's hash is no part of it.
+// directory sign-ins an identity linked to them can sign them in through. It is what a
+// page needs to offer the removal of a password only where it can happen (a password is
+// held, and something else signs the person in) and to say what the removal leaves. The
+// password's hash is no part of it.
 type SignInMeans struct {
 	// Password reports whether the user holds a password.
 	Password bool `json:"password"`
 	// Directories are the sign-in methods the login page offers that an identity linked
-	// to the user signs in through, in the page's order. It is empty, never nil, when
-	// none does: the user holds no identity link, or only links of a method the page no
-	// longer offers, which the store still counts as a means of sign-in.
+	// to the user can sign them in through, in the page's order (signsInThrough). It is
+	// empty, never nil, when none can: the user holds no identity link, or only links
+	// that sign nobody in any more, and then the password is their only means of
+	// sign-in and its removal is refused.
 	Directories []LinkedDirectory `json:"directories"`
 }
 
 // LinkedDirectory is a sign-in method of the login page that an identity linked to a
-// user signs in through: the registration's name and the label its button carries, as
-// the methods list gives them (MethodList). A link names its method and not its
-// registration, so where the page lists two registrations of one method (two Entra
-// tenants), a link of that method answers both.
+// user can sign them in through: the registration's name and the label its button
+// carries, as the methods list gives them (MethodList). Where the page lists two
+// registrations of one method (two Entra tenants), a link answers the ones that take
+// its connection; a method that cannot tell one connection from another answers every
+// registration of it.
 type LinkedDirectory struct {
 	Name  string `json:"name"`
 	Label string `json:"label"`
 }
 
+// signsInThrough names the registrations of the login page that an identity of method
+// and connection can sign its person in through, in the page's order: the offered
+// registrations of that method whose configuration still takes the connection, or
+// cannot tell one connection from another (a nil signin.Method.AdmitsConnection). None
+// for an identity that signs nobody in: its method is no registration the page offers
+// any more, or no registration of it takes the connection (a tenant taken off an Entra
+// registration, a Workspace no longer named).
+//
+// It is the one judgment of whether a link counts as a means of sign-in: the removal of
+// a password is refused by it, on an administrator's route and the person's own, the
+// read of what a person signs in with answers by it, and the pages offer the removal by
+// that read. The sign-in policy is not asked: it decides a sign-in from a request no
+// link can stand in for, and may write.
+func (a *Auth[S, U, Tx]) signsInThrough(method sessioninfo.AuthMethod, connection string) []string {
+	m := a.registered()
+	var names []string
+	for _, name := range m.offeredNames() {
+		external, ok := m.external[name]
+		if !ok || external.Name != method {
+			continue
+		}
+		if external.AdmitsConnection != nil && !external.AdmitsConnection(connection) {
+			continue
+		}
+		names = append(names, name)
+	}
+
+	return names
+}
+
+// SignsInThrough names the sign-in registrations of the login page that an identity of
+// method and connection (a link's Method and Connection) can sign its person in
+// through, and none for an identity that signs nobody in: see signsInThrough. The
+// generated user management judges a person's links by it, so its refusal of a
+// password's removal is this library's.
+func (p *AuthAPI[S, U, Tx]) SignsInThrough(method sessioninfo.AuthMethod, connection string) []string {
+	return p.auth.signsInThrough(method, connection)
+}
+
+// linksThatSignIn are the ids of the links that count as a means of sign-in
+// (signsInThrough): what a removal of the user's password requires one of to still
+// stand when it writes.
+func (a *Auth[S, U, Tx]) linksThatSignIn(links []*sessionstorage.SessionIdentity) []impulse.UUID {
+	var standing []impulse.UUID
+	for _, link := range links {
+		if len(a.signsInThrough(link.Method, link.Connection)) > 0 {
+			standing = append(standing, link.ID)
+		}
+	}
+
+	return standing
+}
+
 // SignInMeans answers what a user signs in with (see SignInMeans the type): for an
 // administrator's page, or a flow of the application's own. The caller guards who may
-// ask about whom. A user that does not exist is a NotFound.
+// ask about whom. A user that does not exist is a NotFound. Each method carries the
+// label it was first listed under.
 func (p *AuthAPI[S, U, Tx]) SignInMeans(ctx context.Context, userID impulse.UUID) (*SignInMeans, error) {
 	ctx, span := tracer.Start(ctx)
 	defer span.End()
 
-	a := p.auth
+	return p.auth.signInMeans(ctx, userID, p.auth.registered().labels)
+}
+
+// signInMeans reads what userID signs in with, each method under its label in labels.
+func (a *Auth[S, U, Tx]) signInMeans(ctx context.Context, userID impulse.UUID, labels map[string]string) (*SignInMeans, error) {
 	user, err := a.storage.User(ctx, userID)
 	if err != nil {
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.User()")
@@ -53,22 +114,23 @@ func (p *AuthAPI[S, U, Tx]) SignInMeans(ctx context.Context, userID impulse.UUID
 		return nil, errors.Wrap(err, "sessionstorage.AuthStore.IdentitiesByUser()")
 	}
 
-	return a.signInMeansOf(user, links), nil
+	return a.signInMeansOf(user, links, labels), nil
 }
 
 // signInMeansOf is what user signs in with, given the identities linked to them: the
-// listed external registrations whose method one of the links carries, in the page's
-// order and under the labels the methods list gave them.
-func (a *Auth[S, U, Tx]) signInMeansOf(user *sessionstorage.SessionUser, links []*sessionstorage.SessionIdentity) *SignInMeans {
-	linked := make(map[sessioninfo.AuthMethod]bool, len(links))
+// registrations a link can sign them in through (signsInThrough), each once, in the
+// page's order and under its label in labels.
+func (a *Auth[S, U, Tx]) signInMeansOf(user *sessionstorage.SessionUser, links []*sessionstorage.SessionIdentity, labels map[string]string) *SignInMeans {
+	reached := map[string]bool{}
 	for _, link := range links {
-		linked[link.Method] = true
+		for _, name := range a.signsInThrough(link.Method, link.Connection) {
+			reached[name] = true
+		}
 	}
-	m := a.registered()
 	means := &SignInMeans{Password: user.PasswordHash != nil, Directories: []LinkedDirectory{}}
-	for _, name := range m.listed {
-		if external, ok := m.external[name]; ok && linked[external.Name] {
-			means.Directories = append(means.Directories, LinkedDirectory{Name: name, Label: m.labels[name]})
+	for _, name := range a.registered().offeredNames() {
+		if reached[name] {
+			means.Directories = append(means.Directories, LinkedDirectory{Name: name, Label: labels[name]})
 		}
 	}
 
@@ -79,13 +141,17 @@ func (a *Auth[S, U, Tx]) signInMeansOf(user *sessionstorage.SessionUser, links [
 // with from: {"password", "directories": [{"name", "label"}]} (see SignInMeans the
 // type), for the session's user and nobody else. The page hides the change and the
 // removal of a password from a person who holds none, offers the removal only where a
-// directory sign-in is linked, and names what the removal leaves by its label. The
-// server's own refusals stand whatever the page shows.
+// directory sign-in can sign the person in, and names what the removal leaves by its
+// label. The server's own refusals stand whatever the page shows.
 //
 // The handler validates the session itself, as the name change does, so it is routed
 // beside it, outside ValidateSession, and its path is named to the page as the methods
 // list's SignInMeans. A session that acts for someone else is answered for the person
-// it acts as, as the session read is.
+// it acts as, as the session read is. The labels are those of the methods list that
+// names the path the read is served at, so an Auth served on two outlets, each with a
+// list of its own, answers each outlet's page in that outlet's words; a read served at
+// a path no list names, or one that two lists name, answers each method under the
+// label it was first listed under.
 func (a *Auth[S, U, Tx]) SignInMeans() http.HandlerFunc {
 	return a.serving(a.baseSession.Handle(func(w http.ResponseWriter, r *http.Request) error {
 		ctx, span := tracer.Start(r.Context())
@@ -97,7 +163,7 @@ func (a *Auth[S, U, Tx]) SignInMeans() http.HandlerFunc {
 				return httpio.NewEncoder(w).ClientMessage(ctx, err)
 			}
 		}
-		means, err := a.API().SignInMeans(ctx, sessioninfo.UserFromCtx(ctx).ID)
+		means, err := a.signInMeans(ctx, sessioninfo.UserFromCtx(ctx).ID, a.registered().labelsServedAt(r.URL.Path))
 		if err != nil {
 			return httpio.NewEncoder(w).ClientMessage(ctx, err)
 		}

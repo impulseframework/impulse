@@ -687,6 +687,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{
+			name:         "StaffSignInWays denied",
+			method:       http.MethodGet,
+			target:       "/api/staff-sign-in-ways",
+			wantStatuses: []int{http.StatusForbidden},
+		},
+		{
+			name:         "StaffSignInWays granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/api/staff-sign-in-ways",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
 			name:         "StaffTenantRoles denied",
 			method:       http.MethodGet,
 			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles",
@@ -697,6 +710,19 @@ func TestGeneratedAuthorizationMatrix(t *testing.T) {
 			grants:       grants{accesstypes.List: true},
 			method:       http.MethodGet,
 			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-roles",
+			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
+		},
+		{
+			name:         "StaffTenantSignInWays denied",
+			method:       http.MethodGet,
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-sign-in-ways",
+			wantStatuses: []int{http.StatusNotFound},
+		},
+		{
+			name:         "StaffTenantSignInWays granted",
+			grants:       grants{accesstypes.List: true},
+			method:       http.MethodGet,
+			target:       "/api/tenants/7e57d0a1-0000-4000-8000-000000000000/staff-tenant-sign-in-ways",
 			wantStatuses: []int{http.StatusOK, http.StatusNotFound},
 		},
 		{

@@ -97,6 +97,32 @@ func (f *fakeStore) GroupPeriods(_ context.Context, _ resource.ReadOnlyTransacti
 	return periods, nil
 }
 
+// EndedAssignments answers what the fake's database clock says has ended, never what the
+// wall clock does: the two are told apart by a test that sets the database's behind.
+func (f *fakeStore) EndedAssignments(_ context.Context, _ resource.ReadOnlyTransaction, userID impulse.UUID) ([]access.MembershipKey, []access.GroupMemberKey, error) {
+	if err := f.fail("EndedAssignments"); err != nil {
+		return nil, nil, err
+	}
+	now := time.Now()
+	if f.databaseNow != nil {
+		now = f.databaseNow()
+	}
+	var memberships []access.MembershipKey
+	for key, held := range f.memberships {
+		if held && key.User == User(userID) && f.membershipPeriods[key].Ended(now) {
+			memberships = append(memberships, key)
+		}
+	}
+	var places []access.GroupMemberKey
+	for key, in := range f.groupMembers {
+		if in && key.User == User(userID) && f.placePeriods[key].Ended(now) {
+			places = append(places, key)
+		}
+	}
+
+	return memberships, places, nil
+}
+
 func (f *fakeStore) RemoveEnded(_ context.Context, _ resource.ReadWriteTransaction, memberships []access.MembershipKey, places []access.GroupMemberKey) error {
 	if err := f.fail("RemoveEnded"); err != nil {
 		return err
@@ -429,6 +455,69 @@ func TestManager_ClearEnded(t *testing.T) {
 	})
 }
 
+// TestManager_ClearEnded_readsTheDatabasesClock pins whose clock says an assignment has
+// ended when it is removed: the database's, the one the lists and the sign-in rule read.
+// A server whose clock runs ahead of the database's removes nothing that still counts
+// there, and one whose clock runs behind removes what the database says is over.
+func TestManager_ClearEnded_readsTheDatabasesClock(t *testing.T) {
+	t.Parallel()
+
+	now := time.Now()
+	role := access.NewMembershipKey(alphaScope, User(userID), "Reader")
+	place := memberKey(nightID, userID)
+	tests := []struct {
+		name string
+		// ends is when the role and the place end, and database what the database's clock
+		// reads, each from the server's present.
+		ends, database time.Duration
+		wantCleared    int
+		wantOpened     int
+	}{
+		{name: "over by the server's clock and not by the database's: nothing is removed", ends: -30 * time.Minute, database: -time.Hour},
+		{name: "over by the database's clock and not by the server's: the rows go", ends: 30 * time.Minute, database: time.Hour, wantCleared: 2, wantOpened: 1},
+		{name: "over by both", ends: -time.Hour, database: 0, wantCleared: 2, wantOpened: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			newStore := func() *fakeStore {
+				store := groupStore()
+				store.memberships[role] = true
+				store.membershipPeriods = map[access.MembershipKey]accesstypes.Period{role: {End: now.Add(tt.ends)}}
+				store.groupMembers[place] = true
+				store.placePeriods = map[access.GroupMemberKey]accesstypes.Period{place: {End: now.Add(tt.ends)}}
+				store.databaseNow = func() time.Time { return now.Add(tt.database) }
+
+				return store
+			}
+
+			store := newStore()
+			m, _ := newManager(t, store, engineRoles)
+			var cleared int
+			err := inTransaction(t, func(ctx context.Context, txn resource.ReadWriteTransaction) error {
+				var err error
+				cleared, err = m.ClearEnded(ctx, txn, userID)
+
+				return err
+			})
+			if err != nil || cleared != tt.wantCleared || len(store.writes) != tt.wantCleared {
+				t.Errorf("ClearEnded() = (%d, %v) with writes %v, want %d row(s) cleared", cleared, err, store.writes, tt.wantCleared)
+			}
+
+			// The hook of a sign-in decides by the same clock whether to open a transaction.
+			store = newStore()
+			m, _ = newManager(t, store, engineRoles)
+			client := &countingClient{MockClient: resource.NewMockClient(stubTxn{}, nil, nil)}
+			if err := m.SignedIn(managedAuth, client)(t.Context(), &session.SignedIn{SessionID: sessionA, UserID: userID, Username: "dana"}); err != nil {
+				t.Fatalf("the hook's error = %v", err)
+			}
+			if client.opened != tt.wantOpened || len(store.writes) != tt.wantCleared {
+				t.Errorf("the hook opened %d transaction(s) and wrote %v, want %d and %d removal(s)", client.opened, store.writes, tt.wantOpened, tt.wantCleared)
+			}
+		})
+	}
+}
+
 // countingClient is a database client that counts the transactions it opens.
 type countingClient struct {
 	*resource.MockClient
@@ -462,7 +551,7 @@ func TestManager_SignedIn(t *testing.T) {
 		{name: "the ended assignments go", store: func() *fakeStore { s, _, _ := clearStore(); return s }, wantOpened: 1, wantWrites: 2},
 		{name: "nothing to clear opens no transaction", store: groupStore},
 		{name: "the removal fails", store: func() *fakeStore { s, _, _ := clearStore(); return s }, failOn: "RemoveEnded", wantErr: true, wantOpened: 1},
-		{name: "the read fails", store: func() *fakeStore { s, _, _ := clearStore(); return s }, failOn: "UserPeriods", wantErr: true},
+		{name: "the read fails", store: func() *fakeStore { s, _, _ := clearStore(); return s }, failOn: "EndedAssignments", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
